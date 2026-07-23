@@ -40,7 +40,7 @@ type InsideSalesItem = {
   follow_up_at: string | null
   customerName: string
   customerPhone: string | null
-  followUpKind: 'didnt_sit' | 'handoff' | 'knockback'
+  followUpKind: 'didnt_sit' | 'handoff' | 'knockback' | 'storm'
   knockback_reason?: string | null
   followUpOutcomeLabel?: string | null
   followUpStatus: string | null
@@ -307,6 +307,7 @@ export default function OpportunitiesPage() {
     didntSit: insideSalesItems.filter((item) => item.followUpKind === 'didnt_sit').length,
     handoff: insideSalesItems.filter((item) => item.followUpKind === 'handoff').length,
     knockback: insideSalesItems.filter((item) => item.followUpKind === 'knockback').length,
+    storm: insideSalesItems.filter((item) => item.followUpKind === 'storm').length,
   }
 
   return (
@@ -411,6 +412,7 @@ export default function OpportunitiesPage() {
                     <option value="didnt_sit">Didn&apos;t sit only</option>
                     <option value="handoff">Inspection handoff only</option>
                     <option value="knockback">Knockback only</option>
+                    <option value="storm">Storm only (est.)</option>
                   </>
                 ) : (
                   <>
@@ -478,7 +480,7 @@ export default function OpportunitiesPage() {
               <div className="p-8 text-center text-gray-500">Loading inside sales queue...</div>
             ) : filteredInsideSalesItems.length > 0 ? (
               <div className="p-4 sm:p-6 space-y-4">
-                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                   <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 shadow-sm">
                     <p className="text-sm font-medium text-emerald-800">Ready for calls</p>
                     <p className="mt-2 text-3xl font-bold text-emerald-950">{insideSalesCounts.readyToCall}</p>
@@ -500,21 +502,29 @@ export default function OpportunitiesPage() {
                     <p className="text-sm font-medium text-orange-800">Knockback</p>
                     <p className="mt-2 text-3xl font-bold text-orange-950">{insideSalesCounts.knockback}</p>
                   </div>
+                  <div className="rounded-xl border border-sky-200 bg-sky-50 p-4 shadow-sm">
+                    <p className="text-sm font-medium text-sky-800">Storm (est.)</p>
+                    <p className="mt-2 text-3xl font-bold text-sky-950">{insideSalesCounts.storm}</p>
+                  </div>
                 </div>
 
                 {filteredInsideSalesItems.map((item) => {
                   const kindLabel =
                     item.followUpKind === 'knockback'
                       ? (item.knockback_reason?.replace(/_/g, ' ') || 'Knockback').replace(/\b\w/g, (c) => c.toUpperCase())
-                      : item.followUpKind === 'handoff'
-                        ? item.followUpOutcomeLabel || 'Inspection handoff'
-                        : "Didn't Sit"
+                      : item.followUpKind === 'storm'
+                        ? 'Storm follow-up (est.)'
+                        : item.followUpKind === 'handoff'
+                          ? item.followUpOutcomeLabel || 'Inspection handoff'
+                          : "Didn't Sit"
                   const kindClasses =
                     item.followUpKind === 'knockback'
                       ? 'bg-orange-100 text-orange-800'
-                      : item.followUpKind === 'handoff'
-                        ? 'bg-cyan-100 text-cyan-800'
-                        : 'bg-amber-100 text-amber-800'
+                      : item.followUpKind === 'storm'
+                        ? 'bg-sky-100 text-sky-900'
+                        : item.followUpKind === 'handoff'
+                          ? 'bg-cyan-100 text-cyan-800'
+                          : 'bg-amber-100 text-amber-800'
                   const statusPretty = String(item.followUpStatus || 'new').replace(/_/g, ' ')
                   const phoneDigits = item.customerPhone ? String(item.customerPhone).replace(/\D/g, '') : ''
 

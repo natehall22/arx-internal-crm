@@ -735,6 +735,8 @@ export default async function OpportunityDetailPage({
                           ? insideSalesCallability && !insideSalesCallability.callableNow
                             ? 'bg-violet-100 text-violet-800'
                             : 'bg-orange-100 text-orange-900'
+                          : insideSalesFollowUpKind === 'storm'
+                            ? 'bg-sky-100 text-sky-900'
                           : insideSalesFollowUpKind === 'handoff' &&
                               insideSalesCallability &&
                               !insideSalesCallability.callableNow
@@ -746,6 +748,8 @@ export default async function OpportunityDetailPage({
                         ? insideSalesCallability && !insideSalesCallability.callableNow
                           ? `Knockback · Opens ${insideSalesCallability.eligibleAtIso ? new Date(insideSalesCallability.eligibleAtIso).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'soon'}`
                           : `Knockback · Ready for you`
+                        : insideSalesFollowUpKind === 'storm'
+                          ? 'Storm follow-up (est.) · Ready for you'
                         : insideSalesFollowUpKind === 'didnt_sit'
                           ? "Didn't sit · Ready for you"
                           : insideSalesCallability && !insideSalesCallability.callableNow
@@ -886,7 +890,8 @@ export default async function OpportunityDetailPage({
           insideSalesFollowUpKind &&
           (insideSalesFollowUpKind === 'didnt_sit' ||
             insideSalesFollowUpKind === 'handoff' ||
-            insideSalesFollowUpKind === 'knockback') && (
+            insideSalesFollowUpKind === 'knockback' ||
+            insideSalesFollowUpKind === 'storm') && (
             <div className="mb-4 sm:mb-6">
               <InsideSalesFollowUpDrawer
                 opportunityId={params.id}

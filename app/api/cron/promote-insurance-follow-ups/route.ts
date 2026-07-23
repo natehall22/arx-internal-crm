@@ -6,8 +6,10 @@ import {
   getInsideSalesFollowUpKind,
   HANDOFF_INSIDE_SALES_PIPELINE_PREFIX,
   hasActiveInsideSalesFollowUp,
+  isActiveInsideSalesQueueStage,
   isInsideSalesRoleLike,
   KNOCKBACK_PIPELINE_PREFIX,
+  STORM_PIPELINE_PREFIX,
 } from '@/lib/inside-sales-follow-up'
 import {
   RETIRE_MIN_ATTEMPTS,
@@ -106,13 +108,7 @@ export async function GET(request: NextRequest) {
         orgSettings?.inspection_outcomes
       )
       const pipelineStage = String(opportunity.pipeline_stage || '').trim().toLowerCase()
-      const alreadyInInsideSalesQueue =
-        pipelineStage === HANDOFF_INSIDE_SALES_PIPELINE_PREFIX ||
-        pipelineStage.startsWith(`${HANDOFF_INSIDE_SALES_PIPELINE_PREFIX}_`) ||
-        pipelineStage === DIDNT_SIT_PIPELINE_PREFIX ||
-        pipelineStage.startsWith(`${DIDNT_SIT_PIPELINE_PREFIX}_`) ||
-        pipelineStage === KNOCKBACK_PIPELINE_PREFIX ||
-        pipelineStage.startsWith(`${KNOCKBACK_PIPELINE_PREFIX}_`)
+      const alreadyInInsideSalesQueue = isActiveInsideSalesQueueStage(pipelineStage)
 
       const followUpKind = getInsideSalesFollowUpKind(opportunity, inspectionOutcomeRows)
       const callability = getInsideSalesCallability(opportunity, inspectionOutcomeRows)
@@ -279,6 +275,7 @@ export async function GET(request: NextRequest) {
         didnt_sit: `${DIDNT_SIT_PIPELINE_PREFIX}_unresponsive`,
         handoff: `${HANDOFF_INSIDE_SALES_PIPELINE_PREFIX}_unresponsive`,
         knockback: `${KNOCKBACK_PIPELINE_PREFIX}_unresponsive`,
+        storm: `${STORM_PIPELINE_PREFIX}_unresponsive`,
       }
 
       for (const opportunity of retireCandidates) {

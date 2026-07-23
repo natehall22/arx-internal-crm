@@ -8,6 +8,7 @@ import {
   HANDOFF_INSIDE_SALES_PIPELINE_PREFIX,
   KNOCKBACK_PIPELINE_PREFIX,
   REP_WORKING_HANDOFF_PIPELINE_PREFIX,
+  STORM_PIPELINE_PREFIX,
 } from '@/lib/inside-sales-follow-up'
 
 export const dynamic = 'force-dynamic'
@@ -243,6 +244,7 @@ export async function GET(request: NextRequest) {
             DIDNT_SIT_PIPELINE_PREFIX,
             HANDOFF_INSIDE_SALES_PIPELINE_PREFIX,
             KNOCKBACK_PIPELINE_PREFIX,
+            STORM_PIPELINE_PREFIX,
             REP_WORKING_HANDOFF_PIPELINE_PREFIX,
           ])
           .order('follow_up_at', { ascending: true, nullsFirst: false })

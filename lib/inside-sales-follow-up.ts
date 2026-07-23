@@ -64,8 +64,8 @@ type OpportunityLike = {
 /** Org `settings.inspection_outcomes` — drives delayed inside-sales handoff delays per outcome (Admin → Inspection outcomes). */
 export type OrgInspectionOutcomesArg = InspectionOutcomeConfigRow[] | null | undefined
 
-/** Queue bucket: legacy `inside_sales_didnt_sit*` pipeline vs admin “auto-send to inside sales” (`inside_sales_handoff_*`) paths vs closer knockback. */
-export type InsideSalesQueueKind = 'didnt_sit' | 'handoff' | 'knockback'
+/** Queue bucket: legacy `inside_sales_didnt_sit*` pipeline vs admin “auto-send to inside sales” (`inside_sales_handoff_*`) paths vs closer knockback vs storm alerts. */
+export type InsideSalesQueueKind = 'didnt_sit' | 'handoff' | 'knockback' | 'storm'
 
 export const DIDNT_SIT_PIPELINE_PREFIX = 'inside_sales_didnt_sit'
 
@@ -81,6 +81,9 @@ export const HANDOFF_INSIDE_SALES_PIPELINE_PREFIX = 'inside_sales_insurance_foll
 export const REP_WORKING_HANDOFF_PIPELINE_PREFIX = 'rep_working_insurance_follow_up'
 
 export const KNOCKBACK_PIPELINE_PREFIX = 'inside_sales_knockback'
+
+/** Storm-near-opportunity Inside Sales follow-up (cron-routed). */
+export const STORM_PIPELINE_PREFIX = 'inside_sales_storm_follow_up'
 
 /** @deprecated Use HANDOFF_INSIDE_SALES_PIPELINE_PREFIX */
 export const INSURANCE_FOLLOW_UP_PIPELINE_PREFIX = HANDOFF_INSIDE_SALES_PIPELINE_PREFIX
@@ -105,6 +108,11 @@ const RESOLVED_KNOCKBACK_STAGES = new Set([
   `${KNOCKBACK_PIPELINE_PREFIX}_rescheduled`,
   `${KNOCKBACK_PIPELINE_PREFIX}_unresponsive`,
   `${KNOCKBACK_PIPELINE_PREFIX}_lost`,
+])
+const RESOLVED_STORM_STAGES = new Set([
+  `${STORM_PIPELINE_PREFIX}_rescheduled`,
+  `${STORM_PIPELINE_PREFIX}_unresponsive`,
+  `${STORM_PIPELINE_PREFIX}_lost`,
 ])
 
 const MANAGER_ROLES = new Set([
@@ -131,8 +139,33 @@ function isResolvedInsideSalesPipelineStage(pipelineStage: string): boolean {
   return (
     RESOLVED_DIDNT_SIT_STAGES.has(pipelineStage) ||
     RESOLVED_HANDOFF_PIPELINE_STAGES.has(pipelineStage) ||
-    RESOLVED_KNOCKBACK_STAGES.has(pipelineStage)
+    RESOLVED_KNOCKBACK_STAGES.has(pipelineStage) ||
+    RESOLVED_STORM_STAGES.has(pipelineStage)
   )
+}
+
+/** Active inside-sales queue prefixes — used by storm cron and promote-insurance retire logic. */
+export function isActiveInsideSalesQueueStage(stage: string | null | undefined): boolean {
+  const pipelineStage = normalize(stage)
+  if (!pipelineStage) return false
+  return (
+    pipelineStage === DIDNT_SIT_PIPELINE_PREFIX ||
+    pipelineStage.startsWith(`${DIDNT_SIT_PIPELINE_PREFIX}_`) ||
+    pipelineStage === HANDOFF_INSIDE_SALES_PIPELINE_PREFIX ||
+    pipelineStage.startsWith(`${HANDOFF_INSIDE_SALES_PIPELINE_PREFIX}_`) ||
+    pipelineStage === KNOCKBACK_PIPELINE_PREFIX ||
+    pipelineStage.startsWith(`${KNOCKBACK_PIPELINE_PREFIX}_`) ||
+    pipelineStage === STORM_PIPELINE_PREFIX ||
+    pipelineStage.startsWith(`${STORM_PIPELINE_PREFIX}_`)
+  )
+}
+
+/** Active, unresolved inside-sales queue stage (for storm mid-deal bypass). */
+export function isOnUnresolvedInsideSalesQueueStage(stage: string | null | undefined): boolean {
+  const pipelineStage = normalize(stage)
+  if (!pipelineStage) return false
+  if (isResolvedInsideSalesPipelineStage(pipelineStage)) return false
+  return isActiveInsideSalesQueueStage(pipelineStage)
 }
 
 function inspectionRows(orgInspectionOutcomes?: OrgInspectionOutcomesArg) {
@@ -216,6 +249,9 @@ function legacyPipelineInsideSalesHandoffVisible(
   }
   if (onRepWorkingInsurancePipeline(pipelineStage)) return false
   if (pipelineStage === KNOCKBACK_PIPELINE_PREFIX || pipelineStage.startsWith(`${KNOCKBACK_PIPELINE_PREFIX}_`)) {
+    return false
+  }
+  if (pipelineStage === STORM_PIPELINE_PREFIX || pipelineStage.startsWith(`${STORM_PIPELINE_PREFIX}_`)) {
     return false
   }
   if (RESOLVED_DIDNT_SIT_STAGES.has(pipelineStage)) return false
@@ -309,6 +345,12 @@ export function getInsideSalesFollowUpKind(
     return 'knockback'
   }
   if (
+    pipelineStage === STORM_PIPELINE_PREFIX ||
+    pipelineStage.startsWith(`${STORM_PIPELINE_PREFIX}_`)
+  ) {
+    return 'storm'
+  }
+  if (
     pipelineStage === DIDNT_SIT_PIPELINE_PREFIX ||
     pipelineStage.startsWith(`${DIDNT_SIT_PIPELINE_PREFIX}_`) ||
     inspectionOutcomeRoutesToInsideSalesDidntSit(orgInspectionOutcomes, opportunity.inspection_outcome)
@@ -343,8 +385,10 @@ export function hasActiveInsideSalesFollowUp(
   if (pipelineStage.startsWith(`${DIDNT_SIT_PIPELINE_PREFIX}_`)) return true
   if (pipelineStage === KNOCKBACK_PIPELINE_PREFIX) return true
   if (pipelineStage.startsWith(`${KNOCKBACK_PIPELINE_PREFIX}_`)) return true
+  if (pipelineStage === STORM_PIPELINE_PREFIX) return true
+  if (pipelineStage.startsWith(`${STORM_PIPELINE_PREFIX}_`)) return true
   const kind = getInsideSalesFollowUpKind(opportunity, orgInspectionOutcomes)
-  return kind === 'didnt_sit' || kind === 'handoff' || kind === 'knockback'
+  return kind === 'didnt_sit' || kind === 'handoff' || kind === 'knockback' || kind === 'storm'
 }
 
 export function pipelineStageForInsideSalesClaim(opportunity: OpportunityLike, pipelinePrefix: string) {
@@ -358,7 +402,9 @@ export function pipelineStageForInsideSalesClaim(opportunity: OpportunityLike, p
     n === HANDOFF_INSIDE_SALES_PIPELINE_PREFIX ||
     n.startsWith(`${HANDOFF_INSIDE_SALES_PIPELINE_PREFIX}_`) ||
     n === KNOCKBACK_PIPELINE_PREFIX ||
-    n.startsWith(`${KNOCKBACK_PIPELINE_PREFIX}_`)
+    n.startsWith(`${KNOCKBACK_PIPELINE_PREFIX}_`) ||
+    n === STORM_PIPELINE_PREFIX ||
+    n.startsWith(`${STORM_PIPELINE_PREFIX}_`)
   ) {
     return opportunity.pipeline_stage || pipelinePrefix
   }
@@ -392,6 +438,10 @@ export function getInsideSalesFollowUpStatus(
   if (pipelineStage === KNOCKBACK_PIPELINE_PREFIX) return 'new'
   if (pipelineStage.startsWith(`${KNOCKBACK_PIPELINE_PREFIX}_`)) {
     return pipelineStage.slice(`${KNOCKBACK_PIPELINE_PREFIX}_`.length) || 'new'
+  }
+  if (pipelineStage === STORM_PIPELINE_PREFIX) return 'new'
+  if (pipelineStage.startsWith(`${STORM_PIPELINE_PREFIX}_`)) {
+    return pipelineStage.slice(`${STORM_PIPELINE_PREFIX}_`.length) || 'new'
   }
   if (getInsideSalesFollowUpKind(opportunity, orgInspectionOutcomes) === 'didnt_sit') {
     return 'new'
@@ -471,6 +521,11 @@ export function getInsideSalesCallability(
   }
 
   if (kind === 'knockback') {
+    if (futureFollowUp) return futureFollowUp
+    return { callableNow: true, eligibleAtIso: null, adminHandoffDelayDays: null }
+  }
+
+  if (kind === 'storm') {
     if (futureFollowUp) return futureFollowUp
     return { callableNow: true, eligibleAtIso: null, adminHandoffDelayDays: null }
   }

@@ -11,7 +11,9 @@ import {
   HANDOFF_INSIDE_SALES_PIPELINE_PREFIX,
   KNOCKBACK_PIPELINE_PREFIX,
   REP_WORKING_HANDOFF_PIPELINE_PREFIX,
+  STORM_PIPELINE_PREFIX,
   canViewInsideSalesFollowUp,
+  isActiveInsideSalesQueueStage,
   isInsideSalesRoleLike,
 } from '@/lib/inside-sales-follow-up'
 
@@ -357,5 +359,31 @@ describe('inside sales follow-up queue visibility', () => {
 
     expect(getInsideSalesFollowUpKind(opportunity, DEFAULT_INSPECTION_OUTCOMES)).toBeNull()
     expect(hasActiveInsideSalesFollowUp(opportunity, DEFAULT_INSPECTION_OUTCOMES)).toBe(false)
+  })
+
+  it('detects storm pipeline before legacy handoff and didnt_sit fallthrough', () => {
+    const opportunity = {
+      status: 'open',
+      inspection_outcome: 'insurance_follow_up',
+      inspection_outcome_at: '2026-05-01T13:00:00.000Z',
+      pipeline_stage: STORM_PIPELINE_PREFIX,
+      follow_up_at: null,
+    }
+
+    expect(getInsideSalesFollowUpKind(opportunity, DEFAULT_INSPECTION_OUTCOMES)).toBe('storm')
+    expect(hasActiveInsideSalesFollowUp(opportunity, DEFAULT_INSPECTION_OUTCOMES)).toBe(true)
+    expect(getInsideSalesFollowUpStatus(opportunity, DEFAULT_INSPECTION_OUTCOMES)).toBe('new')
+    expect(getInsideSalesCallability(opportunity, DEFAULT_INSPECTION_OUTCOMES)).toEqual({
+      callableNow: true,
+      eligibleAtIso: null,
+      adminHandoffDelayDays: null,
+    })
+  })
+
+  it('recognizes active inside sales queue prefixes including storm', () => {
+    expect(isActiveInsideSalesQueueStage(STORM_PIPELINE_PREFIX)).toBe(true)
+    expect(isActiveInsideSalesQueueStage(`${STORM_PIPELINE_PREFIX}_unresponsive`)).toBe(true)
+    expect(isActiveInsideSalesQueueStage(`${STORM_PIPELINE_PREFIX}_lost`)).toBe(true)
+    expect(isActiveInsideSalesQueueStage(REP_WORKING_HANDOFF_PIPELINE_PREFIX)).toBe(false)
   })
 })

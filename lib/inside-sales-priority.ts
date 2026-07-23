@@ -161,6 +161,13 @@ export function getQueueStory(input: StoryInput): QueueStory {
     return { story: `${base.story}${suffix}.`, objective: base.objective }
   }
 
+  if (input.followUpKind === 'storm') {
+    return {
+      story: `Recent storm activity (est.) was reported near this address${suffix}.`,
+      objective: 'Offer a free inspection — property may have been impacted (est.)',
+    }
+  }
+
   if (input.followUpKind === 'didnt_sit') {
     return {
       story: `Inspection was booked but the customer did not sit${suffix}. Nobody has been pitched.`,

@@ -16,7 +16,7 @@ type Props = {
   opportunityId: string
   customerName: string
   customerPhone: string | null
-  followUpKind: 'didnt_sit' | 'handoff' | 'knockback'
+  followUpKind: 'didnt_sit' | 'handoff' | 'knockback' | 'storm'
   /** Knockback reason when followUpKind is knockback */
   knockbackReason?: string | null
   /** Admin inspection outcome label when followUpKind is handoff */
@@ -92,9 +92,11 @@ export default function InsideSalesFollowUpDrawer({
   const followUpBadgeLabel =
     followUpKind === 'knockback'
       ? (knockbackReason?.replace(/_/g, ' ') || 'Knockback').replace(/\b\w/g, (c) => c.toUpperCase())
-      : followUpKind === 'handoff'
-        ? handoffOutcomeLabel?.trim() || 'Inspection handoff'
-        : "Didn't sit"
+      : followUpKind === 'storm'
+        ? 'Storm follow-up (est.)'
+        : followUpKind === 'handoff'
+          ? handoffOutcomeLabel?.trim() || 'Inspection handoff'
+          : "Didn't sit"
   const headline = callableNow
     ? 'Your turn — ok to call'
     : eligibleAtIso

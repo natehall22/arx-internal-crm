@@ -25,7 +25,7 @@ type QueueItem = {
   inspection_notes: string | null
   follow_up_at: string | null
   created_at: string | null
-  followUpKind: 'didnt_sit' | 'handoff' | 'knockback'
+  followUpKind: 'didnt_sit' | 'handoff' | 'knockback' | 'storm'
   followUpOutcomeLabel: string | null
   knockback_reason: string | null
   closerName: string | null
@@ -50,12 +50,13 @@ type QueueCounts = {
   didntSit: number
   handoff: number
   knockback: number
+  storm: number
   dueNow: number
   neverAttempted: number
   overdue: number
 }
 
-type TabId = 'up_next' | 'insurance' | 'didnt_sit' | 'knockback'
+type TabId = 'up_next' | 'insurance' | 'didnt_sit' | 'knockback' | 'storm'
 
 const ET = FEEDBACK_PROMPT_DISPLAY_TIMEZONE
 
@@ -218,6 +219,10 @@ export default function InsideSalesPage() {
   )
   const knockbackItems = useMemo(
     () => items.filter((item) => item.followUpKind === 'knockback'),
+    [items]
+  )
+  const stormItems = useMemo(
+    () => items.filter((item) => item.followUpKind === 'storm'),
     [items]
   )
 
@@ -411,6 +416,13 @@ export default function InsideSalesPage() {
         </span>
       )
     }
+    if (item.followUpKind === 'storm') {
+      return (
+        <span className="rounded-full bg-sky-100 px-2.5 py-0.5 text-xs font-bold uppercase text-sky-900">
+          Storm (est.)
+        </span>
+      )
+    }
     return (
       <span className="rounded-full bg-cyan-100 px-2.5 py-0.5 text-xs font-bold uppercase text-cyan-900">
         {item.followUpOutcomeLabel || 'Handoff'}
@@ -589,6 +601,7 @@ export default function InsideSalesPage() {
     { id: 'insurance', label: 'Insurance', count: insuranceItems.length },
     { id: 'didnt_sit', label: "Didn't Sit", count: didntSitItems.length },
     { id: 'knockback', label: 'Knockbacks', count: knockbackItems.length },
+    { id: 'storm', label: 'Storm (est.)', count: stormItems.length },
   ]
 
   const tabItems: Record<TabId, QueueItem[]> = {
@@ -596,6 +609,7 @@ export default function InsideSalesPage() {
     insurance: insuranceItems,
     didnt_sit: didntSitItems,
     knockback: knockbackItems,
+    storm: stormItems,
   }
 
   const callResults = modalItem?.followUpKind === 'knockback' ? KNOCKBACK_CALL_RESULTS : CALL_RESULTS

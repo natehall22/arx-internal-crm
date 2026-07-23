@@ -515,6 +515,7 @@ export async function GET(request: NextRequest) {
           didntSit: items.filter((item: any) => item.followUpKind === 'didnt_sit').length,
           handoff: items.filter((item: any) => item.followUpKind === 'handoff').length,
           knockback: items.filter((item: any) => item.followUpKind === 'knockback').length,
+          storm: items.filter((item: any) => item.followUpKind === 'storm').length,
           dueNow: items.filter((item: any) => item.priorityTier === 1).length,
           neverAttempted: items.filter(
             (item: any) => item.callableNow && item.attemptCount === 0

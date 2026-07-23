@@ -13,6 +13,7 @@ import {
   hasActiveInsideSalesFollowUp,
   isInsideSalesRoleLike,
   KNOCKBACK_PIPELINE_PREFIX,
+  STORM_PIPELINE_PREFIX,
   pipelineStageForInsideSalesClaim,
 } from '@/lib/inside-sales-follow-up'
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
@@ -100,11 +101,14 @@ type ActionType =
   | 'mark_knockback'
 
 function resolvedPipelineStage(
-  kind: 'didnt_sit' | 'handoff' | 'knockback' | null,
+  kind: 'didnt_sit' | 'handoff' | 'knockback' | 'storm' | null,
   status: 'scheduled' | 'rescheduled' | 'unresponsive' | 'lost'
 ): string {
   if (kind === 'knockback') {
     return `${KNOCKBACK_PIPELINE_PREFIX}_${status === 'scheduled' ? 'rescheduled' : status}`
+  }
+  if (kind === 'storm') {
+    return `${STORM_PIPELINE_PREFIX}_${status === 'scheduled' ? 'rescheduled' : status}`
   }
   const prefix = kind === 'handoff' ? HANDOFF_INSIDE_SALES_PIPELINE_PREFIX : DIDNT_SIT_PIPELINE_PREFIX
   if (status === 'scheduled') {
@@ -113,8 +117,9 @@ function resolvedPipelineStage(
   return `${prefix}_${status}`
 }
 
-function activePipelinePrefix(kind: 'didnt_sit' | 'handoff' | 'knockback' | null): string {
+function activePipelinePrefix(kind: 'didnt_sit' | 'handoff' | 'knockback' | 'storm' | null): string {
   if (kind === 'knockback') return KNOCKBACK_PIPELINE_PREFIX
+  if (kind === 'storm') return STORM_PIPELINE_PREFIX
   return kind === 'handoff' ? HANDOFF_INSIDE_SALES_PIPELINE_PREFIX : DIDNT_SIT_PIPELINE_PREFIX
 }
 
@@ -300,7 +305,7 @@ export async function POST(
     const [{ data: opportunity }, { data: orgRow }] = await Promise.all([
       admin
         .from('opportunities')
-        .select('id, org_id, lead_id, status, inspection_outcome, inspection_outcome_at, notes, created_at, updated_at, inspection_notes, pipeline_stage, follow_up_at, assigned_user_id')
+        .select('id, org_id, lead_id, status, address_text, inspection_outcome, inspection_outcome_at, notes, created_at, updated_at, inspection_notes, pipeline_stage, follow_up_at, assigned_user_id')
         .eq('id', opportunityId)
         .eq('org_id', profile.org_id)
         .single(),
@@ -412,8 +417,67 @@ export async function POST(
         .limit(1)
         .maybeSingle()
 
-      if (originalAppointmentError || !originalAppointment) {
-        return NextResponse.json({ error: 'Original inspection appointment not found' }, { status: 404 })
+      if (originalAppointmentError) {
+        return NextResponse.json({ error: 'Failed to look up original inspection appointment' }, { status: 500 })
+      }
+
+      type ScheduleBackSeed = {
+        lead_id: string | null
+        opportunity_id: string
+        closer_user_id: string | null
+        canvasser_user_id: string | null
+        address_text: string | null
+        leads: { homeowner_name?: string | null; phone?: string | null; address_text?: string | null } | null
+      }
+
+      let appointmentSeed: ScheduleBackSeed
+
+      if (originalAppointment) {
+        appointmentSeed = {
+          lead_id: originalAppointment.lead_id,
+          opportunity_id: originalAppointment.opportunity_id || opportunityId,
+          closer_user_id: originalAppointment.closer_user_id,
+          canvasser_user_id: originalAppointment.canvasser_user_id,
+          address_text: originalAppointment.address_text,
+          leads: (originalAppointment.leads as ScheduleBackSeed['leads']) || null,
+        }
+      } else {
+        let leadRow: {
+          homeowner_name?: string | null
+          phone?: string | null
+          address_text?: string | null
+          pin_attributed_user_id?: string | null
+          owner_user_id?: string | null
+        } | null = null
+
+        if (opportunity.lead_id) {
+          const { data: lead, error: leadError } = await admin
+            .from('leads')
+            .select('homeowner_name, phone, address_text, pin_attributed_user_id, owner_user_id')
+            .eq('id', opportunity.lead_id)
+            .eq('org_id', profile.org_id)
+            .maybeSingle()
+
+          if (leadError) {
+            return NextResponse.json({ error: 'Failed to load lead for scheduling' }, { status: 500 })
+          }
+          leadRow = lead
+        }
+
+        appointmentSeed = {
+          lead_id: opportunity.lead_id,
+          opportunity_id: opportunityId,
+          closer_user_id: null,
+          canvasser_user_id: leadRow?.pin_attributed_user_id || leadRow?.owner_user_id || null,
+          address_text: opportunity.address_text || leadRow?.address_text || null,
+          leads: leadRow
+            ? {
+                homeowner_name: leadRow.homeowner_name,
+                phone: leadRow.phone,
+                address_text: leadRow.address_text,
+              }
+            : null,
+        }
       }
 
       const appointmentTypeRows = await fetchOrgAppointmentTypesFromTable(admin, profile.org_id)
@@ -439,10 +503,10 @@ export async function POST(
       let assignedCloserName = 'Closer'
       let assignedCloserId: string | null = null
       let googleCalendarEventId: string | null = null
-      const customerName = (originalAppointment.leads as any)?.homeowner_name || 'Customer'
-      const customerPhone = (originalAppointment.leads as any)?.phone || null
+      const customerName = appointmentSeed.leads?.homeowner_name || 'Customer'
+      const customerPhone = appointmentSeed.leads?.phone || null
       const customerAddress =
-        (originalAppointment.leads as any)?.address_text || originalAppointment.address_text || null
+        appointmentSeed.leads?.address_text || appointmentSeed.address_text || null
 
       if (schedule.useRoundRobin) {
         const teamId =
@@ -458,15 +522,15 @@ export async function POST(
           teamId,
           scheduledForDate,
           inspectionDuration,
-          originalAppointment.lead_id || undefined,
-          originalAppointment.opportunity_id || undefined,
-          originalAppointment.address_text || (originalAppointment.leads as any)?.address_text || undefined,
-          originalAppointment.canvasser_user_id || undefined,
+          appointmentSeed.lead_id || undefined,
+          appointmentSeed.opportunity_id || undefined,
+          appointmentSeed.address_text || appointmentSeed.leads?.address_text || undefined,
+          appointmentSeed.canvasser_user_id || undefined,
           profile.org_id,
           undefined,
           {
-            homeownerName: (originalAppointment.leads as any)?.homeowner_name || undefined,
-            phone: (originalAppointment.leads as any)?.phone || undefined,
+            homeownerName: appointmentSeed.leads?.homeowner_name || undefined,
+            phone: appointmentSeed.leads?.phone || undefined,
             notes: note || 'Scheduled back to closer by inside sales.',
             eventLabel: 'inspection',
           },
@@ -539,15 +603,15 @@ export async function POST(
           .from('scheduled_appointments')
           .insert({
             org_id: profile.org_id,
-            lead_id: originalAppointment.lead_id,
-            opportunity_id: originalAppointment.opportunity_id,
+            lead_id: appointmentSeed.lead_id,
+            opportunity_id: appointmentSeed.opportunity_id,
             closer_user_id: closerUserId,
-            canvasser_user_id: originalAppointment.canvasser_user_id,
+            canvasser_user_id: appointmentSeed.canvasser_user_id,
             scheduled_for: scheduledForISO,
             duration_minutes: inspectionDuration,
             buffer_after_minutes: bufferAfter,
             status: 'scheduled',
-            address_text: originalAppointment.address_text,
+            address_text: appointmentSeed.address_text || appointmentSeed.leads?.address_text || null,
             notes: note || 'Scheduled back to closer by inside sales.',
             appointment_type: 'inspection',
           })
