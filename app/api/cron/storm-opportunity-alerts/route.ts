@@ -49,6 +49,66 @@ type AppointmentRow = {
   scheduled_for: string
 }
 
+const QUERY_PAGE_SIZE = 1000
+const OPPORTUNITY_ID_BATCH_SIZE = 200
+
+async function loadStormOpportunityCandidates(admin: any): Promise<any[]> {
+  const rows: any[] = []
+
+  for (let from = 0; ; from += QUERY_PAGE_SIZE) {
+    const { data, error } = await admin
+      .from('opportunities')
+      .select(
+        'id, org_id, lead_id, status, lat, lng, pipeline_stage, assigned_user_id, address_text, leads(homeowner_name, phone, lat, lng, installation_agreement_signed_at)'
+      )
+      .neq('status', 'won')
+      .order('id', { ascending: true })
+      .range(from, from + QUERY_PAGE_SIZE - 1)
+
+    if (error) throw new Error(`Opportunity fetch failed: ${error.message}`)
+    const page = data || []
+    rows.push(...page)
+    if (page.length < QUERY_PAGE_SIZE) break
+  }
+
+  return rows
+}
+
+async function loadAppointmentsByOpportunityId(
+  admin: any,
+  opportunityIds: string[]
+): Promise<Map<string, AppointmentRow[]>> {
+  const appointmentsByOpportunityId = new Map<string, AppointmentRow[]>()
+
+  for (let batchStart = 0; batchStart < opportunityIds.length; batchStart += OPPORTUNITY_ID_BATCH_SIZE) {
+    const batchIds = opportunityIds.slice(batchStart, batchStart + OPPORTUNITY_ID_BATCH_SIZE)
+
+    for (let from = 0; ; from += QUERY_PAGE_SIZE) {
+      const { data, error } = await admin
+        .from('scheduled_appointments')
+        .select('opportunity_id, appointment_type, status, scheduled_for')
+        .in('opportunity_id', batchIds)
+        .in('appointment_type', ['inspection', 'close'])
+        .order('id', { ascending: true })
+        .range(from, from + QUERY_PAGE_SIZE - 1)
+
+      if (error) throw new Error(`Appointment fetch failed: ${error.message}`)
+      const page = (data || []) as AppointmentRow[]
+
+      for (const row of page) {
+        if (!row.opportunity_id) continue
+        const current = appointmentsByOpportunityId.get(row.opportunity_id) || []
+        current.push(row)
+        appointmentsByOpportunityId.set(row.opportunity_id, current)
+      }
+
+      if (page.length < QUERY_PAGE_SIZE) break
+    }
+  }
+
+  return appointmentsByOpportunityId
+}
+
 export async function GET(request: NextRequest) {
   const authFailure = verifyCronSecret(request)
   if (authFailure) return authFailure
@@ -70,42 +130,9 @@ export async function GET(request: NextRequest) {
     const hailReports = filterStormReportsForAlerts(hailRaw, 'hail', now)
     const windReports = filterStormReportsForAlerts(windRaw, 'wind', now)
 
-    const { data: opportunities, error: oppError } = await admin
-      .from('opportunities')
-      .select(
-        'id, org_id, lead_id, status, lat, lng, pipeline_stage, assigned_user_id, address_text, leads(homeowner_name, phone, lat, lng, installation_agreement_signed_at)'
-      )
-      .neq('status', 'won')
-      .limit(8000)
-
-    if (oppError) {
-      console.error('storm-opportunity-alerts: opportunity fetch error', oppError)
-      return NextResponse.json({ error: oppError.message }, { status: 500 })
-    }
-
-    const rawOpportunities = opportunities || []
+    const rawOpportunities = await loadStormOpportunityCandidates(admin)
     const opportunityIds = rawOpportunities.map((row: any) => row.id)
-
-    const appointmentsByOpportunityId = new Map<string, AppointmentRow[]>()
-    if (opportunityIds.length > 0) {
-      const { data: appointmentRows, error: apptError } = await admin
-        .from('scheduled_appointments')
-        .select('opportunity_id, appointment_type, status, scheduled_for')
-        .in('opportunity_id', opportunityIds)
-        .in('appointment_type', ['inspection', 'close'])
-
-      if (apptError) {
-        console.error('storm-opportunity-alerts: appointment fetch error', apptError)
-        return NextResponse.json({ error: apptError.message }, { status: 500 })
-      }
-
-      for (const row of appointmentRows || []) {
-        if (!row.opportunity_id) continue
-        const current = appointmentsByOpportunityId.get(row.opportunity_id) || []
-        current.push(row as AppointmentRow)
-        appointmentsByOpportunityId.set(row.opportunity_id, current)
-      }
-    }
+    const appointmentsByOpportunityId = await loadAppointmentsByOpportunityId(admin, opportunityIds)
 
     const insideSalesUsersByOrgId = new Map<string, any[]>()
     const matches: StormMatchResult[] = []
@@ -140,7 +167,7 @@ export async function GET(request: NextRequest) {
     let routed = 0
     let notedOnly = 0
     let skippedCloserMidDeal = 0
-    const digestRows: StormAlertDigestRow[] = []
+    const digestEntries: Array<{ alertId: string; row: StormAlertDigestRow }> = []
     const routedOpportunityIds = new Set<string>()
     const notifiedOpportunityIds = new Set<string>()
 
@@ -171,6 +198,9 @@ export async function GET(request: NextRequest) {
 
       let alertId: string | null = null
       let isNewAlert = false
+      let alertWasRouted = false
+      let processedAt: string | null = null
+      let emailSentAt: string | null = null
 
       const { data: insertedRow, error: insertError } = await admin
         .from('storm_opportunity_alerts')
@@ -186,7 +216,7 @@ export async function GET(request: NextRequest) {
           distance_miles: match.distanceMiles,
           routed: false,
         })
-        .select('id, routed')
+        .select('id, routed, processed_at, email_sent_at')
         .maybeSingle()
 
       if (insertError) {
@@ -197,7 +227,7 @@ export async function GET(request: NextRequest) {
 
         const { data: existingRow, error: existingError } = await admin
           .from('storm_opportunity_alerts')
-          .select('id, routed')
+          .select('id, routed, processed_at, email_sent_at')
           .eq('org_id', match.opportunity.org_id)
           .eq('opportunity_id', match.opportunity.id)
           .eq('event_date', match.eventDate)
@@ -210,22 +240,27 @@ export async function GET(request: NextRequest) {
         }
 
         alertId = existingRow.id
-        if (existingRow.routed) {
-          continue
-        }
+        alertWasRouted = existingRow.routed === true
+        processedAt = existingRow.processed_at || null
+        emailSentAt = existingRow.email_sent_at || null
       } else if (insertedRow?.id) {
         alertId = insertedRow.id
+        alertWasRouted = insertedRow.routed === true
+        processedAt = insertedRow.processed_at || null
+        emailSentAt = insertedRow.email_sent_at || null
         isNewAlert = true
         inserted += 1
       } else {
         continue
       }
 
+      if (!alertId) continue
+
       const customerName = match.opportunity.homeowner_name || 'Customer'
       const skipRouting = shouldSkipStormRouting(match.opportunity.pipeline_stage, appointments, now)
-      let didRoute = false
+      let didRoute = alertWasRouted
 
-      if (!skipRouting) {
+      if (!skipRouting && !didRoute) {
         const alreadyOnStormStage = isOnUnresolvedStormPipelineStage(match.opportunity.pipeline_stage)
         const alreadyRoutedThisRun = routedOpportunityIds.has(match.opportunity.id)
 
@@ -267,9 +302,11 @@ export async function GET(request: NextRequest) {
       // Only note/notify/digest when we routed successfully or intentionally skipped routing
       // (mid-deal / rep grace / already on another IS queue). Failed route leaves routed=false for retry.
       const allowSideEffects = skipRouting || didRoute
-      if (isNewAlert && allowSideEffects) {
+      let processingComplete = Boolean(processedAt)
+
+      if (!processedAt && allowSideEffects) {
         const activityBody = buildStormActivityNote(match)
-        await admin.from('activities').insert({
+        const { error: activityError } = await admin.from('activities').insert({
           org_id: match.opportunity.org_id,
           opportunity_id: match.opportunity.id,
           lead_id: match.opportunity.lead_id,
@@ -278,18 +315,20 @@ export async function GET(request: NextRequest) {
           body: activityBody,
         })
 
-        if (!notifiedOpportunityIds.has(match.opportunity.id)) {
-          notifiedOpportunityIds.add(match.opportunity.id)
-
+        let notificationError: unknown = null
+        if (!activityError && !notifiedOpportunityIds.has(match.opportunity.id)) {
           let insideSalesUsers = insideSalesUsersByOrgId.get(match.opportunity.org_id)
           if (insideSalesUsers === undefined) {
-            const { data: fetchedInsideSalesUsers } = await admin
+            const { data: fetchedInsideSalesUsers, error: usersError } = await admin
               .from('users')
               .select('id, role, active, custom_roles(name, display_name)')
               .eq('org_id', match.opportunity.org_id)
               .eq('active', true)
+            notificationError = usersError
             insideSalesUsers = fetchedInsideSalesUsers || []
-            insideSalesUsersByOrgId.set(match.opportunity.org_id, insideSalesUsers)
+            if (!usersError) {
+              insideSalesUsersByOrgId.set(match.opportunity.org_id, insideSalesUsers)
+            }
           }
 
           const recipients = (insideSalesUsers || []).filter((candidate: any) => {
@@ -303,8 +342,8 @@ export async function GET(request: NextRequest) {
             })
           })
 
-          if (recipients.length > 0) {
-            await admin.from('notifications').insert(
+          if (!notificationError && recipients.length > 0) {
+            const { error } = await admin.from('notifications').insert(
               recipients.map((recipient: any) => ({
                 org_id: match.opportunity.org_id,
                 recipient_user_id: recipient.id,
@@ -325,31 +364,61 @@ export async function GET(request: NextRequest) {
                 },
               }))
             )
+            notificationError = error
+          }
+
+          if (!notificationError) {
+            notifiedOpportunityIds.add(match.opportunity.id)
           }
         }
 
-        digestRows.push({
-          customerName,
-          address: match.opportunity.address_text || '',
-          layer: match.layer,
-          eventDate: match.eventDate,
-          magnitudeLabel:
-            match.layer === 'hail'
-              ? `est. ${match.report.magnitude.toFixed(2)} in hail`
-              : match.report.damage
-                ? 'est. wind damage'
-                : `est. ${Math.round(match.report.magnitude)} mph wind`,
-          distanceMiles: match.distanceMiles,
-          routed: didRoute,
-          opportunityId: match.opportunity.id,
+        if (activityError || notificationError) {
+          console.error('storm-opportunity-alerts: side effects failed', match.opportunity.id, {
+            activityError,
+            notificationError,
+          })
+        } else {
+          const { error: processedError } = await admin
+            .from('storm_opportunity_alerts')
+            .update({ processed_at: nowIso })
+            .eq('id', alertId)
+
+          if (processedError) {
+            console.error('storm-opportunity-alerts: mark processed error', match.opportunity.id, processedError)
+          } else {
+            processingComplete = true
+          }
+        }
+      }
+
+      if (!emailSentAt && allowSideEffects && processingComplete) {
+        digestEntries.push({
+          alertId,
+          row: {
+            customerName,
+            address: match.opportunity.address_text || '',
+            layer: match.layer,
+            eventDate: match.eventDate,
+            magnitudeLabel:
+              match.layer === 'hail'
+                ? `est. ${match.report.magnitude.toFixed(2)} in hail`
+                : match.report.damage
+                  ? 'est. wind damage'
+                  : `est. ${Math.round(match.report.magnitude)} mph wind`,
+            distanceMiles: match.distanceMiles,
+            routed: didRoute,
+            opportunityId: match.opportunity.id,
+          },
         })
       }
     }
 
-    if (digestRows.length > 0) {
+    let emailed = false
+    if (digestEntries.length > 0) {
       const to = stormAlertEmailTo()
       if (process.env.SMTP_HOST && to.includes('@')) {
         try {
+          const digestRows = digestEntries.map((entry) => entry.row)
           const transporter = getMailTransport()
           const subject = `Storm opportunity alerts (est.): ${digestRows.length} new`
           await transporter.sendMail({
@@ -359,6 +428,20 @@ export async function GET(request: NextRequest) {
             text: buildStormAlertDigestText(digestRows),
             html: buildStormAlertDigestHtml(digestRows),
           })
+
+          let emailMarkFailed = false
+          const alertIds = digestEntries.map((entry) => entry.alertId)
+          for (let start = 0; start < alertIds.length; start += OPPORTUNITY_ID_BATCH_SIZE) {
+            const { error: emailMarkError } = await admin
+              .from('storm_opportunity_alerts')
+              .update({ email_sent_at: nowIso })
+              .in('id', alertIds.slice(start, start + OPPORTUNITY_ID_BATCH_SIZE))
+            if (emailMarkError) {
+              emailMarkFailed = true
+              console.error('storm-opportunity-alerts: mark emailed error', emailMarkError)
+            }
+          }
+          emailed = !emailMarkFailed
         } catch (emailError) {
           console.error('storm-opportunity-alerts: email failed', emailError)
         }
@@ -378,7 +461,7 @@ export async function GET(request: NextRequest) {
       routed,
       notedOnly,
       skippedCloserMidDeal,
-      emailed: digestRows.length > 0,
+      emailed,
     })
   } catch (err) {
     console.error('storm-opportunity-alerts: unexpected error', err)
