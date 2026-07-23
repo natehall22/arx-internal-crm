@@ -1,10 +1,10 @@
-jest.mock('d3-contour', () => ({ contours: jest.fn() }))
 jest.mock('geotiff', () => ({}))
 jest.mock('geotiff-geokeys-to-proj4', () => ({}))
 jest.mock('proj4', () => jest.fn())
 
 import {
   brightAccessorySegmentIndices,
+  facetsFromSplitMask,
   filterSplitFacetsByPin,
   largestNonOverlappingPlaneSubset,
   maskPlaneFacetSuggestions,
@@ -292,14 +292,13 @@ describe('split mask quality threshold', () => {
     expect(selectUsableSplitFacets([largeA, largeB, overlapping], 980)?.facets).toHaveLength(2)
   })
 
-  it('tolerates overlapping planes when coverage is good and shapes are valid', () => {
+  it('returns null for fully overlapping planes even when coverage is good', () => {
     // Same footprint — definite interior overlap; nonoverlap search finds no pair ≥2.
     const a = facet('a', 32, -96, { estimated_sq_ft: 500 })
     const b = facet('b', 32.00001, -96.00001, { estimated_sq_ft: 500 })
     expect(splitFacetsMeetRelaxedMaskQualityThreshold([a, b], 1000)).toBe(false)
     expect(largestNonOverlappingPlaneSubset([a, b])).toEqual([])
-    expect(selectUsableSplitFacets([a, b], 1000)?.mode).toBe('overlap_tolerated')
-    expect(selectUsableSplitFacets([a, b], 1000)?.facets).toHaveLength(2)
+    expect(selectUsableSplitFacets([a, b], 1000)).toBeNull()
   })
 
   it('relaxed gate accepts ~68% mask coverage common after contour loss', () => {
@@ -324,6 +323,114 @@ describe('split mask quality threshold', () => {
     })
     expect(splitFacetsMeetRelaxedMaskQualityThreshold([left, right], 1000)).toBe(true)
     expect(selectUsableSplitFacets([left, right], 1000)?.mode).toBe('relaxed')
+  })
+})
+
+describe('exclusive split plane lock', () => {
+  const width = 48
+  const height = 36
+  const pixelToLngLat = (col: number, row: number) => ({
+    lat: 35 + row * 0.00001,
+    lng: -80 + col * 0.00001,
+  })
+
+  function buildAdjacentSplitMask() {
+    const bin = new Uint8Array(width * height)
+    const labels = new Int32Array(width * height).fill(-1)
+    for (let row = 6; row < 30; row++) {
+      for (let col = 6; col < 23; col++) {
+        const i = row * width + col
+        bin[i] = 1
+        labels[i] = 0
+      }
+      for (let col = 23; col < 42; col++) {
+        const i = row * width + col
+        bin[i] = 1
+        labels[i] = 1
+      }
+    }
+    return { bin, labels }
+  }
+
+  const segsPx = [
+    {
+      segment_index: 0,
+      col: 14,
+      row: 18,
+      minC: 0,
+      maxC: width - 1,
+      minR: 0,
+      maxR: height - 1,
+      hasSpatialBounds: false,
+    },
+    {
+      segment_index: 1,
+      col: 32,
+      row: 18,
+      minC: 0,
+      maxC: width - 1,
+      minR: 0,
+      maxR: height - 1,
+      hasSpatialBounds: false,
+    },
+  ]
+
+  const segments: SolarMaskSegment[] = [
+    {
+      segment_index: 0,
+      pitch_degrees: 26,
+      azimuth_degrees: 180,
+      area_m2: 40,
+      ground_area_m2: 36,
+      plane_height_at_center_meters: 190,
+      center: pixelToLngLat(14, 18),
+      bounding_box: null,
+    },
+    {
+      segment_index: 1,
+      pitch_degrees: 26,
+      azimuth_degrees: 0,
+      area_m2: 40,
+      ground_area_m2: 36,
+      plane_height_at_center_meters: 190,
+      center: pixelToLngLat(32, 18),
+      bounding_box: null,
+    },
+  ]
+
+  it('adjacent planes share boundary only after pipeline', () => {
+    const { bin, labels } = buildAdjacentSplitMask()
+    const facets = facetsFromSplitMask({
+      bin,
+      labels,
+      width,
+      height,
+      segsPx,
+      segments,
+      pixelToLngLat,
+    })
+    expect(facets.length).toBe(2)
+    expect(splitFacetsMeetMaskQualityThreshold(facets)).toBe(true)
+  })
+
+  it('exclusivity lock prevents simplify/hull bleed into a neighbor label', () => {
+    const { bin, labels } = buildAdjacentSplitMask()
+    for (let row = 14; row < 22; row++) {
+      const i = row * width + 22
+      bin[i] = 1
+      labels[i] = 0
+    }
+    const facets = facetsFromSplitMask({
+      bin,
+      labels,
+      width,
+      height,
+      segsPx,
+      segments,
+      pixelToLngLat,
+    })
+    expect(facets.length).toBe(2)
+    expect(splitFacetsMeetMaskQualityThreshold(facets)).toBe(true)
   })
 })
 

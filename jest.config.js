@@ -11,6 +11,8 @@ const customJestConfig = {
   testEnvironment: 'jest-environment-jsdom',
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/$1',
+    '^d3-contour$': '<rootDir>/node_modules/d3-contour/dist/d3-contour.js',
+    '^d3-array$': '<rootDir>/node_modules/d3-array/dist/d3-array.js',
   },
   testPathIgnorePatterns: ['/node_modules/', '/.next/', '/.claude/'],
 }

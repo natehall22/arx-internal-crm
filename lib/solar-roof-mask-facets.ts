@@ -834,25 +834,6 @@ export function pruneSplitPlaneSlivers(facets: SolarMaskFacetPayload[]): SolarMa
   return kept.length >= 2 ? kept : planes
 }
 
-function splitPlanesHaveValidShapes(planes: SolarMaskFacetPayload[]): boolean {
-  if (planes.length === 0) return false
-  return planes.every((f) => {
-    if (f.facet_source !== 'solar_mask_plane') return false
-    if (f.lat_lng_vertices.length < 3 || polygonSelfIntersects(f.lat_lng_vertices)) return false
-    return splitPlaneFootprintSqft(f) >= MIN_PLANE_FOOTPRINT_SQFT
-  })
-}
-
-function splitCoverageInRelaxedBand(
-  planes: SolarMaskFacetPayload[],
-  targetMaskFootprintSqft?: number
-): boolean {
-  if (typeof targetMaskFootprintSqft !== 'number' || targetMaskFootprintSqft <= 0) return true
-  const splitSqft = planes.reduce((sum, facet) => sum + splitPlaneFootprintSqft(facet), 0)
-  const ratio = splitSqft / targetMaskFootprintSqft
-  return ratio >= MIN_SPLIT_TO_MASK_AREA_RATIO_RELAXED && ratio <= MAX_SPLIT_TO_MASK_AREA_RATIO_RELAXED
-}
-
 /**
  * Keep the largest non-overlapping multi-plane subset. Contour simplify / weld often
  * leaves one overlapping pair that would otherwise discard an otherwise-good split.
@@ -928,7 +909,7 @@ export function selectUsableSplitFacets(
   targetMaskFootprintSqft?: number
 ): {
   facets: SolarMaskFacetPayload[]
-  mode: 'strict' | 'pruned' | 'relaxed' | 'nonoverlap' | 'overlap_tolerated'
+  mode: 'strict' | 'pruned' | 'relaxed' | 'nonoverlap'
 } | null {
   if (facets.length === 0) return null
   if (splitFacetsMeetMaskQualityThreshold(facets, targetMaskFootprintSqft)) {
@@ -956,20 +937,6 @@ export function selectUsableSplitFacets(
     }
   }
 
-  /**
-   * Last resort for hip/gable splits that only fail the interior-overlap check after
-   * contour simplify/weld. Slightly overlapping sections still beat a whole-roof blob
-   * or Solar bboxes for field usability + topology.
-   */
-  const planes = relaxedCandidate.filter((f) => f.facet_source === 'solar_mask_plane')
-  if (
-    planes.length >= 2 &&
-    planes.length === relaxedCandidate.length &&
-    splitPlanesHaveValidShapes(planes) &&
-    splitCoverageInRelaxedBand(planes, targetMaskFootprintSqft)
-  ) {
-    return { facets: planes, mode: 'overlap_tolerated' }
-  }
   return null
 }
 
@@ -988,7 +955,7 @@ export function explainSplitQualityRejection(
   pruned_plane_count: number
   strict_ok: boolean
   relaxed_ok: boolean
-  usable_mode: 'strict' | 'pruned' | 'relaxed' | 'nonoverlap' | 'overlap_tolerated' | null
+  usable_mode: 'strict' | 'pruned' | 'relaxed' | 'nonoverlap' | null
 } {
   const planes = facets.filter((f) => f.facet_source === 'solar_mask_plane')
   const areas = planes.map(splitPlaneFootprintSqft)
@@ -1561,6 +1528,40 @@ function labelRoofMaskByPlanes(options: {
   return labels
 }
 
+/** Fill a closed pixel ring into a binary mask (1 = inside). */
+function rasterizeClosedRingToMask(
+  ring: [number, number][],
+  width: number,
+  height: number,
+  out?: Uint8Array
+): Uint8Array {
+  const mask = out ?? new Uint8Array(width * height)
+  if (out) mask.fill(0)
+  const open = openRingPoints(ring)
+  if (open.length < 3) return mask
+  let minC = Infinity
+  let maxC = -Infinity
+  let minR = Infinity
+  let maxR = -Infinity
+  for (const [x, y] of open) {
+    minC = Math.min(minC, Math.floor(x))
+    maxC = Math.max(maxC, Math.ceil(x))
+    minR = Math.min(minR, Math.floor(y))
+    maxR = Math.max(maxR, Math.ceil(y))
+  }
+  minC = Math.max(0, minC)
+  maxC = Math.min(width - 1, maxC)
+  minR = Math.max(0, minR)
+  maxR = Math.min(height - 1, maxR)
+  const closed = closeRing(open)
+  for (let row = minR; row <= maxR; row++) {
+    for (let col = minC; col <= maxC; col++) {
+      if (pointInPolygonColRow(col + 0.5, row + 0.5, closed)) mask[row * width + col] = 1
+    }
+  }
+  return mask
+}
+
 function largestRing(rings: [number, number][][]): [number, number][] | null {
   let best: [number, number][] | null = null
   let bestA = 0
@@ -1654,7 +1655,27 @@ function weldSharedFacetVertices(facets: SolarMaskFacetPayload[], snapMeters: nu
   }
 }
 
-function facetsFromSplitMask(options: {
+/** Drop the smaller plane whenever welding reintroduces interior overlap. */
+function dropInteriorOverlappingPlanes(facets: SolarMaskFacetPayload[]): void {
+  let changed = true
+  while (changed) {
+    changed = false
+    for (let i = 0; i < facets.length; i++) {
+      for (let j = i + 1; j < facets.length; j++) {
+        if (!polygonsOverlapInterior(facets[i].lat_lng_vertices, facets[j].lat_lng_vertices)) continue
+        const dropIdx =
+          splitPlaneFootprintSqft(facets[i]) >= splitPlaneFootprintSqft(facets[j]) ? j : i
+        facets.splice(dropIdx, 1)
+        changed = true
+        break
+      }
+      if (changed) break
+    }
+  }
+}
+
+/** Exported for unit tests — per-segment mask split with exclusive plane locking. */
+export function facetsFromSplitMask(options: {
   bin: Uint8Array
   labels: Int32Array
   width: number
@@ -1665,6 +1686,8 @@ function facetsFromSplitMask(options: {
 }): SolarMaskFacetPayload[] {
   const { bin, labels, width, height, segsPx, segments, pixelToLngLat } = options
   const scratch = new Float64Array(width * height)
+  const temp = new Uint8Array(width * height)
+  const locked = new Uint8Array(width * height)
   const out: SolarMaskFacetPayload[] = []
 
   const ordered = [...segsPx].sort((a, b) => a.segment_index - b.segment_index)
@@ -1695,9 +1718,26 @@ function facetsFromSplitMask(options: {
     )
     if (simplified.length < 4) continue
 
+    // Exclusivity lock: clip the simplified outline back to this plane's label pixels.
+    rasterizeClosedRingToMask(simplified, width, height, temp)
+    locked.fill(0)
+    for (let i = 0; i < labels.length; i++) {
+      if (temp[i] === 1 && scratch[i] === 1) locked[i] = 1
+    }
+    const lockedRings = contourRingsFromMask(locked, width, height, { smooth: false }).filter(
+      (r) => polygonAreaPx(r) >= MIN_SPLIT_RING_AREA_PX
+    )
+    const lockedRing = largestRing(lockedRings)
+    if (!lockedRing) continue
+
+    // Keep the exact locked contour. Simplification, spike removal, and vertex-count
+    // decimation can all chord across a concavity and recreate overlap after the lock.
+    const cleaned = lockedRing
+    if (cleaned.length < 4) continue
+
     const latLngVertices: { lat: number; lng: number }[] = []
-    for (let i = 0; i < simplified.length - 1; i++) {
-      const [x, y] = simplified[i]
+    for (let i = 0; i < cleaned.length - 1; i++) {
+      const [x, y] = cleaned[i]
       latLngVertices.push(pixelToLngLat(x, y))
     }
     if (latLngVertices.length < 3) continue
@@ -1991,6 +2031,7 @@ export async function tryFacetPayloadsFromSolarRoofMask(options: {
         splitFiltered.length > 0 ? splitFiltered : filterSplitFacetsByPin(splitFacets, pinRef)
       const splitOut = splitFilteredPin.length > 0 ? splitFilteredPin : splitFiltered
       weldSharedFacetVertices(splitOut, SHARED_VERTEX_WELD_METERS)
+      dropInteriorOverlappingPlanes(splitOut)
       const targetMaskFootprintSqft = rasterMaskFootprintSqft(
         splitBin,
         width,
@@ -2002,6 +2043,10 @@ export async function tryFacetPayloadsFromSolarRoofMask(options: {
         targetMaskFootprintSqft ?? undefined
       )
       if (usableSplit) {
+        const overlapDiag = explainSplitQualityRejection(
+          usableSplit.facets,
+          targetMaskFootprintSqft ?? undefined
+        )
         return maskAttempt('ok', usableSplit.facets, {
           ...baseDetails,
           mask_width: width,
@@ -2011,6 +2056,7 @@ export async function tryFacetPayloadsFromSolarRoofMask(options: {
           excluded_accessory_segment_count: excludedAccessoryIndices.size,
           target_mask_footprint_sqft:
             targetMaskFootprintSqft == null ? null : Math.round(targetMaskFootprintSqft),
+          overlapping_pairs: overlapDiag.overlapping_pairs,
           path:
             usableSplit.mode === 'strict'
               ? 'split_mask_plane'
@@ -2018,9 +2064,7 @@ export async function tryFacetPayloadsFromSolarRoofMask(options: {
                 ? 'split_mask_plane_pruned'
                 : usableSplit.mode === 'nonoverlap'
                   ? 'split_mask_plane_nonoverlap'
-                  : usableSplit.mode === 'overlap_tolerated'
-                    ? 'split_mask_plane_overlap_tolerated'
-                    : 'split_mask_plane_relaxed',
+                  : 'split_mask_plane_relaxed',
           split_method: splitMethod,
           split_quality_mode: usableSplit.mode,
         })
