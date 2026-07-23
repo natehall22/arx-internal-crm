@@ -954,6 +954,12 @@ export function selectUsableSplitFacets(
   mode: 'strict' | 'pruned' | 'relaxed' | 'nonoverlap'
 } | null {
   if (facets.length === 0) return null
+  // Raw exclusivity contours can be non-overlapping yet still be unusable for field
+  // ordering (hundreds of raster vertices and curled internal edges). Complex splits
+  // must pass a regularizer before they can ship; otherwise prefer the safe fallback.
+  if (facets.some((facet) => facet.lat_lng_vertices.length > MAX_VERTICES_PER_SPLIT_RING)) {
+    return null
+  }
   if (splitFacetsMeetMaskQualityThreshold(facets, targetMaskFootprintSqft)) {
     return { facets, mode: 'strict' }
   }

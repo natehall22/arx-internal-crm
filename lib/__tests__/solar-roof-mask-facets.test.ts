@@ -325,6 +325,19 @@ describe('split mask quality threshold', () => {
     expect(splitFacetsMeetRelaxedMaskQualityThreshold([left, right], 1000)).toBe(true)
     expect(selectUsableSplitFacets([left, right], 1000)?.mode).toBe('relaxed')
   })
+
+  it('fails closed on raw high-vertex contours even when they do not overlap', () => {
+    const noisy = facet('noisy', 32, -96, {
+      estimated_sq_ft: 500,
+      lat_lng_vertices: Array.from({ length: 73 }, (_, index) => {
+        const angle = (index / 73) * Math.PI * 2
+        return { lat: 32 + Math.sin(angle) * 0.00003, lng: -96 + Math.cos(angle) * 0.00003 }
+      }),
+    })
+    const sibling = facet('sibling', 32, -95.9999, { estimated_sq_ft: 500 })
+
+    expect(selectUsableSplitFacets([noisy, sibling], 1000)).toBeNull()
+  })
 })
 
 describe('exclusive split plane lock', () => {
