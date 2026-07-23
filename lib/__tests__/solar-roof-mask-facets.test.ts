@@ -14,6 +14,7 @@ import {
   selectUsableSplitFacets,
   splitFacetsMeetMaskQualityThreshold,
   splitFacetsMeetRelaxedMaskQualityThreshold,
+  topologySimplifiedRings,
   type SolarMaskFacetPayload,
   type SolarMaskSegment,
 } from '@/lib/solar-roof-mask-facets'
@@ -497,6 +498,44 @@ describe('exclusive split plane lock', () => {
     expect(facets).toHaveLength(3)
     expect(facets.every((facet) => facet.lat_lng_vertices.length <= 6)).toBe(true)
     expect(splitFacetsMeetMaskQualityThreshold(facets)).toBe(true)
+  })
+
+  it('preserves a finite three-plane junction while simplifying its shared arcs', () => {
+    const bin = new Uint8Array(width * height)
+    const labels = new Int32Array(width * height).fill(-1)
+    for (let row = 6; row < 30; row++) {
+      for (let col = 6; col < 42; col++) {
+        const i = row * width + col
+        bin[i] = 1
+        labels[i] = col < 24 ? 0 : row < 18 ? 1 : 2
+      }
+    }
+    const ordered = [
+      { ...segsPx[0], col: 15 },
+      { ...segsPx[0], segment_index: 1, col: 33, row: 12 },
+      { ...segsPx[0], segment_index: 2, col: 33, row: 24 },
+    ]
+    const rings = topologySimplifiedRings({ bin, labels, width, height, ordered })
+
+    expect(rings).not.toBeNull()
+    expect(Array.from(rings?.values() ?? []).every((ring) => ring.length - 1 <= 8)).toBe(true)
+    const junctionEnds = Array.from(rings?.values() ?? []).map((ring) =>
+      ring
+        .slice(0, -1)
+        .reduce((best, point) =>
+          Math.hypot(point[0] - 24, point[1] - 18) < Math.hypot(best[0] - 24, best[1] - 18)
+            ? point
+            : best
+        )
+    )
+    expect(junctionEnds.every(([x, y]) => Math.hypot(x - 24, y - 18) <= 1)).toBe(true)
+    expect(
+      junctionEnds.every((point, index) =>
+        junctionEnds.slice(index + 1).every((other) =>
+          Math.hypot(point[0] - other[0], point[1] - other[1]) <= Math.SQRT2
+        )
+      )
+    ).toBe(true)
   })
 })
 

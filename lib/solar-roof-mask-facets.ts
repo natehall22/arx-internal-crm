@@ -1937,6 +1937,222 @@ function multiPlaneLinearizedRings(options: {
   return candidates
 }
 
+function pixelPointKey(point: [number, number]): string {
+  return `${point[0].toFixed(4)},${point[1].toFixed(4)}`
+}
+
+function pixelEdgeKey(a: [number, number], b: [number, number]): string {
+  const ak = pixelPointKey(a)
+  const bk = pixelPointKey(b)
+  return ak < bk ? `${ak}|${bk}` : `${bk}|${ak}`
+}
+
+/** Simplify a closed ring while forcing shared-arc endpoints/junctions to remain. */
+function simplifyRingBetweenAnchors(
+  ring: [number, number][],
+  anchorKeys: Set<string>,
+  epsilon: number
+): [number, number][] {
+  const points = openRingPoints(ring)
+  if (points.length < 4) return closeRing(points)
+  const anchors = points
+    .map((point, index) => (anchorKeys.has(pixelPointKey(point)) ? index : -1))
+    .filter((index) => index >= 0)
+  if (anchors.length < 2) return simplifyClosedRing(ring, epsilon, MAX_VERTICES_PER_SPLIT_RING)
+
+  const out: [number, number][] = []
+  for (let a = 0; a < anchors.length; a++) {
+    const start = anchors[a]
+    const end = anchors[(a + 1) % anchors.length]
+    const path: [number, number][] = [points[start]]
+    let index = start
+    while (index !== end) {
+      index = (index + 1) % points.length
+      path.push(points[index])
+    }
+    const simplified = douglasPeucker(path, epsilon)
+    if (out.length === 0) out.push(...simplified)
+    else out.push(...simplified.slice(1))
+  }
+  if (out.length > 1 && pixelPointKey(out[0]) === pixelPointKey(out[out.length - 1])) out.pop()
+  return closeRing(out)
+}
+
+/**
+ * Topology-preserving fallback for Parks-class roofs. Shared raster edges form finite
+ * graph arcs; degree-1 endpoints and degree-3+ junctions are locked, then every ring is
+ * simplified only between those anchors. Raster overlap validation remains authoritative;
+ * the downstream weld brings near-coincident junction endpoints onto one shared node.
+ */
+export function topologySimplifiedRings(options: {
+  bin: Uint8Array
+  labels: Int32Array
+  width: number
+  height: number
+  ordered: SegPx[]
+}): Map<number, [number, number][]> | null {
+  const { bin, labels, width, height, ordered } = options
+  const reject = (reason: string): null => {
+    if (process.env.ROOF_MEASURE_DEBUG_LINEARIZE === '1') {
+      console.info('[solar-mask] topology simplification rejected', {
+        reason,
+        plane_count: ordered.length,
+      })
+    }
+    return null
+  }
+  if (ordered.length < 2 || ordered.length > MAX_FACETS) return reject('plane_count')
+  const scratch = new Float64Array(width * height)
+  const temp = new Uint8Array(width * height)
+  const locked = new Uint8Array(width * height)
+  const exact = new Map<number, [number, number][]>()
+  const exactMasks = new Map<number, Uint8Array>()
+
+  for (const meta of ordered) {
+    scratch.fill(0)
+    for (let i = 0; i < labels.length; i++) {
+      if (labels[i] === meta.segment_index && bin[i] === 1) scratch[i] = 1
+    }
+    const ring = largestRing(
+      contourRingsFromMask(scratch, width, height, { smooth: false }).filter(
+        (candidate) => polygonAreaPx(candidate) >= MIN_SPLIT_RING_AREA_PX
+      )
+    )
+    if (!ring) return reject(`missing_source_ring_${meta.segment_index}`)
+    const ringArea = polygonAreaPx(ring)
+    const hull = convexHullClosedRing(ring)
+    const regularized =
+      ringArea > 0 && polygonAreaPx(hull) / ringArea <= CONVEX_HULL_MAX_INFLATION ? hull : ring
+    const simplified = removeSpikeVertices(
+      simplifyClosedRing(regularized, SPLIT_RING_SIMPLIFY_EPS_PX, MAX_VERTICES_PER_SPLIT_RING),
+      SPLIT_RING_SPIKE_MIN_ANGLE_DEG
+    )
+    rasterizeClosedRingToMask(simplified, width, height, temp)
+    locked.fill(0)
+    for (let i = 0; i < labels.length; i++) {
+      if (temp[i] === 1 && scratch[i] === 1) locked[i] = 1
+    }
+    const lockedRing = largestRing(
+      contourRingsFromMask(locked, width, height, { smooth: false }).filter(
+        (candidate) => polygonAreaPx(candidate) >= MIN_SPLIT_RING_AREA_PX
+      )
+    )
+    if (!lockedRing) return reject(`missing_locked_ring_${meta.segment_index}`)
+    exact.set(meta.segment_index, lockedRing)
+    exactMasks.set(meta.segment_index, rasterizeClosedRingToMask(lockedRing, width, height))
+  }
+
+  const edgeCounts = new Map<string, number>()
+  for (const ring of Array.from(exact.values())) {
+    const points = openRingPoints(ring)
+    for (let i = 0; i < points.length; i++) {
+      const key = pixelEdgeKey(points[i], points[(i + 1) % points.length])
+      edgeCounts.set(key, (edgeCounts.get(key) ?? 0) + 1)
+    }
+  }
+  const sharedAdjacency = new Map<string, Set<string>>()
+  for (const ring of Array.from(exact.values())) {
+    const points = openRingPoints(ring)
+    for (let i = 0; i < points.length; i++) {
+      const a = points[i]
+      const b = points[(i + 1) % points.length]
+      if ((edgeCounts.get(pixelEdgeKey(a, b)) ?? 0) < 2) continue
+      const ak = pixelPointKey(a)
+      const bk = pixelPointKey(b)
+      const an = sharedAdjacency.get(ak) ?? new Set<string>()
+      const bn = sharedAdjacency.get(bk) ?? new Set<string>()
+      an.add(bk)
+      bn.add(ak)
+      sharedAdjacency.set(ak, an)
+      sharedAdjacency.set(bk, bn)
+    }
+  }
+  if (sharedAdjacency.size === 0) return reject('no_shared_edges')
+  const anchorKeys = new Set<string>()
+  for (const [key, neighbors] of Array.from(sharedAdjacency.entries())) {
+    if (neighbors.size !== 2) anchorKeys.add(key)
+  }
+  // Closed shared loops have no natural endpoint; preserve two well-separated nodes.
+  if (anchorKeys.size < 2) {
+    const keys = Array.from(sharedAdjacency.keys())
+    if (keys.length >= 2) {
+      anchorKeys.add(keys[0])
+      anchorKeys.add(keys[Math.floor(keys.length / 2)])
+    }
+  }
+
+  const candidates = new Map<number, [number, number][]>()
+  for (const meta of ordered) {
+    const ring = exact.get(meta.segment_index) as [number, number][]
+    // The ring is already exclusivity-locked. Keep this cleanup at <= 1 px so
+    // finite shared arcs cannot cut materially across a plane interior.
+    const simplified = simplifyRingBetweenAnchors(ring, anchorKeys, 1)
+    if (
+      simplified.length < 4 ||
+      simplified.length - 1 > MAX_VERTICES_PER_SPLIT_RING ||
+      polygonAreaPx(simplified) < MIN_SPLIT_RING_AREA_PX
+    ) {
+      return reject(`candidate_geometry_${meta.segment_index}_${simplified.length - 1}`)
+    }
+    candidates.set(meta.segment_index, simplified)
+  }
+
+  const masks = new Map<number, Uint8Array>()
+  let predictedTotal = 0
+  let exactTotal = 0
+  for (const meta of ordered) {
+    const label = meta.segment_index
+    const mask = rasterizeClosedRingToMask(
+      candidates.get(label) as [number, number][],
+      width,
+      height
+    )
+    masks.set(label, mask)
+    let actual = 0
+    let predicted = 0
+    let correct = 0
+    const exactMask = exactMasks.get(label) as Uint8Array
+    for (let i = 0; i < mask.length; i++) {
+      if (exactMask[i] === 1) {
+        actual++
+        exactTotal++
+      }
+      if (mask[i] === 1) {
+        predicted++
+        if (exactMask[i] === 1) correct++
+      }
+    }
+    if (
+      actual === 0 ||
+      predicted === 0 ||
+      correct / predicted < 0.9 ||
+      correct / actual < 0.9
+    ) {
+      return reject(
+        `fidelity_${label}_p${predicted === 0 ? 0 : (correct / predicted).toFixed(3)}_r${
+          actual === 0 ? 0 : (correct / actual).toFixed(3)
+        }`
+      )
+    }
+    predictedTotal += predicted
+  }
+  // This stage only changes representation of the already exclusive contours.
+  // Whole-roof coverage remains owned by the unchanged strict/relaxed selector.
+  if (exactTotal === 0 || predictedTotal / exactTotal < 0.94 || predictedTotal / exactTotal > 1.06) {
+    return reject(`locked_coverage_${(predictedTotal / exactTotal).toFixed(3)}`)
+  }
+  for (let i = 0; i < ordered.length; i++) {
+    for (let j = i + 1; j < ordered.length; j++) {
+      const a = masks.get(ordered[i].segment_index) as Uint8Array
+      const b = masks.get(ordered[j].segment_index) as Uint8Array
+      for (let k = 0; k < a.length; k++) {
+        if (a[k] === 1 && b[k] === 1) return reject(`pixel_overlap_${i}_${j}`)
+      }
+    }
+  }
+  return candidates
+}
+
 /** Drop consecutive duplicate vertices left after welding (zero-length edges). */
 function dedupeConsecutiveVertices(
   vertices: { lat: number; lng: number }[]
@@ -2055,7 +2271,8 @@ export function facetsFromSplitMask(options: {
   const ordered = [...segsPx].sort((a, b) => a.segment_index - b.segment_index)
   const regularizedRings =
     simpleTwoPlaneGableRings({ bin, labels, width, height, ordered }) ??
-    multiPlaneLinearizedRings({ bin, labels, width, height, ordered })
+    multiPlaneLinearizedRings({ bin, labels, width, height, ordered }) ??
+    topologySimplifiedRings({ bin, labels, width, height, ordered })
   for (const meta of ordered) {
     scratch.fill(0)
     for (let i = 0; i < labels.length; i++) {
