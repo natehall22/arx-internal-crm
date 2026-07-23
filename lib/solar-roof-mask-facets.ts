@@ -1736,13 +1736,18 @@ function simpleTwoPlaneGableRings(options: {
   const hull = convexHullClosedRing(wholeRing)
   const wholeArea = polygonAreaPx(wholeRing)
   const hullArea = polygonAreaPx(hull)
-  if (wholeArea <= 0 || hullArea / wholeArea > CONVEX_HULL_MAX_INFLATION) return null
+  if (wholeArea <= 0) return null
+  const hullIsSafe = hullArea / wholeArea <= CONVEX_HULL_MAX_INFLATION
   const rectangle = minimumAreaBoundingRectangle(hull)
   const rectangleArea = rectangle ? polygonAreaPx(rectangle) : Infinity
   const outline =
-    rectangle && rectangleArea / wholeArea <= CONVEX_HULL_MAX_INFLATION
+    hullIsSafe && rectangle && rectangleArea / wholeArea <= CONVEX_HULL_MAX_INFLATION
       ? rectangle
-      : simplifyClosedRing(hull, SPLIT_RING_SIMPLIFY_EPS_PX, MAX_VERTICES_PER_RING)
+      : simplifyClosedRing(
+          hullIsSafe ? hull : wholeRing,
+          SPLIT_RING_SIMPLIFY_EPS_PX,
+          MAX_VERTICES_PER_RING
+        )
   if (outline.length < 4) return null
 
   const labelCenters = new Map<number, [number, number]>()

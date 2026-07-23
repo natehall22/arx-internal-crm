@@ -439,6 +439,31 @@ describe('exclusive split plane lock', () => {
     )
     expect(shared).toHaveLength(2)
   })
+
+  it('simplifies a concave two-plane outline around one shared ridge without overlap', () => {
+    const { bin, labels } = buildAdjacentSplitMask()
+    // A deep exterior notch makes a convex hull unsafe; the shared whole outline must
+    // remain concave while still collapsing raster stair-steps to field-editable edges.
+    for (let row = 14; row < 22; row++) {
+      for (let col = 6; col < 13; col++) {
+        const i = row * width + col
+        bin[i] = 0
+        labels[i] = -1
+      }
+    }
+    const facets = facetsFromSplitMask({
+      bin,
+      labels,
+      width,
+      height,
+      segsPx,
+      segments,
+      pixelToLngLat,
+    })
+    expect(facets).toHaveLength(2)
+    expect(facets.every((facet) => facet.lat_lng_vertices.length <= 12)).toBe(true)
+    expect(splitFacetsMeetMaskQualityThreshold(facets)).toBe(true)
+  })
 })
 
 describe('coplanar Solar segment merging', () => {
