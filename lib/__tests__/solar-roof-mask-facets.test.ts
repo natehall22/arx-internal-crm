@@ -431,6 +431,13 @@ describe('exclusive split plane lock', () => {
     })
     expect(facets.length).toBe(2)
     expect(splitFacetsMeetMaskQualityThreshold(facets)).toBe(true)
+    expect(facets.every((facet) => facet.lat_lng_vertices.length === 4)).toBe(true)
+    const shared = facets[0].lat_lng_vertices.filter((point) =>
+      facets[1].lat_lng_vertices.some(
+        (other) => other.lat === point.lat && other.lng === point.lng
+      )
+    )
+    expect(shared).toHaveLength(2)
   })
 })
 

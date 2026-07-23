@@ -318,6 +318,48 @@ function convexHullClosedRing(ring: [number, number][]): [number, number][] {
   return closeRing(lower.slice(0, -1).concat(upper.slice(0, -1)))
 }
 
+/** Smallest edge-aligned rectangle enclosing a convex ring (brute-force rotating calipers). */
+function minimumAreaBoundingRectangle(ring: [number, number][]): [number, number][] | null {
+  const points = openRingPoints(ring)
+  if (points.length < 3) return null
+  let best: { area: number; ring: [number, number][] } | null = null
+  for (let i = 0; i < points.length; i++) {
+    const a = points[i]
+    const b = points[(i + 1) % points.length]
+    const angle = Math.atan2(b[1] - a[1], b[0] - a[0])
+    const cos = Math.cos(angle)
+    const sin = Math.sin(angle)
+    let minX = Infinity
+    let maxX = -Infinity
+    let minY = Infinity
+    let maxY = -Infinity
+    for (const point of points) {
+      const x = point[0] * cos + point[1] * sin
+      const y = -point[0] * sin + point[1] * cos
+      minX = Math.min(minX, x)
+      maxX = Math.max(maxX, x)
+      minY = Math.min(minY, y)
+      maxY = Math.max(maxY, y)
+    }
+    const area = (maxX - minX) * (maxY - minY)
+    if (best && area >= best.area) continue
+    const unrotate = (x: number, y: number): [number, number] => [
+      x * cos - y * sin,
+      x * sin + y * cos,
+    ]
+    best = {
+      area,
+      ring: closeRing([
+        unrotate(minX, minY),
+        unrotate(maxX, minY),
+        unrotate(maxX, maxY),
+        unrotate(minX, maxY),
+      ]),
+    }
+  }
+  return best?.ring ?? null
+}
+
 function planarPolygonAreaSqFt(vertices: { lat: number; lng: number }[]): number {
   if (vertices.length < 3) return 0
   const lat0 = vertices.reduce((s, p) => s + p.lat, 0) / vertices.length
@@ -1575,6 +1617,165 @@ function largestRing(rings: [number, number][][]): [number, number][] | null {
   return best
 }
 
+type PixelLine = { x: number; y: number; dx: number; dy: number; rms: number; span: number }
+
+/** Fit one shared ridge through the raster boundary between exactly two plane labels. */
+function fitTwoPlaneBoundaryLine(
+  bin: Uint8Array,
+  labels: Int32Array,
+  width: number,
+  height: number,
+  aLabel: number,
+  bLabel: number
+): PixelLine | null {
+  const points: [number, number][] = []
+  const isPair = (a: number, b: number) =>
+    (a === aLabel && b === bLabel) || (a === bLabel && b === aLabel)
+  for (let row = 0; row < height; row++) {
+    for (let col = 0; col < width; col++) {
+      const i = row * width + col
+      if (bin[i] !== 1) continue
+      if (col + 1 < width && bin[i + 1] === 1 && isPair(labels[i], labels[i + 1])) {
+        points.push([col + 1, row + 0.5])
+      }
+      if (row + 1 < height && bin[i + width] === 1 && isPair(labels[i], labels[i + width])) {
+        points.push([col + 0.5, row + 1])
+      }
+    }
+  }
+  if (points.length < 8) return null
+  const x = points.reduce((sum, p) => sum + p[0], 0) / points.length
+  const y = points.reduce((sum, p) => sum + p[1], 0) / points.length
+  let xx = 0
+  let xy = 0
+  let yy = 0
+  for (const p of points) {
+    const px = p[0] - x
+    const py = p[1] - y
+    xx += px * px
+    xy += px * py
+    yy += py * py
+  }
+  const angle = 0.5 * Math.atan2(2 * xy, xx - yy)
+  const dx = Math.cos(angle)
+  const dy = Math.sin(angle)
+  let minT = Infinity
+  let maxT = -Infinity
+  let residual2 = 0
+  for (const p of points) {
+    const px = p[0] - x
+    const py = p[1] - y
+    const along = px * dx + py * dy
+    const across = px * -dy + py * dx
+    minT = Math.min(minT, along)
+    maxT = Math.max(maxT, along)
+    residual2 += across * across
+  }
+  return { x, y, dx, dy, rms: Math.sqrt(residual2 / points.length), span: maxT - minT }
+}
+
+function clipRingToLineHalfPlane(
+  ring: [number, number][],
+  line: PixelLine,
+  keepSign: number
+): [number, number][] {
+  const points = openRingPoints(ring)
+  if (points.length < 3) return []
+  const signed = (p: [number, number]) =>
+    keepSign * (line.dx * (p[1] - line.y) - line.dy * (p[0] - line.x))
+  const out: [number, number][] = []
+  for (let i = 0; i < points.length; i++) {
+    const current = points[i]
+    const next = points[(i + 1) % points.length]
+    const currentD = signed(current)
+    const nextD = signed(next)
+    const currentInside = currentD >= -1e-9
+    const nextInside = nextD >= -1e-9
+    if (currentInside) out.push(current)
+    if (currentInside !== nextInside) {
+      const t = currentD / (currentD - nextD)
+      out.push([
+        current[0] + (next[0] - current[0]) * t,
+        current[1] + (next[1] - current[1]) * t,
+      ])
+    }
+  }
+  return closeRing(out)
+}
+
+/**
+ * A simple two-slope gable should render like the field-drawn model: two clean outer
+ * polygons meeting on one straight ridge. The exclusive label raster supplies the
+ * split; clipping one shared whole-roof outline guarantees the halves cannot overlap.
+ */
+function simpleTwoPlaneGableRings(options: {
+  bin: Uint8Array
+  labels: Int32Array
+  width: number
+  height: number
+  ordered: SegPx[]
+}): Map<number, [number, number][]> | null {
+  const { bin, labels, width, height, ordered } = options
+  if (ordered.length !== 2) return null
+  const line = fitTwoPlaneBoundaryLine(
+    bin,
+    labels,
+    width,
+    height,
+    ordered[0].segment_index,
+    ordered[1].segment_index
+  )
+  if (!line || line.span < 12 || line.rms > Math.max(3, line.span * 0.06)) return null
+
+  const wholeRing = largestRing(
+    contourRingsFromMask(bin, width, height, { smooth: false }).filter(
+      (ring) => polygonAreaPx(ring) >= MIN_RING_AREA_PX
+    )
+  )
+  if (!wholeRing) return null
+  const hull = convexHullClosedRing(wholeRing)
+  const wholeArea = polygonAreaPx(wholeRing)
+  const hullArea = polygonAreaPx(hull)
+  if (wholeArea <= 0 || hullArea / wholeArea > CONVEX_HULL_MAX_INFLATION) return null
+  const rectangle = minimumAreaBoundingRectangle(hull)
+  const rectangleArea = rectangle ? polygonAreaPx(rectangle) : Infinity
+  const outline =
+    rectangle && rectangleArea / wholeArea <= CONVEX_HULL_MAX_INFLATION
+      ? rectangle
+      : simplifyClosedRing(hull, SPLIT_RING_SIMPLIFY_EPS_PX, MAX_VERTICES_PER_RING)
+  if (outline.length < 4) return null
+
+  const labelCenters = new Map<number, [number, number]>()
+  for (const meta of ordered) {
+    let sx = 0
+    let sy = 0
+    let count = 0
+    for (let row = 0; row < height; row++) {
+      for (let col = 0; col < width; col++) {
+        const i = row * width + col
+        if (bin[i] === 1 && labels[i] === meta.segment_index) {
+          sx += col + 0.5
+          sy += row + 0.5
+          count++
+        }
+      }
+    }
+    if (count === 0) return null
+    labelCenters.set(meta.segment_index, [sx / count, sy / count])
+  }
+
+  const out = new Map<number, [number, number][]>()
+  for (const meta of ordered) {
+    const center = labelCenters.get(meta.segment_index) as [number, number]
+    const side = line.dx * (center[1] - line.y) - line.dy * (center[0] - line.x)
+    if (Math.abs(side) < 1) return null
+    const clipped = clipRingToLineHalfPlane(outline, line, side > 0 ? 1 : -1)
+    if (clipped.length < 4 || polygonAreaPx(clipped) < MIN_SPLIT_RING_AREA_PX) return null
+    out.set(meta.segment_index, clipped)
+  }
+  return out
+}
+
 /** Drop consecutive duplicate vertices left after welding (zero-length edges). */
 function dedupeConsecutiveVertices(
   vertices: { lat: number; lng: number }[]
@@ -1691,6 +1892,7 @@ export function facetsFromSplitMask(options: {
   const out: SolarMaskFacetPayload[] = []
 
   const ordered = [...segsPx].sort((a, b) => a.segment_index - b.segment_index)
+  const gableRings = simpleTwoPlaneGableRings({ bin, labels, width, height, ordered })
   for (const meta of ordered) {
     scratch.fill(0)
     for (let i = 0; i < labels.length; i++) {
@@ -1732,7 +1934,7 @@ export function facetsFromSplitMask(options: {
 
     // Keep the exact locked contour. Simplification, spike removal, and vertex-count
     // decimation can all chord across a concavity and recreate overlap after the lock.
-    const cleaned = lockedRing
+    const cleaned = gableRings?.get(meta.segment_index) ?? lockedRing
     if (cleaned.length < 4) continue
 
     const latLngVertices: { lat: number; lng: number }[] = []

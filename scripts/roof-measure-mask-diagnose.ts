@@ -149,7 +149,9 @@ async function main() {
             : '-'
         console.log(`    path=${path} split_quality_mode=${mode}`)
         for (const facet of attempt.facets) {
-          console.log(`    facet ${facet.id}: source=${facet.facet_source}`)
+          console.log(
+            `    facet ${facet.id}: source=${facet.facet_source} vertices=${facet.lat_lng_vertices.length}`
+          )
         }
         if (typeof attempt.details?.overlapping_pairs === 'number') {
           console.log(`    overlapping_pairs=${attempt.details.overlapping_pairs}`)
