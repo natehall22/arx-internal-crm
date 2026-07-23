@@ -57,6 +57,19 @@ const MAX_SPLIT_FACETS_OUTPUT = 16
 const MAX_VERTICES_PER_RING = 48
 /** Per-plane mask contours — more vertices follow hips and irregular eaves. */
 const MAX_VERTICES_PER_SPLIT_RING = 72
+/**
+ * Hard ceiling on split-plane vertex count, checked after polish. `MAX_VERTICES_PER_SPLIT_RING`
+ * is a soft UI budget that {@link polishUsableSplitVertexCap} tries to hit but may deliberately
+ * exceed when capping would break quality/coverage (see its uncapped-first fallback). Without
+ * an absolute floor, that fallback can ship raw raster-staircase contours (100s of vertices) as
+ * "editable" planes. Any plane still above this after polish means the split is not usable as
+ * field-editable faces at all — {@link selectUsableSplitFacets} returns null so the caller falls
+ * back to the whole-mask contour (a clean outline + a robust full-coverage total) instead.
+ */
+// 90 leaves margin above clean raster split planes (observed ≤ ~61) and the 72 soft budget,
+// while rejecting planes the polish could only cap to 100–200 — those are still staircases and
+// belong on the clean whole-mask contour, not shipped as "editable" faces.
+const MAX_ABSOLUTE_SPLIT_VERTICES = 90
 /** Douglas–Peucker tolerance (mask px ≈ 0.1 m) to straighten split-plane contour edges. */
 const SPLIT_RING_SIMPLIFY_EPS_PX = 4
 /** Vertices with an interior angle below this are starburst/sliver spikes → removed. */
@@ -362,6 +375,64 @@ function minimumAreaBoundingRectangle(ring: [number, number][]): [number, number
     }
   }
   return best?.ring ?? null
+}
+
+type LatLng = { lat: number; lng: number }
+
+function openLatLngRing(ring: LatLng[]): LatLng[] {
+  if (ring.length < 2) return ring
+  const a = ring[0]
+  const b = ring[ring.length - 1]
+  if (a.lat === b.lat && a.lng === b.lng) return ring.slice(0, -1)
+  return ring.slice()
+}
+
+/** Smallest effective triangle area at vertex `i` — Visvalingam-style removal score. */
+function latLngVertexRemovalScore(open: LatLng[], i: number): number {
+  const prev = open[(i - 1 + open.length) % open.length]
+  const curr = open[i]
+  const next = open[(i + 1) % open.length]
+  return Math.abs(
+    (prev.lng - curr.lng) * (next.lat - curr.lat) - (prev.lat - curr.lat) * (next.lng - curr.lng)
+  )
+}
+
+/**
+ * Cap a split-plane lat/lng ring to {@link MAX_VERTICES_PER_SPLIT_RING} open vertices.
+ * Removes least-significant corners first so shared boundaries stay stable and
+ * adjacent planes do not pick up interior overlap from even decimation.
+ */
+function simplifyClosedLatLngRing(ring: LatLng[], maxVertices: number): LatLng[] {
+  let open = openLatLngRing(ring)
+  if (open.length <= maxVertices) return open
+  while (open.length > maxVertices) {
+    let bestIdx = 0
+    let bestScore = Infinity
+    for (let i = 0; i < open.length; i++) {
+      const score = latLngVertexRemovalScore(open, i)
+      if (score < bestScore) {
+        bestScore = score
+        bestIdx = i
+      }
+    }
+    open = open.filter((_, i) => i !== bestIdx)
+  }
+  return open
+}
+
+function simplifySplitFacetsVertexCap(
+  facets: SolarMaskFacetPayload[],
+  maxVertices: number = MAX_VERTICES_PER_SPLIT_RING
+): SolarMaskFacetPayload[] {
+  return facets.map((facet) => {
+    if (facet.lat_lng_vertices.length <= maxVertices) return facet
+    const latLngVertices = simplifyClosedLatLngRing(facet.lat_lng_vertices, maxVertices)
+    return {
+      ...facet,
+      lat_lng_vertices: latLngVertices,
+      estimated_sq_ft: Math.round(planarPolygonAreaSqFt(latLngVertices)),
+    }
+  })
 }
 
 function planarPolygonAreaSqFt(vertices: { lat: number; lng: number }[]): number {
@@ -948,6 +1019,15 @@ export function largestNonOverlappingPlaneSubset(
 
 /** A dropped facet at/above this footprint is a real roof plane, not a sliver. */
 const GENUINE_FACET_MIN_SQFT = 50
+/**
+ * Area-based tolerance for {@link splitDropsGenuineFacet}: a split may drop genuine,
+ * uncovered facets totalling up to this fraction of the source roof mask and still ship
+ * (e.g. a small hip end lost to sliver-pruning on an otherwise-good multi-plane split —
+ * ~5% is a rough-estimate rounding error, not an under-count worth degrading over).
+ * Above this fraction the loss is material enough that the caller must defer to the
+ * whole-mask contour (a robust total) instead of shipping an under-counted split.
+ */
+const MAX_DROPPED_GENUINE_FACET_MASK_FRACTION = 0.12
 
 function facetCentroidLatLng(f: SolarMaskFacetPayload): { lat: number; lng: number } {
   const v = f.lat_lng_vertices
@@ -975,25 +1055,140 @@ function pointInLatLngPolygon(
 }
 
 /**
- * True when `kept` omits a genuine (>= {@link GENUINE_FACET_MIN_SQFT}) facet whose footprint is
+ * True when `kept` omits genuine (>= {@link GENUINE_FACET_MIN_SQFT}) facets whose footprint is
  * NOT covered by the kept planes — i.e. real roof area was lost. Dropping a spurious facet that
- * overlaps a kept plane (a duplicate detection) is fine and returns false; dropping a separate
- * real facet (e.g. a hip end pruned as a relative sliver) returns true, so the caller can degrade
- * to the whole-mask contour (a robust total) instead of shipping an under-counted split.
+ * overlaps a kept plane (a duplicate detection) is fine and does not count; dropping separate
+ * real facets (e.g. a hip end pruned as a relative sliver) does.
+ *
+ * Area-based, not per-facet: a single dropped genuine facet does not fail the split by itself —
+ * the footprints of ALL dropped, uncovered, genuine facets are summed and compared against
+ * {@link MAX_DROPPED_GENUINE_FACET_MASK_FRACTION} of `targetMaskFootprintSqft`. A small lost
+ * roof end (a few percent of the mask) is tolerable for a rough estimate and keeps an otherwise
+ * usable multi-plane split; losing more than that fraction is a material under-count, so the
+ * caller degrades to the whole-mask contour (a robust total) instead.
+ *
+ * When `targetMaskFootprintSqft` is not provided (no denominator to compute a fraction against),
+ * fails closed on the old per-facet rule: any genuine, uncovered, dropped facet degrades the split.
  */
 export function splitDropsGenuineFacet(
   original: SolarMaskFacetPayload[],
-  kept: SolarMaskFacetPayload[]
+  kept: SolarMaskFacetPayload[],
+  targetMaskFootprintSqft?: number
 ): boolean {
   const keptIds = new Set(kept.map((f) => f.id))
+  const hasTarget = typeof targetMaskFootprintSqft === 'number' && targetMaskFootprintSqft > 0
+  let droppedGenuineSqft = 0
   for (const f of original) {
     if (keptIds.has(f.id)) continue
-    if (splitPlaneFootprintSqft(f) < GENUINE_FACET_MIN_SQFT) continue
+    const sqft = splitPlaneFootprintSqft(f)
+    if (sqft < GENUINE_FACET_MIN_SQFT) continue
     const centroid = facetCentroidLatLng(f)
     const coveredByKept = kept.some((k) => pointInLatLngPolygon(centroid, k.lat_lng_vertices))
-    if (!coveredByKept) return true
+    if (coveredByKept) continue
+    if (!hasTarget) return true
+    droppedGenuineSqft += sqft
   }
-  return false
+  if (!hasTarget) return false
+  return droppedGenuineSqft / targetMaskFootprintSqft! > MAX_DROPPED_GENUINE_FACET_MASK_FRACTION
+}
+
+type UsableSplitMode = 'strict' | 'pruned' | 'relaxed' | 'nonoverlap'
+
+function cascadeUsableSplitFacets(
+  candidateFacets: SolarMaskFacetPayload[],
+  originalFacets: SolarMaskFacetPayload[],
+  targetMaskFootprintSqft?: number
+): { facets: SolarMaskFacetPayload[]; mode: UsableSplitMode } | null {
+  if (candidateFacets.length === 0) return null
+  if (splitFacetsMeetMaskQualityThreshold(candidateFacets, targetMaskFootprintSqft)) {
+    return { facets: candidateFacets, mode: 'strict' }
+  }
+  const pruned = pruneSplitPlaneSlivers(candidateFacets)
+  if (
+    pruned.length !== candidateFacets.length &&
+    !splitDropsGenuineFacet(originalFacets, pruned, targetMaskFootprintSqft) &&
+    splitFacetsMeetMaskQualityThreshold(pruned, targetMaskFootprintSqft)
+  ) {
+    return { facets: pruned, mode: 'pruned' }
+  }
+  const relaxedCandidate = pruned.length >= 2 ? pruned : candidateFacets
+  if (
+    !splitDropsGenuineFacet(originalFacets, relaxedCandidate, targetMaskFootprintSqft) &&
+    splitFacetsMeetRelaxedMaskQualityThreshold(relaxedCandidate, targetMaskFootprintSqft)
+  ) {
+    return { facets: relaxedCandidate, mode: 'relaxed' }
+  }
+
+  const nonOverlap = largestNonOverlappingPlaneSubset(relaxedCandidate)
+  if (nonOverlap.length >= 2 && !splitDropsGenuineFacet(originalFacets, nonOverlap, targetMaskFootprintSqft)) {
+    if (splitFacetsMeetMaskQualityThreshold(nonOverlap, targetMaskFootprintSqft)) {
+      return { facets: nonOverlap, mode: 'nonoverlap' }
+    }
+    if (splitFacetsMeetRelaxedMaskQualityThreshold(nonOverlap, targetMaskFootprintSqft)) {
+      return { facets: nonOverlap, mode: 'nonoverlap' }
+    }
+  }
+  return null
+}
+
+function splitNeedsVertexCap(facets: SolarMaskFacetPayload[]): boolean {
+  return facets.some((facet) => facet.lat_lng_vertices.length > MAX_VERTICES_PER_SPLIT_RING)
+}
+
+/**
+ * Soft-cap vertices on an already-accepted split. Try progressively tighter budgets so
+ * complex roofs (Cambridge) can shed raster staircase without introducing interior overlap.
+ * Keep uncapped when every polish budget invalidates the split.
+ */
+function polishUsableSplitVertexCap(
+  accepted: { facets: SolarMaskFacetPayload[]; mode: UsableSplitMode },
+  originalFacets: SolarMaskFacetPayload[],
+  targetMaskFootprintSqft?: number
+): { facets: SolarMaskFacetPayload[]; mode: UsableSplitMode } {
+  if (!splitNeedsVertexCap(accepted.facets)) return accepted
+
+  const budgets = [200, 140, 100, MAX_VERTICES_PER_SPLIT_RING]
+  for (const budget of budgets) {
+    if (!accepted.facets.some((f) => f.lat_lng_vertices.length > budget)) continue
+    const capped = simplifySplitFacetsVertexCap(accepted.facets, budget)
+    if (splitDropsGenuineFacet(originalFacets, capped, targetMaskFootprintSqft)) continue
+
+    if (splitFacetsMeetMaskQualityThreshold(capped, targetMaskFootprintSqft)) {
+      return {
+        facets: capped,
+        mode: accepted.mode === 'relaxed' ? 'relaxed' : accepted.mode,
+      }
+    }
+    if (splitFacetsMeetRelaxedMaskQualityThreshold(capped, targetMaskFootprintSqft)) {
+      return { facets: capped, mode: 'relaxed' }
+    }
+  }
+  return accepted
+}
+
+/**
+ * Absolute vertex ceiling applied to whichever candidate {@link selectUsableSplitFacets} is about
+ * to return, regardless of cascade path: polish may deliberately leave a split uncapped when
+ * capping breaks quality, so this is the true floor stopping raw raster-staircase "planes" from
+ * shipping as editable faces. Failure returns null so the caller falls back to the whole-mask
+ * contour.
+ */
+function finalizeUsableSplit(
+  candidate: { facets: SolarMaskFacetPayload[]; mode: UsableSplitMode } | null
+): { facets: SolarMaskFacetPayload[]; mode: UsableSplitMode } | null {
+  if (!candidate) return null
+  if (candidate.facets.some((f) => f.lat_lng_vertices.length > MAX_ABSOLUTE_SPLIT_VERTICES)) {
+    if (process.env.ROOF_MEASURE_DEBUG_USABLE_SPLIT === '1') {
+      console.info('[selectUsableSplitFacets] rejected', {
+        path: 'absolute_vertex_ceiling',
+        mode: candidate.mode,
+        vertexCounts: candidate.facets.map((f) => f.lat_lng_vertices.length),
+        ceiling: MAX_ABSOLUTE_SPLIT_VERTICES,
+      })
+    }
+    return null
+  }
+  return candidate
 }
 
 /**
@@ -1002,48 +1197,60 @@ export function splitDropsGenuineFacet(
  * candidate that drops a genuine, uncovered facet is rejected (returns null) so the caller
  * falls back to the whole-mask contour — a robust total for the public estimate and an honest
  * "outline only" for ordering, instead of an under-counted partial split.
+ *
+ * Happy medium vs vertex budget: try the uncapped contours first (they often already pass
+ * relaxed). Vertex-cap is polish — never reject a usable uncapped split because capping
+ * introduced overlap. Only run the capped cascade when the uncapped contours fail.
+ *
+ * Every candidate this function would return passes through {@link finalizeUsableSplit} first:
+ * an absolute vertex ceiling, biased to fail closed / defer to the whole-mask contour rather
+ * than ship an unusable raster-staircase split.
  */
 export function selectUsableSplitFacets(
   facets: SolarMaskFacetPayload[],
   targetMaskFootprintSqft?: number
 ): {
   facets: SolarMaskFacetPayload[]
-  mode: 'strict' | 'pruned' | 'relaxed' | 'nonoverlap'
+  mode: UsableSplitMode
 } | null {
   if (facets.length === 0) return null
-  // Raw exclusivity contours can be non-overlapping yet still be unusable for field
-  // ordering (hundreds of raster vertices and curled internal edges). Complex splits
-  // must pass a regularizer before they can ship; otherwise prefer the safe fallback.
-  if (facets.some((facet) => facet.lat_lng_vertices.length > MAX_VERTICES_PER_SPLIT_RING)) {
-    return null
-  }
-  if (splitFacetsMeetMaskQualityThreshold(facets, targetMaskFootprintSqft)) {
-    return { facets, mode: 'strict' }
-  }
-  const pruned = pruneSplitPlaneSlivers(facets)
-  if (
-    pruned.length !== facets.length &&
-    !splitDropsGenuineFacet(facets, pruned) &&
-    splitFacetsMeetMaskQualityThreshold(pruned, targetMaskFootprintSqft)
-  ) {
-    return { facets: pruned, mode: 'pruned' }
-  }
-  const relaxedCandidate = pruned.length >= 2 ? pruned : facets
-  if (
-    !splitDropsGenuineFacet(facets, relaxedCandidate) &&
-    splitFacetsMeetRelaxedMaskQualityThreshold(relaxedCandidate, targetMaskFootprintSqft)
-  ) {
-    return { facets: relaxedCandidate, mode: 'relaxed' }
+
+  const uncapped = cascadeUsableSplitFacets(facets, facets, targetMaskFootprintSqft)
+  if (uncapped) {
+    const polished = polishUsableSplitVertexCap(uncapped, facets, targetMaskFootprintSqft)
+    return finalizeUsableSplit(polished)
   }
 
-  const nonOverlap = largestNonOverlappingPlaneSubset(relaxedCandidate)
-  if (nonOverlap.length >= 2 && !splitDropsGenuineFacet(facets, nonOverlap)) {
-    if (splitFacetsMeetMaskQualityThreshold(nonOverlap, targetMaskFootprintSqft)) {
-      return { facets: nonOverlap, mode: 'nonoverlap' }
+  if (!splitNeedsVertexCap(facets)) {
+    if (process.env.ROOF_MEASURE_DEBUG_USABLE_SPLIT === '1') {
+      console.info('[selectUsableSplitFacets] rejected', {
+        path: 'uncapped_only',
+        origVertexCounts: facets.map((f) => f.lat_lng_vertices.length),
+      })
     }
-    if (splitFacetsMeetRelaxedMaskQualityThreshold(nonOverlap, targetMaskFootprintSqft)) {
-      return { facets: nonOverlap, mode: 'nonoverlap' }
+    return null
+  }
+
+  const cappedFacets = simplifySplitFacetsVertexCap(facets)
+  const capped = cascadeUsableSplitFacets(cappedFacets, facets, targetMaskFootprintSqft)
+  if (capped) return finalizeUsableSplit(capped)
+
+  if (process.env.ROOF_MEASURE_DEBUG_USABLE_SPLIT === '1') {
+    const planes = cappedFacets.filter((f) => f.facet_source === 'solar_mask_plane')
+    let overlapping = 0
+    for (let i = 0; i < planes.length; i++) {
+      for (let j = i + 1; j < planes.length; j++) {
+        if (polygonsOverlapInterior(planes[i].lat_lng_vertices, planes[j].lat_lng_vertices)) overlapping++
+      }
     }
+    console.info('[selectUsableSplitFacets] rejected', {
+      path: 'uncapped_then_capped',
+      strict: splitFacetsMeetMaskQualityThreshold(cappedFacets, targetMaskFootprintSqft),
+      relaxed: splitFacetsMeetRelaxedMaskQualityThreshold(cappedFacets, targetMaskFootprintSqft),
+      origVertexCounts: facets.map((f) => f.lat_lng_vertices.length),
+      vertexCounts: cappedFacets.map((f) => f.lat_lng_vertices.length),
+      overlapping_pairs: overlapping,
+    })
   }
 
   return null
@@ -1065,7 +1272,9 @@ export function explainSplitQualityRejection(
   strict_ok: boolean
   relaxed_ok: boolean
   usable_mode: 'strict' | 'pruned' | 'relaxed' | 'nonoverlap' | null
+  vertex_capped: boolean
 } {
+  const vertexCapped = facets.some((f) => f.lat_lng_vertices.length > MAX_VERTICES_PER_SPLIT_RING)
   const planes = facets.filter((f) => f.facet_source === 'solar_mask_plane')
   const areas = planes.map(splitPlaneFootprintSqft)
   const sum = areas.reduce((a, b) => a + b, 0)
@@ -1098,6 +1307,7 @@ export function explainSplitQualityRejection(
       targetMaskFootprintSqft
     ),
     usable_mode: usable?.mode ?? null,
+    vertex_capped: vertexCapped,
   }
 }
 
@@ -3127,22 +3337,15 @@ export async function tryFacetPayloadsFromSolarRoofMask(options: {
         })
         // Try whole-roof before giving up on this query.
       } else if (splitOut.length > MAX_FACETS) {
-        // Over-segmented after consolidation: do not collapse to a single whole-mask blob
-        // (loses ridge/valley for ordering). Fail closed so detect-roof can use bbox/manual.
-        console.info('[solar-mask] split plane count exceeds max; fail closed', {
+        // Over-segmented after consolidation (too many planes to ship as a clean split). Fall
+        // through to the whole-mask contour — a clean outline + robust full-coverage total — in
+        // preference to a rough Solar bbox. The save gate still requires a rep to split faces
+        // before the whole-mask geometry becomes order-ready.
+        console.info('[solar-mask] split plane count exceeds max; whole-roof fallback', {
           ...baseDetails,
           split_filtered_count: splitOut.length,
           max_facets: MAX_FACETS,
           merged_segment_count: mergedSegments.length,
-        })
-        return maskAttempt('split_quality_below_threshold', null, {
-          ...baseDetails,
-          mask_width: width,
-          mask_height: height,
-          split_filtered_count: splitOut.length,
-          merged_segment_count: mergedSegments.length,
-          path: 'plane_count_exceeds_max',
-          split_method: splitMethod,
         })
       } else if (splitOut.length > 0) {
         const maxSqft = Math.max(

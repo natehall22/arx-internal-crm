@@ -14,6 +14,7 @@ import {
   pruneSplitPlaneSlivers,
   segmentFacetSuggestions,
   selectUsableSplitFacets,
+  splitDropsGenuineFacet,
   splitFacetsMeetMaskQualityThreshold,
   splitFacetsMeetRelaxedMaskQualityThreshold,
   topologySimplifiedRings,
@@ -296,7 +297,7 @@ describe('split mask quality threshold', () => {
     expect(selectUsableSplitFacets([largeA, largeB, overlapping], 980)?.facets).toHaveLength(2)
   })
 
-  it('fails closed when sliver pruning would drop a genuine uncovered roof end', () => {
+  it('keeps the multi-plane split when a dropped end is within the mask fraction (Greenway-style hip end)', () => {
     const d = 0.00002
     const left = facet('left', 32, -96, {
       estimated_sq_ft: 1000,
@@ -323,7 +324,15 @@ describe('split mask quality threshold', () => {
       'left',
       'right',
     ])
-    expect(selectUsableSplitFacets([left, right, genuineEnd, noise], 2080)).toBeNull()
+    // 60 sqft end is ~2.9% of the 2080 sqft mask — below the degrade fraction, so the split
+    // keeps its multi-plane result (this is Greenway's small hip-end case).
+    expect(selectUsableSplitFacets([left, right, genuineEnd, noise], 2080)?.mode).toBe('pruned')
+
+    // Direct guard: an uncovered dropped end above the mask fraction (400/2400 ≈ 17%) flags the
+    // under-count; below it (60/2400 ≈ 2.5%) it is tolerated.
+    const bigEnd = facet('bigend', 32, -95.9999, { estimated_sq_ft: 400 })
+    expect(splitDropsGenuineFacet([left, right, bigEnd], [left, right], 2400)).toBe(true)
+    expect(splitDropsGenuineFacet([left, right, genuineEnd], [left, right], 2400)).toBe(false)
   })
 
   it('returns null for fully overlapping planes even when coverage is good', () => {
@@ -359,7 +368,7 @@ describe('split mask quality threshold', () => {
     expect(selectUsableSplitFacets([left, right], 1000)?.mode).toBe('relaxed')
   })
 
-  it('fails closed on raw high-vertex contours even when they do not overlap', () => {
+  it('accepts high-vertex non-overlapping planes as a usable split', () => {
     const noisy = facet('noisy', 32, -96, {
       estimated_sq_ft: 500,
       lat_lng_vertices: Array.from({ length: 73 }, (_, index) => {
@@ -369,7 +378,57 @@ describe('split mask quality threshold', () => {
     })
     const sibling = facet('sibling', 32, -95.9999, { estimated_sq_ft: 500 })
 
-    expect(selectUsableSplitFacets([noisy, sibling], 1000)).toBeNull()
+    const usable = selectUsableSplitFacets([noisy, sibling], 1000)
+    expect(usable).not.toBeNull()
+    expect(['strict', 'relaxed']).toContain(usable?.mode)
+    expect(usable?.facets).toHaveLength(2)
+  })
+
+  it('prefers an uncapped usable split over a capped split that fails quality', () => {
+    // Separated circles: uncapped passes. Soft-cap recomputes footprint from the tiny
+    // geometry and can miss the coverage band — still ship the uncapped usable split
+    // rather than falling through to whole-mask / bbox.
+    const left = facet('left', 32, -96.0001, {
+      estimated_sq_ft: 500,
+      lat_lng_vertices: Array.from({ length: 90 }, (_, index) => {
+        const angle = (index / 90) * Math.PI * 2
+        return { lat: 32 + Math.sin(angle) * 0.000025, lng: -96.0001 + Math.cos(angle) * 0.000025 }
+      }),
+    })
+    const right = facet('right', 32, -95.9999, {
+      estimated_sq_ft: 500,
+      lat_lng_vertices: Array.from({ length: 90 }, (_, index) => {
+        const angle = (index / 90) * Math.PI * 2
+        return { lat: 32 + Math.sin(angle) * 0.000025, lng: -95.9999 + Math.cos(angle) * 0.000025 }
+      }),
+    })
+
+    expect(splitFacetsMeetRelaxedMaskQualityThreshold([left, right], 1000)).toBe(true)
+    const usable = selectUsableSplitFacets([left, right], 1000)
+    expect(usable).not.toBeNull()
+    expect(usable?.facets).toHaveLength(2)
+    // Uncapped may remain above the soft UI budget when polish would invalidate quality.
+    expect(Math.max(...(usable?.facets.map((f) => f.lat_lng_vertices.length) ?? [0]))).toBeGreaterThan(72)
+  })
+
+  it('fails closed when vertex-capped planes still fully overlap', () => {
+    const d = 0.00003
+    const noisyA = facet('a', 32, -96, {
+      estimated_sq_ft: 500,
+      lat_lng_vertices: Array.from({ length: 80 }, (_, index) => {
+        const angle = (index / 80) * Math.PI * 2
+        return { lat: 32 + Math.sin(angle) * d, lng: -96 + Math.cos(angle) * d }
+      }),
+    })
+    const noisyB = facet('b', 32.00001, -96.00001, {
+      estimated_sq_ft: 500,
+      lat_lng_vertices: Array.from({ length: 80 }, (_, index) => {
+        const angle = (index / 80) * Math.PI * 2
+        return { lat: 32.00001 + Math.sin(angle) * d, lng: -96.00001 + Math.cos(angle) * d }
+      }),
+    })
+
+    expect(selectUsableSplitFacets([noisyA, noisyB], 1000)).toBeNull()
   })
 })
 

@@ -404,6 +404,8 @@ async function resolveSolarMaskFacets(options: {
   maskDiagnostics: {
     solar_mask_fallback_reason: SolarMaskFallbackReason
     solar_mask_attempts: Array<{ label: string; reason: SolarMaskFallbackReason; facet_count: number }>
+    /** True when mask returned whole-roof because a multi-plane split was unavailable. */
+    solar_mask_split_unavailable?: boolean
   }
   solarReferenceForFilter: { lat: number; lng: number }
   usedSolarAnchorFallback: boolean
@@ -1379,6 +1381,7 @@ export async function POST(request: Request) {
       let maskDiagnostics: {
         solar_mask_fallback_reason: SolarMaskFallbackReason
         solar_mask_attempts: Array<{ label: string; reason: SolarMaskFallbackReason; facet_count: number }>
+        solar_mask_split_unavailable?: boolean
       } = {
         solar_mask_fallback_reason: mapsKey ? 'no_mask_url' : 'no_mask_url',
         solar_mask_attempts: [],
@@ -1398,24 +1401,18 @@ export async function POST(request: Request) {
         solarReferenceForFilter = resolved.solarReferenceForFilter
         usedSolarAnchorFallback = resolved.usedSolarAnchorFallback
 
-        /**
-         * One whole-roof mask on a multi-plane building collapses gables to a single
-         * downslope and blocks topology. Prefer per-segment bboxes whenever Solar
-         * reports ≥2 segments (not only complex ≥5-segment roofs).
-         */
         const maskIsSingleWhole =
           solarFacets.length === 1 &&
           solarFacets[0]?.facet_source === 'solar_mask_whole' &&
           solarSegments.length >= 2
         if (maskIsSingleWhole) {
-          console.info('[detect-roof] single whole-roof mask; prefer solar_bbox for multi-segment', {
+          console.info('[detect-roof] whole-roof mask; multi-plane split unavailable', {
             segment_count: solarSegments.length,
             ...maskDiagnostics,
           })
-          solarFacets = []
           maskDiagnostics = {
             ...maskDiagnostics,
-            solar_mask_fallback_reason: 'single_whole_multisegment',
+            solar_mask_split_unavailable: true,
           }
         }
       }
@@ -1592,7 +1589,9 @@ export async function POST(request: Request) {
           facetSource === 'solar_mask_plane'
             ? 'Roof sections from satellite mask (GeoTIFF), split to follow edges better than plain boxes. Drag corners to fine-tune. Use “Trace from photo” only if you need an AI redraw (extra cost).'
             : facetSource === 'solar_mask_whole'
-              ? 'Roof outline loaded from satellite mask. Solar did not split planes cleanly—review the outline, split faces if needed, and set pitch.'
+              ? maskDiagnostics.solar_mask_split_unavailable
+                ? 'Whole-roof outline only — plane split was not reliable enough (kept the accurate footprint instead of rough boxes). Split into faces before saving for ordering; set pitch on each face.'
+                : 'Roof outline loaded from satellite mask. Solar did not split planes cleanly—review the outline, split faces if needed, and set pitch.'
               : 'Roof sections from satellite (no photo AI). Shapes may be simple boxes—drag corners to match the roof. Use “Trace from photo” only for an AI redraw (extra cost).'
         const notes = [dropped_note, solarNotes].filter(Boolean).join(' ')
 
