@@ -3,6 +3,7 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import { computeFinancedContractTotal } from '@/lib/financing'
 import { SALE_AGREEMENT_TYPES } from '@/lib/sales-metrics'
 import { resolveSalesDocAccessBarred } from '@/lib/sales-doc-access'
+import { loadBuilderMeasurement } from '@/lib/proposal-builder-measurement'
 
 export const dynamic = 'force-dynamic'
 
@@ -279,34 +280,14 @@ export async function GET(request: NextRequest) {
       opportunity = opp
     }
 
-    // Load measurement data
-    let measurement = null
-    
-    // First try explicit measurement_id
-    if (measurementId) {
-      const { data: meas } = await adminClient
-        .from('roof_measurements')
-        .select('*')
-        .eq('id', measurementId)
-        .maybeSingle()
-      measurement = meas
-    }
-    
-    // If no measurement yet, try to find one linked to the opportunity
-    if (!measurement && effectiveOpportunityId) {
-      const { data: oppMeasurement } = await adminClient
-        .from('roof_measurements')
-        .select('*')
-        .eq('opportunity_id', effectiveOpportunityId)
-        .eq('status', 'completed')
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle()
-
-      if (oppMeasurement) {
-        measurement = oppMeasurement
-      }
-    }
+    // The service-role client bypasses RLS, so every measurement lookup must
+    // explicitly remain inside the authenticated user's organization.
+    let measurement = await loadBuilderMeasurement(
+      adminClient,
+      profile.org_id,
+      measurementId,
+      effectiveOpportunityId
+    )
 
     const leadFromOpp = opportunity?.leads
       ? Array.isArray(opportunity.leads)
