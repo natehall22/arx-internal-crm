@@ -1398,11 +1398,15 @@ export async function POST(request: Request) {
         solarReferenceForFilter = resolved.solarReferenceForFilter
         usedSolarAnchorFallback = resolved.usedSolarAnchorFallback
 
-        /** One whole-roof mask on a multi-plane building is worse than per-segment bboxes. */
+        /**
+         * One whole-roof mask on a multi-plane building collapses gables to a single
+         * downslope and blocks topology. Prefer per-segment bboxes whenever Solar
+         * reports ≥2 segments (not only complex ≥5-segment roofs).
+         */
         const maskIsSingleWhole =
           solarFacets.length === 1 &&
           solarFacets[0]?.facet_source === 'solar_mask_whole' &&
-          solarSegments.length >= 5
+          solarSegments.length >= 2
         if (maskIsSingleWhole) {
           console.info('[detect-roof] single whole-roof mask; prefer solar_bbox for multi-segment', {
             segment_count: solarSegments.length,

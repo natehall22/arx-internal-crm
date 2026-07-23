@@ -103,30 +103,6 @@ async function main() {
     const layers = await fetchSolarDataLayerUrls(lat, lng, key)
 
     const labels = ['requested_pin', 'capture_center'] as const
-    const attempts: Array<{
-      label: string
-      reason: string
-      facet_count: number
-      details?: Record<string, string | number | boolean | null>
-    }> = []
-
-    for (const label of labels) {
-      const attempt = await tryFacetPayloadsFromSolarRoofMask({
-        lat,
-        lng,
-        apiKey: key,
-        referenceLat: lat,
-        referenceLng: lng,
-        segments,
-        querySource: label,
-      })
-      attempts.push({
-        label,
-        reason: attempt.reason,
-        facet_count: attempt.facets?.length ?? 0,
-        details: attempt.details,
-      })
-    }
 
     console.log('---')
     console.log(address)
@@ -139,19 +115,43 @@ async function main() {
       )
     }
     console.log(`  dataLayers mask: ${layers.maskUrl ? 'yes' : 'no'}  dsm: ${layers.dsmUrl ? 'yes' : 'no'}`)
-    for (const a of attempts) {
-      const extra = a.details?.nearest_contour_m != null ? ` nearest_m=${a.details.nearest_contour_m}` : ''
+    for (const label of labels) {
+      const attempt = await tryFacetPayloadsFromSolarRoofMask({
+        lat,
+        lng,
+        apiKey: key,
+        referenceLat: lat,
+        referenceLng: lng,
+        segments,
+        querySource: label,
+      })
+      const extra =
+        attempt.details?.nearest_contour_m != null
+          ? ` nearest_m=${attempt.details.nearest_contour_m}`
+          : ''
       const splitMethod =
-        typeof a.details?.split_method === 'string'
-          ? ` split=${a.details.split_method}`
+        typeof attempt.details?.split_method === 'string'
+          ? ` split=${attempt.details.split_method}`
           : ''
       const mergedCount =
-        typeof a.details?.merged_segment_count === 'number'
-          ? ` merged=${a.details.merged_segment_count}`
+        typeof attempt.details?.merged_segment_count === 'number'
+          ? ` merged=${attempt.details.merged_segment_count}`
           : ''
       console.log(
-        `  mask @ ${a.label}: reason=${a.reason} facets=${a.facet_count}${splitMethod}${mergedCount}${extra}`
+        `  mask @ ${label}: reason=${attempt.reason} facets=${attempt.facets?.length ?? 0}${splitMethod}${mergedCount}${extra}`
       )
+      if (attempt.reason === 'ok' && attempt.facets?.length) {
+        const path =
+          typeof attempt.details?.path === 'string' ? attempt.details.path : '-'
+        const mode =
+          typeof attempt.details?.split_quality_mode === 'string'
+            ? attempt.details.split_quality_mode
+            : '-'
+        console.log(`    path=${path} split_quality_mode=${mode}`)
+        for (const facet of attempt.facets) {
+          console.log(`    facet ${facet.id}: source=${facet.facet_source}`)
+        }
+      }
     }
   }
 }

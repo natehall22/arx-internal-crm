@@ -66,6 +66,17 @@ const MIN_SPLIT_TO_MASK_AREA_RATIO = 0.88
 /** Reject a split when hull/simplification/welding materially overfills the source mask. */
 const MAX_SPLIT_TO_MASK_AREA_RATIO = 1.08
 /**
+ * Relaxed coverage band used only when the strict gate fails. Prefer a slightly
+ * under/over-covered multi-plane split over a single whole-roof blob (which collapses
+ * gables to one downslope) or rough Solar bboxes.
+ * Field roofs often lose ~30% of mask area to contour cleanup / pin filtering —
+ * still far more usable than bbox or one-blob whole-mask.
+ */
+const MIN_SPLIT_TO_MASK_AREA_RATIO_RELAXED = 0.65
+const MAX_SPLIT_TO_MASK_AREA_RATIO_RELAXED = 1.25
+/** Drop split planes smaller than this fraction of the largest sibling (noise slivers). */
+const SPLIT_SLIVER_MAX_FRACTION_OF_LARGEST = 0.08
+/**
  * Accept convex-hull regularization only when it barely changes area — i.e. the plane
  * is already essentially convex, so the hull just crisps a rectangular outline. A larger
  * ratio means the plane is genuinely concave (L-shape, valley edge, dormer cut-in), where
@@ -752,33 +763,266 @@ function polygonsOverlapInterior(a: Point2[], b: Point2[]): boolean {
     b.some((point) => pointStrictlyInsidePolygon(point, a))
 }
 
+function splitPlaneFootprintSqft(facet: SolarMaskFacetPayload): number {
+  return facet.estimated_sq_ft ?? Math.round(planarPolygonAreaSqFt(facet.lat_lng_vertices))
+}
+
+function splitPlanesAreIndividuallyValid(planes: SolarMaskFacetPayload[]): boolean {
+  if (planes.length === 0) return false
+  if (!planes.every((f) => {
+    if (f.facet_source !== 'solar_mask_plane') return false
+    if (f.lat_lng_vertices.length < 3 || polygonSelfIntersects(f.lat_lng_vertices)) return false
+    return splitPlaneFootprintSqft(f) >= MIN_PLANE_FOOTPRINT_SQFT
+  })) return false
+  for (let i = 0; i < planes.length; i++) {
+    for (let j = i + 1; j < planes.length; j++) {
+      if (polygonsOverlapInterior(planes[i].lat_lng_vertices, planes[j].lat_lng_vertices)) return false
+    }
+  }
+  return true
+}
+
 export function splitFacetsMeetMaskQualityThreshold(
   facets: SolarMaskFacetPayload[],
   targetMaskFootprintSqft?: number
 ): boolean {
   const planes = facets.filter((f) => f.facet_source === 'solar_mask_plane')
   if (planes.length === 0 || planes.length !== facets.length) return false
-  if (!planes.every((f) => {
-    if (f.lat_lng_vertices.length < 3 || polygonSelfIntersects(f.lat_lng_vertices)) return false
-    const sqft = f.estimated_sq_ft ?? Math.round(planarPolygonAreaSqFt(f.lat_lng_vertices))
-    return sqft >= MIN_PLANE_FOOTPRINT_SQFT
-  })) return false
-
-  for (let i = 0; i < planes.length; i++) {
-    for (let j = i + 1; j < planes.length; j++) {
-      if (polygonsOverlapInterior(planes[i].lat_lng_vertices, planes[j].lat_lng_vertices)) return false
-    }
-  }
+  if (!splitPlanesAreIndividuallyValid(planes)) return false
 
   if (typeof targetMaskFootprintSqft === 'number' && targetMaskFootprintSqft > 0) {
-    const splitSqft = planes.reduce(
-      (sum, facet) => sum + (facet.estimated_sq_ft ?? planarPolygonAreaSqFt(facet.lat_lng_vertices)),
-      0
-    )
+    const splitSqft = planes.reduce((sum, facet) => sum + splitPlaneFootprintSqft(facet), 0)
     const ratio = splitSqft / targetMaskFootprintSqft
     if (ratio < MIN_SPLIT_TO_MASK_AREA_RATIO || ratio > MAX_SPLIT_TO_MASK_AREA_RATIO) return false
   }
   return true
+}
+
+/**
+ * Looser coverage gate for usable multi-plane splits. Still requires non-overlapping,
+ * min-area solar_mask_plane polygons — only the mask-coverage band is widened.
+ */
+export function splitFacetsMeetRelaxedMaskQualityThreshold(
+  facets: SolarMaskFacetPayload[],
+  targetMaskFootprintSqft?: number
+): boolean {
+  const planes = facets.filter((f) => f.facet_source === 'solar_mask_plane')
+  if (planes.length < 2 || planes.length !== facets.length) return false
+  if (!splitPlanesAreIndividuallyValid(planes)) return false
+
+  if (typeof targetMaskFootprintSqft === 'number' && targetMaskFootprintSqft > 0) {
+    const splitSqft = planes.reduce((sum, facet) => sum + splitPlaneFootprintSqft(facet), 0)
+    const ratio = splitSqft / targetMaskFootprintSqft
+    if (ratio < MIN_SPLIT_TO_MASK_AREA_RATIO_RELAXED || ratio > MAX_SPLIT_TO_MASK_AREA_RATIO_RELAXED) {
+      return false
+    }
+  }
+  return true
+}
+
+/**
+ * Drop tiny sibling slivers that commonly fail the strict "every plane ≥ min" gate,
+ * then keep the remaining multi-plane set if it still looks like a real roof.
+ */
+export function pruneSplitPlaneSlivers(facets: SolarMaskFacetPayload[]): SolarMaskFacetPayload[] {
+  const planes = facets.filter((f) => f.facet_source === 'solar_mask_plane')
+  if (planes.length < 2) return facets
+  const areas = planes.map(splitPlaneFootprintSqft)
+  const largest = Math.max(...areas)
+  const minKeep = Math.max(MIN_PLANE_FOOTPRINT_SQFT, largest * SPLIT_SLIVER_MAX_FRACTION_OF_LARGEST)
+  const kept = planes.filter((_, i) => areas[i] >= minKeep)
+  return kept.length >= 2 ? kept : planes
+}
+
+function splitPlanesHaveValidShapes(planes: SolarMaskFacetPayload[]): boolean {
+  if (planes.length === 0) return false
+  return planes.every((f) => {
+    if (f.facet_source !== 'solar_mask_plane') return false
+    if (f.lat_lng_vertices.length < 3 || polygonSelfIntersects(f.lat_lng_vertices)) return false
+    return splitPlaneFootprintSqft(f) >= MIN_PLANE_FOOTPRINT_SQFT
+  })
+}
+
+function splitCoverageInRelaxedBand(
+  planes: SolarMaskFacetPayload[],
+  targetMaskFootprintSqft?: number
+): boolean {
+  if (typeof targetMaskFootprintSqft !== 'number' || targetMaskFootprintSqft <= 0) return true
+  const splitSqft = planes.reduce((sum, facet) => sum + splitPlaneFootprintSqft(facet), 0)
+  const ratio = splitSqft / targetMaskFootprintSqft
+  return ratio >= MIN_SPLIT_TO_MASK_AREA_RATIO_RELAXED && ratio <= MAX_SPLIT_TO_MASK_AREA_RATIO_RELAXED
+}
+
+/**
+ * Keep the largest non-overlapping multi-plane subset. Contour simplify / weld often
+ * leaves one overlapping pair that would otherwise discard an otherwise-good split.
+ * Exact search (n ≤ 16): maximize plane count, then total footprint area.
+ */
+export function largestNonOverlappingPlaneSubset(
+  facets: SolarMaskFacetPayload[]
+): SolarMaskFacetPayload[] {
+  const valid = facets
+    .filter((f) => f.facet_source === 'solar_mask_plane')
+    .filter((plane) => {
+      if (polygonSelfIntersects(plane.lat_lng_vertices)) return false
+      return splitPlaneFootprintSqft(plane) >= MIN_PLANE_FOOTPRINT_SQFT
+    })
+    .sort((a, b) => splitPlaneFootprintSqft(b) - splitPlaneFootprintSqft(a))
+    .slice(0, 16)
+  if (valid.length < 2) return []
+
+  const n = valid.length
+  const areas = valid.map(splitPlaneFootprintSqft)
+  const overlaps = Array.from({ length: n }, () => Array<boolean>(n).fill(false))
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      const hit = polygonsOverlapInterior(valid[i].lat_lng_vertices, valid[j].lat_lng_vertices)
+      overlaps[i][j] = hit
+      overlaps[j][i] = hit
+    }
+  }
+
+  let bestMask = 0
+  let bestCount = 0
+  let bestArea = 0
+  const subsetCount = 1 << n
+  for (let mask = 1; mask < subsetCount; mask++) {
+    let count = 0
+    let area = 0
+    let ok = true
+    for (let i = 0; i < n; i++) {
+      if ((mask & (1 << i)) === 0) continue
+      count++
+      area += areas[i]
+      for (let j = i + 1; j < n; j++) {
+        if ((mask & (1 << j)) === 0) continue
+        if (overlaps[i][j]) {
+          ok = false
+          break
+        }
+      }
+      if (!ok) break
+    }
+    if (!ok) continue
+    if (count > bestCount || (count === bestCount && area > bestArea)) {
+      bestCount = count
+      bestArea = area
+      bestMask = mask
+    }
+  }
+
+  if (bestCount < 2) return []
+  const kept: SolarMaskFacetPayload[] = []
+  for (let i = 0; i < n; i++) {
+    if (bestMask & (1 << i)) kept.push(valid[i])
+  }
+  return kept
+}
+
+/**
+ * When the strict quality gate fails, prefer a cleaned/relaxed multi-plane split over
+ * falling through to whole-roof (one downslope for a gable) or Solar bboxes.
+ */
+export function selectUsableSplitFacets(
+  facets: SolarMaskFacetPayload[],
+  targetMaskFootprintSqft?: number
+): {
+  facets: SolarMaskFacetPayload[]
+  mode: 'strict' | 'pruned' | 'relaxed' | 'nonoverlap' | 'overlap_tolerated'
+} | null {
+  if (facets.length === 0) return null
+  if (splitFacetsMeetMaskQualityThreshold(facets, targetMaskFootprintSqft)) {
+    return { facets, mode: 'strict' }
+  }
+  const pruned = pruneSplitPlaneSlivers(facets)
+  if (
+    pruned.length !== facets.length &&
+    splitFacetsMeetMaskQualityThreshold(pruned, targetMaskFootprintSqft)
+  ) {
+    return { facets: pruned, mode: 'pruned' }
+  }
+  const relaxedCandidate = pruned.length >= 2 ? pruned : facets
+  if (splitFacetsMeetRelaxedMaskQualityThreshold(relaxedCandidate, targetMaskFootprintSqft)) {
+    return { facets: relaxedCandidate, mode: 'relaxed' }
+  }
+
+  const nonOverlap = largestNonOverlappingPlaneSubset(relaxedCandidate)
+  if (nonOverlap.length >= 2) {
+    if (splitFacetsMeetMaskQualityThreshold(nonOverlap, targetMaskFootprintSqft)) {
+      return { facets: nonOverlap, mode: 'nonoverlap' }
+    }
+    if (splitFacetsMeetRelaxedMaskQualityThreshold(nonOverlap, targetMaskFootprintSqft)) {
+      return { facets: nonOverlap, mode: 'nonoverlap' }
+    }
+  }
+
+  /**
+   * Last resort for hip/gable splits that only fail the interior-overlap check after
+   * contour simplify/weld. Slightly overlapping sections still beat a whole-roof blob
+   * or Solar bboxes for field usability + topology.
+   */
+  const planes = relaxedCandidate.filter((f) => f.facet_source === 'solar_mask_plane')
+  if (
+    planes.length >= 2 &&
+    planes.length === relaxedCandidate.length &&
+    splitPlanesHaveValidShapes(planes) &&
+    splitCoverageInRelaxedBand(planes, targetMaskFootprintSqft)
+  ) {
+    return { facets: planes, mode: 'overlap_tolerated' }
+  }
+  return null
+}
+
+/** Diagnostic reasons for live diagnose / logs when a split is discarded. */
+export function explainSplitQualityRejection(
+  facets: SolarMaskFacetPayload[],
+  targetMaskFootprintSqft?: number
+): {
+  plane_count: number
+  areas_sqft: number[]
+  coverage_ratio: number | null
+  self_intersecting: number
+  overlapping_pairs: number
+  below_min_area: number
+  non_plane_sources: number
+  pruned_plane_count: number
+  strict_ok: boolean
+  relaxed_ok: boolean
+  usable_mode: 'strict' | 'pruned' | 'relaxed' | 'nonoverlap' | 'overlap_tolerated' | null
+} {
+  const planes = facets.filter((f) => f.facet_source === 'solar_mask_plane')
+  const areas = planes.map(splitPlaneFootprintSqft)
+  const sum = areas.reduce((a, b) => a + b, 0)
+  const coverage =
+    typeof targetMaskFootprintSqft === 'number' && targetMaskFootprintSqft > 0
+      ? sum / targetMaskFootprintSqft
+      : null
+  let overlapping = 0
+  for (let i = 0; i < planes.length; i++) {
+    for (let j = i + 1; j < planes.length; j++) {
+      if (polygonsOverlapInterior(planes[i].lat_lng_vertices, planes[j].lat_lng_vertices)) {
+        overlapping++
+      }
+    }
+  }
+  const pruned = pruneSplitPlaneSlivers(facets)
+  const usable = selectUsableSplitFacets(facets, targetMaskFootprintSqft)
+  return {
+    plane_count: planes.length,
+    areas_sqft: areas.map((a) => Math.round(a)),
+    coverage_ratio: coverage == null ? null : Math.round(coverage * 1000) / 1000,
+    self_intersecting: planes.filter((f) => polygonSelfIntersects(f.lat_lng_vertices)).length,
+    overlapping_pairs: overlapping,
+    below_min_area: areas.filter((a) => a < MIN_PLANE_FOOTPRINT_SQFT).length,
+    non_plane_sources: facets.length - planes.length,
+    pruned_plane_count: pruned.filter((f) => f.facet_source === 'solar_mask_plane').length,
+    strict_ok: splitFacetsMeetMaskQualityThreshold(facets, targetMaskFootprintSqft),
+    relaxed_ok: splitFacetsMeetRelaxedMaskQualityThreshold(
+      pruned.length >= 2 ? pruned : facets,
+      targetMaskFootprintSqft
+    ),
+    usable_mode: usable?.mode ?? null,
+  }
 }
 
 function buildSegmentPxList(
@@ -1753,21 +1997,32 @@ export async function tryFacetPayloadsFromSolarRoofMask(options: {
         height,
         pixelToLngLat
       )
-      if (
-        splitOut.length > 0 &&
-        splitFacetsMeetMaskQualityThreshold(splitOut, targetMaskFootprintSqft ?? undefined)
-      ) {
-        return maskAttempt('ok', splitOut, {
+      const usableSplit = selectUsableSplitFacets(
+        splitOut,
+        targetMaskFootprintSqft ?? undefined
+      )
+      if (usableSplit) {
+        return maskAttempt('ok', usableSplit.facets, {
           ...baseDetails,
           mask_width: width,
           mask_height: height,
-          split_plane_count: splitOut.length,
+          split_plane_count: usableSplit.facets.length,
           merged_segment_count: mergedSegments.length,
           excluded_accessory_segment_count: excludedAccessoryIndices.size,
           target_mask_footprint_sqft:
             targetMaskFootprintSqft == null ? null : Math.round(targetMaskFootprintSqft),
-          path: 'split_mask_plane',
+          path:
+            usableSplit.mode === 'strict'
+              ? 'split_mask_plane'
+              : usableSplit.mode === 'pruned'
+                ? 'split_mask_plane_pruned'
+                : usableSplit.mode === 'nonoverlap'
+                  ? 'split_mask_plane_nonoverlap'
+                  : usableSplit.mode === 'overlap_tolerated'
+                    ? 'split_mask_plane_overlap_tolerated'
+                    : 'split_mask_plane_relaxed',
           split_method: splitMethod,
+          split_quality_mode: usableSplit.mode,
         })
       }
       if (splitFacets.length > 0 && splitOut.length === 0) {
@@ -1799,6 +2054,7 @@ export async function tryFacetPayloadsFromSolarRoofMask(options: {
           split_filtered_count: splitOut.length,
           max_plane_sqft: maxSqft,
           min_required_sqft: MIN_PLANE_FOOTPRINT_SQFT,
+          ...explainSplitQualityRejection(splitOut, targetMaskFootprintSqft ?? undefined),
         })
       }
     }

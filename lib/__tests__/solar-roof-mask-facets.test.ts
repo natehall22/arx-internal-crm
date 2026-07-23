@@ -6,10 +6,14 @@ jest.mock('proj4', () => jest.fn())
 import {
   brightAccessorySegmentIndices,
   filterSplitFacetsByPin,
+  largestNonOverlappingPlaneSubset,
   maskPlaneFacetSuggestions,
   mergeCoplanarSolarSegments,
+  pruneSplitPlaneSlivers,
   segmentFacetSuggestions,
+  selectUsableSplitFacets,
   splitFacetsMeetMaskQualityThreshold,
+  splitFacetsMeetRelaxedMaskQualityThreshold,
   type SolarMaskFacetPayload,
   type SolarMaskSegment,
 } from '@/lib/solar-roof-mask-facets'
@@ -185,6 +189,141 @@ describe('split mask quality threshold', () => {
         facet('whole-0', 32, -96, { facet_source: 'solar_mask_whole', estimated_sq_ft: 500 }),
       ])
     ).toBe(false)
+  })
+
+  it('relaxed gate accepts multi-plane splits with wider coverage band', () => {
+    const d = 0.00002
+    const left = facet('left', 32, -96, {
+      estimated_sq_ft: 400,
+      lat_lng_vertices: [
+        { lat: 32 + d, lng: -96 - 2 * d },
+        { lat: 32 + d, lng: -96 },
+        { lat: 32 - d, lng: -96 },
+        { lat: 32 - d, lng: -96 - 2 * d },
+      ],
+    })
+    const right = facet('right', 32, -96, {
+      estimated_sq_ft: 400,
+      lat_lng_vertices: [
+        { lat: 32 + d, lng: -96 },
+        { lat: 32 + d, lng: -96 + 2 * d },
+        { lat: 32 - d, lng: -96 + 2 * d },
+        { lat: 32 - d, lng: -96 },
+      ],
+    })
+    // Strict fails at 800/1000 = 0.80; relaxed (0.65+) accepts.
+    expect(splitFacetsMeetMaskQualityThreshold([left, right], 1000)).toBe(false)
+    expect(splitFacetsMeetRelaxedMaskQualityThreshold([left, right], 1000)).toBe(true)
+    expect(selectUsableSplitFacets([left, right], 1000)?.mode).toBe('relaxed')
+
+    const sliver = facet('sliver', 32.0006, -96, { estimated_sq_ft: 20 })
+    const pruned = pruneSplitPlaneSlivers([left, right, sliver])
+    expect(pruned).toHaveLength(2)
+    expect(selectUsableSplitFacets([left, right, sliver], 800)?.mode).toBe('pruned')
+  })
+
+  it('prefers independent siblings when the largest plane overlaps every other plane', () => {
+    const d = 0.00002
+    const largeA = facet('a', 32, -96, {
+      estimated_sq_ft: 600,
+      lat_lng_vertices: [
+        { lat: 32 + d, lng: -96 - 2 * d },
+        { lat: 32 + d, lng: -96 + 2 * d },
+        { lat: 32 - d, lng: -96 + 2 * d },
+        { lat: 32 - d, lng: -96 - 2 * d },
+      ],
+    })
+    // Fully inside largeA (vertices strictly interior) so greedy-by-area keeps only A.
+    const b = facet('b', 32, -96, {
+      estimated_sq_ft: 200,
+      lat_lng_vertices: [
+        { lat: 32 + 0.5 * d, lng: -96 - 1.5 * d },
+        { lat: 32 + 0.5 * d, lng: -96 - 0.5 * d },
+        { lat: 32 - 0.5 * d, lng: -96 - 0.5 * d },
+        { lat: 32 - 0.5 * d, lng: -96 - 1.5 * d },
+      ],
+    })
+    const c = facet('c', 32, -96, {
+      estimated_sq_ft: 200,
+      lat_lng_vertices: [
+        { lat: 32 + 0.5 * d, lng: -96 + 0.5 * d },
+        { lat: 32 + 0.5 * d, lng: -96 + 1.5 * d },
+        { lat: 32 - 0.5 * d, lng: -96 + 1.5 * d },
+        { lat: 32 - 0.5 * d, lng: -96 + 0.5 * d },
+      ],
+    })
+    expect(largestNonOverlappingPlaneSubset([largeA, b, c]).map((f) => f.id).sort()).toEqual(['b', 'c'])
+  })
+
+  it('keeps a non-overlapping multi-plane subset when one pair overlaps', () => {
+    const d = 0.00002
+    const largeA = facet('a', 32, -96, {
+      estimated_sq_ft: 400,
+      lat_lng_vertices: [
+        { lat: 32 + d, lng: -96 - 2 * d },
+        { lat: 32 + d, lng: -96 },
+        { lat: 32 - d, lng: -96 },
+        { lat: 32 - d, lng: -96 - 2 * d },
+      ],
+    })
+    const largeB = facet('b', 32, -96, {
+      estimated_sq_ft: 380,
+      lat_lng_vertices: [
+        { lat: 32 + d, lng: -96 },
+        { lat: 32 + d, lng: -96 + 2 * d },
+        { lat: 32 - d, lng: -96 + 2 * d },
+        { lat: 32 - d, lng: -96 },
+      ],
+    })
+    // Overlaps largeA substantially (same box as largeA but slightly shifted).
+    const overlapping = facet('overlap', 32, -96.000005, {
+      estimated_sq_ft: 200,
+      lat_lng_vertices: [
+        { lat: 32 + 0.5 * d, lng: -96 - 1.5 * d },
+        { lat: 32 + 0.5 * d, lng: -96 + 0.5 * d },
+        { lat: 32 - 0.5 * d, lng: -96 + 0.5 * d },
+        { lat: 32 - 0.5 * d, lng: -96 - 1.5 * d },
+      ],
+    })
+    expect(splitFacetsMeetMaskQualityThreshold([largeA, largeB, overlapping], 980)).toBe(false)
+    const subset = largestNonOverlappingPlaneSubset([largeA, largeB, overlapping])
+    expect(subset.map((f) => f.id).sort()).toEqual(['a', 'b'])
+    expect(selectUsableSplitFacets([largeA, largeB, overlapping], 980)?.mode).toBe('nonoverlap')
+    expect(selectUsableSplitFacets([largeA, largeB, overlapping], 980)?.facets).toHaveLength(2)
+  })
+
+  it('tolerates overlapping planes when coverage is good and shapes are valid', () => {
+    // Same footprint — definite interior overlap; nonoverlap search finds no pair ≥2.
+    const a = facet('a', 32, -96, { estimated_sq_ft: 500 })
+    const b = facet('b', 32.00001, -96.00001, { estimated_sq_ft: 500 })
+    expect(splitFacetsMeetRelaxedMaskQualityThreshold([a, b], 1000)).toBe(false)
+    expect(largestNonOverlappingPlaneSubset([a, b])).toEqual([])
+    expect(selectUsableSplitFacets([a, b], 1000)?.mode).toBe('overlap_tolerated')
+    expect(selectUsableSplitFacets([a, b], 1000)?.facets).toHaveLength(2)
+  })
+
+  it('relaxed gate accepts ~68% mask coverage common after contour loss', () => {
+    const d = 0.00002
+    const left = facet('left', 32, -96, {
+      estimated_sq_ft: 340,
+      lat_lng_vertices: [
+        { lat: 32 + d, lng: -96 - 2 * d },
+        { lat: 32 + d, lng: -96 },
+        { lat: 32 - d, lng: -96 },
+        { lat: 32 - d, lng: -96 - 2 * d },
+      ],
+    })
+    const right = facet('right', 32, -96, {
+      estimated_sq_ft: 340,
+      lat_lng_vertices: [
+        { lat: 32 + d, lng: -96 },
+        { lat: 32 + d, lng: -96 + 2 * d },
+        { lat: 32 - d, lng: -96 + 2 * d },
+        { lat: 32 - d, lng: -96 },
+      ],
+    })
+    expect(splitFacetsMeetRelaxedMaskQualityThreshold([left, right], 1000)).toBe(true)
+    expect(selectUsableSplitFacets([left, right], 1000)?.mode).toBe('relaxed')
   })
 })
 
