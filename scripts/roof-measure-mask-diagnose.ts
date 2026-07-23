@@ -94,6 +94,7 @@ async function fetchSolarSegments(lat: number, lng: number, key: string) {
 }
 
 async function main() {
+  process.env.ROOF_MEASURE_DEBUG_LINEARIZE = '1'
   const key = loadApiKey()
   console.log('Roof measure mask/DSM diagnose\n')
 

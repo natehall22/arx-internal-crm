@@ -464,6 +464,40 @@ describe('exclusive split plane lock', () => {
     expect(facets.every((facet) => facet.lat_lng_vertices.length <= 12)).toBe(true)
     expect(splitFacetsMeetMaskQualityThreshold(facets)).toBe(true)
   })
+
+  it('jointly simplifies three adjacent planes without creating overlap', () => {
+    const bin = new Uint8Array(width * height)
+    const labels = new Int32Array(width * height).fill(-1)
+    for (let row = 6; row < 30; row++) {
+      for (let col = 6; col < 42; col++) {
+        const i = row * width + col
+        bin[i] = 1
+        labels[i] = col < 18 ? 0 : col < 30 ? 1 : 2
+      }
+    }
+    const threeSegsPx = [
+      { ...segsPx[0], col: 12 },
+      { ...segsPx[0], segment_index: 1, col: 24 },
+      { ...segsPx[0], segment_index: 2, col: 36 },
+    ]
+    const threeSegments: SolarMaskSegment[] = [0, 1, 2].map((segment_index) => ({
+      ...segments[0],
+      segment_index,
+      center: pixelToLngLat(12 + segment_index * 12, 18),
+    }))
+    const facets = facetsFromSplitMask({
+      bin,
+      labels,
+      width,
+      height,
+      segsPx: threeSegsPx,
+      segments: threeSegments,
+      pixelToLngLat,
+    })
+    expect(facets).toHaveLength(3)
+    expect(facets.every((facet) => facet.lat_lng_vertices.length <= 6)).toBe(true)
+    expect(splitFacetsMeetMaskQualityThreshold(facets)).toBe(true)
+  })
 })
 
 describe('coplanar Solar segment merging', () => {

@@ -1781,6 +1781,162 @@ function simpleTwoPlaneGableRings(options: {
   return out
 }
 
+/**
+ * Jointly straighten a small multi-plane partition. Every adjacent pair is clipped by
+ * the same fitted boundary, so cleanup cannot create the overlaps produced by
+ * simplifying each plane independently. Conservative raster-fidelity gates keep the
+ * exact locked contours when the linear model does not match a complex roof.
+ */
+function multiPlaneLinearizedRings(options: {
+  bin: Uint8Array
+  labels: Int32Array
+  width: number
+  height: number
+  ordered: SegPx[]
+}): Map<number, [number, number][]> | null {
+  const { bin, labels, width, height, ordered } = options
+  const reject = (reason: string): null => {
+    if (process.env.ROOF_MEASURE_DEBUG_LINEARIZE === '1') {
+      console.info('[solar-mask] multi-plane linearization rejected', {
+        reason,
+        plane_count: ordered.length,
+      })
+    }
+    return null
+  }
+  if (ordered.length < 3 || ordered.length > MAX_FACETS) return reject('plane_count')
+
+  const wholeRing = largestRing(
+    contourRingsFromMask(bin, width, height, { smooth: false }).filter(
+      (ring) => polygonAreaPx(ring) >= MIN_RING_AREA_PX
+    )
+  )
+  if (!wholeRing) return reject('no_whole_ring')
+  const wholeArea = polygonAreaPx(wholeRing)
+  if (wholeArea <= 0) return reject('empty_whole_ring')
+  const hull = convexHullClosedRing(wholeRing)
+  const hullArea = polygonAreaPx(hull)
+  const outline = simplifyClosedRing(
+    hullArea / wholeArea <= CONVEX_HULL_MAX_INFLATION ? hull : wholeRing,
+    SPLIT_RING_SIMPLIFY_EPS_PX,
+    MAX_VERTICES_PER_RING
+  )
+  if (outline.length < 4) return reject('outline_degenerate')
+
+  const centers = new Map<number, [number, number]>()
+  const labelCounts = new Map<number, number>()
+  const sums = new Map<number, { x: number; y: number }>()
+  for (let row = 0; row < height; row++) {
+    for (let col = 0; col < width; col++) {
+      const i = row * width + col
+      if (bin[i] !== 1) continue
+      const label = labels[i]
+      if (!ordered.some((meta) => meta.segment_index === label)) continue
+      const sum = sums.get(label) ?? { x: 0, y: 0 }
+      sum.x += col + 0.5
+      sum.y += row + 0.5
+      sums.set(label, sum)
+      labelCounts.set(label, (labelCounts.get(label) ?? 0) + 1)
+    }
+  }
+  for (const meta of ordered) {
+    const count = labelCounts.get(meta.segment_index) ?? 0
+    const sum = sums.get(meta.segment_index)
+    if (!sum || count === 0) return reject(`empty_label_${meta.segment_index}`)
+    centers.set(meta.segment_index, [sum.x / count, sum.y / count])
+  }
+
+  type SharedLine = { a: number; b: number; line: PixelLine }
+  const sharedLines: SharedLine[] = []
+  const neighborCounts = new Map<number, number>()
+  for (let i = 0; i < ordered.length; i++) {
+    for (let j = i + 1; j < ordered.length; j++) {
+      const a = ordered[i].segment_index
+      const b = ordered[j].segment_index
+      const line = fitTwoPlaneBoundaryLine(bin, labels, width, height, a, b)
+      if (!line) continue
+      if (line.span < 8 || line.rms > Math.max(4, line.span * 0.16)) {
+        return reject(`nonlinear_boundary_${a}_${b}_span_${line.span.toFixed(1)}_rms_${line.rms.toFixed(1)}`)
+      }
+      const aCenter = centers.get(a) as [number, number]
+      const bCenter = centers.get(b) as [number, number]
+      const aSide = line.dx * (aCenter[1] - line.y) - line.dy * (aCenter[0] - line.x)
+      const bSide = line.dx * (bCenter[1] - line.y) - line.dy * (bCenter[0] - line.x)
+      if (Math.abs(aSide) < 1 || Math.abs(bSide) < 1 || aSide * bSide >= 0) {
+        return reject(`boundary_does_not_separate_${a}_${b}`)
+      }
+      sharedLines.push({ a, b, line })
+      neighborCounts.set(a, (neighborCounts.get(a) ?? 0) + 1)
+      neighborCounts.set(b, (neighborCounts.get(b) ?? 0) + 1)
+    }
+  }
+  if (sharedLines.length < ordered.length - 1) return reject('disconnected_boundary_graph')
+  if (ordered.some((meta) => (neighborCounts.get(meta.segment_index) ?? 0) === 0)) {
+    return reject('plane_without_neighbor')
+  }
+
+  const candidates = new Map<number, [number, number][]>()
+  for (const meta of ordered) {
+    const label = meta.segment_index
+    const center = centers.get(label) as [number, number]
+    let ring = outline
+    for (const shared of sharedLines) {
+      if (shared.a !== label && shared.b !== label) continue
+      const side =
+        shared.line.dx * (center[1] - shared.line.y) -
+        shared.line.dy * (center[0] - shared.line.x)
+      ring = clipRingToLineHalfPlane(ring, shared.line, side > 0 ? 1 : -1)
+      if (ring.length < 4) return reject(`clip_degenerate_${label}`)
+    }
+    if (polygonAreaPx(ring) < MIN_SPLIT_RING_AREA_PX) return reject(`clip_too_small_${label}`)
+    candidates.set(label, ring)
+  }
+
+  const candidateMasks = new Map<number, Uint8Array>()
+  const roofPixels = bin.reduce((sum, value) => sum + (value === 1 ? 1 : 0), 0)
+  if (roofPixels === 0) return reject('empty_roof_mask')
+  let predictedTotal = 0
+  for (const meta of ordered) {
+    const label = meta.segment_index
+    const mask = rasterizeClosedRingToMask(
+      candidates.get(label) as [number, number][],
+      width,
+      height
+    )
+    candidateMasks.set(label, mask)
+    let predicted = 0
+    let correct = 0
+    for (let i = 0; i < mask.length; i++) {
+      if (mask[i] !== 1) continue
+      predicted++
+      if (bin[i] === 1 && labels[i] === label) correct++
+    }
+    const actual = labelCounts.get(label) as number
+    const labelFraction = actual / roofPixels
+    const minPrecision = labelFraction < 0.12 ? 0.48 : 0.5
+    const minRecall = labelFraction < 0.12 ? 0.7 : 0.55
+    if (predicted === 0 || correct / predicted < minPrecision || correct / actual < minRecall) {
+      return reject(
+        `fidelity_${label}_precision_${(correct / Math.max(1, predicted)).toFixed(2)}_recall_${(correct / actual).toFixed(2)}`
+      )
+    }
+    predictedTotal += predicted
+  }
+  if (predictedTotal / roofPixels < 0.78 || predictedTotal / roofPixels > 1.12) {
+    return reject(`total_coverage_${(predictedTotal / roofPixels).toFixed(2)}`)
+  }
+  for (let i = 0; i < ordered.length; i++) {
+    for (let j = i + 1; j < ordered.length; j++) {
+      const aMask = candidateMasks.get(ordered[i].segment_index) as Uint8Array
+      const bMask = candidateMasks.get(ordered[j].segment_index) as Uint8Array
+      for (let k = 0; k < aMask.length; k++) {
+        if (aMask[k] === 1 && bMask[k] === 1) return reject('candidate_pixel_overlap')
+      }
+    }
+  }
+  return candidates
+}
+
 /** Drop consecutive duplicate vertices left after welding (zero-length edges). */
 function dedupeConsecutiveVertices(
   vertices: { lat: number; lng: number }[]
@@ -1897,7 +2053,9 @@ export function facetsFromSplitMask(options: {
   const out: SolarMaskFacetPayload[] = []
 
   const ordered = [...segsPx].sort((a, b) => a.segment_index - b.segment_index)
-  const gableRings = simpleTwoPlaneGableRings({ bin, labels, width, height, ordered })
+  const regularizedRings =
+    simpleTwoPlaneGableRings({ bin, labels, width, height, ordered }) ??
+    multiPlaneLinearizedRings({ bin, labels, width, height, ordered })
   for (const meta of ordered) {
     scratch.fill(0)
     for (let i = 0; i < labels.length; i++) {
@@ -1939,7 +2097,7 @@ export function facetsFromSplitMask(options: {
 
     // Keep the exact locked contour. Simplification, spike removal, and vertex-count
     // decimation can all chord across a concavity and recreate overlap after the lock.
-    const cleaned = gableRings?.get(meta.segment_index) ?? lockedRing
+    const cleaned = regularizedRings?.get(meta.segment_index) ?? lockedRing
     if (cleaned.length < 4) continue
 
     const latLngVertices: { lat: number; lng: number }[] = []
