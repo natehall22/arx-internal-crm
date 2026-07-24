@@ -1,6 +1,7 @@
 import nodemailer from 'nodemailer'
 import {
   getPublicEstimateDisclaimer,
+  getPublicEstimateMailFrom,
   getPublicEstimateOrgId,
   getPublicEstimatePricePerSquare,
   PUBLIC_ESTIMATE_LEAD_SOURCE_NAME,
@@ -610,8 +611,9 @@ async function sendNewPublicEstimateLeadAlerts(options: {
             '',
             `Lead: ${leadUrl}`,
           ].join('\n')
+      const mailFrom = getPublicEstimateMailFrom()
       await transporter.sendMail({
-        from: 'info@arxroofing.com',
+        from: mailFrom,
         to: Array.from(emailRecipients).join(', '),
         subject,
         text,
@@ -741,8 +743,9 @@ async function maybeSendHomeownerEstimateEmail(options: {
         })
 
     const transporter = getMailTransport()
+    const mailFrom = getPublicEstimateMailFrom()
     await transporter.sendMail({
-      from: 'info@arxroofing.com',
+      from: mailFrom,
       to: email,
       subject,
       text,

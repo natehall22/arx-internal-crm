@@ -4,6 +4,7 @@ import {
   PUBLIC_ESTIMATE_PRICE_PER_SQUARE,
   PUBLIC_ESTIMATE_RANGE_BAND,
   getPublicEstimateDisclaimer,
+  getPublicEstimateMailFrom,
   getPublicEstimatePricePerSquare,
   getPublicTurnstileSiteKey,
   isInPublicEstimateServiceArea,
@@ -195,6 +196,27 @@ describe('public estimate turnstile site key config', () => {
     delete process.env.PUBLIC_ESTIMATE_TURNSTILE_SITE_KEY
     process.env.VITE_TURNSTILE_SITE_KEY = 'site-vite-legacy'
     expect(getPublicTurnstileSiteKey()).toBe('site-vite-legacy')
+  })
+})
+
+describe('public estimate mail From', () => {
+  const prevFrom = process.env.SMTP_FROM
+
+  afterEach(() => {
+    if (prevFrom === undefined) delete process.env.SMTP_FROM
+    else process.env.SMTP_FROM = prevFrom
+  })
+
+  it('uses SMTP_FROM when it already targets info@', () => {
+    process.env.SMTP_FROM = 'ARX Roofing <info@arxroofing.com>'
+    expect(getPublicEstimateMailFrom()).toBe('ARX Roofing <info@arxroofing.com>')
+  })
+
+  it('falls back to branded info@ when SMTP_FROM is missing or not info@', () => {
+    delete process.env.SMTP_FROM
+    expect(getPublicEstimateMailFrom()).toBe('ARX Roofing <info@arxroofing.com>')
+    process.env.SMTP_FROM = 'nathan@arxroofing.com'
+    expect(getPublicEstimateMailFrom()).toBe('ARX Roofing <info@arxroofing.com>')
   })
 })
 
