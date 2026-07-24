@@ -15,8 +15,10 @@ import {
 } from '@/lib/roof-measure-geometry'
 import { pitchRiseFromDegrees } from '@/lib/roof-face-solar-alignment'
 import { calculateRoofWaste } from '@/lib/roof-waste-model'
+import { selectPublicEstimateMeasure } from '@/lib/public-estimate-measure-select'
 import {
   tryFacetPayloadsFromSolarRoofMask,
+  type SolarMaskAttemptResult,
   type SolarMaskSegment,
 } from '@/lib/solar-roof-mask-facets'
 import { fetchStaticSatelliteMapBase64 } from '@/lib/static-satellite-map'
@@ -71,6 +73,11 @@ export type PublicRoofMeasureResult = {
   price_high: number
   satellite_image_base64: string | null
   requires_manual_measure: boolean
+  /** Diagnostic — server-side only; not in preview token or website JSON. */
+  mask_base_squares?: number | null
+  segments_base_squares?: number | null
+  split_quality_mode?: string | null
+  measure_select_reason?: string | null
 }
 
 type SolarBuildingInsights = {
@@ -245,9 +252,17 @@ export async function measurePublicRoofEstimate(addressInput: string): Promise<
       avgPitchMultiplier: number
     } | null = null
     let measure_source = 'none'
+    let measureDiagnostics: Pick<
+      PublicRoofMeasureResult,
+      'mask_base_squares' | 'segments_base_squares' | 'split_quality_mode' | 'measure_select_reason'
+    > = {}
+    let force_manual_reconcile = false
+
+    const segmentSquares = solar.segments.length > 0 ? squaresFromSolarSegments(solar.segments) : null
+    let maskAttempt: SolarMaskAttemptResult | null = null
 
     if (solar.segments.length > 0) {
-      const mask = await tryFacetPayloadsFromSolarRoofMask({
+      maskAttempt = await tryFacetPayloadsFromSolarRoofMask({
         lat: queryLat,
         lng: queryLng,
         apiKey,
@@ -257,15 +272,34 @@ export async function measurePublicRoofEstimate(addressInput: string): Promise<
         buildingCenter: solar.anchor,
         querySource: 'public_estimate',
       })
-      if (mask.facets?.length) {
-        measured = squaresFromMaskFacets(mask.facets)
-        if (measured) measure_source = 'solar_mask'
+
+      const maskSquares = maskAttempt.facets?.length
+        ? squaresFromMaskFacets(maskAttempt.facets)
+        : null
+
+      const selection = selectPublicEstimateMeasure({
+        maskAttempt,
+        maskSquares,
+        segmentSquares,
+        segmentCount: solar.segments.length,
+      })
+
+      if (selection) {
+        measured = selection.chosen
+        measure_source = selection.measure_source
+        force_manual_reconcile = selection.force_manual_reconcile
+        measureDiagnostics = {
+          mask_base_squares: selection.mask_base_squares,
+          segments_base_squares: selection.segments_base_squares,
+          split_quality_mode: selection.split_quality_mode,
+          measure_select_reason: selection.measure_select_reason,
+        }
       }
     }
 
-    if (!measured) {
-      measured = squaresFromSolarSegments(solar.segments)
-      if (measured) measure_source = 'solar_segments'
+    if (!measured && segmentSquares) {
+      measured = segmentSquares
+      measure_source = 'solar_segments'
     }
 
     let satellite_image_base64: string | null = null
@@ -319,6 +353,7 @@ export async function measurePublicRoofEstimate(addressInput: string): Promise<
     const requires_manual_measure = isPublicEstimateManualMeasureRequired({
       measure_source,
       facet_count: measured.facetCount,
+      force_manual_reconcile,
     })
 
     return {
@@ -333,6 +368,7 @@ export async function measurePublicRoofEstimate(addressInput: string): Promise<
         measure_source,
         satellite_image_base64,
         requires_manual_measure,
+        ...measureDiagnostics,
       },
     }
   } catch (err) {

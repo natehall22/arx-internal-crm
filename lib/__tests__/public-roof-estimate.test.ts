@@ -28,6 +28,11 @@ import {
 } from '@/lib/public-estimate-lead'
 import { isPublicEstimateManualMeasureRequired } from '@/lib/public-estimate-manual-measure'
 import {
+  classifySolarMaskAttempt,
+  maskAttemptFromClassification,
+  selectPublicEstimateMeasure,
+} from '@/lib/public-estimate-measure-select'
+import {
   consumePublicEstimateRateLimit,
   resetPublicEstimateRateLimitForTests,
 } from '@/lib/public-estimate-rate-limit'
@@ -284,6 +289,206 @@ describe('public estimate manual measure detection', () => {
       isPublicEstimateManualMeasureRequired({ facet_count: 4, measure_source: 'solar_segments' })
     ).toBe(false)
   })
+
+  it('forces manual on whole-mask reconcile disagreement', () => {
+    expect(
+      isPublicEstimateManualMeasureRequired({
+        facet_count: 2,
+        measure_source: 'solar_mask_whole',
+        force_manual_reconcile: true,
+      })
+    ).toBe(true)
+  })
+
+  it('solar_reconciled ignores segments≥5 when mask facets are simple', () => {
+    expect(
+      isPublicEstimateManualMeasureRequired({ facet_count: 2, measure_source: 'solar_reconciled' })
+    ).toBe(false)
+    expect(
+      isPublicEstimateManualMeasureRequired({ facet_count: 6, measure_source: 'solar_reconciled' })
+    ).toBe(false)
+    expect(
+      isPublicEstimateManualMeasureRequired({ facet_count: 7, measure_source: 'solar_reconciled' })
+    ).toBe(true)
+  })
+})
+
+describe('public estimate dual-measure reconcile', () => {
+  const maskFacets = [
+    {
+      id: 'm0',
+      vertices: [] as [number, number][],
+      lat_lng_vertices: [
+        { lat: 35.48, lng: -80.59 },
+        { lat: 35.48, lng: -80.589 },
+        { lat: 35.479, lng: -80.589 },
+      ],
+      confidence: 0.9,
+      estimated_sq_ft: 900,
+      solar_segment_index: 0,
+      suggested_pitch_degrees: 25,
+      suggested_azimuth_degrees: null,
+      suggested_ground_area_sqft: 800,
+      suggested_sloped_area_sqft: null,
+      plane_height_at_center_meters: null,
+      facet_source: 'solar_mask_plane',
+    },
+  ]
+
+  const wholeFacets = maskFacets.map((f) => ({ ...f, facet_source: 'solar_mask_whole' }))
+
+  const bundle = (baseSquares: number, facetCount: number) => ({
+    baseSquares,
+    facetCount,
+    avgPitchMultiplier: 1.12,
+  })
+
+  it.each([
+    {
+      name: 'relaxed_split undercover (Duke-class) → segments, auto',
+      classification: 'relaxed_split' as const,
+      facets: maskFacets,
+      M: 9.1,
+      S: 12.8,
+      segmentCount: 6,
+      maskFacetCount: 2,
+      expectSource: 'solar_reconciled',
+      expectBase: 12.8,
+      expectManual: false,
+      expectReason: 'relaxed_split_reconcile_to_segments',
+    },
+    {
+      name: 'quality_split without undercover → mask',
+      classification: 'quality_split' as const,
+      facets: maskFacets,
+      M: 12.0,
+      S: 12.5,
+      segmentCount: 2,
+      maskFacetCount: 2,
+      expectSource: 'solar_mask',
+      expectBase: 12.0,
+      expectManual: false,
+      expectReason: 'quality_split_use_mask',
+    },
+    {
+      name: 'quality_split undercover → segments reconciled',
+      classification: 'quality_split' as const,
+      facets: maskFacets,
+      M: 8.0,
+      S: 12.0,
+      segmentCount: 2,
+      maskFacetCount: 2,
+      expectSource: 'solar_reconciled',
+      expectBase: 12.0,
+      expectManual: false,
+      expectReason: 'quality_split_undercover_reconcile_to_segments',
+    },
+    {
+      name: 'whole agrees (low rel, seg<5) → mask whole',
+      classification: 'whole' as const,
+      facets: wholeFacets,
+      M: 12.0,
+      S: 12.5,
+      segmentCount: 4,
+      maskFacetCount: 1,
+      expectSource: 'solar_mask_whole',
+      expectBase: 12.0,
+      expectManual: false,
+      expectReason: 'whole_mask_agrees_with_segments',
+    },
+    {
+      name: 'whole high rel → force manual, price segments for ops',
+      classification: 'whole' as const,
+      facets: wholeFacets,
+      M: 16.0,
+      S: 12.0,
+      segmentCount: 4,
+      maskFacetCount: 1,
+      expectSource: 'solar_mask_whole',
+      expectBase: 12.0,
+      expectManual: true,
+      expectReason: 'whole_mask_segment_disagree_rel',
+    },
+    {
+      name: 'whole seg≥5 → force manual even if rel low',
+      classification: 'whole' as const,
+      facets: wholeFacets,
+      M: 12.5,
+      S: 12.8,
+      segmentCount: 5,
+      maskFacetCount: 1,
+      expectSource: 'solar_mask_whole',
+      expectBase: 12.8,
+      expectManual: true,
+      expectReason: 'whole_mask_segment_disagree_seg_count',
+    },
+    {
+      name: 'no mask → segments only',
+      classification: 'none' as const,
+      facets: [],
+      M: null,
+      S: 11.0,
+      segmentCount: 4,
+      maskFacetCount: null,
+      expectSource: 'solar_segments',
+      expectBase: 11.0,
+      expectManual: false,
+      expectReason: 'no_mask_segments_only',
+    },
+    {
+      name: 'segments only ≥5 facets → manual',
+      classification: 'none' as const,
+      facets: [],
+      M: null,
+      S: 14.0,
+      segmentCount: 5,
+      maskFacetCount: null,
+      expectSource: 'solar_segments',
+      expectBase: 14.0,
+      expectManual: true,
+      expectReason: 'no_mask_segments_only',
+    },
+  ])(
+    '$name',
+    ({
+      classification,
+      facets,
+      M,
+      S,
+      segmentCount,
+      maskFacetCount,
+      expectSource,
+      expectBase,
+      expectManual,
+      expectReason,
+    }) => {
+      const maskAttempt =
+        classification === 'none'
+          ? { facets: null, reason: 'no_roof_pixels' as const, details: {} }
+          : maskAttemptFromClassification(classification, facets)
+
+      expect(classifySolarMaskAttempt(maskAttempt)).toBe(classification)
+
+      const selection = selectPublicEstimateMeasure({
+        maskAttempt,
+        maskSquares: M != null ? bundle(M, maskFacetCount ?? 1) : null,
+        segmentSquares: S != null ? bundle(S, segmentCount) : null,
+        segmentCount,
+      })
+
+      expect(selection).not.toBeNull()
+      expect(selection!.measure_source).toBe(expectSource)
+      expect(selection!.chosen.baseSquares).toBeCloseTo(expectBase, 1)
+      expect(selection!.measure_select_reason).toBe(expectReason)
+
+      const manual = isPublicEstimateManualMeasureRequired({
+        measure_source: selection!.measure_source,
+        facet_count: selection!.chosen.facetCount,
+        force_manual_reconcile: selection!.force_manual_reconcile,
+      })
+      expect(manual).toBe(expectManual)
+    }
+  )
 })
 
 describe('homeowner estimate email', () => {
