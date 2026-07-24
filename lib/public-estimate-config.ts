@@ -50,22 +50,20 @@ export const PUBLIC_ESTIMATE_SERVICE_AREA = {
   lngMax: -80.35,
 } as const
 
-/** Full disclaimer shown when dollar range is revealed (+ CRM notes). */
-export function getPublicEstimateDisclaimer(
-  pricePerSquare = getPublicEstimatePricePerSquare()
-): string {
+/** Full disclaimer shown when dollar range is revealed (+ CRM notes / homeowner email). No $/sq rate. */
+export function getPublicEstimateDisclaimer(): string {
   return (
-    `This is an estimate only — not a quote. It is based on aerial/satellite imagery of your roof and a typical installed shingle rate ($${pricePerSquare} per square). ` +
+    'This is an estimate only — not a quote. It is based on aerial/satellite imagery of your roof. ' +
     'Based on roof complexity, the price could be different. Pitch, condition, and complexity are verified on a free inspection. ' +
     'This range is for roofing (shingles) only; extras like gutters, decking, or tear-off are separate and confirmed after inspection. ' +
     'One of our reps will reach out soon to ask some clarifying, no-pressure questions.'
   )
 }
 
-/** Default disclaimer at module load (matches configured rate). */
+/** Default disclaimer at module load. */
 export const PUBLIC_ESTIMATE_DISCLAIMER = getPublicEstimateDisclaimer()
 
-/** Short copy near the contact gate (before dollars). No $/sq — that unlocks with the range. */
+/** Short copy near the contact gate (before dollars). No $/sq rate. */
 export const PUBLIC_ESTIMATE_GATE_COPY =
   'Enter your name, email, and phone to see your estimate range. This is an estimate only — not a quote. Based on roof complexity, the price could be different. One of our reps will reach out soon with a few clarifying, no-pressure questions.'
 

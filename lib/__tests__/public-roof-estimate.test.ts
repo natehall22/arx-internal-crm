@@ -208,10 +208,13 @@ describe('public estimate disclaimer copy', () => {
     expect(PUBLIC_ESTIMATE_GATE_COPY).toMatch(/no-pressure/i)
   })
 
-  it('uses the configured price per square in disclaimer copy', () => {
-    const disclaimer = getPublicEstimateDisclaimer(425)
-    expect(disclaimer).toMatch(/\$425 per square/)
-    expect(disclaimer).not.toMatch(/\$413 per square/)
+  it('does not expose $413 or per-square rate to customers', () => {
+    const disclaimer = getPublicEstimateDisclaimer()
+    expect(disclaimer).not.toMatch(/\$413/)
+    expect(disclaimer).not.toMatch(/per square/i)
+    expect(disclaimer).not.toMatch(/\$\d+\s*\/\s*sq/i)
+    expect(PUBLIC_ESTIMATE_DISCLAIMER).not.toMatch(/\$413/)
+    expect(PUBLIC_ESTIMATE_DISCLAIMER).not.toMatch(/per square/i)
   })
 })
 
@@ -277,13 +280,17 @@ describe('homeowner estimate email', () => {
       price_low: 9800,
       price_high: 13200,
       squares_est: 28,
-      disclaimer: getPublicEstimateDisclaimer(413),
+      disclaimer: getPublicEstimateDisclaimer(),
     })
     expect(subject).toBe('Your ARX roof estimate for 123 Main & Co, Charlotte, NC')
     expect(html).toContain('Jane &lt;script&gt;')
     expect(html).toContain('123 Main &amp; Co, Charlotte, NC')
     expect(html).not.toContain('<script>')
     expect(html).toContain('About 28 squares')
+    expect(html).not.toMatch(/\$413/)
+    expect(text).not.toMatch(/\$413/)
+    expect(html).not.toMatch(/per square/i)
+    expect(text).not.toMatch(/per square/i)
     expect(html).not.toMatch(/\$413\/sq/)
     expect(text).not.toMatch(/\$413\/sq/)
     expect(subject).toMatch(/estimate/i)

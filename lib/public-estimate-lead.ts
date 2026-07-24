@@ -867,7 +867,7 @@ export async function createOrGetPublicEstimateLead(options: {
   const orgId = getPublicEstimateOrgId()
   const externalLeadId = `public-estimate:${snapshot.jti}`
   const pricePerSquare = getPublicEstimatePricePerSquare()
-  const disclaimer = getPublicEstimateDisclaimer(pricePerSquare)
+  const disclaimer = getPublicEstimateDisclaimer()
   const pricing = computePublicEstimatePricing(snapshot.squares_mid)
   const price_low = pricing.price_low
   const price_high = pricing.price_high
