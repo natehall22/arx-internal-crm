@@ -90,6 +90,25 @@ export function isPublicRoofEstimateEnabled(): boolean {
   return process.env.PUBLIC_ROOF_ESTIMATE_ENABLED === 'true'
 }
 
+/**
+ * Public Cloudflare Turnstile site key for the website funnel widget.
+ * Browser-safe — never confuse with TURNSTILE_SECRET_KEY.
+ * Website fetches this via GET /api/public/estimate/config (holds no keys itself).
+ *
+ * Env precedence:
+ *   TURNSTILE_SITE_KEY
+ *   PUBLIC_ESTIMATE_TURNSTILE_SITE_KEY
+ *   VITE_TURNSTILE_SITE_KEY  (legacy name already set on CRM Vercel)
+ */
+export function getPublicTurnstileSiteKey(): string | null {
+  const key =
+    process.env.TURNSTILE_SITE_KEY?.trim() ||
+    process.env.PUBLIC_ESTIMATE_TURNSTILE_SITE_KEY?.trim() ||
+    process.env.VITE_TURNSTILE_SITE_KEY?.trim() ||
+    ''
+  return key || null
+}
+
 export function isInPublicEstimateServiceArea(lat: number, lng: number): boolean {
   const { latMin, latMax, lngMin, lngMax } = PUBLIC_ESTIMATE_SERVICE_AREA
   return lat >= latMin && lat <= latMax && lng >= lngMin && lng <= lngMax

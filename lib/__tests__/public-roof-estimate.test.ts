@@ -5,6 +5,7 @@ import {
   PUBLIC_ESTIMATE_RANGE_BAND,
   getPublicEstimateDisclaimer,
   getPublicEstimatePricePerSquare,
+  getPublicTurnstileSiteKey,
   isInPublicEstimateServiceArea,
 } from '@/lib/public-estimate-config'
 import { computePublicEstimatePricing } from '@/lib/public-estimate-pricing'
@@ -151,6 +152,49 @@ describe('public estimate service area', () => {
   it('accepts Charlotte and rejects far-away coordinates', () => {
     expect(isInPublicEstimateServiceArea(35.2271, -80.8431)).toBe(true)
     expect(isInPublicEstimateServiceArea(40.7128, -74.006)).toBe(false)
+  })
+})
+
+describe('public estimate turnstile site key config', () => {
+  const prevSite = process.env.TURNSTILE_SITE_KEY
+  const prevAlias = process.env.PUBLIC_ESTIMATE_TURNSTILE_SITE_KEY
+  const prevVite = process.env.VITE_TURNSTILE_SITE_KEY
+
+  afterEach(() => {
+    if (prevSite === undefined) delete process.env.TURNSTILE_SITE_KEY
+    else process.env.TURNSTILE_SITE_KEY = prevSite
+    if (prevAlias === undefined) delete process.env.PUBLIC_ESTIMATE_TURNSTILE_SITE_KEY
+    else process.env.PUBLIC_ESTIMATE_TURNSTILE_SITE_KEY = prevAlias
+    if (prevVite === undefined) delete process.env.VITE_TURNSTILE_SITE_KEY
+    else process.env.VITE_TURNSTILE_SITE_KEY = prevVite
+  })
+
+  it('returns null when unset', () => {
+    delete process.env.TURNSTILE_SITE_KEY
+    delete process.env.PUBLIC_ESTIMATE_TURNSTILE_SITE_KEY
+    delete process.env.VITE_TURNSTILE_SITE_KEY
+    expect(getPublicTurnstileSiteKey()).toBeNull()
+  })
+
+  it('prefers TURNSTILE_SITE_KEY over the alias', () => {
+    process.env.TURNSTILE_SITE_KEY = 'site-primary'
+    process.env.PUBLIC_ESTIMATE_TURNSTILE_SITE_KEY = 'site-alias'
+    process.env.VITE_TURNSTILE_SITE_KEY = 'site-vite-legacy'
+    expect(getPublicTurnstileSiteKey()).toBe('site-primary')
+  })
+
+  it('falls back to PUBLIC_ESTIMATE_TURNSTILE_SITE_KEY', () => {
+    delete process.env.TURNSTILE_SITE_KEY
+    process.env.PUBLIC_ESTIMATE_TURNSTILE_SITE_KEY = 'site-alias'
+    delete process.env.VITE_TURNSTILE_SITE_KEY
+    expect(getPublicTurnstileSiteKey()).toBe('site-alias')
+  })
+
+  it('falls back to legacy VITE_TURNSTILE_SITE_KEY', () => {
+    delete process.env.TURNSTILE_SITE_KEY
+    delete process.env.PUBLIC_ESTIMATE_TURNSTILE_SITE_KEY
+    process.env.VITE_TURNSTILE_SITE_KEY = 'site-vite-legacy'
+    expect(getPublicTurnstileSiteKey()).toBe('site-vite-legacy')
   })
 })
 

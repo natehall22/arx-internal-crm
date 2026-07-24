@@ -199,19 +199,31 @@ async function insertLeadWithSchemaFallback(
 }
 
 async function ensureWebsiteInstantEstimateLeadSource(adminClient: AdminClient, orgId: string) {
+  // Live lead_sources has no notification_emails / notify_on_new_lead columns.
+  // Keep selects/inserts aligned with production schema only.
+  const sourceSelect =
+    'id, org_id, name, source_type, default_campaign_id, field_mapping, auto_assign_user_id, webhook_enabled, is_active'
+
   const { data: existing } = await adminClient
     .from('lead_sources')
-    .select(
-      'id, org_id, name, source_type, default_campaign_id, field_mapping, auto_assign_user_id, webhook_enabled, is_active, notification_emails, notify_on_new_lead'
-    )
+    .select(sourceSelect)
     .eq('org_id', orgId)
     .eq('name', PUBLIC_ESTIMATE_LEAD_SOURCE_NAME)
     .maybeSingle()
 
   if (existing) return existing
 
+  // Prefer the same owner as Website Contact Form so routing matches other web leads.
+  const { data: contactFormSource } = await adminClient
+    .from('lead_sources')
+    .select('auto_assign_user_id, default_campaign_id')
+    .eq('org_id', orgId)
+    .eq('name', 'Website Contact Form')
+    .maybeSingle()
+
   const { data: org } = await adminClient.from('orgs').select('id, settings').eq('id', orgId).single()
-  let autoAssign: string | null = org?.settings?.web_leads_owner_id || null
+  let autoAssign: string | null =
+    contactFormSource?.auto_assign_user_id || org?.settings?.web_leads_owner_id || null
   if (!autoAssign) {
     const { data: adminUser } = await adminClient
       .from('users')
@@ -233,20 +245,15 @@ async function ensureWebsiteInstantEstimateLeadSource(adminClient: AdminClient, 
       webhook_enabled: true,
       is_active: true,
       auto_assign_user_id: autoAssign,
-      notify_on_new_lead: true,
-      notification_emails: ['nathan@arxroofing.com'],
+      default_campaign_id: contactFormSource?.default_campaign_id || null,
     })
-    .select(
-      'id, org_id, name, source_type, default_campaign_id, field_mapping, auto_assign_user_id, webhook_enabled, is_active, notification_emails, notify_on_new_lead'
-    )
+    .select(sourceSelect)
     .single()
 
   if (error) {
     const { data: raced } = await adminClient
       .from('lead_sources')
-      .select(
-        'id, org_id, name, source_type, default_campaign_id, field_mapping, auto_assign_user_id, webhook_enabled, is_active, notification_emails, notify_on_new_lead'
-      )
+      .select(sourceSelect)
       .eq('org_id', orgId)
       .eq('name', PUBLIC_ESTIMATE_LEAD_SOURCE_NAME)
       .maybeSingle()
@@ -553,8 +560,10 @@ async function sendNewPublicEstimateLeadAlerts(options: {
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://arx-internal-crm.vercel.app'
   const leadUrl = `${appUrl}/leads/${leadId}`
   const emailRecipients = new Set<string>(['nathan@arxroofing.com'])
-  if (Array.isArray(leadSource?.notification_emails)) {
-    for (const e of leadSource.notification_emails) {
+  // notification_emails is not on live lead_sources; keep optional for future schema.
+  const notifyEmails = (leadSource as { notification_emails?: unknown } | null)?.notification_emails
+  if (Array.isArray(notifyEmails)) {
+    for (const e of notifyEmails) {
       if (typeof e === 'string' && e.includes('@')) emailRecipients.add(e.trim().toLowerCase())
     }
   }
