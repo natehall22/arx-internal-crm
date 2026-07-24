@@ -7,7 +7,6 @@ import {
 } from '@/lib/public-estimate-rate-limit'
 import { createOrGetPublicEstimateLead, resolvePublicEstimateSnapshotForUnlock } from '@/lib/public-estimate-lead'
 import { verifyPublicEstimateToken } from '@/lib/public-estimate-token'
-import { verifyTurnstileToken } from '@/lib/public-estimate-turnstile'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 30
@@ -88,17 +87,8 @@ export async function POST(request: NextRequest) {
     return publicEstimateJson({ error: 'Rejected', code: 'rejected' }, 400, origin)
   }
 
-  const turnstile =
-    (typeof body.turnstile_token === 'string' && body.turnstile_token) ||
-    request.headers.get('cf-turnstile-response')
-  const verified = await verifyTurnstileToken(turnstile, ip)
-  if (!verified.ok) {
-    return publicEstimateJson(
-      { error: 'Human verification failed', code: verified.reason },
-      403,
-      origin
-    )
-  }
+  // One Turnstile for the funnel: verified on preview. Unlock trusts the signed,
+  // short-lived preview_token (+ rate limits) so the visitor is not challenged twice.
 
   const preview_token = typeof body.preview_token === 'string' ? body.preview_token.trim() : ''
   if (!preview_token) {

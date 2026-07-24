@@ -277,13 +277,15 @@ describe('homeowner estimate email', () => {
       price_low: 9800,
       price_high: 13200,
       squares_est: 28,
-      pricePerSquare: 413,
       disclaimer: getPublicEstimateDisclaimer(413),
     })
     expect(subject).toBe('Your ARX roof estimate for 123 Main & Co, Charlotte, NC')
     expect(html).toContain('Jane &lt;script&gt;')
     expect(html).toContain('123 Main &amp; Co, Charlotte, NC')
     expect(html).not.toContain('<script>')
+    expect(html).toContain('About 28 squares')
+    expect(html).not.toMatch(/\$413\/sq/)
+    expect(text).not.toMatch(/\$413\/sq/)
     expect(subject).toMatch(/estimate/i)
     expect(subject).not.toMatch(/roof quote/i)
     expect(html).toMatch(/estimate/i)

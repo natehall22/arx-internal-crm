@@ -75,10 +75,9 @@ export function buildHomeownerEstimateEmailContent(options: {
   price_low: number
   price_high: number
   squares_est: number
-  pricePerSquare: number
   disclaimer: string
 }): HomeownerEstimateEmailContent {
-  const { name, address, price_low, price_high, squares_est, pricePerSquare, disclaimer } = options
+  const { name, address, price_low, price_high, squares_est, disclaimer } = options
   const range = `${formatUsd(price_low)}–${formatUsd(price_high)}`
   const subject = `Your ARX roof estimate for ${address}`
   const text = [
@@ -88,7 +87,7 @@ export function buildHomeownerEstimateEmailContent(options: {
     '',
     `Property: ${address}`,
     `Estimated roofing range (shingles): ${range}`,
-    `About ${squares_est} squares · $${pricePerSquare}/sq typical installed shingles`,
+    `About ${squares_est} squares`,
     '',
     'This estimate is based on aerial/satellite imagery of your roof.',
     '',
@@ -107,7 +106,7 @@ export function buildHomeownerEstimateEmailContent(options: {
   <div style="border:1px solid #e5e5e0;border-radius:10px;padding:20px;margin:0 0 20px;background:#fafaf8">
     <p style="margin:0 0 8px;font-size:13px;color:#6b6b66;text-transform:uppercase;letter-spacing:0.04em">Estimated roofing range (shingles)</p>
     <p style="margin:0 0 12px;font-size:32px;font-weight:700;color:#2c2c2a">${escapeHtml(range)}</p>
-    <p style="margin:0 0 4px;font-size:14px;color:#2c2c2a">About ${squares_est} squares · $${pricePerSquare}/sq typical installed shingles</p>
+    <p style="margin:0 0 4px;font-size:14px;color:#2c2c2a">About ${squares_est} squares</p>
     <p style="margin:0;font-size:14px;color:#2c2c2a">${escapeHtml(address)}</p>
   </div>
   <p style="margin:0 0 16px;font-size:14px;line-height:1.5;color:#2c2c2a">This estimate is based on aerial/satellite imagery of your roof.</p>
@@ -737,7 +736,6 @@ async function maybeSendHomeownerEstimateEmail(options: {
           price_low,
           price_high,
           squares_est,
-          pricePerSquare,
           disclaimer,
         })
 
