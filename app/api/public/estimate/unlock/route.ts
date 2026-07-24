@@ -36,7 +36,9 @@ function resolveName(body: Record<string, unknown>): string {
 /**
  * POST /api/public/estimate/unlock
  * Requires name + email + phone. Address/lat/lng come ONLY from signed preview token.
- * Creates inbound CRM lead for inside sales to call immediately.
+ * Creates an inbound CRM lead:
+ * - auto estimate ($ range shown) → inside-sales auto_assign + CALL NOW alert
+ * - manual/complex (no $ to customer) → unassigned in Leads for manual pickup; info@ notified without CALL NOW
  */
 export async function POST(request: NextRequest) {
   const origin = request.headers.get('origin')

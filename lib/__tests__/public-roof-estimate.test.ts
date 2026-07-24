@@ -2,9 +2,12 @@ import { getCrmEmailFrom } from '@/lib/crm-email-from'
 import {
   PUBLIC_ESTIMATE_DISCLAIMER,
   PUBLIC_ESTIMATE_GATE_COPY,
+  PUBLIC_ESTIMATE_LEAD_SOURCE_NAME,
+  PUBLIC_ESTIMATE_MANUAL_LEAD_SOURCE_NAME,
   PUBLIC_ESTIMATE_PRICE_PER_SQUARE,
   PUBLIC_ESTIMATE_RANGE_BAND,
   getPublicEstimateDisclaimer,
+  getPublicEstimateLeadSourceName,
   getPublicEstimateMailFrom,
   getPublicEstimatePricePerSquare,
   getPublicTurnstileSiteKey,
@@ -22,8 +25,11 @@ import {
   verifyPublicEstimateToken,
 } from '@/lib/public-estimate-token'
 import {
+  buildEstimateNotes,
   buildHomeownerEstimateEmailContent,
   buildHomeownerManualDesignEmailContent,
+  buildOpsAlertEmailContent,
+  resolvePublicEstimateOwnerUserId,
   shouldSendHomeownerEstimateEmail,
 } from '@/lib/public-estimate-lead'
 import { isPublicEstimateManualMeasureRequired } from '@/lib/public-estimate-manual-measure'
@@ -539,5 +545,109 @@ describe('homeowner estimate email', () => {
     expect(html).toMatch(/manual measure/i)
     expect(text).not.toMatch(/\$/)
     expect(text).toMatch(/design team/i)
+  })
+})
+
+describe('public estimate manual vs auto lead routing', () => {
+  it('uses a distinct lead source name for manual measure', () => {
+    expect(getPublicEstimateLeadSourceName(false)).toBe(PUBLIC_ESTIMATE_LEAD_SOURCE_NAME)
+    expect(getPublicEstimateLeadSourceName(true)).toBe(PUBLIC_ESTIMATE_MANUAL_LEAD_SOURCE_NAME)
+    expect(PUBLIC_ESTIMATE_MANUAL_LEAD_SOURCE_NAME).toMatch(/Manual Measure/)
+  })
+
+  it('never auto-assigns owner on manual/complex path', () => {
+    expect(
+      resolvePublicEstimateOwnerUserId({
+        requiresManualMeasure: true,
+        leadSourceAutoAssignUserId: 'inside-sales-user',
+        webLeadsOwnerId: 'web-owner',
+        fallbackAdminUserId: 'admin',
+      })
+    ).toBeNull()
+  })
+
+  it('keeps inside-sales auto_assign on auto estimate path', () => {
+    expect(
+      resolvePublicEstimateOwnerUserId({
+        requiresManualMeasure: false,
+        leadSourceAutoAssignUserId: 'inside-sales-user',
+        webLeadsOwnerId: 'web-owner',
+        fallbackAdminUserId: 'admin',
+      })
+    ).toBe('inside-sales-user')
+  })
+
+  it('tags manual notes for unassigned Leads pickup (not CALL NOW)', () => {
+    const notes = buildEstimateNotes({
+      snapshot: {
+        jti: 'test',
+        address: '1 Main St',
+        lat: 35.2,
+        lng: -80.8,
+        squares_mid: 0,
+        squares_low: 0,
+        squares_high: 0,
+        waste_percent: 15,
+        facet_count: 12,
+        measure_source: 'none',
+        requires_manual_measure: true,
+        expiresAt: Date.now() + 60_000,
+      },
+      price_low: 0,
+      price_high: 0,
+      pricePerSquare: 413,
+      disclaimer: PUBLIC_ESTIMATE_DISCLAIMER,
+    })
+    expect(notes).toMatch(/NOT routed to inside sales/i)
+    expect(notes).toMatch(/unassigned in Leads/i)
+    expect(notes).not.toMatch(/CALL IMMEDIATELY/)
+  })
+
+  it('ops alert for manual path says no estimate / complex roof, not CALL NOW', () => {
+    const { subject, text, html } = buildOpsAlertEmailContent({
+      manual: true,
+      name: 'Jane Doe',
+      phone: '7045551212',
+      email: 'jane@example.com',
+      address: '1 Main St, Charlotte, NC',
+      measure_source: 'none',
+      facet_count: 14,
+      leadUrl: 'https://arx-internal-crm.vercel.app/leads/abc',
+      price_low: 0,
+      price_high: 0,
+      squares_est: 0,
+      pricePerSquare: 413,
+      disclaimer: PUBLIC_ESTIMATE_DISCLAIMER,
+    })
+    expect(subject).toMatch(/no estimate generated/i)
+    expect(subject).toMatch(/Complex roof/i)
+    expect(subject).not.toMatch(/CALL NOW/i)
+    expect(text).toMatch(/complex roofing system/i)
+    expect(text).toMatch(/No estimate was generated/i)
+    expect(text).toMatch(/NOT auto-assigned to inside sales/i)
+    expect(text).toMatch(/unassigned in Leads/i)
+    expect(html).toMatch(/no estimate generated/i)
+    expect(html).not.toMatch(/CALL NOW/i)
+  })
+
+  it('ops alert for auto path keeps CALL NOW + dollar range', () => {
+    const { subject, text } = buildOpsAlertEmailContent({
+      manual: false,
+      name: 'Jane Doe',
+      phone: '7045551212',
+      email: 'jane@example.com',
+      address: '1 Main St, Charlotte, NC',
+      measure_source: 'solar',
+      facet_count: 4,
+      leadUrl: 'https://arx-internal-crm.vercel.app/leads/abc',
+      price_low: 10000,
+      price_high: 14000,
+      squares_est: 28,
+      pricePerSquare: 413,
+      disclaimer: PUBLIC_ESTIMATE_DISCLAIMER,
+    })
+    expect(subject).toMatch(/^CALL NOW/)
+    expect(subject).toMatch(/\$10,000/)
+    expect(text).toMatch(/Call immediately/i)
   })
 })

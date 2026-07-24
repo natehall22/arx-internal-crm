@@ -36,6 +36,20 @@ export const PUBLIC_ESTIMATE_TOKEN_TTL_MS = (() => {
 
 export const PUBLIC_ESTIMATE_LEAD_SOURCE_NAME = 'Website Instant Estimate'
 
+/**
+ * Complex / unreliable aerial roofs (no dollar range shown to customer).
+ * Separate from Website Instant Estimate so these do NOT inherit inside-sales auto_assign.
+ */
+export const PUBLIC_ESTIMATE_MANUAL_LEAD_SOURCE_NAME =
+  'Website Instant Estimate — Manual Measure'
+
+/** Lead source name used when unlocking an Instant Estimate. */
+export function getPublicEstimateLeadSourceName(requiresManualMeasure: boolean): string {
+  return requiresManualMeasure
+    ? PUBLIC_ESTIMATE_MANUAL_LEAD_SOURCE_NAME
+    : PUBLIC_ESTIMATE_LEAD_SOURCE_NAME
+}
+
 /** Default residential pitch when Solar does not report one (6/12). */
 export const PUBLIC_ESTIMATE_DEFAULT_PITCH_RISE = 6
 

@@ -2,9 +2,11 @@ import nodemailer from 'nodemailer'
 import { getCrmEmailFrom } from '@/lib/crm-email-from'
 import {
   getPublicEstimateDisclaimer,
+  getPublicEstimateLeadSourceName,
   getPublicEstimateOrgId,
   getPublicEstimatePricePerSquare,
   PUBLIC_ESTIMATE_LEAD_SOURCE_NAME,
+  PUBLIC_ESTIMATE_MANUAL_LEAD_SOURCE_NAME,
   PUBLIC_ESTIMATE_MANUAL_MEASURE_MESSAGE,
   isInPublicEstimateServiceArea,
 } from '@/lib/public-estimate-config'
@@ -198,22 +200,45 @@ async function insertLeadWithSchemaFallback(
   return { lead: null, error: lastError }
 }
 
-async function ensureWebsiteInstantEstimateLeadSource(adminClient: AdminClient, orgId: string) {
+type PublicEstimateLeadSourceRow = {
+  id: string
+  org_id: string
+  name: string
+  source_type: string | null
+  default_campaign_id: string | null
+  field_mapping: unknown
+  auto_assign_user_id: string | null
+  webhook_enabled: boolean | null
+  is_active: boolean | null
+}
+
+const LEAD_SOURCE_SELECT =
+  'id, org_id, name, source_type, default_campaign_id, field_mapping, auto_assign_user_id, webhook_enabled, is_active'
+
+/**
+ * Ensure the Instant Estimate lead source exists.
+ * - auto: inherits Website Contact Form / web_leads_owner auto_assign (inside-sales path)
+ * - manual_design: separate source with NULL auto_assign (design / ops queue — not inside sales)
+ */
+async function ensurePublicEstimateLeadSource(
+  adminClient: AdminClient,
+  orgId: string,
+  mode: 'auto' | 'manual_design'
+): Promise<PublicEstimateLeadSourceRow | null> {
   // Live lead_sources has no notification_emails / notify_on_new_lead columns.
   // Keep selects/inserts aligned with production schema only.
-  const sourceSelect =
-    'id, org_id, name, source_type, default_campaign_id, field_mapping, auto_assign_user_id, webhook_enabled, is_active'
+  const sourceName =
+    mode === 'manual_design' ? PUBLIC_ESTIMATE_MANUAL_LEAD_SOURCE_NAME : PUBLIC_ESTIMATE_LEAD_SOURCE_NAME
 
   const { data: existing } = await adminClient
     .from('lead_sources')
-    .select(sourceSelect)
+    .select(LEAD_SOURCE_SELECT)
     .eq('org_id', orgId)
-    .eq('name', PUBLIC_ESTIMATE_LEAD_SOURCE_NAME)
+    .eq('name', sourceName)
     .maybeSingle()
 
-  if (existing) return existing
+  if (existing) return existing as PublicEstimateLeadSourceRow
 
-  // Prefer the same owner as Website Contact Form so routing matches other web leads.
   const { data: contactFormSource } = await adminClient
     .from('lead_sources')
     .select('auto_assign_user_id, default_campaign_id')
@@ -221,55 +246,72 @@ async function ensureWebsiteInstantEstimateLeadSource(adminClient: AdminClient, 
     .eq('name', 'Website Contact Form')
     .maybeSingle()
 
-  const { data: org } = await adminClient.from('orgs').select('id, settings').eq('id', orgId).single()
-  let autoAssign: string | null =
-    contactFormSource?.auto_assign_user_id || org?.settings?.web_leads_owner_id || null
-  if (!autoAssign) {
-    const { data: adminUser } = await adminClient
-      .from('users')
-      .select('id')
-      .eq('org_id', orgId)
-      .eq('role', 'admin')
-      .eq('active', true)
-      .limit(1)
-      .maybeSingle()
-    autoAssign = adminUser?.id || null
+  const { data: autoEstimateSource } = await adminClient
+    .from('lead_sources')
+    .select('auto_assign_user_id, default_campaign_id')
+    .eq('org_id', orgId)
+    .eq('name', PUBLIC_ESTIMATE_LEAD_SOURCE_NAME)
+    .maybeSingle()
+
+  // Campaign: prefer sibling Instant Estimate campaign, else Contact Form. Leave null if neither.
+  const defaultCampaignId =
+    autoEstimateSource?.default_campaign_id || contactFormSource?.default_campaign_id || null
+
+  let autoAssign: string | null = null
+  if (mode === 'auto') {
+    // Prefer the same owner as Website Contact Form so routing matches other web leads.
+    const { data: org } = await adminClient.from('orgs').select('id, settings').eq('id', orgId).single()
+    autoAssign =
+      contactFormSource?.auto_assign_user_id || org?.settings?.web_leads_owner_id || null
+    if (!autoAssign) {
+      const { data: adminUser } = await adminClient
+        .from('users')
+        .select('id')
+        .eq('org_id', orgId)
+        .eq('role', 'admin')
+        .eq('active', true)
+        .limit(1)
+        .maybeSingle()
+      autoAssign = adminUser?.id || null
+    }
   }
+  // manual_design: intentionally leave auto_assign null — no design-team user in DB today.
 
   const { data: created, error } = await adminClient
     .from('lead_sources')
     .insert({
       org_id: orgId,
-      name: PUBLIC_ESTIMATE_LEAD_SOURCE_NAME,
+      name: sourceName,
       source_type: 'website',
       webhook_enabled: true,
       is_active: true,
       auto_assign_user_id: autoAssign,
-      default_campaign_id: contactFormSource?.default_campaign_id || null,
+      default_campaign_id: defaultCampaignId,
     })
-    .select(sourceSelect)
+    .select(LEAD_SOURCE_SELECT)
     .single()
 
   if (error) {
     const { data: raced } = await adminClient
       .from('lead_sources')
-      .select(sourceSelect)
+      .select(LEAD_SOURCE_SELECT)
       .eq('org_id', orgId)
-      .eq('name', PUBLIC_ESTIMATE_LEAD_SOURCE_NAME)
+      .eq('name', sourceName)
       .maybeSingle()
-    if (raced) return raced
+    if (raced) return raced as PublicEstimateLeadSourceRow
     console.error('[public-estimate] lead source create failed:', error)
     return null
   }
 
-  return created
+  return created as PublicEstimateLeadSourceRow
 }
 
 function formatUsd(n: number): string {
   return `$${n.toLocaleString('en-US')}`
 }
 
-function buildEstimateNotes(options: {
+/** Exported for unit tests — ops notes differ by auto vs manual routing. */
+export function buildEstimateNotes(options: {
   snapshot: PublicEstimatePreviewSnapshot
   price_low: number
   price_high: number
@@ -283,13 +325,13 @@ function buildEstimateNotes(options: {
         ? `Auto-measure unreliable (est. ${snapshot.squares_low}–${snapshot.squares_high} sq mid ${snapshot.squares_mid} — DO NOT quote customer)`
         : 'No reliable auto-measure from Solar/aerial — manual draw required'
     return [
-      'Website Instant Estimate (manual measure required) — CALL IMMEDIATELY',
+      'Website Instant Estimate — Manual Measure (design team) — NOT routed to inside sales',
       `Address (locked from aerial preview): ${snapshot.address}`,
       measureDetail,
       `Waste ~${snapshot.waste_percent}% · source=${snapshot.measure_source} · facets=${snapshot.facet_count}`,
       '',
-      'No dollar estimate shown to customer — designer must manually draw roof before quoting.',
-      'Rep coaching: complex roof or missing Solar data; set expectation for designer follow-up; no-pressure clarifying questions.',
+      'No estimate generated for customer — complex roofing system; manual draw required before estimating.',
+      'Routing: unassigned in Leads (no inside-sales auto_assign) — grab manually from the leads list.',
     ].join('\n')
   }
   return [
@@ -304,6 +346,26 @@ function buildEstimateNotes(options: {
     '',
     'Rep coaching: estimate only, not a quote; complexity can change price; no-pressure clarifying questions; extras after inspection.',
   ].join('\n')
+}
+
+/**
+ * Resolve owner for a new Instant Estimate lead.
+ * Manual/complex path: always unassigned (null) — do not fall back to web_leads_owner/admin.
+ * Auto path: lead source auto_assign → org web_leads_owner → first active admin.
+ */
+export function resolvePublicEstimateOwnerUserId(options: {
+  requiresManualMeasure: boolean
+  leadSourceAutoAssignUserId: string | null | undefined
+  webLeadsOwnerId: string | null | undefined
+  fallbackAdminUserId: string | null | undefined
+}): string | null {
+  if (options.requiresManualMeasure) return null
+  return (
+    options.leadSourceAutoAssignUserId ||
+    options.webLeadsOwnerId ||
+    options.fallbackAdminUserId ||
+    null
+  )
 }
 
 function buildRawPayload(options: {
@@ -482,7 +544,7 @@ async function sendNewPublicEstimateLeadAlerts(options: {
   adminClient: AdminClient
   orgId: string
   leadId: string
-  leadSource: Awaited<ReturnType<typeof ensureWebsiteInstantEstimateLeadSource>>
+  leadSource: PublicEstimateLeadSourceRow | null
   ownerUserId: string | null
   snapshot: PublicEstimatePreviewSnapshot
   contact: PublicEstimateContact
@@ -516,27 +578,22 @@ async function sendNewPublicEstimateLeadAlerts(options: {
       user_id: ownerUserId,
       type: 'note',
       body: manual
-        ? `Manual-measure website estimate unlocked — CALL NOW. Designer must draw roof · ${snapshot.address}`
+        ? `Complex roofing system — no estimate generated. Unassigned in Leads for manual pickup · ${snapshot.address}`
         : `Instant website estimate unlocked — CALL NOW. ${formatUsd(price_low)}–${formatUsd(price_high)} · ${snapshot.address}`,
     })
   } catch (e) {
     console.log('[public-estimate] activity insert skipped:', e)
   }
 
-  if (ownerUserId) {
-    const notifBase = manual
-      ? {
-          org_id: orgId,
-          type: 'new_lead',
-          title: 'CALL NOW — Manual Measure Estimate',
-          body: `${name} · ${phone} · ${snapshot.address}. Complex roof — no dollar estimate shown; designer must manually draw roof.`,
-        }
-      : {
-          org_id: orgId,
-          type: 'new_lead',
-          title: 'CALL NOW — Website Instant Estimate',
-          body: `${name} · ${phone} · ${snapshot.address} · ${formatUsd(price_low)}–${formatUsd(price_high)}. Estimate only (not a quote); complexity may change price; no-pressure follow-up.`,
-        }
+  // Auto path: notify assigned inside-sales / web-leads owner.
+  // Manual path: owner is null by design — skip in-app user notification (info@ email only).
+  if (ownerUserId && !manual) {
+    const notifBase = {
+      org_id: orgId,
+      type: 'new_lead',
+      title: 'CALL NOW — Website Instant Estimate',
+      body: `${name} · ${phone} · ${snapshot.address} · ${formatUsd(price_low)}–${formatUsd(price_high)}. Estimate only (not a quote); complexity may change price; no-pressure follow-up.`,
+    }
     try {
       await adminClient.from('notifications').insert({
         ...notifBase,
@@ -560,7 +617,7 @@ async function sendNewPublicEstimateLeadAlerts(options: {
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://arx-internal-crm.vercel.app'
   const leadUrl = `${appUrl}/leads/${leadId}`
   // Primary internal alert inbox. Live lead_sources has no notification_emails column —
-  // do not select/insert that field. Owner email is still added when auto-assigned.
+  // do not select/insert that field. Owner email is still added when auto-assigned (auto path only).
   const emailRecipients = new Set<string>(['info@arxroofing.com'])
   const notifyEmails = (leadSource as { notification_emails?: unknown } | null)?.notification_emails
   if (Array.isArray(notifyEmails)) {
@@ -568,7 +625,7 @@ async function sendNewPublicEstimateLeadAlerts(options: {
       if (typeof e === 'string' && e.includes('@')) emailRecipients.add(e.trim().toLowerCase())
     }
   }
-  if (ownerUserId) {
+  if (ownerUserId && !manual) {
     const { data: owner } = await adminClient
       .from('users')
       .select('email')
@@ -580,73 +637,130 @@ async function sendNewPublicEstimateLeadAlerts(options: {
   try {
     if (process.env.SMTP_HOST && process.env.SMTP_USER) {
       const transporter = getMailTransport()
-      const subject = manual
-        ? `CALL NOW — Manual Measure: ${name}`
-        : `CALL NOW — Instant Estimate: ${name} (${formatUsd(price_low)}–${formatUsd(price_high)})`
-      const text = manual
-        ? [
-            'A homeowner submitted a website roof request that needs a manual measure. Call immediately.',
-            '',
-            `Name: ${name}`,
-            `Phone: ${phone}`,
-            `Email: ${email}`,
-            `Address: ${snapshot.address}`,
-            `Measure source: ${snapshot.measure_source} · facets=${snapshot.facet_count}`,
-            '',
-            'No dollar estimate was shown — designer must manually draw roof before quoting.',
-            '',
-            `Lead: ${leadUrl}`,
-          ].join('\n')
-        : [
-            'A homeowner just unlocked a website roof estimate. Call immediately.',
-            '',
-            `Name: ${name}`,
-            `Phone: ${phone}`,
-            `Email: ${email}`,
-            `Address: ${snapshot.address}`,
-            `Estimate shown: ${formatUsd(price_low)}–${formatUsd(price_high)} (est. ${squares_est} sq @ $${pricePerSquare}/sq shingles — roofing only)`,
-            '',
-            'Customer was told: estimate only (not a quote); based on roof complexity the price could be different; you will ask clarifying no-pressure questions.',
-            disclaimer,
-            '',
-            `Lead: ${leadUrl}`,
-          ].join('\n')
-      const mailFrom = getCrmEmailFrom()
+      const alert = buildOpsAlertEmailContent({
+        manual,
+        name,
+        phone,
+        email,
+        address: snapshot.address,
+        measure_source: snapshot.measure_source,
+        facet_count: snapshot.facet_count,
+        leadUrl,
+        price_low,
+        price_high,
+        squares_est,
+        pricePerSquare,
+        disclaimer,
+      })
       await transporter.sendMail({
-        from: mailFrom,
+        from: getCrmEmailFrom(),
         to: Array.from(emailRecipients).join(', '),
-        subject,
-        text,
-        html: manual
-          ? `<div style="font-family:Arial,sans-serif;max-width:640px;margin:0 auto;padding:20px">
-          <h2 style="color:#b45309;margin:0 0 12px">CALL NOW — Manual Measure Estimate</h2>
-          <p style="color:#2c2c2a"><strong>${escapeHtml(name)}</strong> needs a manual roof measure.</p>
-          <ul style="color:#2c2c2a">
-            <li>Phone: <a href="tel:${escapeHtml(phone.replace(/[^\d+]/g, ''))}">${escapeHtml(phone)}</a></li>
-            <li>Email: ${escapeHtml(email)}</li>
-            <li>Address: ${escapeHtml(snapshot.address)}</li>
-            <li>Source: ${escapeHtml(snapshot.measure_source)} · ${snapshot.facet_count} facets</li>
-          </ul>
-          <p style="color:#2c2c2a;font-size:14px;line-height:1.45">No dollar estimate shown — designer must manually draw roof.</p>
-          <p><a href="${escapeHtml(leadUrl)}" style="background:#b45309;color:#fff;padding:10px 16px;text-decoration:none;border-radius:6px">Open lead in CRM</a></p>
-        </div>`
-          : `<div style="font-family:Arial,sans-serif;max-width:640px;margin:0 auto;padding:20px">
-          <h2 style="color:#b45309;margin:0 0 12px">CALL NOW — Website Instant Estimate</h2>
-          <p style="color:#2c2c2a"><strong>${escapeHtml(name)}</strong> just unlocked their estimate.</p>
-          <ul style="color:#2c2c2a">
-            <li>Phone: <a href="tel:${escapeHtml(phone.replace(/[^\d+]/g, ''))}">${escapeHtml(phone)}</a></li>
-            <li>Email: ${escapeHtml(email)}</li>
-            <li>Address: ${escapeHtml(snapshot.address)}</li>
-            <li>Estimate: <strong>${escapeHtml(formatUsd(price_low))}–${escapeHtml(formatUsd(price_high))}</strong> (est. ${squares_est} squares · $${pricePerSquare}/sq shingles)</li>
-          </ul>
-          <p style="color:#2c2c2a;font-size:14px;line-height:1.45"><em>${escapeHtml(disclaimer)}</em></p>
-          <p><a href="${escapeHtml(leadUrl)}" style="background:#b45309;color:#fff;padding:10px 16px;text-decoration:none;border-radius:6px">Open lead in CRM</a></p>
-        </div>`,
+        subject: alert.subject,
+        text: alert.text,
+        html: alert.html,
       })
     }
   } catch (e) {
     console.error('[public-estimate] alert email failed:', e)
   }
+}
+
+/** Ops alert email copy — exported for unit tests. Manual path is not CALL NOW. */
+export function buildOpsAlertEmailContent(options: {
+  manual: boolean
+  name: string
+  phone: string
+  email: string
+  address: string
+  measure_source: string
+  facet_count: number
+  leadUrl: string
+  price_low: number
+  price_high: number
+  squares_est: number
+  pricePerSquare: number
+  disclaimer: string
+}): { subject: string; text: string; html: string } {
+  const {
+    manual,
+    name,
+    phone,
+    email,
+    address,
+    measure_source,
+    facet_count,
+    leadUrl,
+    price_low,
+    price_high,
+    squares_est,
+    pricePerSquare,
+    disclaimer,
+  } = options
+
+  if (manual) {
+    const subject = `Complex roof — no estimate generated: ${name}`
+    const text = [
+      'A homeowner used Website Instant Estimate on a complex roofing system.',
+      'No estimate was generated (no dollar range shown to the customer).',
+      '',
+      'This lead is unassigned in Leads — grab it manually. It is NOT auto-assigned to inside sales.',
+      '',
+      `Name: ${name}`,
+      `Phone: ${phone}`,
+      `Email: ${email}`,
+      `Address: ${address}`,
+      `Measure source: ${measure_source} · facets=${facet_count}`,
+      `Lead source: ${PUBLIC_ESTIMATE_MANUAL_LEAD_SOURCE_NAME}`,
+      '',
+      'Next step: manually draw the roof, then follow up with an estimate.',
+      '',
+      `Lead: ${leadUrl}`,
+    ].join('\n')
+    const html = `<div style="font-family:Arial,sans-serif;max-width:640px;margin:0 auto;padding:20px">
+          <h2 style="color:#2c2c2a;margin:0 0 12px">Complex roof — no estimate generated</h2>
+          <p style="color:#2c2c2a"><strong>${escapeHtml(name)}</strong> submitted Instant Estimate on a <strong>complex roofing system</strong>. No dollar estimate was shown.</p>
+          <p style="color:#2c2c2a;font-size:14px;line-height:1.45">Lead is <strong>unassigned in Leads</strong> for manual pickup — not auto-assigned to inside sales.</p>
+          <ul style="color:#2c2c2a">
+            <li>Phone: <a href="tel:${escapeHtml(phone.replace(/[^\d+]/g, ''))}">${escapeHtml(phone)}</a></li>
+            <li>Email: ${escapeHtml(email)}</li>
+            <li>Address: ${escapeHtml(address)}</li>
+            <li>Source: ${escapeHtml(measure_source)} · ${facet_count} facets</li>
+            <li>Lead source: ${escapeHtml(PUBLIC_ESTIMATE_MANUAL_LEAD_SOURCE_NAME)}</li>
+          </ul>
+          <p style="color:#2c2c2a;font-size:14px;line-height:1.45">Next step: manually draw the roof, then follow up with an estimate.</p>
+          <p><a href="${escapeHtml(leadUrl)}" style="background:#b45309;color:#fff;padding:10px 16px;text-decoration:none;border-radius:6px">Open lead in CRM</a></p>
+        </div>`
+    return { subject, text, html }
+  }
+
+  const subject = `CALL NOW — Instant Estimate: ${name} (${formatUsd(price_low)}–${formatUsd(price_high)})`
+  const text = [
+    'A homeowner just unlocked a website roof estimate. Call immediately.',
+    '',
+    `Name: ${name}`,
+    `Phone: ${phone}`,
+    `Email: ${email}`,
+    `Address: ${address}`,
+    `Estimate shown: ${formatUsd(price_low)}–${formatUsd(price_high)} (est. ${squares_est} sq @ $${pricePerSquare}/sq shingles — roofing only)`,
+    '',
+    'Customer was told: estimate only (not a quote); based on roof complexity the price could be different; you will ask clarifying no-pressure questions.',
+    disclaimer,
+    '',
+    `Lead: ${leadUrl}`,
+  ].join('\n')
+  const html = `<div style="font-family:Arial,sans-serif;max-width:640px;margin:0 auto;padding:20px">
+          <h2 style="color:#b45309;margin:0 0 12px">CALL NOW — Website Instant Estimate</h2>
+          <p style="color:#2c2c2a"><strong>${escapeHtml(name)}</strong> just unlocked their estimate.</p>
+          <ul style="color:#2c2c2a">
+            <li>Phone: <a href="tel:${escapeHtml(phone.replace(/[^\d+]/g, ''))}">${escapeHtml(phone)}</a></li>
+            <li>Email: ${escapeHtml(email)}</li>
+            <li>Address: ${escapeHtml(address)}</li>
+            <li>Estimate: <strong>${escapeHtml(formatUsd(price_low))}–${escapeHtml(formatUsd(price_high))}</strong> (est. ${squares_est} squares · $${pricePerSquare}/sq shingles)</li>
+          </ul>
+          <p style="color:#2c2c2a;font-size:14px;line-height:1.45"><em>${escapeHtml(disclaimer)}</em></p>
+          <p><a href="${escapeHtml(leadUrl)}" style="background:#b45309;color:#fff;padding:10px 16px;text-decoration:none;border-radius:6px">Open lead in CRM</a></p>
+        </div>`
+  return { subject, text, html }
 }
 
 async function fetchLeadRawPayload(
@@ -771,7 +885,7 @@ async function finalizePublicEstimateUnlock(options: {
   squares_est: number
   pricePerSquare: number
   disclaimer: string
-  leadSource: Awaited<ReturnType<typeof ensureWebsiteInstantEstimateLeadSource>>
+  leadSource: PublicEstimateLeadSourceRow | null
   ownerUserId: string | null
 }): Promise<PublicEstimateLeadResult> {
   const {
@@ -905,21 +1019,35 @@ export async function createOrGetPublicEstimateLead(options: {
     })
   }
 
-  const leadSource = await ensureWebsiteInstantEstimateLeadSource(adminClient, orgId)
+  const estimateMode = snapshot.requires_manual_measure ? 'manual_design' : 'auto'
+  const leadSourceName = getPublicEstimateLeadSourceName(snapshot.requires_manual_measure)
+  const leadSource = await ensurePublicEstimateLeadSource(adminClient, orgId, estimateMode)
   const { data: org } = await adminClient.from('orgs').select('id, settings').eq('id', orgId).single()
 
-  let ownerUserId: string | null =
-    leadSource?.auto_assign_user_id || org?.settings?.web_leads_owner_id || null
-  if (!ownerUserId) {
-    const { data: adminUser } = await adminClient
-      .from('users')
-      .select('id')
-      .eq('org_id', orgId)
-      .eq('role', 'admin')
-      .limit(1)
-      .maybeSingle()
-    ownerUserId = adminUser?.id || null
+  // Manual/complex: stay unassigned in Leads for manual pickup (no inside-sales auto_assign).
+  // Auto: inherit Website Instant Estimate / Contact Form / web_leads_owner routing.
+  let fallbackAdminUserId: string | null = null
+  if (!snapshot.requires_manual_measure) {
+    const needsFallback =
+      !leadSource?.auto_assign_user_id && !org?.settings?.web_leads_owner_id
+    if (needsFallback) {
+      const { data: adminUser } = await adminClient
+        .from('users')
+        .select('id')
+        .eq('org_id', orgId)
+        .eq('role', 'admin')
+        .limit(1)
+        .maybeSingle()
+      fallbackAdminUserId = adminUser?.id || null
+    }
   }
+
+  const ownerUserId = resolvePublicEstimateOwnerUserId({
+    requiresManualMeasure: snapshot.requires_manual_measure,
+    leadSourceAutoAssignUserId: leadSource?.auto_assign_user_id,
+    webLeadsOwnerId: org?.settings?.web_leads_owner_id,
+    fallbackAdminUserId,
+  })
 
   const leadData: Record<string, unknown> = {
     org_id: orgId,
@@ -930,7 +1058,7 @@ export async function createOrGetPublicEstimateLead(options: {
     address_text: snapshot.address,
     lat: snapshot.lat,
     lng: snapshot.lng,
-    source: PUBLIC_ESTIMATE_LEAD_SOURCE_NAME,
+    source: leadSourceName,
     status: 'new',
     notes: buildEstimateNotes({ snapshot, price_low, price_high, pricePerSquare, disclaimer }),
     lead_source_id: leadSource?.id || null,
