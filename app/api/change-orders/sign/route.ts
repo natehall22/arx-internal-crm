@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import { generateChangeOrderPdf } from '@/lib/contracts/generateChangeOrderPdf'
 import { applyChangeOrderToJob } from '@/lib/change-orders/apply-change-order-to-job'
 import nodemailer from 'nodemailer'
+import { getCrmEmailFrom } from '@/lib/crm-email-from'
 
 function getAdminClient() {
   return createClient(
@@ -136,7 +137,7 @@ export async function POST(request: NextRequest) {
         })
 
         await transporter.sendMail({
-          from: 'info@arxroofing.com',
+          from: getCrmEmailFrom(),
           to: changeOrder.customer_email,
           subject: `Signed Change Order ${changeOrder.co_number}`,
           text: `Thank you for signing your change order.\n\n${pdfUrl ? `Signed copy: ${pdfUrl}\n\n` : ''}ARX Roofing & Exteriors`,

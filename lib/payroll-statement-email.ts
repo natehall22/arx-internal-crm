@@ -5,7 +5,7 @@ import {
   formatNegativePayrollMoney,
   payrollStatementPdfFilename,
 } from '@/lib/pdf/payroll-statement'
-import { getMailTransport } from '@/lib/setter-email'
+import { getCrmEmailFrom, getMailTransport } from '@/lib/setter-email'
 
 function escapeHtml(s: string): string {
   return s
@@ -117,7 +117,7 @@ export async function sendPayrollStatementEmail(input: {
     }
   }
 
-  const fromAddress = process.env.SMTP_FROM || 'ARX Roofing <noreply@arxroofing.com>'
+  const fromAddress = getCrmEmailFrom()
   const html = buildPayrollStatementEmailHtml({
     recipientName: input.recipientName,
     statement: input.statement,

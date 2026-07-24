@@ -4,6 +4,7 @@ import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import { isUserActiveForTransactionalEmail } from '@/lib/user-email-eligibility'
 import nodemailer from 'nodemailer'
+import { getCrmEmailFrom } from '@/lib/crm-email-from'
 
 export async function POST(
   request: NextRequest,
@@ -251,7 +252,7 @@ export async function POST(
           const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://arx-internal-crm.vercel.app'
 
           await transporter.sendMail({
-            from: process.env.SMTP_FROM || 'noreply@arxroofing.com',
+            from: getCrmEmailFrom(),
             to: pmUser.email,
             subject: `✅ Work Order Completed — ${jobAddress}`,
             html: `

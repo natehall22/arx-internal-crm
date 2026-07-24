@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import nodemailer from 'nodemailer'
+import { getCrmEmailFrom } from '@/lib/crm-email-from'
 
 export async function POST(request: NextRequest) {
   try {
@@ -109,7 +110,7 @@ export async function POST(request: NextRequest) {
     `
 
     await transporter.sendMail({
-      from: process.env.SMTP_FROM || 'noreply@arxcrm.com',
+      from: getCrmEmailFrom(),
       to: 'nathan@arxroofing.com',
       subject,
       html: htmlContent,

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { isOrgSuperuserRoleSlug } from '@/lib/permissions'
-import { getMailTransport } from '@/lib/setter-email'
+import { getCrmEmailFrom, getMailTransport } from '@/lib/setter-email'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -574,7 +574,7 @@ export async function PATCH(request: NextRequest) {
 
     const transporter = getMailTransport()
     await transporter.sendMail({
-      from: process.env.SMTP_FROM || 'ARX Roofing <info@arxroofing.com>',
+      from: getCrmEmailFrom(),
       to: targetUser.email,
       subject: 'Reset your ARX password',
       html: `

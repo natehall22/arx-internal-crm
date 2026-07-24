@@ -5,6 +5,7 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { generateChangeOrderPdf } from '@/lib/contracts/generateChangeOrderPdf'
 import { applyChangeOrderToJob } from '@/lib/change-orders/apply-change-order-to-job'
 import nodemailer from 'nodemailer'
+import { getCrmEmailFrom } from '@/lib/crm-email-from'
 import crypto from 'crypto'
 
 export async function POST(request: NextRequest) {
@@ -176,7 +177,7 @@ export async function POST(request: NextRequest) {
         })
 
         await transporter.sendMail({
-          from: 'info@arxroofing.com',
+          from: getCrmEmailFrom(),
           to: customerEmail,
           subject: `Please sign Change Order ${coNumber}`,
           text: `Hi ${customerName},\n\nYour change order is ready for signature.\n\nPlease review and sign here:\n${signingUrl}\n\nProject: ${projectAddress}\nUpdated Total: $${Number(updatedTotal || 0).toLocaleString()}\n\nIf you have questions, call 704-313-8834.\n\n- ${repName}, ARX Roofing & Exteriors`,

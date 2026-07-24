@@ -3,6 +3,7 @@ import { requireAuthApi } from '@/lib/auth'
 import { resolveSalesDocAccessBarred } from '@/lib/sales-doc-access'
 import { createServiceClient } from '@/lib/supabase/service'
 import nodemailer from 'nodemailer'
+import { getCrmEmailFrom } from '@/lib/crm-email-from'
 
 export async function POST(request: NextRequest) {
   try {
@@ -175,7 +176,7 @@ export async function POST(request: NextRequest) {
         })
 
         await transporter.sendMail({
-          from: process.env.SMTP_FROM || 'ARX Roofing <noreply@arxroofing.com>',
+          from: getCrmEmailFrom(),
           to: customerEmail,
           subject: `ARX Roofing - Your ${agreementLabel} is Ready to Sign`,
           text: `Hi ${customerName},

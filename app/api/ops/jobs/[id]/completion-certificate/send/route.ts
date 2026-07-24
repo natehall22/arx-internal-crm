@@ -3,7 +3,7 @@ import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import { FILES_BUCKET } from '@/lib/files/storage'
 import { generateCompletionCertificateDocument } from '@/lib/completion-certificate'
-import { getMailTransport, pickValidEmail } from '@/lib/setter-email'
+import { getCrmEmailFrom, getMailTransport, pickValidEmail } from '@/lib/setter-email'
 
 export const runtime = 'nodejs'
 
@@ -73,7 +73,7 @@ export async function POST(
     const address = (job as any).address_text || ''
     const buffer = Buffer.from(await fileData.arrayBuffer())
 
-    const fromAddress = process.env.SMTP_FROM || 'ARX Roofing <noreply@arxroofing.com>'
+    const fromAddress = getCrmEmailFrom()
 
     await getMailTransport().sendMail({
       from: fromAddress,

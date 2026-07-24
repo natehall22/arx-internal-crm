@@ -1,3 +1,4 @@
+import { getCrmEmailFrom } from '@/lib/crm-email-from'
 import {
   PUBLIC_ESTIMATE_DISCLAIMER,
   PUBLIC_ESTIMATE_GATE_COPY,
@@ -199,7 +200,7 @@ describe('public estimate turnstile site key config', () => {
   })
 })
 
-describe('public estimate mail From', () => {
+describe('CRM / public estimate mail From', () => {
   const prevFrom = process.env.SMTP_FROM
 
   afterEach(() => {
@@ -209,13 +210,15 @@ describe('public estimate mail From', () => {
 
   it('uses SMTP_FROM when it already targets info@', () => {
     process.env.SMTP_FROM = 'ARX Roofing <info@arxroofing.com>'
+    expect(getCrmEmailFrom()).toBe('ARX Roofing <info@arxroofing.com>')
     expect(getPublicEstimateMailFrom()).toBe('ARX Roofing <info@arxroofing.com>')
   })
 
   it('falls back to branded info@ when SMTP_FROM is missing or not info@', () => {
     delete process.env.SMTP_FROM
-    expect(getPublicEstimateMailFrom()).toBe('ARX Roofing <info@arxroofing.com>')
+    expect(getCrmEmailFrom()).toBe('ARX Roofing <info@arxroofing.com>')
     process.env.SMTP_FROM = 'nathan@arxroofing.com'
+    expect(getCrmEmailFrom()).toBe('ARX Roofing <info@arxroofing.com>')
     expect(getPublicEstimateMailFrom()).toBe('ARX Roofing <info@arxroofing.com>')
   })
 })

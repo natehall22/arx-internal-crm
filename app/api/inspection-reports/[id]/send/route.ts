@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
-import { getMailTransport } from '@/lib/setter-email'
+import { getCrmEmailFrom, getMailTransport } from '@/lib/setter-email'
 import { normalizeReportDoc, REPORT_BUCKET, REPORT_EDIT_ROLES, reportSlug } from '@/lib/inspection-report/types'
 import { authErrorResponse, assertRepCanAccessReport, fetchReportForOrg, opportunityAccessResponse } from '@/lib/inspection-report/server'
 
@@ -79,7 +79,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       : ''
 
     await getMailTransport().sendMail({
-      from: 'info@arxroofing.com',
+      from: getCrmEmailFrom(),
       replyTo: sender?.email && sender.email.includes('@') ? sender.email : undefined,
       to,
       subject: `Roof Inspection Report — ${address}`,

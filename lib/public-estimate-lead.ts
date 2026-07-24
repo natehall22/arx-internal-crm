@@ -1,7 +1,7 @@
 import nodemailer from 'nodemailer'
+import { getCrmEmailFrom } from '@/lib/crm-email-from'
 import {
   getPublicEstimateDisclaimer,
-  getPublicEstimateMailFrom,
   getPublicEstimateOrgId,
   getPublicEstimatePricePerSquare,
   PUBLIC_ESTIMATE_LEAD_SOURCE_NAME,
@@ -611,7 +611,7 @@ async function sendNewPublicEstimateLeadAlerts(options: {
             '',
             `Lead: ${leadUrl}`,
           ].join('\n')
-      const mailFrom = getPublicEstimateMailFrom()
+      const mailFrom = getCrmEmailFrom()
       await transporter.sendMail({
         from: mailFrom,
         to: Array.from(emailRecipients).join(', '),
@@ -743,7 +743,7 @@ async function maybeSendHomeownerEstimateEmail(options: {
         })
 
     const transporter = getMailTransport()
-    const mailFrom = getPublicEstimateMailFrom()
+    const mailFrom = getCrmEmailFrom()
     await transporter.sendMail({
       from: mailFrom,
       to: email,

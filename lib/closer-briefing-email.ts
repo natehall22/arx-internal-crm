@@ -1,4 +1,4 @@
-import { getMailTransport } from '@/lib/setter-email'
+import { getCrmEmailFrom, getMailTransport } from '@/lib/setter-email'
 import { createServiceClient } from '@/lib/supabase/service'
 import { isUserActiveForTransactionalEmail } from '@/lib/user-email-eligibility'
 
@@ -167,7 +167,7 @@ export async function sendCloserBriefingEmail(params: {
 
   const transporter = getMailTransport()
   await transporter.sendMail({
-    from: 'info@arxroofing.com',
+    from: getCrmEmailFrom(),
     to: params.to,
     subject,
     html: `

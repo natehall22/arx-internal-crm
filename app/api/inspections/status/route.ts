@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import nodemailer from 'nodemailer'
+import { getCrmEmailFrom } from '@/lib/crm-email-from'
 import { createCalendarEvent, refreshAccessToken, type CalendarEvent } from '@/lib/google-calendar'
 import { computeInspectionFeedbackPromptAt } from '@/lib/scheduling-prompt'
 import { sendSetterEmail } from '@/lib/setter-email'
@@ -921,7 +922,7 @@ export async function POST(request: NextRequest) {
           })
 
           await transporter.sendMail({
-            from: 'info@arxroofing.com',
+            from: getCrmEmailFrom(),
             to: setterUser.email,
             subject: `Inspection update: ${outcomeDisplayLabel} - ${customerName}`,
             html: `

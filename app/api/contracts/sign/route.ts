@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import nodemailer from 'nodemailer'
+import { getCrmEmailFrom } from '@/lib/crm-email-from'
 import { buildOrderFormContractSaleDescription, notifyOrgAdminsOfSale } from '@/lib/admin-sale-email'
 import { commissionCompBaseFromPreTaxAndDealerFee } from '@/lib/commission-payroll'
 import { resolveCustomerDisplayName, upsertCustomer } from '@/lib/customers'
@@ -123,7 +124,7 @@ async function sendEmail(
     })
 
     await transporter.sendMail({
-      from: process.env.SMTP_FROM || 'ARX Roofing <noreply@arxroofing.com>',
+      from: getCrmEmailFrom(),
       to,
       subject,
       text,

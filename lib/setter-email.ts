@@ -1,7 +1,9 @@
 import nodemailer from 'nodemailer'
+import { getCrmEmailFrom } from '@/lib/crm-email-from'
 import { createServiceClient } from '@/lib/supabase/service'
 import { isUserActiveForTransactionalEmail } from '@/lib/user-email-eligibility'
 export { pickValidEmail } from '@/lib/email-address'
+export { getCrmEmailFrom }
 
 export function getMailTransport() {
   return nodemailer.createTransport({
@@ -49,7 +51,7 @@ export async function sendSetterEmail(params: {
     .join('')
 
   await transporter.sendMail({
-    from: 'info@arxroofing.com',
+    from: getCrmEmailFrom(),
     to: params.to,
     subject: params.subject,
     html: `

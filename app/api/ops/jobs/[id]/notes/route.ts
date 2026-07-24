@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { createClient } from '@/lib/supabase/server'
 import nodemailer from 'nodemailer'
+import { getCrmEmailFrom } from '@/lib/crm-email-from'
 
 function getMailTransport() {
   return nodemailer.createTransport({
@@ -265,7 +266,7 @@ export async function POST(
         const emailResults = await Promise.allSettled(
           mentionedUsers.map((mentionedUser: any) =>
             transporter.sendMail({
-              from: 'info@arxroofing.com',
+              from: getCrmEmailFrom(),
               to: mentionedUser.email,
               subject,
               html: `

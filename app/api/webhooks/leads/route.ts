@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import nodemailer from 'nodemailer'
+import { getCrmEmailFrom } from '@/lib/crm-email-from'
 
 export const dynamic = 'force-dynamic'
 
@@ -411,7 +412,7 @@ export async function POST(request: NextRequest) {
 
       const transporter = getMailTransport()
       await transporter.sendMail({
-        from: 'info@arxroofing.com',
+        from: getCrmEmailFrom(),
         to: 'nathan@arxroofing.com',
         subject: `${sourceLabel} (inbound lead)`,
         text: `A new inbound lead was created.\n\nSource: ${sourceLabel}\nLead Name: ${fullName || 'Unknown'}\nAddress: ${fullAddress || 'TBD'}\nPhone: ${phone || 'N/A'}\nLead URL: ${leadUrl}`,

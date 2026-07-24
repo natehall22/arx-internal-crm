@@ -4,6 +4,7 @@ import { resolveSalesDocAccessBarred } from '@/lib/sales-doc-access'
 import { createServiceClient } from '@/lib/supabase/service'
 import { createClient } from '@/lib/supabase/server'
 import nodemailer from 'nodemailer'
+import { getCrmEmailFrom } from '@/lib/crm-email-from'
 
 export async function POST(
   request: Request,
@@ -46,7 +47,7 @@ export async function POST(
   })
 
   await transporter.sendMail({
-    from: process.env.SMTP_FROM,
+    from: getCrmEmailFrom(),
     to: email,
     subject: 'Please sign your contract',
     text: `Please review and sign your contract: ${signingUrl}`,

@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getOrgEmailBlastSettings, resolveEmailBlastRecipients } from '@/lib/admin-email-blasts'
 import { fetchMorningUpdateMetrics, type MorningUpdateMetrics } from '@/lib/morning-update-metrics'
-import { getMailTransport } from '@/lib/setter-email'
+import { getCrmEmailFrom, getMailTransport } from '@/lib/setter-email'
 
 function escapeHtml(s: string): string {
   return s
@@ -206,7 +206,7 @@ export async function sendMorningUpdateEmail(
   for (const to of emails) {
     try {
       await transporter.sendMail({
-        from: 'info@arxroofing.com',
+        from: getCrmEmailFrom(),
         to,
         subject,
         html,

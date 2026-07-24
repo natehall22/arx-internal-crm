@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import nodemailer from 'nodemailer'
+import { getCrmEmailFrom } from '@/lib/crm-email-from'
 import { createClient } from '@supabase/supabase-js'
 
 export const dynamic = 'force-dynamic'
@@ -201,7 +202,7 @@ ${escapeHtml(description.trim())}
       `
 
     await transporter.sendMail({
-      from: process.env.SMTP_FROM || 'noreply@arxroofing.com',
+      from: getCrmEmailFrom(),
       to: 'info@arxroofing.com',
       subject,
       html: htmlContent,

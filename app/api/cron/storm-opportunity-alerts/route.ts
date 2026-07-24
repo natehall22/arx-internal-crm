@@ -3,7 +3,7 @@ import { getRecentStormReportsInBbox } from '@/lib/roofradar-open-data'
 import { createServiceClient } from '@/lib/supabase/service'
 import { isInsideSalesRoleLike } from '@/lib/inside-sales-follow-up'
 import { footprintFromEnv } from '@/lib/weather-footprint'
-import { getMailTransport } from '@/lib/setter-email'
+import { getCrmEmailFrom, getMailTransport } from '@/lib/setter-email'
 import {
   buildStormActivityNote,
   buildStormAlertDigestHtml,
@@ -422,7 +422,7 @@ export async function GET(request: NextRequest) {
           const transporter = getMailTransport()
           const subject = `Storm opportunity alerts (est.): ${digestRows.length} new`
           await transporter.sendMail({
-            from: 'info@arxroofing.com',
+            from: getCrmEmailFrom(),
             to,
             subject,
             text: buildStormAlertDigestText(digestRows),

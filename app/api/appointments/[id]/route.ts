@@ -1,6 +1,6 @@
 import { resolveCanReassignAppointment } from '@/lib/permissions'
 import { formatDateTimeInTimezone } from '@/lib/timezone'
-import { getMailTransport } from '@/lib/setter-email'
+import { getCrmEmailFrom, getMailTransport } from '@/lib/setter-email'
 import { isUserActiveForTransactionalEmail } from '@/lib/user-email-eligibility'
 import { updateCalendarEvent, createCalendarEvent } from '@/lib/google-calendar'
 import { syncCloserAttributionDownstream } from '@/lib/payroll-attribution-sync'
@@ -441,7 +441,7 @@ export async function PATCH(
               </div>`
 
           await transporter.sendMail({
-            from: 'info@arxroofing.com',
+            from: getCrmEmailFrom(),
             to: newCloser.email,
             subject,
             text: textBody,
@@ -462,7 +462,7 @@ export async function PATCH(
             (await isUserActiveForTransactionalEmail(adminClient, appointment.closer_user_id))
           ) {
             await transporter.sendMail({
-              from: 'info@arxroofing.com',
+              from: getCrmEmailFrom(),
               to: prevUser.email,
               subject: `${typeLabel} reassigned — ${homeownerLabel}`,
               text: `Hi ${prevUser.full_name || 'there'},\n\nThe ${typeLabel.toLowerCase()} with ${homeownerLabel} on ${scheduledTime} ET was reassigned to ${newCloser.full_name} by ${profile.full_name}.\n\nYou no longer need this on your calendar.\n\n${recordUrl}`,
@@ -495,7 +495,7 @@ export async function PATCH(
             (await isUserActiveForTransactionalEmail(adminClient, setterId))
           ) {
             await transporter.sendMail({
-              from: 'info@arxroofing.com',
+              from: getCrmEmailFrom(),
               to: setterUser.email,
               subject: `${typeLabel} reassigned — ${homeownerLabel}`,
               text: `Hi ${setterUser.full_name || 'there'},\n\nThe ${typeLabel.toLowerCase()} with ${homeownerLabel} (${scheduledTime} ET) was reassigned from ${previousCloserName} to ${newCloser.full_name} by ${profile.full_name}.\n\nYou are included as a Google Calendar attendee on the new assignee's event (same as when this was first scheduled).\n\n${recordUrl}`,
