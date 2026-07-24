@@ -558,8 +558,9 @@ async function sendNewPublicEstimateLeadAlerts(options: {
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://arx-internal-crm.vercel.app'
   const leadUrl = `${appUrl}/leads/${leadId}`
-  const emailRecipients = new Set<string>(['nathan@arxroofing.com'])
-  // notification_emails is not on live lead_sources; keep optional for future schema.
+  // Primary internal alert inbox. Live lead_sources has no notification_emails column —
+  // do not select/insert that field. Owner email is still added when auto-assigned.
+  const emailRecipients = new Set<string>(['info@arxroofing.com'])
   const notifyEmails = (leadSource as { notification_emails?: unknown } | null)?.notification_emails
   if (Array.isArray(notifyEmails)) {
     for (const e of notifyEmails) {
