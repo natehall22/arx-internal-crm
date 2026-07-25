@@ -1,9 +1,10 @@
 import { NextRequest } from 'next/server'
 import {
-  PUBLIC_ESTIMATE_GATE_COPY,
-  PUBLIC_ESTIMATE_MANUAL_GATE_COPY,
   PUBLIC_ESTIMATE_MANUAL_MEASURE_MESSAGE,
+  getPublicEstimateDisclaimerForPath,
+  getPublicEstimateGateCopyForPath,
   getPublicEstimateOrgId,
+  getPublicEstimatePreviewMessageForPath,
   getPublicEstimateTokenSecret,
   isInPublicEstimateServiceArea,
   isPublicRoofEstimateEnabled,
@@ -13,6 +14,7 @@ import {
   clientIpFromRequest,
   consumePublicEstimateRateLimit,
 } from '@/lib/public-estimate-rate-limit'
+import { classifyPublicEstimateCustomerPath } from '@/lib/public-estimate-pricing'
 import { storePublicEstimatePreview } from '@/lib/public-estimate-preview-store'
 import { createPublicEstimateToken } from '@/lib/public-estimate-token'
 import {
@@ -172,23 +174,28 @@ export async function POST(request: NextRequest) {
   }
   const preview_token = createPublicEstimateToken(jti)
 
-  const manual = result.requires_manual_measure
+  const customerPath = classifyPublicEstimateCustomerPath({
+    requires_manual_measure: result.requires_manual_measure,
+    squares_mid: result.squares_mid,
+    facet_count: result.facet_count,
+  })
+  const silentManual = customerPath === 'silent_manual'
 
-  // No squares, dollars, or $413 rate — measurement stays server-side until unlock.
+  // No squares, dollars, or $/sq rate — measurement stays server-side until unlock.
+  // Paid fallbacks keep requires_manual_measure false so the website reveal funnel still unlocks dollars.
   return publicEstimateJson(
     {
       ok: true,
       preview_token,
       address: result.address,
       expires_at: new Date(snapshot.expiresAt).toISOString(),
-      message: manual
-        ? 'We found your address — your roof needs a manual measure by our design team.'
-        : 'We found your roof from aerial imagery.',
-      requires_manual_measure: manual,
-      manual_measure_message: manual ? PUBLIC_ESTIMATE_MANUAL_MEASURE_MESSAGE : null,
+      message: getPublicEstimatePreviewMessageForPath(customerPath),
+      requires_manual_measure: silentManual,
+      manual_measure_message: silentManual ? PUBLIC_ESTIMATE_MANUAL_MEASURE_MESSAGE : null,
       satellite_image_base64: result.satellite_image_base64,
       satellite_image_mime: result.satellite_image_base64 ? 'image/png' : null,
-      gate_copy: manual ? PUBLIC_ESTIMATE_MANUAL_GATE_COPY : PUBLIC_ESTIMATE_GATE_COPY,
+      gate_copy: getPublicEstimateGateCopyForPath(customerPath),
+      disclaimer: getPublicEstimateDisclaimerForPath(customerPath),
     },
     200,
     origin

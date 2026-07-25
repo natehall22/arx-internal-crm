@@ -23,6 +23,18 @@ export function getPublicEstimatePricePerSquare(): number {
 
 export const PUBLIC_ESTIMATE_PRICE_PER_SQUARE = getPublicEstimatePricePerSquare()
 
+/** Fallback shingle rate when auto-measure is unreliable but squares_mid > 0 (facet_count < 10). */
+export function getPublicEstimateFallbackPricePerSquare(): number {
+  const raw = Number(process.env.PUBLIC_ESTIMATE_FALLBACK_PRICE_PER_SQUARE)
+  return Number.isFinite(raw) && raw > 0 ? raw : 530
+}
+
+/** Complex fallback shingle rate when auto-measure is unreliable with squares_mid > 0 and facet_count ≥ 10. */
+export function getPublicEstimateComplexFallbackPricePerSquare(): number {
+  const raw = Number(process.env.PUBLIC_ESTIMATE_COMPLEX_FALLBACK_PRICE_PER_SQUARE)
+  return Number.isFinite(raw) && raw > 0 ? raw : 550
+}
+
 /** ± band around mid price / squares (aligned with measure accuracy docs ~±15%). */
 export const PUBLIC_ESTIMATE_RANGE_BAND = (() => {
   const raw = Number(process.env.PUBLIC_ESTIMATE_RANGE_BAND)
@@ -37,8 +49,9 @@ export const PUBLIC_ESTIMATE_TOKEN_TTL_MS = (() => {
 export const PUBLIC_ESTIMATE_LEAD_SOURCE_NAME = 'Website Instant Estimate'
 
 /**
- * Complex / unreliable aerial roofs (no dollar range shown to customer).
+ * Silent-manual path only (complex roof, no dollar range shown to customer).
  * Separate from Website Instant Estimate so these do NOT inherit inside-sales auto_assign.
+ * Paid fallback paths (fallback_unreliable / fallback_complex) use Website Instant Estimate.
  */
 export const PUBLIC_ESTIMATE_MANUAL_LEAD_SOURCE_NAME =
   'Website Instant Estimate — Manual Measure'
@@ -88,6 +101,67 @@ export const PUBLIC_ESTIMATE_MANUAL_GATE_COPY =
 /** Customer-facing congratulations shown on arxroofing.com after unlock (manual path). */
 export const PUBLIC_ESTIMATE_MANUAL_MEASURE_MESSAGE =
   'Congratulations! You have a beautiful and complex roof. One of our designers will reach out to you once they have manually drawn your roof.'
+
+/** Preview step message when paid fallback applies (requires_manual_measure stays false for funnel). */
+export const PUBLIC_ESTIMATE_FALLBACK_PREVIEW_MESSAGE =
+  'We found your roof from aerial imagery. It looks complex — you will see a conservative estimate range next, and we will manually measure on a free inspection to confirm accuracy.'
+
+/** Gate copy for paid fallback paths — range unlock + manual measure for accuracy. No $/sq rate. */
+export const PUBLIC_ESTIMATE_FALLBACK_GATE_COPY =
+  'Enter your name, email, and phone to see your conservative estimate range. Your roof looks complex from satellite imagery, so we use a buffered estimate — our team will manually measure your roof on a free inspection to confirm accuracy. This is an estimate only — not a quote. Based on roof complexity, the price could be different. One of our reps will reach out soon with a few clarifying, no-pressure questions.'
+
+/** Hybrid disclaimer for paid fallback unlock/reveal — conservative range + manual measure. No $/sq rate. */
+export function getPublicEstimateFallbackDisclaimer(): string {
+  return (
+    'This is an estimate only — not a quote. It is based on aerial/satellite imagery and a conservative rate for complex roofs — satellite views can under-read square footage. ' +
+    'Our design team will manually measure your roof on a free inspection to confirm accuracy before any quote. ' +
+    'Based on roof complexity, the price could be different. Pitch, condition, and complexity are verified on inspection. ' +
+    'This range is for roofing (shingles) only; extras like gutters, decking, or tear-off are separate and confirmed after inspection. ' +
+    'One of our reps will reach out soon to ask some clarifying, no-pressure questions.'
+  )
+}
+
+export type PublicEstimateCustomerPathName =
+  | 'auto'
+  | 'fallback_unreliable'
+  | 'fallback_complex'
+  | 'silent_manual'
+
+export function isPublicEstimatePaidFallbackPath(
+  path: PublicEstimateCustomerPathName
+): path is 'fallback_unreliable' | 'fallback_complex' {
+  return path === 'fallback_unreliable' || path === 'fallback_complex'
+}
+
+export function getPublicEstimateDisclaimerForPath(path: PublicEstimateCustomerPathName): string {
+  if (isPublicEstimatePaidFallbackPath(path)) return getPublicEstimateFallbackDisclaimer()
+  return getPublicEstimateDisclaimer()
+}
+
+export function getPublicEstimateGateCopyForPath(path: PublicEstimateCustomerPathName): string {
+  if (path === 'silent_manual') return PUBLIC_ESTIMATE_MANUAL_GATE_COPY
+  if (isPublicEstimatePaidFallbackPath(path)) return PUBLIC_ESTIMATE_FALLBACK_GATE_COPY
+  return PUBLIC_ESTIMATE_GATE_COPY
+}
+
+export function getPublicEstimatePreviewMessageForPath(path: PublicEstimateCustomerPathName): string {
+  if (path === 'silent_manual') {
+    return 'We found your address — your roof needs a manual measure by our design team.'
+  }
+  if (isPublicEstimatePaidFallbackPath(path)) return PUBLIC_ESTIMATE_FALLBACK_PREVIEW_MESSAGE
+  return 'We found your roof from aerial imagery.'
+}
+
+/** Post-unlock next_step copy returned to the website reveal/manual steps. */
+export function getPublicEstimateUnlockNextStepForPath(path: PublicEstimateCustomerPathName): string {
+  if (path === 'silent_manual') {
+    return 'One of our designers will reach out once they have manually drawn your roof. An ARX team member will call you shortly.'
+  }
+  if (isPublicEstimatePaidFallbackPath(path)) {
+    return 'An ARX team member will call you shortly. We will also follow up with a manual roof measure on a free inspection so your estimate is accurate — estimate only, not a quote.'
+  }
+  return 'An ARX team member will call you shortly to confirm details and schedule a free inspection.'
+}
 
 export const PUBLIC_ESTIMATE_ALLOWED_ORIGINS = [
   'https://arxroofing.com',

@@ -1,11 +1,12 @@
 import { NextRequest } from 'next/server'
-import { getPublicEstimateOrgId, isPublicRoofEstimateEnabled } from '@/lib/public-estimate-config'
+import { getPublicEstimateOrgId, getPublicEstimateDisclaimerForPath, getPublicEstimateUnlockNextStepForPath, isPublicRoofEstimateEnabled } from '@/lib/public-estimate-config'
 import { publicEstimateJson, publicEstimateOptionsResponse } from '@/lib/public-estimate-cors'
 import {
   clientIpFromRequest,
   consumePublicEstimateRateLimit,
 } from '@/lib/public-estimate-rate-limit'
 import { createOrGetPublicEstimateLead, resolvePublicEstimateSnapshotForUnlock } from '@/lib/public-estimate-lead'
+import { resolvePublicEstimatePricingPath } from '@/lib/public-estimate-pricing'
 import { verifyPublicEstimateToken } from '@/lib/public-estimate-token'
 
 export const dynamic = 'force-dynamic'
@@ -37,8 +38,8 @@ function resolveName(body: Record<string, unknown>): string {
  * POST /api/public/estimate/unlock
  * Requires name + email + phone. Address/lat/lng come ONLY from signed preview token.
  * Creates an inbound CRM lead:
- * - auto estimate ($ range shown) → inside-sales auto_assign + CALL NOW alert
- * - manual/complex (no $ to customer) → unassigned in Leads for manual pickup; info@ notified without CALL NOW
+ * - auto + paid fallback ($ range shown) → inside-sales auto_assign + CALL NOW alert
+ * - silent_manual (no squares) → unassigned in Leads for manual pickup; info@ notified without CALL NOW
  */
 export async function POST(request: NextRequest) {
   const origin = request.headers.get('origin')
@@ -189,6 +190,14 @@ export async function POST(request: NextRequest) {
     )
   }
 
+  const { path: customerPath } = resolvePublicEstimatePricingPath({
+    requires_manual_measure: snapshot.requires_manual_measure,
+    squares_mid: snapshot.squares_mid,
+    facet_count: snapshot.facet_count,
+  })
+  const disclaimer = getPublicEstimateDisclaimerForPath(customerPath)
+  const nextStep = getPublicEstimateUnlockNextStepForPath(customerPath)
+
   return publicEstimateJson(
     leadResult.estimate_mode === 'manual_design'
       ? {
@@ -199,8 +208,8 @@ export async function POST(request: NextRequest) {
           manual_measure_message: leadResult.manual_measure_message,
           address: snapshot.address,
           estimate_emailed: leadResult.estimate_emailed,
-          next_step:
-            'One of our designers will reach out once they have manually drawn your roof. An ARX team member will call you shortly.',
+          disclaimer,
+          next_step: nextStep,
         }
       : {
           ok: true,
@@ -212,10 +221,9 @@ export async function POST(request: NextRequest) {
           squares_est: leadResult.squares_est,
           address: snapshot.address,
           currency: 'USD',
-          disclaimer: leadResult.disclaimer,
+          disclaimer,
           estimate_emailed: leadResult.estimate_emailed,
-          next_step:
-            'An ARX team member will call you shortly to confirm details and schedule a free inspection.',
+          next_step: nextStep,
         },
     200,
     origin

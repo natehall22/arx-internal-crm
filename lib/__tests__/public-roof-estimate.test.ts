@@ -1,19 +1,32 @@
 import { getCrmEmailFrom } from '@/lib/crm-email-from'
 import {
   PUBLIC_ESTIMATE_DISCLAIMER,
+  PUBLIC_ESTIMATE_FALLBACK_GATE_COPY,
+  PUBLIC_ESTIMATE_FALLBACK_PREVIEW_MESSAGE,
   PUBLIC_ESTIMATE_GATE_COPY,
   PUBLIC_ESTIMATE_LEAD_SOURCE_NAME,
   PUBLIC_ESTIMATE_MANUAL_LEAD_SOURCE_NAME,
   PUBLIC_ESTIMATE_PRICE_PER_SQUARE,
   PUBLIC_ESTIMATE_RANGE_BAND,
   getPublicEstimateDisclaimer,
+  getPublicEstimateDisclaimerForPath,
+  getPublicEstimateFallbackDisclaimer,
+  getPublicEstimateGateCopyForPath,
+  getPublicEstimatePreviewMessageForPath,
+  getPublicEstimateUnlockNextStepForPath,
+  getPublicEstimateComplexFallbackPricePerSquare,
+  getPublicEstimateFallbackPricePerSquare,
   getPublicEstimateLeadSourceName,
   getPublicEstimateMailFrom,
   getPublicEstimatePricePerSquare,
   getPublicTurnstileSiteKey,
   isInPublicEstimateServiceArea,
 } from '@/lib/public-estimate-config'
-import { computePublicEstimatePricing } from '@/lib/public-estimate-pricing'
+import {
+  classifyPublicEstimateCustomerPath,
+  computePublicEstimatePricing,
+  resolvePublicEstimatePricingPath,
+} from '@/lib/public-estimate-pricing'
 import {
   getPublicEstimatePreview,
   resetPublicEstimatePreviewStoreForTests,
@@ -86,10 +99,18 @@ jest.mock('@/lib/supabase/service', () => ({
   }),
 }))
 
-describe('public estimate pricing ($413/sq fixed)', () => {
-  it('uses $413 per square by default', () => {
+describe('public estimate pricing ($413/sq reliable, $530/$550 fallback)', () => {
+  it('uses $413 per square by default for reliable path', () => {
     expect(PUBLIC_ESTIMATE_PRICE_PER_SQUARE).toBe(413)
     expect(getPublicEstimatePricePerSquare()).toBe(413)
+  })
+
+  it('uses $530 per square fallback default for ordinary unreliable-with-squares', () => {
+    expect(getPublicEstimateFallbackPricePerSquare()).toBe(530)
+  })
+
+  it('uses $550 per square complex fallback default for ≥10 facets with squares', () => {
+    expect(getPublicEstimateComplexFallbackPricePerSquare()).toBe(550)
   })
 
   it('builds a ±15% dollar range from squares × $413', () => {
@@ -100,6 +121,99 @@ describe('public estimate pricing ($413/sq fixed)', () => {
     expect(pricing.price_high).toBe(applyEstimateRange(pricing.price_mid, PUBLIC_ESTIMATE_RANGE_BAND).high)
     expect(pricing.price_low).toBeLessThan(pricing.price_mid)
     expect(pricing.price_high).toBeGreaterThan(pricing.price_mid)
+  })
+
+  it('Heritage-class unreliable roof (39.1 sq, 8 facets) uses $530 fallback with ±15% band', () => {
+    const { path, pricePerSquare } = resolvePublicEstimatePricingPath({
+      requires_manual_measure: true,
+      squares_mid: 39.1,
+      facet_count: 8,
+    })
+    expect(path).toBe('fallback_unreliable')
+    expect(pricePerSquare).toBe(530)
+    const pricing = computePublicEstimatePricing(39.1, pricePerSquare)
+    expect(pricing.price_per_square).toBe(530)
+    expect(pricing.price_mid).toBe(20723)
+    const band = applyEstimateRange(pricing.price_mid, PUBLIC_ESTIMATE_RANGE_BAND)
+    expect(pricing.price_low).toBe(band.low)
+    expect(pricing.price_high).toBe(band.high)
+    expect(band.low).toBe(17615)
+    expect(band.high).toBe(23831)
+  })
+
+  it('complex unreliable roof (≥10 facets, squares > 0) uses $550 fallback with ±15% band', () => {
+    const { path, pricePerSquare } = resolvePublicEstimatePricingPath({
+      requires_manual_measure: true,
+      squares_mid: 39.1,
+      facet_count: 12,
+    })
+    expect(path).toBe('fallback_complex')
+    expect(pricePerSquare).toBe(550)
+    const pricing = computePublicEstimatePricing(39.1, pricePerSquare)
+    expect(pricing.price_per_square).toBe(550)
+    expect(pricing.price_mid).toBe(21505)
+    const band = applyEstimateRange(pricing.price_mid, PUBLIC_ESTIMATE_RANGE_BAND)
+    expect(band.low).toBe(18279)
+    expect(band.high).toBe(24731)
+  })
+})
+
+describe('public estimate customer path classification', () => {
+  it('routes reliable roofs to auto', () => {
+    expect(
+      classifyPublicEstimateCustomerPath({
+        requires_manual_measure: false,
+        squares_mid: 28,
+        facet_count: 4,
+      })
+    ).toBe('auto')
+  })
+
+  it('routes ordinary unreliable roofs with squares to fallback_unreliable', () => {
+    expect(
+      classifyPublicEstimateCustomerPath({
+        requires_manual_measure: true,
+        squares_mid: 39.1,
+        facet_count: 8,
+      })
+    ).toBe('fallback_unreliable')
+  })
+
+  it('routes complex unreliable roofs (≥10 facets) to fallback_complex', () => {
+    expect(
+      classifyPublicEstimateCustomerPath({
+        requires_manual_measure: true,
+        squares_mid: 39.1,
+        facet_count: 10,
+      })
+    ).toBe('fallback_complex')
+  })
+
+  it('does not treat facet_count ≥7 alone as complex fallback ($550)', () => {
+    expect(
+      classifyPublicEstimateCustomerPath({
+        requires_manual_measure: true,
+        squares_mid: 39.1,
+        facet_count: 7,
+      })
+    ).toBe('fallback_unreliable')
+    expect(
+      resolvePublicEstimatePricingPath({
+        requires_manual_measure: true,
+        squares_mid: 39.1,
+        facet_count: 7,
+      }).pricePerSquare
+    ).toBe(530)
+  })
+
+  it('routes unreliable roofs with no squares to silent_manual', () => {
+    expect(
+      classifyPublicEstimateCustomerPath({
+        requires_manual_measure: true,
+        squares_mid: 0,
+        facet_count: 12,
+      })
+    ).toBe('silent_manual')
   })
 })
 
@@ -244,12 +358,16 @@ describe('public estimate disclaimer copy', () => {
     expect(PUBLIC_ESTIMATE_GATE_COPY).toMatch(/no-pressure/i)
   })
 
-  it('does not expose $413 or per-square rate to customers', () => {
+  it('does not expose $413, $530, or per-square rate to customers', () => {
     const disclaimer = getPublicEstimateDisclaimer()
     expect(disclaimer).not.toMatch(/\$413/)
+    expect(disclaimer).not.toMatch(/\$530/)
+    expect(disclaimer).not.toMatch(/\$550/)
     expect(disclaimer).not.toMatch(/per square/i)
     expect(disclaimer).not.toMatch(/\$\d+\s*\/\s*sq/i)
     expect(PUBLIC_ESTIMATE_DISCLAIMER).not.toMatch(/\$413/)
+    expect(PUBLIC_ESTIMATE_DISCLAIMER).not.toMatch(/\$530/)
+    expect(PUBLIC_ESTIMATE_DISCLAIMER).not.toMatch(/\$550/)
     expect(PUBLIC_ESTIMATE_DISCLAIMER).not.toMatch(/per square/i)
   })
 })
@@ -508,6 +626,34 @@ describe('homeowner estimate email', () => {
     expect(shouldSendHomeownerEstimateEmail(null, 'home@example.com')).toBe(true)
   })
 
+  it('allows reveal retry when prior homeowner send was manual mode', () => {
+    const raw = {
+      homeowner_estimate_emailed_at: '2026-07-22T12:00:00.000Z',
+      homeowner_estimate_emailed_to: 'home@example.com',
+      homeowner_estimate_email_mode: 'manual',
+    }
+    expect(shouldSendHomeownerEstimateEmail(raw, 'home@example.com', 'reveal')).toBe(true)
+    expect(shouldSendHomeownerEstimateEmail(raw, 'home@example.com', 'manual')).toBe(false)
+    expect(shouldSendHomeownerEstimateEmail(raw, 'home@example.com')).toBe(false)
+  })
+
+  it('allows reveal retry when prior send has no email mode (legacy rows)', () => {
+    const raw = {
+      homeowner_estimate_emailed_at: '2026-07-22T12:00:00.000Z',
+      homeowner_estimate_emailed_to: 'home@example.com',
+    }
+    expect(shouldSendHomeownerEstimateEmail(raw, 'home@example.com', 'reveal')).toBe(true)
+  })
+
+  it('dedupes reveal when prior homeowner send was reveal mode', () => {
+    const raw = {
+      homeowner_estimate_emailed_at: '2026-07-22T12:00:00.000Z',
+      homeowner_estimate_emailed_to: 'home@example.com',
+      homeowner_estimate_email_mode: 'reveal',
+    }
+    expect(shouldSendHomeownerEstimateEmail(raw, 'home@example.com', 'reveal')).toBe(false)
+  })
+
   it('escapes user-controlled fields and uses estimate language', () => {
     const { subject, html, text } = buildHomeownerEstimateEmailContent({
       name: 'Jane <script>',
@@ -525,6 +671,10 @@ describe('homeowner estimate email', () => {
     expect(html).toContain('About 28 squares')
     expect(html).not.toMatch(/\$413/)
     expect(text).not.toMatch(/\$413/)
+    expect(html).not.toMatch(/\$530/)
+    expect(text).not.toMatch(/\$530/)
+    expect(html).not.toMatch(/\$550/)
+    expect(text).not.toMatch(/\$550/)
     expect(html).not.toMatch(/per square/i)
     expect(text).not.toMatch(/per square/i)
     expect(html).not.toMatch(/\$413\/sq/)
@@ -546,6 +696,54 @@ describe('homeowner estimate email', () => {
     expect(text).not.toMatch(/\$/)
     expect(text).toMatch(/design team/i)
   })
+
+  it('uses hybrid fallback copy with dollars and manual-measure language', () => {
+    const { html, text } = buildHomeownerEstimateEmailContent({
+      name: 'Jane Doe',
+      email: 'jane@example.com',
+      address: 'Heritage Dr, Charlotte, NC',
+      price_low: 17615,
+      price_high: 23831,
+      squares_est: 39.1,
+      disclaimer: getPublicEstimateFallbackDisclaimer(),
+      customerPath: 'fallback_unreliable',
+    })
+    expect(text).toMatch(/\$17,615/)
+    expect(text).toMatch(/complex/i)
+    expect(text).toMatch(/manually measure/i)
+    expect(text).toMatch(/estimate only/i)
+    expect(text).not.toMatch(/per square/i)
+    expect(text).not.toMatch(/\$530/)
+    expect(html).toMatch(/conservative estimate range/i)
+  })
+})
+
+describe('public estimate hybrid customer copy', () => {
+  it('keeps requires_manual_measure false semantics via gate copy for paid fallbacks', () => {
+    expect(getPublicEstimateGateCopyForPath('fallback_unreliable')).toBe(PUBLIC_ESTIMATE_FALLBACK_GATE_COPY)
+    expect(getPublicEstimateGateCopyForPath('fallback_complex')).toBe(PUBLIC_ESTIMATE_FALLBACK_GATE_COPY)
+    expect(getPublicEstimateGateCopyForPath('auto')).toBe(PUBLIC_ESTIMATE_GATE_COPY)
+    expect(PUBLIC_ESTIMATE_FALLBACK_GATE_COPY).toMatch(/conservative estimate range/i)
+    expect(PUBLIC_ESTIMATE_FALLBACK_GATE_COPY).toMatch(/manually measure/i)
+    expect(PUBLIC_ESTIMATE_FALLBACK_GATE_COPY).not.toMatch(/\$530/)
+  })
+
+  it('returns hybrid preview message and unlock next step for paid fallbacks', () => {
+    expect(getPublicEstimatePreviewMessageForPath('fallback_unreliable')).toBe(
+      PUBLIC_ESTIMATE_FALLBACK_PREVIEW_MESSAGE
+    )
+    expect(getPublicEstimatePreviewMessageForPath('fallback_complex')).toMatch(/complex/i)
+    expect(getPublicEstimateUnlockNextStepForPath('fallback_unreliable')).toMatch(/manual roof measure/i)
+    expect(getPublicEstimateUnlockNextStepForPath('auto')).not.toMatch(/manual roof measure/i)
+  })
+
+  it('uses fallback disclaimer with under-read and manual-measure language', () => {
+    const disclaimer = getPublicEstimateDisclaimerForPath('fallback_complex')
+    expect(disclaimer).toMatch(/estimate only/i)
+    expect(disclaimer).toMatch(/under-read/i)
+    expect(disclaimer).toMatch(/manually measure/i)
+    expect(disclaimer).not.toMatch(/\$550/)
+  })
 })
 
 describe('public estimate manual vs auto lead routing', () => {
@@ -555,10 +753,10 @@ describe('public estimate manual vs auto lead routing', () => {
     expect(PUBLIC_ESTIMATE_MANUAL_LEAD_SOURCE_NAME).toMatch(/Manual Measure/)
   })
 
-  it('never auto-assigns owner on manual/complex path', () => {
+  it('never auto-assigns owner on silent_manual path', () => {
     expect(
       resolvePublicEstimateOwnerUserId({
-        requiresManualMeasure: true,
+        customerPath: 'silent_manual',
         leadSourceAutoAssignUserId: 'inside-sales-user',
         webLeadsOwnerId: 'web-owner',
         fallbackAdminUserId: 'admin',
@@ -569,7 +767,7 @@ describe('public estimate manual vs auto lead routing', () => {
   it('keeps inside-sales auto_assign on auto estimate path', () => {
     expect(
       resolvePublicEstimateOwnerUserId({
-        requiresManualMeasure: false,
+        customerPath: 'auto',
         leadSourceAutoAssignUserId: 'inside-sales-user',
         webLeadsOwnerId: 'web-owner',
         fallbackAdminUserId: 'admin',
@@ -577,7 +775,29 @@ describe('public estimate manual vs auto lead routing', () => {
     ).toBe('inside-sales-user')
   })
 
-  it('tags manual notes for unassigned Leads pickup (not CALL NOW)', () => {
+  it('keeps inside-sales auto_assign on fallback_unreliable path', () => {
+    expect(
+      resolvePublicEstimateOwnerUserId({
+        customerPath: 'fallback_unreliable',
+        leadSourceAutoAssignUserId: 'inside-sales-user',
+        webLeadsOwnerId: 'web-owner',
+        fallbackAdminUserId: 'admin',
+      })
+    ).toBe('inside-sales-user')
+  })
+
+  it('keeps inside-sales auto_assign on fallback_complex path', () => {
+    expect(
+      resolvePublicEstimateOwnerUserId({
+        customerPath: 'fallback_complex',
+        leadSourceAutoAssignUserId: 'inside-sales-user',
+        webLeadsOwnerId: 'web-owner',
+        fallbackAdminUserId: 'admin',
+      })
+    ).toBe('inside-sales-user')
+  })
+
+  it('tags silent_manual notes for unassigned Leads pickup (not CALL NOW)', () => {
     const notes = buildEstimateNotes({
       snapshot: {
         jti: 'test',
@@ -593,6 +813,7 @@ describe('public estimate manual vs auto lead routing', () => {
         requires_manual_measure: true,
         expiresAt: Date.now() + 60_000,
       },
+      customerPath: 'silent_manual',
       price_low: 0,
       price_high: 0,
       pricePerSquare: 413,
@@ -603,9 +824,66 @@ describe('public estimate manual vs auto lead routing', () => {
     expect(notes).not.toMatch(/CALL IMMEDIATELY/)
   })
 
-  it('ops alert for manual path says no estimate / complex roof, not CALL NOW', () => {
+  it('fallback_unreliable notes use $530/sq FALLBACK and CALL IMMEDIATELY', () => {
+    const notes = buildEstimateNotes({
+      snapshot: {
+        jti: 'test',
+        address: 'Heritage Dr, Charlotte, NC',
+        lat: 35.2,
+        lng: -80.8,
+        squares_mid: 39.1,
+        squares_low: 33.2,
+        squares_high: 45.0,
+        waste_percent: 12,
+        facet_count: 8,
+        measure_source: 'solar_mask_whole',
+        requires_manual_measure: true,
+        expiresAt: Date.now() + 60_000,
+      },
+      customerPath: 'fallback_unreliable',
+      price_low: 17615,
+      price_high: 23831,
+      pricePerSquare: 530,
+      disclaimer: getPublicEstimateDisclaimerForPath('fallback_unreliable'),
+    })
+    expect(notes).toMatch(/CALL IMMEDIATELY/)
+    expect(notes).toMatch(/\$530\/sq FALLBACK/)
+    expect(notes).toMatch(/manual roof measure/i)
+    expect(notes).not.toMatch(/DO NOT quote/)
+    expect(notes).not.toMatch(/NOT routed to inside sales/i)
+  })
+
+  it('fallback_complex notes use $550/sq COMPLEX FALLBACK and CALL IMMEDIATELY', () => {
+    const notes = buildEstimateNotes({
+      snapshot: {
+        jti: 'test',
+        address: 'Complex Ave, Charlotte, NC',
+        lat: 35.2,
+        lng: -80.8,
+        squares_mid: 39.1,
+        squares_low: 33.2,
+        squares_high: 45.0,
+        waste_percent: 12,
+        facet_count: 12,
+        measure_source: 'solar_mask_whole',
+        requires_manual_measure: true,
+        expiresAt: Date.now() + 60_000,
+      },
+      customerPath: 'fallback_complex',
+      price_low: 18279,
+      price_high: 24731,
+      pricePerSquare: 550,
+      disclaimer: getPublicEstimateDisclaimerForPath('fallback_complex'),
+    })
+    expect(notes).toMatch(/CALL IMMEDIATELY/)
+    expect(notes).toMatch(/\$550\/sq COMPLEX FALLBACK/)
+    expect(notes).toMatch(/manual roof measure/i)
+    expect(notes).not.toMatch(/\$530\/sq FALLBACK/)
+  })
+
+  it('ops alert for silent_manual path says no estimate / complex roof, not CALL NOW', () => {
     const { subject, text, html } = buildOpsAlertEmailContent({
-      manual: true,
+      customerPath: 'silent_manual',
       name: 'Jane Doe',
       phone: '7045551212',
       email: 'jane@example.com',
@@ -632,7 +910,7 @@ describe('public estimate manual vs auto lead routing', () => {
 
   it('ops alert for auto path keeps CALL NOW + dollar range', () => {
     const { subject, text } = buildOpsAlertEmailContent({
-      manual: false,
+      customerPath: 'auto',
       name: 'Jane Doe',
       phone: '7045551212',
       email: 'jane@example.com',
@@ -649,5 +927,209 @@ describe('public estimate manual vs auto lead routing', () => {
     expect(subject).toMatch(/^CALL NOW/)
     expect(subject).toMatch(/\$10,000/)
     expect(text).toMatch(/Call immediately/i)
+  })
+
+  it('ops alert for fallback paths adds FALLBACK label and manual-measure follow-up', () => {
+    const { text, html } = buildOpsAlertEmailContent({
+      customerPath: 'fallback_unreliable',
+      name: 'Jane Doe',
+      phone: '7045551212',
+      email: 'jane@example.com',
+      address: 'Heritage Dr, Charlotte, NC',
+      measure_source: 'solar_mask_whole',
+      facet_count: 8,
+      leadUrl: 'https://arx-internal-crm.vercel.app/leads/abc',
+      price_low: 17615,
+      price_high: 23831,
+      squares_est: 39.1,
+      pricePerSquare: 530,
+      disclaimer: getPublicEstimateDisclaimerForPath('fallback_unreliable'),
+    })
+    expect(text).toMatch(/Call immediately/i)
+    expect(text).toMatch(/\$530\/sq FALLBACK/)
+    expect(text).toMatch(/manual roof measure/i)
+    expect(html).toMatch(/Complex aerial roof/i)
+
+    const complex = buildOpsAlertEmailContent({
+      customerPath: 'fallback_complex',
+      name: 'Jane Doe',
+      phone: '7045551212',
+      email: 'jane@example.com',
+      address: 'Complex Ave, Charlotte, NC',
+      measure_source: 'solar_mask_whole',
+      facet_count: 12,
+      leadUrl: 'https://arx-internal-crm.vercel.app/leads/abc',
+      price_low: 18279,
+      price_high: 24731,
+      squares_est: 39.1,
+      pricePerSquare: 550,
+      disclaimer: getPublicEstimateDisclaimerForPath('fallback_complex'),
+    })
+    expect(complex.text).toMatch(/\$550\/sq COMPLEX FALLBACK/)
+  })
+})
+
+describe('Instant Estimate path scorecard (synthetic)', () => {
+  function hybridLanguage(text: string): boolean {
+    return /conservative estimate range|manually measure your roof|looks complex from satellite|looks complex —/i.test(
+      text
+    )
+  }
+
+  it('auto: $413 range, no hybrid copy, inside-sales owner', () => {
+    const path = classifyPublicEstimateCustomerPath({
+      requires_manual_measure: false,
+      squares_mid: 28,
+      facet_count: 4,
+    })
+    expect(path).toBe('auto')
+    const { pricePerSquare } = resolvePublicEstimatePricingPath({
+      requires_manual_measure: false,
+      squares_mid: 28,
+      facet_count: 4,
+    })
+    expect(pricePerSquare).toBe(413)
+    const pricing = computePublicEstimatePricing(28, pricePerSquare)
+    expect(pricing.price_low).toBeGreaterThan(0)
+    expect(
+      resolvePublicEstimateOwnerUserId({
+        customerPath: path,
+        leadSourceAutoAssignUserId: 'inside-sales-user',
+        webLeadsOwnerId: null,
+        fallbackAdminUserId: null,
+      })
+    ).toBe('inside-sales-user')
+    expect(hybridLanguage(getPublicEstimateGateCopyForPath(path))).toBe(false)
+    const email = buildHomeownerEstimateEmailContent({
+      name: 'Jane',
+      email: 'j@example.com',
+      address: '1 Main',
+      price_low: pricing.price_low,
+      price_high: pricing.price_high,
+      squares_est: pricing.squares_mid,
+      disclaimer: getPublicEstimateDisclaimerForPath(path),
+      customerPath: path,
+    })
+    expect(email.text).toMatch(/\$/)
+    expect(email.text).not.toMatch(/\$530|\$550|\$413|per square|\$\/sq/i)
+    expect(hybridLanguage(email.text)).toBe(false)
+  })
+
+  it('fallback_unreliable: $530 range + hybrid copy + inside-sales owner', () => {
+    const input = { requires_manual_measure: true, squares_mid: 39.1, facet_count: 8 }
+    const path = classifyPublicEstimateCustomerPath(input)
+    expect(path).toBe('fallback_unreliable')
+    const { pricePerSquare } = resolvePublicEstimatePricingPath(input)
+    expect(pricePerSquare).toBe(530)
+    const pricing = computePublicEstimatePricing(39.1, pricePerSquare)
+    expect(pricing.price_low).toBe(17615)
+    expect(pricing.price_high).toBe(23831)
+    expect(hybridLanguage(getPublicEstimateGateCopyForPath(path))).toBe(true)
+    expect(hybridLanguage(getPublicEstimatePreviewMessageForPath(path))).toBe(true)
+    expect(getPublicEstimateUnlockNextStepForPath(path)).toMatch(/manual roof measure/i)
+    const email = buildHomeownerEstimateEmailContent({
+      name: 'Jane',
+      email: 'j@example.com',
+      address: 'Heritage Ct',
+      price_low: pricing.price_low,
+      price_high: pricing.price_high,
+      squares_est: pricing.squares_mid,
+      disclaimer: getPublicEstimateDisclaimerForPath(path),
+      customerPath: path,
+    })
+    expect(email.text).toMatch(/\$17,615/)
+    expect(email.text).toMatch(/manually measure/i)
+    expect(email.text).not.toMatch(/\$530|per square|\$\/sq/i)
+    const ops = buildOpsAlertEmailContent({
+      customerPath: path,
+      name: 'Jane',
+      phone: '7045551212',
+      email: 'j@example.com',
+      address: 'Heritage Ct',
+      measure_source: 'solar_mask_whole',
+      facet_count: 8,
+      leadUrl: 'https://example/leads/1',
+      price_low: pricing.price_low,
+      price_high: pricing.price_high,
+      squares_est: pricing.squares_mid,
+      pricePerSquare: 530,
+      disclaimer: getPublicEstimateDisclaimerForPath(path),
+    })
+    expect(ops.subject).toMatch(/^CALL NOW/)
+    expect(ops.text).toMatch(/\$530\/sq FALLBACK/)
+    expect(ops.text).toMatch(/manual roof measure/i)
+  })
+
+  it('fallback_complex: $550 range + hybrid copy + COMPLEX FALLBACK ops label', () => {
+    const input = { requires_manual_measure: true, squares_mid: 39.1, facet_count: 12 }
+    const path = classifyPublicEstimateCustomerPath(input)
+    expect(path).toBe('fallback_complex')
+    const { pricePerSquare } = resolvePublicEstimatePricingPath(input)
+    expect(pricePerSquare).toBe(550)
+    const pricing = computePublicEstimatePricing(39.1, pricePerSquare)
+    expect(pricing.price_low).toBe(18279)
+    expect(pricing.price_high).toBe(24731)
+    const ops = buildOpsAlertEmailContent({
+      customerPath: path,
+      name: 'Jane',
+      phone: '7045551212',
+      email: 'j@example.com',
+      address: 'Complex Ave',
+      measure_source: 'solar_mask_whole',
+      facet_count: 12,
+      leadUrl: 'https://example/leads/1',
+      price_low: pricing.price_low,
+      price_high: pricing.price_high,
+      squares_est: pricing.squares_mid,
+      pricePerSquare: 550,
+      disclaimer: getPublicEstimateDisclaimerForPath(path),
+    })
+    expect(ops.text).toMatch(/\$550\/sq COMPLEX FALLBACK/)
+    expect(
+      resolvePublicEstimateOwnerUserId({
+        customerPath: path,
+        leadSourceAutoAssignUserId: 'inside-sales-user',
+        webLeadsOwnerId: null,
+        fallbackAdminUserId: null,
+      })
+    ).toBe('inside-sales-user')
+  })
+
+  it('silent_manual: no dollars, manual_design email, unassigned owner', () => {
+    const path = classifyPublicEstimateCustomerPath({
+      requires_manual_measure: true,
+      squares_mid: 0,
+      facet_count: 14,
+    })
+    expect(path).toBe('silent_manual')
+    const pricing = computePublicEstimatePricing(0, 413)
+    expect(pricing.price_low).toBe(0)
+    expect(
+      resolvePublicEstimateOwnerUserId({
+        customerPath: path,
+        leadSourceAutoAssignUserId: 'inside-sales-user',
+        webLeadsOwnerId: 'web-owner',
+        fallbackAdminUserId: 'admin',
+      })
+    ).toBeNull()
+    const email = buildHomeownerManualDesignEmailContent({ name: 'Jane', address: '1 Main' })
+    expect(email.text).not.toMatch(/\$/)
+    expect(email.text).toMatch(/design team/i)
+    const ops = buildOpsAlertEmailContent({
+      customerPath: path,
+      name: 'Jane',
+      phone: '7045551212',
+      email: 'j@example.com',
+      address: '1 Main',
+      measure_source: 'none',
+      facet_count: 14,
+      leadUrl: 'https://example/leads/1',
+      price_low: 0,
+      price_high: 0,
+      squares_est: 0,
+      pricePerSquare: 413,
+      disclaimer: getPublicEstimateDisclaimerForPath(path),
+    })
+    expect(ops.subject).not.toMatch(/CALL NOW/)
   })
 })
