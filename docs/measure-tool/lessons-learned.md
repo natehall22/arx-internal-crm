@@ -36,4 +36,7 @@
 
 <!-- Append short entries below, newest first. Only needed when the CSV row alone doesn't explain the delta. -->
 
-*No entries beyond the CSV yet — Greenway and Florida Ave deltas are self-explanatory from `installs.csv` (see seed patterns above for Greenway).*
+### Heritage Ct (2300 Heritage Ct, Kannapolis) — IE under-read, fallback range still covered basis
+- **Symptom:** Instant Estimate mid **39.1 sq** (`solar_mask_whole`; unreliable) vs hard measure **47 sq w/ waste** (~8 sq under-read).
+- **Pricing:** Basis **$413/sq × 47 = $19,411**. IE **$530/sq fallback** range **$17,615–$23,831** still contained $19,411 — rate buffer compensated for square under-read.
+- **CSV row:** `heritage-ct-2026-07`.
