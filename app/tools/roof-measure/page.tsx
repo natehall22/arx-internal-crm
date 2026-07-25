@@ -73,6 +73,17 @@ interface Point {
   lng: number
 }
 
+type LidarAvailability = {
+  available: boolean
+  selected: {
+    collectStart: string | null
+    collectEnd: string | null
+    qualityLevel: string
+    category: string
+    reason: string
+  } | null
+}
+
 type SectionType =
   | 'main_roof'
   | 'upper_roof'
@@ -419,6 +430,9 @@ export default function RoofMeasurePage() {
   /** Max satellite zoom at the current property (from MaxZoomService). */
   const propertyMaxZoomRef = useRef<number>(ROOF_MEASURE_EDIT_ZOOM_TARGET)
   const hdGroundOverlayRef = useRef<any>(null)
+  const ncAerialGroundOverlayRef = useRef<any>(null)
+  /** Bumps on reset or new load so stale NC aerial fetches cannot reattach after address change. */
+  const ncAerialLoadSeqRef = useRef(0)
   /** After load from satellite fails, skip effect-driven retries until the user searches again or runs manual load (avoids infinite loops). */
   const skipAutoDetectAfterFailureRef = useRef(false)
   const loadedMeasurementIdRef = useRef<string | null>(null)
@@ -445,6 +459,12 @@ export default function RoofMeasurePage() {
   const [hdOverlayEnabled, setHdOverlayEnabled] = useState(false)
   const [hdOverlayLoading, setHdOverlayLoading] = useState(false)
   const [hdOverlayError, setHdOverlayError] = useState<string | null>(null)
+  const [ncAerialEnabled, setNcAerialEnabled] = useState(false)
+  const [ncAerialLoading, setNcAerialLoading] = useState(false)
+  const [ncAerialError, setNcAerialError] = useState<string | null>(null)
+  const [ncAerialDate, setNcAerialDate] = useState<string | null>(null)
+  const [lidarAvailability, setLidarAvailability] = useState<LidarAvailability | null>(null)
+  const [lidarLookupLoading, setLidarLookupLoading] = useState(false)
   /** When set, HD fine-tune canvas is open — block auto-detect to avoid viewport skew. */
   const [fineTuneFacetId, setFineTuneFacetId] = useState<string | null>(null)
   const [mapsLoaded, setMapsLoaded] = useState(false)
@@ -678,6 +698,33 @@ export default function RoofMeasurePage() {
     if (!searchedAddress) return
     skipAutoDetectAfterFailureRef.current = false
   }, [searchedAddress])
+
+  useEffect(() => {
+    if (!searchedAddress) {
+      setLidarAvailability(null)
+      return
+    }
+    const controller = new AbortController()
+    setLidarLookupLoading(true)
+    setLidarAvailability(null)
+    void fetch(
+      `/api/maps/usgs-lidar?lat=${encodeURIComponent(String(mapCenter.lat))}&lng=${encodeURIComponent(String(mapCenter.lng))}`,
+      { signal: controller.signal },
+    )
+      .then(async (response) => {
+        if (!response.ok) throw new Error('Lidar lookup unavailable')
+        return (await response.json()) as LidarAvailability
+      })
+      .then(setLidarAvailability)
+      .catch((error: unknown) => {
+        if (error instanceof Error && error.name === 'AbortError') return
+        setLidarAvailability(null)
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLidarLookupLoading(false)
+      })
+    return () => controller.abort()
+  }, [searchedAddress, mapCenter.lat, mapCenter.lng])
 
   useEffect(() => {
     if (prevIsDetectingForSatelliteRef.current && !isDetecting && searchedAddress) {
@@ -1166,6 +1213,11 @@ export default function RoofMeasurePage() {
     hdGroundOverlayRef.current = null
   }
 
+  const clearNcAerialGroundOverlay = () => {
+    ncAerialGroundOverlayRef.current?.setMap(null)
+    ncAerialGroundOverlayRef.current = null
+  }
+
   const resetMeasurementSession = () => {
     polygonsRef.current.forEach((polygon) => polygon.setMap(null))
     polylinesRef.current.forEach((polyline) => polyline.setMap(null))
@@ -1173,8 +1225,15 @@ export default function RoofMeasurePage() {
     polylinesRef.current.clear()
     clearAIDraftOverlays()
     clearHdGroundOverlay()
+    clearNcAerialGroundOverlay()
+    ncAerialLoadSeqRef.current += 1
+    setNcAerialLoading(false)
     setHdOverlayEnabled(false)
     setHdOverlayError(null)
+    setNcAerialEnabled(false)
+    setNcAerialError(null)
+    setNcAerialDate(null)
+    setLidarAvailability(null)
 
     commitFacets([])
     commitLinearFeatures([])
@@ -1272,6 +1331,8 @@ export default function RoofMeasurePage() {
         bounds: { north: number; south: number; east: number; west: number }
         imageBase64: string
       }
+      clearNcAerialGroundOverlay()
+      setNcAerialEnabled(false)
       clearHdGroundOverlay()
       const overlay = new google.maps.GroundOverlay(
         `data:image/png;base64,${payload.imageBase64}`,
@@ -1307,6 +1368,62 @@ export default function RoofMeasurePage() {
     const lng = center?.lng?.() ?? mapCenter.lng
     const ok = await loadHdSatelliteOverlay(lat, lng)
     if (ok) setHdOverlayEnabled(true)
+  }
+
+  const loadNcAerialOverlay = async (lat: number, lng: number) => {
+    if (!googleMapRef.current || !window.google?.maps) return false
+    const requestSeq = ++ncAerialLoadSeqRef.current
+    setNcAerialLoading(true)
+    setNcAerialError(null)
+    try {
+      const response = await fetch(
+        `/api/maps/nc-aerial?lat=${encodeURIComponent(String(lat))}&lng=${encodeURIComponent(String(lng))}`,
+      )
+      const payload = (await response.json().catch(() => ({}))) as {
+        error?: string
+        bounds?: { north: number; south: number; east: number; west: number }
+        imageBase64?: string
+        acquisitionDate?: string | null
+      }
+      if (requestSeq !== ncAerialLoadSeqRef.current) return false
+      if (!response.ok || !payload.bounds || !payload.imageBase64) {
+        throw new Error(payload.error || 'NC aerial imagery unavailable')
+      }
+      clearHdGroundOverlay()
+      setHdOverlayEnabled(false)
+      clearNcAerialGroundOverlay()
+      if (requestSeq !== ncAerialLoadSeqRef.current) return false
+      ncAerialGroundOverlayRef.current = new google.maps.GroundOverlay(
+        `data:image/png;base64,${payload.imageBase64}`,
+        payload.bounds,
+        { map: googleMapRef.current, opacity: 1 },
+      )
+      setNcAerialDate(payload.acquisitionDate || null)
+      return true
+    } catch (error: unknown) {
+      if (requestSeq !== ncAerialLoadSeqRef.current) return false
+      setNcAerialError(error instanceof Error ? error.message : 'NC aerial imagery failed')
+      clearNcAerialGroundOverlay()
+      return false
+    } finally {
+      if (requestSeq === ncAerialLoadSeqRef.current) {
+        setNcAerialLoading(false)
+      }
+    }
+  }
+
+  const toggleNcAerialOverlay = async () => {
+    if (ncAerialEnabled) {
+      clearNcAerialGroundOverlay()
+      setNcAerialEnabled(false)
+      setNcAerialError(null)
+      return
+    }
+    const center = googleMapRef.current?.getCenter?.()
+    const lat = center?.lat?.() ?? mapCenter.lat
+    const lng = center?.lng?.() ?? mapCenter.lng
+    const ok = await loadNcAerialOverlay(lat, lng)
+    if (ok) setNcAerialEnabled(true)
   }
 
   const applyFineTunePoints = (facetId: string, points: Point[]) => {
@@ -4254,7 +4371,7 @@ export default function RoofMeasurePage() {
           )}
 
           {selectedFacetData && !isDrawing && !isDrawingLine && (
-            <div className="absolute top-4 left-4 z-[1] max-w-[min(100%-2rem,20rem)] max-h-[min(70vh,32rem)] overflow-y-auto rounded-xl border border-gray-600 bg-gray-900/95 p-3 shadow-xl backdrop-blur-sm">
+            <div className="absolute top-4 left-4 z-[1] max-w-[min(100%-2rem,20rem)] max-h-[min(70vh,32rem)] max-lg:max-w-[calc(100%-6.5rem)] max-lg:max-h-[min(38vh,16rem)] overflow-y-auto rounded-xl border border-gray-600 bg-gray-900/95 p-3 shadow-xl backdrop-blur-sm">
               <div className="flex items-center gap-2 mb-2">
                 <span className="h-3 w-3 rounded-full shrink-0" style={{ backgroundColor: selectedFacetData.color }} />
                 <p className="text-sm font-medium text-white truncate">
@@ -4341,8 +4458,28 @@ export default function RoofMeasurePage() {
             </div>
           )}
 
-          {/* Quick Actions */}
-          <div className="absolute bottom-4 right-4 flex flex-col gap-2">
+          {/* Quick Actions — z-20 + width reserve on max-lg keeps HD / NC aerial tappable when section card is open */}
+          <div className="absolute bottom-4 right-4 z-20 flex flex-col items-end gap-2 pointer-events-none [&_button]:pointer-events-auto [&_p]:pointer-events-auto">
+            {(lidarLookupLoading || lidarAvailability?.available) && searchedAddress && (
+              <div
+                className="max-w-[11rem] rounded-lg border border-gray-600 bg-gray-900/90 px-2.5 py-2 text-[10px] text-gray-200 shadow-lg"
+                title={lidarAvailability?.selected?.reason || 'USGS 3DEP lidar availability'}
+              >
+                {lidarLookupLoading ? (
+                  'Checking lidar…'
+                ) : (
+                  <>
+                    <span className="font-semibold text-emerald-300">
+                      Lidar {lidarAvailability?.selected?.qualityLevel}
+                    </span>
+                    {lidarAvailability?.selected?.collectEnd
+                      ? ` · ${lidarAvailability.selected.collectEnd.slice(0, 4)}`
+                      : ''}
+                    <span className="block text-gray-400">Reference only — not applied</span>
+                  </>
+                )}
+              </div>
+            )}
             {selectedFacetData && selectedFacetData.points.length >= 3 && !isDrawing && !isDrawingLine && (
               <button
                 type="button"
@@ -4369,6 +4506,30 @@ export default function RoofMeasurePage() {
             {hdOverlayError && !hdOverlayEnabled && (
               <p className="max-w-[8rem] text-[10px] text-amber-200 bg-black/70 rounded px-2 py-1">
                 {hdOverlayError}
+              </p>
+            )}
+            <button
+              type="button"
+              onClick={() => void toggleNcAerialOverlay()}
+              disabled={ncAerialLoading || !searchedAddress}
+              className={`rounded-lg px-3 py-2.5 shadow-lg text-xs font-medium ${
+                ncAerialEnabled
+                  ? 'bg-sky-700 text-white hover:bg-sky-600'
+                  : 'bg-gray-800 text-white hover:bg-gray-700'
+              } disabled:opacity-50`}
+              title="Toggle NC OneMap 6-inch aerial imagery; measurements and Solar geometry are unchanged"
+            >
+              {ncAerialLoading ? 'Loading…' : 'NC aerial'}
+            </button>
+            {ncAerialEnabled && (
+              <p className="max-w-[9rem] text-[10px] text-sky-100 bg-black/70 rounded px-2 py-1">
+                NC OneMap · 6 in
+                {ncAerialDate ? ` · ${ncAerialDate.slice(0, 4)}` : ''}
+              </p>
+            )}
+            {ncAerialError && !ncAerialEnabled && (
+              <p className="max-w-[9rem] text-[10px] text-amber-200 bg-black/70 rounded px-2 py-1">
+                {ncAerialError}
               </p>
             )}
             <button
