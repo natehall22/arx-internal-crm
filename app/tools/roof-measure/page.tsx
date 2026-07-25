@@ -59,12 +59,26 @@ import {
   roundedZoomForDetectKey,
   ROOF_MEASURE_EDIT_ZOOM_TARGET,
 } from '@/lib/roof-measure-map-zoom'
+import {
+  mapImageryControlsPositionClass,
+  measurementsMapPanelClass,
+  measurementsSidebarPanelClass,
+  measurementsToolShellClass,
+  phoneSectionCardMaxWidthClass,
+  sectionCardPositionClass,
+  showMeasurementsButtonClass,
+} from '@/lib/roof-measure-layout'
 import { RoofFineTuneEditor } from '@/components/RoofFineTuneEditor'
 import {
   checkSolarFootprintOverlap,
   isManuallyDrawnFacet,
   overlapValidationNote,
 } from '@/lib/roof-measure-solar-overlap'
+
+/** Tailwind JIT anchor — lib/ is outside content paths in tailwind.config.ts. */
+const ROOF_MEASURE_LAYOUT_TAILWIND_ANCHOR =
+  'max-lg:max-w-[calc(100%-8rem)] lg:max-w-[min(calc(100%-2rem),20rem)] max-lg:max-w-[7rem] max-lg:left-auto lg:left-auto lg:top-auto lg:bottom-auto top-4 left-4 lg:top-4 lg:top-[4.75rem] z-30 inline-flex w-max max-w-[calc(100%-2rem)] items-center min-h-[44px] overflow-x-hidden min-w-0 max-lg:flex-1 h-[calc(100vh-64px-env(safe-area-inset-bottom,0px))] max-h-[50vh] lg:max-h-[calc(100vh-64px)] hidden min-h-[300px] max-lg:min-h-[calc(100vh-64px-env(safe-area-inset-bottom,0px))] lg:min-h-[calc(100vh-64px)] lg:min-h-[400px] max-lg:top-[max(1rem,env(safe-area-inset-top))] max-lg:right-[max(1rem,env(safe-area-inset-right))] lg:bottom-[max(1rem,calc(env(safe-area-inset-bottom,0px)+2.75rem))] lg:right-[max(1rem,env(safe-area-inset-right))] max-lg:bottom-[max(1rem,calc(env(safe-area-inset-bottom)+2.75rem))] left-[max(1rem,env(safe-area-inset-left))]' as const
+void ROOF_MEASURE_LAYOUT_TAILWIND_ANCHOR
 
 declare const google: any
 
@@ -465,6 +479,8 @@ export default function RoofMeasurePage() {
   const [ncAerialDate, setNcAerialDate] = useState<string | null>(null)
   const [lidarAvailability, setLidarAvailability] = useState<LidarAvailability | null>(null)
   const [lidarLookupLoading, setLidarLookupLoading] = useState(false)
+  /** Hides the measurements sidebar for full-map view; does not clear geometry or totals. */
+  const [measurementsSidebarCollapsed, setMeasurementsSidebarCollapsed] = useState(false)
   /** When set, HD fine-tune canvas is open — block auto-detect to avoid viewport skew. */
   const [fineTuneFacetId, setFineTuneFacetId] = useState<string | null>(null)
   const [mapsLoaded, setMapsLoaded] = useState(false)
@@ -475,6 +491,14 @@ export default function RoofMeasurePage() {
   useEffect(() => {
     isDetectingRef.current = isDetecting
   }, [isDetecting])
+
+  useEffect(() => {
+    if (!googleMapRef.current || !window.google?.maps) return
+    const timer = window.setTimeout(() => {
+      window.google.maps.event.trigger(googleMapRef.current, 'resize')
+    }, 280)
+    return () => window.clearTimeout(timer)
+  }, [measurementsSidebarCollapsed])
   const [aiDraftSections, setAiDraftSections] = useState<AIDraftSection[]>([])
   const [aiNotes, setAiNotes] = useState('')
   const [detectionDiagnostics, setDetectionDiagnostics] = useState('')
@@ -3446,9 +3470,9 @@ export default function RoofMeasurePage() {
     <div className="min-h-screen bg-gray-900">
       <Nav />
       
-      <div className="flex flex-col lg:flex-row h-[calc(100vh-64px)]">
+      <div className={measurementsToolShellClass(measurementsSidebarCollapsed)}>
         {/* Sidebar - Scrollable independently from map */}
-        <div className="w-full lg:w-96 lg:flex-shrink-0 bg-gray-800 border-b lg:border-b-0 lg:border-r border-gray-700 flex flex-col max-h-[50vh] lg:max-h-[calc(100vh-64px)] overflow-y-auto">
+        <div className={measurementsSidebarPanelClass(measurementsSidebarCollapsed)}>
           {/* Address Search */}
           <div className="p-4 border-b border-gray-700">
             <label className="block text-sm font-medium text-gray-300 mb-2">Property Address</label>
@@ -3479,6 +3503,17 @@ export default function RoofMeasurePage() {
               After you choose an address, we load roof outlines from satellite data. Pan or zoom if needed, then tap{' '}
               <span className="text-gray-400 font-medium">Load from satellite</span> so the capture matches what you see.
             </p>
+            {searchedAddress && (
+              <button
+                type="button"
+                onClick={() => setMeasurementsSidebarCollapsed(true)}
+                className="mt-3 w-full min-h-[44px] rounded-lg border border-gray-600 bg-gray-700/80 px-3 py-2 text-sm font-medium text-gray-100 hover:bg-gray-700"
+                aria-label="Hide measurements sidebar to view the full map"
+                title="Hide measurements sidebar to view the full map"
+              >
+                Hide measurements
+              </button>
+            )}
           </div>
 
           {/* Roof outline + manual drawing */}
@@ -3976,9 +4011,9 @@ export default function RoofMeasurePage() {
           {measurements && (
             <div className="p-4 border-t border-gray-700 bg-gray-800/50">
               {/* Confidence indicator */}
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-medium text-gray-300">Measurements</h3>
-                <div className="flex items-center gap-1.5">
+              <div className="flex items-start justify-between mb-3 gap-2">
+                <h3 className="text-sm font-medium text-gray-300 shrink-0">Measurements</h3>
+                <div className="flex flex-wrap items-center justify-end gap-1.5 min-w-0">
                   {measurements.quote_ready ? (
                     <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-900/50 text-emerald-400">
                       Quote ready
@@ -4326,7 +4361,7 @@ export default function RoofMeasurePage() {
         </div>
 
         {/* Map */}
-        <div className="flex-1 relative min-h-[300px] lg:min-h-[400px]">
+        <div className={measurementsMapPanelClass(measurementsSidebarCollapsed)}>
           {/* Map container - Google Maps will render here */}
           <div 
             ref={mapRef} 
@@ -4370,8 +4405,22 @@ export default function RoofMeasurePage() {
             </div>
           )}
 
+          {measurementsSidebarCollapsed && (
+            <button
+              type="button"
+              onClick={() => setMeasurementsSidebarCollapsed(false)}
+              className={showMeasurementsButtonClass()}
+              aria-label="Show measurements sidebar"
+              title="Show measurements sidebar"
+            >
+              Show measurements
+            </button>
+          )}
+
           {selectedFacetData && !isDrawing && !isDrawingLine && (
-            <div className="absolute top-4 left-4 z-[1] max-w-[min(100%-2rem,20rem)] max-h-[min(70vh,32rem)] max-lg:max-w-[calc(100%-6.5rem)] max-lg:max-h-[min(38vh,16rem)] overflow-y-auto rounded-xl border border-gray-600 bg-gray-900/95 p-3 shadow-xl backdrop-blur-sm">
+            <div
+              className={`absolute z-[1] max-h-[min(70vh,32rem)] ${phoneSectionCardMaxWidthClass()} ${sectionCardPositionClass(measurementsSidebarCollapsed)} max-lg:max-h-[min(34vh,14rem)] overflow-y-auto rounded-xl border border-gray-600 bg-gray-900/95 p-3 shadow-xl backdrop-blur-sm`}
+            >
               <div className="flex items-center gap-2 mb-2">
                 <span className="h-3 w-3 rounded-full shrink-0" style={{ backgroundColor: selectedFacetData.color }} />
                 <p className="text-sm font-medium text-white truncate">
@@ -4458,11 +4507,13 @@ export default function RoofMeasurePage() {
             </div>
           )}
 
-          {/* Quick Actions — z-20 + width reserve on max-lg keeps HD / NC aerial tappable when section card is open */}
-          <div className="absolute bottom-4 right-4 z-20 flex flex-col items-end gap-2 pointer-events-none [&_button]:pointer-events-auto [&_p]:pointer-events-auto">
+          {/* Quick Actions — top-right on phone; desktop stack lifted above Google attribution */}
+          <div
+            className={`absolute z-20 pointer-events-none ${mapImageryControlsPositionClass()} [&_button]:pointer-events-auto [&_p]:pointer-events-auto`}
+          >
             {(lidarLookupLoading || lidarAvailability?.available) && searchedAddress && (
               <div
-                className="max-w-[11rem] rounded-lg border border-gray-600 bg-gray-900/90 px-2.5 py-2 text-[10px] text-gray-200 shadow-lg"
+                className="mb-2 max-w-[11rem] max-lg:max-w-[7.25rem] rounded-lg border border-gray-600 bg-gray-900/90 px-2.5 py-2 max-lg:px-2 max-lg:py-1 text-[10px] max-lg:text-[9px] leading-tight text-gray-200 shadow-lg"
                 title={lidarAvailability?.selected?.reason || 'USGS 3DEP lidar availability'}
               >
                 {lidarLookupLoading ? (
@@ -4475,77 +4526,89 @@ export default function RoofMeasurePage() {
                     {lidarAvailability?.selected?.collectEnd
                       ? ` · ${lidarAvailability.selected.collectEnd.slice(0, 4)}`
                       : ''}
-                    <span className="block text-gray-400">Reference only — not applied</span>
+                    <span className="block text-gray-400 max-lg:hidden">Reference only — not applied</span>
+                    <span className="hidden max-lg:block text-gray-500">Ref only</span>
                   </>
                 )}
               </div>
             )}
-            {selectedFacetData && selectedFacetData.points.length >= 3 && !isDrawing && !isDrawingLine && (
+            <div className="flex flex-col items-end gap-2 max-lg:flex-row max-lg:flex-wrap max-lg:justify-end max-lg:gap-1.5 max-lg:max-w-[7rem]">
+              {selectedFacetData && selectedFacetData.points.length >= 3 && !isDrawing && !isDrawingLine && (
+                <button
+                  type="button"
+                  onClick={() => openFineTuneEditor(selectedFacetData)}
+                  className="min-h-[44px] px-4 py-2.5 rounded-lg shadow-lg text-sm max-lg:text-xs max-lg:px-2.5 font-semibold bg-sky-600 text-white hover:bg-sky-500"
+                  title="Super zoom — HD satellite editor, zoom past Google Maps max"
+                  aria-label="Super zoom — HD satellite editor"
+                >
+                  <span className="max-lg:hidden">Super zoom</span>
+                  <span className="hidden max-lg:inline">Zoom</span>
+                </button>
+              )}
               <button
                 type="button"
-                onClick={() => openFineTuneEditor(selectedFacetData)}
-                className="px-4 py-2.5 rounded-lg shadow-lg text-sm font-semibold bg-sky-600 text-white hover:bg-sky-500"
-                title="Super zoom — HD satellite editor, zoom past Google Maps max"
+                onClick={() => void toggleHdSatelliteOverlay()}
+                disabled={hdOverlayLoading}
+                className={`min-h-[44px] min-w-[44px] p-3 max-lg:px-2.5 max-lg:py-2 rounded-lg shadow-lg text-xs font-medium ${
+                  hdOverlayEnabled
+                    ? 'bg-emerald-700 text-white hover:bg-emerald-600'
+                    : 'bg-gray-800 text-white hover:bg-gray-700'
+                } disabled:opacity-50`}
+                title="Toggle Google Solar HD satellite (0.1 m/px) for fine-tuning edges"
+                aria-label="Toggle HD satellite overlay"
               >
-                Super zoom
+                {hdOverlayLoading ? '…' : 'HD'}
               </button>
-            )}
-            <button
-              type="button"
-              onClick={() => void toggleHdSatelliteOverlay()}
-              disabled={hdOverlayLoading}
-              className={`p-3 rounded-lg shadow-lg text-xs font-medium min-w-[3rem] ${
-                hdOverlayEnabled
-                  ? 'bg-emerald-700 text-white hover:bg-emerald-600'
-                  : 'bg-gray-800 text-white hover:bg-gray-700'
-              } disabled:opacity-50`}
-              title="Toggle Google Solar HD satellite (0.1 m/px) for fine-tuning edges"
-            >
-              {hdOverlayLoading ? '…' : 'HD'}
-            </button>
+              <button
+                type="button"
+                onClick={() => void toggleNcAerialOverlay()}
+                disabled={ncAerialLoading || !searchedAddress}
+                className={`min-h-[44px] min-w-[44px] rounded-lg px-3 py-2.5 max-lg:px-2 max-lg:py-2 shadow-lg text-xs font-medium ${
+                  ncAerialEnabled
+                    ? 'bg-sky-700 text-white hover:bg-sky-600'
+                    : 'bg-gray-800 text-white hover:bg-gray-700'
+                } disabled:opacity-50`}
+                title="Toggle NC OneMap 6-inch aerial imagery; measurements and Solar geometry are unchanged"
+                aria-label="Toggle NC aerial imagery overlay"
+              >
+                {ncAerialLoading ? '…' : 'NC'}
+                <span className="max-lg:hidden"> aerial</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => googleMapRef.current?.setMapTypeId('satellite')}
+                className="min-h-[44px] min-w-[44px] p-3 max-lg:px-2.5 max-lg:py-2 bg-gray-800 text-white rounded-lg shadow-lg hover:bg-gray-700"
+                title="Satellite view"
+                aria-label="Satellite view"
+              >
+                🛰️
+              </button>
+              <button
+                type="button"
+                onClick={() => googleMapRef.current?.setMapTypeId('hybrid')}
+                className="min-h-[44px] min-w-[44px] p-3 max-lg:px-2.5 max-lg:py-2 bg-gray-800 text-white rounded-lg shadow-lg hover:bg-gray-700"
+                title="Hybrid view"
+                aria-label="Hybrid view"
+              >
+                🗺️
+              </button>
+            </div>
             {hdOverlayError && !hdOverlayEnabled && (
-              <p className="max-w-[8rem] text-[10px] text-amber-200 bg-black/70 rounded px-2 py-1">
+              <p className="mt-1.5 max-w-[8rem] text-[10px] text-amber-200 bg-black/70 rounded px-2 py-1">
                 {hdOverlayError}
               </p>
             )}
-            <button
-              type="button"
-              onClick={() => void toggleNcAerialOverlay()}
-              disabled={ncAerialLoading || !searchedAddress}
-              className={`rounded-lg px-3 py-2.5 shadow-lg text-xs font-medium ${
-                ncAerialEnabled
-                  ? 'bg-sky-700 text-white hover:bg-sky-600'
-                  : 'bg-gray-800 text-white hover:bg-gray-700'
-              } disabled:opacity-50`}
-              title="Toggle NC OneMap 6-inch aerial imagery; measurements and Solar geometry are unchanged"
-            >
-              {ncAerialLoading ? 'Loading…' : 'NC aerial'}
-            </button>
             {ncAerialEnabled && (
-              <p className="max-w-[9rem] text-[10px] text-sky-100 bg-black/70 rounded px-2 py-1">
+              <p className="mt-1.5 max-w-[9rem] max-lg:max-w-[7.5rem] text-[10px] max-lg:text-[9px] text-sky-100 bg-black/70 rounded px-2 py-1">
                 NC OneMap · 6 in
                 {ncAerialDate ? ` · ${ncAerialDate.slice(0, 4)}` : ''}
               </p>
             )}
             {ncAerialError && !ncAerialEnabled && (
-              <p className="max-w-[9rem] text-[10px] text-amber-200 bg-black/70 rounded px-2 py-1">
+              <p className="mt-1.5 max-w-[9rem] max-lg:max-w-[7.5rem] text-[10px] max-lg:text-[9px] text-amber-200 bg-black/70 rounded px-2 py-1">
                 {ncAerialError}
               </p>
             )}
-            <button
-              onClick={() => googleMapRef.current?.setMapTypeId('satellite')}
-              className="p-3 bg-gray-800 text-white rounded-lg shadow-lg hover:bg-gray-700"
-              title="Satellite View"
-            >
-              🛰️
-            </button>
-            <button
-              onClick={() => googleMapRef.current?.setMapTypeId('hybrid')}
-              className="p-3 bg-gray-800 text-white rounded-lg shadow-lg hover:bg-gray-700"
-              title="Hybrid View"
-            >
-              🗺️
-            </button>
           </div>
         </div>
       </div>
