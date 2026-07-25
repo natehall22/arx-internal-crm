@@ -158,6 +158,12 @@ export default async function OpsDashboardPage() {
               </Link>
             )}
             <Link
+              href="/ops/reviews"
+              className="px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-700 font-medium"
+            >
+              Reviews
+            </Link>
+            <Link
               href="/ops/calendar"
               className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-medium"
             >
