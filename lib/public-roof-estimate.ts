@@ -5,7 +5,10 @@ import {
   PUBLIC_ESTIMATE_SATELLITE_ZOOM,
   getPublicEstimatePricePerSquare,
 } from '@/lib/public-estimate-config'
-import { computePublicEstimatePricing } from '@/lib/public-estimate-pricing'
+import {
+  resolvePublicEstimatePricingPath,
+  computePublicEstimatePricing,
+} from '@/lib/public-estimate-pricing'
 import { isPublicEstimateManualMeasureRequired } from '@/lib/public-estimate-manual-measure'
 import {
   approximatePlanarPolygonAreaSqft,
@@ -217,7 +220,7 @@ function squaresFromSolarSegments(segments: SolarMaskSegment[]): {
 }
 
 /**
- * Geocode → Solar (server-side) → squares + waste → fixed $413/sq range.
+ * Geocode → Solar (server-side) → squares + waste → $413/sq (reliable), $530/$550 fallback, or silent manual.
  * Never returns facet polygons to the caller — only numbers + optional satellite still.
  */
 export async function measurePublicRoofEstimate(addressInput: string): Promise<
@@ -349,12 +352,17 @@ export async function measurePublicRoofEstimate(addressInput: string): Promise<
     })
 
     const squaresWithWaste = measured.baseSquares + waste.wasteSquares
-    const pricing = computePublicEstimatePricing(squaresWithWaste)
     const requires_manual_measure = isPublicEstimateManualMeasureRequired({
       measure_source,
       facet_count: measured.facetCount,
       force_manual_reconcile,
     })
+    const { pricePerSquare } = resolvePublicEstimatePricingPath({
+      requires_manual_measure,
+      squares_mid: squaresWithWaste,
+      facet_count: measured.facetCount,
+    })
+    const pricing = computePublicEstimatePricing(squaresWithWaste, pricePerSquare)
 
     return {
       ok: true,
