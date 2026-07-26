@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
+import { isAiAssistantAllowlistedAuth } from '@/lib/ai/chat-allowlist'
 import {
   AI_CHAT_MAX_MESSAGE_LENGTH,
   AI_CHAT_MAX_OPENAI_MESSAGES,
@@ -32,6 +33,9 @@ interface Message {
 
 async function resolveAiChatClient() {
   const auth = await requireAuthApi()
+  if (!isAiAssistantAllowlistedAuth(auth)) {
+    throw new Error('AI assistant not available')
+  }
   const accessToken = getRequestAccessToken()
   if (!accessToken) {
     throw new Error('Unauthorized')
@@ -226,6 +230,9 @@ export async function POST(request: NextRequest) {
     const message = error instanceof Error ? error.message : 'Unauthorized'
     if (message === 'Account disabled') {
       return NextResponse.json({ error: 'Account disabled' }, { status: 403 })
+    }
+    if (message === 'AI assistant not available') {
+      return NextResponse.json({ error: 'AI assistant is not available for your account yet.' }, { status: 403 })
     }
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
@@ -452,7 +459,11 @@ export async function GET(request: NextRequest) {
     const resolved = await resolveAiChatClient()
     profile = resolved.profile
     supabase = resolved.supabase
-  } catch {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unauthorized'
+    if (message === 'AI assistant not available') {
+      return NextResponse.json({ error: 'AI assistant is not available for your account yet.' }, { status: 403 })
+    }
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 

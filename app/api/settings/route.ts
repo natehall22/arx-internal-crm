@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { requireAuthApi } from '@/lib/auth'
+import { isAiAssistantAllowlistedAuth } from '@/lib/ai/chat-allowlist'
 
 export const dynamic = 'force-dynamic'
 
@@ -54,6 +55,7 @@ export async function GET(_request: NextRequest) {
       profile: {
         role: profile.role,
         full_name: profile.full_name,
+        aiAssistantAllowlisted: isAiAssistantAllowlistedAuth({ authUser, profile }),
       },
     })
   } catch (error) {
@@ -71,7 +73,9 @@ export async function GET(_request: NextRequest) {
 // POST - Save user settings
 export async function POST(request: NextRequest) {
   try {
-    const { authUser } = await requireAuthApi()
+    const auth = await requireAuthApi()
+    const { authUser } = auth
+    const aiAssistantAllowlisted = isAiAssistantAllowlistedAuth(auth)
 
     const adminClient = getAdminClient()
     const settings = await request.json()
@@ -101,9 +105,24 @@ export async function POST(request: NextRequest) {
     if (settings.working_hours_end !== undefined)
       settingsData.working_hours_end = settings.working_hours_end
     if (settings.working_days !== undefined) settingsData.working_days = settings.working_days
-    if (settings.ai_enabled !== undefined) settingsData.ai_enabled = settings.ai_enabled
-    if (settings.ai_suggestions_enabled !== undefined)
+    if (settings.ai_enabled !== undefined) {
+      if (!aiAssistantAllowlisted && settings.ai_enabled) {
+        return NextResponse.json(
+          { error: 'AI assistant is not available for your account yet.' },
+          { status: 403 }
+        )
+      }
+      settingsData.ai_enabled = settings.ai_enabled
+    }
+    if (settings.ai_suggestions_enabled !== undefined) {
+      if (!aiAssistantAllowlisted && settings.ai_suggestions_enabled) {
+        return NextResponse.json(
+          { error: 'AI assistant is not available for your account yet.' },
+          { status: 403 }
+        )
+      }
       settingsData.ai_suggestions_enabled = settings.ai_suggestions_enabled
+    }
     if (settings.ai_auto_notes !== undefined) settingsData.ai_auto_notes = settings.ai_auto_notes
     if (settings.theme !== undefined) settingsData.theme = settings.theme
 

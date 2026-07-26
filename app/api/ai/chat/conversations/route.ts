@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
+import { isAiAssistantAllowlistedAuth } from '@/lib/ai/chat-allowlist'
 import { isValidAiContextId, normalizeAiChatMessages } from '@/lib/ai/chat-constants'
 import { getConversationPreview } from '@/lib/ai/chat-conversation-preview'
 import {
@@ -11,6 +12,9 @@ const RECENT_CONVERSATIONS_LIMIT = 20
 
 async function resolveAiChatClient() {
   const auth = await requireAuthApi()
+  if (!isAiAssistantAllowlistedAuth(auth)) {
+    throw new Error('AI assistant not available')
+  }
   const accessToken = getRequestAccessToken()
   if (!accessToken) {
     throw new Error('Unauthorized')
@@ -53,6 +57,14 @@ async function requireEnabledAiChatClient() {
     const message = error instanceof Error ? error.message : 'Unauthorized'
     if (message === 'Account disabled') {
       return { error: NextResponse.json({ error: 'Account disabled' }, { status: 403 }) }
+    }
+    if (message === 'AI assistant not available') {
+      return {
+        error: NextResponse.json(
+          { error: 'AI assistant is not available for your account yet.' },
+          { status: 403 }
+        ),
+      }
     }
     return { error: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) }
   }

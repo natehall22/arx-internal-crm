@@ -28,6 +28,7 @@ interface UserSettings {
 interface UserProfile {
   role: string
   full_name: string
+  aiAssistantAllowlisted?: boolean
 }
 
 const defaultSettings: UserSettings = {
@@ -70,7 +71,13 @@ export default function SettingsPage() {
     loadSettings()
 
     const tab = searchParams.get('tab')
-    if (tab === 'notifications' || tab === 'calendar' || tab === 'ai' || tab === 'reports' || tab === 'display') {
+    if (
+      tab === 'notifications' ||
+      tab === 'calendar' ||
+      tab === 'reports' ||
+      tab === 'display' ||
+      (tab === 'ai' && userProfile?.aiAssistantAllowlisted)
+    ) {
       setActiveTab(tab)
     }
 
@@ -230,6 +237,17 @@ export default function SettingsPage() {
     )
   }
 
+  const aiAssistantAllowlisted = userProfile?.aiAssistantAllowlisted ?? false
+  const settingsTabs = [
+    { id: 'notifications', label: 'Notifications', icon: '🔔' },
+    { id: 'calendar', label: 'Calendar', icon: '📅' },
+    ...(aiAssistantAllowlisted
+      ? [{ id: 'ai', label: 'AI Assistant', icon: '🤖' }]
+      : []),
+    { id: 'reports', label: 'My Reports', icon: '📊' },
+    { id: 'display', label: 'Display', icon: '🎨' },
+  ] as const
+
   return (
     <div className="min-h-screen bg-gray-50">
       <Nav />
@@ -249,13 +267,7 @@ export default function SettingsPage() {
 
         {/* Tabs */}
         <div className="flex gap-1 mb-6 border-b overflow-x-auto">
-          {[
-            { id: 'notifications', label: 'Notifications', icon: '🔔' },
-            { id: 'calendar', label: 'Calendar', icon: '📅' },
-            { id: 'ai', label: 'AI Assistant', icon: '🤖' },
-            { id: 'reports', label: 'My Reports', icon: '📊' },
-            { id: 'display', label: 'Display', icon: '🎨' },
-          ].map((tab) => (
+          {settingsTabs.map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id as any)}
@@ -514,7 +526,7 @@ export default function SettingsPage() {
         )}
 
         {/* AI Tab */}
-        {activeTab === 'ai' && (
+        {activeTab === 'ai' && aiAssistantAllowlisted && (
           <div className="bg-white rounded-xl shadow-sm border p-6 space-y-6">
             <div>
               <h2 className="text-lg font-semibold text-gray-900 mb-2">AI Assistant</h2>

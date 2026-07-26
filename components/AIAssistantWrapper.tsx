@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { usePathname } from 'next/navigation'
 import { createClientBrowser } from '@/lib/supabase/client'
+import { isAiAssistantAllowlistedEmail } from '@/lib/ai/chat-allowlist'
 import AIAssistant from '@/components/AIAssistant'
 import { useAIAssistantPageContext } from '@/components/AIAssistantProvider'
 
@@ -19,6 +20,7 @@ export default function AIAssistantWrapper() {
   const pathname = usePathname()
   const { pageContext } = useAIAssistantPageContext()
   const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [isAllowlisted, setIsAllowlisted] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
@@ -32,6 +34,7 @@ export default function AIAssistantWrapper() {
         } = await supabase.auth.getUser()
         if (mounted) {
           setIsAuthenticated(!!user)
+          setIsAllowlisted(isAiAssistantAllowlistedEmail(user?.email))
         }
       } catch (err) {
         console.error('AI Wrapper auth check error:', err)
@@ -49,7 +52,7 @@ export default function AIAssistantWrapper() {
     }
   }, [])
 
-  if (isLoading || !isAuthenticated || isCanvassPath(pathname)) {
+  if (isLoading || !isAuthenticated || !isAllowlisted || isCanvassPath(pathname)) {
     return null
   }
 
