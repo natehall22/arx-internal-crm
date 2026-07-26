@@ -11,6 +11,33 @@ interface Message {
   timestamp: Date
 }
 
+interface ConversationSummary {
+  id: string
+  contextType: string
+  contextId: string | null
+  updatedAt: string
+  preview: string
+}
+
+function formatRelativeTime(iso: string): string {
+  const date = new Date(iso)
+  const diffMs = Date.now() - date.getTime()
+  const diffMins = Math.floor(diffMs / 60000)
+  if (diffMins < 1) return 'Just now'
+  if (diffMins < 60) return `${diffMins}m ago`
+  const diffHours = Math.floor(diffMins / 60)
+  if (diffHours < 24) return `${diffHours}h ago`
+  const diffDays = Math.floor(diffHours / 24)
+  if (diffDays < 7) return `${diffDays}d ago`
+  return date.toLocaleDateString([], { month: 'short', day: 'numeric' })
+}
+
+function contextTypeLabel(contextType: string): string {
+  if (contextType === 'job') return 'Ops job'
+  if (contextType === 'general') return 'General'
+  return contextType.charAt(0).toUpperCase() + contextType.slice(1)
+}
+
 interface AIAssistantProps {
   context?: {
     type: 'lead' | 'opportunity' | 'project' | 'job' | 'general'
@@ -28,6 +55,10 @@ export default function AIAssistant({ context, stackedFab = false }: AIAssistant
   const [loading, setLoading] = useState(false)
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [suggestions, setSuggestions] = useState<string[]>([])
+  const [showHistory, setShowHistory] = useState(false)
+  const [historyItems, setHistoryItems] = useState<ConversationSummary[]>([])
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [historyError, setHistoryError] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const sendingRef = useRef(false)
   const sendGenerationRef = useRef(0)
@@ -40,6 +71,7 @@ export default function AIAssistant({ context, stackedFab = false }: AIAssistant
     loadSuggestions()
     setMessages([])
     setConversationId(null)
+    setShowHistory(false)
     setLoading(false)
     sendingRef.current = false
   }, [contextKey])
@@ -173,6 +205,103 @@ export default function AIAssistant({ context, stackedFab = false }: AIAssistant
     }
   }
 
+  const startNewChat = () => {
+    setMessages([])
+    setConversationId(null)
+    setShowHistory(false)
+    setInput('')
+    setLoading(false)
+    sendingRef.current = false
+  }
+
+  const loadHistory = async () => {
+    setHistoryLoading(true)
+    setHistoryError(null)
+    try {
+      const response = await fetch('/api/ai/chat/conversations')
+      const data = await response.json()
+
+      if (!response.ok) {
+        if (data.needsEnable) {
+          setIsEnabled(false)
+        }
+        setHistoryError(data.error || 'Failed to load history')
+        setHistoryItems([])
+        return
+      }
+
+      setHistoryItems(data.conversations || [])
+    } catch (error) {
+      console.error('Failed to load conversation history:', error)
+      setHistoryError('Failed to load history')
+      setHistoryItems([])
+    } finally {
+      setHistoryLoading(false)
+    }
+  }
+
+  const openHistory = () => {
+    setShowHistory(true)
+    loadHistory()
+  }
+
+  const resumeConversation = async (id: string) => {
+    setHistoryLoading(true)
+    setHistoryError(null)
+    try {
+      const response = await fetch(`/api/ai/chat/conversations?id=${encodeURIComponent(id)}`)
+      const data = await response.json()
+
+      if (!response.ok) {
+        setHistoryError(data.error || 'Failed to load conversation')
+        return
+      }
+
+      const loadedAt = new Date()
+      setConversationId(data.conversationId)
+      setMessages(
+        (data.messages || []).map((msg: { role: 'user' | 'assistant'; content: string }) => ({
+          role: msg.role,
+          content: msg.content,
+          timestamp: loadedAt,
+        }))
+      )
+      setShowHistory(false)
+      setHistoryError(null)
+    } catch (error) {
+      console.error('Failed to resume conversation:', error)
+      setHistoryError('Failed to load conversation')
+    } finally {
+      setHistoryLoading(false)
+    }
+  }
+
+  const deleteConversation = async (id: string) => {
+    if (!window.confirm('Delete this conversation?')) return
+
+    try {
+      const response = await fetch('/api/ai/chat/conversations', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ conversationId: id }),
+      })
+
+      if (!response.ok) {
+        const data = await response.json()
+        setHistoryError(data.error || 'Failed to delete conversation')
+        return
+      }
+
+      setHistoryItems(prev => prev.filter(item => item.id !== id))
+      if (conversationId === id) {
+        startNewChat()
+      }
+    } catch (error) {
+      console.error('Failed to delete conversation:', error)
+      setHistoryError('Failed to delete conversation')
+    }
+  }
+
   const openAssistant = () => {
     checkAIEnabled()
     loadSuggestions()
@@ -224,19 +353,83 @@ export default function AIAssistant({ context, stackedFab = false }: AIAssistant
             </p>
           </div>
         </div>
-        <button
-          onClick={() => setIsOpen(false)}
-          className="p-2 hover:bg-white/20 rounded-full transition-colors"
-        >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={showHistory ? () => setShowHistory(false) : openHistory}
+            className={`px-2.5 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+              showHistory ? 'bg-white text-indigo-700' : 'bg-white/15 hover:bg-white/25 text-white'
+            }`}
+          >
+            History
+          </button>
+          <button
+            onClick={startNewChat}
+            className="px-2.5 py-1.5 text-xs font-medium rounded-lg bg-white/15 hover:bg-white/25 text-white transition-colors"
+          >
+            New chat
+          </button>
+          <button
+            onClick={() => setIsOpen(false)}
+            className="p-2 hover:bg-white/20 rounded-full transition-colors"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
       </div>
 
-      {/* Messages */}
+      {/* Messages / History */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {messages.length === 0 ? (
+        {showHistory ? (
+          <div className="space-y-3">
+            {historyLoading && historyItems.length === 0 ? (
+              <p className="text-sm text-[#2c2c2a] text-center py-8">Loading history…</p>
+            ) : historyError && historyItems.length === 0 ? (
+              <p className="text-sm text-[#2c2c2a] text-center py-8">{historyError}</p>
+            ) : historyItems.length === 0 ? (
+              <p className="text-sm text-[#2c2c2a] text-center py-8">No recent conversations yet.</p>
+            ) : (
+              historyItems.map((item) => (
+                <div
+                  key={item.id}
+                  className="flex items-start gap-2 p-3 bg-gray-50 hover:bg-indigo-50 rounded-lg border border-gray-200"
+                >
+                  <button
+                    type="button"
+                    onClick={() => resumeConversation(item.id)}
+                    disabled={historyLoading}
+                    className="flex-1 min-w-0 text-left disabled:opacity-50"
+                  >
+                    <p className="text-sm text-[#2c2c2a] truncate">{item.preview}</p>
+                    <div className="mt-1 flex flex-wrap items-center gap-2">
+                      <span className="text-xs text-[#6b6b68]">{formatRelativeTime(item.updatedAt)}</span>
+                      {item.contextType !== 'general' && (
+                        <span className="text-xs font-medium text-indigo-700 bg-indigo-100 px-2 py-0.5 rounded-full">
+                          {contextTypeLabel(item.contextType)}
+                        </span>
+                      )}
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => deleteConversation(item.id)}
+                    disabled={historyLoading}
+                    className="p-1.5 text-[#6b6b68] hover:text-red-700 hover:bg-red-50 rounded-md transition-colors disabled:opacity-50"
+                    title="Delete conversation"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                  </button>
+                </div>
+              ))
+            )}
+            {historyError && historyItems.length > 0 && (
+              <p className="text-xs text-red-700">{historyError}</p>
+            )}
+          </div>
+        ) : messages.length === 0 ? (
           <div className="text-center py-8">
             <div className="w-16 h-16 bg-gradient-to-br from-indigo-100 to-purple-100 rounded-full flex items-center justify-center mx-auto mb-4">
               <svg className="w-8 h-8 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
