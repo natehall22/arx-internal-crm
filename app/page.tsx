@@ -1,478 +1,508 @@
-import Image from 'next/image'
 import Link from 'next/link'
+import HeroScene3D from '@/components/landing/HeroScene3D'
+import { CanvassShot, MeasureShot, PipelineShot } from '@/components/landing/ProductShots'
+import Reveal from '@/components/landing/Reveal'
 
-const operatingRows = [
-  {
-    label: 'New roof claim',
-    owner: 'Inside sales',
-    status: 'Qualified',
-    value: '$18.4k',
-    accent: 'bg-cyan-500',
-  },
-  {
-    label: 'Storm follow-up',
-    owner: 'Setter team',
-    status: 'Booked',
-    value: '$11.9k',
-    accent: 'bg-amber-400',
-  },
-  {
-    label: 'Signed install',
-    owner: 'Ops',
-    status: 'Ready',
-    value: '$24.7k',
-    accent: 'bg-emerald-500',
-  },
+/* ARX brand palette
+   ink    #211F1D  charcoal (dark sections, headings)
+   gold   #B0904E  olive-gold (single accent)
+   cream  #F6F1E7  warm background
+   line   #E7DECB  hairline borders on light
+   muted  #6B655A  body text on light                                    */
+
+const metrics = [
+  { value: '< 60 sec', label: 'Lead routing target' },
+  { value: 'One file', label: 'From first call to install' },
+  { value: 'Live', label: 'Sales + operations in sync' },
 ]
 
-const capabilities = [
-  'Lead',
-  'Visit',
-  'Scope',
-  'Contract',
-  'Packet',
-  'Install',
-]
-
-const principles = [
+const replaces = [
   {
     title: 'Built around how the shop already works',
-    body: 'ARX starts with the calls, whiteboards, field photos, paper notes, and handoffs your team already depends on, then custom development fills the gaps during setup.',
+    body: 'ARX starts with the calls, whiteboards, field photos, and paper handoffs your team already depends on — then custom development fills the gaps during setup.',
   },
   {
     title: 'Less chasing for the office',
-    body: 'Follow-ups, files, customer history, and next steps sit together so the office is not rebuilding the story all day.',
+    body: 'Follow-ups, files, customer history, and next steps sit together, so the office is not rebuilding the story from scratch all day long.',
   },
   {
     title: 'Software plus real coaching',
-    body: 'For shops that want it, plan subscriptions can include business coaching around sales process, follow-up discipline, and cleaner operations.',
+    body: 'Plans can include business coaching around sales process, follow-up discipline, and cleaner operations — not just another login.',
   },
 ]
 
-const planDetails = [
-  {
-    label: 'Custom setup',
-    detail: 'We shape the CRM around your shop, your team, your paperwork, and your handoffs.',
-  },
-  {
-    label: 'Custom development',
-    detail: 'When a setup needs a workflow, report, form, or handoff that does not exist yet, we can build it into the engagement.',
-  },
-  {
-    label: 'Business coaching',
-    detail: 'Optional coaching plans help owners understand costs, tighten sales habits, clean up operations, and build a healthier company.',
-  },
+const audience = [
+  'Roofing, restoration, HVAC, plumbing, and trade teams',
+  'Office managers keeping calls and schedules straight',
+  'Owners who need to know what actually happened today',
+  'Field crews handing off signed work cleanly',
 ]
 
-const growthFoundations = [
-  {
-    label: 'Know the real cost',
-    detail: 'Track materials, labor, subs, commissions, deposits, and job expenses so pricing is not built on a gut feeling.',
-  },
-  {
-    label: 'See what is profitable',
-    detail: 'Compare sold work against actual job costs so owners can spot which services, crews, and lead sources are worth scaling.',
-  },
-  {
-    label: 'Grow without chaos',
-    detail: 'Scale sales and operations together so more booked work does not bury the office, the crews, or the owner.',
-  },
+const growth = [
+  { label: 'Know the real cost', detail: 'Track materials, labor, subs, commissions, deposits, and job expenses so pricing is never built on a gut feeling.' },
+  { label: 'See what is profitable', detail: 'Compare sold work against actual job costs to spot which services, crews, and lead sources are worth scaling.' },
+  { label: 'Grow without chaos', detail: 'Scale sales and operations together, so more booked work does not bury the office, the crews, or the owner.' },
 ]
 
-const teamScale = [
-  'Sales knows what ops can handle',
-  'Ops sees what was promised before the job lands',
-  'Owners can coach the whole system, not just one department',
-  'Growth decisions come from numbers, not pressure',
+const plans = [
+  { label: 'Custom setup', detail: 'We shape the CRM around your shop, your team, your paperwork, and your handoffs.' },
+  { label: 'Custom development', detail: 'When a setup needs a workflow, report, or handoff that does not exist yet, we build it into the engagement.' },
+  { label: 'Business coaching', detail: 'Optional coaching helps owners understand costs, tighten sales habits, and build a healthier company.' },
 ]
 
-const heroProof = [
-  'CRM',
-  'Estimating',
-  'Job costing',
-  'Ops handoff',
+const pricingIncludes = [
+  'Full CRM & pipeline',
+  'Canvassing app (offline)',
+  'Roof measurement tool',
+  'Estimating & proposals',
+  'Job costing & ops board',
+  'Commissions & payroll',
+  'Reporting & dashboards',
+  'Onboarding & support',
 ]
 
-const proof = [
-  ['< 60 sec', 'lead routing target'],
-  ['1 file', 'call to install'],
-  ['Live view', 'sales + ops'],
+const presentationSteps = [
+  'Map how calls, texts, and web leads come in',
+  'Find the handoffs that cause callbacks or confusion',
+  'Connect sales promises to operational capacity',
+  'Scope custom development and coaching only where useful',
 ]
 
-function ArrowIcon({ className = 'h-5 w-5' }: { className?: string }) {
+function ArrowIcon({ className = 'h-4 w-4' }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-      <path
-        fillRule="evenodd"
-        d="M3.5 10a1 1 0 0 1 1-1h8.09l-2.8-2.8a1 1 0 1 1 1.42-1.4l4.5 4.5a1 1 0 0 1 0 1.4l-4.5 4.5a1 1 0 0 1-1.42-1.4l2.8-2.8H4.5a1 1 0 0 1-1-1Z"
-        clipRule="evenodd"
-      />
+      <path fillRule="evenodd" d="M3.5 10a1 1 0 0 1 1-1h8.09l-2.8-2.8a1 1 0 1 1 1.42-1.4l4.5 4.5a1 1 0 0 1 0 1.4l-4.5 4.5a1 1 0 0 1-1.42-1.4l2.8-2.8H4.5a1 1 0 0 1-1-1Z" clipRule="evenodd" />
     </svg>
   )
 }
 
-function ProductSignal() {
+function Wordmark() {
   return (
-    <div className="relative bg-slate-950 p-2 shadow-2xl shadow-slate-950/20">
-      <div className="absolute -right-3 top-8 hidden bg-[#9b3f2f] px-4 py-2 text-xs font-black uppercase text-white lg:block">
-        Shop file
+    <Link href="/" className="flex items-center gap-2.5" aria-label="ARX home">
+      <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#211F1D] text-sm font-semibold tracking-tight text-[#F6F1E7] ring-1 ring-[#B0904E]/40">
+        A
+      </span>
+      <span className="flex flex-col leading-none">
+        <span className="text-[15px] font-semibold tracking-tight text-[#211F1D]">ARX</span>
+        <span className="mt-1 text-[11px] font-medium text-[#8A8272]">CRM for service shops</span>
+      </span>
+    </Link>
+  )
+}
+
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#8A6D3B]">
+      <span className="h-1.5 w-1.5 rounded-full bg-[#B0904E]" />
+      {children}
+    </span>
+  )
+}
+
+function CheckDot() {
+  return (
+    <span className="flex h-5 w-5 flex-none items-center justify-center rounded-full bg-[#B0904E]/15 text-[#8A6D3B]">
+      <svg className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+        <path fillRule="evenodd" d="M16.7 5.3a1 1 0 0 1 0 1.4l-7.5 7.5a1 1 0 0 1-1.4 0L3.3 9.7a1 1 0 1 1 1.4-1.4l3.3 3.3 6.8-6.8a1 1 0 0 1 1.4 0Z" clipRule="evenodd" />
+      </svg>
+    </span>
+  )
+}
+
+function FeatureRow({
+  eyebrow,
+  title,
+  body,
+  points,
+  flip = false,
+  children,
+}: {
+  eyebrow: string
+  title: string
+  body: string
+  points: string[]
+  flip?: boolean
+  children: React.ReactNode
+}) {
+  return (
+    <div className="grid items-center gap-12 lg:grid-cols-2 lg:gap-16">
+      <div className={flip ? 'lg:order-2' : ''}>
+        <SectionLabel>{eyebrow}</SectionLabel>
+        <h3 className="mt-4 text-2xl font-semibold leading-[1.15] tracking-[-0.01em] text-[#211F1D] md:text-[2rem]">
+          {title}
+        </h3>
+        <p className="mt-4 max-w-lg text-lg leading-8 text-[#5A544A]">{body}</p>
+        <ul className="mt-6 space-y-3">
+          {points.map((p) => (
+            <li key={p} className="flex items-center gap-3 text-[15px] font-medium text-[#3E3A33]">
+              <CheckDot />
+              {p}
+            </li>
+          ))}
+        </ul>
       </div>
-
-      <div className="border border-slate-800 bg-[#f7f3ea]">
-        <div className="relative h-48 overflow-hidden border-b border-slate-800 sm:h-56">
-          <Image
-            src="/landing/field-file-hero.png"
-            alt="Roofing job paperwork, measurements, and a phone on a truck tailgate"
-            fill
-            priority
-            sizes="(min-width: 1024px) 720px, 100vw"
-            className="object-cover"
-          />
-          <div className="absolute inset-0 bg-gradient-to-r from-slate-950/65 via-slate-950/10 to-transparent" />
-          <div className="absolute bottom-4 left-4 max-w-sm text-white">
-            <p className="text-xs font-black uppercase text-amber-200">Real shop rhythm</p>
-            <p className="mt-2 text-xl font-black leading-6">Paperwork, phone calls, field notes, one living record.</p>
-          </div>
-        </div>
-
-        <div className="grid lg:grid-cols-[0.78fr_1.22fr]">
-          <aside className="border-b border-slate-300 bg-[#e9dcc1] p-4 lg:border-b-0 lg:border-r">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="text-xs font-black uppercase text-slate-600">Today&apos;s job file</p>
-                <h3 className="mt-2 text-3xl font-black leading-none text-slate-950">Cullingford Lane</h3>
-              </div>
-              <span className="border-2 border-[#9b3f2f] px-3 py-2 text-xs font-black uppercase text-[#9b3f2f]">
-                Booked
-              </span>
-            </div>
-
-            <div className="mt-5 grid gap-2">
-              {proof.map(([value, label]) => (
-                <div key={label} className="border border-slate-300 bg-[#f7f3ea] p-3">
-                  <p className="text-2xl font-black text-slate-950">{value}</p>
-                  <p className="mt-1 text-xs font-bold text-slate-600">{label}</p>
-                </div>
-              ))}
-            </div>
-
-            <div className="mt-5 border-t border-slate-400 pt-4">
-              <p className="text-xs font-black uppercase text-slate-600">No loose ends</p>
-              <p className="mt-2 text-sm font-bold leading-6 text-slate-800">
-                The customer story moves as one file, from first call to install packet, with room for custom setup and coaching where the shop needs it.
-              </p>
-            </div>
-          </aside>
-
-          <div className="bg-white">
-            <div className="grid grid-cols-3 border-b border-slate-200">
-              {capabilities.map((item) => (
-                <div key={item} className="border-r border-slate-200 px-3 py-2.5 text-center text-xs font-black uppercase text-slate-600 last:border-r-0 lg:px-4">
-                  {item}
-                </div>
-              ))}
-            </div>
-
-            <div className="p-4">
-              <div className="grid gap-3">
-                {operatingRows.map((row) => (
-                  <div key={row.label} className="grid gap-3 border border-slate-200 bg-white p-3 shadow-sm shadow-slate-950/5 sm:grid-cols-[1fr_auto]">
-                    <div className="flex gap-4">
-                      <span className={`mt-1 h-3.5 w-3.5 flex-none ${row.accent}`} />
-                      <div>
-                        <p className="text-base font-black leading-6 text-slate-950">{row.label}</p>
-                        <p className="mt-1 text-sm font-semibold text-slate-500">{row.owner}</p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-3 sm:justify-end">
-                      <span className="bg-slate-100 px-3 py-1.5 text-xs font-black text-slate-700">{row.status}</span>
-                      <span className="text-sm font-black text-slate-950">{row.value}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_0.86fr]">
-                <div className="border border-slate-200 bg-slate-950 p-4 text-white">
-                  <p className="text-xs font-black uppercase text-cyan-200">Next move</p>
-                  <p className="mt-2 text-xl font-black leading-7">Confirm roof measurements before the 4:30 visit.</p>
-                  <div className="mt-4 h-2 bg-slate-800">
-                    <div className="h-2 w-[74%] bg-amber-400" />
-                  </div>
-                  <p className="mt-3 text-xs font-semibold text-slate-400">Ops packet readiness: 74%</p>
-                </div>
-
-                <div className="border border-slate-200 bg-[#f7f3ea] p-4">
-                  <p className="text-xs font-black uppercase text-slate-600">Handoff trail</p>
-                  <div className="mt-4 space-y-3">
-                    {['Call logged', 'Setter assigned', 'Visit brief drafted', 'Photos requested'].map((item) => (
-                      <div key={item} className="flex items-center gap-3">
-                        <span className="h-2.5 w-2.5 bg-[#9b3f2f]" />
-                        <p className="text-sm font-bold text-slate-700">{item}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+      <div className={`flex justify-center ${flip ? 'lg:order-1' : ''}`}>{children}</div>
     </div>
   )
 }
 
 export default function Home() {
   return (
-    <main className="min-h-screen bg-[#f7f3ea] text-slate-950">
-      <header className="sticky top-0 z-50 border-b border-slate-900/10 bg-[#f7f3ea]/90 backdrop-blur">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-4 lg:px-8">
-          <Link href="/" className="flex items-center gap-3" aria-label="ARX home">
-            <span className="relative flex h-12 w-12 items-center justify-center overflow-hidden bg-slate-950">
-              <Image
-                src="/brand/arx-shield.png"
-                alt=""
-                fill
-                sizes="48px"
-                className="object-cover"
-              />
-            </span>
-            <span>
-              <span className="block text-base font-black leading-none text-slate-950">ARX</span>
-              <span className="mt-1 block text-xs font-bold text-slate-500">Premium CRM for service shops</span>
-            </span>
-          </Link>
-
-          <nav className="hidden items-center gap-7 md:flex" aria-label="Main navigation">
-            <a href="#platform" className="text-sm font-bold text-slate-600 transition hover:text-slate-950">Platform</a>
-            <a href="#fit" className="text-sm font-bold text-slate-600 transition hover:text-slate-950">Fit</a>
-            <a href="#presentation" className="text-sm font-bold text-slate-600 transition hover:text-slate-950">Presentation</a>
+    <main className="min-h-screen bg-[#F6F1E7] text-[#211F1D] antialiased">
+      {/* Header */}
+      <header className="sticky top-0 z-50 border-b border-[#211F1D]/[0.07] bg-[#F6F1E7]/80 backdrop-blur-md">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-4 lg:px-8">
+          <Wordmark />
+          <nav className="hidden items-center gap-8 md:flex" aria-label="Main navigation">
+            <a href="#platform" className="text-sm font-medium text-[#6B655A] transition hover:text-[#211F1D]">Platform</a>
+            <a href="#fit" className="text-sm font-medium text-[#6B655A] transition hover:text-[#211F1D]">Who it&apos;s for</a>
+            <a href="#plans" className="text-sm font-medium text-[#6B655A] transition hover:text-[#211F1D]">Plans</a>
+            <a href="#pricing" className="text-sm font-medium text-[#6B655A] transition hover:text-[#211F1D]">Pricing</a>
           </nav>
-
-          <div className="flex items-center gap-3">
-            <Link href="/login" className="hidden text-sm font-bold text-slate-600 transition hover:text-slate-950 sm:inline">
+          <div className="flex items-center gap-2 sm:gap-4">
+            <Link href="/login" className="hidden text-sm font-medium text-[#6B655A] transition hover:text-[#211F1D] sm:inline">
               Sign in
             </Link>
             <Link
               href="/trial"
-              className="bg-slate-950 px-4 py-2.5 text-sm font-black text-white transition hover:bg-slate-800"
+              className="inline-flex items-center rounded-lg bg-[#211F1D] px-4 py-2.5 text-sm font-semibold text-[#F6F1E7] shadow-sm transition hover:bg-[#332F2B]"
             >
-              Schedule presentation
+              Book a walkthrough
             </Link>
           </div>
         </div>
       </header>
 
-      <section className="relative overflow-hidden border-b border-slate-900/10">
-        <div className="absolute inset-x-0 top-0 h-24 bg-[#e9dcc1]" />
-        <div className="relative mx-auto grid max-w-7xl gap-10 px-5 pb-12 pt-10 lg:grid-cols-[0.92fr_1.08fr] lg:px-8 lg:pb-16 lg:pt-16">
-          <div className="flex flex-col justify-start lg:pt-8">
-            <p className="mb-5 max-w-xl text-sm font-black uppercase text-[#9b3f2f]">
-              Premium systems for owner-operated service shops
-            </p>
-            <h1 className="max-w-3xl text-5xl font-black leading-none text-slate-950 sm:text-6xl lg:text-[4rem]">
-              Run the shop on systems, not memory.
+      {/* Hero */}
+      <section className="relative overflow-hidden">
+        <div
+          className="pointer-events-none absolute inset-0 opacity-[0.5]"
+          aria-hidden="true"
+          style={{
+            background:
+              'radial-gradient(60rem 40rem at 85% -10%, rgba(176,144,78,0.16), transparent 60%), radial-gradient(50rem 40rem at -10% 20%, rgba(176,144,78,0.10), transparent 55%)',
+          }}
+        />
+        <div className="relative mx-auto grid max-w-6xl items-center gap-12 px-5 pb-20 pt-14 lg:grid-cols-[1fr_1.05fr] lg:gap-16 lg:px-8 lg:pb-28 lg:pt-20">
+          <div>
+            <SectionLabel>The operating system for service shops</SectionLabel>
+            <h1 className="mt-6 text-[2.75rem] font-semibold leading-[1.05] tracking-[-0.02em] text-[#211F1D] sm:text-6xl">
+              Run the shop on{' '}
+              <span className="relative whitespace-nowrap text-[#8A6D3B]">
+                systems
+                <span className="absolute -bottom-1 left-0 h-[3px] w-full rounded-full bg-[#B0904E]/50" />
+              </span>
+              ,<br className="hidden sm:block" /> not memory.
             </h1>
-            <p className="mt-5 max-w-2xl text-lg leading-8 text-slate-700">
-              ARX gives service shops one serious operating system for calls, estimates, field notes, contracts, job costs, expenses, and the handoffs that usually live in somebody&apos;s head.
-            </p>
-            <p className="mt-3 max-w-2xl text-base font-bold leading-7 text-slate-700">
-              Custom setup, custom development where needed, and optional coaching to help owners scale sales and operations together.
+            <p className="mt-6 max-w-xl text-lg leading-8 text-[#5A544A]">
+              ARX gives service shops one serious operating system for calls, estimates, field notes,
+              contracts, job costs, and the handoffs that usually live in someone&apos;s head.
             </p>
 
-            <div className="mt-5 flex flex-col gap-3 sm:flex-row">
+            <div className="mt-8 flex flex-col gap-3 sm:flex-row">
               <Link
                 href="/trial"
-                className="inline-flex items-center justify-center gap-2 bg-slate-950 px-6 py-4 text-base font-black text-white transition hover:bg-slate-800"
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#211F1D] px-6 py-3.5 text-base font-semibold text-[#F6F1E7] shadow-lg shadow-[#211F1D]/15 transition hover:bg-[#332F2B]"
               >
-                Walk through your shop
+                Book a walkthrough
                 <ArrowIcon />
               </Link>
               <a
                 href="#platform"
-                className="inline-flex items-center justify-center border border-slate-300 bg-white px-6 py-4 text-base font-black text-slate-950 transition hover:border-slate-950"
+                className="inline-flex items-center justify-center rounded-xl border border-[#DDD2BB] bg-white/70 px-6 py-3.5 text-base font-semibold text-[#211F1D] transition hover:border-[#B0904E] hover:bg-white"
               >
-                See the field file
+                See how it works
               </a>
             </div>
 
-            <div className="mt-5 grid max-w-2xl grid-cols-2 gap-px bg-slate-300 sm:grid-cols-4">
-              {heroProof.map((item) => (
-                <div key={item} className="bg-white px-3 py-3 text-center text-xs font-black uppercase text-slate-700">
-                  {item}
+            <div className="mt-9 flex flex-wrap items-center gap-x-5 gap-y-2">
+              {['CRM', 'Estimating', 'Job costing', 'Ops handoff'].map((item, i) => (
+                <div key={item} className="flex items-center gap-3">
+                  {i > 0 && <span className="h-1 w-1 rounded-full bg-[#C9BFA6]" aria-hidden="true" />}
+                  <span className="text-sm font-semibold text-[#6B655A]">{item}</span>
                 </div>
               ))}
             </div>
-
-            <p className="mt-4 max-w-2xl text-xl font-black leading-8 text-slate-950">
-              A business is only as strong as the systems it runs on.
-            </p>
-
-            <div className="mt-5 max-w-xl border-l-4 border-[#9b3f2f] pl-5">
-              <p className="text-sm font-black leading-6 text-slate-700">
-                Enterprise-grade systems, built and priced for real local shops.
-              </p>
-            </div>
           </div>
 
-          <div className="relative">
-            <ProductSignal />
+          <div className="relative lg:pl-4">
+            <HeroScene3D />
           </div>
         </div>
       </section>
 
-      <section id="platform" className="bg-white px-5 py-16 lg:px-8 lg:py-24">
-        <div className="mx-auto grid max-w-7xl gap-10 lg:grid-cols-[0.8fr_1.2fr]">
-          <div>
-            <p className="text-sm font-black uppercase text-cyan-700">What it replaces</p>
-            <h2 className="mt-4 text-4xl font-black leading-tight text-slate-950 md:text-5xl">
+      {/* Metrics band */}
+      <section className="border-y border-[#211F1D]/[0.07] bg-white">
+        <div className="mx-auto grid max-w-6xl gap-px bg-[#EFE7D5] px-5 sm:grid-cols-3 lg:px-8">
+          {metrics.map((m, i) => (
+            <Reveal key={m.label} delay={i * 90} className="bg-white px-2 py-8 text-center sm:py-10">
+              <p className="text-3xl font-semibold tracking-tight text-[#211F1D]">{m.value}</p>
+              <p className="mt-2 text-sm font-medium text-[#6B655A]">{m.label}</p>
+            </Reveal>
+          ))}
+        </div>
+      </section>
+
+      {/* Product tour */}
+      <section id="tour" className="bg-[#F6F1E7] px-5 py-20 lg:px-8 lg:py-28">
+        <div className="mx-auto max-w-6xl">
+          <Reveal className="max-w-3xl">
+            <SectionLabel>See ARX in action</SectionLabel>
+            <h2 className="mt-5 text-3xl font-semibold leading-[1.12] tracking-[-0.01em] text-[#211F1D] md:text-[2.75rem]">
+              From the doorstep to the deposit, one system.
+            </h2>
+            <p className="mt-6 text-lg leading-8 text-[#5A544A]">
+              The same record follows the customer through every hand — the field app, the measurement,
+              the proposal, and the ops board — so nothing gets re-keyed and nothing falls through.
+            </p>
+          </Reveal>
+
+          <div className="mt-16 space-y-20 lg:mt-20 lg:space-y-28">
+            <Reveal>
+              <FeatureRow
+                eyebrow="Canvassing"
+                title="Knock smarter. Every door, tracked."
+                body="Reps drop dispositions on a live territory map — hot leads, not-homes, go-backs — with GPS-tagged knocks and 444 progress that keep syncing even with no signal."
+                points={['Offline-first field PWA', 'Live territory + rep GPS', 'Leads auto-attributed to the rep']}
+              >
+                <CanvassShot />
+              </FeatureRow>
+            </Reveal>
+
+            <Reveal>
+              <FeatureRow
+                eyebrow="Roof measure"
+                title="Measure the roof from the truck."
+                body="Pull aerial imagery, trace the facets, and get squares, ridge, hips, valleys, and waste in seconds — flowing straight into a priced proposal."
+                flip
+                points={['Aerial + slope-corrected lengths', 'Squares feed the proposal', 'Waste and material list included']}
+              >
+                <MeasureShot />
+              </FeatureRow>
+            </Reveal>
+
+            <Reveal>
+              <FeatureRow
+                eyebrow="The office"
+                title="One living file, from first call to install."
+                body="Calls, contracts, job costs, and the ops handoff sit on a single pipeline — so sales knows what ops can carry, and owners see what happened today."
+                points={['Sales + operations in one view', 'Job costing on every ticket', 'Clean, trackable handoffs']}
+              >
+                <PipelineShot />
+              </FeatureRow>
+            </Reveal>
+          </div>
+        </div>
+      </section>
+
+      {/* What it replaces */}
+      <section id="platform" className="bg-white px-5 py-20 lg:px-8 lg:py-28">
+        <div className="mx-auto max-w-6xl">
+          <Reveal className="max-w-3xl">
+            <SectionLabel>What it replaces</SectionLabel>
+            <h2 className="mt-5 text-3xl font-semibold leading-[1.12] tracking-[-0.01em] text-[#211F1D] md:text-[2.75rem]">
               Less spreadsheet cleanup. Fewer missed callbacks. No mystery handoffs.
             </h2>
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-3">
-            {principles.map((item) => (
-              <article key={item.title} className="border border-slate-200 bg-white p-6">
-                <h3 className="text-xl font-black leading-7 text-slate-950">{item.title}</h3>
-                <p className="mt-4 text-base leading-7 text-slate-600">{item.body}</p>
-              </article>
+          </Reveal>
+          <div className="mt-14 grid gap-5 md:grid-cols-3">
+            {replaces.map((item, i) => (
+              <Reveal key={item.title} delay={i * 100}>
+                <article className="h-full rounded-2xl border border-[#EFE8D7] bg-[#FCFAF4] p-7 transition hover:border-[#B0904E]/50 hover:shadow-lg hover:shadow-[#211F1D]/[0.05]">
+                  <h3 className="text-lg font-semibold leading-7 text-[#211F1D]">{item.title}</h3>
+                  <p className="mt-3 text-[15px] leading-7 text-[#6B655A]">{item.body}</p>
+                </article>
+              </Reveal>
             ))}
           </div>
         </div>
       </section>
 
-      <section id="fit" className="border-y border-slate-900/10 bg-slate-950 px-5 py-16 text-white lg:px-8">
-        <div className="mx-auto grid max-w-7xl gap-10 lg:grid-cols-[1fr_1fr] lg:items-center">
-          <h2 className="text-4xl font-black leading-tight md:text-5xl">
-            Built for shops where everyone wears three hats and the phone never really stops.
-          </h2>
+      {/* Who it's for — dark */}
+      <section id="fit" className="bg-[#211F1D] px-5 py-20 text-[#F6F1E7] lg:px-8 lg:py-28">
+        <div className="mx-auto grid max-w-6xl gap-12 lg:grid-cols-[1fr_1fr] lg:items-center lg:gap-16">
+          <Reveal>
+            <SectionLabel>Who it&apos;s for</SectionLabel>
+            <h2 className="mt-5 text-3xl font-semibold leading-[1.12] tracking-[-0.01em] md:text-[2.75rem]">
+              Built for shops where everyone wears three hats and the phone never really stops.
+            </h2>
+            <p className="mt-6 max-w-lg text-lg leading-8 text-[#C9C2B4]">
+              A business is only as strong as the systems it runs on. ARX is enterprise-grade,
+              built and priced for real local shops.
+            </p>
+          </Reveal>
           <div className="grid gap-3 sm:grid-cols-2">
-            {[
-              'Roofing, restoration, HVAC, plumbing, and trade teams',
-              'Office managers keeping calls and schedules straight',
-              'Owners who need to know what happened today',
-              'Field crews handing off signed work cleanly',
-            ].map((item) => (
-              <div key={item} className="border border-white/10 bg-white/[0.06] p-5">
-                <p className="text-base font-bold leading-6 text-slate-100">{item}</p>
-              </div>
+            {audience.map((item, i) => (
+              <Reveal key={item} delay={i * 80} className="h-full rounded-xl border border-white/10 bg-white/[0.04] p-5">
+                <p className="text-[15px] font-medium leading-6 text-[#EDE7DA]">{item}</p>
+              </Reveal>
             ))}
           </div>
         </div>
       </section>
 
-      <section className="bg-[#e9dcc1] px-5 py-16 lg:px-8 lg:py-24">
-        <div className="mx-auto grid max-w-7xl gap-10 lg:grid-cols-[0.78fr_1.22fr] lg:items-start">
-          <div>
-            <p className="text-sm font-black uppercase text-[#9b3f2f]">Built for sustainable growth</p>
-            <h2 className="mt-4 text-4xl font-black leading-tight text-slate-950 md:text-5xl">
+      {/* Growth / costs */}
+      <section className="bg-[#F6F1E7] px-5 py-20 lg:px-8 lg:py-28">
+        <div className="mx-auto max-w-6xl">
+          <Reveal className="max-w-3xl">
+            <SectionLabel>Built for sustainable growth</SectionLabel>
+            <h2 className="mt-5 text-3xl font-semibold leading-[1.12] tracking-[-0.01em] text-[#211F1D] md:text-[2.75rem]">
               A lot of shops are growing without knowing what the work really costs.
             </h2>
-            <p className="mt-5 text-lg font-bold leading-8 text-slate-700">
-              ARX is designed to help owners get out of guesswork: cleaner numbers, cleaner process, and stronger systems for a business where sales growth and operational capacity move together.
+            <p className="mt-6 text-lg leading-8 text-[#5A544A]">
+              ARX gets owners out of guesswork — cleaner numbers, cleaner process, and stronger systems
+              where sales growth and operational capacity move together.
             </p>
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-3">
-            {growthFoundations.map((item) => (
-              <article key={item.label} className="border border-slate-900/10 bg-white p-6">
-                <p className="text-sm font-black uppercase text-[#9b3f2f]">{item.label}</p>
-                <p className="mt-4 text-base font-bold leading-7 text-slate-700">{item.detail}</p>
-              </article>
+          </Reveal>
+          <div className="mt-14 grid gap-5 md:grid-cols-3">
+            {growth.map((item, i) => (
+              <Reveal key={item.label} delay={i * 100}>
+                <article className="h-full rounded-2xl border border-[#E7DECB] bg-white p-7">
+                  <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#B0904E]/12 text-sm font-semibold text-[#8A6D3B]">
+                    {String(i + 1).padStart(2, '0')}
+                  </span>
+                  <p className="mt-5 text-lg font-semibold text-[#211F1D]">{item.label}</p>
+                  <p className="mt-2.5 text-[15px] leading-7 text-[#6B655A]">{item.detail}</p>
+                </article>
+              </Reveal>
             ))}
           </div>
         </div>
       </section>
 
-      <section className="bg-white px-5 py-16 lg:px-8 lg:py-24">
-        <div className="mx-auto grid max-w-7xl gap-10 lg:grid-cols-[0.72fr_1.28fr] lg:items-start">
-          <div>
-            <p className="text-sm font-black uppercase text-[#9b3f2f]">Not one-size-fits-all</p>
-            <h2 className="mt-4 text-4xl font-black leading-tight text-slate-950 md:text-5xl">
+      {/* Plans */}
+      <section id="plans" className="bg-white px-5 py-20 lg:px-8 lg:py-28">
+        <div className="mx-auto max-w-6xl">
+          <Reveal className="max-w-3xl">
+            <SectionLabel>Not one-size-fits-all</SectionLabel>
+            <h2 className="mt-5 text-3xl font-semibold leading-[1.12] tracking-[-0.01em] text-[#211F1D] md:text-[2.75rem]">
               The plan can include the build, the numbers, and the coaching.
             </h2>
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-3">
-            {planDetails.map((item) => (
-              <article key={item.label} className="border border-slate-200 bg-[#f7f3ea] p-6">
-                <p className="text-sm font-black uppercase text-slate-500">{item.label}</p>
-                <p className="mt-4 text-lg font-black leading-7 text-slate-950">{item.detail}</p>
-              </article>
+          </Reveal>
+          <div className="mt-14 grid gap-5 md:grid-cols-3">
+            {plans.map((item, i) => (
+              <Reveal key={item.label} delay={i * 100}>
+                <article className="h-full rounded-2xl border border-[#EFE8D7] bg-[#FCFAF4] p-7">
+                  <p className="text-xs font-semibold uppercase tracking-[0.1em] text-[#8A6D3B]">{item.label}</p>
+                  <p className="mt-4 text-lg font-semibold leading-7 text-[#211F1D]">{item.detail}</p>
+                </article>
+              </Reveal>
             ))}
           </div>
         </div>
       </section>
 
-      <section className="border-y border-slate-900/10 bg-slate-950 px-5 py-16 text-white lg:px-8 lg:py-24">
-        <div className="mx-auto grid max-w-7xl gap-10 lg:grid-cols-[0.8fr_1.2fr] lg:items-center">
-          <div>
-            <p className="text-sm font-black uppercase text-amber-300">Sales and operations together</p>
-            <h2 className="mt-4 text-4xl font-black leading-tight md:text-5xl">
-              More sales only works when the systems can carry them.
+      {/* Pricing */}
+      <section id="pricing" className="bg-[#F6F1E7] px-5 py-20 lg:px-8 lg:py-28">
+        <div className="mx-auto max-w-6xl">
+          <Reveal className="max-w-3xl">
+            <SectionLabel>Pricing</SectionLabel>
+            <h2 className="mt-5 text-3xl font-semibold leading-[1.12] tracking-[-0.01em] text-[#211F1D] md:text-[2.75rem]">
+              Simple, honest pricing.
             </h2>
-            <p className="mt-5 text-lg font-bold leading-8 text-slate-300">
-              ARX helps owners connect demand, scheduling, estimating, job packets, materials, crews, and cost tracking so growth does not turn into daily firefighting.
+            <p className="mt-6 text-lg leading-8 text-[#5A544A]">
+              One platform, one per-seat price, and a one-time setup so ARX is shaped around your
+              shop before day one.
             </p>
-          </div>
+          </Reveal>
 
-          <div className="grid gap-3 sm:grid-cols-2">
-            {teamScale.map((item) => (
-              <div key={item} className="border border-white/10 bg-white/[0.06] p-5">
-                <p className="text-base font-bold leading-6 text-slate-100">{item}</p>
+          <div className="mt-14 grid gap-6 lg:grid-cols-[1.05fr_0.95fr] lg:items-stretch">
+            <Reveal>
+              <div className="flex h-full flex-col rounded-3xl border border-[#E7DECB] bg-white p-8 shadow-xl shadow-[#211F1D]/[0.06]">
+                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#8A6D3B]">ARX Platform</p>
+                <div className="mt-4 flex items-end gap-2">
+                  <span className="text-5xl font-semibold tracking-tight text-[#211F1D]">$35</span>
+                  <span className="mb-1.5 text-base font-medium text-[#6B655A]">/ seat / month</span>
+                </div>
+                <div className="mt-6 flex items-center gap-3 rounded-xl bg-[#F5F0E4] px-4 py-3.5">
+                  <span className="flex h-9 w-9 flex-none items-center justify-center rounded-lg bg-[#B0904E]/15 text-[#8A6D3B]">
+                    <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                      <path d="M10 2a1 1 0 0 1 1 1v1.06a4 4 0 0 1 3 3.87 1 1 0 1 1-2 0 2 2 0 0 0-2-2H8.5a1.5 1.5 0 0 0 0 3H11a3.5 3.5 0 0 1 .5 6.94V17a1 1 0 1 1-2 0v-1.06a4 4 0 0 1-3-3.87 1 1 0 1 1 2 0 2 2 0 0 0 2 2h1.5a1.5 1.5 0 0 0 0-3H9A3.5 3.5 0 0 1 8.5 4.06V3a1 1 0 0 1 1-1Z" />
+                    </svg>
+                  </span>
+                  <div>
+                    <p className="text-sm font-semibold text-[#211F1D]">$1,200 one-time startup</p>
+                    <p className="text-xs text-[#6B655A]">Custom setup for a small business</p>
+                  </div>
+                </div>
+                <Link
+                  href="/trial"
+                  className="mt-7 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#211F1D] px-6 py-3.5 text-base font-semibold text-[#F6F1E7] shadow-lg shadow-[#211F1D]/15 transition hover:bg-[#332F2B]"
+                >
+                  Book a walkthrough
+                  <ArrowIcon />
+                </Link>
+                <p className="mt-3 text-center text-xs text-[#8A8272]">
+                  Custom development and coaching scoped per shop.
+                </p>
               </div>
-            ))}
+            </Reveal>
+
+            <Reveal delay={120}>
+              <div className="h-full rounded-3xl border border-[#E7DECB] bg-[#FCFAF4] p-8">
+                <p className="text-sm font-semibold text-[#211F1D]">Every seat includes</p>
+                <ul className="mt-6 grid gap-3.5 sm:grid-cols-2">
+                  {pricingIncludes.map((f) => (
+                    <li key={f} className="flex items-center gap-2.5 text-[15px] font-medium text-[#3E3A33]">
+                      <CheckDot />
+                      {f}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </Reveal>
           </div>
         </div>
       </section>
 
-      <section id="presentation" className="bg-[#f7f3ea] px-5 py-16 lg:px-8 lg:py-24">
-        <div className="mx-auto grid max-w-7xl gap-10 lg:grid-cols-[1fr_0.86fr] lg:items-end">
-          <div>
-            <p className="text-sm font-black uppercase text-[#9b3f2f]">The next step</p>
-            <h2 className="mt-4 text-4xl font-black leading-tight text-slate-950 md:text-5xl">
+      {/* Final CTA */}
+      <section className="bg-[#211F1D] px-5 py-20 text-[#F6F1E7] lg:px-8 lg:py-28">
+        <div className="mx-auto grid max-w-6xl gap-12 lg:grid-cols-[1fr_0.9fr] lg:items-center lg:gap-16">
+          <Reveal>
+            <SectionLabel>The next step</SectionLabel>
+            <h2 className="mt-5 text-3xl font-semibold leading-[1.12] tracking-[-0.01em] md:text-[2.75rem]">
               First we learn the shop. Then we price the build.
             </h2>
-            <p className="mt-5 max-w-3xl text-lg leading-8 text-slate-700">
-              The presentation is a working session. We look at how leads come in, who answers, who schedules, what the field needs, where jobs get stuck, how sales and operations work together, what the owner knows about costs and expenses, and whether coaching or custom development belongs in the plan. Then ARX is scoped around that reality.
+            <p className="mt-6 max-w-xl text-lg leading-8 text-[#C9C2B4]">
+              The walkthrough is a working session. We look at how leads come in, who answers, where jobs
+              get stuck, and how sales and operations work together — then ARX is scoped around that reality.
             </p>
-          </div>
+          </Reveal>
 
-          <div className="border border-slate-300 bg-white p-6">
+          <Reveal delay={120} className="rounded-2xl border border-white/10 bg-white/[0.04] p-7">
             <div className="space-y-5">
-              {[
-                'Map how calls, texts, and web leads come in',
-                'Find the handoffs that cause callbacks or confusion',
-                'Connect sales promises to operational capacity',
-                'Scope custom development and coaching only where useful',
-              ].map((item, index) => (
+              {presentationSteps.map((item, index) => (
                 <div key={item} className="flex gap-4">
-                  <span className="flex h-8 w-8 flex-none items-center justify-center bg-slate-950 text-sm font-black text-white">
+                  <span className="flex h-7 w-7 flex-none items-center justify-center rounded-lg bg-[#B0904E] text-sm font-semibold text-[#211F1D]">
                     {index + 1}
                   </span>
-                  <p className="pt-1 text-base font-bold leading-6 text-slate-700">{item}</p>
+                  <p className="pt-0.5 text-[15px] font-medium leading-6 text-[#EDE7DA]">{item}</p>
                 </div>
               ))}
             </div>
             <Link
               href="/trial"
-              className="mt-8 inline-flex w-full items-center justify-center gap-2 bg-[#9b3f2f] px-6 py-4 text-base font-black text-white transition hover:bg-[#823326]"
+              className="mt-8 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#B0904E] px-6 py-3.5 text-base font-semibold text-[#211F1D] transition hover:bg-[#C9A961]"
             >
               Schedule a walkthrough
               <ArrowIcon />
             </Link>
-          </div>
+          </Reveal>
         </div>
       </section>
 
-      <footer className="border-t border-slate-900/10 bg-white px-5 py-8 lg:px-8">
-        <div className="mx-auto flex max-w-7xl flex-col gap-5 md:flex-row md:items-center md:justify-between">
-          <p className="text-sm font-bold text-slate-600">ARX CRM for service shops</p>
-          <div className="flex flex-wrap gap-x-5 gap-y-2 text-sm font-bold text-slate-500">
-            <a href="#platform" className="hover:text-slate-950">Platform</a>
-            <a href="#fit" className="hover:text-slate-950">Fit</a>
-            <Link href="/terms" className="hover:text-slate-950">Terms</Link>
+      {/* Footer */}
+      <footer className="border-t border-[#211F1D]/[0.07] bg-[#F6F1E7] px-5 py-10 lg:px-8">
+        <div className="mx-auto flex max-w-6xl flex-col gap-5 md:flex-row md:items-center md:justify-between">
+          <Wordmark />
+          <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm font-medium text-[#6B655A]">
+            <a href="#platform" className="transition hover:text-[#211F1D]">Platform</a>
+            <a href="#fit" className="transition hover:text-[#211F1D]">Who it&apos;s for</a>
+            <a href="#plans" className="transition hover:text-[#211F1D]">Plans</a>
+            <a href="#pricing" className="transition hover:text-[#211F1D]">Pricing</a>
+            <Link href="/login" className="transition hover:text-[#211F1D]">Sign in</Link>
+            <Link href="/terms" className="transition hover:text-[#211F1D]">Terms</Link>
           </div>
+          <p className="text-sm text-[#8A8272]">© {new Date().getFullYear()} ARX</p>
         </div>
       </footer>
     </main>
