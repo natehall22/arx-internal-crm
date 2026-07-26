@@ -73,7 +73,7 @@ function parseAIResult(result: unknown): AIResponse {
 }
 
 export default function AINextActionBanner({ job }: AINextActionBannerProps) {
-  const { aiEnabled } = useAISettings()
+  const { aiEnabled, aiSuggestionsEnabled } = useAISettings()
   const [suggestion, setSuggestion] = useState<AIResponse | null>(null)
   const [loading, setLoading] = useState(false)
   const [hidden, setHidden] = useState(false)
@@ -130,14 +130,14 @@ export default function AINextActionBanner({ job }: AINextActionBannerProps) {
   }
 
   useEffect(() => {
-    if (!aiEnabled) {
+    if (!aiEnabled || !aiSuggestionsEnabled) {
       setSuggestion(null)
       return
     }
     fetchSuggestion()
-  }, [aiEnabled, job])
+  }, [aiEnabled, aiSuggestionsEnabled, job])
 
-  if (!aiEnabled || hidden) return null
+  if (!aiEnabled || !aiSuggestionsEnabled || hidden) return null
 
   const borderClass =
     suggestion?.priority === 'urgent'

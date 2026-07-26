@@ -34,6 +34,7 @@ const COMMON_GUIDE = `
 - **Door knocking map**: **Canvass** (\`/canvass\`) — pins, dispositions, offline queue, territories.
 - **Territories**: \`/canvass/territories\` or Admin → Canvass Territories.
 - **444 program**: **Sisu** (\`/sisu\`) — door/inspection counts and weekly bonuses.
+- **Setter ramp (444 onboarding)**: **Admin → Sisu → Setter Ramp** (\`/admin/sisu/setter-ramp\`) — new setter onboarding and ramp targets.
 
 ### Tools & admin
 - **Roof measure (aerial)**: **Tools → Roof Measure** (\`/tools/roof-measure\`).

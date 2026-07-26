@@ -73,17 +73,20 @@ async function resolveAuthenticatedAiClient() {
   }
 }
 
-async function userHasAiEnabled(
+async function getUserAiSettings(
   supabase: ReturnType<typeof createRequestScopedClient>,
   userId: string
-): Promise<boolean> {
+): Promise<{ aiEnabled: boolean; aiSuggestionsEnabled: boolean }> {
   const { data: settings } = await supabase
     .from('user_settings')
-    .select('ai_enabled')
+    .select('ai_enabled, ai_suggestions_enabled')
     .eq('user_id', userId)
     .maybeSingle()
 
-  return Boolean(settings?.ai_enabled)
+  return {
+    aiEnabled: Boolean(settings?.ai_enabled),
+    aiSuggestionsEnabled: Boolean(settings?.ai_suggestions_enabled),
+  }
 }
 
 export async function POST(request: Request) {
@@ -103,7 +106,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    if (!(await userHasAiEnabled(supabase, profile.id))) {
+    const aiSettings = await getUserAiSettings(supabase, profile.id)
+    if (!aiSettings.aiEnabled) {
       return NextResponse.json(
         { error: 'AI assistant is not enabled. Enable it in Settings.' },
         { status: 403 }
@@ -124,6 +128,13 @@ export async function POST(request: Request) {
 
     if (typeof context !== 'object' || context === null || Array.isArray(context)) {
       return NextResponse.json({ error: 'Invalid context' }, { status: 400 })
+    }
+
+    if (action === 'job_next_action' && !aiSettings.aiSuggestionsEnabled) {
+      return NextResponse.json(
+        { error: 'Smart Suggestions are disabled. Enable them in Settings → AI Assistant.' },
+        { status: 403 }
+      )
     }
 
     if (JOB_BOARD_ACTIONS.has(action)) {

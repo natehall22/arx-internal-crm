@@ -22,7 +22,6 @@ interface UserSettings {
   working_days: number[]
   ai_enabled: boolean
   ai_suggestions_enabled: boolean
-  ai_auto_notes: boolean
   theme: string
 }
 
@@ -49,7 +48,6 @@ const defaultSettings: UserSettings = {
   working_days: [1, 2, 3, 4, 5],
   ai_enabled: false,
   ai_suggestions_enabled: true,
-  ai_auto_notes: false,
   theme: 'light',
 }
 
@@ -63,7 +61,6 @@ export default function SettingsPage() {
   const [settings, setSettings] = useState<UserSettings>(defaultSettings)
   const [aiEnabled, setAiEnabled] = useState(defaultSettings.ai_enabled)
   const [aiSuggestionsEnabled, setAiSuggestionsEnabled] = useState(defaultSettings.ai_suggestions_enabled)
-  const [aiAutoNotes, setAiAutoNotes] = useState(defaultSettings.ai_auto_notes)
   const [googleToken, setGoogleToken] = useState<any>(null)
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null)
   const [activeTab, setActiveTab] = useState<'notifications' | 'calendar' | 'ai' | 'reports' | 'display'>('notifications')
@@ -135,12 +132,10 @@ export default function SettingsPage() {
           working_days: data.userSettings.working_days || [1, 2, 3, 4, 5],
           ai_enabled: data.userSettings.ai_enabled ?? defaultSettings.ai_enabled,
           ai_suggestions_enabled: data.userSettings.ai_suggestions_enabled ?? defaultSettings.ai_suggestions_enabled,
-          ai_auto_notes: data.userSettings.ai_auto_notes ?? defaultSettings.ai_auto_notes,
           theme: data.userSettings.theme || 'light',
         })
         setAiEnabled(data.userSettings.ai_enabled ?? defaultSettings.ai_enabled)
         setAiSuggestionsEnabled(data.userSettings.ai_suggestions_enabled ?? defaultSettings.ai_suggestions_enabled)
-        setAiAutoNotes(data.userSettings.ai_auto_notes ?? defaultSettings.ai_auto_notes)
       }
 
       if (data.googleToken) {
@@ -166,7 +161,6 @@ export default function SettingsPage() {
           ...settings,
           ai_enabled: aiEnabled,
           ai_suggestions_enabled: aiSuggestionsEnabled,
-          ai_auto_notes: aiAutoNotes,
         }),
       })
 
@@ -525,14 +519,14 @@ export default function SettingsPage() {
             <div>
               <h2 className="text-lg font-semibold text-gray-900 mb-2">AI Assistant</h2>
               <p className="text-gray-500 text-sm mb-4">
-                Enable AI-powered features to help streamline your workflow
+                A read-only assistant for CRM navigation and guidance — it does not edit records, send messages, or write notes on your behalf.
               </p>
-              
+
               <div className="space-y-4">
                 <label className="flex items-center justify-between p-4 bg-gradient-to-r from-purple-50 to-indigo-50 rounded-lg border border-indigo-100">
                   <div>
                     <p className="font-medium text-gray-900">Enable AI Assistant</p>
-                    <p className="text-sm text-gray-500">Turn on AI-powered features throughout the app</p>
+                    <p className="text-sm text-gray-500">Turn on the chat assistant for CRM navigation and workflow guidance</p>
                   </div>
                   <input
                     type="checkbox"
@@ -547,7 +541,7 @@ export default function SettingsPage() {
                     <label className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
                       <div>
                         <p className="font-medium text-gray-900">Smart Suggestions</p>
-                        <p className="text-sm text-gray-500">Get AI suggestions for next steps, follow-ups, and pricing</p>
+                        <p className="text-sm text-gray-500">Show suggested next actions on production jobs</p>
                       </div>
                       <input
                         type="checkbox"
@@ -557,27 +551,14 @@ export default function SettingsPage() {
                       />
                     </label>
 
-                    <label className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-                      <div>
-                        <p className="font-medium text-gray-900">Auto-Generate Notes</p>
-                        <p className="text-sm text-gray-500">AI will help summarize and create notes from your activities</p>
-                      </div>
-                      <input
-                        type="checkbox"
-                        checked={aiAutoNotes}
-                        onChange={(e) => setAiAutoNotes(e.target.checked)}
-                        className="w-5 h-5 rounded border-gray-300 text-indigo-600"
-                      />
-                    </label>
-
                     <div className="p-4 bg-indigo-50 rounded-lg border border-indigo-100">
-                      <h3 className="font-medium text-indigo-900 mb-2">AI Features Include:</h3>
+                      <h3 className="font-medium text-indigo-900 mb-2">What the assistant actually does:</h3>
                       <ul className="text-sm text-indigo-700 space-y-1">
-                        <li>• Smart follow-up recommendations</li>
-                        <li>• Pricing suggestions based on project details</li>
-                        <li>• Automated appointment scheduling optimization</li>
-                        <li>• Lead scoring and prioritization</li>
-                        <li>• Natural language search across your data</li>
+                        <li>• Answers questions about where things are in the CRM</li>
+                        <li>• Explains CRM workflows and suggests next steps</li>
+                        <li>• Shows read-only context for the lead, opportunity, project, or job you have open</li>
+                        <li>• Suggests a next action on production jobs (Smart Suggestions, above)</li>
+                        <li>• Never edits records, sends messages, or writes notes for you</li>
                       </ul>
                     </div>
                   </>

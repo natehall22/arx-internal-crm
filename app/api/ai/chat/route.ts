@@ -5,6 +5,7 @@ import {
   AI_CHAT_MAX_OPENAI_MESSAGES,
   AI_CHAT_OPENAI_MAX_TOKENS,
   isValidAiContextId,
+  normalizeAiChatMessages,
 } from '@/lib/ai/chat-constants'
 import { getAiChatRecordContextAppendix } from '@/lib/ai/chat-record-context'
 import {
@@ -17,10 +18,11 @@ import {
   getRequestAccessToken,
 } from '@/lib/supabase/request-client'
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
+import { resolveSalesDocAccessBarred } from '@/lib/sales-doc-access'
 import { createServiceClient } from '@/lib/supabase/service'
 
 interface Message {
-  role: 'user' | 'assistant' | 'system'
+  role: 'user' | 'assistant'
   content: string
 }
 
@@ -66,7 +68,13 @@ function normalizeClientContext(context: unknown) {
 }
 
 export async function POST(request: NextRequest) {
-  let profile: { org_id: string; role: string; full_name: string | null; id: string }
+  let profile: {
+    org_id: string
+    role: string
+    full_name: string | null
+    id: string
+    custom_role_id?: string | null
+  }
   let supabase: ReturnType<typeof createRequestScopedClient>
 
   try {
@@ -80,6 +88,9 @@ export async function POST(request: NextRequest) {
     }
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+
+  const admin = createServiceClient()
+  const effectivePermissions = await resolveEffectivePermissionNames(admin, profile.id, profile)
 
   try {
     const body = await request.json()
@@ -109,8 +120,7 @@ export async function POST(request: NextRequest) {
 
     const context = normalizeClientContext(rawContext)
 
-    const admin = createServiceClient()
-    const effectivePermissions = await resolveEffectivePermissionNames(admin, profile.id, profile)
+    const salesDocAccessBarred = await resolveSalesDocAccessBarred(admin, profile.id, profile)
 
     const recordContextAppendix = await getAiChatRecordContextAppendix(
       supabase,
@@ -120,6 +130,7 @@ export async function POST(request: NextRequest) {
         role: profile.role,
         fullAccess: effectivePermissions.fullAccess,
         permissionNames: effectivePermissions.permissionNames,
+        redactOpportunityFinancials: salesDocAccessBarred,
       }
     )
 
@@ -129,7 +140,7 @@ export async function POST(request: NextRequest) {
       recordContextAppendix,
     })
 
-    let conversation: { messages?: Message[] } | null = null
+    let conversation: { messages?: unknown } | null = null
     if (typeof conversationId === 'string' && isValidAiContextId(conversationId)) {
       const { data } = await supabase
         .from('ai_conversations')
@@ -140,9 +151,7 @@ export async function POST(request: NextRequest) {
       conversation = data
     }
 
-    const messages: Message[] = Array.isArray(conversation?.messages)
-      ? [...conversation.messages]
-      : []
+    const messages: Message[] = normalizeAiChatMessages(conversation?.messages)
     messages.push({ role: 'user', content: trimmedMessage })
 
     const openaiKey = process.env.OPENAI_API_KEY
@@ -188,7 +197,7 @@ export async function POST(request: NextRequest) {
       user_id: profile.id,
       context_type: context.type,
       context_id: context.id ?? null,
-      messages,
+      messages: normalizeAiChatMessages(messages),
       updated_at: new Date().toISOString(),
     }
 
@@ -295,7 +304,7 @@ Enable AI in Settings → AI Assistant if you have not already.`
 }
 
 export async function GET(request: NextRequest) {
-  let profile: { id: string }
+  let profile: { id: string; org_id: string; role: string; custom_role_id?: string | null }
   let supabase: ReturnType<typeof createRequestScopedClient>
 
   try {
