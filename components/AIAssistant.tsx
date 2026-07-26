@@ -12,6 +12,8 @@ interface Message {
   timestamp: Date
 }
 
+type FeedbackRating = 'up' | 'down'
+
 interface ConversationSummary {
   id: string
   contextType: string
@@ -61,6 +63,8 @@ export default function AIAssistant({ context, stackedFab = false }: AIAssistant
   const [historyItems, setHistoryItems] = useState<ConversationSummary[]>([])
   const [historyLoading, setHistoryLoading] = useState(false)
   const [historyError, setHistoryError] = useState<string | null>(null)
+  const [feedbackRatings, setFeedbackRatings] = useState<Record<number, FeedbackRating>>({})
+  const [feedbackPending, setFeedbackPending] = useState<Record<number, boolean>>({})
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const sendingRef = useRef(false)
   const sendGenerationRef = useRef(0)
@@ -77,6 +81,8 @@ export default function AIAssistant({ context, stackedFab = false }: AIAssistant
     setLoading(false)
     setIsStreaming(false)
     sendingRef.current = false
+    setFeedbackRatings({})
+    setFeedbackPending({})
   }, [contextKey])
 
   useEffect(() => {
@@ -281,7 +287,66 @@ export default function AIAssistant({ context, stackedFab = false }: AIAssistant
     setLoading(false)
     setIsStreaming(false)
     sendingRef.current = false
+    setFeedbackRatings({})
+    setFeedbackPending({})
   }
+
+  const submitFeedback = async (messageIndex: number, rating: FeedbackRating) => {
+    if (!conversationId || feedbackPending[messageIndex]) return
+
+    const previousRating = feedbackRatings[messageIndex]
+    setFeedbackRatings(prev => ({ ...prev, [messageIndex]: rating }))
+    setFeedbackPending(prev => ({ ...prev, [messageIndex]: true }))
+
+    try {
+      const response = await fetch('/api/ai/chat/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          conversationId,
+          messageIndex,
+          rating,
+        }),
+      })
+
+      if (!response.ok) {
+        setFeedbackRatings(prev => {
+          const next = { ...prev }
+          if (previousRating) {
+            next[messageIndex] = previousRating
+          } else {
+            delete next[messageIndex]
+          }
+          return next
+        })
+      }
+    } catch (error) {
+      console.error('Failed to submit AI feedback:', error)
+      setFeedbackRatings(prev => {
+        const next = { ...prev }
+        if (previousRating) {
+          next[messageIndex] = previousRating
+        } else {
+          delete next[messageIndex]
+        }
+        return next
+      })
+    } finally {
+      setFeedbackPending(prev => {
+        const next = { ...prev }
+        delete next[messageIndex]
+        return next
+      })
+    }
+  }
+
+  const isAssistantMessageStreaming = (index: number) =>
+    isStreaming && index === messages.length - 1 && messages[index]?.role === 'assistant'
+
+  const canRateAssistantMessage = (index: number) =>
+    Boolean(conversationId) &&
+    !isAssistantMessageStreaming(index) &&
+    Boolean(messages[index]?.content.trim())
 
   const loadHistory = async () => {
     setHistoryLoading(true)
@@ -335,6 +400,8 @@ export default function AIAssistant({ context, stackedFab = false }: AIAssistant
           timestamp: loadedAt,
         }))
       )
+      setFeedbackRatings({})
+      setFeedbackPending({})
       setShowHistory(false)
       setHistoryError(null)
     } catch (error) {
@@ -544,9 +611,51 @@ export default function AIAssistant({ context, stackedFab = false }: AIAssistant
                     msg.content
                   )}
                 </p>
-                <p className={`text-xs mt-1 ${msg.role === 'user' ? 'text-indigo-200' : 'text-[#6b6b68]'}`}>
-                  {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                </p>
+                <div
+                  className={`mt-1 flex items-center gap-2 ${
+                    msg.role === 'user' ? 'justify-end' : 'justify-between'
+                  }`}
+                >
+                  <p className={`text-xs ${msg.role === 'user' ? 'text-indigo-200' : 'text-[#6b6b68]'}`}>
+                    {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </p>
+                  {msg.role === 'assistant' && canRateAssistantMessage(index) && (
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => submitFeedback(index, 'up')}
+                        disabled={Boolean(feedbackPending[index])}
+                        aria-label="Helpful answer"
+                        title="Helpful"
+                        className={`p-1 rounded-md transition-colors disabled:opacity-50 ${
+                          feedbackRatings[index] === 'up'
+                            ? 'text-indigo-700 bg-indigo-100'
+                            : 'text-[#2c2c2a] hover:text-indigo-700 hover:bg-indigo-50'
+                        }`}
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.905 0 .714-.211 1.412-.608 2.006L7 11v9m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5" />
+                        </svg>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => submitFeedback(index, 'down')}
+                        disabled={Boolean(feedbackPending[index])}
+                        aria-label="Not helpful answer"
+                        title="Not helpful"
+                        className={`p-1 rounded-md transition-colors disabled:opacity-50 ${
+                          feedbackRatings[index] === 'down'
+                            ? 'text-indigo-700 bg-indigo-100'
+                            : 'text-[#2c2c2a] hover:text-indigo-700 hover:bg-indigo-50'
+                        }`}
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14H5.236a2 2 0 01-1.789-2.894l3.5-7A2 2 0 018.737 3h4.018a2 2 0 01.485.06l3.76.94m-7 10v5a2 2 0 002 2h.096c.5 0 .905-.405.905-.904 0-.715.211-1.413.608-2.008L17 13V4m-7 10h2m5-10h2a2 2 0 012 2v6a2 2 0 01-2 2h-2.5" />
+                        </svg>
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           ))

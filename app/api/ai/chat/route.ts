@@ -10,6 +10,7 @@ import {
 } from '@/lib/ai/chat-constants'
 import { getAiChatAggregateAppendix } from '@/lib/ai/chat-aggregates'
 import { getAiChatRecordContextAppendix } from '@/lib/ai/chat-record-context'
+import { getAiChatRecordUrlAppendix } from '@/lib/ai/chat-record-url'
 import { formatAiChatSseEvent } from '@/lib/ai/chat-stream'
 import {
   buildAiChatSystemPrompt,
@@ -262,17 +263,20 @@ export async function POST(request: NextRequest) {
 
     const salesDocAccessBarred = await resolveSalesDocAccessBarred(admin, profile.id, profile)
 
-    const recordContextAppendix = await getAiChatRecordContextAppendix(
-      supabase,
-      profile.org_id,
-      context,
-      {
-        role: profile.role,
-        fullAccess: effectivePermissions.fullAccess,
-        permissionNames: effectivePermissions.permissionNames,
-        redactOpportunityFinancials: salesDocAccessBarred,
-      }
-    )
+    const recordAccess = {
+      role: profile.role,
+      fullAccess: effectivePermissions.fullAccess,
+      permissionNames: effectivePermissions.permissionNames,
+      redactOpportunityFinancials: salesDocAccessBarred,
+    }
+
+    const recordContextAppendix =
+      (await getAiChatRecordContextAppendix(
+        supabase,
+        profile.org_id,
+        context,
+        recordAccess
+      )) + getAiChatRecordUrlAppendix(context, recordAccess)
 
     let aggregateContextAppendix = ''
     if (aiChatAggregatesEnabled()) {
