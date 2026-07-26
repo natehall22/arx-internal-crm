@@ -3,7 +3,6 @@
 import { useEffect, useState } from 'react'
 import { usePathname } from 'next/navigation'
 import { createClientBrowser } from '@/lib/supabase/client'
-import { isAiAssistantAllowlistedEmail } from '@/lib/ai/chat-allowlist'
 import AIAssistant from '@/components/AIAssistant'
 import { useAIAssistantPageContext } from '@/components/AIAssistantProvider'
 
@@ -32,9 +31,19 @@ export default function AIAssistantWrapper() {
         const {
           data: { user },
         } = await supabase.auth.getUser()
+
+        let allowlisted = false
+        if (user) {
+          const settingsResponse = await fetch('/api/settings')
+          if (settingsResponse.ok) {
+            const data = await settingsResponse.json()
+            allowlisted = Boolean(data.profile?.aiAssistantAllowlisted)
+          }
+        }
+
         if (mounted) {
           setIsAuthenticated(!!user)
-          setIsAllowlisted(isAiAssistantAllowlistedEmail(user?.email))
+          setIsAllowlisted(allowlisted)
         }
       } catch (err) {
         console.error('AI Wrapper auth check error:', err)
