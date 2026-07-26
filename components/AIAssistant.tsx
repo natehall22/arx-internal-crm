@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import { createClientBrowser } from '@/lib/supabase/client'
 import AssistantMessageContent from '@/components/AssistantMessageContent'
 import { AI_CHAT_MAX_MESSAGE_LENGTH } from '@/lib/ai/chat-constants'
+import { consumeAiChatSseStream, type AiChatStreamEvent } from '@/lib/ai/chat-stream'
 
 interface Message {
   role: 'user' | 'assistant'
@@ -53,6 +54,7 @@ export default function AIAssistant({ context, stackedFab = false }: AIAssistant
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
+  const [isStreaming, setIsStreaming] = useState(false)
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [suggestions, setSuggestions] = useState<string[]>([])
   const [showHistory, setShowHistory] = useState(false)
@@ -73,6 +75,7 @@ export default function AIAssistant({ context, stackedFab = false }: AIAssistant
     setConversationId(null)
     setShowHistory(false)
     setLoading(false)
+    setIsStreaming(false)
     sendingRef.current = false
   }, [contextKey])
 
@@ -161,32 +164,96 @@ export default function AIAssistant({ context, stackedFab = false }: AIAssistant
         }),
       })
 
-      const data = await response.json()
-
       if (sendGeneration !== sendGenerationRef.current || requestContextKey !== contextKey) {
         return
       }
 
-      if (data.needsEnable) {
-        setIsEnabled(false)
-        setMessages(prev => [...prev, {
-          role: 'assistant',
-          content: 'AI assistant is not enabled. Please enable it in your Settings to use this feature.',
-          timestamp: new Date(),
-        }])
-      } else if (data.response) {
-        setConversationId(data.conversationId)
-        setMessages(prev => [...prev, {
-          role: 'assistant',
-          content: data.response,
-          timestamp: new Date(),
-        }])
-      } else if (data.error) {
-        setMessages(prev => [...prev, {
-          role: 'assistant',
-          content: `Sorry, I encountered an error: ${data.error}`,
-          timestamp: new Date(),
-        }])
+      const contentType = response.headers.get('content-type') ?? ''
+
+      if (contentType.includes('text/event-stream') && response.body) {
+        setIsStreaming(true)
+        let streamingIndex = -1
+        setMessages(prev => {
+          streamingIndex = prev.length
+          return [
+            ...prev,
+            {
+              role: 'assistant',
+              content: '',
+              timestamp: new Date(),
+            },
+          ]
+        })
+
+        let streamError: string | null = null
+
+        await consumeAiChatSseStream(response.body, (event: AiChatStreamEvent) => {
+          if (sendGeneration !== sendGenerationRef.current || requestContextKey !== contextKey) {
+            return
+          }
+
+          if (event.type === 'token') {
+            setMessages(prev =>
+              prev.map((msg, index) =>
+                index === streamingIndex
+                  ? { ...msg, content: msg.content + event.content }
+                  : msg
+              )
+            )
+          } else if (event.type === 'done') {
+            setConversationId(event.conversationId)
+            setMessages(prev =>
+              prev.map((msg, index) =>
+                index === streamingIndex ? { ...msg, content: event.response } : msg
+              )
+            )
+          } else if (event.type === 'error') {
+            streamError = event.error
+          }
+        })
+
+        if (sendGeneration !== sendGenerationRef.current || requestContextKey !== contextKey) {
+          return
+        }
+
+        if (streamError) {
+          setMessages(prev => [
+            ...prev.slice(0, streamingIndex),
+            {
+              role: 'assistant',
+              content: `Sorry, I encountered an error: ${streamError}`,
+              timestamp: new Date(),
+            },
+          ])
+        }
+      } else {
+        const data = await response.json()
+
+        if (sendGeneration !== sendGenerationRef.current || requestContextKey !== contextKey) {
+          return
+        }
+
+        if (data.needsEnable) {
+          setIsEnabled(false)
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: 'AI assistant is not enabled. Please enable it in your Settings to use this feature.',
+            timestamp: new Date(),
+          }])
+        } else if (data.response) {
+          setConversationId(data.conversationId)
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: data.response,
+            timestamp: new Date(),
+          }])
+        } else if (data.error) {
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: `Sorry, I encountered an error: ${data.error}`,
+            timestamp: new Date(),
+          }])
+        }
       }
     } catch (error) {
       if (sendGeneration !== sendGenerationRef.current || requestContextKey !== contextKey) {
@@ -200,6 +267,7 @@ export default function AIAssistant({ context, stackedFab = false }: AIAssistant
     } finally {
       if (sendGeneration === sendGenerationRef.current && requestContextKey === contextKey) {
         setLoading(false)
+        setIsStreaming(false)
         sendingRef.current = false
       }
     }
@@ -211,6 +279,7 @@ export default function AIAssistant({ context, stackedFab = false }: AIAssistant
     setShowHistory(false)
     setInput('')
     setLoading(false)
+    setIsStreaming(false)
     sendingRef.current = false
   }
 
@@ -483,7 +552,7 @@ export default function AIAssistant({ context, stackedFab = false }: AIAssistant
           ))
         )}
         
-        {loading && (
+        {loading && !isStreaming && (
           <div className="flex justify-start">
             <div className="bg-gray-100 rounded-2xl rounded-bl-md px-4 py-3">
               <div className="flex gap-1">

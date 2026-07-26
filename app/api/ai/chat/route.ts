@@ -10,6 +10,7 @@ import {
 } from '@/lib/ai/chat-constants'
 import { getAiChatAggregateAppendix } from '@/lib/ai/chat-aggregates'
 import { getAiChatRecordContextAppendix } from '@/lib/ai/chat-record-context'
+import { formatAiChatSseEvent } from '@/lib/ai/chat-stream'
 import {
   buildAiChatSystemPrompt,
   generateContextualSuggestions,
@@ -67,6 +68,143 @@ function normalizeClientContext(context: unknown) {
     type: allowedTypes.has(type) ? type : 'general',
     id,
   }
+}
+
+async function persistAiConversation(
+  supabase: ReturnType<typeof createRequestScopedClient>,
+  params: {
+    orgId: string
+    userId: string
+    contextType: string
+    contextId?: string
+    messages: Message[]
+    conversationId: string | null
+  }
+): Promise<string | null> {
+  const conversationData = {
+    org_id: params.orgId,
+    user_id: params.userId,
+    context_type: params.contextType,
+    context_id: params.contextId ?? null,
+    messages: normalizeAiChatMessages(params.messages),
+    updated_at: new Date().toISOString(),
+  }
+
+  let savedConversationId = params.conversationId
+
+  if (savedConversationId) {
+    const { error: updateError } = await supabase
+      .from('ai_conversations')
+      .update(conversationData)
+      .eq('id', savedConversationId)
+      .eq('user_id', params.userId)
+
+    if (updateError) {
+      console.error('AI conversation update failed:', updateError)
+      savedConversationId = null
+    }
+  } else {
+    const { data: newConv, error: insertError } = await supabase
+      .from('ai_conversations')
+      .insert(conversationData)
+      .select('id')
+      .single()
+
+    if (insertError || !newConv?.id) {
+      console.error('AI conversation insert failed:', insertError)
+      savedConversationId = null
+    } else {
+      savedConversationId = newConv.id
+    }
+  }
+
+  return savedConversationId
+}
+
+function createOpenAiStreamingResponse(
+  openaiResponse: Response,
+  persist: (assistantResponse: string) => Promise<string | null>
+): Response {
+  const encoder = new TextEncoder()
+  let assistantResponse = ''
+
+  const stream = new ReadableStream({
+    async start(controller) {
+      const send = (payload: string) => {
+        controller.enqueue(encoder.encode(payload))
+      }
+
+      if (!openaiResponse.body) {
+        send(formatAiChatSseEvent({ type: 'error', error: 'Failed to process request' }))
+        controller.close()
+        return
+      }
+
+      const reader = openaiResponse.body.getReader()
+      const decoder = new TextDecoder()
+      let openAiBuffer = ''
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+
+          openAiBuffer += decoder.decode(value, { stream: true })
+          const lines = openAiBuffer.split('\n')
+          openAiBuffer = lines.pop() ?? ''
+
+          for (const line of lines) {
+            const trimmed = line.trim()
+            if (!trimmed.startsWith('data: ')) continue
+
+            const payload = trimmed.slice(6)
+            if (payload === '[DONE]') continue
+
+            try {
+              const parsed = JSON.parse(payload) as {
+                choices?: Array<{ delta?: { content?: string } }>
+              }
+              const token = parsed.choices?.[0]?.delta?.content
+              if (typeof token === 'string' && token.length > 0) {
+                assistantResponse += token
+                send(formatAiChatSseEvent({ type: 'token', content: token }))
+              }
+            } catch {
+              // Ignore malformed OpenAI chunks.
+            }
+          }
+        }
+
+        if (!assistantResponse) {
+          assistantResponse =
+            'Sorry, I could not generate a response. Please try again.'
+          send(formatAiChatSseEvent({ type: 'token', content: assistantResponse }))
+        }
+
+        const savedConversationId = await persist(assistantResponse)
+        send(
+          formatAiChatSseEvent({
+            type: 'done',
+            conversationId: savedConversationId,
+            response: assistantResponse,
+          })
+        )
+      } catch (error) {
+        console.error('AI chat stream error:', error)
+        send(formatAiChatSseEvent({ type: 'error', error: 'Failed to process request' }))
+      } finally {
+        controller.close()
+      }
+    },
+  })
+
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+    },
+  })
 }
 
 export async function POST(request: NextRequest) {
@@ -169,10 +307,19 @@ export async function POST(request: NextRequest) {
     const messages: Message[] = normalizeAiChatMessages(conversation?.messages)
     messages.push({ role: 'user', content: trimmedMessage })
 
+    const savedConversationIdSeed =
+      typeof conversationId === 'string' && isValidAiContextId(conversationId)
+        ? conversationId
+        : null
+
     const openaiKey = process.env.OPENAI_API_KEY
-    let assistantResponse: string
 
     if (openaiKey) {
+      const openaiMessages = [
+        { role: 'system', content: systemPrompt },
+        ...messages.slice(-AI_CHAT_MAX_OPENAI_MESSAGES),
+      ]
+
       const response = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
         headers: {
@@ -181,12 +328,10 @@ export async function POST(request: NextRequest) {
         },
         body: JSON.stringify({
           model: 'gpt-4o-mini',
-          messages: [
-            { role: 'system', content: systemPrompt },
-            ...messages.slice(-AI_CHAT_MAX_OPENAI_MESSAGES),
-          ],
+          messages: openaiMessages,
           max_tokens: AI_CHAT_OPENAI_MAX_TOKENS,
           temperature: 0.5,
+          stream: true,
         }),
       })
 
@@ -194,58 +339,33 @@ export async function POST(request: NextRequest) {
         throw new Error('OpenAI API error')
       }
 
-      const data = await response.json()
-      assistantResponse =
-        typeof data?.choices?.[0]?.message?.content === 'string'
-          ? data.choices[0].message.content
-          : 'Sorry, I could not generate a response. Please try again.'
-    } else {
-      assistantResponse =
-        getNavigationFallbackResponse(trimmedMessage, profile.role) ||
-        generateLegacyFallbackResponse(trimmedMessage, context, profile.role)
+      return createOpenAiStreamingResponse(response, async (assistantResponse) => {
+        const persistedMessages: Message[] = [...messages, { role: 'assistant', content: assistantResponse }]
+        return persistAiConversation(supabase, {
+          orgId: profile.org_id,
+          userId: profile.id,
+          contextType: context.type,
+          contextId: context.id,
+          messages: persistedMessages,
+          conversationId: savedConversationIdSeed,
+        })
+      })
     }
+
+    const assistantResponse =
+      getNavigationFallbackResponse(trimmedMessage, profile.role) ||
+      generateLegacyFallbackResponse(trimmedMessage, context, profile.role)
 
     messages.push({ role: 'assistant', content: assistantResponse })
 
-    const conversationData = {
-      org_id: profile.org_id,
-      user_id: profile.id,
-      context_type: context.type,
-      context_id: context.id ?? null,
-      messages: normalizeAiChatMessages(messages),
-      updated_at: new Date().toISOString(),
-    }
-
-    let savedConversationId: string | null =
-      typeof conversationId === 'string' && isValidAiContextId(conversationId)
-        ? conversationId
-        : null
-
-    if (savedConversationId) {
-      const { error: updateError } = await supabase
-        .from('ai_conversations')
-        .update(conversationData)
-        .eq('id', savedConversationId)
-        .eq('user_id', profile.id)
-
-      if (updateError) {
-        console.error('AI conversation update failed:', updateError)
-        savedConversationId = null
-      }
-    } else {
-      const { data: newConv, error: insertError } = await supabase
-        .from('ai_conversations')
-        .insert(conversationData)
-        .select('id')
-        .single()
-
-      if (insertError || !newConv?.id) {
-        console.error('AI conversation insert failed:', insertError)
-        savedConversationId = null
-      } else {
-        savedConversationId = newConv.id
-      }
-    }
+    const savedConversationId = await persistAiConversation(supabase, {
+      orgId: profile.org_id,
+      userId: profile.id,
+      contextType: context.type,
+      contextId: context.id,
+      messages,
+      conversationId: savedConversationIdSeed,
+    })
 
     return NextResponse.json({
       response: assistantResponse,
