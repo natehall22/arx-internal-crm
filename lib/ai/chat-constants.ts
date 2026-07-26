@@ -4,6 +4,11 @@ export const AI_CHAT_OPENAI_MAX_TOKENS = 600
 /** Cap on messages persisted per `ai_conversations` row so a single transcript can't grow without bound. */
 export const AI_CHAT_MAX_STORED_MESSAGES = 50
 
+/** Server-only flag — when unset/false, aggregate snapshot queries are skipped entirely. */
+export function aiChatAggregatesEnabled(): boolean {
+  return process.env.AI_CHAT_AGGREGATES_ENABLED === 'true'
+}
+
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 

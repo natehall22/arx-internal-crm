@@ -80,8 +80,17 @@ export function buildAiChatSystemPrompt(params: {
   fullName: string
   role: string
   recordContextAppendix?: string
+  aggregateContextAppendix?: string
 }): string {
-  const { fullName, role, recordContextAppendix = '' } = params
+  const {
+    fullName,
+    role,
+    recordContextAppendix = '',
+    aggregateContextAppendix = '',
+  } = params
+  const aggregateRules = aggregateContextAppendix
+    ? '\nWhen CRM aggregate snapshot data is present, you may cite those exact counts in answers. Do not invent or estimate numbers that are not in the aggregate or record context blocks.'
+    : ''
   return `You are an AI assistant for ARX CRM, used by ARX Roofing & Exteriors (residential storm/insurance roofing).
 
 Your primary job in this version is **navigation and guidance**:
@@ -94,7 +103,7 @@ User: ${fullName}
 Role: ${role}
 ${getRoleNavigationHint(role)}
 
-${COMMON_GUIDE}${recordContextAppendix}
+${COMMON_GUIDE}${recordContextAppendix}${aggregateContextAppendix}${aggregateRules}
 
 Be concise, helpful, and professional. Prefer numbered steps with exact menu names and URL paths. If you do not know something specific about their live data, point them to the right page to verify.
 

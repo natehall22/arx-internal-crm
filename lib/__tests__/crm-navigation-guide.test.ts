@@ -74,6 +74,25 @@ describe('crm-navigation-guide', () => {
     expect(prompt).toContain('Jane')
   })
 
+  it('includes aggregate appendix and citation rules when provided', () => {
+    const prompt = buildAiChatSystemPrompt({
+      fullName: 'Alex',
+      role: 'sales_rep',
+      aggregateContextAppendix:
+        '\n\n<crm_aggregate_data>\n- My leads this week: 3\n</crm_aggregate_data>',
+    })
+    expect(prompt).toContain('My leads this week: 3')
+    expect(prompt).toContain('you may cite those exact counts')
+  })
+
+  it('does not add aggregate citation rules without aggregate appendix', () => {
+    const prompt = buildAiChatSystemPrompt({
+      fullName: 'Alex',
+      role: 'sales_rep',
+    })
+    expect(prompt).not.toContain('you may cite those exact counts')
+  })
+
   it('returns labor cost navigation fallback', () => {
     const response = getNavigationFallbackResponse('where do I enter labor cost', 'operations')
     expect(response).toContain('Labor Cost')

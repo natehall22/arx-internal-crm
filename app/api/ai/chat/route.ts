@@ -4,9 +4,11 @@ import {
   AI_CHAT_MAX_MESSAGE_LENGTH,
   AI_CHAT_MAX_OPENAI_MESSAGES,
   AI_CHAT_OPENAI_MAX_TOKENS,
+  aiChatAggregatesEnabled,
   isValidAiContextId,
   normalizeAiChatMessages,
 } from '@/lib/ai/chat-constants'
+import { getAiChatAggregateAppendix } from '@/lib/ai/chat-aggregates'
 import { getAiChatRecordContextAppendix } from '@/lib/ai/chat-record-context'
 import {
   buildAiChatSystemPrompt,
@@ -134,10 +136,23 @@ export async function POST(request: NextRequest) {
       }
     )
 
+    let aggregateContextAppendix = ''
+    if (aiChatAggregatesEnabled()) {
+      aggregateContextAppendix = await getAiChatAggregateAppendix(supabase, {
+        orgId: profile.org_id,
+        userId: profile.id,
+        role: profile.role,
+        fullAccess: effectivePermissions.fullAccess,
+        permissionNames: effectivePermissions.permissionNames,
+        redactFinancials: salesDocAccessBarred,
+      })
+    }
+
     const systemPrompt = buildAiChatSystemPrompt({
       fullName: profile.full_name || 'User',
       role: profile.role,
       recordContextAppendix,
+      aggregateContextAppendix,
     })
 
     let conversation: { messages?: unknown } | null = null
