@@ -76,8 +76,20 @@ describe('chat-aggregates', () => {
     }
   })
 
-  it('aiChatAggregatesEnabled returns false when unset', () => {
+  it('aiChatAggregatesEnabled returns true when explicitly true', () => {
+    process.env.AI_CHAT_AGGREGATES_ENABLED = 'true'
+    expect(aiChatAggregatesEnabled()).toBe(true)
+  })
+
+  it('aiChatAggregatesEnabled returns false when explicitly false', () => {
+    process.env.AI_CHAT_AGGREGATES_ENABLED = 'false'
+    expect(aiChatAggregatesEnabled()).toBe(false)
+  })
+
+  it('aiChatAggregatesEnabled returns false when unset in non-dev (test/prod) env', () => {
     delete process.env.AI_CHAT_AGGREGATES_ENABLED
+    // Jest runs NODE_ENV=test; dev default (true) only applies when NODE_ENV=development
+    expect(process.env.NODE_ENV).not.toBe('development')
     expect(aiChatAggregatesEnabled()).toBe(false)
   })
 

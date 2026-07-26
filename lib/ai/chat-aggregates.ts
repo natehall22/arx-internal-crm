@@ -196,44 +196,40 @@ export async function getAiChatAggregateAppendix(
   supabase: SupabaseClient,
   access: AiChatAggregateAccess
 ): Promise<string> {
+  const canViewJobs = canAccessJobBoardFromPermissionNames({
+    fullAccess: access.fullAccess,
+    permissionNames: access.permissionNames,
+  })
+
+  const [leads, openOpps, jobTallies, commissionMtd] = await Promise.all([
+    hasAggregatePermission(access, 'leads:view')
+      ? countMyLeadsThisWeek(supabase, access)
+      : Promise.resolve(null),
+    hasAggregatePermission(access, 'opportunities:view')
+      ? countMyOpenOpportunities(supabase, access)
+      : Promise.resolve(null),
+    canViewJobs ? tallyJobsByStatus(supabase, access.orgId) : Promise.resolve(null),
+    !access.redactFinancials
+      ? sumMyCommissionMtd(supabase, access)
+      : Promise.resolve(null),
+  ])
+
   const lines: string[] = []
 
-  if (hasAggregatePermission(access, 'leads:view')) {
-    const leads = await countMyLeadsThisWeek(supabase, access)
-    if (leads != null) {
-      lines.push(
-        `- My leads this week (${leads.windowLabel}): ${leads.count}`
-      )
-    }
+  if (leads != null) {
+    lines.push(`- My leads this week (${leads.windowLabel}): ${leads.count}`)
   }
-
-  if (hasAggregatePermission(access, 'opportunities:view')) {
-    const openOpps = await countMyOpenOpportunities(supabase, access)
-    if (openOpps != null) {
-      lines.push(`- My open opportunities: ${openOpps}`)
-    }
+  if (openOpps != null) {
+    lines.push(`- My open opportunities: ${openOpps}`)
   }
-
-  if (
-    canAccessJobBoardFromPermissionNames({
-      fullAccess: access.fullAccess,
-      permissionNames: access.permissionNames,
-    })
-  ) {
-    const jobTallies = await tallyJobsByStatus(supabase, access.orgId)
-    if (jobTallies != null) {
-      lines.push(formatJobsByStatusLine(jobTallies))
-    }
+  if (jobTallies != null) {
+    lines.push(formatJobsByStatusLine(jobTallies))
   }
-
-  if (!access.redactFinancials) {
-    const commissionMtd = await sumMyCommissionMtd(supabase, access)
-    if (commissionMtd != null) {
-      const monthLabel = formatInTimeZone(new Date(), AGGREGATE_TIMEZONE, 'MMMM yyyy')
-      lines.push(
-        `- My commission MTD (${monthLabel}, ${AGGREGATE_TIMEZONE}): ${formatCurrency(commissionMtd)}`
-      )
-    }
+  if (commissionMtd != null) {
+    const monthLabel = formatInTimeZone(new Date(), AGGREGATE_TIMEZONE, 'MMMM yyyy')
+    lines.push(
+      `- My commission MTD (${monthLabel}, ${AGGREGATE_TIMEZONE}): ${formatCurrency(commissionMtd)}`
+    )
   }
 
   return wrapAggregateContext(lines.join('\n'))

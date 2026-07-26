@@ -3,6 +3,7 @@ import {
   AI_CHAT_MAX_MESSAGE_LENGTH,
   AI_CHAT_MAX_STORED_MESSAGES,
   normalizeAiChatMessages,
+  aiChatAggregatesEnabled,
 } from '@/lib/ai/chat-constants'
 
 describe('chat-constants', () => {
@@ -15,6 +16,33 @@ describe('chat-constants', () => {
   it('exposes a reasonable message length cap', () => {
     expect(AI_CHAT_MAX_MESSAGE_LENGTH).toBeGreaterThanOrEqual(500)
     expect(AI_CHAT_MAX_MESSAGE_LENGTH).toBeLessThanOrEqual(8000)
+  })
+
+  describe('aiChatAggregatesEnabled', () => {
+    const originalFlag = process.env.AI_CHAT_AGGREGATES_ENABLED
+
+    afterEach(() => {
+      if (originalFlag === undefined) {
+        delete process.env.AI_CHAT_AGGREGATES_ENABLED
+      } else {
+        process.env.AI_CHAT_AGGREGATES_ENABLED = originalFlag
+      }
+    })
+
+    it('returns true when explicitly enabled', () => {
+      process.env.AI_CHAT_AGGREGATES_ENABLED = 'true'
+      expect(aiChatAggregatesEnabled()).toBe(true)
+    })
+
+    it('returns false when explicitly disabled', () => {
+      process.env.AI_CHAT_AGGREGATES_ENABLED = 'false'
+      expect(aiChatAggregatesEnabled()).toBe(false)
+    })
+
+    it('returns false when unset in test env (prod stays dark unless flag set)', () => {
+      delete process.env.AI_CHAT_AGGREGATES_ENABLED
+      expect(aiChatAggregatesEnabled()).toBe(false)
+    })
   })
 
   it('caps stored conversation messages at 50', () => {

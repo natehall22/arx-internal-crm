@@ -4,9 +4,16 @@ export const AI_CHAT_OPENAI_MAX_TOKENS = 600
 /** Cap on messages persisted per `ai_conversations` row so a single transcript can't grow without bound. */
 export const AI_CHAT_MAX_STORED_MESSAGES = 50
 
-/** Server-only flag — when unset/false, aggregate snapshot queries are skipped entirely. */
+/**
+ * Server-only flag for pipeline/job-board aggregate snapshots.
+ * Prod: set AI_CHAT_AGGREGATES_ENABLED=true to enable.
+ * Dev: on by default when unset so local path testing gets real counts.
+ */
 export function aiChatAggregatesEnabled(): boolean {
-  return process.env.AI_CHAT_AGGREGATES_ENABLED === 'true'
+  const flag = process.env.AI_CHAT_AGGREGATES_ENABLED
+  if (flag === 'true') return true
+  if (flag === 'false') return false
+  return process.env.NODE_ENV === 'development'
 }
 
 const UUID_RE =
