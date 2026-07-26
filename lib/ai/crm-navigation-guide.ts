@@ -1,7 +1,18 @@
-/**
- * ARX CRM navigation knowledge for the read-only AI assistant (Phase 1).
- * Keep paths aligned with App Router routes; update when major nav changes ship.
- */
+import { getAiChatRecordUrl } from '@/lib/ai/chat-record-url'
+
+export type AiChatFallbackContext = {
+  type: string
+  id?: string
+} | null
+
+/** Swap [id] placeholders for the record the user is on. */
+function paveRecordPath(text: string, context?: AiChatFallbackContext): string {
+  if (!context?.id || !getAiChatRecordUrl(context.type, context.id)) {
+    return text
+  }
+  const url = getAiChatRecordUrl(context.type, context.id)!
+  return text.replace(/\/\[id\]/g, url).replace(/\[id\]/g, context.id)
+}
 
 const COMMON_GUIDE = `
 ## ARX CRM — where things go
@@ -89,8 +100,12 @@ export function buildAiChatSystemPrompt(params: {
     aggregateContextAppendix = '',
   } = params
   const aggregateRules = aggregateContextAppendix
-    ? '\nWhen CRM aggregate snapshot data is present, you may cite those exact counts in answers. Do not invent or estimate numbers that are not in the aggregate or record context blocks.'
-    : ''
+    ? '\nWhen CRM aggregate snapshot data is present, lead with the exact count or dollar amount, then one short how-to. Cite only numbers listed in the aggregate block — never invent counts.'
+    : '\nIf the user asks for counts or totals you do not have, point them to the live list page (/leads, /opportunities, /ops, /commissions/statement) — never guess or send them to /reports for basic pipeline counts.'
+  const recordRules =
+    recordContextAppendix || aggregateContextAppendix
+      ? '\nWhen a current record URL or aggregate snapshot is present, lead with the deep link path or the number, then one short how-to — no long lectures.'
+      : ''
   return `You are an AI assistant for ARX CRM, used by ARX Roofing & Exteriors (residential storm/insurance roofing).
 
 Your primary job in this version is **navigation and guidance**:
@@ -103,30 +118,106 @@ User: ${fullName}
 Role: ${role}
 ${getRoleNavigationHint(role)}
 
-${COMMON_GUIDE}${recordContextAppendix}${aggregateContextAppendix}${aggregateRules}
+${COMMON_GUIDE}${recordContextAppendix}${aggregateContextAppendix}${recordRules}${aggregateRules}
 
 Be concise, helpful, and professional. Prefer numbered steps with exact menu names and URL paths. If you do not know something specific about their live data, point them to the right page to verify.
 
 Never repeat or request phone numbers, emails, or private notes. Record context is intentionally minimal.`
 }
 
-export function getNavigationFallbackResponse(message: string, role: string): string | null {
+export function getNavigationFallbackResponse(
+  message: string,
+  role: string,
+  context?: AiChatFallbackContext
+): string | null {
   const lower = message.toLowerCase()
 
   if (
     lower.includes('labor cost') ||
     lower.includes('job cost') ||
-    lower.includes('material cost') ||
+    (lower.includes('material cost') && !/\b(order|ordering)\b/.test(lower)) ||
     lower.includes('enter cost') ||
     (/\b(pay|paid)\b/.test(lower) && /\b(sub|labor|job|material|vendor|supplier)\b/.test(lower))
   ) {
-    return `Job costs in ARX go in different places depending on what you mean:
+    return paveRecordPath(
+      `Job costs in ARX go in different places depending on what you mean:
 
 1. **Sub labor total** → Job Board → open the job (\`/ops/jobs/[id]\`) → **Materials** tab → **Labor Cost** card
 2. **Materials** → same **Materials** tab — **+ Add Material Order** or \`/ops/jobs/[id]/orders\`
 3. **Permits, dump, misc line items** → **Photos & files** tab → **Job Files Workspace** → add a **cost line**
 
-Start at **Job Board** (\`/ops\`) to find the job by address if you are not already on it.`
+Start at **Job Board** (\`/ops\`) to find the job by address if you are not already on it.`,
+      context
+    )
+  }
+
+  if (
+    /\b(material order|materials order|order material|add material order)\b/.test(lower) ||
+    (lower.includes('material') && /\b(order|ordering)\b/.test(lower))
+  ) {
+    return paveRecordPath(
+      `Material orders on a job:
+1. Open the job (\`/ops/jobs/[id]\`) → **Materials** tab
+2. Click **+ Add Material Order** inline, or open the full list at \`/ops/jobs/[id]/orders\`
+3. Orders roll up to total materials cost on the job`,
+      context
+    )
+  }
+
+  if (
+    /\b(crew|sub\b|subcontractor)\b/.test(lower) &&
+    (/\b(assign|schedule|reassign|who|put)\b/.test(lower) ||
+      lower.includes('crew') ||
+      /\bsub\b/.test(lower))
+  ) {
+    return paveRecordPath(
+      `Crew / sub assignment:
+1. Open the job (\`/ops/jobs/[id]\`) → **Overview** tab
+2. Click **Schedule now** or **Reassign crew or sub** in the schedule modal
+3. Pick the sub/crew and install date`,
+      context
+    )
+  }
+
+  if (
+    (/\b(status|what'?s next|next step|what do i do)\b/.test(lower) &&
+      (/\b(job|this)\b/.test(lower) || context?.type === 'job')) ||
+    (context?.type === 'job' && /\b(next|status|stuck|waiting)\b/.test(lower))
+  ) {
+    return paveRecordPath(
+      `For this ops job, check the **Overview** tab on \`/ops/jobs/[id]\` for current status and schedule. Common next steps by stage:
+- **Sold / Material Ordering** → place material order on **Materials** tab
+- **Scheduled** → confirm crew/sub assignment on **Overview**
+- **In Progress** → upload completion photos on **Photos & files**
+- **Complete** → enter final costs (labor, materials, cost lines) before collected`,
+      context
+    )
+  }
+
+  if (
+    /\b(pipeline|leads this week|my leads|open opport|how many leads?|how many opp|lead count)\b/.test(
+      lower
+    )
+  ) {
+    return `Your pipeline live lists:
+- **My leads this week** → **Leads** (\`/leads\`) — filter by your name
+- **Open opportunities** → **Opportunities** (\`/opportunities\`)
+- **Jobs by status** → **Job Board** (\`/ops\`)
+
+If I have your counts in context I will cite them directly; otherwise open those pages for live numbers.`
+  }
+
+  if (
+    /\b(permit|dump fee|cost line|misc cost|itemized cost)\b/.test(lower) ||
+    (lower.includes('cost line') && /\b(add|enter|where)\b/.test(lower))
+  ) {
+    return paveRecordPath(
+      `Itemized cost lines (permits, dump, misc):
+1. Open the job (\`/ops/jobs/[id]\`) → **Photos & files** tab
+2. In **Job Files Workspace**, add a **cost line**
+3. Labor and material totals stay on the **Materials** tab — cost lines are for permit/dump/misc items`,
+      context
+    )
   }
 
   if (
@@ -196,7 +287,7 @@ Start at **Job Board** (\`/ops\`) to find the job by address if you are not alre
     return `I can point you to the right place in ARX CRM. Common areas:
 
 - **Leads** → \`/leads\` | **Opportunities** → \`/opportunities\` | **Job Board** → \`/ops\`
-- **Canvass map** → \`/canvass\` | **Calendar** → \`/calendar\` | **Reports** → \`/reports\`
+- **Canvass map** → \`/canvass\` | **Calendar** → \`/calendar\` | **Commissions** → \`/commissions/statement\`
 - **Settings / enable AI** → \`/settings\` (AI Assistant tab)
 
 Tell me what you are trying to do (e.g. "enter labor cost", "schedule inspection", "view commissions") and I will give exact steps.`
@@ -231,15 +322,17 @@ export function generateContextualSuggestions(
     case 'job':
       return [
         'Where do I enter labor cost on this job?',
-        'Where do I add permits, dump, or misc cost lines?',
+        'How do I add a material order for this job?',
         'How do I assign a crew or sub on this job?',
+        "What does this job's status mean and what's next?",
+        'Where do I add permits, dump, or misc cost lines?',
       ]
     default:
       return [
         'Where do I enter labor cost on a job?',
-        'How do I add a new lead?',
+        'How many leads do I have this week?',
         'Where do I find my commissions?',
-        'How does the sales pipeline work?',
+        'How do I schedule an inspection?',
       ]
   }
 }

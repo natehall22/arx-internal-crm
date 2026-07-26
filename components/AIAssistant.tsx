@@ -231,6 +231,21 @@ export default function AIAssistant({ context, stackedFab = false }: AIAssistant
               timestamp: new Date(),
             },
           ])
+        } else {
+          setMessages(prev => {
+            const msg = prev[streamingIndex]
+            if (msg?.role === 'assistant' && !msg.content.trim()) {
+              return prev.map((m, i) =>
+                i === streamingIndex
+                  ? {
+                      ...m,
+                      content: 'Sorry, I could not generate a response. Please try again.',
+                    }
+                  : m
+              )
+            }
+            return prev
+          })
         }
       } else {
         const data = await response.json()
@@ -572,7 +587,13 @@ export default function AIAssistant({ context, stackedFab = false }: AIAssistant
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
               </svg>
             </div>
-            <p className="text-[#2c2c2a] mb-4">Hi! I can help you find your way around ARX CRM — where things go, what to do next, and how to get to the right page.</p>
+            <p className="text-[#2c2c2a] mb-4">
+              {context?.type === 'job'
+                ? 'Ask about labor cost, material orders, crew assignment, or what to do next on this job.'
+                : context?.type === 'lead'
+                  ? 'Ask about scheduling an inspection or what to do next with this lead.'
+                  : 'Ask where things go in ARX — labor cost, commissions, pipeline counts, or scheduling.'}
+            </p>
             
             {/* Suggestions */}
             {suggestions.length > 0 && (

@@ -82,7 +82,7 @@ describe('crm-navigation-guide', () => {
         '\n\n<crm_aggregate_data>\n- My leads this week: 3\n</crm_aggregate_data>',
     })
     expect(prompt).toContain('My leads this week: 3')
-    expect(prompt).toContain('you may cite those exact counts')
+    expect(prompt).toContain('lead with the exact count')
   })
 
   it('does not add aggregate citation rules without aggregate appendix', () => {
@@ -90,7 +90,8 @@ describe('crm-navigation-guide', () => {
       fullName: 'Alex',
       role: 'sales_rep',
     })
-    expect(prompt).not.toContain('you may cite those exact counts')
+    expect(prompt).not.toContain('lead with the exact count')
+    expect(prompt).toContain('/leads')
   })
 
   it('returns labor cost navigation fallback', () => {
@@ -123,7 +124,49 @@ describe('crm-navigation-guide', () => {
   it('returns job-context suggestions for crew assignment', () => {
     const suggestions = generateContextualSuggestions('job', 'abc-123')
     expect(suggestions.some((s) => s.toLowerCase().includes('crew'))).toBe(true)
-    expect(suggestions.some((s) => s.toLowerCase().includes('cost line'))).toBe(true)
+    expect(suggestions.some((s) => s.toLowerCase().includes('material order'))).toBe(true)
+    expect(suggestions.some((s) => s.toLowerCase().includes('status'))).toBe(true)
+  })
+
+  it('paves job record paths in labor cost fallback', () => {
+    const jobId = '550e8400-e29b-41d4-a716-446655440000'
+    const response = getNavigationFallbackResponse(
+      'where do I enter labor cost on this job',
+      'operations',
+      { type: 'job', id: jobId }
+    )
+    expect(response).toContain(`/ops/jobs/${jobId}`)
+    expect(response).not.toContain('[id]')
+  })
+
+  it('returns material order fallback', () => {
+    const response = getNavigationFallbackResponse('how do I add a material order', 'operations')
+    expect(response).toContain('Add Material Order')
+    expect(response).toContain('/orders')
+  })
+
+  it('returns crew assignment fallback without inspection misroute', () => {
+    const response = getNavigationFallbackResponse(
+      'how do I schedule the crew on this job',
+      'operations'
+    )
+    expect(response).toContain('Reassign crew or sub')
+    expect(response).not.toContain('Schedule inspection')
+  })
+
+  it('returns pipeline fallback pointing to live lists not reports', () => {
+    const response = getNavigationFallbackResponse('how many leads do I have this week', 'setter')
+    expect(response).toContain('/leads')
+    expect(response).not.toContain('/reports')
+  })
+
+  it('returns job status next-step fallback on job context', () => {
+    const response = getNavigationFallbackResponse("what's next", 'operations', {
+      type: 'job',
+      id: '550e8400-e29b-41d4-a716-446655440000',
+    })
+    expect(response).toContain('Overview')
+    expect(response).toContain('Material Ordering')
   })
 
   it('cites only App Router routes that exist on disk', () => {

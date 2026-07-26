@@ -357,7 +357,7 @@ export async function POST(request: NextRequest) {
     }
 
     const assistantResponse =
-      getNavigationFallbackResponse(trimmedMessage, profile.role) ||
+      getNavigationFallbackResponse(trimmedMessage, profile.role, context) ||
       generateLegacyFallbackResponse(trimmedMessage, context, profile.role)
 
     messages.push({ role: 'assistant', content: assistantResponse })
@@ -386,10 +386,12 @@ function generateLegacyFallbackResponse(
   context: { type: string; id?: string },
   role: string
 ): string {
-  const navigation = getNavigationFallbackResponse(message, role)
+  const navigation = getNavigationFallbackResponse(message, role, context)
   if (navigation) return navigation
 
   const lowerMessage = message.toLowerCase()
+  const jobUrl =
+    context.type === 'job' && context.id ? `/ops/jobs/${context.id}` : '/ops/jobs/[id]'
 
   if (lowerMessage.includes('lead') || context.type === 'lead') {
     if (lowerMessage.includes('follow up') || lowerMessage.includes('next step')) {
@@ -424,9 +426,9 @@ function generateLegacyFallbackResponse(
       ) || /\b(where|how|what|next)\b/.test(lower)
 
     if (jobRelated) {
-      return `For this ops job:
+      return `For this ops job (${jobUrl}):
 - **Labor cost** → Materials tab → Labor Cost card
-- **Materials** → Materials tab (+ Add Material Order) or /ops/jobs/[id]/orders
+- **Materials** → Materials tab (+ Add Material Order) or ${jobUrl}/orders
 - **Cost lines** (permit, dump, misc) → Photos & files tab → Job Files Workspace
 - **Crew / sub** → Overview tab → Schedule now or Reassign crew or sub
 - **Work orders** → Financials tab → Work Orders card`
