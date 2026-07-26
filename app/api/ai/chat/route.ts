@@ -1,108 +1,348 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerClient } from '@/lib/supabase/server'
+import { requireAuthApi } from '@/lib/auth'
+import { isAiAssistantAllowlistedAuth } from '@/lib/ai/chat-allowlist'
+import {
+  AI_CHAT_MAX_MESSAGE_LENGTH,
+  AI_CHAT_MAX_OPENAI_MESSAGES,
+  AI_CHAT_OPENAI_MAX_TOKENS,
+  aiChatAggregatesEnabled,
+  isValidAiContextId,
+  normalizeAiChatMessages,
+} from '@/lib/ai/chat-constants'
+import { getAiChatAggregateAppendix } from '@/lib/ai/chat-aggregates'
 import { getAiChatRecordContextAppendix } from '@/lib/ai/chat-record-context'
-
-// AI Assistant API - integrates with OpenAI or similar
-// This provides contextual help throughout the CRM
+import { getAiChatRecordUrlAppendix } from '@/lib/ai/chat-record-url'
+import { formatAiChatSseEvent } from '@/lib/ai/chat-stream'
+import {
+  buildAiChatSystemPrompt,
+  generateContextualSuggestions,
+  getNavigationFallbackResponse,
+} from '@/lib/ai/crm-navigation-guide'
+import {
+  createRequestScopedClient,
+  getRequestAccessToken,
+} from '@/lib/supabase/request-client'
+import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
+import { resolveSalesDocAccessBarred } from '@/lib/sales-doc-access'
+import { createServiceClient } from '@/lib/supabase/service'
 
 interface Message {
-  role: 'user' | 'assistant' | 'system'
+  role: 'user' | 'assistant'
   content: string
 }
 
-export async function POST(request: NextRequest) {
-  const supabase = createServerClient()
-  const { data: { user } } = await supabase.auth.getUser()
+async function resolveAiChatClient() {
+  const auth = await requireAuthApi()
+  if (!isAiAssistantAllowlistedAuth(auth)) {
+    throw new Error('AI assistant not available')
+  }
+  const accessToken = getRequestAccessToken()
+  if (!accessToken) {
+    throw new Error('Unauthorized')
+  }
+  return {
+    profile: auth.profile,
+    supabase: createRequestScopedClient(accessToken),
+  }
+}
 
-  if (!user) {
+async function userHasAiEnabled(
+  supabase: ReturnType<typeof createRequestScopedClient>,
+  userId: string
+): Promise<boolean> {
+  const { data: settings } = await supabase
+    .from('user_settings')
+    .select('ai_enabled')
+    .eq('user_id', userId)
+    .maybeSingle()
+
+  return Boolean(settings?.ai_enabled)
+}
+
+function normalizeClientContext(context: unknown) {
+  if (!context || typeof context !== 'object' || Array.isArray(context)) {
+    return { type: 'general' as const, id: undefined }
+  }
+
+  const raw = context as { type?: unknown; id?: unknown }
+  const type = typeof raw.type === 'string' ? raw.type : 'general'
+  const id = typeof raw.id === 'string' && isValidAiContextId(raw.id) ? raw.id : undefined
+
+  const allowedTypes = new Set(['lead', 'opportunity', 'project', 'job', 'general'])
+  return {
+    type: allowedTypes.has(type) ? type : 'general',
+    id,
+  }
+}
+
+async function persistAiConversation(
+  supabase: ReturnType<typeof createRequestScopedClient>,
+  params: {
+    orgId: string
+    userId: string
+    contextType: string
+    contextId?: string
+    messages: Message[]
+    conversationId: string | null
+  }
+): Promise<string | null> {
+  const conversationData = {
+    org_id: params.orgId,
+    user_id: params.userId,
+    context_type: params.contextType,
+    context_id: params.contextId ?? null,
+    messages: normalizeAiChatMessages(params.messages),
+    updated_at: new Date().toISOString(),
+  }
+
+  let savedConversationId = params.conversationId
+
+  if (savedConversationId) {
+    const { error: updateError } = await supabase
+      .from('ai_conversations')
+      .update(conversationData)
+      .eq('id', savedConversationId)
+      .eq('user_id', params.userId)
+
+    if (updateError) {
+      console.error('AI conversation update failed:', updateError)
+      savedConversationId = null
+    }
+  } else {
+    const { data: newConv, error: insertError } = await supabase
+      .from('ai_conversations')
+      .insert(conversationData)
+      .select('id')
+      .single()
+
+    if (insertError || !newConv?.id) {
+      console.error('AI conversation insert failed:', insertError)
+      savedConversationId = null
+    } else {
+      savedConversationId = newConv.id
+    }
+  }
+
+  return savedConversationId
+}
+
+function createOpenAiStreamingResponse(
+  openaiResponse: Response,
+  persist: (assistantResponse: string) => Promise<string | null>
+): Response {
+  const encoder = new TextEncoder()
+  let assistantResponse = ''
+
+  const stream = new ReadableStream({
+    async start(controller) {
+      const send = (payload: string) => {
+        controller.enqueue(encoder.encode(payload))
+      }
+
+      if (!openaiResponse.body) {
+        send(formatAiChatSseEvent({ type: 'error', error: 'Failed to process request' }))
+        controller.close()
+        return
+      }
+
+      const reader = openaiResponse.body.getReader()
+      const decoder = new TextDecoder()
+      let openAiBuffer = ''
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+
+          openAiBuffer += decoder.decode(value, { stream: true })
+          const lines = openAiBuffer.split('\n')
+          openAiBuffer = lines.pop() ?? ''
+
+          for (const line of lines) {
+            const trimmed = line.trim()
+            if (!trimmed.startsWith('data: ')) continue
+
+            const payload = trimmed.slice(6)
+            if (payload === '[DONE]') continue
+
+            try {
+              const parsed = JSON.parse(payload) as {
+                choices?: Array<{ delta?: { content?: string } }>
+              }
+              const token = parsed.choices?.[0]?.delta?.content
+              if (typeof token === 'string' && token.length > 0) {
+                assistantResponse += token
+                send(formatAiChatSseEvent({ type: 'token', content: token }))
+              }
+            } catch {
+              // Ignore malformed OpenAI chunks.
+            }
+          }
+        }
+
+        if (!assistantResponse) {
+          assistantResponse =
+            'Sorry, I could not generate a response. Please try again.'
+          send(formatAiChatSseEvent({ type: 'token', content: assistantResponse }))
+        }
+
+        const savedConversationId = await persist(assistantResponse)
+        send(
+          formatAiChatSseEvent({
+            type: 'done',
+            conversationId: savedConversationId,
+            response: assistantResponse,
+          })
+        )
+      } catch (error) {
+        console.error('AI chat stream error:', error)
+        send(formatAiChatSseEvent({ type: 'error', error: 'Failed to process request' }))
+      } finally {
+        controller.close()
+      }
+    },
+  })
+
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+    },
+  })
+}
+
+export async function POST(request: NextRequest) {
+  let profile: {
+    org_id: string
+    role: string
+    full_name: string | null
+    id: string
+    custom_role_id?: string | null
+  }
+  let supabase: ReturnType<typeof createRequestScopedClient>
+
+  try {
+    const resolved = await resolveAiChatClient()
+    profile = resolved.profile
+    supabase = resolved.supabase
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unauthorized'
+    if (message === 'Account disabled') {
+      return NextResponse.json({ error: 'Account disabled' }, { status: 403 })
+    }
+    if (message === 'AI assistant not available') {
+      return NextResponse.json({ error: 'AI assistant is not available for your account yet.' }, { status: 403 })
+    }
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  const admin = createServiceClient()
+  const effectivePermissions = await resolveEffectivePermissionNames(admin, profile.id, profile)
+
   try {
-    const { message, context, conversationId } = await request.json()
+    const body = await request.json()
+    const { message, context: rawContext, conversationId } = body ?? {}
 
-    // Get user profile and settings
-    const { data: profile } = await supabase
-      .from('users')
-      .select('org_id, role, full_name')
-      .eq('id', user.id)
-      .single()
-
-    if (!profile) {
-      return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
+    if (!message || typeof message !== 'string' || !message.trim()) {
+      return NextResponse.json({ error: 'Message is required' }, { status: 400 })
     }
 
-    // Check if AI is enabled for this user
-    const { data: settings } = await supabase
-      .from('user_settings')
-      .select('ai_enabled')
-      .eq('user_id', user.id)
-      .single()
-
-    if (!settings?.ai_enabled) {
-      return NextResponse.json({ 
-        error: 'AI assistant is not enabled. Enable it in Settings.',
-        needsEnable: true 
-      }, { status: 403 })
+    const trimmedMessage = message.trim()
+    if (trimmedMessage.length > AI_CHAT_MAX_MESSAGE_LENGTH) {
+      return NextResponse.json(
+        { error: `Message too long (max ${AI_CHAT_MAX_MESSAGE_LENGTH} characters)` },
+        { status: 400 }
+      )
     }
 
-    // Build context for the AI
-    const recordContextAppendix = await getAiChatRecordContextAppendix(
-      supabase,
-      profile.org_id,
-      context
-    )
+    if (!(await userHasAiEnabled(supabase, profile.id))) {
+      return NextResponse.json(
+        {
+          error: 'AI assistant is not enabled. Enable it in Settings.',
+          needsEnable: true,
+        },
+        { status: 403 }
+      )
+    }
 
-    let systemPrompt = `You are an AI assistant for ARX CRM, a customer relationship management system for roofing/home improvement sales companies.
+    const context = normalizeClientContext(rawContext)
 
-You help users with:
-- Understanding their leads, opportunities, and projects
-- Suggesting next steps for sales processes
-- Providing insights on their performance metrics
-- Helping with scheduling and follow-ups
-- Answering questions about the CRM features
+    const salesDocAccessBarred = await resolveSalesDocAccessBarred(admin, profile.id, profile)
 
-User: ${profile.full_name}
-Role: ${profile.role}
+    const recordAccess = {
+      role: profile.role,
+      fullAccess: effectivePermissions.fullAccess,
+      permissionNames: effectivePermissions.permissionNames,
+      redactOpportunityFinancials: salesDocAccessBarred,
+    }
 
-Be concise, helpful, and professional. If you don't know something specific about their data, suggest they check the relevant section of the CRM.${recordContextAppendix}`
+    const recordContextAppendix =
+      (await getAiChatRecordContextAppendix(
+        supabase,
+        profile.org_id,
+        context,
+        recordAccess
+      )) + getAiChatRecordUrlAppendix(context, recordAccess)
 
-    // Get or create conversation
-    let conversation: any = null
-    if (conversationId) {
+    let aggregateContextAppendix = ''
+    if (aiChatAggregatesEnabled()) {
+      aggregateContextAppendix = await getAiChatAggregateAppendix(supabase, {
+        orgId: profile.org_id,
+        userId: profile.id,
+        role: profile.role,
+        fullAccess: effectivePermissions.fullAccess,
+        permissionNames: effectivePermissions.permissionNames,
+        redactFinancials: salesDocAccessBarred,
+      })
+    }
+
+    const systemPrompt = buildAiChatSystemPrompt({
+      fullName: profile.full_name || 'User',
+      role: profile.role,
+      recordContextAppendix,
+      aggregateContextAppendix,
+    })
+
+    let conversation: { messages?: unknown } | null = null
+    if (typeof conversationId === 'string' && isValidAiContextId(conversationId)) {
       const { data } = await supabase
         .from('ai_conversations')
-        .select('*')
+        .select('messages')
         .eq('id', conversationId)
-        .eq('user_id', user.id)
-        .single()
+        .eq('user_id', profile.id)
+        .maybeSingle()
       conversation = data
     }
 
-    const messages: Message[] = conversation?.messages || []
-    messages.push({ role: 'user', content: message })
+    const messages: Message[] = normalizeAiChatMessages(conversation?.messages)
+    messages.push({ role: 'user', content: trimmedMessage })
 
-    // Check for OpenAI API key
+    const savedConversationIdSeed =
+      typeof conversationId === 'string' && isValidAiContextId(conversationId)
+        ? conversationId
+        : null
+
     const openaiKey = process.env.OPENAI_API_KEY
-    
-    let assistantResponse: string
 
     if (openaiKey) {
-      // Use OpenAI API
+      const openaiMessages = [
+        { role: 'system', content: systemPrompt },
+        ...messages.slice(-AI_CHAT_MAX_OPENAI_MESSAGES),
+      ]
+
       const response = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${openaiKey}`,
+          Authorization: `Bearer ${openaiKey}`,
         },
         body: JSON.stringify({
           model: 'gpt-4o-mini',
-          messages: [
-            { role: 'system', content: systemPrompt },
-            ...messages.slice(-10), // Last 10 messages for context
-          ],
-          max_tokens: 500,
-          temperature: 0.7,
+          messages: openaiMessages,
+          max_tokens: AI_CHAT_OPENAI_MAX_TOKENS,
+          temperature: 0.5,
+          stream: true,
         }),
       })
 
@@ -110,40 +350,33 @@ Be concise, helpful, and professional. If you don't know something specific abou
         throw new Error('OpenAI API error')
       }
 
-      const data = await response.json()
-      assistantResponse = data.choices[0].message.content
-    } else {
-      // Fallback: Rule-based responses when no API key
-      assistantResponse = generateFallbackResponse(message, context, profile)
+      return createOpenAiStreamingResponse(response, async (assistantResponse) => {
+        const persistedMessages: Message[] = [...messages, { role: 'assistant', content: assistantResponse }]
+        return persistAiConversation(supabase, {
+          orgId: profile.org_id,
+          userId: profile.id,
+          contextType: context.type,
+          contextId: context.id,
+          messages: persistedMessages,
+          conversationId: savedConversationIdSeed,
+        })
+      })
     }
 
-    // Add assistant response to messages
+    const assistantResponse =
+      getNavigationFallbackResponse(trimmedMessage, profile.role, context) ||
+      generateLegacyFallbackResponse(trimmedMessage, context, profile.role)
+
     messages.push({ role: 'assistant', content: assistantResponse })
 
-    // Save conversation
-    const conversationData = {
-      org_id: profile.org_id,
-      user_id: user.id,
-      context_type: context?.type || 'general',
-      context_id: context?.id || null,
-      messages: messages,
-      updated_at: new Date().toISOString(),
-    }
-
-    let savedConversationId = conversationId
-    if (conversationId) {
-      await supabase
-        .from('ai_conversations')
-        .update(conversationData)
-        .eq('id', conversationId)
-    } else {
-      const { data: newConv } = await supabase
-        .from('ai_conversations')
-        .insert(conversationData)
-        .select('id')
-        .single()
-      savedConversationId = newConv?.id
-    }
+    const savedConversationId = await persistAiConversation(supabase, {
+      orgId: profile.org_id,
+      userId: profile.id,
+      contextType: context.type,
+      contextId: context.id,
+      messages,
+      conversationId: savedConversationIdSeed,
+    })
 
     return NextResponse.json({
       response: assistantResponse,
@@ -151,126 +384,98 @@ Be concise, helpful, and professional. If you don't know something specific abou
     })
   } catch (error) {
     console.error('AI chat error:', error)
-    return NextResponse.json(
-      { error: 'Failed to process request' },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: 'Failed to process request' }, { status: 500 })
   }
 }
 
-// Fallback responses when no OpenAI API key is configured
-function generateFallbackResponse(message: string, context: any, profile: any): string {
-  const lowerMessage = message.toLowerCase()
+function generateLegacyFallbackResponse(
+  message: string,
+  context: { type: string; id?: string },
+  role: string
+): string {
+  const navigation = getNavigationFallbackResponse(message, role, context)
+  if (navigation) return navigation
 
-  // Lead-related queries
-  if (lowerMessage.includes('lead') || context?.type === 'lead') {
+  const lowerMessage = message.toLowerCase()
+  const jobUrl =
+    context.type === 'job' && context.id ? `/ops/jobs/${context.id}` : '/ops/jobs/[id]'
+
+  if (lowerMessage.includes('lead') || context.type === 'lead') {
     if (lowerMessage.includes('follow up') || lowerMessage.includes('next step')) {
-      return `For this lead, I'd suggest:
-1. If no contact has been made, try calling during business hours
-2. If they showed interest, schedule an inspection appointment
-3. Make sure to add notes after each interaction
-4. Consider the lead's source when tailoring your approach`
+      return `For this lead:
+1. Call during business hours if you have not reached them
+2. Schedule an inspection from the lead page if they are interested
+3. Log notes after each touch
+4. Check lead source when tailoring your approach`
     }
     if (lowerMessage.includes('convert')) {
       return `To convert this lead to an opportunity:
-1. Schedule an inspection appointment
-2. Once scheduled, the system will automatically create an opportunity
-3. You can also manually convert from the lead detail page`
+1. Schedule an inspection from the lead detail page
+2. The system creates an opportunity when the inspection is set
+3. You can also convert manually from the lead detail page`
     }
   }
 
-  // Opportunity-related queries
-  if (lowerMessage.includes('opportunity') || context?.type === 'opportunity') {
+  if (lowerMessage.includes('opportunity') || context.type === 'opportunity') {
     if (lowerMessage.includes('close') || lowerMessage.includes('won')) {
       return `To close this opportunity:
-1. Upload the signed contract using the "Send Contract" button
-2. Once uploaded, the opportunity will be marked as won
-3. A new project will be created automatically`
+1. Open the opportunity at /opportunities/[id]
+2. Send or upload the signed contract
+3. When won, a project and ops job are created automatically`
     }
   }
 
-  // Schedule-related queries
-  if (lowerMessage.includes('schedule') || lowerMessage.includes('appointment')) {
-    return `For scheduling:
-1. Use the Calendar tab to view all appointments
-2. When creating a lead, you can schedule an inspection directly
-3. The system uses round-robin to assign closers automatically
-4. Check your Google Calendar integration in Settings`
+  if (context.type === 'job') {
+    const lower = message.toLowerCase()
+    const jobRelated =
+      /\b(labor|material|cost|photo|crew|sub|status|order|permit|financial|file|tab|job|work order)\b/.test(
+        lower
+      ) || /\b(where|how|what|next)\b/.test(lower)
+
+    if (jobRelated) {
+      return `For this ops job (${jobUrl}):
+- **Labor cost** → Materials tab → Labor Cost card
+- **Materials** → Materials tab (+ Add Material Order) or ${jobUrl}/orders
+- **Cost lines** (permit, dump, misc) → Photos & files tab → Job Files Workspace
+- **Crew / sub** → Overview tab → Schedule now or Reassign crew or sub
+- **Work orders** → Financials tab → Work Orders card`
+    }
   }
 
-  // Commission-related queries
-  if (lowerMessage.includes('commission') || lowerMessage.includes('pay')) {
-    return `For commission information:
-1. View your commissions on the Dashboard
-2. Commissions are calculated based on your assigned comp plan
-3. Contact your admin if you have questions about your comp plan`
-  }
+  return `I can help you navigate ARX CRM. Ask things like:
+- "Where do I enter labor cost?"
+- "How do I schedule an inspection?"
+- "Where are my commissions?"
+- "How does a lead become an ops job?"
 
-  // Report-related queries
-  if (lowerMessage.includes('report')) {
-    return `For reports:
-1. Go to the Reports tab for standard metrics
-2. You can create custom reports with the Report Builder
-3. Reports can be exported to Excel/CSV
-4. Dashboard widgets can be created from custom reports`
-  }
-
-  // Default helpful response
-  return `I can help you with:
-- **Leads**: Follow-up suggestions, conversion tips
-- **Opportunities**: Closing deals, status updates
-- **Scheduling**: Appointments, calendar integration
-- **Reports**: Creating custom reports, viewing metrics
-- **Commissions**: Understanding your comp plan
-
-What would you like to know more about?`
+Enable AI in Settings → AI Assistant if you have not already.`
 }
 
-// GET endpoint to retrieve suggestions
 export async function GET(request: NextRequest) {
-  const supabase = createServerClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  let profile: { id: string; org_id: string; role: string; custom_role_id?: string | null }
+  let supabase: ReturnType<typeof createRequestScopedClient>
 
-  if (!user) {
+  try {
+    const resolved = await resolveAiChatClient()
+    profile = resolved.profile
+    supabase = resolved.supabase
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unauthorized'
+    if (message === 'AI assistant not available') {
+      return NextResponse.json({ error: 'AI assistant is not available for your account yet.' }, { status: 403 })
+    }
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  if (!(await userHasAiEnabled(supabase, profile.id))) {
+    return NextResponse.json({ suggestions: [] })
   }
 
   const { searchParams } = new URL(request.url)
   const contextType = searchParams.get('context_type')
   const contextId = searchParams.get('context_id')
 
-  // Generate contextual suggestions
-  const suggestions = generateSuggestions(contextType, contextId)
-
-  return NextResponse.json({ suggestions })
-}
-
-function generateSuggestions(contextType: string | null, contextId: string | null): string[] {
-  switch (contextType) {
-    case 'lead':
-      return [
-        'What should I do next with this lead?',
-        'How do I schedule an inspection?',
-        'What are the best follow-up practices?',
-      ]
-    case 'opportunity':
-      return [
-        'How do I close this opportunity?',
-        'What documents do I need?',
-        'How do I update the estimated value?',
-      ]
-    case 'project':
-      return [
-        'What are the next steps for this project?',
-        'How do I update the project status?',
-        'How do I add files to this project?',
-      ]
-    default:
-      return [
-        'How do I add a new lead?',
-        'Show me my performance this week',
-        'How do commissions work?',
-        'Help me understand the sales process',
-      ]
-  }
+  return NextResponse.json({
+    suggestions: generateContextualSuggestions(contextType, contextId),
+  })
 }

@@ -16,6 +16,7 @@ import JobNotesReadOnly from '@/components/JobNotesReadOnly'
 import ChangeOrdersSection from '@/components/change-orders/ChangeOrdersSection'
 import ProjectReviewButton from '@/components/projects/ProjectReviewButton'
 import ProjectAddressEdit from '@/components/projects/ProjectAddressEdit'
+import RecordAIContextHelper from '@/components/RecordAIContextHelper'
 import { parseProjectReviewStored } from '@/lib/project-review'
 import {
   canAccessProjectsFromPermissionNames,
@@ -793,6 +794,7 @@ export default async function ProjectDetailPage({
           </div>
         </div>
       </div>
+      <RecordAIContextHelper context={{ type: 'project', id: params.id }} />
     </div>
   )
 }

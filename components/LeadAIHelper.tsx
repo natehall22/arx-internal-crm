@@ -1,11 +1,11 @@
 'use client'
 
-import AIAssistantWrapper from './AIAssistantWrapper'
+import RecordAIContextHelper from '@/components/RecordAIContextHelper'
 
 interface LeadAIHelperProps {
   leadId: string
 }
 
 export default function LeadAIHelper({ leadId }: LeadAIHelperProps) {
-  return <AIAssistantWrapper context={{ type: 'lead', id: leadId }} />
+  return <RecordAIContextHelper context={{ type: 'lead', id: leadId }} />
 }

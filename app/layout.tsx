@@ -3,6 +3,7 @@ import './globals.css'
 import ServiceWorkerRegistration from '@/components/ServiceWorkerRegistration'
 import AppointmentFeedbackPrompt from '@/components/AppointmentFeedbackPrompt'
 import SetterFeedbackPrompt from '@/components/SetterFeedbackPrompt'
+import { AIAssistantProvider } from '@/components/AIAssistantProvider'
 import AIAssistantWrapper from '@/components/AIAssistantWrapper'
 import SessionKeepalive from '@/components/SessionKeepalive'
 
@@ -46,12 +47,14 @@ export default function RootLayout({
         <meta name="mobile-web-app-capable" content="yes" />
       </head>
       <body className="overscroll-none">
-        {children}
-        <ServiceWorkerRegistration />
-        <SessionKeepalive />
-        <AppointmentFeedbackPrompt />
-        <SetterFeedbackPrompt />
-        <AIAssistantWrapper context={{ type: 'general' }} />
+        <AIAssistantProvider>
+          {children}
+          <ServiceWorkerRegistration />
+          <SessionKeepalive />
+          <AppointmentFeedbackPrompt />
+          <SetterFeedbackPrompt />
+          <AIAssistantWrapper />
+        </AIAssistantProvider>
       </body>
     </html>
   )

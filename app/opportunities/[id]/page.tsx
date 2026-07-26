@@ -24,6 +24,7 @@ import {
   normalizeInspectionOutcomeRows,
 } from '@/lib/inspection-outcomes'
 import OpportunityQueueSidebar from '@/components/opportunities/OpportunityQueueSidebar'
+import RecordAIContextHelper from '@/components/RecordAIContextHelper'
 import InsideSalesFollowUpDrawer from '@/components/opportunities/InsideSalesFollowUpDrawer'
 import {
   canViewInsideSalesFollowUp,
@@ -1419,6 +1420,7 @@ export default async function OpportunityDetailPage({
           </div>
         </div>
       </div>
+      <RecordAIContextHelper context={{ type: 'opportunity', id: params.id }} />
     </div>
   )
 }
