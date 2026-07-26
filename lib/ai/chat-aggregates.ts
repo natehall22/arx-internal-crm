@@ -10,6 +10,7 @@ import type { UserRole } from '@/lib/types/database'
 
 const AGGREGATE_TIMEZONE = 'America/New_York'
 
+/** Matches production_jobs status CHECK + JobDetailClient (includes on_hold; board columns omit collected/on_hold). */
 const JOB_STATUS_LABELS: Record<string, string> = {
   sold: 'Sold',
   materials: 'Material Ordering',
@@ -17,6 +18,7 @@ const JOB_STATUS_LABELS: Record<string, string> = {
   in_progress: 'In Progress',
   complete: 'Completed',
   collected: 'Collected',
+  on_hold: 'On Hold',
 }
 
 export type AiChatAggregateAccess = {

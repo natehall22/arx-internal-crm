@@ -171,6 +171,23 @@ describe('chat-aggregates', () => {
     expect(fencedBody).not.toContain('</crm_aggregate_data>')
   })
 
+  it('includes on_hold jobs in status tallies', async () => {
+    const supabase = createAggregateMockSupabase({
+      jobs: [{ status: 'on_hold' }, { status: 'on_hold' }, { status: 'sold' }],
+    })
+    const appendix = await getAiChatAggregateAppendix(supabase, {
+      orgId,
+      userId,
+      role: 'operations',
+      fullAccess: true,
+      permissionNames: new Set<string>(),
+      redactFinancials: false,
+    })
+
+    expect(appendix).toContain('On Hold: 2')
+    expect(appendix).toContain('Sold: 1')
+  })
+
   it('strips injected fence tags from aggregate bullet text', async () => {
     // Defense-in-depth: wrapAggregateContext strips fence tags from the full block.
     // Simulate a hostile status label by temporarily including it via jobs mock on a
