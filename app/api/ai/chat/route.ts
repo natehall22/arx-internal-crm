@@ -98,17 +98,23 @@ async function persistAiConversation(
   let savedConversationId = params.conversationId
 
   if (savedConversationId) {
-    const { error: updateError } = await supabase
+    const { data: updated, error: updateError } = await supabase
       .from('ai_conversations')
       .update(conversationData)
       .eq('id', savedConversationId)
       .eq('user_id', params.userId)
+      .select('id')
+      .maybeSingle()
 
     if (updateError) {
       console.error('AI conversation update failed:', updateError)
       savedConversationId = null
+    } else if (!updated?.id) {
+      savedConversationId = null
     }
-  } else {
+  }
+
+  if (!savedConversationId) {
     const { data: newConv, error: insertError } = await supabase
       .from('ai_conversations')
       .insert(conversationData)

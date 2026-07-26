@@ -105,25 +105,20 @@ export async function POST(request: NextRequest) {
     if (settings.working_hours_end !== undefined)
       settingsData.working_hours_end = settings.working_hours_end
     if (settings.working_days !== undefined) settingsData.working_days = settings.working_days
-    if (settings.ai_enabled !== undefined) {
-      if (!aiAssistantAllowlisted && settings.ai_enabled) {
-        return NextResponse.json(
-          { error: 'AI assistant is not available for your account yet.' },
-          { status: 403 }
-        )
+    // TEMPORARY: only persist AI prefs for allowlisted users; ignore (don't reject) for everyone else
+    // so org-wide settings saves still work while the assistant is Nathan-only.
+    if (aiAssistantAllowlisted) {
+      if (settings.ai_enabled !== undefined) settingsData.ai_enabled = settings.ai_enabled
+      if (settings.ai_suggestions_enabled !== undefined) {
+        settingsData.ai_suggestions_enabled = settings.ai_suggestions_enabled
       }
-      settingsData.ai_enabled = settings.ai_enabled
+      if (settings.ai_auto_notes !== undefined) settingsData.ai_auto_notes = settings.ai_auto_notes
+    } else if (settings.ai_enabled === true) {
+      return NextResponse.json(
+        { error: 'AI assistant is not available for your account yet.' },
+        { status: 403 }
+      )
     }
-    if (settings.ai_suggestions_enabled !== undefined) {
-      if (!aiAssistantAllowlisted && settings.ai_suggestions_enabled) {
-        return NextResponse.json(
-          { error: 'AI assistant is not available for your account yet.' },
-          { status: 403 }
-        )
-      }
-      settingsData.ai_suggestions_enabled = settings.ai_suggestions_enabled
-    }
-    if (settings.ai_auto_notes !== undefined) settingsData.ai_auto_notes = settings.ai_auto_notes
     if (settings.theme !== undefined) settingsData.theme = settings.theme
 
     const { error } = await adminClient
