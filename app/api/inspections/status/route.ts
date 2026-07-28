@@ -318,10 +318,10 @@ export async function POST(request: NextRequest) {
     let opportunity: any = null
 
     if (appointment_id) {
-      // Get appointment details
+      // Get appointment details (opportunity loaded separately — no FK on opportunity_id)
       const { data: appointmentData, error: appointmentError } = await supabase
         .from('scheduled_appointments')
-        .select('*, leads(*), opportunities(*)')
+        .select('*, leads(*)')
         .eq('id', appointment_id)
         .single()
 
@@ -329,6 +329,9 @@ export async function POST(request: NextRequest) {
         // Appointment row didn't load (deleted, race, etc). Don't mark the reminder complete yet —
         // we don't know this request will actually succeed. The success path below (once we know
         // the disposition was recorded) marks pending_status_prompts complete for real.
+        if (appointmentError) {
+          console.error('Failed to load appointment:', appointmentError.message)
+        }
         console.log(`Appointment ${appointment_id} not found - falling back to lead if available`)
 
         // If we have a lead_id fallback, use that instead of returning early
@@ -376,7 +379,19 @@ export async function POST(request: NextRequest) {
         if (lead?.org_id && lead.org_id !== profile.org_id) {
           return NextResponse.json({ error: 'Lead not found' }, { status: 404 })
         }
-        opportunity = firstEmbeddedRow(appointmentData.opportunities)
+
+        // Only resolve by appointment.opportunity_id (same as the old embed). Do not
+        // fall back to "latest opportunity for lead" here — that can overwrite a prior
+        // won/lost deal when a new inspection has no opportunity_id yet.
+        if (appointment.opportunity_id) {
+          const { data: opportunityData } = await supabase
+            .from('opportunities')
+            .select('*')
+            .eq('id', appointment.opportunity_id)
+            .eq('org_id', profile.org_id)
+            .maybeSingle()
+          opportunity = opportunityData
+        }
       }
     } else if (directLeadId) {
       // Direct lead update without appointment - fetch lead and opportunity
