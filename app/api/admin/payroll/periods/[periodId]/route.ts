@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import { isPayrollAdminRole } from '@/lib/payroll-admin-access'
+import { materializePayrollPeriod } from '@/lib/payroll-period-materialization'
 
 export const dynamic = 'force-dynamic'
 
@@ -68,6 +69,21 @@ export async function PATCH(
         )
       }
 
+      let materialization
+      try {
+        materialization = await materializePayrollPeriod(supabase, {
+          orgId,
+          periodId,
+          actorUserId: profile.id,
+        })
+      } catch (materializeError) {
+        console.error('period payout materialization', materializeError)
+        return NextResponse.json(
+          { error: 'Cannot lock: payable job snapshots and payout lines could not be generated' },
+          { status: 500 }
+        )
+      }
+
       const { error: updErr } = await supabase
         .from('payroll_periods')
         .update({ status: 'locked', locked_at: now })
@@ -102,16 +118,6 @@ export async function PATCH(
         )
       }
 
-      await supabase.from('payroll_period_snapshots').upsert(
-        {
-          org_id: orgId,
-          payroll_period_id: periodId,
-          locked_at: now,
-          locked_by: profile.id,
-        },
-        { onConflict: 'payroll_period_id' }
-      )
-
       const { data: period } = await supabase
         .from('payroll_periods')
         .select(
@@ -122,8 +128,8 @@ export async function PATCH(
 
       return NextResponse.json({
         period,
-        message:
-          'Period locked. Job-level snapshots and payout lines are generated on a follow-up pass; use commission export until backfill runs.',
+        materialization,
+        message: `Period locked with ${materialization.payoutLinesCreated} payout line(s).`,
       })
     }
 
