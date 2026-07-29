@@ -1,8 +1,13 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { createClientBrowser } from '@/lib/supabase/client'
+import {
+  referralLinkColumns,
+  type ReferralLinkTarget,
+  type ReferralLinkTargetType,
+} from '@/lib/referral-links'
 
 interface Referral {
   id: string
@@ -17,12 +22,28 @@ interface Referral {
   referred_customer_id: string | null
   referred_lead_id: string | null
   referred_project_id: string | null
+  referred_opportunity_id: string | null
   bonus_amount: number
   bonus_type: string
   status: 'pending' | 'qualified' | 'installed' | 'paid' | 'cancelled'
   install_date: string | null
   paid_at: string | null
   created_at: string
+}
+
+const LINK_TYPE_LABELS: Record<ReferralLinkTargetType, string> = {
+  opportunity: 'Opportunity',
+  customer: 'Customer',
+  lead: 'Lead',
+}
+
+function isReferralLinked(referral: Referral): boolean {
+  return Boolean(
+    referral.referred_opportunity_id ||
+      referral.referred_customer_id ||
+      referral.referred_lead_id ||
+      referral.referred_project_id
+  )
 }
 
 function getDaysSinceInstall(referral: Referral): number | null {
@@ -65,10 +86,113 @@ export default function ReferralsSection({
     bonus_type: 'cash',
   })
 
+  // Link picker — attaches the referral to the deal the referred person became.
+  const [linkSearch, setLinkSearch] = useState('')
+  const [linkResults, setLinkResults] = useState<ReferralLinkTarget[]>([])
+  const [linkSearching, setLinkSearching] = useState(false)
+  const [selectedLink, setSelectedLink] = useState<ReferralLinkTarget | null>(null)
+  const [linkingReferralId, setLinkingReferralId] = useState<string | null>(null)
+  const [convertingReferralId, setConvertingReferralId] = useState<string | null>(null)
+  const linkSearchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   useEffect(() => {
     loadReferrals()
     loadDefaultBonus()
   }, [customerId, projectId])
+
+  useEffect(() => {
+    if (linkSearchTimeoutRef.current) clearTimeout(linkSearchTimeoutRef.current)
+    if (linkSearch.trim().length < 2) {
+      setLinkResults([])
+      setLinkSearching(false)
+      return
+    }
+    linkSearchTimeoutRef.current = setTimeout(() => searchLinkTargets(linkSearch), 300)
+    return () => {
+      if (linkSearchTimeoutRef.current) clearTimeout(linkSearchTimeoutRef.current)
+    }
+  }, [linkSearch])
+
+  const searchLinkTargets = async (query: string) => {
+    setLinkSearching(true)
+    try {
+      const params = new URLSearchParams({ q: query })
+      if (customerId) params.set('exclude_customer_id', customerId)
+      const res = await fetch(`/api/referrals/link-search?${params.toString()}`)
+      if (!res.ok) throw new Error('search failed')
+      const data = await res.json()
+      setLinkResults(Array.isArray(data.results) ? data.results : [])
+    } catch {
+      setLinkResults([])
+    } finally {
+      setLinkSearching(false)
+    }
+  }
+
+  /** Picking a record fills any blank contact fields from it, so the two agree. */
+  const selectLinkTarget = (target: ReferralLinkTarget) => {
+    setSelectedLink(target)
+    setLinkSearch('')
+    setLinkResults([])
+    setForm((prev) => ({
+      ...prev,
+      referred_name: prev.referred_name.trim() || target.name,
+      referred_phone: prev.referred_phone.trim() || target.phone || '',
+      referred_email: prev.referred_email.trim() || target.email || '',
+      referred_address: prev.referred_address.trim() || target.address || '',
+    }))
+  }
+
+  const linkExistingReferral = async (referral: Referral, target: ReferralLinkTarget) => {
+    setLinkingReferralId(referral.id)
+    try {
+      const res = await fetch(`/api/referrals/${referral.id}/link`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ target_type: target.type, target_id: target.id }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed to link referral')
+      await loadReferrals()
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Failed to link referral')
+    } finally {
+      setLinkingReferralId(null)
+    }
+  }
+
+  const unlinkReferral = async (referral: Referral) => {
+    if (!confirm('Detach this referral from the linked record? The typed details stay.')) return
+    setLinkingReferralId(referral.id)
+    try {
+      const res = await fetch(`/api/referrals/${referral.id}/link`, { method: 'DELETE' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed to unlink referral')
+      await loadReferrals()
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Failed to unlink referral')
+    } finally {
+      setLinkingReferralId(null)
+    }
+  }
+
+  const createLeadFromReferral = async (referral: Referral) => {
+    setConvertingReferralId(referral.id)
+    try {
+      const res = await fetch(`/api/referrals/${referral.id}/link`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ create_lead: true }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed to create lead')
+      await loadReferrals()
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Failed to create lead')
+    } finally {
+      setConvertingReferralId(null)
+    }
+  }
 
   const loadDefaultBonus = async () => {
     const supabase = createClientBrowser()
@@ -113,6 +237,10 @@ export default function ReferralsSection({
   }
 
   const openModal = (referral?: Referral) => {
+    setLinkSearch('')
+    setLinkResults([])
+    setSelectedLink(null)
+
     if (referral) {
       setEditingReferral(referral)
       setForm({
@@ -171,17 +299,28 @@ export default function ReferralsSection({
         .from('referrals')
         .update(referralData)
         .eq('id', editingReferral.id)
-      
+
       if (error) {
         alert(`Failed to update referral: ${error.message}`)
         setSaving(false)
         return
       }
+
+      // Re-linking an existing referral goes through the API, which validates the
+      // target's org and derives the customer/lead/project columns from it.
+      if (selectedLink) {
+        await linkExistingReferral(editingReferral, selectedLink)
+      }
     } else {
+      // Attach at insert time so the referral is never briefly orphaned, and so
+      // adding one works for any role allowed to create referrals.
       const { error } = await supabase
         .from('referrals')
-        .insert(referralData)
-      
+        .insert({
+          ...referralData,
+          ...(selectedLink ? referralLinkColumns(selectedLink) : {}),
+        })
+
       if (error) {
         alert(`Failed to create referral: ${error.message}`)
         setSaving(false)
@@ -294,15 +433,19 @@ export default function ReferralsSection({
             <h3 className="text-sm font-medium text-gray-700 mb-3">Referrals Made ({referralsMadeByCustomer.length})</h3>
             <div className="space-y-3">
               {referralsMadeByCustomer.map((referral) => (
-                <ReferralCard 
-                  key={referral.id} 
-                  referral={referral} 
+                <ReferralCard
+                  key={referral.id}
+                  referral={referral}
                   type="made"
                   canManage={canManage}
                   onEdit={() => openModal(referral)}
                   onUpdateStatus={updateStatus}
                   onMarkPaid={markAsPaid}
                   getStatusColor={getStatusColor}
+                  onCreateLead={createLeadFromReferral}
+                  onUnlink={unlinkReferral}
+                  linkBusy={linkingReferralId === referral.id}
+                  convertBusy={convertingReferralId === referral.id}
                 />
               ))}
             </div>
@@ -315,15 +458,19 @@ export default function ReferralsSection({
             <h3 className="text-sm font-medium text-gray-700 mb-3">Referred By</h3>
             <div className="space-y-3">
               {referralsOfCustomer.map((referral) => (
-                <ReferralCard 
-                  key={referral.id} 
-                  referral={referral} 
+                <ReferralCard
+                  key={referral.id}
+                  referral={referral}
                   type="received"
                   canManage={canManage}
                   onEdit={() => openModal(referral)}
                   onUpdateStatus={updateStatus}
                   onMarkPaid={markAsPaid}
                   getStatusColor={getStatusColor}
+                  onCreateLead={createLeadFromReferral}
+                  onUnlink={unlinkReferral}
+                  linkBusy={linkingReferralId === referral.id}
+                  convertBusy={convertingReferralId === referral.id}
                 />
               ))}
             </div>
@@ -334,15 +481,19 @@ export default function ReferralsSection({
         {projectId && referrals.length > 0 && (
           <div className="space-y-3">
             {referrals.map((referral) => (
-              <ReferralCard 
-                key={referral.id} 
-                referral={referral} 
+              <ReferralCard
+                key={referral.id}
+                referral={referral}
                 type="project"
                 canManage={canManage}
                 onEdit={() => openModal(referral)}
                 onUpdateStatus={updateStatus}
                 onMarkPaid={markAsPaid}
                 getStatusColor={getStatusColor}
+                onCreateLead={createLeadFromReferral}
+                onUnlink={unlinkReferral}
+                linkBusy={linkingReferralId === referral.id}
+                convertBusy={convertingReferralId === referral.id}
               />
             ))}
           </div>
@@ -438,6 +589,79 @@ export default function ReferralsSection({
                 />
               </div>
 
+              {/* Connect the referral to the deal that earns the bonus. */}
+              <div className="border-t pt-4">
+                <label className="block text-sm font-medium text-gray-900 mb-1">
+                  Linked record <span className="font-normal text-gray-600">— optional</span>
+                </label>
+                <p className="text-xs text-gray-600 mb-2">
+                  Attach the opportunity this referral became, so the bonus tracks to a real job.
+                  Not in the CRM yet? Save it, then use <span className="font-medium">Create lead</span>.
+                </p>
+
+                {editingReferral && !selectedLink && isReferralLinked(editingReferral) && (
+                  <p className="mb-2 text-sm text-gray-900">
+                    Currently linked. Pick a different record below to replace it.
+                  </p>
+                )}
+
+                {selectedLink ? (
+                  <div className="flex items-start justify-between gap-3 rounded-lg border border-indigo-200 bg-indigo-50 p-3">
+                    <div className="min-w-0">
+                      <p className="font-medium text-gray-900 truncate">{selectedLink.name}</p>
+                      <p className="text-sm text-gray-700">
+                        {LINK_TYPE_LABELS[selectedLink.type]}
+                        {selectedLink.detail ? ` • ${selectedLink.detail}` : ''}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedLink(null)}
+                      className="flex-shrink-0 text-sm font-medium text-indigo-700 hover:text-indigo-900"
+                    >
+                      Change
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <input
+                      type="text"
+                      value={linkSearch}
+                      onChange={(e) => setLinkSearch(e.target.value)}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900"
+                      placeholder="Search by name or address…"
+                    />
+                    {linkSearching && (
+                      <p className="mt-2 text-sm text-gray-600">Searching…</p>
+                    )}
+                    {linkResults.length > 0 && (
+                      <ul className="mt-2 max-h-48 overflow-y-auto rounded-lg border border-gray-200 divide-y">
+                        {linkResults.map((result) => (
+                          <li key={`${result.type}:${result.id}`}>
+                            <button
+                              type="button"
+                              onClick={() => selectLinkTarget(result)}
+                              className="w-full px-3 py-2 text-left hover:bg-gray-50"
+                            >
+                              <span className="block font-medium text-gray-900">{result.name}</span>
+                              <span className="block text-sm text-gray-700">
+                                {LINK_TYPE_LABELS[result.type]}
+                                {result.detail ? ` • ${result.detail}` : ''}
+                              </span>
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    {linkSearch.trim().length >= 2 && !linkSearching && linkResults.length === 0 && (
+                      <p className="mt-2 text-sm text-gray-700">
+                        No matching opportunity, customer, or lead.
+                      </p>
+                    )}
+                  </>
+                )}
+              </div>
+
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Bonus Amount</label>
@@ -492,15 +716,19 @@ export default function ReferralsSection({
 }
 
 // Referral Card Component
-function ReferralCard({ 
-  referral, 
+function ReferralCard({
+  referral,
   type,
   canManage,
   onEdit,
   onUpdateStatus,
   onMarkPaid,
-  getStatusColor
-}: { 
+  getStatusColor,
+  onCreateLead,
+  onUnlink,
+  linkBusy,
+  convertBusy,
+}: {
   referral: Referral
   type: 'made' | 'received' | 'project'
   canManage: boolean
@@ -508,9 +736,16 @@ function ReferralCard({
   onUpdateStatus: (id: string, status: string) => void
   onMarkPaid: (referral: Referral) => void
   getStatusColor: (status: string) => string
+  onCreateLead: (referral: Referral) => void
+  onUnlink: (referral: Referral) => void
+  linkBusy: boolean
+  convertBusy: boolean
 }) {
   const daysSinceInstall = getDaysSinceInstall(referral)
   const needsAttention = referral.status === 'installed' && !referral.paid_at && (daysSinceInstall || 0) >= 7
+  const linked = isReferralLinked(referral)
+  // "Received" cards describe this customer being referred in, so converting is moot.
+  const canConvert = type !== 'received' && !linked && referral.status !== 'cancelled'
 
   return (
     <div className={`border rounded-lg p-4 ${needsAttention ? 'border-orange-300 bg-orange-50' : 'hover:bg-gray-50'}`}>
@@ -599,22 +834,58 @@ function ReferralCard({
         )}
       </div>
 
-      {/* Links to related records */}
-      <div className="mt-3 flex gap-3 text-xs">
-        {referral.referred_customer_id && (
-          <Link href={`/customers/${referral.referred_customer_id}`} className="text-indigo-600 hover:underline">
-            View Customer →
-          </Link>
-        )}
-        {referral.referred_project_id && (
-          <Link href={`/projects/${referral.referred_project_id}`} className="text-indigo-600 hover:underline">
-            View Project →
-          </Link>
-        )}
-        {referral.referred_lead_id && (
-          <Link href={`/leads/${referral.referred_lead_id}`} className="text-indigo-600 hover:underline">
-            View Lead →
-          </Link>
+      {/* Linked records — the opportunity is the one that carries the bonus */}
+      <div className="mt-3 border-t pt-3">
+        {linked ? (
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs">
+            {referral.referred_opportunity_id && (
+              <Link
+                href={`/opportunities/${referral.referred_opportunity_id}`}
+                className="font-medium text-indigo-700 hover:underline"
+              >
+                View Opportunity →
+              </Link>
+            )}
+            {referral.referred_project_id && (
+              <Link href={`/projects/${referral.referred_project_id}`} className="text-indigo-700 hover:underline">
+                View Project →
+              </Link>
+            )}
+            {referral.referred_customer_id && (
+              <Link href={`/customers/${referral.referred_customer_id}`} className="text-indigo-700 hover:underline">
+                View Customer →
+              </Link>
+            )}
+            {referral.referred_lead_id && (
+              <Link href={`/leads/${referral.referred_lead_id}`} className="text-indigo-700 hover:underline">
+                View Lead →
+              </Link>
+            )}
+            {canManage && (
+              <button
+                onClick={() => onUnlink(referral)}
+                disabled={linkBusy}
+                className="text-gray-700 hover:text-red-700 disabled:opacity-50"
+              >
+                {linkBusy ? 'Working…' : 'Unlink'}
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs text-gray-700">
+              Not linked to a record yet — the bonus can&apos;t track to a job.
+            </p>
+            {canConvert && (
+              <button
+                onClick={() => onCreateLead(referral)}
+                disabled={convertBusy}
+                className="text-xs font-medium px-2 py-1 rounded bg-indigo-100 text-indigo-800 hover:bg-indigo-200 disabled:opacity-50"
+              >
+                {convertBusy ? 'Creating…' : 'Create lead'}
+              </button>
+            )}
+          </div>
         )}
       </div>
     </div>

@@ -14,6 +14,14 @@ interface UnpaidReferral {
   referrer_customer_id: string
 }
 
+/** Matches the `p_days_threshold` default on `get_unpaid_referrals()`. */
+const UNPAID_ALERT_DAYS = 7
+
+function daysSince(installDate: string): number {
+  const diffMs = Date.now() - new Date(installDate).getTime()
+  return Math.max(0, Math.floor(diffMs / (1000 * 60 * 60 * 24)))
+}
+
 export default function UnpaidReferralsAlert() {
   const [unpaidReferrals, setUnpaidReferrals] = useState<UnpaidReferral[]>([])
   const [loading, setLoading] = useState(true)
@@ -44,19 +52,36 @@ export default function UnpaidReferralsAlert() {
       return
     }
 
-    // Get unpaid referrals that are 7+ days past installation
+    // `days_since_install` is computed, not stored — selecting and filtering on it as
+    // a column made every request fail, which the `!error` guard below swallowed, so
+    // this alert never fired. Filter on install_date and derive the age here.
+    const cutoff = new Date()
+    cutoff.setDate(cutoff.getDate() - UNPAID_ALERT_DAYS)
+    const cutoffDate = cutoff.toISOString().split('T')[0]
+
     const { data, error } = await supabase
       .from('referrals')
-      .select('id, referrer_name, referred_name, bonus_amount, install_date, days_since_install, referrer_customer_id')
+      .select('id, referrer_name, referred_name, bonus_amount, install_date, referrer_customer_id')
       .eq('org_id', profile.org_id)
       .eq('status', 'installed')
       .is('paid_at', null)
-      .gte('days_since_install', 7)
-      .order('days_since_install', { ascending: false })
+      .not('install_date', 'is', null)
+      .lte('install_date', cutoffDate)
+      .order('install_date', { ascending: true })
 
-    if (!error && data) {
-      setUnpaidReferrals(data)
+    if (error) {
+      console.error('Error loading unpaid referrals:', error)
+      setLoading(false)
+      return
     }
+
+    setUnpaidReferrals(
+      (data || []).map((referral) => ({
+        ...referral,
+        bonus_amount: Number(referral.bonus_amount) || 0,
+        days_since_install: daysSince(referral.install_date),
+      }))
+    )
     setLoading(false)
   }
 
