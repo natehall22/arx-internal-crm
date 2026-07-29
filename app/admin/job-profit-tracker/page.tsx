@@ -151,6 +151,16 @@ function moneyToneClass(value: number): string {
   return value < 0 ? 'text-rose-700' : 'text-gray-900'
 }
 
+/**
+ * Header cells pin to the top of the scroll container so the 22 money columns stay
+ * identifiable while scrolling rows.
+ *
+ * The background lives on each `th`, not on `thead`: a sticky cell paints its own
+ * background, and a section-level one lets rows show through as they pass under.
+ */
+const TRACKER_TH = 'sticky top-0 z-10 bg-[#4a6080] px-3 py-2 font-semibold'
+const TRACKER_TH_RIGHT = `${TRACKER_TH} text-right`
+
 export default async function AdminJobProfitTrackerPage({
   searchParams,
 }: {
@@ -492,32 +502,38 @@ export default async function AdminJobProfitTrackerPage({
         </div>
 
         <div className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
-          <div className="overflow-x-auto">
+          {/*
+            Capped height makes this the vertical scroller, which is what the sticky
+            header pins against. With only `overflow-x-auto` the box grows to content
+            height and never scrolls vertically itself, so the header would scroll off
+            the top of the page with everything else.
+          */}
+          <div className="max-h-[70vh] overflow-auto">
             <table className="min-w-[1500px] text-sm">
-              <thead className="bg-[#4a6080] text-left text-xs uppercase tracking-wide text-white">
+              <thead className="text-left text-xs uppercase tracking-wide text-white">
                 <tr>
-                  <th className="px-3 py-2 font-semibold">#</th>
-                  <th className="px-3 py-2 font-semibold">Last name</th>
-                  <th className="px-3 py-2 font-semibold">Job address</th>
-                  <th className="px-3 py-2 font-semibold text-right">Contract</th>
-                  <th className="px-3 py-2 font-semibold text-right">Finance costs</th>
-                  <th className="px-3 py-2 font-semibold text-right">Commissionable</th>
-                  <th className="px-3 py-2 font-semibold text-right">Materials</th>
-                  <th className="px-3 py-2 font-semibold text-right">Labor</th>
-                  <th className="px-3 py-2 font-semibold text-right">Misc</th>
-                  <th className="px-3 py-2 font-semibold text-right">Total expenses</th>
-                  <th className="px-3 py-2 font-semibold text-right">Setter 5%</th>
-                  <th className="px-3 py-2 font-semibold text-right">Closer 7%</th>
-                  <th className="px-3 py-2 font-semibold text-right">Sales 6%</th>
-                  <th className="px-3 py-2 font-semibold text-right">OPP 9%</th>
-                  <th className="px-3 py-2 font-semibold text-right">Gross profit</th>
-                  <th className="px-3 py-2 font-semibold text-right">GP %</th>
-                  <th className="px-3 py-2 font-semibold text-right">Owner draw</th>
-                  <th className="px-3 py-2 font-semibold text-right">Per owner</th>
-                  <th className="px-3 py-2 font-semibold text-right">Net profit</th>
-                  <th className="px-3 py-2 font-semibold text-right">Net %</th>
-                  <th className="px-3 py-2 font-semibold">Notes</th>
-                  <th className="px-3 py-2 font-semibold">Status</th>
+                  <th className={TRACKER_TH}>#</th>
+                  <th className={TRACKER_TH}>Last name</th>
+                  <th className={TRACKER_TH}>Job address</th>
+                  <th className={TRACKER_TH_RIGHT}>Contract</th>
+                  <th className={TRACKER_TH_RIGHT}>Finance costs</th>
+                  <th className={TRACKER_TH_RIGHT}>Commissionable</th>
+                  <th className={TRACKER_TH_RIGHT}>Materials</th>
+                  <th className={TRACKER_TH_RIGHT}>Labor</th>
+                  <th className={TRACKER_TH_RIGHT}>Misc</th>
+                  <th className={TRACKER_TH_RIGHT}>Total expenses</th>
+                  <th className={TRACKER_TH_RIGHT}>Setter 5%</th>
+                  <th className={TRACKER_TH_RIGHT}>Closer 7%</th>
+                  <th className={TRACKER_TH_RIGHT}>Sales 6%</th>
+                  <th className={TRACKER_TH_RIGHT}>OPP 9%</th>
+                  <th className={TRACKER_TH_RIGHT}>Gross profit</th>
+                  <th className={TRACKER_TH_RIGHT}>GP %</th>
+                  <th className={TRACKER_TH_RIGHT}>Owner draw</th>
+                  <th className={TRACKER_TH_RIGHT}>Per owner</th>
+                  <th className={TRACKER_TH_RIGHT}>Net profit</th>
+                  <th className={TRACKER_TH_RIGHT}>Net %</th>
+                  <th className={TRACKER_TH}>Notes</th>
+                  <th className={TRACKER_TH}>Status</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 text-gray-800">
