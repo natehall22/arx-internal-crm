@@ -3,11 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { createClientBrowser } from '@/lib/supabase/client'
-import {
-  referralLinkColumns,
-  type ReferralLinkTarget,
-  type ReferralLinkTargetType,
-} from '@/lib/referral-links'
+import type { ReferralLinkTarget, ReferralLinkTargetType } from '@/lib/referral-links'
 
 interface Referral {
   id: string
@@ -279,53 +275,38 @@ export default function ReferralsSection({
     }
 
     setSaving(true)
-    const supabase = createClientBrowser()
 
-    const referralData = {
-      org_id: orgId,
-      referrer_customer_id: customerId,
-      referrer_name: customerName || null,
+    // Written server-side rather than with the browser client: the browser write went to
+    // Postgres under the cookie session, so a session that had not been applied failed on
+    // RLS with a confusing error. The route re-checks permissions and writes with the
+    // service client, and the link travels with the same request.
+    const payload = {
       referred_name: form.referred_name.trim(),
-      referred_email: form.referred_email.trim() || null,
-      referred_phone: form.referred_phone.trim() || null,
-      referred_address: form.referred_address.trim() || null,
-      referred_notes: form.referred_notes.trim() || null,
+      referred_email: form.referred_email.trim(),
+      referred_phone: form.referred_phone.trim(),
+      referred_address: form.referred_address.trim(),
+      referred_notes: form.referred_notes.trim(),
       bonus_amount: parseFloat(form.bonus_amount) || defaultBonus,
       bonus_type: form.bonus_type,
+      ...(selectedLink ? { link: { target_type: selectedLink.type, target_id: selectedLink.id } } : {}),
     }
 
-    if (editingReferral) {
-      const { error } = await supabase
-        .from('referrals')
-        .update(referralData)
-        .eq('id', editingReferral.id)
-
-      if (error) {
-        alert(`Failed to update referral: ${error.message}`)
-        setSaving(false)
-        return
-      }
-
-      // Re-linking an existing referral goes through the API, which validates the
-      // target's org and derives the customer/lead/project columns from it.
-      if (selectedLink) {
-        await linkExistingReferral(editingReferral, selectedLink)
-      }
-    } else {
-      // Attach at insert time so the referral is never briefly orphaned, and so
-      // adding one works for any role allowed to create referrals.
-      const { error } = await supabase
-        .from('referrals')
-        .insert({
-          ...referralData,
-          ...(selectedLink ? referralLinkColumns(selectedLink) : {}),
-        })
-
-      if (error) {
-        alert(`Failed to create referral: ${error.message}`)
-        setSaving(false)
-        return
-      }
+    try {
+      const res = await fetch('/api/referrals/from-customer', {
+        method: editingReferral ? 'PATCH' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(
+          editingReferral
+            ? { id: editingReferral.id, ...payload }
+            : { referrer_customer_id: customerId, ...payload }
+        ),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || 'Failed to save referral')
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Failed to save referral')
+      setSaving(false)
+      return
     }
 
     setShowModal(false)
