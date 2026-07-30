@@ -7,6 +7,22 @@
  * 202607290002_referrals_opportunity_link.sql, so callers only pick one record.
  */
 
+/**
+ * Roles that can move a referral through its payout lifecycle (qualify, install, pay).
+ * Single source of truth for both the UI gate (customer page) and the API routes that
+ * accept a status change — kept together so the two cannot drift apart.
+ */
+export const REFERRAL_MANAGER_ROLES = new Set([
+  'admin',
+  'regional_manager',
+  'sales_manager',
+  'operations',
+])
+
+export function isReferralManagerRole(role: string | null | undefined): boolean {
+  return REFERRAL_MANAGER_ROLES.has(String(role || '').toLowerCase())
+}
+
 export type ReferralLinkTargetType = 'opportunity' | 'customer' | 'lead'
 
 export const REFERRAL_LINK_TARGET_TYPES: readonly ReferralLinkTargetType[] = [

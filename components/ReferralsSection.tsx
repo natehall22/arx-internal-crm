@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
-import { createClientBrowser } from '@/lib/supabase/client'
 import type { ReferralLinkTarget, ReferralLinkTargetType } from '@/lib/referral-links'
 
 interface Referral {
@@ -93,7 +92,6 @@ export default function ReferralsSection({
 
   useEffect(() => {
     loadReferrals()
-    loadDefaultBonus()
   }, [customerId, projectId])
 
   useEffect(() => {
@@ -190,46 +188,30 @@ export default function ReferralsSection({
     }
   }
 
-  const loadDefaultBonus = async () => {
-    const supabase = createClientBrowser()
-    const { data: org } = await supabase
-      .from('orgs')
-      .select('settings')
-      .eq('id', orgId)
-      .single()
-    
-    if (org?.settings?.referral_bonus) {
-      setDefaultBonus(org.settings.referral_bonus)
-      setForm(prev => ({ ...prev, bonus_amount: org.settings.referral_bonus.toString() }))
-    }
-  }
-
+  // Both read through the server: a browser-client SELECT blocked by RLS returns zero
+  // rows with no error at all, which made a stale session look like "no referrals yet"
+  // even right after a save had genuinely succeeded. Loaded together since they come
+  // from the same endpoint and both drive this tab's initial render.
   const loadReferrals = async () => {
-    const supabase = createClientBrowser()
-    
-    let query = supabase
-      .from('referrals')
-      .select('*')
-      .eq('org_id', orgId)
-      .order('created_at', { ascending: false })
+    try {
+      const params = new URLSearchParams()
+      if (customerId) params.set('customer_id', customerId)
+      if (projectId) params.set('project_id', projectId)
 
-    if (customerId) {
-      // Show referrals made BY this customer AND referrals OF this customer
-      query = query.or(`referrer_customer_id.eq.${customerId},referred_customer_id.eq.${customerId}`)
-    }
-    
-    if (projectId) {
-      query = query.eq('referred_project_id', projectId)
-    }
+      const res = await fetch(`/api/referrals/from-customer?${params.toString()}`)
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || 'Failed to load referrals')
 
-    const { data, error } = await query
-    
-    if (error) {
+      setReferrals(Array.isArray(data.referrals) ? data.referrals : [])
+      if (Number.isFinite(data.default_bonus)) {
+        setDefaultBonus(data.default_bonus)
+        setForm((prev) => ({ ...prev, bonus_amount: String(data.default_bonus) }))
+      }
+    } catch (error) {
       console.error('Error loading referrals:', error)
-    } else {
-      setReferrals(data || [])
+    } finally {
+      setLoading(false)
     }
-    setLoading(false)
   }
 
   const openModal = (referral?: Referral) => {
@@ -314,30 +296,21 @@ export default function ReferralsSection({
     setSaving(false)
   }
 
+  // Both go through the server, gated to REFERRAL_MANAGER_ROLES rather than
+  // customers:edit -- these are payout-status moves, not contact-field edits, and RLS's
+  // manager-only UPDATE policy (028) stays underneath as defense in depth.
   const updateStatus = async (referralId: string, newStatus: string) => {
-    const supabase = createClientBrowser()
-    
-    const updateData: any = { status: newStatus }
-    
-    // If marking as installed, set install date
-    if (newStatus === 'installed') {
-      updateData.install_date = new Date().toISOString().split('T')[0]
-    }
-    
-    // If marking as paid, set paid date
-    if (newStatus === 'paid') {
-      updateData.paid_at = new Date().toISOString()
-    }
-
-    const { error } = await supabase
-      .from('referrals')
-      .update(updateData)
-      .eq('id', referralId)
-
-    if (error) {
-      alert(`Failed to update status: ${error.message}`)
-    } else {
+    try {
+      const res = await fetch(`/api/referrals/${referralId}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: newStatus }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || 'Failed to update status')
       await loadReferrals()
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Failed to update status')
     }
   }
 
@@ -345,21 +318,17 @@ export default function ReferralsSection({
     const paymentMethod = prompt('Payment method (e.g., Check #123, Venmo, Cash):')
     if (!paymentMethod) return
 
-    const supabase = createClientBrowser()
-    
-    const { error } = await supabase
-      .from('referrals')
-      .update({
-        status: 'paid',
-        paid_at: new Date().toISOString(),
-        payment_method: paymentMethod,
+    try {
+      const res = await fetch(`/api/referrals/${referral.id}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'paid', payment_method: paymentMethod }),
       })
-      .eq('id', referral.id)
-
-    if (error) {
-      alert(`Failed to mark as paid: ${error.message}`)
-    } else {
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || 'Failed to mark as paid')
       await loadReferrals()
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Failed to mark as paid')
     }
   }
 

@@ -11,15 +11,19 @@ import { isReferralLinkTargetType, referralLinkColumns } from '@/lib/referral-li
 export const dynamic = 'force-dynamic'
 
 /**
- * Create/update a referral from the customer file.
+ * Read/create/update referrals from the customer file.
  *
- * These were browser-client writes, which put them behind the anon-key session: if the
- * cookie session was not applied the insert reached Postgres unauthenticated and failed
- * on RLS. Going through the server uses the same cookie path as the rest of the app and
- * writes with the service client after an explicit permission check.
+ * These were browser-client calls against Supabase directly. Writes failed loudly
+ * (RLS rejects with 42501) when the cookie session was not applied, but a blocked
+ * SELECT returns zero rows with no error at all -- so a stale session made this list
+ * look like "no referrals yet" even after a save had genuinely succeeded elsewhere.
+ * Confirmed live: two referral rows existed, correctly linked, while the tab still
+ * rendered empty. Routing every operation through the server closes both failure
+ * modes the same way -- one cookie path, one permission check, done once.
  *
  * Payout fields (status, paid_at, payment_method, install_date) are deliberately not
- * accepted here -- those stay with the manager-only flows.
+ * accepted by POST/PATCH here -- those go through /api/referrals/[id]/status instead,
+ * which is gated to REFERRAL_MANAGER_ROLES rather than customers:edit.
  */
 const EDITABLE_FIELDS = [
   'referred_name',
@@ -84,6 +88,59 @@ function resolveLinkColumns(body: Record<string, unknown>): Record<string, strin
     return null
   }
   return referralLinkColumns({ type: link.target_type, id: link.target_id }) as Record<string, string>
+}
+
+// GET - the referrals list for a customer or project, plus the org's default bonus
+export async function GET(request: NextRequest) {
+  try {
+    const auth = await authorize()
+    if ('error' in auth) return auth.error
+    const { adminClient, orgId, permissions } = auth
+
+    // Matches the page-level gate in app/customers/[id]/page.tsx: anyone who can open
+    // the customer file can see its referrals.
+    if (!canAccessCustomerRecordsFromPermissionNames(permissions)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+
+    const customerId = request.nextUrl.searchParams.get('customer_id')
+    const projectId = request.nextUrl.searchParams.get('project_id')
+
+    let query = adminClient
+      .from('referrals')
+      .select('*')
+      .eq('org_id', orgId)
+      .order('created_at', { ascending: false })
+
+    if (customerId) {
+      // Referrals made BY this customer, and referrals OF this customer.
+      query = query.or(`referrer_customer_id.eq.${customerId},referred_customer_id.eq.${customerId}`)
+    }
+    if (projectId) {
+      query = query.eq('referred_project_id', projectId)
+    }
+
+    const [{ data: referrals, error }, { data: org }] = await Promise.all([
+      query,
+      adminClient.from('orgs').select('settings').eq('id', orgId).single(),
+    ])
+
+    if (error) {
+      console.error('Referrals list error:', error)
+      return NextResponse.json({ error: `Failed to load referrals: ${error.message}` }, { status: 400 })
+    }
+
+    const defaultBonusRaw = (org?.settings as { referral_bonus?: unknown } | null)?.referral_bonus
+    const defaultBonus = Number.isFinite(Number(defaultBonusRaw)) ? Number(defaultBonusRaw) : 100
+
+    return NextResponse.json({ referrals: referrals || [], default_bonus: defaultBonus })
+  } catch (error) {
+    console.error('Referrals list API error:', error)
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : 'Failed to load referrals' },
+      { status: 500 }
+    )
+  }
 }
 
 export async function POST(request: NextRequest) {

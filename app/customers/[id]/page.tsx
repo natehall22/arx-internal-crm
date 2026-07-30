@@ -10,6 +10,7 @@ import LinkProjectToCustomerButton from '@/components/customers/LinkProjectToCus
 import CreateAddOnOpportunityButton from '@/components/customers/CreateAddOnOpportunityButton'
 import { canAccessCustomerRecordsFromPermissionNames, isRepLikeCustomerRecordRole } from '@/lib/permissions'
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
+import { isReferralManagerRole } from '@/lib/referral-links'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
 
@@ -392,7 +393,7 @@ export default async function CustomerDetailPage({
             customerId={params.id}
             customerName={customer.name || undefined}
             orgId={profile.org_id}
-            canManage={['admin', 'regional_manager', 'sales_manager', 'operations'].includes(profile.role)}
+            canManage={isReferralManagerRole(profile.role)}
           />
         )}
 
