@@ -10,6 +10,7 @@ import SatelliteImageEditor from '@/components/SatelliteImageEditor'
 import { userCanDeleteProposal } from '@/lib/proposal-delete-access'
 import CreateContractButton from '@/components/contracts/CreateContractButton'
 import { compressImage } from '@/components/inspection/close-visit-shared'
+import { shouldShowOnlyTotalInvestment } from '@/lib/proposal-pricing-visibility'
 
 interface Proposal {
   id: string
@@ -345,6 +346,10 @@ export default function ProposalDetailPage() {
           tax_rate: proposal.tax_rate,
           tax_amount: proposal.tax_amount,
           total: quoteTotalForPdf,
+          show_only_total_investment: shouldShowOnlyTotalInvestment(
+            quoteTotalForPdf,
+            displayForPdf.total
+          ),
           scope_of_work: proposal.scope_of_work,
           created_at: proposal.created_at,
         },

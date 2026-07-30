@@ -74,6 +74,7 @@ export interface ProposalPDFData {
     tax_rate: number
     tax_amount: number
     total: number
+    show_only_total_investment?: boolean
     scope_of_work?: string
     created_at: string
   }
@@ -1124,12 +1125,14 @@ export const ProposalPDFv2 = ({ data, theme = 'print' }: ProposalPDFProps) => {
 
           {/* Pricing Card */}
           <View style={styles.pricingCard}>
-            <View style={styles.pricingRow}>
-              <Text style={styles.pricingLabel}>Subtotal</Text>
-              <Text style={styles.pricingValue}>{formatCurrency(displayPricing.subtotal)}</Text>
-            </View>
+            {!proposal.show_only_total_investment && (
+              <View style={styles.pricingRow}>
+                <Text style={styles.pricingLabel}>Subtotal</Text>
+                <Text style={styles.pricingValue}>{formatCurrency(displayPricing.subtotal)}</Text>
+              </View>
+            )}
 
-            {displayPricing.discountAmount > 0 && (
+            {!proposal.show_only_total_investment && displayPricing.discountAmount > 0 && (
               <View style={styles.pricingRow}>
                 <Text style={styles.pricingLabel}>Discount</Text>
                 <Text style={[styles.pricingValue, { color: '#22C55E' }]}>
@@ -1138,12 +1141,14 @@ export const ProposalPDFv2 = ({ data, theme = 'print' }: ProposalPDFProps) => {
               </View>
             )}
 
-            <View style={styles.pricingRow}>
-              <Text style={styles.pricingLabel}>Tax ({proposal.tax_rate}%)</Text>
-              <Text style={styles.pricingValue}>{formatCurrency(displayPricing.taxAmount)}</Text>
-            </View>
+            {!proposal.show_only_total_investment && (
+              <View style={styles.pricingRow}>
+                <Text style={styles.pricingLabel}>Tax ({proposal.tax_rate}%)</Text>
+                <Text style={styles.pricingValue}>{formatCurrency(displayPricing.taxAmount)}</Text>
+              </View>
+            )}
 
-            <View style={styles.pricingDivider} />
+            {!proposal.show_only_total_investment && <View style={styles.pricingDivider} />}
 
             <View style={styles.pricingTotal}>
               <Text style={styles.pricingTotalLabel}>Total Investment</Text>
