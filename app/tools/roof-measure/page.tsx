@@ -75,11 +75,6 @@ import {
   overlapValidationNote,
 } from '@/lib/roof-measure-solar-overlap'
 
-/** Tailwind JIT anchor — lib/ is outside content paths in tailwind.config.ts. */
-const ROOF_MEASURE_LAYOUT_TAILWIND_ANCHOR =
-  'max-lg:max-w-[calc(100%-8rem)] lg:max-w-[min(calc(100%-2rem),20rem)] max-lg:max-w-[7rem] max-lg:left-auto lg:left-auto lg:top-auto lg:bottom-auto top-4 left-4 lg:top-4 lg:top-[4.75rem] z-30 inline-flex w-max max-w-[calc(100%-2rem)] items-center min-h-[44px] overflow-x-hidden min-w-0 max-lg:flex-1 h-[calc(100vh-64px-env(safe-area-inset-bottom,0px))] max-h-[50vh] lg:max-h-[calc(100vh-64px)] hidden min-h-[300px] max-lg:min-h-[calc(100vh-64px-env(safe-area-inset-bottom,0px))] lg:min-h-[calc(100vh-64px)] lg:min-h-[400px] max-lg:top-[max(1rem,env(safe-area-inset-top))] max-lg:right-[max(1rem,env(safe-area-inset-right))] lg:bottom-[max(1rem,calc(env(safe-area-inset-bottom,0px)+2.75rem))] lg:right-[max(1rem,env(safe-area-inset-right))] max-lg:bottom-[max(1rem,calc(env(safe-area-inset-bottom)+2.75rem))] left-[max(1rem,env(safe-area-inset-left))]' as const
-void ROOF_MEASURE_LAYOUT_TAILWIND_ANCHOR
-
 declare const google: any
 
 interface Point {
