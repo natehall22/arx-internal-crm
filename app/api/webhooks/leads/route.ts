@@ -70,6 +70,66 @@ function pickMappedField(body: Record<string, any>, mapping: Record<string, stri
   return undefined
 }
 
+/**
+ * Attach inbound leads to a CRM campaign when the payload names one.
+ * - Prefer explicit campaign_id (must belong to this org)
+ * - Else look up by campaign name (case-insensitive exact match)
+ * - Else keep the lead source default_campaign_id
+ * Existing callers that omit campaign* stay unchanged.
+ */
+async function resolveCampaignId(
+  adminClient: ReturnType<typeof getAdminClient>,
+  orgId: string,
+  body: Record<string, any>,
+  fallbackCampaignId: string | null
+): Promise<string | null> {
+  const campaignIdRaw = body.campaign_id || body.campaignId
+  const campaignNameRaw = body.campaign || body.campaign_name || body.campaignName
+  const campaignName =
+    typeof campaignNameRaw === 'string' ? campaignNameRaw.trim() : ''
+
+  if (typeof campaignIdRaw === 'string' && campaignIdRaw.trim()) {
+    const { data, error } = await adminClient
+      .from('campaigns')
+      .select('id')
+      .eq('org_id', orgId)
+      .eq('id', campaignIdRaw.trim())
+      .maybeSingle()
+
+    if (error) {
+      console.log('Lead webhook: campaign_id lookup failed:', error.message)
+    } else if (data?.id) {
+      return data.id
+    } else {
+      console.log('Lead webhook: campaign_id not found for org, using fallback')
+    }
+  }
+
+  if (campaignName) {
+    // Escape LIKE wildcards so payload names match literally (case-insensitive).
+    const literalName = campaignName.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_')
+    const { data, error } = await adminClient
+      .from('campaigns')
+      .select('id')
+      .eq('org_id', orgId)
+      .ilike('name', literalName)
+      .limit(1)
+      .maybeSingle()
+
+    if (error) {
+      console.log('Lead webhook: campaign name lookup failed:', error.message)
+    } else if (data?.id) {
+      return data.id
+    } else {
+      console.log(
+        `Lead webhook: campaign "${campaignName}" not found for org, using fallback`
+      )
+    }
+  }
+
+  return fallbackCampaignId
+}
+
 async function insertLeadWithSchemaFallback(adminClient: ReturnType<typeof getAdminClient>, leadData: Record<string, any>) {
   const insertData: Record<string, any> = { ...leadData, channel: 'inbound' }
   let lastError: any = null
@@ -317,6 +377,13 @@ export async function POST(request: NextRequest) {
       ownerUserId = adminUser?.id || null
     }
 
+    const campaignId = await resolveCampaignId(
+      adminClient,
+      org_id,
+      body,
+      leadSource?.default_campaign_id || null
+    )
+
     // Build lead data - only include fields that exist
     const leadData: Record<string, any> = {
       org_id,
@@ -329,7 +396,7 @@ export async function POST(request: NextRequest) {
       status: 'new',
       notes: leadNotes.trim() || null,
       lead_source_id: leadSource?.id || null,
-      campaign_id: leadSource?.default_campaign_id || null,
+      campaign_id: campaignId,
       source_type: leadSource?.source_type || null,
       external_lead_id: body.external_lead_id || body.externalLeadId || body.id || null,
       raw_payload: body,
