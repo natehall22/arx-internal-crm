@@ -329,6 +329,27 @@ export async function POST(request: NextRequest) {
         ? conversationId
         : null
 
+    const navigationFallback = getNavigationFallbackResponse(
+      trimmedMessage,
+      profile.role,
+      context
+    )
+    if (navigationFallback) {
+      messages.push({ role: 'assistant', content: navigationFallback })
+      const savedConversationId = await persistAiConversation(supabase, {
+        orgId: profile.org_id,
+        userId: profile.id,
+        contextType: context.type,
+        contextId: context.id,
+        messages,
+        conversationId: savedConversationIdSeed,
+      })
+      return NextResponse.json({
+        response: navigationFallback,
+        conversationId: savedConversationId,
+      })
+    }
+
     const openaiKey = process.env.OPENAI_API_KEY
 
     if (openaiKey) {

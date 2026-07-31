@@ -183,4 +183,79 @@ describe('crm-navigation-guide', () => {
       }
     }
   })
+
+  it('paveRecordPath does not double-prefix job paths in labor cost fallback', () => {
+    const jobId = '550e8400-e29b-41d4-a716-446655440000'
+    const response = getNavigationFallbackResponse(
+      'where do I enter labor cost on this job',
+      'operations',
+      { type: 'job', id: jobId }
+    )
+    expect(response).toContain(`/ops/jobs/${jobId}`)
+    expect(response).not.toContain('/ops/jobs/ops/jobs/')
+  })
+
+  it('returns roof report fallback for roof report photo questions', () => {
+    const response = getNavigationFallbackResponse('where do roof report photos go', 'closer')
+    expect(response).toContain('/opportunities/[id]/report')
+    expect(response).toContain('Roof Report')
+    expect(response?.indexOf('/opportunities/')).toBeLessThan(
+      response?.indexOf('Photos & files') ?? Infinity
+    )
+  })
+
+  it('routes upload report photos to roof report builder not job photos tab', () => {
+    const response = getNavigationFallbackResponse('where do I upload report photos', 'closer')
+    expect(response).toContain('/opportunities/[id]/report')
+    expect(response).not.toMatch(/Job Board.*Photos & files.*primary/i)
+  })
+
+  it('returns ambiguous photo fallback listing all three destinations', () => {
+    const response = getNavigationFallbackResponse('where do I upload photos', 'sales_rep')
+    expect(response).toContain('/opportunities/[id]/report')
+    expect(response).toContain('/proposals/[id]')
+    expect(response).toContain('Photos & files')
+    expect(response).toContain('/ops/jobs/[id]')
+  })
+
+  it('returns job-context photo fallback with paved job path', () => {
+    const jobId = '550e8400-e29b-41d4-a716-446655440000'
+    const response = getNavigationFallbackResponse(
+      'where do photos go on this job',
+      'operations',
+      { type: 'job', id: jobId }
+    )
+    expect(response).toContain(`/ops/jobs/${jobId}`)
+    expect(response).toContain('Photos & files')
+    expect(response).toContain('/opportunities/[id]/report')
+  })
+
+  it('returns inside sales fallback', () => {
+    const response = getNavigationFallbackResponse('where is inside sales', 'inside_sales')
+    expect(response).toContain('/inside-sales')
+  })
+
+  it('returns referrals fallback with lead and customer paths', () => {
+    const response = getNavigationFallbackResponse('where do referrals go', 'sales_rep')
+    expect(response).toContain('/customers/')
+    expect(response).toContain('/leads/[id]')
+  })
+
+  it('includes system prompt rules for empty links and photo disambiguation', () => {
+    const prompt = buildAiChatSystemPrompt({ fullName: 'Nathan', role: 'owner' })
+    expect(prompt).toMatch(/empty markdown links/i)
+    expect(prompt).toMatch(/Photo-type disambiguation|disambiguate among/i)
+    expect(prompt).toMatch(/Only cite App Router paths/i)
+  })
+
+  it('includes roof report suggestion chips for opportunity context', () => {
+    const suggestions = generateContextualSuggestions('opportunity', 'opp-1')
+    expect(suggestions.some((s) => s.toLowerCase().includes('roof report'))).toBe(true)
+  })
+
+  it('returns pricebook path for pricebook questions', () => {
+    const response = getNavigationFallbackResponse('where is the pricebook', 'sales_rep')
+    expect(response).toContain('/pricebook')
+    expect(response).not.toBeNull()
+  })
 })
