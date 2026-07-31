@@ -7,10 +7,11 @@ import {
 } from '@/lib/ai/chat-allowlist'
 
 describe('chat-allowlist', () => {
-  it('includes Nathan CRM and Google login emails', () => {
+  it('includes Nathan CRM and Google login emails plus Steve', () => {
     expect(AI_ASSISTANT_ALLOWLISTED_EMAILS).toEqual([
       'nathan@arxroofing.com',
       'natehall22@gmail.com',
+      'stpotts2@gmail.com',
     ])
   })
 
@@ -18,6 +19,7 @@ describe('chat-allowlist', () => {
     expect(isAiAssistantAllowlistedEmail('nathan@arxroofing.com')).toBe(true)
     expect(isAiAssistantAllowlistedEmail('  Nathan@ARXRoofing.com  ')).toBe(true)
     expect(isAiAssistantAllowlistedEmail('natehall22@gmail.com')).toBe(true)
+    expect(isAiAssistantAllowlistedEmail('stpotts2@gmail.com')).toBe(true)
     expect(normalizeAiAssistantEmail('  Nathan@ARXRoofing.com  ')).toBe('nathan@arxroofing.com')
   })
 
@@ -65,6 +67,13 @@ describe('chat-allowlist', () => {
         profile: { email: 'evan@arxroofing.com' } as never,
       })
     ).toBe(false)
+
+    expect(
+      isAiAssistantAllowlistedAuth({
+        authUser: { id: '4', email: 'stpotts2@gmail.com' },
+        profile: { email: 'stpotts2@gmail.com' } as never,
+      })
+    ).toBe(true)
 
     expect(
       resolveAiAssistantEmail({

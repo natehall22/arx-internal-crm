@@ -10,6 +10,7 @@ import type { AuthContext } from '@/lib/auth'
 export const AI_ASSISTANT_ALLOWLISTED_EMAILS = [
   'nathan@arxroofing.com',
   'natehall22@gmail.com',
+  'stpotts2@gmail.com',
 ] as const
 
 export function normalizeAiAssistantEmail(email: string | null | undefined): string {
