@@ -1,9 +1,13 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { usePathname } from 'next/navigation'
 import AIAssistant from '@/components/AIAssistant'
 import { useAIAssistantPageContext } from '@/components/AIAssistantProvider'
+import {
+  readAiAssistantAllowlistLatch,
+  writeAiAssistantAllowlistLatch,
+} from '@/lib/ai/assistant-shell-storage'
 
 /** Canvass has its own map FAB in the same corner — hide assistant there. */
 function isCanvassPath(pathname: string | null): boolean {
@@ -23,9 +27,10 @@ function hasStackedOpsFab(pathname: string | null): boolean {
 export default function AIAssistantWrapper() {
   const pathname = usePathname()
   const { pageContext } = useAIAssistantPageContext()
-  const [isAuthenticated, setIsAuthenticated] = useState(false)
-  const [isAllowlisted, setIsAllowlisted] = useState(false)
-  const [isLoading, setIsLoading] = useState(true)
+  const allowlistOkRef = useRef(readAiAssistantAllowlistLatch())
+  const [isAuthenticated, setIsAuthenticated] = useState(allowlistOkRef.current)
+  const [isAllowlisted, setIsAllowlisted] = useState(allowlistOkRef.current)
+  const [isLoading, setIsLoading] = useState(!allowlistOkRef.current)
 
   useEffect(() => {
     let mounted = true
@@ -36,23 +41,36 @@ export default function AIAssistantWrapper() {
         if (!mounted) return
 
         if (settingsResponse.status === 401) {
+          allowlistOkRef.current = false
+          writeAiAssistantAllowlistLatch(false)
           setIsAuthenticated(false)
           setIsAllowlisted(false)
           return
         }
 
         if (!settingsResponse.ok) {
-          setIsAuthenticated(false)
-          setIsAllowlisted(false)
+          // Keep showing the assistant if we already verified this session.
+          if (!allowlistOkRef.current) {
+            setIsAuthenticated(false)
+            setIsAllowlisted(false)
+          }
           return
         }
 
         const data = await settingsResponse.json()
+        const allowlisted = Boolean(data.profile?.aiAssistantAllowlisted)
+        if (allowlisted) {
+          allowlistOkRef.current = true
+          writeAiAssistantAllowlistLatch(true)
+        } else {
+          allowlistOkRef.current = false
+          writeAiAssistantAllowlistLatch(false)
+        }
         setIsAuthenticated(true)
-        setIsAllowlisted(Boolean(data.profile?.aiAssistantAllowlisted))
+        setIsAllowlisted(allowlisted)
       } catch (err) {
         console.error('AI Wrapper auth check error:', err)
-        if (mounted) {
+        if (mounted && !allowlistOkRef.current) {
           setIsAuthenticated(false)
           setIsAllowlisted(false)
         }
@@ -70,7 +88,14 @@ export default function AIAssistantWrapper() {
     }
   }, [])
 
-  if (isLoading || !isAuthenticated || !isAllowlisted || isCanvassPath(pathname)) {
+  if (isCanvassPath(pathname)) {
+    return null
+  }
+
+  const canShowAssistant =
+    allowlistOkRef.current || (!isLoading && isAuthenticated && isAllowlisted)
+
+  if (!canShowAssistant) {
     return null
   }
 

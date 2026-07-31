@@ -4,12 +4,17 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useState,
   type Dispatch,
   type ReactNode,
   type SetStateAction,
 } from 'react'
+import {
+  readAiAssistantShellStorage,
+  writeAiAssistantShellStorage,
+} from '@/lib/ai/assistant-shell-storage'
 
 export type AIAssistantPageContext = {
   type: 'lead' | 'opportunity' | 'project' | 'job' | 'general'
@@ -54,6 +59,23 @@ export function AIAssistantProvider({ children }: { children: ReactNode }) {
   const [feedbackRatings, setFeedbackRatings] = useState<
     Record<number, AIAssistantFeedbackRating>
   >({})
+  const [shellHydrated, setShellHydrated] = useState(false)
+
+  useEffect(() => {
+    const stored = readAiAssistantShellStorage()
+    if (stored) {
+      setPanelMode(stored.panelMode)
+      setMessages(stored.messages)
+      setConversationId(stored.conversationId)
+      setInput(stored.input)
+    }
+    setShellHydrated(true)
+  }, [])
+
+  useEffect(() => {
+    if (!shellHydrated) return
+    writeAiAssistantShellStorage({ panelMode, messages, conversationId, input })
+  }, [shellHydrated, panelMode, messages, conversationId, input])
 
   const setPageContext = useCallback((ctx: AIAssistantPageContext | null) => {
     setPageContextState(ctx ?? DEFAULT_CONTEXT)
