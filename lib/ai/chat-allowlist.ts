@@ -3,8 +3,14 @@ import type { AuthContext } from '@/lib/auth'
 /**
  * TEMPORARY rollout gate — CRM AI assistant is limited to this email allowlist.
  * Remove this file (and all call sites) when rolling out org-wide.
+ *
+ * Include both Nathan's CRM address and the Google account he may actually
+ * authenticate with — auth email and profile email can diverge.
  */
-export const AI_ASSISTANT_ALLOWLISTED_EMAILS = ['nathan@arxroofing.com'] as const
+export const AI_ASSISTANT_ALLOWLISTED_EMAILS = [
+  'nathan@arxroofing.com',
+  'natehall22@gmail.com',
+] as const
 
 export function normalizeAiAssistantEmail(email: string | null | undefined): string {
   return (email ?? '').trim().toLowerCase()
@@ -24,6 +30,14 @@ export function resolveAiAssistantEmail(auth: {
   return auth.authUser.email ?? auth.profile.email ?? null
 }
 
+/**
+ * Allow if either auth or profile email is on the list.
+ * Preferring auth-only would hide the assistant when Nathan signs in with
+ * gmail while his CRM profile still lists nathan@arxroofing.com.
+ */
 export function isAiAssistantAllowlistedAuth(auth: AuthContext): boolean {
-  return isAiAssistantAllowlistedEmail(resolveAiAssistantEmail(auth))
+  return (
+    isAiAssistantAllowlistedEmail(auth.authUser.email) ||
+    isAiAssistantAllowlistedEmail(auth.profile.email)
+  )
 }

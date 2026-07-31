@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { createClientBrowser } from '@/lib/supabase/client'
 import AssistantMessageContent from '@/components/AssistantMessageContent'
 import { AI_CHAT_MAX_MESSAGE_LENGTH } from '@/lib/ai/chat-constants'
 import { consumeAiChatSseStream, type AiChatStreamEvent } from '@/lib/ai/chat-stream'
@@ -101,20 +100,20 @@ export default function AIAssistant({ context, stackedFab = false }: AIAssistant
 
   const checkAIEnabled = async () => {
     setIsEnabled(null)
-    const supabase = createClientBrowser()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
+    try {
+      // Cookie-auth API — same source as Settings. Do not use browser
+      // supabase.auth.getUser(); CRM login only writes the session cookie.
+      const response = await fetch('/api/settings')
+      if (!response.ok) {
+        setIsEnabled(false)
+        return
+      }
+      const data = await response.json()
+      setIsEnabled(Boolean(data.userSettings?.ai_enabled))
+    } catch (error) {
+      console.error('Failed to check AI enabled:', error)
       setIsEnabled(false)
-      return
     }
-
-    const { data: settings } = await supabase
-      .from('user_settings')
-      .select('ai_enabled')
-      .eq('user_id', user.id)
-      .maybeSingle()
-
-    setIsEnabled(settings?.ai_enabled ?? false)
   }
 
   const loadSuggestions = async () => {

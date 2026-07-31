@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react'
 import { usePathname } from 'next/navigation'
-import { createClientBrowser } from '@/lib/supabase/client'
 import AIAssistant from '@/components/AIAssistant'
 import { useAIAssistantPageContext } from '@/components/AIAssistantProvider'
 
@@ -15,6 +14,12 @@ function hasStackedOpsFab(pathname: string | null): boolean {
   return Boolean(pathname?.match(/^\/ops\/jobs\/[^/]+\/orders(\/|$)/))
 }
 
+/**
+ * Gate the FAB on cookie-auth `/api/settings`, not `supabase.auth.getUser()`.
+ * CRM login writes the session cookie only; the browser Supabase client often
+ * has no local session, so getUser() returns null and previously hid the FAB
+ * even for allowlisted users who can open Settings → AI.
+ */
 export default function AIAssistantWrapper() {
   const pathname = usePathname()
   const { pageContext } = useAIAssistantPageContext()
@@ -27,26 +32,30 @@ export default function AIAssistantWrapper() {
 
     const checkAuth = async () => {
       try {
-        const supabase = createClientBrowser()
-        const {
-          data: { user },
-        } = await supabase.auth.getUser()
+        const settingsResponse = await fetch('/api/settings')
+        if (!mounted) return
 
-        let allowlisted = false
-        if (user) {
-          const settingsResponse = await fetch('/api/settings')
-          if (settingsResponse.ok) {
-            const data = await settingsResponse.json()
-            allowlisted = Boolean(data.profile?.aiAssistantAllowlisted)
-          }
+        if (settingsResponse.status === 401) {
+          setIsAuthenticated(false)
+          setIsAllowlisted(false)
+          return
         }
 
-        if (mounted) {
-          setIsAuthenticated(!!user)
-          setIsAllowlisted(allowlisted)
+        if (!settingsResponse.ok) {
+          setIsAuthenticated(false)
+          setIsAllowlisted(false)
+          return
         }
+
+        const data = await settingsResponse.json()
+        setIsAuthenticated(true)
+        setIsAllowlisted(Boolean(data.profile?.aiAssistantAllowlisted))
       } catch (err) {
         console.error('AI Wrapper auth check error:', err)
+        if (mounted) {
+          setIsAuthenticated(false)
+          setIsAllowlisted(false)
+        }
       } finally {
         if (mounted) {
           setIsLoading(false)

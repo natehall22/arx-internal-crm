@@ -7,13 +7,17 @@ import {
 } from '@/lib/ai/chat-allowlist'
 
 describe('chat-allowlist', () => {
-  it('includes Nathan as the sole allowlisted email', () => {
-    expect(AI_ASSISTANT_ALLOWLISTED_EMAILS).toEqual(['nathan@arxroofing.com'])
+  it('includes Nathan CRM and Google login emails', () => {
+    expect(AI_ASSISTANT_ALLOWLISTED_EMAILS).toEqual([
+      'nathan@arxroofing.com',
+      'natehall22@gmail.com',
+    ])
   })
 
   it('accepts exact match and normalizes case/whitespace', () => {
     expect(isAiAssistantAllowlistedEmail('nathan@arxroofing.com')).toBe(true)
     expect(isAiAssistantAllowlistedEmail('  Nathan@ARXRoofing.com  ')).toBe(true)
+    expect(isAiAssistantAllowlistedEmail('natehall22@gmail.com')).toBe(true)
     expect(normalizeAiAssistantEmail('  Nathan@ARXRoofing.com  ')).toBe('nathan@arxroofing.com')
   })
 
@@ -24,7 +28,7 @@ describe('chat-allowlist', () => {
     expect(isAiAssistantAllowlistedEmail(undefined)).toBe(false)
   })
 
-  it('checks auth context using auth email then profile email', () => {
+  it('checks auth context using either auth or profile email', () => {
     expect(
       isAiAssistantAllowlistedAuth({
         authUser: { id: '1', email: 'nathan@arxroofing.com' },
@@ -35,6 +39,22 @@ describe('chat-allowlist', () => {
     expect(
       isAiAssistantAllowlistedAuth({
         authUser: { id: '2', email: null },
+        profile: { email: 'nathan@arxroofing.com' } as never,
+      })
+    ).toBe(true)
+
+    // Auth is personal Gmail, CRM profile is work — must still pass
+    expect(
+      isAiAssistantAllowlistedAuth({
+        authUser: { id: '2b', email: 'natehall22@gmail.com' },
+        profile: { email: 'nathan@arxroofing.com' } as never,
+      })
+    ).toBe(true)
+
+    // Auth is non-allowlisted, profile is Nathan work email — must still pass
+    expect(
+      isAiAssistantAllowlistedAuth({
+        authUser: { id: '2c', email: 'random@gmail.com' },
         profile: { email: 'nathan@arxroofing.com' } as never,
       })
     ).toBe(true)
