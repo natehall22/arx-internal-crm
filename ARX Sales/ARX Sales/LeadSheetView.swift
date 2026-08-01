@@ -299,9 +299,8 @@ struct LeadSheetView: View {
                     TextField(
                         "Address",
                         text: $address,
-                        prompt: Text("Street address").foregroundColor(Color(hex: "#78716C"))
+                        prompt: Text("Street address").foregroundColor(.secondary)
                     )
-                        .foregroundColor(AppSettings.darkText)
                         .font(.subheadline)
                         .textContentType(.fullStreetAddress)
 
@@ -321,7 +320,7 @@ struct LeadSheetView: View {
                             Image(systemName: "icloud.and.arrow.up")
                                 .foregroundColor(AppSettings.brandBlue)
                             Text("Saved — will sync when back online")
-                                .foregroundColor(AppSettings.darkText)
+                                .foregroundColor(.primary)
                                 .font(.subheadline)
                         }
                     }
@@ -359,7 +358,7 @@ struct LeadSheetView: View {
                         if let helper = scheduleEnablementHelperText {
                             Text(helper)
                                 .font(.footnote)
-                                .foregroundColor(Color(hex: "#57534E"))
+                                .foregroundColor(.secondary)
                                 .padding(.top, 2)
                         }
                     }
@@ -420,6 +419,10 @@ struct LeadSheetView: View {
             hydrateFromQueuedItem(queued)
         }
 
+        if let pin {
+            seedFromPinLocalFields(pin)
+        }
+
         let coord = effectiveCoordinate
         let preserveQueued = queued != nil
         let coordFallback = coordString(coord) ?? ""
@@ -427,21 +430,27 @@ struct LeadSheetView: View {
             address = coordFallback
         }
 
-        // Detail fetch only applies to a real, already-synced existing pin — matches the
-        // four branches this replaces (skip for a brand-new lead or an offline-pending one).
-        let detailPinId: String? = (pin != nil && !isNew && pin?.isPending != true) ? pin?.id : nil
+        // Detail fetch for existing server leads (synced or pending-edit). Skip only brand-new
+        // offline knocks that have no server lead_id yet (isPending && !isPendingEdit).
+        let detailPinId: String? = {
+            guard let pin, !isNew else { return nil }
+            if pin.isPending && !pin.isPendingEdit { return nil }
+            return pin.id.isEmpty ? nil : pin.id
+        }()
 
         // Address autofill (CRM Google geocode) and lead-detail fetch run independently.
         await withTaskGroup(of: Void.self) { group in
             group.addTask { @MainActor in
-                let needsGeocode = self.address.isEmpty || self.address == coordFallback
+                let needsGeocode = self.address.isEmpty
+                    || self.isCoordFallbackAddress(self.address, coord: coord)
                 guard needsGeocode else { return }
                 let geo = await self.reverseGeocode(coord)
                 if let geo, !geo.isEmpty {
-                    if self.address.isEmpty || self.address == coordFallback {
+                    if self.address.isEmpty || self.isCoordFallbackAddress(self.address, coord: coord) {
                         self.address = geo
                     }
-                } else if (self.address.isEmpty || self.address == coordFallback), !coordFallback.isEmpty {
+                } else if (self.address.isEmpty || self.isCoordFallbackAddress(self.address, coord: coord)),
+                          !coordFallback.isEmpty {
                     self.address = coordFallback
                 }
             }
@@ -456,6 +465,26 @@ struct LeadSheetView: View {
 
         if address.isEmpty, !coordFallback.isEmpty {
             address = coordFallback
+        }
+    }
+
+    /// Fill empty form fields from pin-local contact data (My Leads list, offline pending pin).
+    private func seedFromPinLocalFields(_ pin: CanvassPin) {
+        if address.isEmpty, let addr = trimmedNonEmpty(pin.address_text) {
+            address = addr
+        }
+        if firstName.isEmpty && lastName.isEmpty, let name = trimmedNonEmpty(pin.homeowner_name) {
+            let parts = name.split(separator: " ", maxSplits: 1)
+            firstName = parts.first.map(String.init) ?? ""
+            lastName = parts.dropFirst().first.map(String.init) ?? ""
+        }
+        if phone.isEmpty, let p = trimmedNonEmpty(pin.phone) {
+            phone = p
+        }
+        // Only seed as previous/history when the editable Notes field is still empty —
+        // offline hydrate puts draft notes in `notes` and must not also copy into previousNotes.
+        if previousNotes.isEmpty, notes.isEmpty, let n = trimmedNonEmpty(pin.notes) {
+            previousNotes = n
         }
     }
 
@@ -513,8 +542,10 @@ struct LeadSheetView: View {
             disposition   = lead.canvass_disposition ?? disposition
             previousNotes = lead.canvass_notes ?? ""
         } else {
-            if address.isEmpty {
-                address = leadAddress ?? address
+            if let leadAddress {
+                if address.isEmpty || isCoordFallbackAddress(address, coord: effectiveCoordinate) {
+                    address = leadAddress
+                }
             }
             if firstName.isEmpty && lastName.isEmpty, let name = lead.homeowner_name {
                 let parts = name.split(separator: " ", maxSplits: 1)
@@ -654,7 +685,19 @@ struct LeadSheetView: View {
 
     private func reverseGeocode(_ coord: CLLocationCoordinate2D?) async -> String? {
         guard let coord else { return nil }
-        return await withTaskGroup(of: String?.self) { group in
+
+        if let server = await serverReverseGeocode(coord) {
+            return server
+        }
+        if let apple = await appleReverseGeocode(coord) {
+            return apple
+        }
+        return nil
+    }
+
+    /// CRM Google reverse-geocode with an 8s ceiling.
+    private func serverReverseGeocode(_ coord: CLLocationCoordinate2D) async -> String? {
+        await withTaskGroup(of: String?.self) { group in
             group.addTask {
                 await APIClient.reverseGeocodeCanvass(lat: coord.latitude, lng: coord.longitude)
             }
@@ -666,6 +709,48 @@ struct LeadSheetView: View {
             group.cancelAll()
             return result
         }
+    }
+
+    private func appleReverseGeocode(_ coord: CLLocationCoordinate2D) async -> String? {
+        let location = CLLocation(latitude: coord.latitude, longitude: coord.longitude)
+        let geocoder = CLGeocoder()
+        do {
+            let placemarks = try await geocoder.reverseGeocodeLocation(location)
+            return placemarks.first.flatMap { formatApplePlacemark($0) }
+        } catch {
+            return nil
+        }
+    }
+
+    private func formatApplePlacemark(_ placemark: CLPlacemark) -> String? {
+        var streetParts: [String] = []
+        if let n = placemark.subThoroughfare?.trimmingCharacters(in: .whitespacesAndNewlines), !n.isEmpty {
+            streetParts.append(n)
+        }
+        if let street = placemark.thoroughfare?.trimmingCharacters(in: .whitespacesAndNewlines), !street.isEmpty {
+            streetParts.append(street)
+        }
+        let streetLine = streetParts.joined(separator: " ")
+
+        var parts: [String] = []
+        if !streetLine.isEmpty { parts.append(streetLine) }
+        if let locality = placemark.locality?.trimmingCharacters(in: .whitespacesAndNewlines), !locality.isEmpty {
+            parts.append(locality)
+        }
+        if let state = placemark.administrativeArea?.trimmingCharacters(in: .whitespacesAndNewlines), !state.isEmpty {
+            parts.append(state)
+        }
+        if let zip = placemark.postalCode?.trimmingCharacters(in: .whitespacesAndNewlines), !zip.isEmpty {
+            parts.append(zip)
+        }
+
+        let formatted = parts.joined(separator: ", ")
+        return formatted.isEmpty ? nil : formatted
+    }
+
+    private func isCoordFallbackAddress(_ value: String, coord: CLLocationCoordinate2D?) -> Bool {
+        guard let fallback = coordString(coord) else { return false }
+        return value.trimmingCharacters(in: .whitespacesAndNewlines) == fallback
     }
 }
 

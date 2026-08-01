@@ -82,7 +82,7 @@ struct LeadListView: View {
                             .font(.system(size: 40))
                             .foregroundColor(.secondary)
                         Text(leads.isEmpty ? "No leads yet" : "No matches")
-                            .foregroundColor(AppSettings.darkText)
+                            .foregroundColor(.primary)
                         Text(leads.isEmpty
                              ? "Pins you knock will show up here."
                              : "Try a different search or filter.")
@@ -121,7 +121,7 @@ struct LeadListView: View {
                     } label: {
                         Text(chip.label)
                             .font(.caption.weight(.semibold))
-                            .foregroundColor(filter == chip ? .white : AppSettings.darkText)
+                            .foregroundColor(filter == chip ? .white : .primary)
                             .padding(.horizontal, 12)
                             .padding(.vertical, 7)
                             .background(
@@ -236,7 +236,7 @@ private struct LeadListRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(lead.displayName)
                     .font(.subheadline.weight(.semibold))
-                    .foregroundColor(AppSettings.darkText)
+                    .foregroundColor(.primary)
 
                 if let address = lead.address_text, !address.isEmpty,
                    address != lead.homeowner_name {

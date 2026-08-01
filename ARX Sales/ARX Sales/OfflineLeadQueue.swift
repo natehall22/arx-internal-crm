@@ -381,7 +381,11 @@ final class OfflineLeadQueueBridge: ObservableObject {
                 t: ISO8601DateFormatter().string(from: item.enqueuedAt),
                 ia: nil,
                 isPending: true,
-                isPendingEdit: false
+                isPendingEdit: false,
+                address_text: item.request.address_text,
+                homeowner_name: item.request.homeowner_name,
+                phone: item.request.phone,
+                notes: item.request.canvass_notes
             )
         }
     }

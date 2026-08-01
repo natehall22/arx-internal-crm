@@ -532,7 +532,11 @@ class CanvassViewModel: NSObject, ObservableObject, CLLocationManagerDelegate {
                 t: existing.t,
                 ia: existing.ia,
                 isPending: true,
-                isPendingEdit: true
+                isPendingEdit: true,
+                address_text: item.request.address_text ?? existing.address_text,
+                homeowner_name: item.request.homeowner_name ?? existing.homeowner_name,
+                phone: item.request.phone ?? existing.phone,
+                notes: item.request.canvass_notes ?? existing.notes
             )
         }
         return Array(byId.values)

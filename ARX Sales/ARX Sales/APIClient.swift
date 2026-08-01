@@ -143,7 +143,11 @@ struct MobileLead: Decodable, Identifiable {
             s: status,
             o: nil,
             t: created_at,
-            ia: nil
+            ia: nil,
+            address_text: address_text,
+            homeowner_name: homeowner_name,
+            phone: phone,
+            notes: canvass_notes
         )
     }
 
@@ -344,6 +348,11 @@ struct CanvassPin: Codable, Identifiable {
     var isPending: Bool = false
     /// Queued edit to an existing server pin (distinct from new-lead pending).
     var isPendingEdit: Bool = false
+    /// Local-only contact/address seed (My Leads, offline queue — not from viewport API).
+    var address_text: String? = nil
+    var homeowner_name: String? = nil
+    var phone: String? = nil
+    var notes: String? = nil
 
     enum CodingKeys: String, CodingKey {
         case id, lat, lng, d, s, o, t, ia
@@ -362,7 +371,7 @@ struct CanvassViewportResponse: Codable {
     let truncated: Bool?
 }
 
-struct CanvassLeadDetail: Codable, Identifiable {
+struct CanvassLeadDetail: Decodable, Identifiable {
     let id: String
     let lat: Double?
     let lng: Double?
@@ -376,6 +385,57 @@ struct CanvassLeadDetail: Codable, Identifiable {
     let created_at: String?
     let updated_at: String?
     let owner_name: String?      // setter who last touched the lead
+
+    private enum CodingKeys: String, CodingKey {
+        case id, lat, lng, address_text, homeowner_name, phone, email
+        case canvass_disposition, canvass_notes, status, created_at, updated_at
+        case owner_name, owner
+    }
+
+    private struct OwnerRef: Decodable {
+        let full_name: String?
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        lat = Self.decodeFlexibleDouble(from: c, forKey: .lat)
+        lng = Self.decodeFlexibleDouble(from: c, forKey: .lng)
+        address_text = try c.decodeIfPresent(String.self, forKey: .address_text)
+        homeowner_name = try c.decodeIfPresent(String.self, forKey: .homeowner_name)
+        phone = try c.decodeIfPresent(String.self, forKey: .phone)
+        email = try c.decodeIfPresent(String.self, forKey: .email)
+        canvass_disposition = try c.decodeIfPresent(String.self, forKey: .canvass_disposition)
+        canvass_notes = try c.decodeIfPresent(String.self, forKey: .canvass_notes)
+        status = try c.decodeIfPresent(String.self, forKey: .status)
+        created_at = try c.decodeIfPresent(String.self, forKey: .created_at)
+        updated_at = try c.decodeIfPresent(String.self, forKey: .updated_at)
+
+        var resolvedOwner = try c.decodeIfPresent(String.self, forKey: .owner_name)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if resolvedOwner?.isEmpty != false,
+           let nested = try c.decodeIfPresent(OwnerRef.self, forKey: .owner),
+           let nestedName = nested.full_name?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !nestedName.isEmpty {
+            resolvedOwner = nestedName
+        }
+        owner_name = resolvedOwner
+    }
+
+    private static func decodeFlexibleDouble(
+        from container: KeyedDecodingContainer<CodingKeys>,
+        forKey key: CodingKeys
+    ) -> Double? {
+        if let value = try? container.decodeIfPresent(Double.self, forKey: key) {
+            return value
+        }
+        guard let raw = try? container.decodeIfPresent(String.self, forKey: key) else {
+            return nil
+        }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return Double(trimmed)
+    }
 }
 
 /// Plain data payload — freely passed between the main actor and `OfflineLeadQueue`

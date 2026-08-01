@@ -91,7 +91,7 @@ struct ScheduleInspectionSheet: View {
                                 .foregroundColor(Color(hex: "#B45309"))
                             Text("You're offline — scheduling an inspection needs a connection.")
                                 .font(.subheadline)
-                                .foregroundColor(AppSettings.darkText)
+                                .foregroundColor(.primary)
                         }
                     }
                 }
@@ -103,7 +103,7 @@ struct ScheduleInspectionSheet: View {
                                 .foregroundColor(Color(hex: "#B45309"))
                             Text("This knock is missing map coordinates. Close and save the pin on the map first.")
                                 .font(.subheadline)
-                                .foregroundColor(AppSettings.darkText)
+                                .foregroundColor(.primary)
                         }
                     }
                 }
@@ -113,12 +113,12 @@ struct ScheduleInspectionSheet: View {
                         if !homeownerName.isEmpty {
                             Text(homeownerName)
                                 .font(.headline)
-                                .foregroundColor(AppSettings.darkText)
+                                .foregroundColor(.primary)
                         }
                         if !address.isEmpty {
                             Text(address)
                                 .font(.subheadline)
-                                .foregroundColor(Color(hex: "#57534E"))
+                                .foregroundColor(.secondary)
                         }
                     }
                     .padding(.vertical, 4)
@@ -132,10 +132,10 @@ struct ScheduleInspectionSheet: View {
                         VStack(alignment: .leading, spacing: 4) {
                             Text("Team round-robin")
                                 .font(.subheadline.weight(.semibold))
-                                .foregroundColor(AppSettings.darkText)
+                                .foregroundColor(.primary)
                             Text("Pick a time when someone on the closer queue is free. The system assigns the next closer automatically — same as the canvass web app.")
                                 .font(.footnote)
-                                .foregroundColor(Color(hex: "#57534E"))
+                                .foregroundColor(.secondary)
                         }
                     }
                 }
@@ -146,7 +146,7 @@ struct ScheduleInspectionSheet: View {
                             ProgressView()
                             Text("Loading teams…")
                                 .font(.subheadline)
-                                .foregroundColor(Color(hex: "#57534E"))
+                                .foregroundColor(.secondary)
                         }
                     }
                 } else if let metaError {
@@ -156,7 +156,7 @@ struct ScheduleInspectionSheet: View {
                             .foregroundColor(Color(hex: "#B45309"))
                         Text("You can still pick a date and time below; the server will assign a closer via round-robin.")
                             .font(.footnote)
-                            .foregroundColor(Color(hex: "#57534E"))
+                            .foregroundColor(.secondary)
                     }
                 }
 
@@ -164,7 +164,7 @@ struct ScheduleInspectionSheet: View {
                     Section("Assign to") {
                         if teams.count == 1, let team = teams.first {
                             Text("\(team.name) (auto-assign)")
-                                .foregroundColor(AppSettings.darkText)
+                                .foregroundColor(.primary)
                         } else {
                             Picker("Team", selection: $selectedTeamId) {
                                 Text("Select team…").tag("")
@@ -219,7 +219,7 @@ struct ScheduleInspectionSheet: View {
                                 HStack {
                                     Text("Time (\(slotTimezoneLabel))")
                                         .font(.subheadline.weight(.semibold))
-                                        .foregroundColor(AppSettings.darkText)
+                                        .foregroundColor(.primary)
                                     Spacer()
                                     if !slotsLoading {
                                         Button("Refresh") {
@@ -236,7 +236,7 @@ struct ScheduleInspectionSheet: View {
                                         ProgressView()
                                         Text("Loading available times…")
                                             .font(.subheadline)
-                                            .foregroundColor(Color(hex: "#57534E"))
+                                            .foregroundColor(.secondary)
                                     }
                                 } else if let slotsError {
                                     Text(slotsError)
@@ -254,7 +254,7 @@ struct ScheduleInspectionSheet: View {
                                     } else {
                                         Text("No open slots on this day. Try another date or tap Refresh.")
                                             .font(.footnote)
-                                            .foregroundColor(Color(hex: "#57534E"))
+                                            .foregroundColor(.secondary)
                                     }
                                 } else {
                                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 88), spacing: 8)], spacing: 8) {
@@ -309,7 +309,7 @@ struct ScheduleInspectionSheet: View {
                                             .foregroundColor(Color(hex: "#16A34A"))
                                         Text("Time selected — tap Schedule to confirm round-robin assignment.")
                                             .font(.footnote)
-                                            .foregroundColor(Color(hex: "#166534"))
+                                            .foregroundColor(.secondary)
                                     }
                                 }
                             }
@@ -328,7 +328,7 @@ struct ScheduleInspectionSheet: View {
                         .tint(.blue)
                         Text("Round-robin will assign the next available closer for this time.")
                             .font(.footnote)
-                            .foregroundColor(Color(hex: "#57534E"))
+                            .foregroundColor(.secondary)
                     }
                 }
 
