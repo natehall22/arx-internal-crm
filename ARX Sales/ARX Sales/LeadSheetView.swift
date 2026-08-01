@@ -7,6 +7,8 @@ import MapKit
 struct LeadSheetView: View {
     let pin: CanvassPin?
     let coordinate: CLLocationCoordinate2D?
+    /// Snapshots rep GPS at save time (fresh one-shot, then last known from map tracking).
+    var repGeoCapture: (() async -> CLLocation?)? = nil
 
     @Environment(\.dismiss) private var dismiss
 
@@ -28,6 +30,13 @@ struct LeadSheetView: View {
     @AppStorage(AppSettings.Keys.navigationApp) private var navigationAppRaw = NavigationAppSetting.appleMaps.rawValue
 
     var isNew: Bool { pin == nil }
+
+    /// Matches web `new Date(position.timestamp).toISOString()`.
+    private static let repGeoISO8601: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
 
     private var directionsCoordinate: CLLocationCoordinate2D? {
         if let coordinate { return coordinate }
@@ -409,6 +418,15 @@ struct LeadSheetView: View {
         payload.phone               = phone.isEmpty ? nil : phone
         payload.canvass_disposition = disposition.isEmpty ? nil : disposition
         payload.canvass_notes       = combinedNotes
+
+        if let loc = await repGeoCapture?() {
+            payload.rep_lat = loc.coordinate.latitude
+            payload.rep_lng = loc.coordinate.longitude
+            if loc.horizontalAccuracy >= 0 {
+                payload.rep_geo_accuracy = loc.horizontalAccuracy
+            }
+            payload.rep_geo_captured_at = Self.repGeoISO8601.string(from: loc.timestamp)
+        }
 
         do {
             let outcome = try await APIClient.saveLeadQueued(payload)

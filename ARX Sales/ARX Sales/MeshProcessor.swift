@@ -8,36 +8,80 @@ final class MeshProcessor {
 
     private let roofNormalYMin: Float = 0.35
     private let clusterAngleDeg: Double = 18.0
-    private let minFaceAreaSqFt: Double = 2.0
+    private let minRoofFaceAreaSqFt: Double = 2.0
+    private let minWallFaceAreaSqFt: Double = 12.0
     private let roofClusterDistM: Float = 8.0
-    private let wallClusterDistM: Float = 12.0
+    private let wallClusterDistM: Float = 6.0
     /// Ground rejection threshold relative to session world origin (y=0 at start).
     private let groundBelowOriginM: Float = -0.8
 
     func process(anchors: [ARMeshAnchor], scanType: ScanType) -> ScanResult {
         var allTriangles: [Triangle] = []
         for anchor in anchors {
-            allTriangles.append(contentsOf: extractTriangles(from: anchor))
+            allTriangles.append(contentsOf: extractTriangles(from: anchor, scanType: scanType))
         }
 
-        let roofTriangles = allTriangles.filter { $0.faceClass == .roof }
-        let wallTriangles = allTriangles.filter { $0.faceClass == .wall }
+        switch scanType {
+        case .roof:
+            let roofTriangles = allTriangles.filter { $0.faceClass == .roof }
+            let roofFaces = cluster(roofTriangles, maxDist: roofClusterDistM).map { cluster in
+                let norm = averagedNormal(cluster)
+                let verts = cluster.flatMap { [$0.v0, $0.v1, $0.v2] }
+                let area = fittedPlanarAreaSqFt(vertices: verts, fallbackNormal: norm)
+                return RoofFace(vertices: verts, normal: norm, areaSqFt: area)
+            }.filter { $0.areaSqFt >= minRoofFaceAreaSqFt }
+            return ScanResult(roofFaces: roofFaces, wallFaces: [], usedLiDAR: true)
 
-        let roofFaces = cluster(roofTriangles, maxDist: roofClusterDistM).map { cluster in
-            let norm = averagedNormal(cluster)
-            let verts = cluster.flatMap { [$0.v0, $0.v1, $0.v2] }
-            let area = fittedPlanarAreaSqFt(vertices: verts, fallbackNormal: norm)
-            return RoofFace(vertices: verts, normal: norm, areaSqFt: area)
-        }.filter { $0.areaSqFt >= minFaceAreaSqFt }
+        case .siding:
+            let wallTriangles = allTriangles.filter { $0.faceClass == .wall }
+            let wallFacesRaw = cluster(wallTriangles, maxDist: wallClusterDistM).map { cluster in
+                let norm = averagedNormal(cluster)
+                let verts = cluster.flatMap { [$0.v0, $0.v1, $0.v2] }
+                let area = meshTriangleAreaSqFt(cluster)
+                return WallFace(vertices: verts, normal: norm, areaSqFt: area)
+            }
 
-        let wallFaces = cluster(wallTriangles, maxDist: wallClusterDistM).map { cluster in
-            let norm = averagedNormal(cluster)
-            let verts = cluster.flatMap { [$0.v0, $0.v1, $0.v2] }
-            let area = fittedPlanarAreaSqFt(vertices: verts, fallbackNormal: norm)
-            return WallFace(vertices: verts, normal: norm, areaSqFt: area)
-        }.filter { $0.areaSqFt >= minFaceAreaSqFt }
+            let wallFaces = mergeWallFacesByElevation(wallFacesRaw)
+                .filter { $0.areaSqFt >= minWallFaceAreaSqFt }
+            return ScanResult(roofFaces: [], wallFaces: wallFaces, usedLiDAR: true)
+        }
+    }
 
-        return ScanResult(roofFaces: roofFaces, wallFaces: wallFaces, usedLiDAR: true)
+    /// Sum of per-triangle mesh areas (avoids convex-hull inflation on noisy wall clusters).
+    private func meshTriangleAreaSqFt(_ cluster: [Triangle]) -> Double {
+        Double(cluster.reduce(0 as Float) { $0 + $1.areaSqM }) * 10.7639
+    }
+
+    /// Collapse fragmented wall clusters into at most four CRM elevations (Front/Right/Rear/Left).
+    private func mergeWallFacesByElevation(_ faces: [WallFace]) -> [WallFace] {
+        var groups: [String: [WallFace]] = [:]
+        for face in faces {
+            groups[face.elevationName, default: []].append(face)
+        }
+        return groups.keys.sorted().compactMap { elev in
+            guard let group = groups[elev], !group.isEmpty else { return nil }
+            return mergeWallFaceGroup(group, elevationName: elev)
+        }
+    }
+
+    private func mergeWallFaceGroup(_ group: [WallFace], elevationName: String) -> WallFace {
+        let allVerts = group.flatMap { $0.vertices }
+        var weightedNormal = SIMD3<Float>.zero
+        var totalArea = 0.0
+        for face in group {
+            weightedNormal += face.normal * Float(face.areaSqFt)
+            totalArea += face.areaSqFt
+        }
+        let norm: SIMD3<Float>
+        if length(weightedNormal) > 1e-6 {
+            norm = normalize(weightedNormal)
+        } else {
+            norm = group[0].normal
+        }
+        var merged = WallFace(vertices: allVerts, normal: norm, areaSqFt: totalArea)
+        merged.elevationName = elevationName
+        merged.label = "\(elevationName) Wall"
+        return merged
     }
 
     // MARK: - Triangle
@@ -53,7 +97,7 @@ final class MeshProcessor {
         let centroid: SIMD3<Float>
     }
 
-    private func extractTriangles(from anchor: ARMeshAnchor) -> [Triangle] {
+    private func extractTriangles(from anchor: ARMeshAnchor, scanType: ScanType) -> [Triangle] {
         let geometry = anchor.geometry
         let transform = anchor.transform
         var result: [Triangle] = []
@@ -71,14 +115,38 @@ final class MeshProcessor {
         let classStride = geometry.classification?.stride ?? 1
 
         for i in 0..<faceCount {
+            var sidingClassifiedAsWall = false
             if hasClassification, let classBuffer {
                 let classIdx = classOffset + i * classStride
                 // Classification buffer stores one UInt8 per face (ARMeshClassification.rawValue is Int).
                 let classification = classBuffer.advanced(by: classIdx)
                     .assumingMemoryBound(to: UInt8.self).pointee
-                if classification == UInt8(ARMeshClassification.floor.rawValue)
-                    || classification == UInt8(ARMeshClassification.ceiling.rawValue) {
+
+                let floor = UInt8(ARMeshClassification.floor.rawValue)
+                let ceiling = UInt8(ARMeshClassification.ceiling.rawValue)
+                let table = UInt8(ARMeshClassification.table.rawValue)
+                let seat = UInt8(ARMeshClassification.seat.rawValue)
+                let wall = UInt8(ARMeshClassification.wall.rawValue)
+                let door = UInt8(ARMeshClassification.door.rawValue)
+                let window = UInt8(ARMeshClassification.window.rawValue)
+
+                // Outdoor house meshes are often `.none` — never hard-drop those; fall
+                // through to normal-based classify. Skip clear non-building classes.
+                if classification == floor || classification == ceiling {
                     continue
+                }
+                if scanType == .siding
+                    && (classification == table || classification == seat) {
+                    continue
+                }
+
+                switch scanType {
+                case .siding:
+                    if classification == wall || classification == door || classification == window {
+                        sidingClassifiedAsWall = true
+                    }
+                case .roof:
+                    break
                 }
             }
 
@@ -107,8 +175,24 @@ final class MeshProcessor {
             let areaSqM = len * 0.5
             let centroid = (p0 + p1 + p2) / 3.0
 
-            let fc = classify(normal: normal, centroidY: centroid.y)
-            guard fc == .roof || fc == .wall else { continue }
+            let fc: FaceClass
+            if scanType == .siding && sidingClassifiedAsWall {
+                // AR "wall" labels include horizontals; still require a roughly vertical normal.
+                if abs(normal.y) < 0.55 {
+                    fc = .wall
+                } else {
+                    fc = classify(normal: normal, centroidY: centroid.y)
+                }
+            } else {
+                fc = classify(normal: normal, centroidY: centroid.y)
+            }
+
+            switch scanType {
+            case .siding:
+                guard fc == .wall else { continue }
+            case .roof:
+                guard fc == .roof else { continue }
+            }
 
             result.append(Triangle(v0: p0, v1: p1, v2: p2, normal: normal, areaSqM: areaSqM, faceClass: fc, centroid: centroid))
         }
@@ -156,9 +240,13 @@ final class MeshProcessor {
     //    exterior), triangles are bucketed into a spatial grid keyed by centroid
     //    so a breadth-first "flood fill" only compares each triangle against
     //    truly nearby candidates instead of the entire growing cluster.
-    fileprivate func cluster(_ triangles: [Triangle], maxDist: Float) -> [[Triangle]] {
+    fileprivate func cluster(_ triangles: [Triangle], maxDist: Float, forceSpatialGrid: Bool = false) -> [[Triangle]] {
         guard !triangles.isEmpty else { return [] }
         let cosThreshold = Float(cos(clusterAngleDeg * .pi / 180))
+
+        if forceSpatialGrid {
+            return clusterBySpatialGrid(triangles, maxDist: maxDist, cosThreshold: cosThreshold)
+        }
 
         var minC = triangles[0].centroid
         var maxC = triangles[0].centroid

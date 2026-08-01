@@ -8,7 +8,7 @@ struct SettingsView: View {
     @AppStorage(AppSettings.Keys.navigationApp) private var navigationAppRaw = NavigationAppSetting.appleMaps.rawValue
     @AppStorage(AppSettings.Keys.enable3DBuildings) private var enable3DBuildings = true
     @AppStorage(AppSettings.Keys.focusMode) private var focusMode = false
-    @AppStorage(AppSettings.Keys.homeScreen) private var homeScreenRaw = HomeScreenSetting.sisu.rawValue
+    @AppStorage(AppSettings.Keys.homeScreen) private var homeScreenRaw = HomeScreenSetting.canvass.rawValue
 
     private var appVersion: String {
         let short = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"

@@ -212,7 +212,9 @@ struct SceneModelView: UIViewRepresentable {
 
     func makeUIView(context: Context) -> SCNView {
         let view = SCNView()
-        view.scene = buildScene()
+        let (scene, cameraNode) = buildScene()
+        view.scene = scene
+        view.pointOfView = cameraNode
         view.allowsCameraControl = true
         view.backgroundColor = UIColor(white: 0.10, alpha: 1)
         view.autoenablesDefaultLighting = false   // we add our own lights in buildScene
@@ -223,34 +225,60 @@ struct SceneModelView: UIViewRepresentable {
         view.addGestureRecognizer(tap)
         context.coordinator.scnView = view
         context.coordinator.scanResult = scanResult
+        context.coordinator.sceneGeometrySignature = Self.sceneGeometrySignature(
+            scanResult: scanResult, scanType: scanType
+        )
         return view
     }
 
     func updateUIView(_ uiView: SCNView, context: Context) {
-        uiView.scene = buildScene()
         context.coordinator.scanResult = scanResult
+        let signature = Self.sceneGeometrySignature(scanResult: scanResult, scanType: scanType)
+        guard context.coordinator.sceneGeometrySignature != signature else { return }
+        context.coordinator.sceneGeometrySignature = signature
+        let (scene, cameraNode) = buildScene()
+        uiView.scene = scene
+        uiView.pointOfView = cameraNode
+    }
+
+    /// Changes when face ids, vertex counts, or areas change — not on selection/sheet toggles alone.
+    private static func sceneGeometrySignature(scanResult: ScanResult, scanType: ScanType) -> String {
+        switch scanType {
+        case .roof:
+            return scanResult.roofFaces
+                .map { "\($0.id.uuidString):\($0.vertices.count):\($0.areaSqFt)" }
+                .joined(separator: "|")
+        case .siding:
+            return scanResult.wallFaces
+                .map { "\($0.id.uuidString):\($0.vertices.count):\($0.areaSqFt)" }
+                .joined(separator: "|")
+        }
     }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(onSelectRoof: onSelectRoof, onSelectWall: onSelectWall)
     }
 
-    // Build the SceneKit scene from scan result
-    private func buildScene() -> SCNScene {
+    // Build the SceneKit scene from scan result; returns scene + camera node for pointOfView.
+    private func buildScene() -> (SCNScene, SCNNode) {
         let scene = SCNScene()
         let root = scene.rootNode
+
+        var displayVerts: [SIMD3<Float>] = []
 
         if scanType == .roof {
             for (i, face) in scanResult.roofFaces.enumerated() {
                 let node = buildFaceNode(vertices: face.vertices, color: face.color.uiColor)
                 node.name = "roof_\(i)"
                 root.addChildNode(node)
+                displayVerts.append(contentsOf: face.vertices)
             }
         } else {
             for (i, face) in scanResult.wallFaces.enumerated() {
                 let node = buildFaceNode(vertices: face.vertices, color: face.color.uiColor)
                 node.name = "wall_\(i)"
                 root.addChildNode(node)
+                displayVerts.append(contentsOf: face.vertices)
             }
         }
 
@@ -259,11 +287,7 @@ struct SceneModelView: UIViewRepresentable {
         grid.firstMaterial?.diffuse.contents = UIColor(white: 0.15, alpha: 1)
         grid.firstMaterial?.isDoubleSided = true
         let gridNode = SCNNode(geometry: grid)
-        let lowestY: Float = {
-            let allVerts = (scanResult.roofFaces.flatMap { $0.vertices }
-                          + scanResult.wallFaces.flatMap { $0.vertices })
-            return allVerts.map { $0.y }.min() ?? 0
-        }()
+        let lowestY = displayVerts.map { $0.y }.min() ?? 0
         gridNode.position.y = lowestY - 0.1
         root.addChildNode(gridNode)
 
@@ -286,7 +310,50 @@ struct SceneModelView: UIViewRepresentable {
         keyNode.eulerAngles = SCNVector3(-Float.pi / 4, Float.pi / 4, 0)
         root.addChildNode(keyNode)
 
-        return scene
+        let cameraNode = frameCamera(on: root, vertices: displayVerts)
+        return (scene, cameraNode)
+    }
+
+    /// Place a camera that frames all mesh vertices (LiDAR coords are far from SceneKit origin).
+    private func frameCamera(on root: SCNNode, vertices: [SIMD3<Float>]) -> SCNNode {
+        let cameraNode = SCNNode()
+        cameraNode.name = "review_camera"
+        let cam = SCNCamera()
+        cam.automaticallyAdjustsZRange = true
+        cameraNode.camera = cam
+
+        guard !vertices.isEmpty else {
+            cameraNode.position = SCNVector3(0, 1.5, 4)
+            root.addChildNode(cameraNode)
+            return cameraNode
+        }
+
+        var minV = vertices[0]
+        var maxV = vertices[0]
+        for v in vertices {
+            minV = simd_min(minV, v)
+            maxV = simd_max(maxV, v)
+        }
+        let center = (minV + maxV) * 0.5
+        let extent = maxV - minV
+        let maxExtent = max(extent.x, max(extent.y, extent.z))
+        let diagonal = simd_length(extent)
+        let radius = max(maxExtent * 0.5, diagonal * 0.5)
+        let distance = max(radius * 1.8, 0.5)
+
+        cam.zNear = 0.001
+        cam.zFar = Double(distance * 20)
+
+        // One-shot aim (no LookAtConstraint) so allowsCameraControl can orbit freely.
+        let viewDir = normalize(SIMD3<Float>(0.35, 0.25, 1.0))
+        cameraNode.position = SCNVector3(
+            center.x + viewDir.x * distance,
+            center.y + viewDir.y * distance,
+            center.z + viewDir.z * distance
+        )
+        cameraNode.look(at: SCNVector3(center.x, center.y, center.z))
+        root.addChildNode(cameraNode)
+        return cameraNode
     }
 
     private func buildFaceNode(vertices: [SIMD3<Float>], color: UIColor) -> SCNNode {
@@ -320,6 +387,7 @@ struct SceneModelView: UIViewRepresentable {
         let onSelectWall: (WallFace) -> Void
         var scnView: SCNView?
         var scanResult: ScanResult?
+        var sceneGeometrySignature: String?
 
         init(onSelectRoof: @escaping (RoofFace) -> Void, onSelectWall: @escaping (WallFace) -> Void) {
             self.onSelectRoof = onSelectRoof

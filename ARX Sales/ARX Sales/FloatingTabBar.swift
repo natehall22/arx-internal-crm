@@ -30,13 +30,36 @@ enum AppTab: String, CaseIterable, Identifiable {
     }
 }
 
-/// Which screen occupies the "home" tab slot — Sisu (gamification hub) or the plainer Dashboard.
+/// Which screen opens on launch. Sisu/Dashboard also swap the nav "hub" slot;
+/// Canvass-as-home only changes the launch tab — Sisu stays in the bar.
 enum HomeScreenSetting: String, CaseIterable {
+    case canvass
     case sisu
     case dashboard
 
-    var tab: AppTab { self == .sisu ? .sisu : .dashboard }
-    var label: String { self == .sisu ? "Sisu" : "Dashboard" }
+    var tab: AppTab {
+        switch self {
+        case .canvass: return .canvass
+        case .sisu: return .sisu
+        case .dashboard: return .dashboard
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .canvass: return "Canvass"
+        case .sisu: return "Sisu"
+        case .dashboard: return "Dashboard"
+        }
+    }
+
+    /// Tab shown in the Sisu/Dashboard nav slot. Canvass never steals that slot.
+    var hubTab: AppTab {
+        switch self {
+        case .canvass, .sisu: return .sisu
+        case .dashboard: return .dashboard
+        }
+    }
 }
 
 struct TabBarConfig: Codable, Equatable {
@@ -85,12 +108,12 @@ struct TabBarConfig: Codable, Equatable {
         return str
     }
 
-    func resolvedTabs(capabilities: MobileAppCapabilities?, homeScreen: HomeScreenSetting = .sisu) -> [AppTab] {
+    func resolvedTabs(capabilities: MobileAppCapabilities?, homeScreen: HomeScreenSetting = .canvass) -> [AppTab] {
         var result: [AppTab] = []
         for entry in order where entry.visible {
             guard let storedTab = AppTab(rawValue: entry.tab) else { continue }
-            // Home slot: whatever's stored (dashboard or sisu), always render the current preference.
-            let tab = (storedTab == .dashboard || storedTab == .sisu) ? homeScreen.tab : storedTab
+            // Hub slot: stored dashboard/sisu always renders the active hub (Sisu or Dashboard).
+            let tab = (storedTab == .dashboard || storedTab == .sisu) ? homeScreen.hubTab : storedTab
             guard !result.contains(tab) else { continue }
             switch tab {
             case .dashboard, .sisu, .canvass:
@@ -101,8 +124,13 @@ struct TabBarConfig: Codable, Equatable {
                 if capabilities?.measureTab == true { result.append(tab) }
             }
         }
-        if !result.contains(homeScreen.tab) { result.insert(homeScreen.tab, at: 0) }
+        if !result.contains(homeScreen.hubTab) { result.insert(homeScreen.hubTab, at: 0) }
         if !result.contains(.canvass) { result.insert(.canvass, at: min(1, result.count)) }
+        // Put the launch-home tab first in the bar for a clear "home" affordance.
+        if let idx = result.firstIndex(of: homeScreen.tab), idx != 0 {
+            result.remove(at: idx)
+            result.insert(homeScreen.tab, at: 0)
+        }
         return result
     }
 }

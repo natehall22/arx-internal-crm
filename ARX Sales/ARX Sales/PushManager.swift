@@ -87,13 +87,13 @@ final class PushManager: NSObject, ObservableObject {
             pendingTab = .sisu
         case "appointment", "new_appointment", "appointment_assigned", "appointment_reassigned":
             let home = HomeScreenSetting(
-                rawValue: UserDefaults.standard.string(forKey: AppSettings.Keys.homeScreen) ?? HomeScreenSetting.sisu.rawValue
-            ) ?? .sisu
+                rawValue: UserDefaults.standard.string(forKey: AppSettings.Keys.homeScreen) ?? HomeScreenSetting.canvass.rawValue
+            ) ?? .canvass
             pendingTab = home.tab
         default:
             let home = HomeScreenSetting(
-                rawValue: UserDefaults.standard.string(forKey: AppSettings.Keys.homeScreen) ?? HomeScreenSetting.sisu.rawValue
-            ) ?? .sisu
+                rawValue: UserDefaults.standard.string(forKey: AppSettings.Keys.homeScreen) ?? HomeScreenSetting.canvass.rawValue
+            ) ?? .canvass
             pendingTab = home.tab
         }
     }

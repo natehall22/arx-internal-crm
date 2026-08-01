@@ -16,17 +16,21 @@ struct ContentView: View {
     /// Cached last-known `app_access` for this user (nil = never resolved, fails open).
     @State private var cachedAppAccess: Bool?
     @AppStorage(AppSettings.Keys.tabBarConfig) private var tabBarConfigRaw = ""
-    @AppStorage(AppSettings.Keys.homeScreen) private var homeScreenRaw = HomeScreenSetting.sisu.rawValue
+    @AppStorage(AppSettings.Keys.homeScreen) private var homeScreenRaw = HomeScreenSetting.canvass.rawValue
+    /// Previous home setting — `homeScreenRaw` is already updated when `onChange` runs (iOS 15).
+    @State private var previousHomeScreenRaw = UserDefaults.standard.string(
+        forKey: AppSettings.Keys.homeScreen
+    ) ?? HomeScreenSetting.canvass.rawValue
 
-    /// Seed the initial tab from the persisted home-screen preference (Sisu by default) so the
+    /// Seed the initial tab from the persisted home-screen preference (Canvass by default) so the
     /// app lands there on launch — not just after the first tab-bar resolution pass.
     init() {
-        let raw = UserDefaults.standard.string(forKey: AppSettings.Keys.homeScreen) ?? HomeScreenSetting.sisu.rawValue
-        let home = HomeScreenSetting(rawValue: raw) ?? .sisu
+        let raw = UserDefaults.standard.string(forKey: AppSettings.Keys.homeScreen) ?? HomeScreenSetting.canvass.rawValue
+        let home = HomeScreenSetting(rawValue: raw) ?? .canvass
         _selectedTab = State(initialValue: home.tab)
     }
 
-    private var homeScreen: HomeScreenSetting { HomeScreenSetting(rawValue: homeScreenRaw) ?? .sisu }
+    private var homeScreen: HomeScreenSetting { HomeScreenSetting(rawValue: homeScreenRaw) ?? .canvass }
 
     private var availableTabs: [AppTab] {
         let config = TabBarConfig.load(from: tabBarConfigRaw)
@@ -101,12 +105,22 @@ struct ContentView: View {
         .onChange(of: tabBarConfigRaw) { _ in ensureValidSelection() }
         .onChange(of: mobileCaps?.opportunitiesTab) { _ in ensureValidSelection() }
         .onChange(of: mobileCaps?.measureTab) { _ in ensureValidSelection() }
-        .onChange(of: homeScreenRaw) { _ in
-            // Jump to the new home tab if the rep was sitting on the old one — falling back
-            // to Canvass here would be a jarring surprise right after flipping the setting.
-            if selectedTab == .dashboard || selectedTab == .sisu {
+        .onChange(of: homeScreenRaw) { newRaw in
+            let oldHome = HomeScreenSetting(rawValue: previousHomeScreenRaw) ?? .canvass
+            let shouldJump: Bool = {
+                switch selectedTab {
+                case .dashboard, .sisu:
+                    return true
+                case .canvass:
+                    return oldHome.tab == .canvass
+                case .opportunities, .measure:
+                    return false
+                }
+            }()
+            if shouldJump {
                 selectedTab = homeScreen.tab
             }
+            previousHomeScreenRaw = newRaw
             ensureValidSelection()
         }
         .onChange(of: pushManager.pendingTab) { _ in

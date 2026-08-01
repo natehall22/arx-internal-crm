@@ -22,7 +22,7 @@ enum AppSettings {
         static let pinTimeFilter = "settings.pinTimeFilter"
         static let tabBarConfig = "settings.tabBarConfig"
 
-        /// Which screen occupies the home tab slot — Sisu (default) or Dashboard.
+        /// Which screen opens on launch — Canvass (default), Sisu, or Dashboard.
         static let homeScreen = "settings.homeScreen"
 
         /// Last-known `app_access` per signed-in user (prefix — actual key appends the user id).

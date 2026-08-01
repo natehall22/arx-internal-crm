@@ -102,7 +102,8 @@ struct CanvassView: View {
                 Spacer()
 
                 HStack(alignment: .bottom) {
-                    VStack(spacing: 10) {
+                    // `.leading` — default center alignment inset 50pt circles over the wide time scrubber.
+                    VStack(alignment: .leading, spacing: 10) {
                         MapCircleButton(systemImage: "list.bullet", isActive: showLeadListSheet) {
                             showLeadListSheet = true
                         }
@@ -110,7 +111,7 @@ struct CanvassView: View {
                         MapCircleButton(systemImage: "square.3.layers.3d", isActive: showLayersSheet) { showLayersSheet = true }
                         timeScrubberCapsule
                     }
-                    .padding(.leading, 16)
+                    .padding(.leading, 6)
 
                     Spacer()
 
@@ -159,13 +160,19 @@ struct CanvassView: View {
                 }
                 .padding(.bottom, AppSettings.floatingTabContentInset)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .sheet(isPresented: $showLeadSheet, onDismiss: {
+            vm.cancelInFlightOneShotLocationCapture()
             vm.invalidateBoundsCache()
             if let r = vm.lastRegion { vm.loadPins(for: r) }
             Task { await offlineBridge.refresh() }
         }) {
-            LeadSheetView(pin: selectedPin, coordinate: newLeadCoord ?? selectedPin.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lng) })
+            LeadSheetView(
+                pin: selectedPin,
+                coordinate: newLeadCoord ?? selectedPin.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lng) },
+                repGeoCapture: { await vm.locationForKnockSave() }
+            )
                 .canvassSheetPresentation()
         }
         .sheet(isPresented: $showPendingSheet) { PendingSyncSheet(bridge: offlineBridge).mediumSheetPresentation() }
@@ -307,6 +314,20 @@ class CanvassViewModel: NSObject, ObservableObject, CLLocationManagerDelegate {
     var overlayTask: Task<Void, Never>? = nil
     private var lastLoadedBounds: (minLat: Double, maxLat: Double, minLng: Double, maxLng: Double)? = nil
 
+    /// Most recent fix from `startUpdatingLocation` — fallback when one-shot capture times out.
+    private(set) var lastUserLocation: CLLocation?
+    private var oneShotLocationWaiters: [CheckedContinuation<CLLocation?, Never>] = []
+    private var oneShotLocationTimeoutTask: Task<Void, Never>?
+
+    deinit {
+        oneShotLocationTimeoutTask?.cancel()
+        let waiters = oneShotLocationWaiters
+        oneShotLocationWaiters = []
+        for cont in waiters {
+            cont.resume(returning: nil)
+        }
+    }
+
     override init() {
         super.init()
         locationManager.delegate = self
@@ -320,9 +341,83 @@ class CanvassViewModel: NSObject, ObservableObject, CLLocationManagerDelegate {
         }
     }
 
+    func stopLocationTracking() {
+        DispatchQueue.main.async {
+            self.locationManager.stopUpdatingLocation()
+            self.completeOneShotLocationBatch(returning: nil)
+        }
+    }
+
+    /// Lead sheet dismissed while a knock save may still be awaiting rep GPS — unblock waiters (nil → `lastUserLocation` fallback in save path).
+    func cancelInFlightOneShotLocationCapture() {
+        DispatchQueue.main.async {
+            self.completeOneShotLocationBatch(returning: nil)
+        }
+    }
+
+    /// Fresh GPS at knock save when possible; matches web canvass rep geo snapshot behavior.
+    func locationForKnockSave() async -> CLLocation? {
+        if let fresh = await requestOneShotLocation() {
+            return fresh
+        }
+        return lastUserLocation
+    }
+
+    private func requestOneShotLocation() async -> CLLocation? {
+        let status = locationManager.authorizationStatus
+        guard status == .authorizedWhenInUse || status == .authorizedAlways else {
+            return nil
+        }
+
+        return await withCheckedContinuation { continuation in
+            DispatchQueue.main.async { [weak self] in
+                guard let self else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+                self.enqueueOneShotLocationWaiter(continuation)
+            }
+        }
+    }
+
+    private func enqueueOneShotLocationWaiter(_ continuation: CheckedContinuation<CLLocation?, Never>) {
+        let startingBatch = oneShotLocationWaiters.isEmpty
+        oneShotLocationWaiters.append(continuation)
+        guard startingBatch else { return }
+
+        locationManager.requestLocation()
+        oneShotLocationTimeoutTask?.cancel()
+        oneShotLocationTimeoutTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            guard let self else { return }
+            self.completeOneShotLocationBatch(returning: nil)
+        }
+    }
+
+    private func completeOneShotLocationBatch(returning location: CLLocation?) {
+        guard !oneShotLocationWaiters.isEmpty else { return }
+        oneShotLocationTimeoutTask?.cancel()
+        oneShotLocationTimeoutTask = nil
+        let waiters = oneShotLocationWaiters
+        oneShotLocationWaiters = []
+        for cont in waiters {
+            cont.resume(returning: location)
+        }
+    }
+
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let loc = locations.last else { return }
-        DispatchQueue.main.async { self.userLocation = loc.coordinate }
+        lastUserLocation = loc
+        DispatchQueue.main.async {
+            self.userLocation = loc.coordinate
+            self.completeOneShotLocationBatch(returning: loc)
+        }
+    }
+
+    func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        DispatchQueue.main.async {
+            self.completeOneShotLocationBatch(returning: nil)
+        }
     }
 
     func loadPins(for region: MKCoordinateRegion) {

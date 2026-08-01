@@ -380,6 +380,11 @@ nonisolated struct SaveLeadRequest: Codable {
     var canvass_disposition: String?
     var canvass_notes: String?
     var source: String = "canvass"
+    /// Rep physical GPS at knock time (separate from property pin lat/lng).
+    var rep_lat: Double?
+    var rep_lng: Double?
+    var rep_geo_accuracy: Double?
+    var rep_geo_captured_at: String?
 
     /// Merge newer non-nil fields into this request (offline queue coalescing).
     mutating func merge(from newer: SaveLeadRequest) {
@@ -393,6 +398,12 @@ nonisolated struct SaveLeadRequest: Codable {
         if let v = newer.canvass_disposition { canvass_disposition = v }
         if let v = newer.canvass_notes { canvass_notes = v }
         if !newer.source.isEmpty { source = newer.source }
+        if newer.rep_lat != nil {
+            rep_lat = newer.rep_lat
+            rep_lng = newer.rep_lng
+            rep_geo_accuracy = newer.rep_geo_accuracy
+            rep_geo_captured_at = newer.rep_geo_captured_at
+        }
     }
 }
 
