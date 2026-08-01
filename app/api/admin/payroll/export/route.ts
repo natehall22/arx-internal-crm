@@ -3,6 +3,7 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { requireAuthApi } from '@/lib/auth'
 import { buildCommissionPayrollSnapshot, isPoolCapExcludedPlanType } from '@/lib/commission-payroll'
 import {
+  ADDITIVE_DEAL_COMMISSION_ROLES,
   buildMonthlyTierMetricMaps,
   buildMonthlyVolumeMaps,
   collectParticipants,
@@ -10,11 +11,19 @@ import {
   loadActiveCompPlanForUser,
   monthKeyFromSaleDate,
   periodSitsAndCloseRateForParticipant,
+  poolKey,
+  resolveAdditiveParticipantAmount,
   scaleCommissionsToPool,
+  type DealCommissionRoleParticipant,
   type PayrollExportRow,
 } from '@/lib/payroll-export'
 import type { CompPlanForCalc } from '@/lib/calculate-commission-from-plan'
 import { isPayrollAdminRole } from '@/lib/payroll-admin-access'
+import {
+  loadInspectorByOpportunity,
+  normalizeInspectionRate,
+  withDerivedInspector,
+} from '@/lib/job-inspector-attribution'
 
 export const dynamic = 'force-dynamic'
 
@@ -187,6 +196,61 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // Additive per-job participants (inspector, manager overrides). Batch-loaded for
+    // every exported job so the preview an admin reviews matches what the period lock
+    // will actually pay — materializePayrollPeriod() writes these same rows.
+    const exportJobIds = (exportJobs || []).map((j) => j.id as string)
+    const additiveByJobId = new Map<string, DealCommissionRoleParticipant[]>()
+    if (exportJobIds.length > 0) {
+      const { data: additiveRoleRows, error: additiveRoleError } = await supabase
+        .from('deal_commission_roles')
+        .select('job_id, user_id, role, override_amount, override_percent, premier_pricing_amount')
+        .eq('org_id', orgId)
+        .in('job_id', exportJobIds)
+        .in('role', ADDITIVE_DEAL_COMMISSION_ROLES as readonly string[])
+      // Fail closed: an empty result from an error would silently omit real pay.
+      if (additiveRoleError) throw additiveRoleError
+      for (const row of additiveRoleRows || []) {
+        const jobId = row.job_id as string
+        const participant: DealCommissionRoleParticipant = {
+          userId: row.user_id as string,
+          role: row.role as DealCommissionRoleParticipant['role'],
+          overrideAmount: row.override_amount != null ? Number(row.override_amount) : null,
+          overridePercent: row.override_percent != null ? Number(row.override_percent) : null,
+          premierPricingAmount:
+            row.premier_pricing_amount != null ? Number(row.premier_pricing_amount) : null,
+        }
+        const list = additiveByJobId.get(jobId) || []
+        list.push(participant)
+        additiveByJobId.set(jobId, list)
+        userIds.add(participant.userId)
+      }
+    }
+
+    // Derived inspection line: same rules the period lock uses, so the preview and
+    // the locked payroll agree on who gets paid for inspecting.
+    const { data: orgRateRow, error: orgRateError } = await supabase
+      .from('orgs')
+      .select('inspection_commission_rate')
+      .eq('id', orgId)
+      .maybeSingle()
+    if (orgRateError) throw orgRateError
+    const inspectionRatePercent = normalizeInspectionRate(orgRateRow?.inspection_commission_rate)
+    const exportOpportunityIds = Array.from(
+      new Set(
+        (exportJobs || [])
+          .map((j) => (j.project_id ? projectOpp.get(j.project_id) : null))
+          .filter((v): v is string => Boolean(v))
+      )
+    )
+    const inspectorByOpportunity =
+      inspectionRatePercent > 0
+        ? await loadInspectorByOpportunity(supabase, orgId, exportOpportunityIds)
+        : new Map<string, string>()
+    for (const inspectorUserId of Array.from(inspectorByOpportunity.values())) {
+      userIds.add(inspectorUserId)
+    }
+
     const { data: users } =
       userIds.size > 0
         ? await supabase.from('users').select('id, full_name').eq('org_id', orgId).in('id', Array.from(userIds))
@@ -209,7 +273,20 @@ export async function GET(request: NextRequest) {
       const pid = job.project_id
       const opp = pid ? opportunityByProjectId.get(pid) ?? null : null
       const participants = collectParticipants(job, opp)
-      if (!participants.length || compBase == null || compBase <= 0 || poolCap == null) {
+      const jobOpportunityId = pid ? projectOpp.get(pid) ?? null : null
+      const additiveParticipants = withDerivedInspector(
+        additiveByJobId.get(job.id as string) || [],
+        jobOpportunityId ? inspectorByOpportunity.get(jobOpportunityId) ?? null : null,
+        inspectionRatePercent
+      )
+      // A job with only additive participants (e.g. an inspector on a job whose
+      // closer has no resolvable plan) still owes money — don't drop it.
+      if (
+        (!participants.length && !additiveParticipants.length) ||
+        compBase == null ||
+        compBase <= 0 ||
+        poolCap == null
+      ) {
         continue
       }
 
@@ -248,7 +325,7 @@ export async function GET(request: NextRequest) {
             role: part.role,
             effectiveFlatBonus: 0,
           })
-          rawByUser.set(part.userId, 0)
+          rawByUser.set(poolKey(part.userId, part.role), 0)
           continue
         }
 
@@ -273,7 +350,18 @@ export async function GET(request: NextRequest) {
         metaByUser.set(part.userId, { plan, calc, periodVolume, role: part.role, effectiveFlatBonus })
         const excludeFromPool =
           calc.unsupported || isPoolCapExcludedPlanType(plan.plan_type)
-        rawByUser.set(part.userId, excludeFromPool ? 0 : calc.totalAmount)
+        rawByUser.set(poolKey(part.userId, part.role), excludeFromPool ? 0 : calc.totalAmount)
+      }
+
+      // Additive lines count inside the pool cap, so they must be in rawByUser
+      // before scaling — same rule the period lock applies.
+      const additivePayable = additiveParticipants.flatMap((participant) => {
+        const resolved = resolveAdditiveParticipantAmount(participant, compBase)
+        if (resolved.basis === 'none' || resolved.amount === 0) return []
+        return [{ participant, resolved }]
+      })
+      for (const { participant, resolved } of additivePayable) {
+        rawByUser.set(poolKey(participant.userId, participant.role), resolved.amount)
       }
 
       const { scaled, enforced } = scaleCommissionsToPool(rawByUser, poolCap)
@@ -314,11 +402,53 @@ export async function GET(request: NextRequest) {
           volume_bonus_rate_pct: calc?.volumeBonusRate ?? 0,
           volume_bonus_flat: meta?.effectiveFlatBonus ?? 0,
           effective_rate_pct: calc?.effectiveRate ?? 0,
-          raw_commission: (rawByUser.get(part.userId) || 0) + (meta?.effectiveFlatBonus ?? 0),
-          scaled_commission: (scaled.get(part.userId) || 0) + (meta?.effectiveFlatBonus ?? 0),
+          raw_commission:
+            (rawByUser.get(poolKey(part.userId, part.role)) || 0) + (meta?.effectiveFlatBonus ?? 0),
+          scaled_commission:
+            (scaled.get(poolKey(part.userId, part.role)) || 0) + (meta?.effectiveFlatBonus ?? 0),
           pool_cap_enforced: enforced,
           unsupported_plan: calc?.unsupported ?? false,
           note: noteParts.length ? noteParts.join(' ') : null,
+        })
+      }
+
+      // Additive rows are paid outside the commission pool: raw === scaled, and no
+      // comp plan is involved (the rate lives on the deal_commission_roles row).
+      for (const { participant, resolved } of additivePayable) {
+        const cid =
+          (job.customer_id as string | null | undefined) ||
+          (pid ? customerIdByProjectId.get(pid) : undefined) ||
+          null
+
+        rows.push({
+          job_id: job.id,
+          job_number: job.job_number,
+          customer_name: cid ? customerNameById.get(cid) ?? null : null,
+          sale_date: job.sale_date,
+          address_text: job.address_text,
+          sale_amount: job.sale_amount,
+          commission_comp_base: compBase,
+          pool_cap: poolCap,
+          user_id: participant.userId,
+          user_name: userName.get(participant.userId) || participant.userId,
+          participant_role: participant.role,
+          comp_plan_id: null,
+          comp_plan_name: null,
+          plan_type: null,
+          base_rate_pct: resolved.basis === 'percent' ? participant.overridePercent : null,
+          period_volume: 0,
+          volume_bonus_rate_pct: 0,
+          volume_bonus_flat: 0,
+          effective_rate_pct: resolved.basis === 'percent' ? participant.overridePercent ?? 0 : 0,
+          raw_commission: resolved.amount,
+          scaled_commission:
+            scaled.get(poolKey(participant.userId, participant.role)) ?? resolved.amount,
+          pool_cap_enforced: enforced,
+          unsupported_plan: false,
+          note:
+            resolved.basis === 'percent'
+              ? `Additive ${participant.role} line: ${participant.overridePercent}% of commission base, counted inside the pool cap.`
+              : `Additive ${participant.role} line: flat override, counted inside the pool cap.`,
         })
       }
     }

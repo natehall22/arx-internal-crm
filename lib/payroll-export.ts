@@ -14,15 +14,33 @@ export type PayrollParticipant = { userId: string; role: 'sales_rep' | 'setter' 
 
 export type DealCommissionRoleParticipant = {
   userId: string
-  role: 'field_manager' | 'senior_manager' | 'custom'
+  role: 'inspector' | 'field_manager' | 'senior_manager' | 'custom'
   overrideAmount: number | null
   overridePercent: number | null
   premierPricingAmount: number | null
 }
 
+/** Roles paid additively per job, outside the pool-scaled sales_rep/setter/owner set. */
+export const ADDITIVE_DEAL_COMMISSION_ROLES: readonly DealCommissionRoleParticipant['role'][] = [
+  'inspector',
+  'field_manager',
+  'senior_manager',
+  'custom',
+] as const
+
 /**
- * Manager/custom roles from deal_commission_roles — apply AFTER scaleCommissionsToPool(),
- * never mixed into the main participants array used for pool scaling.
+ * Inspector/manager/custom roles from deal_commission_roles — additive per-job
+ * participants that are NOT resolved from a comp plan. Their amounts join
+ * rawByUser before scaleCommissionsToPool(), so they count inside the pool cap
+ * and scale alongside every other line on the job.
+ *
+ * `setter` and `closer` rows are excluded on purpose: those users are
+ * already paid through collectParticipants() and their comp plan, so paying them
+ * from this table too would double-count them.
+ *
+ * Throws rather than returning [] on query failure — a read error here is
+ * indistinguishable from "this job has no additive participants", and failing open
+ * would silently underpay. Payroll fails closed (same rule as loadOrgSitOutcomeIdSet).
  */
 export async function loadAdditiveDealCommissionParticipants(
   supabase: SupabaseClient,
@@ -34,12 +52,9 @@ export async function loadAdditiveDealCommissionParticipants(
     .select('user_id, role, override_amount, override_percent, premier_pricing_amount')
     .eq('org_id', orgId)
     .eq('job_id', jobId)
-    .in('role', ['field_manager', 'senior_manager', 'custom'])
+    .in('role', ADDITIVE_DEAL_COMMISSION_ROLES as readonly string[])
 
-  if (error) {
-    console.error('loadAdditiveDealCommissionParticipants', error)
-    return []
-  }
+  if (error) throw error
 
   return (data || []).map((row) => ({
     userId: row.user_id as string,
@@ -49,6 +64,37 @@ export async function loadAdditiveDealCommissionParticipants(
     premierPricingAmount:
       row.premier_pricing_amount != null ? Number(row.premier_pricing_amount) : null,
   }))
+}
+
+export type AdditiveParticipantAmount = {
+  amount: number
+  basis: 'flat' | 'percent' | 'none'
+}
+
+/**
+ * Resolve what an additive participant earns on one job.
+ *
+ * **Precedence:** an explicit `override_amount` (flat dollars) wins over
+ * `override_percent`. A row carrying neither pays nothing and is dropped by the
+ * caller rather than written as a $0 line.
+ *
+ * `premier_pricing_amount` is deliberately NOT included — it is surfaced on the
+ * statement as its own figure and has never had defined payout semantics. Folding
+ * it in here would invent a payment rule nobody agreed to.
+ */
+export function resolveAdditiveParticipantAmount(
+  participant: DealCommissionRoleParticipant,
+  commissionBase: number
+): AdditiveParticipantAmount {
+  const flat = participant.overrideAmount
+  if (flat != null && Number.isFinite(flat)) {
+    return { amount: roundMoney(flat), basis: 'flat' }
+  }
+  const pct = participant.overridePercent
+  if (pct != null && Number.isFinite(pct)) {
+    return { amount: roundMoney(roundMoney(commissionBase) * (pct / 100)), basis: 'percent' }
+  }
+  return { amount: 0, basis: 'none' }
 }
 
 export function collectParticipants(
@@ -376,6 +422,17 @@ export function periodSitsAndCloseRateForParticipant(input: {
   }
 }
 
+/**
+ * Key for one payable line inside the pool-cap calculation.
+ *
+ * User id alone is not enough: one person can hold two paying roles on the same
+ * job (closing it and inspecting it), and those must scale as two separate lines
+ * rather than collapsing into a single map entry.
+ */
+export function poolKey(userId: string, role: string): string {
+  return `${userId}|${role}`
+}
+
 export function scaleCommissionsToPool(
   rawByUser: Map<string, number>,
   poolCap: number
@@ -388,11 +445,37 @@ export function scaleCommissionsToPool(
   if (sum <= poolCap || sum <= 0) {
     return { scaled: new Map(rawByUser), enforced: false }
   }
-  const factor = roundMoney(poolCap / sum)
+  // Full precision on purpose. Rounding the factor itself to cents lets the scaled
+  // total drift ABOVE the cap — e.g. a $2,520 cap on $3,010 of raw commission gives
+  // 0.83721..., which rounds to 0.84 and pays out $2,528.40.
+  const factor = poolCap / sum
   const scaled = new Map<string, number>()
   rawByUser.forEach((v, k) => {
     scaled.set(k, roundMoney(v * factor))
   })
+
+  // Rounding each line to cents can still leave the total a few cents over. Take
+  // that drift off the largest line so the cap is a real ceiling. Ties break on the
+  // lower key so the same inputs always produce the same payout split.
+  let scaledTotal = 0
+  scaled.forEach((v) => {
+    scaledTotal += v
+  })
+  const drift = roundMoney(roundMoney(scaledTotal) - poolCap)
+  if (drift > 0) {
+    let adjustKey: string | null = null
+    let adjustValue = -Infinity
+    scaled.forEach((v, k) => {
+      if (v > adjustValue || (v === adjustValue && adjustKey != null && k < adjustKey)) {
+        adjustValue = v
+        adjustKey = k
+      }
+    })
+    if (adjustKey != null) {
+      scaled.set(adjustKey, Math.max(0, roundMoney(adjustValue - drift)))
+    }
+  }
+
   return { scaled, enforced: true }
 }
 

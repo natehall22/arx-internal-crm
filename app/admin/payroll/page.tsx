@@ -29,6 +29,7 @@ function formatParticipantRole(role: string): string {
   if (role === 'owner') return 'Closer'
   if (role === 'sales_rep') return 'Sales rep'
   if (role === 'setter') return 'Setter'
+  if (role === 'inspector') return 'Inspector'
   return role
 }
 

@@ -7,6 +7,7 @@ export function formatParticipantRoleLabel(role: string): string {
   if (role === 'owner' || role === 'closer') return 'Closer'
   if (role === 'sales_rep') return 'Sales rep'
   if (role === 'setter') return 'Setter'
+  if (role === 'inspector') return 'Inspector'
   if (role === 'field_manager') return 'Field manager'
   if (role === 'senior_manager') return 'Senior manager'
   return role.replace(/_/g, ' ')

@@ -3,13 +3,21 @@ import type { CompPlanForCalc } from '@/lib/calculate-commission-from-plan'
 import { buildCommissionPayrollSnapshot, isPoolCapExcludedPlanType } from '@/lib/commission-payroll'
 import { roundMoney } from '@/lib/money'
 import {
+  loadInspectorByOpportunity,
+  normalizeInspectionRate,
+  withDerivedInspector,
+} from '@/lib/job-inspector-attribution'
+import {
   buildMonthlyTierMetricMaps,
   buildMonthlyVolumeMaps,
   collectParticipants,
   computeRawCommissionForParticipant,
   loadActiveCompPlanForUser,
+  loadAdditiveDealCommissionParticipants,
   monthKeyFromSaleDate,
   periodSitsAndCloseRateForParticipant,
+  poolKey,
+  resolveAdditiveParticipantAmount,
   scaleCommissionsToPool,
 } from '@/lib/payroll-export'
 
@@ -270,12 +278,31 @@ export async function materializePayrollPeriod(
   if (opportunityError) throw opportunityError
   const oppById = new Map((opportunities || []).map((o) => [o.id as string, o]))
   const oppByProjectId = new Map<string, { owner_user_id?: string | null; setter_user_id?: string | null } | null>()
+  const oppIdByProjectId = new Map<string, string>()
   for (const project of projects || []) {
     oppByProjectId.set(
       project.id as string,
       project.opportunity_id ? oppById.get(project.opportunity_id as string) || null : null
     )
+    if (project.opportunity_id) {
+      oppIdByProjectId.set(project.id as string, project.opportunity_id as string)
+    }
   }
+
+  // Who inspected each opportunity, and what the org pays for it. Loaded once for
+  // the whole period rather than per job. A rate of 0 means the derived inspection
+  // line is off, in which case the appointment lookup is skipped entirely.
+  const { data: orgRateRow, error: orgRateError } = await supabase
+    .from('orgs')
+    .select('inspection_commission_rate')
+    .eq('id', orgId)
+    .maybeSingle()
+  if (orgRateError) throw orgRateError
+  const inspectionRatePercent = normalizeInspectionRate(orgRateRow?.inspection_commission_rate)
+  const inspectorByOpportunity =
+    inspectionRatePercent > 0
+      ? await loadInspectorByOpportunity(supabase, orgId, opportunityIds)
+      : new Map<string, string>()
 
   const bounds = monthBounds(eligibleJobs, period.cutoff_at)
   const { data: volumeJobs, error: volumeError } = await supabase
@@ -387,14 +414,42 @@ export async function materializePayrollPeriod(
       if (flatBonus > 0) flatBonusApplied.add(bonusKey)
       meta.set(participant.userId, { role: participant.role, plan, calc, flatBonus })
       rawByUser.set(
-        participant.userId,
+        poolKey(participant.userId, participant.role),
         isPoolCapExcludedPlanType(plan.plan_type) ? 0 : calc.totalAmount
       )
     }
+
+    // Additive per-job participants (inspector, manager overrides). These count
+    // INSIDE the commission pool: they enter rawByUser before scaling, so if a job's
+    // total sales pay would exceed the pool cap, every line — inspection included —
+    // scales down together. Keyed by user+role so one person who both closes and
+    // inspects a job keeps two independently-scaled lines.
+    const explicitAdditive = await loadAdditiveDealCommissionParticipants(supabase, orgId, job.id)
+    const jobOpportunityId = job.project_id ? oppIdByProjectId.get(job.project_id) ?? null : null
+    const additiveParticipants = withDerivedInspector(
+      explicitAdditive,
+      jobOpportunityId ? inspectorByOpportunity.get(jobOpportunityId) ?? null : null,
+      inspectionRatePercent
+    )
+    // Captured as a local const: the guard above proves compBase is a positive
+    // number, but TypeScript drops property narrowing inside the closures below.
+    const additiveCommissionBase = payrollSnapshot.compBase
+    const additivePayable = additiveParticipants.flatMap((participant) => {
+      const resolved = resolveAdditiveParticipantAmount(participant, additiveCommissionBase)
+      // A row with neither an override amount nor a percent pays nothing; skip it
+      // rather than writing a $0 payout line.
+      if (resolved.basis === 'none' || resolved.amount === 0) return []
+      return [{ participant, resolved }]
+    })
+    for (const { participant, resolved } of additivePayable) {
+      rawByUser.set(poolKey(participant.userId, participant.role), resolved.amount)
+    }
+
     const scaled = scaleCommissionsToPool(rawByUser, payrollSnapshot.poolCap)
     const payoutRows = Array.from(meta.entries()).map(([userId, value]) => {
-      const gross = roundMoney((rawByUser.get(userId) || 0) + value.flatBonus)
-      const net = roundMoney((scaled.scaled.get(userId) || 0) + value.flatBonus)
+      const key = poolKey(userId, value.role)
+      const gross = roundMoney((rawByUser.get(key) || 0) + value.flatBonus)
+      const net = roundMoney((scaled.scaled.get(key) || 0) + value.flatBonus)
       return {
         org_id: orgId,
         payroll_period_id: periodId,
@@ -411,13 +466,36 @@ export async function materializePayrollPeriod(
         },
       }
     })
-    if (payoutRows.length === 0) {
+    const additiveRows = additivePayable.map(({ participant, resolved }) => {
+      const key = poolKey(participant.userId, participant.role)
+      return {
+        org_id: orgId,
+        payroll_period_id: periodId,
+        job_id: job.id,
+        user_id: participant.userId,
+        participant_role: participant.role,
+        gross_amount: resolved.amount,
+        net_amount: roundMoney(scaled.scaled.get(key) ?? resolved.amount),
+        chargeback_applied_amount: 0,
+        comp_plan_snapshot: {
+          source: 'deal_commission_roles',
+          basis: resolved.basis,
+          override_amount: participant.overrideAmount,
+          override_percent: participant.overridePercent,
+          commission_base: payrollSnapshot.compBase,
+          pool_cap_enforced: scaled.enforced,
+        },
+      }
+    })
+
+    const allPayoutRows = [...payoutRows, ...additiveRows]
+    if (allPayoutRows.length === 0) {
       skippedJobs.push({ jobId: job.id, reason: 'no_resolvable_participant_plans' })
       continue
     }
 
-    const grossTotal = roundMoney(payoutRows.reduce((sum, row) => sum + row.gross_amount, 0))
-    const netTotal = roundMoney(payoutRows.reduce((sum, row) => sum + row.net_amount, 0))
+    const grossTotal = roundMoney(allPayoutRows.reduce((sum, row) => sum + row.gross_amount, 0))
+    const netTotal = roundMoney(allPayoutRows.reduce((sum, row) => sum + row.net_amount, 0))
     const { data: jobSnapshot, error: jobSnapshotError } = await supabase
       .from('payroll_job_snapshots')
       .upsert(
@@ -435,7 +513,7 @@ export async function materializePayrollPeriod(
           comp_plan_version: Object.fromEntries(
             Array.from(meta.entries()).map(([userId, value]) => [userId, value.plan])
           ),
-          participants: payoutRows.map((row) => ({
+          participants: allPayoutRows.map((row) => ({
             user_id: row.user_id,
             role: row.participant_role,
           })),
@@ -457,7 +535,7 @@ export async function materializePayrollPeriod(
     }
     snapshotsCreated += 1
 
-    const rowsWithSnapshot = payoutRows.map((row) => ({
+    const rowsWithSnapshot = allPayoutRows.map((row) => ({
       ...row,
       payroll_job_snapshot_id: jobSnapshot.id,
     }))
