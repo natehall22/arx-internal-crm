@@ -8,6 +8,30 @@ struct CanvassPropertyRoofAgeEst: Equatable {
     let roofAge: Int
 }
 
+/// Identity + payload for one lead-sheet presentation. Presenting by item (rather than a bool
+/// plus separately-stored pin/coordinate state) guarantees the sheet is built from the tap that
+/// opened it, and gives each presentation a fresh identity so the sheet's `.task` re-seeds.
+struct CanvassLeadSheetTarget: Identifiable {
+    let id = UUID()
+    let pin: CanvassPin?
+    let coordinate: CLLocationCoordinate2D?
+    let roofAgeEst: CanvassPropertyRoofAgeEst?
+
+    /// Existing pin — coordinate comes from the pin itself.
+    init(pin: CanvassPin) {
+        self.pin = pin
+        self.coordinate = CLLocationCoordinate2D(latitude: pin.lat, longitude: pin.lng)
+        self.roofAgeEst = nil
+    }
+
+    /// New lead dropped at a map location.
+    init(newLeadAt coordinate: CLLocationCoordinate2D, roofAgeEst: CanvassPropertyRoofAgeEst? = nil) {
+        self.pin = nil
+        self.coordinate = coordinate
+        self.roofAgeEst = roofAgeEst
+    }
+}
+
 // MARK: - Lead Sheet
 
 struct LeadSheetView: View {

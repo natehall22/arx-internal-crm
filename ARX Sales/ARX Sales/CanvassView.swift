@@ -12,13 +12,14 @@ struct CanvassView: View {
     @StateObject private var vm = CanvassViewModel()
     @ObservedObject private var offlineBridge = OfflineLeadQueueBridge.shared
     @ObservedObject private var mapCoordinator = CanvassMapCoordinator.shared
-    @State private var showLeadSheet = false
     @State private var showPendingSheet = false
     @State private var showLayersSheet = false
     @State private var showLeadListSheet = false
-    @State private var selectedPin: CanvassPin? = nil
-    @State private var newLeadCoord: CLLocationCoordinate2D? = nil
-    @State private var propertyRoofAgeEst: CanvassPropertyRoofAgeEst? = nil
+    /// Drives the lead sheet by identity, not a bool — `.sheet(isPresented:)` can present with a
+    /// content closure captured *before* the pin/coordinate state lands, which left the sheet's
+    /// `.task` seeding from a nil coordinate (blank address, no homeowner) even though the
+    /// re-rendered body showed Directions. Carrying the payload in the item makes that impossible.
+    @State private var leadSheetTarget: CanvassLeadSheetTarget? = nil
     @State private var mapZoomLevel = 10
     @State private var pendingLeadFromList: MobileLead? = nil
     @State private var leadListOpenGeneration = 0
@@ -76,31 +77,22 @@ struct CanvassView: View {
                 onZoom: { vm.invalidateBoundsCache() },
                 onMapTap: { coord in
                     leadListOpenGeneration += 1
-                    selectedPin = nil
-                    newLeadCoord = coord
-                    propertyRoofAgeEst = nil
-                    showLeadSheet = true
+                    leadSheetTarget = CanvassLeadSheetTarget(newLeadAt: coord)
                 },
                 onRoofAgeParcelTap: { parcel in
                     leadListOpenGeneration += 1
-                    selectedPin = nil
-                    newLeadCoord = parcel.coordinate
-                    propertyRoofAgeEst = CanvassPropertyRoofAgeEst(yearBuilt: parcel.yearBuilt, roofAge: parcel.roofAge)
-                    showLeadSheet = true
+                    leadSheetTarget = CanvassLeadSheetTarget(
+                        newLeadAt: parcel.coordinate,
+                        roofAgeEst: CanvassPropertyRoofAgeEst(yearBuilt: parcel.yearBuilt, roofAge: parcel.roofAge)
+                    )
                 },
                 onLongPress: { coord in
                     leadListOpenGeneration += 1
-                    newLeadCoord = coord
-                    selectedPin = nil
-                    propertyRoofAgeEst = nil
-                    showLeadSheet = true
+                    leadSheetTarget = CanvassLeadSheetTarget(newLeadAt: coord)
                 },
                 onPinTap: { pin in
                     leadListOpenGeneration += 1
-                    selectedPin = pin
-                    newLeadCoord = nil
-                    propertyRoofAgeEst = nil
-                    showLeadSheet = true
+                    leadSheetTarget = CanvassLeadSheetTarget(pin: pin)
                 }
             )
             .ignoresSafeArea()
@@ -193,17 +185,16 @@ struct CanvassView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
-        .sheet(isPresented: $showLeadSheet, onDismiss: {
+        .sheet(item: $leadSheetTarget, onDismiss: {
             vm.cancelInFlightOneShotLocationCapture()
             vm.invalidateBoundsCache()
-            propertyRoofAgeEst = nil
             if let r = vm.lastRegion { vm.loadPins(for: r) }
             Task { await offlineBridge.refresh() }
-        }) {
+        }) { target in
             LeadSheetView(
-                pin: selectedPin,
-                coordinate: newLeadCoord ?? selectedPin.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lng) },
-                propertyRoofAgeEst: propertyRoofAgeEst,
+                pin: target.pin,
+                coordinate: target.coordinate,
+                propertyRoofAgeEst: target.roofAgeEst,
                 repGeoCapture: { await vm.locationForKnockSave() }
             )
                 .canvassSheetPresentation()
@@ -292,10 +283,7 @@ struct CanvassView: View {
         // Brief delay so the list sheet can finish dismissing before presenting LeadSheet.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
             guard generation == leadListOpenGeneration else { return }
-            selectedPin = pin
-            newLeadCoord = nil
-            propertyRoofAgeEst = nil
-            showLeadSheet = true
+            leadSheetTarget = CanvassLeadSheetTarget(pin: pin)
         }
     }
 }
