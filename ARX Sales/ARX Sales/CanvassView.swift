@@ -634,11 +634,11 @@ struct CanvassMapView: UIViewRepresentable {
             map.setUserTrackingMode(trackingMode, animated: true)
         }
 
-        // Auto-zoom to user location the first time we get a fix — pitched 3D aerial feel.
+        // Auto-zoom to user location the first time we get a fix — top-down (matches web tilt: 0).
         // Skip setCamera when follow is already on so we don't cancel tracking.
         if !hasInitiallyZoomed, let loc = userLocation {
             if trackingMode == .none {
-                let camera = MKMapCamera(lookingAtCenter: loc, fromDistance: 600, pitch: 45, heading: 0)
+                let camera = MKMapCamera(lookingAtCenter: loc, fromDistance: 600, pitch: 0, heading: 0)
                 map.setCamera(camera, animated: true)
             }
             DispatchQueue.main.async { hasInitiallyZoomed = true }
