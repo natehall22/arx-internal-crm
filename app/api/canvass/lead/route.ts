@@ -375,9 +375,29 @@ export async function POST(request: Request) {
     let teamIdForRoundRobin: string | null = null
     
     // Check if closer_user_id is actually a team selection (format: "team:uuid")
+    let roundRobinTeamTimezone: string | null = null
     if (closerUserId && closerUserId.startsWith('team:')) {
       teamIdForRoundRobin = closerUserId.replace('team:', '')
       closerUserId = null // Will be assigned via round-robin
+    }
+
+    if (teamIdForRoundRobin) {
+      const { data: rrTeam, error: rrTeamError } = await supabase
+        .from('teams')
+        .select('id, org_id, timezone')
+        .eq('id', teamIdForRoundRobin)
+        .maybeSingle()
+
+      if (rrTeamError || !rrTeam || rrTeam.org_id !== profile.org_id) {
+        return NextResponse.json(
+          {
+            error: 'That team is not available for scheduling in your organization.',
+            code: 'TEAM_NOT_ALLOWED',
+          },
+          { status: 403 },
+        )
+      }
+      roundRobinTeamTimezone = rrTeam.timezone ?? null
     }
     
     const scheduleInspection = Boolean(body.schedule_inspection)
@@ -404,15 +424,8 @@ export async function POST(request: Request) {
       // Get timezone from closer or team (if available)
       if (closerUserId) {
         closerTimezone = await getTimezoneForUser(supabase, closerUserId)
-      } else if (teamIdForRoundRobin) {
-        const { data: team } = await supabase
-          .from('teams')
-          .select('timezone')
-          .eq('id', teamIdForRoundRobin)
-          .single()
-        if (team?.timezone) {
-          closerTimezone = team.timezone
-        }
+      } else if (teamIdForRoundRobin && roundRobinTeamTimezone) {
+        closerTimezone = roundRobinTeamTimezone
       } else if (profile.team_id) {
         const { data: team } = await supabase
           .from('teams')
@@ -491,30 +504,30 @@ export async function POST(request: Request) {
     })
 
     const leadPayload: Record<string, any> = {
-      homeowner_name: body.homeowner_name || null,
-      phone: body.phone || null,
-      email: body.email || null,
-      address_text: body.address_text || null,
-      notes: body.notes || null,
-      canvass_disposition: body.canvass_disposition || null,
-      canvass_notes: body.canvass_notes || null,
       closer_user_id: closerUserId,
       inspection_scheduled_for: inspectionScheduledFor,
     }
 
+    const patchLeadFieldIfPresent = (key: string, value: unknown) => {
+      if (Object.prototype.hasOwnProperty.call(body, key)) {
+        leadPayload[key] = value
+      }
+    }
+
+    patchLeadFieldIfPresent('homeowner_name', body.homeowner_name || null)
+    patchLeadFieldIfPresent('phone', body.phone || null)
+    patchLeadFieldIfPresent('email', body.email || null)
+    patchLeadFieldIfPresent('address_text', body.address_text || null)
+    patchLeadFieldIfPresent('notes', body.notes || null)
+    patchLeadFieldIfPresent('canvass_disposition', body.canvass_disposition || null)
+    patchLeadFieldIfPresent('canvass_notes', body.canvass_notes || null)
+
     // Existing-pin edits from the canvass map intentionally omit coordinates.
     // Only write lat/lng when the client explicitly sends them; otherwise we
     // would erase the saved house pin during appointment scheduling.
-    if (Object.prototype.hasOwnProperty.call(body, 'lat')) {
-      leadPayload.lat = body.lat ?? null
-    }
-    if (Object.prototype.hasOwnProperty.call(body, 'lng')) {
-      leadPayload.lng = body.lng ?? null
-    }
-
-    if (Object.prototype.hasOwnProperty.call(body, 'source')) {
-      leadPayload.source = body.source || null
-    }
+    patchLeadFieldIfPresent('lat', body.lat ?? null)
+    patchLeadFieldIfPresent('lng', body.lng ?? null)
+    patchLeadFieldIfPresent('source', body.source || null)
 
     if (scheduleInspection) {
       leadPayload.status = 'inspection'

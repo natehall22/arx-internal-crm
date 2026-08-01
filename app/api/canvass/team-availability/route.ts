@@ -63,8 +63,9 @@ export async function GET(request: NextRequest) {
   console.log('Team availability: Request started')
   
   try {
+    let profile
     try {
-      await requireAuthApi()
+      ;({ profile } = await requireAuthApi())
     } catch (authError: any) {
       const elapsed = Date.now() - startTime
       console.log(`Team availability: Unauthorized request after ${elapsed}ms:`, authError?.message || 'auth failed')
@@ -87,12 +88,14 @@ export async function GET(request: NextRequest) {
       .from('teams')
       .select('timezone, org_id')
       .eq('id', teamId)
-      .single()
+      .maybeSingle()
 
-    const timezone = team?.timezone || 'America/New_York'
-    const orgDefaultGap = team?.org_id
-      ? await getOrgDefaultSchedulingGapMinutes(adminClient, team.org_id)
-      : 15
+    if (!team || team.org_id !== profile.org_id) {
+      return NextResponse.json({ error: 'Team not found' }, { status: 404 })
+    }
+
+    const timezone = team.timezone || 'America/New_York'
+    const orgDefaultGap = await getOrgDefaultSchedulingGapMinutes(adminClient, team.org_id)
 
     // Get active closers in the team's queue who have Google Calendar connected
     const { data: queueClosersRaw, error: queueError } = await adminClient

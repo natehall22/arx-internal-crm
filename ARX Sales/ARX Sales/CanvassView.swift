@@ -18,6 +18,8 @@ struct CanvassView: View {
     @State private var showLeadListSheet = false
     @State private var selectedPin: CanvassPin? = nil
     @State private var newLeadCoord: CLLocationCoordinate2D? = nil
+    @State private var propertyRoofAgeEst: CanvassPropertyRoofAgeEst? = nil
+    @State private var mapZoomLevel = 10
     @State private var pendingLeadFromList: MobileLead? = nil
     @State private var leadListOpenGeneration = 0
     @State private var hasInitiallyZoomed = false
@@ -45,6 +47,11 @@ struct CanvassView: View {
         )
     }
 
+    private var visibleRoofAgeCircles: [RoofAgeCircleModel] {
+        guard showRoofAge, mapZoomLevel >= CanvassViewModel.minRoofAgeDisplayZoom else { return [] }
+        return vm.roofAgeCircles
+    }
+
     var body: some View {
         ZStack {
             CanvassMapView(
@@ -52,6 +59,7 @@ struct CanvassView: View {
                 territories: showTerritories ? vm.territories : [],
                 weatherPolygons: (showWeather && weatherOverlayAvailable) ? vm.weatherPolygons : [],
                 overlayPoints: vm.overlayPoints(showWeather: showWeather && weatherOverlayAvailable, showRoofAge: showRoofAge),
+                roofAgeCircles: visibleRoofAgeCircles,
                 userLocation: vm.userLocation,
                 hasInitiallyZoomed: $hasInitiallyZoomed,
                 trackingMode: $trackingMode,
@@ -60,18 +68,39 @@ struct CanvassView: View {
                 enable3DBuildings: enable3DBuildings,
                 onRegionChange: { region in
                     mapCoordinator.lastRegion = region
+                    mapZoomLevel = CanvassViewModel.zoomLevel(for: region)
                     vm.loadPins(for: region)
                     vm.loadOverlays(for: region, weather: showWeather && weatherOverlayAvailable, roofAge: showRoofAge)
                     vm.loadTerritoriesIfNeeded(show: showTerritories)
                 },
                 onZoom: { vm.invalidateBoundsCache() },
+                onMapTap: { coord in
+                    leadListOpenGeneration += 1
+                    selectedPin = nil
+                    newLeadCoord = coord
+                    propertyRoofAgeEst = nil
+                    showLeadSheet = true
+                },
+                onRoofAgeParcelTap: { parcel in
+                    leadListOpenGeneration += 1
+                    selectedPin = nil
+                    newLeadCoord = parcel.coordinate
+                    propertyRoofAgeEst = CanvassPropertyRoofAgeEst(yearBuilt: parcel.yearBuilt, roofAge: parcel.roofAge)
+                    showLeadSheet = true
+                },
                 onLongPress: { coord in
                     leadListOpenGeneration += 1
-                    newLeadCoord = coord; selectedPin = nil; showLeadSheet = true
+                    newLeadCoord = coord
+                    selectedPin = nil
+                    propertyRoofAgeEst = nil
+                    showLeadSheet = true
                 },
                 onPinTap: { pin in
                     leadListOpenGeneration += 1
-                    selectedPin = pin; newLeadCoord = nil; showLeadSheet = true
+                    selectedPin = pin
+                    newLeadCoord = nil
+                    propertyRoofAgeEst = nil
+                    showLeadSheet = true
                 }
             )
             .ignoresSafeArea()
@@ -126,6 +155,8 @@ struct CanvassView: View {
                         }
                         if vm.roofAgeDegraded && showRoofAge {
                             MapHUDChip { Text("Roof age unavailable (est.)") }
+                        } else if showRoofAge && mapZoomLevel < CanvassViewModel.minRoofAgeDisplayZoom {
+                            MapHUDChip { Text("Zoom in for parcel layer (est.)") }
                         }
                         if focusMode || myPinsOnly {
                             MapHUDChip { Text("Filter: My pins only") }
@@ -165,12 +196,14 @@ struct CanvassView: View {
         .sheet(isPresented: $showLeadSheet, onDismiss: {
             vm.cancelInFlightOneShotLocationCapture()
             vm.invalidateBoundsCache()
+            propertyRoofAgeEst = nil
             if let r = vm.lastRegion { vm.loadPins(for: r) }
             Task { await offlineBridge.refresh() }
         }) {
             LeadSheetView(
                 pin: selectedPin,
                 coordinate: newLeadCoord ?? selectedPin.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lng) },
+                propertyRoofAgeEst: propertyRoofAgeEst,
                 repGeoCapture: { await vm.locationForKnockSave() }
             )
                 .canvassSheetPresentation()
@@ -261,6 +294,7 @@ struct CanvassView: View {
             guard generation == leadListOpenGeneration else { return }
             selectedPin = pin
             newLeadCoord = nil
+            propertyRoofAgeEst = nil
             showLeadSheet = true
         }
     }
@@ -302,6 +336,7 @@ class CanvassViewModel: NSObject, ObservableObject, CLLocationManagerDelegate {
     @Published var weatherPoints: [MapOverlayPoint] = []
     @Published var weatherPolygons: [WeatherPolygonFeature] = []
     @Published var roofAgePoints: [MapOverlayPoint] = []
+    @Published var roofAgeCircles: [RoofAgeCircleModel] = []
     @Published var weatherDegraded = false
     @Published var roofAgeDegraded = false
 
@@ -526,6 +561,7 @@ struct CanvassMapView: UIViewRepresentable {
     var territories: [Territory] = []
     var weatherPolygons: [WeatherPolygonFeature] = []
     var overlayPoints: [MapOverlayPoint] = []
+    var roofAgeCircles: [RoofAgeCircleModel] = []
     let userLocation: CLLocationCoordinate2D?
     @Binding var hasInitiallyZoomed: Bool
     @Binding var trackingMode: MKUserTrackingMode
@@ -534,6 +570,8 @@ struct CanvassMapView: UIViewRepresentable {
     let enable3DBuildings: Bool
     let onRegionChange: (MKCoordinateRegion) -> Void
     let onZoom: () -> Void
+    let onMapTap: (CLLocationCoordinate2D) -> Void
+    let onRoofAgeParcelTap: (RoofAgeCircleModel) -> Void
     let onLongPress: (CLLocationCoordinate2D) -> Void
     let onPinTap: (CanvassPin) -> Void
 
@@ -548,6 +586,15 @@ struct CanvassMapView: UIViewRepresentable {
         let lp = UILongPressGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleLongPress(_:)))
         lp.minimumPressDuration = 0.5
         map.addGestureRecognizer(lp)
+
+        let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleMapTap(_:)))
+        tap.delegate = context.coordinator
+        map.addGestureRecognizer(tap)
+        for gr in map.gestureRecognizers ?? [] {
+            if let doubleTap = gr as? UITapGestureRecognizer, doubleTap !== tap, doubleTap.numberOfTapsRequired == 2 {
+                tap.require(toFail: doubleTap)
+            }
+        }
 
         // Native compass — adaptive (visible when heading ≠ north)
         let compass = MKCompassButton(mapView: map)
@@ -602,6 +649,7 @@ struct CanvassMapView: UIViewRepresentable {
 
         syncTerritoryOverlays(map, context: context)
         syncWeatherPolygonOverlays(map, context: context)
+        syncRoofAgeCircleOverlays(map, context: context)
         syncOverlayAnnotations(map, context: context)
 
         let incoming = Set(pins.map(\.id))
@@ -631,6 +679,7 @@ struct CanvassMapView: UIViewRepresentable {
     /// otherwise toggling one layer would wipe out the other on the next render pass.
     private static let territoryTitlePrefix = "territory:"
     private static let weatherTitlePrefix = "weather:"
+    private static let roofAgeCircleTitlePrefix = "roofAgeCircle:"
 
     private func syncTerritoryOverlays(_ map: MKMapView, context: Context) {
         let existing = map.overlays.compactMap { $0 as? MKPolygon }
@@ -653,6 +702,17 @@ struct CanvassMapView: UIViewRepresentable {
                 poly.title = Self.weatherTitlePrefix + feature.kind + ":" + feature.layer + ":" + feature.id
                 map.addOverlay(poly)
             }
+        }
+    }
+
+    private func syncRoofAgeCircleOverlays(_ map: MKMapView, context: Context) {
+        let existing = map.overlays.compactMap { $0 as? MKCircle }
+            .filter { ($0.title ?? "").hasPrefix(Self.roofAgeCircleTitlePrefix) }
+        map.removeOverlays(existing)
+        for model in roofAgeCircles {
+            let circle = MKCircle(center: model.coordinate, radius: model.radiusMeters)
+            circle.title = Self.roofAgeCircleTitlePrefix + model.id
+            map.addOverlay(circle)
         }
     }
 
@@ -684,7 +744,7 @@ struct CanvassMapView: UIViewRepresentable {
 
     // MARK: Coordinator
 
-    class Coordinator: NSObject, MKMapViewDelegate {
+    class Coordinator: NSObject, MKMapViewDelegate, UIGestureRecognizerDelegate {
         var parent: CanvassMapView
         var compassButton: MKCompassButton?
         var scaleView: MKScaleView?
@@ -735,6 +795,18 @@ struct CanvassMapView: UIViewRepresentable {
         }
 
         func mapView(_ mapView: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {
+            if let circle = overlay as? MKCircle, let title = circle.title,
+               title.hasPrefix(CanvassMapView.roofAgeCircleTitlePrefix) {
+                let circleId = String(title.dropFirst(CanvassMapView.roofAgeCircleTitlePrefix.count))
+                let model = parent.roofAgeCircles.first(where: { $0.id == circleId })
+                let renderer = MKCircleRenderer(circle: circle)
+                let fill = UIColor(hex: model?.colorHex ?? "#F59E0B")
+                renderer.fillColor = fill.withAlphaComponent(1)
+                renderer.strokeColor = UIColor.white.withAlphaComponent(0.95)
+                renderer.lineWidth = 2
+                return renderer
+            }
+
             guard let poly = overlay as? MKPolygon, let title = poly.title else {
                 return MKOverlayRenderer(overlay: overlay)
             }
@@ -832,6 +904,64 @@ struct CanvassMapView: UIViewRepresentable {
             let coord = map.convert(point, toCoordinateFrom: map)
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
             parent.onLongPress(coord)
+        }
+
+        @objc func handleMapTap(_ gr: UITapGestureRecognizer) {
+            guard gr.state == .ended, let map = gr.view as? MKMapView else { return }
+            let point = gr.location(in: map)
+            let coord = map.convert(point, toCoordinateFrom: map)
+            if let parcel = hitTestRoofAgeParcel(at: point, in: map) {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                parent.onRoofAgeParcelTap(parcel)
+                return
+            }
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            parent.onMapTap(coord)
+        }
+
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+            if viewHierarchyContainsMapAnnotation(touch.view) { return false }
+            if mapTapShouldIgnore(touch.view) { return false }
+            return true
+        }
+
+        private func viewHierarchyContainsMapAnnotation(_ view: UIView?) -> Bool {
+            var current = view
+            while let v = current {
+                if v is MKAnnotationView { return true }
+                current = v.superview
+            }
+            return false
+        }
+
+        /// Ignore taps on map chrome (compass, scale, controls) so they do not open New Lead.
+        private func mapTapShouldIgnore(_ view: UIView?) -> Bool {
+            var current = view
+            while let v = current {
+                if v is MKCompassButton || v is MKScaleView { return true }
+                if v is UIControl { return true }
+                if v === compassButton || v === scaleView { return true }
+                current = v.superview
+            }
+            return false
+        }
+
+        private func hitTestRoofAgeParcel(at mapPoint: CGPoint, in map: MKMapView) -> RoofAgeCircleModel? {
+            guard !parent.roofAgeCircles.isEmpty else { return nil }
+            let hitRadiusPt: CGFloat = 22
+            var best: (RoofAgeCircleModel, CGFloat)?
+            for parcel in parent.roofAgeCircles {
+                let centerPt = map.convert(parcel.coordinate, toPointTo: map)
+                let dx = mapPoint.x - centerPt.x
+                let dy = mapPoint.y - centerPt.y
+                let distPt = hypot(dx, dy)
+                if distPt <= hitRadiusPt {
+                    if best == nil || distPt < best!.1 {
+                        best = (parcel, distPt)
+                    }
+                }
+            }
+            return best?.0
         }
     }
 }

@@ -2,11 +2,19 @@ import SwiftUI
 import CoreLocation
 import MapKit
 
+/// Est. construction / roof age from the parcel roof-age layer (claims-safe copy in UI).
+struct CanvassPropertyRoofAgeEst: Equatable {
+    let yearBuilt: Int
+    let roofAge: Int
+}
+
 // MARK: - Lead Sheet
 
 struct LeadSheetView: View {
     let pin: CanvassPin?
     let coordinate: CLLocationCoordinate2D?
+    /// Parcel roof-age context when opened from a roof-age circle tap.
+    var propertyRoofAgeEst: CanvassPropertyRoofAgeEst? = nil
     /// Snapshots rep GPS at save time (fresh one-shot, then last known from map tracking).
     var repGeoCapture: (() async -> CLLocation?)? = nil
 
@@ -38,7 +46,7 @@ struct LeadSheetView: View {
         return f
     }()
 
-    private var directionsCoordinate: CLLocationCoordinate2D? {
+    private var effectiveCoordinate: CLLocationCoordinate2D? {
         if let coordinate { return coordinate }
         if let pin {
             return CLLocationCoordinate2D(latitude: pin.lat, longitude: pin.lng)
@@ -46,12 +54,101 @@ struct LeadSheetView: View {
         return nil
     }
 
-    /// Returns true when the current disposition warrants showing "Schedule Inspection".
-    /// Only offered for existing leads (we need a lead_id), and only for dispositions
-    /// where an inspection is the natural next step.
-    private var canScheduleInspection: Bool {
-        guard !isNew, pin?.id != nil, pin?.isPending != true else { return false }
-        return disposition == "hot_lead" || disposition == "go_back"
+    private var directionsCoordinate: CLLocationCoordinate2D? {
+        effectiveCoordinate
+    }
+
+    /// Schedule row hidden only for renters (all other dispositions, including not set).
+    private var showScheduleInspectionSection: Bool {
+        disposition != "renter"
+    }
+
+    private var trimmedScheduleFirstName: String {
+        firstName.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var trimmedScheduleLastName: String {
+        lastName.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var trimmedSchedulePhone: String {
+        phone.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var scheduleContactComplete: Bool {
+        !trimmedScheduleFirstName.isEmpty
+            && !trimmedScheduleLastName.isEmpty
+            && !trimmedSchedulePhone.isEmpty
+    }
+
+    private var scheduleContactHelperText: String? {
+        guard showScheduleInspectionSection, !scheduleContactComplete else { return nil }
+        var missing: [String] = []
+        if trimmedScheduleFirstName.isEmpty { missing.append("first name") }
+        if trimmedScheduleLastName.isEmpty { missing.append("last name") }
+        if trimmedSchedulePhone.isEmpty { missing.append("phone") }
+        guard !missing.isEmpty else { return nil }
+        if missing.count == 1 {
+            return "Add \(missing[0]) to schedule an inspection."
+        }
+        if missing.count == 2 {
+            return "Add \(missing[0]) and \(missing[1]) to schedule an inspection."
+        }
+        return "Add first name, last name, and phone to schedule an inspection."
+    }
+
+    private var scheduleEnablementHelperText: String? {
+        if let contact = scheduleContactHelperText { return contact }
+        if showScheduleInspectionSection, scheduleContactComplete, scheduleTarget == nil {
+            return "Map location is required to schedule an inspection."
+        }
+        return nil
+    }
+
+    /// True when the schedule sheet can be presented (contact + target).
+    private var canOpenScheduleInspection: Bool {
+        showScheduleInspectionSection && scheduleContactComplete && scheduleTarget != nil
+    }
+
+    private var scheduleCoordinates: (lat: Double, lng: Double)? {
+        if let coordinate {
+            return (coordinate.latitude, coordinate.longitude)
+        }
+        if let pin {
+            return (pin.lat, pin.lng)
+        }
+        return nil
+    }
+
+    /// Server lead id when the pin is synced or a pending edit overlay; nil for client-only pending knocks.
+    private func resolvedServerLeadId(for pin: CanvassPin?) -> String? {
+        guard let pin else { return nil }
+        if pin.isPending && !pin.isPendingEdit {
+            if let item = OfflineLeadQueueBridge.shared.queuedItem(matchingPinId: pin.id),
+               let leadId = item.request.lead_id, !leadId.isEmpty {
+                return leadId
+            }
+            return nil
+        }
+        return pin.id.isEmpty ? nil : pin.id
+    }
+
+    private var scheduleTarget: ScheduleInspectionTarget? {
+        guard showScheduleInspectionSection, scheduleContactComplete else { return nil }
+        guard scheduleCoordinates != nil else { return nil }
+        if let pin, !isNew, !pin.isPending, pin.id.isEmpty {
+            return nil
+        }
+        var save = buildSavePayload(combinedNotes: combinedNotesForSave())
+        if save.lat == nil || save.lng == nil, let coords = scheduleCoordinates {
+            save.lat = coords.lat
+            save.lng = coords.lng
+        }
+        if let pin, let serverId = resolvedServerLeadId(for: pin) {
+            save.lead_id = serverId
+            return .existingLead(id: serverId, save: save)
+        }
+        return .createOnSchedule(save)
     }
 
     var body: some View {
@@ -142,6 +239,25 @@ struct LeadSheetView: View {
                     }
                 }
 
+                // MARK: - Property preview (parcel roof-age layer)
+                if let est = propertyRoofAgeEst {
+                    Section {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("PROPERTY (EST.)")
+                                .font(.caption2.weight(.semibold))
+                                .foregroundColor(Color(hex: "#57534E"))
+                            Text("Built \(est.yearBuilt) · ~\(est.roofAge) yr roof age (est.)")
+                                .font(.subheadline.weight(.medium))
+                                .foregroundColor(AppSettings.darkText)
+                            Text("Year built is an estimate. The home may have been re-roofed since.")
+                                .font(.caption)
+                                .foregroundColor(Color(hex: "#57534E"))
+                        }
+                        .padding(.vertical, 2)
+                    }
+                    .listRowBackground(Color(hex: "#F5F5F4"))
+                }
+
                 // MARK: - Disposition
                 Section(isNew ? "What happened?" : "Update Disposition") {
                     Picker("Disposition", selection: $disposition) {
@@ -180,18 +296,14 @@ struct LeadSheetView: View {
 
                 // MARK: - Location
                 Section("Location") {
-                    if address.isEmpty {
-                        HStack(spacing: 8) {
-                            ProgressView().scaleEffect(0.75)
-                            Text("Looking up address…")
-                                .foregroundColor(.secondary)
-                                .font(.subheadline)
-                        }
-                    } else {
-                        Text(address)
-                            .foregroundColor(AppSettings.darkText)
-                            .font(.subheadline)
-                    }
+                    TextField(
+                        "Address",
+                        text: $address,
+                        prompt: Text("Street address").foregroundColor(Color(hex: "#78716C"))
+                    )
+                        .foregroundColor(AppSettings.darkText)
+                        .font(.subheadline)
+                        .textContentType(.fullStreetAddress)
 
                     if directionsCoordinate != nil {
                         Button {
@@ -199,25 +311,6 @@ struct LeadSheetView: View {
                         } label: {
                             Label("Directions", systemImage: "arrow.triangle.turn.up.right.diamond.fill")
                         }
-                    }
-                }
-
-                // MARK: - Schedule Inspection
-                if canScheduleInspection {
-                    Section {
-                        Button {
-                            showScheduleSheet = true
-                        } label: {
-                            HStack {
-                                Image(systemName: "calendar.badge.plus")
-                                Text("Schedule Inspection")
-                                    .fontWeight(.semibold)
-                            }
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 4)
-                        }
-                        .foregroundColor(.white)
-                        .listRowBackground(Color.blue)
                     }
                 }
 
@@ -235,6 +328,40 @@ struct LeadSheetView: View {
                 } else if let error {
                     Section {
                         Text(error).foregroundColor(.red).font(.footnote)
+                    }
+                }
+
+                // MARK: - Schedule Inspection (bottom; hidden for renters)
+                if showScheduleInspectionSection {
+                    Section {
+                        Button {
+                            showScheduleSheet = true
+                        } label: {
+                            VStack(spacing: 4) {
+                                HStack {
+                                    Image(systemName: "calendar.badge.plus")
+                                    Text("Schedule Inspection")
+                                        .fontWeight(.semibold)
+                                }
+                                if canOpenScheduleInspection {
+                                    Text("Team round-robin · pick an open slot")
+                                        .font(.caption)
+                                        .opacity(0.9)
+                                }
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 4)
+                        }
+                        .disabled(!canOpenScheduleInspection)
+                        .foregroundColor(canOpenScheduleInspection ? .white : Color(hex: "#78716C"))
+                        .listRowBackground(canOpenScheduleInspection ? Color.blue : Color(hex: "#E7E5E4"))
+
+                        if let helper = scheduleEnablementHelperText {
+                            Text(helper)
+                                .font(.footnote)
+                                .foregroundColor(Color(hex: "#57534E"))
+                                .padding(.top, 2)
+                        }
                     }
                 }
             }
@@ -257,13 +384,15 @@ struct LeadSheetView: View {
             }
             .disabled(isSaving)
             .sheet(isPresented: $showScheduleSheet) {
-                if let leadId = pin?.id {
+                if let target = scheduleTarget {
                     ScheduleInspectionSheet(
-                        leadId: leadId,
+                        target: target,
                         address: address,
                         homeownerName: [firstName, lastName]
                             .filter { !$0.isEmpty }
-                            .joined(separator: " ")
+                            .joined(separator: " "),
+                        repGeoCapture: repGeoCapture,
+                        onSuccess: { dismiss() }
                     )
                 }
             }
@@ -291,24 +420,29 @@ struct LeadSheetView: View {
             hydrateFromQueuedItem(queued)
         }
 
-        let coord = coordinate
+        let coord = effectiveCoordinate
         let preserveQueued = queued != nil
+        let coordFallback = coordString(coord) ?? ""
+        if address.isEmpty, !coordFallback.isEmpty {
+            address = coordFallback
+        }
+
         // Detail fetch only applies to a real, already-synced existing pin — matches the
         // four branches this replaces (skip for a brand-new lead or an offline-pending one).
         let detailPinId: String? = (pin != nil && !isNew && pin?.isPending != true) ? pin?.id : nil
 
-        // Geocoding and the lead-detail fetch each carry their own bounded timeout
-        // (reverseGeocode: ~5s, fetchDetail: ~10s) and now run as independent tasks in
-        // this group, each applying its own result the moment it resolves. Previously
-        // they were joined via `await (geoTask, detailTask)`, which held the address
-        // field on "Looking up address…" for as long as the SLOWER of the two took —
-        // so a rep on a weak connection (or any detail-fetch hiccup) saw the address
-        // stay stuck well past the point geocoding itself had already succeeded.
+        // Address autofill (CRM Google geocode) and lead-detail fetch run independently.
         await withTaskGroup(of: Void.self) { group in
             group.addTask { @MainActor in
+                let needsGeocode = self.address.isEmpty || self.address == coordFallback
+                guard needsGeocode else { return }
                 let geo = await self.reverseGeocode(coord)
-                if self.address.isEmpty {
-                    self.address = geo ?? self.coordString(coord) ?? ""
+                if let geo, !geo.isEmpty {
+                    if self.address.isEmpty || self.address == coordFallback {
+                        self.address = geo
+                    }
+                } else if (self.address.isEmpty || self.address == coordFallback), !coordFallback.isEmpty {
+                    self.address = coordFallback
                 }
             }
             if let detailPinId {
@@ -318,6 +452,10 @@ struct LeadSheetView: View {
                     }
                 }
             }
+        }
+
+        if address.isEmpty, !coordFallback.isEmpty {
+            address = coordFallback
         }
     }
 
@@ -355,7 +493,15 @@ struct LeadSheetView: View {
         }
     }
 
+    private func trimmedNonEmpty(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+            return nil
+        }
+        return value
+    }
+
     private func populateForm(from lead: CanvassLeadDetail, preserveQueuedFields: Bool) {
+        let leadAddress = trimmedNonEmpty(lead.address_text)
         if !preserveQueuedFields {
             if let name = lead.homeowner_name {
                 let parts = name.split(separator: " ", maxSplits: 1)
@@ -363,12 +509,12 @@ struct LeadSheetView: View {
                 lastName  = parts.dropFirst().first.map(String.init) ?? ""
             }
             phone         = lead.phone ?? ""
-            address       = lead.address_text ?? address
+            address       = leadAddress ?? address
             disposition   = lead.canvass_disposition ?? disposition
             previousNotes = lead.canvass_notes ?? ""
         } else {
             if address.isEmpty {
-                address = lead.address_text ?? address
+                address = leadAddress ?? address
             }
             if firstName.isEmpty && lastName.isEmpty, let name = lead.homeowner_name {
                 let parts = name.split(separator: " ", maxSplits: 1)
@@ -392,16 +538,12 @@ struct LeadSheetView: View {
 
     // MARK: - Save
 
-    private func save() async {
-        isSaving = true
-        error = nil
+    private func combinedNotesForSave() -> String? {
+        let parts = [notes, previousNotes].filter { !$0.isEmpty }
+        return parts.isEmpty ? nil : parts.joined(separator: "\n\n---\n\n")
+    }
 
-        // Combine previous notes + new notes so history is preserved
-        let combinedNotes: String? = {
-            let parts = [notes, previousNotes].filter { !$0.isEmpty }
-            return parts.isEmpty ? nil : parts.joined(separator: "\n\n---\n\n")
-        }()
-
+    private func buildSavePayload(combinedNotes: String?) -> SaveLeadRequest {
         var payload = SaveLeadRequest()
         if let pin, pin.isPending, !pin.isPendingEdit {
             payload.client_lead_id = pin.id
@@ -414,10 +556,21 @@ struct LeadSheetView: View {
         payload.lat                 = coordinate?.latitude  ?? pin?.lat
         payload.lng                 = coordinate?.longitude ?? pin?.lng
         payload.address_text        = address.isEmpty ? nil : address
-        payload.homeowner_name      = [firstName, lastName].filter { !$0.isEmpty }.joined(separator: " ")
+        let homeownerName = [firstName, lastName].filter { !$0.isEmpty }.joined(separator: " ")
+        payload.homeowner_name      = homeownerName.isEmpty ? nil : homeownerName
         payload.phone               = phone.isEmpty ? nil : phone
         payload.canvass_disposition = disposition.isEmpty ? nil : disposition
         payload.canvass_notes       = combinedNotes
+        return payload
+    }
+
+    private func save() async {
+        isSaving = true
+        error = nil
+
+        let combinedNotes = combinedNotesForSave()
+
+        var payload = buildSavePayload(combinedNotes: combinedNotes)
 
         if let loc = await repGeoCapture?() {
             payload.rep_lat = loc.coordinate.latitude
@@ -503,15 +656,10 @@ struct LeadSheetView: View {
         guard let coord else { return nil }
         return await withTaskGroup(of: String?.self) { group in
             group.addTask {
-                let geocoder = CLGeocoder()
-                let location = CLLocation(latitude: coord.latitude, longitude: coord.longitude)
-                let placemarks = try? await geocoder.reverseGeocodeLocation(location)
-                guard let p = placemarks?.first else { return nil }
-                return [p.subThoroughfare, p.thoroughfare, p.locality, p.administrativeArea]
-                    .compactMap { $0 }.joined(separator: " ")
+                await APIClient.reverseGeocodeCanvass(lat: coord.latitude, lng: coord.longitude)
             }
             group.addTask {
-                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                try? await Task.sleep(nanoseconds: 8_000_000_000)
                 return nil
             }
             let result = await group.next() ?? nil

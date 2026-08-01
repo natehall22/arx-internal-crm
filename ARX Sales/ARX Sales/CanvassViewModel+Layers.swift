@@ -11,6 +11,48 @@ struct MapOverlayPoint: Identifiable {
     let kind: String
 }
 
+/// Parcel roof-age layer circle — matches web `roofAgeMarkerRadiusMeters` at street zoom.
+struct RoofAgeCircleModel: Identifiable {
+    let id: String
+    let coordinate: CLLocationCoordinate2D
+    let radiusMeters: CLLocationDistance
+    let colorHex: String
+    let yearBuilt: Int
+    let roofAge: Int
+
+    static func fromRoofAgeFeature(_ f: [String: Any]) -> RoofAgeCircleModel? {
+        guard let geom = f["geometry"] as? [String: Any],
+              let coords = geom["coordinates"] as? [Double], coords.count >= 2,
+              let props = f["properties"] as? [String: Any] else { return nil }
+        let yearBuilt: Int? = {
+            if let n = props["yearBuilt"] as? Int { return n }
+            if let n = props["yearBuilt"] as? NSNumber { return n.intValue }
+            return nil
+        }()
+        let roofAge: Int? = {
+            if let n = props["roofAge"] as? Int { return n }
+            if let n = props["roofAge"] as? NSNumber { return n.intValue }
+            return nil
+        }()
+        guard let yearBuilt, let roofAge else { return nil }
+        let color: String
+        if roofAge >= 20 { color = "#B91C1C" }
+        else if roofAge >= 15 { color = "#EA580C" }
+        else { color = "#F59E0B" }
+        let radius: CLLocationDistance = roofAge >= 20 ? 9 : 7
+        let lat = coords[1]
+        let lng = coords[0]
+        return RoofAgeCircleModel(
+            id: String(format: "%.5f,%.5f-%d", lat, lng, yearBuilt),
+            coordinate: CLLocationCoordinate2D(latitude: lat, longitude: lng),
+            radiusMeters: radius,
+            colorHex: color,
+            yearBuilt: yearBuilt,
+            roofAge: roofAge
+        )
+    }
+}
+
 /// Warning (active NWS severe-weather alert) or swath (radar-derived hail-fall
 /// footprint) polygon — the backend returns these alongside point storm reports,
 /// but they were previously dropped entirely since only Point geometries were parsed.
@@ -69,6 +111,24 @@ extension WeatherPolygonFeature {
 }
 
 extension CanvassViewModel {
+    /// Matches web `MIN_ROOF_AGE_ZOOM` — parcel circles only at street zoom.
+    static let minRoofAgeDisplayZoom = 16
+
+    static func zoomLevel(for region: MKCoordinateRegion) -> Int {
+        let delta = region.span.latitudeDelta
+        if delta < 0.002 { return 20 }
+        if delta < 0.005 { return 19 }
+        if delta < 0.01  { return 18 }
+        if delta < 0.02  { return 17 }
+        if delta < 0.05  { return 16 }
+        if delta < 0.1   { return 15 }
+        if delta < 0.2   { return 14 }
+        if delta < 0.5   { return 13 }
+        if delta < 1.0   { return 12 }
+        if delta < 2.0   { return 11 }
+        return 10
+    }
+
     @MainActor
     func loadMyUserId() async {
         if let session = try? await supabase.auth.session {
@@ -95,7 +155,7 @@ extension CanvassViewModel {
     func overlayPoints(showWeather: Bool, showRoofAge: Bool) -> [MapOverlayPoint] {
         var pts: [MapOverlayPoint] = []
         if showWeather { pts.append(contentsOf: weatherPoints) }
-        if showRoofAge { pts.append(contentsOf: roofAgePoints) }
+        _ = showRoofAge // roof-age parcel layer uses MKCircle overlays, not point markers
         return pts
     }
 
@@ -136,9 +196,9 @@ extension CanvassViewModel {
                 await MainActor.run { weatherPoints = []; weatherPolygons = []; weatherDegraded = false }
             }
             if roofAge {
-                await loadRoofAge(bbox: bbox)
+                await loadRoofAge(bbox: bbox, region: region)
             } else {
-                await MainActor.run { roofAgePoints = []; roofAgeDegraded = false }
+                await MainActor.run { roofAgePoints = []; roofAgeCircles = []; roofAgeDegraded = false }
             }
         }
     }
@@ -168,19 +228,25 @@ extension CanvassViewModel {
         }
     }
 
-    private func loadRoofAge(bbox: MapBbox) async {
+    private func loadRoofAge(bbox: MapBbox, region: MKCoordinateRegion) async {
+        let zoom = Self.zoomLevel(for: region)
+        guard zoom >= Self.minRoofAgeDisplayZoom else {
+            await MainActor.run { roofAgePoints = []; roofAgeCircles = []; roofAgeDegraded = false }
+            return
+        }
         do {
             let data = try await APIClient.request(path: "/api/canvass/roof-age", queryItems: bbox.queryItems)
             let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
             let degraded = json?["degraded"] as? Bool ?? false
             let features = json?["features"] as? [[String: Any]] ?? []
-            let points = features.compactMap { MapOverlayPoint.fromRoofAgeFeature($0) }
+            let circles = features.compactMap { RoofAgeCircleModel.fromRoofAgeFeature($0) }
             await MainActor.run {
-                roofAgePoints = points
+                roofAgePoints = []
+                roofAgeCircles = circles
                 roofAgeDegraded = degraded
             }
         } catch {
-            await MainActor.run { roofAgePoints = []; roofAgeDegraded = true }
+            await MainActor.run { roofAgePoints = []; roofAgeCircles = []; roofAgeDegraded = true }
         }
     }
 }

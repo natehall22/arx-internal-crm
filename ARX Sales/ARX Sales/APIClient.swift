@@ -724,6 +724,35 @@ struct APIClient {
         return (try JSONDecoder().decode(Response.self, from: data)).leads
     }
 
+    /// Google reverse geocode via CRM (`GET /api/canvass/reverse-geocode`).
+    static func reverseGeocodeCanvass(lat: Double, lng: Double) async -> String? {
+        let cacheKey = String(format: "%.5f,%.5f", lat, lng)
+        if let cached = reverseGeocodeCache[cacheKey] {
+            return cached
+        }
+        struct Response: Decodable {
+            let ok: Bool
+            let address: String?
+        }
+        do {
+            let data = try await request(path: "/api/canvass/reverse-geocode", queryItems: [
+                URLQueryItem(name: "lat", value: "\(lat)"),
+                URLQueryItem(name: "lng", value: "\(lng)"),
+            ])
+            let decoded = try JSONDecoder().decode(Response.self, from: data)
+            guard decoded.ok, let addr = decoded.address?.trimmingCharacters(in: .whitespacesAndNewlines), !addr.isEmpty else {
+                return nil
+            }
+            reverseGeocodeCache[cacheKey] = addr
+            return addr
+        } catch {
+            return nil
+        }
+    }
+
+    /// In-memory reverse-geocode results keyed by rounded lat/lng (session only).
+    private static var reverseGeocodeCache: [String: String] = [:]
+
     static func saveLeadDirect(_ payload: SaveLeadRequest) async throws -> SaveLeadResponse {
         guard let token = await bearerToken() else { throw APIError.unauthenticated }
         return try await saveLeadDirect(payload, accessToken: token)
@@ -963,20 +992,147 @@ extension APIClient {
     }
 }
 
+// MARK: - Canvass scheduling (round-robin teams + availability)
+
+struct CanvassSchedulingTeam: Decodable, Identifiable, Hashable {
+    let id: String
+    let name: String
+}
+
+struct CanvassSchedulingMeta: Decodable {
+    let teams: [CanvassSchedulingTeam]
+    let inspection_duration: Int
+    let user_team_id: String?
+}
+
+struct CanvassAvailabilitySlot: Decodable, Identifiable, Hashable {
+    var id: String { time }
+    let time: String
+    let display: String
+    let available: Bool
+    let availableClosers: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case time, display, available
+        case availableClosers = "availableClosers"
+    }
+}
+
+struct CanvassTeamAvailabilityResponse: Decodable {
+    let slots: [CanvassAvailabilitySlot]
+    let timezone: String?
+    let hasCalendar: Bool?
+    let closersInQueue: Int?
+}
+
+extension APIClient {
+    static func fetchCanvassSchedulingMeta() async throws -> CanvassSchedulingMeta {
+        let data = try await request(path: "/api/canvass/scheduling-meta")
+        return try JSONDecoder().decode(CanvassSchedulingMeta.self, from: data)
+    }
+
+    static func fetchTeamAvailability(teamId: String, dateYmd: String, durationMinutes: Int) async throws -> CanvassTeamAvailabilityResponse {
+        let data = try await request(path: "/api/canvass/team-availability", queryItems: [
+            URLQueryItem(name: "team_id", value: teamId),
+            URLQueryItem(name: "date", value: dateYmd),
+            URLQueryItem(name: "duration", value: "\(durationMinutes)"),
+        ])
+        return try JSONDecoder().decode(CanvassTeamAvailabilityResponse.self, from: data)
+    }
+}
+
 // MARK: - Schedule Inspection
 
-struct ScheduleInspectionRequest: Encodable {
-    /// ID of an existing lead (required — iOS always schedules against an existing pin).
-    let lead_id: String
-    /// Must be `true` to trigger the scheduling path.
-    let schedule_inspection: Bool
-    /// Local wall-clock time string in the format "YYYY-MM-DDTHH:MM".
-    /// The server converts this to UTC using the closer's team timezone.
-    let inspection_scheduled_for: String
-    /// Optional notes appended to canvass_notes on the lead.
-    let canvass_notes: String?
-    /// Always `true` from iOS — let the server assign via round-robin.
-    let use_round_robin: Bool
+/// POST body for `/api/canvass/lead` when scheduling (existing lead or create+schedule in one request).
+struct CanvassLeadScheduleRequest: Encodable {
+    var lead_id: String?
+    var client_lead_id: String?
+    var lat: Double?
+    var lng: Double?
+    var address_text: String?
+    var homeowner_name: String?
+    var phone: String?
+    var canvass_disposition: String?
+    var canvass_notes: String?
+    /// Omitted when scheduling an existing lead so CRM source (e.g. Instant Estimate) is preserved.
+    var source: String?
+    var rep_lat: Double?
+    var rep_lng: Double?
+    var rep_geo_accuracy: Double?
+    var rep_geo_captured_at: String?
+    let schedule_inspection: Bool = true
+    var inspection_scheduled_for: String
+    let use_round_robin: Bool = true
+    /// Web canvass sends `team:{uuid}` here for round-robin team scheduling.
+    var closer_user_id: String?
+
+    /// Blank strings encode as `""` and the canvass API treats present keys as patches (empty → null).
+    /// Existing-lead schedule must omit unset contact/disposition fields so CRM data is not wiped.
+    private static func schedulePatchFieldIfNonEmpty(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
+    }
+
+    /// Existing synced pin — omit coordinates so the server does not erase the house pin.
+    static func forExistingLead(
+        id: String,
+        from save: SaveLeadRequest,
+        inspectionScheduledFor localTime: String,
+        scheduleNotes: String?,
+        roundRobinTeamId: String? = nil
+    ) -> CanvassLeadScheduleRequest {
+        let mergedNotes: String? = {
+            guard let scheduleNotes else { return save.canvass_notes }
+            if let existing = save.canvass_notes, !existing.isEmpty {
+                return existing + "\n\n" + scheduleNotes
+            }
+            return scheduleNotes
+        }()
+        return CanvassLeadScheduleRequest(
+            lead_id: id,
+            address_text: schedulePatchFieldIfNonEmpty(save.address_text),
+            homeowner_name: schedulePatchFieldIfNonEmpty(save.homeowner_name),
+            phone: schedulePatchFieldIfNonEmpty(save.phone),
+            canvass_disposition: schedulePatchFieldIfNonEmpty(save.canvass_disposition),
+            canvass_notes: schedulePatchFieldIfNonEmpty(mergedNotes),
+            source: nil,
+            rep_lat: save.rep_lat,
+            rep_lng: save.rep_lng,
+            rep_geo_accuracy: save.rep_geo_accuracy,
+            rep_geo_captured_at: save.rep_geo_captured_at,
+            inspection_scheduled_for: localTime,
+            closer_user_id: roundRobinTeamId.map { "team:\($0)" }
+        )
+    }
+
+    /// New knock or offline-pending pin — lead row is created (or deduped) in the same request.
+    static func forCreateAndSchedule(
+        from save: SaveLeadRequest,
+        inspectionScheduledFor localTime: String,
+        canvassNotes: String?,
+        roundRobinTeamId: String? = nil
+    ) -> CanvassLeadScheduleRequest {
+        CanvassLeadScheduleRequest(
+            lead_id: save.lead_id,
+            client_lead_id: save.client_lead_id,
+            lat: save.lat,
+            lng: save.lng,
+            address_text: save.address_text,
+            homeowner_name: save.homeowner_name,
+            phone: save.phone,
+            canvass_disposition: save.canvass_disposition,
+            canvass_notes: canvassNotes ?? save.canvass_notes,
+            source: save.source,
+            rep_lat: save.rep_lat,
+            rep_lng: save.rep_lng,
+            rep_geo_accuracy: save.rep_geo_accuracy,
+            rep_geo_captured_at: save.rep_geo_captured_at,
+            inspection_scheduled_for: localTime,
+            closer_user_id: roundRobinTeamId.map { "team:\($0)" }
+        )
+    }
 }
 
 struct ScheduleInspectionResponse: Decodable {
@@ -992,9 +1148,9 @@ struct ScheduleInspectionResponse: Decodable {
 }
 
 extension APIClient {
-    /// POST /api/canvass/lead with schedule_inspection = true.
+    /// POST `/api/canvass/lead` with `schedule_inspection = true` (never queued offline).
     /// Throws `APIError.schedulingConflict` with a human-readable message on 4xx scheduling errors.
-    static func scheduleInspection(_ payload: ScheduleInspectionRequest) async throws -> ScheduleInspectionResponse {
+    static func scheduleInspection(_ payload: CanvassLeadScheduleRequest) async throws -> ScheduleInspectionResponse {
         guard let token = await bearerToken() else { throw APIError.unauthenticated }
         var req = URLRequest(url: URL(string: baseURL + "/api/canvass/lead")!)
         req.httpMethod = "POST"
