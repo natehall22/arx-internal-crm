@@ -1010,6 +1010,7 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
               {hasOperationsSnapshotData(snapshotJob.project) ? (
                 <OperationsSnapshotCard
                   project={snapshotJob.project}
+                  defaultExpanded
                   headerAction={
                     <Link
                       href={`/projects/${snapshotJob.project_id}`}
