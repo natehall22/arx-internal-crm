@@ -196,6 +196,17 @@ struct SisuBadgesResponse: Decodable {
     let badges: [SisuBadge]
 }
 
+/// GET /api/commissions/weekly — week-to-date commission rows for the signed-in rep (estimate only).
+struct WeeklyCommissionEstimate: Decodable {
+    let weeklyTotal: Double
+    let hasCompPlan: Bool
+    let weekStart: String
+    let weekEnd: String
+    let role: String
+    let perspectiveLane: String
+    let isEstimate: Bool
+}
+
 /// A SPIFF ("Heat") program with the current rep's live progress toward it.
 /// Mirrors `SpiffWithProgress` in lib/incentive-metrics.ts — do not add fields
 /// that don't exist server-side; extend /api/sisu/incentives first.
@@ -668,6 +679,11 @@ struct APIClient {
     static func sisuIncentives() async throws -> SisuIncentivesResponse {
         let data = try await request(path: "/api/sisu/incentives")
         return try JSONDecoder().decode(SisuIncentivesResponse.self, from: data)
+    }
+
+    static func weeklyCommissionEstimate() async throws -> WeeklyCommissionEstimate {
+        let data = try await request(path: "/api/commissions/weekly")
+        return try JSONDecoder().decode(WeeklyCommissionEstimate.self, from: data)
     }
 
     // MARK: - Appointments

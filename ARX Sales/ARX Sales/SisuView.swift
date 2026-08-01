@@ -9,6 +9,7 @@ struct SisuView: View {
     @State private var leaderboard: SisuLeaderboardResponse?
     @State private var badges: [SisuBadge] = []
     @State private var incentives: SisuIncentivesResponse?
+    @State private var weeklyPayEstimate: WeeklyCommissionEstimate?
     @State private var currentUserId: String?
     @State private var isLoading = true
     @State private var error: String?
@@ -43,6 +44,7 @@ struct SisuView: View {
                         .padding(.top, 60)
                     } else {
                         myRankCard
+                        payEstimateSection
                         spiffsSection
                         goalSection
                         badgesSection
@@ -139,6 +141,86 @@ struct SisuView: View {
         case 2: return "🥈"
         case 3: return "🥉"
         default: return "#\(rank)"
+        }
+    }
+
+    // MARK: - Weekly commission estimate (funded rows — not payroll)
+
+    @ViewBuilder
+    private var payEstimateSection: some View {
+        if let est = weeklyPayEstimate {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Text("THIS WEEK'S COMMISSION ESTIMATE")
+                        .font(.caption.weight(.semibold))
+                        .foregroundColor(AppSettings.darkText.opacity(0.65))
+                    Spacer()
+                    Text(payEstimateLaneChip(est.perspectiveLane))
+                        .font(.caption2.weight(.semibold))
+                        .foregroundColor(AppSettings.brandBlue)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(AppSettings.brandBlue.opacity(0.12))
+                        .cornerRadius(8)
+                }
+
+                Text(formatPayEstimateAmount(est.weeklyTotal))
+                    .font(.system(size: 34, weight: .bold, design: .rounded))
+                    .foregroundColor(AppSettings.darkText)
+
+                Text("Not a paycheck — estimate from funded commission rows.")
+                    .font(.caption2)
+                    .foregroundColor(AppSettings.darkText.opacity(0.6))
+
+                Text(payEstimateSubtitle(for: est))
+                    .font(.caption)
+                    .foregroundColor(AppSettings.darkText.opacity(0.75))
+
+                if let laneHint = payEstimateLaneHint(est.perspectiveLane) {
+                    Text(laneHint)
+                        .font(.caption2)
+                        .foregroundColor(AppSettings.darkText.opacity(0.55))
+                }
+
+                if !est.hasCompPlan {
+                    Text("Ask your manager to assign a comp plan so commission can accrue on your deals.")
+                        .font(.caption2)
+                        .foregroundColor(Color(hex: "#B45309"))
+                }
+            }
+            .padding()
+            .background(Color(.secondarySystemBackground))
+            .cornerRadius(16)
+            .padding(.horizontal)
+        }
+    }
+
+    private func formatPayEstimateAmount(_ amount: Double) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.maximumFractionDigits = amount.truncatingRemainder(dividingBy: 1) == 0 ? 0 : 2
+        return formatter.string(from: NSNumber(value: amount)) ?? String(format: "$%.2f", amount)
+    }
+
+    private func payEstimateLaneChip(_ lane: String) -> String {
+        switch lane {
+        case "setter": return "Setter"
+        case "closer": return "Closer"
+        case "manager": return "Manager"
+        default: return "Rep"
+        }
+    }
+
+    private func payEstimateSubtitle(for _: WeeklyCommissionEstimate) -> String {
+        "Estimate of your commission earnings this week (Sun–Sat ET)."
+    }
+
+    private func payEstimateLaneHint(_ lane: String) -> String? {
+        switch lane {
+        case "setter": return "Shown for your Setter role."
+        case "closer": return "Shown for your Closer role."
+        case "manager": return "Shown for your Manager role."
+        default: return nil
         }
     }
 
@@ -269,6 +351,9 @@ struct SisuView: View {
 
             // SPIFFs/goal are additive — a failure here shouldn't blank the whole hub.
             incentives = try? await APIClient.sisuIncentives()
+
+            // Pay estimate is additive — failure hides only this card.
+            weeklyPayEstimate = try? await APIClient.weeklyCommissionEstimate()
 
             // Board defaults to wherever the rep actually shows up.
             if let myBoard = myEntryBoard {
