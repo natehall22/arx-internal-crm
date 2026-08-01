@@ -597,7 +597,7 @@ struct ScheduleInspectionSheet: View {
     }
 
     /// Interprets POST `/api/canvass/lead` fields: `calendar_synced`, `calendar_error`, `assigned_closer`.
-    static func buildScheduleConfirmation(from result: ScheduleInspectionResponse) -> ScheduleConfirmationCopy {
+    private static func buildScheduleConfirmation(from result: ScheduleInspectionResponse) -> ScheduleConfirmationCopy {
         let calendarErrorTrimmed = result.calendar_error?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let hasCalendarError = !(calendarErrorTrimmed?.isEmpty ?? true)
@@ -645,7 +645,7 @@ struct ScheduleInspectionSheet: View {
         )
     }
 
-    static func buildDateOptions() -> [ScheduleDateOption] {
+    private static func buildDateOptions() -> [ScheduleDateOption] {
         let cal = Calendar.current
         let today = Date()
         var options: [ScheduleDateOption] = []
