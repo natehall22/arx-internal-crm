@@ -44,9 +44,11 @@ export default function ChangeOrderModal({
   const [updatedRemaining, setUpdatedRemaining] = useState('0')
   const updatedTotalNum = previewNumber(updatedTotal)
   const updatedRemainingNum = previewNumber(updatedRemaining)
-  
+
+  const [signingMode, setSigningMode] = useState<'in_person' | 'send_to_customer'>('send_to_customer')
   const [customerPrintName, setCustomerPrintName] = useState('')
   const [customerSignature, setCustomerSignature] = useState<string | null>(null)
+  const [customerEmailInput, setCustomerEmailInput] = useState(customerEmail || '')
   const [repPrintName, setRepPrintName] = useState(repName)
   const [repSignature, setRepSignature] = useState<string | null>(null)
   
@@ -55,6 +57,7 @@ export default function ChangeOrderModal({
   const [success, setSuccess] = useState(false)
   const [pdfUrl, setPdfUrl] = useState<string | null>(null)
   const [signingUrl, setSigningUrl] = useState<string | null>(null)
+  const [linkCopied, setLinkCopied] = useState(false)
 
   const today = new Date().toLocaleDateString('en-US', {
     year: 'numeric',
@@ -75,16 +78,19 @@ export default function ChangeOrderModal({
       setDescription('')
       setUpdatedTotal(String(originalContractAmount))
       setUpdatedRemaining(isInsurance ? '0' : String(Math.max(0, originalContractAmount - amountCollected)))
+      setSigningMode('send_to_customer')
       setCustomerPrintName('')
       setCustomerSignature(null)
+      setCustomerEmailInput(customerEmail || '')
       setRepPrintName(repName)
       setRepSignature(null)
       setError(null)
       setSuccess(false)
       setPdfUrl(null)
       setSigningUrl(null)
+      setLinkCopied(false)
     }
-  }, [isOpen, originalContractAmount, amountCollected, repName, isInsurance])
+  }, [isOpen, originalContractAmount, amountCollected, repName, isInsurance, customerEmail])
 
   const handleSubmit = async (mode: 'in_person' | 'send_to_customer') => {
     setError(null)
@@ -103,16 +109,12 @@ export default function ChangeOrderModal({
       setError('Updated remaining balance is required for insurance jobs')
       return
     }
-    if (!customerPrintName.trim()) {
+    if (mode === 'in_person' && !customerPrintName.trim()) {
       setError('Customer print name is required')
       return
     }
     if (mode === 'in_person' && !customerSignature) {
       setError('Customer signature is required')
-      return
-    }
-    if (mode === 'send_to_customer' && !customerEmail?.trim()) {
-      setError('Customer email is required to send for signature')
       return
     }
     if (!repPrintName.trim()) {
@@ -123,6 +125,10 @@ export default function ChangeOrderModal({
       setError('Rep signature is required')
       return
     }
+
+    const finalCustomerPrintName = mode === 'in_person' ? customerPrintName.trim() : customerName
+    const finalCustomerSignature = mode === 'in_person' ? customerSignature : null
+    const finalCustomerEmail = mode === 'send_to_customer' ? customerEmailInput.trim() || null : customerEmail
 
     setIsSubmitting(true)
 
@@ -138,15 +144,15 @@ export default function ChangeOrderModal({
           originalAmount: originalContractAmount,
           updatedTotal: updatedTotalValue,
           updatedRemaining: updatedRemainingValue,
-          customerPrintName: customerPrintName.trim(),
-          customerSignature,
+          customerPrintName: finalCustomerPrintName,
+          customerSignature: finalCustomerSignature,
           repName: repPrintName.trim(),
           repSignature,
           originalContractId,
           originalContractDate,
           paymentMethod,
           customerName,
-          customerEmail,
+          customerEmail: finalCustomerEmail,
           projectAddress,
           signingMode: mode,
         }),
@@ -209,12 +215,26 @@ export default function ChangeOrderModal({
                 <h3 className="text-xl font-bold text-gray-900 mb-2">Change Order Created!</h3>
                 <p className="text-gray-600 mb-6">
                   {signingUrl
-                    ? `${nextCoNumber} was sent to the customer for signature.`
+                    ? `${nextCoNumber} is ready for the customer's signature.`
                     : `${nextCoNumber} has been saved successfully.`}
                 </p>
                 {signingUrl && (
-                  <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-                    Customer signing link generated and emailed.
+                  <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 text-left space-y-3">
+                    <p>
+                      {customerEmailInput.trim()
+                        ? `Emailed to ${customerEmailInput.trim()}. You can also copy the link below to text it yourself.`
+                        : `No email on file — copy the link below to text or share it with the customer.`}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(signingUrl)
+                        setLinkCopied(true)
+                      }}
+                      className="w-full py-3 bg-amber-600 text-white font-medium rounded-lg hover:bg-amber-700 min-h-[44px]"
+                    >
+                      {linkCopied ? 'Link Copied!' : 'Copy Signing Link'}
+                    </button>
                   </div>
                 )}
                 {pdfUrl && (
@@ -359,39 +379,92 @@ export default function ChangeOrderModal({
 
                 {/* Divider */}
                 <div className="border-t border-gray-200 pt-5">
-                  <h3 className="text-base font-semibold text-gray-900 mb-4">Signatures</h3>
+                  <h3 className="text-base font-semibold text-gray-900 mb-4">How will this be signed?</h3>
                 </div>
 
-                {/* Customer Signature */}
-                <div className="bg-gray-50 rounded-lg p-4">
-                  <h4 className="text-sm font-semibold text-gray-700 mb-3">Customer</h4>
-                  <div className="space-y-3">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Print Name <span className="text-red-500">*</span>
-                      </label>
-                      <input
-                        type="text"
-                        value={customerPrintName}
-                        onChange={(e) => setCustomerPrintName(e.target.value)}
-                        className="w-full px-3 py-3 border border-gray-300 rounded-lg text-base text-black bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                        style={{ color: '#000000', backgroundColor: '#ffffff' }}
-                        placeholder="Customer's full name"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Signature <span className="text-red-500">*</span>
-                      </label>
-                      <SignaturePad
-                        onChange={setCustomerSignature}
-                        value={customerSignature}
-                        width={350}
-                        height={120}
-                      />
+                {/* Signing mode toggle */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setSigningMode('send_to_customer')}
+                    className={`text-left rounded-lg border-2 p-4 transition-colors ${
+                      signingMode === 'send_to_customer'
+                        ? 'border-indigo-600 bg-indigo-50'
+                        : 'border-gray-200 bg-white hover:border-gray-300'
+                    }`}
+                  >
+                    <p className="font-semibold text-gray-900">Send to customer</p>
+                    <p className="text-sm text-gray-600 mt-1">
+                      Email a link, or copy it to text yourself. The customer signs on their own device.
+                    </p>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSigningMode('in_person')}
+                    className={`text-left rounded-lg border-2 p-4 transition-colors ${
+                      signingMode === 'in_person'
+                        ? 'border-indigo-600 bg-indigo-50'
+                        : 'border-gray-200 bg-white hover:border-gray-300'
+                    }`}
+                  >
+                    <p className="font-semibold text-gray-900">Sign in person now</p>
+                    <p className="text-sm text-gray-600 mt-1">
+                      Use this device to collect the customer's signature right now.
+                    </p>
+                  </button>
+                </div>
+
+                {signingMode === 'send_to_customer' ? (
+                  <div className="bg-gray-50 rounded-lg p-4">
+                    <h4 className="text-sm font-semibold text-gray-700 mb-3">Customer</h4>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Email (optional)
+                    </label>
+                    <input
+                      type="email"
+                      value={customerEmailInput}
+                      onChange={(e) => setCustomerEmailInput(e.target.value)}
+                      className="w-full px-3 py-3 border border-gray-300 rounded-lg text-base text-black bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                      style={{ color: '#000000', backgroundColor: '#ffffff' }}
+                      placeholder="customer@email.com"
+                    />
+                    <p className="text-sm text-gray-500 mt-2">
+                      {customerEmailInput.trim()
+                        ? "We'll email this link, and you'll also get a copyable link to text if you'd like."
+                        : "No email? Leave this blank — you'll still get a link to copy and text after saving."}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="bg-gray-50 rounded-lg p-4">
+                    <h4 className="text-sm font-semibold text-gray-700 mb-3">Customer</h4>
+                    <div className="space-y-3">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Print Name <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={customerPrintName}
+                          onChange={(e) => setCustomerPrintName(e.target.value)}
+                          className="w-full px-3 py-3 border border-gray-300 rounded-lg text-base text-black bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                          style={{ color: '#000000', backgroundColor: '#ffffff' }}
+                          placeholder="Customer's full name"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Signature <span className="text-red-500">*</span>
+                        </label>
+                        <SignaturePad
+                          onChange={setCustomerSignature}
+                          value={customerSignature}
+                          width={350}
+                          height={120}
+                        />
+                      </div>
                     </div>
                   </div>
-                </div>
+                )}
 
                 {/* Rep Signature */}
                 <div className="bg-gray-50 rounded-lg p-4">
@@ -425,9 +498,9 @@ export default function ChangeOrderModal({
                 </div>
 
                 {/* Submit Button */}
-                <div className="space-y-2">
+                <div>
                   <button
-                    onClick={() => handleSubmit('in_person')}
+                    onClick={() => handleSubmit(signingMode)}
                     disabled={isSubmitting}
                     className="w-full py-4 bg-indigo-600 text-white font-semibold rounded-lg hover:bg-indigo-700 disabled:bg-indigo-400 disabled:cursor-not-allowed min-h-[52px] text-base"
                   >
@@ -437,18 +510,13 @@ export default function ChangeOrderModal({
                           <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                           <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                         </svg>
-                        Generating...
+                        {signingMode === 'in_person' ? 'Generating...' : 'Sending...'}
                       </span>
-                    ) : (
+                    ) : signingMode === 'in_person' ? (
                       'Generate & Save Change Order'
+                    ) : (
+                      'Send to Customer for Signature'
                     )}
-                  </button>
-                  <button
-                    onClick={() => handleSubmit('send_to_customer')}
-                    disabled={isSubmitting}
-                    className="w-full py-3 border border-indigo-600 text-indigo-700 font-semibold rounded-lg hover:bg-indigo-50 disabled:opacity-60 disabled:cursor-not-allowed min-h-[48px] text-base"
-                  >
-                    {isSubmitting ? 'Sending...' : 'Email to Customer for Signature'}
                   </button>
                 </div>
               </>

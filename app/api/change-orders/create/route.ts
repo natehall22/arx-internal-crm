@@ -52,12 +52,6 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       )
     }
-    if (isSendToCustomer && !customerEmail) {
-      return NextResponse.json(
-        { error: 'Customer email is required to send for signature' },
-        { status: 400 }
-      )
-    }
 
     const signedAt = new Date().toISOString()
     const today = new Date().toISOString().split('T')[0]
@@ -162,9 +156,11 @@ export async function POST(request: NextRequest) {
     console.log('[Change Order] Record created:', changeOrder.id)
 
     let signingUrl: string | null = null
-    if (isSendToCustomer && signingToken && customerEmail) {
+    if (isSendToCustomer && signingToken) {
       const baseUrl = (process.env.NEXT_PUBLIC_APP_URL || request.nextUrl.origin || '').replace(/\/$/, '')
       signingUrl = `${baseUrl}/change-orders/sign/${signingToken}`
+    }
+    if (isSendToCustomer && signingUrl && customerEmail) {
       try {
         const transporter = nodemailer.createTransport({
           host: process.env.SMTP_HOST,
@@ -218,7 +214,9 @@ export async function POST(request: NextRequest) {
       user_id: profile.id,
       type: 'status_change',
       body: isSendToCustomer
-        ? `Change Order ${coNumber} created and sent for customer signature. Updated total: $${updatedTotal.toLocaleString()}`
+        ? customerEmail
+          ? `Change Order ${coNumber} created and emailed to the customer for signature. Updated total: $${updatedTotal.toLocaleString()}`
+          : `Change Order ${coNumber} created with a signing link for the customer (no email on file). Updated total: $${updatedTotal.toLocaleString()}`
         : `Change Order ${coNumber} created. Updated total: $${updatedTotal.toLocaleString()}`,
     })
 

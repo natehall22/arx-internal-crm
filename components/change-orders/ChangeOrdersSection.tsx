@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import ChangeOrderModal from './ChangeOrderModal'
 
@@ -52,6 +52,10 @@ export default function ChangeOrdersSection({
   const [changeOrders, setChangeOrders] = useState(initialChangeOrders)
   const [pdfBusyId, setPdfBusyId] = useState<string | null>(null)
 
+  useEffect(() => {
+    setChangeOrders(initialChangeOrders)
+  }, [initialChangeOrders])
+
   const regeneratePdf = async (coId: string) => {
     setPdfBusyId(coId)
     try {
@@ -80,7 +84,7 @@ export default function ChangeOrdersSection({
   }
 
   const handleSuccess = () => {
-    window.location.reload()
+    router.refresh()
   }
 
   const formatDate = (dateStr: string) => {
