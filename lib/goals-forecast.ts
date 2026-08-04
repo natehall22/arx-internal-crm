@@ -1,9 +1,4 @@
-import {
-  countRemainingWeeks,
-  easternWeekdayIndex,
-  listEasternDatesInRange,
-  toEasternDateIso,
-} from '@/lib/goals-period'
+import { easternWeekdayIndex, listEasternDatesInRange, toEasternDateIso } from '@/lib/goals-period'
 
 export type ForecastMetricKey =
   | 'doors'
@@ -16,22 +11,23 @@ export type ForecastMetricKey =
 export type RateWindow = '90d' | '180d' | 'all'
 
 export type RateAssumption = {
+  key: 'doorToSet' | 'setToSit' | 'sitToSale' | 'setToSaleLag'
   label: string
-  rate: number | null
+  kind: 'rate' | 'days'
+  value: number | null
   window: RateWindow | null
   sampleSize: number
   note?: string
 }
 
 export type ForecastMetricOutput = {
+  /** Booked/recorded so far inside the range, up to `asOf`. */
   actual: number
-  knownBooked: number
-  projected: number
-  projectedLow: number
-  projectedHigh: number
+  /** End-of-range expectation, inclusive of `actual`. */
+  projectedTotal: number
   goal: number | null
+  /** goal − projectedTotal. Positive means short of goal. */
   gapToGoal: number | null
-  neededPerWeek: number | null
 }
 
 export type WeeklyTrendPoint = {
@@ -41,6 +37,14 @@ export type WeeklyTrendPoint = {
   sales: number
 }
 
+/** How the range's goal was assembled from per-month `org_monthly_goals` rows. */
+export type GoalCoverage = {
+  months: string[]
+  monthsMissingGoal: string[]
+  /** True when the range covers only part of at least one month, so its goal was prorated by day count. */
+  prorated: boolean
+}
+
 export type ForecastResult = {
   rangeStart: string
   rangeEnd: string
@@ -48,20 +52,63 @@ export type ForecastResult = {
   metrics: Record<ForecastMetricKey, ForecastMetricOutput>
   weeklyTrend: WeeklyTrendPoint[]
   assumptions: RateAssumption[]
+  goalCoverage: GoalCoverage
+}
+
+export type HistorySet = {
+  at: string
+  opportunityId: string | null
+  leadId: string | null
+}
+
+export type HistorySit = {
+  at: string
+  opportunityId: string
+  leadId: string | null
+}
+
+export type HistorySale = {
+  signedAt: string
+  projectCost: number
+  opportunityId: string | null
 }
 
 export type ForecastHistory = {
   doors: string[]
-  sets: string[]
-  sits: string[]
-  sales: { signedAt: string; projectCost: number }[]
+  sets: HistorySet[]
+  sits: HistorySit[]
+  sales: HistorySale[]
   payments: { paidAt: string; amount: number }[]
-  setToSalePairs: { setAt: string; signedAt: string }[]
 }
 
 export type ForecastGoals = Partial<Record<ForecastMetricKey, number | null>>
 
 const MS_DAY = 86_400_000
+
+/**
+ * A set's outcome is normally recorded on the appointment day, but reps enter it
+ * late often enough that grading the last few days as "no-show" understates the rate.
+ * Sets scheduled inside this window are excluded from the set→sit denominator.
+ */
+const SET_TO_SIT_MATURITY_DAYS = 7
+
+/** Fallback maturity/lag when there aren't enough closed sit→sale pairs to measure one. */
+const DEFAULT_SIT_TO_SALE_LAG_DAYS = 21
+
+/** A sit older than this is treated as dead pipeline, not a live chance to close. */
+const MAX_OPEN_SIT_AGE_DAYS = 90
+
+/** Beyond this, a set/sit-to-signing gap is data entry noise rather than a real sales cycle. */
+const MAX_PLAUSIBLE_LAG_DAYS = 180
+
+/** Minimum matured records before a conversion rate is trusted over a wider window. */
+const MIN_RATE_SAMPLE = 10
+
+/** Doors are high-volume, so the door→set ratio needs a proportionally larger denominator. */
+const MIN_DOOR_SAMPLE = 100
+
+/** Below this many observed lags, the CDF falls back to a linear ramp. */
+const MIN_LAG_CDF_SAMPLE = 8
 
 function inRange(iso: string, start: Date, end: Date, asOf?: Date): boolean {
   const t = new Date(iso).getTime()
@@ -91,245 +138,359 @@ function daysAgo(asOf: Date, days: number): Date {
   return new Date(asOf.getTime() - days * MS_DAY)
 }
 
+function ms(iso: string): number {
+  return new Date(iso).getTime()
+}
+
 type ConversionRateResult = { rate: number; window: RateWindow; n: number }
 
-function pickConversionRate(
-  numerators: { at: string; converted: boolean }[],
-  asOf: Date,
-  minN = 10
-): ConversionRateResult {
-  const windows: { window: RateWindow; days: number }[] = [
-    { window: '90d', days: 90 },
-    { window: '180d', days: 180 },
-    { window: 'all', days: 3650 },
-  ]
+const RATE_WINDOWS: { window: RateWindow; days: number }[] = [
+  { window: '90d', days: 90 },
+  { window: '180d', days: 180 },
+  { window: 'all', days: 3650 },
+]
 
-  for (const { window, days } of windows) {
-    const start = daysAgo(asOf, days)
-    const sample = numerators.filter((row) => {
-      const t = new Date(row.at).getTime()
-      return t >= start.getTime() && t < asOf.getTime()
-    })
-    const conversions = sample.filter((row) => row.converted).length
+/**
+ * First window (90d → 180d → all-time) with at least `minN` matured records.
+ * `records.at` is when the record entered the stage; `converted` is whether it
+ * reached the next stage. Records newer than `maturityDays` are excluded entirely —
+ * counting them as failures would drag every rate toward zero.
+ */
+function pickConversionRate(
+  records: { at: string; converted: boolean }[],
+  asOf: Date,
+  maturityDays: number,
+  minN = MIN_RATE_SAMPLE
+): ConversionRateResult {
+  const maturedBefore = daysAgo(asOf, maturityDays).getTime()
+  const matured = records.filter((row) => {
+    const t = ms(row.at)
+    return Number.isFinite(t) && t < maturedBefore
+  })
+
+  for (const { window, days } of RATE_WINDOWS) {
+    const start = daysAgo(asOf, days).getTime()
+    const sample = matured.filter((row) => ms(row.at) >= start)
     if (sample.length >= minN) {
-      return { rate: conversions / sample.length, window, n: sample.length }
+      return { rate: sample.filter((r) => r.converted).length / sample.length, window, n: sample.length }
     }
   }
 
-  const allBefore = numerators.filter((row) => new Date(row.at).getTime() < asOf.getTime())
-  const conversions = allBefore.filter((row) => row.converted).length
+  const conversions = matured.filter((row) => row.converted).length
   return {
-    rate: allBefore.length > 0 ? conversions / allBefore.length : 0,
-    window: allBefore.length >= minN ? 'all' : '90d',
-    n: allBefore.length,
+    rate: matured.length > 0 ? conversions / matured.length : 0,
+    window: 'all',
+    n: matured.length,
   }
 }
 
-function weekdayRunRate(
-  events: string[],
-  asOf: Date,
-  rangeEnd: Date,
-  historyWeeks = 8
-): { projected: number; low: number; high: number } {
-  const historyStart = daysAgo(asOf, historyWeeks * 7)
-  const historyEvents = events.filter((iso) => inRange(iso, historyStart, asOf))
+/**
+ * Expected events across the remaining days of the range, using each weekday's own
+ * trailing average — Saturday and Sunday knock volume looks nothing like Tuesday's,
+ * so a flat daily rate skews any range that doesn't end on a week boundary.
+ */
+function weekdayRunRate(events: string[], asOf: Date, rangeEnd: Date, historyWeeks = 8): number {
+  const asOfMs = asOf.getTime()
+  const historyStartMs = daysAgo(asOf, historyWeeks * 7).getTime()
 
   const weekdayTotals = Array.from({ length: 7 }, () => 0)
-  const weekdayCounts = Array.from({ length: 7 }, () => 0)
+  const weeksWithData = new Set<number>()
+  let total = 0
 
-  if (historyEvents.length > 0) {
-    for (let w = 0; w < historyWeeks; w++) {
-      const weekStart = daysAgo(asOf, (w + 1) * 7)
-      const weekEnd = daysAgo(asOf, w * 7)
-      const weekByDay = Array.from({ length: 7 }, () => 0)
-      for (const iso of historyEvents) {
-        const t = new Date(iso).getTime()
-        if (t >= weekStart.getTime() && t < weekEnd.getTime()) {
-          weekByDay[easternWeekdayIndex(iso)] += 1
-        }
-      }
-      for (let d = 0; d < 7; d++) {
-        weekdayTotals[d] += weekByDay[d]
-        weekdayCounts[d] += 1
-      }
-    }
+  for (const iso of events) {
+    const t = ms(iso)
+    if (!Number.isFinite(t) || t < historyStartMs || t >= asOfMs) continue
+    weekdayTotals[easternWeekdayIndex(iso)] += 1
+    weeksWithData.add(Math.floor((asOfMs - t) / (7 * MS_DAY)))
+    total += 1
   }
 
-  const weekdayAvg = weekdayTotals.map((total, d) =>
-    weekdayCounts[d] > 0 ? total / weekdayCounts[d] : 0
-  )
+  const flatDaily = total > 0 ? total / (historyWeeks * 7) : 0
+  // With a full history every weekday slot has 8 observations, so the per-weekday
+  // average stands on its own. With gaps, a weekday that happens to have no history
+  // falls back to the flat daily rate rather than projecting zero.
+  const hasFullHistory = weeksWithData.size >= historyWeeks
 
-  const flatDaily =
-    historyEvents.length > 0
-      ? historyEvents.length / Math.max(1, (asOf.getTime() - historyStart.getTime()) / MS_DAY)
-      : 0
-
-  const weeklyTotals: number[] = []
-  let weeksWithData = 0
-  for (let w = 0; w < historyWeeks; w++) {
-    const weekStart = daysAgo(asOf, (w + 1) * 7)
-    const weekEnd = daysAgo(asOf, w * 7)
-    const weekCount = historyEvents.filter((iso) => {
-      const t = new Date(iso).getTime()
-      return t >= weekStart.getTime() && t < weekEnd.getTime()
-    }).length
-    weeklyTotals.push(weekCount)
-    if (weekCount > 0) weeksWithData += 1
-  }
-
-  const hasEightWeeks = weeksWithData >= historyWeeks
-
-  const remainingDates = listEasternDatesInRange(asOf.toISOString(), rangeEnd.toISOString())
   let projected = 0
-  for (const date of remainingDates) {
+  for (const date of listEasternDatesInRange(asOf.toISOString(), rangeEnd.toISOString())) {
     const wd = easternWeekdayIndex(`${date}T12:00:00.000Z`)
-    let avg = 0
-    if (hasEightWeeks) {
-      avg = weekdayCounts[wd] > 0 ? weekdayTotals[wd] / weekdayCounts[wd] : 0
-    } else {
-      avg = weekdayAvg[wd] > 0 ? weekdayAvg[wd] : flatDaily
+    const weekdayAvg = weekdayTotals[wd] / historyWeeks
+    projected += hasFullHistory || weekdayAvg > 0 ? weekdayAvg : flatDaily
+  }
+
+  return projected
+}
+
+/** Key a set to the pipeline record it belongs to: opportunity when present, else lead. */
+function setKey(set: HistorySet): string | null {
+  if (set.opportunityId) return `opp:${set.opportunityId}`
+  if (set.leadId) return `lead:${set.leadId}`
+  return null
+}
+
+function sitKeys(sit: HistorySit): string[] {
+  const keys = [`opp:${sit.opportunityId}`]
+  if (sit.leadId) keys.push(`lead:${sit.leadId}`)
+  return keys
+}
+
+/**
+ * Doors → sets is a volume ratio, not a per-record join: a knock that books an
+ * inspection isn't linked back to the door pin it came from. Measured over whole
+ * windows, with doors as the denominator sample.
+ */
+function computeDoorToSetRate(doors: string[], sets: HistorySet[], asOf: Date): ConversionRateResult {
+  const asOfMs = asOf.getTime()
+  const countSince = (times: number[], startMs: number) =>
+    times.reduce((n, t) => (t >= startMs && t < asOfMs ? n + 1 : n), 0)
+
+  const doorTimes = doors.map(ms)
+  const setTimes = sets.map((s) => ms(s.at))
+
+  for (const { window, days } of RATE_WINDOWS) {
+    const start = daysAgo(asOf, days).getTime()
+    const doorCount = countSince(doorTimes, start)
+    if (doorCount >= MIN_DOOR_SAMPLE) {
+      return { rate: countSince(setTimes, start) / doorCount, window, n: doorCount }
     }
-    projected += avg
   }
 
-  const p25 = percentile(weeklyTotals, 0.25)
-  const p75 = percentile(weeklyTotals, 0.75)
-  const avgWeekly =
-    weeklyTotals.length > 0
-      ? weeklyTotals.reduce((a, b) => a + b, 0) / weeklyTotals.length
-      : flatDaily * 7
-
-  const lowRaw = p25 > 0 ? (p25 / Math.max(avgWeekly, 1)) * projected : projected * 0.85
-  const highRaw = p75 > 0 ? (p75 / Math.max(avgWeekly, 1)) * projected : projected * 1.15
-
+  const doorCount = countSince(doorTimes, -Infinity)
   return {
-    projected,
-    low: Math.min(projected, lowRaw),
-    high: Math.max(projected, highRaw),
+    rate: doorCount > 0 ? countSince(setTimes, -Infinity) / doorCount : 0,
+    window: 'all',
+    n: doorCount,
   }
 }
 
-function computeSetToSitRate(sets: string[], sits: string[], asOf: Date): ConversionRateResult {
-  const sitSet = new Set(sits.map((iso) => toEasternDateIso(iso)))
-  const rows = sets.map((setAt) => ({
-    at: setAt,
-    converted: sitSet.has(toEasternDateIso(setAt)),
-  }))
-  return pickConversionRate(rows, asOf)
+/**
+ * Share of sets that produced a qualifying inspection outcome on the SAME pipeline
+ * record. The previous implementation matched a set to any sit on the same calendar
+ * date anywhere in the org, which measured daily activity overlap rather than
+ * conversion.
+ */
+function computeSetToSitRate(sets: HistorySet[], sits: HistorySit[], asOf: Date): ConversionRateResult {
+  const sitOppIds = new Set<string>()
+  const latestSitByLead = new Map<string, number>()
+  for (const sit of sits) {
+    const t = ms(sit.at)
+    if (!Number.isFinite(t)) continue
+    sitOppIds.add(sit.opportunityId)
+    if (sit.leadId) {
+      const existing = latestSitByLead.get(sit.leadId)
+      if (existing == null || t > existing) latestSitByLead.set(sit.leadId, t)
+    }
+  }
+
+  const records = sets.map((set) => {
+    // An opportunity is a single deal, so any qualifying outcome on it means this
+    // appointment sat. Outcome timestamps are entered by hand and routinely land
+    // out of order relative to the appointment, so ordering is NOT required here.
+    if (set.opportunityId) {
+      return { at: set.at, converted: sitOppIds.has(set.opportunityId) }
+    }
+    // Lead-keyed fallback: a lead can be re-knocked and span several deals over
+    // time, so only credit a sit on or after this appointment's day.
+    const latest = set.leadId ? latestSitByLead.get(set.leadId) : undefined
+    const setAt = ms(set.at)
+    const setDayStart = setAt - (setAt % MS_DAY)
+    return { at: set.at, converted: latest != null && latest >= setDayStart }
+  })
+
+  return pickConversionRate(records, asOf, SET_TO_SIT_MATURITY_DAYS)
 }
 
+/**
+ * Days from a stage timestamp to the opportunity's first signing at or after it.
+ * `null` when the opportunity never sold, sold beforehand, or the gap is too large
+ * to be a real sales cycle.
+ */
+function signingLagDays(
+  salesByOpp: Map<string, number[]>,
+  opportunityId: string,
+  fromMs: number,
+  beforeMs = Infinity
+): { signedAtMs: number; lagDays: number } | null {
+  const signings = salesByOpp.get(opportunityId)
+  if (!signings || !Number.isFinite(fromMs)) return null
+
+  let earliest = Infinity
+  for (const t of signings) {
+    if (t >= fromMs && t < beforeMs && t < earliest) earliest = t
+  }
+  if (!Number.isFinite(earliest)) return null
+
+  const lagDays = Math.round((earliest - fromMs) / MS_DAY)
+  if (lagDays < 0 || lagDays > MAX_PLAUSIBLE_LAG_DAYS) return null
+  return { signedAtMs: earliest, lagDays }
+}
+
+/** Days from sit to signed contract, for sits that did close. Drives maturity + landing math. */
+function sitToSaleLagSamples(sits: HistorySit[], salesByOpp: Map<string, number[]>): number[] {
+  const lags: number[] = []
+  for (const sit of sits) {
+    const lag = signingLagDays(salesByOpp, sit.opportunityId, ms(sit.at))
+    if (lag) lags.push(lag.lagDays)
+  }
+  return lags
+}
+
+/**
+ * Share of sits that became a signed contract on the SAME opportunity. The previous
+ * implementation counted a sit as converted if any sale anywhere in the org was
+ * signed on or after that date, which made the rate approach 100% by construction.
+ */
 function computeSitToSaleRate(
-  sits: string[],
-  sales: { signedAt: string }[],
+  sits: HistorySit[],
+  salesByOpp: Map<string, number[]>,
+  maturityDays: number,
   asOf: Date
 ): ConversionRateResult {
-  const saleDates = sales.map((s) => toEasternDateIso(s.signedAt))
-  const rows = sits.map((sitAt) => {
-    const sitDay = toEasternDateIso(sitAt)
-    const converted = saleDates.some((d) => d >= sitDay)
-    return { at: sitAt, converted }
-  })
-  return pickConversionRate(rows, asOf)
+  // A signed contract on the opportunity IS the conversion, regardless of whether
+  // it predates the recorded outcome timestamp. Verified against production: 11 of
+  // 28 sold opportunities were signed BEFORE their inspection outcome was saved,
+  // because reps set the outcome to "Sale" after the paperwork. Requiring the sale
+  // to follow the sit discarded those as losses.
+  const records = sits.map((sit) => ({
+    at: sit.at,
+    converted: (salesByOpp.get(sit.opportunityId)?.length ?? 0) > 0,
+  }))
+  return pickConversionRate(records, asOf, maturityDays)
 }
 
-function computeMedianSaleValue(
-  sales: { signedAt: string; projectCost: number }[],
-  asOf: Date
-): { value: number; n: number; window: RateWindow } {
-  const windows: { window: RateWindow; days: number }[] = [
-    { window: '90d', days: 90 },
-    { window: '180d', days: 180 },
-    { window: 'all', days: 3650 },
-  ]
-  for (const { window, days } of windows) {
+function medianSaleValue(sales: HistorySale[], asOf: Date): { value: number; n: number; window: RateWindow } {
+  for (const { window, days } of RATE_WINDOWS) {
     const start = daysAgo(asOf, days)
     const sample = sales.filter((s) => inRange(s.signedAt, start, asOf))
-    if (sample.length >= 10) {
+    if (sample.length >= MIN_RATE_SAMPLE) {
       return { value: median(sample.map((s) => s.projectCost)), n: sample.length, window }
     }
   }
-  const all = sales.filter((s) => new Date(s.signedAt).getTime() < asOf.getTime())
+  const all = sales.filter((s) => ms(s.signedAt) < asOf.getTime())
   return { value: median(all.map((s) => s.projectCost)), n: all.length, window: 'all' }
 }
 
-function computeMedianSetToSaleLagDays(
-  pairs: { setAt: string; signedAt: string }[],
+/** Median days from the first set on an opportunity to its signed contract. */
+function medianSetToSaleLag(
+  sets: HistorySet[],
+  salesByOpp: Map<string, number[]>,
   asOf: Date
-): { lagDays: number; n: number } {
-  const lags: number[] = []
-  for (const pair of pairs) {
-    if (new Date(pair.signedAt).getTime() >= asOf.getTime()) continue
-    const lag = Math.round(
-      (new Date(pair.signedAt).getTime() - new Date(pair.setAt).getTime()) / MS_DAY
-    )
-    if (lag >= 0 && lag <= 120) lags.push(lag)
+): { lagDays: number; n: number; window: RateWindow; samples: number[] } {
+  const firstSetByOpp = new Map<string, number>()
+  for (const set of sets) {
+    if (!set.opportunityId) continue
+    const t = ms(set.at)
+    if (!Number.isFinite(t)) continue
+    const existing = firstSetByOpp.get(set.opportunityId)
+    if (existing == null || t < existing) firstSetByOpp.set(set.opportunityId, t)
   }
-  return { lagDays: Math.round(median(lags)) || 14, n: lags.length }
+
+  const lags: { at: number; lag: number }[] = []
+  for (const [oppId, setAt] of Array.from(firstSetByOpp.entries())) {
+    const lag = signingLagDays(salesByOpp, oppId, setAt, asOf.getTime())
+    if (lag) lags.push({ at: lag.signedAtMs, lag: lag.lagDays })
+  }
+
+  for (const { window, days } of RATE_WINDOWS) {
+    const start = daysAgo(asOf, days).getTime()
+    const sample = lags.filter((l) => l.at >= start).map((l) => l.lag)
+    if (sample.length >= MIN_RATE_SAMPLE) {
+      return { lagDays: Math.round(median(sample)), n: sample.length, window, samples: sample }
+    }
+  }
+  const all = lags.map((l) => l.lag)
+  return {
+    lagDays: all.length > 0 ? Math.round(median(all)) : DEFAULT_SIT_TO_SALE_LAG_DAYS,
+    n: all.length,
+    window: 'all',
+    samples: all,
+  }
 }
 
-function futureSetShowRate(
-  sets: string[],
-  sits: string[],
-  asOf: Date
-): { rate: number; n: number } {
-  const futureSets = sets.filter((iso) => new Date(iso).getTime() >= asOf.getTime())
-  if (futureSets.length === 0) return { rate: 1, n: 0 }
-  const sitDays = new Set(sits.map((iso) => toEasternDateIso(iso)))
-  const converted = futureSets.filter((iso) => sitDays.has(toEasternDateIso(iso))).length
-  if (converted >= 10) return { rate: converted / futureSets.length, n: futureSets.length }
-  return { rate: 1, n: futureSets.length }
+/**
+ * Cumulative share of eventual conversions that have signed by `days` after entering
+ * the stage. Built from observed lags when there are enough of them, otherwise a
+ * linear ramp over `fallbackLagDays` (median → half done, 2× median → all done).
+ */
+function buildLagCdf(lagSamples: number[], fallbackLagDays: number): (days: number) => number {
+  const sorted = lagSamples.filter((v) => Number.isFinite(v) && v >= 0).sort((a, b) => a - b)
+  if (sorted.length < MIN_LAG_CDF_SAMPLE) {
+    const span = Math.max(1, fallbackLagDays * 2)
+    return (days) => (days <= 0 ? 0 : Math.min(1, days / span))
+  }
+  return (days) => {
+    if (days <= 0) return 0
+    let count = 0
+    for (const lag of sorted) {
+      if (lag <= days) count += 1
+      else break
+    }
+    return count / sorted.length
+  }
 }
 
-function buildMetricOutput(
-  actual: number,
-  knownBooked: number,
-  projected: number,
-  projectedLow: number,
-  projectedHigh: number,
-  goal: number | null,
-  remainingWeeks: number
-): ForecastMetricOutput {
-  const total = actual + knownBooked + projected
-  const gap = goal != null ? goal - total : null
-  const neededPerWeek =
-    gap != null && remainingWeeks > 0 && gap > 0
-      ? gap / remainingWeeks
-      : gap != null && gap <= 0
-        ? 0
-        : null
+/**
+ * Expected share of a cohort's eventual conversions that land inside the remaining
+ * window, for records that entered the stage `ageDays` ago. A sit that is already
+ * older than the whole observed lag distribution contributes nothing — which is what
+ * makes stale pipeline stop inflating the projection.
+ */
+function conversionShareInWindow(
+  cdf: (days: number) => number,
+  ageDays: number,
+  remainingDays: number
+): number {
+  if (remainingDays <= 0) return 0
+  const age = Math.max(0, ageDays)
+  return Math.max(0, cdf(age + remainingDays) - cdf(age))
+}
 
+function buildMetricOutput(actual: number, projectedTotal: number, goal: number | null): ForecastMetricOutput {
+  const total = Math.max(actual, projectedTotal)
   return {
     actual,
-    knownBooked,
-    projected,
-    projectedLow,
-    projectedHigh,
+    projectedTotal: total,
     goal,
-    gapToGoal: gap,
-    neededPerWeek,
+    gapToGoal: goal != null ? goal - total : null,
   }
 }
 
+/** Per-week actuals inside the range, for the trend chart. One pass per stage. */
 function buildWeeklyTrend(
-  sets: string[],
-  sits: string[],
-  sales: { signedAt: string }[],
+  sets: HistorySet[],
+  sits: HistorySit[],
+  sales: HistorySale[],
   rangeStart: Date,
   rangeEnd: Date
 ): WeeklyTrendPoint[] {
-  const points: WeeklyTrendPoint[] = []
-  let cursor = rangeStart
-  while (cursor < rangeEnd) {
-    const weekEnd = new Date(Math.min(cursor.getTime() + 7 * MS_DAY, rangeEnd.getTime()))
-    points.push({
-      weekStart: toEasternDateIso(cursor),
-      sets: sets.filter((iso) => inRange(iso, cursor, weekEnd)).length,
-      sits: sits.filter((iso) => inRange(iso, cursor, weekEnd)).length,
-      sales: sales.filter((s) => inRange(s.signedAt, cursor, weekEnd)).length,
-    })
-    cursor = weekEnd
+  const startMs = rangeStart.getTime()
+  const endMs = rangeEnd.getTime()
+  const weekCount = Math.max(1, Math.ceil((endMs - startMs) / (7 * MS_DAY)))
+
+  const points: WeeklyTrendPoint[] = Array.from({ length: weekCount }, (_, i) => ({
+    weekStart: toEasternDateIso(new Date(startMs + i * 7 * MS_DAY)),
+    sets: 0,
+    sits: 0,
+    sales: 0,
+  }))
+
+  const tally = (iso: string, key: 'sets' | 'sits' | 'sales') => {
+    const t = ms(iso)
+    if (!Number.isFinite(t) || t < startMs || t >= endMs) return
+    points[Math.min(weekCount - 1, Math.floor((t - startMs) / (7 * MS_DAY)))][key] += 1
   }
+
+  for (const set of sets) tally(set.at, 'sets')
+  for (const sit of sits) tally(sit.at, 'sits')
+  for (const sale of sales) tally(sale.signedAt, 'sales')
+
   return points
+}
+
+const EMPTY_GOAL_COVERAGE: GoalCoverage = {
+  months: [],
+  monthsMissingGoal: [],
+  prorated: false,
 }
 
 export function computeForecast(params: {
@@ -337,200 +498,217 @@ export function computeForecast(params: {
   rangeEnd: Date
   asOf: Date
   history: ForecastHistory
+  /** Future appointments already on the calendar between `asOf` and `rangeEnd`. */
   knownFutureSets: string[]
   goals: ForecastGoals
+  goalCoverage?: GoalCoverage
 }): ForecastResult {
   const { rangeStart, rangeEnd, asOf, history, knownFutureSets, goals } = params
   const asOfClamped = asOf.getTime() < rangeEnd.getTime() ? asOf : rangeEnd
-  const remainingWeeks = countRemainingWeeks(asOfClamped.toISOString(), rangeEnd.toISOString())
+  const remainingDays = Math.max(0, (rangeEnd.getTime() - asOfClamped.getTime()) / MS_DAY)
 
+  const salesByOpp = new Map<string, number[]>()
+  for (const sale of history.sales) {
+    if (!sale.opportunityId) continue
+    const t = ms(sale.signedAt)
+    if (!Number.isFinite(t)) continue
+    const existing = salesByOpp.get(sale.opportunityId)
+    if (existing) existing.push(t)
+    else salesByOpp.set(sale.opportunityId, [t])
+  }
+
+  // --- rates ---
+  const sitToSaleLags = sitToSaleLagSamples(history.sits, salesByOpp)
+  const sitToSaleMaturityDays =
+    sitToSaleLags.length >= MIN_RATE_SAMPLE
+      ? Math.min(60, Math.max(7, Math.round(percentile(sitToSaleLags, 0.75))))
+      : DEFAULT_SIT_TO_SALE_LAG_DAYS
+  const sitToSaleLagDays =
+    sitToSaleLags.length > 0 ? Math.round(median(sitToSaleLags)) : DEFAULT_SIT_TO_SALE_LAG_DAYS
+
+  const doorToSet = computeDoorToSetRate(history.doors, history.sets, asOfClamped)
+  const setToSit = computeSetToSitRate(history.sets, history.sits, asOfClamped)
+  const sitToSale = computeSitToSaleRate(history.sits, salesByOpp, sitToSaleMaturityDays, asOfClamped)
+  const saleValue = medianSaleValue(history.sales, asOfClamped)
+  const setToSaleLag = medianSetToSaleLag(history.sets, salesByOpp, asOfClamped)
+
+  // --- actuals inside the range ---
   const doorsActual = history.doors.filter((iso) => inRange(iso, rangeStart, rangeEnd, asOfClamped)).length
-  const setsActual = history.sets.filter((iso) => inRange(iso, rangeStart, rangeEnd, asOfClamped)).length
-  const sitsActual = history.sits.filter((iso) => inRange(iso, rangeStart, rangeEnd, asOfClamped)).length
+  const setsInRange = history.sets.filter((s) => inRange(s.at, rangeStart, rangeEnd, asOfClamped))
+  const sitsActual = history.sits.filter((s) => inRange(s.at, rangeStart, rangeEnd, asOfClamped)).length
   const salesInRange = history.sales.filter((s) => inRange(s.signedAt, rangeStart, rangeEnd, asOfClamped))
-  const salesActual = salesInRange.length
   const revenueActual = salesInRange.reduce((sum, s) => sum + s.projectCost, 0)
   const revenueCollectedActual = history.payments
     .filter((p) => inRange(p.paidAt, rangeStart, rangeEnd, asOfClamped))
     .reduce((sum, p) => sum + p.amount, 0)
 
-  const doorsRun = weekdayRunRate(history.doors, asOfClamped, rangeEnd)
-  const setsRun = weekdayRunRate(history.sets, asOfClamped, rangeEnd)
+  // --- doors + sets ---
+  const doorsProjected = weekdayRunRate(history.doors, asOfClamped, rangeEnd)
+  const setsRunRate = weekdayRunRate(
+    history.sets.map((s) => s.at),
+    asOfClamped,
+    rangeEnd
+  )
 
-  const futureShow = futureSetShowRate(history.sets, history.sits, asOfClamped)
-  const knownBookedSets = knownFutureSets.length * futureShow.rate
+  // Known future bookings and the run-rate projection describe the SAME remaining
+  // days: appointments booked so far are a floor on that total, not an addition to it.
+  const knownBooked = knownFutureSets.length
+  const setsIncremental = Math.max(0, setsRunRate - knownBooked)
+  const futureSets = knownBooked + setsIncremental
+  const setsTotal = setsInRange.length + futureSets
 
-  const setToSit = computeSetToSitRate(history.sets, history.sits, asOfClamped)
-  const sitToSale = computeSitToSaleRate(history.sits, history.sales, asOfClamped)
-  const medianSale = computeMedianSaleValue(history.sales, asOfClamped)
-  const lag = computeMedianSetToSaleLagDays(history.setToSalePairs, asOfClamped)
+  // --- sits ---
+  // Sets already inside the range whose record has no qualifying outcome yet.
+  const sitKeySet = new Set<string>()
+  for (const sit of history.sits) for (const key of sitKeys(sit)) sitKeySet.add(key)
+  const setsAwaitingSitRows = setsInRange.filter((s) => {
+    const key = setKey(s)
+    return !key || !sitKeySet.has(key)
+  })
+  const setsAwaitingSit = setsAwaitingSitRows.length
 
-  const projectedTotalSets = setsActual + knownBookedSets + setsRun.projected
-  const projectedSits = projectedTotalSets * setToSit.rate
-  const projectedSalesBeforeLag = projectedSits * sitToSale.rate
+  const sitsFromPending = (setsAwaitingSit + futureSets) * setToSit.rate
+  const sitsTotal = sitsActual + sitsFromPending
 
-  const rangeEndMs = rangeEnd.getTime()
-  const lagCutoff = new Date(rangeEndMs - lag.lagDays * MS_DAY)
-  const setsInLagWindow = projectedTotalSets > 0
-    ? history.sets.filter((iso) => {
-        const t = new Date(iso).getTime()
-        return t >= lagCutoff.getTime() && t < rangeEndMs
-      }).length +
-      knownFutureSets.filter((iso) => {
-        const t = new Date(iso).getTime()
-        return t >= lagCutoff.getTime() && t < rangeEndMs
-      }).length
-    : 0
-  const lagPenaltyRate = projectedTotalSets > 0 ? Math.min(1, setsInLagWindow / projectedTotalSets) : 0
-  const projectedSales = projectedSalesBeforeLag * (1 - lagPenaltyRate)
-  const projectedRevenue = projectedSales * medianSale.value
+  // --- sales ---
+  // Three disjoint cohorts of live pipeline, each weighted by its chance of signing
+  // before the range ends.
+  const sitToSaleCdf = buildLagCdf(sitToSaleLags, sitToSaleLagDays)
+  const setToSaleCdf = buildLagCdf(setToSaleLag.samples, setToSaleLag.lagDays)
+
+  // Cohort 1 — sits already recorded with no sale on the opportunity. Each is
+  // weighted by the slice of the lag curve that still lies inside the range, so an
+  // old sit that never closed contributes ~nothing.
+  const openSitCutoff = daysAgo(asOfClamped, MAX_OPEN_SIT_AGE_DAYS).getTime()
+  let salesFromOpenSits = 0
+  for (const sit of history.sits) {
+    const t = ms(sit.at)
+    if (!Number.isFinite(t) || t >= asOfClamped.getTime() || t < openSitCutoff) continue
+    // Any sale on the opportunity closes it out — see computeSitToSaleRate on why
+    // sale-after-sit ordering can't be relied on.
+    if ((salesByOpp.get(sit.opportunityId)?.length ?? 0) > 0) continue
+    const ageDays = (asOfClamped.getTime() - t) / MS_DAY
+    salesFromOpenSits += sitToSale.rate * conversionShareInWindow(sitToSaleCdf, ageDays, remainingDays)
+  }
+
+  // Cohort 2 — appointments inside the range that have already happened but have no
+  // outcome recorded yet.
+  let salesFromAwaitingSit = 0
+  for (const set of setsAwaitingSitRows) {
+    const ageDays = Math.max(0, (asOfClamped.getTime() - ms(set.at)) / MS_DAY)
+    salesFromAwaitingSit +=
+      setToSit.rate * sitToSale.rate * conversionShareInWindow(setToSaleCdf, ageDays, remainingDays)
+  }
+
+  // Cohort 3 — appointments still to come. They land spread across the remaining
+  // window, so on average only half of it is left for them to convert in.
+  const salesFromFutureSets =
+    futureSets * setToSit.rate * sitToSale.rate * conversionShareInWindow(setToSaleCdf, 0, remainingDays / 2)
+
+  const salesRemaining = salesFromOpenSits + salesFromAwaitingSit + salesFromFutureSets
+  const salesTotal = salesInRange.length + salesRemaining
+  const revenueTotal = revenueActual + salesRemaining * saleValue.value
 
   const assumptions: RateAssumption[] = [
     {
+      key: 'doorToSet',
+      label: 'Door → set rate',
+      kind: 'rate',
+      value: doorToSet.rate,
+      window: doorToSet.window,
+      sampleSize: doorToSet.n,
+      note: 'Sets booked per door knocked, org-wide',
+    },
+    {
+      key: 'setToSit',
       label: 'Set → sit rate',
-      rate: setToSit.rate,
+      kind: 'rate',
+      value: setToSit.rate,
       window: setToSit.window,
       sampleSize: setToSit.n,
+      note: `Excludes sets from the last ${SET_TO_SIT_MATURITY_DAYS} days — outcome not in yet`,
     },
     {
+      key: 'sitToSale',
       label: 'Sit → sale rate',
-      rate: sitToSale.rate,
+      kind: 'rate',
+      value: sitToSale.rate,
       window: sitToSale.window,
       sampleSize: sitToSale.n,
+      note: `Excludes sits from the last ${sitToSaleMaturityDays} days — still deciding`,
     },
     {
-      label: 'Median signed contract value',
-      rate: medianSale.value,
-      window: medianSale.window,
-      sampleSize: medianSale.n,
-      note: 'Median project_cost of signed contracts',
-    },
-    {
-      label: 'Set → sale lag (days)',
-      rate: lag.lagDays,
-      window: lag.n >= 10 ? '90d' : 'all',
-      sampleSize: lag.n,
-      note: 'Sets inside this window at range end may convert after the range',
-    },
-    {
-      label: 'Future booked set show rate',
-      rate: futureShow.rate,
-      window: futureShow.n >= 10 ? '90d' : null,
-      sampleSize: futureShow.n,
-      note: futureShow.n < 10 ? 'Insufficient history — counting known bookings at 100%' : undefined,
+      key: 'setToSaleLag',
+      label: 'Set → sale lag',
+      kind: 'days',
+      value: setToSaleLag.lagDays,
+      window: setToSaleLag.window,
+      sampleSize: setToSaleLag.n,
+      note: 'Median days from first appointment to signed contract',
     },
   ]
-
-  const setsLow = setsRun.low
-  const setsHigh = setsRun.high
-  const projectedSitsLow = (setsActual + knownBookedSets + setsLow) * setToSit.rate
-  const projectedSitsHigh = (setsActual + knownBookedSets + setsHigh) * setToSit.rate
 
   return {
     rangeStart: rangeStart.toISOString(),
     rangeEnd: rangeEnd.toISOString(),
     asOf: asOfClamped.toISOString(),
     metrics: {
-      doors: buildMetricOutput(
-        doorsActual,
-        0,
-        doorsRun.projected,
-        doorsRun.low,
-        doorsRun.high,
-        goals.doors ?? null,
-        remainingWeeks
-      ),
-      sets: buildMetricOutput(
-        setsActual,
-        knownBookedSets,
-        setsRun.projected,
-        setsLow,
-        setsHigh,
-        goals.sets ?? null,
-        remainingWeeks
-      ),
-      sits: buildMetricOutput(
-        sitsActual,
-        0,
-        projectedSits - sitsActual,
-        projectedSitsLow - sitsActual,
-        projectedSitsHigh - sitsActual,
-        goals.sits ?? null,
-        remainingWeeks
-      ),
-      sales: buildMetricOutput(
-        salesActual,
-        0,
-        projectedSales - salesActual,
-        projectedSitsLow * sitToSale.rate * (1 - lagPenaltyRate) - salesActual,
-        projectedSitsHigh * sitToSale.rate * (1 - lagPenaltyRate) - salesActual,
-        goals.sales ?? null,
-        remainingWeeks
-      ),
-      revenueSigned: buildMetricOutput(
-        revenueActual,
-        0,
-        projectedRevenue - revenueActual,
-        projectedSitsLow * sitToSale.rate * (1 - lagPenaltyRate) * medianSale.value - revenueActual,
-        projectedSitsHigh * sitToSale.rate * (1 - lagPenaltyRate) * medianSale.value - revenueActual,
-        goals.revenueSigned ?? null,
-        remainingWeeks
-      ),
-      revenueCollected: buildMetricOutput(
-        revenueCollectedActual,
-        0,
-        0,
-        0,
-        0,
-        goals.revenueSigned ?? null,
-        remainingWeeks
-      ),
+      doors: buildMetricOutput(doorsActual, doorsActual + doorsProjected, goals.doors ?? null),
+      sets: buildMetricOutput(setsInRange.length, setsTotal, goals.sets ?? null),
+      sits: buildMetricOutput(sitsActual, sitsTotal, goals.sits ?? null),
+      sales: buildMetricOutput(salesInRange.length, salesTotal, goals.sales ?? null),
+      revenueSigned: buildMetricOutput(revenueActual, revenueTotal, goals.revenueSigned ?? null),
+      // Cash collection is driven by draw schedules and insurance timing, not the
+      // sales funnel, so it carries no projection — and the revenue target is a
+      // signed-revenue target, so it must not be reused here as a goal.
+      revenueCollected: buildMetricOutput(revenueCollectedActual, revenueCollectedActual, null),
     },
     weeklyTrend: buildWeeklyTrend(history.sets, history.sits, history.sales, rangeStart, rangeEnd),
     assumptions,
+    goalCoverage: params.goalCoverage ?? EMPTY_GOAL_COVERAGE,
   }
 }
 
-export function computeQuarterCompare(
-  rangeA: { start: Date; end: Date },
-  rangeB: { start: Date; end: Date },
-  asOf: Date,
-  history: ForecastHistory,
-  knownFutureSets: string[],
-  goals: ForecastGoals
-): {
+/** Goals for one range, in the shape `fetchGoalsForRange` returns. */
+export type RangeGoals = { goals: ForecastGoals; coverage: GoalCoverage }
+
+export function computeQuarterCompare(params: {
+  rangeA: { start: Date; end: Date }
+  rangeB: { start: Date; end: Date }
+  asOf: Date
+  history: ForecastHistory
+  knownFutureSets: string[]
+  primary: RangeGoals
+  compare: RangeGoals
+}): {
   primary: ForecastResult
   compare: ForecastResult
   deltas: Record<ForecastMetricKey, number | null>
 } {
+  const { rangeA, rangeB, asOf, history, knownFutureSets } = params
   const primary = computeForecast({
     rangeStart: rangeA.start,
     rangeEnd: rangeA.end,
     asOf,
     history,
     knownFutureSets,
-    goals,
+    goals: params.primary.goals,
+    goalCoverage: params.primary.coverage,
   })
   const compare = computeForecast({
     rangeStart: rangeB.start,
     rangeEnd: rangeB.end,
     asOf,
     history,
+    // The compare range is historical — nothing is still "on the calendar" for it.
     knownFutureSets: [],
-    goals,
+    goals: params.compare.goals,
+    goalCoverage: params.compare.coverage,
   })
 
   const deltas = {} as Record<ForecastMetricKey, number | null>
   for (const key of Object.keys(primary.metrics) as ForecastMetricKey[]) {
-    const a =
-      primary.metrics[key].actual +
-      primary.metrics[key].knownBooked +
-      primary.metrics[key].projected
-    const b =
-      compare.metrics[key].actual +
-      compare.metrics[key].knownBooked +
-      compare.metrics[key].projected
-    deltas[key] = a - b
+    deltas[key] = primary.metrics[key].projectedTotal - compare.metrics[key].projectedTotal
   }
 
   return { primary, compare, deltas }

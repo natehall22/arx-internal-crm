@@ -38,10 +38,7 @@ export function getEasternDateRange(startDate: string, endDate: string): { start
 }
 
 export function getPreviousMonthIso(fromMonth?: string): string {
-  const base = fromMonth ?? getEasternTodayIso().slice(0, 7)
-  const [y, m] = base.split('-').map(Number)
-  const d = new Date(y, m - 2, 1)
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+  return addGoalMonths(fromMonth ?? getEasternTodayIso().slice(0, 7), -1)
 }
 
 export function getCurrentMonthIso(): string {
@@ -83,8 +80,90 @@ export function listEasternDatesInRange(startIso: string, endIso: string): strin
   return dates
 }
 
-export function countRemainingWeeks(asOfIso: string, rangeEndIso: string): number {
-  const dates = listEasternDatesInRange(asOfIso, rangeEndIso)
-  if (dates.length === 0) return 0
-  return Math.max(1, Math.ceil(dates.length / 7))
+/** Inclusive whole-day count between two YYYY-MM-DD strings. */
+export function countInclusiveDays(startDate: string, endDate: string): number {
+  const [sy, sm, sd] = startDate.split('-').map(Number)
+  const [ey, em, ed] = endDate.split('-').map(Number)
+  // UTC arithmetic on bare calendar dates — no wall-clock involved, so DST can't skew it.
+  const start = Date.UTC(sy, sm - 1, sd)
+  const end = Date.UTC(ey, em - 1, ed)
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return 0
+  return Math.round((end - start) / 86_400_000) + 1
+}
+
+/** Last calendar date (YYYY-MM-DD) of the given YYYY-MM, in Eastern. */
+export function getEasternMonthEndDate(month: string): string {
+  const { endIso } = getEasternMonthRange(month)
+  // Step back half a day rather than a full day so a DST transition on the 1st
+  // can't land us on the second-to-last date of the month.
+  return toEasternDateIso(new Date(new Date(endIso).getTime() - 43_200_000))
+}
+
+/** Add `delta` calendar months to a YYYY-MM, returning YYYY-MM. */
+export function addGoalMonths(month: string, delta: number): string {
+  const [y, m] = normalizeGoalMonth(month).split('-').map(Number)
+  const d = new Date(y, m - 1 + delta, 1)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+}
+
+/**
+ * Every YYYY-MM that overlaps an inclusive Eastern date range. Goals are stored per
+ * calendar month, so a forecast range spanning months has to gather (and prorate)
+ * each one — see `fetchGoalsForRange`.
+ */
+export function listGoalMonthsInRange(startDate: string, endDate: string): string[] {
+  const first = startDate.slice(0, 7)
+  const last = endDate.slice(0, 7)
+  if (last < first) return []
+  const months: string[] = []
+  let cursor = first
+  // Guard against a pathological range producing an unbounded loop.
+  while (cursor <= last && months.length < 120) {
+    months.push(cursor)
+    cursor = addGoalMonths(cursor, 1)
+  }
+  return months
+}
+
+/** Calendar quarter containing `today` (ET), as inclusive date strings. */
+export function getEasternQuarterRange(today = getEasternTodayIso()): {
+  start: string
+  end: string
+} {
+  const [y, m] = today.split('-').map(Number)
+  const quarterFirstMonth = Math.floor((m - 1) / 3) * 3 + 1
+  const startMonth = `${y}-${String(quarterFirstMonth).padStart(2, '0')}`
+  return getQuarterRangeFromFirstMonth(startMonth)
+}
+
+function getQuarterRangeFromFirstMonth(firstMonth: string): { start: string; end: string } {
+  return { start: `${firstMonth}-01`, end: getEasternMonthEndDate(addGoalMonths(firstMonth, 2)) }
+}
+
+export type ForecastPreset = 'mtd' | 'this_quarter' | 'last_vs_this_quarter'
+
+/**
+ * Forecast ranges run to the END of the period, not to today — the whole point is to
+ * project the rest of the period against a target set for that whole period. (The
+ * dashboard's `getDateRangeForTimeFrame('month'|'quarter')` helpers are to-DATE
+ * ranges and must not be used here.)
+ */
+export function getForecastPresetRange(
+  preset: ForecastPreset,
+  today = getEasternTodayIso()
+): { start: string; end: string; compareStart?: string; compareEnd?: string } {
+  if (preset === 'mtd') {
+    const month = today.slice(0, 7)
+    return { start: `${month}-01`, end: getEasternMonthEndDate(month) }
+  }
+
+  const thisQuarter = getEasternQuarterRange(today)
+  if (preset === 'this_quarter') return thisQuarter
+
+  const lastQuarter = getQuarterRangeFromFirstMonth(addGoalMonths(thisQuarter.start.slice(0, 7), -3))
+  return {
+    ...thisQuarter,
+    compareStart: lastQuarter.start,
+    compareEnd: lastQuarter.end,
+  }
 }

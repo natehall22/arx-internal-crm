@@ -5,22 +5,30 @@ import type { OrgMonthlyGoal, ScorecardPayload } from '@/lib/goals-scorecard'
 import type { ForecastMetricKey, ForecastResult } from '@/lib/goals-forecast'
 import {
   deltaTextClass,
+  describeGoalCoverage,
+  formatAssumptionBasis,
+  formatAssumptionValue,
   formatCurrency,
   formatDeltaPct,
   formatForecastRangeLabel,
+  formatGapToGoal,
   formatInteger,
   formatMetricValue,
+  formatPct,
   formatSignedDelta,
-  metricProjectedTotal,
+  FORECAST_METRIC_LABELS,
+  FORECAST_METRIC_ORDER,
 } from '@/lib/goals-forecast-display'
 import { getCurrentMonthIso, getPreviousMonthIso, isPastGoalMonth } from '@/lib/goals-period'
 import { formatNumericDraft, parseDraftFloat } from '@/lib/numeric-input-draft'
 
 type TabId = 'scorecard' | 'goals' | 'forecast'
 
-function formatPct(value: number | null): string {
-  if (value == null || !Number.isFinite(value)) return '—'
-  return `${(value * 100).toFixed(1)}%`
+/** Response shape of GET /api/admin/goals/forecast. */
+type ForecastPayload = {
+  forecast: ForecastResult
+  compare?: ForecastResult | null
+  deltas?: Record<ForecastMetricKey, number | null> | null
 }
 
 function attainmentTint(pct: number | null): string {
@@ -487,9 +495,7 @@ function ForecastTab() {
   const [preset, setPreset] = useState<'mtd' | 'this_quarter' | 'last_vs_this_quarter' | 'custom'>('mtd')
   const [start, setStart] = useState('')
   const [end, setEnd] = useState('')
-  const [forecast, setForecast] = useState<ForecastResult | null>(null)
-  const [compare, setCompare] = useState<ForecastResult | null>(null)
-  const [deltas, setDeltas] = useState<Record<ForecastMetricKey, number | null> | null>(null)
+  const [payload, setPayload] = useState<ForecastPayload | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -506,9 +512,7 @@ function ForecastTab() {
     let cancelled = false
     setLoading(true)
     setError(null)
-    setForecast(null)
-    setCompare(null)
-    setDeltas(null)
+    setPayload(null)
     fetch(`/api/admin/goals/forecast?${query}`)
       .then(async (res) => {
         if (!res.ok) {
@@ -517,11 +521,8 @@ function ForecastTab() {
         }
         return res.json()
       })
-      .then((json) => {
-        if (cancelled) return
-        setForecast(json.forecast)
-        setCompare(json.compare ?? null)
-        setDeltas(json.deltas ?? null)
+      .then((json: ForecastPayload) => {
+        if (!cancelled) setPayload(json)
       })
       .catch((err: Error) => {
         if (!cancelled) setError(err.message)
@@ -534,27 +535,10 @@ function ForecastTab() {
     }
   }, [query])
 
-  const metricRows = forecast
-    ? (Object.entries(forecast.metrics) as [ForecastMetricKey, (typeof forecast.metrics)[ForecastMetricKey]][]).map(
-        ([key, metric]) => ({
-          key,
-          ...metric,
-          projectedTotal: metricProjectedTotal(metric),
-        })
-      )
-    : []
-
-  const compareRows =
-    compare && deltas
-      ? (Object.entries(compare.metrics) as [ForecastMetricKey, (typeof compare.metrics)[ForecastMetricKey]][]).map(
-          ([key, metric]) => ({
-            key,
-            compareTotal: metricProjectedTotal(metric),
-            thisTotal: metricProjectedTotal(forecast!.metrics[key]),
-            delta: deltas[key],
-          })
-        )
-      : []
+  const forecast = payload?.forecast ?? null
+  const compare = payload?.compare ?? null
+  const deltas = payload?.deltas ?? null
+  const goalNote = forecast ? describeGoalCoverage(forecast.goalCoverage) : null
 
   const rangeHeading = forecast
     ? compare
@@ -618,35 +602,36 @@ function ForecastTab() {
               <thead>
                 <tr className="border-b border-gray-200 bg-gray-50 text-left text-gray-600">
                   <th className="px-4 py-2">Metric</th>
-                  <th className="px-4 py-2">Actual</th>
-                  <th className="px-4 py-2">Known booked</th>
-                  <th className="px-4 py-2">Projected</th>
-                  <th className="px-4 py-2">Typical range</th>
+                  <th className="px-4 py-2">Actual so far</th>
+                  <th className="px-4 py-2">Projected (end of range)</th>
                   <th className="px-4 py-2">Goal</th>
                   <th className="px-4 py-2">Gap</th>
-                  <th className="px-4 py-2">Needed / week</th>
                 </tr>
               </thead>
               <tbody>
-                {metricRows.map((row) => (
-                  <tr key={row.key} className="border-b border-gray-100">
-                    <td className="px-4 py-2 font-medium capitalize" style={{ color: '#2c2c2a' }}>{row.key}</td>
-                    <td className="px-4 py-2" style={{ color: '#2c2c2a' }}>{formatMetricValue(row.key, row.actual)}</td>
-                    <td className="px-4 py-2" style={{ color: '#2c2c2a' }}>{formatMetricValue(row.key, row.knownBooked)}</td>
-                    <td className="px-4 py-2" style={{ color: '#2c2c2a' }}>{formatMetricValue(row.key, row.projectedTotal)}</td>
-                    <td className="px-4 py-2 text-xs" style={{ color: '#2c2c2a' }}>
-                      {formatMetricValue(row.key, row.actual + row.knownBooked + row.projectedLow)} – {formatMetricValue(row.key, row.actual + row.knownBooked + row.projectedHigh)}
-                    </td>
-                    <td className="px-4 py-2" style={{ color: '#2c2c2a' }}>{row.goal != null ? formatMetricValue(row.key, row.goal) : '—'}</td>
-                    <td className="px-4 py-2" style={{ color: '#2c2c2a' }}>{row.gapToGoal != null ? formatMetricValue(row.key, row.gapToGoal) : '—'}</td>
-                    <td className="px-4 py-2" style={{ color: '#2c2c2a' }}>{row.neededPerWeek != null ? formatMetricValue(row.key, row.neededPerWeek) : '—'}</td>
-                  </tr>
-                ))}
+                {FORECAST_METRIC_ORDER.map((key) => {
+                  const metric = forecast.metrics[key]
+                  return (
+                    <tr key={key} className="border-b border-gray-100">
+                      <td className="px-4 py-2 font-medium" style={{ color: '#2c2c2a' }}>{FORECAST_METRIC_LABELS[key]}</td>
+                      <td className="px-4 py-2" style={{ color: '#2c2c2a' }}>{formatMetricValue(key, metric.actual)}</td>
+                      <td className="px-4 py-2" style={{ color: '#2c2c2a' }}>{formatMetricValue(key, metric.projectedTotal)}</td>
+                      <td className="px-4 py-2" style={{ color: '#2c2c2a' }}>{metric.goal != null ? formatMetricValue(key, metric.goal) : '—'}</td>
+                      <td className="px-4 py-2" style={{ color: '#2c2c2a' }}>{formatGapToGoal(key, metric.gapToGoal)}</td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
 
-          {compare && compareRows.length > 0 ? (
+          {goalNote ? (
+            <p className="text-xs text-amber-800 bg-amber-50 ring-1 ring-amber-200 rounded-lg px-3 py-2">
+              Goal note: {goalNote}.
+            </p>
+          ) : null}
+
+          {compare && deltas ? (
             <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
               <table className="min-w-full text-sm">
                 <thead>
@@ -659,32 +644,43 @@ function ForecastTab() {
                   </tr>
                 </thead>
                 <tbody>
-                  {compareRows.map((row) => (
-                    <tr key={row.key} className="border-b border-gray-100">
-                      <td className="px-4 py-2 font-medium capitalize" style={{ color: '#2c2c2a' }}>{row.key}</td>
-                      <td className="px-4 py-2" style={{ color: '#2c2c2a' }}>{formatMetricValue(row.key, row.thisTotal)}</td>
-                      <td className="px-4 py-2" style={{ color: '#2c2c2a' }}>{formatMetricValue(row.key, row.compareTotal)}</td>
-                      <td className={`px-4 py-2 font-medium ${deltaTextClass(row.delta)}`}>
-                        {formatSignedDelta(row.key, row.delta)}
-                      </td>
-                      <td className={`px-4 py-2 ${deltaTextClass(row.delta)}`}>
-                        {formatDeltaPct(row.delta, row.compareTotal)}
-                      </td>
-                    </tr>
-                  ))}
+                  {FORECAST_METRIC_ORDER.map((key) => {
+                    const compareTotal = compare.metrics[key].projectedTotal
+                    const delta = deltas[key]
+                    return (
+                      <tr key={key} className="border-b border-gray-100">
+                        <td className="px-4 py-2 font-medium" style={{ color: '#2c2c2a' }}>{FORECAST_METRIC_LABELS[key]}</td>
+                        <td className="px-4 py-2" style={{ color: '#2c2c2a' }}>{formatMetricValue(key, forecast.metrics[key].projectedTotal)}</td>
+                        <td className="px-4 py-2" style={{ color: '#2c2c2a' }}>{formatMetricValue(key, compareTotal)}</td>
+                        <td className={`px-4 py-2 font-medium ${deltaTextClass(delta)}`}>
+                          {formatSignedDelta(key, delta)}
+                        </td>
+                        <td className={`px-4 py-2 ${deltaTextClass(delta)}`}>
+                          {formatDeltaPct(delta, compareTotal)}
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
           ) : null}
 
           <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
-            <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-gray-600">Assumptions</h3>
-            <ul className="space-y-1 text-xs" style={{ color: '#2c2c2a' }}>
+            <h3 className="mb-1 text-sm font-semibold uppercase tracking-wide text-gray-600">
+              Conversion rates
+            </h3>
+            <p className="mb-3 text-xs text-gray-600">
+              Measured from closed history, each stage matched to the same opportunity rather than
+              just the same day. Set→sit and sit→sale drive the projection above; door→set is shown
+              for reference.
+            </p>
+            <ul className="space-y-1.5 text-xs" style={{ color: '#2c2c2a' }}>
               {forecast.assumptions.map((a) => (
-                <li key={a.label}>
-                  {a.label}: {a.rate != null ? (a.label.includes('value') || a.label.includes('lag') ? a.rate : `${(a.rate * 100).toFixed(1)}%`) : '—'}
-                  {a.window ? ` (${a.window}, n=${a.sampleSize})` : ` (n=${a.sampleSize})`}
-                  {a.note ? ` — ${a.note}` : ''}
+                <li key={a.key}>
+                  <span className="font-medium">{a.label}:</span> {formatAssumptionValue(a)}
+                  <span className="text-gray-600">{formatAssumptionBasis(a)}</span>
+                  {a.note ? <span className="text-gray-600"> — {a.note}</span> : null}
                 </li>
               ))}
             </ul>

@@ -12,17 +12,20 @@ import {
   type ForecastGoals,
   type ForecastHistory,
   type ForecastResult,
+  type GoalCoverage,
 } from '@/lib/goals-forecast'
 import {
   summarizeJobEconomics,
   type JobCostLineRow,
   type JobEconomicsRow,
 } from '@/lib/goals-job-economics'
-import { getEasternTodayIso } from '@/lib/eastern-datetime'
 import {
+  countInclusiveDays,
   getEasternDateRange,
+  getEasternMonthEndDate,
   getEasternMonthRange,
   GOALS_TIMEZONE,
+  listGoalMonthsInRange,
 } from '@/lib/goals-period'
 import {
   getSitOutcomeNormalizedIdSet,
@@ -30,7 +33,6 @@ import {
 } from '@/lib/inspection-outcomes'
 import { countsAsInspectionSet, INSPECTION_SET_APPOINTMENT_TYPE_OR } from '@/lib/inspection-set-metrics'
 import { isCanvassDoorLead, SALE_AGREEMENT_TYPES } from '@/lib/sales-metrics'
-import { getDateRangeForTimeFrame } from '@/lib/date-ranges'
 import { fetchSupabaseAllPages } from '@/lib/supabase-fetch-all-pages'
 
 export type OrgMonthlyGoal = {
@@ -640,9 +642,27 @@ async function buildForecastHistory(
   historyEndIso: string,
   sitOutcomeIdSet: Set<string>
 ): Promise<ForecastHistory> {
-  const [doorLeadRows, sets, sits, contracts] = await Promise.all([
+  const [doorLeadRows, setRows, sitRows, contracts] = await Promise.all([
     fetchAllDoorLeadRows(supabase, orgId, historyStartIso, historyEndIso),
-    fetchInspectionSets(supabase, orgId, historyStartIso, historyEndIso),
+    fetchSupabaseAllPages<{
+      id: string
+      scheduled_for: string
+      opportunity_id: string | null
+      lead_id: string | null
+      appointment_type: string | null
+      status: string | null
+    }>(async (from, to) =>
+      supabase
+        .from('scheduled_appointments')
+        .select('id, scheduled_for, opportunity_id, lead_id, appointment_type, status')
+        .eq('org_id', orgId)
+        .or(INSPECTION_SET_APPOINTMENT_TYPE_OR)
+        .gte('scheduled_for', historyStartIso)
+        .lt('scheduled_for', historyEndIso)
+        .order('scheduled_for', { ascending: true })
+        .order('id', { ascending: true })
+        .range(from, to)
+    ),
     sitOutcomeIdSet.size === 0
       ? Promise.resolve([])
       : fetchEffectiveSitOpportunitiesInPeriod(supabase, {
@@ -656,49 +676,25 @@ async function buildForecastHistory(
 
   const doors = doorLeadRows.filter((row) => isCanvassDoorLead(row)).map((row) => row.created_at)
 
+  // Conversion rates join on the pipeline record, so every stage has to carry its
+  // opportunity/lead ids through — see computeSetToSitRate / computeSitToSaleRate.
+  const sets = setRows.filter(countsAsInspectionSet).map((row) => ({
+    at: row.scheduled_for,
+    opportunityId: row.opportunity_id,
+    leadId: row.lead_id,
+  }))
+
+  const sits = sitRows.map((row) => ({
+    at: row.inspection_outcome_at,
+    opportunityId: row.id,
+    leadId: row.lead_id,
+  }))
+
   const sales = contracts.map((c) => ({
     signedAt: c.customer_signed_at as string,
     projectCost: Number(c.project_cost || 0),
+    opportunityId: c.opportunity_id,
   }))
-
-  const oppIds = contracts.map((c) => c.opportunity_id).filter(Boolean) as string[]
-  const setRows = await fetchSupabaseAllPages<{
-    id: string
-    scheduled_for: string
-    opportunity_id: string | null
-    lead_id: string | null
-    appointment_type: string | null
-    status: string | null
-  }>(async (from, to) =>
-    supabase
-      .from('scheduled_appointments')
-      .select('id, scheduled_for, opportunity_id, lead_id, appointment_type, status')
-      .eq('org_id', orgId)
-      .or(INSPECTION_SET_APPOINTMENT_TYPE_OR)
-      .gte('scheduled_for', historyStartIso)
-      .lt('scheduled_for', historyEndIso)
-      .order('scheduled_for', { ascending: true })
-      .order('id', { ascending: true })
-      .range(from, to)
-  )
-
-  const setToSalePairs: { setAt: string; signedAt: string }[] = []
-  const setsByOpp = new Map<string, string>()
-  for (const row of setRows.filter(countsAsInspectionSet)) {
-    if (row.opportunity_id) {
-      const existing = setsByOpp.get(row.opportunity_id)
-      if (!existing || row.scheduled_for < existing) {
-        setsByOpp.set(row.opportunity_id, row.scheduled_for)
-      }
-    }
-  }
-  for (const contract of contracts) {
-    if (!contract.opportunity_id || !contract.customer_signed_at) continue
-    const setAt = setsByOpp.get(contract.opportunity_id)
-    if (setAt) {
-      setToSalePairs.push({ setAt, signedAt: contract.customer_signed_at })
-    }
-  }
 
   const historyStartDate = historyStartIso.slice(0, 10)
   const historyEndDate = new Date(historyEndIso)
@@ -729,24 +725,88 @@ async function buildForecastHistory(
     }))
   }
 
-  return {
-    doors,
-    sets: sets.map((s) => s.scheduled_for),
-    sits: sits.map((s) => s.inspection_outcome_at),
-    sales,
-    payments,
-    setToSalePairs,
-  }
+  return { doors, sets, sits, sales, payments }
 }
 
-function goalsFromOrgGoal(goal: OrgMonthlyGoal | null): ForecastGoals {
-  if (!goal) return {}
+/**
+ * Goals live on `org_monthly_goals` one row per calendar month, but a forecast range
+ * can cover several months (a quarter) or part of one (a custom range). Sum each
+ * overlapping month's target, prorated by the share of that month's days the range
+ * actually covers, so the Goal column always describes the range on screen.
+ */
+async function fetchGoalsForRange(
+  supabase: SupabaseClient,
+  orgId: string,
+  startDate: string,
+  endDate: string
+): Promise<{ goals: ForecastGoals; coverage: GoalCoverage }> {
+  const months = listGoalMonthsInRange(startDate, endDate)
+  const totals = { doors: 0, sets: 0, sits: 0, sales: 0, revenueSigned: 0 }
+  const monthsMissingGoal: string[] = []
+  let prorated = false
+  let anyTarget = false
+
+  // One query for every month in the range. `fetchMonthlyGoal` is the single-month
+  // editor path — it also joins `users` for the "last updated by" line, which none
+  // of the target arithmetic below reads.
+  const { data: goalRows, error } = await supabase
+    .from('org_monthly_goals')
+    .select('month, doors_target, sets_target, sits_target, sales_target, revenue_target')
+    .eq('org_id', orgId)
+    .in(
+      'month',
+      months.map((m) => `${m}-01`)
+    )
+
+  if (error) throw error
+
+  const goalByMonth = new Map<string, (typeof goalRows)[number]>()
+  for (const row of goalRows || []) goalByMonth.set(String(row.month).slice(0, 7), row)
+
+  for (const month of months) {
+    const goal = goalByMonth.get(month)
+    if (!goal) {
+      monthsMissingGoal.push(month)
+      continue
+    }
+
+    const monthStartDate = `${month}-01`
+    const monthEndDate = getEasternMonthEndDate(month)
+    const daysInMonth = countInclusiveDays(monthStartDate, monthEndDate)
+    const overlapStart = monthStartDate > startDate ? monthStartDate : startDate
+    const overlapEnd = monthEndDate < endDate ? monthEndDate : endDate
+    const overlapDays = countInclusiveDays(overlapStart, overlapEnd)
+    if (overlapDays <= 0 || daysInMonth <= 0) continue
+
+    const factor = overlapDays / daysInMonth
+    if (factor < 1) prorated = true
+
+    for (const [key, target] of [
+      ['doors', goal.doors_target],
+      ['sets', goal.sets_target],
+      ['sits', goal.sits_target],
+      ['sales', goal.sales_target],
+      ['revenueSigned', goal.revenue_target],
+    ] as const) {
+      if (target == null) continue
+      anyTarget = true
+      totals[key] += Number(target) * factor
+    }
+  }
+
+  const goals: ForecastGoals = anyTarget
+    ? {
+        doors: totals.doors || null,
+        sets: totals.sets || null,
+        sits: totals.sits || null,
+        sales: totals.sales || null,
+        revenueSigned: totals.revenueSigned || null,
+      }
+    : {}
+
   return {
-    doors: goal.doors_target,
-    sets: goal.sets_target,
-    sits: goal.sits_target,
-    sales: goal.sales_target,
-    revenueSigned: goal.revenue_target != null ? Number(goal.revenue_target) : null,
+    goals,
+    coverage: { months, monthsMissingGoal, prorated },
   }
 }
 
@@ -767,83 +827,57 @@ export async function buildForecastPayload(
   const { startIso, endIso } = getEasternDateRange(params.start, params.end)
   const asOf = new Date()
   const sitOutcomeIdSet = await loadSitOutcomeSet(supabase, orgId)
+  const hasCompare = Boolean(params.compareStart && params.compareEnd)
 
   const historyStart = new Date(asOf.getTime() - 365 * 86_400_000).toISOString()
-  const history = await buildForecastHistory(supabase, orgId, historyStart, endIso, sitOutcomeIdSet)
 
-  const knownFutureRes = await supabase
-    .from('scheduled_appointments')
-    .select('scheduled_for, appointment_type, status')
-    .eq('org_id', orgId)
-    .or(INSPECTION_SET_APPOINTMENT_TYPE_OR)
-    .gte('scheduled_for', asOf.toISOString())
-    .lt('scheduled_for', endIso)
-    .limit(FETCH_LIMIT)
+  // Only the history fetch needs `sitOutcomeIdSet`; the rest are independent.
+  const [history, knownFutureRes, primaryGoals, compareGoals] = await Promise.all([
+    buildForecastHistory(supabase, orgId, historyStart, endIso, sitOutcomeIdSet),
+    supabase
+      .from('scheduled_appointments')
+      .select('scheduled_for, appointment_type, status')
+      .eq('org_id', orgId)
+      .or(INSPECTION_SET_APPOINTMENT_TYPE_OR)
+      .gte('scheduled_for', asOf.toISOString())
+      .lt('scheduled_for', endIso)
+      .limit(FETCH_LIMIT),
+    fetchGoalsForRange(supabase, orgId, params.start, params.end),
+    hasCompare
+      ? fetchGoalsForRange(supabase, orgId, params.compareStart!, params.compareEnd!)
+      : Promise.resolve(null),
+  ])
 
   if (knownFutureRes.error) throw knownFutureRes.error
   const knownFutureSets = (knownFutureRes.data || [])
     .filter(countsAsInspectionSet)
     .map((r) => r.scheduled_for)
 
-  const monthGoal = await fetchMonthlyGoal(supabase, orgId, params.start.slice(0, 7))
-  const goals = goalsFromOrgGoal(monthGoal)
+  const rangeA = { start: new Date(startIso), end: new Date(endIso) }
 
-  if (params.compareStart && params.compareEnd) {
-    const rangeA = {
-      start: new Date(startIso),
-      end: new Date(endIso),
-    }
-    const compareRange = getEasternDateRange(params.compareStart, params.compareEnd)
-    const rangeB = {
-      start: new Date(compareRange.startIso),
-      end: new Date(compareRange.endIso),
-    }
-    const compared = computeQuarterCompare(rangeA, rangeB, asOf, history, knownFutureSets, goals)
+  if (hasCompare && compareGoals) {
+    const compareRange = getEasternDateRange(params.compareStart!, params.compareEnd!)
+    const compared = computeQuarterCompare({
+      rangeA,
+      rangeB: { start: new Date(compareRange.startIso), end: new Date(compareRange.endIso) },
+      asOf,
+      history,
+      knownFutureSets,
+      primary: primaryGoals,
+      compare: compareGoals,
+    })
     return { forecast: compared.primary, compare: compared.compare, deltas: compared.deltas }
   }
 
   const forecast = computeForecast({
-    rangeStart: new Date(startIso),
-    rangeEnd: new Date(endIso),
+    rangeStart: rangeA.start,
+    rangeEnd: rangeA.end,
     asOf,
     history,
     knownFutureSets,
-    goals,
+    goals: primaryGoals.goals,
+    goalCoverage: primaryGoals.coverage,
   })
 
   return { forecast }
-}
-
-export function getForecastPresetRange(
-  preset: 'mtd' | 'this_quarter' | 'last_vs_this_quarter',
-  today = getEasternTodayIso()
-): { start: string; end: string; compareStart?: string; compareEnd?: string } {
-  if (preset === 'mtd') {
-    const monthStart = today.slice(0, 7) + '-01'
-    const monthRange = getDateRangeForTimeFrame('month', GOALS_TIMEZONE)
-    const endDate = new Date(monthRange.end.getTime() - 86_400_000)
-    return { start: monthStart, end: endDate.toLocaleDateString('en-CA', { timeZone: GOALS_TIMEZONE }) }
-  }
-  if (preset === 'this_quarter') {
-    const q = getDateRangeForTimeFrame('quarter', GOALS_TIMEZONE)
-    const endDate = new Date(q.end.getTime() - 86_400_000)
-    return {
-      start: q.start.toLocaleDateString('en-CA', { timeZone: GOALS_TIMEZONE }),
-      end: endDate.toLocaleDateString('en-CA', { timeZone: GOALS_TIMEZONE }),
-    }
-  }
-
-  const thisQ = getDateRangeForTimeFrame('quarter', GOALS_TIMEZONE)
-  const lastQEnd = new Date(thisQ.start.getTime())
-  const lastQStart = new Date(thisQ.start.getTime() - 90 * 86_400_000)
-  return {
-    start: thisQ.start.toLocaleDateString('en-CA', { timeZone: GOALS_TIMEZONE }),
-    end: new Date(thisQ.end.getTime() - 86_400_000).toLocaleDateString('en-CA', {
-      timeZone: GOALS_TIMEZONE,
-    }),
-    compareStart: lastQStart.toLocaleDateString('en-CA', { timeZone: GOALS_TIMEZONE }),
-    compareEnd: new Date(lastQEnd.getTime() - 86_400_000).toLocaleDateString('en-CA', {
-      timeZone: GOALS_TIMEZONE,
-    }),
-  }
 }
