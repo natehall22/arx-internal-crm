@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import Nav from '@/components/Nav'
 import { ridgeHipCapOrderSummary } from '@/lib/hip-ridge-cap-squares'
 import { BUNDLES_PER_SQUARE, CAP_LF_PER_BUNDLE } from '@/lib/roof-shingle-constants'
+import { formatNumericDraft, parseDraftFloat, previewNumber } from '@/lib/numeric-input-draft'
 
 interface PricebookItem {
   id: string
@@ -160,7 +161,15 @@ export default function ProposalBuilderPage() {
   const [wastePercent, setWastePercent] = useState<number>(10) // Default 10% waste
   const [savedProposalWastePercent, setSavedProposalWastePercent] = useState<number | null>(null)
   const [quantityModalItem, setQuantityModalItem] = useState<PricebookItem | null>(null)
-  const [quantityModalValue, setQuantityModalValue] = useState<number>(1)
+  /**
+   * Draft text backing the quantity box. Held as a string so a rep can clear the field
+   * and type a full number (e.g. 1240 sq ft of siding) — clamping to the minimum on
+   * every keystroke made the box impossible to type into.
+   */
+  const [quantityModalRaw, setQuantityModalRaw] = useState<string>('1')
+  const quantityModalValue = previewNumber(quantityModalRaw, 0)
+  /** Same idea for the per-line quantity boxes, keyed by line item id. */
+  const [quantityDrafts, setQuantityDrafts] = useState<Record<string, string>>({})
   const [editingProposalId, setEditingProposalId] = useState<string | null>(null)
   const [resolvedOpportunityId, setResolvedOpportunityId] = useState<string | null>(null)
   /** When editing, preserve sent/viewed so Save does not downgrade status */
@@ -681,11 +690,16 @@ export default function ProposalBuilderPage() {
     ].includes(u)
   }
 
+  /** Set the modal quantity from a button/stepper. */
+  const setQuantityModalNumber = (value: number) => {
+    setQuantityModalRaw(formatNumericDraft(value))
+  }
+
   const addLineItem = (item: PricebookItem, quantity?: number) => {
     // If this is an "each" type item and no quantity provided, show the quantity modal
     if (needsQuantityInput(item.unit) && !quantity) {
       setQuantityModalItem(item)
-      setQuantityModalValue(isPerSqftUnit(item.unit) ? 100 : 1)
+      setQuantityModalNumber(isPerSqftUnit(item.unit) ? 100 : 1)
       return
     }
 
@@ -718,9 +732,11 @@ export default function ProposalBuilderPage() {
   const confirmQuantityAndAdd = () => {
     if (!quantityModalItem) return
 
-    const qty = isPerSqftUnit(quantityModalItem.unit)
-      ? Math.max(0.01, quantityModalValue)
-      : Math.max(1, Math.round(quantityModalValue))
+    // Coerce the draft on save so a cleared field never commits a stale value.
+    const isPerSqft = isPerSqftUnit(quantityModalItem.unit)
+    const min = isPerSqft ? 0.01 : 1
+    const base = parseDraftFloat(quantityModalRaw, { fallback: min }) ?? min
+    const qty = isPerSqft ? Math.max(min, base) : Math.max(min, Math.round(base))
 
     const newItem: LineItem = {
       id: crypto.randomUUID(),
@@ -738,7 +754,7 @@ export default function ProposalBuilderPage() {
     }
     setLineItems(prev => [...prev, newItem])
     setQuantityModalItem(null)
-    setQuantityModalValue(1)
+    setQuantityModalNumber(1)
     setShowAddItem(false)
   }
 
@@ -753,8 +769,26 @@ export default function ProposalBuilderPage() {
     }))
   }
 
+  /** Coerce a line's quantity draft on blur and drop the draft so it re-follows state. */
+  const commitQuantityDraft = (item: LineItem, min: number) => {
+    const raw = quantityDrafts[item.id]
+    if (raw === undefined) return
+    const parsed = parseDraftFloat(raw, { fallback: min }) ?? min
+    updateLineItem(item.id, 'quantity', Math.max(min, parsed))
+    setQuantityDrafts(prev => {
+      const next = { ...prev }
+      delete next[item.id]
+      return next
+    })
+  }
+
   const removeLineItem = (id: string) => {
     setLineItems(prev => prev.filter(item => item.id !== id))
+    setQuantityDrafts(prev => {
+      const next = { ...prev }
+      delete next[id]
+      return next
+    })
   }
 
   const isPercentageItem = (item: LineItem): boolean => {
@@ -1640,8 +1674,16 @@ export default function ProposalBuilderPage() {
                           <div className="flex items-center gap-3">
                             <input
                               type="number"
-                              value={item.quantity}
-                              onChange={(e) => updateLineItem(item.id, 'quantity', parseFloat(e.target.value) || 0)}
+                              value={quantityDrafts[item.id] ?? formatNumericDraft(item.quantity)}
+                              onChange={(e) => {
+                                const raw = e.target.value
+                                setQuantityDrafts(prev => ({ ...prev, [item.id]: raw }))
+                                const parsed = parseDraftFloat(raw)
+                                if (parsed !== null) {
+                                  updateLineItem(item.id, 'quantity', parsed)
+                                }
+                              }}
+                              onBlur={() => commitQuantityDraft(item, 0)}
                               className="w-20 px-3 py-2 border border-gray-300 rounded-lg text-center"
                               min="0"
                               step="0.1"
@@ -1800,16 +1842,16 @@ export default function ProposalBuilderPage() {
                                 type="number"
                                 min={isPerSqftUnit(item.unit) ? 0.01 : 1}
                                 step={isPerSqftUnit(item.unit) ? 1 : 1}
-                                value={item.quantity}
+                                value={quantityDrafts[item.id] ?? formatNumericDraft(item.quantity)}
                                 onChange={(e) => {
                                   const raw = e.target.value
-                                  if (isPerSqftUnit(item.unit)) {
-                                    const v = Math.max(0.01, parseFloat(raw) || 0.01)
-                                    updateLineItem(item.id, 'quantity', v)
-                                  } else {
-                                    updateLineItem(item.id, 'quantity', Math.max(1, parseInt(raw, 10) || 1))
+                                  setQuantityDrafts(prev => ({ ...prev, [item.id]: raw }))
+                                  const parsed = parseDraftFloat(raw)
+                                  if (parsed !== null && parsed > 0) {
+                                    updateLineItem(item.id, 'quantity', parsed)
                                   }
                                 }}
+                                onBlur={() => commitQuantityDraft(item, isPerSqftUnit(item.unit) ? 0.01 : 1)}
                                 className={`border border-gray-300 rounded-lg text-center font-medium ${
                                   isPerSqftUnit(item.unit) ? 'w-24 px-2 py-1' : 'w-16 px-2 py-1'
                                 }`}
@@ -2362,10 +2404,12 @@ export default function ProposalBuilderPage() {
                         type="number"
                         min={0.01}
                         step={1}
-                        value={quantityModalValue}
-                        onChange={(e) =>
-                          setQuantityModalValue(Math.max(0.01, parseFloat(e.target.value) || 0.01))
-                        }
+                        value={quantityModalRaw}
+                        onChange={(e) => setQuantityModalRaw(e.target.value)}
+                        onBlur={() => {
+                          const parsed = parseDraftFloat(quantityModalRaw, { fallback: 0.01 }) ?? 0.01
+                          setQuantityModalNumber(Math.max(0.01, parsed))
+                        }}
                         className="w-full px-4 py-3 border border-gray-300 rounded-xl text-center text-2xl font-bold"
                       />
                       <div className="flex flex-wrap gap-2 mt-3">
@@ -2373,7 +2417,7 @@ export default function ProposalBuilderPage() {
                           <button
                             key={sq}
                             type="button"
-                            onClick={() => setQuantityModalValue(sq)}
+                            onClick={() => setQuantityModalNumber(sq)}
                             className={`px-3 py-1.5 rounded-lg text-sm font-medium transition ${
                               quantityModalValue === sq
                                 ? 'bg-indigo-600 text-white'
@@ -2390,7 +2434,7 @@ export default function ProposalBuilderPage() {
                       <div className="flex items-center gap-3">
                         <button
                           type="button"
-                          onClick={() => setQuantityModalValue(Math.max(1, quantityModalValue - 1))}
+                          onClick={() => setQuantityModalNumber(Math.max(1, quantityModalValue - 1))}
                           className="w-12 h-12 flex items-center justify-center border border-gray-300 rounded-xl hover:bg-gray-50 text-xl font-bold text-gray-600"
                         >
                           −
@@ -2398,13 +2442,17 @@ export default function ProposalBuilderPage() {
                         <input
                           type="number"
                           min="1"
-                          value={quantityModalValue}
-                          onChange={(e) => setQuantityModalValue(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                          value={quantityModalRaw}
+                          onChange={(e) => setQuantityModalRaw(e.target.value)}
+                          onBlur={() => {
+                            const parsed = parseDraftFloat(quantityModalRaw, { fallback: 1 }) ?? 1
+                            setQuantityModalNumber(Math.max(1, Math.round(parsed)))
+                          }}
                           className="flex-1 px-4 py-3 border border-gray-300 rounded-xl text-center text-2xl font-bold"
                         />
                         <button
                           type="button"
-                          onClick={() => setQuantityModalValue(quantityModalValue + 1)}
+                          onClick={() => setQuantityModalNumber(quantityModalValue + 1)}
                           className="w-12 h-12 flex items-center justify-center border border-gray-300 rounded-xl hover:bg-gray-50 text-xl font-bold text-gray-600"
                         >
                           +
@@ -2421,7 +2469,7 @@ export default function ProposalBuilderPage() {
                           <button
                             key={qty}
                             type="button"
-                            onClick={() => setQuantityModalValue(qty)}
+                            onClick={() => setQuantityModalNumber(qty)}
                             className={`px-3 py-1.5 rounded-lg text-sm font-medium transition ${
                               quantityModalValue === qty
                                 ? 'bg-indigo-600 text-white'
@@ -2451,7 +2499,7 @@ export default function ProposalBuilderPage() {
               </div>
               <div className="p-6 border-t flex justify-end gap-3">
                 <button
-                  onClick={() => { setQuantityModalItem(null); setQuantityModalValue(1); }}
+                  onClick={() => { setQuantityModalItem(null); setQuantityModalNumber(1); }}
                   className="px-4 py-2 border border-gray-300 rounded-xl hover:bg-gray-50"
                 >
                   Cancel
