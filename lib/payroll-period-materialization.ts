@@ -445,8 +445,9 @@ export async function materializePayrollPeriod(
       explicit: explicitAdditive,
       context: derivedContext,
       opportunityId: jobOpportunityId,
-      participantUserIds: participants.map((p) => p.userId),
+      setterUserId: opportunity?.setter_user_id ?? null,
       salespersonId: job.salesperson_id ?? null,
+      opportunityOwnerUserId: opportunity?.owner_user_id ?? null,
       saleDate: job.sale_date ?? null,
     })
     const additiveParticipants = derived.participants
@@ -506,12 +507,13 @@ export async function materializePayrollPeriod(
         net_amount: roundMoney(scaled.scaled.get(key) ?? resolved.amount),
         chargeback_applied_amount: 0,
         comp_plan_snapshot: {
-          source: 'deal_commission_roles',
+          source: participant.sourceSnapshot ? 'derived_commission' : 'deal_commission_roles',
           basis: resolved.basis,
           override_amount: participant.overrideAmount,
           override_percent: participant.overridePercent,
           commission_base: payrollSnapshot.compBase,
           pool_cap_enforced: scaled.enforced,
+          ...(participant.sourceSnapshot || {}),
         },
       }
     })

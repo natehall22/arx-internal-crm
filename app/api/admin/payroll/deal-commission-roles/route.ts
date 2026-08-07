@@ -12,6 +12,8 @@ const STORAGE_ROLES = new Set([
   'inspector',
   'field_manager',
   'senior_manager',
+  'setter_manager_override',
+  'closer_manager_override',
   'self_gen',
   'custom',
 ])

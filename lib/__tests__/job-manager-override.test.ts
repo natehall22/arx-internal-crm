@@ -60,8 +60,8 @@ describe('buildManagerHierarchy', () => {
 
 describe('buildManagerHierarchyForDate', () => {
   const history = [
-    { userId: 'rep', managerUserId: 'old-manager', effectiveFrom: '2026-08-05', effectiveTo: '2026-08-20' },
-    { userId: 'rep', managerUserId: 'new-manager', effectiveFrom: '2026-08-21', effectiveTo: null },
+    { id: 'old-link', userId: 'rep', managerUserId: 'old-manager', effectiveFrom: '2026-08-05', effectiveTo: '2026-08-20' },
+    { id: 'new-link', userId: 'rep', managerUserId: 'new-manager', effectiveFrom: '2026-08-21', effectiveTo: null },
   ]
 
   it('uses the assignment effective when the job was sold', () => {
@@ -76,7 +76,7 @@ describe('buildManagerHierarchyForDate', () => {
 
   it('stops future overrides after a manager becomes inactive without rewriting prior sales', () => {
     const stableAssignment = [
-      { userId: 'rep', managerUserId: 'old-manager', effectiveFrom: '2026-08-05', effectiveTo: null },
+      { id: 'stable-link', userId: 'rep', managerUserId: 'old-manager', effectiveFrom: '2026-08-05', effectiveTo: null },
     ]
     const activeHistory = [
       { userId: 'rep', isActive: true, effectiveFrom: '2026-08-05' },

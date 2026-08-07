@@ -1,96 +1,31 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { requireAuthApi } from '@/lib/auth'
+import { createServiceClient } from '@/lib/supabase/service'
+import { isPayrollAdminRole } from '@/lib/payroll-admin-access'
 
 export const dynamic = 'force-dynamic'
 
-function getSessionFromRequest(req: NextRequest) {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const projectRef = supabaseUrl.match(/https:\/\/([^.]+)\./)?.[1] || ''
-  const cookieName = `sb-${projectRef}-auth-token`
-  
-  const singleCookie = req.cookies.get(cookieName)
-  if (singleCookie?.value) {
-    try {
-      const decoded = decodeURIComponent(singleCookie.value)
-      return JSON.parse(decoded)
-    } catch {
-      return null
-    }
-  }
-  
-  const chunks: string[] = []
-  let i = 0
-  while (true) {
-    const chunk = req.cookies.get(`${cookieName}.${i}`)
-    if (!chunk?.value) break
-    chunks.push(chunk.value)
-    i++
-  }
-  
-  if (chunks.length > 0) {
-    try {
-      const decoded = decodeURIComponent(chunks.join(''))
-      return JSON.parse(decoded)
-    } catch {
-      return null
-    }
-  }
-  
-  return null
+function easternDateToday(): string {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date())
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((entry) => entry.type === type)?.value || ''
+  return `${part('year')}-${part('month')}-${part('day')}`
 }
 
-function getAuthClient(req: NextRequest) {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  const sessionData = getSessionFromRequest(req)
-  
-  return {
-    client: createClient(supabaseUrl, supabaseKey, {
-      auth: { autoRefreshToken: false, persistSession: false },
-      global: sessionData?.access_token
-        ? { headers: { Authorization: `Bearer ${sessionData.access_token}` } }
-        : undefined,
-    }),
-    accessToken: sessionData?.access_token,
-  }
-}
-
-function getAdminClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
-  
-  return createClient(supabaseUrl, serviceRoleKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  })
-}
-
-async function getAuthenticatedUser(req: NextRequest) {
-  const { client: authClient, accessToken } = getAuthClient(req)
-  
-  if (!accessToken) {
+async function getAuthenticatedUser(_req: NextRequest) {
+  try {
+    const { authUser: user, profile } = await requireAuthApi()
+    const adminClient = createServiceClient()
+    const isAdmin = ['admin', 'regional_manager', 'sales_manager'].includes(profile.role)
+    return { user, profile, adminClient, isAdmin }
+  } catch {
     return { error: 'Unauthorized', status: 401 }
   }
-  
-  const { data: { user }, error: userError } = await authClient.auth.getUser(accessToken)
-  if (userError || !user) {
-    return { error: 'Unauthorized', status: 401 }
-  }
-
-  const adminClient = getAdminClient()
-  const { data: profile } = await adminClient
-    .from('users')
-    .select('org_id, role')
-    .eq('id', user.id)
-    .single()
-
-  if (!profile?.org_id) {
-    return { error: 'User profile not found', status: 404 }
-  }
-
-  // Check admin access for most operations
-  const isAdmin = ['admin', 'regional_manager', 'sales_manager'].includes(profile.role)
-
-  return { user, profile, adminClient, isAdmin }
 }
 
 // GET - Fetch admin data
@@ -105,7 +40,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const resource = searchParams.get('resource')
 
-    if (!isAdmin) {
+    if (!isAdmin && !(resource === 'comp_plans' && isPayrollAdminRole(profile.role))) {
       return NextResponse.json({ error: 'Access denied' }, { status: 403 })
     }
 
@@ -170,28 +105,53 @@ export async function GET(request: NextRequest) {
 
     // Comp Plans
     if (resource === 'comp_plans') {
-      const { data: plans } = await adminClient
+      const { data: plans, error: plansError } = await adminClient
         .from('comp_plans')
         .select('*')
         .eq('org_id', profile.org_id)
         .order('created_at', { ascending: false })
 
-      const { data: assignments } = await adminClient
+      const { data: assignments, error: assignmentsError } = await adminClient
         .from('user_comp_plans')
         .select('*, users(full_name, role), comp_plans(name)')
         .eq('org_id', profile.org_id)
         .order('effective_from', { ascending: false })
 
-      const { data: users } = await adminClient
+      const { data: overlayAssignments, error: overlayAssignmentsError } = await adminClient
+        .from('user_management_comp_overlay_assignments')
+        .select('id, user_id, comp_plan_id, lane, effective_from, effective_to, ended_at, end_reason, comp_plans(name)')
+        .eq('org_id', profile.org_id)
+        .is('cancelled_at', null)
+        .order('effective_from', { ascending: false })
+
+      const { data: overlayVersions, error: overlayVersionsError } = await adminClient
+        .from('management_comp_overlay_plan_versions')
+        .select('id, comp_plan_id, lane, override_percent, effective_from')
+        .eq('org_id', profile.org_id)
+        .order('effective_from', { ascending: false })
+
+      const { data: users, error: usersError } = await adminClient
         .from('users')
         .select('id, full_name, email, role, manager_user_id, region_id, team_id')
         .eq('org_id', profile.org_id)
         .eq('active', true)
         .order('full_name')
 
+      const loadError =
+        plansError ||
+        assignmentsError ||
+        overlayAssignmentsError ||
+        overlayVersionsError ||
+        usersError
+      if (loadError) {
+        return NextResponse.json({ error: loadError.message }, { status: 500 })
+      }
+
       return NextResponse.json({
         compPlans: plans || [],
         userAssignments: assignments || [],
+        managementOverlayAssignments: overlayAssignments || [],
+        managementOverlayVersions: overlayVersions || [],
         users: users || []
       })
     }
@@ -314,14 +274,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: auth.error }, { status: auth.status })
     }
 
-    const { profile, adminClient, isAdmin } = auth
-
-    if (!isAdmin) {
-      return NextResponse.json({ error: 'Access denied' }, { status: 403 })
-    }
-
     const body = await request.json()
     const { resource, ...data } = body
+    const { profile, adminClient, isAdmin } = auth
+
+    if (!isAdmin && !(['comp_plan', 'user_comp_plan'].includes(resource) && isPayrollAdminRole(profile.role))) {
+      return NextResponse.json({ error: 'Access denied' }, { status: 403 })
+    }
 
     // Create Region
     if (resource === 'region') {
@@ -354,13 +313,22 @@ export async function POST(request: NextRequest) {
 
     // Create Comp Plan
     if (resource === 'comp_plan') {
+      if (!isPayrollAdminRole(profile.role)) {
+        return NextResponse.json({ error: 'Payroll administrator access required' }, { status: 403 })
+      }
+      const basePercentage = data.base_percentage === null || data.base_percentage === undefined || data.base_percentage === ''
+        ? null
+        : Number(data.base_percentage)
+      if (data.plan_purpose === 'management_overlay' && (basePercentage === null || !Number.isFinite(basePercentage) || basePercentage < 0 || basePercentage > 100)) {
+        return NextResponse.json({ error: 'Management overlay rate must be between 0 and 100' }, { status: 400 })
+      }
       const planData = {
         org_id: profile.org_id,
         name: data.name,
         description: data.description || null,
         plan_type: data.plan_type,
         flat_amount: data.flat_amount || null,
-        base_percentage: data.base_percentage || null,
+        base_percentage: basePercentage,
         hourly_rate: data.hourly_rate || null,
         unit_rate: data.unit_rate || null,
         unit_type: data.unit_type || null,
@@ -375,6 +343,7 @@ export async function POST(request: NextRequest) {
         is_active: data.is_active ?? true,
         is_default: data.is_default || false,
         readme: data.readme || null,
+        plan_purpose: data.plan_purpose === 'management_overlay' ? 'management_overlay' : 'primary',
       }
 
       const { error } = await adminClient
@@ -399,15 +368,22 @@ export async function POST(request: NextRequest) {
 
     // Assign Comp Plan to User
     if (resource === 'user_comp_plan') {
-      const { error } = await adminClient
-        .from('user_comp_plans')
-        .insert({
-          org_id: profile.org_id,
-          user_id: data.user_id,
-          comp_plan_id: data.comp_plan_id,
-          effective_from: data.effective_from,
-          override_percentage: data.override_percentage || null,
-        })
+      if (!isPayrollAdminRole(profile.role)) {
+        return NextResponse.json({ error: 'Payroll administrator access required' }, { status: 403 })
+      }
+      const reason = typeof data.change_reason === 'string' ? data.change_reason.trim() : ''
+      if (!reason) {
+        return NextResponse.json({ error: 'A change reason is required for payroll history' }, { status: 400 })
+      }
+      const { error } = await adminClient.rpc('assign_primary_comp_plan', {
+        p_org_id: profile.org_id,
+        p_user_id: data.user_id,
+        p_comp_plan_id: data.comp_plan_id,
+        p_effective_from: data.effective_from,
+        p_override_percentage: data.override_percentage ?? null,
+        p_created_by_user_id: auth.user.id,
+        p_change_reason: reason,
+      })
 
       if (error) {
         return NextResponse.json({ error: error.message }, { status: 400 })
@@ -468,14 +444,13 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: auth.error }, { status: auth.status })
     }
 
-    const { profile, adminClient, isAdmin } = auth
-
-    if (!isAdmin) {
-      return NextResponse.json({ error: 'Access denied' }, { status: 403 })
-    }
-
     const body = await request.json()
     const { resource, id, ...data } = body
+    const { profile, adminClient, isAdmin } = auth
+
+    if (!isAdmin && !(resource === 'comp_plan' && isPayrollAdminRole(profile.role))) {
+      return NextResponse.json({ error: 'Access denied' }, { status: 403 })
+    }
 
     // Update Region
     if (resource === 'region') {
@@ -511,12 +486,43 @@ export async function PATCH(request: NextRequest) {
 
     // Update Comp Plan
     if (resource === 'comp_plan') {
+      if (!isPayrollAdminRole(profile.role)) {
+        return NextResponse.json({ error: 'Payroll administrator access required' }, { status: 403 })
+      }
+      const { count: primaryAssignmentCount, error: primaryCountError } = await adminClient
+        .from('user_comp_plans')
+        .select('id', { count: 'exact', head: true })
+        .eq('org_id', profile.org_id)
+        .eq('comp_plan_id', id)
+      const { count: overlayAssignmentCount, error: overlayCountError } = await adminClient
+        .from('user_management_comp_overlay_assignments')
+        .select('id', { count: 'exact', head: true })
+        .eq('org_id', profile.org_id)
+        .eq('comp_plan_id', id)
+      if (primaryCountError || overlayCountError) {
+        return NextResponse.json(
+          { error: primaryCountError?.message || overlayCountError?.message },
+          { status: 500 }
+        )
+      }
+      if ((primaryAssignmentCount || 0) > 0 || (overlayAssignmentCount || 0) > 0) {
+        return NextResponse.json(
+          { error: 'Assigned plans are historical records. Create a new plan and schedule a future assignment instead.' },
+          { status: 409 }
+        )
+      }
+      const basePercentage = data.base_percentage === null || data.base_percentage === undefined || data.base_percentage === ''
+        ? null
+        : Number(data.base_percentage)
+      if (data.plan_purpose === 'management_overlay' && (basePercentage === null || !Number.isFinite(basePercentage) || basePercentage < 0 || basePercentage > 100)) {
+        return NextResponse.json({ error: 'Management overlay rate must be between 0 and 100' }, { status: 400 })
+      }
       const planData = {
         name: data.name,
         description: data.description || null,
         plan_type: data.plan_type,
         flat_amount: data.flat_amount || null,
-        base_percentage: data.base_percentage || null,
+        base_percentage: basePercentage,
         hourly_rate: data.hourly_rate || null,
         unit_rate: data.unit_rate || null,
         unit_type: data.unit_type || null,
@@ -531,6 +537,7 @@ export async function PATCH(request: NextRequest) {
         is_active: data.is_active ?? true,
         is_default: data.is_default || false,
         readme: data.readme || null,
+        plan_purpose: data.plan_purpose === 'management_overlay' ? 'management_overlay' : 'primary',
       }
 
       const { error } = await adminClient
@@ -684,15 +691,14 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: auth.error }, { status: auth.status })
     }
 
-    const { profile, adminClient, isAdmin } = auth
-
-    if (!isAdmin) {
-      return NextResponse.json({ error: 'Access denied' }, { status: 403 })
-    }
-
     const { searchParams } = new URL(request.url)
     const resource = searchParams.get('resource')
     const id = searchParams.get('id')
+    const { profile, adminClient, isAdmin } = auth
+
+    if (!isAdmin && !(['comp_plan', 'user_comp_plan'].includes(resource || '') && isPayrollAdminRole(profile.role))) {
+      return NextResponse.json({ error: 'Access denied' }, { status: 403 })
+    }
 
     if (!id) {
       return NextResponse.json({ error: 'ID required' }, { status: 400 })
@@ -728,9 +734,12 @@ export async function DELETE(request: NextRequest) {
 
     // Delete Comp Plan
     if (resource === 'comp_plan') {
+      if (!isPayrollAdminRole(profile.role)) {
+        return NextResponse.json({ error: 'Payroll administrator access required' }, { status: 403 })
+      }
       const { error } = await adminClient
         .from('comp_plans')
-        .delete()
+        .update({ is_active: false, is_default: false })
         .eq('id', id)
         .eq('org_id', profile.org_id)
 
@@ -742,9 +751,44 @@ export async function DELETE(request: NextRequest) {
 
     // Delete User Comp Plan Assignment
     if (resource === 'user_comp_plan') {
+      if (!isPayrollAdminRole(profile.role)) {
+        return NextResponse.json({ error: 'Payroll administrator access required' }, { status: 403 })
+      }
+      const { data: assignment, error: readError } = await adminClient
+        .from('user_comp_plans')
+        .select('id, effective_from, effective_to')
+        .eq('id', id)
+        .eq('org_id', profile.org_id)
+        .maybeSingle()
+
+      if (readError || !assignment) {
+        return NextResponse.json({ error: readError?.message || 'Assignment not found' }, { status: 404 })
+      }
+
+      const today = easternDateToday()
+      if (assignment.effective_from > today) {
+        const body = (await request.json().catch(() => ({}))) as { change_reason?: unknown }
+        const reason = typeof body.change_reason === 'string' ? body.change_reason.trim() : ''
+        if (!reason) {
+          return NextResponse.json({ error: 'A cancellation reason is required' }, { status: 400 })
+        }
+        const { error } = await adminClient.rpc('cancel_scheduled_primary_comp_plan', {
+          p_org_id: profile.org_id,
+          p_assignment_id: id,
+          p_created_by_user_id: auth.user.id,
+          p_change_reason: reason,
+        })
+        if (error) return NextResponse.json({ error: error.message }, { status: 400 })
+        return NextResponse.json({ success: true })
+      }
+
+      const effectiveTo =
+        assignment.effective_to && assignment.effective_to < today
+          ? assignment.effective_to
+          : today
       const { error } = await adminClient
         .from('user_comp_plans')
-        .delete()
+        .update({ effective_to: effectiveTo })
         .eq('id', id)
         .eq('org_id', profile.org_id)
 

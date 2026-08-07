@@ -44,8 +44,10 @@ interface CompPlanDetails {
   volume_bonuses: any[]
   is_manager_plan: boolean
   personal_sales_enabled: boolean
-  team_override_enabled: boolean
-  team_overrides: any[]
+  /** @deprecated Management overlays are calculated by payroll, not this dashboard. */
+  team_override_enabled?: false
+  /** @deprecated Kept only for response compatibility. */
+  team_overrides?: never[]
   readme?: string
 }
 
@@ -562,8 +564,6 @@ export default function DashboardClient({
   const [calcJobsClosed, setCalcJobsClosed] = useState('4')
   const [calcHoursWorked, setCalcHoursWorked] = useState('40')
   const [calcUnits, setCalcUnits] = useState('25')
-  const [calcTeamSales, setCalcTeamSales] = useState('20')
-  const [calcTeamAvgPrice, setCalcTeamAvgPrice] = useState('13500')
   /** Avg dealer fee % of financed total — 0 for cash / no fee; drives net commissionable volume in calculator. */
   const [avgDealerFeePercent, setAvgDealerFeePercent] = useState('0')
 
@@ -571,14 +571,10 @@ export default function DashboardClient({
   const calcJobsClosedNum = previewNumber(calcJobsClosed)
   const calcHoursWorkedNum = previewNumber(calcHoursWorked)
   const calcUnitsNum = previewNumber(calcUnits)
-  const calcTeamSalesNum = previewNumber(calcTeamSales)
-  const calcTeamAvgPriceNum = previewNumber(calcTeamAvgPrice)
   const avgDealerFeePercentNum = previewNumber(avgDealerFeePercent)
 
   const commissionablePerJob = netCommissionableFromFinancedTotal(calcAvgSalePriceNum, avgDealerFeePercentNum)
   const monthlyCommissionableVolume = commissionablePerJob * calcJobsClosedNum
-  const teamCommissionablePerJob = netCommissionableFromFinancedTotal(calcTeamAvgPriceNum, avgDealerFeePercentNum)
-  const teamMonthlyCommissionableVolume = teamCommissionablePerJob * calcTeamSalesNum
 
   const compCalculatorTierValues = useMemo(() => {
     const cr =
@@ -2251,25 +2247,6 @@ export default function DashboardClient({
                     </div>
                   )}
                   
-                  {/* Team Overrides (for managers) */}
-                  {compPlanDetails.team_overrides && compPlanDetails.team_overrides.length > 0 && (
-                    <div className="bg-gray-50 rounded-xl p-3 sm:p-4">
-                      <h4 className="font-semibold text-gray-900 mb-2 sm:mb-3 text-sm sm:text-base">Team Override Bonuses</h4>
-                      <p className="text-xs sm:text-sm text-gray-600 mb-2 sm:mb-3">Earn overrides on your team's sales:</p>
-                      <div className="space-y-2">
-                        {compPlanDetails.team_overrides.map((tier: any, idx: number) => (
-                          <div key={idx} className="flex items-center justify-between p-2 sm:p-3 bg-white rounded-lg border">
-                            <span className="text-gray-700 text-sm">
-                              Team: ${tier.min_team_volume?.toLocaleString() || 0}+
-                            </span>
-                            <span className="font-semibold text-blue-600 text-sm">
-                              {tier.override_type === 'percentage' ? `${tier.override_value}%` : `$${tier.override_value}`}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
                   
                   {/* Custom Readme */}
                   {compPlanDetails.readme && (
@@ -2498,53 +2475,6 @@ export default function DashboardClient({
                       </>
                     )}
                     
-                    {/* Team sales section - only for managers with team overrides enabled */}
-                    {compPlanDetails.is_manager_plan && compPlanDetails.team_override_enabled && (
-                      <>
-                        <h5 className="text-sm font-semibold text-gray-800 border-b pb-1 mt-4">Team Sales (Override)</h5>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-2">Team avg financed total / job</label>
-                          <input
-                            type="number"
-                            value={calcTeamAvgPrice}
-                            onChange={(e) => setCalcTeamAvgPrice(e.target.value)}
-                            className="w-full px-3 sm:px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-base"
-                          />
-                          <div className="flex flex-wrap gap-1.5 sm:gap-2 mt-2">
-                            {[8000, 10000, 13500, 18000, 25000].map(price => (
-                              <button
-                                key={price}
-                                onClick={() => setCalcTeamAvgPrice(String(price))}
-                                className={`px-2.5 sm:px-3 py-1 text-xs rounded-full ${calcTeamAvgPriceNum === price ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
-                              >
-                                ${(price/1000).toFixed(0)}k
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                        
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-2">Team Sales per Month</label>
-                          <input
-                            type="number"
-                            value={calcTeamSales}
-                            onChange={(e) => setCalcTeamSales(e.target.value)}
-                            className="w-full px-3 sm:px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-base"
-                          />
-                          <div className="flex flex-wrap gap-1.5 sm:gap-2 mt-2">
-                            {[10, 20, 30, 40, 50, 75, 100].map(sales => (
-                              <button
-                                key={sales}
-                                onClick={() => setCalcTeamSales(String(sales))}
-                                className={`px-2.5 sm:px-3 py-1 text-xs rounded-full ${calcTeamSalesNum === sales ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
-                              >
-                                {sales}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      </>
-                    )}
                   </>
                 )}
               </div>
@@ -2552,6 +2482,11 @@ export default function DashboardClient({
               {/* Results - dynamic based on plan type */}
               <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl p-4 sm:p-6 border border-green-100">
                 <h4 className="font-semibold text-green-900 mb-3 sm:mb-4 text-sm sm:text-base">Estimated Earnings</h4>
+                {compPlanDetails.is_manager_plan && (
+                  <p className="mb-3 text-xs text-green-800">
+                    Primary-plan estimate only. Management overlays are calculated from dated payroll assignments and are not estimated here.
+                  </p>
+                )}
                 
                 {(() => {
                   let monthlyEarnings = 0
@@ -2580,7 +2515,6 @@ export default function DashboardClient({
                   } else {
                     // Percentage or tiered
                     let personalEarnings = 0
-                    let teamOverrideEarnings = 0
                     
                     // Calculate personal sales earnings (if applicable)
                     if (!compPlanDetails.is_manager_plan || compPlanDetails.personal_sales_enabled) {
@@ -2609,39 +2543,7 @@ export default function DashboardClient({
                       displayRows.push({ label: 'Personal Earnings', value: `$${Math.round(personalEarnings).toLocaleString()}` })
                     }
                     
-                    // Calculate team override earnings (for managers)
-                    if (compPlanDetails.is_manager_plan && compPlanDetails.team_override_enabled && compPlanDetails.team_overrides?.length > 0) {
-                      const teamVolume = teamMonthlyCommissionableVolume
-                      
-                      // Find applicable override tier
-                      let overrideRate = 0
-                      let overrideType = 'percentage'
-                      const sortedOverrides = [...compPlanDetails.team_overrides].sort((a: any, b: any) => (b.min_team_volume || 0) - (a.min_team_volume || 0))
-                      
-                      for (const tier of sortedOverrides) {
-                        if (teamVolume >= (tier.min_team_volume || 0)) {
-                          overrideRate = tier.override_value || 0
-                          overrideType = tier.override_type || 'percentage'
-                          break
-                        }
-                      }
-                      
-                      if (overrideType === 'percentage') {
-                        teamOverrideEarnings = teamVolume * (overrideRate / 100)
-                      } else {
-                        // Flat amount per sale
-                        teamOverrideEarnings = calcTeamSalesNum * overrideRate
-                      }
-                      
-                      displayRows.push({ label: '— Team Override —', value: '' })
-                      displayRows.push({ label: 'Team Sales/Month', value: `${calcTeamSales}` })
-                      displayRows.push({ label: 'Team avg financed / job', value: `$${calcTeamAvgPriceNum.toLocaleString()}` })
-                      displayRows.push({ label: 'Team net volume', value: `$${teamVolume.toLocaleString()}` })
-                      displayRows.push({ label: 'Override Rate', value: overrideType === 'percentage' ? `${overrideRate}%` : `$${overrideRate}/sale` })
-                      displayRows.push({ label: 'Override Earnings', value: `$${Math.round(teamOverrideEarnings).toLocaleString()}` })
-                    }
-                    
-                    monthlyEarnings = personalEarnings + teamOverrideEarnings
+                    monthlyEarnings = personalEarnings
                     
                     // For non-managers, show simpler display
                     if (!compPlanDetails.is_manager_plan) {

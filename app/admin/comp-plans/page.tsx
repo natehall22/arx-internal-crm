@@ -63,6 +63,7 @@ interface CompPlan {
   team_overrides: OverrideTier[] | null
   applicable_roles: string[]
   created_at: string
+  plan_purpose: 'primary' | 'management_overlay'
 }
 
 interface HybridComponent {
@@ -92,8 +93,36 @@ interface UserCompPlan {
   effective_from: string
   effective_to: string | null
   override_percentage: number | null
-  users?: { full_name: string; role: string }
+  users?: { full_name: string; role: string; manager_user_id?: string | null }
   comp_plans?: { name: string }
+}
+
+interface ManagementOverlayAssignment {
+  id: string
+  user_id: string
+  comp_plan_id: string
+  lane: 'setter' | 'closer'
+  effective_from: string
+  effective_to: string | null
+  ended_at: string | null
+  end_reason: string | null
+  comp_plans?: { name: string } | null
+}
+
+interface ManagementOverlayVersion {
+  id: string
+  comp_plan_id: string
+  lane: 'setter' | 'closer'
+  override_percent: number
+  effective_from: string
+}
+
+interface AssignmentUser {
+  id: string
+  full_name: string
+  email?: string
+  role: string
+  manager_user_id?: string | null
 }
 
 /** Explicit dark ink for body text on light surfaces (project UI convention). */
@@ -147,22 +176,32 @@ function volumeTierFieldLabels(m: VolumeTier['tier_metric']) {
   return { min: 'Min volume ($)', max: 'Max volume ($)' }
 }
 
+function formatEffectiveRange(effectiveFrom: string, effectiveTo: string | null) {
+  const from = new Date(`${effectiveFrom}T00:00:00`).toLocaleDateString()
+  if (!effectiveTo) return `Effective ${from}`
+  return `${from} – ${new Date(`${effectiveTo}T00:00:00`).toLocaleDateString()}`
+}
+
 export default function CompPlansPage() {
   const router = useRouter()
   const [loading, setLoading] = useState(true)
   const [compPlans, setCompPlans] = useState<CompPlan[]>([])
   const [userAssignments, setUserAssignments] = useState<UserCompPlan[]>([])
-  const [users, setUsers] = useState<any[]>([])
+  const [managementOverlayAssignments, setManagementOverlayAssignments] = useState<ManagementOverlayAssignment[]>([])
+  const [managementOverlayVersions, setManagementOverlayVersions] = useState<ManagementOverlayVersion[]>([])
+  const [users, setUsers] = useState<AssignmentUser[]>([])
   const [activeTab, setActiveTab] = useState<'plans' | 'assignments'>('plans')
   
   // Modal states
   const [showPlanModal, setShowPlanModal] = useState(false)
   const [showAssignModal, setShowAssignModal] = useState(false)
+  const [showOverlayModal, setShowOverlayModal] = useState(false)
   const [editingPlan, setEditingPlan] = useState<CompPlan | null>(null)
   
   // Form state
   const [planForm, setPlanForm] = useState({
     name: '',
+    plan_purpose: 'primary' as CompPlan['plan_purpose'],
     description: '',
     plan_type: 'percentage' as CompPlan['plan_type'],
     flat_amount: '',
@@ -189,8 +228,26 @@ export default function CompPlansPage() {
   const [assignForm, setAssignForm] = useState({
     user_id: '',
     comp_plan_id: '',
-    effective_from: new Date().toISOString().split('T')[0],
+    effective_from: '',
     override_percentage: '',
+    change_reason: '',
+  })
+
+  const easternToday = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/New_York',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date())
+  const tomorrowDate = new Date(`${easternToday}T12:00:00.000Z`)
+  tomorrowDate.setUTCDate(tomorrowDate.getUTCDate() + 1)
+  const tomorrowEastern = tomorrowDate.toISOString().slice(0, 10)
+  const [overlayForm, setOverlayForm] = useState({
+    user_id: '',
+    comp_plan_id: '',
+    lane: 'setter' as 'setter' | 'closer',
+    effective_from: tomorrowEastern,
+    change_reason: '',
   })
 
   // Surfaced live in the builder so an admin never saves a plan that quietly pays $0.
@@ -232,6 +289,8 @@ export default function CompPlansPage() {
       const data = await response.json()
       setCompPlans(data.compPlans || [])
       setUserAssignments(data.userAssignments || [])
+      setManagementOverlayAssignments(data.managementOverlayAssignments || [])
+      setManagementOverlayVersions(data.managementOverlayVersions || [])
       setUsers(data.users || [])
     } catch (error) {
       console.error('Error loading comp plans:', error)
@@ -251,7 +310,7 @@ export default function CompPlansPage() {
       return false
     }
 
-    if (planForm.plan_type === 'tiered') {
+    if (planForm.plan_purpose === 'primary' && planForm.plan_type === 'tiered') {
       for (let index = 0; index < planForm.tiers.length; index += 1) {
         const tier = planForm.tiers[index]
         const row = `Tier ${index + 1}`
@@ -265,7 +324,7 @@ export default function CompPlansPage() {
       }
     }
 
-    for (let index = 0; index < planForm.volume_bonuses.length; index += 1) {
+    for (let index = 0; planForm.plan_purpose === 'primary' && index < planForm.volume_bonuses.length; index += 1) {
       const bonus = planForm.volume_bonuses[index]
       const row = `Volume bonus ${index + 1}`
       if (
@@ -277,7 +336,7 @@ export default function CompPlansPage() {
       }
     }
 
-    if (planForm.plan_type === 'hybrid') {
+    if (planForm.plan_purpose === 'primary' && planForm.plan_type === 'hybrid') {
       for (let index = 0; index < planForm.hybrid_components.length; index += 1) {
         if (!requiredDraft(planForm.hybrid_components[index].rate, `Hybrid component ${index + 1} rate`)) {
           return
@@ -285,22 +344,16 @@ export default function CompPlansPage() {
       }
     }
 
-    if (planForm.is_manager_plan && planForm.team_override_enabled) {
-      for (let index = 0; index < planForm.team_overrides.length; index += 1) {
-        const teamOverride = planForm.team_overrides[index]
-        const row = `Team override ${index + 1}`
-        if (
-          !requiredDraft(teamOverride.min_team_volume, `${row} min`) ||
-          !optionalDraft(teamOverride.max_team_volume, `${row} max`) ||
-          !requiredDraft(teamOverride.override_value, `${row} value`)
-        ) {
-          return
-        }
+    if (planForm.plan_purpose === 'management_overlay') {
+      const rate = parseDraftFloat(planForm.base_percentage, { required: true })
+      if (rate === null || rate < 0 || rate > 100) {
+        alert('Management overlay rate must be between 0 and 100%.')
+        return
       }
     }
 
     // Last stop before a plan that pays $0 gets saved and assigned to a rep.
-    if (hasBlockingCompPlanWarning(planWarnings)) {
+    if (planForm.plan_purpose === 'primary' && hasBlockingCompPlanWarning(planWarnings)) {
       const reasons = planWarnings
         .filter((w) => w.level === 'blocking')
         .map((w) => `• ${w.title}`)
@@ -317,23 +370,26 @@ export default function CompPlansPage() {
       resource: editingPlan ? 'comp_plan' : 'comp_plan',
       id: editingPlan?.id,
       name: planForm.name,
+      plan_purpose: planForm.plan_purpose,
       description: planForm.description || null,
-      plan_type: planForm.plan_type,
-      flat_amount: planForm.plan_type === 'flat_rate' ? parseFloat(planForm.flat_amount) || null : null,
-      base_percentage: ['percentage', 'tiered', 'hybrid'].includes(planForm.plan_type) 
+      plan_type: planForm.plan_purpose === 'management_overlay' ? 'percentage' : planForm.plan_type,
+      flat_amount: planForm.plan_purpose === 'primary' && planForm.plan_type === 'flat_rate' ? parseFloat(planForm.flat_amount) || null : null,
+      base_percentage: planForm.plan_purpose === 'management_overlay'
+        ? parseDraftFloat(planForm.base_percentage, { required: true })
+        : ['percentage', 'tiered', 'hybrid'].includes(planForm.plan_type)
         ? parseFloat(planForm.base_percentage) || null 
         : null,
-      hourly_rate: ['hourly', 'hybrid'].includes(planForm.plan_type) 
+      hourly_rate: planForm.plan_purpose === 'primary' && ['hourly', 'hybrid'].includes(planForm.plan_type)
         ? parseFloat(planForm.hourly_rate) || null 
         : null,
-      unit_rate: planForm.plan_type === 'unit_based' || planForm.hybrid_components.some(c => c.type === 'per_unit')
+      unit_rate: planForm.plan_purpose === 'primary' && (planForm.plan_type === 'unit_based' || planForm.hybrid_components.some(c => c.type === 'per_unit'))
         ? parseFloat(planForm.unit_rate) || null 
         : null,
-      unit_type: planForm.plan_type === 'unit_based' 
+      unit_type: planForm.plan_purpose === 'primary' && planForm.plan_type === 'unit_based'
         ? (planForm.unit_type === 'custom' ? planForm.custom_unit_label : planForm.unit_type)
         : null,
       tiers:
-        planForm.plan_type === 'tiered'
+        planForm.plan_purpose === 'primary' && planForm.plan_type === 'tiered'
           ? planForm.tiers.map((t) => ({
               min: parseDraftFloat(t.min, { required: true }) ?? 0,
               max: t.max.trim() === '' ? null : parseDraftFloat(t.max, { required: true }) ?? 0,
@@ -341,7 +397,7 @@ export default function CompPlansPage() {
             }))
           : null,
       volume_bonuses:
-        planForm.volume_bonuses.length > 0
+        planForm.plan_purpose === 'primary' && planForm.volume_bonuses.length > 0
           ? planForm.volume_bonuses.map((b) => ({
               ...b,
               min_volume: parseDraftFloat(b.min_volume, { required: true }) ?? 0,
@@ -350,17 +406,21 @@ export default function CompPlansPage() {
             }))
           : null,
       hybrid_components:
-        planForm.plan_type === 'hybrid' && planForm.hybrid_components.length > 0
+        planForm.plan_purpose === 'primary' && planForm.plan_type === 'hybrid' && planForm.hybrid_components.length > 0
           ? planForm.hybrid_components.map((c) => ({
               ...c,
               rate: parseDraftFloat(c.rate, { required: true }) ?? 0,
             }))
           : null,
-      is_manager_plan: planForm.is_manager_plan,
-      personal_sales_enabled: planForm.is_manager_plan ? planForm.personal_sales_enabled : null,
-      team_override_enabled: planForm.is_manager_plan ? planForm.team_override_enabled : null,
+      is_manager_plan: planForm.plan_purpose === 'management_overlay' ? true : planForm.is_manager_plan,
+      personal_sales_enabled: planForm.plan_purpose === 'management_overlay'
+        ? false
+        : planForm.is_manager_plan ? planForm.personal_sales_enabled : null,
+      team_override_enabled: planForm.plan_purpose === 'management_overlay'
+        ? false
+        : planForm.is_manager_plan ? planForm.team_override_enabled : null,
       team_overrides:
-        planForm.is_manager_plan && planForm.team_override_enabled && planForm.team_overrides.length > 0
+        planForm.plan_purpose === 'primary' && planForm.is_manager_plan && planForm.team_override_enabled && planForm.team_overrides.length > 0
           ? planForm.team_overrides.map((o) => ({
               ...o,
               min_team_volume: parseDraftFloat(o.min_team_volume, { required: true }) ?? 0,
@@ -371,7 +431,7 @@ export default function CompPlansPage() {
               override_value: parseDraftFloat(o.override_value, { required: true }) ?? 0,
             }))
           : null,
-      applicable_roles: planForm.applicable_roles,
+      applicable_roles: planForm.plan_purpose === 'management_overlay' ? [] : planForm.applicable_roles,
       is_active: planForm.is_active,
       is_default: planForm.is_default,
       readme: planForm.readme || null,
@@ -411,6 +471,7 @@ export default function CompPlansPage() {
           comp_plan_id: assignForm.comp_plan_id,
           effective_from: assignForm.effective_from,
           override_percentage: assignForm.override_percentage ? parseFloat(assignForm.override_percentage) : null,
+          change_reason: assignForm.change_reason,
         }),
       })
 
@@ -424,8 +485,9 @@ export default function CompPlansPage() {
       setAssignForm({
         user_id: '',
         comp_plan_id: '',
-        effective_from: new Date().toISOString().split('T')[0],
+        effective_from: tomorrowEastern,
         override_percentage: '',
+        change_reason: '',
       })
       loadData()
     } catch (error) {
@@ -434,15 +496,85 @@ export default function CompPlansPage() {
     }
   }
 
+  const saveManagementOverlay = async () => {
+    try {
+      const response = await fetch('/api/admin/comp-plan-overlays', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...overlayForm,
+        }),
+      })
+      if (!response.ok) {
+        const data = await response.json()
+        alert(data.error || 'Failed to assign management overlay')
+        return
+      }
+      setShowOverlayModal(false)
+      setOverlayForm({
+        user_id: '',
+        comp_plan_id: '',
+        lane: 'setter',
+        effective_from: tomorrowEastern,
+        change_reason: '',
+      })
+      loadData()
+    } catch (error) {
+      console.error('Error assigning management overlay:', error)
+      alert('Failed to assign management overlay')
+    }
+  }
+
+  const cancelManagementOverlay = async (assignmentId: string) => {
+    const reason = prompt('Why is this scheduled management overlay being cancelled?')?.trim()
+    if (!reason) return
+    const response = await fetch('/api/admin/comp-plan-overlays', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ assignment_id: assignmentId, change_reason: reason }),
+    })
+    const data = await response.json().catch(() => ({}))
+    if (!response.ok) {
+      alert(data.error || 'Failed to cancel management overlay')
+      return
+    }
+    loadData()
+  }
+
+  const endManagementOverlay = async (assignmentId: string) => {
+    const effectiveTo = prompt(
+      'Last active date for this overlay (YYYY-MM-DD). Today keeps today’s production eligible:',
+      easternToday
+    )?.trim()
+    if (!effectiveTo) return
+    const reason = prompt('Why is this management overlay ending?')?.trim()
+    if (!reason) return
+    const response = await fetch('/api/admin/comp-plan-overlays', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        assignment_id: assignmentId,
+        effective_to: effectiveTo,
+        change_reason: reason,
+      }),
+    })
+    const data = await response.json().catch(() => ({}))
+    if (!response.ok) {
+      alert(data.error || 'Failed to end management overlay')
+      return
+    }
+    loadData()
+  }
+
   const deletePlan = async (id: string) => {
-    if (!confirm('Delete this comp plan?')) return
+    if (!confirm('Deactivate this comp plan? Historical assignments will remain unchanged.')) return
     try {
       const response = await fetch(`/api/admin/data?resource=comp_plan&id=${id}`, {
         method: 'DELETE',
       })
       if (!response.ok) {
         const data = await response.json()
-        alert(data.error || 'Failed to delete comp plan')
+        alert(data.error || 'Failed to deactivate comp plan')
         return
       }
       loadData()
@@ -451,15 +583,21 @@ export default function CompPlansPage() {
     }
   }
 
-  const deleteAssignment = async (id: string) => {
-    if (!confirm('Remove this assignment?')) return
+  const deleteAssignment = async (id: string, scheduled = false) => {
+    const cancellationReason = scheduled
+      ? prompt('Why is this scheduled primary plan being cancelled?')?.trim()
+      : null
+    if (scheduled && !cancellationReason) return
+    if (!scheduled && !confirm('End this assignment after today? Historical pay will remain unchanged.')) return
     try {
       const response = await fetch(`/api/admin/data?resource=user_comp_plan&id=${id}`, {
         method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ change_reason: cancellationReason }),
       })
       if (!response.ok) {
         const data = await response.json()
-        alert(data.error || 'Failed to remove assignment')
+        alert(data.error || 'Failed to end assignment')
         return
       }
       loadData()
@@ -471,6 +609,7 @@ export default function CompPlansPage() {
   const resetPlanForm = () => {
     setPlanForm({
       name: '',
+      plan_purpose: 'primary',
       description: '',
       plan_type: 'percentage',
       flat_amount: '',
@@ -498,6 +637,7 @@ export default function CompPlansPage() {
     const isCustomUnit = plan.unit_type && !isKnownCompPlanUnitType(plan.unit_type)
     setPlanForm({
       name: plan.name,
+      plan_purpose: plan.plan_purpose || 'primary',
       description: plan.description || '',
       plan_type: plan.plan_type,
       flat_amount: plan.flat_amount?.toString() || '',
@@ -617,46 +757,6 @@ export default function CompPlansPage() {
     }))
   }
 
-  // Team override functions (for manager plans)
-  const addTeamOverride = () => {
-    const lastOverride = planForm.team_overrides[planForm.team_overrides.length - 1]
-    const lastMax = lastOverride
-      ? lastOverride.max_team_volume.trim() === ''
-        ? parseDraftFloat(lastOverride.min_team_volume, { required: true }) ?? 0
-        : parseDraftFloat(lastOverride.max_team_volume, { required: true }) ?? 0
-      : 0
-    const newMin = lastOverride ? lastMax + 1 : 0
-    setPlanForm(prev => ({
-      ...prev,
-      team_overrides: [...prev.team_overrides, {
-        min_team_volume: String(newMin),
-        max_team_volume: String(newMin + 100000),
-        override_type: 'percentage',
-        override_value: '1',
-      }],
-    }))
-  }
-
-  const removeTeamOverride = (index: number) => {
-    setPlanForm(prev => ({
-      ...prev,
-      team_overrides: prev.team_overrides.filter((_, i) => i !== index)
-    }))
-  }
-
-  const updateTeamOverride = (index: number, field: string, value: string | number) => {
-    setPlanForm(prev => ({
-      ...prev,
-      team_overrides: prev.team_overrides.map((override, i) => {
-        if (i !== index) return override
-        if (field === 'override_type') {
-          return { ...override, [field]: value as 'percentage' | 'flat' }
-        }
-        return { ...override, [field]: String(value) }
-      }),
-    }))
-  }
-
   // Hybrid component functions
   const addHybridComponent = () => {
     setPlanForm(prev => ({
@@ -691,6 +791,74 @@ export default function CompPlansPage() {
       })
     }))
   }
+
+  const today = easternToday
+  const usersById = new Map(users.map((user) => [user.id, user]))
+  const assignmentsByUser = new Map<string, UserCompPlan[]>()
+  for (const assignment of userAssignments) {
+    const existing = assignmentsByUser.get(assignment.user_id) || []
+    existing.push(assignment)
+    assignmentsByUser.set(assignment.user_id, existing)
+  }
+
+  const assignmentRows = users.map((user) => {
+    const assignments = [...(assignmentsByUser.get(user.id) || [])].sort((a, b) =>
+      b.effective_from.localeCompare(a.effective_from)
+    )
+    const current = assignments.find(
+      (assignment) =>
+        assignment.effective_from <= today &&
+        (!assignment.effective_to || assignment.effective_to >= today)
+    )
+    const scheduled = [...assignments]
+      .filter((assignment) => assignment.effective_from > today)
+      .sort((a, b) => a.effective_from.localeCompare(b.effective_from))[0]
+    const historical = assignments.find((assignment) => assignment.effective_to && assignment.effective_to < today)
+    const primaryAssignment = current || historical || null
+    const primaryStatus = current ? 'Current' : historical ? 'Historical' : 'Missing'
+    const manager = user.manager_user_id ? usersById.get(user.manager_user_id) : undefined
+    const directReports = users.filter((candidate) => candidate.manager_user_id === user.id)
+
+    const overlays = (['setter', 'closer'] as const).flatMap((lane) => {
+      const rows = managementOverlayAssignments
+        .filter((row) => row.user_id === user.id && row.lane === lane)
+        .sort((a, b) => b.effective_from.localeCompare(a.effective_from))
+      const active = rows.find(
+        (row) => row.effective_from <= today && (!row.effective_to || row.effective_to >= today)
+      )
+      const scheduled = [...rows]
+        .filter((row) => row.effective_from > today)
+        .sort((a, b) => a.effective_from.localeCompare(b.effective_from))[0]
+      const historical = rows.find((row) => row.effective_to && row.effective_to < today)
+      return [
+        active
+          ? { assignment: active, status: active.ended_at ? 'Ending' as const : 'Current' as const }
+          : null,
+        scheduled ? { assignment: scheduled, status: 'Scheduled' as const } : null,
+        !active && !scheduled && historical
+          ? { assignment: historical, status: 'Historical' as const }
+          : null,
+      ].flatMap((item) => {
+        if (!item) return []
+        const rateDate = item.status === 'Current' || item.status === 'Ending'
+          ? today
+          : item.status === 'Scheduled'
+            ? item.assignment.effective_from
+            : item.assignment.effective_to || item.assignment.effective_from
+        const version = managementOverlayVersions
+          .filter(
+            (row) =>
+              row.comp_plan_id === item.assignment.comp_plan_id &&
+              row.lane === lane &&
+              row.effective_from <= rateDate
+          )
+          .sort((a, b) => b.effective_from.localeCompare(a.effective_from))[0]
+        return [{ ...item, rate: version?.override_percent ?? null }]
+      })
+    })
+
+    return { user, manager, directReports, primaryAssignment, primaryStatus, scheduledPrimary: scheduled, overlays }
+  })
 
   if (loading) {
     return (
@@ -775,6 +943,9 @@ export default function CompPlansPage() {
                       {plan.is_default && (
                         <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs rounded-full">Default</span>
                       )}
+                      {plan.plan_purpose === 'management_overlay' && (
+                        <span className="px-2 py-0.5 bg-purple-100 text-purple-800 text-xs rounded-full">Management Overlay</span>
+                      )}
                       {plan.is_manager_plan && (
                         <span className="px-2 py-0.5 bg-purple-100 text-purple-700 text-xs rounded-full">Manager</span>
                       )}
@@ -839,36 +1010,17 @@ export default function CompPlansPage() {
                   )}
 
                   {/* Manager-specific info */}
-                  {plan.is_manager_plan && (
-                    <>
-                      <div className="flex justify-between text-sm">
-                        <span className="text-gray-500">Personal Sales</span>
-                        <span className={`font-medium ${plan.personal_sales_enabled ? 'text-green-600' : 'text-gray-400'}`}>
-                          {plan.personal_sales_enabled ? 'Enabled' : 'Disabled'}
-                        </span>
-                      </div>
-                      <div className="flex justify-between text-sm">
-                        <span className="text-gray-500">Team Overrides</span>
-                        <span className={`font-medium ${plan.team_override_enabled ? 'text-green-600' : 'text-gray-400'}`}>
-                          {plan.team_override_enabled ? 'Enabled' : 'Disabled'}
-                        </span>
-                      </div>
-                      {plan.team_override_enabled && plan.team_overrides && plan.team_overrides.length > 0 && (
-                        <div className="text-sm">
-                          <span className="text-gray-500">Override Tiers:</span>
-                          <div className="mt-1 space-y-1">
-                            {plan.team_overrides.map((to, i) => (
-                              <div key={i} className="text-xs bg-purple-50 px-2 py-1 rounded">
-                                Team {to.min_team_volume.toLocaleString()} - {to.max_team_volume ? to.max_team_volume.toLocaleString() : '∞'} accounts: 
-                                <span className="font-medium text-purple-600 ml-1">
-                                  {to.override_type === 'percentage' ? `${to.override_value}%` : `$${to.override_value}`}
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </>
+                  {plan.is_manager_plan && plan.plan_purpose !== 'management_overlay' && (
+                    <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                      Management overlay pay is configured separately from this primary sales plan.
+                      Legacy team-override settings are not shown as payroll status.
+                    </div>
+                  )}
+
+                  {plan.plan_purpose === 'management_overlay' && (
+                    <div className="rounded-lg border border-purple-200 bg-purple-50 px-3 py-2 text-xs text-purple-900">
+                      Fixed setter or closer rate is versioned when this overlay is assigned. No volume tiers.
+                    </div>
                   )}
 
                   <div className="flex justify-between gap-3 text-sm">
@@ -881,7 +1033,7 @@ export default function CompPlansPage() {
                   </div>
                 </div>
 
-                {(() => {
+                {plan.plan_purpose !== 'management_overlay' && (() => {
                   const warnings = getCompPlanPayabilityWarnings({
                     plan_type: plan.plan_type,
                     base_percentage: plan.base_percentage,
@@ -917,7 +1069,7 @@ export default function CompPlansPage() {
                     onClick={() => deletePlan(plan.id)}
                     className="px-3 py-2 text-sm font-medium text-red-600 border border-red-200 rounded-lg hover:bg-red-50"
                   >
-                    Delete
+                    Deactivate
                   </button>
                 </div>
               </div>
@@ -940,60 +1092,209 @@ export default function CompPlansPage() {
         {/* Assignments Tab */}
         {activeTab === 'assignments' && (
           <div>
-            <div className="mb-4 flex justify-end">
+            <div className="mb-4 flex flex-wrap justify-end gap-2">
               <button
-                onClick={() => setShowAssignModal(true)}
+                onClick={() => setShowOverlayModal(true)}
+                className="px-4 py-2 border border-purple-300 text-purple-800 bg-white rounded-lg hover:bg-purple-50 font-medium text-sm"
+              >
+                + Assign Management Overlay
+              </button>
+              <button
+                onClick={() => {
+                  setAssignForm((previous) => ({ ...previous, effective_from: previous.effective_from || tomorrowEastern }))
+                  setShowAssignModal(true)
+                }}
                 className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-medium text-sm"
               >
                 + Assign Plan to User
               </button>
             </div>
 
-            <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
-              <table className="w-full">
-                <thead className="bg-gray-50 border-b">
+            <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm" style={{ color: INK }}>
+              Primary Sales Plan controls the user&apos;s own production. Management Overlay is separate,
+              payroll-backed manager compensation; this page shows it only when the API supplies that state.
+            </div>
+
+            <div className="bg-white rounded-xl shadow-sm border overflow-hidden md:overflow-x-auto">
+              <table className="block w-full md:table md:min-w-[1180px]">
+                <thead className="hidden bg-gray-50 border-b md:table-header-group">
                   <tr>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">User</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Role</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Comp Plan</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Effective From</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Override</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Current Reports To</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Current Direct Reports</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Primary Sales Plan</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Management Overlay</th>
                     <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y">
-                  {userAssignments.map((assignment) => (
-                    <tr key={assignment.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 font-medium text-gray-900">
-                        {assignment.users?.full_name || 'Unknown'}
+                <tbody className="block divide-y md:table-row-group">
+                  {assignmentRows.map(({ user, manager, directReports, primaryAssignment, primaryStatus, scheduledPrimary, overlays }) => {
+                    const managerEligible = user.role === 'setter_manager' || user.role === 'sales_manager'
+                    return (
+                    <tr key={user.id} className="block p-4 hover:bg-gray-50 align-top md:table-row md:p-0">
+                      <td className="block px-0 py-2 md:table-cell md:px-6 md:py-4">
+                        <div className="font-medium text-gray-900">{user.full_name}</div>
+                        <div className="mt-1 text-xs text-gray-500">{compPlanRoleLabel(user.role)}</div>
                       </td>
-                      <td className="px-6 py-4 text-gray-500 text-sm capitalize">
-                        {assignment.users?.role?.replace('_', ' ')}
+                      <td className="block px-0 py-2 text-sm md:table-cell md:px-6 md:py-4">
+                        <div className="mb-1 text-xs font-medium uppercase text-gray-500 md:hidden">Current Reports To</div>
+                        {manager ? (
+                          <span className="text-gray-900">{manager.full_name}</span>
+                        ) : (
+                          <span className="rounded-full bg-amber-100 px-2 py-1 text-xs font-medium text-amber-800">
+                            Unassigned
+                          </span>
+                        )}
                       </td>
-                      <td className="px-6 py-4 text-gray-900">
-                        {assignment.comp_plans?.name}
+                      <td className="block px-0 py-2 text-sm text-gray-700 md:table-cell md:px-6 md:py-4">
+                        <div className="mb-1 text-xs font-medium uppercase text-gray-500 md:hidden">Current Direct Reports</div>
+                        <div className="font-medium">{directReports.length}</div>
+                        {directReports.length > 0 && (
+                          <div className="mt-1 max-w-[220px] text-xs text-gray-500">
+                            {directReports.map((report) => report.full_name).join(', ')}
+                          </div>
+                        )}
                       </td>
-                      <td className="px-6 py-4 text-gray-500 text-sm">
-                        {new Date(assignment.effective_from).toLocaleDateString()}
+                      <td className="block px-0 py-2 text-sm md:table-cell md:px-6 md:py-4">
+                        <div className="mb-1 text-xs font-medium uppercase text-gray-500 md:hidden">Primary Sales Plan</div>
+                        {primaryAssignment ? (
+                          <>
+                            <div className="font-medium text-gray-900">
+                              {primaryAssignment.comp_plans?.name || 'Unknown plan'}
+                            </div>
+                            <div className="mt-1 text-xs text-gray-500">
+                              {formatEffectiveRange(primaryAssignment.effective_from, primaryAssignment.effective_to)}
+                            </div>
+                            <span className={`mt-2 inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${
+                              primaryStatus === 'Current'
+                                ? 'bg-green-100 text-green-800'
+                                : primaryStatus === 'Scheduled'
+                                  ? 'bg-blue-100 text-blue-800'
+                                  : 'bg-gray-100 text-gray-700'
+                            }`}>
+                              {primaryStatus}
+                            </span>
+                            {primaryAssignment.override_percentage != null && (
+                              <div className="mt-1 text-xs text-gray-500">
+                                Personal plan rate override: {primaryAssignment.override_percentage}%
+                              </div>
+                            )}
+                          </>
+                        ) : (
+                          <span className="rounded-full bg-red-100 px-2 py-1 text-xs font-medium text-red-800">
+                            Missing primary plan
+                          </span>
+                        )}
+                        {scheduledPrimary && (
+                          <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2">
+                            <div className="font-medium text-gray-900">
+                              Next: {scheduledPrimary.comp_plans?.name || 'Unknown plan'}
+                            </div>
+                            <div className="mt-1 text-xs text-gray-600">
+                              {formatEffectiveRange(scheduledPrimary.effective_from, scheduledPrimary.effective_to)}
+                            </div>
+                            <span className="mt-2 inline-flex rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800">
+                              Scheduled
+                            </span>
+                          </div>
+                        )}
                       </td>
-                      <td className="px-6 py-4 text-gray-500 text-sm">
-                        {assignment.override_percentage ? `${assignment.override_percentage}%` : '-'}
+                      <td className="block px-0 py-2 text-sm md:table-cell md:px-6 md:py-4">
+                        <div className="mb-1 text-xs font-medium uppercase text-gray-500 md:hidden">Management Overlay</div>
+                        {!managerEligible ? (
+                          <span className="text-gray-400">Not eligible for this role</span>
+                        ) : overlays.length > 0 ? (
+                          <div className="space-y-3">
+                            {overlays.map(({ assignment, rate, status }) => (
+                              <div key={assignment.id} className="rounded-lg border border-purple-100 bg-purple-50 px-3 py-2">
+                                <div className="font-medium text-gray-900">
+                                  {assignment.lane === 'setter' ? 'Setter Manager' : 'Sales Manager'} · {rate ?? '—'}%
+                                </div>
+                                <div className="mt-1 text-xs text-gray-600">
+                                  {assignment.comp_plans?.name || 'Unknown overlay plan'} · {status}
+                                </div>
+                                <div className="mt-1 text-xs text-gray-500">
+                                  {formatEffectiveRange(assignment.effective_from, assignment.effective_to)}
+                                </div>
+                                {status === 'Ending' && (
+                                  <div className="mt-1 text-xs font-medium text-amber-700">
+                                    Ends {assignment.effective_to}{assignment.end_reason ? ` · ${assignment.end_reason}` : ''}
+                                  </div>
+                                )}
+                                {status === 'Current' && (
+                                  <button
+                                    onClick={() => endManagementOverlay(assignment.id)}
+                                    className="mt-2 text-xs font-medium text-red-700 hover:text-red-900"
+                                  >
+                                    End overlay
+                                  </button>
+                                )}
+                                {status === 'Scheduled' && (
+                                  <button
+                                    onClick={() => cancelManagementOverlay(assignment.id)}
+                                    className="mt-2 text-xs font-medium text-red-700 hover:text-red-900"
+                                  >
+                                    Cancel scheduled
+                                  </button>
+                                )}
+                              </div>
+                            ))}
+                            {directReports.length === 0 && (
+                              <div className="mt-2 text-xs font-medium text-amber-700">No eligible direct reports currently</div>
+                            )}
+                          </div>
+                        ) : (
+                          <>
+                            <span className="rounded-full bg-amber-100 px-2 py-1 text-xs font-medium text-amber-800">
+                              No management overlay
+                            </span>
+                            <div className="mt-2 text-xs text-gray-500">
+                              {directReports.length > 0
+                                ? 'Hierarchy is ready; assign a setter or closer overlay.'
+                                : 'No direct reports are assigned.'}
+                            </div>
+                          </>
+                        )}
                       </td>
-                      <td className="px-6 py-4 text-right">
-                        <button
-                          onClick={() => deleteAssignment(assignment.id)}
-                          className="text-red-600 hover:text-red-800 text-sm"
-                        >
-                          Remove
-                        </button>
+                      <td className="block px-0 py-2 text-left md:table-cell md:px-6 md:py-4 md:text-right">
+                        <div className="flex flex-wrap gap-3 md:justify-end">
+                        {primaryAssignment && primaryStatus === 'Current' && (
+                          <button
+                            onClick={() => deleteAssignment(primaryAssignment.id)}
+                            className="text-red-600 hover:text-red-800 text-sm"
+                          >
+                            End plan
+                          </button>
+                        )}
+                        {scheduledPrimary && (
+                          <button
+                            onClick={() => deleteAssignment(scheduledPrimary.id, true)}
+                            className="text-red-600 hover:text-red-800 text-sm"
+                          >
+                            Cancel scheduled
+                          </button>
+                        )}
+                        {!primaryAssignment && !scheduledPrimary && (
+                          <button
+                            onClick={() => {
+                              setAssignForm((previous) => ({ ...previous, user_id: user.id }))
+                              setAssignForm((previous) => ({ ...previous, effective_from: previous.effective_from || tomorrowEastern }))
+                              setShowAssignModal(true)
+                            }}
+                            className="text-indigo-600 hover:text-indigo-800 text-sm"
+                          >
+                            Assign plan
+                          </button>
+                        )}
+                        </div>
                       </td>
                     </tr>
-                  ))}
+                  )})}
                 </tbody>
               </table>
-              {userAssignments.length === 0 && (
+              {users.length === 0 && (
                 <div className="text-center py-12 text-gray-500">
-                  No user assignments yet
+                  No active users available
                 </div>
               )}
             </div>
@@ -1031,6 +1332,48 @@ export default function CompPlansPage() {
                   />
                 </div>
 
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Plan Purpose</label>
+                  <select
+                    value={planForm.plan_purpose}
+                    onChange={(e) => setPlanForm((previous) => ({
+                      ...previous,
+                      plan_purpose: e.target.value as CompPlan['plan_purpose'],
+                      is_manager_plan: e.target.value === 'management_overlay' ? true : previous.is_manager_plan,
+                      is_default: e.target.value === 'management_overlay' ? false : previous.is_default,
+                    }))}
+                    disabled={Boolean(editingPlan)}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg disabled:bg-gray-100"
+                  >
+                    <option value="primary">Primary Sales Plan</option>
+                    <option value="management_overlay">Management Overlay</option>
+                  </select>
+                  <p className="mt-1 text-xs" style={{ color: INK }}>
+                    {planForm.plan_purpose === 'management_overlay'
+                      ? 'Additional fixed-rate manager pay. Its setter or closer lane is selected when assigned.'
+                      : 'Pays the user for their own eligible production.'}
+                  </p>
+                </div>
+
+                {planForm.plan_purpose === 'management_overlay' && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Fixed Override Rate (%)</label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="0.01"
+                      value={planForm.base_percentage}
+                      onChange={(e) => setPlanForm((previous) => ({ ...previous, base_percentage: e.target.value }))}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                      placeholder="1.00"
+                    />
+                    <p className="mt-1 text-xs text-gray-600">Plan-owned fixed rate; no volume tiers. Create a new future plan to change it after assignment.</p>
+                  </div>
+                )}
+
+                {planForm.plan_purpose === 'primary' && (
+                  <>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Plan Type</label>
                   <select
@@ -1405,141 +1748,19 @@ export default function CompPlansPage() {
                   <input type="checkbox" checked={planForm.is_manager_plan} readOnly />
                 </div>
 
-                {/* Manager-specific options */}
+                {/* Legacy manager-plan fields are retained as read-only history only. */}
                 {planForm.is_manager_plan && (
-                  <div className="bg-purple-50 rounded-lg p-4 space-y-4">
-                    <h4 className="text-sm font-semibold text-purple-900">Manager Compensation Options</h4>
-                    
-                    {/* Personal Sales Toggle */}
-                    <label className="flex items-center gap-3 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={planForm.personal_sales_enabled}
-                        onChange={(e) => setPlanForm(prev => ({ ...prev, personal_sales_enabled: e.target.checked }))}
-                        className="w-4 h-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
-                      />
-                      <div>
-                        <span className="text-sm font-medium text-gray-900">Personal Sales Commission</span>
-                        <p className="text-xs text-gray-500">Manager earns commission on their own sales (uses rates above)</p>
-                      </div>
-                    </label>
-
-                    {/* Team Override Toggle */}
-                    <label className="flex items-center gap-3 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={planForm.team_override_enabled}
-                        onChange={(e) => setPlanForm(prev => ({ ...prev, team_override_enabled: e.target.checked }))}
-                        className="w-4 h-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
-                      />
-                      <div>
-                        <span className="text-sm font-medium text-gray-900">Team Override Commission</span>
-                        <p className="text-xs text-gray-500">Manager earns override on their team&apos;s sales</p>
-                      </div>
-                    </label>
-
-                    {/* Team Override Tiers */}
-                    {planForm.team_override_enabled && (
-                      <div className="mt-4 pt-4 border-t border-purple-200">
-                        <div className="flex items-center justify-between mb-2">
-                          <div>
-                            <label className="block text-sm font-medium text-purple-900">Team Override Tiers</label>
-                            <p className="text-xs text-purple-700">Set override rates based on team&apos;s total volume</p>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={addTeamOverride}
-                            className="text-sm text-purple-600 hover:text-purple-800 font-medium"
-                          >
-                            + Add Tier
-                          </button>
-                        </div>
-                        
-                        {planForm.team_overrides.length > 0 ? (
-                          <div className="space-y-2">
-                            {planForm.team_overrides.map((to, index) => (
-                              <div key={index} className="flex items-end gap-2 p-3 bg-white rounded-lg border border-purple-200">
-                                <div className="flex-1">
-                                  <label className="text-xs text-gray-600">Min Team Volume (accounts)</label>
-                                  <input
-                                    type="number"
-                                    value={to.min_team_volume}
-                                    onChange={(e) => updateTeamOverride(index, 'min_team_volume', e.target.value)}
-                                    className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm"
-                                  />
-                                </div>
-                                <div className="flex-1">
-                                  <label className="text-xs text-gray-600">Max Team Volume (accounts)</label>
-                                  <input
-                                    type="number"
-                                    value={to.max_team_volume || ''}
-                                    onChange={(e) => updateTeamOverride(index, 'max_team_volume', e.target.value)}
-                                    className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm"
-                                    placeholder="∞ (no limit)"
-                                  />
-                                </div>
-                                <div className="w-28">
-                                  <label className="text-xs text-gray-600">Override Type</label>
-                                  <select
-                                    value={to.override_type}
-                                    onChange={(e) => updateTeamOverride(index, 'override_type', e.target.value)}
-                                    className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm"
-                                  >
-                                    <option value="percentage">% of Sale</option>
-                                    <option value="flat">$ Flat</option>
-                                  </select>
-                                </div>
-                                <div className="w-24">
-                                  <label className="text-xs text-gray-600">
-                                    {to.override_type === 'percentage' ? 'Rate %' : 'Amount $'}
-                                  </label>
-                                  <input
-                                    type="number"
-                                    step={to.override_type === 'percentage' ? '0.1' : '1'}
-                                    value={to.override_value}
-                                    onChange={(e) => updateTeamOverride(index, 'override_value', e.target.value)}
-                                    className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm"
-                                  />
-                                </div>
-                                <button
-                                  type="button"
-                                  onClick={() => removeTeamOverride(index)}
-                                  className="p-1.5 text-red-500 hover:text-red-700"
-                                >
-                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                  </svg>
-                                </button>
-                              </div>
-                            ))}
-                          </div>
-                        ) : (
-                          <div className="text-center py-4 border-2 border-dashed border-purple-200 rounded-lg bg-white">
-                            <p className="text-sm text-gray-500">No override tiers configured</p>
-                            <button
-                              type="button"
-                              onClick={addTeamOverride}
-                              className="mt-2 text-sm text-purple-600 hover:text-purple-800"
-                            >
-                              + Add first override tier
-                            </button>
-                          </div>
-                        )}
-
-                        {planForm.team_overrides.length > 0 && (
-                          <div className="mt-3 p-3 bg-white rounded-lg border border-purple-200">
-                            <p className="text-xs font-medium text-gray-700 mb-1">Example:</p>
-                            <p className="text-xs text-gray-600">
-                              If team sells ${(parseDraftFloat(planForm.team_overrides[0]?.min_team_volume || '0', { required: true }) ?? 0).toLocaleString()}+ in a period,
-                              manager earns{' '}
-                              <span className="font-medium text-purple-600">
-                                {planForm.team_overrides[0]?.override_type === 'percentage' 
-                                  ? `${planForm.team_overrides[0]?.override_value}% of each team sale`
-                                  : `$${planForm.team_overrides[0]?.override_value} per team sale`}
-                              </span>
-                            </p>
-                          </div>
-                        )}
+                  <div className="rounded-lg border border-purple-200 bg-purple-50 p-4">
+                    <h4 className="text-sm font-semibold text-purple-900">Manager compensation</h4>
+                    <p className="mt-1 text-xs text-purple-800">
+                      New manager pay is configured through Management Overlay assignments. Legacy
+                      personal-sales and team-override fields cannot be edited here.
+                    </p>
+                    {editingPlan && (planForm.team_override_enabled || planForm.team_overrides.length > 0) && (
+                      <div className="mt-3 rounded-md bg-white px-3 py-2 text-xs text-gray-700">
+                        Legacy values retained: personal sales {planForm.personal_sales_enabled ? 'enabled' : 'disabled'};
+                        team override {planForm.team_override_enabled ? 'enabled' : 'disabled'};
+                        {' '}{planForm.team_overrides.length} legacy tier{planForm.team_overrides.length === 1 ? '' : 's'}.
                       </div>
                     )}
                   </div>
@@ -1690,6 +1911,9 @@ export default function CompPlansPage() {
                   )}
                 </div>
 
+                  </>
+                )}
+
                 <div className="flex items-center gap-4">
                   <label className="flex items-center gap-2">
                     <input
@@ -1700,7 +1924,7 @@ export default function CompPlansPage() {
                     />
                     <span className="text-sm text-gray-700">Active</span>
                   </label>
-                  <label className="flex items-center gap-2">
+                  {planForm.plan_purpose === 'primary' && <label className="flex items-center gap-2">
                     <input
                       type="checkbox"
                       checked={planForm.is_default}
@@ -1708,7 +1932,7 @@ export default function CompPlansPage() {
                       className="w-4 h-4 rounded border-gray-300 text-indigo-600"
                     />
                     <span className="text-sm text-gray-700">Default Plan</span>
-                  </label>
+                  </label>}
                 </div>
                 
                 {/* Plan Readme */}
@@ -1762,7 +1986,11 @@ export default function CompPlansPage() {
                   <label className="block text-sm font-medium text-gray-700 mb-1">User</label>
                   <select
                     value={assignForm.user_id}
-                    onChange={(e) => setAssignForm(prev => ({ ...prev, user_id: e.target.value }))}
+                    onChange={(e) => setAssignForm(prev => ({
+                      ...prev,
+                      user_id: e.target.value,
+                      comp_plan_id: '',
+                    }))}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg"
                   >
                     <option value="">Select user...</option>
@@ -1782,27 +2010,39 @@ export default function CompPlansPage() {
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg"
                   >
                     <option value="">Select plan...</option>
-                    {compPlans.filter(p => p.is_active).map((plan) => (
+                    {compPlans.filter((plan) => {
+                      if (!plan.is_active || plan.plan_purpose === 'management_overlay') return false
+                      const selectedUser = users.find((user) => user.id === assignForm.user_id)
+                      return !selectedUser || plan.applicable_roles.includes(selectedUser.role)
+                    }).map((plan) => (
                       <option key={plan.id} value={plan.id}>
                         {plan.name}
                       </option>
                     ))}
                   </select>
+                  {assignForm.user_id && compPlans.every((plan) => {
+                    const selectedUser = users.find((user) => user.id === assignForm.user_id)
+                    return !plan.is_active || plan.plan_purpose === 'management_overlay' || !selectedUser || !plan.applicable_roles.includes(selectedUser.role)
+                  }) && (
+                    <p className="mt-1 text-xs text-amber-700">No active primary plan applies to this user&apos;s role.</p>
+                  )}
                 </div>
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Effective From</label>
                   <input
                     type="date"
+                    min={tomorrowEastern}
                     value={assignForm.effective_from}
                     onChange={(e) => setAssignForm(prev => ({ ...prev, effective_from: e.target.value }))}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg"
                   />
+                  <p className="mt-1 text-xs text-gray-600">Changes begin no earlier than tomorrow and never rewrite prior sales.</p>
                 </div>
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Override Rate (%) <span className="text-gray-400 font-normal">- Optional</span>
+                    Personal Plan Rate Override (%) <span className="text-gray-400 font-normal">- Optional</span>
                   </label>
                   <input
                     type="number"
@@ -1811,6 +2051,17 @@ export default function CompPlansPage() {
                     onChange={(e) => setAssignForm(prev => ({ ...prev, override_percentage: e.target.value }))}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg"
                     placeholder="Leave blank to use plan default"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Change Reason</label>
+                  <textarea
+                    value={assignForm.change_reason}
+                    onChange={(e) => setAssignForm((previous) => ({ ...previous, change_reason: e.target.value }))}
+                    rows={2}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                    placeholder="Example: Assign 2026 closer plan"
                   />
                 </div>
               </div>
@@ -1823,10 +2074,116 @@ export default function CompPlansPage() {
                 </button>
                 <button
                   onClick={saveAssignment}
-                  disabled={!assignForm.user_id || !assignForm.comp_plan_id}
+                  disabled={!assignForm.user_id || !assignForm.comp_plan_id || !assignForm.change_reason.trim() || !assignForm.effective_from}
                   className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
                 >
                   Assign
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Management Overlay Assignment Modal */}
+        {showOverlayModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-xl shadow-xl max-w-md w-full max-h-[90vh] overflow-y-auto">
+              <div className="p-6 border-b">
+                <h2 className="text-xl font-bold text-gray-900">Assign Management Overlay</h2>
+                <p className="mt-1 text-sm" style={{ color: INK }}>
+                  This is additional manager pay and does not replace the user&apos;s primary sales plan.
+                </p>
+              </div>
+              <div className="p-6 space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Manager</label>
+                  <select
+                    value={overlayForm.user_id}
+                    onChange={(e) => setOverlayForm((previous) => ({ ...previous, user_id: e.target.value }))}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                  >
+                    <option value="">Select manager...</option>
+                    {users.filter((user) =>
+                      overlayForm.lane === 'setter'
+                        ? user.role === 'setter_manager'
+                        : user.role === 'sales_manager'
+                    ).map((user) => (
+                      <option key={user.id} value={user.id}>{user.full_name} ({compPlanRoleLabel(user.role)})</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Management Overlay Plan</label>
+                  <select
+                    value={overlayForm.comp_plan_id}
+                    onChange={(e) => setOverlayForm((previous) => ({ ...previous, comp_plan_id: e.target.value }))}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                  >
+                    <option value="">Select overlay plan...</option>
+                    {compPlans.filter((plan) => plan.is_active && plan.plan_purpose === 'management_overlay').map((plan) => (
+                      <option key={plan.id} value={plan.id}>{plan.name}</option>
+                    ))}
+                  </select>
+                  {compPlans.every((plan) => plan.plan_purpose !== 'management_overlay') && (
+                    <p className="mt-1 text-xs text-amber-700">Create a Management Overlay plan first.</p>
+                  )}
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Production Lane</label>
+                  <select
+                    value={overlayForm.lane}
+                    onChange={(e) => setOverlayForm((previous) => ({
+                      ...previous,
+                      lane: e.target.value as 'setter' | 'closer',
+                      user_id: '',
+                    }))}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                  >
+                    <option value="setter">Setter production</option>
+                    <option value="closer">Closer production</option>
+                  </select>
+                  <p className="mt-1 text-xs text-gray-600">Pays on eligible direct-report production and the manager&apos;s own production in this lane.</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Plan Rate</label>
+                  <div className="w-full px-4 py-2 border border-gray-200 bg-gray-50 rounded-lg text-gray-900">
+                    {(() => {
+                      const selected = compPlans.find((plan) => plan.id === overlayForm.comp_plan_id)
+                      return selected ? `${Number(selected.base_percentage || 0).toFixed(2)}%` : 'Select an overlay plan'
+                    })()}
+                  </div>
+                  <p className="mt-1 text-xs text-gray-600">This fixed, no-tier rate belongs to the overlay plan and applies to everyone assigned that plan. Create a new plan to change the rate.</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Effective From</label>
+                  <input
+                    type="date"
+                    min={tomorrowEastern}
+                    value={overlayForm.effective_from}
+                    onChange={(e) => setOverlayForm((previous) => ({ ...previous, effective_from: e.target.value }))}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                  />
+                  <p className="mt-1 text-xs text-gray-600">New overlay changes begin no earlier than tomorrow and never rewrite earlier sales.</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Change Reason</label>
+                  <textarea
+                    value={overlayForm.change_reason}
+                    onChange={(e) => setOverlayForm((previous) => ({ ...previous, change_reason: e.target.value }))}
+                    rows={2}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                    placeholder="Example: Assign 2026 setter manager overlay"
+                  />
+                </div>
+              </div>
+              <div className="p-6 border-t flex justify-end gap-3">
+                <button onClick={() => setShowOverlayModal(false)} className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-900">Cancel</button>
+                <button
+                  onClick={saveManagementOverlay}
+                  disabled={!overlayForm.user_id || !overlayForm.comp_plan_id || !overlayForm.change_reason.trim()}
+                  className="px-4 py-2 bg-purple-700 text-white rounded-lg hover:bg-purple-800 disabled:opacity-50"
+                >
+                  Schedule Overlay
                 </button>
               </div>
             </div>

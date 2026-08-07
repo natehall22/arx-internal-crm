@@ -252,8 +252,9 @@ export async function GET(request: NextRequest) {
         explicit: additiveByJobId.get(job.id as string) || [],
         context: derivedContext,
         opportunityId: pid ? projectOpp.get(pid) ?? null : null,
-        participantUserIds: collectParticipants(job, opp).map((p) => p.userId),
+        setterUserId: opp?.setter_user_id ?? null,
         salespersonId: (job.salesperson_id as string | null) ?? null,
+        opportunityOwnerUserId: opp?.owner_user_id ?? null,
         saleDate: (job.sale_date as string | null) ?? null,
       })
       derivedByJobId.set(job.id as string, derived)

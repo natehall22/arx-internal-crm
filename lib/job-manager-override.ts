@@ -77,6 +77,7 @@ export type OrgManagerHierarchy = {
 }
 
 export type EffectiveManagerAssignmentRow = {
+  id: string
   userId: string
   managerUserId: string
   effectiveFrom: string
@@ -113,18 +114,20 @@ export async function loadOrgManagerAssignments(
 ): Promise<EffectiveManagerAssignmentRow[]> {
   const { data, error } = await supabase
     .from('user_manager_assignments')
-    .select('user_id, manager_user_id, effective_from, effective_to')
+    .select('id, user_id, manager_user_id, effective_from, effective_to')
     .eq('org_id', orgId)
     .order('effective_from', { ascending: true })
 
   if (error) throw error
 
   return ((data || []) as Array<{
+    id: string
     user_id: string
     manager_user_id: string
     effective_from: string
     effective_to: string | null
   }>).map((row) => ({
+    id: row.id,
     userId: row.user_id,
     managerUserId: row.manager_user_id,
     effectiveFrom: row.effective_from,

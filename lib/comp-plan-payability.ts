@@ -121,15 +121,11 @@ export function getCompPlanPayabilityWarnings(
     const tierCount = input.team_overrides?.length ?? 0
     warnings.push({
       level: 'caution',
-      title: 'Team override is shown to the manager but not paid by payroll',
+      title: 'Legacy team-override tiers are ignored',
       detail:
         tierCount === 0
-          ? 'No override tiers are configured, and team overrides are display-only regardless: the ' +
-            'rep dashboard and commission estimator render them, but the payroll export does not ' +
-            'generate an override line. Enter manager overrides as a manual line for now.'
-          : 'The rep dashboard and commission estimator render these tiers, but the payroll export ' +
-            'does not generate an override line from them. Enter manager overrides as a manual ' +
-            'line for now.',
+          ? 'No legacy tiers are configured. Manager pay must use a future-dated Management Overlay plan assignment.'
+          : 'These legacy tiers are not used by payroll, the dashboard, or the estimator. Create a future-dated Management Overlay plan assignment instead.',
     })
   }
 

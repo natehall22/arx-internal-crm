@@ -17,14 +17,10 @@ interface CompPlan {
   volume_bonuses: { min_volume: number; max_volume: number | null; bonus_type: string; bonus_value: number }[] | null
   is_manager_plan: boolean
   personal_sales_enabled: boolean
-  team_override_enabled: boolean
-  team_overrides: { min_team_volume: number; max_team_volume: number | null; override_type: string; override_value: number }[] | null
-}
-
-interface TeamMember {
-  id: string
-  full_name: string
-  role: string
+  /** @deprecated Management overlays are calculated by payroll, not this estimator. */
+  team_override_enabled?: false
+  /** @deprecated Kept only for response compatibility. */
+  team_overrides?: never[]
 }
 
 interface Adder {
@@ -44,25 +40,19 @@ export default function CommissionEstimatorPage() {
   const router = useRouter()
   const [loading, setLoading] = useState(true)
   const [compPlan, setCompPlan] = useState<CompPlan | null>(null)
-  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([])
-  const [isManager, setIsManager] = useState(false)
   const [currentUser, setCurrentUser] = useState<any>(null)
   const [adders, setAdders] = useState<Adder[]>([])
   const [selectedAdders, setSelectedAdders] = useState<{ [key: string]: number }>({}) // adder_id -> quantity
 
   // Estimator inputs
   const [personalSales, setPersonalSales] = useState('')
-  const [teamSales, setTeamSales] = useState('')
-  const [numTeamDeals, setNumTeamDeals] = useState('')
 
   // Calculated results
   const [estimate, setEstimate] = useState({
     personalCommission: 0,
     personalVolumeBonus: 0,
-    teamOverride: 0,
     totalEstimate: 0,
     effectivePersonalRate: 0,
-    effectiveOverrideRate: 0,
     totalSaleAmount: 0,
     commissionableAmount: 0,
     nonCommissionableAdders: 0,
@@ -76,7 +66,7 @@ export default function CommissionEstimatorPage() {
 
   useEffect(() => {
     calculateEstimate()
-  }, [personalSales, teamSales, numTeamDeals, compPlan, selectedAdders, adders, currentUser])
+  }, [personalSales, compPlan, selectedAdders, adders, currentUser])
 
   const loadData = async () => {
     const supabase = createClientBrowser()
@@ -98,7 +88,6 @@ export default function CommissionEstimatorPage() {
     }
 
     setCurrentUser(profile)
-    setIsManager(isManagerSpoEligibleRole(profile.role))
     const todayStr = new Date().toISOString().split('T')[0]
 
     // Get user's comp plan
@@ -131,18 +120,6 @@ export default function CommissionEstimatorPage() {
       }
     }
 
-    // If manager, get team members
-    if (isManagerSpoEligibleRole(profile.role)) {
-      const { data: team } = await supabase
-        .from('users')
-        .select('id, full_name, role')
-        .eq('org_id', profile.org_id)
-        .eq('manager_user_id', user.id)
-        .eq('active', true)
-
-      setTeamMembers(team || [])
-    }
-
     // Load adders for commission calculation
     const { data: adderData } = await supabase
       .from('pricebook_items')
@@ -163,8 +140,6 @@ export default function CommissionEstimatorPage() {
     if (!compPlan) return
 
     const baseSales = parseFloat(personalSales) || 0
-    const team = parseFloat(teamSales) || 0
-    const deals = parseInt(numTeamDeals) || 0
 
     // Calculate adder totals
     let commissionableAdders = 0
@@ -235,9 +210,7 @@ export default function CommissionEstimatorPage() {
 
     let personalCommission = 0
     let personalVolumeBonus = 0
-    let teamOverride = 0
     let effectivePersonalRate = 0
-    let effectiveOverrideRate = 0
 
     // Calculate personal commission on COMMISSIONABLE amount only
     if (compPlan.personal_sales_enabled !== false && commissionableAmount > 0) {
@@ -271,34 +244,13 @@ export default function CommissionEstimatorPage() {
       }
     }
 
-    // Calculate team override (for managers)
-    if (compPlan.is_manager_plan && compPlan.team_override_enabled && team > 0) {
-      if (compPlan.team_overrides && compPlan.team_overrides.length > 0) {
-        const overrideTier = compPlan.team_overrides.find(to =>
-          team >= to.min_team_volume && (to.max_team_volume === null || team <= to.max_team_volume)
-        )
-        if (overrideTier) {
-          if (overrideTier.override_type === 'percentage') {
-            effectiveOverrideRate = overrideTier.override_value
-            teamOverride = team * (overrideTier.override_value / 100)
-          } else {
-            // Flat amount per deal
-            teamOverride = overrideTier.override_value * (deals || 1)
-            effectiveOverrideRate = deals > 0 ? (teamOverride / team) * 100 : 0
-          }
-        }
-      }
-    }
-
-    const totalEstimate = personalCommission + personalVolumeBonus + teamOverride + managerSpoFromAdders
+    const totalEstimate = personalCommission + personalVolumeBonus + managerSpoFromAdders
 
     setEstimate({
       personalCommission,
       personalVolumeBonus,
-      teamOverride,
       totalEstimate,
       effectivePersonalRate,
-      effectiveOverrideRate,
       totalSaleAmount,
       commissionableAmount,
       nonCommissionableAdders,
@@ -465,71 +417,6 @@ export default function CommissionEstimatorPage() {
                 </div>
               )}
 
-              {/* Team Sales (Manager only) */}
-              {compPlan.is_manager_plan && compPlan.team_override_enabled && (
-                <div className="bg-white rounded-xl shadow-sm border p-6">
-                  <div className="flex items-center gap-2 mb-4">
-                    <h3 className="text-lg font-semibold text-gray-900">Team Sales</h3>
-                    <span className="px-2 py-0.5 bg-purple-100 text-purple-700 text-xs rounded-full">Manager</span>
-                  </div>
-                  
-                  {teamMembers.length > 0 && (
-                    <div className="mb-4 p-3 bg-purple-50 rounded-lg">
-                      <p className="text-sm text-purple-800 font-medium mb-1">Your Team ({teamMembers.length})</p>
-                      <p className="text-xs text-purple-600">
-                        {teamMembers.map(m => m.full_name).join(', ')}
-                      </p>
-                    </div>
-                  )}
-
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Team&apos;s Total Sales Volume ($)
-                      </label>
-                      <input
-                        type="number"
-                        value={teamSales}
-                        onChange={(e) => setTeamSales(e.target.value)}
-                        className="w-full px-4 py-3 border border-gray-300 rounded-lg text-lg"
-                        placeholder="e.g., 200000"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Number of Team Deals
-                      </label>
-                      <input
-                        type="number"
-                        value={numTeamDeals}
-                        onChange={(e) => setNumTeamDeals(e.target.value)}
-                        className="w-full px-4 py-3 border border-gray-300 rounded-lg text-lg"
-                        placeholder="e.g., 15"
-                      />
-                      <p className="text-xs text-gray-500 mt-1">
-                        Used for flat-rate override calculations
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Override tiers info */}
-                  {compPlan.team_overrides && compPlan.team_overrides.length > 0 && (
-                    <div className="mt-4 p-3 bg-gray-50 rounded-lg">
-                      <p className="text-sm font-medium text-gray-700 mb-2">Override Tiers:</p>
-                      <div className="space-y-1">
-                        {compPlan.team_overrides.map((to, i) => (
-                          <p key={i} className="text-xs text-gray-600">
-                            {to.min_team_volume.toLocaleString()} - {to.max_team_volume ? to.max_team_volume.toLocaleString() : '∞'} accounts:{' '}
-                            <span className="font-medium text-purple-600">
-                              {to.override_type === 'percentage' ? `${to.override_value}%` : `$${to.override_value}/deal`}
-                            </span>
-                          </p>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
             </div>
 
             {/* Results Section */}
@@ -564,14 +451,6 @@ export default function CommissionEstimatorPage() {
                       )}
                     </>
                   )}
-                  {compPlan?.is_manager_plan && compPlan?.team_override_enabled && (
-                    <div className="flex justify-between text-sm">
-                      <span className="text-indigo-200">Team Override</span>
-                      <span className="font-medium text-purple-200">
-                        ${estimate.teamOverride.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </span>
-                    </div>
-                  )}
                   {estimate.managerSpoFromAdders > 0 && (
                     <div className="flex justify-between text-sm">
                       <span className="text-indigo-200">Manager SPO (adders)</span>
@@ -581,6 +460,11 @@ export default function CommissionEstimatorPage() {
                     </div>
                   )}
                 </div>
+                {compPlan?.is_manager_plan && (
+                  <p className="mt-4 text-xs text-indigo-200">
+                    Primary-plan estimate only. Management overlays are calculated from dated payroll assignments and are not estimated here.
+                  </p>
+                )}
               </div>
 
               {/* Sale Breakdown */}
@@ -639,17 +523,6 @@ export default function CommissionEstimatorPage() {
                     </div>
                   )}
 
-                  {compPlan?.is_manager_plan && compPlan?.team_override_enabled && (
-                    <div className="flex items-center justify-between p-3 bg-purple-50 rounded-lg">
-                      <div>
-                        <p className="font-medium text-gray-900">Team Override Rate</p>
-                        <p className="text-xs text-gray-500">Based on team volume tier</p>
-                      </div>
-                      <div className="text-2xl font-bold text-purple-600">
-                        {estimate.effectiveOverrideRate.toFixed(2)}%
-                      </div>
-                    </div>
-                  )}
                 </div>
               </div>
 
@@ -660,46 +533,38 @@ export default function CommissionEstimatorPage() {
                   <button
                     onClick={() => {
                       setPersonalSales('25000')
-                      setTeamSales('100000')
-                      setNumTeamDeals('8')
                     }}
                     className="p-3 text-left border border-gray-200 rounded-lg hover:border-indigo-300 hover:bg-indigo-50 transition-colors"
                   >
                     <p className="font-medium text-gray-900 text-sm">Average Month</p>
-                    <p className="text-xs text-gray-500">$25k personal, $100k team</p>
+                    <p className="text-xs text-gray-500">$25k personal production</p>
                   </button>
                   <button
                     onClick={() => {
                       setPersonalSales('50000')
-                      setTeamSales('200000')
-                      setNumTeamDeals('15')
                     }}
                     className="p-3 text-left border border-gray-200 rounded-lg hover:border-indigo-300 hover:bg-indigo-50 transition-colors"
                   >
                     <p className="font-medium text-gray-900 text-sm">Good Month</p>
-                    <p className="text-xs text-gray-500">$50k personal, $200k team</p>
+                    <p className="text-xs text-gray-500">$50k personal production</p>
                   </button>
                   <button
                     onClick={() => {
                       setPersonalSales('75000')
-                      setTeamSales('350000')
-                      setNumTeamDeals('25')
                     }}
                     className="p-3 text-left border border-gray-200 rounded-lg hover:border-indigo-300 hover:bg-indigo-50 transition-colors"
                   >
                     <p className="font-medium text-gray-900 text-sm">Great Month</p>
-                    <p className="text-xs text-gray-500">$75k personal, $350k team</p>
+                    <p className="text-xs text-gray-500">$75k personal production</p>
                   </button>
                   <button
                     onClick={() => {
                       setPersonalSales('100000')
-                      setTeamSales('500000')
-                      setNumTeamDeals('35')
                     }}
                     className="p-3 text-left border border-gray-200 rounded-lg hover:border-indigo-300 hover:bg-indigo-50 transition-colors"
                   >
                     <p className="font-medium text-gray-900 text-sm">Best Month</p>
-                    <p className="text-xs text-gray-500">$100k personal, $500k team</p>
+                    <p className="text-xs text-gray-500">$100k personal production</p>
                   </button>
                 </div>
               </div>

@@ -14,10 +14,18 @@ export type PayrollParticipant = { userId: string; role: 'sales_rep' | 'setter' 
 
 export type DealCommissionRoleParticipant = {
   userId: string
-  role: 'inspector' | 'field_manager' | 'senior_manager' | 'self_gen' | 'custom'
+  role:
+    | 'inspector'
+    | 'field_manager'
+    | 'senior_manager'
+    | 'setter_manager_override'
+    | 'closer_manager_override'
+    | 'self_gen'
+    | 'custom'
   overrideAmount: number | null
   overridePercent: number | null
   premierPricingAmount: number | null
+  sourceSnapshot?: Record<string, unknown>
 }
 
 /** Roles paid additively per job, outside the pool-scaled sales_rep/setter/owner set. */
@@ -25,6 +33,8 @@ export const ADDITIVE_DEAL_COMMISSION_ROLES: readonly DealCommissionRoleParticip
   'inspector',
   'field_manager',
   'senior_manager',
+  'setter_manager_override',
+  'closer_manager_override',
   'self_gen',
   'custom',
 ] as const
@@ -188,28 +198,18 @@ export async function loadActiveCompPlanForUser(
     .limit(1)
     .maybeSingle()
 
-  if (!error && data && (data as { comp_plans?: unknown }).comp_plans) {
+  // A read failure is not the same as "no assignment". Payroll must fail closed
+  // instead of silently choosing a different plan or paying nothing.
+  if (error) throw error
+
+  if (data && (data as { comp_plans?: unknown }).comp_plans) {
     return data as unknown as UserCompRow
   }
 
-  const { data: fallback } = await supabase
-    .from('comp_plans')
-    .select('*')
-    .eq('org_id', orgId)
-    .eq('is_default', true)
-    .eq('is_active', true)
-    .limit(1)
-    .maybeSingle()
-
-  if (!fallback) return null
-  return {
-    user_id: userId,
-    effective_from: saleDate,
-    effective_to: null,
-    override_percentage: null,
-    hourly_rate_override: null,
-    comp_plans: fallback as unknown as Record<string, unknown>,
-  }
+  // Historical pay is assignment-driven. A default plan is useful as an admin UI
+  // suggestion, but it is not proof that this person held that plan on the sale
+  // date. Missing assignment history therefore stays blank.
+  return null
 }
 
 /** Roles that accumulate monthly volume for tier bonuses (not manager additive roles). */
@@ -221,7 +221,7 @@ const VOLUME_ACCUMULATING_PARTICIPANT_ROLES = new Set<PayrollParticipant['role']
 
 /**
  * True when commission export would resolve a plan for this user on the job sale date
- * (active `user_comp_plans` row with joined plan, or org default `comp_plans`).
+ * (an active `user_comp_plans` row with a joined plan).
  */
 export async function hasResolvableCompPlanForUserOnDate(
   supabase: SupabaseClient,

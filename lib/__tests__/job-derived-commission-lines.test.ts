@@ -34,14 +34,27 @@ function context(overrides: {
       ? new Map([[OPP, overrides.inspectorUserId]])
       : new Map(),
     managerAssignments: [
-      { userId: SETTER, managerUserId: MANAGER, effectiveFrom: '2026-08-05', effectiveTo: null },
-      { userId: CLOSER, managerUserId: MANAGER, effectiveFrom: '2026-08-05', effectiveTo: null },
+      { id: 'setter-manager-link', userId: SETTER, managerUserId: MANAGER, effectiveFrom: '2026-08-05', effectiveTo: null },
+      { id: 'closer-manager-link', userId: CLOSER, managerUserId: MANAGER, effectiveFrom: '2026-08-05', effectiveTo: null },
     ],
-    managerActiveHistory: [
-      { userId: CLOSER, isActive: true, effectiveFrom: '2026-08-05' },
-      { userId: SETTER, isActive: true, effectiveFrom: '2026-08-05' },
-      { userId: MANAGER, isActive: true, effectiveFrom: '2026-08-05' },
-    ],
+    userActiveHistory: [],
+    managementOverlayAssignments: (['setter', 'closer'] as const).map((lane) => ({
+      assignmentId: `${lane}-overlay-assignment`,
+      managerUserId: MANAGER,
+      compPlanId: `${lane}-overlay-plan`,
+      lane,
+      effectiveFrom: '2026-08-05',
+      effectiveTo: null,
+    })),
+    managementOverlayPlanVersions: (overrides.managerOverrideRatePercent ?? 0) > 0
+      ? (['setter', 'closer'] as const).map((lane) => ({
+          versionId: `${lane}-overlay-version`,
+          compPlanId: `${lane}-overlay-plan`,
+          lane,
+          ratePercent: overrides.managerOverrideRatePercent ?? 0,
+          effectiveFrom: '2026-08-05',
+        }))
+      : [],
     compAssignments: [
       { userId: CLOSER, effectiveFrom: '2026-08-05', effectiveTo: null, isManagerPlan: false },
       { userId: SETTER, effectiveFrom: '2026-08-05', effectiveTo: null, isManagerPlan: false },
@@ -53,8 +66,9 @@ function context(overrides: {
 
 const jobInput = {
   opportunityId: OPP,
-  participantUserIds: [CLOSER, SETTER],
+  setterUserId: SETTER,
   salespersonId: CLOSER,
+  opportunityOwnerUserId: CLOSER,
   saleDate: '2026-08-05',
 }
 
@@ -150,8 +164,9 @@ describe('buildAdditiveParticipantsForJob', () => {
     // the comp plan) + 6% self-gen + 1.5% inspection + 1% override = 15.5%.
     const result = buildAdditiveParticipantsForJob({
       opportunityId: OPP,
-      participantUserIds: [MANAGER],
+      setterUserId: null,
       salespersonId: MANAGER,
+      opportunityOwnerUserId: MANAGER,
       saleDate: '2026-08-05',
       explicit: [],
       context: {
@@ -166,25 +181,30 @@ describe('buildAdditiveParticipantsForJob', () => {
     })
     const byRole = new Map(result.participants.map((p) => [p.role, p]))
     expect(byRole.get('inspector')).toMatchObject({ userId: MANAGER, overridePercent: 1.5 })
-    expect(byRole.get('field_manager')).toMatchObject({ userId: MANAGER, overridePercent: 1 })
+    expect(byRole.get('closer_manager_override')).toMatchObject({ userId: MANAGER, overridePercent: 1 })
     expect(byRole.get('self_gen')).toMatchObject({ userId: MANAGER, overridePercent: 6 })
     // 7 (comp plan) + 1.5 + 1 + 6 = 15.5%, matching the published ladder.
     const additivePct = result.participants.reduce((sum, p) => sum + (p.overridePercent ?? 0), 0)
     expect(additivePct + 7).toBe(15.5)
   })
 
-  it('pays the manager once on a job where they close and their report sets', () => {
+  it('pays separate setter and closer overlays where a manager closes and their report sets', () => {
     const result = buildAdditiveParticipantsForJob({
       opportunityId: OPP,
-      participantUserIds: [MANAGER, SETTER],
+      setterUserId: SETTER,
       salespersonId: MANAGER,
+      opportunityOwnerUserId: MANAGER,
       saleDate: '2026-08-05',
       explicit: [],
       context: context({ managerOverrideRatePercent: 1 }),
     })
-    const managerLines = result.participants.filter((p) => p.role === 'field_manager')
-    expect(managerLines).toHaveLength(1)
-    expect(managerLines[0].userId).toBe(MANAGER)
+    const managerLines = result.participants.filter((p) => p.role.includes('manager_override'))
+    expect(managerLines).toHaveLength(2)
+    expect(managerLines.map((line) => line.role)).toEqual([
+      'setter_manager_override',
+      'closer_manager_override',
+    ])
+    expect(managerLines.every((line) => line.userId === MANAGER)).toBe(true)
   })
 
   it('suppresses the self-gen line and reports the conflict when a setter is also attributed', () => {
@@ -215,8 +235,9 @@ describe('buildAdditiveParticipantsForJob', () => {
   it('derives nothing for a job with no linked opportunity', () => {
     const result = buildAdditiveParticipantsForJob({
       opportunityId: null,
-      participantUserIds: [CLOSER],
+      setterUserId: null,
       salespersonId: CLOSER,
+      opportunityOwnerUserId: null,
       saleDate: '2026-08-05',
       explicit: [],
       context: context({
@@ -230,22 +251,22 @@ describe('buildAdditiveParticipantsForJob', () => {
     expect(result.participants.some((p) => p.role === 'self_gen')).toBe(false)
   })
 
-  it('still walks the manager chain for a job with no opportunity', () => {
-    // The override comes from users.manager_user_id, not the opportunity.
+  it('resolves a setter overlay from an explicit setter attribution without an opportunity id', () => {
     const result = buildAdditiveParticipantsForJob({
       opportunityId: null,
-      participantUserIds: [SETTER],
+      setterUserId: SETTER,
       salespersonId: null,
+      opportunityOwnerUserId: null,
       saleDate: '2026-08-05',
       explicit: [],
       context: context({ managerOverrideRatePercent: 1 }),
     })
     expect(result.participants).toHaveLength(1)
-    expect(result.participants[0]).toMatchObject({ userId: MANAGER, role: 'field_manager' })
+    expect(result.participants[0]).toMatchObject({ userId: MANAGER, role: 'setter_manager_override' })
   })
 })
 
-describe('pool cap — the 20.5% breach case', () => {
+describe('pool cap — separate setter and closer manager lines', () => {
   const compBase = 14000
   const poolCap = commissionPoolCap(compBase) // 2520 = 18%
 
@@ -285,9 +306,9 @@ describe('pool cap — the 20.5% breach case', () => {
     }
 
     const rawTotal = Array.from(raw.values()).reduce((a, b) => a + b, 0)
-    // 7 + 5 + 6 + 1.5 + 1 = 20.5% of 14,000 = 2,870.
-    expect(rawTotal).toBe(2870)
-    expect(rawTotal / compBase).toBeCloseTo(0.205, 6)
+    // 7 + 5 + 6 + 1.5 + 1 setter manager + 1 closer manager = 21.5%.
+    expect(rawTotal).toBe(3010)
+    expect(rawTotal / compBase).toBeCloseTo(0.215, 6)
     expect(rawTotal).toBeGreaterThan(poolCap)
 
     const { scaled, enforced } = scaleCommissionsToPool(raw, poolCap)
@@ -300,7 +321,7 @@ describe('pool cap — the 20.5% breach case', () => {
     expect(scaled.get(poolKey(SETTER, 'setter'))!).toBeLessThan(700)
   })
 
-  it('stays under the cap on the suppressed-conflict path (14.5%)', () => {
+  it('stays under the cap on the suppressed-conflict path (15.5%)', () => {
     const { participants } = buildAdditiveParticipantsForJob({
       ...jobInput,
       explicit: [],
@@ -320,8 +341,8 @@ describe('pool cap — the 20.5% breach case', () => {
       raw.set(poolKey(p.userId, p.role), resolveAdditiveParticipantAmount(p, compBase).amount)
     }
     const rawTotal = Array.from(raw.values()).reduce((a, b) => a + b, 0)
-    // 7 + 5 + 1.5 + 1 = 14.5% — under the 18% cap, nobody is scaled down.
-    expect(rawTotal / compBase).toBeCloseTo(0.145, 6)
+    // 7 + 5 + 1.5 + two separate 1% manager lanes = 15.5%.
+    expect(rawTotal / compBase).toBeCloseTo(0.155, 6)
     expect(scaleCommissionsToPool(raw, poolCap).enforced).toBe(false)
   })
 })

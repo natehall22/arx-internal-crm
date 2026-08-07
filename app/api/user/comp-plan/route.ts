@@ -3,6 +3,15 @@ import { createClient } from '@supabase/supabase-js'
 
 export const dynamic = 'force-dynamic'
 
+function easternDateToday(): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/New_York',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date())
+}
+
 function getSessionFromRequest(req: NextRequest) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
   const projectRef = supabaseUrl.match(/https:\/\/([^.]+)\./)?.[1] || ''
@@ -89,7 +98,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'User profile not found' }, { status: 404 })
     }
 
-    const todayStr = new Date().toISOString().split('T')[0]
+    const todayStr = easternDateToday()
 
     // Get the user's active comp plan assignment using service role (bypasses RLS)
     const { data: userCompPlan, error } = await supabase
@@ -147,8 +156,10 @@ export async function GET(request: NextRequest) {
         volume_bonuses: plan.volume_bonuses || [],
         is_manager_plan: plan.is_manager_plan || false,
         personal_sales_enabled: plan.personal_sales_enabled || false,
-        team_override_enabled: plan.team_override_enabled || false,
-        team_overrides: plan.team_overrides || [],
+        // Legacy plan-tier overrides are not payroll-backed. Keep the response shape
+        // temporarily for older clients, but make the fields explicitly inert.
+        team_override_enabled: false,
+        team_overrides: [],
         readme: plan.readme,
       },
       assignment: {
