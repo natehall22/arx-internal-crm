@@ -125,6 +125,14 @@ interface AssignmentUser {
   manager_user_id?: string | null
 }
 
+interface ManagerAssignment {
+  id: string
+  user_id: string
+  manager_user_id: string
+  effective_from: string
+  effective_to: string | null
+}
+
 /** Explicit dark ink for body text on light surfaces (project UI convention). */
 const INK = '#2c2c2a'
 
@@ -182,6 +190,16 @@ function formatEffectiveRange(effectiveFrom: string, effectiveTo: string | null)
   return `${from} – ${new Date(`${effectiveTo}T00:00:00`).toLocaleDateString()}`
 }
 
+function isEffectiveOnDate(
+  assignment: Pick<ManagerAssignment, 'effective_from' | 'effective_to'>,
+  date: string
+) {
+  return (
+    assignment.effective_from <= date &&
+    (!assignment.effective_to || assignment.effective_to >= date)
+  )
+}
+
 export default function CompPlansPage() {
   const router = useRouter()
   const [loading, setLoading] = useState(true)
@@ -189,6 +207,7 @@ export default function CompPlansPage() {
   const [userAssignments, setUserAssignments] = useState<UserCompPlan[]>([])
   const [managementOverlayAssignments, setManagementOverlayAssignments] = useState<ManagementOverlayAssignment[]>([])
   const [managementOverlayVersions, setManagementOverlayVersions] = useState<ManagementOverlayVersion[]>([])
+  const [managerAssignments, setManagerAssignments] = useState<ManagerAssignment[]>([])
   const [users, setUsers] = useState<AssignmentUser[]>([])
   const [activeTab, setActiveTab] = useState<'plans' | 'assignments'>('plans')
   
@@ -291,6 +310,7 @@ export default function CompPlansPage() {
       setUserAssignments(data.userAssignments || [])
       setManagementOverlayAssignments(data.managementOverlayAssignments || [])
       setManagementOverlayVersions(data.managementOverlayVersions || [])
+      setManagerAssignments(data.managerAssignments || [])
       setUsers(data.users || [])
     } catch (error) {
       console.error('Error loading comp plans:', error)
@@ -794,6 +814,25 @@ export default function CompPlansPage() {
 
   const today = easternToday
   const usersById = new Map(users.map((user) => [user.id, user]))
+  const activeUserIds = new Set(users.map((user) => user.id))
+  const currentManagerAssignments = managerAssignments.filter((assignment) =>
+    activeUserIds.has(assignment.user_id) && isEffectiveOnDate(assignment, today)
+  )
+  const currentManagerByUser = new Map(
+    currentManagerAssignments.map((assignment) => [assignment.user_id, assignment.manager_user_id])
+  )
+  const currentManagerIds = new Set(
+    currentManagerAssignments.map((assignment) => assignment.manager_user_id)
+  )
+  const overlayEffectiveManagerIds = new Set(
+    managerAssignments
+      .filter(
+        (assignment) =>
+          activeUserIds.has(assignment.user_id) &&
+          isEffectiveOnDate(assignment, overlayForm.effective_from)
+      )
+      .map((assignment) => assignment.manager_user_id)
+  )
   const assignmentsByUser = new Map<string, UserCompPlan[]>()
   for (const assignment of userAssignments) {
     const existing = assignmentsByUser.get(assignment.user_id) || []
@@ -816,8 +855,9 @@ export default function CompPlansPage() {
     const historical = assignments.find((assignment) => assignment.effective_to && assignment.effective_to < today)
     const primaryAssignment = current || historical || null
     const primaryStatus = current ? 'Current' : historical ? 'Historical' : 'Missing'
-    const manager = user.manager_user_id ? usersById.get(user.manager_user_id) : undefined
-    const directReports = users.filter((candidate) => candidate.manager_user_id === user.id)
+    const managerId = currentManagerByUser.get(user.id)
+    const manager = managerId ? usersById.get(managerId) : undefined
+    const directReports = users.filter((candidate) => currentManagerByUser.get(candidate.id) === user.id)
 
     const overlays = (['setter', 'closer'] as const).flatMap((lane) => {
       const rows = managementOverlayAssignments
@@ -1129,7 +1169,7 @@ export default function CompPlansPage() {
                 </thead>
                 <tbody className="block divide-y md:table-row-group">
                   {assignmentRows.map(({ user, manager, directReports, primaryAssignment, primaryStatus, scheduledPrimary, overlays }) => {
-                    const managerEligible = user.role === 'setter_manager' || user.role === 'sales_manager'
+                    const managerEligible = currentManagerIds.has(user.id) || overlays.length > 0
                     return (
                     <tr key={user.id} className="block p-4 hover:bg-gray-50 align-top md:table-row md:p-0">
                       <td className="block px-0 py-2 md:table-cell md:px-6 md:py-4">
@@ -2103,11 +2143,7 @@ export default function CompPlansPage() {
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg"
                   >
                     <option value="">Select manager...</option>
-                    {users.filter((user) =>
-                      overlayForm.lane === 'setter'
-                        ? user.role === 'setter_manager'
-                        : user.role === 'sales_manager'
-                    ).map((user) => (
+                    {users.filter((user) => overlayEffectiveManagerIds.has(user.id)).map((user) => (
                       <option key={user.id} value={user.id}>{user.full_name} ({compPlanRoleLabel(user.role)})</option>
                     ))}
                   </select>
@@ -2160,7 +2196,23 @@ export default function CompPlansPage() {
                     type="date"
                     min={tomorrowEastern}
                     value={overlayForm.effective_from}
-                    onChange={(e) => setOverlayForm((previous) => ({ ...previous, effective_from: e.target.value }))}
+                    onChange={(e) => {
+                      const effectiveFrom = e.target.value
+                      const eligibleManagerIds = new Set(
+                        managerAssignments
+                          .filter(
+                            (assignment) =>
+                              activeUserIds.has(assignment.user_id) &&
+                              isEffectiveOnDate(assignment, effectiveFrom)
+                          )
+                          .map((assignment) => assignment.manager_user_id)
+                      )
+                      setOverlayForm((previous) => ({
+                        ...previous,
+                        effective_from: effectiveFrom,
+                        user_id: eligibleManagerIds.has(previous.user_id) ? previous.user_id : '',
+                      }))
+                    }}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg"
                   />
                   <p className="mt-1 text-xs text-gray-600">New overlay changes begin no earlier than tomorrow and never rewrite earlier sales.</p>

@@ -137,12 +137,19 @@ export async function GET(request: NextRequest) {
         .eq('active', true)
         .order('full_name')
 
+      const { data: managerAssignments, error: managerAssignmentsError } = await adminClient
+        .from('user_manager_assignments')
+        .select('id, user_id, manager_user_id, effective_from, effective_to')
+        .eq('org_id', profile.org_id)
+        .order('effective_from', { ascending: true })
+
       const loadError =
         plansError ||
         assignmentsError ||
         overlayAssignmentsError ||
         overlayVersionsError ||
-        usersError
+        usersError ||
+        managerAssignmentsError
       if (loadError) {
         return NextResponse.json({ error: loadError.message }, { status: 500 })
       }
@@ -152,6 +159,7 @@ export async function GET(request: NextRequest) {
         userAssignments: assignments || [],
         managementOverlayAssignments: overlayAssignments || [],
         managementOverlayVersions: overlayVersions || [],
+        managerAssignments: managerAssignments || [],
         users: users || []
       })
     }

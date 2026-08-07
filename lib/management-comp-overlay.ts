@@ -165,6 +165,15 @@ export function resolveManagementCompOverlays(
     let overlayAssignments: EffectiveManagementOverlayAssignment[]
 
     if (ownAssignments.length === 1) {
+      const hasDirectReport = input.managerAssignments.some(
+        (row) =>
+          row.managerUserId === producerUserId &&
+          isEffective(row, ymd) &&
+          isActiveOnSaleDate(row.userId)
+      )
+      // Holding an overlay is not enough by itself: once the manager has no
+      // effective direct reports, their own production no longer earns manager pay.
+      if (!hasDirectReport) continue
       recipientUserId = producerUserId
       managerAssignmentId = null
       source = 'own_production'

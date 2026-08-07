@@ -130,6 +130,20 @@ describe('resolveManagementCompOverlays', () => {
     ])
   })
 
+  it('stops own-production manager pay after the last direct report ends', () => {
+    const result = resolveManagementCompOverlays({
+      saleDate: '2026-09-01',
+      setterProducerUserId: 'setter-manager',
+      managerAssignments: links.map((row) =>
+        row.managerUserId === 'setter-manager' ? { ...row, effectiveTo: '2026-08-31' } : row
+      ),
+      overlayAssignments: overlays,
+      planVersions: versions,
+    })
+
+    expect(result).toEqual({ lines: [], issues: [] })
+  })
+
   it('supports explicit suppression independently for each lane', () => {
     const result = resolveManagementCompOverlays({
       saleDate: SALE_DATE,
