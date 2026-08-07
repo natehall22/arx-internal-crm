@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { ADJUSTER_MEETING_APPOINTMENT_TYPE } from '@/lib/adjuster-meeting'
 import {
   mapLatestInspectionByLeadId,
   mapLatestInspectionByOpportunityId,
@@ -425,6 +426,41 @@ export async function GET(request: NextRequest) {
     }
 
     const nowMs = Date.now()
+    // Adjuster meetings whose Google Calendar push failed, so the inside rep who
+    // booked one can see it never reached the attending rep's phone and retry it.
+    //
+    // Tolerant on purpose: the columns arrive in a hand-applied migration
+    // (202608050006). Until it runs, PostgREST errors here — that must degrade to
+    // "no known failures" rather than taking down the whole queue, which is the
+    // rep's primary work surface.
+    const adjusterSyncByOpportunity = new Map<
+      string,
+      { failedAt: string; error: string | null }
+    >()
+    if (queuedOpportunityIds.length > 0) {
+      const { data: syncRows, error: syncError } = await adminClient
+        .from('scheduled_appointments')
+        .select('opportunity_id, google_sync_failed_at, google_sync_error, scheduled_for')
+        .eq('org_id', profile.org_id)
+        .eq('appointment_type', ADJUSTER_MEETING_APPOINTMENT_TYPE)
+        .in('opportunity_id', queuedOpportunityIds)
+        .not('google_sync_failed_at', 'is', null)
+        .neq('status', 'cancelled')
+
+      if (syncError) {
+        console.warn('Inside sales queue: adjuster meeting sync state unavailable', syncError.message)
+      } else {
+        for (const row of syncRows || []) {
+          const oppId = row.opportunity_id as string | null
+          if (!oppId) continue
+          adjusterSyncByOpportunity.set(oppId, {
+            failedAt: row.google_sync_failed_at as string,
+            error: (row.google_sync_error as string | null) ?? null,
+          })
+        }
+      }
+    }
+
     const items = queueItems
       .map((item: any) => {
         const activities = activityMap.get(item.id) || []
@@ -495,6 +531,7 @@ export async function GET(request: NextRequest) {
           lastAttemptSummary: lastAttempt?.body ?? null,
           daysInQueue,
           overdueDays,
+          adjusterMeetingSync: adjusterSyncByOpportunity.get(item.id) ?? null,
           priorityTier: priority.tier,
           _priority: priority,
         }

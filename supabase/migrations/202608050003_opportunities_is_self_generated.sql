@@ -72,4 +72,49 @@ CREATE INDEX IF NOT EXISTS idx_opportunities_self_generated
   ON opportunities (org_id, is_self_generated)
   WHERE is_self_generated IS TRUE;
 
+-- Payroll-admin confirmation path. The flag and its manual source marker are one
+-- atomic write, and the audit activity commits in the same transaction.
+CREATE OR REPLACE FUNCTION confirm_opportunity_self_generated(
+  p_org_id UUID,
+  p_opportunity_id UUID,
+  p_is_self_generated BOOLEAN,
+  p_confirmed_by UUID
+)
+RETURNS VOID
+LANGUAGE plpgsql
+SET search_path = public
+AS $$
+BEGIN
+  UPDATE opportunities
+  SET
+    is_self_generated = p_is_self_generated,
+    self_generated_source = 'manual',
+    updated_at = NOW()
+  WHERE id = p_opportunity_id
+    AND org_id = p_org_id;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'opportunity not found in organization';
+  END IF;
+
+  INSERT INTO activities (
+    org_id, opportunity_id, user_id, type, body
+  ) VALUES (
+    p_org_id,
+    p_opportunity_id,
+    p_confirmed_by,
+    'status_change',
+    CASE WHEN p_is_self_generated
+      THEN 'Payroll attribution confirmed: self-generated.'
+      ELSE 'Payroll attribution confirmed: not self-generated.'
+    END
+  );
+END;
+$$;
+
+REVOKE ALL ON FUNCTION confirm_opportunity_self_generated(UUID, UUID, BOOLEAN, UUID)
+  FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION confirm_opportunity_self_generated(UUID, UUID, BOOLEAN, UUID)
+  TO service_role;
+
 SELECT pg_notify('pgrst', 'reload schema');

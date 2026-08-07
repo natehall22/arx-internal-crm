@@ -2,7 +2,6 @@ import {
   buildAdditiveParticipantsForJob,
   type DerivedCommissionContext,
 } from '@/lib/job-derived-commission-lines'
-import { buildManagerHierarchy } from '@/lib/job-manager-override'
 import type { SelfGenOpportunityRow } from '@/lib/job-self-gen-attribution'
 import {
   poolKey,
@@ -25,19 +24,29 @@ function context(overrides: {
   selfGen?: SelfGenOpportunityRow | null
 }): DerivedCommissionContext {
   return {
-    rates: {
+    rateHistory: [{
       inspectionRatePercent: overrides.inspectionRatePercent ?? 0,
       managerOverrideRatePercent: overrides.managerOverrideRatePercent ?? 0,
       selfGenRatePercent: overrides.selfGenRatePercent ?? 0,
-    },
+      effectiveFrom: '2026-08-05',
+    }],
     inspectorByOpportunity: overrides.inspectorUserId
       ? new Map([[OPP, overrides.inspectorUserId]])
       : new Map(),
-    managerHierarchy: buildManagerHierarchy([
-      { id: SETTER, manager_user_id: MANAGER },
-      { id: CLOSER, manager_user_id: MANAGER },
-      { id: MANAGER, manager_user_id: null },
-    ]),
+    managerAssignments: [
+      { userId: SETTER, managerUserId: MANAGER, effectiveFrom: '2026-08-05', effectiveTo: null },
+      { userId: CLOSER, managerUserId: MANAGER, effectiveFrom: '2026-08-05', effectiveTo: null },
+    ],
+    managerActiveHistory: [
+      { userId: CLOSER, isActive: true, effectiveFrom: '2026-08-05' },
+      { userId: SETTER, isActive: true, effectiveFrom: '2026-08-05' },
+      { userId: MANAGER, isActive: true, effectiveFrom: '2026-08-05' },
+    ],
+    compAssignments: [
+      { userId: CLOSER, effectiveFrom: '2026-08-05', effectiveTo: null, isManagerPlan: false },
+      { userId: SETTER, effectiveFrom: '2026-08-05', effectiveTo: null, isManagerPlan: false },
+      { userId: MANAGER, effectiveFrom: '2026-08-05', effectiveTo: null, isManagerPlan: true },
+    ],
     selfGenByOpportunity: overrides.selfGen ? new Map([[OPP, overrides.selfGen]]) : new Map(),
   }
 }
@@ -46,6 +55,7 @@ const jobInput = {
   opportunityId: OPP,
   participantUserIds: [CLOSER, SETTER],
   salespersonId: CLOSER,
+  saleDate: '2026-08-05',
 }
 
 describe('buildAdditiveParticipantsForJob', () => {
@@ -77,6 +87,64 @@ describe('buildAdditiveParticipantsForJob', () => {
     expect(result.participants).toEqual(explicit)
   })
 
+  it('does not apply newer compensation to a historical sale', () => {
+    const result = buildAdditiveParticipantsForJob({
+      ...jobInput,
+      saleDate: '2026-08-04',
+      explicit: [],
+      context: context({
+        inspectionRatePercent: 1.5,
+        managerOverrideRatePercent: 1,
+        selfGenRatePercent: 6,
+        inspectorUserId: CLOSER,
+        selfGen: {
+          isSelfGenerated: true,
+          source: 'manual',
+          ownerUserId: CLOSER,
+          setterUserId: null,
+        },
+      }),
+    })
+    expect(result.participants).toEqual([])
+    expect(result.selfGenSetterConflict).toBe(false)
+  })
+
+  it('keeps the historical rate when the current rate changes', () => {
+    const ctx = context({ inspectionRatePercent: 1.5, inspectorUserId: CLOSER })
+    ctx.rateHistory.push({
+      inspectionRatePercent: 2,
+      managerOverrideRatePercent: 0,
+      selfGenRatePercent: 0,
+      effectiveFrom: '2026-09-01',
+    })
+    const oldSale = buildAdditiveParticipantsForJob({
+      ...jobInput,
+      saleDate: '2026-08-20',
+      explicit: [],
+      context: ctx,
+    })
+    expect(oldSale.participants[0]).toMatchObject({ overridePercent: 1.5 })
+
+    const newSale = buildAdditiveParticipantsForJob({
+      ...jobInput,
+      saleDate: '2026-09-01',
+      explicit: [],
+      context: ctx,
+    })
+    expect(newSale.participants[0]).toMatchObject({ overridePercent: 2 })
+  })
+
+  it('keeps a derived component blank when the recipient had no comp assignment', () => {
+    const ctx = context({ inspectionRatePercent: 1.5, inspectorUserId: CLOSER })
+    ctx.compAssignments = ctx.compAssignments.filter((row) => row.userId !== CLOSER)
+    const result = buildAdditiveParticipantsForJob({
+      ...jobInput,
+      explicit: [],
+      context: ctx,
+    })
+    expect(result.participants).toEqual([])
+  })
+
   it('stacks all three derived lines on the published Sales Manager scenario', () => {
     // Manager self-generates, inspects and closes their own deal: 7% close (paid via
     // the comp plan) + 6% self-gen + 1.5% inspection + 1% override = 15.5%.
@@ -84,6 +152,7 @@ describe('buildAdditiveParticipantsForJob', () => {
       opportunityId: OPP,
       participantUserIds: [MANAGER],
       salespersonId: MANAGER,
+      saleDate: '2026-08-05',
       explicit: [],
       context: {
         ...context({
@@ -91,7 +160,7 @@ describe('buildAdditiveParticipantsForJob', () => {
           managerOverrideRatePercent: 1,
           selfGenRatePercent: 6,
           inspectorUserId: MANAGER,
-          selfGen: { isSelfGenerated: true, ownerUserId: MANAGER, setterUserId: null },
+          selfGen: { isSelfGenerated: true, source: 'manual', ownerUserId: MANAGER, setterUserId: null },
         }),
       },
     })
@@ -109,6 +178,7 @@ describe('buildAdditiveParticipantsForJob', () => {
       opportunityId: OPP,
       participantUserIds: [MANAGER, SETTER],
       salespersonId: MANAGER,
+      saleDate: '2026-08-05',
       explicit: [],
       context: context({ managerOverrideRatePercent: 1 }),
     })
@@ -123,7 +193,7 @@ describe('buildAdditiveParticipantsForJob', () => {
       explicit: [],
       context: context({
         selfGenRatePercent: 6,
-        selfGen: { isSelfGenerated: true, ownerUserId: CLOSER, setterUserId: SETTER },
+        selfGen: { isSelfGenerated: true, source: 'manual', ownerUserId: CLOSER, setterUserId: SETTER },
       }),
     })
     expect(result.participants.some((p) => p.role === 'self_gen')).toBe(false)
@@ -136,7 +206,7 @@ describe('buildAdditiveParticipantsForJob', () => {
       explicit: [],
       context: context({
         selfGenRatePercent: 0,
-        selfGen: { isSelfGenerated: true, ownerUserId: CLOSER, setterUserId: SETTER },
+        selfGen: { isSelfGenerated: true, source: 'manual', ownerUserId: CLOSER, setterUserId: SETTER },
       }),
     })
     expect(result.selfGenSetterConflict).toBe(false)
@@ -147,12 +217,13 @@ describe('buildAdditiveParticipantsForJob', () => {
       opportunityId: null,
       participantUserIds: [CLOSER],
       salespersonId: CLOSER,
+      saleDate: '2026-08-05',
       explicit: [],
       context: context({
         inspectionRatePercent: 1.5,
         selfGenRatePercent: 6,
         inspectorUserId: CLOSER,
-        selfGen: { isSelfGenerated: true, ownerUserId: CLOSER, setterUserId: null },
+        selfGen: { isSelfGenerated: true, source: 'manual', ownerUserId: CLOSER, setterUserId: null },
       }),
     })
     expect(result.participants.some((p) => p.role === 'inspector')).toBe(false)
@@ -165,6 +236,7 @@ describe('buildAdditiveParticipantsForJob', () => {
       opportunityId: null,
       participantUserIds: [SETTER],
       salespersonId: null,
+      saleDate: '2026-08-05',
       explicit: [],
       context: context({ managerOverrideRatePercent: 1 }),
     })
@@ -196,7 +268,7 @@ describe('pool cap — the 20.5% breach case', () => {
         managerOverrideRatePercent: 1,
         selfGenRatePercent: 6,
         inspectorUserId: CLOSER,
-        selfGen: { isSelfGenerated: true, ownerUserId: CLOSER, setterUserId: SETTER },
+        selfGen: { isSelfGenerated: true, source: 'manual', ownerUserId: CLOSER, setterUserId: SETTER },
       }),
     })
     // The explicit row wins, so it is present despite the conflict.
@@ -237,7 +309,7 @@ describe('pool cap — the 20.5% breach case', () => {
         managerOverrideRatePercent: 1,
         selfGenRatePercent: 6,
         inspectorUserId: CLOSER,
-        selfGen: { isSelfGenerated: true, ownerUserId: CLOSER, setterUserId: SETTER },
+        selfGen: { isSelfGenerated: true, source: 'manual', ownerUserId: CLOSER, setterUserId: SETTER },
       }),
     })
     const raw = new Map<string, number>([

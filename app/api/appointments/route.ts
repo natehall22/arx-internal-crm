@@ -1,3 +1,4 @@
+import { ADJUSTER_MEETING_APPOINTMENT_TYPE } from '@/lib/adjuster-meeting'
 import { resolveCanReassignAppointment } from '@/lib/permissions'
 import { isInsideSalesRoleLike } from '@/lib/inside-sales-follow-up'
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
@@ -104,8 +105,15 @@ export async function GET(request: NextRequest) {
     } else if (filter === 'past') {
       query = query.lt('scheduled_for', now)
     } else if (filter === 'needs_feedback') {
-      // Insurance calls are dispositioned from the inside-sales queue, not the feedback form.
-      query = query.lt('scheduled_for', now).eq('status', 'scheduled').neq('appointment_type', 'insurance_call')
+      // Insurance calls are dispositioned from the inside-sales queue, and adjuster
+      // meetings are completed by the attending rep on the appointment itself —
+      // neither belongs in the inspection feedback form. Routing an adjuster meeting
+      // there would let it write an inspection_outcome onto the opportunity and
+      // disturb pipeline state for a visit that was never an inspection.
+      query = query
+        .lt('scheduled_for', now)
+        .eq('status', 'scheduled')
+        .not('appointment_type', 'in', `(insurance_call,${ADJUSTER_MEETING_APPOINTMENT_TYPE})`)
     }
 
     query = query.order('scheduled_for', { ascending: filter === 'upcoming' })

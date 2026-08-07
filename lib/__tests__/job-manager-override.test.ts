@@ -1,5 +1,6 @@
 import {
   buildManagerHierarchy,
+  buildManagerHierarchyForDate,
   deriveManagerOverrideRecipients,
   normalizeManagerOverrideRate,
   withDerivedManagerOverride,
@@ -54,6 +55,38 @@ describe('buildManagerHierarchy', () => {
       { id: 'y', manager_user_id: null },
     ])
     expect(h.managerByUser.size).toBe(0)
+  })
+})
+
+describe('buildManagerHierarchyForDate', () => {
+  const history = [
+    { userId: 'rep', managerUserId: 'old-manager', effectiveFrom: '2026-08-05', effectiveTo: '2026-08-20' },
+    { userId: 'rep', managerUserId: 'new-manager', effectiveFrom: '2026-08-21', effectiveTo: null },
+  ]
+
+  it('uses the assignment effective when the job was sold', () => {
+    expect(buildManagerHierarchyForDate(history, '2026-08-10').managerByUser.get('rep')).toBe('old-manager')
+    expect(buildManagerHierarchyForDate(history, '2026-08-21').managerByUser.get('rep')).toBe('new-manager')
+  })
+
+  it('keeps unverified historical timeframes blank', () => {
+    expect(buildManagerHierarchyForDate(history, '2026-07-31').managerByUser.size).toBe(0)
+    expect(buildManagerHierarchyForDate(history, null).managerByUser.size).toBe(0)
+  })
+
+  it('stops future overrides after a manager becomes inactive without rewriting prior sales', () => {
+    const stableAssignment = [
+      { userId: 'rep', managerUserId: 'old-manager', effectiveFrom: '2026-08-05', effectiveTo: null },
+    ]
+    const activeHistory = [
+      { userId: 'rep', isActive: true, effectiveFrom: '2026-08-05' },
+      { userId: 'old-manager', isActive: true, effectiveFrom: '2026-08-05' },
+      { userId: 'old-manager', isActive: false, effectiveFrom: '2026-08-21' },
+    ]
+    const before = buildManagerHierarchyForDate(stableAssignment, '2026-08-20', activeHistory)
+    const after = buildManagerHierarchyForDate(stableAssignment, '2026-08-21', activeHistory)
+    expect(deriveManagerOverrideRecipients(['rep'], before)).toEqual(['old-manager'])
+    expect(deriveManagerOverrideRecipients(['rep'], after)).toEqual([])
   })
 })
 

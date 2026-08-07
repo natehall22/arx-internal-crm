@@ -254,6 +254,7 @@ export async function GET(request: NextRequest) {
         opportunityId: pid ? projectOpp.get(pid) ?? null : null,
         participantUserIds: collectParticipants(job, opp).map((p) => p.userId),
         salespersonId: (job.salesperson_id as string | null) ?? null,
+        saleDate: (job.sale_date as string | null) ?? null,
       })
       derivedByJobId.set(job.id as string, derived)
       for (const participant of derived.participants) userIds.add(participant.userId)
@@ -543,7 +544,7 @@ export async function GET(request: NextRequest) {
         // would breach the 18% pool cap and scale every line on the job down.
         selfGenSetterConflictJobIds,
       },
-      derivedCommissionRates: derivedContext.rates,
+      derivedCommissionRateHistory: derivedContext.rateHistory,
     })
   } catch (e) {
     console.error('GET /api/admin/payroll/export', e)

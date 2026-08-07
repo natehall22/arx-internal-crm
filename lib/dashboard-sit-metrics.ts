@@ -104,6 +104,82 @@ export function pickFirstQualifyingInspection(
   return null
 }
 
+/**
+ * Bounded historical lookup for a known set of opportunities. Used to prevent a
+ * setter sit and a later inside-sales sit from paying the same person on the same
+ * opportunity across different payroll periods.
+ */
+export async function fetchFirstQualifyingSitOpportunitiesByIds(
+  supabase: SupabaseClient,
+  opts: { orgId: string; opportunityIds: string[]; sitOutcomeIdSet: Set<string> }
+): Promise<EffectiveSitOpportunity[]> {
+  const ids = Array.from(new Set(opts.opportunityIds.filter(Boolean)))
+  if (ids.length === 0 || opts.sitOutcomeIdSet.size === 0) return []
+
+  const opportunities = await fetchSupabaseAllPages<OpportunityRowForSitMetrics>(async (from, to) =>
+    supabase
+      .from('opportunities')
+      .select('id, lead_id, setter_user_id, owner_user_id, inspection_outcome, inspection_outcome_at, inspection_notes, updated_at, created_at')
+      .eq('org_id', opts.orgId)
+      .in('id', ids)
+      .order('id', { ascending: true })
+      .range(from, to)
+  )
+
+  const leadIds = Array.from(
+    new Set(opportunities.map((opp) => opp.lead_id).filter((id): id is string => Boolean(id)))
+  )
+  const statusRows = await fetchSupabaseAllPages<InspectionStatusRowLike & Record<string, unknown>>(
+    async (from, to) => {
+      let query = supabase
+        .from('inspection_status_updates')
+        .select('id, opportunity_id, lead_id, outcome, notes, created_at')
+        .eq('org_id', opts.orgId)
+      query = leadIds.length > 0
+        ? query.or(`opportunity_id.in.(${ids.join(',')}),lead_id.in.(${leadIds.join(',')})`)
+        : query.in('opportunity_id', ids)
+      return query.order('id', { ascending: true }).range(from, to)
+    }
+  )
+
+  const siblingRows = leadIds.length > 0
+    ? await fetchSupabaseAllPages<{ id: string; lead_id: string | null }>(async (from, to) =>
+        supabase
+          .from('opportunities')
+          .select('id, lead_id')
+          .eq('org_id', opts.orgId)
+          .in('lead_id', leadIds)
+          .order('id', { ascending: true })
+          .range(from, to)
+      )
+    : []
+  const leadCounts = new Map<string, number>()
+  for (const row of siblingRows) {
+    if (row.lead_id) leadCounts.set(row.lead_id, (leadCounts.get(row.lead_id) ?? 0) + 1)
+  }
+  const ambiguousLeadIds = new Set(
+    Array.from(leadCounts.entries()).filter(([, count]) => count > 1).map(([leadId]) => leadId)
+  )
+
+  return opportunities.flatMap((opp) => {
+    const first = pickFirstQualifyingInspection(
+      opp,
+      statusRows,
+      opts.sitOutcomeIdSet,
+      ambiguousLeadIds
+    )
+    if (!first) return []
+    return [{
+      id: String(opp.id),
+      lead_id: opp.lead_id ? String(opp.lead_id) : null,
+      setter_user_id: opp.setter_user_id ? String(opp.setter_user_id) : null,
+      owner_user_id: opp.owner_user_id ? String(opp.owner_user_id) : null,
+      inspection_outcome: first.outcome,
+      inspection_outcome_at: first.outcome_at,
+    }]
+  })
+}
+
 /** True when an opportunity's own qualifying outcome was dropped only because it has
  * no usable inspection_outcome_at (missing or unparseable) and no qualifying status
  * row backs it up — i.e. payroll would otherwise have had to guess a date from an

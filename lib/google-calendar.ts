@@ -304,8 +304,12 @@ export async function createCalendarEvent(
   })
 
   if (!response.ok) {
-    const error = await response.text()
-    throw new Error(`Failed to create event: ${error}`)
+    const detail = await response.text().catch(() => '')
+    console.error('Google Calendar create failed', {
+      status: response.status,
+      detail: detail.slice(0, 500),
+    })
+    throw new Error(`Google Calendar create failed (${response.status})`)
   }
 
   return response.json()
@@ -334,7 +338,11 @@ export async function updateCalendarEvent(
 
   if (!response.ok) {
     const detail = await response.text().catch(() => '')
-    throw new Error(`Failed to update event: ${response.status} ${detail}`)
+    console.error('Google Calendar update failed', {
+      status: response.status,
+      detail: detail.slice(0, 500),
+    })
+    throw new Error(`Google Calendar update failed (${response.status})`)
   }
 
   return response.json()

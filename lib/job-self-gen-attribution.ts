@@ -40,6 +40,7 @@ export const SELF_GEN_ROLE = 'self_gen' as const
 
 export type SelfGenOpportunityRow = {
   isSelfGenerated: boolean | null
+  source: string | null
   ownerUserId: string | null
   setterUserId: string | null
 }
@@ -52,6 +53,13 @@ export type SelfGenAttribution = {
 }
 
 export const NO_SELF_GEN: SelfGenAttribution = { creditUserId: null, conflictWithSetter: false }
+
+export function payableSelfGenFlag(
+  isSelfGenerated: boolean | null,
+  source: string | null
+): boolean | null {
+  return source === 'manual' ? isSelfGenerated : null
+}
 
 /**
  * Load the self-gen flag for a batch of opportunities.
@@ -70,7 +78,7 @@ export async function loadSelfGenByOpportunity(
 
   const { data, error } = await supabase
     .from('opportunities')
-    .select('id, is_self_generated, owner_user_id, setter_user_id')
+    .select('id, is_self_generated, self_generated_source, owner_user_id, setter_user_id')
     .eq('org_id', orgId)
     .in('id', opportunityIds)
 
@@ -79,11 +87,16 @@ export async function loadSelfGenByOpportunity(
   for (const row of (data || []) as Array<{
     id: string
     is_self_generated: boolean | null
+    self_generated_source: string | null
     owner_user_id: string | null
     setter_user_id: string | null
   }>) {
     out.set(row.id, {
-      isSelfGenerated: row.is_self_generated,
+      isSelfGenerated: payableSelfGenFlag(
+        row.is_self_generated,
+        row.self_generated_source
+      ),
+      source: row.self_generated_source,
       ownerUserId: row.owner_user_id,
       setterUserId: row.setter_user_id,
     })

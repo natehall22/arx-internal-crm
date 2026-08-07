@@ -16,6 +16,24 @@ import {
   STORM_PIPELINE_PREFIX,
   pipelineStageForInsideSalesClaim,
 } from '@/lib/inside-sales-follow-up'
+import {
+  ADJUSTER_MEETING_APPOINTMENT_TYPE,
+  DEFAULT_ADJUSTER_MEETING_DURATION_MINUTES,
+  INSIDE_SALES_STATUS_MUTABLE_APPOINTMENT_TYPES,
+  normalizeAdjusterMeetingDuration,
+  resolveSchedulingPolicy,
+} from '@/lib/adjuster-meeting'
+import {
+  sendAdjusterMeetingSyncAlert,
+  shouldSendAdjusterMeetingAlert,
+} from '@/lib/adjuster-meeting-alert'
+import {
+  describeAttendeeConflict,
+  findAttendeeConflicts,
+  syncAdjusterMeetingToGoogle,
+  type AdjusterMeetingSyncResult,
+  type AppointmentTimeSpan,
+} from '@/lib/adjuster-meeting-calendar'
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 import { assignNextAvailableCloser, getDefaultTeam } from '@/lib/round-robin'
 import {
@@ -23,11 +41,17 @@ import {
   getInspectionBufferAfterFromTable,
   getInspectionDurationFromTable,
 } from '@/lib/org-appointment-types'
-import { createCalendarEvent, refreshAccessToken, type CalendarEvent } from '@/lib/google-calendar'
+import {
+  createCalendarEvent,
+  refreshAccessToken,
+  updateCalendarEvent,
+  type CalendarEvent,
+} from '@/lib/google-calendar'
 import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
 import { computeInspectionFeedbackPromptAt } from '@/lib/scheduling-prompt'
 
 export const dynamic = 'force-dynamic'
+
 
 function getSessionFromRequest(req: NextRequest) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -90,6 +114,50 @@ function getAdminClient() {
   })
 }
 
+/**
+ * Record WHO in inside sales put this insurance appointment on the calendar.
+ *
+ * This is deliberately separate from `canvasser_user_id`, which is the setter who
+ * booked the ORIGINAL inspection and must stay untouched — the setter keeps setter
+ * credit and setter commission. Until this column existed, "who set the original
+ * appointment" and "who got it re-booked" were the same field, so an inside-sales
+ * rep earned nothing for a re-book. It drives the inside-sales sit credit in
+ * lib/inside-sales-booker-attribution.ts.
+ *
+ * Best-effort on purpose: the column ships in a hand-applied migration
+ * (202608050005). Booking the customer must never fail because an optional pay
+ * attribution column is not there yet, so a failure here is logged and swallowed
+ * rather than 500-ing the inside-sales queue. Worst case the rep loses a $10
+ * credit that was default-OFF anyway; the alternative is a broken booking flow.
+ */
+async function stampInsideSalesBooker(
+  admin: ReturnType<typeof getAdminClient>,
+  params: { orgId: string; userId: string; opportunityId: string }
+): Promise<void> {
+  try {
+    const { error } = await admin
+      .from('scheduled_appointments')
+      .update({ inside_sales_booked_by_user_id: params.userId })
+      .eq('org_id', params.orgId)
+      .eq('opportunity_id', params.opportunityId)
+      .eq('appointment_type', 'insurance_call')
+      // Only rows still open at this point — the caller runs this straight after
+      // moving scheduled_for and before any completed-marking, so this is exactly
+      // the set of appointments the rep just re-booked.
+      .eq('status', 'scheduled')
+
+    if (error) {
+      console.warn('stampInsideSalesBooker: could not record inside-sales booker', {
+        orgId: params.orgId,
+        opportunityId: params.opportunityId,
+        error: error.message,
+      })
+    }
+  } catch (err) {
+    console.warn('stampInsideSalesBooker: unexpected failure', err)
+  }
+}
+
 type ActionType =
   | 'claim_self'
   | 'log_call'
@@ -98,6 +166,8 @@ type ActionType =
   | 'mark_unresponsive'
   | 'mark_lost'
   | 'schedule_back_to_closer'
+  | 'schedule_adjuster_meeting'
+  | 'retry_adjuster_meeting_sync'
   | 'mark_knockback'
 
 function resolvedPipelineStage(
@@ -253,6 +323,121 @@ async function createInspectionEventOnCloserCalendar(
   return createdEvent.id
 }
 
+/**
+ * Route-level adapter: wires the real Supabase/Google clients into
+ * `syncAdjusterMeetingToGoogle`, which owns the non-destructive contract and is
+ * unit-tested in lib/__tests__/adjuster-meeting-calendar.test.ts.
+ *
+ * The `scheduled_appointments` row is always committed by the caller BEFORE this
+ * runs, and no failure path here removes it.
+ */
+async function pushAdjusterMeetingToGoogle(
+  adminClient: ReturnType<typeof getAdminClient>,
+  params: {
+    orgId: string
+    appointmentId: string
+    attendeeUserId: string
+    bookerUserId: string | null
+    scheduledForIso: string
+    durationMinutes: number
+    customerName: string
+    phone?: string | null
+    address?: string | null
+    bookedByName?: string | null
+    /** Alert context only — who was supposed to attend. */
+    attendeeName?: string | null
+    note?: string | null
+    existingEventId?: string | null
+    /** True when this is an explicit retry, which always alerts on failure. */
+    isRetry?: boolean
+  }
+): Promise<AdjusterMeetingSyncResult> {
+  const { orgId, attendeeName: _attendeeName, isRetry: _isRetry, ...syncParams } = params
+
+  return syncAdjusterMeetingToGoogle(
+    {
+      getAccessToken: (userId) => getValidAccessToken(adminClient, userId),
+      getTimezone: (userId) => getTimezoneForUser(adminClient, userId),
+      formatLocal: formatCalendarLocal,
+      createEvent: (token, event, calendarId, sendUpdates) =>
+        createCalendarEvent(token, event, calendarId, sendUpdates),
+      updateEvent: (token, eventId, event) => updateCalendarEvent(token, eventId, event),
+      getUserEmail: async (userId) => {
+        const { data } = await adminClient
+          .from('users')
+          .select('email')
+          .eq('id', userId)
+          .eq('org_id', orgId)
+          .eq('active', true)
+          .maybeSingle()
+        return (data?.email as string | null) ?? null
+      },
+      saveSuccess: async (appointmentId, eventId) => {
+        const { error } = await adminClient
+          .from('scheduled_appointments')
+          .update({ google_event_id: eventId, google_sync_failed_at: null, google_sync_error: null })
+          .eq('id', appointmentId)
+          .eq('org_id', orgId)
+        if (error) {
+          // Columns absent pre-migration 202608050006 — still store the link so the
+          // calendar association is not lost.
+          const { error: fallbackError } = await adminClient
+            .from('scheduled_appointments')
+            .update({ google_event_id: eventId })
+            .eq('id', appointmentId)
+            .eq('org_id', orgId)
+          if (fallbackError) throw fallbackError
+        }
+      },
+      saveFailure: async (appointmentId, message, knownEventId) => {
+        // Dedupe: read the prior state BEFORE overwriting it. The alert fires when a
+        // failure is newly recorded (previously clean) or on an explicit retry —
+        // never again and again for an already-known failure that some later read or
+        // write happens to touch.
+        const { data: priorRow } = await adminClient
+          .from('scheduled_appointments')
+          .select('google_sync_failed_at')
+          .eq('id', appointmentId)
+          .eq('org_id', orgId)
+          .maybeSingle()
+        const alreadyFailing = Boolean(
+          (priorRow as { google_sync_failed_at?: string | null } | null)?.google_sync_failed_at
+        )
+
+        const failureUpdate: Record<string, unknown> = {
+          google_sync_failed_at: new Date().toISOString(),
+          google_sync_error: message,
+        }
+        if (knownEventId) failureUpdate.google_event_id = knownEventId
+        const { error } = await adminClient
+          .from('scheduled_appointments')
+          .update(failureUpdate)
+          .eq('id', appointmentId)
+          .eq('org_id', orgId)
+        if (error) {
+          console.warn('pushAdjusterMeetingToGoogle: could not record sync failure', error.message)
+        }
+
+        if (shouldSendAdjusterMeetingAlert({ alreadyFailing, isRetry: Boolean(params.isRetry) })) {
+          // Never awaited into the booking's success path in a way that could throw —
+          // sendAdjusterMeetingSyncAlert swallows everything internally.
+          await sendAdjusterMeetingSyncAlert({
+            appointmentId,
+            customerName: params.customerName,
+            address: params.address ?? null,
+            scheduledForIso: params.scheduledForIso,
+            attendeeName: params.attendeeName ?? null,
+            bookedByName: params.bookedByName ?? null,
+            error: message,
+            isRetry: Boolean(params.isRetry),
+          })
+        }
+      },
+    },
+    syncParams
+  )
+}
+
 export async function POST(
   request: NextRequest,
   context: { params: { id: string } | Promise<{ id: string }> }
@@ -402,6 +587,332 @@ export async function POST(
       updateData.knockback_follow_up_months = knockbackMonths
       updateData.follow_up_at = followUpAt
       updateData.assigned_user_id = null
+    } else if (action === 'retry_adjuster_meeting_sync') {
+      // Retry a push that previously failed. Same non-destructive contract: the
+      // meeting already exists and stays put whatever Google does.
+      if (!isInsideSalesRoleLike(insideSalesAccessInput)) {
+        return NextResponse.json(
+          { error: 'Only inside sales users can retry adjuster meeting sync' },
+          { status: 403 }
+        )
+      }
+
+      const { data: meetingRow } = await admin
+        .from('scheduled_appointments')
+        .select('id, closer_user_id, inside_sales_booked_by_user_id, scheduled_for, duration_minutes, address_text, google_event_id, notes, lead_id')
+        .eq('org_id', profile.org_id)
+        .eq('opportunity_id', opportunityId)
+        .eq('appointment_type', ADJUSTER_MEETING_APPOINTMENT_TYPE)
+        .neq('status', 'cancelled')
+        .order('scheduled_for', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      if (!meetingRow?.id) {
+        return NextResponse.json({ error: 'No adjuster meeting to sync for this opportunity' }, { status: 404 })
+      }
+      if (!meetingRow.closer_user_id) {
+        return NextResponse.json(
+          { error: 'Assign the rep who will attend before syncing to their calendar.' },
+          { status: 400 }
+        )
+      }
+
+      const { data: retryLead } = await admin
+        .from('leads')
+        .select('homeowner_name, phone, address_text')
+        .eq('id', meetingRow.lead_id)
+        .eq('org_id', profile.org_id)
+        .maybeSingle()
+
+      const { data: retryAttendee } = await admin
+        .from('users')
+        .select('full_name, active')
+        .eq('id', meetingRow.closer_user_id)
+        .eq('org_id', profile.org_id)
+        .maybeSingle()
+      if (!retryAttendee || retryAttendee.active === false) {
+        return NextResponse.json(
+          { error: 'The assigned attendee is not active in this organization.' },
+          { status: 400 }
+        )
+      }
+      const retryAttendeeName = (retryAttendee?.full_name as string | null) || null
+
+      const retrySync = await pushAdjusterMeetingToGoogle(admin, {
+        orgId: profile.org_id,
+        appointmentId: meetingRow.id as string,
+        attendeeUserId: meetingRow.closer_user_id as string,
+        bookerUserId: (meetingRow.inside_sales_booked_by_user_id as string | null) || null,
+        scheduledForIso: meetingRow.scheduled_for as string,
+        durationMinutes: normalizeAdjusterMeetingDuration(meetingRow.duration_minutes),
+        customerName: retryLead?.homeowner_name || 'Customer',
+        phone: retryLead?.phone || null,
+        address: (meetingRow.address_text as string) || retryLead?.address_text || null,
+        bookedByName: profile.full_name || null,
+        attendeeName: retryAttendeeName,
+        note: (meetingRow.notes as string) || null,
+        existingEventId: (meetingRow.google_event_id as string | null) || null,
+        // An explicit retry always alerts on failure — the human is actively trying
+        // to fix this and needs to know it still did not work.
+        isRetry: true,
+      })
+
+      return NextResponse.json({
+        scheduled_appointment_id: meetingRow.id,
+        google_synced: retrySync.ok,
+        ...(retrySync.ok ? {} : { google_sync_error: retrySync.error }),
+        ...(retrySync.eventId ? { google_event_id: retrySync.eventId } : {}),
+      })
+    } else if (action === 'schedule_adjuster_meeting') {
+      // Inside sales books the physical adjuster meeting. Two things make this
+      // different from every other appointment this route creates:
+      //   - it carries inside_sales_booked_by_user_id, so the booker earns a sit
+      //     unit once the meeting is certified as having happened;
+      //   - it carries closer_user_id, the field rep who will ATTEND. That was NULL
+      //     on the live insurance_call rows, which is exactly why the meeting never
+      //     appeared on the attendee's calendar.
+      // The booker cannot complete it — see lib/adjuster-meeting.ts.
+      if (!isInsideSalesRoleLike(insideSalesAccessInput)) {
+        return NextResponse.json(
+          { error: 'Only inside sales users can schedule adjuster meetings' },
+          { status: 403 }
+        )
+      }
+      if (!schedule?.scheduledLocal) {
+        return NextResponse.json({ error: 'Missing scheduled time' }, { status: 400 })
+      }
+
+      const meetingTimezone =
+        typeof schedule.timezone === 'string' && schedule.timezone.trim()
+          ? schedule.timezone.trim()
+          : 'America/New_York'
+      const meetingLocal = String(schedule.scheduledLocal).slice(0, 16)
+      if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(meetingLocal)) {
+        return NextResponse.json({ error: 'Invalid scheduled time' }, { status: 400 })
+      }
+      const meetingIso = fromZonedTime(`${meetingLocal}:00`, meetingTimezone).toISOString()
+      if (!Number.isFinite(new Date(meetingIso).getTime())) {
+        return NextResponse.json({ error: 'Invalid scheduled time' }, { status: 400 })
+      }
+
+      const durationMinutes = normalizeAdjusterMeetingDuration(
+        schedule.durationMinutes ?? DEFAULT_ADJUSTER_MEETING_DURATION_MINUTES
+      )
+
+      // The relaxed rules, derived from the appointment type — not from anything in
+      // the request body. No availability gating, no slot validation and no
+      // business-hours check runs anywhere below: this branch routes AROUND the
+      // shared validators rather than adding a bypass mode to them, so an inspection
+      // cannot reach these rules even in future. Enforced by
+      // lib/__tests__/appointment-scheduling-policy.test.ts.
+      const meetingPolicy = resolveSchedulingPolicy(ADJUSTER_MEETING_APPOINTMENT_TYPE)
+      if (meetingPolicy.enforceAvailability || meetingPolicy.deleteOnCalendarFailure) {
+        // Unreachable by construction; guards against someone later making
+        // resolveSchedulingPolicy return the strict policy for this type.
+        console.error('adjuster meeting resolved to the strict scheduling policy — refusing to gate a booking we cannot re-ask for')
+      }
+
+      // Who attends. Explicit choice wins; otherwise fall back to the rep who ran
+      // the inspection, then the opportunity owner. A meeting with nobody assigned
+      // can never be completed (and so never pays), so resolving this matters.
+      let attendeeUserId: string | null =
+        typeof schedule.closerUserId === 'string' && schedule.closerUserId.trim()
+          ? schedule.closerUserId.trim()
+          : null
+
+      if (!attendeeUserId) {
+        const { data: priorInspection } = await admin
+          .from('scheduled_appointments')
+          .select('closer_user_id')
+          .eq('org_id', profile.org_id)
+          .eq('opportunity_id', opportunityId)
+          .eq('appointment_type', 'inspection')
+          .not('closer_user_id', 'is', null)
+          .order('scheduled_for', { ascending: true })
+          .limit(1)
+          .maybeSingle()
+        attendeeUserId = (priorInspection?.closer_user_id as string | null) || null
+      }
+
+      if (!attendeeUserId) {
+        const { data: oppOwner } = await admin
+          .from('opportunities')
+          .select('owner_user_id')
+          .eq('id', opportunityId)
+          .eq('org_id', profile.org_id)
+          .maybeSingle()
+        attendeeUserId = (oppOwner?.owner_user_id as string | null) || null
+      }
+
+      if (!attendeeUserId) {
+        return NextResponse.json(
+          { error: 'Choose the rep who will attend this adjuster meeting.' },
+          { status: 400 }
+        )
+      }
+
+      const { data: attendee } = await admin
+        .from('users')
+        .select('id, full_name, org_id, active')
+        .eq('id', attendeeUserId)
+        .maybeSingle()
+
+      if (!attendee || attendee.org_id !== profile.org_id || attendee.active === false) {
+        return NextResponse.json(
+          { error: 'Invalid attending rep for this organization' },
+          { status: 400 }
+        )
+      }
+
+      if (attendeeUserId === profile.id) {
+        return NextResponse.json(
+          { error: 'The inside-sales booker cannot also be the attending certifier.' },
+          { status: 400 }
+        )
+      }
+
+      const { data: leadRow } = await admin
+        .from('leads')
+        .select('address_text, homeowner_name, phone, pin_attributed_user_id, owner_user_id')
+        .eq('id', opportunity.lead_id)
+        .eq('org_id', profile.org_id)
+        .maybeSingle()
+
+      const meetingNotes = [
+        `Insurance adjuster meeting booked by ${profile.full_name || 'inside sales'}.`,
+        `Attending: ${attendee.full_name || 'assigned rep'}.`,
+        note || null,
+      ]
+        .filter(Boolean)
+        .join('\n')
+
+      const insertPayload: Record<string, unknown> = {
+        org_id: profile.org_id,
+        lead_id: opportunity.lead_id,
+        opportunity_id: opportunityId,
+        closer_user_id: attendeeUserId,
+        // Setter attribution copied through untouched — the setter keeps setter
+        // credit and setter commission on this deal.
+        canvasser_user_id: leadRow?.pin_attributed_user_id || leadRow?.owner_user_id || null,
+        scheduled_for: meetingIso,
+        duration_minutes: durationMinutes,
+        status: 'scheduled',
+        address_text: opportunity.address_text || leadRow?.address_text || null,
+        notes: meetingNotes,
+        appointment_type: ADJUSTER_MEETING_APPOINTMENT_TYPE,
+      }
+
+      // Migration 202608050005 is applied before this code ships. Its partial unique
+      // index makes this insert idempotent for one opportunity + exact slot, while
+      // the lookup after any error reconciles an ambiguous response where Postgres
+      // committed but the HTTP response was lost. Never retry without the booker
+      // stamp: that could duplicate the meeting and silently discard pay attribution.
+      let createdMeetingId: string | null = null
+      let createdNewMeeting = false
+      const withStamp = await admin
+        .from('scheduled_appointments')
+        .insert({ ...insertPayload, inside_sales_booked_by_user_id: profile.id })
+        .select('id')
+        .single()
+
+      if (withStamp.error) {
+        const { data: committedMeeting, error: reconcileError } = await admin
+          .from('scheduled_appointments')
+          .select('id')
+          .eq('org_id', profile.org_id)
+          .eq('opportunity_id', opportunityId)
+          .eq('appointment_type', ADJUSTER_MEETING_APPOINTMENT_TYPE)
+          .eq('scheduled_for', meetingIso)
+          .eq('closer_user_id', attendeeUserId)
+          .eq('inside_sales_booked_by_user_id', profile.id)
+          .eq('duration_minutes', durationMinutes)
+          .neq('status', 'cancelled')
+          .maybeSingle()
+        if (reconcileError || !committedMeeting?.id) {
+          console.error('schedule_adjuster_meeting: insert/reconcile failed', {
+            insertError: withStamp.error.message,
+            reconcileError: reconcileError?.message,
+          })
+          return NextResponse.json({ error: 'Failed to schedule the adjuster meeting' }, { status: 500 })
+        }
+        createdMeetingId = committedMeeting.id as string
+      } else {
+        createdMeetingId = withStamp.data.id as string
+        createdNewMeeting = true
+      }
+
+      if (createdNewMeeting) {
+        await admin.from('activities').insert({
+          org_id: profile.org_id,
+          opportunity_id: opportunityId,
+          lead_id: opportunity.lead_id,
+          user_id: profile.id,
+          type: 'appointment_scheduled',
+          body: `Inside sales scheduled an insurance adjuster meeting for ${new Date(meetingIso).toLocaleString('en-US', {
+            timeZone: 'America/New_York',
+            weekday: 'short',
+            month: 'short',
+            day: 'numeric',
+            hour: 'numeric',
+            minute: '2-digit',
+          })} ET — ${attendee.full_name || 'assigned rep'} attending${note ? ` — ${note}` : ''}`,
+        })
+      }
+
+      // Conflict awareness — a WARNING, never a block. The adjuster picked this
+      // time; if the rep is double-booked the inside rep should reassign who
+      // attends, not lose the slot.
+      const { data: attendeeAppointments } = await admin
+        .from('scheduled_appointments')
+        .select('id, scheduled_for, duration_minutes, status')
+        .eq('org_id', profile.org_id)
+        .eq('closer_user_id', attendeeUserId)
+        .neq('status', 'cancelled')
+        .gte('scheduled_for', new Date(new Date(meetingIso).getTime() - 12 * 60 * 60 * 1000).toISOString())
+        .lte('scheduled_for', new Date(new Date(meetingIso).getTime() + 12 * 60 * 60 * 1000).toISOString())
+
+      const conflictWarning = describeAttendeeConflict(
+        findAttendeeConflicts((attendeeAppointments || []) as AppointmentTimeSpan[], {
+          startIso: meetingIso,
+          durationMinutes,
+          excludeAppointmentId: createdMeetingId,
+        }),
+        attendee.full_name as string | null
+      )
+
+      // The CRM row is already committed. Everything below is best-effort: a Google
+      // failure is recorded for retry and NEVER unwinds the booking.
+      const sync = await pushAdjusterMeetingToGoogle(admin, {
+        orgId: profile.org_id,
+        appointmentId: createdMeetingId,
+        attendeeUserId,
+        bookerUserId: profile.id,
+        scheduledForIso: meetingIso,
+        durationMinutes,
+        customerName: leadRow?.homeowner_name || 'Customer',
+        phone: leadRow?.phone || null,
+        address: (opportunity.address_text as string) || leadRow?.address_text || null,
+        bookedByName: profile.full_name || null,
+        attendeeName: (attendee.full_name as string | null) || null,
+        note: note || null,
+      })
+
+      return NextResponse.json({
+        opportunity: {
+          id: opportunity.id,
+          status: opportunity.status,
+          pipeline_stage: opportunity.pipeline_stage ?? null,
+        },
+        scheduled_appointment_id: createdMeetingId,
+        appointment_type: ADJUSTER_MEETING_APPOINTMENT_TYPE,
+        attendee_user_id: attendeeUserId,
+        duration_minutes: durationMinutes,
+        google_synced: sync.ok,
+        ...(sync.ok ? {} : { google_sync_error: sync.error }),
+        ...(sync.eventId ? { google_event_id: sync.eventId } : {}),
+        ...(conflictWarning ? { conflict_warning: conflictWarning } : {}),
+      })
     } else if (action === 'schedule_back_to_closer') {
       if (!schedule?.scheduledLocal) {
         return NextResponse.json({ error: 'Missing scheduled time' }, { status: 400 })
@@ -499,6 +1010,14 @@ export async function POST(
       const scheduledForISO = fromZonedTime(wall, timezone).toISOString()
       const scheduledForDate = new Date(scheduledForISO)
 
+      // Inspections take the STRICT path: round-robin availability gating,
+      // business-hours/slot validation, 409 on conflict, and delete-the-row when the
+      // Google push fails. Derived from the appointment type, not from any caller
+      // input, so this cannot be relaxed by a request body. Adjuster meetings never
+      // reach this branch at all — they are handled by `schedule_adjuster_meeting`
+      // above, which never calls assignNextAvailableCloser.
+      const schedulingPolicy = resolveSchedulingPolicy('inspection')
+
       let scheduledAppointmentId: string | null = null
       let assignedCloserName = 'Closer'
       let assignedCloserId: string | null = null
@@ -573,7 +1092,8 @@ export async function POST(
           }
         }
 
-        if (!googleCalendarEventId && scheduledAppointmentId) {
+        // Unchanged inspection rule: no calendar event means no appointment.
+        if (schedulingPolicy.deleteOnCalendarFailure && !googleCalendarEventId && scheduledAppointmentId) {
           await admin.from('scheduled_appointments').delete().eq('id', scheduledAppointmentId)
           return NextResponse.json(
             { error: 'Failed to push this inspection onto the closer calendar. No appointment was created.' },
@@ -606,6 +1126,7 @@ export async function POST(
             lead_id: appointmentSeed.lead_id,
             opportunity_id: appointmentSeed.opportunity_id,
             closer_user_id: closerUserId,
+            // Setter attribution is copied through unchanged.
             canvasser_user_id: appointmentSeed.canvasser_user_id,
             scheduled_for: scheduledForISO,
             duration_minutes: inspectionDuration,
@@ -634,7 +1155,8 @@ export async function POST(
           address: customerAddress,
           note: note || 'Scheduled back to closer by inside sales.',
         })
-        if (!googleCalendarEventId || !scheduledAppointmentId) {
+        // Unchanged inspection rule: no calendar event means no appointment.
+        if (schedulingPolicy.deleteOnCalendarFailure && (!googleCalendarEventId || !scheduledAppointmentId)) {
           await admin.from('scheduled_appointments').delete().eq('id', insertedAppointment.id)
           return NextResponse.json(
             { error: 'Failed to push this inspection onto the closer calendar. No appointment was created.' },
@@ -829,13 +1351,25 @@ export async function POST(
           .eq('opportunity_id', opportunityId)
           .eq('appointment_type', 'insurance_call')
           .eq('status', 'scheduled')
+
+        await stampInsideSalesBooker(admin, {
+          orgId: profile.org_id,
+          opportunityId,
+          userId: profile.id,
+        })
       }
+      // Scoped through INSIDE_SALES_STATUS_MUTABLE_APPOINTMENT_TYPES on purpose.
+      // Completing an appointment is what triggers the booker's sit unit, and this
+      // is the inside-sales rep's own path — so it must never reach an
+      // `adjuster_meeting`. Those are certified by the rep who attended, via
+      // PATCH /api/appointments/[id]. Keeping the type list in one shared constant
+      // stops a future edit here from quietly re-opening the self-serve hole.
       await admin
         .from('scheduled_appointments')
         .update({ status: 'completed' })
         .eq('org_id', profile.org_id)
         .eq('opportunity_id', opportunityId)
-        .eq('appointment_type', 'insurance_call')
+        .in('appointment_type', [...INSIDE_SALES_STATUS_MUTABLE_APPOINTMENT_TYPES])
         .eq('status', 'scheduled')
         .lte('scheduled_for', new Date().toISOString())
     } else if (

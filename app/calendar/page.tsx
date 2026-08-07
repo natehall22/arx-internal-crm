@@ -91,6 +91,9 @@ function appointmentKindLabel(appointmentType: string | null | undefined): strin
   if (t === 'close') return 'Close'
   if (t === 'insurance_follow_up') return 'Follow-up'
   if (t === 'insurance_call') return 'Inside Sales Call'
+  // Physical, on-site meeting with the insurance adjuster — a field visit the
+  // assigned rep attends, not a phone call.
+  if (t === 'adjuster_meeting') return 'Adjuster Meeting'
   return 'Inspection'
 }
 
@@ -610,6 +613,7 @@ export default function CalendarPage() {
     if (t === 'close') return 'bg-emerald-500'
     if (t === 'insurance_follow_up') return 'bg-orange-400'
     if (t === 'insurance_call') return 'bg-purple-500'
+    if (t === 'adjuster_meeting') return 'bg-sky-600'
     return 'bg-indigo-500'
   }
 

@@ -19,12 +19,15 @@ import {
   withDerivedInspector,
 } from '@/lib/job-inspector-attribution'
 import {
+  buildManagerHierarchyForDate,
   deriveManagerOverrideRecipients,
-  EMPTY_MANAGER_HIERARCHY,
-  loadOrgManagerHierarchy,
+  EMPTY_MANAGER_ASSIGNMENTS,
+  loadOrgManagerAssignments,
+  loadOrgUserActiveHistory,
   normalizeManagerOverrideRate,
   withDerivedManagerOverride,
-  type OrgManagerHierarchy,
+  type EffectiveManagerAssignmentRow,
+  type EffectiveUserActiveRow,
 } from '@/lib/job-manager-override'
 import {
   loadSelfGenByOpportunity,
@@ -38,15 +41,64 @@ export type DerivedCommissionRates = {
   inspectionRatePercent: number
   managerOverrideRatePercent: number
   selfGenRatePercent: number
+  effectiveFrom: string
 }
 
 export type DerivedCommissionContext = {
-  rates: DerivedCommissionRates
+  rateHistory: DerivedCommissionRates[]
   /** opportunity id → the rep who ran the inspection. */
   inspectorByOpportunity: Map<string, string>
-  managerHierarchy: OrgManagerHierarchy
+  managerAssignments: EffectiveManagerAssignmentRow[]
+  managerActiveHistory: EffectiveUserActiveRow[]
+  compAssignments: EffectiveCompAssignmentRow[]
   /** opportunity id → self-gen flag + attribution, only for opportunities in scope. */
   selfGenByOpportunity: Map<string, SelfGenOpportunityRow>
+}
+
+export type EffectiveCompAssignmentRow = {
+  userId: string
+  effectiveFrom: string
+  effectiveTo: string | null
+  isManagerPlan: boolean
+}
+
+export function resolveDerivedCommissionRatesForSaleDate(
+  history: readonly DerivedCommissionRates[],
+  saleDate: string | null | undefined
+): DerivedCommissionRates | null {
+  const ymd = saleDate?.slice(0, 10) ?? ''
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return null
+  return (
+    [...history]
+      .filter((row) => row.effectiveFrom <= ymd)
+      .sort((a, b) => b.effectiveFrom.localeCompare(a.effectiveFrom))[0] ?? null
+  )
+}
+
+async function loadEffectiveCompAssignments(
+  supabase: SupabaseClient,
+  orgId: string
+): Promise<EffectiveCompAssignmentRow[]> {
+  const { data, error } = await supabase
+    .from('user_comp_plans')
+    .select('user_id, effective_from, effective_to, comp_plans(is_manager_plan)')
+    .eq('org_id', orgId)
+  if (error) throw error
+
+  return ((data || []) as Array<{
+    user_id: string
+    effective_from: string
+    effective_to: string | null
+    comp_plans: { is_manager_plan?: boolean | null } | { is_manager_plan?: boolean | null }[] | null
+  }>).map((row) => {
+    const plan = Array.isArray(row.comp_plans) ? row.comp_plans[0] : row.comp_plans
+    return {
+      userId: row.user_id,
+      effectiveFrom: row.effective_from,
+      effectiveTo: row.effective_to,
+      isManagerPlan: plan?.is_manager_plan === true,
+    }
+  })
 }
 
 /**
@@ -55,26 +107,30 @@ export type DerivedCommissionContext = {
  * Throws on error — a failed read must not be mistaken for "every derived line is
  * switched off", which would silently underpay a whole period.
  */
-export async function loadDerivedCommissionRates(
+export async function loadDerivedCommissionRateHistory(
   supabase: SupabaseClient,
   orgId: string
-): Promise<DerivedCommissionRates> {
+): Promise<DerivedCommissionRates[]> {
   const { data, error } = await supabase
-    .from('orgs')
+    .from('org_derived_commission_rates')
     .select(
-      'inspection_commission_rate, manager_override_commission_rate, self_gen_commission_rate'
+      'inspection_commission_rate, manager_override_commission_rate, self_gen_commission_rate, effective_from'
     )
-    .eq('id', orgId)
-    .maybeSingle()
+    .eq('org_id', orgId)
+    .order('effective_from', { ascending: true })
   if (error) throw error
 
-  return {
-    inspectionRatePercent: normalizeInspectionRate(data?.inspection_commission_rate),
-    managerOverrideRatePercent: normalizeManagerOverrideRate(
-      data?.manager_override_commission_rate
-    ),
-    selfGenRatePercent: normalizeSelfGenRate(data?.self_gen_commission_rate),
-  }
+  return ((data || []) as Array<{
+    inspection_commission_rate: unknown
+    manager_override_commission_rate: unknown
+    self_gen_commission_rate: unknown
+    effective_from: string
+  }>).map((row) => ({
+    inspectionRatePercent: normalizeInspectionRate(row.inspection_commission_rate),
+    managerOverrideRatePercent: normalizeManagerOverrideRate(row.manager_override_commission_rate),
+    selfGenRatePercent: normalizeSelfGenRate(row.self_gen_commission_rate),
+    effectiveFrom: row.effective_from,
+  }))
 }
 
 /**
@@ -87,21 +143,28 @@ export async function loadDerivedCommissionContext(
   input: { orgId: string; opportunityIds: string[] }
 ): Promise<DerivedCommissionContext> {
   const { orgId, opportunityIds } = input
-  const rates = await loadDerivedCommissionRates(supabase, orgId)
+  const rateHistory = await loadDerivedCommissionRateHistory(supabase, orgId)
+  const anyInspection = rateHistory.some((row) => row.inspectionRatePercent > 0)
+  const anyManager = rateHistory.some((row) => row.managerOverrideRatePercent > 0)
+  const anySelfGen = rateHistory.some((row) => row.selfGenRatePercent > 0)
 
-  const [inspectorByOpportunity, managerHierarchy, selfGenByOpportunity] = await Promise.all([
-    rates.inspectionRatePercent > 0
+  const [inspectorByOpportunity, managerAssignments, managerActiveHistory, selfGenByOpportunity, compAssignments] = await Promise.all([
+    anyInspection
       ? loadInspectorByOpportunity(supabase, orgId, opportunityIds)
       : Promise.resolve(new Map<string, string>()),
-    rates.managerOverrideRatePercent > 0
-      ? loadOrgManagerHierarchy(supabase, orgId)
-      : Promise.resolve(EMPTY_MANAGER_HIERARCHY),
-    rates.selfGenRatePercent > 0
+    anyManager
+      ? loadOrgManagerAssignments(supabase, orgId)
+      : Promise.resolve(EMPTY_MANAGER_ASSIGNMENTS),
+    anyManager ? loadOrgUserActiveHistory(supabase, orgId) : Promise.resolve([]),
+    anySelfGen
       ? loadSelfGenByOpportunity(supabase, orgId, opportunityIds)
       : Promise.resolve(new Map<string, SelfGenOpportunityRow>()),
+    anyInspection || anyManager || anySelfGen
+      ? loadEffectiveCompAssignments(supabase, orgId)
+      : Promise.resolve([]),
   ])
 
-  return { rates, inspectorByOpportunity, managerHierarchy, selfGenByOpportunity }
+  return { rateHistory, inspectorByOpportunity, managerAssignments, managerActiveHistory, compAssignments, selfGenByOpportunity }
 }
 
 export type AdditiveParticipantsForJob = {
@@ -129,28 +192,59 @@ export function buildAdditiveParticipantsForJob(input: {
   /** sales_rep / setter / owner participants, used to walk the manager chain. */
   participantUserIds: readonly string[]
   salespersonId: string | null
+  saleDate: string | null
 }): AdditiveParticipantsForJob {
-  const { explicit, context, opportunityId, participantUserIds, salespersonId } = input
+  const { explicit, context, opportunityId, participantUserIds, salespersonId, saleDate } = input
+
+  const ymd = saleDate?.slice(0, 10) ?? ''
+  const rates = resolveDerivedCommissionRatesForSaleDate(context.rateHistory, saleDate)
+
+  const hasCompAssignment = (userId: string | null | undefined, managerOnly = false): boolean => {
+    if (!userId || !/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return false
+    return context.compAssignments.some(
+      (row) =>
+        row.userId === userId &&
+        row.effectiveFrom <= ymd &&
+        (row.effectiveTo === null || row.effectiveTo >= ymd) &&
+        (!managerOnly || row.isManagerPlan)
+    )
+  }
 
   const withInspector = withDerivedInspector(
     explicit,
-    opportunityId ? context.inspectorByOpportunity.get(opportunityId) ?? null : null,
-    context.rates.inspectionRatePercent
+    rates && opportunityId
+      ? (() => {
+          const inspector = context.inspectorByOpportunity.get(opportunityId) ?? null
+          return hasCompAssignment(inspector) ? inspector : null
+        })()
+      : null,
+    rates?.inspectionRatePercent ?? 0
   )
 
   const managerRecipients =
-    context.rates.managerOverrideRatePercent > 0
-      ? deriveManagerOverrideRecipients(participantUserIds, context.managerHierarchy)
+    (rates?.managerOverrideRatePercent ?? 0) > 0
+      ? deriveManagerOverrideRecipients(
+          participantUserIds,
+          buildManagerHierarchyForDate(
+            context.managerAssignments,
+            saleDate,
+            context.managerActiveHistory
+          )
+        ).filter((userId) => hasCompAssignment(userId, true))
       : []
   const withManagers = withDerivedManagerOverride(
     withInspector,
     managerRecipients,
-    context.rates.managerOverrideRatePercent
+    rates?.managerOverrideRatePercent ?? 0
   )
 
   const selfGenRow = opportunityId ? context.selfGenByOpportunity.get(opportunityId) : undefined
   const selfGen = resolveSelfGenCredit({
-    isSelfGenerated: selfGenRow?.isSelfGenerated ?? null,
+    isSelfGenerated:
+      (rates?.selfGenRatePercent ?? 0) > 0 &&
+      hasCompAssignment(selfGenRow?.ownerUserId ?? salespersonId)
+      ? selfGenRow?.isSelfGenerated ?? null
+      : null,
     ownerUserId: selfGenRow?.ownerUserId ?? null,
     setterUserId: selfGenRow?.setterUserId ?? null,
     salespersonId,
@@ -158,12 +252,13 @@ export function buildAdditiveParticipantsForJob(input: {
   const participants = withDerivedSelfGen(
     withManagers,
     selfGen,
-    context.rates.selfGenRatePercent
+    rates?.selfGenRatePercent ?? 0
   )
 
   return {
     participants,
     selfGenSetterConflict:
-      context.rates.selfGenRatePercent > 0 && selfGen.conflictWithSetter,
+      (rates?.selfGenRatePercent ?? 0) > 0 &&
+      selfGen.conflictWithSetter,
   }
 }

@@ -42,6 +42,8 @@ type QueueItem = {
   overdueDays: number | null
   priorityTier: number
   activities: ActivityRow[]
+  /** Set when an adjuster meeting for this opportunity failed to reach Google Calendar. */
+  adjusterMeetingSync: { failedAt: string; error: string | null } | null
 }
 
 type QueueCounts = {
@@ -167,6 +169,7 @@ export default function InsideSalesPage() {
   const [scheduleDataLoaded, setScheduleDataLoaded] = useState(false)
   const [scheduleNote, setScheduleNote] = useState('')
   const [actionError, setActionError] = useState<string | null>(null)
+  const [syncNotice, setSyncNotice] = useState<{ kind: 'ok' | 'fail'; message: string } | null>(null)
   const [copiedPhone, setCopiedPhone] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
 
@@ -261,10 +264,48 @@ export default function InsideSalesPage() {
       credentials: 'same-origin',
       body: JSON.stringify(payload),
     })
+    const data = await res.json().catch(() => ({}))
     if (!res.ok) {
-      const data = await res.json().catch(() => ({}))
       throw new Error(data.error || 'Action failed')
     }
+    return data as {
+      google_synced?: boolean
+      google_sync_error?: string
+      google_event_id?: string
+      conflict_warning?: string
+    }
+  }
+
+  /**
+   * Re-push an adjuster meeting to the attending rep's Google Calendar.
+   *
+   * The meeting itself is never at risk here — it is already booked in the CRM.
+   * This only retries the calendar push, so a failure just leaves the warning up.
+   */
+  function handleRetryCalendarSync(opportunityId: string) {
+    startTransition(async () => {
+      setSyncNotice(null)
+      setActionError(null)
+      try {
+        const result = await postAction(opportunityId, { action: 'retry_adjuster_meeting_sync' })
+        if (result?.google_synced) {
+          setSyncNotice({ kind: 'ok', message: 'Adjuster meeting is on the rep’s calendar now.' })
+        } else {
+          setSyncNotice({
+            kind: 'fail',
+            message:
+              result?.google_sync_error ||
+              'Still could not reach Google Calendar. Nathan has been emailed.',
+          })
+        }
+        await loadQueue()
+      } catch (err) {
+        setSyncNotice({
+          kind: 'fail',
+          message: err instanceof Error ? err.message : 'Retry failed',
+        })
+      }
+    })
   }
 
   function openLogModal(item: QueueItem, mode: 'log' | 'reschedule' = 'log') {
@@ -514,6 +555,38 @@ export default function InsideSalesPage() {
                 {chip}
               </span>
             ))}
+          </div>
+        )}
+        {item.adjusterMeetingSync && (
+          <div
+            className="mt-2 rounded-md border border-amber-400 bg-amber-50 px-3 py-2"
+            style={{ color: '#2c2c2a' }}
+          >
+            <p className="text-sm font-semibold" style={{ color: '#2c2c2a' }}>
+              Adjuster meeting is not on the rep’s calendar
+            </p>
+            <p className="mt-0.5 text-sm" style={{ color: '#2c2c2a' }}>
+              The meeting is booked, but it did not reach Google Calendar, so the
+              attending rep will not get a phone reminder.
+              {item.adjusterMeetingSync.error ? ` ${item.adjusterMeetingSync.error}` : ''}
+            </p>
+            <button
+              type="button"
+              onClick={() => handleRetryCalendarSync(item.id)}
+              disabled={isPending}
+              className="mt-2 rounded-md border border-amber-700 bg-white px-3 py-1.5 text-sm font-semibold hover:bg-amber-100 disabled:opacity-60"
+              style={{ color: '#2c2c2a' }}
+            >
+              {isPending ? 'Retrying…' : 'Retry calendar sync'}
+            </button>
+            {syncNotice && (
+              <p
+                className="mt-2 text-sm font-medium"
+                style={{ color: syncNotice.kind === 'ok' ? '#1a5c2e' : '#8a2010' }}
+              >
+                {syncNotice.message}
+              </p>
+            )}
           </div>
         )}
         {item.handoffContext?.context_line && (

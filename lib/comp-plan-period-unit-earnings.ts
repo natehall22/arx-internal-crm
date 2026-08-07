@@ -4,9 +4,19 @@ import {
   type KnownCompPlanUnitType,
 } from '@/lib/comp-plan-unit-types'
 import { resolveCustomerDisplayName } from '@/lib/customers'
-import { fetchEffectiveSitOpportunitiesInPeriod } from '@/lib/dashboard-sit-metrics'
+import {
+  fetchEffectiveSitOpportunitiesInPeriod,
+  fetchFirstQualifyingSitOpportunitiesByIds,
+} from '@/lib/dashboard-sit-metrics'
 import { getEasternDateIso } from '@/lib/eastern-datetime'
 import { getSitOutcomeNormalizedIdSet, type InspectionOutcomeConfigRow } from '@/lib/inspection-outcomes'
+import {
+  excludeCreditsAlreadyPaidAsSetterSit,
+  loadInsideSalesSitCreditsForUser,
+  resolveInsideSalesSitCreditConfig,
+  INSIDE_SALES_SIT_CREDIT_DISABLED,
+  type InsideSalesSitCreditConfig,
+} from '@/lib/inside-sales-booker-attribution'
 import { SALE_AGREEMENT_TYPES } from '@/lib/sales-metrics'
 import { roundMoney } from '@/lib/money'
 import { fetchSupabaseAllPages } from '@/lib/supabase-fetch-all-pages'
@@ -155,6 +165,61 @@ export async function resolvePayrollPeriodWindow(
   }
 }
 
+/** Distinguishes an inside-sales re-book credit from a setter's own sit on the statement. */
+export const INSIDE_SALES_SIT_PAY_LABEL = 'Sit pay (inside sales booking)'
+
+/**
+ * Read the inside-sales sit-credit gate without letting its absence break payroll.
+ *
+ * The feature ships default-OFF and its columns arrive in a migration that is
+ * applied by hand. Until that runs, PostgREST answers this select with an
+ * "column does not exist" error. Treating that as OFF is safe in exactly one
+ * direction: the credit is purely additive, so "off" can only ever withhold a NEW
+ * credit — it can never reduce sit, sale, hourly or commission pay that a rep
+ * already earns today. Any other query failure is logged loudly for the same
+ * reason it is tolerated: the alternative is a hard payroll outage over an
+ * optional line item.
+ */
+async function loadInsideSalesSitCreditConfig(
+  supabase: SupabaseClient,
+  orgId: string
+): Promise<InsideSalesSitCreditConfig> {
+  const { data, error } = await supabase
+    .from('orgs')
+    .select('inside_sales_sit_credit_enabled, inside_sales_sit_credit_effective_from')
+    .eq('id', orgId)
+    .maybeSingle()
+
+  if (error) {
+    const message = String(error.message || '').toLowerCase()
+    const code = String(error.code || '')
+    const missingExpectedColumn =
+      message.includes('inside_sales_sit_credit_enabled') ||
+      message.includes('inside_sales_sit_credit_effective_from')
+    const isPreMigrationSchemaError =
+      missingExpectedColumn &&
+      (code === '42703' ||
+        code === 'PGRST204' ||
+        message.includes('does not exist') ||
+        message.includes('could not find') ||
+        message.includes('schema cache'))
+
+    if (isPreMigrationSchemaError) {
+      console.warn(
+        'loadInsideSalesSitCreditConfig: migration columns are absent; treating credit as disabled',
+        { orgId, error: error.message }
+      )
+      return INSIDE_SALES_SIT_CREDIT_DISABLED
+    }
+
+    // Once the feature exists, a transient/auth/query failure must fail the payroll
+    // read closed. Mapping it to OFF would silently remove earned sit lines.
+    throw error
+  }
+
+  return resolveInsideSalesSitCreditConfig(data)
+}
+
 export async function fetchPeriodUnitPayLinesForUser(
   supabase: SupabaseClient,
   opts: {
@@ -196,6 +261,14 @@ export async function fetchPeriodUnitPayLinesForUser(
       (orgRow?.settings as { inspection_outcomes?: InspectionOutcomeConfigRow[] } | undefined)
         ?.inspection_outcomes
     )
+    // Setter sits — unchanged. Attribution stays on opportunities.setter_user_id,
+    // so the setter keeps every sit unit they earn today.
+    let userSitOpps: Array<{
+      id: string
+      lead_id: string | null
+      inspection_outcome_at: string
+    }> = []
+
     if (sitOutcomeIdSet.size > 0) {
       const sitOpps = await fetchEffectiveSitOpportunitiesInPeriod(supabase, {
         orgId,
@@ -205,73 +278,126 @@ export async function fetchPeriodUnitPayLinesForUser(
         eligibilityMode: 'first_qualifying',
         onSkippedForMissingTimestamp: (oppId) => skippedOpportunityIds.push(oppId),
       })
-      const userSitOpps = sitOpps.filter((o) => o.setter_user_id === userId)
-      const oppIds = userSitOpps.map((o) => o.id)
+      userSitOpps = sitOpps.filter((o) => o.setter_user_id === userId)
+    }
 
-      const oppDetailsById = new Map<
-        string,
-        {
-          leadHomeownerName: string | null
-          customerName: string | null
-          addressText: string | null
-        }
-      >()
+    // Inside-sales booker credits — a SEPARATE event (a re-booked insurance
+    // appointment that then happened), never a reattribution of the setter's sit.
+    // Computed outside the sitOutcomeIdSet guard because it does not depend on the
+    // org's inspection-outcome configuration.
+    const insideSalesConfig = await loadInsideSalesSitCreditConfig(supabase, orgId)
+    const rawBookerCredits = await loadInsideSalesSitCreditsForUser(supabase, {
+        orgId,
+        userId,
+        startIso,
+        endIso,
+        config: insideSalesConfig,
+      })
+    const bookerOpportunityIds = rawBookerCredits
+      .map((credit) => credit.opportunityId)
+      .filter((id): id is string => Boolean(id))
+    const historicalSetterSits = await fetchFirstQualifyingSitOpportunitiesByIds(supabase, {
+      orgId,
+      opportunityIds: bookerOpportunityIds,
+      sitOutcomeIdSet,
+    })
+    const bookerCredits = excludeCreditsAlreadyPaidAsSetterSit(
+      rawBookerCredits,
+      historicalSetterSits
+        .filter((opp) => opp.setter_user_id === userId)
+        .map((opp) => opp.id)
+    )
 
-      if (oppIds.length > 0) {
-        const oppRows = await fetchSupabaseAllPages<{
-          id: string
-          lead_id: string | null
-          address_text: string | null
-          leads: { homeowner_name?: string | null } | { homeowner_name?: string | null }[] | null
-          customers: { name?: string | null } | { name?: string | null }[] | null
-        }>(async (from, to) =>
-          supabase
-            .from('opportunities')
-            .select('id, lead_id, address_text, leads(homeowner_name), customers(name)')
-            .eq('org_id', orgId)
-            .in('id', oppIds)
-            .order('id', { ascending: true })
-            .range(from, to)
-        )
+    const oppIds = Array.from(
+      new Set([
+        ...userSitOpps.map((o) => o.id),
+        ...bookerCredits.map((c) => c.opportunityId).filter((id): id is string => Boolean(id)),
+      ])
+    )
 
-        for (const row of oppRows) {
-          const rawLead = row.leads as unknown
-          const lead = (Array.isArray(rawLead) ? rawLead[0] : rawLead) as
-            | { homeowner_name?: string | null }
-            | null
-            | undefined
-          const rawCustomer = row.customers as unknown
-          const customer = (Array.isArray(rawCustomer) ? rawCustomer[0] : rawCustomer) as
-            | { name?: string | null }
-            | null
-            | undefined
-          oppDetailsById.set(row.id as string, {
-            leadHomeownerName: lead?.homeowner_name ?? null,
-            customerName: customer?.name ?? null,
-            addressText: (row.address_text as string) ?? null,
-          })
-        }
+    const oppDetailsById = new Map<
+      string,
+      {
+        leadHomeownerName: string | null
+        customerName: string | null
+        addressText: string | null
       }
+    >()
 
-      for (const opp of userSitOpps) {
-        const details = oppDetailsById.get(opp.id)
-        sitLines.push({
-          unitType: 'sit',
-          payTypeLabel: 'Sit pay',
-          amount: sitRate,
-          rate: sitRate,
-          customerName: resolveOpportunityCustomerName({
-            leadHomeownerName: details?.leadHomeownerName,
-            customerName: details?.customerName,
-            addressText: details?.addressText,
-            opportunityId: opp.id,
-          }),
-          eventDate: formatEventDate(opp.inspection_outcome_at),
-          opportunityId: opp.id,
-          leadId: opp.lead_id,
-          contractId: null,
+    if (oppIds.length > 0) {
+      const oppRows = await fetchSupabaseAllPages<{
+        id: string
+        lead_id: string | null
+        address_text: string | null
+        leads: { homeowner_name?: string | null } | { homeowner_name?: string | null }[] | null
+        customers: { name?: string | null } | { name?: string | null }[] | null
+      }>(async (from, to) =>
+        supabase
+          .from('opportunities')
+          .select('id, lead_id, address_text, leads(homeowner_name), customers(name)')
+          .eq('org_id', orgId)
+          .in('id', oppIds)
+          .order('id', { ascending: true })
+          .range(from, to)
+      )
+
+      for (const row of oppRows) {
+        const rawLead = row.leads as unknown
+        const lead = (Array.isArray(rawLead) ? rawLead[0] : rawLead) as
+          | { homeowner_name?: string | null }
+          | null
+          | undefined
+        const rawCustomer = row.customers as unknown
+        const customer = (Array.isArray(rawCustomer) ? rawCustomer[0] : rawCustomer) as
+          | { name?: string | null }
+          | null
+          | undefined
+        oppDetailsById.set(row.id as string, {
+          leadHomeownerName: lead?.homeowner_name ?? null,
+          customerName: customer?.name ?? null,
+          addressText: (row.address_text as string) ?? null,
         })
       }
+    }
+
+    for (const opp of userSitOpps) {
+      const details = oppDetailsById.get(opp.id)
+      sitLines.push({
+        unitType: 'sit',
+        payTypeLabel: 'Sit pay',
+        amount: sitRate,
+        rate: sitRate,
+        customerName: resolveOpportunityCustomerName({
+          leadHomeownerName: details?.leadHomeownerName,
+          customerName: details?.customerName,
+          addressText: details?.addressText,
+          opportunityId: opp.id,
+        }),
+        eventDate: formatEventDate(opp.inspection_outcome_at),
+        opportunityId: opp.id,
+        leadId: opp.lead_id,
+        contractId: null,
+      })
+    }
+
+    for (const credit of bookerCredits) {
+      const details = credit.opportunityId ? oppDetailsById.get(credit.opportunityId) : undefined
+      sitLines.push({
+        unitType: 'sit',
+        payTypeLabel: INSIDE_SALES_SIT_PAY_LABEL,
+        amount: sitRate,
+        rate: sitRate,
+        customerName: resolveOpportunityCustomerName({
+          leadHomeownerName: details?.leadHomeownerName,
+          customerName: details?.customerName,
+          addressText: details?.addressText,
+          opportunityId: credit.opportunityId,
+        }),
+        eventDate: formatEventDate(credit.eventAt),
+        opportunityId: credit.opportunityId,
+        leadId: credit.leadId,
+        contractId: null,
+      })
     }
   }
 

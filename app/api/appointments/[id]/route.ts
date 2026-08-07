@@ -1,3 +1,4 @@
+import { appointmentCalendarTitleLabel, canCompleteAdjusterMeeting } from '@/lib/adjuster-meeting'
 import { resolveCanReassignAppointment } from '@/lib/permissions'
 import { formatDateTimeInTimezone } from '@/lib/timezone'
 import { getCrmEmailFrom, getMailTransport } from '@/lib/setter-email'
@@ -515,6 +516,32 @@ export async function PATCH(
       }
     }
 
+    // An adjuster meeting pays the inside-sales rep who booked it a sit unit the
+    // moment it is marked completed. So completing one is a pay-authorising action,
+    // and only the rep who physically attended (or a payroll/ops admin who is not
+    // the booker) may do it. Without this, whoever books could certify their own
+    // payday. no_show and cancelled pay nothing and are left to the existing rules.
+    if (status === 'completed') {
+      const decision = canCompleteAdjusterMeeting({
+        appointment: appointment as {
+          appointment_type?: string | null
+          closer_user_id?: string | null
+          inside_sales_booked_by_user_id?: string | null
+        },
+        userId: user.id,
+        role: profile.role as string | null,
+      })
+      if (!decision.allowed) {
+        const message =
+          decision.reason === 'no_attendee_assigned'
+            ? 'Assign the rep who attended this adjuster meeting before marking it completed.'
+            : decision.reason === 'booker_cannot_self_complete'
+              ? 'The inside-sales rep who booked this adjuster meeting cannot mark it completed. The attending rep or an admin must confirm it happened.'
+              : 'Only the attending rep or an admin can mark this adjuster meeting completed.'
+        return NextResponse.json({ error: message }, { status: 403 })
+      }
+    }
+
     if (status) {
       updateData.status = status
     }
@@ -772,7 +799,7 @@ export async function PATCH(
             const startIso = updated.scheduled_for as string
             const dur = updated.duration_minutes || 60
             const endIso = new Date(new Date(startIso).getTime() + dur * 60 * 1000).toISOString()
-            const typeLabel = updated.appointment_type === 'close' ? 'Close' : 'Inspection'
+            const typeLabel = appointmentCalendarTitleLabel(updated.appointment_type)
             await updateCalendarEvent(token, existingEventId, {
               summary: `${typeLabel}: ${homeownerName}`,
               start: { dateTime: startIso },

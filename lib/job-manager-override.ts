@@ -2,11 +2,10 @@
  * Works out which manager(s) earn the 1% override on a job, so the override can be
  * paid without an admin hand-entering a `deal_commission_roles` row for every deal.
  *
- * Source of truth is `users.manager_user_id`, the self-referential FK the org
- * hierarchy already uses for statement access control and bonus rollup. Nothing
- * derived a commission line from it before this module, which is why the
- * `field_manager` / `senior_manager` roles have existed in `deal_commission_roles`
- * since the inspector migration but have never actually paid anyone.
+ * Source of truth is the effective-dated `user_manager_assignments` history seeded
+ * from `users.manager_user_id` only from the migration date forward. Payroll resolves
+ * the chart on the job's sale date; it never uses today's hierarchy to rewrite older
+ * pay. A timeframe with no recorded assignment stays blank.
  *
  * ── Stated assumptions (a human must confirm these before the rate is switched on) ──
  *
@@ -77,11 +76,26 @@ export type OrgManagerHierarchy = {
   inactiveUserIds: Set<string>
 }
 
+export type EffectiveManagerAssignmentRow = {
+  userId: string
+  managerUserId: string
+  effectiveFrom: string
+  effectiveTo: string | null
+}
+
+export type EffectiveUserActiveRow = {
+  userId: string
+  isActive: boolean
+  effectiveFrom: string
+}
+
 export const EMPTY_MANAGER_HIERARCHY: OrgManagerHierarchy = {
   managerByUser: new Map(),
   usersWithReports: new Set(),
   inactiveUserIds: new Set(),
 }
+
+export const EMPTY_MANAGER_ASSIGNMENTS: EffectiveManagerAssignmentRow[] = []
 
 /** Only a strict `false` deactivates. Missing/null is treated as active. */
 function isActiveInHierarchy(userId: string, hierarchy: OrgManagerHierarchy): boolean {
@@ -89,26 +103,100 @@ function isActiveInHierarchy(userId: string, hierarchy: OrgManagerHierarchy): bo
 }
 
 /**
- * Load the org's reporting chart once per payroll run.
- *
- * Throws rather than returning an empty hierarchy on query failure: an empty chart is
- * indistinguishable from "nobody has a manager", and failing open would silently drop
- * every override line.
+ * Load the effective-dated reporting history used for payroll. Existing current
+ * relationships are seeded only from the migration date; no historical hierarchy
+ * is guessed. Missing history for a sale date therefore yields no override.
  */
-export async function loadOrgManagerHierarchy(
+export async function loadOrgManagerAssignments(
   supabase: SupabaseClient,
   orgId: string
-): Promise<OrgManagerHierarchy> {
+): Promise<EffectiveManagerAssignmentRow[]> {
   const { data, error } = await supabase
-    .from('users')
-    .select('id, manager_user_id, active')
+    .from('user_manager_assignments')
+    .select('user_id, manager_user_id, effective_from, effective_to')
     .eq('org_id', orgId)
+    .order('effective_from', { ascending: true })
 
   if (error) throw error
 
-  return buildManagerHierarchy(
-    (data || []) as Array<{ id: string; manager_user_id: string | null; active: boolean | null }>
-  )
+  return ((data || []) as Array<{
+    user_id: string
+    manager_user_id: string
+    effective_from: string
+    effective_to: string | null
+  }>).map((row) => ({
+    userId: row.user_id,
+    managerUserId: row.manager_user_id,
+    effectiveFrom: row.effective_from,
+    effectiveTo: row.effective_to,
+  }))
+}
+
+export async function loadOrgUserActiveHistory(
+  supabase: SupabaseClient,
+  orgId: string
+): Promise<EffectiveUserActiveRow[]> {
+  const { data, error } = await supabase
+    .from('user_payroll_active_history')
+    .select('user_id, is_active, effective_from')
+    .eq('org_id', orgId)
+    .order('effective_from', { ascending: true })
+  if (error) throw error
+  return ((data || []) as Array<{
+    user_id: string
+    is_active: boolean
+    effective_from: string
+  }>).map((row) => ({
+    userId: row.user_id,
+    isActive: row.is_active,
+    effectiveFrom: row.effective_from,
+  }))
+}
+
+/** Build the reporting chart that was effective on the job's sale date. */
+export function buildManagerHierarchyForDate(
+  assignments: readonly EffectiveManagerAssignmentRow[],
+  saleDate: string | null | undefined,
+  activeHistory: readonly EffectiveUserActiveRow[] = []
+): OrgManagerHierarchy {
+  const ymd = saleDate?.slice(0, 10) ?? ''
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return EMPTY_MANAGER_HIERARCHY
+
+  const effective = assignments
+    .filter(
+      (row) =>
+        row.effectiveFrom <= ymd && (row.effectiveTo === null || row.effectiveTo >= ymd)
+    )
+    .sort((a, b) => a.effectiveFrom.localeCompare(b.effectiveFrom))
+
+  const activeByUser = new Map<string, boolean>()
+  for (const row of [...activeHistory].sort((a, b) => a.effectiveFrom.localeCompare(b.effectiveFrom))) {
+    if (row.effectiveFrom <= ymd) activeByUser.set(row.userId, row.isActive)
+  }
+
+  const rowByUser = new Map<
+    string,
+    { id: string; manager_user_id: string | null; active: boolean | null }
+  >()
+  for (const row of effective) {
+    rowByUser.set(row.userId, {
+      id: row.userId,
+      manager_user_id: row.managerUserId,
+      active: activeByUser.get(row.userId) ?? null,
+    })
+    if (!rowByUser.has(row.managerUserId)) {
+      rowByUser.set(row.managerUserId, {
+        id: row.managerUserId,
+        manager_user_id: null,
+        active: activeByUser.get(row.managerUserId) ?? null,
+      })
+    }
+  }
+  for (const [userId, isActive] of Array.from(activeByUser.entries())) {
+    const existing = rowByUser.get(userId)
+    if (existing) existing.active = isActive
+  }
+  return buildManagerHierarchy(Array.from(rowByUser.values()))
 }
 
 /** Pure hierarchy builder, so the traversal rules can be tested without a database. */

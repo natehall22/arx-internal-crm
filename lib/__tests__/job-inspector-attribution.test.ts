@@ -1,4 +1,5 @@
 import {
+  countsAsCompletedInspection,
   normalizeInspectionRate,
   withDerivedInspector,
 } from '@/lib/job-inspector-attribution'
@@ -68,6 +69,15 @@ describe('withDerivedInspector', () => {
   it('ignores a negative or non-finite rate', () => {
     expect(withDerivedInspector([], 'sfm-1', -1.5)).toEqual([])
     expect(withDerivedInspector([], 'sfm-1', NaN)).toEqual([])
+  })
+})
+
+describe('countsAsCompletedInspection', () => {
+  it('requires a verified completed inspection and excludes no-shows', () => {
+    expect(countsAsCompletedInspection({ appointment_type: 'inspection', status: 'completed' })).toBe(true)
+    expect(countsAsCompletedInspection({ appointment_type: 'inspection', status: 'no_show' })).toBe(false)
+    expect(countsAsCompletedInspection({ appointment_type: 'inspection', status: 'scheduled' })).toBe(false)
+    expect(countsAsCompletedInspection({ appointment_type: 'adjuster_meeting', status: 'completed' })).toBe(false)
   })
 })
 

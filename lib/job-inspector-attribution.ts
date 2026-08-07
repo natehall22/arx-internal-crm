@@ -24,11 +24,20 @@ type AppointmentRow = {
   scheduled_for: string | null
 }
 
+export function countsAsCompletedInspection(
+  row: Pick<AppointmentRow, 'appointment_type' | 'status'>
+): boolean {
+  return (
+    countsAsInspectionSet(row) &&
+    (row.status ?? '').trim().toLowerCase() === 'completed'
+  )
+}
+
 /**
  * Map opportunity id → the user who inspected it.
  *
  * When an opportunity has several inspection appointments (reschedules, second
- * looks), the EARLIEST non-cancelled one wins — that is the visit the sale is
+ * looks), the EARLIEST completed one wins — that is the verified visit the sale is
  * credited to. Rows with no closer assigned are ignored rather than guessed at.
  */
 export async function loadInspectorByOpportunity(
@@ -53,7 +62,7 @@ export async function loadInspectorByOpportunity(
   for (const row of (data || []) as AppointmentRow[]) {
     const oppId = row.opportunity_id
     if (!oppId || !row.closer_user_id) continue
-    if (!countsAsInspectionSet(row)) continue
+    if (!countsAsCompletedInspection(row)) continue
     // Ordered ascending, so the first row seen for an opportunity is the earliest.
     if (!out.has(oppId)) out.set(oppId, row.closer_user_id)
   }

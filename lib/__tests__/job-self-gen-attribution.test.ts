@@ -3,6 +3,7 @@ import {
   resolveSelfGenCredit,
   withDerivedSelfGen,
   NO_SELF_GEN,
+  payableSelfGenFlag,
 } from '@/lib/job-self-gen-attribution'
 import type { DealCommissionRoleParticipant } from '@/lib/payroll-export'
 
@@ -79,6 +80,15 @@ describe('resolveSelfGenCredit', () => {
         salespersonId: null,
       })
     ).toEqual(NO_SELF_GEN)
+  })
+})
+
+describe('payableSelfGenFlag', () => {
+  it('keeps inferred history non-payable until a human confirms it', () => {
+    expect(payableSelfGenFlag(true, 'inferred_setter_equals_owner')).toBeNull()
+    expect(payableSelfGenFlag(true, 'manual')).toBe(true)
+    expect(payableSelfGenFlag(false, 'manual')).toBe(false)
+    expect(payableSelfGenFlag(true, null)).toBeNull()
   })
 })
 

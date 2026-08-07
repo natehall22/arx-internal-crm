@@ -5,6 +5,7 @@ import { roundMoney } from '@/lib/money'
 import {
   buildAdditiveParticipantsForJob,
   loadDerivedCommissionContext,
+  resolveDerivedCommissionRatesForSaleDate,
 } from '@/lib/job-derived-commission-lines'
 import {
   buildMonthlyTierMetricMaps,
@@ -446,6 +447,7 @@ export async function materializePayrollPeriod(
       opportunityId: jobOpportunityId,
       participantUserIds: participants.map((p) => p.userId),
       salespersonId: job.salesperson_id ?? null,
+      saleDate: job.sale_date ?? null,
     })
     const additiveParticipants = derived.participants
     if (derived.selfGenSetterConflict) {
@@ -550,7 +552,10 @@ export async function materializePayrollPeriod(
             eligible_at: item.eligibleAt,
             commission_source: payrollSnapshot.source,
             pool_cap: payrollSnapshot.poolCap,
-            derived_commission_rates: derivedContext.rates,
+            derived_commission_rates: resolveDerivedCommissionRatesForSaleDate(
+              derivedContext.rateHistory,
+              job.sale_date
+            ),
             self_gen_setter_conflict: derived.selfGenSetterConflict,
           },
         },
