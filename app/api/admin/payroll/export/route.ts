@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { requireAuthApi } from '@/lib/auth'
-import { buildCommissionPayrollSnapshot, isPoolCapExcludedPlanType } from '@/lib/commission-payroll'
+import { buildCommissionPayrollSnapshot } from '@/lib/commission-payroll'
 import {
   ADDITIVE_DEAL_COMMISSION_ROLES,
   buildMonthlyTierMetricMaps,
@@ -20,10 +20,10 @@ import {
 import type { CompPlanForCalc } from '@/lib/calculate-commission-from-plan'
 import { isPayrollAdminRole } from '@/lib/payroll-admin-access'
 import {
-  loadInspectorByOpportunity,
-  normalizeInspectionRate,
-  withDerivedInspector,
-} from '@/lib/job-inspector-attribution'
+  buildAdditiveParticipantsForJob,
+  loadDerivedCommissionContext,
+  type AdditiveParticipantsForJob,
+} from '@/lib/job-derived-commission-lines'
 
 export const dynamic = 'force-dynamic'
 
@@ -227,15 +227,8 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Derived inspection line: same rules the period lock uses, so the preview and
-    // the locked payroll agree on who gets paid for inspecting.
-    const { data: orgRateRow, error: orgRateError } = await supabase
-      .from('orgs')
-      .select('inspection_commission_rate')
-      .eq('id', orgId)
-      .maybeSingle()
-    if (orgRateError) throw orgRateError
-    const inspectionRatePercent = normalizeInspectionRate(orgRateRow?.inspection_commission_rate)
+    // Derived lines (inspection, manager override, self-gen): same shared rules the
+    // period lock uses, so the preview and the locked payroll agree on who gets paid.
     const exportOpportunityIds = Array.from(
       new Set(
         (exportJobs || [])
@@ -243,12 +236,34 @@ export async function GET(request: NextRequest) {
           .filter((v): v is string => Boolean(v))
       )
     )
-    const inspectorByOpportunity =
-      inspectionRatePercent > 0
-        ? await loadInspectorByOpportunity(supabase, orgId, exportOpportunityIds)
-        : new Map<string, string>()
-    for (const inspectorUserId of Array.from(inspectorByOpportunity.values())) {
-      userIds.add(inspectorUserId)
+    const derivedContext = await loadDerivedCommissionContext(supabase, {
+      orgId,
+      opportunityIds: exportOpportunityIds,
+    })
+    const selfGenSetterConflictJobIds: string[] = []
+
+    // Resolved in a pre-pass rather than inside the row loop below, so every derived
+    // recipient's user id is known before the single batched `users` name lookup.
+    const derivedByJobId = new Map<string, AdditiveParticipantsForJob>()
+    for (const job of exportJobs || []) {
+      const pid = job.project_id as string | null
+      const opp = pid ? opportunityByProjectId.get(pid) ?? null : null
+      const derived = buildAdditiveParticipantsForJob({
+        explicit: additiveByJobId.get(job.id as string) || [],
+        context: derivedContext,
+        opportunityId: pid ? projectOpp.get(pid) ?? null : null,
+        participantUserIds: collectParticipants(job, opp).map((p) => p.userId),
+        salespersonId: (job.salesperson_id as string | null) ?? null,
+      })
+      derivedByJobId.set(job.id as string, derived)
+      for (const participant of derived.participants) userIds.add(participant.userId)
+      if (derived.selfGenSetterConflict) selfGenSetterConflictJobIds.push(job.id as string)
+    }
+    if (selfGenSetterConflictJobIds.length > 0) {
+      console.warn(
+        'payroll export: self-generated jobs that also carry a setter; 6% line suppressed',
+        { orgId, from, to, selfGenSetterConflictJobIds }
+      )
     }
 
     const { data: users } =
@@ -273,12 +288,7 @@ export async function GET(request: NextRequest) {
       const pid = job.project_id
       const opp = pid ? opportunityByProjectId.get(pid) ?? null : null
       const participants = collectParticipants(job, opp)
-      const jobOpportunityId = pid ? projectOpp.get(pid) ?? null : null
-      const additiveParticipants = withDerivedInspector(
-        additiveByJobId.get(job.id as string) || [],
-        jobOpportunityId ? inspectorByOpportunity.get(jobOpportunityId) ?? null : null,
-        inspectionRatePercent
-      )
+      const additiveParticipants = derivedByJobId.get(job.id as string)?.participants ?? []
       // A job with only additive participants (e.g. an inspector on a job whose
       // closer has no resolvable plan) still owes money — don't drop it.
       if (
@@ -348,8 +358,8 @@ export async function GET(request: NextRequest) {
         if (rawFlatBonus > 0) flatBonusApplied.set(bonusKey, true)
 
         metaByUser.set(part.userId, { plan, calc, periodVolume, role: part.role, effectiveFlatBonus })
-        const excludeFromPool =
-          calc.unsupported || isPoolCapExcludedPlanType(plan.plan_type)
+        // Per-COMPONENT pool-cap rule — see lib/calculate-commission-from-plan.ts.
+        const excludeFromPool = calc.unsupported || !calc.countsTowardPoolCap
         rawByUser.set(poolKey(part.userId, part.role), excludeFromPool ? 0 : calc.totalAmount)
       }
 
@@ -412,8 +422,10 @@ export async function GET(request: NextRequest) {
         })
       }
 
-      // Additive rows are paid outside the commission pool: raw === scaled, and no
-      // comp plan is involved (the rate lives on the deal_commission_roles row).
+      // Additive rows count INSIDE the commission pool (they were summed into
+      // rawByUser above), so raw and scaled can differ. No comp plan is involved —
+      // the rate lives on the deal_commission_roles row or on the org rate column
+      // that derived it.
       for (const { participant, resolved } of additivePayable) {
         const cid =
           (job.customer_id as string | null | undefined) ||
@@ -524,7 +536,14 @@ export async function GET(request: NextRequest) {
       to,
       rowCount: rows.length,
       rows,
-      warnings: { sitsSkippedForMissingTimestamp: skippedOpportunityIds },
+      warnings: {
+        sitsSkippedForMissingTimestamp: skippedOpportunityIds,
+        // Jobs flagged self-generated that also carry a separate setter. The derived
+        // self-gen line is suppressed on these — 7% + 5% + 6% + 1.5% + 1% = 20.5%
+        // would breach the 18% pool cap and scale every line on the job down.
+        selfGenSetterConflictJobIds,
+      },
+      derivedCommissionRates: derivedContext.rates,
     })
   } catch (e) {
     console.error('GET /api/admin/payroll/export', e)

@@ -1,4 +1,4 @@
-import { buildCommissionPayrollSnapshot, isPoolCapExcludedPlanType } from '@/lib/commission-payroll'
+import { buildCommissionPayrollSnapshot } from '@/lib/commission-payroll'
 import { calculateCommissionFromPlanForSale, type CompPlanForCalc } from '@/lib/calculate-commission-from-plan'
 import {
   getSitOutcomeNormalizedIdSet,
@@ -14,7 +14,7 @@ export type PayrollParticipant = { userId: string; role: 'sales_rep' | 'setter' 
 
 export type DealCommissionRoleParticipant = {
   userId: string
-  role: 'inspector' | 'field_manager' | 'senior_manager' | 'custom'
+  role: 'inspector' | 'field_manager' | 'senior_manager' | 'self_gen' | 'custom'
   overrideAmount: number | null
   overridePercent: number | null
   premierPricingAmount: number | null
@@ -25,6 +25,7 @@ export const ADDITIVE_DEAL_COMMISSION_ROLES: readonly DealCommissionRoleParticip
   'inspector',
   'field_manager',
   'senior_manager',
+  'self_gen',
   'custom',
 ] as const
 

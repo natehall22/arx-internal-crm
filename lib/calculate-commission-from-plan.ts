@@ -18,6 +18,14 @@ export type VolumeBonusRow = {
 
 export type TierRow = { min: number; max: number | null; rate: number }
 
+/** One row of `comp_plans.hybrid_components` (see migration 040). */
+export type HybridComponentForCalc = {
+  type: string
+  rate?: number | null
+  unit_type?: string | null
+  description?: string | null
+}
+
 export type CompPlanForCalc = {
   id: string
   name?: string | null
@@ -27,7 +35,60 @@ export type CompPlanForCalc = {
   flat_rate?: number | null
   tiers?: TierRow[] | null
   volume_bonuses?: VolumeBonusRow[] | null
+  hybrid_components?: HybridComponentForCalc[] | null
   is_active?: boolean
+}
+
+export type HybridSaleComponents = {
+  /** Sum of every `percentage` component's rate, as a percent of the commission base. */
+  percentRate: number
+  /** Sum of every `flat_per_job` component's rate, in dollars per sold job. */
+  flatPerJob: number
+  /** False when the plan has no per-sale component at all (pure hourly/per-unit hybrid). */
+  hasSaleBasedComponent: boolean
+}
+
+/**
+ * Split a hybrid plan's components into the part that is earned PER SALE and the
+ * part that is earned per period.
+ *
+ * Only `percentage` and `flat_per_job` are per-sale, so only those belong in
+ * per-job commission math. `hourly` is resolved by `lib/payroll-hourly-rate.ts`
+ * against timesheet hours, and `per_unit` by `lib/comp-plan-period-unit-earnings.ts`
+ * against sits/sales in the pay period — both are period-scoped and must never be
+ * folded into a per-job amount (nor into the per-job pool cap).
+ *
+ * Multiple components of the same type are summed rather than "first wins": the
+ * admin UI lets an admin add as many rows as they like, and dropping one silently
+ * would underpay.
+ */
+export function sumHybridSaleComponents(
+  components: HybridComponentForCalc[] | null | undefined
+): HybridSaleComponents {
+  let percentRate = 0
+  let flatPerJob = 0
+  let hasSaleBasedComponent = false
+
+  if (Array.isArray(components)) {
+    for (const comp of components) {
+      const rate = Number(comp?.rate)
+      if (!Number.isFinite(rate) || rate <= 0) continue
+      if (comp.type === 'percentage') {
+        percentRate += rate
+        hasSaleBasedComponent = true
+      } else if (comp.type === 'flat_per_job') {
+        flatPerJob += rate
+        hasSaleBasedComponent = true
+      }
+      // 'hourly' and 'per_unit' are deliberately ignored here.
+    }
+  }
+
+  return {
+    percentRate: roundMoney(percentRate),
+    flatPerJob: roundMoney(flatPerJob),
+    hasSaleBasedComponent,
+  }
 }
 
 function normalizeTierMetric(row: VolumeBonusRow): VolumeBonusTierMetric {
@@ -72,11 +133,23 @@ export function calculateCommissionFromPlanForSale(input: {
   totalAmount: number
   unsupported: boolean
   note: string | null
+  /**
+   * Whether `totalAmount` must be summed into `scaleCommissionsToPool()`.
+   *
+   * This is per-COMPONENT, not per-plan-type: a hybrid plan's hourly and per-unit
+   * dollars never reach `totalAmount` (they are period-scoped and computed
+   * elsewhere), so a hybrid's per-sale percentage / $-per-job amount counts inside
+   * the 18% pool cap exactly like any percentage plan would. Plans whose entire
+   * payout is period-scoped return false with a $0 amount.
+   */
+  countsTowardPoolCap: boolean
 } {
   const v = roundMoney(input.commissionableAmount)
   const plan = input.plan
   let baseRate = 0
   let commission = 0
+  /** Dollars-per-job from hybrid `flat_per_job` components; added after rate math. */
+  let hybridFlatPerJob = 0
   const pt = plan.plan_type
 
   if (pt === 'flat_rate') {
@@ -98,7 +171,7 @@ export function calculateCommissionFromPlanForSale(input: {
     }
     baseRate = roundMoney(tierRate ?? (Number(plan.base_percentage) || 0))
     commission = roundMoney(v * (baseRate / 100))
-  } else if (pt === 'hybrid' || pt === 'hourly' || pt === 'unit_based') {
+  } else if (pt === 'hourly' || pt === 'unit_based') {
     return {
       compPlanId: plan.id,
       baseRate: 0,
@@ -108,13 +181,40 @@ export function calculateCommissionFromPlanForSale(input: {
       commissionAmount: 0,
       totalAmount: 0,
       unsupported: false,
-      note: 'Hourly/hybrid/unit — hourly pay entered separately in period hours entry.',
+      note: 'Hourly/unit — pay entered separately in period hours / per-unit entry.',
+      countsTowardPoolCap: false,
     }
+  } else if (pt === 'hybrid') {
+    // A hybrid plan's `% of Sale` and `$ per Job` components are real per-sale pay
+    // and are rendered to the rep on their dashboard. Before this they produced no
+    // payroll line at all, so a rep could see compensation they would never receive.
+    const hybrid = sumHybridSaleComponents(plan.hybrid_components)
+    if (!hybrid.hasSaleBasedComponent) {
+      return {
+        compPlanId: plan.id,
+        baseRate: 0,
+        volumeBonusRate: 0,
+        volumeBonusFlat: 0,
+        effectiveRate: 0,
+        commissionAmount: 0,
+        totalAmount: 0,
+        unsupported: false,
+        note: 'Hybrid — hourly/per-unit components only; paid separately in period hours entry.',
+        countsTowardPoolCap: false,
+      }
+    }
+    baseRate = hybrid.percentRate
+    hybridFlatPerJob = hybrid.flatPerJob
+    commission = roundMoney(v * (baseRate / 100))
   } else {
     baseRate = roundMoney(Number(plan.base_percentage) || 0)
     commission = roundMoney(v * (baseRate / 100))
   }
 
+  // NOTE for hybrid plans: `user_comp_plans.override_percentage` REPLACES the summed
+  // percentage components (it does not stack with them), exactly as it replaces
+  // base_percentage on a percentage plan. A `flat_per_job` component is untouched by
+  // the override — it is dollars, not a rate.
   if (input.overridePercentage != null && Number.isFinite(Number(input.overridePercentage))) {
     baseRate = roundMoney(Number(input.overridePercentage))
     if (pt !== 'flat_rate') {
@@ -150,7 +250,9 @@ export function calculateCommissionFromPlanForSale(input: {
   if (pt === 'flat_rate') {
     commission = roundMoney(flatDollars(plan))
   } else {
-    commission = roundMoney(v * (effectiveRate / 100))
+    // hybridFlatPerJob is 0 for every non-hybrid plan, so this stays byte-identical
+    // to the previous `v * effectiveRate` for existing percentage/tiered reps.
+    commission = roundMoney(roundMoney(v * (effectiveRate / 100)) + hybridFlatPerJob)
   }
 
   // volumeBonusFlat is a period-level bonus (e.g. "$500 when sits hit 20").
@@ -169,5 +271,6 @@ export function calculateCommissionFromPlanForSale(input: {
     totalAmount: total,
     unsupported: false,
     note: null,
+    countsTowardPoolCap: true,
   }
 }

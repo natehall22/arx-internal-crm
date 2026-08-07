@@ -1,12 +1,11 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { CompPlanForCalc } from '@/lib/calculate-commission-from-plan'
-import { buildCommissionPayrollSnapshot, isPoolCapExcludedPlanType } from '@/lib/commission-payroll'
+import { buildCommissionPayrollSnapshot } from '@/lib/commission-payroll'
 import { roundMoney } from '@/lib/money'
 import {
-  loadInspectorByOpportunity,
-  normalizeInspectionRate,
-  withDerivedInspector,
-} from '@/lib/job-inspector-attribution'
+  buildAdditiveParticipantsForJob,
+  loadDerivedCommissionContext,
+} from '@/lib/job-derived-commission-lines'
 import {
   buildMonthlyTierMetricMaps,
   buildMonthlyVolumeMaps,
@@ -73,6 +72,12 @@ export type MaterializePayrollPeriodResult = {
   snapshotsCreated: number
   payoutLinesCreated: number
   skippedJobs: Array<{ jobId: string; reason: string }>
+  /**
+   * Jobs flagged self-generated that ALSO carry a separate setter. The derived 6%
+   * self-gen line was suppressed on these (paying both would stack past the 18% pool
+   * cap and scale every other line down); a human must fix the attribution.
+   */
+  selfGenSetterConflictJobIds: string[]
 }
 
 function latestIso(values: Array<string | null | undefined>): string | null {
@@ -186,7 +191,14 @@ export async function materializePayrollPeriod(
   const jobIds = candidateJobs.map((j) => j.id)
 
   if (jobIds.length === 0) {
-    return { periodId, eligibleJobs: 0, snapshotsCreated: 0, payoutLinesCreated: 0, skippedJobs: [] }
+    return {
+      periodId,
+      eligibleJobs: 0,
+      snapshotsCreated: 0,
+      payoutLinesCreated: 0,
+      skippedJobs: [],
+      selfGenSetterConflictJobIds: [],
+    }
   }
 
   const [
@@ -250,7 +262,14 @@ export async function materializePayrollPeriod(
   })
 
   if (eligible.length === 0) {
-    return { periodId, eligibleJobs: 0, snapshotsCreated: 0, payoutLinesCreated: 0, skippedJobs }
+    return {
+      periodId,
+      eligibleJobs: 0,
+      snapshotsCreated: 0,
+      payoutLinesCreated: 0,
+      skippedJobs,
+      selfGenSetterConflictJobIds: [],
+    }
   }
 
   const eligibleJobs = eligible.map((e) => e.job)
@@ -289,20 +308,12 @@ export async function materializePayrollPeriod(
     }
   }
 
-  // Who inspected each opportunity, and what the org pays for it. Loaded once for
-  // the whole period rather than per job. A rate of 0 means the derived inspection
-  // line is off, in which case the appointment lookup is skipped entirely.
-  const { data: orgRateRow, error: orgRateError } = await supabase
-    .from('orgs')
-    .select('inspection_commission_rate')
-    .eq('id', orgId)
-    .maybeSingle()
-  if (orgRateError) throw orgRateError
-  const inspectionRatePercent = normalizeInspectionRate(orgRateRow?.inspection_commission_rate)
-  const inspectorByOpportunity =
-    inspectionRatePercent > 0
-      ? await loadInspectorByOpportunity(supabase, orgId, opportunityIds)
-      : new Map<string, string>()
+  // Everything the derived lines need (inspection, manager override, self-gen),
+  // loaded once for the whole period rather than per job. Shared with the payroll
+  // preview route so the two can never drift. Each rate defaults to 0 = off, and a
+  // rate of 0 skips its lookup entirely.
+  const derivedContext = await loadDerivedCommissionContext(supabase, { orgId, opportunityIds })
+  const selfGenSetterConflictJobIds: string[] = []
 
   const bounds = monthBounds(eligibleJobs, period.cutoff_at)
   const { data: volumeJobs, error: volumeError } = await supabase
@@ -413,9 +424,12 @@ export async function materializePayrollPeriod(
         calc.volumeBonusFlat > 0 && !flatBonusApplied.has(bonusKey) ? calc.volumeBonusFlat : 0
       if (flatBonus > 0) flatBonusApplied.add(bonusKey)
       meta.set(participant.userId, { role: participant.role, plan, calc, flatBonus })
+      // Per-COMPONENT pool-cap rule: a hybrid plan's per-sale percentage / $-per-job
+      // amount counts inside the cap; its hourly and per-unit dollars never reach
+      // calc.totalAmount at all. See lib/calculate-commission-from-plan.ts.
       rawByUser.set(
         poolKey(participant.userId, participant.role),
-        isPoolCapExcludedPlanType(plan.plan_type) ? 0 : calc.totalAmount
+        calc.countsTowardPoolCap ? calc.totalAmount : 0
       )
     }
 
@@ -426,11 +440,23 @@ export async function materializePayrollPeriod(
     // inspects a job keeps two independently-scaled lines.
     const explicitAdditive = await loadAdditiveDealCommissionParticipants(supabase, orgId, job.id)
     const jobOpportunityId = job.project_id ? oppIdByProjectId.get(job.project_id) ?? null : null
-    const additiveParticipants = withDerivedInspector(
-      explicitAdditive,
-      jobOpportunityId ? inspectorByOpportunity.get(jobOpportunityId) ?? null : null,
-      inspectionRatePercent
-    )
+    const derived = buildAdditiveParticipantsForJob({
+      explicit: explicitAdditive,
+      context: derivedContext,
+      opportunityId: jobOpportunityId,
+      participantUserIds: participants.map((p) => p.userId),
+      salespersonId: job.salesperson_id ?? null,
+    })
+    const additiveParticipants = derived.participants
+    if (derived.selfGenSetterConflict) {
+      selfGenSetterConflictJobIds.push(job.id)
+      console.warn('materializePayrollPeriod: self-gen job also has a setter; 6% line suppressed', {
+        orgId,
+        periodId,
+        jobId: job.id,
+        jobNumber: job.job_number,
+      })
+    }
     // Captured as a local const: the guard above proves compBase is a positive
     // number, but TypeScript drops property narrowing inside the closures below.
     const additiveCommissionBase = payrollSnapshot.compBase
@@ -524,6 +550,8 @@ export async function materializePayrollPeriod(
             eligible_at: item.eligibleAt,
             commission_source: payrollSnapshot.source,
             pool_cap: payrollSnapshot.poolCap,
+            derived_commission_rates: derivedContext.rates,
+            self_gen_setter_conflict: derived.selfGenSetterConflict,
           },
         },
         { onConflict: 'payroll_period_id,job_id' }
@@ -589,5 +617,6 @@ export async function materializePayrollPeriod(
     snapshotsCreated,
     payoutLinesCreated,
     skippedJobs,
+    selfGenSetterConflictJobIds,
   }
 }

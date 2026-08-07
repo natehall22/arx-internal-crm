@@ -5,11 +5,21 @@ import { roundMoney } from '@/lib/money'
 export const SALES_COMMISSION_POOL_RATE = 0.18
 
 /**
- * Plan types whose dollar amounts are entered outside commission math (period hours, etc.)
- * and must never be summed into `scaleCommissionsToPool()` — doing so would shrink every
- * percentage-plan rep's scaled commission.
+ * Plan types whose ENTIRE payout is entered outside per-job commission math (period
+ * hours, per-period sit/sale units) and must never be summed into
+ * `scaleCommissionsToPool()` — doing so would shrink every percentage-plan rep's
+ * scaled commission.
+ *
+ * `hybrid` was in this set and is not any more. It could not stay: a hybrid plan can
+ * carry a `% of Sale` or `$ per Job` component, which is per-sale pay and belongs
+ * inside the 18% cap alongside the closer and setter lines. The exclusion is now made
+ * per COMPONENT instead of per plan type — `calculateCommissionFromPlanForSale()`
+ * returns only a hybrid's per-sale components in `totalAmount` and reports
+ * `countsTowardPoolCap`, so hourly/per-unit dollars still never touch the cap.
+ *
+ * Prefer `calc.countsTowardPoolCap` over this set in new payroll code.
  */
-export const POOL_CAP_EXCLUDED_PLAN_TYPES = new Set(['hourly', 'hybrid', 'unit_based'])
+export const POOL_CAP_EXCLUDED_PLAN_TYPES = new Set(['hourly', 'unit_based'])
 
 export function isPoolCapExcludedPlanType(planType: string | null | undefined): boolean {
   return POOL_CAP_EXCLUDED_PLAN_TYPES.has(String(planType || '').toLowerCase())

@@ -10,6 +10,18 @@ import {
   isKnownCompPlanUnitType,
 } from '@/lib/comp-plan-unit-types'
 import { formatNumericDraft, parseDraftFloat } from '@/lib/numeric-input-draft'
+import {
+  COMP_PLAN_ROLE_OPTIONS,
+  compPlanRoleLabel,
+  isCompPlanManagerRole,
+  isKnownCompPlanRole,
+} from '@/lib/comp-plan-roles'
+import {
+  getCompPlanPayabilityWarnings,
+  hasBlockingCompPlanWarning,
+  planTypePaysCommission,
+  type CompPlanWarning,
+} from '@/lib/comp-plan-payability'
 
 interface VolumeTier {
   min_volume: number
@@ -84,6 +96,9 @@ interface UserCompPlan {
   comp_plans?: { name: string }
 }
 
+/** Explicit dark ink for body text on light surfaces (project UI convention). */
+const INK = '#2c2c2a'
+
 const planTypeLabels: Record<string, string> = {
   flat_rate: 'Flat Rate',
   percentage: 'Percentage',
@@ -91,6 +106,37 @@ const planTypeLabels: Record<string, string> = {
   hybrid: 'Hybrid',
   hourly: 'Hourly',
   unit_based: 'Per Unit',
+}
+
+function CompPlanWarningList({ warnings }: { warnings: CompPlanWarning[] }) {
+  if (warnings.length === 0) return null
+  return (
+    <div className="space-y-2">
+      {warnings.map((w, i) => {
+        const blocking = w.level === 'blocking'
+        return (
+          <div
+            key={i}
+            role={blocking ? 'alert' : undefined}
+            className={`rounded-lg border px-4 py-3 ${
+              blocking ? 'border-red-300 bg-red-50' : 'border-amber-300 bg-amber-50'
+            }`}
+          >
+            <p
+              className="text-sm font-semibold"
+              style={{ color: blocking ? '#7f1d1d' : '#78350f' }}
+            >
+              {blocking ? 'Will not pay: ' : 'Heads up: '}
+              {w.title}
+            </p>
+            <p className="mt-1 text-sm" style={{ color: blocking ? '#7f1d1d' : '#78350f' }}>
+              {w.detail}
+            </p>
+          </div>
+        )
+      })}
+    </div>
+  )
 }
 
 function volumeTierFieldLabels(m: VolumeTier['tier_metric']) {
@@ -145,6 +191,18 @@ export default function CompPlansPage() {
     comp_plan_id: '',
     effective_from: new Date().toISOString().split('T')[0],
     override_percentage: '',
+  })
+
+  // Surfaced live in the builder so an admin never saves a plan that quietly pays $0.
+  const planWarnings = getCompPlanPayabilityWarnings({
+    plan_type: planForm.plan_type,
+    base_percentage: planForm.base_percentage,
+    flat_amount: planForm.flat_amount,
+    tiers: planForm.tiers,
+    volume_bonuses: planForm.volume_bonuses,
+    is_manager_plan: planForm.is_manager_plan,
+    team_override_enabled: planForm.team_override_enabled,
+    team_overrides: planForm.team_overrides,
   })
 
   useEffect(() => {
@@ -239,6 +297,20 @@ export default function CompPlansPage() {
           return
         }
       }
+    }
+
+    // Last stop before a plan that pays $0 gets saved and assigned to a rep.
+    if (hasBlockingCompPlanWarning(planWarnings)) {
+      const reasons = planWarnings
+        .filter((w) => w.level === 'blocking')
+        .map((w) => `• ${w.title}`)
+        .join('\n')
+      const proceed = confirm(
+        `This plan will not produce paid commission lines:\n\n${reasons}\n\n` +
+          'Anyone assigned to it shows $0 on the payroll export until their pay is entered by hand.\n\n' +
+          'Save it anyway?'
+      )
+      if (!proceed) return
     }
 
     const planData = {
@@ -644,7 +716,16 @@ export default function CompPlansPage() {
         <div className="flex items-center justify-between mb-8">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Compensation Plans</h1>
-            <p className="text-gray-500 mt-1">Manage commission structures and assignments</p>
+            <p className="mt-1" style={{ color: INK }}>
+              Manage commission structures and assignments
+            </p>
+            <p className="mt-1 text-sm" style={{ color: INK }}>
+              The 1.5% inspection commission is org-wide, not per plan —{' '}
+              <Link href="/admin/payroll" className="text-indigo-700 underline">
+                set it on Payroll
+              </Link>
+              .
+            </p>
           </div>
           <button
             onClick={() => {
@@ -790,11 +871,40 @@ export default function CompPlansPage() {
                     </>
                   )}
 
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-500">Applies to</span>
-                    <span className="font-medium">{plan.applicable_roles?.join(', ')}</span>
+                  <div className="flex justify-between gap-3 text-sm">
+                    <span className="text-gray-600">Applies to</span>
+                    <span className="font-medium text-right" style={{ color: INK }}>
+                      {plan.applicable_roles?.length
+                        ? plan.applicable_roles.map(compPlanRoleLabel).join(', ')
+                        : '—'}
+                    </span>
                   </div>
                 </div>
+
+                {(() => {
+                  const warnings = getCompPlanPayabilityWarnings({
+                    plan_type: plan.plan_type,
+                    base_percentage: plan.base_percentage,
+                    flat_amount: plan.flat_amount,
+                    tiers: plan.tiers,
+                    volume_bonuses: plan.volume_bonuses,
+                    is_manager_plan: plan.is_manager_plan,
+                    team_override_enabled: plan.team_override_enabled,
+                    team_overrides: plan.team_overrides,
+                  })
+                  if (!hasBlockingCompPlanWarning(warnings)) return null
+                  return (
+                    <div className="mb-4 rounded-lg border border-red-300 bg-red-50 px-3 py-2">
+                      <p className="text-xs font-semibold" style={{ color: '#7f1d1d' }}>
+                        Pays $0 on the payroll export
+                      </p>
+                      <p className="mt-0.5 text-xs" style={{ color: '#7f1d1d' }}>
+                        {warnings.find((w) => w.level === 'blocking')?.title}. Anyone on this plan
+                        needs their pay entered by hand.
+                      </p>
+                    </div>
+                  )
+                })()}
 
                 <div className="flex gap-2 pt-4 border-t">
                   <button
@@ -935,7 +1045,14 @@ export default function CompPlansPage() {
                     <option value="unit_based">Per Unit (sq, kW, etc.)</option>
                     <option value="hybrid">Hybrid (Multiple Components)</option>
                   </select>
+                  <p className="mt-1 text-xs" style={{ color: INK }}>
+                    {planTypePaysCommission(planForm.plan_type)
+                      ? 'Percentage, tiered, and flat-rate plans are calculated automatically on the payroll export.'
+                      : 'This plan type is not calculated by payroll — see the warning below.'}
+                  </p>
                 </div>
+
+                {planWarnings.length > 0 && <CompPlanWarningList warnings={planWarnings} />}
 
                 {/* Hourly Rate */}
                 {planForm.plan_type === 'hourly' && (
@@ -1185,38 +1302,102 @@ export default function CompPlansPage() {
 
                 {/* Applies To Roles */}
                 <div className="border-t pt-4 space-y-2">
-                  <p className="text-sm font-medium text-gray-900">Applies to</p>
-                  <div className="flex flex-wrap gap-4">
-                    {[
-                      { role: 'sales_rep', label: 'Sales Rep' },
-                      { role: 'setter', label: 'Setter' },
-                      { role: 'canvasser', label: 'Canvasser' },
-                      { role: 'call_center', label: 'Call Center' },
-                      { role: 'sales_manager', label: 'Sales Manager' },
-                      { role: 'setter_manager', label: 'Setter Manager' },
-                      { role: 'regional_manager', label: 'Regional Manager' },
-                    ].map(({ role, label }) => (
-                      <label key={role} className="flex items-center gap-2 cursor-pointer">
+                  <p className="text-sm font-medium" style={{ color: INK }}>Applies to</p>
+                  <p className="text-xs" style={{ color: INK }}>
+                    Labels are the published ladder rungs; the grey text is the actual{' '}
+                    <code>users.role</code> value. This is a label for admins — pay comes from the
+                    plan assigned to each person on the User Assignments tab.
+                  </p>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {COMP_PLAN_ROLE_OPTIONS.map(({ role, label, note }) => (
+                      <label key={role} className="flex items-start gap-2 cursor-pointer">
                         <input
                           type="checkbox"
                           checked={planForm.applicable_roles.includes(role)}
                           onChange={(e) => {
                             const checked = e.target.checked
-                            const managerRoles = ['sales_manager', 'setter_manager', 'regional_manager']
                             setPlanForm(prev => {
                               const next = checked
                                 ? [...prev.applicable_roles, role]
                                 : prev.applicable_roles.filter(r => r !== role)
-                              const isManager = next.some(r => managerRoles.includes(r))
+                              const isManager = next.some(isCompPlanManagerRole)
                               return { ...prev, applicable_roles: next, is_manager_plan: isManager }
                             })
                           }}
-                          className="w-4 h-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                          className="mt-0.5 w-4 h-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
                         />
-                        <span className="text-sm text-gray-700">{label}</span>
+                        <span className="text-sm leading-snug" style={{ color: INK }}>
+                          {label}{' '}
+                          <span className="font-mono text-xs text-gray-600">{role}</span>
+                          {note && (
+                            <span className="block text-xs text-gray-600">{note}</span>
+                          )}
+                        </span>
                       </label>
                     ))}
                   </div>
+
+                  {/* Roles saved on this plan that are not offered above — surfaced so an
+                      admin can see (and remove) them instead of them being invisibly kept. */}
+                  {planForm.applicable_roles.filter((r) => !isKnownCompPlanRole(r)).length > 0 && (
+                    <div className="pt-1">
+                      <p className="text-xs font-medium" style={{ color: INK }}>
+                        Other roles already saved on this plan
+                      </p>
+                      <div className="mt-1 flex flex-wrap gap-2">
+                        {planForm.applicable_roles
+                          .filter((r) => !isKnownCompPlanRole(r))
+                          .map((r) => (
+                            <span
+                              key={r}
+                              className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-mono"
+                              style={{ color: INK }}
+                            >
+                              {r}
+                              <button
+                                type="button"
+                                aria-label={`Remove ${r}`}
+                                onClick={() =>
+                                  setPlanForm(prev => {
+                                    const next = prev.applicable_roles.filter(x => x !== r)
+                                    return {
+                                      ...prev,
+                                      applicable_roles: next,
+                                      is_manager_plan: next.some(isCompPlanManagerRole),
+                                    }
+                                  })
+                                }
+                                className="text-gray-600 hover:text-red-700"
+                              >
+                                ✕
+                              </button>
+                            </span>
+                          ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* What this plan cannot express */}
+                <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                  <p className="text-xs font-semibold" style={{ color: INK }}>
+                    Set elsewhere, not here
+                  </p>
+                  <ul className="mt-1 space-y-1 text-xs" style={{ color: INK }}>
+                    <li>
+                      <strong>Inspection commission (1.5%)</strong> — one org-wide rate, set on{' '}
+                      <Link href="/admin/payroll" className="text-indigo-700 underline">
+                        Payroll
+                      </Link>
+                      . It is not part of any comp plan.
+                    </li>
+                    <li>
+                      <strong>The Field Marketer $500/week floor</strong> — this builder has no
+                      &ldquo;greater of&rdquo; / floor field. The floor is the separate setter-ramp
+                      program, which tops a rep up to the floor when the week&apos;s commission
+                      falls short. Set the 3% here and run the floor there.
+                    </li>
+                  </ul>
                 </div>
 
                 {/* Manager Plan Toggle (auto-set by role selection, kept for manager-specific options) */}

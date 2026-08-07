@@ -12,6 +12,7 @@ const STORAGE_ROLES = new Set([
   'inspector',
   'field_manager',
   'senior_manager',
+  'self_gen',
   'custom',
 ])
 

@@ -14,6 +14,7 @@ import {
   countsAsInspectionSet,
 } from '@/lib/inspection-set-metrics'
 import type { DealCommissionRoleParticipant } from '@/lib/payroll-export'
+import { normalizeCommissionRatePercent } from '@/lib/commission-rate'
 
 type AppointmentRow = {
   opportunity_id: string | null
@@ -94,7 +95,5 @@ export function withDerivedInspector(
 
 /** Org inspection rate, defaulting to 0 (feature off) when unset or unreadable. */
 export function normalizeInspectionRate(value: unknown): number {
-  const n = Number(value)
-  if (!Number.isFinite(n) || n <= 0) return 0
-  return n
+  return normalizeCommissionRatePercent(value)
 }

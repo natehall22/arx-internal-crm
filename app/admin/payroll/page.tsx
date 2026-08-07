@@ -4,6 +4,8 @@ import { useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
+import { formatParticipantRoleLabel } from '@/lib/payroll-format'
+import InspectionCommissionRateCard from './InspectionCommissionRateCard'
 
 type PayrollRow = {
   job_number: string
@@ -25,13 +27,8 @@ type PayrollRow = {
   note: string | null
 }
 
-function formatParticipantRole(role: string): string {
-  if (role === 'owner') return 'Closer'
-  if (role === 'sales_rep') return 'Sales rep'
-  if (role === 'setter') return 'Setter'
-  if (role === 'inspector') return 'Inspector'
-  return role
-}
+/** Single shared role-label map, so the export preview and the rep statement agree. */
+const formatParticipantRole = formatParticipantRoleLabel
 
 function defaultDateRange() {
   const now = new Date()
@@ -53,11 +50,13 @@ export default function AdminPayrollPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [skippedOpportunityIds, setSkippedOpportunityIds] = useState<string[]>([])
+  const [selfGenConflictJobIds, setSelfGenConflictJobIds] = useState<string[]>([])
 
   const load = async () => {
     setLoading(true)
     setError('')
     setSkippedOpportunityIds([])
+    setSelfGenConflictJobIds([])
     try {
       const res = await fetch(`/api/admin/payroll/export?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`)
       if (res.status === 401) {
@@ -79,6 +78,7 @@ export default function AdminPayrollPage() {
       setRows(data.rows || [])
       setRowCount(data.rowCount ?? 0)
       setSkippedOpportunityIds(data.warnings?.sitsSkippedForMissingTimestamp ?? [])
+      setSelfGenConflictJobIds(data.warnings?.selfGenSetterConflictJobIds ?? [])
     } catch (e) {
       setError('Failed to load payroll data')
       setRows([])
@@ -180,6 +180,22 @@ export default function AdminPayrollPage() {
             </div>
           )}
 
+          {selfGenConflictJobIds.length > 0 && (
+            <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+              <p className="font-semibold">
+                {selfGenConflictJobIds.length} self-generated job
+                {selfGenConflictJobIds.length === 1 ? '' : 's'} also credited to a setter
+              </p>
+              <p className="mt-1 text-amber-800">
+                A deal cannot be both self-generated and setter-attributed. The self-generated
+                commission line was NOT paid on {selfGenConflictJobIds.length === 1 ? 'this job' : 'these jobs'} —
+                paying both would push the job past the commission pool cap and scale every other
+                line on it down. Fix the opportunity&apos;s setter or its self-generated flag, then
+                re-run this preview.
+              </p>
+            </div>
+          )}
+
           {rowCount > 0 && (
             <p className="mt-4 text-sm text-gray-600">
               {rowCount} line{rowCount === 1 ? '' : 's'} loaded.
@@ -257,10 +273,18 @@ export default function AdminPayrollPage() {
               (same job).
             </p>
             <p>
-              <strong>Hybrid / hourly / unit plans:</strong> not auto-calculated in export; row shows $0 with a note—
-              enter manually or extend plans.
+              <strong>Hybrid plans:</strong> <strong>% of Sale</strong> and <strong>$ per Job</strong> components are
+              auto-calculated per sale and count inside the pool cap. <strong>Hourly</strong> and{' '}
+              <strong>per-unit</strong> components are paid at period level (hours entry / sit-and-sale units), so they
+              show $0 here by design.
+            </p>
+            <p>
+              <strong>Hourly / unit plans:</strong> not auto-calculated in export; row shows $0 with a note— enter
+              manually or extend plans.
             </p>
           </div>
+
+          <InspectionCommissionRateCard />
         </div>
       </div>
     </div>
