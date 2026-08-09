@@ -45,7 +45,11 @@ function activityLabelPrefix(kind: MorningUpdateMetrics['activityPeriodKind']): 
   return kind === 'weekend' ? 'Weekend' : 'Yesterday'
 }
 
-function buildMorningUpdateHtml(metrics: MorningUpdateMetrics, options?: { test?: boolean }): string {
+function formatOptionalInteger(value: number | null): string {
+  return value == null ? 'Unavailable' : formatInteger(value)
+}
+
+export function buildMorningUpdateHtml(metrics: MorningUpdateMetrics, options?: { test?: boolean }): string {
   const period = activityLabelPrefix(metrics.activityPeriodKind)
   const rows: Array<{ label: string; value: string }> = [
     { label: `Doors Knocked ${period}`, value: formatInteger(metrics.doorsKnockedPeriod) },
@@ -90,6 +94,14 @@ function buildMorningUpdateHtml(metrics: MorningUpdateMetrics, options?: { test?
     const w = metrics.lastWeekVsGoals
     const weekRows = [
       {
+        label: 'Proposals shown',
+        value: formatOptionalInteger(w.proposalsShown),
+      },
+      {
+        label: 'Proposals shown month to date',
+        value: formatOptionalInteger(w.proposalsShownMonthToDate),
+      },
+      {
         label: 'Doors',
         value: formatGoalShareValue(w.doors.actual, w.doors.goal, w.doors.shareOfMonthPct, 'integer'),
       },
@@ -119,7 +131,7 @@ function buildMorningUpdateHtml(metrics: MorningUpdateMetrics, options?: { test?
 
     lastWeekSection = `
         <h2 style="margin: 28px 0 6px; color: #111827; font-size: 17px;">Last week vs ${escapeHtml(w.monthGoalLabel)} goals</h2>
-        <p style="margin: 0 0 12px; color: #2c2c2a; font-size: 13px;">${escapeHtml(w.rangeLabel)} totals as a share of this month&apos;s targets</p>
+        <p style="margin: 0 0 12px; color: #2c2c2a; font-size: 13px;">${escapeHtml(w.rangeLabel)} totals and month-to-date proposal activity</p>
         <table style="width: 100%; border-collapse: collapse; margin: 0 0 8px;">
           ${weekRows}
         </table>
@@ -137,7 +149,7 @@ function buildMorningUpdateHtml(metrics: MorningUpdateMetrics, options?: { test?
         </table>
         ${lastWeekSection}
         <p style="color: #6B7280; font-size: 12px; margin-top: 20px;">
-          Automated owner morning update from ARX CRM. Revenue reflects signed installation and repair agreements. Insurance inspections are counted when feedback is recorded as Insurance Follow Up or Waiting on Insurance.
+          Automated owner morning update from ARX CRM. Proposals shown is a proxy based on unique opportunities whose latest recorded PDF generation occurred in the period; regenerating a PDF later moves that proposal to the later period. Revenue reflects signed installation and repair agreements. Insurance inspections are counted when feedback is recorded as Insurance Follow Up or Waiting on Insurance.
         </p>
         <p style="color: #9CA3AF; font-size: 12px; font-style: italic; margin: 12px 0 0;">
           ${escapeHtml(MORNING_UPDATE_FOOTER_QUOTE)}
