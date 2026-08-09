@@ -4,6 +4,8 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
+import CompanyCommissionRatesCard from '@/components/admin/CompanyCommissionRatesCard'
+import PerJobOverridesCard from '@/components/admin/PerJobOverridesCard'
 import { formatVolumeBonusTierRange, normalizeVolumeBonusTierMetric } from '@/lib/volume-bonus-display'
 import {
   COMP_PLAN_UNIT_RATE_LABELS,
@@ -64,6 +66,7 @@ interface CompPlan {
   applicable_roles: string[]
   created_at: string
   plan_purpose: 'primary' | 'management_overlay'
+  readme: string | null
 }
 
 interface HybridComponent {
@@ -209,7 +212,7 @@ export default function CompPlansPage() {
   const [managementOverlayVersions, setManagementOverlayVersions] = useState<ManagementOverlayVersion[]>([])
   const [managerAssignments, setManagerAssignments] = useState<ManagerAssignment[]>([])
   const [users, setUsers] = useState<AssignmentUser[]>([])
-  const [activeTab, setActiveTab] = useState<'plans' | 'assignments'>('plans')
+  const [activeTab, setActiveTab] = useState<'plans' | 'assignments' | 'overrides'>('plans')
   
   // Modal states
   const [showPlanModal, setShowPlanModal] = useState(false)
@@ -694,8 +697,21 @@ export default function CompPlansPage() {
       applicable_roles: plan.applicable_roles || ['sales_rep'],
       is_active: plan.is_active,
       is_default: plan.is_default,
-      readme: (plan as any).readme || '',
+      readme: plan.readme || '',
     })
+    setShowPlanModal(true)
+  }
+
+  const openCreateOverlayPlan = () => {
+    resetPlanForm()
+    setEditingPlan(null)
+    setPlanForm(prev => ({
+      ...prev,
+      plan_purpose: 'management_overlay',
+      is_manager_plan: true,
+      is_default: false,
+    }))
+    setShowOverlayModal(false)
     setShowPlanModal(true)
   }
 
@@ -928,11 +944,8 @@ export default function CompPlansPage() {
               Manage commission structures and assignments
             </p>
             <p className="mt-1 text-sm" style={{ color: INK }}>
-              The 1.5% inspection commission is org-wide, not per plan —{' '}
-              <Link href="/admin/payroll" className="text-indigo-700 underline">
-                set it on Payroll
-              </Link>
-              .
+              The inspection, manager override, and self-generated commission lines are
+              org-wide, not per plan — set them in the card below.
             </p>
           </div>
           <button
@@ -946,6 +959,8 @@ export default function CompPlansPage() {
             + New Comp Plan
           </button>
         </div>
+
+        <CompanyCommissionRatesCard />
 
         {/* Tabs */}
         <div className="flex gap-1 mb-6 border-b">
@@ -968,6 +983,16 @@ export default function CompPlansPage() {
             }`}
           >
             User Assignments ({userAssignments.length})
+          </button>
+          <button
+            onClick={() => setActiveTab('overrides')}
+            className={`px-4 py-3 font-medium text-sm border-b-2 -mb-px ${
+              activeTab === 'overrides'
+                ? 'border-indigo-600 text-indigo-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            Per-Job Overrides
           </button>
         </div>
 
@@ -996,6 +1021,21 @@ export default function CompPlansPage() {
                     {plan.is_active ? 'Active' : 'Inactive'}
                   </span>
                 </div>
+
+                {plan.readme ? (
+                  <div className="mb-4 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: INK }}>
+                      Plan details / promotion criteria
+                    </p>
+                    <p className="mt-1 text-xs whitespace-pre-wrap" style={{ color: INK }}>{plan.readme}</p>
+                  </div>
+                ) : (
+                  <div className="mb-4 rounded-lg border border-dashed border-gray-300 px-3 py-2">
+                    <p className="text-xs" style={{ color: INK }}>
+                      No plan details / promotion criteria documented yet. Add them via Edit.
+                    </p>
+                  </div>
+                )}
 
                 <div className="space-y-2 mb-4">
                   <div className="flex justify-between text-sm">
@@ -1133,6 +1173,14 @@ export default function CompPlansPage() {
         {activeTab === 'assignments' && (
           <div>
             <div className="mb-4 flex flex-wrap justify-end gap-2">
+              {compPlans.filter((plan) => plan.is_active && plan.plan_purpose === 'management_overlay').length === 0 && (
+                <button
+                  onClick={openCreateOverlayPlan}
+                  className="px-4 py-2 border border-purple-300 text-purple-800 bg-white rounded-lg hover:bg-purple-50 font-medium text-sm"
+                >
+                  + Create Overlay Plan
+                </button>
+              )}
               <button
                 onClick={() => setShowOverlayModal(true)}
                 className="px-4 py-2 border border-purple-300 text-purple-800 bg-white rounded-lg hover:bg-purple-50 font-medium text-sm"
@@ -1340,6 +1388,9 @@ export default function CompPlansPage() {
             </div>
           </div>
         )}
+
+        {/* Per-Job Overrides Tab */}
+        {activeTab === 'overrides' && <PerJobOverridesCard />}
 
         {/* Plan Modal */}
         {showPlanModal && (
@@ -1977,18 +2028,28 @@ export default function CompPlansPage() {
                 
                 {/* Plan Readme */}
                 <div className="mt-4 pt-4 border-t">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Plan Readme / Additional Details
+                  <label className="block text-sm font-medium mb-2" style={{ color: INK }}>
+                    Plan details / promotion criteria
                   </label>
                   <textarea
                     value={planForm.readme}
                     onChange={(e) => setPlanForm(prev => ({ ...prev, readme: e.target.value }))}
                     rows={4}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-900"
-                    placeholder="Add any additional details, special conditions, or notes that team members should know about this comp plan..."
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    style={{ color: INK }}
+                    placeholder="Example: how a rep qualifies to move onto or off of this plan (tenure, volume, tenure review, manager sign-off), and any other special conditions team members should know about."
                   />
-                  <p className="text-xs text-gray-500 mt-1">
-                    This will be shown to team members when they view their comp plan details.
+                  <p
+                    className="text-xs mt-2 px-3 py-2 rounded-lg border border-amber-300 bg-amber-50 font-semibold"
+                    style={{ color: '#7c4a03' }}
+                  >
+                    Visible to every rep on this plan — this text is rendered on their dashboard
+                    and in their commission widget. Don&apos;t put manager-only notes here.
+                  </p>
+                  <p className="text-xs mt-1" style={{ color: INK }}>
+                    This is the place to document how someone moves between ladder rungs
+                    (e.g. FM 2.0 → Setter → Senior Field Marketer) — there is no other record of
+                    promotion criteria in the system.
                   </p>
                 </div>
               </div>
@@ -2160,8 +2221,21 @@ export default function CompPlansPage() {
                       <option key={plan.id} value={plan.id}>{plan.name}</option>
                     ))}
                   </select>
-                  {compPlans.every((plan) => plan.plan_purpose !== 'management_overlay') && (
-                    <p className="mt-1 text-xs text-amber-700">Create a Management Overlay plan first.</p>
+                  {compPlans.filter((plan) => plan.is_active && plan.plan_purpose === 'management_overlay').length === 0 && (
+                    <div className="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2">
+                      <p className="text-xs font-medium" style={{ color: '#7c4a03' }}>
+                        {compPlans.some((plan) => plan.plan_purpose === 'management_overlay')
+                          ? 'No active Management Overlay plan exists — every overlay plan is inactive. Reactivate one, or create a new one, before you can assign an overlay.'
+                          : 'No Management Overlay plan exists yet. An overlay assignment needs a plan with purpose "Management Overlay" and a fixed rate — create one first.'}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={openCreateOverlayPlan}
+                        className="mt-2 px-3 py-1.5 text-xs font-medium text-purple-800 border border-purple-300 bg-white rounded-lg hover:bg-purple-50"
+                      >
+                        + Create overlay plan
+                      </button>
+                    </div>
                   )}
                 </div>
                 <div>

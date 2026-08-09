@@ -109,6 +109,19 @@ export default function AdminPayrollStatementsPage() {
     const amount = raw === '' || raw == null ? null : Number(raw)
     if (amount != null && !Number.isFinite(amount)) return
 
+    // An override changes what someone gets paid, and the reason is what lands in
+    // payroll_override_audit. A hardcoded constant here would satisfy the API's
+    // non-empty check while making every audit row say the same meaningless thing,
+    // so ask for the actual reason instead.
+    const reason = window.prompt(
+      'Why is this commission being overridden? This is recorded in the payroll audit trail.'
+    )
+    if (reason == null) return
+    if (!reason.trim()) {
+      setError('A change reason is required to save a commission override.')
+      return
+    }
+
     setSavingOverrideKey(key)
     try {
       const res = await fetch('/api/admin/payroll/deal-commission-roles', {
@@ -119,7 +132,7 @@ export default function AdminPayrollStatementsPage() {
           user_id: userId,
           role,
           override_amount: amount,
-          reason: 'Admin statement override',
+          reason: reason.trim(),
         }),
       })
       if (!res.ok) {
