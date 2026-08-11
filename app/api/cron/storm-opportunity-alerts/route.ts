@@ -11,6 +11,9 @@ import {
   buildStormNotificationBody,
   buildStormNotificationTitle,
   filterStormReportsForAlerts,
+  filterStormSwathsForAlerts,
+  formatStormMagnitudeLabel,
+  formatStormProximityLabel,
   isStormOpportunityEligible,
   isOnUnresolvedStormPipelineStage,
   matchStormReportsToOpportunity,
@@ -21,9 +24,11 @@ import {
   stormOpportunityAlertsEnabled,
   stormPipelineStageForRouting,
   STORM_IEM_FETCH_WINDOW_DAYS,
+  STORM_ALERT_LOOKBACK_ET_DAYS,
   type StormAlertDigestRow,
   type StormMatchResult,
   type StormOpportunityCandidate,
+  type StormSwathCandidate,
 } from '@/lib/storm-opportunity-alerts'
 
 export const dynamic = 'force-dynamic'
@@ -109,6 +114,39 @@ async function loadAppointmentsByOpportunityId(
   return appointmentsByOpportunityId
 }
 
+/**
+ * Recent MRMS swath polygons. Scoped to the alert lookback (+1 day of slack for
+ * ingest lag / ET-vs-UTC date edges) so we never pull the full 2-year overlay
+ * archive into memory just to throw it away in the recency filter.
+ */
+async function loadRecentStormSwaths(admin: any): Promise<StormSwathCandidate[]> {
+  const cutoff = new Date(Date.now() - (STORM_ALERT_LOOKBACK_ET_DAYS + 1) * 86400000)
+    .toISOString()
+    .slice(0, 10)
+
+  const { data, error } = await admin
+    .from('weather_swaths')
+    .select('event_date, layer, magnitude, geometry')
+    .gte('event_date', cutoff)
+    .order('event_date', { ascending: false })
+    .limit(2000)
+
+  if (error) {
+    console.error('storm-opportunity-alerts: swath fetch failed', error)
+    return []
+  }
+
+  return (data || [])
+    .filter((row: any) => row.layer === 'hail' || row.layer === 'wind')
+    .map((row: any) => ({
+      event_date: row.event_date,
+      layer: row.layer as 'hail' | 'wind',
+      magnitude: Number(row.magnitude),
+      geometry: row.geometry,
+    }))
+    .filter((row: StormSwathCandidate) => Number.isFinite(row.magnitude) && row.geometry)
+}
+
 export async function GET(request: NextRequest) {
   const authFailure = verifyCronSecret(request)
   if (authFailure) return authFailure
@@ -123,12 +161,14 @@ export async function GET(request: NextRequest) {
   const footprint = footprintFromEnv()
 
   try {
-    const [hailRaw, windRaw] = await Promise.all([
+    const [hailRaw, windRaw, swathRaw] = await Promise.all([
       getRecentStormReportsInBbox(footprint, 'hail', STORM_IEM_FETCH_WINDOW_DAYS),
       getRecentStormReportsInBbox(footprint, 'wind', STORM_IEM_FETCH_WINDOW_DAYS),
+      loadRecentStormSwaths(admin),
     ])
     const hailReports = filterStormReportsForAlerts(hailRaw, 'hail', now)
     const windReports = filterStormReportsForAlerts(windRaw, 'wind', now)
+    const swaths = filterStormSwathsForAlerts(swathRaw, now)
 
     const rawOpportunities = await loadStormOpportunityCandidates(admin)
     const opportunityIds = rawOpportunities.map((row: any) => row.id)
@@ -158,9 +198,11 @@ export async function GET(request: NextRequest) {
       if (!coords) continue
 
       const appointments = appointmentsByOpportunityId.get(raw.id) || []
-      if (!isStormOpportunityEligible(candidate, coords, footprint, appointments, now)) continue
+      if (!isStormOpportunityEligible(candidate, coords, footprint, appointments)) continue
 
-      matches.push(...matchStormReportsToOpportunity(candidate, coords, hailReports, windReports))
+      matches.push(
+        ...matchStormReportsToOpportunity(candidate, coords, hailReports, windReports, swaths)
+      )
     }
 
     let inserted = 0
@@ -209,11 +251,12 @@ export async function GET(request: NextRequest) {
           opportunity_id: match.opportunity.id,
           event_date: match.eventDate,
           layer: match.layer,
-          magnitude: match.report.magnitude,
-          damage: match.report.damage,
-          storm_lat: match.report.lat,
-          storm_lng: match.report.lng,
+          magnitude: match.magnitude,
+          damage: match.damage,
+          storm_lat: match.stormLat,
+          storm_lng: match.stormLng,
           distance_miles: match.distanceMiles,
+          match_source: match.source,
           routed: false,
         })
         .select('id, routed, processed_at, email_sent_at')
@@ -399,13 +442,9 @@ export async function GET(request: NextRequest) {
             address: match.opportunity.address_text || '',
             layer: match.layer,
             eventDate: match.eventDate,
-            magnitudeLabel:
-              match.layer === 'hail'
-                ? `est. ${match.report.magnitude.toFixed(2)} in hail`
-                : match.report.damage
-                  ? 'est. wind damage'
-                  : `est. ${Math.round(match.report.magnitude)} mph wind`,
-            distanceMiles: match.distanceMiles,
+            magnitudeLabel: formatStormMagnitudeLabel(match.layer, match),
+            proximityLabel: formatStormProximityLabel(match),
+            source: match.source,
             routed: didRoute,
             opportunityId: match.opportunity.id,
           },

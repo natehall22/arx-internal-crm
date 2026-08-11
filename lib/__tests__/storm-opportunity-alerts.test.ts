@@ -2,7 +2,8 @@ import {
   filterStormReportsForAlerts,
   haversineDistanceMiles,
   hasFutureNonCancelledCloseAppointment,
-  hasOpenInProgressAppointmentGate,
+  hasQualifyingInspectionHistory,
+  filterStormSwathsForAlerts,
   isLostStormCandidate,
   isRepWorkingStormGrace,
   isStormOpportunityEligible,
@@ -14,7 +15,13 @@ import {
   STORM_ALERT_RADIUS_MILES,
   STORM_ALERT_WIND_MIN_MPH,
   type StormOpportunityCandidate,
+  type StormSwathCandidate,
 } from '@/lib/storm-opportunity-alerts'
+import {
+  matchPointToSwathGeometry,
+  STORM_SWATH_BUFFER_MILES,
+  STORM_SWATH_HAIL_MIN_INCHES,
+} from '@/lib/storm-swath-match'
 import {
   DIDNT_SIT_PIPELINE_PREFIX,
   isOnUnresolvedInsideSalesQueueStage,
@@ -128,7 +135,8 @@ describe('storm opportunity alert filters', () => {
     const matches = matchStormReportsToOpportunity(candidate, coords, [farther, nearer, otherDay], [])
     expect(matches).toHaveLength(2)
     const july22 = matches.find((match) => match.eventDate === '2026-07-22')
-    expect(july22?.report.magnitude).toBe(0.5)
+    expect(july22?.magnitude).toBe(0.5)
+    expect(july22?.source).toBe('report')
     expect(july22?.distanceMiles).toBeLessThan(
       haversineDistanceMiles(coords.lat, coords.lng, farther.lat, farther.lng)
     )
@@ -145,17 +153,25 @@ describe('storm opportunity eligibility', () => {
     jest.useRealTimers()
   })
 
-  it('allows lost opportunities without installation agreement and no appointment gate', () => {
+  it('allows lost opportunities we inspected, at any age, when no agreement was signed', () => {
     const candidate = baseCandidate({ status: 'lost' })
+    const coords = { lat: candidate.lat!, lng: candidate.lng! }
     expect(isLostStormCandidate(candidate)).toBe(true)
+
+    const oldInspection = [
+      {
+        appointment_type: 'inspection',
+        status: 'completed',
+        scheduled_for: '2024-03-02T14:00:00.000Z',
+      },
+    ]
     expect(
-      isStormOpportunityEligible(
-        candidate,
-        { lat: candidate.lat!, lng: candidate.lng! },
-        DEFAULT_WEATHER_FOOTPRINT,
-        []
-      )
+      isStormOpportunityEligible(candidate, coords, DEFAULT_WEATHER_FOOTPRINT, oldInspection)
     ).toBe(true)
+
+    // Inspection history is now required for lost too — a lead we never actually
+    // inspected is not "a customer we had an inspection with".
+    expect(isStormOpportunityEligible(candidate, coords, DEFAULT_WEATHER_FOOTPRINT, [])).toBe(false)
   })
 
   it('rejects lost opportunities that already signed installation agreement', () => {
@@ -166,30 +182,41 @@ describe('storm opportunity eligibility', () => {
     expect(isLostStormCandidate(candidate)).toBe(false)
   })
 
-  it('requires recent or future inspection/close appointments for open/in_progress', () => {
+  it('requires some inspection/close history but imposes no recency limit', () => {
     const candidate = baseCandidate({ status: 'in_progress' })
     const coords = { lat: candidate.lat!, lng: candidate.lng! }
 
     expect(isStormOpportunityEligible(candidate, coords, DEFAULT_WEATHER_FOOTPRINT, [])).toBe(false)
+
+    // Two years stale — previously blocked by the 14-day gate, now eligible.
     expect(
       isStormOpportunityEligible(candidate, coords, DEFAULT_WEATHER_FOOTPRINT, [
         {
           appointment_type: 'inspection',
           status: 'scheduled',
-          scheduled_for: '2026-07-10T14:00:00.000Z',
+          scheduled_for: '2024-07-10T14:00:00.000Z',
         },
       ])
     ).toBe(true)
-    expect(hasOpenInProgressAppointmentGate([])).toBe(false)
+
+    expect(hasQualifyingInspectionHistory([])).toBe(false)
     expect(
-      hasOpenInProgressAppointmentGate([
-        {
-          appointment_type: 'close',
-          status: 'scheduled',
-          scheduled_for: '2026-07-25T14:00:00.000Z',
-        },
+      hasQualifyingInspectionHistory([
+        { appointment_type: 'close', status: 'scheduled', scheduled_for: '2023-01-25T14:00:00.000Z' },
       ])
     ).toBe(true)
+    // Cancelled appointments never count — we never actually stood on the roof.
+    expect(
+      hasQualifyingInspectionHistory([
+        { appointment_type: 'inspection', status: 'cancelled', scheduled_for: '2026-07-10T14:00:00.000Z' },
+      ])
+    ).toBe(false)
+    // Non-inspection appointment types do not qualify.
+    expect(
+      hasQualifyingInspectionHistory([
+        { appointment_type: 'adjuster', status: 'scheduled', scheduled_for: '2026-07-10T14:00:00.000Z' },
+      ])
+    ).toBe(false)
   })
 
   it('skips entirely when closer mid-deal unless already on inside sales queue', () => {
@@ -230,10 +257,148 @@ describe('storm opportunity eligibility', () => {
   })
 })
 
+describe('storm swath matching', () => {
+  beforeEach(() => {
+    jest.useFakeTimers()
+    jest.setSystemTime(new Date('2026-07-22T16:00:00.000Z'))
+  })
+
+  afterEach(() => {
+    jest.useRealTimers()
+  })
+
+  // ~0.1deg lat box (~6.9mi tall) centred near the Concord footprint.
+  const box = {
+    type: 'Polygon',
+    coordinates: [
+      [
+        [-80.7, 35.2],
+        [-80.6, 35.2],
+        [-80.6, 35.3],
+        [-80.7, 35.3],
+        [-80.7, 35.2],
+      ],
+    ],
+  }
+
+  it('reports zero distance for a point inside the polygon', () => {
+    const hit = matchPointToSwathGeometry(35.25, -80.65, box)
+    expect(hit).toEqual({ distanceMiles: 0, inside: true })
+  })
+
+  it('accepts a point just outside within the 1-mile buffer', () => {
+    // ~0.007deg lat north of the top edge ≈ 0.48mi.
+    const hit = matchPointToSwathGeometry(35.307, -80.65, box)
+    expect(hit?.inside).toBe(false)
+    expect(hit!.distanceMiles).toBeGreaterThan(0)
+    expect(hit!.distanceMiles).toBeLessThan(STORM_SWATH_BUFFER_MILES)
+  })
+
+  it('rejects a point beyond the buffer', () => {
+    // ~0.05deg lat north of the edge ≈ 3.5mi.
+    expect(matchPointToSwathGeometry(35.35, -80.65, box)).toBeNull()
+  })
+
+  it('treats a point inside a hole as outside the polygon', () => {
+    const donut = {
+      type: 'Polygon',
+      coordinates: [
+        box.coordinates[0],
+        [
+          [-80.66, 35.24],
+          [-80.64, 35.24],
+          [-80.64, 35.26],
+          [-80.66, 35.26],
+          [-80.66, 35.24],
+        ],
+      ],
+    }
+    const hit = matchPointToSwathGeometry(35.25, -80.65, donut)
+    // Inside the hole: not "inside" the swath, but the hole rim is within 1mi.
+    expect(hit?.inside).toBe(false)
+  })
+
+  it('ignores non-polygon geometry', () => {
+    expect(matchPointToSwathGeometry(35.25, -80.65, { type: 'Point', coordinates: [-80.65, 35.25] })).toBeNull()
+    expect(matchPointToSwathGeometry(35.25, -80.65, null)).toBeNull()
+  })
+
+  it('filters swaths to the ET lookback and the damaging-hail threshold', () => {
+    const swaths: StormSwathCandidate[] = [
+      { event_date: '2026-07-22', layer: 'hail', magnitude: 1.0, geometry: box },
+      { event_date: '2026-07-22', layer: 'hail', magnitude: 0.5, geometry: box },
+      { event_date: '2026-07-19', layer: 'hail', magnitude: 1.5, geometry: box },
+    ]
+    const filtered = filterStormSwathsForAlerts(swaths)
+    expect(filtered).toHaveLength(1)
+    expect(filtered[0].magnitude).toBe(1.0)
+    expect(STORM_SWATH_HAIL_MIN_INCHES).toBe(0.75)
+  })
+
+  it('prefers a swath hit over a point report for the same layer and day', () => {
+    const candidate = baseCandidate({ lat: 35.25, lng: -80.65 })
+    const coords = { lat: 35.25, lng: -80.65 }
+    const report: RecentStormReport = {
+      lat: 35.2505,
+      lng: -80.6505,
+      magnitude: 0.5,
+      date: new Date('2026-07-22T18:00:00.000Z'),
+      damage: false,
+    }
+    const swath: StormSwathCandidate = {
+      event_date: '2026-07-22',
+      layer: 'hail',
+      magnitude: 1.25,
+      geometry: box,
+    }
+
+    const matches = matchStormReportsToOpportunity(candidate, coords, [report], [], [swath])
+    expect(matches).toHaveLength(1)
+    expect(matches[0].source).toBe('swath')
+    expect(matches[0].magnitude).toBe(1.25)
+    expect(matches[0].insideSwath).toBe(true)
+    expect(matches[0].stormLat).toBeNull()
+  })
+
+  it('keeps a point report when no swath covers the address', () => {
+    const candidate = baseCandidate({ lat: 35.25, lng: -80.65 })
+    const coords = { lat: 35.25, lng: -80.65 }
+    const report: RecentStormReport = {
+      lat: 35.2505,
+      lng: -80.6505,
+      magnitude: 0.5,
+      date: new Date('2026-07-22T18:00:00.000Z'),
+      damage: false,
+    }
+    const distantSwath: StormSwathCandidate = {
+      event_date: '2026-07-22',
+      layer: 'hail',
+      magnitude: 1.25,
+      geometry: {
+        type: 'Polygon',
+        coordinates: [
+          [
+            [-80.9, 35.5],
+            [-80.8, 35.5],
+            [-80.8, 35.6],
+            [-80.9, 35.6],
+            [-80.9, 35.5],
+          ],
+        ],
+      },
+    }
+
+    const matches = matchStormReportsToOpportunity(candidate, coords, [report], [], [distantSwath])
+    expect(matches).toHaveLength(1)
+    expect(matches[0].source).toBe('report')
+  })
+})
+
 describe('storm alert constants', () => {
   it('documents locked thresholds', () => {
     expect(STORM_ALERT_RADIUS_MILES).toBe(0.5)
     expect(STORM_ALERT_HAIL_MIN_INCHES).toBe(0.25)
     expect(STORM_ALERT_WIND_MIN_MPH).toBe(58)
+    expect(STORM_SWATH_BUFFER_MILES).toBe(1)
   })
 })

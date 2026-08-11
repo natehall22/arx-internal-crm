@@ -6,6 +6,10 @@ import {
   STORM_PIPELINE_PREFIX,
 } from '@/lib/inside-sales-follow-up'
 import type { WeatherBbox } from '@/lib/weather-footprint'
+import {
+  matchPointToSwathGeometry,
+  STORM_SWATH_HAIL_MIN_INCHES,
+} from '@/lib/storm-swath-match'
 
 export const STORM_ALERT_RADIUS_MILES = 0.5
 export const STORM_ALERT_HAIL_MIN_INCHES = 0.25
@@ -13,11 +17,13 @@ export const STORM_ALERT_WIND_MIN_MPH = 58
 /** IEM fetch window — filtered down to {@link STORM_ALERT_LOOKBACK_ET_DAYS} ET calendar days. */
 export const STORM_IEM_FETCH_WINDOW_DAYS = 3
 export const STORM_ALERT_LOOKBACK_ET_DAYS = 2
-export const STORM_APPOINTMENT_LOOKBACK_DAYS = 14
 export const STORM_ALERT_EMAIL_MAX_ROWS = 50
 export const STORM_ALERT_TIMEZONE = 'America/New_York'
 
 export type StormAlertLayer = 'hail' | 'wind'
+
+/** Where the impact estimate came from: an IEM point report or an MRMS swath polygon. */
+export type StormMatchSource = 'report' | 'swath'
 
 export type StormOpportunityCandidate = {
   id: string
@@ -36,10 +42,18 @@ export type StormOpportunityCandidate = {
 
 export type StormMatchResult = {
   opportunity: StormOpportunityCandidate
-  report: RecentStormReport
   layer: StormAlertLayer
   eventDate: string
+  /** 0 when the address sits inside a swath polygon. */
   distanceMiles: number
+  /** inches for hail, mph for wind gusts, 0 for wind-damage reports with no measured gust */
+  magnitude: number
+  damage: boolean
+  source: StormMatchSource
+  /** Null for swath matches — the footprint is an area, not a point. */
+  stormLat: number | null
+  stormLng: number | null
+  insideSwath: boolean
 }
 
 export type StormAlertDigestRow = {
@@ -48,7 +62,9 @@ export type StormAlertDigestRow = {
   layer: StormAlertLayer
   eventDate: string
   magnitudeLabel: string
-  distanceMiles: number
+  /** Pre-rendered by {@link formatStormProximityLabel} — swaths have no meaningful distance. */
+  proximityLabel: string
+  source: StormMatchSource
   routed: boolean
   opportunityId: string
 }
@@ -119,12 +135,40 @@ export function filterStormReportsForAlerts(
   })
 }
 
-export function formatStormMagnitudeLabel(layer: StormAlertLayer, report: RecentStormReport): string {
+export function formatStormMagnitudeLabel(
+  layer: StormAlertLayer,
+  event: { magnitude: number; damage: boolean }
+): string {
   if (layer === 'hail') {
-    return `est. ${report.magnitude.toFixed(2)} in hail`
+    return `est. ${event.magnitude.toFixed(2)} in hail`
   }
-  if (report.damage) return 'est. wind damage reported'
-  return `est. ${Math.round(report.magnitude)} mph wind gust`
+  if (event.damage) return 'est. wind damage reported'
+  return `est. ${Math.round(event.magnitude)} mph wind gust`
+}
+
+/** An MRMS swath row narrowed to what matching needs. */
+export type StormSwathCandidate = {
+  event_date: string
+  layer: StormAlertLayer
+  magnitude: number
+  geometry: unknown
+}
+
+/**
+ * Swaths are stored for the full 2-year overlay window, but an alert must only
+ * fire for a storm that just happened — otherwise enabling the feature would
+ * route every historical event at once. Same ET recency window as point reports.
+ */
+export function filterStormSwathsForAlerts(
+  swaths: StormSwathCandidate[],
+  now = new Date()
+): StormSwathCandidate[] {
+  const recentDays = recentEtCalendarDayKeys(now, STORM_ALERT_LOOKBACK_ET_DAYS)
+  return swaths.filter((swath) => {
+    if (!recentDays.has(swath.event_date)) return false
+    if (swath.layer === 'hail') return swath.magnitude >= STORM_SWATH_HAIL_MIN_INCHES
+    return swath.magnitude >= STORM_ALERT_WIND_MIN_MPH
+  })
 }
 
 export function stormEventDateEt(report: RecentStormReport): string {
@@ -155,19 +199,22 @@ export function isLostStormCandidate(
   )
 }
 
-export function hasOpenInProgressAppointmentGate(
-  appointments: Array<{ appointment_type: string; status: string; scheduled_for: string }>,
-  now = new Date()
+/**
+ * Any inspection/close appointment we ever put on the calendar and did not cancel.
+ *
+ * Deliberately unbounded in time: if we stood on a roof at this address, a new
+ * storm over it is a callable event regardless of how long ago that was or how
+ * the inspection turned out. (This replaced a 14-day recency gate that hid ~277
+ * of 303 previously-inspected opportunities from the alert.)
+ */
+export function hasQualifyingInspectionHistory(
+  appointments: Array<{ appointment_type: string; status: string; scheduled_for: string }>
 ): boolean {
-  const cutoffMs = now.getTime() - STORM_APPOINTMENT_LOOKBACK_DAYS * 86400000
-  const nowMs = now.getTime()
   return appointments.some((appt) => {
     if (appt.status === 'cancelled') return false
     const type = String(appt.appointment_type || '').trim().toLowerCase()
     if (type !== 'inspection' && type !== 'close') return false
-    const scheduledMs = new Date(appt.scheduled_for).getTime()
-    if (!Number.isFinite(scheduledMs)) return false
-    return scheduledMs > nowMs || scheduledMs >= cutoffMs
+    return Number.isFinite(new Date(appt.scheduled_for).getTime())
   })
 }
 
@@ -246,71 +293,112 @@ export function isStormOpportunityEligible(
   opportunity: StormOpportunityCandidate,
   coords: { lat: number; lng: number },
   bbox: WeatherBbox,
-  appointments: Array<{ appointment_type: string; status: string; scheduled_for: string }>,
-  now = new Date()
+  appointments: Array<{ appointment_type: string; status: string; scheduled_for: string }>
 ): boolean {
   if (!isEligibleStormOpportunityStatus(opportunity.status)) return false
   if (!isCoordinateInBbox(coords.lat, coords.lng, bbox)) return false
 
   const status = String(opportunity.status || '').trim().toLowerCase()
-  if (status === 'lost') {
-    return isLostStormCandidate(opportunity)
-  }
+  if (status === 'lost' && !isLostStormCandidate(opportunity)) return false
 
-  return hasOpenInProgressAppointmentGate(appointments, now)
+  return hasQualifyingInspectionHistory(appointments)
 }
 
 export function matchStormReportsToOpportunity(
   opportunity: StormOpportunityCandidate,
   coords: { lat: number; lng: number },
   hailReports: RecentStormReport[],
-  windReports: RecentStormReport[]
+  windReports: RecentStormReport[],
+  swaths: StormSwathCandidate[] = []
 ): StormMatchResult[] {
-  const nearestByLayerDate = new Map<string, StormMatchResult>()
+  const bestByLayerDate = new Map<string, StormMatchResult>()
 
-  const consider = (report: RecentStormReport, layer: StormAlertLayer) => {
-    const distanceMiles = haversineDistanceMiles(coords.lat, coords.lng, report.lat, report.lng)
-    if (distanceMiles > STORM_ALERT_RADIUS_MILES) return
-
-    const eventDate = stormEventDateEt(report)
-    const key = `${layer}:${eventDate}`
-    const existing = nearestByLayerDate.get(key)
-    if (!existing || distanceMiles < existing.distanceMiles) {
-      nearestByLayerDate.set(key, {
-        opportunity,
-        report,
-        layer,
-        eventDate,
-        distanceMiles,
-      })
+  /**
+   * One alert per layer per event date. A swath hit beats a point report for the
+   * same day because the footprint is address-specific rather than "something was
+   * reported half a mile away"; between two of the same source, nearest wins.
+   */
+  const consider = (next: StormMatchResult) => {
+    const key = `${next.layer}:${next.eventDate}`
+    const existing = bestByLayerDate.get(key)
+    if (!existing) {
+      bestByLayerDate.set(key, next)
+      return
+    }
+    const upgradesSource = next.source === 'swath' && existing.source === 'report'
+    const sameSourceCloser =
+      next.source === existing.source && next.distanceMiles < existing.distanceMiles
+    if (upgradesSource || sameSourceCloser) {
+      bestByLayerDate.set(key, next)
     }
   }
 
-  for (const report of hailReports) {
-    consider(report, 'hail')
-  }
-  for (const report of windReports) {
-    consider(report, 'wind')
+  const considerReport = (report: RecentStormReport, layer: StormAlertLayer) => {
+    const distanceMiles = haversineDistanceMiles(coords.lat, coords.lng, report.lat, report.lng)
+    if (distanceMiles > STORM_ALERT_RADIUS_MILES) return
+
+    consider({
+      opportunity,
+      layer,
+      eventDate: stormEventDateEt(report),
+      distanceMiles,
+      magnitude: report.magnitude,
+      damage: report.damage,
+      source: 'report',
+      stormLat: report.lat,
+      stormLng: report.lng,
+      insideSwath: false,
+    })
   }
 
-  return Array.from(nearestByLayerDate.values())
+  for (const report of hailReports) considerReport(report, 'hail')
+  for (const report of windReports) considerReport(report, 'wind')
+
+  for (const swath of swaths) {
+    const hit = matchPointToSwathGeometry(coords.lat, coords.lng, swath.geometry)
+    if (!hit) continue
+
+    consider({
+      opportunity,
+      layer: swath.layer,
+      eventDate: swath.event_date,
+      distanceMiles: hit.distanceMiles,
+      magnitude: swath.magnitude,
+      damage: false,
+      source: 'swath',
+      stormLat: null,
+      stormLng: null,
+      insideSwath: hit.inside,
+    })
+  }
+
+  return Array.from(bestByLayerDate.values())
+}
+
+/** Claims-safe proximity phrasing — an area footprint is never described as a distance. */
+export function formatStormProximityLabel(match: StormMatchResult): string {
+  if (match.source === 'swath') {
+    return match.insideSwath
+      ? 'this address falls inside the est. storm footprint'
+      : `this address is est. ${match.distanceMiles.toFixed(2)} mi from the est. storm footprint`
+  }
+  return `recorded est. ${match.distanceMiles.toFixed(2)} mi from this address`
 }
 
 export function buildStormActivityNote(match: StormMatchResult): string {
   const dateLabel = formatStormEventDateLabel(match.eventDate)
-  const mag = formatStormMagnitudeLabel(match.layer, match.report)
-  const dist = match.distanceMiles.toFixed(2)
-  return `Recent storm activity (${mag}) was recorded est. ${dist} mi from this address on ${dateLabel}. Property may have been impacted — free inspection available (est.).`
+  const mag = formatStormMagnitudeLabel(match.layer, match)
+  return `Recent storm activity (${mag}) on ${dateLabel} — ${formatStormProximityLabel(match)}. Property may have been impacted — free inspection available (est.).`
 }
 
 export function buildStormNotificationBody(match: StormMatchResult, customerName: string): string {
   const dateLabel = formatStormEventDateLabel(match.eventDate)
-  const mag = formatStormMagnitudeLabel(match.layer, match.report)
+  const mag = formatStormMagnitudeLabel(match.layer, match)
   return [
     `Customer: ${customerName}`,
     match.opportunity.address_text ? `Address: ${match.opportunity.address_text}` : null,
     match.opportunity.phone ? `Phone: ${match.opportunity.phone}` : null,
-    `Storm report (${mag}) est. ${match.distanceMiles.toFixed(2)} mi away on ${dateLabel}`,
+    `Storm ${match.source === 'swath' ? 'footprint' : 'report'} (${mag}) on ${dateLabel} — ${formatStormProximityLabel(match)}`,
     'Offer a free inspection — impact is est. only.',
   ]
     .filter(Boolean)
@@ -336,7 +424,7 @@ export function buildStormAlertDigestHtml(rows: StormAlertDigestRow[]): string {
           <td style="padding:8px 10px;border-bottom:1px solid #E5E7EB;color:#374151;">${escapeHtml(row.layer)}</td>
           <td style="padding:8px 10px;border-bottom:1px solid #E5E7EB;color:#374151;">${escapeHtml(row.magnitudeLabel)}</td>
           <td style="padding:8px 10px;border-bottom:1px solid #E5E7EB;color:#374151;">${escapeHtml(formatStormEventDateLabel(row.eventDate))}</td>
-          <td style="padding:8px 10px;border-bottom:1px solid #E5E7EB;color:#374151;">${row.distanceMiles.toFixed(2)} mi</td>
+          <td style="padding:8px 10px;border-bottom:1px solid #E5E7EB;color:#374151;">${escapeHtml(row.proximityLabel)}</td>
           <td style="padding:8px 10px;border-bottom:1px solid #E5E7EB;color:#374151;">${row.routed ? 'Routed to IS' : 'Noted only'}</td>
         </tr>`
     )
@@ -361,7 +449,7 @@ export function buildStormAlertDigestHtml(rows: StormAlertDigestRow[]): string {
             <th style="padding:8px 10px;color:#374151;">Layer</th>
             <th style="padding:8px 10px;color:#374151;">Report</th>
             <th style="padding:8px 10px;color:#374151;">Date (ET)</th>
-            <th style="padding:8px 10px;color:#374151;">Distance</th>
+            <th style="padding:8px 10px;color:#374151;">Proximity (est.)</th>
             <th style="padding:8px 10px;color:#374151;">Action</th>
           </tr>
         </thead>
@@ -377,7 +465,7 @@ export function buildStormAlertDigestText(rows: StormAlertDigestRow[]): string {
   const limited = rows.slice(0, STORM_ALERT_EMAIL_MAX_ROWS)
   const lines = limited.map(
     (row) =>
-      `${row.customerName} | ${row.address || '—'} | ${row.layer} | ${row.magnitudeLabel} | ${formatStormEventDateLabel(row.eventDate)} | ${row.distanceMiles.toFixed(2)} mi | ${row.routed ? 'Routed' : 'Noted'}`
+      `${row.customerName} | ${row.address || '—'} | ${row.layer} (${row.source}) | ${row.magnitudeLabel} | ${formatStormEventDateLabel(row.eventDate)} | ${row.proximityLabel} | ${row.routed ? 'Routed' : 'Noted'}`
   )
   if (rows.length > STORM_ALERT_EMAIL_MAX_ROWS) {
     lines.push(`…and ${rows.length - STORM_ALERT_EMAIL_MAX_ROWS} more`)
