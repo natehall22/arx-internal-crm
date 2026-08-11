@@ -8,6 +8,16 @@ import { getCrmEmailFrom, getMailTransport } from '@/lib/setter-email'
 const TIMEZONE = 'America/New_York'
 const PAGE_SIZE = 1000
 
+/** A gap longer than this between two quick doors ends the session — the break is not field time. */
+const BREAK_GAP_MINUTES = 15
+/** A conversation can stretch a gap this far before it still counts as a break. */
+const CONTACT_BREAK_GAP_MINUTES = 30
+/**
+ * Dispositions the org counts as a contact, but which are a quick door for TIF purposes.
+ * Scoped to this report only — org-wide contact metrics (dashboards, 444) are unchanged.
+ */
+const TIF_QUICK_DOOR_DISPOSITIONS = new Set(['renter'])
+
 type DoorRow = {
   id: string
   created_at: string
@@ -72,16 +82,14 @@ function formatTime(value: string): string {
   })
 }
 
-export function calculateCreditedFieldMinutes(
-  doors: number,
-  contacts: number,
-  actualElapsedMinutes?: number
-): number {
-  const safeDoors = Math.max(0, Math.trunc(doors))
-  const safeContacts = Math.min(safeDoors, Math.max(0, Math.trunc(contacts)))
-  const weightedMinutes = safeContacts * 20 + (safeDoors - safeContacts) * 5
-  if (actualElapsedMinutes == null) return weightedMinutes
-  return Math.min(weightedMinutes, Math.max(0, Math.floor(actualElapsedMinutes)))
+/** True when the org counts this disposition as a contact AND it earns full conversation credit. */
+export function isTifContactDisposition(
+  disposition: string | null | undefined,
+  contactDispositionIds: Set<string>
+): boolean {
+  const id = String(disposition || '').toLowerCase().trim()
+  if (TIF_QUICK_DOOR_DISPOSITIONS.has(id)) return false
+  return isContactDisposition(disposition, contactDispositionIds)
 }
 
 export function calculateSessionCappedTif(
@@ -99,7 +107,10 @@ export function calculateSessionCappedTif(
     const gapMinutes =
       (new Date(sorted[index].at).getTime() - new Date(sorted[index - 1].at).getTime()) / 60_000
     const gapTouchesContact = sorted[index - 1].contact || sorted[index].contact
-    if (gapMinutes > 15 && !gapTouchesContact) {
+    // A contact buys a longer allowance for the conversation, but not an unlimited one —
+    // otherwise a single contact next to a multi-hour gap credits the whole gap as field time.
+    const allowedGapMinutes = gapTouchesContact ? CONTACT_BREAK_GAP_MINUTES : BREAK_GAP_MINUTES
+    if (gapMinutes > allowedGapMinutes) {
       // End the prior session at the prior knock's credited duration. The break is excluded.
       activeElapsedMinutes += duration(sorted[index - 1])
       sessionCount += 1
@@ -166,7 +177,7 @@ export function summarizeSetterFieldRows(
       events: [],
     }
 
-    const contact = isContactDisposition(door.canvass_disposition, contactDispositionIds)
+    const contact = isTifContactDisposition(door.canvass_disposition, contactDispositionIds)
     const creditMinutes = contact ? 20 : 5
     existing.doors += 1
     if (contact) {
@@ -181,11 +192,13 @@ export function summarizeSetterFieldRows(
       existing.lastKnockAt = door.created_at
     }
     existing.events.push({ at: door.created_at, contact, creditMinutes })
-    existing.creditedMinutes = calculateSessionCappedTif(existing.events).creditedMinutes
     grouped.set(key, existing)
   }
 
-  return Array.from(grouped.values()).map(({ events: _events, ...row }) => row).sort(
+  return Array.from(grouped.values()).map(({ events, ...row }) => ({
+    ...row,
+    creditedMinutes: calculateSessionCappedTif(events).creditedMinutes,
+  })).sort(
     (a, b) => a.dateKey.localeCompare(b.dateKey) || b.creditedMinutes - a.creditedMinutes || a.repName.localeCompare(b.repName)
   )
 }
@@ -289,7 +302,7 @@ export function buildSetterFieldUpdateHtml(report: SetterFieldUpdateReport, test
     <h1 style="margin:0 0 6px;color:#111827;font-size:22px;">${escapeHtml(report.teamName)} Setter Time In Field (TIF) Update</h1>
     <p style="margin:0;color:#111827;font-size:14px;font-weight:600;">${escapeHtml(report.sentDateLabel)}</p>
     <p style="margin:4px 0 18px;color:#6b7280;font-size:14px;">Field activity: ${escapeHtml(report.activityLabel)}</p>
-    <p style="margin:0 0 18px;padding:12px 14px;background:#f3f4f6;color:#374151;border-radius:8px;font-size:13px;"><strong>How TIF works:</strong> Contacts count as 20 minutes and non-contacts count as 5 minutes. Gaps over 15 minutes are removed as breaks, unless at least one of the two surrounding knocks is a contact. TIF never exceeds recorded active time.</p>
+    <p style="margin:0 0 18px;padding:12px 14px;background:#f3f4f6;color:#374151;border-radius:8px;font-size:13px;"><strong>How TIF works:</strong> Contacts count as 20 minutes and non-contacts count as 5 minutes. Renters count as a quick door (5 minutes), not a contact. Gaps over 15 minutes are removed as breaks — a gap next to a contact gets 30 minutes before it counts as a break. TIF never exceeds recorded active time.</p>
     ${sections || '<p style="padding:18px 0;color:#6b7280;">No credited door activity was recorded for this period.</p>'}
     <p style="margin-top:22px;color:#6b7280;font-size:12px;">Contact status uses the organization’s configured contact dispositions. Door attribution uses the original pinned canvasser when available.</p>
   </div>`
@@ -302,10 +315,14 @@ export async function sendSetterFieldUpdateEmail(
   if (!process.env.SMTP_HOST) return { sent: 0, skipped: true, reason: 'smtp_not_configured' }
   const isTest = Boolean(params.testToEmails?.length)
   let recipients: Array<{ id: string; email: string; role: string | null }> = []
+  // Hand-picked recipients asked for this report by name, so they get every team's report even
+  // when they manage no one. Role-targeted recipients still only see the teams they manage.
+  let pinnedRecipientIds = new Set<string>()
   if (!isTest) {
     const { data: org, error } = await supabase.from('orgs').select('settings').eq('id', params.orgId).single()
     if (error) throw error
     const settings = getOrgEmailBlastSettings(org.settings)
+    pinnedRecipientIds = new Set(settings.setter_field_update?.user_targets || [])
     const resolved = await resolveEmailBlastRecipients(supabase, {
       orgId: params.orgId,
       blastType: 'setter_field_update',
@@ -339,7 +356,7 @@ export async function sendSetterFieldUpdateEmail(
       recipient,
       (teamUsers || []) as Array<{ id: string; team_id: string | null; manager_user_id: string | null }>
     )
-    const recipientReports = isTest
+    const recipientReports = isTest || pinnedRecipientIds.has(recipient.id)
       ? reports
       : reports.filter((report) => managedTeamIds.has(report.teamId))
 

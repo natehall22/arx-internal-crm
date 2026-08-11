@@ -1,21 +1,13 @@
 import {
   buildSetterFieldUpdateHtml,
-  calculateCreditedFieldMinutes,
   calculateSessionCappedTif,
+  isTifContactDisposition,
   resolveRecipientManagedTeamIds,
   summarizeSetterFieldRows,
   type SetterFieldUpdateReport,
 } from '../setter-field-update-email'
 
 describe('setter field-time update', () => {
-  it('credits 20 minutes per contact and 5 per non-contact', () => {
-    expect(calculateCreditedFieldMinutes(10, 3)).toBe(95)
-  })
-
-  it('never credits more than the first-to-last-knock elapsed time', () => {
-    expect(calculateCreditedFieldMinutes(10, 3, 40)).toBe(40)
-  })
-
   it('excludes gaps longer than 15 minutes as breaks', () => {
     const result = calculateSessionCappedTif([
       { at: '2026-08-10T14:00:00Z', contact: false },
@@ -40,13 +32,46 @@ describe('setter field-time update', () => {
     expect(result.creditedMinutes).toBe(25)
   })
 
-  it('does not treat a long gap touching a contact as a break', () => {
+  it('lets a contact stretch a gap to 30 minutes without breaking the session', () => {
     const result = calculateSessionCappedTif([
       { at: '2026-08-10T14:00:00Z', contact: false },
       { at: '2026-08-10T14:30:00Z', contact: true },
     ])
     expect(result.sessionCount).toBe(1)
     expect(result.creditedMinutes).toBe(25)
+  })
+
+  it('still breaks a multi-hour gap that sits next to a contact', () => {
+    const result = calculateSessionCappedTif([
+      { at: '2026-08-10T17:06:00Z', contact: true },
+      { at: '2026-08-10T19:46:00Z', contact: true },
+    ])
+    // The 160-minute gap is a break, not a 160-minute conversation.
+    expect(result.sessionCount).toBe(2)
+    expect(result.activeElapsedMinutes).toBe(40)
+    expect(result.creditedMinutes).toBe(40)
+  })
+
+  it('treats renters as a quick door rather than a contact', () => {
+    const contactIds = new Set(['renter', 'go_back', 'hot_lead', 'not_interested'])
+    expect(isTifContactDisposition('renter', contactIds)).toBe(false)
+    expect(isTifContactDisposition('not_interested', contactIds)).toBe(true)
+
+    const rows = summarizeSetterFieldRows(
+      [
+        {
+          id: '1', created_at: '2026-08-10T14:00:00Z', source: 'canvass',
+          canvass_disposition: 'renter', owner_user_id: 'rep', pin_attributed_user_id: null,
+        },
+        {
+          id: '2', created_at: '2026-08-10T14:04:00Z', source: 'canvass',
+          canvass_disposition: 'not_interested', owner_user_id: 'rep', pin_attributed_user_id: null,
+        },
+      ],
+      [{ id: 'rep', full_name: 'Field Rep', team_id: 'east' }],
+      contactIds
+    )
+    expect(rows[0]).toEqual(expect.objectContaining({ doors: 2, contacts: 1, nonContacts: 1, creditedMinutes: 24 }))
   })
 
   it('recognizes an admin as a manager through direct-report assignments', () => {
@@ -108,7 +133,8 @@ describe('setter field-time update', () => {
     }
     const html = buildSetterFieldUpdateHtml(report)
     expect(html).toContain('East Charlotte Setter Time In Field (TIF) Update')
-    expect(html).toContain('unless at least one of the two surrounding knocks is a contact')
+    expect(html).toContain('a gap next to a contact gets 30 minutes before it counts as a break')
+    expect(html).toContain('Renters count as a quick door (5 minutes), not a contact')
     expect(html).toContain('non-contacts count as 5 minutes')
     expect(html).toContain('Last knock')
     expect(html).toContain('Admin Manager')
