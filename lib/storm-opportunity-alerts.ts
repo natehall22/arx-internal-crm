@@ -74,7 +74,7 @@ export function stormOpportunityAlertsEnabled(): boolean {
 }
 
 export function stormAlertEmailTo(): string {
-  return (process.env.STORM_ALERT_EMAIL_TO || 'Nathan@arxroofing.com').trim()
+  return (process.env.STORM_ALERT_EMAIL_TO || 'info@arxroofing.com').trim()
 }
 
 const EARTH_RADIUS_MILES = 3958.7613
