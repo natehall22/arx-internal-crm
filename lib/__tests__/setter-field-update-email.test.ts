@@ -8,8 +8,8 @@ import {
 } from '../setter-field-update-email'
 
 describe('setter field-time update', () => {
-  it('credits 2 minutes per non-contact and 20 per contact', () => {
-    expect(calculateCreditedFieldMinutes(10, 3)).toBe(74)
+  it('credits 20 minutes per contact and 5 per non-contact', () => {
+    expect(calculateCreditedFieldMinutes(10, 3)).toBe(95)
   })
 
   it('never credits more than the first-to-last-knock elapsed time', () => {
@@ -23,8 +23,8 @@ describe('setter field-time update', () => {
       { at: '2026-08-10T15:10:00Z', contact: false },
     ])
     expect(result.sessionCount).toBe(2)
-    expect(result.activeElapsedMinutes).toBe(14)
-    expect(result.creditedMinutes).toBe(6)
+    expect(result.activeElapsedMinutes).toBe(20)
+    expect(result.creditedMinutes).toBe(15)
   })
 
   it('subtracts multiple breaks from the same day', () => {
@@ -36,8 +36,8 @@ describe('setter field-time update', () => {
       { at: '2026-08-10T16:00:00Z', contact: false },
     ])
     expect(result.sessionCount).toBe(3)
-    expect(result.activeElapsedMinutes).toBe(21)
-    expect(result.creditedMinutes).toBe(10)
+    expect(result.activeElapsedMinutes).toBe(30)
+    expect(result.creditedMinutes).toBe(25)
   })
 
   it('does not treat a long gap touching a contact as a break', () => {
@@ -46,7 +46,7 @@ describe('setter field-time update', () => {
       { at: '2026-08-10T14:30:00Z', contact: true },
     ])
     expect(result.sessionCount).toBe(1)
-    expect(result.creditedMinutes).toBe(22)
+    expect(result.creditedMinutes).toBe(25)
   })
 
   it('recognizes an admin as a manager through direct-report assignments', () => {
@@ -83,7 +83,7 @@ describe('setter field-time update', () => {
         doors: 2,
         contacts: 1,
         nonContacts: 1,
-        creditedMinutes: 22,
+        creditedMinutes: 25,
         firstKnockAt: '2026-08-10T14:00:00Z',
         lastKnockAt: '2026-08-10T14:10:00Z',
       }),
@@ -109,6 +109,8 @@ describe('setter field-time update', () => {
     const html = buildSetterFieldUpdateHtml(report)
     expect(html).toContain('East Charlotte Setter Time In Field (TIF) Update')
     expect(html).toContain('unless either knock is a contact')
+    expect(html).toContain('non-contacts count as 5 minutes')
+    expect(html).toContain('Last knock')
     expect(html).toContain('Admin Manager')
     expect(html).toContain('1.2 hr')
   })

@@ -79,17 +79,18 @@ export function calculateCreditedFieldMinutes(
 ): number {
   const safeDoors = Math.max(0, Math.trunc(doors))
   const safeContacts = Math.min(safeDoors, Math.max(0, Math.trunc(contacts)))
-  const weightedMinutes = safeContacts * 20 + (safeDoors - safeContacts) * 2
+  const weightedMinutes = safeContacts * 20 + (safeDoors - safeContacts) * 5
   if (actualElapsedMinutes == null) return weightedMinutes
   return Math.min(weightedMinutes, Math.max(0, Math.floor(actualElapsedMinutes)))
 }
 
 export function calculateSessionCappedTif(
-  events: Array<{ at: string; contact: boolean }>
+  events: Array<{ at: string; contact: boolean; creditMinutes?: number }>
 ): { creditedMinutes: number; activeElapsedMinutes: number; sessionCount: number } {
   if (events.length === 0) return { creditedMinutes: 0, activeElapsedMinutes: 0, sessionCount: 0 }
   const sorted = [...events].sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime())
-  const duration = (event: { contact: boolean }) => event.contact ? 20 : 2
+  const duration = (event: { contact: boolean; creditMinutes?: number }) =>
+    event.creditMinutes ?? (event.contact ? 20 : 5)
   const weightedMinutes = sorted.reduce((sum, event) => sum + duration(event), 0)
   let activeElapsedMinutes = 0
   let sessionCount = 1
@@ -140,7 +141,7 @@ export function summarizeSetterFieldRows(
   const usersById = new Map(users.map((user) => [user.id, user]))
   const grouped = new Map<
     string,
-    SetterFieldDayRow & { events: Array<{ at: string; contact: boolean }> }
+    SetterFieldDayRow & { events: Array<{ at: string; contact: boolean; creditMinutes: number }> }
   >()
 
   for (const door of doors) {
@@ -166,6 +167,7 @@ export function summarizeSetterFieldRows(
     }
 
     const contact = isContactDisposition(door.canvass_disposition, contactDispositionIds)
+    const creditMinutes = contact ? 20 : 5
     existing.doors += 1
     if (contact) {
       existing.contacts += 1
@@ -178,7 +180,7 @@ export function summarizeSetterFieldRows(
     if (new Date(door.created_at).getTime() > new Date(existing.lastKnockAt).getTime()) {
       existing.lastKnockAt = door.created_at
     }
-    existing.events.push({ at: door.created_at, contact })
+    existing.events.push({ at: door.created_at, contact, creditMinutes })
     existing.creditedMinutes = calculateSessionCappedTif(existing.events).creditedMinutes
     grouped.set(key, existing)
   }
@@ -265,6 +267,7 @@ export function buildSetterFieldUpdateHtml(report: SetterFieldUpdateReport, test
       <tr>
         <td style="padding:9px 6px;color:#111827;font-weight:600;">${escapeHtml(row.repName)}</td>
         <td style="padding:9px 6px;color:#374151;white-space:nowrap;">${escapeHtml(formatTime(row.firstKnockAt))}</td>
+        <td style="padding:9px 6px;color:#374151;white-space:nowrap;">${escapeHtml(formatTime(row.lastKnockAt))}</td>
         <td style="padding:9px 6px;color:#374151;text-align:right;">${row.doors}</td>
         <td style="padding:9px 6px;color:#374151;text-align:right;">${row.contacts}</td>
         <td style="padding:9px 6px;color:#111827;font-weight:700;text-align:right;white-space:nowrap;">${(row.creditedMinutes / 60).toFixed(1)} hr</td>
@@ -274,6 +277,7 @@ export function buildSetterFieldUpdateHtml(report: SetterFieldUpdateReport, test
       <table style="width:100%;border-collapse:collapse;font-size:14px;">
         <thead><tr style="border-bottom:1px solid #d1d5db;color:#6b7280;">
           <th style="padding:7px 6px;text-align:left;">Rep</th><th style="padding:7px 6px;text-align:left;">First knock</th>
+          <th style="padding:7px 6px;text-align:left;">Last knock</th>
           <th style="padding:7px 6px;text-align:right;">Doors</th><th style="padding:7px 6px;text-align:right;">Contacts</th>
           <th style="padding:7px 6px;text-align:right;">TIF</th>
         </tr></thead><tbody>${body}</tbody>
@@ -285,7 +289,7 @@ export function buildSetterFieldUpdateHtml(report: SetterFieldUpdateReport, test
     <h1 style="margin:0 0 6px;color:#111827;font-size:22px;">${escapeHtml(report.teamName)} Setter Time In Field (TIF) Update</h1>
     <p style="margin:0;color:#111827;font-size:14px;font-weight:600;">${escapeHtml(report.sentDateLabel)}</p>
     <p style="margin:4px 0 18px;color:#6b7280;font-size:14px;">Field activity: ${escapeHtml(report.activityLabel)}</p>
-    <p style="margin:0 0 18px;padding:12px 14px;background:#f3f4f6;color:#374151;border-radius:8px;font-size:13px;"><strong>How TIF works:</strong> Contacts count as 20 minutes and non-contacts count as 2 minutes. Gaps over 15 minutes are removed as breaks, unless either knock is a contact. TIF never exceeds recorded active time.</p>
+    <p style="margin:0 0 18px;padding:12px 14px;background:#f3f4f6;color:#374151;border-radius:8px;font-size:13px;"><strong>How TIF works:</strong> Contacts count as 20 minutes and non-contacts count as 5 minutes. Gaps over 15 minutes are removed as breaks, unless either knock is a contact. TIF never exceeds recorded active time.</p>
     ${sections || '<p style="padding:18px 0;color:#6b7280;">No credited door activity was recorded for this period.</p>'}
     <p style="margin-top:22px;color:#6b7280;font-size:12px;">Contact status uses the organization’s configured contact dispositions. Door attribution uses the original pinned canvasser when available.</p>
   </div>`
@@ -308,22 +312,6 @@ export async function sendSetterFieldUpdateEmail(
       settings,
     })
     recipients = resolved.users.map((user) => ({ id: user.id, email: user.email, role: user.role }))
-
-    // Some operational managers retain the admin base role. If active reps point to
-    // them through manager_user_id, include them as managers without changing roles.
-    const { data: users, error: usersError } = await supabase
-      .from('users')
-      .select('id, email, role, active, manager_user_id, team_id')
-      .eq('org_id', params.orgId)
-      .eq('active', true)
-    if (usersError) throw usersError
-    const assignedManagerIds = new Set((users || []).map((user) => user.manager_user_id).filter(Boolean))
-    for (const user of users || []) {
-      const email = typeof user.email === 'string' ? user.email.trim().toLowerCase() : ''
-      if (assignedManagerIds.has(user.id) && email.includes('@')) {
-        recipients.push({ id: user.id, email, role: user.role })
-      }
-    }
   } else {
     recipients = (params.testToEmails || []).map((email) => ({ id: 'test', email, role: null }))
   }
