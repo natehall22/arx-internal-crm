@@ -92,6 +92,7 @@ export async function PUT(request: Request) {
       : {
           ...settings,
           morning_update: existingSettings.morning_update,
+          setter_field_update: existingSettings.setter_field_update,
         }
     const mergedSettings = mergeOrgSettingsWithEmailBlasts(org?.settings || {}, mergedBlastSettings)
 

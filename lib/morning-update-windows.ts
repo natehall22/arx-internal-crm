@@ -1,4 +1,4 @@
-import { startOfDay, startOfWeek, subDays } from 'date-fns'
+import { startOfDay, startOfMonth, startOfWeek, subDays } from 'date-fns'
 import { fromZonedTime, toZonedTime } from 'date-fns-tz'
 import type { DateRange } from '@/lib/date-ranges'
 import { EASTERN_TZ } from '@/lib/eastern-datetime'
@@ -95,6 +95,27 @@ export function resolveMorningUpdateSentDateLabel(now: Date = new Date()): strin
 export type MorningUpdateLastWeekWindow = DateRange & {
   rangeLabel: string
   monthGoalLabel: string
+}
+
+/** Week-to-date and month-to-date windows through the start of the send day in Eastern. */
+export function resolveMorningUpdateToDateWindows(now: Date = new Date()): {
+  weekToDate: DateRange
+  monthToDate: DateRange
+} {
+  const nowLocal = toZonedTime(now, EASTERN_TZ)
+  const todayStartLocal = startOfDay(nowLocal)
+  const end = fromZonedTime(todayStartLocal, EASTERN_TZ)
+
+  return {
+    weekToDate: {
+      start: fromZonedTime(startOfWeek(nowLocal, { weekStartsOn: 0 }), EASTERN_TZ),
+      end,
+    },
+    monthToDate: {
+      start: fromZonedTime(startOfMonth(nowLocal), EASTERN_TZ),
+      end,
+    },
+  }
 }
 
 /**

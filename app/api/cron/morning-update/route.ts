@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getOrgEmailBlastSettings } from '@/lib/admin-email-blasts'
 import { sendMorningUpdateEmail } from '@/lib/morning-update-email'
+import { sendSetterFieldUpdateEmail } from '@/lib/setter-field-update-email'
 import { isMorningUpdateSendWindow } from '@/lib/morning-update-schedule'
 import { createServiceClient } from '@/lib/supabase/service'
 
@@ -36,14 +37,26 @@ export async function GET(request: NextRequest) {
   for (const org of orgRows || []) {
     const orgId = org.id as string
     const settings = getOrgEmailBlastSettings(org.settings)
-    if (!settings.morning_update?.enabled) {
+    if (!settings.morning_update?.enabled && !settings.setter_field_update?.enabled) {
       results.push({ org_id: orgId, sent: 0, skipped: true, reason: 'disabled' })
       continue
     }
 
     try {
-      const result = await sendMorningUpdateEmail(admin, { orgId })
-      results.push({ org_id: orgId, ...result })
+      const sends = await Promise.all([
+        settings.morning_update?.enabled
+          ? sendMorningUpdateEmail(admin, { orgId })
+          : Promise.resolve({ sent: 0, skipped: true, reason: 'morning_update_disabled' }),
+        settings.setter_field_update?.enabled
+          ? sendSetterFieldUpdateEmail(admin, { orgId })
+          : Promise.resolve({ sent: 0, skipped: true, reason: 'setter_field_update_disabled' }),
+      ])
+      results.push({
+        org_id: orgId,
+        sent: sends.reduce((sum, result) => sum + result.sent, 0),
+        skipped: sends.every((result) => result.skipped),
+        reason: sends.map((result) => result.reason).filter(Boolean).join(',') || undefined,
+      })
     } catch (error) {
       console.error(`[cron/morning-update] Error for org ${orgId}:`, error)
       results.push({

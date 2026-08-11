@@ -2,7 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { getRoleDisplayName } from '@/lib/permissions'
 import type { UserRole } from '@/lib/types/database'
 
-export type EmailBlastType = 'sale' | 'job_payment' | 'morning_update'
+export type EmailBlastType = 'sale' | 'job_payment' | 'morning_update' | 'setter_field_update'
 
 export type EmailBlastConfig = {
   enabled: boolean
@@ -59,6 +59,12 @@ export const EMAIL_BLAST_DEFINITIONS: EmailBlastDefinition[] = [
     description:
       'Daily summary email at 5:30am ET (Mon–Sat) with doors, inspections, sales, and revenue totals.',
   },
+  {
+    id: 'setter_field_update',
+    title: 'Setter Time In Field (TIF) Update',
+    description:
+      'Separate daily email at 5:30am ET (Mon–Sat) showing each field rep’s doors, contacts, first knock, and credited TIF.',
+  },
 ]
 
 const DEFAULT_EMAIL_BLAST_SETTINGS: OrgEmailBlastSettings = {
@@ -86,6 +92,11 @@ const DEFAULT_EMAIL_BLAST_SETTINGS: OrgEmailBlastSettings = {
   morning_update: {
     enabled: false,
     role_targets: ['owner'],
+    user_targets: [],
+  },
+  setter_field_update: {
+    enabled: true,
+    role_targets: ['regional_setter_manager', 'setter_manager'],
     user_targets: [],
   },
 }
@@ -138,6 +149,10 @@ export function normalizeOrgEmailBlastSettings(raw: unknown): OrgEmailBlastSetti
     sale: normalizeConfig(rawObj.sale, DEFAULT_EMAIL_BLAST_SETTINGS.sale),
     job_payment: normalizeConfig(rawObj.job_payment, DEFAULT_EMAIL_BLAST_SETTINGS.job_payment),
     morning_update: normalizeMorningUpdateConfig(rawObj.morning_update, DEFAULT_EMAIL_BLAST_SETTINGS.morning_update),
+    setter_field_update: normalizeConfig(
+      rawObj.setter_field_update,
+      DEFAULT_EMAIL_BLAST_SETTINGS.setter_field_update
+    ),
   }
 }
 

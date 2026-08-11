@@ -3,6 +3,7 @@ import {
   resolveMorningUpdateActivityWindow,
   resolveMorningUpdateLastWeekWindow,
   resolveMorningUpdateSentDateLabel,
+  resolveMorningUpdateToDateWindows,
   shareOfMonthGoalPct,
 } from '../morning-update-windows'
 
@@ -67,6 +68,16 @@ describe('morning-update-windows', () => {
       expect(resolveMorningUpdateSentDateLabel(etWallClock(2026, 6, 13))).toMatch(
         /Monday, July 13, 2026/
       )
+    })
+  })
+
+  describe('resolveMorningUpdateToDateWindows', () => {
+    it('uses Sunday and month starts through the start of the send day', () => {
+      const windows = resolveMorningUpdateToDateWindows(etWallClock(2026, 6, 14))
+      expect(windows.weekToDate.start.toISOString()).toBe('2026-07-12T04:00:00.000Z')
+      expect(windows.weekToDate.end.toISOString()).toBe('2026-07-14T04:00:00.000Z')
+      expect(windows.monthToDate.start.toISOString()).toBe('2026-07-01T04:00:00.000Z')
+      expect(windows.monthToDate.end.toISOString()).toBe('2026-07-14T04:00:00.000Z')
     })
   })
 

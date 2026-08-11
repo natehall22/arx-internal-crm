@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import Nav from '@/components/Nav'
 
-type EmailBlastType = 'sale' | 'job_payment' | 'morning_update'
+type EmailBlastType = 'sale' | 'job_payment' | 'morning_update' | 'setter_field_update'
 
 type EmailBlastConfig = {
   enabled: boolean
@@ -182,7 +182,7 @@ export default function EmailBlastsPage() {
             <div>
               <h1 className="text-2xl font-bold text-gray-900">Email Blasts</h1>
               <p className="text-gray-600 mt-1">
-                Control who gets sale, payment, and owner morning update emails. Scheduling and calendar emails are not changed here.
+                Control who gets sale, payment, owner morning update, and setter field-time emails. Scheduling and calendar emails are not changed here.
               </p>
             </div>
             <button

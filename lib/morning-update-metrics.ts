@@ -9,6 +9,7 @@ import {
   resolveMorningUpdateActivityWindow,
   resolveMorningUpdateLastWeekWindow,
   resolveMorningUpdateSentDateLabel,
+  resolveMorningUpdateToDateWindows,
   shareOfMonthGoalPct,
 } from '@/lib/morning-update-windows'
 import { SALE_AGREEMENT_TYPES } from '@/lib/sales-metrics'
@@ -28,6 +29,7 @@ export type MorningUpdateGoalShare = {
 export type MorningUpdateLastWeekVsGoals = {
   rangeLabel: string
   monthGoalLabel: string
+  proposalsShown: number | null
   doors: MorningUpdateGoalShare
   sets: MorningUpdateGoalShare
   sales: MorningUpdateGoalShare
@@ -43,12 +45,22 @@ export type MorningUpdateMetrics = {
   doorsKnockedMonthToDate: number
   inspectionsScheduledPeriod: number
   inspectionsScheduledMonthToDate: number
+  doorsKnockedWeekToDate: number
+  inspectionsScheduledWeekToDate: number
+  proposalsShownPeriod: number | null
+  proposalsShownWeekToDate: number | null
+  proposalsShownMonthToDate: number | null
   salesPeriod: number
+  salesWeekToDate: number
   salesMonthToDate: number
+  revenuePeriod: number
+  revenueWeekToDate: number
   revenueLastMonth: number
   revenueMonthToDate: number
   revenueYearToDate: number
   insuranceInspectionsLastMonth: number
+  insuranceInspectionsPeriod: number
+  insuranceInspectionsWeekToDate: number
   insuranceInspectionsMonthToDate: number
   /** Monday only: last week totals vs current month goals. Null Tue–Sat. */
   lastWeekVsGoals: MorningUpdateLastWeekVsGoals | null
@@ -148,6 +160,61 @@ function summarizeSignedContracts(rows: SignedContractRow[]): { salesCount: numb
   return { salesCount: seen.size, revenue }
 }
 
+type GeneratedProposalRow = {
+  id: string
+  opportunity_id: string | null
+}
+
+export function countUniqueGeneratedProposalOpportunities(rows: GeneratedProposalRow[]): number {
+  return new Set(rows.map((proposal) => proposal.opportunity_id || proposal.id)).size
+}
+
+async function countGeneratedProposalOpportunitiesInPeriod(
+  supabase: SupabaseClient,
+  orgId: string,
+  startIso: string,
+  endIso: string
+): Promise<number> {
+  const uniqueOpportunities = new Set<string>()
+  let offset = 0
+
+  while (true) {
+    const { data, error } = await supabase
+      .from('proposals')
+      .select('id, opportunity_id')
+      .eq('org_id', orgId)
+      .not('pdf_generated_at', 'is', null)
+      .gte('pdf_generated_at', startIso)
+      .lt('pdf_generated_at', endIso)
+      .order('pdf_generated_at', { ascending: true })
+      .order('id', { ascending: true })
+      .range(offset, offset + PAGE_SIZE - 1)
+
+    if (error) throw error
+    const page = (data || []) as GeneratedProposalRow[]
+    for (const proposal of page) uniqueOpportunities.add(proposal.opportunity_id || proposal.id)
+    if (page.length < PAGE_SIZE) break
+    offset += PAGE_SIZE
+  }
+
+  return uniqueOpportunities.size
+}
+
+async function safelyCountGeneratedProposalOpportunities(
+  supabase: SupabaseClient,
+  orgId: string,
+  startIso: string,
+  endIso: string,
+  label: string
+): Promise<number | null> {
+  try {
+    return await countGeneratedProposalOpportunitiesInPeriod(supabase, orgId, startIso, endIso)
+  } catch (error) {
+    console.error(`fetchMorningUpdateMetrics: ${label} proposal count failed`, error)
+    return null
+  }
+}
+
 function goalShare(actual: number, goal: number | null | undefined): MorningUpdateGoalShare {
   const normalized = goal == null ? null : Number(goal)
   return {
@@ -165,8 +232,8 @@ export async function fetchMorningUpdateMetrics(
   const activity = resolveMorningUpdateActivityWindow(now)
   const monday = isMondayEastern(now)
   const lastWeek = monday ? resolveMorningUpdateLastWeekWindow(now) : null
+  const { weekToDate, monthToDate } = resolveMorningUpdateToDateWindows(now)
 
-  const monthToDate = getDateRangeForTimeFrame('month', TIMEZONE)
   const lastMonth = getDateRangeForTimeFrame('last_month', TIMEZONE)
   const yearToDate = getDateRangeForTimeFrame('year', TIMEZONE)
 
@@ -176,21 +243,31 @@ export async function fetchMorningUpdateMetrics(
   const [
     doorsKnockedPeriod,
     doorsKnockedMonthToDate,
+    doorsKnockedWeekToDate,
     inspectionsScheduledPeriod,
     inspectionsScheduledMonthToDate,
+    inspectionsScheduledWeekToDate,
     periodContracts,
+    weekContracts,
     monthContracts,
     lastMonthContracts,
     yearContracts,
     insuranceInspectionsLastMonth,
+    insuranceInspectionsPeriod,
+    insuranceInspectionsWeekToDate,
     insuranceInspectionsMonthToDate,
+    proposalsShownPeriod,
+    proposalsShownWeekToDate,
+    proposalsShownMonthToDate,
     lastWeekDoors,
     lastWeekSets,
     lastWeekContracts,
+    lastWeekProposalsShown,
     monthGoal,
   ] = await Promise.all([
     countDoors(supabase, orgId, activityStart, activityEnd),
     countDoors(supabase, orgId, monthToDate.start.toISOString(), monthToDate.end.toISOString()),
+    countDoors(supabase, orgId, weekToDate.start.toISOString(), weekToDate.end.toISOString()),
     countInspectionSets(supabase, orgId, activityStart, activityEnd),
     countInspectionSets(
       supabase,
@@ -198,7 +275,19 @@ export async function fetchMorningUpdateMetrics(
       monthToDate.start.toISOString(),
       monthToDate.end.toISOString()
     ),
+    countInspectionSets(
+      supabase,
+      orgId,
+      weekToDate.start.toISOString(),
+      weekToDate.end.toISOString()
+    ),
     fetchSignedContractsInPeriod(supabase, orgId, activityStart, activityEnd),
+    fetchSignedContractsInPeriod(
+      supabase,
+      orgId,
+      weekToDate.start.toISOString(),
+      weekToDate.end.toISOString()
+    ),
     fetchSignedContractsInPeriod(
       supabase,
       orgId,
@@ -223,11 +312,39 @@ export async function fetchMorningUpdateMetrics(
       lastMonth.start.toISOString(),
       lastMonth.end.toISOString()
     ),
+    countInsuranceInspectionsInPeriod(supabase, orgId, activityStart, activityEnd),
+    countInsuranceInspectionsInPeriod(
+      supabase,
+      orgId,
+      weekToDate.start.toISOString(),
+      weekToDate.end.toISOString()
+    ),
     countInsuranceInspectionsInPeriod(
       supabase,
       orgId,
       monthToDate.start.toISOString(),
       monthToDate.end.toISOString()
+    ),
+    safelyCountGeneratedProposalOpportunities(
+      supabase,
+      orgId,
+      activityStart,
+      activityEnd,
+      'activity-period'
+    ),
+    safelyCountGeneratedProposalOpportunities(
+      supabase,
+      orgId,
+      weekToDate.start.toISOString(),
+      weekToDate.end.toISOString(),
+      'week-to-date'
+    ),
+    safelyCountGeneratedProposalOpportunities(
+      supabase,
+      orgId,
+      monthToDate.start.toISOString(),
+      monthToDate.end.toISOString(),
+      'month-to-date'
     ),
     lastWeek
       ? countDoors(supabase, orgId, lastWeek.start.toISOString(), lastWeek.end.toISOString())
@@ -243,6 +360,15 @@ export async function fetchMorningUpdateMetrics(
           lastWeek.end.toISOString()
         )
       : Promise.resolve([] as SignedContractRow[]),
+    lastWeek
+      ? safelyCountGeneratedProposalOpportunities(
+          supabase,
+          orgId,
+          lastWeek.start.toISOString(),
+          lastWeek.end.toISOString(),
+          'last-week'
+        )
+      : Promise.resolve(null),
     monday
       ? getOrgMonthlyGoal(
           supabase,
@@ -255,6 +381,7 @@ export async function fetchMorningUpdateMetrics(
   ])
 
   const periodSales = summarizeSignedContracts(periodContracts)
+  const weekSales = summarizeSignedContracts(weekContracts)
   const monthSales = summarizeSignedContracts(monthContracts)
   const lastMonthRevenue = summarizeSignedContracts(lastMonthContracts).revenue
   const yearRevenue = summarizeSignedContracts(yearContracts).revenue
@@ -265,6 +392,7 @@ export async function fetchMorningUpdateMetrics(
     lastWeekVsGoals = {
       rangeLabel: lastWeek.rangeLabel,
       monthGoalLabel: lastWeek.monthGoalLabel,
+      proposalsShown: lastWeekProposalsShown,
       doors: goalShare(lastWeekDoors, monthGoal?.doors_target),
       sets: goalShare(lastWeekSets, monthGoal?.sets_target),
       sales: goalShare(lastWeekSales.salesCount, monthGoal?.sales_target),
@@ -283,12 +411,22 @@ export async function fetchMorningUpdateMetrics(
     doorsKnockedMonthToDate,
     inspectionsScheduledPeriod,
     inspectionsScheduledMonthToDate,
+    doorsKnockedWeekToDate,
+    inspectionsScheduledWeekToDate,
+    proposalsShownPeriod,
+    proposalsShownWeekToDate,
+    proposalsShownMonthToDate,
     salesPeriod: periodSales.salesCount,
+    salesWeekToDate: weekSales.salesCount,
     salesMonthToDate: monthSales.salesCount,
+    revenuePeriod: periodSales.revenue,
+    revenueWeekToDate: weekSales.revenue,
     revenueLastMonth: lastMonthRevenue,
     revenueMonthToDate: monthSales.revenue,
     revenueYearToDate: yearRevenue,
     insuranceInspectionsLastMonth,
+    insuranceInspectionsPeriod,
+    insuranceInspectionsWeekToDate,
     insuranceInspectionsMonthToDate,
     lastWeekVsGoals,
   }
