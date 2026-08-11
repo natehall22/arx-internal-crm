@@ -289,7 +289,7 @@ export function buildSetterFieldUpdateHtml(report: SetterFieldUpdateReport, test
     <h1 style="margin:0 0 6px;color:#111827;font-size:22px;">${escapeHtml(report.teamName)} Setter Time In Field (TIF) Update</h1>
     <p style="margin:0;color:#111827;font-size:14px;font-weight:600;">${escapeHtml(report.sentDateLabel)}</p>
     <p style="margin:4px 0 18px;color:#6b7280;font-size:14px;">Field activity: ${escapeHtml(report.activityLabel)}</p>
-    <p style="margin:0 0 18px;padding:12px 14px;background:#f3f4f6;color:#374151;border-radius:8px;font-size:13px;"><strong>How TIF works:</strong> Contacts count as 20 minutes and non-contacts count as 5 minutes. Gaps over 15 minutes are removed as breaks, unless either knock is a contact. TIF never exceeds recorded active time.</p>
+    <p style="margin:0 0 18px;padding:12px 14px;background:#f3f4f6;color:#374151;border-radius:8px;font-size:13px;"><strong>How TIF works:</strong> Contacts count as 20 minutes and non-contacts count as 5 minutes. Gaps over 15 minutes are removed as breaks, unless at least one of the two surrounding knocks is a contact. TIF never exceeds recorded active time.</p>
     ${sections || '<p style="padding:18px 0;color:#6b7280;">No credited door activity was recorded for this period.</p>'}
     <p style="margin-top:22px;color:#6b7280;font-size:12px;">Contact status uses the organization’s configured contact dispositions. Door attribution uses the original pinned canvasser when available.</p>
   </div>`

@@ -108,7 +108,7 @@ describe('setter field-time update', () => {
     }
     const html = buildSetterFieldUpdateHtml(report)
     expect(html).toContain('East Charlotte Setter Time In Field (TIF) Update')
-    expect(html).toContain('unless either knock is a contact')
+    expect(html).toContain('unless at least one of the two surrounding knocks is a contact')
     expect(html).toContain('non-contacts count as 5 minutes')
     expect(html).toContain('Last knock')
     expect(html).toContain('Admin Manager')
