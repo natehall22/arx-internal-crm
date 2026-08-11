@@ -394,9 +394,48 @@ describe('storm swath matching', () => {
   })
 })
 
+describe('2026-08-11 east Cabarrus storm (regression)', () => {
+  beforeEach(() => {
+    jest.useFakeTimers()
+    jest.setSystemTime(new Date('2026-08-12T10:00:00.000Z'))
+  })
+
+  afterEach(() => {
+    jest.useRealTimers()
+  })
+
+  // The only LSR the storm produced: wind damage, 4 NNW Midland, 21:50Z.
+  const midlandDamageReport: RecentStormReport = {
+    lat: 35.28,
+    lng: -80.54,
+    magnitude: 0,
+    date: new Date('2026-08-11T21:50:00.000Z'),
+    damage: true,
+  }
+
+  it('passes the wind filter as a damage report with no measured gust', () => {
+    expect(filterStormReportsForAlerts([midlandDamageReport], 'wind')).toHaveLength(1)
+  })
+
+  it('reaches 2988 Parks Lafferty Rd at 2.74mi, which the old 0.5mi radius missed', () => {
+    const palmer = baseCandidate({ status: 'lost', lat: 35.3181001, lng: -80.5262467 })
+    const coords = { lat: palmer.lat!, lng: palmer.lng! }
+
+    const distance = haversineDistanceMiles(coords.lat, coords.lng, midlandDamageReport.lat, midlandDamageReport.lng)
+    expect(distance).toBeGreaterThan(0.5)
+    expect(distance).toBeLessThan(STORM_ALERT_RADIUS_MILES)
+
+    const matches = matchStormReportsToOpportunity(palmer, coords, [], [midlandDamageReport])
+    expect(matches).toHaveLength(1)
+    expect(matches[0].layer).toBe('wind')
+    expect(matches[0].damage).toBe(true)
+    expect(matches[0].source).toBe('report')
+  })
+})
+
 describe('storm alert constants', () => {
   it('documents locked thresholds', () => {
-    expect(STORM_ALERT_RADIUS_MILES).toBe(0.5)
+    expect(STORM_ALERT_RADIUS_MILES).toBe(3)
     expect(STORM_ALERT_HAIL_MIN_INCHES).toBe(0.25)
     expect(STORM_ALERT_WIND_MIN_MPH).toBe(58)
     expect(STORM_SWATH_BUFFER_MILES).toBe(1)

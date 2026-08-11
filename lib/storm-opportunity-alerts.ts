@@ -11,7 +11,18 @@ import {
   STORM_SWATH_HAIL_MIN_INCHES,
 } from '@/lib/storm-swath-match'
 
-export const STORM_ALERT_RADIUS_MILES = 0.5
+/**
+ * Match radius for IEM point reports.
+ *
+ * 3mi, not the original 0.5mi: LSR spotter reports are sparse — a county-wide
+ * severe storm on 2026-08-11 produced exactly ONE report — and a wind-damage
+ * report marks a storm line passing through, not a pinpoint event. At 0.5mi that
+ * storm matched zero customers while the nearest sat 2.74mi from the report.
+ *
+ * Swath polygons are the precise signal; this radius is the fallback for when no
+ * MRMS swath has been ingested for the event.
+ */
+export const STORM_ALERT_RADIUS_MILES = 3
 export const STORM_ALERT_HAIL_MIN_INCHES = 0.25
 export const STORM_ALERT_WIND_MIN_MPH = 58
 /** IEM fetch window — filtered down to {@link STORM_ALERT_LOOKBACK_ET_DAYS} ET calendar days. */
