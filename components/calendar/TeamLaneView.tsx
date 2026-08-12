@@ -6,6 +6,11 @@ import { fetchSalesCalendarSlice } from '@/lib/calendar-sales'
 import { filterAppointmentsByCalendarScope } from '@/lib/calendar-scope-filters'
 import { nyDayRangeUtc } from '@/lib/calendar-business-tz'
 import { createClientBrowser } from '@/lib/supabase/client'
+import type { DbUserRole } from '@/lib/types/database'
+
+// Typed as DbUserRole: an unknown label makes Postgres reject the entire query
+// (22P02) and the lane view renders empty.
+const LANE_CLOSER_ROLES: DbUserRole[] = ['sales_rep', 'closer', 'sales_manager', 'setter_manager', 'admin']
 
 type CloserRow = {
   id: string
@@ -138,7 +143,7 @@ export default function TeamLaneView({
         .from('users')
         .select('id, full_name, team_id, region_id')
         .eq('org_id', orgId)
-        .in('role', ['sales_rep', 'rep', 'sales_manager', 'setter_manager', 'admin'])
+        .in('role', LANE_CLOSER_ROLES)
         .order('full_name')
 
       if (isCalendarTeamManager && viewerTeamId) {

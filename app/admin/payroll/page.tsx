@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
@@ -51,6 +51,29 @@ export default function AdminPayrollPage() {
   const [error, setError] = useState('')
   const [skippedOpportunityIds, setSkippedOpportunityIds] = useState<string[]>([])
   const [selfGenConflictJobIds, setSelfGenConflictJobIds] = useState<string[]>([])
+  const [pendingBonusCount, setPendingBonusCount] = useState<number | null>(null)
+
+  // Pending bonus lines (444 week bonuses, setter ramp floor top-ups, manual)
+  // waiting for approval. Surfaced here so payroll doesn't have to detour into
+  // Sisu Hub to know a rep's bonus status before a period locks. Best-effort:
+  // if this 403s (e.g. a regional approver without the endpoint's exact role
+  // match) or fails, we just hide the badge rather than blocking the page.
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/admin/payroll/bonus-lines?status=pending_approval')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (cancelled || !data) return
+        const count = Array.isArray(data.bonus_lines) ? data.bonus_lines.length : null
+        setPendingBonusCount(count)
+      })
+      .catch(() => {
+        if (!cancelled) setPendingBonusCount(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const load = async () => {
     setLoading(true)
@@ -112,6 +135,17 @@ export default function AdminPayrollPage() {
             </Link>
             <Link href="/admin/payroll/weekly" className="text-indigo-600 hover:text-indigo-800">
               Weekly eligibility worksheet →
+            </Link>
+            <Link
+              href="/admin/sisu/bonus-approval"
+              className="inline-flex items-center gap-1.5 text-indigo-600 hover:text-indigo-800"
+            >
+              Bonus approval (444, setter ramp) →
+              {pendingBonusCount != null && pendingBonusCount > 0 && (
+                <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">
+                  {pendingBonusCount} pending
+                </span>
+              )}
             </Link>
           </div>
           <p className="text-gray-600 mt-2 max-w-3xl">

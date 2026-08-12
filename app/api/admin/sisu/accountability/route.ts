@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { getEasternPaceFactor, getEasternTodayIso } from '@/lib/eastern-datetime'
 import { INSPECTION_SET_APPOINTMENT_TYPE_OR } from '@/lib/inspection-set-metrics'
+import type { DbUserRole } from '@/lib/types/database'
 
 export const dynamic = 'force-dynamic'
 
@@ -61,7 +62,10 @@ const ADMIN_ROLES = [
 // Roles that see only their direct reports (manager_user_id = viewer.id)
 const MANAGER_SCOPED_ROLES = new Set(['setter_manager', 'sales_manager', 'regional_setter_manager'])
 
-const ACCOUNTABILITY_ROLES = ['setter', 'canvasser', 'inside_sales', 'call_center']
+// Typed as DbUserRole: Postgres rejects the whole query (22P02) if any value is
+// not a real `user_role` enum label. Inside Sales is a permission-based custom
+// role layered on setter/canvasser, not its own enum value.
+const ACCOUNTABILITY_ROLES: DbUserRole[] = ['setter', 'canvasser']
 const DOOR_SOURCES = ['door_to_door', 'canvass', 'door_knock']
 
 function isRecord(value: unknown): value is Record<string, unknown> {

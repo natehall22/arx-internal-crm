@@ -21,6 +21,34 @@ export type UserRole =
   // Custom (for flexibility)
   | 'custom'
 
+/**
+ * The labels that actually exist in the Postgres `user_role` enum.
+ *
+ * NOTE: `UserRole` above is deliberately WIDER than this — it still carries
+ * legacy labels ('rep', 'inside_sales', 'call_center') that live only in
+ * in-memory comparisons. Postgres rejects the ENTIRE query with 22P02
+ * ("invalid input value for enum user_role") if any one filter value is not a
+ * real enum member, so anything sent to the database in a `role` filter must
+ * be typed as `DbUserRole`, not `UserRole`.
+ */
+export const DB_USER_ROLES = [
+  'admin',
+  'owner',
+  'regional_manager',
+  'regional_setter_manager',
+  'sales_manager',
+  'setter_manager',
+  'sales_rep',
+  'closer',
+  'setter',
+  'canvasser',
+  'operations',
+  'sub',
+  'custom',
+] as const
+
+export type DbUserRole = (typeof DB_USER_ROLES)[number]
+
 export type LeadStatus = 'new' | 'contacted' | 'appointment' | 'inspection' | 'estimate_sent' | 'won' | 'lost'
 
 export type CanvassDisposition = string
