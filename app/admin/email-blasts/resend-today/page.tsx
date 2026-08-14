@@ -7,20 +7,33 @@ import Nav from '@/components/Nav'
 export default function ResendMorningEmailsPage() {
   const [sending, setSending] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  // Set when the server reports today's emails already went out, which turns the second
+  // click into a deliberate "yes, send a duplicate" rather than an accidental one.
+  const [duplicateWarning, setDuplicateWarning] = useState<string | null>(null)
 
-  const resend = async () => {
+  const resend = async (force = false) => {
     setSending(true)
     setMessage(null)
 
     try {
-      const response = await fetch('/api/admin/email-blasts/resend-today', { method: 'POST' })
+      const response = await fetch('/api/admin/email-blasts/resend-today', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ force }),
+      })
       const data = await response.json()
+
+      if (response.status === 409 && data.alreadySentToday) {
+        setDuplicateWarning(data.error || 'Today&apos;s emails already went out.')
+        return
+      }
 
       if (!response.ok) throw new Error(data.error || 'Failed to resend morning emails')
 
       const morningCount = data.morningUpdate?.sent || 0
       const tifCount = data.setterFieldUpdate?.sent || 0
       const warning = data.warning ? ` ${data.warning}` : ''
+      setDuplicateWarning(null)
       setMessage({
         type: 'success',
         text: `Resend complete: ${morningCount} Morning Update email(s) and ${tifCount} Setter TIF email(s) sent.${warning}`,
@@ -59,9 +72,27 @@ export default function ResendMorningEmailsPage() {
             </div>
           )}
 
+          {duplicateWarning && (
+            <div className="mt-5 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3">
+              <p className="text-sm font-semibold text-[#2c2c2a]">{duplicateWarning}</p>
+              <p className="mt-1 text-sm text-[#2c2c2a]">
+                Only send again if the first copy genuinely did not arrive — everyone configured
+                for these reports will get a second copy.
+              </p>
+              <button
+                type="button"
+                onClick={() => resend(true)}
+                disabled={sending}
+                className="mt-3 inline-flex items-center justify-center rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+              >
+                {sending ? 'Sending…' : 'Send a second copy anyway'}
+              </button>
+            </div>
+          )}
+
           <button
             type="button"
-            onClick={resend}
+            onClick={() => resend(false)}
             disabled={sending}
             className="mt-6 inline-flex items-center justify-center rounded-lg bg-indigo-600 px-5 py-2.5 font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
           >
