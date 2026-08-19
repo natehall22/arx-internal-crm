@@ -114,6 +114,23 @@ interface ManagementOverlayAssignment {
   comp_plans?: { name: string } | null
 }
 
+/** One append-only row of `comp_plan_versions` — a plan's terms from a date forward. */
+interface CompPlanVersion {
+  id: string
+  comp_plan_id: string
+  effective_from: string
+  plan_type: string
+  base_percentage: number | null
+  flat_amount: number | null
+  hourly_rate: number | null
+  unit_rate: number | null
+  unit_type: string | null
+  is_manager_plan: boolean | null
+  change_reason: string | null
+  created_at: string
+  created_by_user_id: string | null
+}
+
 interface ManagementOverlayVersion {
   id: string
   comp_plan_id: string
@@ -212,6 +229,7 @@ export default function CompPlansPage() {
   const [userAssignments, setUserAssignments] = useState<UserCompPlan[]>([])
   const [managementOverlayAssignments, setManagementOverlayAssignments] = useState<ManagementOverlayAssignment[]>([])
   const [managementOverlayVersions, setManagementOverlayVersions] = useState<ManagementOverlayVersion[]>([])
+  const [compPlanVersions, setCompPlanVersions] = useState<CompPlanVersion[]>([])
   const [managerAssignments, setManagerAssignments] = useState<ManagerAssignment[]>([])
   const [users, setUsers] = useState<AssignmentUser[]>([])
   const [activeTab, setActiveTab] = useState<'plans' | 'assignments' | 'overrides'>('plans')
@@ -247,6 +265,9 @@ export default function CompPlansPage() {
     is_active: true,
     is_default: false,
     readme: '',
+    /** Amendment fields — only used when editing a plan whose pay terms changed. */
+    effective_from: '',
+    change_reason: '',
   })
   
   const [assignForm, setAssignForm] = useState({
@@ -317,6 +338,7 @@ export default function CompPlansPage() {
       setUserAssignments(data.userAssignments || [])
       setManagementOverlayAssignments(data.managementOverlayAssignments || [])
       setManagementOverlayVersions(data.managementOverlayVersions || [])
+      setCompPlanVersions(data.compPlanVersions || [])
       setManagerAssignments(data.managerAssignments || [])
       setUsers(data.users || [])
     } catch (error) {
@@ -462,20 +484,32 @@ export default function CompPlansPage() {
       is_active: planForm.is_active,
       is_default: planForm.is_default,
       readme: planForm.readme || null,
+      // Ignored unless the pay terms actually changed, in which case the API requires
+      // both and records an effective-dated version instead of editing history.
+      effective_from: planForm.effective_from || easternToday,
+      change_reason: planForm.change_reason,
     }
 
-    try {
+    const submit = async (extra?: { confirm_backdate?: boolean }): Promise<boolean> => {
       const response = await fetch('/api/admin/data', {
         method: editingPlan ? 'PATCH' : 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(planData),
+        body: JSON.stringify({ ...planData, ...extra }),
       })
+      if (response.ok) return true
 
-      if (!response.ok) {
-        const data = await response.json()
-        alert(data.error || 'Failed to save comp plan')
-        return
+      const data = await response.json().catch(() => ({}))
+      if (data.code === 'confirm_backdate_required') {
+        if (confirm(`${data.error}\n\nContinue?`)) return submit({ ...extra, confirm_backdate: true })
+        return false
       }
+      alert(data.error || 'Failed to save comp plan')
+      return false
+    }
+
+    try {
+      const saved = await submit()
+      if (!saved) return
 
       setShowPlanModal(false)
       setEditingPlan(null)
@@ -660,6 +694,8 @@ export default function CompPlansPage() {
       is_active: true,
       is_default: false,
       readme: '',
+      effective_from: '',
+      change_reason: '',
     })
   }
 
@@ -706,6 +742,9 @@ export default function CompPlansPage() {
       is_active: plan.is_active,
       is_default: plan.is_default,
       readme: plan.readme || '',
+      // An amendment defaults to taking effect today; the reason is always typed fresh.
+      effective_from: easternToday,
+      change_reason: '',
     })
     setShowPlanModal(true)
   }
@@ -1043,6 +1082,56 @@ export default function CompPlansPage() {
                     </p>
                   </div>
                 )}
+
+                {(() => {
+                  const versions = compPlanVersions
+                    .filter((version) => version.comp_plan_id === plan.id)
+                    .sort((a, b) => b.effective_from.localeCompare(a.effective_from))
+                  if (versions.length === 0) return null
+                  const inEffect = versions.find((version) => version.effective_from <= easternToday)
+                  const scheduled = versions.filter((version) => version.effective_from > easternToday)
+                  return (
+                    <div className="mb-4 rounded-lg border border-gray-200 px-3 py-2">
+                      <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: INK }}>
+                        Pay terms history
+                      </p>
+                      {inEffect && (
+                        <p className="mt-1 text-xs" style={{ color: INK }}>
+                          Current terms in effect since {inEffect.effective_from}
+                          {versions.length > 1 ? ` · ${versions.length} versions` : ''}
+                        </p>
+                      )}
+                      {scheduled.map((version) => (
+                        <p key={version.id} className="mt-1 text-xs font-semibold" style={{ color: '#7c4a03' }}>
+                          Scheduled {version.effective_from}:{' '}
+                          {version.base_percentage != null ? `${Number(version.base_percentage).toFixed(2)}%` : version.plan_type}
+                          {version.change_reason ? ` — ${version.change_reason}` : ''}
+                        </p>
+                      ))}
+                      <details className="mt-1">
+                        <summary className="text-xs cursor-pointer" style={{ color: INK }}>
+                          Show all versions
+                        </summary>
+                        <ul className="mt-1 space-y-1">
+                          {versions.map((version) => (
+                            <li key={version.id} className="text-xs" style={{ color: INK }}>
+                              <span className="font-medium">{version.effective_from}</span>
+                              {' · '}
+                              {version.base_percentage != null
+                                ? `${Number(version.base_percentage).toFixed(2)}%`
+                                : version.flat_amount != null
+                                  ? `$${Number(version.flat_amount).toLocaleString()}`
+                                  : version.plan_type}
+                              {' · '}
+                              {usersById.get(version.created_by_user_id || '')?.full_name || 'system backfill'}
+                              {version.change_reason ? ` — ${version.change_reason}` : ''}
+                            </li>
+                          ))}
+                        </ul>
+                      </details>
+                    </div>
+                  )
+                })()}
 
                 <div className="space-y-2 mb-4">
                   <div className="flex justify-between text-sm">
@@ -2045,6 +2134,50 @@ export default function CompPlansPage() {
                   </label>}
                 </div>
                 
+                {/* Amendment — only when editing an existing plan */}
+                {editingPlan && (
+                  <div className="mt-4 pt-4 border-t">
+                    <h3 className="text-sm font-semibold" style={{ color: INK }}>
+                      Changing the pay terms?
+                    </h3>
+                    <p className="mt-1 text-xs" style={{ color: INK }}>
+                      Rates, tiers, volume bonuses and manager flags are effective-dated. Editing
+                      them records a new version from the date below — jobs sold before it keep
+                      paying the terms they were sold under. Name, description, roles and the plan
+                      details text are not versioned and change immediately.
+                    </p>
+                    <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label htmlFor="plan-effective-from" className="block text-sm font-medium" style={{ color: INK }}>
+                          New terms effective from
+                        </label>
+                        <input
+                          id="plan-effective-from"
+                          type="date"
+                          value={planForm.effective_from}
+                          onChange={(e) => setPlanForm(prev => ({ ...prev, effective_from: e.target.value }))}
+                          className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-lg"
+                          style={{ color: INK }}
+                        />
+                      </div>
+                      <div>
+                        <label htmlFor="plan-change-reason" className="block text-sm font-medium" style={{ color: INK }}>
+                          Reason for the change
+                        </label>
+                        <input
+                          id="plan-change-reason"
+                          type="text"
+                          value={planForm.change_reason}
+                          onChange={(e) => setPlanForm(prev => ({ ...prev, change_reason: e.target.value }))}
+                          placeholder="e.g. Closer base moves 6% → 7% per the 2026 ladder"
+                          className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-lg"
+                          style={{ color: INK }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {/* Plan Readme */}
                 <div className="mt-4 pt-4 border-t">
                   <label className="block text-sm font-medium mb-2" style={{ color: INK }}>

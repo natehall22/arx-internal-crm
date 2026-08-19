@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import { isPayrollAdminRole } from '@/lib/payroll-admin-access'
+import { compPlanBodyChanged } from '@/lib/comp-plan-version'
+import { getEasternTodayIso } from '@/lib/eastern-datetime'
 
 export const dynamic = 'force-dynamic'
 
@@ -130,6 +132,19 @@ export async function GET(request: NextRequest) {
         .eq('org_id', profile.org_id)
         .order('effective_from', { ascending: false })
 
+      // Plan term history — what each plan paid, from when, changed by whom and why.
+      // No `users` embed here: created_by_user_id is half of a COMPOSITE foreign key
+      // (org_id, created_by_user_id), and the page already has the user list to resolve
+      // a name against. An embed on a composite FK is the kind of thing that works until
+      // it silently 500s this whole payload.
+      const { data: planVersions, error: planVersionsError } = await adminClient
+        .from('comp_plan_versions')
+        .select(
+          'id, comp_plan_id, effective_from, plan_type, base_percentage, flat_amount, hourly_rate, unit_rate, unit_type, tiers, volume_bonuses, is_manager_plan, change_reason, created_at, created_by_user_id'
+        )
+        .eq('org_id', profile.org_id)
+        .order('effective_from', { ascending: false })
+
       const { data: users, error: usersError } = await adminClient
         .from('users')
         .select('id, full_name, email, role, manager_user_id, region_id, team_id')
@@ -148,6 +163,7 @@ export async function GET(request: NextRequest) {
         assignmentsError ||
         overlayAssignmentsError ||
         overlayVersionsError ||
+        planVersionsError ||
         usersError ||
         managerAssignmentsError
       if (loadError) {
@@ -159,6 +175,7 @@ export async function GET(request: NextRequest) {
         userAssignments: assignments || [],
         managementOverlayAssignments: overlayAssignments || [],
         managementOverlayVersions: overlayVersions || [],
+        compPlanVersions: planVersions || [],
         managerAssignments: managerAssignments || [],
         users: users || []
       })
@@ -493,64 +510,166 @@ export async function PATCH(request: NextRequest) {
     }
 
     // Update Comp Plan
+    //
+    // Identity (name, description, roles, readme, active/default) is edited in place —
+    // none of it changes anyone's pay. The BODY (rates, tiers, volume bonuses,
+    // is_manager_plan) is versioned: an edit adds an effective-dated row to
+    // comp_plan_versions via amend_comp_plan_version, and payroll resolves the body on
+    // each job's sale date. This replaces the old blanket 409 on assigned plans, which
+    // protected paid history by making every plan in the system uneditable.
     if (resource === 'comp_plan') {
       if (!isPayrollAdminRole(profile.role)) {
         return NextResponse.json({ error: 'Payroll administrator access required' }, { status: 403 })
       }
-      const { count: primaryAssignmentCount, error: primaryCountError } = await adminClient
-        .from('user_comp_plans')
-        .select('id', { count: 'exact', head: true })
+
+      const { data: currentPlan, error: currentPlanError } = await adminClient
+        .from('comp_plans')
+        .select('*')
+        .eq('id', id)
         .eq('org_id', profile.org_id)
-        .eq('comp_plan_id', id)
-      const { count: overlayAssignmentCount, error: overlayCountError } = await adminClient
-        .from('user_management_comp_overlay_assignments')
-        .select('id', { count: 'exact', head: true })
-        .eq('org_id', profile.org_id)
-        .eq('comp_plan_id', id)
-      if (primaryCountError || overlayCountError) {
-        return NextResponse.json(
-          { error: primaryCountError?.message || overlayCountError?.message },
-          { status: 500 }
-        )
+        .maybeSingle()
+      if (currentPlanError) {
+        return NextResponse.json({ error: currentPlanError.message }, { status: 500 })
       }
-      if ((primaryAssignmentCount || 0) > 0 || (overlayAssignmentCount || 0) > 0) {
-        return NextResponse.json(
-          { error: 'Assigned plans are historical records. Create a new plan and schedule a future assignment instead.' },
-          { status: 409 }
-        )
+      if (!currentPlan) {
+        return NextResponse.json({ error: 'Comp plan not found' }, { status: 404 })
       }
+
       const basePercentage = data.base_percentage === null || data.base_percentage === undefined || data.base_percentage === ''
         ? null
         : Number(data.base_percentage)
       if (data.plan_purpose === 'management_overlay' && (basePercentage === null || !Number.isFinite(basePercentage) || basePercentage < 0 || basePercentage > 100)) {
         return NextResponse.json({ error: 'Management overlay rate must be between 0 and 100' }, { status: 400 })
       }
-      const planData = {
-        name: data.name,
-        description: data.description || null,
+
+      const nextBody = {
         plan_type: data.plan_type,
-        flat_amount: data.flat_amount || null,
         base_percentage: basePercentage,
+        flat_amount: data.flat_amount || null,
         hourly_rate: data.hourly_rate || null,
         unit_rate: data.unit_rate || null,
         unit_type: data.unit_type || null,
         hybrid_components: data.hybrid_components || null,
         tiers: data.tiers || null,
         volume_bonuses: data.volume_bonuses || null,
+        team_overrides: data.team_overrides || null,
         is_manager_plan: data.is_manager_plan || false,
         personal_sales_enabled: data.personal_sales_enabled,
         team_override_enabled: data.team_override_enabled || false,
-        team_overrides: data.team_overrides || null,
-        applicable_roles: data.applicable_roles || ['sales_rep', 'canvasser'],
-        is_active: data.is_active ?? true,
-        is_default: data.is_default || false,
-        readme: data.readme || null,
-        plan_purpose: data.plan_purpose === 'management_overlay' ? 'management_overlay' : 'primary',
       }
 
+      if (compPlanBodyChanged(currentPlan as Record<string, unknown>, nextBody)) {
+        const effectiveFrom = typeof data.effective_from === 'string' ? data.effective_from : ''
+        const changeReason = typeof data.change_reason === 'string' ? data.change_reason.trim() : ''
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(effectiveFrom)) {
+          return NextResponse.json(
+            {
+              error: 'Changing a plan\'s pay terms needs an effective date — earlier jobs keep the terms they were sold under.',
+              code: 'effective_from_required',
+            },
+            { status: 400 }
+          )
+        }
+        if (!changeReason) {
+          return NextResponse.json(
+            { error: 'A change reason is required for payroll history.', code: 'change_reason_required' },
+            { status: 400 }
+          )
+        }
+
+        // Settled pay is not editable. Precise test, matching the per-job override
+        // guard: does this plan already have payout lines, in a locked or paid period,
+        // on a job sold on or after the requested date? An old sale date on its own
+        // proves nothing — materialization has no lower bound, so plenty of old jobs
+        // have never been paid.
+        const [{ data: settledLines, error: settledError }, { data: planAssignments, error: planAssignmentsError }] =
+          await Promise.all([
+            adminClient
+              .from('payroll_payout_lines')
+              .select('user_id, job:production_jobs!inner(id, job_number, sale_date), payroll_periods!inner(status)')
+              .eq('org_id', profile.org_id)
+              .in('payroll_periods.status', ['locked', 'paid'])
+              .gte('production_jobs.sale_date', effectiveFrom),
+            adminClient
+              .from('user_comp_plans')
+              .select('user_id, effective_from, effective_to')
+              .eq('org_id', profile.org_id)
+              .eq('comp_plan_id', id),
+          ])
+        if (settledError || planAssignmentsError) {
+          console.error('comp_plan amend (settled check)', settledError || planAssignmentsError)
+          return NextResponse.json({ error: 'Failed to check settled payroll' }, { status: 500 })
+        }
+
+        const assignmentsByUser = new Map<string, Array<{ from: string; to: string | null }>>()
+        for (const row of (planAssignments || []) as Array<{ user_id: string; effective_from: string; effective_to: string | null }>) {
+          const list = assignmentsByUser.get(row.user_id) || []
+          list.push({ from: row.effective_from.slice(0, 10), to: row.effective_to ? row.effective_to.slice(0, 10) : null })
+          assignmentsByUser.set(row.user_id, list)
+        }
+
+        const blocking = ((settledLines || []) as Array<Record<string, unknown>>).find((line) => {
+          const job = (Array.isArray(line.job) ? line.job[0] : line.job) as { sale_date?: string; job_number?: string } | null
+          const saleDate = job?.sale_date?.slice(0, 10)
+          if (!saleDate || saleDate < effectiveFrom) return false
+          return (assignmentsByUser.get(line.user_id as string) || []).some(
+            (a) => a.from <= saleDate && (!a.to || a.to >= saleDate)
+          )
+        })
+        if (blocking) {
+          const job = (Array.isArray(blocking.job) ? blocking.job[0] : blocking.job) as { sale_date?: string; job_number?: string } | null
+          return NextResponse.json(
+            {
+              error:
+                `Job ${job?.job_number || 'unknown'} (sold ${job?.sale_date?.slice(0, 10)}) was already paid on this plan ` +
+                `in a settled payroll period. An amendment effective ${effectiveFrom} would restate it. Choose a later date.`,
+              code: 'settled_pay_conflict',
+            },
+            { status: 400 }
+          )
+        }
+
+        // Backdating past today is legitimate (a ladder that went live before it was
+        // entered) but must be deliberate, same as the org rate editor.
+        const todayIso = getEasternTodayIso()
+        if (effectiveFrom < todayIso && data.confirm_backdate !== true) {
+          return NextResponse.json(
+            {
+              error:
+                `${effectiveFrom} is in the past. Backdating changes what already-open payroll periods will pay ` +
+                'for jobs sold on or after that date. Confirm to continue.',
+              code: 'confirm_backdate_required',
+            },
+            { status: 400 }
+          )
+        }
+
+        const { error: amendError } = await adminClient.rpc('amend_comp_plan_version', {
+          p_org_id: profile.org_id,
+          p_comp_plan_id: id,
+          p_effective_from: effectiveFrom,
+          p_body: nextBody,
+          p_created_by_user_id: profile.id,
+          p_change_reason: changeReason,
+        })
+        if (amendError) {
+          return NextResponse.json({ error: amendError.message }, { status: 400 })
+        }
+      }
+
+      // Identity only — the RPC owns every body column, and syncs them onto the plan
+      // row itself when the amendment is already in effect.
       const { error } = await adminClient
         .from('comp_plans')
-        .update(planData)
+        .update({
+          name: data.name,
+          description: data.description || null,
+          applicable_roles: data.applicable_roles || ['sales_rep', 'canvasser'],
+          is_active: data.is_active ?? true,
+          is_default: data.is_default || false,
+          readme: data.readme || null,
+          plan_purpose: data.plan_purpose === 'management_overlay' ? 'management_overlay' : 'primary',
+        })
         .eq('id', id)
         .eq('org_id', profile.org_id)
 

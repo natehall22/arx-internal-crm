@@ -171,6 +171,7 @@ export type PayrollExportRow = {
 }
 
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { compPlanAsOf, type CompPlanVersionRow } from '@/lib/comp-plan-version'
 
 type UserCompRow = {
   user_id: string
@@ -179,6 +180,42 @@ type UserCompRow = {
   override_percentage: number | null
   hourly_rate_override: number | null
   comp_plans: Record<string, unknown> | null
+}
+
+/**
+ * Plan versions, cached for the life of one Supabase client.
+ *
+ * `createServiceClient()` returns a fresh client per call site, so this is effectively
+ * per-request: long enough to keep materialization from re-reading versions once per
+ * participant per job, short enough that an amend is visible on the next request.
+ */
+const versionCacheByClient = new WeakMap<SupabaseClient, Map<string, CompPlanVersionRow[]>>()
+
+async function loadCompPlanVersions(
+  supabase: SupabaseClient,
+  orgId: string
+): Promise<CompPlanVersionRow[]> {
+  let byOrg = versionCacheByClient.get(supabase)
+  if (!byOrg) {
+    byOrg = new Map()
+    versionCacheByClient.set(supabase, byOrg)
+  }
+  const cached = byOrg.get(orgId)
+  if (cached) return cached
+
+  const { data, error } = await supabase
+    .from('comp_plan_versions')
+    .select(
+      'comp_plan_id, effective_from, plan_type, base_percentage, flat_amount, hourly_rate, unit_rate, unit_type, hybrid_components, tiers, volume_bonuses, team_overrides, is_manager_plan, personal_sales_enabled, team_override_enabled'
+    )
+    .eq('org_id', orgId)
+  // Fail closed, same as the assignment read below: a version read that errors must
+  // never quietly fall through to today's plan body and restate historical pay.
+  if (error) throw error
+
+  const rows = (data || []) as unknown as CompPlanVersionRow[]
+  byOrg.set(orgId, rows)
+  return rows
 }
 
 export async function loadActiveCompPlanForUser(
@@ -203,7 +240,16 @@ export async function loadActiveCompPlanForUser(
   if (error) throw error
 
   if (data && (data as { comp_plans?: unknown }).comp_plans) {
-    return data as unknown as UserCompRow
+    const row = data as unknown as UserCompRow
+    // The assignment says WHICH plan applied on the sale date; the version says what
+    // that plan's terms WERE on it. Without this, amending a plan today would restate
+    // every past job — the reason plan edits were 409'd outright before versioning.
+    const plan = row.comp_plans as (Record<string, unknown> & { id: string }) | null
+    if (plan?.id) {
+      const versions = await loadCompPlanVersions(supabase, orgId)
+      return { ...row, comp_plans: compPlanAsOf(plan, versions, saleDate) }
+    }
+    return row
   }
 
   // Historical pay is assignment-driven. A default plan is useful as an admin UI
