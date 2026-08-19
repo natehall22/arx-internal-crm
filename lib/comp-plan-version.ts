@@ -130,3 +130,14 @@ export function compPlanBodyChanged(
 ): boolean {
   return JSON.stringify(normalizeCompPlanBody(before)) !== JSON.stringify(normalizeCompPlanBody(after))
 }
+
+/**
+ * The date a plan's first version is stamped with — the migration's backfill and every
+ * newly created plan alike.
+ *
+ * It has to predate every possible sale, because the resolver falls back to the mutable
+ * `comp_plans` row when no version covers a date. A plan whose history starts at its
+ * creation date would be fine until its first amendment synced the plan row, at which
+ * point every earlier job would silently start resolving to the amended terms.
+ */
+export const COMP_PLAN_VERSION_FLOOR_DATE = '2000-01-01'

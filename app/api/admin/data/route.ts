@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import { isPayrollAdminRole } from '@/lib/payroll-admin-access'
-import { compPlanBodyChanged } from '@/lib/comp-plan-version'
+import { compPlanBodyChanged, COMP_PLAN_VERSION_FLOOR_DATE } from '@/lib/comp-plan-version'
 import { getEasternTodayIso } from '@/lib/eastern-datetime'
 
 export const dynamic = 'force-dynamic'
@@ -371,12 +371,51 @@ export async function POST(request: NextRequest) {
         plan_purpose: data.plan_purpose === 'management_overlay' ? 'management_overlay' : 'primary',
       }
 
-      const { error } = await adminClient
+      const { data: createdPlan, error } = await adminClient
         .from('comp_plans')
         .insert(planData)
+        .select('id')
+        .single()
 
       if (error) {
         return NextResponse.json({ error: error.message }, { status: 400 })
+      }
+
+      // Seed the plan's first version, open-ended into the past like the migration's
+      // backfill. Without it the plan has no terms on record before its first
+      // amendment, and the resolver's fallback would hand those earlier jobs the
+      // AMENDED plan row — restating pay for sales made under the original terms.
+      if (createdPlan?.id) {
+        const { error: seedError } = await adminClient.from('comp_plan_versions').insert({
+          org_id: profile.org_id,
+          comp_plan_id: createdPlan.id,
+          effective_from: COMP_PLAN_VERSION_FLOOR_DATE,
+          plan_type: planData.plan_type,
+          base_percentage: planData.base_percentage,
+          flat_amount: planData.flat_amount,
+          hourly_rate: planData.hourly_rate,
+          unit_rate: planData.unit_rate,
+          unit_type: planData.unit_type,
+          hybrid_components: planData.hybrid_components,
+          tiers: planData.tiers,
+          volume_bonuses: planData.volume_bonuses,
+          team_overrides: planData.team_overrides,
+          is_manager_plan: planData.is_manager_plan,
+          personal_sales_enabled: planData.personal_sales_enabled,
+          team_override_enabled: planData.team_override_enabled,
+          created_by_user_id: profile.id,
+          change_reason: 'Initial terms recorded when the plan was created',
+        })
+        if (seedError) {
+          // A plan with no version is a restatement waiting to happen, so don't leave
+          // one behind: remove the plan and make the admin retry.
+          console.error('comp_plan create: initial version failed, rolling back plan', seedError)
+          await adminClient.from('comp_plans').delete().eq('id', createdPlan.id).eq('org_id', profile.org_id)
+          return NextResponse.json(
+            { error: 'Could not record the plan\'s initial pay terms. The plan was not created.' },
+            { status: 500 }
+          )
+        }
       }
 
       // If setting as default, unset other defaults
@@ -556,6 +595,25 @@ export async function PATCH(request: NextRequest) {
         is_manager_plan: data.is_manager_plan || false,
         personal_sales_enabled: data.personal_sales_enabled,
         team_override_enabled: data.team_override_enabled || false,
+      }
+
+      // A management overlay plan's rate is NOT what pays. Override lines resolve from
+      // management_comp_overlay_plan_versions, written per assignment, so editing the
+      // plan body here would report success and change nobody's pay. The old blanket
+      // 409 hid this by blocking the edit; now that plan bodies are editable, say so.
+      if (
+        currentPlan.plan_purpose === 'management_overlay' &&
+        compPlanBodyChanged(currentPlan as Record<string, unknown>, nextBody)
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              'The override rate on a management overlay plan is set per manager, on the assignment itself — ' +
+              'use "Set or change override" under Manager override. Editing it here would not change anyone\'s pay.',
+            code: 'overlay_rate_not_editable_here',
+          },
+          { status: 400 }
+        )
       }
 
       if (compPlanBodyChanged(currentPlan as Record<string, unknown>, nextBody)) {

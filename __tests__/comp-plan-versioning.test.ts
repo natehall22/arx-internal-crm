@@ -41,7 +41,7 @@ import {
 import { loadActiveCompPlanForUser } from '@/lib/payroll-export'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
-import { PATCH as adminDataPATCH } from '@/app/api/admin/data/route'
+import { PATCH as adminDataPATCH, POST as adminDataPOST } from '@/app/api/admin/data/route'
 
 const mockRequireAuthApi = requireAuthApi as jest.MockedFunction<typeof requireAuthApi>
 const mockCreateServiceClient = createServiceClient as jest.MockedFunction<typeof createServiceClient>
@@ -398,6 +398,109 @@ describe('PATCH /api/admin/data (comp_plan)', () => {
 
     const res = await adminDataPATCH(request(planPayload({ base_percentage: 8 })))
     expect(res.status).toBe(403)
+    expect(rpc).not.toHaveBeenCalled()
+  })
+})
+
+
+describe('POST /api/admin/data (comp_plan)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockRequireAuthApi.mockResolvedValue(payrollAdminAuth)
+  })
+
+  function createClientMock(seedError: { message: string } | null = null) {
+    const inserts: Array<{ table: string; payload: Record<string, unknown> }> = []
+    const deletes: string[] = []
+    const from = jest.fn((table: string) => {
+      const chain: Record<string, unknown> = {}
+      for (const method of ['select', 'eq', 'neq', 'in', 'gte', 'order', 'limit', 'update']) {
+        chain[method] = jest.fn(() => chain)
+      }
+      chain.insert = jest.fn((payload: Record<string, unknown>) => {
+        inserts.push({ table, payload })
+        return chain
+      })
+      chain.delete = jest.fn(() => {
+        deletes.push(table)
+        return chain
+      })
+      chain.single = jest.fn(async () => ({ data: { id: 'new-plan' }, error: null }))
+      chain.maybeSingle = jest.fn(async () => ({ data: null, error: null }))
+      chain.then = (resolve: (v: { data: unknown; error: unknown }) => void) =>
+        resolve({
+          data: null,
+          error: table === 'comp_plan_versions' ? seedError : null,
+        })
+      return chain
+    })
+    return { client: { from, rpc: jest.fn() } as never, inserts, deletes }
+  }
+
+  const newPlan = {
+    resource: 'comp_plan',
+    name: 'Closer 2027',
+    plan_type: 'percentage',
+    base_percentage: 6,
+    applicable_roles: ['sales_rep'],
+  }
+
+  it('records the plan\'s initial terms as a version covering all earlier dates', async () => {
+    const { client, inserts } = createClientMock()
+    mockCreateServiceClient.mockReturnValue(client)
+
+    const res = await adminDataPOST(request(newPlan))
+    expect(res.status).toBe(200)
+
+    const seeded = inserts.find((row) => row.table === 'comp_plan_versions')
+    expect(seeded).toBeDefined()
+    // Must predate every possible sale: without it, the first amendment would restate
+    // every job sold before the plan's first version.
+    expect(seeded?.payload.effective_from).toBe('2000-01-01')
+    expect(seeded?.payload.base_percentage).toBe(6)
+  })
+
+  it('does not leave a versionless plan behind when the seed fails', async () => {
+    const { client, deletes } = createClientMock({ message: 'insert failed' })
+    mockCreateServiceClient.mockReturnValue(client)
+
+    const res = await adminDataPOST(request(newPlan))
+    expect(res.status).toBe(500)
+    expect(deletes).toContain('comp_plans')
+  })
+})
+
+describe('PATCH /api/admin/data (management overlay plan)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockRequireAuthApi.mockResolvedValue(payrollAdminAuth)
+  })
+
+  it('refuses a rate edit on an overlay plan, which would change nobody\'s pay', async () => {
+    const overlayPlan = { ...currentPlan, plan_purpose: 'management_overlay', base_percentage: '1.00' }
+    const rpc = jest.fn()
+    const from = jest.fn(() => {
+      const chain: Record<string, unknown> = {}
+      for (const method of ['select', 'eq', 'in', 'gte', 'update', 'neq']) chain[method] = jest.fn(() => chain)
+      chain.maybeSingle = jest.fn(async () => ({ data: overlayPlan, error: null }))
+      chain.then = (resolve: (v: { data: unknown; error: unknown }) => void) => resolve({ data: [], error: null })
+      return chain
+    })
+    mockCreateServiceClient.mockReturnValue({ from, rpc } as never)
+
+    const res = await adminDataPATCH(
+      request(
+        planPayload({
+          plan_purpose: 'management_overlay',
+          base_percentage: 1.5,
+          effective_from: '2026-09-01',
+          change_reason: 'raise the override',
+        })
+      )
+    )
+    const body = await res.json()
+    expect(res.status).toBe(400)
+    expect(body.code).toBe('overlay_rate_not_editable_here')
     expect(rpc).not.toHaveBeenCalled()
   })
 })
