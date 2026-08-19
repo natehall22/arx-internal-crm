@@ -201,14 +201,32 @@ const payrollAdminAuth = {
   profile: { id: 'admin-1', org_id: 'org-1', role: 'admin' },
 } as never
 
-function mockSupabaseWithPlan(basePercentage: number | null) {
+/**
+ * `basePercentage` is the overlay plan's frozen starting rate; `liveVersionPercent` is
+ * the rate currently in force for that plan + lane (null when the plan has no version
+ * yet). They differ whenever the rate has been changed since the plan was created,
+ * which is exactly when the fallback has to pick the right one.
+ */
+function mockSupabaseWithPlan(basePercentage: number | null, liveVersionPercent: number | null = null) {
   const rpc = jest.fn().mockResolvedValue({ data: 'assignment-id', error: null })
-  const builder: Record<string, unknown> = {}
-  for (const method of ['select', 'eq']) builder[method] = jest.fn(() => builder)
-  builder.maybeSingle = jest.fn(() =>
-    Promise.resolve({ data: { base_percentage: basePercentage }, error: null })
-  )
-  return { client: { from: jest.fn(() => builder), rpc }, rpc }
+  const responses: Record<string, { data: unknown; error: unknown }> = {
+    comp_plans: { data: { base_percentage: basePercentage }, error: null },
+    management_comp_overlay_plan_versions: {
+      data: liveVersionPercent === null ? null : { override_percent: liveVersionPercent },
+      error: null,
+    },
+  }
+  const from = jest.fn((table: string) => {
+    const builder: Record<string, unknown> = {}
+    for (const method of ['select', 'eq', 'lte', 'order', 'limit']) {
+      builder[method] = jest.fn(() => builder)
+    }
+    builder.maybeSingle = jest.fn(() =>
+      Promise.resolve(responses[table] ?? { data: null, error: null })
+    )
+    return builder
+  })
+  return { client: { from, rpc }, rpc }
 }
 
 function overlayRequest(body: Record<string, unknown>) {
@@ -241,8 +259,8 @@ describe('POST /api/admin/comp-plan-overlays', () => {
     )
   })
 
-  it("falls back to the plan's own rate when none is supplied", async () => {
-    const { client, rpc } = mockSupabaseWithPlan(1)
+  it("falls back to the plan's own rate on the plan's first assignment", async () => {
+    const { client, rpc } = mockSupabaseWithPlan(1, null)
     mockCreateServiceClient.mockReturnValue(client as never)
 
     const res = await overlayPOST(overlayRequest(validOverlayBody))
@@ -250,6 +268,22 @@ describe('POST /api/admin/comp-plan-overlays', () => {
     expect(rpc).toHaveBeenCalledWith(
       'assign_management_comp_overlay',
       expect.objectContaining({ p_override_percent: 1 })
+    )
+  })
+
+  it('falls back to the rate IN FORCE, not the plan\'s frozen base rate', async () => {
+    // The plan was created at 1.00% and later raised to 1.50% via a new version. The
+    // plan row can never be updated (PUT comp_plan 409s once assigned), so trusting
+    // base_percentage here would cut everyone on this overlay back to 1.00% the next
+    // time an admin assigns it and leaves the rate box blank.
+    const { client, rpc } = mockSupabaseWithPlan(1, 1.5)
+    mockCreateServiceClient.mockReturnValue(client as never)
+
+    const res = await overlayPOST(overlayRequest(validOverlayBody))
+    expect(res.status).toBe(201)
+    expect(rpc).toHaveBeenCalledWith(
+      'assign_management_comp_overlay',
+      expect.objectContaining({ p_override_percent: 1.5 })
     )
   })
 
@@ -284,8 +318,8 @@ describe('POST /api/admin/comp-plan-overlays', () => {
     )
   })
 
-  it('refuses when neither an explicit rate nor a plan default exists', async () => {
-    const { client, rpc } = mockSupabaseWithPlan(null)
+  it('refuses when neither an explicit rate nor any existing rate exists', async () => {
+    const { client, rpc } = mockSupabaseWithPlan(null, null)
     mockCreateServiceClient.mockReturnValue(client as never)
 
     const res = await overlayPOST(overlayRequest(validOverlayBody))

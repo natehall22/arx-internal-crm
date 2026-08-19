@@ -7,7 +7,8 @@
  * Covers the four gaps identified in the spec:
  *  1. A blank reason must 400, not silently default.
  *  2. The audit write is checked; on failure the override write is rolled back.
- *  3. Overrides on jobs whose pay is already settled (locked/paid period) are rejected.
+ *  3. Overrides on jobs already PAID in a locked/paid period are rejected — while an old
+ *     sale date that was never actually paid stays overridable.
  *  4. GET returns a read-only, org-wide register joined to the best-matching audit row.
  */
 
@@ -41,7 +42,7 @@ type Resp = { data: unknown; error?: unknown }
  * .maybeSingle()/.single(), or directly via `await builder` (no terminal call). */
 function makeBuilder(response: Resp) {
   const builder: Record<string, unknown> = {}
-  for (const method of ['select', 'eq', 'in', 'order', 'insert', 'update', 'delete']) {
+  for (const method of ['select', 'eq', 'in', 'order', 'insert', 'update', 'delete', 'limit']) {
     builder[method] = jest.fn(() => builder)
   }
   builder.maybeSingle = jest.fn(() => Promise.resolve(response))
@@ -120,13 +121,19 @@ describe('PATCH /api/admin/payroll/deal-commission-roles', () => {
     expect(supabase.from).not.toHaveBeenCalled()
   })
 
-  it('rejects an override on a job whose sale date falls within an already-settled period', async () => {
+  it('rejects an override on a job already paid out in a settled period', async () => {
     mockRequireAuthApi.mockResolvedValue(payrollAdminAuth)
     const supabase = mockSupabaseQueues({
       production_jobs: [{ data: settledJob }],
-      payroll_periods: [
+      payroll_payout_lines: [
         {
-          data: [{ id: 'period-1', period_label: '2026-W29', cutoff_at: '2026-07-12T15:09:00.000Z', status: 'paid' }],
+          data: [
+            {
+              id: 'line-1',
+              payroll_period_id: 'period-1',
+              payroll_periods: { id: 'period-1', period_label: '2026-W29', status: 'paid' },
+            },
+          ],
         },
       ],
     })
@@ -139,7 +146,33 @@ describe('PATCH /api/admin/payroll/deal-commission-roles', () => {
     expect(body.period.label).toBe('2026-W29')
   })
 
-  it('permits an override on a job sold after the newest settled period', async () => {
+  it('permits an override on an OLD job that was never actually paid', async () => {
+    // The regression this guard must not reintroduce: payroll_periods has no start
+    // date and materialization has no lower bound, so an old sale date says nothing
+    // about whether the job was paid. Prod holds 26 such jobs with zero payout lines.
+    mockRequireAuthApi.mockResolvedValue(payrollAdminAuth)
+    const savedRole = {
+      id: 'role-1',
+      job_id: 'job-1',
+      user_id: 'user-1',
+      role: 'closer',
+      override_amount: 500,
+      override_percent: null,
+    }
+    const supabase = mockSupabaseQueues({
+      production_jobs: [{ data: settledJob }], // sale_date 2026-07-01, before the newest settled cutoff
+      payroll_payout_lines: [{ data: [] }], // but nothing was ever paid on it
+      users: [{ data: targetUser }],
+      deal_commission_roles: [{ data: null }, { data: savedRole }],
+      payroll_override_audit: [{ data: null, error: null }],
+    })
+    mockCreateServiceClient.mockReturnValue(supabase as never)
+
+    const res = await rolesPATCH(makeRequest(validBody))
+    expect(res.status).toBe(200)
+  })
+
+  it('permits an override on a job with no settled payout lines', async () => {
     mockRequireAuthApi.mockResolvedValue(payrollAdminAuth)
     const savedRole = {
       id: 'role-1',
@@ -151,9 +184,7 @@ describe('PATCH /api/admin/payroll/deal-commission-roles', () => {
     }
     const supabase = mockSupabaseQueues({
       production_jobs: [{ data: openJob }],
-      payroll_periods: [
-        { data: [{ id: 'period-1', period_label: '2026-W29', cutoff_at: '2026-07-12T15:09:00.000Z', status: 'paid' }] },
-      ],
+      payroll_payout_lines: [{ data: [] }],
       users: [{ data: targetUser }],
       deal_commission_roles: [{ data: null }, { data: savedRole }],
       payroll_override_audit: [{ data: null, error: null }],
@@ -178,7 +209,7 @@ describe('PATCH /api/admin/payroll/deal-commission-roles', () => {
     }
     const supabase = mockSupabaseQueues({
       production_jobs: [{ data: openJob }],
-      payroll_periods: [{ data: [] }],
+      payroll_payout_lines: [{ data: [] }],
       users: [{ data: targetUser }],
       // 1st call: existing lookup (none). 2nd call: the insert write. 3rd call: rollback delete.
       deal_commission_roles: [{ data: null }, { data: savedRole }, { data: null, error: null }],
@@ -207,7 +238,7 @@ describe('PATCH /api/admin/payroll/deal-commission-roles', () => {
     }
     const supabase = mockSupabaseQueues({
       production_jobs: [{ data: openJob }],
-      payroll_periods: [{ data: [] }],
+      payroll_payout_lines: [{ data: [] }],
       users: [{ data: targetUser }],
       // 1st call: existing lookup (found). 2nd: the update write. 3rd: rollback update.
       deal_commission_roles: [{ data: existingRole }, { data: savedRole }, { data: null, error: null }],

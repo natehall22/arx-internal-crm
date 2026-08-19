@@ -114,7 +114,7 @@ export async function PATCH(request: NextRequest) {
 
     const { data: job } = await supabase
       .from('production_jobs')
-      .select('id, job_number, sale_date')
+      .select('id')
       .eq('id', body.job_id)
       .eq('org_id', orgId)
       .maybeSingle()
@@ -123,42 +123,46 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: 'Job not found' }, { status: 404 })
     }
 
-    // Settled history is not editable, full stop — same rule as
-    // POST /api/admin/comp-rates step 3, kept consistent deliberately: a period
-    // does not "cover" a range (payroll_periods has no start column), it only
-    // bounds sale dates from above via cutoff_at. So the only well-formed guard
-    // is against the single highest cutoff_at among already-settled periods.
-    if (job.sale_date) {
-      const { data: settledPeriods, error: periodsError } = await supabase
-        .from('payroll_periods')
-        .select('id, period_label, cutoff_at, status')
-        .eq('org_id', orgId)
-        .in('status', ['locked', 'paid'])
-      if (periodsError) {
-        console.error('deal-commission-roles PATCH (periods)', periodsError)
-        return NextResponse.json({ error: 'Failed to check payroll periods' }, { status: 500 })
-      }
-      const newestSettled = (settledPeriods || [])
-        .slice()
-        .sort((a, b) => (a.cutoff_at < b.cutoff_at ? 1 : -1))[0]
-      if (newestSettled && job.sale_date <= newestSettled.cutoff_at.slice(0, 10)) {
-        return NextResponse.json(
-          {
-            error:
-              `Payroll period "${newestSettled.period_label}" is already ${newestSettled.status} ` +
-              `through ${newestSettled.cutoff_at.slice(0, 10)}. This job's sale date (${job.sale_date}) ` +
-              'falls within already-settled pay. Overrides on settled jobs are not allowed.',
-            code: 'locked_period',
-            period: {
-              id: newestSettled.id,
-              label: newestSettled.period_label,
-              status: newestSettled.status,
-              cutoffDate: newestSettled.cutoff_at.slice(0, 10),
-            },
-          },
-          { status: 400 }
-        )
-      }
+    // Settled history is not editable — but "settled" has to mean this job's pay was
+    // actually paid out, not merely that its sale date is old. payroll_periods has no
+    // start column and materializePayrollPeriod sweeps every previously-unpaid eligible
+    // job with sale_date <= cutoff_at (no lower bound), so comparing a sale date to the
+    // newest settled cutoff would also block jobs that were never paid at all — as of
+    // 2026-08-19 that is 26 prod jobs with zero payout lines. Those still need to be
+    // overridable, because a future period will sweep them up and pay them.
+    //
+    // The precise question is therefore: does this job already have payout lines in a
+    // locked or paid period? If so its pay is settled and an override would disagree
+    // with what was paid; if not, the job is still ahead of payroll.
+    const { data: paidLines, error: paidLinesError } = await supabase
+      .from('payroll_payout_lines')
+      .select('id, payroll_period_id, payroll_periods!inner(id, period_label, status)')
+      .eq('org_id', orgId)
+      .eq('job_id', body.job_id)
+      .in('payroll_periods.status', ['locked', 'paid'])
+      .limit(1)
+    if (paidLinesError) {
+      console.error('deal-commission-roles PATCH (settled payout lines)', paidLinesError)
+      return NextResponse.json({ error: 'Failed to check payroll periods' }, { status: 500 })
+    }
+    const settledLine = (paidLines || [])[0] as
+      | { payroll_periods?: { period_label?: string; status?: string } | Array<{ period_label?: string; status?: string }> }
+      | undefined
+    if (settledLine) {
+      const period = Array.isArray(settledLine.payroll_periods)
+        ? settledLine.payroll_periods[0]
+        : settledLine.payroll_periods
+      return NextResponse.json(
+        {
+          error:
+            `This job was already paid in payroll period "${period?.period_label ?? 'unknown'}" ` +
+            `(${period?.status ?? 'settled'}). Overrides on settled pay are not allowed — ` +
+            'adjust it on the next period instead.',
+          code: 'locked_period',
+          period: { label: period?.period_label ?? null, status: period?.status ?? null },
+        },
+        { status: 400 }
+      )
     }
 
     // The row is org-scoped, but the user it credits must belong to this org too —

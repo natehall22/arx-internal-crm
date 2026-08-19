@@ -207,10 +207,25 @@ export async function POST(request: NextRequest) {
       manager_override_rate: Number(currentOrg?.manager_override_commission_rate) || 0,
       self_gen_rate: Number(currentOrg?.self_gen_commission_rate) || 0,
     }
-    // An omitted manager override keeps whatever the column already holds, so the
-    // write can never turn a value off by silence.
+    // An omitted manager override keeps whatever is already stored, so the write can
+    // never turn a value off by silence. The RPC upserts on (org_id, effective_from),
+    // so the value to carry forward is the one on THAT row when it already exists —
+    // using the org's current value instead would overwrite a scheduled row's override
+    // with today's whenever an admin edits only the other two rates.
     if (rates.manager_override_rate === undefined) {
-      rates.manager_override_rate = currentValues.manager_override_rate
+      const { data: rowForDate, error: rowForDateError } = await supabase
+        .from('org_derived_commission_rates')
+        .select('manager_override_commission_rate')
+        .eq('org_id', orgId)
+        .eq('effective_from', effectiveFrom)
+        .maybeSingle()
+      if (rowForDateError) {
+        console.error('comp-rates POST (row for date)', rowForDateError)
+        return NextResponse.json({ error: 'Failed to load current rates' }, { status: 500 })
+      }
+      rates.manager_override_rate = rowForDate
+        ? Number(rowForDate.manager_override_commission_rate) || 0
+        : currentValues.manager_override_rate
     }
     const resolvedRates = rates as Record<RateKey, number>
 

@@ -25,18 +25,19 @@ function isYmd(value: unknown): value is string {
 const MAX_OVERRIDE_RATE = 25
 
 /**
- * The percent this assignment pays. An explicit value wins; otherwise the overlay
- * plan's own base_percentage is the default for a first assignment.
+ * The percent this assignment pays. An explicit value wins; otherwise the caller
+ * supplies the rate already in force (the latest plan version on the effective date,
+ * or the plan's base_percentage when this is the plan's first assignment).
  */
 function resolveOverrideRate(
   raw: unknown,
-  planBasePercentage: unknown
+  rateInForce: unknown
 ): { rate: number } | { error: string } {
   const provided = typeof raw === 'string' ? raw.trim() : raw
-  const usePlanDefault = provided === undefined || provided === null || provided === ''
-  const source = usePlanDefault ? planBasePercentage : provided
+  const useCurrent = provided === undefined || provided === null || provided === ''
+  const source = useCurrent ? rateInForce : provided
   if (source === undefined || source === null || source === '') {
-    return { error: 'An override rate is required — the selected overlay plan has no default rate.' }
+    return { error: 'An override rate is required — the selected overlay plan has no rate yet.' }
   }
   const rate = Number(source)
   if (!Number.isFinite(rate)) return { error: 'Override rate must be a number' }
@@ -95,8 +96,31 @@ export async function POST(request: NextRequest) {
     // records it as a new effective-dated plan version, which is the only way to change
     // an overlay's percent at all: PUT /api/admin/data?resource=comp_plan 409s once a
     // plan carries any assignment, so the plan's own base_percentage is frozen from the
-    // first assignment onward and can only ever be the starting default.
-    const rateResult = resolveOverrideRate(body.override_percent, plan.base_percentage)
+    // first assignment onward and can only ever be the STARTING default.
+    //
+    // So an omitted rate must fall back to the version in force on the effective date,
+    // not to base_percentage. Falling back to the frozen plan value would let "leave it
+    // blank to keep the current rate" quietly rewrite the rate for everyone on this
+    // overlay plan and lane, back to whatever the plan was first created with.
+    const { data: liveVersion, error: versionError } = await supabase
+      .from('management_comp_overlay_plan_versions')
+      .select('override_percent')
+      .eq('org_id', auth.profile.org_id)
+      .eq('comp_plan_id', compPlanId)
+      .eq('lane', lane)
+      .lte('effective_from', effectiveFrom)
+      .order('effective_from', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    if (versionError) {
+      console.error('management comp overlay (current version lookup)', versionError)
+      return NextResponse.json({ error: 'Failed to read the current override rate.' }, { status: 500 })
+    }
+
+    const rateResult = resolveOverrideRate(
+      body.override_percent,
+      liveVersion?.override_percent ?? plan.base_percentage
+    )
     if ('error' in rateResult) {
       return NextResponse.json({ error: rateResult.error }, { status: 400 })
     }
