@@ -863,9 +863,23 @@ export default async function JobDetailPage({ params }: PageProps) {
     orgCoverageRes.data
   )
 
+  /**
+   * Payment method for the top-of-job stripe. `projects.payment_method` wins because that is what
+   * the "Edit source" control writes — otherwise changing the source would not move the stripe.
+   * It is null on most rows today, so the signed contract is the real fallback. Deliberately
+   * resolves to null rather than assuming cash: a wrong stripe is worse than an honest blank.
+   */
+  const resolvedPaymentMethod: string | null =
+    (rawProject && typeof rawProject === 'object' && 'payment_method' in rawProject
+      ? (rawProject as { payment_method?: string | null }).payment_method ?? null
+      : null) ??
+    originalContract?.payment_method ??
+    (jobRes.data.financing_program_id ? 'finance' : null)
+
   return (
     <JobDetailClient
       initialJob={transformedJob as any}
+      paymentMethod={resolvedPaymentMethod}
       materialsCoverageOverrides={materialsCoverageOverrides}
       crews={crewsRes.data || []}
       subs={subsRes.data || []}
