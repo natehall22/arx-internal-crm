@@ -12,6 +12,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react'
+import Link from 'next/link'
 
 const INK = '#2c2c2a'
 
@@ -118,6 +119,15 @@ export default function InspectionCommissionRateCard() {
         commissionable base, without anyone hand-entering a line per deal. The published ladder
         sets this at <strong>1.5%</strong>. A per-job inspector line entered by an admin always
         wins over this rate, and the amount counts inside the 18% commission pool cap.
+      </p>
+      <p className="mt-2 text-sm" style={{ color: INK }}>
+        This quick edit always takes effect tomorrow and has no history or reason field. For
+        backdating, scheduling a future rate, or editing the manager override / self-generated
+        lines, use{' '}
+        <Link href="/admin/comp-plans" className="text-indigo-700 underline">
+          Company commission rates on the Comp Plans page
+        </Link>{' '}
+        — the canonical place to manage all three.
       </p>
 
       {loadState === 'loading' && (

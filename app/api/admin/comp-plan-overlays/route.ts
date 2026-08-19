@@ -1,3 +1,11 @@
+/**
+ * Manager override (management comp overlay) assignment writes.
+ *
+ * An override line is not an org rate — payroll resolves it per manager, per production
+ * lane, from the assignment created here plus the effective-dated plan version the RPC
+ * writes alongside it. See lib/management-override-admin.ts for the read model.
+ */
+
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { isPayrollAdminRole } from '@/lib/payroll-admin-access'
@@ -11,6 +19,35 @@ function isYmd(value: unknown): value is string {
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
   const parsed = new Date(`${value}T00:00:00.000Z`)
   return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value
+}
+
+/** A management override above this is a typo, not a plan. Matches MAX_RATE in /api/admin/comp-rates. */
+const MAX_OVERRIDE_RATE = 25
+
+/**
+ * The percent this assignment pays. An explicit value wins; otherwise the overlay
+ * plan's own base_percentage is the default for a first assignment.
+ */
+function resolveOverrideRate(
+  raw: unknown,
+  planBasePercentage: unknown
+): { rate: number } | { error: string } {
+  const provided = typeof raw === 'string' ? raw.trim() : raw
+  const usePlanDefault = provided === undefined || provided === null || provided === ''
+  const source = usePlanDefault ? planBasePercentage : provided
+  if (source === undefined || source === null || source === '') {
+    return { error: 'An override rate is required — the selected overlay plan has no default rate.' }
+  }
+  const rate = Number(source)
+  if (!Number.isFinite(rate)) return { error: 'Override rate must be a number' }
+  if (rate < 0) return { error: 'Override rate cannot be negative' }
+  if (rate > MAX_OVERRIDE_RATE) {
+    return { error: `Override rate cannot exceed ${MAX_OVERRIDE_RATE}% — check for a typo` }
+  }
+  if (Math.round(rate * 100) !== rate * 100) {
+    return { error: 'Override rate supports at most 2 decimal places (e.g. 1.00)' }
+  }
+  return { rate }
 }
 
 export async function POST(request: NextRequest) {
@@ -50,10 +87,20 @@ export async function POST(request: NextRequest) {
       .eq('plan_purpose', 'management_overlay')
       .eq('is_active', true)
       .maybeSingle()
-    const rate = Number(plan?.base_percentage)
-    if (planError || !plan || plan.base_percentage == null || !Number.isFinite(rate) || rate < 0 || rate > 100) {
-      return NextResponse.json({ error: planError?.message || 'The selected overlay plan needs a valid fixed rate.' }, { status: 400 })
+    if (planError || !plan) {
+      return NextResponse.json({ error: planError?.message || 'Active management overlay plan not found.' }, { status: 400 })
     }
+
+    // The rate may be set on the assignment itself. `assign_management_comp_overlay`
+    // records it as a new effective-dated plan version, which is the only way to change
+    // an overlay's percent at all: PUT /api/admin/data?resource=comp_plan 409s once a
+    // plan carries any assignment, so the plan's own base_percentage is frozen from the
+    // first assignment onward and can only ever be the starting default.
+    const rateResult = resolveOverrideRate(body.override_percent, plan.base_percentage)
+    if ('error' in rateResult) {
+      return NextResponse.json({ error: rateResult.error }, { status: 400 })
+    }
+    const rate = rateResult.rate
     const { data, error } = await supabase.rpc('assign_management_comp_overlay', {
       p_org_id: auth.profile.org_id,
       p_user_id: userId,

@@ -53,6 +53,17 @@ export async function PATCH(request: NextRequest) {
       )
     }
 
+    // A commission override changes what someone gets paid. A blank reason must
+    // never silently become a meaningless default — matches the overlay RPCs
+    // (assign_management_comp_overlay etc.), which RAISE EXCEPTION on empty reason.
+    const reason = typeof body.reason === 'string' ? body.reason.trim() : ''
+    if (!reason) {
+      return NextResponse.json(
+        { error: 'A change reason is required to save a commission override.' },
+        { status: 400 }
+      )
+    }
+
     const storageRole = ROLE_MAP[body.role] || body.role
     if (!STORAGE_ROLES.has(storageRole)) {
       return NextResponse.json(
@@ -103,13 +114,51 @@ export async function PATCH(request: NextRequest) {
 
     const { data: job } = await supabase
       .from('production_jobs')
-      .select('id')
+      .select('id, job_number, sale_date')
       .eq('id', body.job_id)
       .eq('org_id', orgId)
       .maybeSingle()
 
     if (!job) {
       return NextResponse.json({ error: 'Job not found' }, { status: 404 })
+    }
+
+    // Settled history is not editable, full stop — same rule as
+    // POST /api/admin/comp-rates step 3, kept consistent deliberately: a period
+    // does not "cover" a range (payroll_periods has no start column), it only
+    // bounds sale dates from above via cutoff_at. So the only well-formed guard
+    // is against the single highest cutoff_at among already-settled periods.
+    if (job.sale_date) {
+      const { data: settledPeriods, error: periodsError } = await supabase
+        .from('payroll_periods')
+        .select('id, period_label, cutoff_at, status')
+        .eq('org_id', orgId)
+        .in('status', ['locked', 'paid'])
+      if (periodsError) {
+        console.error('deal-commission-roles PATCH (periods)', periodsError)
+        return NextResponse.json({ error: 'Failed to check payroll periods' }, { status: 500 })
+      }
+      const newestSettled = (settledPeriods || [])
+        .slice()
+        .sort((a, b) => (a.cutoff_at < b.cutoff_at ? 1 : -1))[0]
+      if (newestSettled && job.sale_date <= newestSettled.cutoff_at.slice(0, 10)) {
+        return NextResponse.json(
+          {
+            error:
+              `Payroll period "${newestSettled.period_label}" is already ${newestSettled.status} ` +
+              `through ${newestSettled.cutoff_at.slice(0, 10)}. This job's sale date (${job.sale_date}) ` +
+              'falls within already-settled pay. Overrides on settled jobs are not allowed.',
+            code: 'locked_period',
+            period: {
+              id: newestSettled.id,
+              label: newestSettled.period_label,
+              status: newestSettled.status,
+              cutoffDate: newestSettled.cutoff_at.slice(0, 10),
+            },
+          },
+          { status: 400 }
+        )
+      }
     }
 
     // The row is org-scoped, but the user it credits must belong to this org too —
@@ -173,27 +222,182 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to save override' }, { status: 500 })
     }
 
-    await supabase.from('payroll_override_audit').insert({
+    // The audit row is stored alongside user_id (in addition to job_id + role) so
+    // the read-only register (GET below) can match an override to its audit trail
+    // unambiguously even when two different users hold the same role on a job.
+    const { error: auditError } = await supabase.from('payroll_override_audit').insert({
       org_id: orgId,
       override_type: 'manual_adjustment',
       job_id: body.job_id,
       actor_user_id: profile.id,
-      reason: body.reason?.trim() || 'Statement override',
+      reason,
       before_value: {
         override_amount: existing?.override_amount ?? null,
         override_percent: existing?.override_percent ?? null,
         role: storageRole,
+        user_id: body.user_id,
       },
       after_value: {
         override_amount: saved.override_amount,
         override_percent: saved.override_percent,
         role: storageRole,
+        user_id: body.user_id,
       },
     })
+
+    if (auditError) {
+      // A payroll-affecting change must never stand unaudited. The write above
+      // and this insert aren't in a single transaction (no RPC), so on failure
+      // here we compensate by rolling the override back to its pre-write state
+      // and 500ing, rather than letting an unaudited override silently persist.
+      console.error('deal_commission_roles audit insert failed — rolling back override', auditError)
+      const { error: rollbackError } = existing
+        ? await supabase
+            .from('deal_commission_roles')
+            .update({
+              override_amount: existing.override_amount,
+              override_percent: existing.override_percent,
+            })
+            .eq('id', existing.id)
+        : await supabase.from('deal_commission_roles').delete().eq('id', saved.id)
+
+      if (rollbackError) {
+        // Worst case: audit failed AND rollback failed. Log loudly — this is the
+        // one scenario the design can't fully prevent without a transaction —
+        // but never report success back to the caller.
+        console.error('deal_commission_roles rollback ALSO failed — override may be unaudited', {
+          rollbackError,
+          savedId: saved.id,
+        })
+      }
+
+      return NextResponse.json(
+        { error: 'Failed to record the audit trail for this change. The override was not saved.' },
+        { status: 500 }
+      )
+    }
 
     return NextResponse.json({ role: saved })
   } catch (e) {
     console.error('PATCH deal-commission-roles', e)
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+  }
+}
+
+type AuditJsonValue = { override_amount?: number | null; override_percent?: number | null; role?: string; user_id?: string } | null
+
+/**
+ * Read-only, org-wide register of every deal_commission_roles row, joined to the
+ * latest matching payroll_override_audit row for actor/reason/when. This is the
+ * only read surface for overrides today — editing stays on the statement page
+ * (PATCH above), so there remains exactly one write path.
+ *
+ * The join is best-effort: payroll_override_audit doesn't have role/user_id
+ * columns, only job_id — role and (since this change) user_id live inside the
+ * before_value/after_value jsonb. Older audit rows written before this change
+ * don't carry user_id, so those match on job_id + role alone.
+ */
+export async function GET() {
+  try {
+    let profile
+    try {
+      const ctx = await requireAuthApi()
+      profile = ctx.profile
+    } catch {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+    if (!isPayrollAdminRole(profile.role)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+
+    const supabase = createServiceClient()
+    const orgId = profile.org_id
+
+    const { data: overrides, error } = await supabase
+      .from('deal_commission_roles')
+      .select(
+        'id, job_id, role, user_id, override_amount, override_percent, premier_pricing_amount, created_at, updated_at, ' +
+          'job:production_jobs(id, job_number, sale_date), user:users(id, full_name, email)'
+      )
+      .eq('org_id', orgId)
+      .order('updated_at', { ascending: false })
+
+    if (error) {
+      console.error('GET deal-commission-roles', error)
+      return NextResponse.json({ error: 'Failed to load overrides' }, { status: 500 })
+    }
+
+    const rows = (overrides || []) as unknown as Record<string, unknown>[]
+    const jobIds = Array.from(new Set(rows.map((row) => row.job_id as string).filter(Boolean)))
+
+    const { data: auditRows, error: auditError } = jobIds.length
+      ? await supabase
+          .from('payroll_override_audit')
+          .select('id, job_id, actor_user_id, reason, before_value, after_value, created_at, actor:users(full_name, email)')
+          .eq('org_id', orgId)
+          .eq('override_type', 'manual_adjustment')
+          .in('job_id', jobIds)
+          .order('created_at', { ascending: false })
+      : { data: [] as Array<Record<string, unknown>>, error: null }
+
+    if (auditError) {
+      // Non-fatal: the overrides themselves are still useful without audit context.
+      console.error('GET deal-commission-roles (audit)', auditError)
+    }
+
+    const audits = (auditRows || []) as unknown as Record<string, unknown>[]
+
+    const result = rows.map((row) => {
+      const job = Array.isArray(row.job) ? row.job[0] : row.job
+      const user = Array.isArray(row.user) ? row.user[0] : row.user
+
+      // Prefer an audit row whose after_value names this exact user; fall back to
+      // job_id + role only for legacy rows written before user_id was captured.
+      const roleMatches = audits.filter((a) => {
+        if (a.job_id !== row.job_id) return false
+        const after = a.after_value as AuditJsonValue
+        return !!after && after.role === row.role
+      })
+      const matchingAudit =
+        roleMatches.find((a) => (a.after_value as AuditJsonValue)?.user_id === row.user_id) ||
+        roleMatches.find((a) => (a.after_value as AuditJsonValue)?.user_id == null) ||
+        null
+
+      const actor = matchingAudit ? (Array.isArray(matchingAudit.actor) ? matchingAudit.actor[0] : matchingAudit.actor) : null
+
+      return {
+        id: row.id,
+        jobId: row.job_id,
+        jobNumber: (job as { job_number?: string } | null)?.job_number ?? null,
+        saleDate: (job as { sale_date?: string } | null)?.sale_date ?? null,
+        role: row.role,
+        userId: row.user_id,
+        userName:
+          (user as { full_name?: string; email?: string } | null)?.full_name ||
+          (user as { full_name?: string; email?: string } | null)?.email ||
+          null,
+        overrideAmount: row.override_amount,
+        overridePercent: row.override_percent,
+        premierPricingAmount: row.premier_pricing_amount,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+        audit: matchingAudit
+          ? {
+              actorUserId: matchingAudit.actor_user_id,
+              actorName:
+                (actor as { full_name?: string; email?: string } | null)?.full_name ||
+                (actor as { full_name?: string; email?: string } | null)?.email ||
+                null,
+              reason: matchingAudit.reason,
+              createdAt: matchingAudit.created_at,
+            }
+          : null,
+      }
+    })
+
+    return NextResponse.json({ overrides: result })
+  } catch (e) {
+    console.error('GET deal-commission-roles', e)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
