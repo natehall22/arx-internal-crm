@@ -9,6 +9,8 @@ import JobPaymentsCard from '@/components/ops/JobPaymentsCard'
 import JobInvoicesCard from '@/components/ops/JobInvoicesCard'
 import CompleteJobModal from '@/components/ops/CompleteJobModal'
 import JobNextActionBanner from '@/components/ops/JobNextActionBanner'
+import JobPaymentMethodBanner from '@/components/ops/JobPaymentMethodBanner'
+import JobRunSheetBanner from '@/components/ops/JobRunSheetBanner'
 import JobReadyToPayBanner from '@/components/ops/JobReadyToPayBanner'
 import JobPayrollSentBanner from '@/components/ops/JobPayrollSentBanner'
 import AINextActionBanner from '@/components/jobs/AINextActionBanner'
@@ -369,6 +371,8 @@ interface FinancialSourceProposalOption {
 
 interface JobDetailClientProps {
   initialJob: Job
+  /** Resolved server-side (project → contract → financing); null when genuinely unknown. */
+  paymentMethod: string | null
   materialsCoverageOverrides?: MaterialsCoverageOverrides
   crews: Crew[]
   subs: SubContractor[]
@@ -540,6 +544,7 @@ function InsuranceCard({ job, onUpdate }: { job: Job; onUpdate: (fields: Partial
 
 export default function JobDetailClient({
   initialJob,
+  paymentMethod,
   materialsCoverageOverrides,
   crews,
   subs,
@@ -1236,13 +1241,19 @@ export default function JobDetailClient({
   return (
     <div className="min-h-screen bg-gray-50">
       <Nav />
-      
+
+      {/* Full-bleed, outside the container, so the stripe really does run all the way across. */}
+      <JobPaymentMethodBanner paymentMethod={paymentMethod} />
+
       <div className="max-w-6xl mx-auto px-3 sm:px-4 py-4 sm:py-6">
         <div className="mb-4 sm:mb-6">
           <Link href="/ops" className="text-indigo-600 hover:text-indigo-800 text-sm font-medium min-h-[44px] inline-flex items-center">
             ← Back to Production Board
           </Link>
         </div>
+
+        {/* First card on the page, every breakpoint — ops needs this findable from a phone. */}
+        <JobRunSheetBanner jobId={job.id} jobNumber={job.job_number} />
 
         <JobNextActionBanner
           jobId={job.id}
@@ -2290,6 +2301,21 @@ export default function JobDetailClient({
                     View Accepted Proposal →
                   </Link>
                 )}
+                {/* Deliberately loud: ops asked for a run sheet they can spot instantly on this page. */}
+                <Link
+                  href={`/ops/jobs/${job.id}/run-sheet`}
+                  className="min-h-[44px] my-1 flex items-center gap-2 rounded-lg border-2 border-[#c40068] bg-[#fff100] px-3 py-2 text-sm font-extrabold uppercase tracking-wide text-[#c40068] hover:bg-[#ffe600]"
+                >
+                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"
+                    />
+                  </svg>
+                  Job Run Sheet (1-page PDF) →
+                </Link>
                 {job.salesperson && (
                   <p className="text-sm text-gray-900 py-2">
                     Sold by: {job.salesperson.full_name}
