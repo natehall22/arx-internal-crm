@@ -44,6 +44,9 @@ function formatRole(role: string): string {
     .join(' ')
 }
 
+/** Roles whose row REPLACES the comp-plan line; everything else pays additively. */
+const PRODUCER_ROLES = new Set(['setter', 'closer'])
+
 function formatOverride(row: OverrideRow): string {
   const parts: string[] = []
   if (row.overrideAmount != null) parts.push(`$${Number(row.overrideAmount).toLocaleString()}`)
@@ -51,8 +54,19 @@ function formatOverride(row: OverrideRow): string {
   if (row.premierPricingAmount != null) {
     parts.push(`premier pricing $${Number(row.premierPricingAmount).toLocaleString()}`)
   }
-  if (parts.length === 0) return '$0 (explicit zero)'
+  // A row with no amount AND no percent is a CLEARED override, not a $0 one — payroll
+  // falls back to the comp plan for it. Labelling it "$0" claimed the opposite.
+  if (parts.length === 0) return 'None — falls back to the comp plan'
   return parts.join(' / ')
+}
+
+/** How this row reaches payroll, so an admin can tell replace from add at a glance. */
+function formatEffect(row: OverrideRow): string {
+  const cleared = row.overrideAmount == null && row.overridePercent == null
+  if (cleared) return 'Not applied'
+  return PRODUCER_ROLES.has(row.role)
+    ? 'Replaces the comp-plan line'
+    : 'Adds a separate paid line'
 }
 
 export default function PerJobOverridesCard() {
@@ -98,6 +112,13 @@ export default function PerJobOverridesCard() {
         deliberate $0</strong>. This list is read-only; to change an override, open the
         job&apos;s statement and edit it there, so there remains exactly one write path.
       </p>
+      <p className="mt-2 max-w-3xl text-sm" style={{ color: INK }}>
+        <strong>Setter and Closer rows replace</strong> what that person&apos;s comp plan
+        would have paid on the job — set one to <strong>$0</strong> to take them off the
+        deal entirely. <strong>Every other role adds</strong> a separate line on top of
+        the standard split. All of them are scaled together if the job exceeds its
+        commission pool cap.
+      </p>
 
       {loadState === 'loading' && (
         <p className="mt-4 text-sm" style={{ color: INK }}>
@@ -128,6 +149,7 @@ export default function PerJobOverridesCard() {
                 <th className="py-2 pr-4">Role</th>
                 <th className="py-2 pr-4">User</th>
                 <th className="py-2 pr-4">Override</th>
+                <th className="py-2 pr-4">Effect</th>
                 <th className="py-2 pr-4">Changed by</th>
                 <th className="py-2 pr-4">Reason</th>
                 <th className="py-2 pr-4">When</th>
@@ -147,6 +169,7 @@ export default function PerJobOverridesCard() {
                   <td className="py-2 pr-4" style={{ color: INK }}>{formatRole(row.role)}</td>
                   <td className="py-2 pr-4" style={{ color: INK }}>{row.userName || '—'}</td>
                   <td className="py-2 pr-4 font-medium" style={{ color: INK }}>{formatOverride(row)}</td>
+                  <td className="py-2 pr-4" style={{ color: INK }}>{formatEffect(row)}</td>
                   <td className="py-2 pr-4" style={{ color: INK }}>{row.audit?.actorName || '—'}</td>
                   <td className="py-2 pr-4" style={{ color: INK }}>{row.audit?.reason || '—'}</td>
                   <td className="py-2 pr-4 whitespace-nowrap" style={{ color: INK }}>
@@ -156,7 +179,7 @@ export default function PerJobOverridesCard() {
               ))}
               {overrides.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="py-3 text-sm" style={{ color: INK }}>
+                  <td colSpan={8} className="py-3 text-sm" style={{ color: INK }}>
                     No per-job overrides exist yet.
                   </td>
                 </tr>

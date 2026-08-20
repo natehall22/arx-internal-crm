@@ -6,7 +6,22 @@ import {
   type PeriodUnitEarningsResult,
 } from '@/lib/comp-plan-period-unit-earnings'
 import { computeHourlyEarnings } from '@/lib/weekly-payroll/hourly-earnings'
-import { loadActiveCompPlanForUser } from '@/lib/payroll-export'
+import { loadActiveCompPlanForUser, producerStorageRoleForParticipant } from '@/lib/payroll-export'
+
+/**
+ * The `deal_commission_roles.role` that would override a given payout line.
+ *
+ * Producer lines (`sales_rep` / `owner` / `setter`) are stored under the table's own
+ * names — `sales_rep` and `owner` both as `closer` — so matching a payout line to its
+ * override row on the raw role string alone silently missed every closer override.
+ * Additive roles (`inspector`, `custom`, …) are stored under their own name already.
+ */
+function overrideStorageRoleForPayoutLine(participantRole: string): string {
+  if (participantRole === 'sales_rep' || participantRole === 'owner' || participantRole === 'setter') {
+    return producerStorageRoleForParticipant(participantRole)
+  }
+  return participantRole
+}
 
 export type PayrollStatementDealRow = {
   jobId: string
@@ -20,7 +35,13 @@ export type PayrollStatementDealRow = {
   ntpCommission: number
   revenueCommission: number
   premierPricingCommission: number
-  overrideAmount: number
+  /**
+   * `null` when no override row exists (or it was cleared) — distinct from `0`, which
+   * is an explicit "pay nothing on this deal" and is what takes a producer off a
+   * re-split job. Collapsing the two would hide a deliberate zero from the admin who
+   * set it, and render it as an empty input they could resave as a no-op.
+   */
+  overrideAmount: number | null
   dealTotal: number
 }
 
@@ -184,11 +205,12 @@ export async function buildPayrollStatement(
     const job = jobById.get(line.job_id as string)
     const cid = job?.customer_id as string | null | undefined
     const explicit = (rolesByJob.get(line.job_id as string) || []).find(
-      (r) => r.role === line.participant_role
+      (r) => r.role === overrideStorageRoleForPayoutLine(line.participant_role as string)
     )
     const gross = Number(line.gross_amount) || 0
     const net = Number(line.net_amount) || 0
-    const overrideAmt = Number(explicit?.override_amount) || 0
+    const overrideAmt =
+      explicit?.override_amount != null ? Number(explicit.override_amount) : null
     const premier = Number(explicit?.premier_pricing_amount) || 0
     const holdRaw = job?.commission_hold_status as string | null | undefined
     const installed = Boolean(job?.completed_at)

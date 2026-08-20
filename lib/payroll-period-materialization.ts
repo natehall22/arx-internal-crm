@@ -14,11 +14,16 @@ import {
   computeRawCommissionForParticipant,
   loadActiveCompPlanForUser,
   loadAdditiveDealCommissionParticipants,
+  loadProducerCommissionOverrides,
   monthKeyFromSaleDate,
   periodSitsAndCloseRateForParticipant,
   poolKey,
+  producerOverrideKey,
+  producerStorageRoleForParticipant,
   resolveAdditiveParticipantAmount,
+  resolveProducerOverrideAmount,
   scaleCommissionsToPool,
+  type PayrollParticipant,
 } from '@/lib/payroll-export'
 
 type PeriodRow = {
@@ -316,6 +321,15 @@ export async function materializePayrollPeriod(
   const derivedContext = await loadDerivedCommissionContext(supabase, { orgId, opportunityIds })
   const selfGenSetterConflictJobIds: string[] = []
 
+  // Per-job overrides that REPLACE a producer's comp-plan commission (see
+  // loadProducerCommissionOverrides). Batched for the whole period rather than
+  // re-queried per participant.
+  const producerOverrides = await loadProducerCommissionOverrides(
+    supabase,
+    orgId,
+    eligibleJobs.map((j) => j.id)
+  )
+
   const bounds = monthBounds(eligibleJobs, period.cutoff_at)
   const { data: volumeJobs, error: volumeError } = await supabase
     .from('production_jobs')
@@ -398,7 +412,34 @@ export async function materializePayrollPeriod(
     >()
     const saleDate = job.sale_date || period.cutoff_at.slice(0, 10)
     const monthKey = monthKeyFromSaleDate(job.sale_date)
+
+    // Producers whose pay on THIS job was overridden by an admin. Their comp plan is
+    // not consulted at all — the override is the whole answer — so they are collected
+    // here and written as their own rows below, keeping `meta` (which snapshots a
+    // resolved plan) untouched.
+    const overriddenProducers: Array<{
+      participant: PayrollParticipant
+      resolved: { amount: number; basis: 'flat' | 'percent' }
+    }> = []
+
     for (const participant of participants) {
+      const override = producerOverrides.get(
+        producerOverrideKey(
+          job.id,
+          participant.userId,
+          producerStorageRoleForParticipant(participant.role)
+        )
+      )
+      const overrideResolved = resolveProducerOverrideAmount(override, payrollSnapshot.compBase)
+      if (overrideResolved) {
+        overriddenProducers.push({ participant, resolved: overrideResolved })
+        rawByUser.set(poolKey(participant.userId, participant.role), overrideResolved.amount)
+        // Deliberately skips the comp plan AND the monthly flat-bonus bookkeeping:
+        // an overridden line carries no plan-derived bonus, and the once-per-month
+        // flat bonus slot stays unconsumed so it can still land on another job.
+        continue
+      }
+
       const assignment = await loadActiveCompPlanForUser(supabase, participant.userId, orgId, saleDate)
       const plan = assignment?.comp_plans as unknown as CompPlanForCalc | null
       if (!plan) continue
@@ -495,6 +536,33 @@ export async function materializePayrollPeriod(
         },
       }
     })
+    // Overridden producers keep their ORIGINAL participant role (sales_rep / setter /
+    // owner) on the payout line, so statements, pool keys and the retry-dedupe key
+    // below all read exactly as they would without an override — only the amount
+    // changes. A deliberate $0 still writes a line: "paid nothing on this deal" is an
+    // auditable fact, and silently dropping it would look identical to a bug.
+    const producerOverrideRows = overriddenProducers.map(({ participant, resolved }) => {
+      const key = poolKey(participant.userId, participant.role)
+      return {
+        org_id: orgId,
+        payroll_period_id: periodId,
+        job_id: job.id,
+        user_id: participant.userId,
+        participant_role: participant.role,
+        gross_amount: resolved.amount,
+        net_amount: roundMoney(scaled.scaled.get(key) ?? resolved.amount),
+        chargeback_applied_amount: 0,
+        comp_plan_snapshot: {
+          source: 'deal_commission_roles_producer_override',
+          basis: resolved.basis,
+          storage_role: producerStorageRoleForParticipant(participant.role),
+          commission_base: payrollSnapshot.compBase,
+          pool_cap_enforced: scaled.enforced,
+          note: 'Comp plan bypassed: an explicit per-job override replaced this line.',
+        },
+      }
+    })
+
     const additiveRows = additivePayable.map(({ participant, resolved }) => {
       const key = poolKey(participant.userId, participant.role)
       return {
@@ -518,7 +586,7 @@ export async function materializePayrollPeriod(
       }
     })
 
-    const allPayoutRows = [...payoutRows, ...additiveRows]
+    const allPayoutRows = [...payoutRows, ...producerOverrideRows, ...additiveRows]
     if (allPayoutRows.length === 0) {
       skippedJobs.push({ jobId: job.id, reason: 'no_resolvable_participant_plans' })
       continue

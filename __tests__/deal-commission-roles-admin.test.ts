@@ -82,8 +82,24 @@ const validBody = {
   reason: 'Manual price adjustment approved by ops',
 }
 
-const openJob = { id: 'job-1', job_number: '26-0099', sale_date: '2026-08-01' }
-const settledJob = { id: 'job-1', job_number: '26-0001', sale_date: '2026-07-01' }
+// `salesperson_id` matters: a `closer` override only saves when the target user
+// actually holds that producer role on the job (collectParticipants maps
+// sales_rep -> closer), otherwise the row would be inert at payroll time.
+// `project_id: null` keeps these fixtures opportunity-free.
+const openJob = {
+  id: 'job-1',
+  job_number: '26-0099',
+  sale_date: '2026-08-01',
+  salesperson_id: 'user-1',
+  project_id: null,
+}
+const settledJob = {
+  id: 'job-1',
+  job_number: '26-0001',
+  sale_date: '2026-07-01',
+  salesperson_id: 'user-1',
+  project_id: null,
+}
 const targetUser = { id: 'user-1' }
 
 describe('PATCH /api/admin/payroll/deal-commission-roles', () => {
@@ -144,6 +160,67 @@ describe('PATCH /api/admin/payroll/deal-commission-roles', () => {
     expect(res.status).toBe(400)
     expect(body.code).toBe('locked_period')
     expect(body.period.label).toBe('2026-W29')
+  })
+
+  it('rejects a producer override on someone who holds no such role on the job', async () => {
+    // The 26-0035 failure mode: a `setter`/`closer` row matching nobody used to be
+    // saved, audited, and then silently dropped at payroll time. It now 400s, because
+    // the admin's real intent (change this person's pay) cannot be honoured.
+    mockRequireAuthApi.mockResolvedValue(payrollAdminAuth)
+    const supabase = mockSupabaseQueues({
+      production_jobs: [{ data: { ...openJob, salesperson_id: 'someone-else' } }],
+      payroll_payout_lines: [{ data: [] }],
+    })
+    mockCreateServiceClient.mockReturnValue(supabase as never)
+
+    const res = await rolesPATCH(makeRequest(validBody))
+    const body = await res.json()
+    expect(res.status).toBe(400)
+    expect(body.code).toBe('not_a_producer_on_job')
+    // Nothing was written, so no audit row can claim pay was changed.
+    expect(supabase.from.mock.calls.filter((c) => c[0] === 'deal_commission_roles')).toHaveLength(0)
+    expect(supabase.from.mock.calls.filter((c) => c[0] === 'payroll_override_audit')).toHaveLength(0)
+  })
+
+  it('rejects a setter override aimed at the job’s closer', async () => {
+    // collectParticipants dedupes by user, so one person closing AND setting a job
+    // holds only the closer line — a `setter` row for them would never be read.
+    mockRequireAuthApi.mockResolvedValue(payrollAdminAuth)
+    const supabase = mockSupabaseQueues({
+      production_jobs: [{ data: openJob }], // user-1 is the salesperson
+      payroll_payout_lines: [{ data: [] }],
+    })
+    mockCreateServiceClient.mockReturnValue(supabase as never)
+
+    const res = await rolesPATCH(makeRequest({ ...validBody, role: 'setter' }))
+    const body = await res.json()
+    expect(res.status).toBe(400)
+    expect(body.code).toBe('not_a_producer_on_job')
+  })
+
+  it('still accepts a custom override for a user with no producer role', async () => {
+    // `custom` adds a separate paid line, so it has no producer to match — this is the
+    // documented path for paying someone who is not the job's setter or closer.
+    mockRequireAuthApi.mockResolvedValue(payrollAdminAuth)
+    const savedRole = {
+      id: 'role-9',
+      job_id: 'job-1',
+      user_id: 'user-1',
+      role: 'custom',
+      override_amount: 500,
+      override_percent: null,
+    }
+    const supabase = mockSupabaseQueues({
+      production_jobs: [{ data: { ...openJob, salesperson_id: 'someone-else' } }],
+      payroll_payout_lines: [{ data: [] }],
+      users: [{ data: targetUser }],
+      deal_commission_roles: [{ data: null }, { data: savedRole }],
+      payroll_override_audit: [{ data: null, error: null }],
+    })
+    mockCreateServiceClient.mockReturnValue(supabase as never)
+
+    const res = await rolesPATCH(makeRequest({ ...validBody, role: 'custom' }))
+    expect(res.status).toBe(200)
   })
 
   it('permits an override on an OLD job that was never actually paid', async () => {

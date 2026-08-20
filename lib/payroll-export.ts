@@ -47,7 +47,9 @@ export const ADDITIVE_DEAL_COMMISSION_ROLES: readonly DealCommissionRoleParticip
  *
  * `setter` and `closer` rows are excluded on purpose: those users are
  * already paid through collectParticipants() and their comp plan, so paying them
- * from this table too would double-count them.
+ * from this table ADDITIVELY would double-count them. They are not ignored —
+ * they are read separately by loadProducerCommissionOverrides() and REPLACE the
+ * comp-plan amount for that job+user, which is a different operation entirely.
  *
  * Throws rather than returning [] on query failure — a read error here is
  * indistinguishable from "this job has no additive participants", and failing open
@@ -106,6 +108,115 @@ export function resolveAdditiveParticipantAmount(
     return { amount: roundMoney(roundMoney(commissionBase) * (pct / 100)), basis: 'percent' }
   }
   return { amount: 0, basis: 'none' }
+}
+
+/**
+ * `deal_commission_roles` roles that REPLACE a comp-plan-computed producer line
+ * rather than paying on top of one.
+ *
+ * These are the storage-side names. `collectParticipants()` emits participant
+ * roles (`sales_rep` / `setter` / `owner`); map one to the other with
+ * `producerStorageRoleForParticipant()` before looking an override up.
+ */
+export const PRODUCER_OVERRIDE_STORAGE_ROLES = ['setter', 'closer'] as const
+export type ProducerOverrideStorageRole = (typeof PRODUCER_OVERRIDE_STORAGE_ROLES)[number]
+
+/**
+ * Participant role → the `deal_commission_roles.role` that overrides it.
+ *
+ * `sales_rep` and `owner` both store as `closer`: the table has never had separate
+ * names for them, and `collectParticipants()` dedupes by user id, so one person can
+ * hold at most one of the two on a job — a `closer` row therefore still resolves to
+ * exactly one line.
+ */
+export function producerStorageRoleForParticipant(
+  role: PayrollParticipant['role']
+): ProducerOverrideStorageRole {
+  return role === 'setter' ? 'setter' : 'closer'
+}
+
+export type ProducerCommissionOverride = {
+  jobId: string
+  userId: string
+  role: ProducerOverrideStorageRole
+  overrideAmount: number | null
+  overridePercent: number | null
+}
+
+export function producerOverrideKey(
+  jobId: string,
+  userId: string,
+  role: ProducerOverrideStorageRole
+): string {
+  return `${jobId}|${userId}|${role}`
+}
+
+/**
+ * Per-job overrides for the pool-scaled producer roles, keyed by
+ * `producerOverrideKey()`.
+ *
+ * Throws rather than returning an empty map, for the same reason
+ * `loadAdditiveDealCommissionParticipants()` does: a read error is
+ * indistinguishable from "no overrides", and failing open would quietly pay the
+ * standard comp plan on a deal an admin deliberately re-split.
+ */
+export async function loadProducerCommissionOverrides(
+  supabase: SupabaseClient,
+  orgId: string,
+  jobIds: string[]
+): Promise<Map<string, ProducerCommissionOverride>> {
+  const out = new Map<string, ProducerCommissionOverride>()
+  if (jobIds.length === 0) return out
+
+  const { data, error } = await supabase
+    .from('deal_commission_roles')
+    .select('job_id, user_id, role, override_amount, override_percent')
+    .eq('org_id', orgId)
+    .in('job_id', jobIds)
+    .in('role', PRODUCER_OVERRIDE_STORAGE_ROLES as readonly string[])
+
+  if (error) throw error
+
+  for (const row of data || []) {
+    const override: ProducerCommissionOverride = {
+      jobId: row.job_id as string,
+      userId: row.user_id as string,
+      role: row.role as ProducerOverrideStorageRole,
+      overrideAmount: row.override_amount != null ? Number(row.override_amount) : null,
+      overridePercent: row.override_percent != null ? Number(row.override_percent) : null,
+    }
+    out.set(producerOverrideKey(override.jobId, override.userId, override.role), override)
+  }
+  return out
+}
+
+/**
+ * What an override says a producer earns on one job, or `null` when the row does
+ * not override anything and the comp plan should still decide.
+ *
+ * **Precedence** matches `resolveAdditiveParticipantAmount()`: an explicit
+ * `override_amount` (flat dollars) wins over `override_percent`.
+ *
+ * **A row with neither value set is NOT an override.** It is the shape the admin UI
+ * writes when an override is cleared, so treating it as "$0" would silently unpay a
+ * rep who was only ever meant to fall back to their plan. An explicit `0`, by
+ * contrast, IS an override — that is how a producer is taken off a deal whose
+ * commission is being re-split to other people.
+ */
+export function resolveProducerOverrideAmount(
+  override: ProducerCommissionOverride | undefined,
+  commissionBase: number
+): { amount: number; basis: 'flat' | 'percent' } | null {
+  if (!override) return null
+  const flat = override.overrideAmount
+  if (flat != null && Number.isFinite(flat)) {
+    return { amount: roundMoney(flat), basis: 'flat' }
+  }
+  const pct = override.overridePercent
+  if (pct != null && Number.isFinite(pct)) {
+    return { amount: roundMoney(roundMoney(commissionBase) * (pct / 100)), basis: 'percent' }
+  }
+  return null
 }
 
 export function collectParticipants(

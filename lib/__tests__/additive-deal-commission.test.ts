@@ -88,6 +88,9 @@ describe('resolveAdditiveParticipantAmount', () => {
 
 describe('ADDITIVE_DEAL_COMMISSION_ROLES', () => {
   it('excludes setter and closer so pool-scaled participants are never double-paid', () => {
+    // Excluded from the ADDITIVE path only. They are not ignored: they are read by
+    // loadProducerCommissionOverrides() and REPLACE the comp-plan line instead of
+    // stacking on top of it — see lib/__tests__/producer-commission-override.test.ts.
     expect(ADDITIVE_DEAL_COMMISSION_ROLES).not.toContain('setter')
     expect(ADDITIVE_DEAL_COMMISSION_ROLES).not.toContain('closer')
   })

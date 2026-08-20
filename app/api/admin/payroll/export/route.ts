@@ -9,10 +9,14 @@ import {
   collectParticipants,
   computeRawCommissionForParticipant,
   loadActiveCompPlanForUser,
+  loadProducerCommissionOverrides,
   monthKeyFromSaleDate,
   periodSitsAndCloseRateForParticipant,
   poolKey,
+  producerOverrideKey,
+  producerStorageRoleForParticipant,
   resolveAdditiveParticipantAmount,
+  resolveProducerOverrideAmount,
   scaleCommissionsToPool,
   type DealCommissionRoleParticipant,
   type PayrollExportRow,
@@ -227,6 +231,12 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // Per-job overrides that REPLACE a producer's comp-plan commission. Loaded with
+    // the same helper the period lock uses so the preview cannot disagree with what
+    // gets paid.
+    const producerOverrides = await loadProducerCommissionOverrides(supabase, orgId, exportJobIds)
+    producerOverrides.forEach((override) => userIds.add(override.userId))
+
     // Derived lines (inspection, manager override, self-gen): same shared rules the
     // period lock uses, so the preview and the locked payroll agree on who gets paid.
     const exportOpportunityIds = Array.from(
@@ -317,7 +327,32 @@ export async function GET(request: NextRequest) {
         }
       >()
 
+      // Producers whose pay on this job an admin overrode. Mirrors
+      // materializePayrollPeriod: the comp plan is bypassed entirely, no flat bonus is
+      // attached, and the once-per-month flat-bonus slot stays unconsumed.
+      const producerOverrideByUserId = new Map<
+        string,
+        { amount: number; basis: 'flat' | 'percent'; overridePercent: number | null }
+      >()
+
       for (const part of participants) {
+        const override = producerOverrides.get(
+          producerOverrideKey(
+            job.id as string,
+            part.userId,
+            producerStorageRoleForParticipant(part.role)
+          )
+        )
+        const overrideResolved = resolveProducerOverrideAmount(override, compBase)
+        if (overrideResolved) {
+          producerOverrideByUserId.set(part.userId, {
+            ...overrideResolved,
+            overridePercent: override?.overridePercent ?? null,
+          })
+          rawByUser.set(poolKey(part.userId, part.role), overrideResolved.amount)
+          continue
+        }
+
         const assignment = await loadActiveCompPlanForUser(supabase, part.userId, orgId, saleDate)
         const periodVolume = mk ? volumeMap.get(`${part.userId}|${mk}`) || 0 : 0
         const { periodSits, periodClosingRatePct } = periodSitsAndCloseRateForParticipant({
@@ -382,9 +417,21 @@ export async function GET(request: NextRequest) {
         const meta = metaByUser.get(part.userId)
         const calc = meta?.calc
         const plan = meta?.plan
+        const producerOverride = producerOverrideByUserId.get(part.userId)
 
-        const noteParts = [calc?.note, snap.fallbackNote].filter(Boolean) as string[]
-        if (!plan && !calc) {
+        // `calc?.note` is dropped for an overridden line — no comp plan ran, so any
+        // plan-derived note would describe a calculation that never happened. The
+        // commission-base fallback note still applies and is kept.
+        const noteParts = producerOverride
+          ? ([
+              producerOverride.basis === 'percent'
+                ? `Per-job override replaced this ${part.role} line: ${producerOverride.overridePercent}% of commission base (comp plan bypassed).`
+                : `Per-job override replaced this ${part.role} line: flat amount (comp plan bypassed).`,
+              snap.fallbackNote,
+            ].filter(Boolean) as string[])
+          : ([calc?.note, snap.fallbackNote].filter(Boolean) as string[])
+
+        if (!producerOverride && !plan && !calc) {
           noteParts.push('No active comp plan assignment; default plan not found.')
         }
 
@@ -409,11 +456,15 @@ export async function GET(request: NextRequest) {
           comp_plan_id: plan?.id ?? null,
           comp_plan_name: (plan?.name as string) || null,
           plan_type: plan?.plan_type ?? null,
-          base_rate_pct: calc?.baseRate ?? null,
+          base_rate_pct: producerOverride
+            ? producerOverride.overridePercent
+            : calc?.baseRate ?? null,
           period_volume: meta?.periodVolume ?? 0,
           volume_bonus_rate_pct: calc?.volumeBonusRate ?? 0,
           volume_bonus_flat: meta?.effectiveFlatBonus ?? 0,
-          effective_rate_pct: calc?.effectiveRate ?? 0,
+          effective_rate_pct: producerOverride
+            ? producerOverride.overridePercent ?? 0
+            : calc?.effectiveRate ?? 0,
           raw_commission:
             (rawByUser.get(poolKey(part.userId, part.role)) || 0) + (meta?.effectiveFlatBonus ?? 0),
           scaled_commission:
