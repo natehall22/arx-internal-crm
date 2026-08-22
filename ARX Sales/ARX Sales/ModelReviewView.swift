@@ -374,7 +374,7 @@ struct SceneModelView: UIViewRepresentable {
         mat.shininess = 0.25
         mat.isDoubleSided = true
         mat.lightingModel = .phong
-        mat.transparency = 0.0   // fully opaque — 0 = opaque in SceneKit
+        mat.transparency = 1.0   // fully opaque — SceneKit's default is 1.0 opaque, 0.0 is fully transparent
         geo.materials = [mat]
 
         return SCNNode(geometry: geo)

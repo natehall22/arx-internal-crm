@@ -3351,7 +3351,7 @@ export default function RoofMeasurePage() {
 
     return (
       <div className="mt-1">
-        <p className="text-[11px] text-gray-400" title={tooltip}>
+        <p className="text-xs text-gray-200" title={tooltip}>
           Downslope (water runs this way): {drainCompass} ({drainAz.toFixed(0)}°) — {drainSourceLabel(facet.drain_azimuth_source)}
         </p>
         {showAdjust && (
@@ -3363,10 +3363,10 @@ export default function RoofMeasurePage() {
                   e.stopPropagation()
                   setFacetDrainMode(facet.id, 'auto')
                 }}
-                className={`flex-1 rounded border px-2 py-1 text-[10px] ${
+                className={`flex-1 rounded border px-2 py-1 text-[11px] ${
                   facet.drain_azimuth_source !== 'manual'
-                    ? 'border-gray-500 bg-gray-600 text-white'
-                    : 'border-gray-600 bg-gray-700/60 text-gray-300 hover:border-gray-500'
+                    ? 'border-gray-400 bg-gray-600 text-white'
+                    : 'border-gray-500 bg-gray-700/80 text-gray-200 hover:border-gray-400'
                 }`}
               >
                 Auto
@@ -3378,10 +3378,10 @@ export default function RoofMeasurePage() {
                   setFacetDrainMode(facet.id, 'manual')
                   setIsAdjustingDrain(true)
                 }}
-                className={`flex-1 rounded border px-2 py-1 text-[10px] ${
+                className={`flex-1 rounded border px-2 py-1 text-[11px] ${
                   facet.drain_azimuth_source === 'manual'
-                    ? 'border-sky-500 bg-sky-900/40 text-sky-100'
-                    : 'border-gray-600 bg-gray-700/60 text-gray-300 hover:border-gray-500'
+                    ? 'border-sky-400 bg-sky-900/50 text-sky-50'
+                    : 'border-gray-500 bg-gray-700/80 text-gray-200 hover:border-gray-400'
                 }`}
               >
                 Manual
@@ -3394,7 +3394,7 @@ export default function RoofMeasurePage() {
                   e.stopPropagation()
                   resetFacetDrainToAuto(facet.id)
                 }}
-                className="w-full rounded border border-gray-600 bg-gray-700/60 px-2 py-1 text-[10px] text-gray-300 hover:border-gray-500"
+                className="w-full rounded border border-gray-500 bg-gray-700/80 px-2 py-1 text-[11px] text-gray-200 hover:border-gray-400"
               >
                 Reset to auto
               </button>
@@ -3407,12 +3407,12 @@ export default function RoofMeasurePage() {
                   setSelectedFacet(facet.id)
                   setIsAdjustingDrain(true)
                 }}
-                className="w-full rounded border border-sky-600/50 bg-sky-900/25 px-2 py-1 text-[10px] font-medium text-sky-200 hover:bg-sky-900/40"
+                className="w-full rounded border border-sky-500/70 bg-sky-900/40 px-2 py-1 text-[11px] font-medium text-sky-100 hover:bg-sky-900/60"
               >
                 Adjust downslope
               </button>
             ) : (
-              <p className="text-[10px] text-sky-300">
+              <p className="text-[11px] text-sky-200">
                 Drag the blue arrow tip toward the eave. Two fingers pan the map.
               </p>
             )}
@@ -3494,9 +3494,9 @@ export default function RoofMeasurePage() {
             {searchedAddress && (
               <p className="mt-2 text-xs text-gray-400 truncate">{searchedAddress}</p>
             )}
-            <p className="mt-2 text-[11px] text-gray-500 leading-snug">
+            <p className="mt-2 text-[11px] text-gray-400 leading-snug">
               After you choose an address, we load roof outlines from satellite data. Pan or zoom if needed, then tap{' '}
-              <span className="text-gray-400 font-medium">Load from satellite</span> so the capture matches what you see.
+              <span className="text-gray-100 font-medium">Load from satellite</span> so the capture matches what you see.
             </p>
             {searchedAddress && (
               <button
@@ -3514,7 +3514,7 @@ export default function RoofMeasurePage() {
           {/* Roof outline + manual drawing */}
           <div className="p-4 border-b border-gray-700">
             <h3 className="text-sm font-medium text-gray-300 mb-1">Roof outline</h3>
-            <p className="text-[11px] text-gray-500 mb-3 leading-snug">
+            <p className="text-[11px] text-gray-400 mb-3 leading-snug">
               {isDetecting
                 ? 'Loading outline from satellite…'
                 : !searchedAddress
@@ -3530,7 +3530,7 @@ export default function RoofMeasurePage() {
               {isDetecting ? 'Loading…' : 'Reload outline from satellite'}
             </button>
             {showDrawingToolHints && (
-              <p className="text-[11px] text-gray-500 mb-2 leading-snug">
+              <p className="text-[11px] text-gray-400 mb-2 leading-snug">
                 Free — uses satellite data to outline the roof for you.
               </p>
             )}
@@ -3545,7 +3545,7 @@ export default function RoofMeasurePage() {
                   Still not right? Draw a section (uses AI credits)
                 </button>
                 {showDrawingToolHints && (
-                  <p className="text-[11px] text-gray-500 mb-2 leading-snug">
+                  <p className="text-[11px] text-gray-400 mb-2 leading-snug">
                     Uses the same satellite view you see—best when the roof is centered and zoomed in.
                   </p>
                 )}
@@ -3697,7 +3697,7 @@ export default function RoofMeasurePage() {
               )}
             </div>
 
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-gray-400">
               {isDrawing
                 ? 'Click to add points, click the first point to close the shape.'
                 : isDrawingLine
@@ -3732,7 +3732,7 @@ export default function RoofMeasurePage() {
             {facets.length === 0 ? (
               <div className="text-center py-8">
                 <div className="w-16 h-16 bg-gray-700 rounded-full flex items-center justify-center mx-auto mb-3">
-                  <svg className="w-8 h-8 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
                   </svg>
                 </div>
@@ -3741,7 +3741,7 @@ export default function RoofMeasurePage() {
                     <p className="text-gray-400 text-sm max-w-[280px] mx-auto leading-snug">
                       All roof sections removed.
                     </p>
-                    <p className="text-gray-500 text-xs mt-2 max-w-[280px] mx-auto leading-snug">
+                    <p className="text-gray-400 text-xs mt-2 max-w-[280px] mx-auto leading-snug">
                       Draw sections by hand, or reload the satellite outline above.
                     </p>
                   </>
@@ -3753,14 +3753,14 @@ export default function RoofMeasurePage() {
                     <p className="text-gray-400 text-sm max-w-[280px] mx-auto leading-snug">
                       We couldn&apos;t find satellite roof data for this address.
                     </p>
-                    <p className="text-gray-500 text-xs mt-2 max-w-[280px] mx-auto leading-snug">
+                    <p className="text-gray-400 text-xs mt-2 max-w-[280px] mx-auto leading-snug">
                       You can draw sections by hand using the Draw a section button.
                     </p>
                   </>
                 ) : (
                   <>
-                    <p className="text-gray-500 text-sm">No roof sections yet</p>
-                    <p className="text-gray-600 text-xs mt-1">
+                    <p className="text-gray-300 text-sm">No roof sections yet</p>
+                    <p className="text-gray-400 text-xs mt-1">
                       Searching an address loads outlines automatically. You can also draw a section by hand.
                     </p>
                   </>
@@ -3824,7 +3824,7 @@ export default function RoofMeasurePage() {
                           e.stopPropagation()
                           deleteFacet(facet.id)
                         }}
-                        className="text-gray-500 hover:text-red-400"
+                        className="text-gray-400 hover:text-red-400"
                       >
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -3833,31 +3833,31 @@ export default function RoofMeasurePage() {
                     </div>
                     <div className="grid grid-cols-2 gap-2 text-xs">
                       <div>
-                        <span className="text-gray-500">
+                        <span className="text-gray-300">
                           {facet.pitch === 'Unset' ? 'Area (set pitch first):' : 'Roof surface:'}
                         </span>
-                        <span className="text-gray-300 ml-1">{displaySurface.toLocaleString()} sqft</span>
+                        <span className="text-white font-medium ml-1">{displaySurface.toLocaleString()} sqft</span>
                       </div>
                       <div>
-                        <span className="text-gray-500">Roof pitch:</span>
-                        <span className="text-gray-300 ml-1">{facet.pitch}</span>
+                        <span className="text-gray-300">Roof pitch:</span>
+                        <span className="text-white font-medium ml-1">{facet.pitch}</span>
                       </div>
                       <div>
-                        <span className="text-gray-500">Flat:</span>
-                        <span className="text-gray-400 ml-1">{displayFlat.toLocaleString()} sqft</span>
+                        <span className="text-gray-300">Flat:</span>
+                        <span className="text-white font-medium ml-1">{displayFlat.toLocaleString()} sqft</span>
                       </div>
                       <div>
-                        <span className="text-gray-500">Squares:</span>
-                        <span className="text-gray-300 ml-1">{(displaySurface / 100).toFixed(2)}</span>
+                        <span className="text-gray-300">Squares:</span>
+                        <span className="text-white font-medium ml-1">{(displaySurface / 100).toFixed(2)}</span>
                       </div>
                     </div>
                     <div className="mt-2">
-                      <label className="text-[11px] text-gray-500">Roof pitch</label>
-                      <p className="text-[10px] text-gray-500 mt-0.5">e.g. 4/12, 6/12, 8/12</p>
+                      <label className="text-xs font-medium text-gray-200">Roof pitch</label>
+                      <p className="text-[11px] text-gray-400 mt-0.5">e.g. 4/12, 6/12, 8/12</p>
                       <select
                         value={PITCH_OPTIONS.some((option) => option.value === facet.pitch) ? facet.pitch : ''}
                         onChange={(e) => updateFacetPitch(facet.id, e.target.value)}
-                        className="mt-1 w-full bg-gray-700 border border-gray-600 rounded px-2 py-1.5 text-xs text-gray-200"
+                        className="mt-1 w-full bg-gray-700 border border-gray-500 rounded px-2 py-1.5 text-xs text-white"
                       >
                         <option value="" disabled>
                           {facet.suggested_pitch
@@ -3871,7 +3871,7 @@ export default function RoofMeasurePage() {
                         ))}
                       </select>
                       {facet.suggested_pitch && facet.pitch === 'Unset' && (
-                        <p className="mt-1 text-[11px] text-sky-300">
+                        <p className="mt-1 text-xs text-sky-200">
                           Suggested by Google Solar: {facet.suggested_pitch}
                           {typeof facet.suggested_pitch_degrees === 'number'
                             ? ` (${facet.suggested_pitch_degrees.toFixed(1)}°)`
@@ -3879,12 +3879,12 @@ export default function RoofMeasurePage() {
                         </p>
                       )}
                       {dsmConflict && facet.pitch !== 'Unset' && (
-                        <p className="mt-1 text-[11px] text-amber-300">
+                        <p className="mt-1 text-xs text-amber-200">
                           DSM elevation differs from Solar pitch by more than 3° — confirm slope manually.
                         </p>
                       )}
                       {(resolveFacingAzimuthDegrees(facet) != null || facet.orientation) && (
-                        <p className="mt-1 text-[11px] text-gray-400">
+                        <p className="mt-1 text-xs text-gray-200">
                           Facing: {facet.orientation}
                           {resolveFacingAzimuthDegrees(facet) != null
                             ? ` (${resolveFacingAzimuthDegrees(facet)!.toFixed(0)}° — panel direction, not drain)`
@@ -3912,17 +3912,17 @@ export default function RoofMeasurePage() {
                           e.stopPropagation()
                           confirmFacetGeometry(facet.id)
                         }}
-                        className="mt-2 w-full rounded border border-amber-500/50 bg-amber-900/20 px-2 py-1.5 text-xs font-medium text-amber-100 hover:bg-amber-900/35"
+                        className="mt-2 w-full rounded border border-amber-400/70 bg-amber-900/40 px-2 py-1.5 text-xs font-semibold text-amber-50 hover:bg-amber-900/60"
                       >
                         Looks good ✓
                       </button>
                     )}
                     <div className="mt-2">
-                      <label className="text-[11px] text-gray-500">Section Type</label>
+                      <label className="text-xs font-medium text-gray-200">Section Type</label>
                       <select
                         value={facet.section_type || 'main_roof'}
                         onChange={(e) => updateFacetSectionType(facet.id, e.target.value as SectionType)}
-                        className="mt-1 w-full bg-gray-700 border border-gray-600 rounded px-2 py-1.5 text-xs text-gray-200"
+                        className="mt-1 w-full bg-gray-700 border border-gray-500 rounded px-2 py-1.5 text-xs text-white"
                       >
                         {SECTION_TYPE_OPTIONS.map((option) => (
                           <option key={option.value} value={option.value}>
@@ -3967,12 +3967,12 @@ export default function RoofMeasurePage() {
                           ) : null}
                         </div>
                         <div className="flex items-center gap-2">
-                          <span className="text-gray-400 text-xs">
+                          <span className="text-gray-200 text-xs">
                             {measurements?.linear_features?.find((f) => f.id === feature.id)?.sloped_length_ft ?? feature.length_ft} LF
                           </span>
                           <button
                             onClick={() => deleteLinearFeature(feature.id)}
-                            className="text-gray-500 hover:text-red-400"
+                            className="text-gray-400 hover:text-red-400"
                           >
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -4007,14 +4007,14 @@ export default function RoofMeasurePage() {
             <div className="p-4 border-t border-gray-700 bg-gray-800/50">
               {/* Confidence indicator */}
               <div className="flex items-start justify-between mb-3 gap-2">
-                <h3 className="text-sm font-medium text-gray-300 shrink-0">Measurements</h3>
+                <h3 className="text-sm font-medium text-gray-100 shrink-0">Measurements</h3>
                 <div className="flex flex-wrap items-center justify-end gap-1.5 min-w-0">
                   {measurements.quote_ready ? (
                     <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-900/50 text-emerald-400">
                       Quote ready
                     </span>
                   ) : (
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-gray-700/80 text-gray-400">
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-gray-700 text-gray-200">
                       Not quote ready
                     </span>
                   )}
@@ -4080,7 +4080,7 @@ export default function RoofMeasurePage() {
                   <span className="text-gray-300">
                     {measurements.suggested_waste}%
                     {measurements.valleys_lf > 0 && (
-                      <span className="text-gray-500"> (valleys + hips + cuts)</span>
+                      <span className="text-gray-400"> (valleys + hips + cuts)</span>
                     )}
                   </span>
                 </div>
@@ -4126,7 +4126,7 @@ export default function RoofMeasurePage() {
                     </div>
                   ))}
                 </div>
-                <p className="mt-2 text-[10px] text-gray-500">
+                <p className="mt-2 text-[10px] text-gray-400">
                   Pipe boot counts flow to the ops materials order list when saved.
                 </p>
               </div>
@@ -4172,14 +4172,14 @@ export default function RoofMeasurePage() {
               
               {/* Linear footage breakdown */}
               <div className="mt-3 pt-3 border-t border-gray-700">
-                <p className="text-xs text-gray-500 mb-2">Linear Footage</p>
+                <p className="text-xs text-gray-300 mb-2">Linear Footage</p>
                 {measurements.hips_lf > 0 && (
-                  <p className="text-[10px] text-gray-500 mb-2">
+                  <p className="text-[10px] text-gray-400 mb-2">
                     Hip length affects waste % and hip cap order on the proposal.
                   </p>
                 )}
                 {(measurements.valleys_lf > 0 || measurements.hips_lf > 0) && (
-                  <p className="text-[10px] text-gray-500 mb-2">
+                  <p className="text-[10px] text-gray-400 mb-2">
                     Valleys and hips add field waste (cut shingles). Ridge/hip lines order as cap squares (÷100 LF/sq), separate from field.
                   </p>
                 )}
@@ -4194,20 +4194,20 @@ export default function RoofMeasurePage() {
                         <div className="text-white font-medium">
                           {caps ? caps.ridgeCapSq.toFixed(2) : '0'}
                         </div>
-                        <div className="text-gray-500">Ridge cap (sq)</div>
+                        <div className="text-gray-300">Ridge cap (sq)</div>
                         {measurements.ridges_lf > 0 && (
-                          <div className="text-[9px] text-gray-600">{measurements.ridges_lf} LF</div>
+                          <div className="text-[10px] text-gray-400">{measurements.ridges_lf} LF</div>
                         )}
                       </div>
                     )
                   })()}
                   <div className="text-center p-1.5 bg-gray-700/30 rounded">
                     <div className="text-white font-medium">{measurements.eaves_lf}</div>
-                    <div className="text-gray-500">Eaves</div>
+                    <div className="text-gray-300">Eaves</div>
                   </div>
                   <div className="text-center p-1.5 bg-gray-700/30 rounded">
                     <div className="text-white font-medium">{measurements.rakes_lf}</div>
-                    <div className="text-gray-500">Rakes</div>
+                    <div className="text-gray-300">Rakes</div>
                   </div>
                   {(() => {
                     const caps = ridgeHipCapOrderSummary({
@@ -4218,8 +4218,8 @@ export default function RoofMeasurePage() {
                     return (
                       <div className="text-center p-1.5 bg-gray-700/30 rounded">
                         <div className="text-white font-medium">{caps.hipCapSq.toFixed(2)}</div>
-                        <div className="text-gray-500">Hip cap (sq)</div>
-                        <div className="text-[9px] text-gray-600">{measurements.hips_lf} LF</div>
+                        <div className="text-gray-300">Hip cap (sq)</div>
+                        <div className="text-[10px] text-gray-400">{measurements.hips_lf} LF</div>
                       </div>
                     )
                   })()}
@@ -4227,7 +4227,7 @@ export default function RoofMeasurePage() {
                     <div className="text-center p-1.5 bg-amber-900/25 rounded border border-amber-800/40">
                       <div className="text-amber-100 font-medium">{measurements.valleys_lf}</div>
                       <div className="text-amber-500/80">Valley LF</div>
-                      <div className="text-[9px] text-amber-600/80">→ field waste</div>
+                      <div className="text-[10px] text-amber-300/90">→ field waste</div>
                     </div>
                   )}
                   {measurements.step_flashing_lf > 0 && (
@@ -4340,7 +4340,7 @@ export default function RoofMeasurePage() {
                         <div key={item.id} className="flex items-start justify-between gap-2 text-xs">
                           <div className="text-gray-200 min-w-0">
                             <p className="truncate">{item.description}</p>
-                            <p className="text-gray-500">
+                            <p className="text-gray-400">
                               {item.quantity} {item.unit} @ ${item.unit_price}
                             </p>
                           </div>
@@ -4434,14 +4434,14 @@ export default function RoofMeasurePage() {
                   Super zoom — edit edges
                 </button>
               )}
-              <label className="text-[11px] text-gray-500">Roof pitch</label>
-              <p className="text-[10px] text-gray-500 mt-0.5">e.g. 4/12, 6/12, 8/12</p>
+              <label className="text-xs font-medium text-gray-200">Roof pitch</label>
+              <p className="text-[11px] text-gray-400 mt-0.5">e.g. 4/12, 6/12, 8/12</p>
               <select
                 value={
                   PITCH_OPTIONS.some((option) => option.value === selectedFacetData.pitch) ? selectedFacetData.pitch : ''
                 }
                 onChange={(e) => updateFacetPitch(selectedFacetData.id, e.target.value)}
-                className="mt-1 w-full bg-gray-800 border border-gray-600 rounded-lg px-2 py-2 text-sm text-gray-100"
+                className="mt-1 w-full bg-gray-800 border border-gray-500 rounded-lg px-2 py-2 text-sm text-white"
               >
                 <option value="" disabled>
                   {selectedFacetData.suggested_pitch
@@ -4455,7 +4455,7 @@ export default function RoofMeasurePage() {
                 ))}
               </select>
               {selectedFacetData.suggested_pitch && selectedFacetData.pitch === 'Unset' && (
-                <p className="mt-1.5 text-[11px] text-sky-300">
+                <p className="mt-1.5 text-xs text-sky-200">
                   Suggested: {selectedFacetData.suggested_pitch}
                   {typeof selectedFacetData.suggested_pitch_degrees === 'number'
                     ? ` (${selectedFacetData.suggested_pitch_degrees.toFixed(1)}°)`
@@ -4463,7 +4463,7 @@ export default function RoofMeasurePage() {
                 </p>
               )}
               {(resolveFacingAzimuthDegrees(selectedFacetData) != null || selectedFacetData.orientation) && (
-                <p className="mt-1.5 text-[11px] text-gray-400">
+                <p className="mt-1.5 text-xs text-gray-200">
                   Facing: {selectedFacetData.orientation}
                   {resolveFacingAzimuthDegrees(selectedFacetData) != null
                     ? ` (${resolveFacingAzimuthDegrees(selectedFacetData)!.toFixed(0)}° — panel direction, not drain)`
@@ -4475,19 +4475,19 @@ export default function RoofMeasurePage() {
                 <button
                   type="button"
                   onClick={() => zoomMapToFacet(selectedFacetData)}
-                  className="w-full rounded-lg border border-gray-600 bg-gray-800/80 px-3 py-2 text-xs font-medium text-gray-200 hover:bg-gray-800"
+                  className="w-full rounded-lg border border-gray-500 bg-gray-800 px-3 py-2 text-xs font-medium text-white hover:bg-gray-700"
                 >
                   Zoom map to section
                 </button>
-                <p className="text-[10px] text-gray-500 leading-snug">
-                  <strong className="text-gray-400">Super zoom</strong> opens HD satellite so you can zoom past Google Maps and drag corner handles.
+                <p className="text-[11px] text-gray-300 leading-snug">
+                  <strong className="text-white">Super zoom</strong> opens HD satellite so you can zoom past Google Maps and drag corner handles.
                 </p>
               </div>
               {selectedFacetData.geometry_reviewed !== true && (
                 <button
                   type="button"
                   onClick={() => confirmFacetGeometry(selectedFacetData.id)}
-                  className="mt-3 w-full rounded-lg border border-amber-500/50 bg-amber-900/30 px-3 py-2 text-xs font-medium text-amber-100 hover:bg-amber-900/45"
+                  className="mt-3 w-full rounded-lg border border-amber-400/70 bg-amber-900/50 px-3 py-2 text-xs font-semibold text-amber-50 hover:bg-amber-900/70"
                 >
                   Looks good ✓
                 </button>
@@ -4495,7 +4495,7 @@ export default function RoofMeasurePage() {
               <button
                 type="button"
                 onClick={() => selectFacet(null)}
-                className="mt-2 w-full text-center text-[11px] text-gray-500 hover:text-gray-300"
+                className="mt-2 w-full text-center text-xs text-gray-300 hover:text-white"
               >
                 Close
               </button>
@@ -4522,7 +4522,7 @@ export default function RoofMeasurePage() {
                       ? ` · ${lidarAvailability.selected.collectEnd.slice(0, 4)}`
                       : ''}
                     <span className="block text-gray-400 max-lg:hidden">Reference only — not applied</span>
-                    <span className="hidden max-lg:block text-gray-500">Ref only</span>
+                    <span className="hidden max-lg:block text-gray-300">Ref only</span>
                   </>
                 )}
               </div>
@@ -4852,7 +4852,7 @@ export default function RoofMeasurePage() {
                             <td className="px-4 py-2 text-right font-medium text-gray-900">
                               {caps ? `${caps.ridgeCapSq.toFixed(2)} sq` : '0 sq'}
                               {measurements.ridges_lf > 0 && (
-                                <span className="block text-xs text-gray-500">{measurements.ridges_lf} LF measured</span>
+                                <span className="block text-xs text-gray-600">{measurements.ridges_lf} LF measured</span>
                               )}
                             </td>
                           </tr>
@@ -4877,7 +4877,7 @@ export default function RoofMeasurePage() {
                             <td className="px-4 py-2 text-gray-900">Hip cap</td>
                             <td className="px-4 py-2 text-right font-medium text-gray-900">
                               {caps.hipCapSq.toFixed(2)} sq
-                              <span className="block text-xs text-gray-500">{measurements.hips_lf} LF measured</span>
+                              <span className="block text-xs text-gray-600">{measurements.hips_lf} LF measured</span>
                             </td>
                           </tr>
                         )

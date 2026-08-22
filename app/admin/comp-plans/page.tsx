@@ -26,6 +26,7 @@ import {
   planTypePaysCommission,
   type CompPlanWarning,
 } from '@/lib/comp-plan-payability'
+import { primaryCompPlanRowActions } from '@/lib/comp-plan-assignment-admin'
 
 interface VolumeTier {
   min_volume: number
@@ -1307,8 +1308,10 @@ export default function CompPlansPage() {
             </div>
 
             <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm" style={{ color: INK }}>
-              Primary Sales Plan controls the user&apos;s own production. Management Overlay is separate,
-              payroll-backed manager compensation; this page shows it only when the API supplies that state.
+              Primary Sales Plan controls the user&apos;s own production. To change it, assign the next plan
+              — it starts tomorrow and does not rewrite today&apos;s pay. End plan only if they should have
+              no plan after today; you do not need to end first to assign a replacement. Management Overlay
+              is separate, payroll-backed manager compensation.
             </div>
 
             <div className="bg-white rounded-xl shadow-sm border overflow-hidden md:overflow-x-auto">
@@ -1326,6 +1329,12 @@ export default function CompPlansPage() {
                 <tbody className="block divide-y md:table-row-group">
                   {assignmentRows.map(({ user, manager, directReports, primaryAssignment, primaryStatus, scheduledPrimary, overlays }) => {
                     const managerEligible = currentManagerIds.has(user.id) || overlays.length > 0
+                    const rowActions = primaryCompPlanRowActions({
+                      hasCurrent: primaryStatus === 'Current',
+                      hasScheduled: Boolean(scheduledPrimary),
+                      currentEffectiveTo: primaryStatus === 'Current' ? primaryAssignment?.effective_to : null,
+                      today,
+                    })
                     return (
                     <tr key={user.id} className="block p-4 hover:bg-gray-50 align-top md:table-row md:p-0">
                       <td className="block px-0 py-2 md:table-cell md:px-6 md:py-4">
@@ -1454,7 +1463,7 @@ export default function CompPlansPage() {
                       </td>
                       <td className="block px-0 py-2 text-left md:table-cell md:px-6 md:py-4 md:text-right">
                         <div className="flex flex-wrap gap-3 md:justify-end">
-                        {primaryAssignment && primaryStatus === 'Current' && (
+                        {rowActions.showEndPlan && primaryAssignment && (
                           <button
                             onClick={() => deleteAssignment(primaryAssignment.id)}
                             className="text-red-600 hover:text-red-800 text-sm"
@@ -1462,7 +1471,7 @@ export default function CompPlansPage() {
                             End plan
                           </button>
                         )}
-                        {scheduledPrimary && (
+                        {rowActions.showCancelScheduled && scheduledPrimary && (
                           <button
                             onClick={() => deleteAssignment(scheduledPrimary.id, true)}
                             className="text-red-600 hover:text-red-800 text-sm"
@@ -1470,16 +1479,19 @@ export default function CompPlansPage() {
                             Cancel scheduled
                           </button>
                         )}
-                        {!primaryAssignment && !scheduledPrimary && (
+                        {rowActions.showAssignPlan && (
                           <button
                             onClick={() => {
-                              setAssignForm((previous) => ({ ...previous, user_id: user.id }))
-                              setAssignForm((previous) => ({ ...previous, effective_from: previous.effective_from || tomorrowEastern }))
+                              setAssignForm((previous) => ({
+                                ...previous,
+                                user_id: user.id,
+                                effective_from: previous.effective_from || tomorrowEastern,
+                              }))
                               setShowAssignModal(true)
                             }}
                             className="text-indigo-600 hover:text-indigo-800 text-sm"
                           >
-                            Assign plan
+                            {rowActions.assignPlanLabel}
                           </button>
                         )}
                         </div>
