@@ -446,24 +446,9 @@ Tell me which kind you mean (or open that record and ask again) and I will give 
 3. When marked won, a **project** is created and ops gets a **production job** in **Ops** (\`/ops\`)`
   }
 
-  if (
-    lower.includes('where') ||
-    lower.includes('how do i') ||
-    lower.includes('how to') ||
-    lower.includes('find') ||
-    lower.includes('access') ||
-    lower.includes('navigate') ||
-    lower.includes('go to')
-  ) {
-    return `I can point you to the right place in ARX CRM. Common areas:
-
-- **Leads** → \`/leads\` | **Opportunities** → \`/opportunities\` | **Job Board** → \`/ops\`
-- **Canvass map** → \`/canvass\` | **Calendar** → \`/calendar\` | **Commissions** → \`/commissions/statement\`
-- **Settings / enable AI** → \`/settings\` (AI Assistant tab)
-
-Tell me what you are trying to do (e.g. "enter labor cost", "schedule inspection", "view commissions") and I will give exact steps.`
-  }
-
+  // No generic "where / how do i / find" catch-all. It matched almost any real question
+  // and answered with a static directory listing. Unmatched questions return null so the
+  // caller can reach the model, which already has this whole guide in its system prompt.
   return null
 }
 

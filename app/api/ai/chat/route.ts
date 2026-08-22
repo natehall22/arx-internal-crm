@@ -329,70 +329,63 @@ export async function POST(request: NextRequest) {
         ? conversationId
         : null
 
-    const navigationFallback = getNavigationFallbackResponse(
-      trimmedMessage,
-      profile.role,
-      context
-    )
-    if (navigationFallback) {
-      messages.push({ role: 'assistant', content: navigationFallback })
-      const savedConversationId = await persistAiConversation(supabase, {
-        orgId: profile.org_id,
-        userId: profile.id,
-        contextType: context.type,
-        contextId: context.id,
-        messages,
-        conversationId: savedConversationIdSeed,
-      })
-      return NextResponse.json({
-        response: navigationFallback,
-        conversationId: savedConversationId,
-      })
-    }
-
+    // The navigation guide is a FALLBACK for when no model is reachable, not a pre-filter.
+    // It used to run here and return before OpenAI was ever called, so any question
+    // containing "where" / "how do i" / "find" got a static menu instead of an answer.
+    // The same guidance already reaches the model via buildAiChatSystemPrompt above, so
+    // answers stay grounded in real CRM paths — they just actually answer the question.
     const openaiKey = process.env.OPENAI_API_KEY
 
     if (openaiKey) {
-      const openaiMessages = [
-        { role: 'system', content: systemPrompt },
-        ...messages.slice(-AI_CHAT_MAX_OPENAI_MESSAGES),
-      ]
+      try {
+        const openaiMessages = [
+          { role: 'system', content: systemPrompt },
+          ...messages.slice(-AI_CHAT_MAX_OPENAI_MESSAGES),
+        ]
 
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${openaiKey}`,
-        },
-        body: JSON.stringify({
-          model: 'gpt-4o-mini',
-          messages: openaiMessages,
-          max_tokens: AI_CHAT_OPENAI_MAX_TOKENS,
-          temperature: 0.5,
-          stream: true,
-        }),
-      })
-
-      if (!response.ok) {
-        throw new Error('OpenAI API error')
-      }
-
-      return createOpenAiStreamingResponse(response, async (assistantResponse) => {
-        const persistedMessages: Message[] = [...messages, { role: 'assistant', content: assistantResponse }]
-        return persistAiConversation(supabase, {
-          orgId: profile.org_id,
-          userId: profile.id,
-          contextType: context.type,
-          contextId: context.id,
-          messages: persistedMessages,
-          conversationId: savedConversationIdSeed,
+        const response = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${openaiKey}`,
+          },
+          body: JSON.stringify({
+            model: 'gpt-4o-mini',
+            messages: openaiMessages,
+            max_tokens: AI_CHAT_OPENAI_MAX_TOKENS,
+            temperature: 0.5,
+            stream: true,
+          }),
         })
-      })
+
+        if (!response.ok) {
+          const errorBody = await response.text().catch(() => '')
+          console.error('OpenAI API error', response.status, errorBody.slice(0, 500))
+          throw new Error(`OpenAI API error (${response.status})`)
+        }
+
+        return createOpenAiStreamingResponse(response, async (assistantResponse) => {
+          const persistedMessages: Message[] = [...messages, { role: 'assistant', content: assistantResponse }]
+          return persistAiConversation(supabase, {
+            orgId: profile.org_id,
+            userId: profile.id,
+            contextType: context.type,
+            contextId: context.id,
+            messages: persistedMessages,
+            conversationId: savedConversationIdSeed,
+          })
+        })
+      } catch (openaiError) {
+        // The model is always TRIED first, but a bad/expired key, a 429, a quota stop or
+        // an OpenAI outage must not take the whole assistant down. Degrade to the
+        // route-verified navigation guide rather than returning a bare 500, so questions
+        // the CRM can answer offline ("where do I enter labor cost") keep working.
+        console.error('AI chat: OpenAI unavailable, using navigation fallback', openaiError)
+      }
     }
 
-    const assistantResponse =
-      getNavigationFallbackResponse(trimmedMessage, profile.role, context) ||
-      generateLegacyFallbackResponse(trimmedMessage, context, profile.role)
+    // generateLegacyFallbackResponse already tries getNavigationFallbackResponse first.
+    const assistantResponse = generateLegacyFallbackResponse(trimmedMessage, context, profile.role)
 
     messages.push({ role: 'assistant', content: assistantResponse })
 
