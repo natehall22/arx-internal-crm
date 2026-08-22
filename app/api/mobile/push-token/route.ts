@@ -1,16 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
 import { requireAuthApi } from '@/lib/auth'
+import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
-
-function getAdminClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
-  return createClient(supabaseUrl, serviceRoleKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  })
-}
 
 /**
  * POST /api/mobile/push-token — register / refresh an APNs device token.
@@ -55,7 +47,7 @@ export async function POST(request: NextRequest) {
           ? 'sandbox'
           : 'production'
 
-    const admin = getAdminClient()
+    const admin = createServiceClient()
     const { error } = await admin.from('mobile_device_tokens').upsert(
       {
         user_id: userId,
@@ -106,7 +98,7 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: 'device_token is required' }, { status: 400 })
     }
 
-    const admin = getAdminClient()
+    const admin = createServiceClient()
     const { error } = await admin
       .from('mobile_device_tokens')
       .delete()

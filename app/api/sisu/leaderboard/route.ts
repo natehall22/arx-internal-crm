@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient as createSupabaseAdminClient } from '@supabase/supabase-js'
 import { requireAuthApi } from '@/lib/auth'
 import { getDateRangeForTimeFrame } from '@/lib/date-ranges'
 import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
+import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
 
@@ -42,14 +42,6 @@ type LeaderboardResponse = {
 
 const CLOSER_ROLES = new Set(['closer', 'sales_rep', 'rep'])
 const TIMEZONE = 'America/New_York'
-
-function getAdminClient() {
-  return createSupabaseAdminClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { auth: { autoRefreshToken: false, persistSession: false } },
-  )
-}
 
 function toNumber(value: unknown) {
   const parsed = Number(value ?? 0)
@@ -101,7 +93,7 @@ export async function POST(request: NextRequest) {
     // Body fields are accepted but ignored — org + role always come from the DB-verified profile
     await request.json().catch(() => ({}))
 
-    const admin = getAdminClient()
+    const admin = createServiceClient()
     const userProfile: UserProfile = {
       id: authContext.authUser.id,
       org_id: authContext.profile.org_id,

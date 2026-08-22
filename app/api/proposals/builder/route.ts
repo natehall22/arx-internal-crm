@@ -4,6 +4,7 @@ import { computeFinancedContractTotal } from '@/lib/financing'
 import { SALE_AGREEMENT_TYPES } from '@/lib/sales-metrics'
 import { resolveSalesDocAccessBarred } from '@/lib/sales-doc-access'
 import { loadBuilderMeasurement } from '@/lib/proposal-builder-measurement'
+import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
 
@@ -162,15 +163,6 @@ function getAuthClient(req: NextRequest) {
   }
 }
 
-function getAdminClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
-  
-  return createClient(supabaseUrl, serviceRoleKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  })
-}
-
 // GET - Load builder data (pricebook items, templates, opportunity, measurement)
 export async function GET(request: NextRequest) {
   try {
@@ -185,7 +177,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const adminClient = getAdminClient()
+    const adminClient = createServiceClient()
 
     // Get user profile for org_id and role
     const { data: profile } = await adminClient
@@ -417,7 +409,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const adminClient = getAdminClient()
+    const adminClient = createServiceClient()
 
     // Get user profile for org_id
     const { data: profile } = await adminClient
@@ -575,7 +567,7 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const adminClient = getAdminClient()
+    const adminClient = createServiceClient()
 
     const { data: profile } = await adminClient
       .from('users')

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
 import { requireAuthApi } from '@/lib/auth'
 import { isAiAssistantAllowlistedAuth } from '@/lib/ai/chat-allowlist'
+import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
 
@@ -15,21 +15,12 @@ function isAuthFailure(error: unknown): boolean {
   )
 }
 
-function getAdminClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
-
-  return createClient(supabaseUrl, serviceRoleKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  })
-}
-
 // GET - Load user settings
 export async function GET(_request: NextRequest) {
   try {
     const { authUser, profile } = await requireAuthApi()
 
-    const adminClient = getAdminClient()
+    const adminClient = createServiceClient()
 
     if (!profile?.org_id) {
       return NextResponse.json({ error: 'User profile not found' }, { status: 404 })
@@ -77,7 +68,7 @@ export async function POST(request: NextRequest) {
     const { authUser } = auth
     const aiAssistantAllowlisted = isAiAssistantAllowlistedAuth(auth)
 
-    const adminClient = getAdminClient()
+    const adminClient = createServiceClient()
     const settings = await request.json()
 
     // Build the settings object, only including defined values
@@ -148,7 +139,7 @@ export async function DELETE(request: NextRequest) {
   try {
     const { authUser } = await requireAuthApi()
 
-    const adminClient = getAdminClient()
+    const adminClient = createServiceClient()
 
     const { error: deleteError } = await adminClient
       .from('user_google_tokens')

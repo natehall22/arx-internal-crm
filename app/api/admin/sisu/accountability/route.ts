@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import { getEasternPaceFactor, getEasternTodayIso } from '@/lib/eastern-datetime'
 import { INSPECTION_SET_APPOINTMENT_TYPE_OR } from '@/lib/inspection-set-metrics'
 import type { DbUserRole } from '@/lib/types/database'
+import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
 
@@ -121,14 +122,6 @@ function getAuthClient(req: NextRequest) {
   })
 }
 
-function getAdminClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
-  return createClient(supabaseUrl, serviceRoleKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  })
-}
-
 async function getAuthedUser(req: NextRequest) {
   const client = getAuthClient(req)
   const {
@@ -144,7 +137,7 @@ async function assertAdmin(req: NextRequest): Promise<AuthResult | NextResponse>
   const user = await getAuthedUser(req)
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const admin = getAdminClient()
+  const admin = createServiceClient()
   const { data: profile } = await admin
     .from('users')
     .select('role, org_id')
@@ -290,7 +283,7 @@ export async function GET(req: NextRequest) {
   const authResult = await assertAdmin(req)
   if (authResult instanceof NextResponse) return authResult
 
-  const admin = getAdminClient()
+  const admin = createServiceClient()
   const weekRange = getCurrentWeekRange()
 
   const todayIso = getEasternTodayIso()

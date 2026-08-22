@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import { isValidBoundaryGeoJSON } from '@/lib/canvass-territory-geometry'
 import { isCanvassTerritoryAssigneeEligible } from '@/lib/canvass-territory-assignee-filter'
 import { CANVASS_TERRITORY_MANAGER_ROLES } from '@/lib/canvass-territory-manager-roles'
+import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
 
@@ -56,15 +57,6 @@ function getAuthClient(req: NextRequest) {
   }
 }
 
-function getAdminClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
-
-  return createClient(supabaseUrl, serviceRoleKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  })
-}
-
 async function requireManager(req: NextRequest) {
   const { client: authClient, accessToken } = getAuthClient(req)
   if (!accessToken) {
@@ -74,7 +66,7 @@ async function requireManager(req: NextRequest) {
   if (!user) {
     return { error: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) }
   }
-  const admin = getAdminClient()
+  const admin = createServiceClient()
   const { data: profile } = await admin
     .from('users')
     .select('role, org_id')

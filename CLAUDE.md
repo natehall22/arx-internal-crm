@@ -37,7 +37,62 @@ Subcontractor model (no in-house crews). Based in the US, field reps canvass doo
 - All schema changes must be nullable/additive — system is live and in daily use
 - `bonus_status` enum: `pending_approval | approved | rejected | paid`
 - `manager_user_id` self-referential FK for org hierarchy traversal
+- **Tesla Algorithm applies to every change** — question the requirement, delete before you add, never build a second implementation of something that exists. See the full rule and the Known Redundancy backlog below.
 - **Mandatory change review — no exceptions for size or type:** every code change gets a proactive bug-bot review + full collateral-impact sweep (edge/fringe cases, other features touching the same tables/routes/flags) before it ships, then `/code-review` and `/security-review`. Do this without being asked.
+
+## The Tesla Algorithm — Standing Rule for All AI Work
+
+Apply these five steps **in order** to every task. Order matters: optimizing a
+requirement that shouldn't exist, or automating a process that should be deleted,
+is wasted work. Most of the value is in steps 1 and 2 — do not skip ahead to 3.
+
+1. **Question every requirement.** Every requirement carries a name, not a
+   department. Ask *who* asked for this and *why*. "The CRM has always done it
+   that way" is not a requirement. If the requirement is wrong, say so before
+   building.
+2. **Delete the part or process.** If you aren't adding back at least 10% of what
+   you delete, you didn't delete enough. Prefer removing a code path, a table, a
+   flag, or a whole screen over adding a new one beside it. **A second
+   implementation of something that already exists is a bug, not a feature.**
+3. **Simplify or optimize** — only what survived steps 1 and 2.
+4. **Accelerate cycle time.** Speed up what's left. Never speed up a step that
+   should have been deleted.
+5. **Automate — last.** Automating a broken or redundant process just makes it
+   fail faster.
+
+### How this applies here — non-negotiable
+- **Before writing a new helper, function, constant, or component: grep for it
+  first.** If something close exists, extend it. If two now exist, delete one in
+  the same change. Do not leave both.
+- **Flag repetition when you see it, unprompted.** If you notice the same logic,
+  literal, query shape, or boilerplate for the 3rd time, stop and say so — name
+  the file count and propose the single home for it. Don't wait to be asked.
+- **Don't silently duplicate to avoid a refactor.** If consolidating is out of
+  scope for the current task, say that explicitly and add the item to
+  **Known Redundancy** below rather than quietly copy-pasting.
+- **"Done repeatedly over and over" is a defect report.** Nathan's time is the
+  scarce resource. Repeated manual steps, repeated explanations, and repeated
+  code all count.
+
+## Known Redundancy — Consolidation Backlog
+Audited 2026-08-21. Ranked by risk, not by line count. Each is a step-2 delete
+candidate, not a step-3 tidy-up. Do not add to these patterns; when you touch a
+listed file, migrate it.
+
+| # | Redundancy | Scale | Risk |
+|---|---|---|---|
+| 1 | **Authorization is implemented twice.** `lib/permissions.ts` (1,213 lines, real `PermissionName` model + `effective-permissions.ts` DB resolution) exists, but only ~2 API routes call `hasPermission`. Everything else hardcodes role literal arrays. | ~100 inline role arrays across 40+ distinct shapes (`['admin','regional_manager','sales_manager']` ×16, `['admin','regional_manager']` ×14, …); **17 separate single-purpose access modules** in `lib/` (`payroll-admin-access`, `finance-access`, `ops-access`, `goals-admin-access`, `proposal-delete-access`, `sales-doc-access`, `comp-plan-roles`, `manager-commission-roles`, `canvass-territory-manager-roles`, `scheduling-create-permission`, `dashboard-setter-role`, …) | **Highest.** No single place answers "who can do what." A role added or renamed must be found in ~100 spots. Security-relevant. |
+| 2 | ~~**`getAdminClient()` redefined per-route.**~~ **DONE 2026-08-21** — all **83** local factories deleted (81 API routes + the `contracts/sign` and `change-orders/sign` server pages, which a `route.ts`-only glob initially missed). Every one now calls `createServiceClient()` from `lib/supabase/service.ts`, hardened with `auth:{autoRefreshToken:false,persistSession:false}` (previously omitted — which also stops a per-call 30s auto-refresh `setInterval` that was keeping the serverless event loop alive on ~198 pre-existing callers). `SUPABASE_SERVICE_ROLE_KEY` now appears in **8** files, down from 88: the helper, `lib/auth.ts`, `app/api/health/route.ts` (presence check), 2 tests, 3 `scripts/`. | was 83 | Closed |
+| 3 | ~~**`createServiceClient` name collision.**~~ **DONE 2026-08-21** — dissolved by #2. The 6 aliased files turned out to be 3 real ones using the **anon key + user JWT**, not service role; renamed to `createAnonClient` so the identifier stops lying. | was 6 | Closed |
+| 3b | **Local `getAuthClient()` re-parses session cookies by hand.** Found while doing #2. `app/api/admin/scheduling/route.ts`, `app/api/reports/builder/route.ts`, `app/api/reports/custom/route.ts` each hand-roll cookie lookup + JWT extraction, duplicating `lib/supabase/session-cookie.ts` + `createRequestScopedClient()` in `lib/supabase/request-client.ts`. | 3 files | Medium — deliberately NOT folded into the #2 consolidation: it changes auth-token parsing behavior (notably the null-token path, which currently falls back to an unauthenticated anon client). Needs its own change + review. |
+| 4 | **Manual org scoping on every query.** `.eq('org_id', …)` hand-written per call site; `.from('users')` raw 372×. | **989 `.eq('org_id')`**, 372 `users`, 137 `production_jobs`, 131 `opportunities`, 111 `leads`, 109 `scheduled_appointments` | High — one omitted `.eq` is cross-org data exposure. This is the mechanism behind the parked AI-assistant F2 finding. Needs scoped query builders per table. |
+| 5 | **Timezone hardcoded.** `'America/New_York'` literal. | **154 occurrences** | Medium-high — already caused the inside-sales reschedule double-TZ bug (2026-07-17). Blocks any non-Eastern market. Needs one `ORG_TIMEZONE` source. |
+| 6 | **Formatters re-implemented per file.** No shared `lib/format.ts`. | 18 local `formatCurrency`/`formatMoney`, 33 local `formatDate`/`formatTime`, 22 raw `Intl.NumberFormat`, 159 raw `toLocaleDateString` | Medium — proposals/PDFs/commissions can render the same number differently. |
+| 7 | **Error-response literals.** | `NextResponse.json({error:'Unauthorized'},{status:401})` **348×**; `'Forbidden'` 403 **168×**; plus 6 competing synonyms for 403 (`'Access denied'` 24, `'Not authorized'` 8, `'Permission denied'` 4, …) | Low severity, high volume — inconsistent client-side error handling. Needs `unauthorized()` / `forbidden()` helpers. |
+
+**Rule going forward:** items 1, 3b, 4 and 5 are the ones that can cause a real incident.
+Fix opportunistically — when a task already touches one of these files, migrate
+that file rather than extending the pattern.
 
 ## UI Conventions
 - **Text contrast is an ongoing, recurring problem in this build — always verify text stands out.** Use explicit dark text (`#2c2c2a`, not generic gray) on light surfaces; never place text directly on the satellite/photo map — use a solid or opaque-scrim background; aim for WCAG AA. Validate legibility on a cheap Android in direct sun for any field-facing UI.

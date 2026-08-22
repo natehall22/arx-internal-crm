@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { SALE_AGREEMENT_TYPES } from '@/lib/sales-metrics'
+import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
 
@@ -56,15 +57,6 @@ function getAuthClient(req: NextRequest) {
   }
 }
 
-function getAdminClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
-  
-  return createClient(supabaseUrl, serviceRoleKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  })
-}
-
 // PATCH - Update a line item (e.g., visibility)
 export async function PATCH(
   request: NextRequest,
@@ -82,7 +74,7 @@ export async function PATCH(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const adminClient = getAdminClient()
+    const adminClient = createServiceClient()
 
     // Get user profile for org_id and role
     const { data: profile } = await adminClient

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
 
@@ -54,14 +55,6 @@ function getAuthClient(req: NextRequest) {
   })
 }
 
-function getAdminClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
-  return createClient(supabaseUrl, serviceRoleKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  })
-}
-
 const ADMIN_ROLES = [
   'admin',
   'owner',
@@ -84,7 +77,7 @@ async function assertAdmin(req: NextRequest): Promise<{ userId: string } | NextR
   const user = await getAuthedUser(req)
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const admin = getAdminClient()
+  const admin = createServiceClient()
   const { data: profile } = await admin
     .from('users')
     .select('role, org_id')
@@ -111,7 +104,7 @@ export async function GET(req: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const supabase = getAuthClient(req)
-  const admin = getAdminClient()
+  const admin = createServiceClient()
 
   // Resolve org_id from authed user — required for all branches
   const { data: profile } = await admin
@@ -182,7 +175,7 @@ export async function POST(req: NextRequest) {
   const user = await getAuthedUser(req)
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const admin = getAdminClient()
+  const admin = createServiceClient()
   const { data: profile } = await admin
     .from('users')
     .select('org_id')
@@ -275,7 +268,7 @@ export async function PATCH(req: NextRequest) {
   const authResult = await assertAdmin(req)
   if (authResult instanceof NextResponse) return authResult
 
-  const admin = getAdminClient()
+  const admin = createServiceClient()
 
   // Resolve org_id — required for all update queries to prevent cross-org modification
   const { data: callerProfile } = await admin

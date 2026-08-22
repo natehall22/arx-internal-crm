@@ -12,6 +12,7 @@ import {
 import { getAttributedCanvassLeadUserId } from '@/lib/canvass-lead-attribution'
 import { countsAsInspectionSet } from '@/lib/inspection-set-metrics'
 import { isOrgSuperuserRoleSlug } from '@/lib/permissions'
+import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
 
@@ -69,15 +70,6 @@ function getAuthClient(req: NextRequest) {
   }
 }
 
-function getAdminClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
-  
-  return createClient(supabaseUrl, serviceRoleKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  })
-}
-
 export async function GET(request: NextRequest) {
   try {
     const { client: authClient, accessToken } = getAuthClient(request)
@@ -91,7 +83,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const supabase = getAdminClient()
+    const supabase = createServiceClient()
 
     const { data: profile } = await supabase
       .from('users')

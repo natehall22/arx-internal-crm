@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { revalidatePath } from 'next/cache'
 import { ensureLeadHasMapPinOrThrow } from '@/lib/lead-map-pin'
+import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
 
@@ -41,15 +42,6 @@ function getSessionFromRequest(req: NextRequest) {
   return null
 }
 
-function getAdminClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
-
-  return createClient(supabaseUrl, serviceRoleKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  })
-}
-
 export async function POST(
   request: NextRequest,
   { params }: { params: { id: string } }
@@ -76,7 +68,7 @@ export async function POST(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const adminClient = getAdminClient()
+    const adminClient = createServiceClient()
 
     const { data: profile, error: profileError } = await adminClient
       .from('users')

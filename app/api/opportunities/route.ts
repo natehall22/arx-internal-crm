@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
 import { requireAuthApi } from '@/lib/auth'
 import {
   mapLatestInspectionByLeadId,
@@ -7,16 +6,9 @@ import {
   mergeEffectiveInspectionFields,
 } from '@/lib/effective-inspection-state'
 import { effectiveHasPermission, resolveEffectivePermissionNames } from '@/lib/effective-permissions'
+import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
-
-function getAdminClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
-  return createClient(supabaseUrl, serviceRoleKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  })
-}
 
 // GET - Get opportunities (optionally filtered by lead_ids)
 export async function GET(request: NextRequest) {
@@ -29,7 +21,7 @@ export async function GET(request: NextRequest) {
     }
 
     const profile = authContext.profile
-    const adminClient = getAdminClient()
+    const adminClient = createServiceClient()
 
     const searchParams = request.nextUrl.searchParams
     const leadIds = searchParams.get('lead_ids')

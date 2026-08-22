@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { syncOrgEnrollments } from '@/lib/sync-444-core'
+import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
 
@@ -81,14 +82,6 @@ function getAuthClient(req: NextRequest) {
   })
 }
 
-function getAdminClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
-  return createClient(supabaseUrl, serviceRoleKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  })
-}
-
 async function assertAdmin(req: NextRequest): Promise<AuthResult | NextResponse> {
   const authClient = getAuthClient(req)
   const {
@@ -98,7 +91,7 @@ async function assertAdmin(req: NextRequest): Promise<AuthResult | NextResponse>
 
   if (error || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const admin = getAdminClient()
+  const admin = createServiceClient()
   const { data: profile } = await admin
     .from('users')
     .select('role, org_id')
@@ -123,7 +116,7 @@ export async function POST(req: NextRequest) {
     const authResult = await assertAdmin(req)
     if (authResult instanceof NextResponse) return authResult
 
-    const admin = getAdminClient()
+    const admin = createServiceClient()
     const result = await syncOrgEnrollments(admin, authResult.orgId, authResult.userId)
     return NextResponse.json(result)
   } catch (error) {

@@ -5,6 +5,7 @@ import {
   sortCloseOutcomes,
   type CloseOutcomeConfigRow,
 } from '@/lib/close-outcomes'
+import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
 
@@ -44,15 +45,6 @@ function getSessionFromRequest(req: NextRequest) {
   return null
 }
 
-function getAdminClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
-
-  return createClient(supabaseUrl, serviceRoleKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  })
-}
-
 /** Close feedback outcomes for the signed-in user's org (same source as admin Close outcomes). */
 export async function GET(request: NextRequest) {
   try {
@@ -73,7 +65,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const admin = getAdminClient()
+    const admin = createServiceClient()
     const { data: profile } = await admin
       .from('users')
       .select('org_id')

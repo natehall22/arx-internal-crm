@@ -5,6 +5,7 @@ import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 import { getAccessTokenFromApiRequest } from '@/lib/supabase-api-request-auth'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
 
@@ -24,15 +25,6 @@ function getAuthClient(req: NextRequest) {
   }
 }
 
-function getAdminClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
-  
-  return createClient(supabaseUrl, serviceRoleKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  })
-}
-
 // GET - List appointments
 export async function GET(request: NextRequest) {
   try {
@@ -47,7 +39,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const adminClient = getAdminClient()
+    const adminClient = createServiceClient()
 
     // Get user profile
     const { data: profile } = await adminClient

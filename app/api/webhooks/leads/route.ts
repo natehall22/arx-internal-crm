@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
 import nodemailer from 'nodemailer'
 import { getCrmEmailFrom } from '@/lib/crm-email-from'
+import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
 
@@ -30,15 +30,6 @@ export async function OPTIONS(request: NextRequest) {
 
 // This endpoint receives leads from external sources (websites, forms, etc.)
 // It can be called with an API key for authentication
-
-function getAdminClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
-  
-  return createClient(supabaseUrl, serviceRoleKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  })
-}
 
 function getMailTransport() {
   return nodemailer.createTransport({
@@ -78,7 +69,7 @@ function pickMappedField(body: Record<string, any>, mapping: Record<string, stri
  * Existing callers that omit campaign* stay unchanged.
  */
 async function resolveCampaignId(
-  adminClient: ReturnType<typeof getAdminClient>,
+  adminClient: ReturnType<typeof createServiceClient>,
   orgId: string,
   body: Record<string, any>,
   fallbackCampaignId: string | null
@@ -130,7 +121,7 @@ async function resolveCampaignId(
   return fallbackCampaignId
 }
 
-async function insertLeadWithSchemaFallback(adminClient: ReturnType<typeof getAdminClient>, leadData: Record<string, any>) {
+async function insertLeadWithSchemaFallback(adminClient: ReturnType<typeof createServiceClient>, leadData: Record<string, any>) {
   const insertData: Record<string, any> = { ...leadData, channel: 'inbound' }
   let lastError: any = null
 
@@ -163,7 +154,7 @@ async function insertLeadWithSchemaFallback(adminClient: ReturnType<typeof getAd
   return { lead: null, error: lastError }
 }
 
-async function syncCampaignLeadTotal(adminClient: ReturnType<typeof getAdminClient>, orgId: string, campaignId: string | null | undefined) {
+async function syncCampaignLeadTotal(adminClient: ReturnType<typeof createServiceClient>, orgId: string, campaignId: string | null | undefined) {
   if (!campaignId) return
 
   const { count, error: countError } = await adminClient
@@ -206,7 +197,7 @@ export async function POST(request: NextRequest) {
       }, { status: 400, headers: cors })
     }
 
-    const adminClient = getAdminClient()
+    const adminClient = createServiceClient()
 
     // Check for API key authentication
     const authHeader = request.headers.get('authorization')

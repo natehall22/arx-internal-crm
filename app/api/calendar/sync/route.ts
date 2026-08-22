@@ -8,6 +8,7 @@ import {
   CalendarEvent,
 } from '@/lib/google-calendar'
 import { getOrgDefaultSchedulingGapMinutes } from '@/lib/org-scheduling-gap'
+import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
 
@@ -63,15 +64,6 @@ function getAuthClient(req: NextRequest) {
   }
 }
 
-function getAdminClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
-  
-  return createClient(supabaseUrl, serviceRoleKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  })
-}
-
 // Helper to get valid access token (refresh if needed)
 async function getValidAccessToken(adminClient: any, userId: string): Promise<string | null> {
   const { data: tokenData } = await adminClient
@@ -123,7 +115,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const adminClient = getAdminClient()
+    const adminClient = createServiceClient()
     const body = await request.json()
     
     const { 
@@ -250,7 +242,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const adminClient = getAdminClient()
+    const adminClient = createServiceClient()
     const searchParams = request.nextUrl.searchParams
     
     const closerUserId = searchParams.get('closer_user_id')

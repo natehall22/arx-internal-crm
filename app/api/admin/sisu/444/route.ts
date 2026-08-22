@@ -6,6 +6,7 @@ import {
   type CountableEnrollment,
   type EnrollmentCounts,
 } from '@/lib/sync-444-core'
+import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
 
@@ -95,14 +96,6 @@ function getAuthClient(req: NextRequest) {
   })
 }
 
-function getAdminClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
-  return createClient(supabaseUrl, serviceRoleKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  })
-}
-
 async function getAuthedUser(req: NextRequest) {
   const client = getAuthClient(req)
   const {
@@ -118,7 +111,7 @@ async function assertAdmin(req: NextRequest): Promise<AuthResult | NextResponse>
   const user = await getAuthedUser(req)
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const admin = getAdminClient()
+  const admin = createServiceClient()
   const { data: profile } = await admin
     .from('users')
     .select('role, org_id')
@@ -152,7 +145,7 @@ export async function GET(req: NextRequest) {
   const authResult = await assertAdmin(req)
   if (authResult instanceof NextResponse) return authResult
 
-  const admin = getAdminClient()
+  const admin = createServiceClient()
   const { data, error } = await admin
     .from('program_444_enrollments')
     .select(
@@ -222,7 +215,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'start_date must be YYYY-MM-DD' }, { status: 400 })
   }
 
-  const admin = getAdminClient()
+  const admin = createServiceClient()
 
   // Verify the target user belongs to the caller's org — prevents cross-org enrollment
   const ELIGIBLE_444_ROLES = new Set(['setter', 'canvasser', 'field_marketer'])
@@ -386,7 +379,7 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: 'No valid fields to update' }, { status: 400 })
   }
 
-  const admin = getAdminClient()
+  const admin = createServiceClient()
 
   // Setting status back to 'active' must respect the one-active-enrollment-per-rep
   // rule enforced on POST — otherwise PATCH is a bypass route.

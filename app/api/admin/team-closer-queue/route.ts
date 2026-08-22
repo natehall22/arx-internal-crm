@@ -1,23 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
-import { createClient } from '@supabase/supabase-js'
+import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
-
-function getAdminClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
-  
-  return createClient(supabaseUrl, serviceRoleKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  })
-}
 
 // Get queue for a team
 export async function GET(request: NextRequest) {
   try {
     const { profile } = await requireAuthApi()
-    const adminClient = getAdminClient()
+    const adminClient = createServiceClient()
     
     const { searchParams } = new URL(request.url)
     const teamId = searchParams.get('team_id')
@@ -54,7 +45,7 @@ export async function POST(request: NextRequest) {
     const { profile } = await requireAuthApi()
     console.log('Team closer queue POST - authenticated, org_id:', profile.org_id)
     
-    const adminClient = getAdminClient()
+    const adminClient = createServiceClient()
     
     const body = await request.json()
     const isAdmin = profile.role === 'admin'
@@ -120,7 +111,7 @@ export async function POST(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   try {
     await requireAuthApi()
-    const adminClient = getAdminClient()
+    const adminClient = createServiceClient()
     
     const { searchParams } = new URL(request.url)
     const queueId = searchParams.get('id')
@@ -150,7 +141,7 @@ export async function DELETE(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   try {
     const { profile } = await requireAuthApi()
-    const adminClient = getAdminClient()
+    const adminClient = createServiceClient()
     
     const body = await request.json()
     const { id, active, buffer_minutes, buffer_before, buffer_after, priority } = body

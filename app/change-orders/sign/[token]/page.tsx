@@ -1,22 +1,14 @@
 export const dynamic = 'force-dynamic'
 
-import { createClient } from '@supabase/supabase-js'
+import { createServiceClient } from '@/lib/supabase/service'
 import CustomerSigningForm from './CustomerSigningForm'
-
-function getAdminClient() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { auth: { autoRefreshToken: false, persistSession: false } }
-  )
-}
 
 export default async function ChangeOrderSigningPage({
   params,
 }: {
   params: { token: string }
 }) {
-  const supabase = getAdminClient()
+  const supabase = createServiceClient()
 
   const { data: changeOrder } = await supabase
     .from('job_change_orders')

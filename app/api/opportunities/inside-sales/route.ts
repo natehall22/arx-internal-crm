@@ -28,6 +28,7 @@ import {
   getQueueStory,
   type HandoffContext,
 } from '@/lib/inside-sales-priority'
+import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
 
@@ -83,15 +84,6 @@ function getAuthClient(req: NextRequest) {
   }
 }
 
-function getAdminClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
-
-  return createClient(supabaseUrl, serviceRoleKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  })
-}
-
 function getInspectionOutcomeSettings(settings: any): InspectionOutcomeConfigRow[] | null {
   const raw = settings?.inspection_outcomes
   if (Array.isArray(raw)) return raw
@@ -132,7 +124,7 @@ function isMissingColumnError(error: any) {
   return error?.code === '42703' || String(error?.message || '').includes('does not exist')
 }
 
-async function fetchInsideSalesOpportunities(adminClient: ReturnType<typeof getAdminClient>, orgId: string) {
+async function fetchInsideSalesOpportunities(adminClient: ReturnType<typeof createServiceClient>, orgId: string) {
   const optionalFields = [...OPTIONAL_OPPORTUNITY_SELECT_FIELDS]
   let lastError: any = null
 
@@ -182,7 +174,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const adminClient = getAdminClient()
+    const adminClient = createServiceClient()
     const { data: profile } = await adminClient
       .from('users')
       .select('id, org_id, role, custom_role_id, custom_role:custom_roles(name, display_name)')

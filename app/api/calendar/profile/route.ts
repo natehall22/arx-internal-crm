@@ -7,6 +7,7 @@
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
 
@@ -37,14 +38,6 @@ function getSessionFromRequest(req: NextRequest) {
   return null
 }
 
-function getAdminClient() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { auth: { autoRefreshToken: false, persistSession: false } }
-  )
-}
-
 export async function GET(request: NextRequest) {
   try {
     const sessionData = getSessionFromRequest(request)
@@ -66,7 +59,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid or expired session' }, { status: 401 })
     }
 
-    const admin = getAdminClient()
+    const admin = createServiceClient()
 
     // Full profile fetch
     const { data: profile, error: profileError } = await admin

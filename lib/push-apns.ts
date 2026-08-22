@@ -1,7 +1,7 @@
 import http2 from 'http2'
 import { SignJWT, importPKCS8 } from 'jose'
-import { createClient } from '@supabase/supabase-js'
 import { waitUntil } from '@vercel/functions'
+import { createServiceClient } from '@/lib/supabase/service'
 
 /**
  * APNs sender for ARX Sales (com.arx.ARX-Sales).
@@ -25,14 +25,6 @@ type DeviceTokenRow = {
   id: string
   device_token: string
   environment: string
-}
-
-function getAdminClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
-  return createClient(supabaseUrl, serviceRoleKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  })
 }
 
 function apnsHost(environment: string): string {
@@ -199,7 +191,7 @@ async function sendApnsHttp2(opts: {
 
 async function deleteTokenRow(id: string): Promise<void> {
   try {
-    const admin = getAdminClient()
+    const admin = createServiceClient()
     await admin.from('mobile_device_tokens').delete().eq('id', id)
   } catch (err) {
     console.error('[push-apns] Failed to delete stale token:', err)
@@ -225,7 +217,7 @@ export async function sendPushToUser(
     const jwt = await getApnsJwt()
     if (!jwt) return
 
-    const admin = getAdminClient()
+    const admin = createServiceClient()
     const { data: tokens, error } = await admin
       .from('mobile_device_tokens')
       .select('id, device_token, environment')

@@ -7,6 +7,7 @@ import {
   getInspectionDurationFromTable,
 } from '@/lib/org-appointment-types'
 import { userHasSchedulingCreate } from '@/lib/scheduling-create-permission'
+import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
 
@@ -56,14 +57,6 @@ function getAuthClient(req: NextRequest) {
   }
 }
 
-function getAdminClient() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { auth: { autoRefreshToken: false, persistSession: false } }
-  )
-}
-
 /** Teams, closers, and duration for the lead inspection scheduling modal (no heavy canvass payload). */
 export async function GET(request: NextRequest) {
   try {
@@ -80,7 +73,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const admin = getAdminClient()
+    const admin = createServiceClient()
     const { data: profile, error: profileError } = await admin
       .from('users')
       .select('id, org_id, role, custom_role_id')

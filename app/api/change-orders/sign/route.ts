@@ -1,21 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
 import { generateChangeOrderPdf } from '@/lib/contracts/generateChangeOrderPdf'
 import { applyChangeOrderToJob } from '@/lib/change-orders/apply-change-order-to-job'
 import nodemailer from 'nodemailer'
 import { getCrmEmailFrom } from '@/lib/crm-email-from'
-
-function getAdminClient() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { auth: { autoRefreshToken: false, persistSession: false } }
-  )
-}
+import { createServiceClient } from '@/lib/supabase/service'
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = getAdminClient()
+    const supabase = createServiceClient()
     const body = await request.json()
     const token = String(body.token || '')
     const printName = String(body.printName || '').trim()

@@ -1,20 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient as createSupabaseAdminClient } from '@supabase/supabase-js'
 import { requireAuthApi } from '@/lib/auth'
+import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
 
 type UserProfile = {
   id: string
   org_id: string
-}
-
-function getAdminClient() {
-  return createSupabaseAdminClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { auth: { autoRefreshToken: false, persistSession: false } },
-  )
 }
 
 // UUID v4 regex — rejects non-UUID userId before hitting the DB (prevents timing oracle
@@ -36,7 +28,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'userId is required' }, { status: 400 })
     }
 
-    const admin = getAdminClient()
+    const admin = createServiceClient()
 
     const caller: UserProfile = {
       id: authContext.authUser.id,

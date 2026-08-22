@@ -1,17 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
 import { requireAuthApi } from '@/lib/auth'
 import { syncCloserAttributionDownstream } from '@/lib/payroll-attribution-sync'
+import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
-
-function getAdminClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
-  return createClient(supabaseUrl, serviceRoleKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  })
-}
 
 // Plain reps (rep/sales_rep/closer) may only reach an opportunity they own, set, or are the
 // assigned closer on via the linked lead — same three checks the list endpoint
@@ -21,7 +13,7 @@ function getAdminClient() {
 const REP_LIKE_ROLES = new Set(['rep', 'sales_rep', 'closer'])
 
 async function canRepAccessOpportunity(
-  adminClient: ReturnType<typeof getAdminClient>,
+  adminClient: ReturnType<typeof createServiceClient>,
   profile: { role: string; org_id: string },
   userId: string,
   opportunity: { owner_user_id: string | null; setter_user_id: string | null; lead_id: string | null }
@@ -58,7 +50,7 @@ export async function GET(
     }
 
     const profile = authContext.profile
-    const adminClient = getAdminClient()
+    const adminClient = createServiceClient()
     const { data: opportunity, error } = await adminClient
       .from('opportunities')
       .select('*')
@@ -101,7 +93,7 @@ export async function PATCH(
     }
 
     const profile = authContext.profile
-    const adminClient = getAdminClient()
+    const adminClient = createServiceClient()
     const body = await request.json()
 
     const PAYROLL_ATTR_ROLES = new Set(['admin', 'owner', 'operations'])
@@ -248,7 +240,7 @@ export async function DELETE(
     }
 
     const profile = authContext.profile
-    const adminClient = getAdminClient()
+    const adminClient = createServiceClient()
 
     // Only admins can delete opportunities
     if (profile.role !== 'admin') {

@@ -19,6 +19,7 @@ import {
   leadLngLatInRings,
 } from '@/lib/canvass-territories'
 import { ensureLeadHasMapPin } from '@/lib/lead-map-pin'
+import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
 
@@ -98,15 +99,6 @@ function getAuthClient(req: NextRequest) {
     }),
     accessToken: sessionData?.access_token,
   }
-}
-
-function getAdminClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
-  
-  return createClient(supabaseUrl, serviceRoleKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  })
 }
 
 async function repairScheduledInspectionPinsForOrg(adminClient: any, orgId: string) {
@@ -231,7 +223,7 @@ export async function GET(request: NextRequest) {
     // Get limit based on zoom level
     const limit = ZOOM_LIMITS[Math.min(zoom, 20)] || ZOOM_LIMITS[20]
 
-    const adminClient = getAdminClient()
+    const adminClient = createServiceClient()
 
     // Get user profile for org_id and visibility settings
     const { data: profile, error: profileError } = await adminClient
@@ -416,7 +408,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Max 50 IDs per request' }, { status: 400 })
     }
 
-    const adminClient = getAdminClient()
+    const adminClient = createServiceClient()
 
     const { data: profile } = await adminClient
       .from('users')

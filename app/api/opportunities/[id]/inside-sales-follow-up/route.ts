@@ -49,9 +49,9 @@ import {
 } from '@/lib/google-calendar'
 import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
 import { computeInspectionFeedbackPromptAt } from '@/lib/scheduling-prompt'
+import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
-
 
 function getSessionFromRequest(req: NextRequest) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -105,15 +105,6 @@ function getAuthClient(req: NextRequest) {
   }
 }
 
-function getAdminClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
-
-  return createClient(supabaseUrl, serviceRoleKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  })
-}
-
 /**
  * Record WHO in inside sales put this insurance appointment on the calendar.
  *
@@ -131,7 +122,7 @@ function getAdminClient() {
  * credit that was default-OFF anyway; the alternative is a broken booking flow.
  */
 async function stampInsideSalesBooker(
-  admin: ReturnType<typeof getAdminClient>,
+  admin: ReturnType<typeof createServiceClient>,
   params: { orgId: string; userId: string; opportunityId: string }
 ): Promise<void> {
   try {
@@ -209,7 +200,7 @@ function parseFollowUpInput(value: unknown, timezone: string): string | null {
   return fromZonedTime(`${localDateTimeStr}:00`, timezone).toISOString()
 }
 
-async function getValidAccessToken(adminClient: ReturnType<typeof getAdminClient>, userId: string): Promise<string | null> {
+async function getValidAccessToken(adminClient: ReturnType<typeof createServiceClient>, userId: string): Promise<string | null> {
   const { data: tokenData } = await adminClient
     .from('user_google_tokens')
     .select('*')
@@ -240,7 +231,7 @@ async function getValidAccessToken(adminClient: ReturnType<typeof getAdminClient
   return tokenData.access_token
 }
 
-async function getTimezoneForUser(adminClient: ReturnType<typeof getAdminClient>, userId: string): Promise<string> {
+async function getTimezoneForUser(adminClient: ReturnType<typeof createServiceClient>, userId: string): Promise<string> {
   try {
     const { data: userProfile } = await adminClient
       .from('users')
@@ -282,7 +273,7 @@ function formatCalendarLocal(date: Date, timezone: string): string {
 }
 
 async function createInspectionEventOnCloserCalendar(
-  adminClient: ReturnType<typeof getAdminClient>,
+  adminClient: ReturnType<typeof createServiceClient>,
   params: {
     closerUserId: string
     scheduledAppointmentId: string
@@ -332,7 +323,7 @@ async function createInspectionEventOnCloserCalendar(
  * runs, and no failure path here removes it.
  */
 async function pushAdjusterMeetingToGoogle(
-  adminClient: ReturnType<typeof getAdminClient>,
+  adminClient: ReturnType<typeof createServiceClient>,
   params: {
     orgId: string
     appointmentId: string
@@ -455,7 +446,7 @@ export async function POST(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const admin = getAdminClient()
+    const admin = createServiceClient()
 
     const { data: profile } = await admin
       .from('users')

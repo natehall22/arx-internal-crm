@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server'
-import { createClient as createSupabaseAdminClient } from '@supabase/supabase-js'
 import { requireAuthApi } from '@/lib/auth'
 import { getDateRangeForTimeFrame } from '@/lib/date-ranges'
 import { getEasternTodayIso } from '@/lib/eastern-datetime'
@@ -13,6 +12,7 @@ import type {
   SpiffWithProgress,
   UserIncentiveGoal,
 } from '@/lib/incentive-metrics'
+import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
 
@@ -35,14 +35,6 @@ type IncentivesResponse = {
   asOf: string
 }
 
-function getAdminClient() {
-  return createSupabaseAdminClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { auth: { autoRefreshToken: false, persistSession: false } },
-  )
-}
-
 /**
  * Rep-facing SPIFFs + incentive goal + this-week live metrics for the current
  * user only. Mirrors the data app/sisu/page.tsx server-renders for the web
@@ -61,7 +53,7 @@ export async function GET() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const admin = getAdminClient()
+    const admin = createServiceClient()
     const profile: UserProfile = {
       id: authContext.authUser.id,
       org_id: authContext.profile.org_id,

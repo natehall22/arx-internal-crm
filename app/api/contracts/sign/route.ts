@@ -1,22 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
 import nodemailer from 'nodemailer'
 import { getCrmEmailFrom } from '@/lib/crm-email-from'
 import { buildOrderFormContractSaleDescription, notifyOrgAdminsOfSale } from '@/lib/admin-sale-email'
 import { commissionCompBaseFromPreTaxAndDealerFee } from '@/lib/commission-payroll'
 import { resolveCustomerDisplayName, upsertCustomer } from '@/lib/customers'
 import { resolveProposalSoldRoofSquares } from '@/lib/sold-roof-squares'
-
-function getAdminClient() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { auth: { autoRefreshToken: false, persistSession: false } }
-  )
-}
+import { createServiceClient } from '@/lib/supabase/service'
 
 type EmbeddedLeadRow = { owner_user_id?: string | null; closer_user_id?: string | null }
-type AdminSupabaseClient = ReturnType<typeof getAdminClient>
+type AdminSupabaseClient = ReturnType<typeof createServiceClient>
 
 /** Nested `leads` from Supabase may be an array, a single row, or absent; empty array → null. */
 function pickEmbeddedLead(leads: unknown): EmbeddedLeadRow | null {
@@ -139,7 +131,7 @@ async function sendEmail(
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = getAdminClient()
+    const supabase = createServiceClient()
     const body = await request.json()
 
     const {

@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient as createSupabaseAdminClient } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/server'
 import { formatReward } from '@/lib/incentive-metrics'
 import { countDoorsKnockedForBadgeAward } from '@/lib/sisu-weekly-doors'
@@ -7,6 +6,7 @@ import { countClosedSalesForBadgeAward } from '@/lib/sisu-monthly-closed-sales'
 import { syncOrgEnrollments } from '@/lib/sync-444-core'
 import { INSPECTION_SET_APPOINTMENT_TYPE_OR } from '@/lib/inspection-set-metrics'
 import type { SpiffProgram, SpiffTriggerMetric } from '@/lib/types/incentive'
+import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
 
@@ -66,14 +66,6 @@ type ContractMetricRow = {
 
 const DOOR_KNOCK_SOURCES = ['door_to_door', 'canvass', 'door_knock']
 
-function getAdminClient() {
-  return createSupabaseAdminClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { auth: { autoRefreshToken: false, persistSession: false } },
-  )
-}
-
 function requestedUserId(body: SyncRequestBody): string | null {
   if (typeof body.userId === 'string') return body.userId
   if (typeof body.user_id === 'string') return body.user_id
@@ -118,7 +110,7 @@ function uniqueOpportunityCount(contracts: ContractMetricRow[]) {
 }
 
 async function countInspections(
-  admin: ReturnType<typeof getAdminClient>,
+  admin: ReturnType<typeof createServiceClient>,
   userId: string,
   orgId: string,
   startsAt: string,
@@ -146,7 +138,7 @@ async function countInspections(
 }
 
 async function countDoorsKnocked(
-  admin: ReturnType<typeof getAdminClient>,
+  admin: ReturnType<typeof createServiceClient>,
   userId: string,
   orgId: string,
   startsAt: string,
@@ -167,7 +159,7 @@ async function countDoorsKnocked(
 }
 
 async function getAttributedContracts(
-  admin: ReturnType<typeof getAdminClient>,
+  admin: ReturnType<typeof createServiceClient>,
   userId: string,
   orgId: string,
   startsAt: string,
@@ -203,7 +195,7 @@ async function getAttributedContracts(
 }
 
 async function computeCurrentValue(
-  admin: ReturnType<typeof getAdminClient>,
+  admin: ReturnType<typeof createServiceClient>,
   metric: SpiffTriggerMetric,
   userId: string,
   orgId: string,
@@ -263,7 +255,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
-    const admin = getAdminClient()
+    const admin = createServiceClient()
 
     const { data: profile, error: profileError } = await admin
       .from('users')

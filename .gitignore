@@ -42,6 +42,9 @@ next-env.d.ts
 # Claude Code — local agent worktree mirrors (not source of truth; large)
 .claude/worktrees/
 
+# Manual git worktrees (registered via `git worktree add`; not source of truth; large)
+.worktrees/
+
 # Claude Code — machine-local permission overrides
 .claude/settings.local.json
 .claude/launch.json
