@@ -10,6 +10,7 @@ import SatelliteImageEditor from '@/components/SatelliteImageEditor'
 import { userCanDeleteProposal } from '@/lib/proposal-delete-access'
 import CreateContractButton from '@/components/contracts/CreateContractButton'
 import { getProposalCustomerPricing, formatSelectedFinancingTerms } from '@/lib/proposal-pricing-visibility'
+import { resolveContractTotalSquares } from '@/lib/sold-roof-squares'
 
 interface Proposal {
   id: string
@@ -34,6 +35,10 @@ interface Proposal {
   financing_program_id?: string | null
   financing_lender_name?: string | null
   financed_contract_total?: number | null
+  measured_squares?: number | null
+  sold_squares?: number | null
+  sold_waste_percent?: number | null
+  recommended_order_squares?: number | null
   scope_of_work: string
   warranty_info: string
   accent_color: string
@@ -67,6 +72,7 @@ interface LineItem {
   id: string
   category: string
   name: string
+  description?: string | null
   unit: string
   quantity: number
   unit_price: number
@@ -1116,6 +1122,7 @@ export default function ProposalDetailPage() {
                           : proposal.total
                       }
                       defaultFinanceCompany={proposal.financing_lender_name}
+                      totalSquares={resolveContractTotalSquares(proposal, lineItems) ?? undefined}
                       scopeOfWork={proposal.scope_of_work}
                     />
                   ) : (

@@ -352,10 +352,15 @@ export default async function ProjectDetailPage({
     (project as { project_review?: unknown }).project_review
   )
 
-  // Get the current contract total (latest change order or original)
+  // Get the current contract total (latest change order or original).
+  // Prefer the production job's sale_amount: originalContract is resolved by matching
+  // project_address across the org and taking the most recent completed agreement, so a
+  // second agreement signed for the same property (e.g. a lender doc written for only the
+  // financed portion of a split cash/finance deal) would otherwise out-rank the real
+  // contract total and understate both this display and the change-order baseline.
   const currentContractTotal = changeOrders.length > 0
     ? changeOrders[changeOrders.length - 1].updated_total
-    : (originalContract?.project_cost || productionJob?.sale_amount || 0)
+    : (productionJob?.sale_amount || originalContract?.project_cost || 0)
 
   const suggestedSendToOpsSale =
     currentContractTotal != null && Number(currentContractTotal) > 0

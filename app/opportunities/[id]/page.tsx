@@ -37,6 +37,7 @@ import {
 } from '@/lib/inside-sales-follow-up'
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 import { isOrgSuperuserRoleSlug, isBarredFromSalesDocAccess } from '@/lib/permissions'
+import { resolveContractTotalSquares } from '@/lib/sold-roof-squares'
 import {
   mapLatestInspectionByLeadId,
   mapLatestInspectionByOpportunityId,
@@ -287,7 +288,9 @@ export default async function OpportunityDetailPage({
     const [{ data: proposalRows }, { data: measurementRows }, { data: acceptedRow }] = await Promise.all([
       supabase
         .from('proposals')
-        .select('id, proposal_number, title, status, total, created_at, created_by')
+        .select(
+          'id, proposal_number, title, status, total, created_at, created_by, measured_squares, sold_squares, sold_waste_percent, recommended_order_squares'
+        )
         .eq('opportunity_id', params.id)
         .order('created_at', { ascending: false }),
       supabase
@@ -320,6 +323,17 @@ export default async function OpportunityDetailPage({
       console.log('order_form_contracts table not available')
     }
   }
+
+  // Total Squares prefill for a new installation Order Form. Prefer the proposal the customer
+  // was actually presented — an accepted one if it exists, otherwise the latest sent one, since
+  // only ~5% of proposals ever get marked accepted and gating on that left the field blank for
+  // reps to hand-type. Falls back to the opportunity's own roof_squares.
+  const squaresSourceProposal =
+    (proposals || []).find((p) => p?.status === 'accepted') ??
+    (proposals || []).find((p) => p?.status === 'sent') ??
+    null
+  const contractTotalSquares =
+    resolveContractTotalSquares(squaresSourceProposal) || opportunity.roof_squares || undefined
 
   // Latest customer-facing roof report (photo documentation PDF) — photo count joined
   // so this stays a single round trip on a hot page
@@ -1299,7 +1313,7 @@ export default async function OpportunityDetailPage({
                   : acceptedProposal?.total || 0
               }
               defaultFinanceCompany={acceptedProposal?.financing_lender_name}
-              totalSquares={opportunity.roof_squares || undefined}
+              totalSquares={contractTotalSquares}
               scopeOfWork={acceptedProposal?.scope_of_work || ''}
             />
           </div>

@@ -99,6 +99,25 @@ export function resolveProposalSoldRoofSquares(
   return candidates.length > 0 ? Math.max(...candidates) : null
 }
 
+/**
+ * Total Squares to prefill on an installation Order Form.
+ *
+ * Uses the designed sold scope (measured + the waste designed into the proposal), which is
+ * what the customer is agreeing to — not `recommended_order_squares`, which rounds up to whole
+ * squares for supplier ordering. Falls back to the ordering figure only when no sold scope
+ * exists, so the field is still populated rather than left blank for a rep to guess at.
+ */
+export function resolveContractTotalSquares(
+  proposal: (ProposalLike & { recommended_order_squares?: number | null }) | null | undefined,
+  lineItems: ProposalLineItemLike[] = []
+): number | null {
+  const sold = resolveProposalSoldRoofSquares(proposal, lineItems)
+  if (sold != null && sold > 0) return sold
+
+  const recommended = roundSquares(proposal?.recommended_order_squares)
+  return recommended != null && recommended > 0 ? recommended : null
+}
+
 export function resolveProposalMeasuredSquares(
   proposal: ProposalLike | null | undefined,
   lineItems: ProposalLineItemLike[] = []

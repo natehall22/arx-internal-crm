@@ -29,7 +29,7 @@ export type ProposalPricingInput = {
 export type SelectedProposalFinancing = {
   monthly_payment: number
   term_months: number
-  interest_rate: number
+  interest_rate?: number
 }
 
 export function getProposalDisplayPricing(proposal: ProposalPricingInput) {
@@ -73,10 +73,11 @@ export function shouldShowSelectedFinancingPayment(
 }
 
 /** Same term/APR line the proposal page shows for a selected program. */
-export function formatSelectedFinancingTerms(financing: {
-  term_months: number
-  interest_rate?: number
-}): string {
+export function formatSelectedFinancingTerms(
+  financing: Pick<SelectedProposalFinancing, 'term_months' | 'interest_rate'> & {
+    monthly_payment?: number
+  }
+): string {
   const rate = Number(financing.interest_rate)
   const rateLabel = Number.isFinite(rate) ? String(rate) : '0'
   return `${financing.term_months} months at ${rateLabel}% APR`
