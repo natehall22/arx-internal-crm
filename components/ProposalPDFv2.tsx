@@ -1,6 +1,12 @@
 'use client'
 
 import { Document, Page, Text, View, StyleSheet, Image } from '@react-pdf/renderer'
+import {
+  formatProposalMoney,
+  formatSelectedFinancingTerms,
+  getProposalDisplayPricing,
+  shouldShowSelectedFinancingPayment,
+} from '@/lib/proposal-pricing-visibility'
 
 // ============================================================================
 // DESIGN TOKEN SYSTEM
@@ -111,46 +117,21 @@ export interface ProposalPDFData {
     email?: string
     phone?: string
   }
-  financing?: {
-    enabled: boolean
-    type: 'cash' | 'financed'
-    term_months?: number
-    interest_rate?: number
-    monthly_payment?: number
-  }
   photos?: {
     property?: string
-    inspection?: string[]
   }
   inspectionNotes?: string[]
+  /** Stored builder financing — only passed when a program/option was selected. */
+  financing?: {
+    monthly_payment: number
+    term_months: number
+    interest_rate?: number
+  }
 }
 
 interface ProposalPDFProps {
   data: ProposalPDFData
   theme?: Theme
-}
-
-const toCents = (value: number) => Math.round((Number(value) || 0) * 100)
-const fromCents = (cents: number) => cents / 100
-
-function getDisplayPricing(proposal: ProposalPDFData['proposal']) {
-  const subtotalCents = toCents(proposal.subtotal || 0)
-  let discountCents = proposal.discount_percent > 0
-    ? Math.round(subtotalCents * ((proposal.discount_percent || 0) / 100))
-    : toCents(proposal.discount_amount || 0)
-  discountCents = Math.min(Math.max(discountCents, 0), subtotalCents)
-  const afterDiscountCents = subtotalCents - discountCents
-  const taxCents = Math.round(afterDiscountCents * ((proposal.tax_rate || 0) / 100))
-  const computedTotalCents = afterDiscountCents + taxCents
-  const passedTotalCents = toCents(proposal.total || 0)
-
-  return {
-    subtotal: fromCents(subtotalCents),
-    discountAmount: fromCents(discountCents),
-    taxAmount: fromCents(taxCents),
-    // Caller passes quoted total (financed_contract_total when financing applies)
-    total: passedTotalCents > 0 ? fromCents(passedTotalCents) : fromCents(computedTotalCents),
-  }
 }
 
 // ============================================================================
@@ -356,26 +337,6 @@ const createStyles = (theme: Theme) => {
       textAlign: 'center',
       marginTop: s.xs,
     },
-    photoStrip: {
-      flexDirection: 'row',
-      gap: s.md,
-      marginBottom: s.lg,
-    },
-    photoStripItem: {
-      flex: 1,
-    },
-    photoStripImage: {
-      width: '100%',
-      height: 120,
-      objectFit: 'cover',
-      borderRadius: r.sm,
-    },
-    photoStripCaption: {
-      fontSize: f.xs,
-      color: c.textMuted,
-      textAlign: 'center',
-      marginTop: s.xs,
-    },
 
     // ========== NOTES / BULLETS ==========
     bulletList: {
@@ -521,6 +482,36 @@ const createStyles = (theme: Theme) => {
       lineHeight: 1.4,
     },
 
+    // ========== WAYS TO PAY ==========
+    waysToPayLead: {
+      fontSize: f.base,
+      color: c.text,
+      lineHeight: 1.5,
+      marginBottom: s.lg,
+    },
+    waysToPayStack: {
+      gap: s.md,
+    },
+    waysToPayCard: {
+      width: '100%',
+      backgroundColor: c.cardBg,
+      borderRadius: r.lg,
+      padding: s.lg,
+      borderWidth: 1,
+      borderColor: c.border,
+      marginBottom: s.md,
+    },
+    waysToPayCardHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginBottom: s.sm,
+    },
+    waysToPayBody: {
+      fontSize: f.base,
+      color: c.text,
+      lineHeight: 1.6,
+    },
+
     // ========== PRICING ==========
     pricingSection: {
       marginTop: s.lg,
@@ -566,16 +557,17 @@ const createStyles = (theme: Theme) => {
       color: c.gold,
     },
     financingBox: {
-      backgroundColor: theme === 'dark' ? '#1E2328' : '#F0F9FF',
+      backgroundColor: c.cardBg,
       borderRadius: r.md,
       padding: s.md,
       marginTop: s.lg,
       borderWidth: 1,
-      borderColor: theme === 'dark' ? '#2D3748' : '#BAE6FD',
+      borderColor: c.border,
     },
     financingTitle: {
       fontSize: f.sm,
-      color: c.textMuted,
+      color: c.text,
+      fontFamily: 'Helvetica-Bold',
       textTransform: 'uppercase',
       letterSpacing: 1,
       marginBottom: s.xs,
@@ -583,14 +575,24 @@ const createStyles = (theme: Theme) => {
     financingAmount: {
       fontSize: f.xl,
       fontFamily: 'Helvetica-Bold',
-      color: theme === 'dark' ? '#60A5FA' : '#1D4ED8',
+      color: c.text,
     },
     financingTerms: {
       fontSize: f.xs,
-      color: c.textMuted,
+      color: c.text,
       marginTop: 2,
     },
-
+    financingNote: {
+      fontSize: f.xs,
+      color: c.text,
+      marginTop: s.xs,
+    },
+    selectedPaymentLine: {
+      fontSize: f.base,
+      fontFamily: 'Helvetica-Bold',
+      color: c.text,
+      marginTop: s.sm,
+    },
     // ========== LINE ITEMS TABLE ==========
     table: {
       marginBottom: s.lg,
@@ -627,28 +629,6 @@ const createStyles = (theme: Theme) => {
     col2: { width: '15%', textAlign: 'right' },
     col3: { width: '17%', textAlign: 'right' },
     col4: { width: '18%', textAlign: 'right' },
-
-    // ========== SIGNATURE ==========
-    signatureSection: {
-      marginTop: s.xl,
-    },
-    signatureGrid: {
-      flexDirection: 'row',
-      gap: s.xl,
-    },
-    signatureBox: {
-      flex: 1,
-    },
-    signatureLine: {
-      borderBottomWidth: 1,
-      borderBottomColor: c.text,
-      marginBottom: s.sm,
-      height: 40,
-    },
-    signatureLabel: {
-      fontSize: f.xs,
-      color: c.textMuted,
-    },
 
     // ========== FOOTER ==========
     footer: {
@@ -691,14 +671,14 @@ const createStyles = (theme: Theme) => {
 // HELPER FUNCTIONS
 // ============================================================================
 
-const formatCurrency = (amount: number) => {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(amount)
-}
+const formatCurrency = formatProposalMoney
+const formatMonthlyPayment = formatProposalMoney
+
+export type { SelectedProposalFinancing } from '@/lib/proposal-pricing-visibility'
+export {
+  formatSelectedFinancingTerms,
+  shouldShowSelectedFinancingPayment,
+} from '@/lib/proposal-pricing-visibility'
 
 const formatDate = (dateString: string) => {
   return new Date(dateString).toLocaleDateString('en-US', {
@@ -770,23 +750,59 @@ const whyUsPoints = [
   },
 ]
 
+export const WAYS_TO_PAY_TITLE = 'Ways to Pay'
+export const WAYS_TO_PAY_SUBTITLE = 'Insurance, cash, or optional payment plans — your choice'
+export const WAYS_TO_PAY_LEAD =
+  'Most homeowners pay through insurance or in full. Payment plans are optional.'
+
+export const waysToPayOptions = [
+  {
+    headline: 'Insurance claim',
+    body: 'Most storm work is handled through the carrier. ARX helps throughout the process. Coverage decisions are made by the carrier.',
+  },
+  {
+    headline: 'Pay in full',
+    body: 'Pay by cash or check with no lender involved.',
+  },
+  {
+    headline: 'Optional payment plans',
+    body: 'Available if you want them and if you qualify. Includes a 12-month no-payment option. You can pay off early — none of these plans have a prepayment penalty. Your representative can walk through options. ARX does not make credit decisions; a third-party lender does.',
+  },
+] as const
+
+export const WAYS_TO_PAY_DISCLAIMER =
+  'This is not a credit offer. Approval and exact terms come from the lender at application. This page does not change the Total Investment on the next page.'
+
+/** Combined customer-facing Ways to Pay copy for compliance checks. */
+export function getWaysToPayCustomerCopy(): string {
+  return [
+    WAYS_TO_PAY_TITLE,
+    WAYS_TO_PAY_SUBTITLE,
+    WAYS_TO_PAY_LEAD,
+    ...waysToPayOptions.flatMap((option) => [option.headline, option.body]),
+    WAYS_TO_PAY_DISCLAIMER,
+  ].join(' ')
+}
+
 // ============================================================================
 // MAIN COMPONENT
 // ============================================================================
 
 export const ProposalPDFv2 = ({ data, theme = 'print' }: ProposalPDFProps) => {
   const styles = createStyles(theme)
-  const { proposal, lineItems, measurement, company, rep, financing, photos, inspectionNotes } = data
-  const displayPricing = getDisplayPricing(proposal)
+  const { proposal, lineItems, measurement, company, rep, photos, inspectionNotes, financing } = data
+  const breakdown = getProposalDisplayPricing(proposal)
+  const displayPricing = {
+    ...breakdown,
+    total: Number(proposal.total) > 0 ? Number(proposal.total) : breakdown.total,
+  }
+  const showSelectedPayment = shouldShowSelectedFinancingPayment(financing)
 
-  const hasPhotos = photos?.inspection && photos.inspection.length > 0
   const hasAdders = lineItems.filter(i => i.is_adder && i.show_to_customer).length > 0
   const visibleLineItems = lineItems.filter(i => i.show_to_customer && !i.is_adder)
   const visibleAdders = lineItems.filter(i => i.is_adder && i.show_to_customer)
 
-  // Calculate page numbers dynamically
-  let currentPage = 1
-  const totalPages = hasPhotos ? 7 : 6
+  const totalPages = 7
 
   return (
     <Document>
@@ -983,48 +999,7 @@ export const ProposalPDFv2 = ({ data, theme = 'print' }: ProposalPDFProps) => {
       </Page>
 
       {/* ================================================================
-          PAGE 4 (CONDITIONAL): INSPECTION PHOTOS
-          ================================================================ */}
-      {hasPhotos && (
-        <Page size="LETTER" style={styles.page}>
-          <View style={styles.pageContent}>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Inspection Photos</Text>
-              <Text style={styles.sectionSubtitle}>Documentation from our roof assessment</Text>
-            </View>
-
-            <View style={styles.photoStrip}>
-              {photos!.inspection!.slice(0, 3).map((url, index) => (
-                <View key={index} style={styles.photoStripItem}>
-                  <Image src={url} style={styles.photoStripImage} />
-                  <Text style={styles.photoStripCaption}>Photo {index + 1}</Text>
-                </View>
-              ))}
-            </View>
-
-            {/* If more than 3 photos, show additional row */}
-            {photos!.inspection!.length > 3 && (
-              <View style={styles.photoStrip}>
-                {photos!.inspection!.slice(3, 6).map((url, index) => (
-                  <View key={index} style={styles.photoStripItem}>
-                    <Image src={url} style={styles.photoStripImage} />
-                    <Text style={styles.photoStripCaption}>Photo {index + 4}</Text>
-                  </View>
-                ))}
-              </View>
-            )}
-          </View>
-
-          <View style={styles.footer}>
-            <Text style={styles.footerText}>{company?.name || 'ARX Roofing & Exteriors'}</Text>
-            <Text style={styles.footerText}>{proposal.proposal_number}</Text>
-            <Text style={styles.footerText}>Page 4 of {totalPages}</Text>
-          </View>
-        </Page>
-      )}
-
-      {/* ================================================================
-          PAGE 4/5: THE PROCESS (Full Page Marketing Layout)
+          PAGE 4: THE PROCESS (Full Page Marketing Layout)
           ================================================================ */}
       <Page size="LETTER" style={styles.page}>
         <View style={styles.processPageContent}>
@@ -1060,12 +1035,12 @@ export const ProposalPDFv2 = ({ data, theme = 'print' }: ProposalPDFProps) => {
         <View style={styles.footer}>
           <Text style={styles.footerText}>{company?.name || 'ARX Roofing & Exteriors'}</Text>
           <Text style={styles.footerText}>{proposal.proposal_number}</Text>
-          <Text style={styles.footerText}>Page {hasPhotos ? 5 : 4} of {totalPages}</Text>
+          <Text style={styles.footerText}>Page 4 of {totalPages}</Text>
         </View>
       </Page>
 
       {/* ================================================================
-          PAGE 5/6: WARRANTIES & WHY ARX
+          PAGE 5: WARRANTIES & WHY ARX
           ================================================================ */}
       <Page size="LETTER" style={styles.page}>
         <View style={styles.pageContent}>
@@ -1109,18 +1084,62 @@ export const ProposalPDFv2 = ({ data, theme = 'print' }: ProposalPDFProps) => {
         <View style={styles.footer}>
           <Text style={styles.footerText}>{company?.name || 'ARX Roofing & Exteriors'}</Text>
           <Text style={styles.footerText}>{proposal.proposal_number}</Text>
-          <Text style={styles.footerText}>Page {hasPhotos ? 6 : 5} of {totalPages}</Text>
+          <Text style={styles.footerText}>Page 5 of {totalPages}</Text>
         </View>
       </Page>
 
       {/* ================================================================
-          PAGE 6/7: PRICING & AUTHORIZATION
+          PAGE 6: WAYS TO PAY
+          ================================================================ */}
+      <Page size="LETTER" style={styles.page}>
+        <View style={styles.pageContent}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>{WAYS_TO_PAY_TITLE}</Text>
+            <Text style={styles.sectionSubtitle}>{WAYS_TO_PAY_SUBTITLE}</Text>
+          </View>
+
+          <Text style={styles.waysToPayLead}>{WAYS_TO_PAY_LEAD}</Text>
+
+          <View style={styles.waysToPayStack}>
+            {waysToPayOptions.map((option, index) => (
+              <View key={index} style={styles.waysToPayCard}>
+                <View style={styles.waysToPayCardHeader}>
+                  <View style={styles.stepNumber}>
+                    <Text style={styles.stepNumberText}>{index + 1}</Text>
+                  </View>
+                  <Text style={styles.stepTitle}>{option.headline}</Text>
+                </View>
+                <Text style={styles.waysToPayBody}>{option.body}</Text>
+                {index === 2 && showSelectedPayment && financing && (
+                  <Text style={styles.selectedPaymentLine}>
+                    This proposal includes an estimated {formatMonthlyPayment(financing.monthly_payment)}/month
+                    {' '}({formatSelectedFinancingTerms(financing)}) if you qualify.
+                  </Text>
+                )}
+              </View>
+            ))}
+          </View>
+
+          <View style={styles.disclaimer}>
+            <Text style={styles.disclaimerText}>{WAYS_TO_PAY_DISCLAIMER}</Text>
+          </View>
+        </View>
+
+        <View style={styles.footer}>
+          <Text style={styles.footerText}>{company?.name || 'ARX Roofing & Exteriors'}</Text>
+          <Text style={styles.footerText}>{proposal.proposal_number}</Text>
+          <Text style={styles.footerText}>Page 6 of {totalPages}</Text>
+        </View>
+      </Page>
+
+      {/* ================================================================
+          PAGE 7: YOUR INVESTMENT
           ================================================================ */}
       <Page size="LETTER" style={styles.page}>
         <View style={styles.pageContent}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Your Investment</Text>
-            <Text style={styles.sectionSubtitle}>Project pricing and authorization</Text>
+            <Text style={styles.sectionSubtitle}>Project pricing</Text>
           </View>
 
           {/* Pricing Card */}
@@ -1156,6 +1175,21 @@ export const ProposalPDFv2 = ({ data, theme = 'print' }: ProposalPDFProps) => {
             </View>
           </View>
 
+          {showSelectedPayment && financing && (
+            <View style={styles.financingBox}>
+              <Text style={styles.financingTitle}>Estimated monthly payment</Text>
+              <Text style={styles.financingAmount}>
+                {formatMonthlyPayment(financing.monthly_payment)}/month
+              </Text>
+              <Text style={styles.financingTerms}>
+                {formatSelectedFinancingTerms(financing)}
+              </Text>
+              <Text style={styles.financingNote}>
+                If you qualify. Exact terms come from the lender at application.
+              </Text>
+            </View>
+          )}
+
           {/* Adders */}
           {hasAdders && (
             <>
@@ -1175,47 +1209,10 @@ export const ProposalPDFv2 = ({ data, theme = 'print' }: ProposalPDFProps) => {
             </>
           )}
 
-          {/* Financing */}
-          {financing?.enabled && financing.type === 'financed' && financing.monthly_payment && (
-            <View style={styles.financingBox}>
-              <Text style={styles.financingTitle}>Monthly Payment Option</Text>
-              <Text style={styles.financingAmount}>
-                {formatCurrency(financing.monthly_payment)}/month
-              </Text>
-              <Text style={styles.financingTerms}>
-                {financing.term_months} months at {financing.interest_rate}% APR
-              </Text>
-            </View>
-          )}
-
-          {/* Signature Section */}
-          <View style={styles.signatureSection}>
-            <View style={[styles.sectionHeader, { borderBottomColor: tokens.colors[theme].text }]}>
-              <Text style={styles.sectionTitle}>Authorization</Text>
-            </View>
-            <Text style={{ fontSize: tokens.fontSize.sm, color: tokens.colors[theme].textMuted, marginBottom: tokens.spacing.md }}>
-              By signing below, I authorize {company?.name || 'ARX Roofing & Exteriors'} to proceed with the work described in this proposal.
+          <View style={styles.disclaimer}>
+            <Text style={styles.disclaimerText}>
+              This is a proposal, not a contract. Work is authorized on the Installation Agreement.
             </Text>
-            <View style={styles.signatureGrid}>
-              <View style={styles.signatureBox}>
-                <View style={styles.signatureLine} />
-                <Text style={styles.signatureLabel}>Customer Signature</Text>
-              </View>
-              <View style={styles.signatureBox}>
-                <View style={styles.signatureLine} />
-                <Text style={styles.signatureLabel}>Date</Text>
-              </View>
-            </View>
-            <View style={[styles.signatureGrid, { marginTop: tokens.spacing.lg }]}>
-              <View style={styles.signatureBox}>
-                <View style={styles.signatureLine} />
-                <Text style={styles.signatureLabel}>Print Name</Text>
-              </View>
-              <View style={styles.signatureBox}>
-                <View style={styles.signatureLine} />
-                <Text style={styles.signatureLabel}>Phone</Text>
-              </View>
-            </View>
           </View>
         </View>
 

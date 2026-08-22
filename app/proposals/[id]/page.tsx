@@ -9,8 +9,7 @@ import ProposalPDFv2 from '@/components/ProposalPDFv2'
 import SatelliteImageEditor from '@/components/SatelliteImageEditor'
 import { userCanDeleteProposal } from '@/lib/proposal-delete-access'
 import CreateContractButton from '@/components/contracts/CreateContractButton'
-import { compressImage } from '@/components/inspection/close-visit-shared'
-import { shouldShowOnlyTotalInvestment } from '@/lib/proposal-pricing-visibility'
+import { getProposalCustomerPricing, formatSelectedFinancingTerms } from '@/lib/proposal-pricing-visibility'
 
 interface Proposal {
   id: string
@@ -76,39 +75,6 @@ interface LineItem {
   show_to_customer?: boolean  // Whether this item should be shown on customer-facing proposal
 }
 
-const toCents = (value: number) => Math.round((Number(value) || 0) * 100)
-const fromCents = (cents: number) => cents / 100
-
-function getDisplayPricing(proposal: Proposal) {
-  const subtotalCents = toCents(proposal.subtotal || 0)
-  let discountCents = proposal.discount_percent > 0
-    ? Math.round(subtotalCents * ((proposal.discount_percent || 0) / 100))
-    : toCents(proposal.discount_amount || 0)
-  discountCents = Math.min(Math.max(discountCents, 0), subtotalCents)
-  const afterDiscountCents = subtotalCents - discountCents
-  const taxCents = Math.round(afterDiscountCents * ((proposal.tax_rate || 0) / 100))
-  const totalCents = afterDiscountCents + taxCents
-
-  return {
-    subtotal: fromCents(subtotalCents),
-    discountAmount: fromCents(discountCents),
-    taxAmount: fromCents(taxCents),
-    total: fromCents(totalCents),
-  }
-}
-
-/** Single quote total: financed contract amount when financing applies (includes lender gross-up), else tax-included total. */
-function getQuotedTotal(proposal: Proposal, taxIncludedTotal: number): number {
-  if (
-    proposal.financing_available &&
-    proposal.financed_contract_total != null &&
-    proposal.financed_contract_total > 0
-  ) {
-    return proposal.financed_contract_total
-  }
-  return taxIncludedTotal
-}
-
 export default function ProposalDetailPage() {
   const router = useRouter()
   const params = useParams()
@@ -134,15 +100,6 @@ export default function ProposalDetailPage() {
   // PDF options
   const [showPdfOptions, setShowPdfOptions] = useState(false)
   const [pdfTheme, setPdfTheme] = useState<'dark' | 'print'>('print')
-  
-  // Financing options
-  const [financingType, setFinancingType] = useState<'cash' | 'financed'>('cash')
-  const [financingTermMonths, setFinancingTermMonths] = useState(60)
-  const [financingInterestRate, setFinancingInterestRate] = useState(9.99)
-  
-  // Inspection photos
-  const [inspectionPhotos, setInspectionPhotos] = useState<string[]>([])
-  const [uploadingInspectionPhoto, setUploadingInspectionPhoto] = useState(false)
   
   // Inspection notes
   const [inspectionNotes, setInspectionNotes] = useState<string[]>([])
@@ -308,27 +265,7 @@ export default function ProposalDetailPage() {
       }
       console.log('PDF Generation - Company for PDF:', companyForPdf)
 
-      const displayForPdf = getDisplayPricing(proposal)
-      const quoteTotalForPdf = getQuotedTotal(proposal, displayForPdf.total)
-
-      // Calculate monthly payment if financing (principal = quoted total when financed program applies)
-      let monthlyPayment: number | undefined
-      if (financingType === 'financed' && financingTermMonths > 0) {
-        const principal = quoteTotalForPdf
-        const monthlyRate = financingInterestRate / 100 / 12
-        if (monthlyRate > 0) {
-          monthlyPayment = principal * (monthlyRate * Math.pow(1 + monthlyRate, financingTermMonths)) / (Math.pow(1 + monthlyRate, financingTermMonths) - 1)
-        } else {
-          monthlyPayment = principal / financingTermMonths
-        }
-      }
-
-      // Convert inspection photos to base64
-      const inspectionPhotosBase64: string[] = []
-      for (const photoUrl of inspectionPhotos) {
-        const base64 = await imageUrlToBase64(photoUrl)
-        if (base64) inspectionPhotosBase64.push(base64)
-      }
+      const pricing = getProposalCustomerPricing(proposal)
 
       const pdfDataV2 = {
         proposal: {
@@ -345,11 +282,8 @@ export default function ProposalDetailPage() {
           discount_percent: proposal.discount_percent,
           tax_rate: proposal.tax_rate,
           tax_amount: proposal.tax_amount,
-          total: quoteTotalForPdf,
-          show_only_total_investment: shouldShowOnlyTotalInvestment(
-            quoteTotalForPdf,
-            displayForPdf.total
-          ),
+          total: pricing.quotedTotal,
+          show_only_total_investment: pricing.showOnlyTotalInvestment,
           scope_of_work: proposal.scope_of_work,
           created_at: proposal.created_at,
         },
@@ -357,18 +291,11 @@ export default function ProposalDetailPage() {
         measurement,
         company: companyForPdf,
         rep,
-        financing: {
-          enabled: financingType === 'financed',
-          type: financingType,
-          term_months: financingTermMonths,
-          interest_rate: financingInterestRate,
-          monthly_payment: monthlyPayment,
-        },
         photos: {
           property: imageForPdf,
-          inspection: inspectionPhotosBase64.length > 0 ? inspectionPhotosBase64 : undefined,
         },
         inspectionNotes: inspectionNotes.length > 0 ? inspectionNotes : undefined,
+        ...(pricing.financing ? { financing: pricing.financing } : {}),
       }
       const blob = await pdf(<ProposalPDFv2 data={pdfDataV2} theme={pdfTheme} />).toBlob()
       
@@ -585,8 +512,14 @@ export default function ProposalDetailPage() {
     )
   }
 
-  const displayPricing = getDisplayPricing(proposal)
-  const quotedTotal = getQuotedTotal(proposal, displayPricing.total)
+  const pricing = getProposalCustomerPricing(proposal)
+  const displayPricing = {
+    subtotal: pricing.subtotal,
+    discountAmount: pricing.discountAmount,
+    taxAmount: pricing.taxAmount,
+    total: pricing.standardTotal,
+  }
+  const quotedTotal = pricing.quotedTotal
   const canEditProposal = !['accepted', 'declined'].includes(proposal.status) && !hasCompletedInstallationContract
   const canDeleteProposal =
     !!currentUserId &&
@@ -712,77 +645,6 @@ export default function ProposalDetailPage() {
                     </p>
                   </div>
                   
-                  {/* Financing Options */}
-                  <div className="mb-4 pt-3 border-t">
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Payment Type</label>
-                    <div className="flex gap-2 mb-2">
-                      <button
-                        onClick={() => setFinancingType('cash')}
-                        className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium transition ${
-                          financingType === 'cash' 
-                            ? 'bg-green-600 text-white' 
-                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                        }`}
-                      >
-                        Cash
-                      </button>
-                      <button
-                        onClick={() => setFinancingType('financed')}
-                        className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium transition ${
-                          financingType === 'financed' 
-                            ? 'bg-blue-600 text-white' 
-                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                        }`}
-                      >
-                        Financed
-                      </button>
-                    </div>
-                    
-                    {financingType === 'financed' && (
-                      <div className="space-y-2 mt-3 p-3 bg-blue-50 rounded-lg">
-                        <div className="flex gap-2">
-                          <div className="flex-1">
-                            <label className="block text-xs text-gray-600 mb-1">Term (months)</label>
-                            <select
-                              value={financingTermMonths}
-                              onChange={(e) => setFinancingTermMonths(Number(e.target.value))}
-                              className="w-full px-2 py-1.5 border rounded text-sm"
-                            >
-                              <option value={36}>36 months</option>
-                              <option value={48}>48 months</option>
-                              <option value={60}>60 months</option>
-                              <option value={72}>72 months</option>
-                              <option value={84}>84 months</option>
-                              <option value={120}>120 months</option>
-                              <option value={144}>144 months</option>
-                              <option value={180}>180 months</option>
-                            </select>
-                          </div>
-                          <div className="flex-1">
-                            <label className="block text-xs text-gray-600 mb-1">APR %</label>
-                            <input
-                              type="number"
-                              step="0.01"
-                              value={financingInterestRate}
-                              onChange={(e) => setFinancingInterestRate(Number(e.target.value))}
-                              className="w-full px-2 py-1.5 border rounded text-sm"
-                            />
-                          </div>
-                        </div>
-                        <p className="text-xs text-blue-700">
-                          Est. ${(() => {
-                          const principal = quotedTotal
-                            const monthlyRate = financingInterestRate / 100 / 12
-                            if (monthlyRate > 0) {
-                              return (principal * (monthlyRate * Math.pow(1 + monthlyRate, financingTermMonths)) / (Math.pow(1 + monthlyRate, financingTermMonths) - 1)).toFixed(2)
-                            }
-                            return (principal / financingTermMonths).toFixed(2)
-                          })()}/month
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                  
                   <button
                     onClick={() => {
                       setShowPdfOptions(false)
@@ -846,9 +708,9 @@ export default function ProposalDetailPage() {
                 <p className="text-4xl font-bold" style={{ color: proposal.accent_color || '#4f46e5' }}>
                   ${quotedTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                 </p>
-                {proposal.financing_available && proposal.monthly_payment && (
+                {pricing.financing && (
                   <p className="text-gray-900 mt-1">
-                    or ${proposal.monthly_payment.toFixed(2)}/mo for {proposal.financing_term_months} months
+                    or ${pricing.financing.monthly_payment.toFixed(2)}/mo for {pricing.financing.term_months} months
                   </p>
                 )}
               </div>
@@ -1076,117 +938,6 @@ export default function ProposalDetailPage() {
               </div>
             </div>
 
-            {/* Inspection Photos */}
-            <div className="mb-8">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-lg font-semibold text-gray-900">Inspection Photos</h3>
-                <span className="text-sm text-gray-500">{inspectionPhotos.length}/6 photos</span>
-              </div>
-              <div className="border rounded-xl p-4 bg-gray-50">
-                {inspectionPhotos.length > 0 ? (
-                  <div className="grid grid-cols-3 gap-3 mb-4">
-                    {inspectionPhotos.map((photo, index) => (
-                      <div key={index} className="relative group aspect-video rounded-lg overflow-hidden border">
-                        <img src={photo} alt={`Inspection photo ${index + 1}`} className="w-full h-full object-cover" />
-                        <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                          <button
-                            onClick={() => setInspectionPhotos(prev => prev.filter((_, i) => i !== index))}
-                            className="px-3 py-1 bg-red-600 text-white text-sm rounded-lg hover:bg-red-700"
-                          >
-                            Remove
-                          </button>
-                        </div>
-                        <div className="absolute top-1 left-1 px-1.5 py-0.5 bg-black/50 text-white text-xs rounded">
-                          {index + 1}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-center py-6 text-gray-500">
-                    <svg className="w-10 h-10 mx-auto mb-2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                    </svg>
-                    <p className="text-sm">No inspection photos added yet</p>
-                  </div>
-                )}
-                
-                {inspectionPhotos.length < 6 && (
-                  <div className="flex items-center gap-2">
-                    <label className="flex-1">
-                      <input
-                        type="file"
-                        accept="image/*"
-                        className="hidden"
-                        disabled={uploadingInspectionPhoto}
-                        onChange={async (e) => {
-                          const file = e.target.files?.[0]
-                          if (!file) return
-                          
-                          setUploadingInspectionPhoto(true)
-                          try {
-                            // Compress/normalize to JPEG client-side (handles
-                            // large iPhone photos and converts HEIC where the
-                            // browser can decode it — @react-pdf only renders
-                            // JPEG/PNG in the proposal PDF).
-                            const compressed = await compressImage(file)
-                            const ext = file.name.toLowerCase()
-                            const isHeicOriginal =
-                              compressed === file && (ext.endsWith('.heic') || ext.endsWith('.heif'))
-                            const uploadFileName = isHeicOriginal
-                              ? file.name
-                              : file.name.replace(/\.[^.]+$/, '.jpg')
-
-                            const formData = new FormData()
-                            formData.append('file', compressed, uploadFileName)
-                            formData.append('type', 'inspection')
-                            formData.append('index', String(inspectionPhotos.length))
-                            
-                            const response = await fetch(`/api/proposals/${proposalId}/image`, {
-                              method: 'POST',
-                              body: formData,
-                            })
-                            
-                            if (response.ok) {
-                              const data = await response.json()
-                              setInspectionPhotos(prev => [...prev, data.url])
-                            } else {
-                              const data = await response.json().catch(() => null)
-                              alert(data?.error || 'Failed to upload photo')
-                            }
-                          } catch (err) {
-                            console.error('Upload error:', err)
-                            alert(err instanceof Error && err.message ? err.message : 'Failed to upload photo')
-                          }
-                          setUploadingInspectionPhoto(false)
-                          e.target.value = ''
-                        }}
-                      />
-                      <div className={`flex items-center justify-center gap-2 px-4 py-2 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-indigo-400 hover:bg-indigo-50 transition ${uploadingInspectionPhoto ? 'opacity-50 cursor-wait' : ''}`}>
-                        {uploadingInspectionPhoto ? (
-                          <>
-                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-indigo-600" />
-                            <span className="text-sm text-gray-600">Uploading...</span>
-                          </>
-                        ) : (
-                          <>
-                            <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                            </svg>
-                            <span className="text-sm text-gray-600">Add Photo</span>
-                          </>
-                        )}
-                      </div>
-                    </label>
-                  </div>
-                )}
-                
-                <p className="text-xs text-gray-500 mt-2">
-                  Add up to 6 inspection photos. These will appear on a dedicated page in the PDF if any are added.
-                </p>
-              </div>
-            </div>
-
             {/* Line Items (Admin Only) */}
             {userRole === 'admin' && lineItems.length > 0 && (
               <div className="mb-8">
@@ -1278,14 +1029,14 @@ export default function ProposalDetailPage() {
             </div>
 
             {/* Financing */}
-            {proposal.financing_available && (
+            {pricing.financing && (
               <div className="mt-6 p-6 bg-indigo-50 rounded-xl border border-indigo-100">
                 <h3 className="text-lg font-semibold text-indigo-900 mb-2">Financing Available</h3>
                 <p className="text-indigo-900">
-                  As low as <span className="font-bold text-2xl">${proposal.monthly_payment?.toFixed(2)}</span>/month
+                  Estimated <span className="font-bold text-2xl">${pricing.financing.monthly_payment.toFixed(2)}</span>/month
                 </p>
                 <p className="text-sm text-indigo-800 mt-1">
-                  {proposal.financing_term_months} months at {proposal.financing_rate}% APR
+                  {formatSelectedFinancingTerms(pricing.financing)}
                 </p>
               </div>
             )}
