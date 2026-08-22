@@ -12,7 +12,7 @@ import {
   getFreeBusy,
   CalendarEvent,
 } from '@/lib/google-calendar'
-import { hasBufferedConflict } from '@/lib/scheduling-buffer'
+import { hasBufferedConflict, existingBuffersForAppointment } from '@/lib/scheduling-buffer'
 import { getOrgDefaultSchedulingGapMinutes, resolveSchedulingBuffers } from '@/lib/org-scheduling-gap'
 import nodemailer from 'nodemailer'
 import { getCrmEmailFrom } from '@/lib/crm-email-from'
@@ -20,11 +20,11 @@ import { formatDateTimeInTimezone } from '@/lib/timezone'
 import { inspectionLocalWallClockToUtcIso } from '@/lib/inspection-local-wall-clock'
 import { pickValidEmail } from '@/lib/setter-email'
 import { canReceiveCanvassAppointment } from '@/lib/canvass-appointment-eligibility'
-import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { isUserActiveForTransactionalEmail } from '@/lib/user-email-eligibility'
 import { ensureLeadHasMapPinOrThrow } from '@/lib/lead-map-pin'
 import { isOrgSuperuserRoleSlug } from '@/lib/org-role-constants'
 import { deleteCanvassLeadWithDependencies } from '@/lib/canvass-lead-delete'
+import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
 
@@ -65,21 +65,12 @@ function formatScheduledAppointmentInsertError(dbMessage: string): string {
     return 'Database is missing a required index on pending_status_prompts. Apply migration 125_pending_status_prompts_unique_appointment_id.sql (or ask an admin to run Supabase migrations).'
   }
   if (m.includes('scheduling conflict') || m.includes('overlapping appointment')) {
-    return 'That time overlaps another appointment for this closer. Choose a different time.'
+    return 'That time is too close to another appointment for this closer. Choose a different time.'
   }
   if (m.includes('rapid duplicate') || m.includes('duplicate key') || m.includes('unique constraint')) {
     return 'This time was already booked (duplicate or double-tap). Wait a moment and try again, or pick another slot.'
   }
   return `Could not save the appointment (${dbMessage})`
-}
-
-function getAdminClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
-  
-  return createServiceClient(supabaseUrl, serviceRoleKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  })
 }
 
 function getMailTransport() {
@@ -285,7 +276,9 @@ async function checkCloserAvailability(
   scheduledFor: string,
   durationMinutes: number,
   /** From orgs.default_scheduling_gap_minutes (Admin → Scheduling) */
-  orgDefaultGapMinutes: number
+  orgDefaultGapMinutes: number,
+  /** appointment_types.buffer_after_minutes for the type being booked (Admin → Scheduling) */
+  appointmentTypeBufferAfterMinutes?: number
 ): Promise<{ available: boolean; hasCalendar: boolean; error?: string }> {
   try {
     const startTime = new Date(scheduledFor)
@@ -307,10 +300,11 @@ async function checkCloserAvailability(
         .maybeSingle(),
     ])
 
-    const { bufferBefore, bufferAfter } = resolveSchedulingBuffers(
+    const { bufferBefore, bufferAfter, baselineBufferAfter } = resolveSchedulingBuffers(
       queueEntry ?? undefined,
       settings ?? undefined,
-      orgDefaultGapMinutes
+      orgDefaultGapMinutes,
+      appointmentTypeBufferAfterMinutes
     )
 
     // Always enforce DB conflict checks, even when calendar tokens fail.
@@ -318,7 +312,7 @@ async function checkCloserAvailability(
     const queryEnd = new Date(endTime.getTime() + 12 * 60 * 60 * 1000)
     const { data: existingAppointments, error: dbError } = await adminClient
       .from('scheduled_appointments')
-      .select('scheduled_for, duration_minutes')
+      .select('scheduled_for, duration_minutes, buffer_after_minutes')
       .eq('closer_user_id', closerUserId)
       .in('status', ['scheduled', 'confirmed'])
       .gte('scheduled_for', queryStart.toISOString())
@@ -329,12 +323,20 @@ async function checkCloserAvailability(
       return { available: false, hasCalendar: false, error: 'Unable to verify schedule conflicts' }
     }
 
+    // Shared rule (lib/scheduling-buffer): the gap must satisfy both the candidate's
+    // and the booked appointment's own trailing-gap requirement.
     const hasDbConflict = (existingAppointments || []).some((appt: any) => {
       const apptStart = new Date(appt.scheduled_for)
       const apptEnd = new Date(apptStart.getTime() + (appt.duration_minutes || 60) * 60 * 1000)
-      const blockedStart = new Date(apptStart.getTime() - bufferAfter * 60 * 1000)
-      const blockedEnd = new Date(apptEnd.getTime() + bufferBefore * 60 * 1000)
-      return startTime < blockedEnd && endTime > blockedStart
+      return hasBufferedConflict(
+        startTime,
+        endTime,
+        apptStart,
+        apptEnd,
+        bufferBefore,
+        bufferAfter,
+        existingBuffersForAppointment(appt.buffer_after_minutes, baselineBufferAfter, bufferBefore)
+      )
     })
 
     if (hasDbConflict) {
@@ -367,7 +369,7 @@ async function checkCloserAvailability(
 export async function POST(request: Request) {
   try {
     const { profile, authUser } = await requireAuthApi()
-    const supabase = getAdminClient()
+    const supabase = createServiceClient()
     const body = await request.json().catch(() => ({}))
 
     const leadId = String(body.lead_id || '')
@@ -937,7 +939,8 @@ export async function POST(request: Request) {
           closerUserId,
           inspectionScheduledFor,
           inspectionDuration,
-          orgSchedulingGap
+          orgSchedulingGap,
+          inspectionBufferAfter
         )
 
         if (!availabilityCheck.available) {
@@ -1296,7 +1299,7 @@ export async function POST(request: Request) {
 
           if (
             closerProfile?.email &&
-            (await isUserActiveForTransactionalEmail(getAdminClient(), closerUserId))
+            (await isUserActiveForTransactionalEmail(createServiceClient(), closerUserId))
           ) {
             const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://arx-internal-crm.vercel.app'
             const recordUrl = opportunityId ? `${appUrl}/opportunities/${opportunityId}` : `${appUrl}/leads/${leadRow.id}`
@@ -1374,7 +1377,7 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: 'Lead ID is required' }, { status: 400 })
     }
 
-    const supabase = getAdminClient()
+    const supabase = createServiceClient()
     const result = await deleteCanvassLeadWithDependencies({
       admin: supabase,
       orgId: profile.org_id,

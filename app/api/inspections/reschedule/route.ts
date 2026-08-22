@@ -1,6 +1,6 @@
+import { mapScheduledAppointmentWriteError } from '@/lib/scheduled-appointment-errors'
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
-import { createClient } from '@supabase/supabase-js'
 import { createCalendarEvent, deleteCalendarEvent, refreshAccessToken, CalendarEvent } from '@/lib/google-calendar'
 import { computeInspectionFeedbackPromptAt } from '@/lib/scheduling-prompt'
 import { sendSetterEmail } from '@/lib/setter-email'
@@ -13,15 +13,7 @@ import {
 } from '@/lib/org-appointment-types'
 import { formatDateTimeInTimezone } from '@/lib/timezone'
 import { inspectionLocalWallClockToUtcIso } from '@/lib/inspection-local-wall-clock'
-
-function getAdminClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
-  
-  return createClient(supabaseUrl, serviceRoleKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  })
-}
+import { createServiceClient } from '@/lib/supabase/service'
 
 // Helper to get valid access token
 async function getValidAccessToken(adminClient: any, userId: string): Promise<string | null> {
@@ -93,7 +85,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Profile not found' }, { status: 400 })
     }
 
-    const supabase = getAdminClient()
+    const supabase = createServiceClient()
 
     const body = await request.json()
     const { 
@@ -214,7 +206,12 @@ export async function POST(request: NextRequest) {
 
     if (createError) {
       console.error('Create appointment error:', createError)
-      return NextResponse.json({ error: 'Failed to create new appointment' }, { status: 500 })
+      // Buffer/overlap rejections are user-correctable — surface a 409, not a 500.
+      const mapped = mapScheduledAppointmentWriteError(
+        createError,
+        'Failed to create new appointment'
+      )
+      return NextResponse.json({ error: mapped.message }, { status: mapped.status })
     }
 
     // Sync to closer's Google Calendar

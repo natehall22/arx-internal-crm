@@ -1,3 +1,4 @@
+import { mapScheduledAppointmentWriteError } from '@/lib/scheduled-appointment-errors'
 import { NextRequest, NextResponse } from 'next/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { createServerClient } from '@/lib/supabase/server'
@@ -553,7 +554,12 @@ export async function POST(request: NextRequest) {
 
     if (createError) {
       console.error('Create close appointment error:', createError)
-      return NextResponse.json({ error: 'Failed to create close appointment' }, { status: 500 })
+      // Buffer/overlap rejections are user-correctable — surface a 409, not a 500.
+      const mapped = mapScheduledAppointmentWriteError(
+        createError,
+        'Failed to create close appointment'
+      )
+      return NextResponse.json({ error: mapped.message }, { status: mapped.status })
     }
 
     closeAppointment = insertedClose

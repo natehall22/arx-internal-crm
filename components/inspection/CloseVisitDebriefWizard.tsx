@@ -529,6 +529,7 @@ export default function CloseVisitDebriefWizard({
             onClose={() => setShowModal(false)}
             onConfirm={handleScheduleClose}
             closeDurationMinutes={closeDurationMinutes}
+            slotKind="close"
             users={users}
             teams={teams}
           />

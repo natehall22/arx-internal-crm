@@ -187,9 +187,9 @@ export default function LeadModal({
       
       if (closerOrTeamId.startsWith('team:')) {
         const teamId = closerOrTeamId.replace('team:', '')
-        res = await fetch(`/api/canvass/team-availability?team_id=${teamId}&date=${date}&duration=${inspectionDuration}`)
+        res = await fetch(`/api/canvass/team-availability?team_id=${teamId}&date=${date}&duration=${inspectionDuration}&slot_kind=inspection`)
       } else {
-        res = await fetch(`/api/canvass/availability?closer_id=${closerOrTeamId}&date=${date}&duration=${inspectionDuration}`)
+        res = await fetch(`/api/canvass/availability?closer_id=${closerOrTeamId}&date=${date}&duration=${inspectionDuration}&slot_kind=inspection`)
       }
       
       if (res.ok) {

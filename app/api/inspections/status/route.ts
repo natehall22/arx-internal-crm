@@ -1,3 +1,4 @@
+import { mapScheduledAppointmentWriteError } from '@/lib/scheduled-appointment-errors'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import nodemailer from 'nodemailer'
@@ -29,20 +30,12 @@ import {
   isInsideSalesRoleLike,
 } from '@/lib/inside-sales-follow-up'
 import { bookInsuranceCallAppointment } from '@/lib/insurance-call-appointment'
+import { createServiceClient } from '@/lib/supabase/service'
 
 /** Supabase may return embedded FK rows as object or single-element array. */
 function firstEmbeddedRow<T extends { id?: string }>(row: T | T[] | null | undefined): T | null {
   if (row == null) return null
   return Array.isArray(row) ? row[0] ?? null : row
-}
-
-function getAdminClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
-  
-  return createClient(supabaseUrl, serviceRoleKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  })
 }
 
 function followUpAtFromDelayDays(delayDays: number): string {
@@ -78,7 +71,7 @@ function sanitizeHandoffContext(raw: unknown): Record<string, string> | null {
   return Object.keys(out).length > 0 ? out : null
 }
 
-async function getValidAccessToken(adminClient: ReturnType<typeof getAdminClient>, userId: string): Promise<string | null> {
+async function getValidAccessToken(adminClient: ReturnType<typeof createServiceClient>, userId: string): Promise<string | null> {
   const { data: tokenData } = await adminClient
     .from('user_google_tokens')
     .select('*')
@@ -109,7 +102,7 @@ async function getValidAccessToken(adminClient: ReturnType<typeof getAdminClient
   return tokenData.access_token
 }
 
-async function getTimezoneForUser(adminClient: ReturnType<typeof getAdminClient>, userId: string): Promise<string> {
+async function getTimezoneForUser(adminClient: ReturnType<typeof createServiceClient>, userId: string): Promise<string> {
   try {
     const { data: userProfile } = await adminClient
       .from('users')
@@ -143,7 +136,7 @@ function localDateTimeFromFollowUpInput(followUp: string): string | null {
 }
 
 async function upsertPendingInspectionPrompt(
-  supabase: ReturnType<typeof getAdminClient>,
+  supabase: ReturnType<typeof createServiceClient>,
   params: {
     orgId: string
     appointmentId: string
@@ -210,7 +203,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized - invalid token' }, { status: 401 })
     }
 
-    const supabase = getAdminClient()
+    const supabase = createServiceClient()
     const body = await request.json()
     const {
       appointment_id,
@@ -926,7 +919,7 @@ export async function POST(request: NextRequest) {
 
         if (
           setterUser?.email &&
-          (await isUserActiveForTransactionalEmail(getAdminClient(), setterUserId))
+          (await isUserActiveForTransactionalEmail(createServiceClient(), setterUserId))
         ) {
           const transporter = getMailTransport()
           const setterName = setterUser.full_name || 'Setter'
@@ -1105,6 +1098,8 @@ export async function POST(request: NextRequest) {
 
     // Schedule follow-up if requested
     let followUpAppointment = null
+    /** Set when the follow-up insert was rejected; returned so the UI can warn the rep. */
+    let followUpErrorMessage: string | null = null
     if (schedule_follow_up && follow_up_date) {
       // Parse the follow-up date/time
       const followUpDateTime = new Date(follow_up_date)
@@ -1148,6 +1143,14 @@ export async function POST(request: NextRequest) {
 
       if (followUpError) {
         console.error('Failed to create follow-up appointment:', followUpError)
+        // The status update itself already succeeded, so this stays non-fatal — but the
+        // rep must be told, or a follow-up they just booked silently disappears. Buffer
+        // and overlap rejections land here now that the gap between appointments is
+        // enforced (migration 202608170001).
+        followUpErrorMessage = mapScheduledAppointmentWriteError(
+          followUpError,
+          'Could not create the follow-up appointment.'
+        ).message
       } else if (newAppointment) {
         followUpAppointment = newAppointment
         console.log('Created follow-up appointment:', newAppointment.id)
@@ -1274,6 +1277,7 @@ export async function POST(request: NextRequest) {
       success: true,
       status_update: statusUpdate,
       follow_up_appointment: followUpAppointment,
+      ...(followUpErrorMessage ? { follow_up_error: followUpErrorMessage } : {}),
       /** Lets clients confirm linkage before calling schedule-close */
       opportunity_id: opportunityId || null,
       lead_id: leadId || null,
@@ -1308,7 +1312,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const supabase = getAdminClient()
+    const supabase = createServiceClient()
 
     // Get user profile to check role
     const { data: profile } = await supabase

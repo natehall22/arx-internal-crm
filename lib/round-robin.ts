@@ -6,7 +6,7 @@ import {
   deleteCalendarEvent,
 } from './google-calendar'
 import { computeInspectionFeedbackPromptAt } from '@/lib/scheduling-prompt'
-import { hasBufferedConflict } from '@/lib/scheduling-buffer'
+import { hasBufferedConflict, existingBuffersForAppointment } from '@/lib/scheduling-buffer'
 import { resolveSchedulingBuffers } from '@/lib/org-scheduling-gap'
 import type { TeamCloserQueue, UserGoogleToken, ScheduledAppointment } from './types/database'
 import { canReceiveTeamRoundRobinQueueAssignment } from '@/lib/canvass-appointment-eligibility'
@@ -37,7 +37,9 @@ async function hasDbConflictForCloser(
   scheduledFor: Date,
   durationMinutes: number,
   bufferBeforeMinutes: number,
-  bufferAfterMinutes: number
+  bufferAfterMinutes: number,
+  /** Person-level gap, used for legacy rows with NULL buffer_after_minutes. */
+  baselineBufferAfterMinutes: number
 ): Promise<boolean> {
   const slotStart = scheduledFor
   const slotEnd = new Date(scheduledFor.getTime() + durationMinutes * 60 * 1000)
@@ -46,7 +48,7 @@ async function hasDbConflictForCloser(
 
   const { data: existingAppointments, error } = await supabase
     .from('scheduled_appointments')
-    .select('id, scheduled_for, duration_minutes')
+    .select('id, scheduled_for, duration_minutes, buffer_after_minutes')
     .eq('closer_user_id', closerUserId)
     .in('status', ['scheduled', 'confirmed'])
     .gte('scheduled_for', queryStart.toISOString())
@@ -58,18 +60,25 @@ async function hasDbConflictForCloser(
     return true
   }
 
-  return (existingAppointments || []).some((appt: ScheduledAppointment) => {
-    const existingStart = new Date(appt.scheduled_for)
-    const existingEnd = new Date(existingStart.getTime() + appt.duration_minutes * 60 * 1000)
-    return hasBufferedConflict(
-      slotStart,
-      slotEnd,
-      existingStart,
-      existingEnd,
-      bufferBeforeMinutes,
-      bufferAfterMinutes
-    )
-  })
+  return (existingAppointments || []).some(
+    (appt: ScheduledAppointment & { buffer_after_minutes?: number | null }) => {
+      const existingStart = new Date(appt.scheduled_for)
+      const existingEnd = new Date(existingStart.getTime() + appt.duration_minutes * 60 * 1000)
+      return hasBufferedConflict(
+        slotStart,
+        slotEnd,
+        existingStart,
+        existingEnd,
+        bufferBeforeMinutes,
+        bufferAfterMinutes,
+        existingBuffersForAppointment(
+          appt.buffer_after_minutes,
+          baselineBufferAfterMinutes,
+          bufferBeforeMinutes
+        )
+      )
+    }
+  )
 }
 
 /**
@@ -82,7 +91,7 @@ async function hasDbConflictForCloser(
  *
  * Requires Google Calendar connected: closers without a token are skipped (no DB-only path).
  *
- * @param supabase Service-role or admin client (same as getAdminClient() in API routes).
+ * @param supabase Service-role or admin client (see createServiceClient() in lib/supabase/service).
  */
 export async function assignNextAvailableCloser(
   supabase: SupabaseClient,
@@ -254,7 +263,14 @@ export async function assignNextAvailableCloser(
       const endTime = new Date(scheduledFor.getTime() + durationMinutes * 60 * 1000)
 
       const us = settingsByUserId.get(closer.user_id)
-      const { bufferBefore, bufferAfter } = resolveSchedulingBuffers(closer, us, orgDefaultGap)
+      // The per-type buffer (Admin → Scheduling) is the same value stamped onto the
+      // row below — it must gate the conflict check too, not just get recorded.
+      const { bufferBefore, bufferAfter, baselineBufferAfter } = resolveSchedulingBuffers(
+        closer,
+        us,
+        orgDefaultGap,
+        scheduledAppointmentBufferMinutes
+      )
 
       try {
         console.log(
@@ -281,7 +297,8 @@ export async function assignNextAvailableCloser(
             scheduledFor,
             durationMinutes,
             bufferBefore,
-            bufferAfter
+            bufferAfter,
+            baselineBufferAfter
           )
 
           if (hasDbConflict) {
@@ -398,7 +415,8 @@ export async function assignNextAvailableCloser(
             canvasserUserId,
             orgId,
             googleEventId,
-            scheduledAppointmentBufferMinutes
+            scheduledAppointmentBufferMinutes,
+            baselineBufferAfter
           )
           if (result.success) {
             return result
@@ -453,7 +471,9 @@ async function createAppointment(
   canvasserUserId?: string,
   orgId?: string,
   googleEventId?: string,
-  scheduledRowBufferAfter?: number
+  scheduledRowBufferAfter?: number,
+  /** Person-level gap, used for legacy rows with NULL buffer_after_minutes. */
+  baselineBufferAfter?: number
 ): Promise<AssignmentResult> {
   const slotStart = scheduledFor
   const slotEnd = new Date(slotStart.getTime() + durationMinutes * 60 * 1000)
@@ -465,7 +485,8 @@ async function createAppointment(
     slotStart,
     durationMinutes,
     bufferBefore,
-    bufferAfter
+    bufferAfter,
+    baselineBufferAfter ?? defaultGapForRowMinutes
   )
 
   if (hasConflict) {

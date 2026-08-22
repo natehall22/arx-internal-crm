@@ -1112,6 +1112,8 @@ extension APIClient {
             URLQueryItem(name: "team_id", value: teamId),
             URLQueryItem(name: "date", value: dateYmd),
             URLQueryItem(name: "duration", value: "\(durationMinutes)"),
+            // Applies the Inspection buffer from Admin → Scheduling; matches the web canvass picker.
+            URLQueryItem(name: "slot_kind", value: "inspection"),
         ])
         return try JSONDecoder().decode(CanvassTeamAvailabilityResponse.self, from: data)
     }

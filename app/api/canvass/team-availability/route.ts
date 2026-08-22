@@ -1,6 +1,5 @@
 import { requireAuthApi } from '@/lib/auth'
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { getFreeBusy, refreshAccessToken } from '@/lib/google-calendar'
 import {
   getOrgDefaultSchedulingGapMinutes,
@@ -8,18 +7,11 @@ import {
   type UserCalendarBufferFields,
 } from '@/lib/org-scheduling-gap'
 import { canReceiveTeamRoundRobinQueueAssignment } from '@/lib/canvass-appointment-eligibility'
-import { hasBufferedConflict } from '@/lib/scheduling-buffer'
+import { hasBufferedConflict, type BusyInterval } from '@/lib/scheduling-buffer'
+import { resolveSlotKindBufferAfter, parseSlotKindParam } from '@/lib/scheduling-slot-kind'
+import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
-
-function getAdminClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
-  
-  return createServiceClient(supabaseUrl, serviceRoleKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  })
-}
 
 // Helper to get valid access token (refresh if needed)
 async function getValidAccessToken(adminClient: any, userId: string, tokenData: any): Promise<string | null> {
@@ -71,7 +63,7 @@ export async function GET(request: NextRequest) {
       console.log(`Team availability: Unauthorized request after ${elapsed}ms:`, authError?.message || 'auth failed')
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
-    const adminClient = getAdminClient()
+    const adminClient = createServiceClient()
 
     const teamId = request.nextUrl.searchParams.get('team_id')
     const dateStr = request.nextUrl.searchParams.get('date')
@@ -96,6 +88,15 @@ export async function GET(request: NextRequest) {
 
     const timezone = team.timezone || 'America/New_York'
     const orgDefaultGap = await getOrgDefaultSchedulingGapMinutes(adminClient, team.org_id)
+
+    // Per-type trailing gap (Admin → Scheduling), same value booking stamps on the row.
+    const slotKind = parseSlotKindParam(request.nextUrl.searchParams.get('slot_kind'))
+    const typeBufferAfter = await resolveSlotKindBufferAfter(
+      adminClient,
+      team.org_id,
+      slotKind,
+      orgDefaultGap
+    )
 
     // Get active closers in the team's queue who have Google Calendar connected
     const { data: queueClosersRaw, error: queueError } = await adminClient
@@ -222,12 +223,12 @@ export async function GET(request: NextRequest) {
     console.log(`Team availability: Date range - UTC for API: ${dayStartUTC.toISOString()} to ${dayEndUTC.toISOString()}`)
 
     // Get busy slots for ALL closers with calendars
-    const allCloserBusySlots: Map<string, { start: string; end: string }[]> = new Map()
+    const allCloserBusySlots: Map<string, BusyInterval[]> = new Map()
 
     // First, get all scheduled appointments from database for all closers
     const { data: dbAppointments } = await adminClient
       .from('scheduled_appointments')
-      .select('closer_user_id, scheduled_for, duration_minutes')
+      .select('closer_user_id, scheduled_for, duration_minutes, buffer_after_minutes')
       .in('closer_user_id', closerUserIds)
       .gte('scheduled_for', dayStartUTC.toISOString())
       .lte('scheduled_for', dayEndUTC.toISOString())
@@ -247,8 +248,8 @@ export async function GET(request: NextRequest) {
       const tokenData = tokens?.find(t => t.user_id === closer.user_id)
       const accessToken = await getValidAccessToken(adminClient, closer.user_id, tokenData)
       
-      let busySlots: { start: string; end: string }[] = []
-      
+      let busySlots: BusyInterval[] = []
+
       if (accessToken) {
         try {
           // Use UTC times for Google Calendar API
@@ -275,22 +276,34 @@ export async function GET(request: NextRequest) {
       
       // Add database appointments for this closer that aren't already in Google Calendar
       const closerDbAppts = dbAppointments?.filter(a => a.closer_user_id === closer.user_id) || []
+      // Legacy rows (NULL buffer_after_minutes) fall back to this closer's baseline gap.
+      const { baselineBufferAfter: closerBaseline } = resolveSchedulingBuffers(
+        closer,
+        userSettingsByCloserId.get(closer.user_id),
+        orgDefaultGap
+      )
       for (const appt of closerDbAppts) {
         const apptStart = new Date(appt.scheduled_for)
         const apptEnd = new Date(apptStart.getTime() + (appt.duration_minutes || 60) * 60 * 1000)
-        
+        const apptBufferAfter = appt.buffer_after_minutes ?? closerBaseline
+
         // Check if this slot already exists in busySlots (from Google Calendar)
-        const alreadyInBusy = busySlots.some(busy => {
+        const existingIndex = busySlots.findIndex(busy => {
           const busyStart = new Date(busy.start)
           // Consider it a duplicate if times are within 5 minutes
           return Math.abs(busyStart.getTime() - apptStart.getTime()) < 5 * 60 * 1000
         })
-        
-        if (!alreadyInBusy) {
+
+        if (existingIndex === -1) {
           busySlots.push({
             start: apptStart.toISOString(),
             end: apptEnd.toISOString(),
+            bufferAfterMinutes: apptBufferAfter,
           })
+        } else {
+          // Already present as a Google event — attach the ARX buffer so the
+          // appointment's own trailing gap is enforced against the calendar copy.
+          busySlots[existingIndex].bufferAfterMinutes = apptBufferAfter
         }
       }
       
@@ -332,8 +345,13 @@ export async function GET(request: NextRequest) {
         const busySlots = allCloserBusySlots.get(closer.user_id) || []
         
         const us = userSettingsByCloserId.get(closer.user_id)
-        const { bufferBefore, bufferAfter } = resolveSchedulingBuffers(closer, us, orgDefaultGap)
-        
+        const { bufferBefore, bufferAfter } = resolveSchedulingBuffers(
+          closer,
+          us,
+          orgDefaultGap,
+          typeBufferAfter
+        )
+
         // Same buffered overlap as lib/round-robin.ts + lib/scheduling-buffer (was looser; showed ghost slots).
         const hasConflict = busySlots.some((busy) => {
           const busyStart = new Date(busy.start)
@@ -344,7 +362,8 @@ export async function GET(request: NextRequest) {
             busyStart,
             busyEnd,
             bufferBefore,
-            bufferAfter
+            bufferAfter,
+            { before: bufferBefore, after: busy.bufferAfterMinutes ?? 0 }
           )
         })
         
@@ -393,12 +412,16 @@ export async function GET(request: NextRequest) {
       const resolved = resolveSchedulingBuffers(
         c,
         userSettingsByCloserId.get(c.user_id),
-        orgDefaultGap
+        orgDefaultGap,
+        typeBufferAfter
       )
       return {
         name: c.user?.full_name,
         buffer_before: resolved.bufferBefore,
         buffer_after: resolved.bufferAfter,
+        baseline_buffer_after: resolved.baselineBufferAfter,
+        slot_kind: slotKind,
+        type_buffer_after: typeBufferAfter,
       }
     })
 

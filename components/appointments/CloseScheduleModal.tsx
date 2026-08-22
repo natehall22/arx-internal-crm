@@ -33,6 +33,12 @@ type Props = {
   summaryHint?: string
   /** On team slots, label how many queue members can take the appointment */
   showAvailableCloserCounts?: boolean
+  /**
+   * Which `appointment_types` row the slots are for, so the availability API applies
+   * the same per-type buffer (Admin → Scheduling) that booking will enforce. Must match
+   * the kind the submitting endpoint uses, or the picker offers slots booking rejects.
+   */
+  slotKind?: 'inspection' | 'close' | 'follow_up' | 'insurance_follow_up'
 }
 
 export default function CloseScheduleModal({
@@ -46,6 +52,7 @@ export default function CloseScheduleModal({
   intro,
   summaryHint,
   showAvailableCloserCounts = false,
+  slotKind = 'inspection',
 }: Props) {
   const [selectedCloser, setSelectedCloser] = useState('')
   const [selectedDate, setSelectedDate] = useState('')
@@ -115,9 +122,9 @@ export default function CloseScheduleModal({
       const d = closeDurationMinutes
       if (closerOrTeamId.startsWith('team:')) {
         const teamId = closerOrTeamId.replace('team:', '')
-        res = await fetch(`/api/canvass/team-availability?team_id=${teamId}&date=${date}&duration=${d}`)
+        res = await fetch(`/api/canvass/team-availability?team_id=${teamId}&date=${date}&duration=${d}&slot_kind=${slotKind}`)
       } else {
-        res = await fetch(`/api/canvass/availability?closer_id=${closerOrTeamId}&date=${date}&duration=${d}`)
+        res = await fetch(`/api/canvass/availability?closer_id=${closerOrTeamId}&date=${date}&duration=${d}&slot_kind=${slotKind}`)
       }
 
       if (res.ok) {

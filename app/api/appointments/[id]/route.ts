@@ -6,22 +6,14 @@ import { isUserActiveForTransactionalEmail } from '@/lib/user-email-eligibility'
 import { updateCalendarEvent, createCalendarEvent } from '@/lib/google-calendar'
 import { syncCloserAttributionDownstream } from '@/lib/payroll-attribution-sync'
 import { computeInspectionFeedbackPromptAt } from '@/lib/scheduling-prompt'
+import { mapScheduledAppointmentWriteError } from '@/lib/scheduled-appointment-errors'
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
 import { resolveApiRequestAuthUser } from '@/lib/supabase-api-request-auth'
 import { deleteGoogleEventWithFallback, getValidAccessToken } from '@/lib/appointment-calendar-sync'
 import { syncOrgEnrollments } from '@/lib/sync-444-core'
+import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
-
-function getAdminClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
-  
-  return createClient(supabaseUrl, serviceRoleKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  })
-}
 
 function homeownerFromAppointment(appointment: { leads?: unknown }): string {
   const raw = appointment.leads as { homeowner_name?: string } | { homeowner_name?: string }[] | null | undefined
@@ -29,37 +21,13 @@ function homeownerFromAppointment(appointment: { leads?: unknown }): string {
   return raw?.homeowner_name || 'Customer'
 }
 
-/** Map Postgres / trigger errors from scheduled_appointments updates to API responses (see migration 077). */
+/** Map Postgres / trigger errors from scheduled_appointments updates to API responses. */
 function mapScheduledAppointmentUpdateError(err: {
   message?: string
   code?: string
   details?: string
 }): { message: string; status: number } {
-  const raw = [err.message, err.details].filter(Boolean).join(' ')
-  if (
-    err.code === '23P01' ||
-    raw.includes('Scheduling conflict') ||
-    raw.includes('overlapping appointment')
-  ) {
-    return {
-      message:
-        'This rep already has another appointment that overlaps this time. Reschedule one of the appointments, change duration if appropriate, or pick a different rep.',
-      status: 409,
-    }
-  }
-  if (err.code === '23505' || raw.includes('Rapid duplicate')) {
-    return {
-      message: 'A matching appointment was just created. Refresh the page and try again.',
-      status: 409,
-    }
-  }
-  if (err.code === '23505' && raw.toLowerCase().includes('lead_id')) {
-    return {
-      message: 'Another active appointment already exists for this lead at this time.',
-      status: 409,
-    }
-  }
-  return { message: 'Failed to update appointment', status: 500 }
+  return mapScheduledAppointmentWriteError(err, 'Failed to update appointment')
 }
 
 function leadContactFromAppointment(appointment: { leads?: unknown }): {
@@ -90,7 +58,7 @@ export async function GET(
     }
     const { user, accessToken } = authResult
 
-    const adminClient = getAdminClient()
+    const adminClient = createServiceClient()
 
     let { data: profile } = await adminClient
       .from('users')
@@ -198,7 +166,7 @@ export async function PATCH(
     }
     const { user, accessToken } = authResult
 
-    const adminClient = getAdminClient()
+    const adminClient = createServiceClient()
 
     // Get user profile
     const { data: profile } = await adminClient

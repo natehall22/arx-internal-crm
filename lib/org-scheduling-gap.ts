@@ -30,20 +30,43 @@ export type UserCalendarBufferFields = {
 }
 
 /**
- * Single precedence chain used everywhere we compute scheduling buffers:
- * Team closer queue → personal Calendar settings → org default (Admin → Scheduling).
+ * Single precedence chain used everywhere we compute scheduling buffers.
+ *
+ * Two independent constraints combine here:
+ *  1. The person-level baseline gap — team closer queue → personal Calendar
+ *     settings → org default (Admin → Settings → Scheduling). First non-null wins.
+ *  2. The per-appointment-type trailing gap from Admin → Scheduling
+ *     (`appointment_types.buffer_after_minutes`, e.g. Inspection "+45 min after slot").
+ *
+ * Both express a MINIMUM required gap, so they compose with `max`, not with
+ * precedence: a 45-minute inspection buffer must not be silently shrunk to a
+ * closer's 15-minute baseline, and a type configured at 0 must not strip a
+ * closer's personal breathing room.
+ *
+ * `baselineBufferAfter` is returned separately because legacy appointment rows
+ * (NULL `buffer_after_minutes`) should fall back to the person-level gap, not to
+ * the type buffer of whatever is being booked against them.
  */
 export function resolveSchedulingBuffers(
   queue: QueueBufferFields | null | undefined,
   user: UserCalendarBufferFields | null | undefined,
-  orgDefaultGapMinutes: number
-): { bufferBefore: number; bufferAfter: number } {
+  orgDefaultGapMinutes: number,
+  appointmentTypeBufferAfterMinutes?: number | null
+): { bufferBefore: number; bufferAfter: number; baselineBufferAfter: number } {
   const bufferBefore = queue?.buffer_before ?? user?.appointment_buffer_before ?? 0
-  const bufferAfter =
+  const baselineBufferAfter =
     queue?.buffer_after ??
     queue?.buffer_minutes ??
     user?.appointment_buffer_after ??
     user?.appointment_buffer_minutes ??
     orgDefaultGapMinutes
-  return { bufferBefore, bufferAfter }
+  const typeBufferAfter =
+    typeof appointmentTypeBufferAfterMinutes === 'number' && appointmentTypeBufferAfterMinutes >= 0
+      ? appointmentTypeBufferAfterMinutes
+      : 0
+  return {
+    bufferBefore,
+    bufferAfter: Math.max(baselineBufferAfter, typeBufferAfter),
+    baselineBufferAfter,
+  }
 }

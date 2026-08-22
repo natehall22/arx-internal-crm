@@ -1,3 +1,4 @@
+import { mapScheduledAppointmentWriteError } from '@/lib/scheduled-appointment-errors'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { revalidatePath } from 'next/cache'
@@ -19,6 +20,7 @@ import {
   getCloseSlotBufferAfterFromTable,
   getCloseSlotDurationFromTable,
 } from '@/lib/org-appointment-types'
+import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
 
@@ -58,15 +60,6 @@ function getSessionFromRequest(req: NextRequest) {
   return null
 }
 
-function getAdminClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
-
-  return createClient(supabaseUrl, serviceRoleKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  })
-}
-
 function canViewOpportunity(profile: { role: string; id: string }, opportunity: { owner_user_id: string | null }) {
   if (profile.role === 'rep') {
     return opportunity.owner_user_id === profile.id
@@ -97,7 +90,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const admin = getAdminClient()
+    const admin = createServiceClient()
 
     const { data: profile, error: profileError } = await admin
       .from('users')
@@ -381,7 +374,9 @@ export async function POST(request: NextRequest) {
 
       if (fuErr) {
         console.error('insurance follow-up from close feedback', fuErr)
-        return NextResponse.json({ error: fuErr.message }, { status: 500 })
+        // Buffer/overlap rejections are user-correctable — surface a 409, not a 500.
+        const mapped = mapScheduledAppointmentWriteError(fuErr, fuErr.message)
+        return NextResponse.json({ error: mapped.message }, { status: mapped.status })
       }
 
       if (followUpAppointment?.id) {

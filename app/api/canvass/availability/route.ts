@@ -1,19 +1,12 @@
 import { requireAuthApi } from '@/lib/auth'
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { getFreeBusy, refreshAccessToken } from '@/lib/google-calendar'
 import { getOrgDefaultSchedulingGapMinutes, resolveSchedulingBuffers } from '@/lib/org-scheduling-gap'
+import { hasBufferedConflict, type BusyInterval } from '@/lib/scheduling-buffer'
+import { resolveSlotKindBufferAfter, parseSlotKindParam } from '@/lib/scheduling-slot-kind'
+import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
-
-function getAdminClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
-  
-  return createServiceClient(supabaseUrl, serviceRoleKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  })
-}
 
 // Helper to get valid access token (refresh if needed)
 async function getValidAccessToken(adminClient: any, userId: string): Promise<string | null> {
@@ -95,7 +88,7 @@ async function getTimezoneForUser(adminClient: any, userId: string): Promise<str
 export async function GET(request: NextRequest) {
   try {
     await requireAuthApi()
-    const adminClient = getAdminClient()
+    const adminClient = createServiceClient()
 
     const closerId = request.nextUrl.searchParams.get('closer_id')
     const dateStr = request.nextUrl.searchParams.get('date')
@@ -126,6 +119,13 @@ export async function GET(request: NextRequest) {
       ? await getOrgDefaultSchedulingGapMinutes(adminClient, closerOrg.org_id)
       : 15
 
+    // Per-type trailing gap (Admin → Scheduling). Must match what booking stamps
+    // on the row, or the picker offers slots the booking API then rejects.
+    const slotKind = parseSlotKindParam(request.nextUrl.searchParams.get('slot_kind'))
+    const typeBufferAfter = closerOrg?.org_id
+      ? await resolveSlotKindBufferAfter(adminClient, closerOrg.org_id, slotKind, orgDefaultGap)
+      : orgDefaultGap
+
     // Get closer's timezone
     const timezone = await getTimezoneForUser(adminClient, closerId)
 
@@ -149,14 +149,15 @@ export async function GET(request: NextRequest) {
     let workingHoursStart = settings?.working_hours_start || '08:00'
     let workingHoursEnd = settings?.working_hours_end || '20:00'
     
-    const { bufferBefore, bufferAfter } = resolveSchedulingBuffers(
+    const { bufferBefore, bufferAfter, baselineBufferAfter } = resolveSchedulingBuffers(
       queueEntry ?? undefined,
       settings ?? undefined,
-      orgDefaultGap
+      orgDefaultGap,
+      typeBufferAfter
     )
 
     console.log(
-      `Availability: Buffer settings - before=${bufferBefore}, after=${bufferAfter} (queue=${!!queueEntry}, orgDefaultGap=${orgDefaultGap})`
+      `Availability: Buffer settings - before=${bufferBefore}, after=${bufferAfter} (kind=${slotKind}, typeBuffer=${typeBufferAfter}, baseline=${baselineBufferAfter}, queue=${!!queueEntry}, orgDefaultGap=${orgDefaultGap})`
     )
 
     console.log(`Availability: Raw settings:`, settings)
@@ -232,7 +233,7 @@ export async function GET(request: NextRequest) {
     console.log(`Availability check for closer ${closerId} on ${dateStr}`)
     const accessToken = await getValidAccessToken(adminClient, closerId)
     
-    let busySlots: { start: string; end: string }[] = []
+    let busySlots: BusyInterval[] = []
     let hasCalendar = false
 
     if (accessToken) {
@@ -265,7 +266,7 @@ export async function GET(request: NextRequest) {
     // This ensures we don't double-book even if calendar sync failed
     const { data: dbAppointments } = await adminClient
       .from('scheduled_appointments')
-      .select('scheduled_for, duration_minutes')
+      .select('scheduled_for, duration_minutes, buffer_after_minutes')
       .eq('closer_user_id', closerId)
       .gte('scheduled_for', dayStartUTC.toISOString())
       .lte('scheduled_for', dayEndUTC.toISOString())
@@ -273,26 +274,31 @@ export async function GET(request: NextRequest) {
 
     if (dbAppointments && dbAppointments.length > 0) {
       console.log(`Availability: Found ${dbAppointments.length} appointments in database for ${closerId}`)
-      
+
       // Add database appointments to busy slots
       for (const appt of dbAppointments) {
         const apptStart = new Date(appt.scheduled_for)
         const apptEnd = new Date(apptStart.getTime() + (appt.duration_minutes || 60) * 60 * 1000)
-        
+
         // Check if this slot already exists in busySlots (from Google Calendar)
-        const alreadyInBusy = busySlots.some(busy => {
+        const existingIndex = busySlots.findIndex(busy => {
           const busyStart = new Date(busy.start)
-          const busyEnd = new Date(busy.end)
           // Consider it a duplicate if times overlap significantly
           return Math.abs(busyStart.getTime() - apptStart.getTime()) < 5 * 60 * 1000
         })
-        
-        if (!alreadyInBusy) {
+
+        if (existingIndex === -1) {
           busySlots.push({
             start: apptStart.toISOString(),
             end: apptEnd.toISOString(),
+            bufferAfterMinutes: appt.buffer_after_minutes ?? baselineBufferAfter,
           })
           console.log(`Availability: Added DB appointment to busy slots: ${apptStart.toISOString()} - ${apptEnd.toISOString()}`)
+        } else {
+          // Already present as a Google event — attach the ARX buffer so the
+          // appointment's own trailing gap is enforced against the calendar copy.
+          busySlots[existingIndex].bufferAfterMinutes =
+            appt.buffer_after_minutes ?? baselineBufferAfter
         }
       }
     }
@@ -330,25 +336,34 @@ export async function GET(request: NextRequest) {
       // Slot times are already in UTC for comparison
       const slotStartUTC = currentSlotUTC
       
-      // Check for conflicts with separate before/after buffers
+      // Check for conflicts using the shared rule (lib/scheduling-buffer): the gap
+      // must satisfy both this slot's buffers and the booked appointment's own.
       let conflictReason = ''
       const hasConflict = busySlots.some(busy => {
         const busyStart = new Date(busy.start)
         const busyEnd = new Date(busy.end)
-        
-        // Slot would conflict if:
-        // 1. Slot overlaps with busy period directly
-        // 2. Slot ends within buffer_after time before busy period starts (need gap after this appt)
-        // 3. Slot starts within buffer_before time after busy period ends (need gap before this appt)
-        const slotOverlaps = slotStartUTC < busyEnd && slotEndUTC > busyStart
-        const tooCloseBeforeEvent = bufferAfter > 0 && slotEndUTC > new Date(busyStart.getTime() - bufferAfter * 60 * 1000) && slotEndUTC <= busyStart
-        const tooCloseAfterEvent = bufferBefore > 0 && slotStartUTC < new Date(busyEnd.getTime() + bufferBefore * 60 * 1000) && slotStartUTC >= busyEnd
-        
-        if (slotOverlaps) conflictReason = `overlaps with ${busy.start}-${busy.end}`
-        else if (tooCloseBeforeEvent) conflictReason = `too close before event at ${busy.start}`
-        else if (tooCloseAfterEvent) conflictReason = `too close after event ending ${busy.end}`
-        
-        return slotOverlaps || tooCloseBeforeEvent || tooCloseAfterEvent
+
+        const conflicts = hasBufferedConflict(
+          slotStartUTC,
+          slotEndUTC,
+          busyStart,
+          busyEnd,
+          bufferBefore,
+          bufferAfter,
+          { before: bufferBefore, after: busy.bufferAfterMinutes ?? 0 }
+        )
+
+        if (conflicts) {
+          if (slotStartUTC < busyEnd && slotEndUTC > busyStart) {
+            conflictReason = `overlaps with ${busy.start}-${busy.end}`
+          } else if (slotEndUTC <= busyStart) {
+            conflictReason = `too close before event at ${busy.start}`
+          } else {
+            conflictReason = `too close after event ending ${busy.end} (event buffer ${busy.bufferAfterMinutes ?? 0}min)`
+          }
+        }
+
+        return conflicts
       })
       
       // Convert UTC slot time to local time for display

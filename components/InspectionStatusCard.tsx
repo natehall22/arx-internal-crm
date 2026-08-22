@@ -686,6 +686,7 @@ export default function InspectionStatusCard({
               setShowCloseModal(false)
             }}
             closeDurationMinutes={closeDurationMinutes}
+            slotKind="close"
             users={schedulingUsers}
             teams={schedulingTeams}
           />,
