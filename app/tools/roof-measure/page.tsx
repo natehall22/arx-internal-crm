@@ -38,7 +38,7 @@ import {
   slopeCorrectEdgeTotals,
   slopedLengthForLinearFeature,
 } from '@/lib/roof-edge-slope-correction'
-import { dsmPitchDisagreesWithSolar } from '@/lib/solar-dsm'
+import { dsmPitchDisagreesWithSolar, DSM_PITCH_DISAGREE_THRESHOLD_DEG } from '@/lib/solar-dsm'
 import {
   facingCompassFromAzimuthDegrees,
   normalizeAzimuthDegrees,
@@ -2914,7 +2914,7 @@ export default function RoofMeasurePage() {
     )
     if (dsmPitchConflicts.length > 0) {
       validationNotes.push(
-        `DSM elevation suggests a different slope on ${dsmPitchConflicts.length} section${dsmPitchConflicts.length === 1 ? '' : 's'} (>3° from Solar). Confirm pitch manually.`
+        `DSM elevation suggests a different slope on ${dsmPitchConflicts.length} section${dsmPitchConflicts.length === 1 ? '' : 's'} (>${DSM_PITCH_DISAGREE_THRESHOLD_DEG}° from Solar). Confirm pitch manually.`
       )
       confidence = 'medium'
     }
@@ -3880,7 +3880,7 @@ export default function RoofMeasurePage() {
                       )}
                       {dsmConflict && facet.pitch !== 'Unset' && (
                         <p className="mt-1 text-xs text-amber-200">
-                          DSM elevation differs from Solar pitch by more than 3° — confirm slope manually.
+                          DSM elevation differs from Solar pitch by more than {DSM_PITCH_DISAGREE_THRESHOLD_DEG}° — confirm slope manually.
                         </p>
                       )}
                       {(resolveFacingAzimuthDegrees(facet) != null || facet.orientation) && (

@@ -34,10 +34,6 @@ const NODE_SNAP_M = 0.15
 const GRID_STEP_M = 0.25
 /** Footprint is convex-ish when hull area / footprint area ≤ this (monotone chain). */
 const CONVEX_FOOTPRINT_RATIO_MAX = 1.1
-/** Parallel segments within this azimuth band count as one expected plane. */
-const AZIMUTH_CLUSTER_DEG = 15
-/** Pitch buckets within an azimuth cluster — dormer fragments at different pitches count separately. */
-const PITCH_CLUSTER_DEG = 5
 const UNDERSEGMENTATION_RATIO = 0.7
 /**
  * Azimuth-cluster merge before graph build (topology-only).
@@ -876,6 +872,16 @@ export function samplePlaneOwnershipSqft(planes: ReconPlane[], footprint: ReconP
  * Expected facet planes from Solar input after azimuth-cluster consolidation:
  * qualifying planes (lower-envelope ownership or Solar ground_area ≥ MIN_FACET_SQFT),
  * grouped by azimuth (≤ AZIMUTH_MERGE_DEG); each cluster counts as one expected face.
+ *
+ * Deliberately azimuth-only, not pitch-aware: raw Solar segments on one real physical
+ * face routinely disagree on pitch by well more than the merge step's own tolerance
+ * (`mergeCoplanarTopologyPlanes`'s PITCH_MERGE_DEG=12) — see `bentley-duke-adam-ev` in
+ * scripts/roof-topology-eval-fixtures.json, a human-verified single-face roof whose two
+ * Solar segments differ by ~20° pitch. Splitting expected-plane count by pitch here
+ * flipped that fixture from `ship` to a false-positive `force_manual`. A same-azimuth
+ * dormer at a genuinely different pitch is real but rarer than this noise pattern;
+ * catching it needs a better signal than a flat pitch-difference threshold on raw,
+ * unmerged Solar segments.
  */
 export function countExpectedPlanes(
   planes: ReconPlane[],
