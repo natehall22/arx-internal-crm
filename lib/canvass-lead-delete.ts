@@ -2,7 +2,6 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { getAttributedCanvassLeadUserId } from '@/lib/canvass-lead-attribution'
 import { deleteAppointmentCalendarEvents } from '@/lib/appointment-calendar-sync'
 import { isOrgSuperuserRoleSlug } from '@/lib/org-role-constants'
-import { syncOrgEnrollments } from '@/lib/sync-444-core'
 
 type LeadRow = {
   id: string
@@ -200,20 +199,8 @@ export async function deleteCanvassLeadWithDependencies(args: {
     return { ok: false, status: 500, error: 'Failed to delete lead' }
   }
 
-  const canvasserIds = new Set<string>()
-  for (const appt of apptRows) {
-    if (appt.canvasser_user_id) canvasserIds.add(appt.canvasser_user_id)
-  }
-  const doorCreditUserId = getAttributedCanvassLeadUserId(leadRow)
-  if (doorCreditUserId) canvasserIds.add(doorCreditUserId)
-
-  for (const userId of Array.from(canvasserIds)) {
-    try {
-      await syncOrgEnrollments(admin, orgId, actorUserId, { userId })
-    } catch (syncErr) {
-      console.error('deleteCanvassLeadWithDependencies: 444 sync failed for user', userId, syncErr)
-    }
-  }
+  // (Deleting a lead used to trigger a Sisu 444 recount for every affected rep here.
+  // The 444 program was retired 2026-08-25 and its engine deleted; no recount remains.)
 
   return { ok: true, deleted_id: leadId, calendarWarnings }
 }

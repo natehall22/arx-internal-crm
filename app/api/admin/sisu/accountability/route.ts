@@ -32,16 +32,6 @@ type AppointmentMetricRow = {
   canvasser_user_id: string | null
 }
 
-type Program444Enrollment = {
-  user_id: string
-  week1_starts_at: string
-  week1_ends_at: string
-  week2_starts_at: string
-  week2_ends_at: string
-  week1_qualified: boolean
-  week2_qualified: boolean
-}
-
 type GoalRow = {
   user_id: string
   weekly_doors_target: number | null
@@ -257,28 +247,6 @@ function incrementCount(map: Map<string, number>, userId: string | null) {
   map.set(userId, (map.get(userId) ?? 0) + 1)
 }
 
-function getCurrentEnrollment(enrollments: Program444Enrollment[], now: number): Program444Enrollment | null {
-  return enrollments.find((enrollment) => {
-    const week1Starts = new Date(enrollment.week1_starts_at).getTime()
-    const week2Ends = new Date(enrollment.week2_ends_at).getTime()
-    return now >= week1Starts && now < week2Ends  // exclusive end
-  }) ?? enrollments[0] ?? null
-}
-
-function getWeekIn444(enrollment: Program444Enrollment | null, now: number): 1 | 2 | null {
-  if (!enrollment) return null
-
-  const week1Starts = new Date(enrollment.week1_starts_at).getTime()
-  const week1Ends = new Date(enrollment.week1_ends_at).getTime()
-  const week2Starts = new Date(enrollment.week2_starts_at).getTime()
-  const week2Ends = new Date(enrollment.week2_ends_at).getTime()
-
-  // Use exclusive end (ts < end) to match the exclusive boundary stored in the DB
-  if (now >= week1Starts && now < week1Ends) return 1
-  if (now >= week2Starts && now < week2Ends) return 2
-  return null
-}
-
 export async function GET(req: NextRequest) {
   const authResult = await assertAdmin(req)
   if (authResult instanceof NextResponse) return authResult
@@ -301,7 +269,7 @@ export async function GET(req: NextRequest) {
       : base
   })()
 
-  const [usersRes, leadsRes, appointmentsRes, enrollmentsRes, goalsRes] = await Promise.all([
+  const [usersRes, leadsRes, appointmentsRes, goalsRes] = await Promise.all([
     usersQuery,
     admin
       .from('leads')
@@ -319,12 +287,6 @@ export async function GET(req: NextRequest) {
       .or(INSPECTION_SET_APPOINTMENT_TYPE_OR)
       .neq('status', 'cancelled'),
     admin
-      .from('program_444_enrollments')
-      .select('user_id, week1_starts_at, week1_ends_at, week2_starts_at, week2_ends_at, week1_qualified, week2_qualified')
-      .eq('org_id', authResult.orgId)
-      .eq('status', 'active')
-      .order('created_at', { ascending: false }),
-    admin
       .from('user_incentive_goals')
       .select('user_id, weekly_doors_target, weekly_inspections_target, weekly_sales_target')
       .eq('org_id', authResult.orgId)
@@ -333,13 +295,12 @@ export async function GET(req: NextRequest) {
       .order('effective_from', { ascending: false }),
   ])
 
-  const firstError = usersRes.error ?? leadsRes.error ?? appointmentsRes.error ?? enrollmentsRes.error ?? goalsRes.error
+  const firstError = usersRes.error ?? leadsRes.error ?? appointmentsRes.error ?? goalsRes.error
   if (firstError) return NextResponse.json({ error: firstError.message }, { status: 500 })
 
   const users = (usersRes.data ?? []) as OrgUser[]
   const leads = (leadsRes.data ?? []) as LeadMetricRow[]
   const appointments = (appointmentsRes.data ?? []) as AppointmentMetricRow[]
-  const enrollments = (enrollmentsRes.data ?? []) as Program444Enrollment[]
   const goalRows = (goalsRes.data ?? []) as GoalRow[]
 
   // Latest goal per user (already ordered by effective_from desc)
@@ -350,7 +311,6 @@ export async function GET(req: NextRequest) {
 
   const doorsByUser = new Map<string, number>()
   const inspectionsByUser = new Map<string, number>()
-  const enrollmentsByUser = new Map<string, Program444Enrollment[]>()
   const now = Date.now()
 
   // Pin-first attribution: matches sync/leaderboard/dashboard logic
@@ -358,11 +318,6 @@ export async function GET(req: NextRequest) {
     incrementCount(doorsByUser, lead.pin_attributed_user_id ?? lead.owner_user_id)
   )
   appointments.forEach((appointment) => incrementCount(inspectionsByUser, appointment.canvasser_user_id))
-  enrollments.forEach((enrollment) => {
-    const current = enrollmentsByUser.get(enrollment.user_id) ?? []
-    current.push(enrollment)
-    enrollmentsByUser.set(enrollment.user_id, current)
-  })
 
   // Pace factor: how far through the work-week are we (Mon=1 … Fri=5, clamp 0–1)
   // Sunday (0) → 0 (new week, no expectation yet) — mirrors getWeeklyPaceThresholdPct()
@@ -371,8 +326,6 @@ export async function GET(req: NextRequest) {
   const paceFactor = getEasternPaceFactor()
 
   const accountability = users.map((user) => {
-    const userEnrollments = enrollmentsByUser.get(user.id) ?? []
-    const enrollment = getCurrentEnrollment(userEnrollments, now)
     const goal = goalByUser.get(user.id) ?? null
 
     const doors = doorsByUser.get(user.id) ?? 0
@@ -385,13 +338,6 @@ export async function GET(req: NextRequest) {
       ? Math.round((inspections / goal.weekly_inspections_target) * 100)
       : null
 
-    // 444 pct: 50% weight each gate, capped 100
-    const weekInPgm = getWeekIn444(enrollment, now)
-    const pgmDoors = weekInPgm === 2 ? (enrollment?.week2_qualified ? 400 : doors) : doors
-    const pgmInspections = weekInPgm === 2 ? (enrollment?.week2_qualified ? 4 : inspections) : inspections
-    const program_444_pct = userEnrollments.length > 0
-      ? Math.min(100, Math.round((pgmDoors / 400) * 50 + (pgmInspections / 4) * 50))
-      : null
 
     return {
       user_id: user.id,
@@ -399,16 +345,11 @@ export async function GET(req: NextRequest) {
       role: user.role,
       doors_knocked: doors,
       inspections_set: inspections,
-      is_enrolled_444: userEnrollments.length > 0,
-      week_in_444: weekInPgm,
-      week1_qualified: enrollment?.week1_qualified ?? false,
-      week2_qualified: enrollment?.week2_qualified ?? false,
       doors_goal: goal?.weekly_doors_target ?? null,
       inspections_goal: goal?.weekly_inspections_target ?? null,
       sales_goal: goal?.weekly_sales_target ?? null,
       doors_pct: doorsPct,
       inspections_pct: inspectionsPct,
-      program_444_pct,
       on_pace_doors: doorsPct !== null ? doorsPct >= Math.round(paceFactor * 100) : null,
       on_pace_inspections: inspectionsPct !== null ? inspectionsPct >= Math.round(paceFactor * 100) : null,
     }
@@ -423,8 +364,6 @@ export async function GET(req: NextRequest) {
     on_pace_inspections: withInspGoal.filter((r) => r.on_pace_inspections).length,
     reps_with_door_goal: withDoorGoal.length,
     reps_with_insp_goal: withInspGoal.length,
-    enrolled_444: accountability.filter((r) => r.is_enrolled_444).length,
-    completed_444: accountability.filter((r) => r.week1_qualified && r.week2_qualified).length,
     // Behind pace on any metric with a goal set — needs attention
     needs_attention: accountability.filter(
       (r) => (r.on_pace_doors === false) || (r.on_pace_inspections === false)

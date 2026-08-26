@@ -10,8 +10,6 @@ type AccountabilityRow = {
   role: string | null
   doors_knocked: number
   inspections_set: number
-  is_enrolled_444: boolean
-  week_in_444: 1 | 2 | null
   week1_qualified: boolean
   week2_qualified: boolean
   // goal fields — present when goals have been set for this rep
@@ -20,7 +18,6 @@ type AccountabilityRow = {
   sales_goal: number | null
   doors_pct: number | null
   inspections_pct: number | null
-  program_444_pct: number | null
   on_pace_doors: boolean | null
   on_pace_inspections: boolean | null
 }
@@ -31,13 +28,11 @@ type TeamSummary = {
   on_pace_inspections: number
   reps_with_door_goal: number
   reps_with_insp_goal: number
-  enrolled_444: number
-  completed_444: number
   needs_attention: number
   close_to_goal: number
 }
 
-type SortKey = 'full_name' | 'role' | 'doors_knocked' | 'inspections_set' | 'is_enrolled_444' | 'doors_pct' | 'inspections_pct'
+type SortKey = 'full_name' | 'role' | 'doors_knocked' | 'inspections_set' | 'doors_pct' | 'inspections_pct'
 type SortDirection = 'asc' | 'desc'
 
 type GateTone = {
@@ -57,11 +52,7 @@ function isAccountabilityRow(value: unknown): value is AccountabilityRow {
     (typeof value.full_name === 'string' || value.full_name === null) &&
     (typeof value.role === 'string' || value.role === null) &&
     typeof value.doors_knocked === 'number' &&
-    typeof value.inspections_set === 'number' &&
-    typeof value.is_enrolled_444 === 'boolean' &&
-    (value.week_in_444 === 1 || value.week_in_444 === 2 || value.week_in_444 === null) &&
-    typeof value.week1_qualified === 'boolean' &&
-    typeof value.week2_qualified === 'boolean'
+    typeof value.inspections_set === 'number'
     // goal fields are optional — don't require them in the validator
   )
 }
@@ -128,14 +119,6 @@ function getInspectionTone(value: number): GateTone {
   }
 }
 
-function getProgramStatus(row: AccountabilityRow): string {
-  if (!row.is_enrolled_444) return 'Not enrolled'
-  if (row.week1_qualified && row.week2_qualified) return 'Complete'
-  if (row.week_in_444 === 1) return row.week1_qualified ? 'Week 1 ✓' : 'Week 1 In Progress'
-  if (row.week_in_444 === 2) return row.week2_qualified ? 'Week 2 ✓' : 'Week 2 In Progress'
-  return row.week1_qualified || row.week2_qualified ? 'Complete' : 'Not enrolled'
-}
-
 function recomputeRowGoalMetrics(
   row: AccountabilityRow,
   field: 'doors' | 'inspections',
@@ -173,8 +156,6 @@ function recomputeTeamSummary(rows: AccountabilityRow[]): TeamSummary {
     on_pace_inspections: withInspGoal.filter((r) => r.on_pace_inspections).length,
     reps_with_door_goal: withDoorGoal.length,
     reps_with_insp_goal: withInspGoal.length,
-    enrolled_444: rows.filter((r) => r.is_enrolled_444).length,
-    completed_444: rows.filter((r) => r.week1_qualified && r.week2_qualified).length,
     needs_attention: rows.filter(
       (r) => r.on_pace_doors === false || r.on_pace_inspections === false,
     ).length,
@@ -190,7 +171,6 @@ function compareRows(a: AccountabilityRow, b: AccountabilityRow, key: SortKey): 
   if (key === 'doors_knocked' || key === 'inspections_set') return a[key] - b[key]
   if (key === 'doors_pct') return (a.doors_pct ?? -1) - (b.doors_pct ?? -1)
   if (key === 'inspections_pct') return (a.inspections_pct ?? -1) - (b.inspections_pct ?? -1)
-  if (key === 'is_enrolled_444') return Number(a.is_enrolled_444) - Number(b.is_enrolled_444)
   const left = key === 'role' ? displayRole(a.role) : a.full_name ?? ''
   const right = key === 'role' ? displayRole(b.role) : b.full_name ?? ''
   return left.localeCompare(right)
@@ -453,32 +433,7 @@ export default function AccountabilityClient() {
   const [sortKey, setSortKey] = useState<SortKey>('inspections_set')
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc')
   const [syncing, setSyncing] = useState(false)
-  const [syncWarning, setSyncWarning] = useState<string | null>(null)
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null)
-
-  const sync444 = useCallback(async () => {
-    try {
-      const res = await fetch('/api/admin/sisu/sync-444', { method: 'POST' })
-      if (!res.ok) {
-        const payload: unknown = await res.json().catch(() => null)
-        const message =
-          payload &&
-          typeof payload === 'object' &&
-          'error' in payload &&
-          typeof (payload as { error?: unknown }).error === 'string'
-            ? (payload as { error: string }).error
-            : `444 sync failed (${res.status})`
-        setSyncWarning(message)
-        return false
-      }
-      setSyncWarning(null)
-      setLastSyncedAt(new Date())
-      return true
-    } catch (err) {
-      setSyncWarning(err instanceof Error ? err.message : '444 sync failed')
-      return false
-    }
-  }, [])
 
   const loadRows = useCallback(async (showLoading: boolean) => {
     if (showLoading) setLoading(true)
@@ -515,20 +470,20 @@ export default function AccountabilityClient() {
   }, [])
 
   useEffect(() => {
-    // Render immediately (loading skeleton), then sync + load in background
-    void sync444().then(() => loadRows(true))
+    // Render immediately (loading skeleton), then load in background
+    void loadRows(true)
 
     const intervalId = window.setInterval(() => {
-      void sync444().then(() => loadRows(false))
+      void loadRows(false)
     }, 5 * 60 * 1000)
 
     return () => window.clearInterval(intervalId)
-  }, [sync444, loadRows])
+  }, [loadRows])
 
   async function handleSyncNow() {
     setSyncing(true)
-    await sync444()
     await loadRows(false)
+    setLastSyncedAt(new Date())
     setSyncing(false)
   }
 
@@ -573,7 +528,7 @@ export default function AccountabilityClient() {
         <div>
           <h1 className="text-3xl font-black tracking-tight text-white">Manager Accountability</h1>
           <p className="mt-2 max-w-2xl text-sm text-slate-400">
-            Current-week setter activity, door gates, inspection gates, and 444 enrollment status.
+            Current-week setter activity, door gates, and inspection gates.
           </p>
           {lastSyncedAt && (
             <p className="mt-1 text-xs text-slate-500">
@@ -604,12 +559,6 @@ export default function AccountabilityClient() {
               'Sync Now'
             )}
           </button>
-          <Link
-            href="/admin/sisu/444"
-            className="inline-flex items-center justify-center rounded-lg border border-indigo-400/40 px-4 py-2 text-sm font-semibold text-indigo-100 transition hover:border-indigo-300 hover:bg-indigo-500/10"
-          >
-            Manage 444
-          </Link>
         </div>
       </div>
 
@@ -619,11 +568,6 @@ export default function AccountabilityClient() {
         </div>
       )}
 
-      {syncWarning && !error && (
-        <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
-          444 sync warning: {syncWarning}. Accountability counts may be stale until sync succeeds.
-        </div>
-      )}
 
       {summary && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -641,11 +585,6 @@ export default function AccountabilityClient() {
             <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">On Pace (Doors)</p>
             <p className="mt-1 text-2xl font-black text-emerald-300">{summary.on_pace_doors}<span className="text-sm font-normal text-slate-500">/{summary.reps_with_door_goal}</span></p>
             <p className="text-xs text-slate-500">reps with goal set</p>
-          </div>
-          <div className="rounded-xl border border-slate-800 bg-slate-900/70 px-4 py-3">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">444 Enrolled</p>
-            <p className="mt-1 text-2xl font-black text-indigo-300">{summary.enrolled_444}<span className="text-sm font-normal text-slate-500">/{summary.total_reps}</span></p>
-            <p className="text-xs text-slate-500">{summary.completed_444} completed</p>
           </div>
         </div>
       )}
@@ -677,24 +616,20 @@ export default function AccountabilityClient() {
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-400">
                   <SortHeader label="Insp %" sortKey="inspections_pct" activeKey={sortKey} direction={sortDirection} onSort={handleSort} />
                 </th>
-                <th className="px-4 py-3 text-left">
-                  <SortHeader label="444 Status" sortKey="is_enrolled_444" activeKey={sortKey} direction={sortDirection} onSort={handleSort} />
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-400">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800">
               {loading ? (
                 [0, 1, 2, 3].map((item) => (
                   <tr key={item}>
-                    <td colSpan={10} className="px-4 py-4">
+                    <td colSpan={8} className="px-4 py-4">
                       <div className="h-12 animate-pulse rounded-lg bg-slate-800/70" />
                     </td>
                   </tr>
                 ))
               ) : sortedRows.length === 0 && !error ? (
                 <tr>
-                  <td colSpan={10} className="px-4 py-10 text-center text-sm text-slate-400">
+                  <td colSpan={8} className="px-4 py-10 text-center text-sm text-slate-400">
                     No setter activity to show yet.
                   </td>
                 </tr>
@@ -702,7 +637,6 @@ export default function AccountabilityClient() {
                 sortedRows.map((row) => {
                   const doorTone = getDoorTone(row.doors_knocked)
                   const inspectionTone = getInspectionTone(row.inspections_set)
-                  const status = getProgramStatus(row)
 
                   return (
                     <tr key={row.user_id} className="align-middle transition hover:bg-slate-800/35">
@@ -723,19 +657,6 @@ export default function AccountabilityClient() {
                       </td>
                       <td className="px-4 py-4">
                         <GateBar value={row.inspections_set} target={row.inspections_goal ?? 4} tone={inspectionTone} />
-                      </td>
-                      <td className="px-4 py-4">
-                        <span className="inline-flex rounded-full border border-slate-700 bg-slate-950 px-2.5 py-1 text-xs font-semibold text-slate-200">
-                          {status}
-                        </span>
-                      </td>
-                      <td className="px-4 py-4">
-                        <Link
-                          href="/admin/sisu/444"
-                          className="inline-flex rounded-lg border border-slate-700 px-3 py-1.5 text-xs font-semibold text-slate-200 transition hover:border-indigo-400/60 hover:text-indigo-100"
-                        >
-                          Enroll in 444
-                        </Link>
                       </td>
                     </tr>
                   )

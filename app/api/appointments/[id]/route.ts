@@ -10,7 +10,6 @@ import { mapScheduledAppointmentWriteError } from '@/lib/scheduled-appointment-e
 import { NextRequest, NextResponse } from 'next/server'
 import { resolveApiRequestAuthUser } from '@/lib/supabase-api-request-auth'
 import { deleteGoogleEventWithFallback, getValidAccessToken } from '@/lib/appointment-calendar-sync'
-import { syncOrgEnrollments } from '@/lib/sync-444-core'
 import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
@@ -199,7 +198,7 @@ export async function PATCH(
     const isAssignedCloser = appointment.closer_user_id === user.id
     const canEditSchedule = canReassign || isAssignedCloser
 
-    // Cancel = remove the appointment entirely (calendar, CRM, 444 counts). Managers only.
+    // Cancel = remove the appointment entirely (calendar + CRM). Managers only.
     if (status === 'cancelled') {
       if (!canReassign) {
         return NextResponse.json({ error: 'Only managers can cancel appointments' }, { status: 403 })
@@ -249,15 +248,6 @@ export async function PATCH(
         console.error('Appointment cancel delete error:', deleteError)
         const { message, status: httpStatus } = mapScheduledAppointmentUpdateError(deleteError)
         return NextResponse.json({ error: message }, { status: httpStatus })
-      }
-
-      const canvasserId = appointment.canvasser_user_id as string | null
-      if (canvasserId) {
-        try {
-          await syncOrgEnrollments(adminClient, profile.org_id, user.id, { userId: canvasserId })
-        } catch (syncErr) {
-          console.error('Appointment cancel: 444 sync failed:', syncErr)
-        }
       }
 
       return NextResponse.json({
