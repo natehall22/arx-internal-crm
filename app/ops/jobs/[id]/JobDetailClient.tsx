@@ -8,12 +8,10 @@ import ScheduleJobModal from '@/components/ops/ScheduleJobModal'
 import JobPaymentsCard from '@/components/ops/JobPaymentsCard'
 import JobInvoicesCard from '@/components/ops/JobInvoicesCard'
 import CompleteJobModal from '@/components/ops/CompleteJobModal'
-import JobNextActionBanner from '@/components/ops/JobNextActionBanner'
 import JobPaymentMethodBanner from '@/components/ops/JobPaymentMethodBanner'
 import JobRunSheetBanner from '@/components/ops/JobRunSheetBanner'
 import JobReadyToPayBanner from '@/components/ops/JobReadyToPayBanner'
 import JobPayrollSentBanner from '@/components/ops/JobPayrollSentBanner'
-import AINextActionBanner from '@/components/jobs/AINextActionBanner'
 import AINoteSummary from '@/components/jobs/AINoteSummary'
 import LinkCustomerButton from '@/components/customers/LinkCustomerButton'
 import JobWorkOrdersCard from '@/components/ops/JobWorkOrdersCard'
@@ -542,6 +540,45 @@ function InsuranceCard({ job, onUpdate }: { job: Job; onUpdate: (fields: Partial
 }
 // ──────────────────────────────────────────────────────────────────────────────
 
+/** Shortcut card that opens the Materials **+ Job Cost** form — rendered at the top of the job page so cost entry is not buried. */
+function JobCostsCallout({ layout, onAddCost }: { layout: 'stacked' | 'inline'; onAddCost: () => void }) {
+  const button = (
+    <button
+      type="button"
+      onClick={onAddCost}
+      className={
+        layout === 'stacked'
+          ? 'mt-3 w-full min-h-[44px] rounded-lg bg-indigo-700 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-800'
+          : 'min-h-[44px] shrink-0 rounded-lg bg-indigo-700 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-800'
+      }
+    >
+      + Job Cost
+    </button>
+  )
+  const copy = (
+    <>
+      <p className="text-sm font-semibold text-indigo-950">Job Costs</p>
+      <p className="mt-1 text-xs text-indigo-900 leading-relaxed">
+        Log material, labor, permit, or subcontractor costs for this job.
+      </p>
+    </>
+  )
+  if (layout === 'stacked') {
+    return (
+      <div className="mb-4 rounded-xl border border-indigo-200 bg-indigo-50 shadow-sm p-4">
+        {copy}
+        {button}
+      </div>
+    )
+  }
+  return (
+    <div className="mb-4 rounded-xl border border-indigo-200 bg-indigo-50 shadow-sm p-4 flex items-center justify-between gap-3 flex-wrap">
+      <div>{copy}</div>
+      {button}
+    </div>
+  )
+}
+
 export default function JobDetailClient({
   initialJob,
   paymentMethod,
@@ -607,6 +644,10 @@ export default function JobDetailClient({
   const openCostAttachmentShortcutRef = useRef<(() => void) | null>(null)
   const registerOpenCostAttachmentShortcut = useCallback((openPicker: (() => void) | null) => {
     openCostAttachmentShortcutRef.current = openPicker
+  }, [])
+  const openAddCostShortcutRef = useRef<(() => void) | null>(null)
+  const registerOpenAddCostShortcut = useCallback((openForm: (() => void) | null) => {
+    openAddCostShortcutRef.current = openForm
   }, [])
   // Mobile tab navigation (lg+ always shows all sections)
   const [mobileTab, setMobileTab] = useState<'overview' | 'scope' | 'materials' | 'financials' | 'photos' | 'notes'>('overview')
@@ -1238,6 +1279,23 @@ export default function JobDetailClient({
     }
   }
 
+  const handleAddCostShortcut = () => {
+    const isMobile = typeof window !== 'undefined' && window.innerWidth < 1024
+
+    const openAndScroll = () => {
+      openAddCostShortcutRef.current?.()
+      const materialsEl = document.getElementById('materials-section')
+      if (materialsEl) materialsEl.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+
+    if (isMobile) {
+      setMobileTab('materials')
+      setTimeout(openAndScroll, 100)
+    } else {
+      openAndScroll()
+    }
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
       <Nav />
@@ -1255,23 +1313,6 @@ export default function JobDetailClient({
         {/* First card on the page, every breakpoint — ops needs this findable from a phone. */}
         <JobRunSheetBanner jobId={job.id} jobNumber={job.job_number} />
 
-        <JobNextActionBanner
-          jobId={job.id}
-          status={job.status}
-          saleAmount={job.sale_amount}
-          depositRequiredPercent={job.deposit_required_percent}
-          paymentMethod={job.project?.payment_method || null}
-          materialsStatus={job.materials_status}
-          scheduledDate={job.scheduled_date}
-          assignedCrewId={job.assigned_crew?.id || null}
-          assignedSubId={job.assigned_sub?.id || null}
-          financeSubmittedAt={job.finance_submitted_at || null}
-          refreshKey={paymentsRefreshKey}
-          onSchedule={() => openScheduleModal('schedule')}
-          onMarkJobComplete={handleCompleteClick}
-          onStartJob={() => updateStatus('in_progress')}
-          onMarkCollected={handleCollectedClick}
-        />
         <JobReadyToPayBanner
           status={job.status}
           paymentSummary={paymentSummary}
@@ -1289,28 +1330,6 @@ export default function JobDetailClient({
           allowCloseWithBalance={job.allow_close_with_balance ?? false}
           canViewBilling={canViewJobBilling}
           onUpdated={reloadJob}
-        />
-        <AINextActionBanner
-          job={{
-            status: job.status,
-            deposit: job.deposit,
-            deposit_required_percent: job.deposit_required_percent ?? 0,
-            materials_status: job.materials_status,
-            scheduled_date: job.scheduled_date,
-            assigned_sub_id: job.assigned_sub?.id || null,
-            assigned_crew_id: job.assigned_crew?.id || null,
-            final_front: !!job.final_front,
-            final_back: !!job.final_back,
-            final_left: !!job.final_left,
-            final_right: !!job.final_right,
-            final_slope_1: !!job.final_slope_1,
-            final_slope_2: !!job.final_slope_2,
-            flashing_detail: !!job.flashing_detail,
-            pipe_boots: !!job.pipe_boots,
-            labor_cost: job.labor_cost,
-            material_cost: job.material_cost,
-            sale_amount: job.sale_amount ?? 0,
-          }}
         />
 
         {/* Mobile Quick Actions — same workflow priority as desktop */}
@@ -1386,6 +1405,18 @@ export default function JobDetailClient({
             </div>
           </div>
         </div>
+
+        {/* Job costs live on the Materials card (+ Job Cost). Surface a shortcut at the top so
+            it is not buried. Desktop always shows it. Mobile hides it only on the Financials
+            tab, which renders its own copy so the two don't stack. */}
+        <div className="hidden lg:block">
+          <JobCostsCallout layout="stacked" onAddCost={handleAddCostShortcut} />
+        </div>
+        {mobileTab !== 'financials' && (
+          <div className="lg:hidden">
+            <JobCostsCallout layout="stacked" onAddCost={handleAddCostShortcut} />
+          </div>
+        )}
 
         {/* Completion cert lives under Photos & files on narrow screens — surface it here so it is not buried behind the Photos tab */}
         {canShowCompletionCertificateBoardLink(job.status) && (
@@ -1732,6 +1763,7 @@ export default function JobDetailClient({
                 materialsNotes={job.materials_notes}
                 onTotalChange={setMaterialOrdersTotal}
                 onAttachReceiptInvoice={handleAttachReceiptInvoiceShortcut}
+                registerOpenAddJobCost={registerOpenAddCostShortcut}
               />
             </div>
 
@@ -1985,6 +2017,14 @@ export default function JobDetailClient({
 
             {/* FINANCIALS TAB — Financials, Payments, Invoices, Work Orders */}
             <div className={mobileTab !== 'financials' ? 'hidden lg:block' : undefined}>
+            {/* Gated on canViewFinancialTab (not the narrower canViewProfitability) to match every other
+                block in this tab — everything here self-gates on the same permission that controls whether
+                the mobile Financials tab button appears at all. */}
+            {canViewFinancialTab && (
+              <div className="lg:hidden">
+                <JobCostsCallout layout="inline" onAddCost={handleAddCostShortcut} />
+              </div>
+            )}
             {canViewProfitability && (
               <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
                 <div className="mb-4 flex items-start justify-between gap-3">

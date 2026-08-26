@@ -405,6 +405,20 @@ describe('roof-topology-graph', () => {
       expect(result.status).toBe('force_manual')
       expect(result.reason).toContain('under-segmented')
     })
+
+    it('counts same-azimuth Solar segments as one expected plane even with a large pitch gap (Bentley noise pattern)', () => {
+      // Regression guard: countExpectedPlanes must stay azimuth-only. A pitch-proximity
+      // requirement was tried here and reverted — it flipped the human-verified
+      // bentley-duke-adam-ev fixture (two same-azimuth Solar segments ~20° apart in
+      // pitch, one real physical face) from `ship` to a false-positive `force_manual`.
+      const mainRoof = plane(0, 180, 30, 0, 3, 5)
+      const noisySegment = plane(1, 180, 50, 0, 2, 5.5)
+      const ground = new Map<number, number>([
+        [mainRoof.segment_index, 200],
+        [noisySegment.segment_index, 60],
+      ])
+      expect(countExpectedPlanes([mainRoof, noisySegment], footprint, ground)).toBe(1)
+    })
   })
 
   describe('Bentley Solar segment diagnosis', () => {

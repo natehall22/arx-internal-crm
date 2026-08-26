@@ -61,6 +61,7 @@ interface JobFileWorkspaceCardProps {
   jobStatus?: string | null
   customerEmail?: string | null
   registerOpenCostAttachmentShortcut?: (openPicker: (() => void) | null) => void
+  registerOpenAddCostShortcut?: (openForm: (() => void) | null) => void
   dealerFeeAmount?: number | null
 }
 
@@ -76,6 +77,12 @@ function formatDate(value: string | null | undefined) {
     day: 'numeric',
     year: 'numeric',
   })
+}
+
+const SYSTEM_COST_LINE_DESCRIPTION = /lender|dealer fee/i
+
+function isSystemCostLine(line: Pick<CostLineRow, 'is_system' | 'description'>): boolean {
+  return Boolean(line.is_system) || SYSTEM_COST_LINE_DESCRIPTION.test(line.description)
 }
 
 function formatCurrency(amount: number) {
@@ -139,6 +146,7 @@ export default function JobFileWorkspaceCard({
   jobStatus,
   customerEmail,
   registerOpenCostAttachmentShortcut,
+  registerOpenAddCostShortcut,
   dealerFeeAmount,
 }: JobFileWorkspaceCardProps) {
   const supabase = useMemo(() => createClientBrowser(), [])
@@ -294,11 +302,10 @@ export default function JobFileWorkspaceCard({
         status: row.status,
         approved: row.approved,
         vendor_name: Array.isArray(row.vendors) ? row.vendors[0]?.name || null : row.vendors?.name || null,
+        is_system: SYSTEM_COST_LINE_DESCRIPTION.test(row.description ?? ''),
       })
     )
-    const hasPersistedDealerFee = normalizedCostLines.some((line) =>
-      /lender|dealer fee/i.test(line.description)
-    )
+    const hasPersistedDealerFee = normalizedCostLines.some((line) => isSystemCostLine(line))
     const displayCostLines: CostLineRow[] =
       dealerFeeAmount != null && dealerFeeAmount > 0 && !hasPersistedDealerFee
         ? [
@@ -316,9 +323,9 @@ export default function JobFileWorkspaceCard({
           ]
         : normalizedCostLines
     setCostLines(displayCostLines)
-    const firstAttachableLine = displayCostLines.find((line) => !line.is_system)
+    const firstAttachableLine = displayCostLines.find((line) => !isSystemCostLine(line))
     setSelectedCostLineId((prev) => {
-      if (prev && displayCostLines.some((line) => line.id === prev && !line.is_system)) return prev
+      if (prev && displayCostLines.some((line) => line.id === prev && !isSystemCostLine(line))) return prev
       return firstAttachableLine?.id || ''
     })
 
@@ -370,8 +377,18 @@ export default function JobFileWorkspaceCard({
   }, [registerOpenCostAttachmentShortcut, tableUnavailable, uploadingCostAttachment, selectedCostLineId])
 
   useEffect(() => {
-    if (costLines.length > 0) setShowAddCostForm(false)
-  }, [costLines.length])
+    if (!registerOpenAddCostShortcut) return
+
+    const openAddCostForm = () => {
+      if (tableUnavailable) return
+      setShowAddCostForm(true)
+    }
+
+    registerOpenAddCostShortcut(openAddCostForm)
+    return () => {
+      registerOpenAddCostShortcut(null)
+    }
+  }, [registerOpenAddCostShortcut, tableUnavailable])
 
   const handlePhotosSelected = async (fileList?: FileList | null) => {
     const files = fileList ? Array.from(fileList).filter((f) => f.size > 0) : []
@@ -788,8 +805,10 @@ export default function JobFileWorkspaceCard({
     setCostDropActive(false)
   }
 
+  const hasAttachableCostLines = costLines.some((line) => !isSystemCostLine(line))
+
   const onCostDragEnter = (e: DragEvent<HTMLDivElement>) => {
-    if (!hasFilePayload(e) || tableUnavailable || uploadingCostAttachment || costLines.length === 0) return
+    if (!hasFilePayload(e) || tableUnavailable || uploadingCostAttachment || !hasAttachableCostLines) return
     e.preventDefault()
     e.stopPropagation()
     costDragDepth.current += 1
@@ -807,14 +826,14 @@ export default function JobFileWorkspaceCard({
   }
 
   const onCostDragOver = (e: DragEvent<HTMLDivElement>) => {
-    if (!hasFilePayload(e) || tableUnavailable || uploadingCostAttachment || costLines.length === 0) return
+    if (!hasFilePayload(e) || tableUnavailable || uploadingCostAttachment || !hasAttachableCostLines) return
     e.preventDefault()
     e.stopPropagation()
     e.dataTransfer.dropEffect = 'copy'
   }
 
   const onCostDrop = (e: DragEvent<HTMLDivElement>) => {
-    if (!hasFilePayload(e) || tableUnavailable || uploadingCostAttachment || costLines.length === 0) return
+    if (!hasFilePayload(e) || tableUnavailable || uploadingCostAttachment || !hasAttachableCostLines) return
     e.preventDefault()
     e.stopPropagation()
     resetCostDrag()
@@ -1309,30 +1328,44 @@ export default function JobFileWorkspaceCard({
           </div>
         </section>
 
-        <section>
-          <div className="flex items-center justify-between gap-3 mb-2">
+        <section id="job-costs-section">
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-2">
             <h3 className="text-sm sm:text-base font-semibold text-gray-900">Costs</h3>
-            <div className="flex items-center gap-2">
-              <select
-                value={selectedCostLineId}
-                onChange={(e) => setSelectedCostLineId(e.target.value)}
-                className="text-sm border rounded-lg px-2 py-2 text-gray-900 max-w-[180px]"
-                disabled={!costLines.some((line) => !line.is_system)}
-              >
-                {costLines.filter((line) => !line.is_system).map((line) => (
-                  <option key={line.id} value={line.id}>
-                    {line.description.slice(0, 28)}
-                  </option>
-                ))}
-              </select>
-              <button
-                type="button"
-                onClick={() => costAttachmentInputRef.current?.click()}
-                disabled={uploadingCostAttachment || !selectedCostLineId || tableUnavailable}
-                className="text-sm px-3 py-2 rounded-lg border border-indigo-600 text-indigo-700 hover:bg-indigo-50 disabled:opacity-50"
-              >
-                {uploadingCostAttachment ? 'Uploading...' : 'Attach receipts / invoices'}
-              </button>
+            <div className="flex flex-wrap items-center gap-2">
+              {!showAddCostForm && (
+                <button
+                  type="button"
+                  onClick={() => setShowAddCostForm(true)}
+                  disabled={tableUnavailable}
+                  className="min-h-[44px] text-sm px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50"
+                >
+                  + Add cost line
+                </button>
+              )}
+              {hasAttachableCostLines && (
+                <>
+                  <select
+                    value={selectedCostLineId}
+                    onChange={(e) => setSelectedCostLineId(e.target.value)}
+                    className="text-sm border rounded-lg px-2 py-2 text-gray-900 max-w-[180px]"
+                    aria-label="Cost line to attach receipts to"
+                  >
+                    {costLines.filter((line) => !isSystemCostLine(line)).map((line) => (
+                      <option key={line.id} value={line.id}>
+                        {line.description.slice(0, 28)}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => costAttachmentInputRef.current?.click()}
+                    disabled={uploadingCostAttachment || !selectedCostLineId || tableUnavailable}
+                    className="min-h-[44px] text-sm px-3 py-2 rounded-lg border border-indigo-600 text-indigo-700 hover:bg-indigo-50 disabled:opacity-50"
+                  >
+                    {uploadingCostAttachment ? 'Uploading...' : 'Attach receipts / invoices'}
+                  </button>
+                </>
+              )}
               <input
                 ref={costAttachmentInputRef}
                 type="file"
@@ -1343,8 +1376,8 @@ export default function JobFileWorkspaceCard({
             </div>
           </div>
           <p className="text-xs text-gray-500 mb-3">
-            Attach receipts/invoices to a selected cost line for cleaner bookkeeping. You can drag files onto the
-            cost table when a line is selected.
+            Log labor, material, permit, and subcontractor costs here. After a line is added, attach receipts to it
+            or drag files onto the table.
           </p>
           {!canSeeAmounts && (
             <p className="text-xs text-gray-500 mb-3">
@@ -1370,23 +1403,91 @@ export default function JobFileWorkspaceCard({
             )}
             {loading ? (
               <p className="text-sm text-gray-500 p-4">Loading costs...</p>
-            ) : costLines.length === 0 && !showAddCostForm ? (
-              <div className="p-3 sm:p-4">
-                <button
-                  type="button"
-                  onClick={() => setShowAddCostForm(true)}
-                  disabled={tableUnavailable}
-                  className="w-full min-h-[44px] rounded-lg border-2 border-dashed border-gray-200 p-4 text-left text-sm text-gray-600 transition-colors hover:border-indigo-400 hover:bg-indigo-50/50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none"
-                >
-                  <p className="mb-1">No job cost lines yet.</p>
-                  <p className="font-semibold text-indigo-700">
-                    + Add labor, material, permit, or miscellaneous cost
-                  </p>
-                </button>
-              </div>
             ) : (
               <>
-                {costLines.length > 0 && (
+              {showAddCostForm && (
+              <div className="p-3 sm:p-4">
+                <form onSubmit={handleAddCostLine} className="space-y-3 text-sm">
+                  <div>
+                    <label htmlFor="new-cost-description" className="block text-xs font-medium text-gray-500 mb-1">
+                      Description
+                    </label>
+                    <input
+                      id="new-cost-description"
+                      type="text"
+                      value={newCostDescription}
+                      onChange={(e) => setNewCostDescription(e.target.value)}
+                      placeholder="e.g. Shingles, permit fee, dumpster"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
+                      autoFocus
+                      disabled={savingCostLine || tableUnavailable}
+                    />
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label htmlFor="new-cost-type" className="block text-xs font-medium text-gray-500 mb-1">
+                        Category
+                      </label>
+                      <select
+                        id="new-cost-type"
+                        value={newCostType}
+                        onChange={(e) => setNewCostType(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white"
+                        disabled={savingCostLine || tableUnavailable}
+                      >
+                        <option value="material">Material</option>
+                        <option value="labor">Labor</option>
+                        <option value="permit">Permit</option>
+                        <option value="subcontractor">Subcontractor</option>
+                        <option value="misc">Misc</option>
+                        <option value="other">Other</option>
+                      </select>
+                    </div>
+                    {canSeeAmounts && (
+                      <div>
+                        <label htmlFor="new-cost-amount" className="block text-xs font-medium text-gray-500 mb-1">
+                          Amount (USD)
+                        </label>
+                        <input
+                          id="new-cost-amount"
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          value={newCostAmount}
+                          onChange={(e) => setNewCostAmount(e.target.value)}
+                          placeholder="0.00"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
+                          disabled={savingCostLine || tableUnavailable}
+                        />
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    <button
+                      type="submit"
+                      disabled={savingCostLine || tableUnavailable}
+                      className="min-h-[44px] px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-50"
+                    >
+                      {savingCostLine ? 'Saving…' : 'Save cost line'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowAddCostForm(false)
+                        setNewCostDescription('')
+                        setNewCostAmount('')
+                        setNewCostType('material')
+                      }}
+                      disabled={savingCostLine}
+                      className="min-h-[44px] px-4 py-2 rounded-lg border border-gray-300 text-gray-700 text-sm hover:bg-gray-50 disabled:opacity-50"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              </div>
+              )}
+              {costLines.length > 0 && (
               <div className="overflow-x-auto rounded-md border border-gray-200 m-2">
                 <table className="min-w-full text-sm">
                   <thead className="bg-gray-50 text-gray-600">
@@ -1405,7 +1506,7 @@ export default function JobFileWorkspaceCard({
                       <tr key={line.id} className="border-t">
                         <td className="px-3 py-2 text-gray-900">
                           {line.description}
-                          {line.is_system && (
+                          {isSystemCostLine(line) && (
                             <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800">
                               from financing
                             </span>
@@ -1416,7 +1517,7 @@ export default function JobFileWorkspaceCard({
                         <td className="px-3 py-2 text-gray-700">{line.cost_type}</td>
                         <td className="px-3 py-2 text-gray-700">{line.status}</td>
                         <td className="px-3 py-2 text-gray-700">
-                          {line.is_system ? (
+                          {isSystemCostLine(line) ? (
                             '-'
                           ) : line.approved ? (
                             <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">
@@ -1438,107 +1539,33 @@ export default function JobFileWorkspaceCard({
                           )}
                         </td>
                         <td className="px-3 py-2 text-gray-700">
-                          {line.is_system ? '-' : attachmentCountByLine[line.id] || 0}
+                          {isSystemCostLine(line) ? '-' : attachmentCountByLine[line.id] || 0}
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-                )}
-                <div className={`p-3 sm:p-4 ${costLines.length > 0 ? 'border-t border-gray-200' : ''}`}>
-                  {showAddCostForm ? (
-                    <form onSubmit={handleAddCostLine} className="space-y-3 text-sm">
-                      <div>
-                        <label htmlFor="new-cost-description" className="block text-xs font-medium text-gray-500 mb-1">
-                          Description
-                        </label>
-                        <input
-                          id="new-cost-description"
-                          type="text"
-                          value={newCostDescription}
-                          onChange={(e) => setNewCostDescription(e.target.value)}
-                          placeholder="e.g. Shingles, permit fee, dumpster"
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
-                          autoFocus
-                          disabled={savingCostLine || tableUnavailable}
-                        />
-                      </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <div>
-                          <label htmlFor="new-cost-type" className="block text-xs font-medium text-gray-500 mb-1">
-                            Category
-                          </label>
-                          <select
-                            id="new-cost-type"
-                            value={newCostType}
-                            onChange={(e) => setNewCostType(e.target.value)}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white"
-                            disabled={savingCostLine || tableUnavailable}
-                          >
-                            <option value="material">Material</option>
-                            <option value="labor">Labor</option>
-                            <option value="permit">Permit</option>
-                            <option value="subcontractor">Subcontractor</option>
-                            <option value="misc">Misc</option>
-                            <option value="other">Other</option>
-                          </select>
-                        </div>
-                        {canSeeAmounts && (
-                          <div>
-                            <label htmlFor="new-cost-amount" className="block text-xs font-medium text-gray-500 mb-1">
-                              Amount (USD)
-                            </label>
-                            <input
-                              id="new-cost-amount"
-                              type="number"
-                              min={0}
-                              step="0.01"
-                              value={newCostAmount}
-                              onChange={(e) => setNewCostAmount(e.target.value)}
-                              placeholder="0.00"
-                              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
-                              disabled={savingCostLine || tableUnavailable}
-                            />
-                          </div>
-                        )}
-                      </div>
-                      <div className="flex flex-wrap gap-2 pt-1">
-                        <button
-                          type="submit"
-                          disabled={savingCostLine || tableUnavailable}
-                          className="min-h-[44px] px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-50"
-                        >
-                          {savingCostLine ? 'Saving…' : 'Save cost line'}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setShowAddCostForm(false)
-                            setNewCostDescription('')
-                            setNewCostAmount('')
-                            setNewCostType('material')
-                          }}
-                          disabled={savingCostLine}
-                          className="min-h-[44px] px-4 py-2 rounded-lg border border-gray-300 text-gray-700 text-sm hover:bg-gray-50 disabled:opacity-50"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </form>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => setShowAddCostForm(true)}
-                      disabled={tableUnavailable}
-                      className="w-full min-h-[44px] rounded-lg border-2 border-dashed border-gray-200 p-3 text-left text-sm text-gray-600 transition-colors hover:border-indigo-400 hover:bg-indigo-50/50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none"
-                    >
-                      <p className="font-semibold text-indigo-700">
-                        + Add labor, material, permit, or miscellaneous cost
-                      </p>
-                    </button>
-                  )}
-                </div>
+              )}
+              {!showAddCostForm && !hasAttachableCostLines && (
+              <div className="p-3 sm:p-4">
+                <button
+                  type="button"
+                  onClick={() => setShowAddCostForm(true)}
+                  disabled={tableUnavailable}
+                  className="w-full min-h-[44px] rounded-lg border-2 border-dashed border-gray-200 p-4 text-left text-sm text-gray-600 transition-colors hover:border-indigo-400 hover:bg-indigo-50/50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none"
+                >
+                  <p className="mb-1">
+                    {costLines.length === 0
+                      ? 'No job cost lines yet.'
+                      : 'The lender fee is recorded from financing. Labor, materials, permits, and sub pay still need to be logged.'}
+                  </p>
+                  <p className="font-semibold text-indigo-700">
+                    + Add labor, material, permit, or miscellaneous cost
+                  </p>
+                </button>
+              </div>
+              )}
               </>
             )}
           </div>

@@ -11,7 +11,6 @@ import {
 } from '@/lib/supabase/request-client'
 
 export type AIAction =
-  | 'job_next_action'
   | 'job_profit_risk'
   | 'job_packet_summary'
   | 'notes_summary'
@@ -28,8 +27,6 @@ type AIRequestBody = {
 const STRUCTURED_MODEL = 'gpt-4o'
 
 const SYSTEM_PROMPTS: Record<AIAction, string> = {
-  job_next_action:
-    "You are an operations assistant for a roofing company called ARX Roofing & Exteriors. Analyze the job state provided and return ONLY a JSON object with this shape: { action: string (max 15 words, specific instruction), priority: 'urgent' | 'normal' | 'low', reason: string (one sentence) }. No markdown, no explanation, just the JSON.",
   job_profit_risk:
     "You are a financial analyst for a roofing contractor. Analyze the job financials provided and return ONLY a JSON object: { riskLevel: 'high' | 'medium' | 'low', estimatedMarginPercent: number, warning: string | null, suggestion: string }. No markdown, just JSON.",
   job_packet_summary:
@@ -44,7 +41,6 @@ const SYSTEM_PROMPTS: Record<AIAction, string> = {
 }
 
 const JOB_BOARD_ACTIONS = new Set<AIAction>([
-  'job_next_action',
   'job_profit_risk',
   'job_packet_summary',
   'notes_summary',
@@ -80,16 +76,15 @@ async function resolveAuthenticatedAiClient() {
 async function getUserAiSettings(
   supabase: ReturnType<typeof createRequestScopedClient>,
   userId: string
-): Promise<{ aiEnabled: boolean; aiSuggestionsEnabled: boolean }> {
+): Promise<{ aiEnabled: boolean }> {
   const { data: settings } = await supabase
     .from('user_settings')
-    .select('ai_enabled, ai_suggestions_enabled')
+    .select('ai_enabled')
     .eq('user_id', userId)
     .maybeSingle()
 
   return {
     aiEnabled: Boolean(settings?.ai_enabled),
-    aiSuggestionsEnabled: Boolean(settings?.ai_suggestions_enabled),
   }
 }
 
@@ -135,13 +130,6 @@ export async function POST(request: Request) {
 
     if (typeof context !== 'object' || context === null || Array.isArray(context)) {
       return NextResponse.json({ error: 'Invalid context' }, { status: 400 })
-    }
-
-    if (action === 'job_next_action' && !aiSettings.aiSuggestionsEnabled) {
-      return NextResponse.json(
-        { error: 'Smart Suggestions are disabled. Enable them in Settings → AI Assistant.' },
-        { status: 403 }
-      )
     }
 
     if (JOB_BOARD_ACTIONS.has(action)) {

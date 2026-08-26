@@ -61,7 +61,6 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false)
   const [settings, setSettings] = useState<UserSettings>(defaultSettings)
   const [aiEnabled, setAiEnabled] = useState(defaultSettings.ai_enabled)
-  const [aiSuggestionsEnabled, setAiSuggestionsEnabled] = useState(defaultSettings.ai_suggestions_enabled)
   const [googleToken, setGoogleToken] = useState<any>(null)
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null)
   const [activeTab, setActiveTab] = useState<'notifications' | 'calendar' | 'ai' | 'reports' | 'display'>('notifications')
@@ -142,7 +141,6 @@ export default function SettingsPage() {
           theme: data.userSettings.theme || 'light',
         })
         setAiEnabled(data.userSettings.ai_enabled ?? defaultSettings.ai_enabled)
-        setAiSuggestionsEnabled(data.userSettings.ai_suggestions_enabled ?? defaultSettings.ai_suggestions_enabled)
       }
 
       if (data.googleToken) {
@@ -167,7 +165,6 @@ export default function SettingsPage() {
         body: JSON.stringify({
           ...settings,
           ai_enabled: aiEnabled,
-          ai_suggestions_enabled: aiSuggestionsEnabled,
         }),
       })
 
@@ -549,31 +546,15 @@ export default function SettingsPage() {
                 </label>
 
                 {aiEnabled && (
-                  <>
-                    <label className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-                      <div>
-                        <p className="font-medium text-gray-900">Smart Suggestions</p>
-                        <p className="text-sm text-gray-500">Show suggested next actions on production jobs</p>
-                      </div>
-                      <input
-                        type="checkbox"
-                        checked={aiSuggestionsEnabled}
-                        onChange={(e) => setAiSuggestionsEnabled(e.target.checked)}
-                        className="w-5 h-5 rounded border-gray-300 text-indigo-600"
-                      />
-                    </label>
-
-                    <div className="p-4 bg-indigo-50 rounded-lg border border-indigo-100">
+                  <div className="p-4 bg-indigo-50 rounded-lg border border-indigo-100">
                       <h3 className="font-medium text-indigo-900 mb-2">What the assistant actually does:</h3>
                       <ul className="text-sm text-indigo-700 space-y-1">
                         <li>• Answers questions about where things are in the CRM</li>
                         <li>• Explains CRM workflows and suggests next steps</li>
                         <li>• Shows read-only context for the lead, opportunity, project, or job you have open</li>
-                        <li>• Suggests a next action on production jobs (Smart Suggestions, above)</li>
                         <li>• Never edits records, sends messages, or writes notes for you</li>
                       </ul>
                     </div>
-                  </>
                 )}
               </div>
             </div>
