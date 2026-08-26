@@ -64,6 +64,9 @@ async function ensureDealerFeeCostLine(
       status: 'active',
       notes: 'Financing lender/dealer fee from signed Installation Agreement.',
       created_by: args.userId,
+      // Deterministic figure pulled straight from the signed contract's financing terms, not a
+      // discretionary entry — exempt from the manual cost-line review gate by design.
+      approved: true,
     })
 
     if (insertError) {
