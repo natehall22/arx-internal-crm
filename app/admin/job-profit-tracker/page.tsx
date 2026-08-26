@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import Nav from '@/components/Nav'
 import { requireAuth } from '@/lib/auth'
+import { isPayrollAdminRole } from '@/lib/payroll-admin-access'
 import { createServiceClient } from '@/lib/supabase/service'
 import {
   getSignedOrderAmount,
@@ -12,8 +13,6 @@ import {
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
 export const fetchCache = 'force-no-store'
-
-const TRACKER_ADMIN_ROLES = new Set(['admin', 'owner', 'operations'])
 
 type SearchParams = {
   status?: string
@@ -46,6 +45,7 @@ type CostLine = {
   job_id: string
   amount: number | string | null
   cost_type: string | null
+  approved: boolean
 }
 
 type PaymentLine = {
@@ -167,7 +167,7 @@ export default async function AdminJobProfitTrackerPage({
   searchParams?: SearchParams
 }) {
   const { profile } = await requireAuth()
-  if (!TRACKER_ADMIN_ROLES.has(String(profile.role || '').toLowerCase())) {
+  if (!isPayrollAdminRole(profile.role)) {
     redirect('/dashboard')
   }
 
@@ -254,7 +254,7 @@ export default async function AdminJobProfitTrackerPage({
     const [{ data: costLines }, { data: payments }] = await Promise.all([
       supabase
         .from('job_cost_lines')
-        .select('job_id, amount, cost_type')
+        .select('job_id, amount, cost_type, approved')
         .eq('org_id', profile.org_id)
         .eq('status', 'active')
         .is('deleted_at', null)
@@ -318,6 +318,7 @@ export default async function AdminJobProfitTrackerPage({
     const financeCost = moneyValue(job.dealer_fee_amount)
     const commissionableAmount = Math.max(0, saleAmount - financeCost)
     const costLines = costLinesByJob.get(job.id) || []
+    const hasUnreviewedCostLines = costLines.some((line) => !line.approved)
     const materialLines = costLines
       .filter((line) => line.cost_type === 'material')
       .reduce((sum, line) => sum + moneyValue(line.amount), 0)
@@ -379,6 +380,7 @@ export default async function AdminJobProfitTrackerPage({
       collected,
       balance,
       trackerStatus,
+      hasUnreviewedCostLines,
     }
   })
 
@@ -565,7 +567,17 @@ export default async function AdminJobProfitTrackerPage({
                       <td className="px-3 py-2 text-right font-medium tabular-nums">{formatMoney(row.materials)}</td>
                       <td className="px-3 py-2 text-right font-medium tabular-nums">{formatMoney(row.labor)}</td>
                       <td className="px-3 py-2 text-right font-medium tabular-nums">{formatMoney(row.misc)}</td>
-                      <td className="px-3 py-2 text-right font-medium tabular-nums">{formatMoney(row.totalExpenses)}</td>
+                      <td className="px-3 py-2 text-right font-medium tabular-nums">
+                        {formatMoney(row.totalExpenses)}
+                        {row.hasUnreviewedCostLines && (
+                          <span
+                            className="ml-1 inline-block rounded-full bg-amber-100 px-1.5 py-0.5 align-middle text-[10px] font-semibold text-amber-900"
+                            title="Includes a cost line an admin hasn't reviewed yet — numbers below may change"
+                          >
+                            unreviewed
+                          </span>
+                        )}
+                      </td>
                       <td className="px-3 py-2 text-right font-medium tabular-nums">{formatMoney(row.setterCommission)}</td>
                       <td className="px-3 py-2 text-right font-medium tabular-nums">{formatMoney(row.closerCommission)}</td>
                       <td className="px-3 py-2 text-right font-medium tabular-nums">{formatMoney(row.salesCommission)}</td>
