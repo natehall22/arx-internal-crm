@@ -8,12 +8,10 @@ import ScheduleJobModal from '@/components/ops/ScheduleJobModal'
 import JobPaymentsCard from '@/components/ops/JobPaymentsCard'
 import JobInvoicesCard from '@/components/ops/JobInvoicesCard'
 import CompleteJobModal from '@/components/ops/CompleteJobModal'
-import JobNextActionBanner from '@/components/ops/JobNextActionBanner'
 import JobPaymentMethodBanner from '@/components/ops/JobPaymentMethodBanner'
 import JobRunSheetBanner from '@/components/ops/JobRunSheetBanner'
 import JobReadyToPayBanner from '@/components/ops/JobReadyToPayBanner'
 import JobPayrollSentBanner from '@/components/ops/JobPayrollSentBanner'
-import AINextActionBanner from '@/components/jobs/AINextActionBanner'
 import AINoteSummary from '@/components/jobs/AINoteSummary'
 import LinkCustomerButton from '@/components/customers/LinkCustomerButton'
 import JobWorkOrdersCard from '@/components/ops/JobWorkOrdersCard'
@@ -1315,23 +1313,6 @@ export default function JobDetailClient({
         {/* First card on the page, every breakpoint — ops needs this findable from a phone. */}
         <JobRunSheetBanner jobId={job.id} jobNumber={job.job_number} />
 
-        <JobNextActionBanner
-          jobId={job.id}
-          status={job.status}
-          saleAmount={job.sale_amount}
-          depositRequiredPercent={job.deposit_required_percent}
-          paymentMethod={job.project?.payment_method || null}
-          materialsStatus={job.materials_status}
-          scheduledDate={job.scheduled_date}
-          assignedCrewId={job.assigned_crew?.id || null}
-          assignedSubId={job.assigned_sub?.id || null}
-          financeSubmittedAt={job.finance_submitted_at || null}
-          refreshKey={paymentsRefreshKey}
-          onSchedule={() => openScheduleModal('schedule')}
-          onMarkJobComplete={handleCompleteClick}
-          onStartJob={() => updateStatus('in_progress')}
-          onMarkCollected={handleCollectedClick}
-        />
         <JobReadyToPayBanner
           status={job.status}
           paymentSummary={paymentSummary}
@@ -1349,28 +1330,6 @@ export default function JobDetailClient({
           allowCloseWithBalance={job.allow_close_with_balance ?? false}
           canViewBilling={canViewJobBilling}
           onUpdated={reloadJob}
-        />
-        <AINextActionBanner
-          job={{
-            status: job.status,
-            deposit: job.deposit,
-            deposit_required_percent: job.deposit_required_percent ?? 0,
-            materials_status: job.materials_status,
-            scheduled_date: job.scheduled_date,
-            assigned_sub_id: job.assigned_sub?.id || null,
-            assigned_crew_id: job.assigned_crew?.id || null,
-            final_front: !!job.final_front,
-            final_back: !!job.final_back,
-            final_left: !!job.final_left,
-            final_right: !!job.final_right,
-            final_slope_1: !!job.final_slope_1,
-            final_slope_2: !!job.final_slope_2,
-            flashing_detail: !!job.flashing_detail,
-            pipe_boots: !!job.pipe_boots,
-            labor_cost: job.labor_cost,
-            material_cost: job.material_cost,
-            sale_amount: job.sale_amount ?? 0,
-          }}
         />
 
         {/* Mobile Quick Actions — same workflow priority as desktop */}

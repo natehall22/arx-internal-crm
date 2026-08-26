@@ -2,13 +2,11 @@ import { useEffect, useState } from 'react'
 
 type CachedAISettings = {
   aiEnabled: boolean
-  aiSuggestionsEnabled: boolean
   aiAutoNotes: boolean
 }
 
 const fallbackAISettings: CachedAISettings = {
   aiEnabled: false,
-  aiSuggestionsEnabled: false,
   aiAutoNotes: false,
 }
 
@@ -33,7 +31,6 @@ async function fetchAISettings(): Promise<CachedAISettings> {
 
         const resolved: CachedAISettings = {
           aiEnabled: userSettings.ai_enabled ?? false,
-          aiSuggestionsEnabled: userSettings.ai_suggestions_enabled ?? false,
           aiAutoNotes: userSettings.ai_auto_notes ?? false,
         }
 
@@ -55,7 +52,6 @@ async function fetchAISettings(): Promise<CachedAISettings> {
 export function useAISettings() {
   const [loading, setLoading] = useState(true)
   const [aiEnabled, setAiEnabled] = useState(false)
-  const [aiSuggestionsEnabled, setAiSuggestionsEnabled] = useState(false)
   const [aiAutoNotes, setAiAutoNotes] = useState(false)
 
   useEffect(() => {
@@ -64,7 +60,6 @@ export function useAISettings() {
     fetchAISettings().then((settings) => {
       if (!mounted) return
       setAiEnabled(settings.aiEnabled)
-      setAiSuggestionsEnabled(settings.aiSuggestionsEnabled)
       setAiAutoNotes(settings.aiAutoNotes)
       setLoading(false)
     })
@@ -74,5 +69,5 @@ export function useAISettings() {
     }
   }, [])
 
-  return { aiEnabled, aiSuggestionsEnabled, aiAutoNotes, loading }
+  return { aiEnabled, aiAutoNotes, loading }
 }
