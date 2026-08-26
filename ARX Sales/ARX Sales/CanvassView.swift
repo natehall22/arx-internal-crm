@@ -224,6 +224,20 @@ struct CanvassView: View {
             Task { await vm.loadMyUserId() }
         }
         .onChange(of: showTerritories) { _ in vm.loadTerritoriesIfNeeded(show: showTerritories) }
+        // Weather/roof-age, unlike territories, were never wired to an onChange — flipping
+        // either Layers toggle silently did nothing until the next incidental map pan/zoom
+        // (the only other call site for loadOverlays is the onRegionChange closure above).
+        // Reuse lastRegion the same defensive way onSyncSuccess above does.
+        .onChange(of: showWeather) { _ in
+            if let region = vm.lastRegion {
+                vm.loadOverlays(for: region, weather: showWeather && weatherOverlayAvailable, roofAge: showRoofAge)
+            }
+        }
+        .onChange(of: showRoofAge) { _ in
+            if let region = vm.lastRegion {
+                vm.loadOverlays(for: region, weather: showWeather && weatherOverlayAvailable, roofAge: showRoofAge)
+            }
+        }
     }
 
     private var timeScrubberCapsule: some View {
