@@ -143,12 +143,16 @@ async function countDoorsKnocked(
   startsAt: string,
   endsAt: string,
 ) {
-  // Match dashboard attribution: pin_attributed_user_id takes precedence over owner_user_id
+  // canvass_knocks.user_id is already resolved (pin_attributed_user_id, falling back to
+  // owner_user_id) at knock time — see 202608250001_canvass_knocks.sql. Counting leads
+  // directly missed every re-knock of a pre-existing pin: that request UPDATEs the lead
+  // row in place, so it never gets a fresh created_at for this created_at-windowed count
+  // to see.
   const { count, error } = await admin
-    .from('leads')
+    .from('canvass_knocks')
     .select('id', { count: 'exact', head: true })
     .eq('org_id', orgId)
-    .or(`pin_attributed_user_id.eq.${userId},and(pin_attributed_user_id.is.null,owner_user_id.eq.${userId})`)
+    .eq('user_id', userId)
     .in('source', DOOR_KNOCK_SOURCES)
     .gte('created_at', startsAt)
     .lte('created_at', endsAt)

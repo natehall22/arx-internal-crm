@@ -103,6 +103,13 @@ export const useOfflineStore = create<OfflineState>()(
                   canvass_notes: lead.notes,
                   source: 'canvass',
                   client_lead_id: clientLeadId,
+                  // The pin's own created_at is when the rep actually knocked (captured
+                  // client-side at save time — app/(canvass-app)/canvass/page.tsx), not
+                  // when this queued sync happens to run. See knocked_at in
+                  // app/api/canvass/lead/route.ts and log_canvass_knock() in
+                  // 202608250001_canvass_knocks.sql — without this, a whole batch of
+                  // doors knocked offline lands on the sync date instead of knock date.
+                  knocked_at: lead.created_at,
                   rep_lat: lead.rep_lat ?? null,
                   rep_lng: lead.rep_lng ?? null,
                   rep_geo_accuracy: lead.rep_geo_accuracy ?? null,

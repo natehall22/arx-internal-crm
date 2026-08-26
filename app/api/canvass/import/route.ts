@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase/server'
+import { createServiceClient } from '@/lib/supabase/service'
 
 export async function POST(request: NextRequest) {
   try {
@@ -132,11 +133,39 @@ export async function POST(request: NextRequest) {
     const { data, error } = await supabase
       .from('leads')
       .insert(leadsToInsert)
-      .select('id')
+      .select('id, canvass_disposition')
 
     if (error) {
       console.error('Import error:', error)
       return NextResponse.json({ error: 'Failed to import leads' }, { status: 500 })
+    }
+
+    // Each imported lead counts as a door on the dashboard "doors knocked" stat
+    // immediately — csv_import is one of the unconditional-by-source values that RPC
+    // recognizes, no disposition required (202608250002_dashboard_door_counts_from_knocks.sql).
+    // Historically that came for free from leads.created_at; now that counting reads
+    // canvass_knocks (202608250001_canvass_knocks.sql) it has to be logged explicitly,
+    // or freshly imported leads would silently show zero doors there. Note this does NOT
+    // extend to setter-ramp / Heat bonus qualification: those already
+    // (pre-dating this change) filter to door_to_door/canvass/door_knock only — a bulk
+    // CSV upload deliberately doesn't count toward a bonus that's meant to reward actual
+    // door-to-door work. Service-role client: canvass_knocks has no RLS policies
+    // (service-role-only), same as every other write to it (app/api/canvass/lead/route.ts).
+    if (data && data.length > 0) {
+      const admin = createServiceClient()
+      const { error: knockError } = await admin.from('canvass_knocks').insert(
+        data.map((row: { id: string; canvass_disposition: string | null }) => ({
+          org_id: profile.org_id,
+          lead_id: row.id,
+          user_id: user.id,
+          disposition: row.canvass_disposition,
+          source: 'csv_import',
+        }))
+      )
+      if (knockError) {
+        // Non-blocking: the import already succeeded and must not fail on this side effect.
+        console.error('Failed to log canvass knocks for import:', knockError)
+      }
     }
 
     const skipped = leads.length - leadsToInsert.length

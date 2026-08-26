@@ -1,5 +1,9 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { getAttributedCanvassLeadUserId } from '@/lib/canvass-lead-attribution'
+import {
+  getAttributedCanvassLeadUserId,
+  knocksAsAttributedLeadRows,
+  type CanvassKnockRow,
+} from '@/lib/canvass-lead-attribution'
 import { countsAsInspectionSet, INSPECTION_SET_APPOINTMENT_TYPE_OR } from '@/lib/inspection-set-metrics'
 import { pickPayrollPeriodForWeekEnd } from '@/lib/payroll-period-week'
 import { roundMoney } from '@/lib/money'
@@ -104,13 +108,13 @@ function countInWindow<T extends { created_at: string }>(rows: T[], startsAt: st
   const end = new Date(endsAt).getTime()
   return rows.filter((r) => {
     const ts = new Date(r.created_at).getTime()
-    return ts >= start && ts < end // exclusive end, matches 444's convention
+    return ts >= start && ts < end // exclusive end
   }).length
 }
 
 // ── Stage 1: gate tracking (doors/appointments/rolling-avg/gate_passed) ──────
-// Safe to run frequently (e.g. hourly, same cadence as 444's cron) — reads
-// live activity data and upserts weekly_status rows. Writes no money.
+// Safe to run frequently (e.g. hourly) — reads live activity data and upserts
+// weekly_status rows. Writes no money.
 export async function syncOrgSetterRampGates(
   admin: SupabaseClient,
   orgId: string,
@@ -145,12 +149,16 @@ export async function syncOrgSetterRampGates(
     const week1Window = computeSetterRampWeekWindow(startDate, 1, SETTER_RAMP_PAYROLL_TZ)
     const currentWeekWindow = computeSetterRampWeekWindow(startDate, currentWeek, SETTER_RAMP_PAYROLL_TZ)
 
-    // Single range fetch spanning week 1 through the current week — mirrors
-    // fetchEnrollmentCounts in program-444-utils.ts's sibling module.
+    // Single range fetch spanning week 1 through the current week. Reads canvass_knocks
+    // (202608250001_canvass_knocks.sql), not leads: a re-knock of a pre-existing pin
+    // UPDATEs the lead row in place with no new created_at, so counting leads directly
+    // missed it. user_id is already resolved (pin_attributed_user_id falling back to
+    // owner_user_id) at knock time, so it's mapped onto the LeadRow shape below rather
+    // than reshaping this function.
     const [leadsResult, appointmentsResult] = await Promise.all([
       admin
-        .from('leads')
-        .select('owner_user_id, pin_attributed_user_id, created_at')
+        .from('canvass_knocks')
+        .select('user_id, created_at')
         .eq('org_id', orgId)
         .in('source', DOOR_KNOCK_SOURCES)
         .gte('created_at', week1Window.weekStartsAt)
@@ -177,7 +185,8 @@ export async function syncOrgSetterRampGates(
       continue
     }
 
-    const userLeads = ((leadsResult.data ?? []) as LeadRow[]).filter(
+    const knockRows = (leadsResult.data ?? []) as CanvassKnockRow[]
+    const userLeads: LeadRow[] = knocksAsAttributedLeadRows(knockRows).filter(
       (l) => getAttributedCanvassLeadUserId(l) === enrollment.user_id
     )
     const userAppointments = ((appointmentsResult.data ?? []) as AppointmentRow[]).filter(
@@ -309,7 +318,7 @@ async function getSetterPeriodCommissionTotal(
 /**
  * For gate-passed weeks not yet reconciled against payroll, find the first
  * LOCKED or PAID period whose scheduled pay date covers the week's end (same
- * "earliest matching payday" rule as 444's pickPayrollPeriodForWeekEnd, just
+ * "earliest matching payday" rule as pickPayrollPeriodForWeekEnd above, just
  * run against locked periods instead of open ones — see the gap above for
  * why it has to wait for locked, not open, periods). Writes a
  * 'setter_weekly_floor' payroll_bonus_lines row (status pending_approval,
