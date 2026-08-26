@@ -23,9 +23,8 @@ type OrgUser = {
   role: string | null
 }
 
-type LeadMetricRow = {
-  owner_user_id: string | null
-  pin_attributed_user_id: string | null
+type KnockMetricRow = {
+  user_id: string | null
 }
 
 type AppointmentMetricRow = {
@@ -271,9 +270,13 @@ export async function GET(req: NextRequest) {
 
   const [usersRes, leadsRes, appointmentsRes, goalsRes] = await Promise.all([
     usersQuery,
+    // canvass_knocks (202608250001_canvass_knocks.sql), not leads: a re-knock of a
+    // pre-existing pin UPDATEs the lead row in place with no new created_at, so counting
+    // leads directly always missed it. user_id is already resolved (pin_attributed_user_id
+    // falling back to owner_user_id) at knock time.
     admin
-      .from('leads')
-      .select('owner_user_id, pin_attributed_user_id')
+      .from('canvass_knocks')
+      .select('user_id')
       .eq('org_id', authResult.orgId)
       .in('source', DOOR_SOURCES)
       .gte('created_at', weekRange.startsAt)
@@ -299,7 +302,7 @@ export async function GET(req: NextRequest) {
   if (firstError) return NextResponse.json({ error: firstError.message }, { status: 500 })
 
   const users = (usersRes.data ?? []) as OrgUser[]
-  const leads = (leadsRes.data ?? []) as LeadMetricRow[]
+  const leads = (leadsRes.data ?? []) as KnockMetricRow[]
   const appointments = (appointmentsRes.data ?? []) as AppointmentMetricRow[]
   const goalRows = (goalsRes.data ?? []) as GoalRow[]
 
@@ -313,10 +316,8 @@ export async function GET(req: NextRequest) {
   const inspectionsByUser = new Map<string, number>()
   const now = Date.now()
 
-  // Pin-first attribution: matches sync/leaderboard/dashboard logic
-  leads.forEach((lead) =>
-    incrementCount(doorsByUser, lead.pin_attributed_user_id ?? lead.owner_user_id)
-  )
+  // canvass_knocks.user_id is already the resolved attributed rep at knock time — matches sync/leaderboard/dashboard logic
+  leads.forEach((lead) => incrementCount(doorsByUser, lead.user_id))
   appointments.forEach((appointment) => incrementCount(inspectionsByUser, appointment.canvasser_user_id))
 
   // Pace factor: how far through the work-week are we (Mon=1 … Fri=5, clamp 0–1)

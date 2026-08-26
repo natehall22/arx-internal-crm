@@ -25,6 +25,7 @@ import { ensureLeadHasMapPinOrThrow } from '@/lib/lead-map-pin'
 import { isOrgSuperuserRoleSlug } from '@/lib/org-role-constants'
 import { deleteCanvassLeadWithDependencies } from '@/lib/canvass-lead-delete'
 import { createServiceClient } from '@/lib/supabase/service'
+import { getAttributedCanvassLeadUserId, isCanvassDoorEligible } from '@/lib/canvass-lead-attribution'
 
 export const dynamic = 'force-dynamic'
 
@@ -697,6 +698,72 @@ export async function POST(request: Request) {
 
     if (!leadRow) {
       return NextResponse.json({ error: 'Unable to save lead' }, { status: 400 })
+    }
+
+    // Log a knock event whenever this request touches a lead that counts as a canvass
+    // door. This is what the dashboard "doors knocked" stat, the sisu leaderboard, setter
+    // ramp gating, and Heat door-count badges all read from (see
+    // 202608250001_canvass_knocks.sql) — leads.created_at alone never saw a re-knock of a
+    // pre-existing pin, because that request UPDATEs the lead row in place with no fresh
+    // created_at.
+    //
+    // isCanvassDoorEligible mirrors the exact OR the dashboard RPCs / setter ramp / Heat
+    // apply on read: an unconditional source match (door_to_door/canvass/door_knock/csv_import
+    // — e.g. a rep drops a pin with no disposition yet) OR any other non-web/inbound
+    // source that carries a disposition. Gating on disposition alone would silently stop
+    // counting undispositioned pin drops that the read side still counts.
+    //
+    // log_canvass_knock() decides server-side whether this is actually a new knock —
+    // same-visit-window dedupe against the knock's OWN timestamp (not "now") — and,
+    // unless suppressed, logs it under a per-lead advisory lock. That dedupe is why this
+    // call is unconditional even when leadRow was reused from ANOTHER request rather than
+    // inserted/updated here (offline-queue retry replaying an already-synced create, or
+    // losing a concurrent client_lead_id insert race, both carry forward the SAME
+    // knocked_at as the original attempt): if the original request's own knock already
+    // landed, this call is a same-timestamp no-op; if that original write silently failed
+    // (log_canvass_knock errors are non-blocking, below), this retry is what recovers it,
+    // rather than a hard-coded skip permanently losing the door either way.
+    //
+    // knockedAt: the canvass app is offline-first (Zustand + IndexedDB queue —
+    // app/(canvass-app)/canvass/lib/offlineStore.ts) — a rep can knock dozens of doors
+    // with no signal and sync hours or days later. Passing the client's own capture time
+    // (body.knocked_at, set unconditionally at save time in page.tsx, independent of
+    // whether geolocation permission was granted) is what lets log_canvass_knock stamp
+    // the row with when the knock actually happened rather than when this request
+    // happened to reach the server — otherwise a whole offline batch lands on the sync
+    // date and can shift doors into the wrong setter-ramp pay period. Falling back to
+    // undefined (server NOW()) covers any caller that predates this field.
+    const newDisposition = typeof leadRow.canvass_disposition === 'string' ? leadRow.canvass_disposition : null
+    // Parse before sending rather than forwarding the raw string: an unparseable value
+    // reaches Postgres as a failed TIMESTAMPTZ cast, which throws the whole RPC. Because
+    // the knock call below is deliberately non-blocking (the lead save already returned
+    // 200, and the offline queue drops its entry on that 200), that error would silently
+    // and permanently cost the rep a door on a payroll-driving count. Falling back to
+    // undefined lets the server stamp NOW() — a slightly-wrong timestamp beats a lost door.
+    const knockedAtRaw = typeof body.knocked_at === 'string' ? body.knocked_at : undefined
+    const knockedAtParsed = knockedAtRaw ? new Date(knockedAtRaw) : null
+    const knockedAt =
+      knockedAtParsed && Number.isFinite(knockedAtParsed.getTime())
+        ? knockedAtParsed.toISOString()
+        : undefined
+    if (knockedAtRaw && !knockedAt) {
+      console.error('Ignoring unparseable knocked_at, falling back to server time:', knockedAtRaw)
+    }
+    if (isCanvassDoorEligible({ source: leadRow.source, canvass_disposition: newDisposition })) {
+      const knockUserId = getAttributedCanvassLeadUserId(leadRow) ?? profile.id
+      const { error: knockError } = await supabase.rpc('log_canvass_knock', {
+        p_org_id: profile.org_id,
+        p_lead_id: leadRow.id,
+        p_user_id: knockUserId,
+        p_disposition: newDisposition,
+        p_source: leadRow.source ?? null,
+        p_created_at: knockedAt ?? null,
+      })
+      if (knockError) {
+        // Non-blocking: the lead save already succeeded and must not fail because the
+        // stats side-effect did. Logged so a missed knock is diagnosable, not silent.
+        console.error('Failed to log canvass knock:', knockError)
+      }
     }
 
     if (scheduleInspection) {

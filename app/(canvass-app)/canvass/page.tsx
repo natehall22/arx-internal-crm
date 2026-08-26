@@ -375,6 +375,14 @@ export default function CanvassPage() {
     closer_user_id?: string
     inspection_scheduled_for?: string
   }) => {
+    // When this knock actually happened, independent of geolocation permission (unlike
+    // rep_geo_captured_at below, which is null when location access was denied — the
+    // canvass app is offline-first, so this is what lets the server tell "knocked Friday,
+    // synced Monday" apart from "knocked Monday," instead of stamping every knock with
+    // whenever the sync request happens to reach the server. See log_canvass_knock() in
+    // 202608250001_canvass_knocks.sql.
+    const knockedAt = new Date().toISOString()
+
     // Snapshot rep position at the exact moment of knock — may be null if permission not granted
     const repGeoSnapshot = position
       ? {
@@ -421,6 +429,7 @@ export default function CanvassPage() {
               address_text: leadData.address_text,
               canvass_notes: leadData.notes,
               canvass_disposition: leadData.disposition,
+              knocked_at: knockedAt,
               // Scheduling fields
               schedule_inspection: leadData.schedule_inspection,
               closer_user_id: leadData.closer_user_id,
@@ -500,7 +509,7 @@ export default function CanvassPage() {
         status: leadData.schedule_inspection ? 'inspection' : 'new',
         disposition: leadData.schedule_inspection ? 'scheduled' : leadData.disposition,
         notes: leadData.notes,
-        created_at: new Date().toISOString(),
+        created_at: knockedAt,
         synced: false,
         owner_user_id: profile?.id,
         ...repGeoSnapshot,
@@ -523,6 +532,7 @@ export default function CanvassPage() {
               canvass_notes: leadData.notes,
               source: 'canvass',
               client_lead_id: newPin.client_lead_id,
+              knocked_at: knockedAt,
               // Scheduling fields
               schedule_inspection: leadData.schedule_inspection,
               closer_user_id: leadData.closer_user_id,
