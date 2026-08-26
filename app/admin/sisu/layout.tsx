@@ -52,7 +52,7 @@ export default async function SisuAdminLayout({ children }: { children: ReactNod
             </span>
           </h1>
           <p className="mt-2 max-w-2xl text-sm text-slate-400">
-            Manage Heats, badges, the 444 program, and field marketer accountability.
+            Manage Heats, badges, setter ramp, and field marketer accountability.
           </p>
         </div>
 

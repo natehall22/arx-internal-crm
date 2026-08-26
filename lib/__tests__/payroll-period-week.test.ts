@@ -1,4 +1,4 @@
-import { pickPayrollPeriodForWeekEnd, payrollZoneDate } from '@/lib/sync-444-core'
+import { pickPayrollPeriodForWeekEnd, payrollZoneDate } from '@/lib/payroll-period-week'
 
 // Zaavon's real Week 1 window ends 2026-06-15 00:00 ET (stored as 04:00Z).
 const WEEK1_END = '2026-06-15T04:00:00.000Z'

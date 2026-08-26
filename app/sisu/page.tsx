@@ -4,8 +4,6 @@ export const fetchCache = 'force-no-store'
 
 import { requireAuth } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
-import { createServiceClient } from '@/lib/supabase/service'
-import { fetchEnrollmentCounts } from '@/lib/sync-444-core'
 import Nav from '@/components/Nav'
 import IncentivesClient from './IncentivesClient'
 import { getDateRangeForTimeFrame } from '@/lib/date-ranges'
@@ -19,9 +17,9 @@ import { SALE_AGREEMENT_TYPES, isCanvassDoorLead } from '@/lib/sales-metrics'
 import { getAttributedCanvassLeadUserId } from '@/lib/canvass-lead-attribution'
 import { INSPECTION_SET_APPOINTMENT_TYPE_OR } from '@/lib/inspection-set-metrics'
 import type {
-  SpiffProgram,
-  SpiffAchievement,
-  SpiffWithProgress,
+  Heat,
+  HeatAchievement,
+  HeatWithProgress,
   UserIncentiveGoal,
   IncentiveBadge,
   UserBadge,
@@ -123,7 +121,7 @@ export default async function IncentivesPage() {
     .gte('ends_at', new Date().toISOString())
     .order('ends_at', { ascending: true })
 
-  const spiffs = (spiffRows ?? []) as SpiffProgram[]
+  const spiffs = (spiffRows ?? []) as Heat[]
 
   // Filter by eligible_roles: empty array = all roles
   const eligibleSpiffs = spiffs.filter(
@@ -132,7 +130,7 @@ export default async function IncentivesPage() {
 
   // Fetch this user's achievement rows for these spiffs
   const spiffIds = eligibleSpiffs.map((s) => s.id)
-  let achievementMap = new Map<string, SpiffAchievement>()
+  let achievementMap = new Map<string, HeatAchievement>()
 
   if (spiffIds.length > 0) {
     const { data: achievementRows } = await supabase
@@ -142,31 +140,13 @@ export default async function IncentivesPage() {
       .in('spiff_program_id', spiffIds)
 
     for (const row of achievementRows ?? []) {
-      achievementMap.set(row.spiff_program_id, row as SpiffAchievement)
+      achievementMap.set(row.spiff_program_id, row as HeatAchievement)
     }
   }
-
-  const { data: enrollment444Row } = await supabase
-    .from('program_444_enrollments')
-    .select(
-      'id, week1_starts_at, week1_ends_at, week2_starts_at, week2_ends_at, week1_doors, week1_inspections, week1_qualified, week2_doors, week2_inspections, week2_qualified, status, week1_payroll_period_id, week2_payroll_period_id, updated_at'
-    )
-    .eq('user_id', profile.id)
-    .eq('org_id', profile.org_id)
-    .eq('status', 'active')
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle()
 
   const payrollPeriodIds = new Set<string>()
   for (const ach of Array.from(achievementMap.values())) {
     if (ach.payroll_period_id) payrollPeriodIds.add(ach.payroll_period_id)
-  }
-  if (enrollment444Row?.week1_payroll_period_id) {
-    payrollPeriodIds.add(enrollment444Row.week1_payroll_period_id)
-  }
-  if (enrollment444Row?.week2_payroll_period_id) {
-    payrollPeriodIds.add(enrollment444Row.week2_payroll_period_id)
   }
 
   const payDateByPeriodId = new Map<string, string>()
@@ -183,7 +163,7 @@ export default async function IncentivesPage() {
     }
   }
 
-  const activeSpiffs: SpiffWithProgress[] = eligibleSpiffs.map((s) => {
+  const activeSpiffs: HeatWithProgress[] = eligibleSpiffs.map((s) => {
     const ach = achievementMap.get(s.id)
     const periodId = ach?.payroll_period_id ?? null
     return {
@@ -194,42 +174,6 @@ export default async function IncentivesPage() {
       payroll_pay_date: periodId ? payDateByPeriodId.get(periodId) ?? null : null,
     }
   })
-
-  let enrollment444 = enrollment444Row ?? null
-
-  // ── Live progress overlay (DISPLAY ONLY) ───────────────────────────────────
-  // The persisted week*_doors / week*_inspections columns only refresh when the
-  // sync runs (hourly cron or the rep-triggered /api/sisu/sync). Recompute the
-  // rep's CURRENT counts here so they always see live progress on first paint —
-  // mirrors the admin 444 page. Read-only: qualified flags, qualified_at, and
-  // payroll links stay exactly as persisted (owned by the sync). On any error we
-  // keep the persisted counts so the page can never break.
-  if (enrollment444) {
-    try {
-      const service = createServiceClient()
-      const liveCounts = await fetchEnrollmentCounts(service, profile.org_id, [
-        {
-          id: enrollment444.id,
-          user_id: profile.id,
-          week1_starts_at: enrollment444.week1_starts_at,
-          week1_ends_at: enrollment444.week1_ends_at,
-          week2_starts_at: enrollment444.week2_starts_at,
-          week2_ends_at: enrollment444.week2_ends_at,
-        },
-      ])
-      const live = liveCounts.get(enrollment444.id)
-      if (live) {
-        // Stamp updated_at to now so the rep's "as of" recency label matches the
-        // freshly recomputed counts instead of the older persisted snapshot.
-        enrollment444 = { ...enrollment444, ...live, updated_at: new Date().toISOString() }
-      }
-    } catch (overlayError) {
-      console.error(
-        '[sisu/page] 444 live count overlay failed; using persisted counts:',
-        overlayError instanceof Error ? overlayError.message : overlayError,
-      )
-    }
-  }
 
   // ── Approved/paid bonus lines (rep-visible pay confirmations) ────────────────
   // Pending/rejected are invisible to reps; paid rows stay visible after payroll.
@@ -282,14 +226,6 @@ export default async function IncentivesPage() {
       scheduled_pay_date: pickScheduledPayDate(row.period),
     }))
 
-  // ── Org 444 bonus label (display string — can be cash, merch, or anything) ────
-  const { data: orgRow } = await supabase
-    .from('orgs')
-    .select('program_444_week_bonus_label')
-    .eq('id', profile.org_id)
-    .maybeSingle()
-  const weekBonusLabel: string = orgRow?.program_444_week_bonus_label ?? '$400'
-
   // ── Badges ────────────────────────────────────────────────────────────────────
   // Fetch all org badges + which ones this user has earned
   const { data: allBadgeRows } = await supabase
@@ -330,9 +266,7 @@ export default async function IncentivesPage() {
         activeSpiffs={activeSpiffs}
         earnedBadges={earnedBadges}
         isSetterLike={isSetterLikeRole(profile.role)}
-        enrollment444={enrollment444}
         approvedBonuses={approvedBonuses}
-        weekBonusLabel={weekBonusLabel}
         metricsAsOf={metricsAsOf}
       />
     </div>

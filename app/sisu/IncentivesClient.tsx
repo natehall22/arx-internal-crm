@@ -1,15 +1,15 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { User } from '@/lib/types/database'
 import type {
   LiveMetrics,
   UserIncentiveGoal,
-  SpiffWithProgress,
+  HeatWithProgress,
   BadgeWithEarned,
 } from '@/lib/incentive-metrics'
 import {
-  spiffMetricLabel,
+  heatMetricLabel,
   formatReward,
   timeRemainingLabel,
   progressBarColor,
@@ -19,26 +19,12 @@ import {
   formatPayoutOnPayroll,
 } from '@/lib/incentive-metrics'
 import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
-
-// ─── 444 Program types ────────────────────────────────────────────────────────
-
-type Enrollment444 = {
-  id: string
-  week1_starts_at: string
-  week1_ends_at: string
-  week2_starts_at: string
-  week2_ends_at: string
-  week1_doors: number
-  week1_inspections: number
-  week1_qualified: boolean
-  week1_payroll_period_id: string | null
-  week2_doors: number
-  week2_inspections: number
-  week2_qualified: boolean
-  week2_payroll_period_id: string | null
-  status: string
-  updated_at: string
-}
+import {
+  TIME_FRAMES,
+  TIME_FRAME_PROSE_LABELS,
+  TIME_FRAME_SELECT_LABELS,
+  type TimeFrame,
+} from '@/lib/time-frames'
 
 type ApprovedBonus = {
   id: string
@@ -410,7 +396,7 @@ interface HeroProps {
   isSetterLike: boolean
   metrics: LiveMetrics
   goal: UserIncentiveGoal | null
-  activeSpiffs: SpiffWithProgress[]
+  activeSpiffs: HeatWithProgress[]
   leaderboard: LeaderboardResponse | null
   currentUserId: string
   onOpenLeaderboard: () => void
@@ -631,6 +617,74 @@ type LeaderboardResponse = {
   asOf?: string
 }
 
+/** Leaderboard date filter — same option set + custom-range semantics as the dashboard. */
+type LeaderboardFilter = {
+  timeFrame: TimeFrame
+  customStartDate: string
+  customEndDate: string
+}
+
+const DEFAULT_LEADERBOARD_FILTER: LeaderboardFilter = {
+  timeFrame: 'week',
+  customStartDate: '',
+  customEndDate: '',
+}
+
+/** A custom range is only usable once both ends are picked. */
+function isFilterReady(filter: LeaderboardFilter) {
+  return (
+    filter.timeFrame !== 'custom' || (!!filter.customStartDate && !!filter.customEndDate)
+  )
+}
+
+function leaderboardFilterQuery(filter: LeaderboardFilter) {
+  const params = new URLSearchParams({ timeframe: filter.timeFrame })
+  if (filter.timeFrame === 'custom') {
+    params.set('startDate', filter.customStartDate)
+    params.set('endDate', filter.customEndDate)
+  }
+  return params.toString()
+}
+
+/** Stable key for per-filter client state (rank-delta history). */
+function leaderboardFilterKey(filter: LeaderboardFilter) {
+  return filter.timeFrame === 'custom'
+    ? `custom_${filter.customStartDate}_${filter.customEndDate}`
+    : filter.timeFrame
+}
+
+function leaderboardPeriodLabel(filter: LeaderboardFilter) {
+  if (filter.timeFrame !== 'custom') return TIME_FRAME_PROSE_LABELS[filter.timeFrame]
+  return filter.customStartDate && filter.customEndDate
+    ? `${filter.customStartDate} – ${filter.customEndDate}`
+    : 'custom range'
+}
+
+/**
+ * Single fetch path for the leaderboard — used by the page-level load and by the
+ * filter picker, so there is one place that knows the endpoint and its shape.
+ * Resolves to null when the response is missing or malformed.
+ */
+async function fetchLeaderboard(
+  filter: LeaderboardFilter,
+  signal?: AbortSignal,
+): Promise<LeaderboardResponse | null> {
+  const response = await fetch(`/api/sisu/leaderboard?${leaderboardFilterQuery(filter)}`, {
+    method: 'POST',
+    signal,
+  })
+  if (!response.ok) return null
+
+  const json: unknown = await response.json()
+  if (!isLeaderboardResponse(json)) return null
+
+  return {
+    ...json,
+    setters: json.setters.map(normalizeLeaderboardEntry),
+    closers: json.closers.map(normalizeLeaderboardEntry),
+  }
+}
+
 function isSisuSyncProgress(value: unknown): value is SisuSyncProgress {
   if (!value || typeof value !== 'object') return false
 
@@ -694,13 +748,16 @@ function loadAndSaveRankDeltas(
   roleTab: LeaderboardRoleTab,
   rows: LeaderboardEntry[],
   userId: string,
+  filterKey: string,
 ): Map<string, number> {
   const deltas = new Map<string, number>()
   if (typeof window === 'undefined' || rows.length === 0) return deltas
 
   const today = new Date().toISOString().slice(0, 10)
-  // Prefix with userId so different users sharing a browser don't see each other's rank history
-  const key = `${LEADERBOARD_RANK_STORAGE_PREFIX}${userId}_${roleTab}`
+  // Prefix with userId so different users sharing a browser don't see each other's rank history.
+  // filterKey keeps each date filter's history separate — comparing "all time" ranks against
+  // yesterday's "this week" ranks would report movement that never happened.
+  const key = `${LEADERBOARD_RANK_STORAGE_PREFIX}${userId}_${roleTab}_${filterKey}`
 
   try {
     const raw = localStorage.getItem(key)
@@ -782,7 +839,7 @@ function SpiffCard({
   isSyncing,
   isQualificationFlashing,
 }: {
-  spiff: SpiffWithProgress
+  spiff: HeatWithProgress
   isSyncing: boolean
   isQualificationFlashing: boolean
 }) {
@@ -854,7 +911,7 @@ function SpiffCard({
 
       {/* Metric + threshold */}
       <div className="text-sm text-gray-300">
-        <span className="font-medium text-white">{spiffMetricLabel(spiff.trigger_metric)}</span>
+        <span className="font-medium text-white">{heatMetricLabel(spiff.trigger_metric)}</span>
         {': '}
         <span className="text-indigo-400 font-bold">{spiff.threshold.toLocaleString()}</span>
         {' target'}
@@ -900,7 +957,7 @@ function SpiffsSection({
   flashingSpiffIds,
   syncedAt,
 }: {
-  spiffs: SpiffWithProgress[]
+  spiffs: HeatWithProgress[]
   syncing: boolean
   flashingSpiffIds: Set<string>
   syncedAt: Date | null
@@ -1214,7 +1271,59 @@ function LeaderboardMoverRow({
   )
 }
 
-function LeaderboardSection({
+function LeaderboardFilterControls({
+  filter,
+  onChange,
+}: {
+  filter: LeaderboardFilter
+  onChange: (next: LeaderboardFilter) => void
+}) {
+  // Mirrors the dashboard's picker (select + two date inputs) in the Sisu dark theme.
+  const controlClass =
+    'rounded-lg border border-gray-700 bg-gray-900 px-3 py-1.5 text-xs font-semibold text-white focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500'
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <select
+        value={filter.timeFrame}
+        onChange={(e) => onChange({ ...filter, timeFrame: e.target.value as TimeFrame })}
+        aria-label="Leaderboard time period"
+        className={controlClass}
+      >
+        {TIME_FRAMES.map((tf) => (
+          <option key={tf} value={tf} className="bg-gray-900 text-white">
+            {TIME_FRAME_SELECT_LABELS[tf]}
+          </option>
+        ))}
+      </select>
+
+      {filter.timeFrame === 'custom' && (
+        <div className="flex items-center gap-1.5">
+          <input
+            type="date"
+            value={filter.customStartDate}
+            max={filter.customEndDate || undefined}
+            onChange={(e) => onChange({ ...filter, customStartDate: e.target.value })}
+            aria-label="Custom range start date"
+            className={controlClass}
+          />
+          <span className="text-xs font-semibold text-gray-300">to</span>
+          <input
+            type="date"
+            value={filter.customEndDate}
+            min={filter.customStartDate || undefined}
+            onChange={(e) => onChange({ ...filter, customEndDate: e.target.value })}
+            aria-label="Custom range end date"
+            className={controlClass}
+          />
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Exported for __tests__/sisu-leaderboard-filters.test.tsx. */
+export function LeaderboardSection({
   leaderboard,
   loading,
   error,
@@ -1223,6 +1332,7 @@ function LeaderboardSection({
   currentUserId,
   leaderboardAsOf,
 }: {
+  /** Default ("this week") leaderboard loaded by the page — reused so the default view costs no extra fetch. */
   leaderboard: LeaderboardResponse | null
   loading: boolean
   error: boolean
@@ -1235,8 +1345,69 @@ function LeaderboardSection({
   const [showFullList, setShowFullList] = useState(false)
   const [rankDeltas, setRankDeltas] = useState<Map<string, number>>(() => new Map())
   const [profileEntry, setProfileEntry] = useState<LeaderboardEntry | null>(null)
+  const [filter, setFilter] = useState<LeaderboardFilter>(DEFAULT_LEADERBOARD_FILTER)
+  const [filtered, setFiltered] = useState<{
+    data: LeaderboardResponse | null
+    asOf: Date | null
+    loading: boolean
+    error: boolean
+  } | null>(null)
 
-  const rows = leaderboard?.[activeRoleTab] ?? []
+  const isDefaultFilter = filter.timeFrame === DEFAULT_LEADERBOARD_FILTER.timeFrame
+  const filterKey = leaderboardFilterKey(filter)
+  const periodLabel = leaderboardPeriodLabel(filter)
+
+  useEffect(() => {
+    // The default filter reuses the page's already-loaded "this week" data.
+    if (isDefaultFilter) {
+      setFiltered(null)
+      return
+    }
+    // A half-filled custom range isn't a query yet — keep showing the last result.
+    if (!isFilterReady(filter)) return
+
+    const controller = new AbortController()
+    setFiltered((current) => ({
+      data: current?.data ?? null,
+      asOf: current?.asOf ?? null,
+      loading: true,
+      error: false,
+    }))
+
+    fetchLeaderboard(filter, controller.signal)
+      .then((data) => {
+        if (controller.signal.aborted) return
+        setFiltered({
+          data,
+          asOf: data?.asOf ? new Date(data.asOf) : new Date(),
+          loading: false,
+          error: data === null,
+        })
+      })
+      .catch(() => {
+        if (controller.signal.aborted) return
+        setFiltered({ data: null, asOf: null, loading: false, error: true })
+      })
+
+    return () => controller.abort()
+    // filterKey collapses the three filter fields into one dependency.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterKey, isDefaultFilter])
+
+  const activeData = isDefaultFilter ? leaderboard : filtered?.data ?? null
+  const activeLoading = isDefaultFilter ? loading : filtered?.loading ?? true
+  const activeError = isDefaultFilter ? error : filtered?.error ?? false
+  const activeAsOf = isDefaultFilter ? leaderboardAsOf : filtered?.asOf ?? null
+
+  // Memoized: `rows` feeds a useEffect dependency array below that calls setRankDeltas.
+  // A plain `activeData?.[activeRoleTab] ?? []` still evaluates to the same VALUES each
+  // render, but `?? []` allocates a new array reference whenever activeData is null —
+  // and even a real hit is a fresh reference-equal-only-by-luck object read. React's
+  // dependency check is reference equality, so an unmemoized `rows` looks "changed"
+  // every render, re-running the effect, calling setRankDeltas, forcing a re-render,
+  // recomputing a new `rows` again — an infinite render loop (confirmed via a real
+  // jest run: React's "Maximum update depth exceeded" warning, then a heap OOM crash).
+  const rows = useMemo(() => activeData?.[activeRoleTab] ?? [], [activeData, activeRoleTab])
   const currentUserEntry = rows.find((entry) => entry.user_id === currentUserId)
   const neighborhoodRows =
     currentUserEntry != null && !showFullList
@@ -1253,12 +1424,13 @@ function LeaderboardSection({
   const primaryLabel = activeRoleTab === 'setters' ? 'set' : 'sales'
 
   useEffect(() => {
-    setRankDeltas(loadAndSaveRankDeltas(activeRoleTab, rows, currentUserId))
-  }, [activeRoleTab, rows])
+    setRankDeltas(loadAndSaveRankDeltas(activeRoleTab, rows, currentUserId, filterKey))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeRoleTab, rows, filterKey])
 
   useEffect(() => {
     setShowFullList(false)
-  }, [activeRoleTab, viewTab])
+  }, [activeRoleTab, viewTab, filterKey])
 
   // Hustle award: rep with most doors knocked who isn't already #1
   const hustleUserId: string | null = (() => {
@@ -1283,10 +1455,10 @@ function LeaderboardSection({
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-base font-bold text-white">Leaderboard</h2>
-          <p className="text-xs text-gray-400">This week</p>
-          {leaderboardAsOf != null && !loading && (
-            <p className="text-[10px] text-gray-500 mt-0.5 uppercase tracking-wide">
-              Updated {formatDataRecency(leaderboardAsOf)}
+          <p className="text-xs capitalize text-gray-300">{periodLabel}</p>
+          {activeAsOf != null && !activeLoading && (
+            <p className="text-[10px] text-gray-400 mt-0.5 uppercase tracking-wide">
+              Updated {formatDataRecency(activeAsOf)}
             </p>
           )}
         </div>
@@ -1308,6 +1480,8 @@ function LeaderboardSection({
         </div>
       </div>
 
+      <LeaderboardFilterControls filter={filter} onChange={setFilter} />
+
       <div className="grid grid-cols-2 rounded-full border border-gray-800 bg-gray-900 p-1 text-xs font-bold">
         {([
           ['rankings', 'Rankings'],
@@ -1328,15 +1502,19 @@ function LeaderboardSection({
         ))}
       </div>
 
-      {loading ? (
+      {!isFilterReady(filter) ? (
+        <div className="rounded-2xl border border-dashed border-gray-700 bg-gray-900/50 p-6 text-center text-sm font-semibold text-gray-300">
+          Pick a start and end date to see that range.
+        </div>
+      ) : activeLoading ? (
         <LeaderboardSkeleton />
-      ) : error ? (
-        <div className="rounded-2xl border border-gray-800 bg-gray-900 p-6 text-center text-sm font-semibold text-gray-400">
+      ) : activeError ? (
+        <div className="rounded-2xl border border-gray-800 bg-gray-900 p-6 text-center text-sm font-semibold text-gray-300">
           Leaderboard unavailable
         </div>
       ) : rows.length === 0 || !hasActivity ? (
-        <div className="rounded-2xl border border-dashed border-gray-700 bg-gray-900/50 p-6 text-center text-sm font-semibold text-gray-400">
-          No activity this week yet. Be the first.
+        <div className="rounded-2xl border border-dashed border-gray-700 bg-gray-900/50 p-6 text-center text-sm font-semibold text-gray-300">
+          No activity for {periodLabel} yet. Be the first.
         </div>
       ) : viewTab === 'movers' ? (
         <div className="space-y-2">
@@ -1407,20 +1585,16 @@ function StatusBar({
   leaderboard,
   currentUserId,
   isSetterLike,
-  enrollment444,
   approvedBonuses,
-  weekBonusLabel,
   onOpenLeaderboard,
   metrics,
   goal,
 }: {
-  activeSpiffs: SpiffWithProgress[]
+  activeSpiffs: HeatWithProgress[]
   leaderboard: LeaderboardResponse | null
   currentUserId: string
   isSetterLike: boolean
-  enrollment444: Enrollment444 | null
   approvedBonuses: ApprovedBonus[]
-  weekBonusLabel: string
   onOpenLeaderboard: () => void
   metrics: LiveMetrics
   goal: UserIncentiveGoal | null
@@ -1434,22 +1608,6 @@ function StatusBar({
   const roleRows = leaderboard?.[roleTab] ?? []
   const myRankEntry = roleRows.find((e) => e.user_id === currentUserId)
 
-  // 444 gap to next $400
-  let bonus444Label: string | null = null
-  if (enrollment444 && !enrollment444.week1_qualified && !enrollment444.week2_qualified) {
-    const now = new Date()
-    const inWeek2 = now >= new Date(enrollment444.week2_starts_at)
-    const doors = inWeek2 ? enrollment444.week2_doors : enrollment444.week1_doors
-    const inspections = inWeek2 ? enrollment444.week2_inspections : enrollment444.week1_inspections
-    const doorsLeft = Math.max(0, 400 - doors)
-    const inspsLeft = Math.max(0, 4 - inspections)
-    if (doorsLeft > 0 || inspsLeft > 0) {
-      const parts: string[] = []
-      if (doorsLeft > 0) parts.push(`${doorsLeft} doors`)
-      if (inspsLeft > 0) parts.push(`${inspsLeft} insp`)
-      bonus444Label = `${parts.join(' + ')} → ${weekBonusLabel}`
-    }
-  }
 
   const chips: {
     label: string
@@ -1471,20 +1629,7 @@ function StatusBar({
     })
   }
 
-  if (bonus444Label) {
-    chips.push({ label: '444 bonus', value: bonus444Label, amber: true })
-  }
 
-  for (const bonus of approvedBonuses.filter(
-    (b) => b.bonus_type === '444_week1' || b.bonus_type === '444_week2',
-  )) {
-    chips.push({
-      label: '444 Bonus',
-      value: formatBonusChipLabel(bonus),
-      amber: true,
-      key: bonus.id,
-    })
-  }
 
   const primaryPace = isSetterLike ? pace.inspections : pace.sales
   if (primaryPace != null) {
@@ -1522,193 +1667,9 @@ function StatusBar({
   )
 }
 
-// ─── 444 Program card ─────────────────────────────────────────────────────────
-
-function Program444Card({
-  enrollment,
-  approvedBonuses,
-  weekBonusLabel,
-}: {
-  enrollment: Enrollment444
-  approvedBonuses: ApprovedBonus[]
-  weekBonusLabel: string
-}) {
-  const now = new Date()
-  const week1Start = new Date(enrollment.week1_starts_at)
-  const week1End = new Date(enrollment.week1_ends_at)
-  const week2Start = new Date(enrollment.week2_starts_at)
-  const week2End = new Date(enrollment.week2_ends_at)
-
-  const bothWeeksDone = enrollment.week1_qualified && enrollment.week2_qualified
-  const programEnded = now >= week2End
-
-  // Determine which week's data to show
-  const inWeek1 = now >= week1Start && now < week1End
-  const inWeek2 = now >= week2Start && now < week2End
-  const weekNum = inWeek2 ? 2 : 1
-  const doors = weekNum === 2 ? enrollment.week2_doors : enrollment.week1_doors
-  const inspections = weekNum === 2 ? enrollment.week2_inspections : enrollment.week1_inspections
-  const weekQualified = weekNum === 2 ? enrollment.week2_qualified : enrollment.week1_qualified
-  const doorsHit = doors >= 400
-  const inspectionsHit = inspections >= 4
-  const doorsPct = Math.min((doors / 400) * 100, 100)
-  const inspectionsPct = Math.min((inspections / 4) * 100, 100)
-
-  const week1Bonus =
-    approvedBonuses.find(
-      (b) => b.source_id === enrollment.id && b.bonus_type === '444_week1',
-    ) ?? null
-  const week2Bonus =
-    approvedBonuses.find(
-      (b) => b.source_id === enrollment.id && b.bonus_type === '444_week2',
-    ) ?? null
-
-  const resolvedWeek1Bonus =
-    week1Bonus ??
-    approvedBonuses.find((b) => b.bonus_type === '444_week1' && b.source_id === null) ??
-    null
-  const resolvedWeek2Bonus =
-    week2Bonus ??
-    approvedBonuses.find((b) => b.bonus_type === '444_week2' && b.source_id === null) ??
-    null
-
-  const payoutLines: { id: string; label: string }[] = []
-  if (enrollment.week1_qualified && resolvedWeek1Bonus) {
-    payoutLines.push({
-      id: resolvedWeek1Bonus.id,
-      label: formatPayoutOnPayroll(resolvedWeek1Bonus.amount, resolvedWeek1Bonus.scheduled_pay_date),
-    })
-  }
-  if (enrollment.week2_qualified && resolvedWeek2Bonus) {
-    payoutLines.push({
-      id: resolvedWeek2Bonus.id,
-      label: formatPayoutOnPayroll(resolvedWeek2Bonus.amount, resolvedWeek2Bonus.scheduled_pay_date),
-    })
-  }
-
-  const activeWeekBonus = weekNum === 2 ? resolvedWeek2Bonus : resolvedWeek1Bonus
-
-  return (
-    <section className="rounded-2xl border border-amber-500/50 bg-gray-900 overflow-hidden">
-      {/* Top accent strip */}
-      <div className="h-1 w-full bg-gradient-to-r from-amber-500 via-yellow-400 to-amber-600" />
-
-      <div className="p-5 flex flex-col gap-4">
-        {/* Header */}
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <span className="text-xl">🏆</span>
-            <h2 className="text-base font-bold text-white">ARX 444 Program</h2>
-          </div>
-          <DataRecencyLabel asOf={enrollment.updated_at} />
-        </div>
-
-        {/* Complete state */}
-        {bothWeeksDone ? (
-          <div className="rounded-xl bg-emerald-900/40 border border-emerald-500/50 px-4 py-3 text-center">
-            <p className="text-emerald-300 font-bold text-sm">444 Complete — both bonuses earned 🎉</p>
-            {payoutLines.length > 0 && (
-              <div className="mt-2 space-y-1">
-                {payoutLines.map((line) => (
-                  <p key={line.id} className="text-emerald-400 text-xs font-semibold">{line.label}</p>
-                ))}
-              </div>
-            )}
-          </div>
-        ) : programEnded ? (
-          <div className="rounded-xl bg-gray-800/60 border border-gray-700/50 px-4 py-3 text-center">
-            <p className="text-gray-400 font-semibold text-sm">Program ended</p>
-          </div>
-        ) : (
-          <>
-            {inWeek2 && enrollment.week1_qualified && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-800/60 text-emerald-300 text-xs font-medium px-2.5 py-0.5">
-                ✓ Week 1 complete
-              </span>
-            )}
-
-            {/* Dominant call-to-action headline */}
-            {doorsHit && inspectionsHit ? (
-              <div className="text-center py-2">
-                <p
-                  className="text-xl sm:text-2xl md:text-3xl font-black text-emerald-300 leading-tight break-words px-1"
-                  style={{ filter: 'drop-shadow(0 0 24px rgba(52,211,153,0.35))' }}
-                >
-                  Week qualified — {weekBonusLabel} earned
-                </p>
-                {weekQualified && activeWeekBonus && (
-                  <p className="mt-2 text-xs font-semibold text-emerald-400">
-                    {formatPayoutOnPayroll(
-                      activeWeekBonus.amount,
-                      activeWeekBonus.scheduled_pay_date,
-                    )}
-                  </p>
-                )}
-              </div>
-            ) : (
-              <div className="text-center py-2">
-                <p
-                  className="text-xl sm:text-2xl md:text-3xl font-black text-amber-300 leading-tight break-words px-1"
-                  style={{ filter: 'drop-shadow(0 0 28px rgba(251,191,36,0.35))' }}
-                >
-                  {!doorsHit && !inspectionsHit
-                    ? `${400 - doors} doors + ${4 - inspections} inspections = ${weekBonusLabel} bonus`
-                    : doorsHit
-                    ? `${4 - inspections} more inspection${4 - inspections === 1 ? '' : 's'} = ${weekBonusLabel} bonus`
-                    : `${400 - doors} more doors + ${inspectionsHit ? 'inspections done' : `${4 - inspections} inspections`} = ${weekBonusLabel} bonus`}
-                </p>
-                <div className="flex items-center justify-center gap-2 mt-2">
-                  <span className="text-xs font-semibold uppercase tracking-widest text-amber-400/80">
-                    {inWeek1 ? 'Week 1' : inWeek2 ? 'Week 2' : `Week ${weekNum}`}
-                  </span>
-                  {weekQualified && (
-                    <span className="rounded-full bg-emerald-600 text-white text-xs font-bold px-2 py-0.5">
-                      Qualified ✓
-                    </span>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* Doors progress */}
-            <div className="flex flex-col gap-1.5">
-              <div className="flex justify-between items-baseline text-xs">
-                <span className="text-gray-400 font-medium">Doors</span>
-                <span className={doorsHit ? 'text-emerald-400 font-bold' : 'text-gray-400'}>
-                  {doors.toLocaleString()} / 400
-                </span>
-              </div>
-              <ProgressBar
-                pct={doorsPct}
-                colorClass={doorsHit ? 'bg-emerald-500' : 'bg-amber-500'}
-                height="h-2"
-              />
-            </div>
-
-            {/* Inspections progress */}
-            <div className="flex flex-col gap-1.5">
-              <div className="flex justify-between items-baseline text-xs">
-                <span className="text-gray-400 font-medium">Inspections Set</span>
-                <span className={inspectionsHit ? 'text-emerald-400 font-bold' : 'text-gray-400'}>
-                  {inspections} / 4
-                </span>
-              </div>
-              <ProgressBar
-                pct={inspectionsPct}
-                colorClass={inspectionsHit ? 'bg-emerald-500' : 'bg-amber-500'}
-                height="h-2"
-              />
-            </div>
-          </>
-        )}
-      </div>
-    </section>
-  )
-}
-
 // ─── Qualification toast ──────────────────────────────────────────────────────
 
-function QualificationToast({ heat, onDismiss }: { heat: SpiffWithProgress; onDismiss: () => void }) {
+function QualificationToast({ heat, onDismiss }: { heat: HeatWithProgress; onDismiss: () => void }) {
   useEffect(() => {
     const t = setTimeout(onDismiss, 5000)
     return () => clearTimeout(t)
@@ -1738,12 +1699,10 @@ interface IncentivesClientProps {
   profile: User
   liveMetrics: LiveMetrics
   goal: UserIncentiveGoal | null
-  activeSpiffs: SpiffWithProgress[]
+  activeSpiffs: HeatWithProgress[]
   earnedBadges: BadgeWithEarned[]
   isSetterLike: boolean
-  enrollment444: Enrollment444 | null
   approvedBonuses: ApprovedBonus[]
-  weekBonusLabel: string
   metricsAsOf: string
 }
 
@@ -1754,9 +1713,7 @@ export default function IncentivesClient({
   activeSpiffs: initialActiveSpiffs,
   earnedBadges,
   isSetterLike,
-  enrollment444,
   approvedBonuses,
-  weekBonusLabel,
   metricsAsOf,
 }: IncentivesClientProps) {
   const [activeSpiffs, setActiveSpiffs] = useState(initialActiveSpiffs)
@@ -1764,7 +1721,7 @@ export default function IncentivesClient({
   const [spiffsSyncedAt, setSpiffsSyncedAt] = useState<Date | null>(null)
   const [leaderboardAsOf, setLeaderboardAsOf] = useState<Date | null>(null)
   const [flashingSpiffIds, setFlashingSpiffIds] = useState<Set<string>>(() => new Set())
-  const [toastHeat, setToastHeat] = useState<SpiffWithProgress | null>(null)
+  const [toastHeat, setToastHeat] = useState<HeatWithProgress | null>(null)
   const [mainView, setMainView] = useState<MainView>('stats')
   const isManager = [
     'manager', 'sales_manager', 'setter_manager', 'regional_manager',
@@ -1778,8 +1735,6 @@ export default function IncentivesClient({
   const [leaderboardError, setLeaderboardError] = useState(false)
   const initialActiveSpiffsRef = useRef(initialActiveSpiffs)
   const profileIdRef = useRef(profile.id)
-  const profileOrgIdRef = useRef(profile.org_id)
-  const profileRoleRef = useRef(profile.role)
   const hour = new Date().getHours()
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
   const initials = (profile.full_name ?? '')
@@ -1860,33 +1815,18 @@ export default function IncentivesClient({
       setLeaderboardError(false)
 
       try {
-        const response = await fetch('/api/sisu/leaderboard', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            orgId: profileOrgIdRef.current,
-            role: profileRoleRef.current,
-          }),
-        })
+        // Default ("this week") view — LeaderboardSection reuses this and only
+        // refetches when the rep picks a different period.
+        const data = await fetchLeaderboard(DEFAULT_LEADERBOARD_FILTER)
 
-        if (!response.ok) {
-          if (!cancelled) setLeaderboardError(true)
-          return
-        }
-
-        const json: unknown = await response.json()
-        if (!isLeaderboardResponse(json)) {
+        if (data === null) {
           if (!cancelled) setLeaderboardError(true)
           return
         }
 
         if (!cancelled) {
-          setLeaderboard({
-            ...json,
-            setters: json.setters.map(normalizeLeaderboardEntry),
-            closers: json.closers.map(normalizeLeaderboardEntry),
-          })
-          setLeaderboardAsOf(json.asOf ? new Date(json.asOf) : new Date())
+          setLeaderboard(data)
+          setLeaderboardAsOf(data.asOf ? new Date(data.asOf) : new Date())
         }
       } catch {
         if (!cancelled) setLeaderboardError(true)
@@ -1982,9 +1922,7 @@ export default function IncentivesClient({
         leaderboard={leaderboard}
         currentUserId={profile.id}
         isSetterLike={isSetterLike}
-        enrollment444={enrollment444}
         approvedBonuses={approvedBonuses}
-        weekBonusLabel={weekBonusLabel}
         onOpenLeaderboard={() => setMainView('leaderboard')}
         metrics={liveMetrics}
         goal={goal}
@@ -2008,14 +1946,6 @@ export default function IncentivesClient({
             leaderboardAsOf={leaderboardAsOf}
           />
 
-          {/* Section 3 — 444 Program */}
-          {enrollment444 !== null && (
-            <Program444Card
-              enrollment={enrollment444}
-              approvedBonuses={approvedBonuses}
-              weekBonusLabel={weekBonusLabel}
-            />
-          )}
 
           {/* Section 4 — SPIFFs */}
           <SpiffsSection

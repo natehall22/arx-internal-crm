@@ -6,6 +6,7 @@ import { multipartFilenameForUpload } from '@/lib/files/storage'
 import { createClientBrowser } from '@/lib/supabase/client'
 import { pickValidEmail } from '@/lib/email-address'
 import { isOrgSuperuserRoleSlug } from '@/lib/permissions'
+import { isPayrollAdminRole } from '@/lib/payroll-admin-access'
 import JobPhotoLightbox from '@/components/ops/JobPhotoLightbox'
 
 type PhotoRow = {
@@ -38,6 +39,7 @@ type CostLineRow = {
   status: string
   vendor_name?: string | null
   is_system?: boolean
+  approved: boolean
 }
 
 /** Row from `job_cost_lines` select with `vendors(name)` join */
@@ -47,6 +49,7 @@ type JobCostLineQueryRow = {
   amount: unknown
   cost_type: string
   status: string
+  approved: boolean
   vendors?: { name?: string | null } | Array<{ name?: string | null }> | null
 }
 
@@ -186,6 +189,7 @@ export default function JobFileWorkspaceCard({
   const [newCostDescription, setNewCostDescription] = useState('')
   const [newCostAmount, setNewCostAmount] = useState('')
   const [newCostType, setNewCostType] = useState<string>('material')
+  const [approvingLineId, setApprovingLineId] = useState<string | null>(null)
   const completionCertificate = documents.find((doc) => doc.category === 'completion_certificate')
 
   /** Match API/email route (allows complete | collected); tolerate odd casing/spacing from clients. */
@@ -251,7 +255,7 @@ export default function JobFileWorkspaceCard({
         })),
       supabase
         .from('job_cost_lines')
-        .select('id, description, amount, cost_type, status, vendors(name)')
+        .select('id, description, amount, cost_type, status, approved, vendors(name)')
         .eq('job_id', jobId)
         .is('deleted_at', null)
         .order('created_at', { ascending: false })
@@ -296,6 +300,7 @@ export default function JobFileWorkspaceCard({
         amount: Number(row.amount || 0),
         cost_type: row.cost_type,
         status: row.status,
+        approved: row.approved,
         vendor_name: Array.isArray(row.vendors) ? row.vendors[0]?.name || null : row.vendors?.name || null,
         is_system: SYSTEM_COST_LINE_DESCRIPTION.test(row.description ?? ''),
       })
@@ -312,6 +317,7 @@ export default function JobFileWorkspaceCard({
               status: 'active',
               vendor_name: null,
               is_system: true,
+              approved: true,
             },
             ...normalizedCostLines,
           ]
@@ -882,6 +888,29 @@ export default function JobFileWorkspaceCard({
       setStatusMessage({ type: 'error', text: err?.message || 'Could not add cost line' })
     } finally {
       setSavingCostLine(false)
+    }
+  }
+
+  const canApproveCostLines = isPayrollAdminRole(userRole)
+
+  const handleSetCostLineApproved = async (lineId: string, approved: boolean) => {
+    if (approvingLineId) return
+    setApprovingLineId(lineId)
+    setStatusMessage(null)
+    try {
+      const response = await fetch(`/api/ops/jobs/${jobId}/cost-lines/${lineId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ approved }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(data.error || 'Could not update cost line')
+      await loadData(undefined, { keepLoadedUI: true })
+    } catch (err: any) {
+      setStatusMessage({ type: 'error', text: err?.message || 'Could not update cost line' })
+    } finally {
+      setApprovingLineId(null)
     }
   }
 
@@ -1468,6 +1497,7 @@ export default function JobFileWorkspaceCard({
                       {canSeeAmounts && <th className="text-left px-3 py-2 font-medium">Amount</th>}
                       <th className="text-left px-3 py-2 font-medium">Category</th>
                       <th className="text-left px-3 py-2 font-medium">Status</th>
+                      <th className="text-left px-3 py-2 font-medium">Review</th>
                       <th className="text-left px-3 py-2 font-medium">Attachments</th>
                     </tr>
                   </thead>
@@ -1486,6 +1516,28 @@ export default function JobFileWorkspaceCard({
                         {canSeeAmounts && <td className="px-3 py-2 text-gray-700">{formatCurrency(line.amount)}</td>}
                         <td className="px-3 py-2 text-gray-700">{line.cost_type}</td>
                         <td className="px-3 py-2 text-gray-700">{line.status}</td>
+                        <td className="px-3 py-2 text-gray-700">
+                          {isSystemCostLine(line) ? (
+                            '-'
+                          ) : line.approved ? (
+                            <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">
+                              Approved
+                            </span>
+                          ) : canApproveCostLines ? (
+                            <button
+                              type="button"
+                              onClick={() => handleSetCostLineApproved(line.id, true)}
+                              disabled={approvingLineId === line.id}
+                              className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900 hover:bg-amber-200 disabled:opacity-50"
+                            >
+                              {approvingLineId === line.id ? 'Approving…' : 'Pending — Approve'}
+                            </button>
+                          ) : (
+                            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
+                              Pending review
+                            </span>
+                          )}
+                        </td>
                         <td className="px-3 py-2 text-gray-700">
                           {isSystemCostLine(line) ? '-' : attachmentCountByLine[line.id] || 0}
                         </td>

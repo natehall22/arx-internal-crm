@@ -9,10 +9,6 @@
       "schedule": "0 3 * * *"
     },
     {
-      "path": "/api/cron/sync-444",
-      "schedule": "0 * * * *"
-    },
-    {
       "path": "/api/cron/sync-setter-ramp",
       "schedule": "0 * * * *"
     },

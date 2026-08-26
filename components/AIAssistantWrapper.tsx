@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { usePathname } from 'next/navigation'
 import AIAssistant from '@/components/AIAssistant'
 import { useAIAssistantPageContext } from '@/components/AIAssistantProvider'
@@ -23,14 +23,34 @@ function hasStackedOpsFab(pathname: string | null): boolean {
  * CRM login writes the session cookie only; the browser Supabase client often
  * has no local session, so getUser() returns null and previously hid the FAB
  * even for allowlisted users who can open Settings → AI.
+ *
+ * The sessionStorage "latch" that lets a known-good user skip the loading
+ * flicker on repeat visits must only be applied in an effect, never read
+ * during the initial render (e.g. via a useRef/useState lazy initializer).
+ * The server always renders with no window, so an eager read makes the
+ * client's first (hydrating) render diverge from the server's whenever the
+ * latch is set — React then discards the mismatched tree and throws on this
+ * component's <button>, which breaks click handling for the rest of the
+ * page until a hard reload. useLayoutEffect applies the latch synchronously
+ * after hydration commits but before paint, so there's still no visible
+ * flicker for returning allowlisted users.
  */
 export default function AIAssistantWrapper() {
   const pathname = usePathname()
   const { pageContext } = useAIAssistantPageContext()
-  const allowlistOkRef = useRef(readAiAssistantAllowlistLatch())
-  const [isAuthenticated, setIsAuthenticated] = useState(allowlistOkRef.current)
-  const [isAllowlisted, setIsAllowlisted] = useState(allowlistOkRef.current)
-  const [isLoading, setIsLoading] = useState(!allowlistOkRef.current)
+  const allowlistOkRef = useRef(false)
+  const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [isAllowlisted, setIsAllowlisted] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
+
+  useLayoutEffect(() => {
+    if (readAiAssistantAllowlistLatch()) {
+      allowlistOkRef.current = true
+      setIsAuthenticated(true)
+      setIsAllowlisted(true)
+      setIsLoading(false)
+    }
+  }, [])
 
   useEffect(() => {
     let mounted = true

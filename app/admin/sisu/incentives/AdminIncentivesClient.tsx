@@ -3,21 +3,21 @@
 import { useState, useEffect, useCallback } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import type {
-  SpiffProgram,
-  SpiffAchievement,
+  Heat,
+  HeatAchievement,
   IncentiveCycle,
   IncentiveBadge,
   UserBadge,
-  SpiffTriggerMetric,
-  SpiffRewardType,
-  SpiffStatus,
+  HeatTriggerMetric,
+  HeatRewardType,
+  HeatStatus,
   IncentiveCycleCadence,
   BadgeCriteriaType,
 } from '@/lib/types/incentive'
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
-const TRIGGER_METRIC_LABELS: Record<SpiffTriggerMetric, string> = {
+const TRIGGER_METRIC_LABELS: Record<HeatTriggerMetric, string> = {
   inspections_set: 'Inspections Set',
   inspections_sat: 'Inspections Sat',
   closed_sales: 'Closed Sales',
@@ -27,7 +27,7 @@ const TRIGGER_METRIC_LABELS: Record<SpiffTriggerMetric, string> = {
   upgrade_attached: 'Upgrade Attached',
 }
 
-const THRESHOLD_LABELS: Record<SpiffTriggerMetric, string> = {
+const THRESHOLD_LABELS: Record<HeatTriggerMetric, string> = {
   inspections_set: 'Number of inspections',
   inspections_sat: 'Number of sat inspections',
   closed_sales: 'Number of closed sales',
@@ -68,8 +68,8 @@ const CRITERIA_VALUE_REQUIRED: BadgeCriteriaType[] = [
   'close_rate_threshold',
 ]
 
-function statusBadge(status: SpiffStatus) {
-  const classes: Record<SpiffStatus, string> = {
+function statusBadge(status: HeatStatus) {
+  const classes: Record<HeatStatus, string> = {
     draft: 'bg-slate-800 text-slate-400',
     active: 'bg-emerald-500/15 text-emerald-300',
     completed: 'bg-blue-500/15 text-blue-300',
@@ -90,19 +90,19 @@ interface SimpleUser {
   role: string
 }
 
-interface SpiffFormState {
+interface HeatFormState {
   name: string
   description: string
-  trigger_metric: SpiffTriggerMetric
+  trigger_metric: HeatTriggerMetric
   threshold: string
-  reward_type: SpiffRewardType
+  reward_type: HeatRewardType
   reward_amount: string
   reward_note: string
   eligible_roles: string[]
   is_public: boolean
   starts_at: string
   ends_at: string
-  status: SpiffStatus
+  status: HeatStatus
 }
 
 interface CycleFormState {
@@ -124,7 +124,7 @@ interface BadgeFormState {
 
 // ─── defaults ────────────────────────────────────────────────────────────────
 
-function defaultSpiffForm(): SpiffFormState {
+function defaultHeatForm(): HeatFormState {
   const today = new Date().toISOString().split('T')[0]
   const oneWeek = new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0]
   return {
@@ -166,14 +166,14 @@ function defaultBadgeForm(): BadgeFormState {
   }
 }
 
-// ─── SPIFF wizard step components ────────────────────────────────────────────
+// ─── Heat wizard step components ────────────────────────────────────────────
 
-function SpiffStep1({
+function HeatStep1({
   form,
   setForm,
 }: {
-  form: SpiffFormState
-  setForm: React.Dispatch<React.SetStateAction<SpiffFormState>>
+  form: HeatFormState
+  setForm: React.Dispatch<React.SetStateAction<HeatFormState>>
 }) {
   return (
     <div className="space-y-4">
@@ -205,11 +205,11 @@ function SpiffStep1({
         <select
           value={form.trigger_metric}
           onChange={(e) =>
-            setForm((p) => ({ ...p, trigger_metric: e.target.value as SpiffTriggerMetric }))
+            setForm((p) => ({ ...p, trigger_metric: e.target.value as HeatTriggerMetric }))
           }
           className="w-full px-4 py-2 border border-slate-700 rounded-lg bg-slate-950 text-white placeholder:text-slate-500 [color-scheme:dark]"
         >
-          {(Object.entries(TRIGGER_METRIC_LABELS) as [SpiffTriggerMetric, string][]).map(
+          {(Object.entries(TRIGGER_METRIC_LABELS) as [HeatTriggerMetric, string][]).map(
             ([value, label]) => (
               <option key={value} value={value}>
                 {label}
@@ -236,12 +236,12 @@ function SpiffStep1({
   )
 }
 
-function SpiffStep2({
+function HeatStep2({
   form,
   setForm,
 }: {
-  form: SpiffFormState
-  setForm: React.Dispatch<React.SetStateAction<SpiffFormState>>
+  form: HeatFormState
+  setForm: React.Dispatch<React.SetStateAction<HeatFormState>>
 }) {
   return (
     <div className="space-y-4">
@@ -249,7 +249,7 @@ function SpiffStep2({
       <div>
         <label className="block text-sm font-medium text-slate-300 mb-2">Reward type</label>
         <div className="flex gap-3">
-          {(['cash', 'gift_card', 'recognition'] as SpiffRewardType[]).map((rt) => (
+          {(['cash', 'gift_card', 'recognition'] as HeatRewardType[]).map((rt) => (
             <button
               key={rt}
               type="button"
@@ -297,12 +297,12 @@ function SpiffStep2({
   )
 }
 
-function SpiffStep3({
+function HeatStep3({
   form,
   setForm,
 }: {
-  form: SpiffFormState
-  setForm: React.Dispatch<React.SetStateAction<SpiffFormState>>
+  form: HeatFormState
+  setForm: React.Dispatch<React.SetStateAction<HeatFormState>>
 }) {
   const toggleRole = (role: string) => {
     setForm((p) => ({
@@ -392,10 +392,10 @@ function SpiffStep3({
   )
 }
 
-function SpiffStep4({
+function HeatStep4({
   form,
 }: {
-  form: SpiffFormState
+  form: HeatFormState
 }) {
   return (
     <div className="space-y-4">
@@ -464,20 +464,20 @@ function SpiffStep4({
 
 interface Props {
   currentUserId: string
-  initialTab?: 'spiffs' | 'cycles' | 'badges'
+  initialTab?: 'heats' | 'cycles' | 'badges'
 }
 
-export default function AdminIncentivesClient({ currentUserId, initialTab = 'spiffs' }: Props) {
+export default function AdminIncentivesClient({ currentUserId, initialTab = 'heats' }: Props) {
   const router = useRouter()
   const pathname = usePathname()
-  const [activeTab, setActiveTab] = useState<'spiffs' | 'cycles' | 'badges'>(initialTab)
+  const [activeTab, setActiveTab] = useState<'heats' | 'cycles' | 'badges'>(initialTab)
 
   // Hub nav uses ?tab=badges; soft navigation reuses this client instance without remounting.
   useEffect(() => {
     setActiveTab(initialTab)
   }, [initialTab])
 
-  function selectTab(tab: 'spiffs' | 'cycles' | 'badges') {
+  function selectTab(tab: 'heats' | 'cycles' | 'badges') {
     setActiveTab(tab)
     if (tab === 'badges') {
       router.replace(`${pathname}?tab=badges`, { scroll: false })
@@ -489,20 +489,20 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'spi
   const [error, setError] = useState<string | null>(null)
 
   // data
-  const [spiffs, setSpiffs] = useState<SpiffProgram[]>([])
+  const [heats, setHeats] = useState<Heat[]>([])
   const [cycles, setCycles] = useState<IncentiveCycle[]>([])
   const [badges, setBadges] = useState<IncentiveBadge[]>([])
   const [users, setUsers] = useState<SimpleUser[]>([])
 
-  // spiff filter
-  const [spiffFilter, setSpiffFilter] = useState<SpiffStatus | 'all'>('all')
+  // heat filter
+  const [heatFilter, setHeatFilter] = useState<HeatStatus | 'all'>('all')
 
-  // spiff modal
-  const [showSpiffModal, setShowSpiffModal] = useState(false)
-  const [spiffStep, setSpiffStep] = useState(1)
-  const [editingSpiff, setEditingSpiff] = useState<SpiffProgram | null>(null)
-  const [spiffForm, setSpiffForm] = useState<SpiffFormState>(defaultSpiffForm())
-  const [spiffSaving, setSpiffSaving] = useState(false)
+  // heat modal
+  const [showHeatModal, setShowHeatModal] = useState(false)
+  const [heatStep, setHeatStep] = useState(1)
+  const [editingHeat, setEditingHeat] = useState<Heat | null>(null)
+  const [heatForm, setHeatForm] = useState<HeatFormState>(defaultHeatForm())
+  const [heatSaving, setHeatSaving] = useState(false)
 
   // cycle modal
   const [showCycleModal, setShowCycleModal] = useState(false)
@@ -512,7 +512,7 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'spi
   // lock payout modal
   const [showPayoutModal, setShowPayoutModal] = useState(false)
   const [payoutCycle, setPayoutCycle] = useState<IncentiveCycle | null>(null)
-  const [payoutAchievements, setPayoutAchievements] = useState<SpiffAchievement[]>([])
+  const [payoutAchievements, setPayoutAchievements] = useState<HeatAchievement[]>([])
   const [payoutLoading, setPayoutLoading] = useState(false)
 
   // badge modal
@@ -545,7 +545,7 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'spi
         return
       }
       const data = await res.json()
-      setSpiffs(Array.isArray(data.spiffs) ? data.spiffs : [])
+      setHeats(Array.isArray(data.heats) ? data.heats : [])
       setCycles(Array.isArray(data.cycles) ? data.cycles : [])
       setBadges(Array.isArray(data.badges) ? data.badges : [])
       setUsers(Array.isArray(data.users) ? data.users : [])
@@ -559,18 +559,18 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'spi
     loadAll()
   }, [loadAll])
 
-  // ── SPIFF actions ─────────────────────────────────────────────────────────
+  // ── Heat actions ─────────────────────────────────────────────────────────
 
-  const openNewSpiff = () => {
-    setEditingSpiff(null)
-    setSpiffForm(defaultSpiffForm())
-    setSpiffStep(1)
-    setShowSpiffModal(true)
+  const openNewHeat = () => {
+    setEditingHeat(null)
+    setHeatForm(defaultHeatForm())
+    setHeatStep(1)
+    setShowHeatModal(true)
   }
 
-  const openEditSpiff = (s: SpiffProgram) => {
-    setEditingSpiff(s)
-    setSpiffForm({
+  const openEditHeat = (s: Heat) => {
+    setEditingHeat(s)
+    setHeatForm({
       name: s.name,
       description: s.description ?? '',
       trigger_metric: s.trigger_metric,
@@ -584,87 +584,87 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'spi
       ends_at: s.ends_at.split('T')[0],
       status: s.status,
     })
-    setSpiffStep(1)
-    setShowSpiffModal(true)
+    setHeatStep(1)
+    setShowHeatModal(true)
   }
 
-  const validateSpiff = (): string | null => {
-    if (!spiffForm.name.trim()) return 'Name is required'
-    if (!spiffForm.threshold || isNaN(parseFloat(spiffForm.threshold)))
+  const validateHeat = (): string | null => {
+    if (!heatForm.name.trim()) return 'Name is required'
+    if (!heatForm.threshold || isNaN(parseFloat(heatForm.threshold)))
       return 'Threshold is required'
-    if (spiffForm.reward_type !== 'recognition' && !spiffForm.reward_amount)
+    if (heatForm.reward_type !== 'recognition' && !heatForm.reward_amount)
       return 'Reward amount is required'
-    if (!spiffForm.starts_at || !spiffForm.ends_at) return 'Dates are required'
-    if (spiffForm.starts_at > spiffForm.ends_at) return 'Start date must be before end date'
+    if (!heatForm.starts_at || !heatForm.ends_at) return 'Dates are required'
+    if (heatForm.starts_at > heatForm.ends_at) return 'Start date must be before end date'
     return null
   }
 
-  const saveSpiff = async (publishNow: boolean) => {
-    const err = validateSpiff()
+  const saveHeat = async (publishNow: boolean) => {
+    const err = validateHeat()
     if (err) {
       alert(err)
       return
     }
-    setSpiffSaving(true)
+    setHeatSaving(true)
     const payload = {
-      resource: 'spiff_program',
-      id: editingSpiff?.id,
-      name: spiffForm.name,
-      description: spiffForm.description || null,
-      trigger_metric: spiffForm.trigger_metric,
-      threshold: parseFloat(spiffForm.threshold),
-      reward_type: spiffForm.reward_type,
+      resource: 'heat_program',
+      id: editingHeat?.id,
+      name: heatForm.name,
+      description: heatForm.description || null,
+      trigger_metric: heatForm.trigger_metric,
+      threshold: parseFloat(heatForm.threshold),
+      reward_type: heatForm.reward_type,
       reward_amount:
-        spiffForm.reward_type !== 'recognition' && spiffForm.reward_amount
-          ? parseFloat(spiffForm.reward_amount)
+        heatForm.reward_type !== 'recognition' && heatForm.reward_amount
+          ? parseFloat(heatForm.reward_amount)
           : null,
-      reward_note: spiffForm.reward_note || null,
-      eligible_roles: spiffForm.eligible_roles,
-      is_public: spiffForm.is_public,
-      starts_at: spiffForm.starts_at,
-      ends_at: spiffForm.ends_at,
-      status: publishNow ? 'active' : editingSpiff ? spiffForm.status : 'draft',
+      reward_note: heatForm.reward_note || null,
+      eligible_roles: heatForm.eligible_roles,
+      is_public: heatForm.is_public,
+      starts_at: heatForm.starts_at,
+      ends_at: heatForm.ends_at,
+      status: publishNow ? 'active' : editingHeat ? heatForm.status : 'draft',
       created_by: currentUserId,
     }
     if (
       publishNow &&
-      editingSpiff &&
-      (editingSpiff.status === 'cancelled' || editingSpiff.status === 'completed')
+      editingHeat &&
+      (editingHeat.status === 'cancelled' || editingHeat.status === 'completed')
     ) {
       alert('Cannot publish a cancelled or completed heat.')
-      setSpiffSaving(false)
+      setHeatSaving(false)
       return
     }
 
     try {
       const res = await fetch('/api/admin/incentives', {
-        method: editingSpiff ? 'PATCH' : 'POST',
+        method: editingHeat ? 'PATCH' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       })
       if (!res.ok) {
         const d = await res.json()
         alert(d.error || 'Failed to save Heat')
-        setSpiffSaving(false)
+        setHeatSaving(false)
         return
       }
-      setShowSpiffModal(false)
-      setEditingSpiff(null)
-      setSpiffForm(defaultSpiffForm())
+      setShowHeatModal(false)
+      setEditingHeat(null)
+      setHeatForm(defaultHeatForm())
       loadAll()
     } catch {
       alert('Failed to save Heat')
     }
-    setSpiffSaving(false)
+    setHeatSaving(false)
   }
 
-  const cancelSpiff = async (id: string) => {
+  const cancelHeat = async (id: string) => {
     if (!confirm('Cancel this Heat? This cannot be undone.')) return
     try {
       const res = await fetch('/api/admin/incentives', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ resource: 'spiff_program', id, status: 'cancelled' }),
+        body: JSON.stringify({ resource: 'heat_program', id, status: 'cancelled' }),
       })
       if (!res.ok) {
         const d = await res.json()
@@ -772,7 +772,7 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'spi
       return [
         csvField(user?.full_name ?? a.user_id),
         csvField(user?.role ?? ''),
-        csvField(spiffs.find((s) => s.id === a.spiff_program_id)?.name ?? a.spiff_program_id),
+        csvField(heats.find((s) => s.id === a.spiff_program_id)?.name ?? a.spiff_program_id),
         csvField(a.payout_amount ?? 0),
       ].join(',')
     })
@@ -971,20 +971,20 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'spi
 
   // ── render ────────────────────────────────────────────────────────────────
 
-  const filteredSpiffs =
-    spiffFilter === 'all'
-      ? spiffs
-      : spiffFilter === 'active'
-        ? spiffs.filter(
+  const filteredHeats =
+    heatFilter === 'all'
+      ? heats
+      : heatFilter === 'active'
+        ? heats.filter(
             (s) => s.status === 'active' && new Date(s.ends_at).getTime() >= Date.now(),
           )
-        : spiffFilter === 'completed'
-          ? spiffs.filter(
+        : heatFilter === 'completed'
+          ? heats.filter(
               (s) =>
                 s.status === 'completed' ||
                 (s.status === 'active' && new Date(s.ends_at).getTime() < Date.now()),
             )
-          : spiffs.filter((s) => s.status === spiffFilter)
+          : heats.filter((s) => s.status === heatFilter)
 
   if (loading) {
     return (
@@ -1007,7 +1007,7 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'spi
       {/* ── Tabs ── */}
       <div className="flex gap-1 border-b border-slate-800 mb-6">
         {([
-          ['spiffs', `Heats (${spiffs.length})`],
+          ['heats', `Heats (${heats.length})`],
           ['cycles', `Cycles (${cycles.length})`],
           ['badges', `Badges (${badges.length})`],
         ] as const).map(([tab, label]) => (
@@ -1025,8 +1025,8 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'spi
         ))}
       </div>
 
-      {/* ═══════════════════════════ TAB: SPIFFs ═══════════════════════════ */}
-      {activeTab === 'spiffs' && (
+      {/* ═══════════════════════════ TAB: Heats ═══════════════════════════ */}
+      {activeTab === 'heats' && (
         <div>
           <div className="flex items-center justify-between mb-4">
             {/* filter pills */}
@@ -1034,9 +1034,9 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'spi
               {(['all', 'active', 'draft', 'completed'] as const).map((f) => (
                 <button
                   key={f}
-                  onClick={() => setSpiffFilter(f)}
+                  onClick={() => setHeatFilter(f)}
                   className={`px-3 py-1.5 rounded-full text-sm font-medium ${
-                    spiffFilter === f
+                    heatFilter === f
                       ? 'bg-indigo-600 text-white'
                       : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
                   }`}
@@ -1046,7 +1046,7 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'spi
               ))}
             </div>
             <button
-              onClick={openNewSpiff}
+              onClick={openNewHeat}
               className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-medium text-sm"
             >
               + New Heat
@@ -1067,7 +1067,7 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'spi
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800">
-                {filteredSpiffs.map((s) => (
+                {filteredHeats.map((s) => (
                   <tr key={s.id} className="hover:bg-slate-800/50">
                     <td className="px-6 py-4">
                       <p className="font-medium text-white">{s.name}</p>
@@ -1091,14 +1091,14 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'spi
                     <td className="px-6 py-4 text-right">
                       <div className="flex items-center justify-end gap-2">
                         <button
-                          onClick={() => openEditSpiff(s)}
+                          onClick={() => openEditHeat(s)}
                           className="text-sm text-indigo-400 hover:text-indigo-200"
                         >
                           Edit
                         </button>
                         {s.status !== 'cancelled' && s.status !== 'completed' && (
                           <button
-                            onClick={() => cancelSpiff(s.id)}
+                            onClick={() => cancelHeat(s.id)}
                             className="text-sm text-red-500 hover:text-red-300"
                           >
                             Cancel
@@ -1110,9 +1110,9 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'spi
                 ))}
               </tbody>
             </table>
-            {filteredSpiffs.length === 0 && (
+            {filteredHeats.length === 0 && (
               <div className="text-center py-12 text-slate-400">
-                No Heats found{spiffFilter !== 'all' ? ` with status "${spiffFilter}"` : ''}
+                No Heats found{heatFilter !== 'all' ? ` with status "${heatFilter}"` : ''}
               </div>
             )}
           </div>
@@ -1283,13 +1283,13 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'spi
         </div>
       )}
 
-      {/* ══════════════════════ MODAL: SPIFF wizard ══════════════════════════ */}
-      {showSpiffModal && (
+      {/* ══════════════════════ MODAL: Heat wizard ══════════════════════════ */}
+      {showHeatModal && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
           <div className="bg-slate-900 rounded-xl shadow-2xl shadow-black/50 border border-slate-700 max-w-lg w-full max-h-[90vh] overflow-y-auto">
             <div className="p-6 border-b border-slate-800 flex items-center justify-between">
               <h2 className="text-xl font-bold text-white">
-                {editingSpiff ? 'Edit Heat' : 'New Heat'}
+                {editingHeat ? 'Edit Heat' : 'New Heat'}
               </h2>
               {/* step indicator */}
               <div className="flex gap-1.5">
@@ -1297,63 +1297,63 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'spi
                   <div
                     key={n}
                     className={`w-2 h-2 rounded-full ${
-                      n === spiffStep ? 'bg-indigo-600' : n < spiffStep ? 'bg-indigo-500/40' : 'bg-slate-800'
+                      n === heatStep ? 'bg-indigo-600' : n < heatStep ? 'bg-indigo-500/40' : 'bg-slate-800'
                     }`}
                   />
                 ))}
               </div>
             </div>
             <div className="p-6">
-              {spiffStep === 1 && <SpiffStep1 form={spiffForm} setForm={setSpiffForm} />}
-              {spiffStep === 2 && <SpiffStep2 form={spiffForm} setForm={setSpiffForm} />}
-              {spiffStep === 3 && <SpiffStep3 form={spiffForm} setForm={setSpiffForm} />}
-              {spiffStep === 4 && <SpiffStep4 form={spiffForm} />}
+              {heatStep === 1 && <HeatStep1 form={heatForm} setForm={setHeatForm} />}
+              {heatStep === 2 && <HeatStep2 form={heatForm} setForm={setHeatForm} />}
+              {heatStep === 3 && <HeatStep3 form={heatForm} setForm={setHeatForm} />}
+              {heatStep === 4 && <HeatStep4 form={heatForm} />}
             </div>
             <div className="p-6 border-t border-slate-800 flex items-center justify-between gap-3">
               <button
                 onClick={() => {
-                  if (spiffStep === 1) {
-                    setShowSpiffModal(false)
+                  if (heatStep === 1) {
+                    setShowHeatModal(false)
                   } else {
-                    setSpiffStep((n) => n - 1)
+                    setHeatStep((n) => n - 1)
                   }
                 }}
                 className="px-4 py-2 border border-slate-700 rounded-lg hover:bg-slate-800/50 text-slate-300"
               >
-                {spiffStep === 1 ? 'Cancel' : '← Back'}
+                {heatStep === 1 ? 'Cancel' : '← Back'}
               </button>
               <div className="flex gap-3">
-                {spiffStep < 4 && (
+                {heatStep < 4 && (
                   <button
-                    onClick={() => setSpiffStep((n) => n + 1)}
+                    onClick={() => setHeatStep((n) => n + 1)}
                     className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
                   >
                     Next →
                   </button>
                 )}
-                {spiffStep === 4 && (
+                {heatStep === 4 && (
                   <>
                     <button
-                      disabled={spiffSaving}
-                      onClick={() => saveSpiff(false)}
+                      disabled={heatSaving}
+                      onClick={() => saveHeat(false)}
                       className="px-4 py-2 border border-slate-700 rounded-lg hover:bg-slate-800/50 text-slate-300 disabled:opacity-50"
                     >
-                      {spiffSaving
+                      {heatSaving
                         ? 'Saving...'
-                        : editingSpiff?.status === 'active'
+                        : editingHeat?.status === 'active'
                           ? 'Save Changes'
                           : 'Save as Draft'}
                     </button>
                     <button
                       disabled={
-                        spiffSaving ||
-                        editingSpiff?.status === 'cancelled' ||
-                        editingSpiff?.status === 'completed'
+                        heatSaving ||
+                        editingHeat?.status === 'cancelled' ||
+                        editingHeat?.status === 'completed'
                       }
-                      onClick={() => saveSpiff(true)}
+                      onClick={() => saveHeat(true)}
                       className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-500 disabled:opacity-50"
                     >
-                      {spiffSaving ? 'Publishing...' : 'Publish Now'}
+                      {heatSaving ? 'Publishing...' : 'Publish Now'}
                     </button>
                   </>
                 )}
@@ -1490,14 +1490,14 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'spi
                       .filter((a) => a.qualified)
                       .map((a) => {
                         const user = users.find((u) => u.id === a.user_id)
-                        const spiff = spiffs.find((s) => s.id === a.spiff_program_id)
+                        const heat = heats.find((s) => s.id === a.spiff_program_id)
                         return (
                           <tr key={a.id}>
                             <td className="px-4 py-3 text-sm font-medium text-white">
                               {user?.full_name ?? a.user_id}
                             </td>
                             <td className="px-4 py-3 text-sm text-slate-300">
-                              {spiff?.name ?? a.spiff_program_id}
+                              {heat?.name ?? a.spiff_program_id}
                             </td>
                             <td className="px-4 py-3 text-sm text-slate-400">{a.current_value}</td>
                             <td className="px-4 py-3 text-sm text-right font-semibold text-emerald-400">

@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getAttributedCanvassLeadUserId } from '@/lib/canvass-lead-attribution'
 import { countsAsInspectionSet, INSPECTION_SET_APPOINTMENT_TYPE_OR } from '@/lib/inspection-set-metrics'
-import { pickPayrollPeriodForWeekEnd } from '@/lib/sync-444-core'
+import { pickPayrollPeriodForWeekEnd } from '@/lib/payroll-period-week'
 import { roundMoney } from '@/lib/money'
 import {
   computeSetterRampWeekWindow,

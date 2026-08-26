@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react'
+import React, { useEffect, useLayoutEffect, useRef, useState, useCallback, useMemo } from 'react'
 import type { AssignedTerritoryMapPayload } from '@/lib/canvass-territories'
 import type { CanvassPin } from '../page'
 import type { ViewportPin } from '../lib/useViewportLeads'
@@ -832,8 +832,20 @@ export default function CanvassMap({
   // ---- Roof-age parcel layer (county year-built data) ----
   const roofAgeEnabledRef = useRef(roofAgeEnabled)
   roofAgeEnabledRef.current = roofAgeEnabled
-  const [roofAgeOn, setRoofAgeOn] = useState(() => readStoredRoofAgeOn())
-  const roofAgeOnRef = useRef(roofAgeOn)
+  // Seeded false so the client's first (hydrating) render always matches the
+  // server's (no window there, so it can't read localStorage) — reading the
+  // stored value eagerly here caused a hydration mismatch on this component
+  // for any user who'd previously turned the layer on. useLayoutEffect below
+  // applies the stored value right after hydration commits, before paint.
+  const [roofAgeOn, setRoofAgeOn] = useState(false)
+  const roofAgeOnRef = useRef(false)
+
+  useLayoutEffect(() => {
+    if (readStoredRoofAgeOn()) {
+      roofAgeOnRef.current = true
+      setRoofAgeOn(true)
+    }
+  }, [])
   const [roofAgeZoomHint, setRoofAgeZoomHint] = useState(false)
   // County didn't publish year-built for this area (e.g. Cabarrus) — honest empty, not a bug.
   const [roofAgeNoData, setRoofAgeNoData] = useState(false)

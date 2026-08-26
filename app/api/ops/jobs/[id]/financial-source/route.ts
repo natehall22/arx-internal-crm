@@ -176,6 +176,9 @@ async function syncDealerFeeCostLine(args: {
       status: 'active',
       notes: 'Financing lender/dealer fee synced from job financial source.',
       created_by: args.userId,
+      // Deterministic figure synced from the job's financing terms, not a discretionary entry —
+      // exempt from the manual cost-line review gate by design.
+      approved: true,
     })
 
   if (insertError) {

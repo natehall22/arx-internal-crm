@@ -74,8 +74,8 @@ const COMMON_GUIDE = `
 - **Door knocking map**: **Canvass** (\`/canvass\`) — pins, dispositions, offline queue, territories.
 - **Territories**: \`/canvass/territories\` or Admin → Canvass Territories (\`/admin/canvass-territories\`).
 - **Canvass stats / settings**: \`/canvass/stats\`, \`/canvass/settings\`.
-- **444 program / Incentives**: **Sisu** (\`/sisu\`) — door/inspection counts and weekly bonuses; admin 444 hub \`/admin/sisu/444\`.
-- **Setter ramp (444 onboarding)**: **Admin → Sisu → Setter Ramp** (\`/admin/sisu/setter-ramp\`) — new setter onboarding and ramp targets.
+- **Incentives / leaderboard**: **Sisu** (\`/sisu\`) — door/inspection counts, Heats, and leaderboard; admin config at **Admin → Sisu → Incentives** (\`/admin/sisu/incentives\`).
+- **Setter ramp**: **Admin → Sisu → Setter Ramp** (\`/admin/sisu/setter-ramp\`) — new setter onboarding and ramp targets.
 
 ### Tools & admin
 - **Roof measure (aerial)**: **Tools → Roof Measure** (\`/tools/roof-measure\`).
@@ -117,7 +117,7 @@ const ROLE_HINTS: Record<string, string> = {
   regional_manager: 'This user is a regional manager — emphasize territories, team performance, and commissions.',
   sales_rep: 'This user is a sales rep — emphasize Leads, Opportunities, Proposals, and their commission statement.',
   setter_manager: 'This user is a setter manager — emphasize Canvass territories, setter team performance, and inspections.',
-  regional_setter_manager: 'This user is a regional setter manager — emphasize territories, setter teams, and 444 program metrics.',
+  regional_setter_manager: 'This user is a regional setter manager — emphasize territories, setter teams, and Sisu incentive metrics.',
   rep: 'This user is a sales rep — emphasize Leads, Opportunities, Proposals, and commissions.',
   custom: 'This user has a custom role — ask what they are trying to do and map them to the closest CRM workflow.',
   setter: 'This user is a setter — emphasize Canvass (\`/canvass\`), leads, and scheduling inspections.',

@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
-import { getDateRangeForTimeFrame } from '@/lib/date-ranges'
+import { getCustomDateRange, getDateRangeForTimeFrame } from '@/lib/date-ranges'
+import { isCalendarDateString, isTimeFrame } from '@/lib/time-frames'
 import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
+import { resolveDashboardMemberScope } from '@/lib/dashboard-member-scope'
+import { shouldShowUserOnTeamLeaderboard } from '@/lib/dashboard-team-leaderboard'
 import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
@@ -10,12 +13,16 @@ type UserProfile = {
   id: string
   org_id: string
   role: string
+  team_id: string | null
+  region_id: string | null
 }
 
 type OrgUser = {
   id: string
   full_name: string | null
   role: string
+  show_in_reports: boolean | null
+  active: boolean | null
 }
 
 type CountRow = {
@@ -37,6 +44,9 @@ type LeaderboardEntry = {
 type LeaderboardResponse = {
   setters: LeaderboardEntry[]
   closers: LeaderboardEntry[]
+  timeframe: string
+  startDate: string
+  endDate: string
   asOf: string
 }
 
@@ -90,22 +100,59 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    // Body fields are accepted but ignored — org + role always come from the DB-verified profile
-    await request.json().catch(() => ({}))
-
     const admin = createServiceClient()
     const userProfile: UserProfile = {
       id: authContext.authUser.id,
       org_id: authContext.profile.org_id,
       role: authContext.profile.role,
+      team_id: authContext.profile.team_id ?? null,
+      region_id: authContext.profile.region_id ?? null,
     }
 
-    const { data: userRows, error: usersError } = await admin
+    // ── Filters (dashboard parity: /api/dashboard/team-stats) ─────────────────
+    // Only the date window is caller-controlled. Org and role always come from the
+    // DB-verified profile, and the roster is resolved server-side from that profile —
+    // there is deliberately no member/team/user parameter a caller could widen scope with.
+    const searchParams = request.nextUrl.searchParams
+    const rawTimeframe = searchParams.get('timeframe')
+    if (rawTimeframe != null && !isTimeFrame(rawTimeframe)) {
+      return NextResponse.json({ error: 'Invalid timeframe' }, { status: 400 })
+    }
+    const timeframe = rawTimeframe ?? 'week'
+    const customStartDate = searchParams.get('startDate')
+    const customEndDate = searchParams.get('endDate')
+
+    let dateRange
+    if (timeframe === 'custom') {
+      if (!isCalendarDateString(customStartDate) || !isCalendarDateString(customEndDate)) {
+        return NextResponse.json(
+          { error: 'A custom timeframe requires startDate and endDate as YYYY-MM-DD' },
+          { status: 400 },
+        )
+      }
+      dateRange = getCustomDateRange(customStartDate, customEndDate, TIMEZONE)
+    } else {
+      dateRange = getDateRangeForTimeFrame(timeframe, TIMEZONE, false)
+    }
+    const { start, end } = dateRange
+
+    // ── Roster: exactly who this viewer is allowed to see ─────────────────────
+    const scope = await resolveDashboardMemberScope(admin, userProfile)
+
+    // Inactive / hidden users stay in the RPC roster so pin-attributed activity still
+    // rolls up (and so a rep who has since left still appears for a past timeframe).
+    // shouldShowUserOnTeamLeaderboard() decides who is actually rendered.
+    let usersQuery = admin
       .from('users')
-      .select('id, full_name, role')
+      .select('id, full_name, role, show_in_reports, active')
       .eq('org_id', userProfile.org_id)
-      .eq('active', true)
       .order('full_name', { ascending: true })
+
+    if (!scope.orgWide) {
+      usersQuery = usersQuery.in('id', scope.memberIds)
+    }
+
+    const { data: userRows, error: usersError } = await usersQuery
 
     if (usersError) {
       return NextResponse.json({ error: usersError.message }, { status: 500 })
@@ -113,11 +160,19 @@ export async function POST(request: NextRequest) {
 
     const orgUsers = (userRows ?? []) as unknown as OrgUser[]
     const memberIds = orgUsers.map((orgUser) => orgUser.id)
+    // Echo the resolved window back so the client can label what it is showing.
+    const responseBase: LeaderboardResponse = {
+      setters: [],
+      closers: [],
+      timeframe,
+      startDate: start.toISOString(),
+      endDate: end.toISOString(),
+      asOf: new Date().toISOString(),
+    }
     if (memberIds.length === 0) {
-      return NextResponse.json({ setters: [], closers: [], asOf: new Date().toISOString() } satisfies LeaderboardResponse)
+      return NextResponse.json(responseBase)
     }
 
-    const { start, end } = getDateRangeForTimeFrame('week', TIMEZONE, false)
     const rpcArgs = {
       p_org_id: userProfile.org_id,
       p_start: start.toISOString(),
@@ -160,23 +215,36 @@ export async function POST(request: NextRequest) {
       badgeCountByUserId.set(row.user_id, (badgeCountByUserId.get(row.user_id) ?? 0) + 1)
     }
 
+    // Same visibility rule as the dashboard team leaderboard: inactive / hidden users
+    // only appear when they have credited activity inside the selected window.
+    const visibleUsers = orgUsers.filter((orgUser) =>
+      shouldShowUserOnTeamLeaderboard(orgUser, {
+        doorsKnocked: doorsByUserId.get(orgUser.id) ?? 0,
+        contacts: 0,
+        inspectionsSet: inspectionsByUserId.get(orgUser.id) ?? 0,
+        inspectionsReceived: 0,
+        sits: 0,
+        sales: salesByUserId.get(orgUser.id) ?? 0,
+      }),
+    )
+
     const setters = rankEntries(
-      orgUsers.filter((orgUser) => isSetterLikeRole(orgUser.role)),
+      visibleUsers.filter((orgUser) => isSetterLikeRole(orgUser.role)),
       inspectionsByUserId,
       doorsByUserId,
       badgeCountByUserId,
     )
     const closers = rankEntries(
-      orgUsers.filter((orgUser) => CLOSER_ROLES.has(orgUser.role)),
+      visibleUsers.filter((orgUser) => CLOSER_ROLES.has(orgUser.role)),
       salesByUserId,
       doorsByUserId,
       badgeCountByUserId,
     )
 
     return NextResponse.json({
+      ...responseBase,
       setters,
       closers,
-      asOf: new Date().toISOString(),
     } satisfies LeaderboardResponse)
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Internal server error'

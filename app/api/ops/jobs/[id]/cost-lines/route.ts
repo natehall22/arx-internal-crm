@@ -52,8 +52,14 @@ export async function POST(request: Request, { params }: { params: { id: string 
         cost_type: costType,
         status: 'active',
         created_by: profile.id,
+        // New lines start unreviewed — a payroll admin must approve before this line can
+        // reduce a rep's commission base (see derivePayrollEligibility in
+        // lib/payroll-period-materialization.ts, which already blocks/excludes unapproved
+        // deductible lines). Without this, the DB default (true) makes every entry
+        // instantly commission-deductible with no review step.
+        approved: false,
       })
-      .select('id, description, amount, cost_type, status')
+      .select('id, description, amount, cost_type, status, approved')
       .single()
 
     if (error) {

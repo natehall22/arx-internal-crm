@@ -159,7 +159,7 @@ export async function GET(req: NextRequest) {
   if (firstError) return NextResponse.json({ error: firstError.message }, { status: 500 })
 
   return NextResponse.json({
-    spiffs: spiffsRes.data ?? [],
+    heats: spiffsRes.data ?? [],
     cycles: cyclesRes.data ?? [],
     badges: badgesRes.data ?? [],
     users: usersRes.data ?? [],
@@ -188,7 +188,7 @@ export async function POST(req: NextRequest) {
   const { resource, ...rest } = body
   const orgId = profile.org_id
 
-  if (resource === 'spiff_program') {
+  if (resource === 'heat_program') {
     const allowed = ['name','description','trigger_metric','threshold','reward_type','reward_amount','reward_note','eligible_roles','is_public','starts_at','ends_at','status']
     const insertData = Object.fromEntries(Object.entries(rest).filter(([k]) => allowed.includes(k)))
     const { data, error } = await admin
@@ -284,7 +284,7 @@ export async function PATCH(req: NextRequest) {
 
   if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 })
 
-  if (resource === 'spiff_program') {
+  if (resource === 'heat_program') {
     const allowed = ['name','description','trigger_metric','threshold','reward_type','reward_amount','reward_note','eligible_roles','is_public','starts_at','ends_at','status']
     const updateData = Object.fromEntries(Object.entries(rest).filter(([k]) => allowed.includes(k)))
     const { data, error } = await admin
