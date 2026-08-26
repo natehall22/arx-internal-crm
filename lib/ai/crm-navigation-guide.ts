@@ -53,12 +53,12 @@ const COMMON_GUIDE = `
 - **Job Board**: **Job Board** (\`/ops\`) — all production jobs, status columns, materials, scheduling. Ops dashboard: \`/ops/dashboard\`; production calendar: \`/ops/calendar\`.
 - **Single job file**: Job Board → open job (\`/ops/jobs/[id]\`) — tabs: **Overview**, **Materials**, **Financials** (permissioned), **Photos & files**, **Notes**.
 - **Photo types on a job**: \`/ops/jobs/[id]\` → **Photos & files** — production / final install photos, Job Files Workspace, cost lines. **Not** for the customer Roof Report built during inspection.
-- **Materials Order List (computed takeoff)**: **Materials** tab → **Materials Order List** card; print \`/ops/jobs/[id]/material-order/print\`. Supplier sheet from measurements — separate from **+ Add Material Order** cost rows (\`/ops/jobs/[id]/orders\`).
+- **Materials Order List (computed takeoff)**: **Materials** tab → **Materials Order List** card; print \`/ops/jobs/[id]/material-order/print\`. Supplier sheet from measurements — separate from **+ Job Cost** rows (\`/ops/jobs/[id]/orders\`).
 - **Job materials brief / sold add-ons**: Sold proposal adders (gutters, decking, etc.) show on the ops job brief card for visibility; ordering adders may still be manual ops practice — do not claim adders auto-flow into supplier PO unless asked.
 - **Crew / sub assignment**: Job **Overview** tab → **Schedule now** or **Reassign crew or sub** (schedule modal).
 - **Labor cost**: Job → **Materials** tab → **Labor Cost** card (not the read-only **Financials** profitability summary).
-- **Material orders / material cost**: **Materials** tab → **+ Add Material Order** inline, or full list at \`/ops/jobs/[id]/orders\`; orders roll up to total materials cost.
-- **Itemized cost lines** (permit, dump, misc): Job → **Photos & files** tab → **Job Files Workspace** → add a **cost line**.
+- **Material orders / material cost**: **Materials** tab → **+ Job Cost**, or full list at \`/ops/jobs/[id]/orders\`; rows roll up to total materials cost.
+- **Itemized cost receipts** (permit/dump attachments): Job Files Workspace → **Costs**. Daily job costs (labor + materials) go in **+ Job Cost**, not that table.
 - **Notes tab**: \`/ops/jobs/[id]\` → **Notes**.
 - **Ops measure**: \`/ops/jobs/[id]/measure\`.
 - **Work orders**: **Financials** tab → **Work Orders** card (**+ New Work Order**), or **Work Orders** (\`/work-orders\`) board.
@@ -191,11 +191,11 @@ export function getNavigationFallbackResponse(
     (/\b(pay|paid)\b/.test(lower) && /\b(sub|labor|job|material|vendor|supplier)\b/.test(lower))
   ) {
     return paveRecordPath(
-      `Job costs in ARX go in different places depending on what you mean:
+      `Job costs in ARX (labor, materials, sub pay) go on the job Materials card:
 
-1. **Sub labor total** → Job Board → open the job (\`/ops/jobs/[id]\`) → **Materials** tab → **Labor Cost** card
-2. **Materials** → same **Materials** tab — **+ Add Material Order** or \`/ops/jobs/[id]/orders\`
-3. **Permits, dump, misc line items** → **Photos & files** tab → **Job Files Workspace** → add a **cost line**
+1. Open the job (\`/ops/jobs/[id]\`) → **+ Job Cost** (also the **Job Costs** card at the top of the page)
+2. That list is where shingles, siding, and crew labor rows live
+3. The **Labor Cost** field on the same card is what Financials uses for labor. Every **+ Job Cost** row rolls into materials cost.
 
 Start at **Job Board** (\`/ops\`) to find the job by address if you are not already on it.`,
       context
@@ -207,10 +207,10 @@ Start at **Job Board** (\`/ops\`) to find the job by address if you are not alre
     (lower.includes('material') && /\b(order|ordering)\b/.test(lower))
   ) {
     return paveRecordPath(
-      `Material orders on a job:
+      `Material / job cost rows on a job:
 1. Open the job (\`/ops/jobs/[id]\`) → **Materials** tab
-2. Click **+ Add Material Order** inline, or open the full list at \`/ops/jobs/[id]/orders\`
-3. Orders roll up to total materials cost on the job`,
+2. Click **+ Job Cost**, or open the full list at \`/ops/jobs/[id]/orders\`
+3. Rows roll up to total materials cost on the job`,
       context
     )
   }
@@ -263,10 +263,9 @@ If I have your counts in context I will cite them directly; otherwise open those
     (lower.includes('cost line') && /\b(add|enter|where)\b/.test(lower))
   ) {
     return paveRecordPath(
-      `Itemized cost lines (permits, dump, misc):
-1. Open the job (\`/ops/jobs/[id]\`) → **Photos & files** tab
-2. In **Job Files Workspace**, add a **cost line**
-3. Labor and material totals stay on the **Materials** tab — cost lines are for permit/dump/misc items`,
+      `Itemized cost lines (permits, dump, misc receipts):
+1. Open the job (\`/ops/jobs/[id]\`) → **Photos & files** tab → **Job Files Workspace → Costs**
+2. Daily labor and material costs go on **Materials → + Job Cost**, not this table`,
       context
     )
   }

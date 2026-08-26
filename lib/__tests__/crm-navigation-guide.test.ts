@@ -108,7 +108,7 @@ describe('crm-navigation-guide', () => {
   it('does not false-positive on "pay the sub" for commissions', () => {
     const response = getNavigationFallbackResponse('pay the sub for this job', 'operations')
     expect(response).toContain('Labor Cost')
-    expect(response).toContain('Job Files Workspace')
+    expect(response).toContain('Job Cost')
   })
 
   it('does not false-positive on "I paid the sub" for commissions', () => {
@@ -141,7 +141,7 @@ describe('crm-navigation-guide', () => {
 
   it('returns material order fallback', () => {
     const response = getNavigationFallbackResponse('how do I add a material order', 'operations')
-    expect(response).toContain('Add Material Order')
+    expect(response).toContain('Job Cost')
     expect(response).toContain('/orders')
   })
 

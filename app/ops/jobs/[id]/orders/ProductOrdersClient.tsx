@@ -309,7 +309,7 @@ export default function ProductOrdersClient({ jobId, jobNumber, address, userRol
           <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-4">
             <div className="bg-white rounded-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
               <div className="p-4 border-b">
-                <h3 className="text-lg font-semibold text-gray-900">Add Material Order</h3>
+                <h3 className="text-lg font-semibold text-gray-900">Add Job Cost</h3>
               </div>
               <div className="p-4 space-y-4">
                 <div>
@@ -380,7 +380,7 @@ export default function ProductOrdersClient({ jobId, jobNumber, address, userRol
                   disabled={saving || !newOrder.description.trim() || !newOrder.amount}
                   className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 min-h-[44px]"
                 >
-                  {saving ? 'Adding...' : 'Add Material Order'}
+                  {saving ? 'Adding...' : 'Add Job Cost'}
                 </button>
               </div>
             </div>

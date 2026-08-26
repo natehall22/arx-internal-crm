@@ -542,7 +542,7 @@ function InsuranceCard({ job, onUpdate }: { job: Job; onUpdate: (fields: Partial
 }
 // ──────────────────────────────────────────────────────────────────────────────
 
-/** Shortcut card pointing at the Costs section of Job Files Workspace — rendered wherever people actually look for cost entry (mobile top-of-page, desktop Financials tab). */
+/** Shortcut card that opens the Materials **+ Job Cost** form — rendered at the top of the job page so cost entry is not buried. */
 function JobCostsCallout({ layout, onAddCost }: { layout: 'stacked' | 'inline'; onAddCost: () => void }) {
   const button = (
     <button
@@ -554,7 +554,7 @@ function JobCostsCallout({ layout, onAddCost }: { layout: 'stacked' | 'inline'; 
           : 'min-h-[44px] shrink-0 rounded-lg bg-indigo-700 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-800'
       }
     >
-      + Add a cost
+      + Job Cost
     </button>
   )
   const copy = (
@@ -1286,13 +1286,12 @@ export default function JobDetailClient({
 
     const openAndScroll = () => {
       openAddCostShortcutRef.current?.()
-      const costsEl = document.getElementById('job-costs-section')
-      if (costsEl) costsEl.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      const materialsEl = document.getElementById('materials-section')
+      if (materialsEl) materialsEl.scrollIntoView({ behavior: 'smooth', block: 'start' })
     }
 
     if (isMobile) {
-      // Show Photos tab first so JobFileWorkspaceCard (and the cost form) are in the layout — then open + scroll
-      setMobileTab('photos')
+      setMobileTab('materials')
       setTimeout(openAndScroll, 100)
     } else {
       openAndScroll()
@@ -1448,8 +1447,12 @@ export default function JobDetailClient({
           </div>
         </div>
 
-        {/* Job costs live under Photos & files on narrow screens — surface it here so it is not buried behind the Photos tab.
-            Hidden on the Financials tab specifically — that tab renders its own copy below so the two don't stack. */}
+        {/* Job costs live on the Materials card (+ Job Cost). Surface a shortcut at the top so
+            it is not buried. Desktop always shows it. Mobile hides it only on the Financials
+            tab, which renders its own copy so the two don't stack. */}
+        <div className="hidden lg:block">
+          <JobCostsCallout layout="stacked" onAddCost={handleAddCostShortcut} />
+        </div>
         {mobileTab !== 'financials' && (
           <div className="lg:hidden">
             <JobCostsCallout layout="stacked" onAddCost={handleAddCostShortcut} />
@@ -1801,6 +1804,7 @@ export default function JobDetailClient({
                 materialsNotes={job.materials_notes}
                 onTotalChange={setMaterialOrdersTotal}
                 onAttachReceiptInvoice={handleAttachReceiptInvoiceShortcut}
+                registerOpenAddJobCost={registerOpenAddCostShortcut}
               />
             </div>
 
@@ -1813,7 +1817,6 @@ export default function JobDetailClient({
                 jobStatus={job.status}
                 customerEmail={job.customer?.email || null}
                 registerOpenCostAttachmentShortcut={registerOpenCostAttachmentShortcut}
-                registerOpenAddCostShortcut={registerOpenAddCostShortcut}
                 dealerFeeAmount={job.dealer_fee_amount ?? null}
               />
             </div>
@@ -2058,7 +2061,11 @@ export default function JobDetailClient({
             {/* Gated on canViewFinancialTab (not the narrower canViewProfitability) to match every other
                 block in this tab — everything here self-gates on the same permission that controls whether
                 the mobile Financials tab button appears at all. */}
-            {canViewFinancialTab && <JobCostsCallout layout="inline" onAddCost={handleAddCostShortcut} />}
+            {canViewFinancialTab && (
+              <div className="lg:hidden">
+                <JobCostsCallout layout="inline" onAddCost={handleAddCostShortcut} />
+              </div>
+            )}
             {canViewProfitability && (
               <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
                 <div className="mb-4 flex items-start justify-between gap-3">
