@@ -3,9 +3,8 @@ import { createClient } from '@/lib/supabase/server'
 import { formatReward } from '@/lib/incentive-metrics'
 import { countDoorsKnockedForBadgeAward } from '@/lib/sisu-weekly-doors'
 import { countClosedSalesForBadgeAward } from '@/lib/sisu-monthly-closed-sales'
-import { syncOrgEnrollments } from '@/lib/sync-444-core'
 import { INSPECTION_SET_APPOINTMENT_TYPE_OR } from '@/lib/inspection-set-metrics'
-import type { SpiffProgram, SpiffTriggerMetric } from '@/lib/types/incentive'
+import type { Heat, HeatTriggerMetric } from '@/lib/types/incentive'
 import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
@@ -80,7 +79,7 @@ function relationIncludesUser(
   return opportunity?.owner_user_id === userId || opportunity?.setter_user_id === userId
 }
 
-function isEligibleHeat(spiff: SpiffProgram, profile: UserProfile) {
+function isEligibleHeat(spiff: Heat, profile: UserProfile) {
   return (
     spiff.org_id === profile.org_id &&
     (spiff.eligible_roles.length === 0 || spiff.eligible_roles.includes(profile.role))
@@ -196,7 +195,7 @@ async function getAttributedContracts(
 
 async function computeCurrentValue(
   admin: ReturnType<typeof createServiceClient>,
-  metric: SpiffTriggerMetric,
+  metric: HeatTriggerMetric,
   userId: string,
   orgId: string,
   startsAt: string,
@@ -282,7 +281,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: spiffError.message }, { status: 500 })
     }
 
-    const activeSpiffs = ((spiffRows ?? []) as SpiffProgram[]).filter((spiff) =>
+    const activeSpiffs = ((spiffRows ?? []) as Heat[]).filter((spiff) =>
       isEligibleHeat(spiff, userProfile),
     )
 
@@ -559,23 +558,6 @@ export async function POST(request: NextRequest) {
           }
         }
       }
-    }
-
-    // ── 444 Program: finalize THIS rep's own enrollment ───────────────────────
-    // Recompute the rep's 444 door/inspection counts and, if they've crossed
-    // 400/4, register qualification + the pending bonus line + notification.
-    // Scoped to this user (userId) and reusing the exact optimistic-locked,
-    // per-period-deduped logic the cron uses — so a rep simply viewing their page
-    // finalizes their own bonus even when the org-wide cron isn't running. The
-    // bonus line lands as 'pending_approval', so an admin still signs it off.
-    // Best-effort: a 444 failure must never break the spiff/badge sync response.
-    try {
-      await syncOrgEnrollments(admin, userProfile.org_id, userId, { userId })
-    } catch (sync444Error) {
-      console.error(
-        '[sisu/sync] 444 enrollment sync failed:',
-        sync444Error instanceof Error ? sync444Error.message : sync444Error,
-      )
     }
 
     return NextResponse.json(updated)

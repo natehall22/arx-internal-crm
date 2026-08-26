@@ -131,7 +131,7 @@ export default async function AdminPage() {
     },
     {
       title: 'Sisu Incentive System',
-      description: 'Heats, badges, 444 program, and live field marketer accountability — all in one place',
+      description: 'Heats, badges, setter ramp, and live field marketer accountability — all in one place',
       href: '/admin/sisu',
       sisuBranded: true,
     },

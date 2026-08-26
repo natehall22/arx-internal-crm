@@ -7,9 +7,9 @@ import { isCanvassDoorLead } from '@/lib/sales-metrics'
 import { getAttributedCanvassLeadUserId } from '@/lib/canvass-lead-attribution'
 import { countClosedSalesInRange } from '@/lib/sisu-monthly-closed-sales'
 import type {
-  SpiffProgram,
-  SpiffAchievement,
-  SpiffWithProgress,
+  Heat,
+  HeatAchievement,
+  HeatWithProgress,
   UserIncentiveGoal,
 } from '@/lib/incentive-metrics'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -31,7 +31,7 @@ type IncentivesResponse = {
     closedSales: number
   }
   goal: UserIncentiveGoal | null
-  activeSpiffs: SpiffWithProgress[]
+  activeSpiffs: HeatWithProgress[]
   asOf: string
 }
 
@@ -139,13 +139,13 @@ export async function GET() {
       return NextResponse.json({ error: spiffError.message }, { status: 500 })
     }
 
-    const spiffs = (spiffRows ?? []) as SpiffProgram[]
+    const spiffs = (spiffRows ?? []) as Heat[]
     const eligibleSpiffs = spiffs.filter(
       (s) => s.eligible_roles.length === 0 || s.eligible_roles.includes(profile.role),
     )
 
     const spiffIds = eligibleSpiffs.map((s) => s.id)
-    const achievementMap = new Map<string, SpiffAchievement>()
+    const achievementMap = new Map<string, HeatAchievement>()
 
     if (spiffIds.length > 0) {
       const { data: achievementRows, error: achError } = await admin
@@ -161,7 +161,7 @@ export async function GET() {
       }
 
       for (const row of achievementRows ?? []) {
-        achievementMap.set(row.spiff_program_id, row as SpiffAchievement)
+        achievementMap.set(row.spiff_program_id, row as HeatAchievement)
       }
     }
 
@@ -184,7 +184,7 @@ export async function GET() {
       }
     }
 
-    const activeSpiffs: SpiffWithProgress[] = eligibleSpiffs.map((s) => {
+    const activeSpiffs: HeatWithProgress[] = eligibleSpiffs.map((s) => {
       const ach = achievementMap.get(s.id)
       const periodId = ach?.payroll_period_id ?? null
       return {

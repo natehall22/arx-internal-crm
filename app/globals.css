@@ -127,7 +127,7 @@ textarea::placeholder {
   color: #9ca3af;
 }
 
-/* Dark slate admin modals (Sisu incentives, 444 enroll, etc.) */
+/* Dark slate admin modals (Sisu incentives, etc.) */
 .bg-slate-900 input:not([type='checkbox']):not([type='radio']):not([type='file']):not([type='hidden']):not([type='button']):not([type='submit']):not([type='reset']),
 .bg-slate-900 textarea,
 .bg-slate-900 select,

@@ -63,16 +63,6 @@ export default function IncentivesLoading() {
           </div>
         </div>
 
-        {/* 444 program skeleton */}
-        <div className="rounded-2xl border border-gray-800 p-5 animate-pulse bg-gray-900/50 space-y-4">
-          <div className="h-5 w-36 bg-gray-800 rounded" />
-          <div className="h-10 w-full max-w-xs mx-auto bg-gray-800 rounded" />
-          <div className="space-y-2">
-            <div className="h-2 w-full bg-gray-800 rounded-full" />
-            <div className="h-2 w-full bg-gray-800 rounded-full" />
-          </div>
-        </div>
-
         {/* Heat cards skeleton */}
         <div>
           <div className="h-5 w-28 bg-gray-800 rounded mb-4 animate-pulse" />

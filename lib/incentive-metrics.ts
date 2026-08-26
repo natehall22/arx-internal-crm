@@ -4,10 +4,10 @@
  */
 
 import type {
-  SpiffTriggerMetric,
-  SpiffRewardType,
-  SpiffProgram,
-  SpiffAchievement,
+  HeatTriggerMetric,
+  HeatRewardType,
+  Heat,
+  HeatAchievement,
   IncentiveBadge,
   BadgeCriteriaType,
   UserBadge,
@@ -15,10 +15,10 @@ import type {
 
 // Re-export so rep-dashboard code has a single import point.
 export type {
-  SpiffTriggerMetric,
-  SpiffRewardType,
-  SpiffProgram,
-  SpiffAchievement,
+  HeatTriggerMetric,
+  HeatRewardType,
+  Heat,
+  HeatAchievement,
   IncentiveBadge,
   BadgeCriteriaType,
   UserBadge,
@@ -26,13 +26,13 @@ export type {
 
 // ─── Rep-dashboard extension types ───────────────────────────────────────────
 
-export interface SpiffWithProgress {
+export interface HeatWithProgress {
   id: string
   name: string
   description: string | null
-  trigger_metric: SpiffTriggerMetric
+  trigger_metric: HeatTriggerMetric
   threshold: number
-  reward_type: SpiffRewardType
+  reward_type: HeatRewardType
   reward_amount: number | null
   reward_note: string | null
   eligible_roles: string[]
@@ -84,14 +84,14 @@ export interface LiveMetrics {
 export interface IncentivesPageData {
   liveMetrics: LiveMetrics
   goal: UserIncentiveGoal | null
-  activeSpiffs: SpiffWithProgress[]
+  activeSpiffs: HeatWithProgress[]
   earnedBadges: BadgeWithEarned[]
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 /** Human-readable label for each trigger metric. */
-export function spiffMetricLabel(metric: SpiffTriggerMetric): string {
+export function heatMetricLabel(metric: HeatTriggerMetric): string {
   switch (metric) {
     case 'inspections_set':
       return 'Inspections Set'
@@ -110,7 +110,7 @@ export function spiffMetricLabel(metric: SpiffTriggerMetric): string {
   }
 }
 
-type RewardFields = Pick<SpiffProgram, 'reward_type' | 'reward_amount' | 'reward_note'>
+type RewardFields = Pick<Heat, 'reward_type' | 'reward_amount' | 'reward_note'>
 
 /** Format a reward for display. */
 export function formatReward(spiff: RewardFields): string {
