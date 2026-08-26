@@ -11,6 +11,7 @@ import {
   fetchEffectiveSitOpportunitiesInPeriod,
 } from '@/lib/dashboard-sit-metrics'
 import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
+import { resolveDashboardMemberScope } from '@/lib/dashboard-member-scope'
 import { shouldShowUserOnTeamLeaderboard } from '@/lib/dashboard-team-leaderboard'
 import {
   getAttributedSaleAgreements,
@@ -125,8 +126,6 @@ export async function GET(request: NextRequest) {
     }
 
     const isAdmin = profile.role === 'admin'
-    const isRegionalManager = profile.role === 'regional_manager'
-    const isSalesManager = profile.role === 'sales_manager'
 
     const searchParams = request.nextUrl.searchParams
     const timeframe = searchParams.get('timeframe') || 'week'
@@ -151,49 +150,15 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    // Get team member IDs based on role (scope for non-admin data)
-    let teamMemberIds: string[] = []
-
-    if (isSalesManager && profile.team_id) {
-      const { data: teamMembers } = await supabase
-        .from('users')
-        .select('id')
-        .eq('team_id', profile.team_id)
-      teamMemberIds = teamMembers?.map(m => m.id) || []
-    } else if (isSalesManager && !profile.team_id) {
-      teamMemberIds = [user.id]
-    } else if (isRegionalManager && profile.region_id) {
-      const { data: regionTeams } = await supabase
-        .from('teams')
-        .select('id')
-        .eq('region_id', profile.region_id)
-      const teamIds = regionTeams?.map(t => t.id) || []
-      if (teamIds.length > 0) {
-        const { data: regionMembers } = await supabase
-          .from('users')
-          .select('id')
-          .in('team_id', teamIds)
-        teamMemberIds = regionMembers?.map(m => m.id) || []
-      }
-    } else if (!isAdmin && !isRegionalManager && !isSalesManager && profile.team_id) {
-      const { data: teamMembers } = await supabase
-        .from('users')
-        .select('id')
-        .eq('team_id', profile.team_id)
-      teamMemberIds = teamMembers?.map(m => m.id) || []
-    } else if (!isAdmin && !isRegionalManager && !isSalesManager) {
-      teamMemberIds = [user.id]
-    }
-
-    if (!isAdmin && teamMemberIds.length === 0 && !profile.team_id) {
-      return NextResponse.json({
-        teamMemberStats: [],
-        setterStats: [],
-        closerStats: [],
-        teamMemberCount: 0,
-        distinctDealCounts: { sitOpportunitiesInPeriod: 0, saleOpportunitiesInPeriod: 0 },
-      })
-    }
+    // Who this viewer may see — shared with the Sisu leaderboard so the two
+    // surfaces can never drift. See lib/dashboard-member-scope.ts.
+    const scope = await resolveDashboardMemberScope(supabase, {
+      id: user.id,
+      org_id: profile.org_id,
+      role: profile.role,
+      team_id: profile.team_id,
+      region_id: profile.region_id,
+    })
 
     // Roster for RPC scope: everyone in org/team (including inactive and show_in_reports = false)
     // so pin-attributed doors/sits still roll up. We filter who appears in the UI after computing stats.
@@ -202,8 +167,8 @@ export async function GET(request: NextRequest) {
       .select('id, full_name, role, show_in_reports, active')
       .eq('org_id', profile.org_id)
 
-    if (!isAdmin && teamMemberIds.length > 0) {
-      membersQuery = membersQuery.in('id', teamMemberIds)
+    if (!scope.orgWide) {
+      membersQuery = membersQuery.in('id', scope.memberIds)
     }
 
     const { data: members } = await membersQuery

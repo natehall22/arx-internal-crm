@@ -9,6 +9,12 @@ import CommissionWidget from '@/components/CommissionWidget'
 import UnpaidReferralsAlert from '@/components/UnpaidReferralsAlert'
 import { netCommissionableFromFinancedTotal } from '@/lib/financing'
 import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
+import {
+  TIME_FRAMES,
+  TIME_FRAME_PROSE_LABELS,
+  TIME_FRAME_SELECT_LABELS,
+  type TimeFrame,
+} from '@/lib/time-frames'
 import { isBarredFromProjectsUi } from '@/lib/permissions'
 import { isDashboardPersonalKpiOrgWide } from '@/lib/dashboard-personal-kpi-scope'
 import {
@@ -75,7 +81,8 @@ interface TeamMemberStat {
   efficiency: string
 }
 
-type TimeFrame = 'today' | 'yesterday' | 'week' | 'last_week' | 'month' | 'last_month' | 'quarter' | 'year' | 'all' | 'custom'
+// Timeframe option set lives in lib/time-frames.ts so the dashboard picker, the
+// Sisu leaderboard picker and the API routes that validate it cannot drift.
 
 interface AttachedSale {
   id: string
@@ -683,15 +690,7 @@ export default function DashboardClient({
     customStartDate && customEndDate ? daysBetweenInclusive(customStartDate, customEndDate) : 0
 
   const timeFrameLabel: Record<TimeFrame, string> = {
-    today: 'today',
-    yesterday: 'yesterday',
-    week: 'this week',
-    last_week: 'last week',
-    month: 'this month',
-    last_month: 'last month',
-    quarter: 'this quarter',
-    year: 'this year',
-    all: 'all time',
+    ...TIME_FRAME_PROSE_LABELS,
     custom:
       customStartDate && customEndDate
         ? `${formatShortDate(customStartDate)} – ${formatShortDate(customEndDate)}`
@@ -1075,16 +1074,11 @@ export default function DashboardClient({
               onChange={(e) => setTimeFrame(e.target.value as TimeFrame)}
               className="text-sm border border-gray-300 rounded-lg px-3 py-1.5 bg-white focus:ring-2 focus:ring-indigo-500"
             >
-              <option value="today">Today</option>
-              <option value="yesterday">Yesterday</option>
-              <option value="week">This Week</option>
-              <option value="last_week">Last Week</option>
-              <option value="month">This Month</option>
-              <option value="last_month">Last Month</option>
-              <option value="quarter">This Quarter</option>
-              <option value="year">This Year</option>
-              <option value="all">All Time</option>
-              <option value="custom">Custom Range</option>
+              {TIME_FRAMES.map((tf) => (
+                <option key={tf} value={tf}>
+                  {TIME_FRAME_SELECT_LABELS[tf]}
+                </option>
+              ))}
             </select>
             {timeFrame === 'custom' && (
               <div className="flex items-center gap-1.5">
