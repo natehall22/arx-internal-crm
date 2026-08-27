@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
+import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
-import { createClient } from '@/lib/supabase/server'
 import { canAccessCustomerRecordsFromPermissionNames, isRepLikeCustomerRecordRole } from '@/lib/permissions'
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 
@@ -14,25 +14,16 @@ function normalizePhone(phone: string | null | undefined): string {
 // GET - Search customers by name/phone/email
 export async function GET(request: Request) {
   try {
-    const supabase = createClient()
-    const adminClient = createServiceClient()
-
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
+    let profile
+    try {
+      ;({ profile } = await requireAuthApi())
+    } catch {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const { data: profile } = await adminClient
-      .from('users')
-      .select('org_id, role, custom_role_id')
-      .eq('id', user.id)
-      .single()
+    const adminClient = createServiceClient()
 
-    if (!profile) {
-      return NextResponse.json({ error: 'User profile not found' }, { status: 404 })
-    }
-
-    const customerPermissions = await resolveEffectivePermissionNames(adminClient, user.id, profile)
+    const customerPermissions = await resolveEffectivePermissionNames(adminClient, profile.id, profile)
     if (!canAccessCustomerRecordsFromPermissionNames(customerPermissions)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
@@ -44,13 +35,13 @@ export async function GET(request: Request) {
           .from('projects')
           .select('customer_id')
           .eq('org_id', profile.org_id)
-          .eq('owner_user_id', user.id)
+          .eq('owner_user_id', profile.id)
           .not('customer_id', 'is', null),
         adminClient
           .from('opportunities')
           .select('customer_id')
           .eq('org_id', profile.org_id)
-          .eq('owner_user_id', user.id)
+          .eq('owner_user_id', profile.id)
           .not('customer_id', 'is', null),
       ])
       allowedCustomerIds = Array.from(

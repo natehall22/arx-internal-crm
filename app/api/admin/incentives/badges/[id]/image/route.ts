@@ -1,17 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireAuthApi } from '@/lib/auth'
+import { isSisuAdminRole } from '@/lib/sisu-admin-access'
 import { createServiceClient } from '@/lib/supabase/service'
-import { createClient } from '@/lib/supabase/server'
 
 export const dynamic = 'force-dynamic'
 
 const BADGE_IMAGES_BUCKET = 'badge-images'
 const ALLOWED_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
 const MAX_BYTES = 10 * 1024 * 1024 // 10 MB
-
-const ADMIN_ROLES = new Set([
-  'admin', 'owner', 'regional_manager', 'regional_setter_manager',
-  'sales_manager', 'setter_manager', 'manager', 'operations',
-])
 
 export async function POST(
   request: NextRequest,
@@ -20,22 +16,18 @@ export async function POST(
   const badgeId = params.id
 
   // Auth — verify caller is admin in the same org as the badge
-  const supabase = createClient()
-  const { data: { user }, error: userError } = await supabase.auth.getUser()
-  if (userError || !user) {
+  let profile
+  try {
+    ;({ profile } = await requireAuthApi())
+  } catch {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const admin = createServiceClient()
-  const { data: profile } = await admin
-    .from('users')
-    .select('role, org_id')
-    .eq('id', user.id)
-    .single()
-
-  if (!profile?.role || !ADMIN_ROLES.has(profile.role as string)) {
+  if (!isSisuAdminRole(profile.role) || !profile.org_id) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
+
+  const admin = createServiceClient()
 
   // Verify badge belongs to this org
   const { data: badge } = await admin
@@ -108,22 +100,18 @@ export async function DELETE(
 ) {
   const badgeId = params.id
 
-  const supabase = createClient()
-  const { data: { user }, error: userError } = await supabase.auth.getUser()
-  if (userError || !user) {
+  let profile
+  try {
+    ;({ profile } = await requireAuthApi())
+  } catch {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const admin = createServiceClient()
-  const { data: profile } = await admin
-    .from('users')
-    .select('role, org_id')
-    .eq('id', user.id)
-    .single()
-
-  if (!profile?.role || !ADMIN_ROLES.has(profile.role as string)) {
+  if (!isSisuAdminRole(profile.role) || !profile.org_id) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
+
+  const admin = createServiceClient()
 
   const { data: badge } = await admin
     .from('incentive_badges')

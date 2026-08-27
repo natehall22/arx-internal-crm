@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
+import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
-import { createClient } from '@/lib/supabase/server'
 import { buildCommissionPayrollSnapshot } from '@/lib/commission-payroll'
 
 /** Payroll-facing commission pool for a job (JSON for exports / integrations). */
@@ -9,25 +9,14 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
-    const supabase = createClient()
-    const adminClient = createServiceClient()
-
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-    if (!user) {
+    let profile
+    try {
+      ;({ profile } = await requireAuthApi())
+    } catch {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const { data: profile } = await adminClient
-      .from('users')
-      .select('org_id, role')
-      .eq('id', user.id)
-      .single()
-
-    if (!profile) {
-      return NextResponse.json({ error: 'User profile not found' }, { status: 404 })
-    }
+    const adminClient = createServiceClient()
 
     const restricted =
       profile.role !== 'admin' && profile.role !== 'owner' && profile.role !== 'operations'

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
+import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
-import { createClient } from '@/lib/supabase/server'
 import { canAccessCustomerRecordsFromPermissionNames, isRepLikeCustomerRecordRole } from '@/lib/permissions'
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 
@@ -9,25 +9,16 @@ export const dynamic = 'force-dynamic'
 // GET - Get records without customer_id (opportunities, projects, jobs)
 export async function GET(request: Request) {
   try {
-    const supabase = createClient()
-    const adminClient = createServiceClient()
-
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
+    let profile
+    try {
+      ;({ profile } = await requireAuthApi())
+    } catch {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const { data: profile } = await adminClient
-      .from('users')
-      .select('org_id, role, custom_role_id')
-      .eq('id', user.id)
-      .single()
+    const adminClient = createServiceClient()
 
-    if (!profile) {
-      return NextResponse.json({ error: 'User profile not found' }, { status: 404 })
-    }
-
-    const customerPermissions = await resolveEffectivePermissionNames(adminClient, user.id, profile)
+    const customerPermissions = await resolveEffectivePermissionNames(adminClient, profile.id, profile)
     if (!canAccessCustomerRecordsFromPermissionNames(customerPermissions)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
@@ -68,7 +59,7 @@ export async function GET(request: Request) {
       }
 
       if (repScoped) {
-        oppQuery = oppQuery.eq('owner_user_id', user.id)
+        oppQuery = oppQuery.eq('owner_user_id', profile.id)
       }
 
       const { data: opps, error: oppError } = await oppQuery
@@ -131,7 +122,7 @@ export async function GET(request: Request) {
       }
 
       if (repScoped) {
-        projectQuery = projectQuery.eq('owner_user_id', user.id)
+        projectQuery = projectQuery.eq('owner_user_id', profile.id)
       }
 
       const { data: projects } = await projectQuery
@@ -229,7 +220,7 @@ export async function GET(request: Request) {
       results.jobs = repScoped
         ? jobsWithProposals.filter((j) => {
             const project = Array.isArray(j.project) ? j.project[0] : j.project
-            return project?.owner_user_id === user.id
+            return project?.owner_user_id === profile.id
           })
         : jobsWithProposals
     }

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { requireAuthApi } from '@/lib/auth'
+import { isSisuAdminRole } from '@/lib/sisu-admin-access'
 import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
@@ -7,10 +8,6 @@ export const dynamic = 'force-dynamic'
 type AuthResult = {
   userId: string
   orgId: string
-}
-
-type SessionData = {
-  access_token?: string
 }
 
 type PostBody = {
@@ -24,17 +21,6 @@ type PatchBody = {
   notes?: unknown
 }
 
-const ADMIN_ROLES = [
-  'admin',
-  'owner',
-  'regional_manager',
-  'regional_setter_manager',
-  'sales_manager',
-  'setter_manager',
-  'manager',
-  'operations',
-]
-
 const ELIGIBLE_RAMP_ROLES = new Set(['setter', 'canvasser', 'field_marketer'])
 const ENROLLMENT_STATUSES = ['active', 'cancelled']
 
@@ -42,83 +28,26 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
 }
 
-// ── Auth helpers (same shape as app/api/admin/sisu/444/route.ts) ─────────────
-
-function getSessionFromRequest(req: NextRequest): SessionData | null {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const projectRef = supabaseUrl.match(/https:\/\/([^.]+)\./)?.[1] || ''
-  const cookieName = `sb-${projectRef}-auth-token`
-
-  const singleCookie = req.cookies.get(cookieName)
-  if (singleCookie?.value) {
-    try {
-      const parsed: unknown = JSON.parse(decodeURIComponent(singleCookie.value))
-      return isRecord(parsed) ? { access_token: String(parsed.access_token ?? '') } : null
-    } catch {
-      return null
-    }
+/**
+ * Resolves the caller once — identity, active check, role and org in a single pass.
+ * Replaces a local cookie parser + anon auth client that never checked `users.active`.
+ */
+async function assertAdmin(): Promise<AuthResult | NextResponse> {
+  let profile
+  try {
+    ;({ profile } = await requireAuthApi())
+  } catch {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const chunks: string[] = []
-  let i = 0
-  while (true) {
-    const chunk = req.cookies.get(`${cookieName}.${i}`)
-    if (!chunk?.value) break
-    chunks.push(chunk.value)
-    i += 1
-  }
-
-  if (chunks.length > 0) {
-    try {
-      const parsed: unknown = JSON.parse(decodeURIComponent(chunks.join('')))
-      return isRecord(parsed) ? { access_token: String(parsed.access_token ?? '') } : null
-    } catch {
-      return null
-    }
-  }
-
-  return null
-}
-
-function getAuthClient(req: NextRequest) {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  const sessionData = getSessionFromRequest(req)
-
-  return createClient(supabaseUrl, supabaseKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-    global: sessionData?.access_token
-      ? { headers: { Authorization: `Bearer ${sessionData.access_token}` } }
-      : undefined,
-  })
-}
-
-async function getAuthedUser(req: NextRequest) {
-  const client = getAuthClient(req)
-  const {
-    data: { user },
-    error,
-  } = await client.auth.getUser()
-
-  if (error || !user) return null
-  return user
-}
-
-async function assertAdmin(req: NextRequest): Promise<AuthResult | NextResponse> {
-  const user = await getAuthedUser(req)
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
-  const admin = createServiceClient()
-  const { data: profile } = await admin.from('users').select('role, org_id').eq('id', user.id).single()
-
-  if (!profile?.role || !ADMIN_ROLES.includes(profile.role)) {
+  if (!isSisuAdminRole(profile.role)) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
   if (!profile.org_id) {
     return NextResponse.json({ error: 'No org found' }, { status: 400 })
   }
 
-  return { userId: user.id, orgId: profile.org_id }
+  return { userId: profile.id, orgId: profile.org_id }
 }
 
 async function readJsonBody(req: NextRequest): Promise<unknown> {
@@ -136,8 +65,8 @@ function isValidDateString(value: string): boolean {
 const ENROLLMENT_SELECT =
   '*, users:users!setter_ramp_enrollments_user_id_fkey(full_name, role), weekly_status:setter_ramp_weekly_status(id, week_number, week_starts_at, week_ends_at, doors_knocked, appointments_set, rolling_avg_appointments, gate_passed, gate_passed_at, commission_total, floor_amount, payout_source, payroll_period_id, bonus_registered)'
 
-export async function GET(req: NextRequest) {
-  const authResult = await assertAdmin(req)
+export async function GET() {
+  const authResult = await assertAdmin()
   if (authResult instanceof NextResponse) return authResult
 
   const admin = createServiceClient()
@@ -164,7 +93,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const authResult = await assertAdmin(req)
+  const authResult = await assertAdmin()
   if (authResult instanceof NextResponse) return authResult
 
   const rawBody = await readJsonBody(req)
@@ -242,7 +171,7 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
-  const authResult = await assertAdmin(req)
+  const authResult = await assertAdmin()
   if (authResult instanceof NextResponse) return authResult
 
   const rawBody = await readJsonBody(req)

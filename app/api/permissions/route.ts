@@ -36,23 +36,24 @@ export async function GET(request: NextRequest) {
 
 // POST - Grant a permission to a user
 export async function POST(request: NextRequest) {
-  const supabase = createClient()
-  
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) {
+  let profile
+  try {
+    ;({ profile } = await requireAuthApi())
+  } catch {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
   // Check if requester is admin
-  const { data: profile } = await supabase
-    .from('users')
-    .select('role, org_id')
-    .eq('id', user.id)
-    .single()
-
-  if (!profile || !(isOrgSuperuserRoleSlug(profile.role) || profile.role === 'regional_manager')) {
+  if (!(isOrgSuperuserRoleSlug(profile.role) || profile.role === 'regional_manager')) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
+
+  // Deliberately the RLS-bound client, not the service client: 029_user_permissions.sql
+  // gates writes to this table on `org_id = get_user_org_id(auth.uid())` AND the caller's
+  // role, and that policy is the backstop for the grant/revoke path. A service client
+  // would bypass it — and would also silently widen access, since the app check above
+  // admits `owner` while the DB policy does not.
+  const supabase = createClient()
 
   const body = await request.json()
   const { user_id, permission_name, notes } = body
@@ -90,7 +91,7 @@ export async function POST(request: NextRequest) {
       org_id: profile.org_id,
       user_id,
       permission_id: permissionData.id,
-      granted_by: user.id,
+      granted_by: profile.id,
       notes,
     }, {
       onConflict: 'user_id,permission_id'
@@ -105,23 +106,24 @@ export async function POST(request: NextRequest) {
 
 // DELETE - Revoke a permission from a user
 export async function DELETE(request: NextRequest) {
-  const supabase = createClient()
-  
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) {
+  let profile
+  try {
+    ;({ profile } = await requireAuthApi())
+  } catch {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
   // Check if requester is admin
-  const { data: profile } = await supabase
-    .from('users')
-    .select('role, org_id')
-    .eq('id', user.id)
-    .single()
-
-  if (!profile || !(isOrgSuperuserRoleSlug(profile.role) || profile.role === 'regional_manager')) {
+  if (!(isOrgSuperuserRoleSlug(profile.role) || profile.role === 'regional_manager')) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
+
+  // Deliberately the RLS-bound client, not the service client: 029_user_permissions.sql
+  // gates writes to this table on `org_id = get_user_org_id(auth.uid())` AND the caller's
+  // role, and that policy is the backstop for the grant/revoke path. A service client
+  // would bypass it — and would also silently widen access, since the app check above
+  // admits `owner` while the DB policy does not.
+  const supabase = createClient()
 
   const userId = request.nextUrl.searchParams.get('user_id')
   const permissionName = request.nextUrl.searchParams.get('permission_name')
@@ -141,11 +143,25 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ error: 'Permission not found' }, { status: 404 })
   }
 
+  // Verify target user is in the same org. RLS already confines the delete below to the
+  // caller's org, so this is defence in depth plus a clear 404 instead of a silent no-op;
+  // the grant path (POST) makes the same check.
+  const { data: targetUser } = await supabase
+    .from('users')
+    .select('org_id')
+    .eq('id', userId)
+    .single()
+
+  if (!targetUser || targetUser.org_id !== profile.org_id) {
+    return NextResponse.json({ error: 'User not found in your organization' }, { status: 404 })
+  }
+
   // Revoke permission
   const { error } = await supabase
     .from('user_permissions')
     .delete()
     .eq('user_id', userId)
+    .eq('org_id', profile.org_id)
     .eq('permission_id', permissionData.id)
 
   if (error) {

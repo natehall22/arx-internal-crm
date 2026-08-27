@@ -1,28 +1,19 @@
 import { NextResponse } from 'next/server'
+import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
-import { createClient } from '@/lib/supabase/server'
 import { upsertCustomer } from '@/lib/customers'
 
 // POST - Backfill customer_id for projects and jobs that are missing it
 export async function POST(request: Request) {
   try {
-    const supabase = createClient()
-    const adminClient = createServiceClient()
-
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
+    let profile
+    try {
+      ;({ profile } = await requireAuthApi())
+    } catch {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const { data: profile } = await adminClient
-      .from('users')
-      .select('org_id, role')
-      .eq('id', user.id)
-      .single()
-
-    if (!profile) {
-      return NextResponse.json({ error: 'User profile not found' }, { status: 404 })
-    }
+    const adminClient = createServiceClient()
 
     // Only admins can run backfill
     if (profile.role !== 'admin') {
@@ -207,23 +198,14 @@ export async function POST(request: Request) {
 // GET - Preview what would be backfilled (dry run)
 export async function GET(request: Request) {
   try {
-    const supabase = createClient()
-    const adminClient = createServiceClient()
-
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
+    let profile
+    try {
+      ;({ profile } = await requireAuthApi())
+    } catch {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const { data: profile } = await adminClient
-      .from('users')
-      .select('org_id, role')
-      .eq('id', user.id)
-      .single()
-
-    if (!profile) {
-      return NextResponse.json({ error: 'User profile not found' }, { status: 404 })
-    }
+    const adminClient = createServiceClient()
 
     if (profile.role !== 'admin') {
       return NextResponse.json({ error: 'Admin access required' }, { status: 403 })

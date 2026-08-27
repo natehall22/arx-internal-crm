@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server'
+import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
-import { createClient } from '@/lib/supabase/server'
 import { JobPaymentSummary } from '@/lib/types/job-payments'
 import { enqueuePaymentRecorded } from '@/lib/integrations'
-import { canAccessJobBilling } from '@/lib/finance-access'
+import { callerCanAccessJobBilling } from '@/lib/finance-access'
 import { getJobPaymentSummary } from '@/lib/job-payments'
 import { notifyAdminOpsOfJobPayment } from '@/lib/job-payment-email'
 
@@ -13,33 +13,16 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
-    const supabase = createClient()
-    const adminClient = createServiceClient()
-
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
+    let profile
+    try {
+      ;({ profile } = await requireAuthApi())
+    } catch {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const { data: profile } = await adminClient
-      .from('users')
-      .select('org_id, role, custom_role_id, custom_role:custom_roles(name, display_name)')
-      .eq('id', user.id)
-      .single()
+    const adminClient = createServiceClient()
 
-    if (!profile) {
-      return NextResponse.json({ error: 'User profile not found' }, { status: 404 })
-    }
-
-    const customRole = Array.isArray((profile as any).custom_role)
-      ? (profile as any).custom_role[0]
-      : (profile as any).custom_role
-
-    if (!canAccessJobBilling({
-      role: (profile as any).role,
-      customRoleName: customRole?.name,
-      customRoleDisplayName: customRole?.display_name,
-    })) {
+    if (!(await callerCanAccessJobBilling(adminClient, profile))) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
@@ -97,33 +80,16 @@ export async function POST(
   { params }: { params: { id: string } }
 ) {
   try {
-    const supabase = createClient()
-    const adminClient = createServiceClient()
-
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
+    let profile
+    try {
+      ;({ profile } = await requireAuthApi())
+    } catch {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const { data: profile } = await adminClient
-      .from('users')
-      .select('org_id, role, custom_role_id, custom_role:custom_roles(name, display_name)')
-      .eq('id', user.id)
-      .single()
+    const adminClient = createServiceClient()
 
-    if (!profile) {
-      return NextResponse.json({ error: 'User profile not found' }, { status: 404 })
-    }
-
-    const customRole = Array.isArray((profile as any).custom_role)
-      ? (profile as any).custom_role[0]
-      : (profile as any).custom_role
-
-    if (!canAccessJobBilling({
-      role: (profile as any).role,
-      customRoleName: customRole?.name,
-      customRoleDisplayName: customRole?.display_name,
-    })) {
+    if (!(await callerCanAccessJobBilling(adminClient, profile))) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
@@ -158,7 +124,7 @@ export async function POST(
         method,
         payer,
         note: note || null,
-        created_by: user.id,
+        created_by: profile.id,
       })
       .select()
       .single()

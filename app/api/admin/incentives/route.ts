@@ -1,119 +1,46 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { requireAuthApi } from '@/lib/auth'
+import { isSisuAdminRole } from '@/lib/sisu-admin-access'
 import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
 
-// ─── auth helpers (same pattern as /api/admin/data/route.ts) ─────────────────
+type AdminContext = { userId: string; orgId: string }
 
-function getSessionFromRequest(req: NextRequest) {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const projectRef = supabaseUrl.match(/https:\/\/([^.]+)\./)?.[1] || ''
-  const cookieName = `sb-${projectRef}-auth-token`
-
-  const singleCookie = req.cookies.get(cookieName)
-  if (singleCookie?.value) {
-    try {
-      const decoded = decodeURIComponent(singleCookie.value)
-      return JSON.parse(decoded)
-    } catch {
-      return null
-    }
+/**
+ * Resolves the caller once — identity, active check, role and org in a single pass.
+ * Replaces a local cookie parser + anon auth client that re-hit Supabase auth twice
+ * per request and never checked `users.active`.
+ */
+async function requireIncentivesAdmin(): Promise<AdminContext | NextResponse> {
+  let profile
+  try {
+    ;({ profile } = await requireAuthApi())
+  } catch {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const chunks: string[] = []
-  let i = 0
-  while (true) {
-    const chunk = req.cookies.get(`${cookieName}.${i}`)
-    if (!chunk?.value) break
-    chunks.push(chunk.value)
-    i++
-  }
-
-  if (chunks.length > 0) {
-    try {
-      const decoded = decodeURIComponent(chunks.join(''))
-      return JSON.parse(decoded)
-    } catch {
-      return null
-    }
-  }
-
-  return null
-}
-
-function getAuthClient(req: NextRequest) {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  const sessionData = getSessionFromRequest(req)
-
-  return createClient(supabaseUrl, supabaseKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-    global: sessionData?.access_token
-      ? { headers: { Authorization: `Bearer ${sessionData.access_token}` } }
-      : undefined,
-  })
-}
-
-const ADMIN_ROLES = [
-  'admin',
-  'owner',
-  'regional_manager',
-  'regional_setter_manager',
-  'sales_manager',
-  'setter_manager',
-  'manager',
-  'operations',
-]
-
-async function getAuthedUser(req: NextRequest) {
-  const client = getAuthClient(req)
-  const { data: { user }, error } = await client.auth.getUser()
-  if (error || !user) return null
-  return user
-}
-
-async function assertAdmin(req: NextRequest): Promise<{ userId: string } | NextResponse> {
-  const user = await getAuthedUser(req)
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
-  const admin = createServiceClient()
-  const { data: profile } = await admin
-    .from('users')
-    .select('role, org_id')
-    .eq('id', user.id)
-    .single()
-
-  if (!profile?.role || !ADMIN_ROLES.includes(profile.role)) {
+  if (!isSisuAdminRole(profile.role)) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
+  if (!profile.org_id) {
+    return NextResponse.json({ error: 'No org found' }, { status: 400 })
+  }
 
-  return { userId: user.id }
+  return { userId: profile.id, orgId: profile.org_id }
 }
 
 // ─── GET /api/admin/incentives ────────────────────────────────────────────────
 
 export async function GET(req: NextRequest) {
-  const authResult = await assertAdmin(req)
+  const authResult = await requireIncentivesAdmin()
   if (authResult instanceof NextResponse) return authResult
 
   const { searchParams } = new URL(req.url)
   const resource = searchParams.get('resource')
 
-  const user = await getAuthedUser(req)
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
-  const supabase = getAuthClient(req)
   const admin = createServiceClient()
-
-  // Resolve org_id from authed user — required for all branches
-  const { data: profile } = await admin
-    .from('users')
-    .select('org_id')
-    .eq('id', user.id)
-    .single()
-
-  if (!profile?.org_id) return NextResponse.json({ error: 'No org found' }, { status: 400 })
+  const orgId = authResult.orgId
 
   // payout queue for a specific cycle — scoped to caller's org + cycle date range
   if (resource === 'payout_queue') {
@@ -125,7 +52,7 @@ export async function GET(req: NextRequest) {
       .from('incentive_cycles')
       .select('id, starts_at, ends_at')
       .eq('id', cycleId)
-      .eq('org_id', profile.org_id)
+      .eq('org_id', orgId)
       .maybeSingle()
 
     if (cycleError) return NextResponse.json({ error: cycleError.message }, { status: 500 })
@@ -135,7 +62,7 @@ export async function GET(req: NextRequest) {
     const { data: achievements, error } = await admin
       .from('spiff_achievements')
       .select('*, users(full_name, role)')
-      .eq('org_id', profile.org_id)
+      .eq('org_id', orgId)
       .eq('qualified', true)
       .gte('qualified_at', cycle.starts_at)
       .lte('qualified_at', cycle.ends_at)
@@ -145,8 +72,6 @@ export async function GET(req: NextRequest) {
   }
 
   // default: load all lists
-
-  const orgId = profile.org_id
 
   const [spiffsRes, cyclesRes, badgesRes, usersRes] = await Promise.all([
     admin.from('spiff_programs').select('*').eq('org_id', orgId).order('created_at', { ascending: false }),
@@ -169,24 +94,14 @@ export async function GET(req: NextRequest) {
 // ─── POST /api/admin/incentives ───────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
-  const authResult = await assertAdmin(req)
+  const authResult = await requireIncentivesAdmin()
   if (authResult instanceof NextResponse) return authResult
 
-  const user = await getAuthedUser(req)
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
   const admin = createServiceClient()
-  const { data: profile } = await admin
-    .from('users')
-    .select('org_id')
-    .eq('id', user.id)
-    .single()
-
-  if (!profile?.org_id) return NextResponse.json({ error: 'No org found' }, { status: 400 })
 
   const body = await req.json()
   const { resource, ...rest } = body
-  const orgId = profile.org_id
+  const orgId = authResult.orgId
 
   if (resource === 'heat_program') {
     const allowed = ['name','description','trigger_metric','threshold','reward_type','reward_amount','reward_note','eligible_roles','is_public','starts_at','ends_at','status']
@@ -265,19 +180,12 @@ export async function POST(req: NextRequest) {
 // ─── PATCH /api/admin/incentives ──────────────────────────────────────────────
 
 export async function PATCH(req: NextRequest) {
-  const authResult = await assertAdmin(req)
+  const authResult = await requireIncentivesAdmin()
   if (authResult instanceof NextResponse) return authResult
 
   const admin = createServiceClient()
-
-  // Resolve org_id — required for all update queries to prevent cross-org modification
-  const { data: callerProfile } = await admin
-    .from('users')
-    .select('org_id')
-    .eq('id', authResult.userId)
-    .single()
-  if (!callerProfile?.org_id) return NextResponse.json({ error: 'No org found' }, { status: 400 })
-  const orgId = callerProfile.org_id
+  // org_id scopes every update query below to prevent cross-org modification
+  const orgId = authResult.orgId
 
   const body = await req.json()
   const { resource, id, ...rest } = body

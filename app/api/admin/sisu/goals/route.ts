@@ -1,36 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
-import { createClient } from '@/lib/supabase/server'
 import { getEasternTodayIso } from '@/lib/eastern-datetime'
 import { isPayrollAdminRole } from '@/lib/payroll-admin-access'
 import { isUserInManagerHierarchy } from '@/lib/payroll-statement-access'
+import { isSisuAdminRole } from '@/lib/sisu-admin-access'
 
 export const dynamic = 'force-dynamic'
 
 // Full admins can set goals for any rep in the org.
 // All other manager-tier roles can only set goals for reps in their hierarchy.
-const ADMIN_ROLES = new Set([
-  'admin', 'owner', 'regional_manager', 'regional_setter_manager',
-  'sales_manager', 'setter_manager', 'manager', 'operations',
-])
-
 export async function PUT(request: NextRequest) {
-  const supabase = createClient()
-  const { data: { user }, error: userError } = await supabase.auth.getUser()
-  if (userError || !user) {
+  let profile
+  try {
+    ;({ profile } = await requireAuthApi())
+  } catch {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const admin = createServiceClient()
-  const { data: profile } = await admin
-    .from('users')
-    .select('role, org_id')
-    .eq('id', user.id)
-    .single()
-
-  if (!profile?.role || !ADMIN_ROLES.has(profile.role as string)) {
+  if (!isSisuAdminRole(profile.role) || !profile.org_id) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
+
+  const admin = createServiceClient()
 
   const body = await request.json().catch(() => null)
   if (!body || typeof body.user_id !== 'string') {
@@ -71,7 +63,7 @@ export async function PUT(request: NextRequest) {
     const inHierarchy = await isUserInManagerHierarchy(
       admin,
       profile.org_id,
-      user.id,
+      profile.id,
       user_id,
     )
     if (!inHierarchy) {
@@ -102,7 +94,7 @@ export async function PUT(request: NextRequest) {
     .insert({
       org_id: profile.org_id,
       user_id,
-      changed_by: user.id,
+      changed_by: profile.id,
       weekly_doors_target: mergedDoors,
       weekly_inspections_target: mergedInspections,
       weekly_sales_target: mergedSales,
@@ -126,7 +118,7 @@ export async function PUT(request: NextRequest) {
         weekly_sales_target: mergedSales,
         weekly_revenue_target: mergedRevenue,
         effective_from: todayIso,
-        set_by: user.id,
+        set_by: profile.id,
       },
       { onConflict: 'user_id,effective_from' }
     )
