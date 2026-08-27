@@ -1437,9 +1437,24 @@ function PhotoCard(props: {
         >
           ★ Cover
         </button>
-        <button onClick={() => setMoreOpen((v) => !v)} className="rounded-md px-2.5 py-1.5 text-xs font-semibold" style={{ border: `1px solid ${LINE}`, color: DARKTEXT }}>
-          More…
-        </button>
+        {props.sectionId !== '__unsorted__' ? (
+          <button onClick={() => setMoreOpen((v) => !v)} className="rounded-md px-2.5 py-1.5 text-xs font-semibold" style={{ border: `1px solid ${LINE}`, color: DARKTEXT }}>
+            More…
+          </button>
+        ) : null}
+        {doc.sections
+          .filter((section) => section.id !== props.sectionId)
+          .map((section) => (
+            <button
+              key={section.id}
+              onClick={() => props.onMove(section.id)}
+              className="rounded-md px-2.5 py-1.5 text-xs font-semibold"
+              style={{ border: `1px solid ${LINE}`, color: DARKTEXT }}
+              title={`Move to ${section.dividerTitle || 'untitled section'}`}
+            >
+              {section.dividerTitle || '(untitled)'}
+            </button>
+          ))}
         <button onClick={props.onDelete} className="ml-auto rounded-md px-2.5 py-1.5 text-xs font-semibold" style={{ border: '1px solid #e3c7c2', color: '#b3402f' }}>
           Delete
         </button>
@@ -1456,25 +1471,6 @@ function PhotoCard(props: {
               </button>
             </>
           ) : null}
-          <select
-            value=""
-            onChange={(e) => {
-              if (e.target.value) props.onMove(e.target.value)
-            }}
-            className="rounded-md border px-2 py-1.5 text-xs"
-            style={{ borderColor: LINE, color: DARKTEXT, background: '#fff' }}
-          >
-            <option value="" disabled>
-              Move to section…
-            </option>
-            {doc.sections
-              .filter((x) => x.id !== props.sectionId)
-              .map((x) => (
-                <option key={x.id} value={x.id}>
-                  {x.dividerTitle || '(untitled)'}
-                </option>
-              ))}
-          </select>
         </div>
       ) : null}
     </div>
