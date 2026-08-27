@@ -1,14 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerClient } from '@/lib/supabase/server'
+import { requireAuthApi } from '@/lib/auth'
+import { createClient } from '@/lib/supabase/server'
 
 export async function GET(request: NextRequest) {
   try {
-    const supabase = createServerClient()
-    
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
+    let profile
+    try {
+      ;({ profile } = await requireAuthApi())
+    } catch {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+
+    // RLS-bound client: this route's reads/writes rely on the org policies on the
+    // tables below, so it must stay the caller's client rather than a service client.
+    const supabase = createClient()
 
     const unreadOnly = request.nextUrl.searchParams.get('unread') === 'true'
     const limit = parseInt(request.nextUrl.searchParams.get('limit') || '20')
@@ -16,7 +21,7 @@ export async function GET(request: NextRequest) {
     let query = supabase
       .from('notifications')
       .select('*')
-      .eq('recipient_user_id', user.id)
+      .eq('recipient_user_id', profile.id)
       .order('created_at', { ascending: false })
       .limit(limit)
 
@@ -35,7 +40,7 @@ export async function GET(request: NextRequest) {
     const { count } = await supabase
       .from('notifications')
       .select('id', { count: 'exact', head: true })
-      .eq('recipient_user_id', user.id)
+      .eq('recipient_user_id', profile.id)
       .is('read_at', null)
 
     return NextResponse.json({ 
@@ -52,12 +57,16 @@ export async function GET(request: NextRequest) {
 // Mark notifications as read
 export async function PATCH(request: NextRequest) {
   try {
-    const supabase = createServerClient()
-    
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
+    let profile
+    try {
+      ;({ profile } = await requireAuthApi())
+    } catch {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+
+    // RLS-bound client: this route's reads/writes rely on the org policies on the
+    // tables below, so it must stay the caller's client rather than a service client.
+    const supabase = createClient()
 
     const body = await request.json()
     const { notification_ids, mark_all } = body
@@ -66,13 +75,13 @@ export async function PATCH(request: NextRequest) {
       await supabase
         .from('notifications')
         .update({ read_at: new Date().toISOString() })
-        .eq('recipient_user_id', user.id)
+        .eq('recipient_user_id', profile.id)
         .is('read_at', null)
     } else if (notification_ids && notification_ids.length > 0) {
       await supabase
         .from('notifications')
         .update({ read_at: new Date().toISOString() })
-        .eq('recipient_user_id', user.id)
+        .eq('recipient_user_id', profile.id)
         .in('id', notification_ids)
     }
 

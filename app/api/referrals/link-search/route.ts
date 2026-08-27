@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
-import { createClient } from '@/lib/supabase/server'
 import { canAccessCustomerRecordsFromPermissionNames } from '@/lib/permissions'
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 import {
@@ -21,25 +21,20 @@ const RESULT_LIMIT = 8
  */
 export async function GET(request: NextRequest) {
   try {
-    const supabase = createClient()
-    const adminClient = createServiceClient()
-
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
+    let profile
+    try {
+      ;({ profile } = await requireAuthApi())
+    } catch {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const { data: profile } = await adminClient
-      .from('users')
-      .select('org_id, role, custom_role_id')
-      .eq('id', user.id)
-      .single()
-
-    if (!profile?.org_id) {
+    if (!profile.org_id) {
       return NextResponse.json({ error: 'User profile not found' }, { status: 404 })
     }
 
-    const permissions = await resolveEffectivePermissionNames(adminClient, user.id, profile)
+    const adminClient = createServiceClient()
+
+    const permissions = await resolveEffectivePermissionNames(adminClient, profile.id, profile)
     if (!canAccessCustomerRecordsFromPermissionNames(permissions)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }

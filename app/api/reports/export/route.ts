@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireAuthApi } from '@/lib/auth'
 import { createServerClient } from '@supabase/ssr'
 import * as XLSX from 'xlsx'
 import {
@@ -147,24 +148,18 @@ function getSupabaseClient(req: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
-    const supabase = getSupabaseClient(request)
-    
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
+    let profile
+    try {
+      ;({ profile } = await requireAuthApi())
+    } catch {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const { data: profile } = await supabase
-      .from('users')
-      .select('role, org_id, custom_role_id')
-      .eq('id', user.id)
-      .single()
+    // RLS-bound client: every report query below is org-scoped by the caller's own
+    // policies rather than by an explicit .eq('org_id', ...) on each one.
+    const supabase = getSupabaseClient(request)
 
-    if (!profile) {
-      return NextResponse.json({ error: 'Profile not found' }, { status: 400 })
-    }
-
-    const reportPermissions = await resolveEffectivePermissionNames(createServiceClient(), user.id, profile)
+    const reportPermissions = await resolveEffectivePermissionNames(createServiceClient(), profile.id, profile)
     const canExport = canExportReportsFromPermissionNames(reportPermissions)
     if (!canExport) {
       return NextResponse.json({ error: 'Not authorized to export reports' }, { status: 403 })

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireAuthApi } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 
 // GET: List all files for a job + generate signed URLs
@@ -6,25 +7,19 @@ export async function GET(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-
-  if (!user) {
+  let profile
+  try {
+    ;({ profile } = await requireAuthApi())
+  } catch {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  // RLS-bound client: this route's reads/writes rely on the org policies on the
+  // tables below, so it must stay the caller's client rather than a service client.
+  const supabase = createClient()
+
   const jobId = params.id
 
-  // Get user's org
-  const { data: profile } = await supabase
-    .from('users')
-    .select('org_id')
-    .eq('id', user.id)
-    .single()
-
-  if (!profile) {
-    return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
-  }
 
   // Verify job belongs to user's org
   const { data: job } = await supabase
@@ -76,25 +71,19 @@ export async function POST(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-
-  if (!user) {
+  let profile
+  try {
+    ;({ profile } = await requireAuthApi())
+  } catch {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  // RLS-bound client: this route's reads/writes rely on the org policies on the
+  // tables below, so it must stay the caller's client rather than a service client.
+  const supabase = createClient()
+
   const jobId = params.id
 
-  // Get user's org
-  const { data: profile } = await supabase
-    .from('users')
-    .select('org_id')
-    .eq('id', user.id)
-    .single()
-
-  if (!profile) {
-    return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
-  }
 
   // Verify job belongs to user's org
   const { data: job } = await supabase
@@ -142,7 +131,7 @@ export async function POST(
         file_size,
         version,
         notes,
-        created_by: user.id,
+        created_by: profile.id,
       })
       .select()
       .single()
@@ -216,7 +205,7 @@ export async function POST(
         mime_type: file.type,
         version,
         notes,
-        created_by: user.id,
+        created_by: profile.id,
       })
       .select()
       .single()

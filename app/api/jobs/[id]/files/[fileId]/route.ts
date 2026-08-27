@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireAuthApi } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 
 // GET: Get single file with fresh signed URL
@@ -6,26 +7,20 @@ export async function GET(
   request: NextRequest,
   { params }: { params: { id: string; fileId: string } }
 ) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-
-  if (!user) {
+  let profile
+  try {
+    ;({ profile } = await requireAuthApi())
+  } catch {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+
+  // RLS-bound client: this route's reads/writes rely on the org policies on the
+  // tables below, so it must stay the caller's client rather than a service client.
+  const supabase = createClient()
 
   const { fileId } = params
   const jobId = params.id
 
-  // Get user's org
-  const { data: profile } = await supabase
-    .from('users')
-    .select('org_id')
-    .eq('id', user.id)
-    .single()
-
-  if (!profile) {
-    return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
-  }
 
   // Get file record
   const { data: file, error } = await supabase
@@ -62,27 +57,21 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: { id: string; fileId: string } }
 ) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-
-  if (!user) {
+  let profile
+  try {
+    ;({ profile } = await requireAuthApi())
+  } catch {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+
+  // RLS-bound client: this route's reads/writes rely on the org policies on the
+  // tables below, so it must stay the caller's client rather than a service client.
+  const supabase = createClient()
 
   const { fileId } = params
   const jobId = params.id
   const body = await request.json()
 
-  // Get user's org
-  const { data: profile } = await supabase
-    .from('users')
-    .select('org_id')
-    .eq('id', user.id)
-    .single()
-
-  if (!profile) {
-    return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
-  }
 
   // Verify file exists and belongs to user's org
   const { data: existingFile } = await supabase
@@ -107,7 +96,7 @@ export async function PATCH(
   if (body.is_signed === true) {
     updates.is_signed = true
     updates.signed_at = new Date().toISOString()
-    updates.signed_by = user.id
+    updates.signed_by = profile.id
   }
 
   if (Object.keys(updates).length === 0) {
@@ -138,26 +127,20 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: { id: string; fileId: string } }
 ) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-
-  if (!user) {
+  let profile
+  try {
+    ;({ profile } = await requireAuthApi())
+  } catch {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+
+  // RLS-bound client: this route's reads/writes rely on the org policies on the
+  // tables below, so it must stay the caller's client rather than a service client.
+  const supabase = createClient()
 
   const { fileId } = params
   const jobId = params.id
 
-  // Get user's org and role
-  const { data: profile } = await supabase
-    .from('users')
-    .select('org_id, role')
-    .eq('id', user.id)
-    .single()
-
-  if (!profile) {
-    return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
-  }
 
   // Only admin/manager can delete
   if (!['admin', 'sales_manager', 'regional_manager'].includes(profile.role)) {
