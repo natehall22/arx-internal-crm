@@ -545,7 +545,7 @@ export default function ProposalDetailPage() {
       
       <div className="max-w-5xl mx-auto px-4 py-8">
         {/* Header */}
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
           <div>
             <Link
               href={proposal.opportunity_id ? `/opportunities/${proposal.opportunity_id}` : '/proposals'}
@@ -556,7 +556,7 @@ export default function ProposalDetailPage() {
             <h1 className="text-2xl font-bold text-gray-900">{proposal.proposal_number}</h1>
             <p className="text-gray-500">Created {new Date(proposal.created_at).toLocaleDateString()}</p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
             <span className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(proposal.status)}`}>
               {proposal.status.charAt(0).toUpperCase() + proposal.status.slice(1)}
             </span>

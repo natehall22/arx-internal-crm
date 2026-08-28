@@ -1029,8 +1029,8 @@ export default function ProposalBuilderPage() {
       {/* Progress Steps */}
       <div className="bg-white border-b sticky top-0 z-10">
         <div className="max-w-5xl mx-auto px-4 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-8">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3 sm:gap-8 overflow-x-auto">
               {[
                 { num: 1, label: 'Customer Info' },
                 { num: 2, label: 'Roofing Type' },
@@ -1041,9 +1041,9 @@ export default function ProposalBuilderPage() {
                 <button
                   key={s.num}
                   onClick={() => setStep(s.num)}
-                  className={`flex items-center gap-2 ${step === s.num ? 'text-indigo-600' : 'text-gray-400'}`}
+                  className={`flex items-center gap-2 flex-shrink-0 ${step === s.num ? 'text-indigo-600' : 'text-gray-400'}`}
                 >
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
+                  <div className={`w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0 ${
                     step === s.num ? 'bg-indigo-600 text-white' : step > s.num ? 'bg-green-500 text-white' : 'bg-gray-200'
                   }`}>
                     {step > s.num ? '✓' : s.num}
@@ -1052,9 +1052,9 @@ export default function ProposalBuilderPage() {
                 </button>
               ))}
             </div>
-            <div className="text-right">
+            <div className="text-right flex-shrink-0">
               <p className="text-sm text-gray-500">Total</p>
-              <p className="text-2xl font-bold text-gray-900">
+              <p className="text-lg sm:text-2xl font-bold text-gray-900">
                 $
                 {(primaryDisplayTotal || 0).toLocaleString(undefined, {
                   minimumFractionDigits: 2,
@@ -1810,8 +1810,8 @@ export default function ProposalBuilderPage() {
                         : item.line_total || 0
                       
                       return (
-                      <div key={item.id} className="flex items-center justify-between p-3 bg-white rounded-lg">
-                        <div className="flex-1">
+                      <div key={item.id} className="flex flex-wrap items-center justify-between gap-2 p-3 bg-white rounded-lg">
+                        <div className="flex-1 min-w-[8rem]">
                           <span className="text-green-700 font-medium">{item.name}</span>
                           {isPercent ? (
                             <p className="text-xs text-gray-500">{item.unit_price}% of project total</p>
@@ -1819,7 +1819,7 @@ export default function ProposalBuilderPage() {
                             <p className="text-xs text-gray-500">${item.unit_price.toLocaleString()} per {getUnitLabel(item.unit)}</p>
                           )}
                         </div>
-                        <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-2 sm:gap-3">
                           {/* Quantity controls for "each" type items (not for percentage items) */}
                           {!isPercent && needsQuantityInput(item.unit) ? (
                             <div className="flex items-center gap-2">
@@ -1853,7 +1853,7 @@ export default function ProposalBuilderPage() {
                                 }}
                                 onBlur={() => commitQuantityDraft(item, isPerSqftUnit(item.unit) ? 0.01 : 1)}
                                 className={`border border-gray-300 rounded-lg text-center font-medium ${
-                                  isPerSqftUnit(item.unit) ? 'w-24 px-2 py-1' : 'w-16 px-2 py-1'
+                                  isPerSqftUnit(item.unit) ? 'w-16 sm:w-24 px-2 py-1' : 'w-14 sm:w-16 px-2 py-1'
                                 }`}
                               />
                               <button
@@ -1873,7 +1873,7 @@ export default function ProposalBuilderPage() {
                           ) : !isPercent ? (
                             <span className="text-sm text-gray-500">{item.quantity} {getUnitLabel(item.unit)}</span>
                           ) : null}
-                          <span className="font-bold text-green-800 w-24 text-right">
+                          <span className="font-bold text-green-800 w-20 sm:w-24 text-right">
                             ${calculatedTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                           </span>
                           <button
@@ -2275,14 +2275,14 @@ export default function ProposalBuilderPage() {
             </div>
 
             {/* Actions */}
-            <div className="flex justify-between">
+            <div className="flex flex-wrap justify-between gap-3">
               <button
                 onClick={() => setStep(5)}
                 className="px-6 py-3 border border-gray-300 rounded-xl font-medium hover:bg-gray-50"
               >
                 Back
               </button>
-              <div className="flex gap-3">
+              <div className="flex flex-wrap gap-3">
                 <button
                   onClick={() => saveProposal(true)}
                   disabled={saving}
