@@ -59,14 +59,8 @@ describe('setter field-time update', () => {
 
     const rows = summarizeSetterFieldRows(
       [
-        {
-          id: '1', created_at: '2026-08-10T14:00:00Z', source: 'canvass',
-          canvass_disposition: 'renter', owner_user_id: 'rep', pin_attributed_user_id: null,
-        },
-        {
-          id: '2', created_at: '2026-08-10T14:04:00Z', source: 'canvass',
-          canvass_disposition: 'not_interested', owner_user_id: 'rep', pin_attributed_user_id: null,
-        },
+        { created_at: '2026-08-10T14:00:00Z', source: 'canvass', disposition: 'renter', user_id: 'rep' },
+        { created_at: '2026-08-10T14:04:00Z', source: 'canvass', disposition: 'not_interested', user_id: 'rep' },
       ],
       [{ id: 'rep', full_name: 'Field Rep', team_id: 'east' }],
       contactIds
@@ -85,17 +79,11 @@ describe('setter field-time update', () => {
     expect(Array.from(teams)).toEqual(['east'])
   })
 
-  it('groups attributed knocks per rep and Eastern day', () => {
+  it('groups knocks per rep and Eastern day', () => {
     const rows = summarizeSetterFieldRows(
       [
-        {
-          id: '1', created_at: '2026-08-10T14:00:00Z', source: 'canvass',
-          canvass_disposition: 'not_home', owner_user_id: 'rep', pin_attributed_user_id: null,
-        },
-        {
-          id: '2', created_at: '2026-08-10T14:10:00Z', source: 'canvass',
-          canvass_disposition: 'hot_lead', owner_user_id: 'other', pin_attributed_user_id: 'rep',
-        },
+        { created_at: '2026-08-10T14:00:00Z', source: 'canvass', disposition: 'not_home', user_id: 'rep' },
+        { created_at: '2026-08-10T14:10:00Z', source: 'canvass', disposition: 'hot_lead', user_id: 'rep' },
       ],
       [{ id: 'rep', full_name: 'Field Rep', team_id: 'east' }],
       new Set(['hot_lead'])
@@ -113,6 +101,39 @@ describe('setter field-time update', () => {
         lastKnockAt: '2026-08-10T14:10:00Z',
       }),
     ])
+  })
+
+  it('credits a re-knock to the rep who actually knocked, not a shared pin owner', () => {
+    // canvass_knocks.user_id is resolved per-knock at write time (app/api/canvass/lead/route.ts) —
+    // this report just groups by it, it no longer re-derives attribution from a frozen pin owner.
+    const rows = summarizeSetterFieldRows(
+      [
+        { created_at: '2026-08-10T14:00:00Z', source: 'canvass', disposition: 'not_home', user_id: 'rep-a' },
+        { created_at: '2026-08-10T15:00:00Z', source: 'canvass', disposition: 'not_home', user_id: 'rep-b' },
+      ],
+      [
+        { id: 'rep-a', full_name: 'Rep A', team_id: 'east' },
+        { id: 'rep-b', full_name: 'Rep B', team_id: 'east' },
+      ],
+      new Set(['hot_lead'])
+    )
+
+    expect(rows).toEqual([
+      expect.objectContaining({ repName: 'Rep A', doors: 1 }),
+      expect.objectContaining({ repName: 'Rep B', doors: 1 }),
+    ])
+  })
+
+  it('excludes call_center-sourced contacts even with a disposition set', () => {
+    // A phone contact isn't a physical door; canvass_knocks can theoretically carry a
+    // call_center row (any non-web/inbound source with a disposition is knock-eligible),
+    // so this report applies its own extra exclusion on top.
+    const rows = summarizeSetterFieldRows(
+      [{ created_at: '2026-08-10T14:00:00Z', source: 'call_center', disposition: 'hot_lead', user_id: 'rep' }],
+      [{ id: 'rep', full_name: 'Field Rep', team_id: 'east' }],
+      new Set(['hot_lead'])
+    )
+    expect(rows).toEqual([])
   })
 
   it('renders the team name and includes managers/admins when they have team rows', () => {

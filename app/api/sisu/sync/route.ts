@@ -143,11 +143,12 @@ async function countDoorsKnocked(
   startsAt: string,
   endsAt: string,
 ) {
-  // canvass_knocks.user_id is already resolved (pin_attributed_user_id, falling back to
-  // owner_user_id) at knock time — see 202608250001_canvass_knocks.sql. Counting leads
-  // directly missed every re-knock of a pre-existing pin: that request UPDATEs the lead
-  // row in place, so it never gets a fresh created_at for this created_at-windowed count
-  // to see.
+  // canvass_knocks.user_id is already resolved at knock time — see 202608250001_canvass_knocks.sql
+  // and app/api/canvass/lead/route.ts. For a field knock (canvass app) it's the rep actually at
+  // the door that visit; other callers fall back to the frozen pin attribution
+  // (pin_attributed_user_id, then owner_user_id). Counting leads directly missed every re-knock
+  // of a pre-existing pin: that request UPDATEs the lead row in place, so it never gets a fresh
+  // created_at for this created_at-windowed count to see.
   const { count, error } = await admin
     .from('canvass_knocks')
     .select('id', { count: 'exact', head: true })

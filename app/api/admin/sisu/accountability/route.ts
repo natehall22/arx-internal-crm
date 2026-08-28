@@ -272,8 +272,10 @@ export async function GET(req: NextRequest) {
     usersQuery,
     // canvass_knocks (202608250001_canvass_knocks.sql), not leads: a re-knock of a
     // pre-existing pin UPDATEs the lead row in place with no new created_at, so counting
-    // leads directly always missed it. user_id is already resolved (pin_attributed_user_id
-    // falling back to owner_user_id) at knock time.
+    // leads directly always missed it. user_id is already resolved at knock time (see
+    // app/api/canvass/lead/route.ts): the rep actually at the door for a field knock,
+    // falling back to the frozen pin attribution (pin_attributed_user_id, then
+    // owner_user_id) for non-field callers.
     admin
       .from('canvass_knocks')
       .select('user_id')
@@ -316,7 +318,9 @@ export async function GET(req: NextRequest) {
   const inspectionsByUser = new Map<string, number>()
   const now = Date.now()
 
-  // canvass_knocks.user_id is already the resolved attributed rep at knock time — matches sync/leaderboard/dashboard logic
+  // canvass_knocks.user_id is already the resolved attributed rep at knock time (the rep
+  // at the door for a field knock; frozen pin attribution for non-field callers) — matches
+  // sync/leaderboard/dashboard logic
   leads.forEach((lead) => incrementCount(doorsByUser, lead.user_id))
   appointments.forEach((appointment) => incrementCount(inspectionsByUser, appointment.canvasser_user_id))
 

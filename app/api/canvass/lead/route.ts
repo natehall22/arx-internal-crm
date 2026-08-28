@@ -750,7 +750,14 @@ export async function POST(request: Request) {
       console.error('Ignoring unparseable knocked_at, falling back to server time:', knockedAtRaw)
     }
     if (isCanvassDoorEligible({ source: leadRow.source, canvass_disposition: newDisposition })) {
-      const knockUserId = getAttributedCanvassLeadUserId(leadRow) ?? profile.id
+      // A genuine field knock (the canvass app always sends knocked_at — see above) credits
+      // whoever is actually at the door THIS visit, not whoever first dropped the pin: like
+      // SalesRabbit/Terros, re-knocking someone else's existing pin is the knocking rep's own
+      // door, not the original setter's forever. Non-field callers (e.g. schedule-inspection's
+      // server-to-server forward, which never sends knocked_at) keep the frozen pin attribution
+      // so an office action can't mint door credit for whoever happens to click "schedule."
+      const knockUserId =
+        knockedAtRaw !== undefined ? profile.id : getAttributedCanvassLeadUserId(leadRow) ?? profile.id
       const { error: knockError } = await supabase.rpc('log_canvass_knock', {
         p_org_id: profile.org_id,
         p_lead_id: leadRow.id,

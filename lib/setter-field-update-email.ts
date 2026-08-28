@@ -1,6 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getOrgEmailBlastSettings, resolveEmailBlastRecipients } from '@/lib/admin-email-blasts'
-import { getAttributedCanvassLeadUserId } from '@/lib/canvass-lead-attribution'
 import { resolveMorningUpdateActivityWindow } from '@/lib/morning-update-windows'
 import { getContactDispositionIdSet, isCanvassDoorLead, isContactDisposition } from '@/lib/sales-metrics'
 import { getCrmEmailFrom, getMailTransport } from '@/lib/setter-email'
@@ -18,13 +17,17 @@ const CONTACT_BREAK_GAP_MINUTES = 30
  */
 const TIF_QUICK_DOOR_DISPOSITIONS = new Set(['renter'])
 
+/**
+ * Row shape from canvass_knocks (202608250001_canvass_knocks.sql) — one row per knock,
+ * not per lead, so a re-knock of a pre-existing pin is visible here. user_id is already
+ * resolved to whoever is credited for THAT specific knock (see app/api/canvass/lead/route.ts),
+ * not a frozen pin owner, so this report no longer needs to re-derive attribution.
+ */
 type DoorRow = {
-  id: string
   created_at: string
   source: string | null
-  canvass_disposition: string | null
-  owner_user_id: string | null
-  pin_attributed_user_id: string | null
+  disposition: string | null
+  user_id: string
 }
 
 export type SetterFieldDayRow = {
@@ -156,8 +159,12 @@ export function summarizeSetterFieldRows(
   >()
 
   for (const door of doors) {
-    if (!isCanvassDoorLead(door)) continue
-    const userId = getAttributedCanvassLeadUserId(door)
+    // canvass_knocks rows are already door-eligible by construction (the write side only
+    // ever inserts one that qualifies), but this report additionally excludes call_center —
+    // a phone contact isn't a physical door — same as the pre-canvass_knocks version of this
+    // report did via isCanvassDoorLead's own source exclusion list.
+    if (!isCanvassDoorLead({ source: door.source, canvass_disposition: door.disposition })) continue
+    const userId = door.user_id
     const user = userId ? usersById.get(userId) : null
     if (!userId || !user) continue
     const dateKey = easternDateKey(door.created_at)
@@ -177,7 +184,7 @@ export function summarizeSetterFieldRows(
       events: [],
     }
 
-    const contact = isTifContactDisposition(door.canvass_disposition, contactDispositionIds)
+    const contact = isTifContactDisposition(door.disposition, contactDispositionIds)
     const creditMinutes = contact ? 20 : 5
     existing.doors += 1
     if (contact) {
@@ -222,12 +229,15 @@ export async function fetchSetterFieldUpdateReports(
   if (usersError) throw usersError
   if (teamsError) throw teamsError
 
+  // canvass_knocks, not leads: a re-knock of a pre-existing pin UPDATEs the lead row in
+  // place with no new created_at, so a leads.created_at-windowed query silently dropped
+  // every re-knock from this report (202608250001_canvass_knocks.sql's root-cause note).
   const doors: DoorRow[] = []
   let offset = 0
   while (true) {
     const { data, error } = await supabase
-      .from('leads')
-      .select('id, created_at, source, canvass_disposition, owner_user_id, pin_attributed_user_id')
+      .from('canvass_knocks')
+      .select('created_at, source, disposition, user_id')
       .eq('org_id', orgId)
       .gte('created_at', activity.start.toISOString())
       .lt('created_at', activity.end.toISOString())
@@ -304,7 +314,7 @@ export function buildSetterFieldUpdateHtml(report: SetterFieldUpdateReport, test
     <p style="margin:4px 0 18px;color:#6b7280;font-size:14px;">Field activity: ${escapeHtml(report.activityLabel)}</p>
     <p style="margin:0 0 18px;padding:12px 14px;background:#f3f4f6;color:#374151;border-radius:8px;font-size:13px;"><strong>How TIF works:</strong> Contacts count as 20 minutes and non-contacts count as 5 minutes. Renters count as a quick door (5 minutes), not a contact. Gaps over 15 minutes are removed as breaks — a gap next to a contact gets 30 minutes before it counts as a break. TIF never exceeds recorded active time.</p>
     ${sections || '<p style="padding:18px 0;color:#6b7280;">No credited door activity was recorded for this period.</p>'}
-    <p style="margin-top:22px;color:#6b7280;font-size:12px;">Contact status uses the organization’s configured contact dispositions. Door attribution uses the original pinned canvasser when available.</p>
+    <p style="margin-top:22px;color:#6b7280;font-size:12px;">Contact status uses the organization’s configured contact dispositions. Doors are credited to whichever rep logged the knock, including a re-knock of a pin someone else originally dropped.</p>
   </div>`
 }
 

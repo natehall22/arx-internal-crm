@@ -152,9 +152,10 @@ export async function syncOrgSetterRampGates(
     // Single range fetch spanning week 1 through the current week. Reads canvass_knocks
     // (202608250001_canvass_knocks.sql), not leads: a re-knock of a pre-existing pin
     // UPDATEs the lead row in place with no new created_at, so counting leads directly
-    // missed it. user_id is already resolved (pin_attributed_user_id falling back to
-    // owner_user_id) at knock time, so it's mapped onto the LeadRow shape below rather
-    // than reshaping this function.
+    // missed it. user_id is already resolved at knock time (app/api/canvass/lead/route.ts):
+    // the rep actually at the door for a field knock, falling back to the frozen pin
+    // attribution (pin_attributed_user_id, then owner_user_id) for non-field callers —
+    // it's mapped onto the LeadRow shape below rather than reshaping this function.
     const [leadsResult, appointmentsResult] = await Promise.all([
       admin
         .from('canvass_knocks')
