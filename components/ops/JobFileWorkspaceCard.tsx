@@ -7,7 +7,8 @@ import { createClientBrowser } from '@/lib/supabase/client'
 import { pickValidEmail } from '@/lib/email-address'
 import { isOrgSuperuserRoleSlug } from '@/lib/permissions'
 import { isPayrollAdminRole } from '@/lib/payroll-admin-access'
-import JobPhotoLightbox from '@/components/ops/JobPhotoLightbox'
+import PhotoLightbox from '@/components/PhotoLightbox'
+import { jobPhotoDownloadUrl } from '@/lib/ops-job-photo-url'
 
 type PhotoRow = {
   id: string
@@ -1056,11 +1057,12 @@ export default function JobFileWorkspaceCard({
               </div>
             )}
           </div>
-          <JobPhotoLightbox
-            jobId={jobId}
+          <PhotoLightbox
             photos={photos.map((p) => ({
               id: p.id,
-              filename: p.filename,
+              src: jobPhotoDownloadUrl(jobId, p.id),
+              href: jobPhotoDownloadUrl(jobId, p.id),
+              title: p.filename,
               caption: p.photo_tag || 'general',
             }))}
             open={jobPhotoLightboxOpen}

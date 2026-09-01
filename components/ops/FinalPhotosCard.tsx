@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useEffect, useRef, useMemo } from 'react'
-import JobPhotoLightbox from '@/components/ops/JobPhotoLightbox'
+import PhotoLightbox from '@/components/PhotoLightbox'
+import { jobPhotoDownloadUrl } from '@/lib/ops-job-photo-url'
 
 const PHOTO_TAGS = [
   { value: 'final_front', label: 'Front' },
@@ -42,10 +43,12 @@ export default function FinalPhotosCard({ jobId, projectId, orgId }: FinalPhotos
     () =>
       photos.map(p => ({
         id: p.id,
-        filename: p.filename,
+        src: jobPhotoDownloadUrl(jobId, p.id),
+        href: jobPhotoDownloadUrl(jobId, p.id),
+        title: p.filename,
         caption: PHOTO_TAGS.find(t => t.value === p.photo_tag)?.label || p.photo_tag || null,
       })),
-    [photos]
+    [photos, jobId]
   )
   useEffect(() => {
     loadPhotos()
@@ -224,7 +227,7 @@ export default function FinalPhotosCard({ jobId, projectId, orgId }: FinalPhotos
                 className="relative aspect-square bg-gray-100 rounded-lg overflow-hidden group min-h-[80px] w-full text-left ring-offset-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
               >
                 <img
-                  src={`/api/ops/jobs/${jobId}/photos/${photo.id}/download`}
+                  src={jobPhotoDownloadUrl(jobId, photo.id)}
                   alt={photo.filename}
                   className="w-full h-full object-cover pointer-events-none"
                   loading="lazy"
@@ -237,8 +240,7 @@ export default function FinalPhotosCard({ jobId, projectId, orgId }: FinalPhotos
               </button>
             ))}
           </div>
-          <JobPhotoLightbox
-            jobId={jobId}
+          <PhotoLightbox
             photos={lightboxEntries}
             open={lightboxOpen}
             index={lightboxIndex}

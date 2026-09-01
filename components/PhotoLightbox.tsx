@@ -1,36 +1,48 @@
 'use client'
 
-import { useEffect, useCallback, useRef } from 'react'
+import { useEffect, useCallback, useRef, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 
-export type JobPhotoLightboxEntry = {
+export type PhotoLightboxEntry = {
   id: string
-  filename: string
-  /** Shown under the filename (e.g. tag label) */
+  /** Anything an <img> can load: an API route, a signed URL, or a local blob: URL. */
+  src: string
+  /** Bold line under the image (filename, label). Ignored when `footer` is given. */
+  title?: string | null
+  /** Small line under the title. Ignored when `footer` is given. */
   caption?: string | null
+  /** Degrees, to match a rotation the viewer has applied elsewhere. */
+  rotation?: number
+  /** When set, shows an "Open file" link in the header. */
+  href?: string | null
 }
 
-type JobPhotoLightboxProps = {
-  jobId: string
-  photos: JobPhotoLightboxEntry[]
+type PhotoLightboxProps = {
+  photos: PhotoLightboxEntry[]
   open: boolean
   index: number
   onClose: () => void
   onIndexChange: (index: number) => void
+  /**
+   * Replaces the default title/caption strip — e.g. an editable caption field, so a
+   * rep can look at a full-size photo and describe it without closing the viewer.
+   */
+  footer?: (entry: PhotoLightboxEntry, index: number) => ReactNode
 }
 
-function photoSrc(jobId: string, photoId: string) {
-  return `/api/ops/jobs/${jobId}/photos/${photoId}/download`
-}
-
-export default function JobPhotoLightbox({
-  jobId,
+/**
+ * Full-screen photo viewer: keyboard arrows, swipe, backdrop-to-close, scroll lock.
+ * Generic on purpose — job photos, report photos and anything else share this chrome
+ * and differ only in what sits under the image.
+ */
+export default function PhotoLightbox({
   photos,
   open,
   index,
   onClose,
   onIndexChange,
-}: JobPhotoLightboxProps) {
+  footer,
+}: PhotoLightboxProps) {
   const wrapCount = photos.length
   const safeIndex = wrapCount > 0 ? Math.min(Math.max(0, index), wrapCount - 1) : 0
   const current = photos[safeIndex]
@@ -61,7 +73,16 @@ export default function JobPhotoLightbox({
       if (e.key === 'Escape') {
         e.preventDefault()
         onClose()
-      } else if (e.key === 'ArrowLeft') {
+        return
+      }
+      // A footer may hold a caption field; arrows have to move the cursor there,
+      // not flip to the next photo.
+      const t = e.target as HTMLElement | null
+      const typing =
+        !!t &&
+        (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)
+      if (typing) return
+      if (e.key === 'ArrowLeft') {
         e.preventDefault()
         goPrev()
       } else if (e.key === 'ArrowRight') {
@@ -76,6 +97,9 @@ export default function JobPhotoLightbox({
   if (!open || wrapCount === 0 || typeof document === 'undefined') {
     return null
   }
+
+  const rot = (((current.rotation || 0) % 360) + 360) % 360
+  const quarterTurn = rot === 90 || rot === 270
 
   const onTouchStart = (e: React.TouchEvent) => {
     touchStartX.current = e.changedTouches[0]?.clientX ?? null
@@ -120,14 +144,18 @@ export default function JobPhotoLightbox({
           <div className="text-center text-sm text-white/80">
             {safeIndex + 1} / {wrapCount}
           </div>
-          <a
-            href={photoSrc(jobId, current.id)}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="rounded-lg px-3 py-2 text-sm font-medium text-indigo-200 hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-white/40"
-          >
-            Open file
-          </a>
+          {current.href ? (
+            <a
+              href={current.href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="rounded-lg px-3 py-2 text-sm font-medium text-indigo-200 hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-white/40"
+            >
+              Open file
+            </a>
+          ) : (
+            <span className="px-3 py-2" aria-hidden />
+          )}
         </div>
 
         <div className="relative flex min-h-0 w-full max-w-6xl flex-1 items-center justify-center">
@@ -150,9 +178,16 @@ export default function JobPhotoLightbox({
           <div className="mx-12 flex min-h-0 max-h-full w-full items-center justify-center sm:mx-16">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src={photoSrc(jobId, current.id)}
-              alt={current.filename}
-              className="max-h-[min(78vh,920px)] w-auto max-w-full object-contain select-none"
+              src={current.src}
+              alt={current.title || ''}
+              className="w-auto object-contain select-none"
+              style={{
+                transform: rot ? `rotate(${rot}deg)` : undefined,
+                // rotate() spins about the centre without refitting, so a quarter turn
+                // has to be bounded by the *opposite* axis or it overflows the frame
+                maxHeight: quarterTurn ? 'min(78vw, 920px)' : 'min(78vh, 920px)',
+                maxWidth: quarterTurn ? 'min(78vh, 920px)' : '100%',
+              }}
               draggable={false}
             />
           </div>
@@ -174,13 +209,17 @@ export default function JobPhotoLightbox({
           )}
         </div>
 
-        <div className="mt-2 w-full flex-shrink-0 rounded-lg bg-black/40 px-3 py-2 text-center text-sm text-white/90">
-          <div className="font-medium break-words">{current.filename}</div>
-          {current.caption ? (
-            <div className="mt-0.5 text-xs text-white/60">{current.caption}</div>
-          ) : null}
-          <p className="mt-1 text-xs text-white/45">← → keys · swipe · tap dark area to close</p>
-        </div>
+        {footer ? (
+          <div className="mt-2 w-full flex-shrink-0">{footer(current, safeIndex)}</div>
+        ) : (
+          <div className="mt-2 w-full flex-shrink-0 rounded-lg bg-black/40 px-3 py-2 text-center text-sm text-white/90">
+            <div className="font-medium break-words">{current.title}</div>
+            {current.caption ? (
+              <div className="mt-0.5 text-xs text-white/60">{current.caption}</div>
+            ) : null}
+            <p className="mt-1 text-xs text-white/45">← → keys · swipe · tap dark area to close</p>
+          </div>
+        )}
         </div>
       </div>
     </div>,

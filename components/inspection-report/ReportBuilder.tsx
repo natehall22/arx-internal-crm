@@ -18,6 +18,7 @@ import {
   reportSlug,
 } from '@/lib/inspection-report/types'
 import { buildReportPdf, orderedPhotoIds, PDF_SIZE_TARGET, PDF_TIERS } from '@/lib/inspection-report/pdf'
+import PhotoLightbox from '@/components/PhotoLightbox'
 import { processFile, reencodeJpeg } from '@/lib/inspection-report/image-client'
 import {
   listPendingPhotos,
@@ -318,8 +319,30 @@ export default function ReportBuilder(props: Props) {
     return () => window.removeEventListener('beforeunload', handler)
   }, [])
 
+  // A photo dropped just *outside* a section card is otherwise handled by the browser,
+  // which navigates the tab to the image file and takes the in-progress report with it.
+  // Section cards call stopPropagation on their own drops, so this only sees the misses.
+  useEffect(() => {
+    const swallow = (e: DragEvent) => {
+      if (!e.dataTransfer?.types.includes('Files')) return
+      // A section card already claimed this one by calling preventDefault. window is
+      // the last hop in the bubble path, so without this the 'none' below would
+      // overwrite the card's dropEffect — and a dragover that ends as 'none' means
+      // the browser never fires the drop at all.
+      if (e.defaultPrevented) return
+      e.preventDefault()
+      if (e.type === 'dragover') e.dataTransfer.dropEffect = 'none'
+    }
+    window.addEventListener('dragover', swallow)
+    window.addEventListener('drop', swallow)
+    return () => {
+      window.removeEventListener('dragover', swallow)
+      window.removeEventListener('drop', swallow)
+    }
+  }, [])
+
   const addFiles = useCallback(
-    async (fileList: FileList | null, sectionId: string) => {
+    async (fileList: FileList | File[] | null, sectionId: string) => {
       const files = fileList ? Array.from(fileList) : []
       if (!files.length) return
       setBusy(`Processing ${files.length} photo${files.length > 1 ? 's' : ''}…`)
@@ -362,6 +385,26 @@ export default function ReportBuilder(props: Props) {
     },
     [props.reportId, pumpUploads, showToast, updateDoc]
   )
+
+  // Full-size viewer. Keyed by photo id, not index, so a delete or a reorder while it
+  // is open can't silently swap which photo the rep is captioning.
+  const [viewerPid, setViewerPid] = useState<string | null>(null)
+
+  // Every live photo in reading order. Deliberately not `orderedPhotoIds()` — that one
+  // drops the cover photo and unsorted photos because it builds the PDF body, and both
+  // still need captions here.
+  const viewerEntries = useMemo(() => {
+    const entries: { id: string; src: string; rotation: number }[] = []
+    const push = (pid: string) => {
+      const url = photos[pid]?.url
+      if (url) entries.push({ id: pid, src: url, rotation: doc.rotations[pid] || 0 })
+    }
+    for (const sec of doc.sections) for (const pid of sec.photoIds) push(pid)
+    for (const pid of doc.unsorted) push(pid)
+    return entries
+  }, [doc.sections, doc.unsorted, doc.rotations, photos])
+
+  const viewerIndex = viewerPid ? viewerEntries.findIndex((e) => e.id === viewerPid) : -1
 
   const deletePhoto = useCallback(
     (pid: string) => {
@@ -793,6 +836,7 @@ export default function ReportBuilder(props: Props) {
               }))
             }
             onHero={(pid) => updateDoc((d) => ({ ...d, cover: { ...d.cover, heroPhotoId: pid } }))}
+            onOpen={setViewerPid}
             onDelete={deletePhoto}
             onMove={movePhoto}
             onNudge={nudgePhoto}
@@ -853,6 +897,7 @@ export default function ReportBuilder(props: Props) {
                   sectionId="__unsorted__"
                   doc={doc}
                   photo={photos[pid]}
+                  onOpen={() => setViewerPid(pid)}
                   onCaption={(v) => updateDoc((d) => ({ ...d, captions: { ...d.captions, [pid]: v } }))}
                   onRotate={() =>
                     updateDoc((d) => ({
@@ -1195,6 +1240,71 @@ export default function ReportBuilder(props: Props) {
           }}
         />
       ) : null}
+
+      {/* Captioning happens here as much as in the list: the thumbnail is too small to
+          tell a hail bruise from a scuff, and reopening per photo made that a chore. */}
+      <PhotoLightbox
+        photos={viewerEntries}
+        open={viewerIndex >= 0}
+        index={viewerIndex < 0 ? 0 : viewerIndex}
+        onClose={() => setViewerPid(null)}
+        onIndexChange={(i) => setViewerPid(viewerEntries[i]?.id ?? null)}
+        footer={(entry) => {
+          const section = doc.sections.find((sec) => sec.photoIds.includes(entry.id))
+          const chips = section ? chipsForSection(section) : []
+          const caption = doc.captions[entry.id] || ''
+          return (
+            <div className="rounded-lg bg-black/60 p-3">
+              <div className="mb-2 flex items-center gap-2">
+                <span className="text-xs font-semibold uppercase tracking-wide text-white/60">
+                  {section?.dividerTitle || 'Unsorted'}
+                </span>
+                <button
+                  onClick={() =>
+                    updateDoc((d) => ({
+                      ...d,
+                      rotations: { ...d.rotations, [entry.id]: ((d.rotations[entry.id] || 0) + 90) % 360 },
+                    }))
+                  }
+                  className="ml-auto rounded-md px-2.5 py-1.5 text-xs font-semibold text-white/90"
+                  style={{ border: '1px solid rgba(255,255,255,.25)' }}
+                >
+                  ⟳ Rotate
+                </button>
+              </div>
+              <textarea
+                rows={2}
+                value={caption}
+                onChange={(e) =>
+                  updateDoc((d) => ({ ...d, captions: { ...d.captions, [entry.id]: e.target.value } }))
+                }
+                placeholder="Describe what this photo shows…"
+                className="w-full rounded-md border p-2"
+                style={{ fontSize: 16, borderColor: 'rgba(255,255,255,.25)', background: '#fff', color: DARKTEXT }}
+              />
+              {chips.length ? (
+                <div className="mt-1.5 flex flex-wrap gap-1">
+                  {chips.map((c) => (
+                    <button
+                      key={c}
+                      onClick={() =>
+                        updateDoc((d) => {
+                          const prev = d.captions[entry.id] || ''
+                          return { ...d, captions: { ...d.captions, [entry.id]: prev ? `${prev}; ${c}` : c } }
+                        })
+                      }
+                      className="rounded-full px-2.5 py-1 text-xs"
+                      style={{ background: '#F1E9D7', color: DARKTEXT, border: `1px solid ${LINE}` }}
+                    >
+                      {c}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          )
+        }}
+      />
     </div>
   )
 }
@@ -1210,32 +1320,84 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   )
 }
 
+/** Finder often hands over HEIC with an empty MIME type, hence the extension fallback. */
+function isImageFile(f: File) {
+  return f.type.startsWith('image/') || /\.(heic|heif)$/i.test(f.name)
+}
+
 function SectionCard(props: {
   section: ReportSection
   index: number
   count: number
   doc: ReportDoc
   photos: Record<string, PhotoState>
-  onAddFiles: (files: FileList | null) => void
+  onAddFiles: (files: FileList | File[] | null) => void
   onCaption: (pid: string, v: string) => void
   onRotate: (pid: string) => void
   onHero: (pid: string) => void
   onDelete: (pid: string) => void
   onMove: (pid: string, from: string, to: string) => void
   onNudge: (pid: string, sectionId: string, dir: -1 | 1) => void
+  onOpen: (pid: string) => void
   onRename: (patch: Partial<ReportSection>) => void
   onNudgeSection: (dir: -1 | 1) => void
   onDeleteSection: () => void
 }) {
   const { section: s, doc, photos } = props
   const [editOpen, setEditOpen] = useState(false)
+  const [dragOver, setDragOver] = useState(false)
   const cameraRef = useRef<HTMLInputElement>(null)
   const libraryRef = useRef<HTMLInputElement>(null)
+  // dragenter/dragleave also fire for every child element, so track nesting depth
+  // instead of toggling a boolean — otherwise the highlight flickers across the card.
+  const dragDepth = useRef(0)
   const chips = chipsForSection(s)
   const livePhotoIds = s.photoIds.filter((pid) => photos[pid])
 
+  const { onAddFiles } = props
+  const handleDrop = useCallback(
+    (e: React.DragEvent<HTMLDivElement>) => {
+      e.preventDefault()
+      e.stopPropagation()
+      dragDepth.current = 0
+      setDragOver(false)
+      // a drop carries whatever the OS will hand over — other photos alongside a PDF,
+      // a folder, a text clipping
+      const dropped = Array.from(e.dataTransfer?.files ?? [])
+      if (!dropped.length) return
+      const images = dropped.filter(isImageFile)
+      // nothing recognizable? pass the originals through anyway so addFiles' existing
+      // "couldn't be read" toast fires — silence just looks like a broken drop target
+      onAddFiles(images.length ? images : dropped)
+    },
+    [onAddFiles]
+  )
+
   return (
-    <div className="overflow-hidden rounded-xl bg-white" style={{ border: `1px solid ${LINE}` }}>
+    <div
+      className="overflow-hidden rounded-xl bg-white transition-colors"
+      style={{
+        border: `1px solid ${dragOver ? GOLD : LINE}`,
+        boxShadow: dragOver ? `0 0 0 3px ${GOLD}33` : undefined,
+      }}
+      onDragEnter={(e) => {
+        if (!e.dataTransfer?.types.includes('Files')) return
+        e.preventDefault()
+        dragDepth.current += 1
+        setDragOver(true)
+      }}
+      onDragOver={(e) => {
+        if (!e.dataTransfer?.types.includes('Files')) return
+        // without preventDefault the browser refuses the drop and opens the image
+        e.preventDefault()
+        e.dataTransfer.dropEffect = 'copy'
+      }}
+      onDragLeave={() => {
+        dragDepth.current = Math.max(0, dragDepth.current - 1)
+        if (dragDepth.current === 0) setDragOver(false)
+      }}
+      onDrop={handleDrop}
+    >
       <div className="flex items-center gap-2 px-3 py-2.5" style={{ background: '#fbfaf6', borderBottom: `1px solid ${LINE}` }}>
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-bold" style={{ color: DARKTEXT }}>
@@ -1333,6 +1495,14 @@ function SectionCard(props: {
           />
         </div>
 
+        {/* desktop only — dragging does not exist on the phones reps use in the field */}
+        <p
+          className="hidden text-center text-xs sm:block"
+          style={{ color: dragOver ? GOLD : '#8a8576' }}
+        >
+          {dragOver ? 'Drop to add photos' : 'or drag photos here'}
+        </p>
+
         {livePhotoIds.map((pid) => (
           <PhotoCard
             key={pid}
@@ -1341,6 +1511,7 @@ function SectionCard(props: {
             doc={doc}
             photo={photos[pid]}
             chips={chips}
+            onOpen={() => props.onOpen(pid)}
             onCaption={(v) => props.onCaption(pid, v)}
             onRotate={() => props.onRotate(pid)}
             onHero={() => props.onHero(pid)}
@@ -1366,6 +1537,7 @@ function PhotoCard(props: {
   onDelete: () => void
   onMove: (toSectionId: string) => void
   onNudge: (dir: -1 | 1) => void
+  onOpen: () => void
 }) {
   const { pid, doc, photo } = props
   const caption = doc.captions[pid] || ''
@@ -1376,7 +1548,15 @@ function PhotoCard(props: {
   return (
     <div className="rounded-lg border p-2" style={{ borderColor: LINE, background: '#fff' }}>
       <div className="flex gap-2">
-        <div className="relative h-24 w-24 flex-none overflow-hidden rounded-md" style={{ background: '#eee' }}>
+        <button
+          type="button"
+          onClick={props.onOpen}
+          disabled={!photo.url}
+          title={photo.url ? 'View larger' : undefined}
+          aria-label="View photo larger"
+          className="relative h-24 w-24 flex-none overflow-hidden rounded-md"
+          style={{ background: '#eee' }}
+        >
           {photo.url ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
@@ -1385,6 +1565,17 @@ function PhotoCard(props: {
               className="h-full w-full object-cover"
               style={{ transform: `rotate(${rotation}deg)` }}
             />
+          ) : null}
+          {/* no url means the signed link didn't come back — the viewer has no entry
+              for it, so don't advertise an expand that would do nothing */}
+          {photo.url ? (
+            <span
+              className="absolute right-1 bottom-1 rounded px-1 text-[10px] font-bold"
+              style={{ background: 'rgba(43,42,40,.75)', color: CREAM }}
+              aria-hidden
+            >
+              ⤢
+            </span>
           ) : null}
           {isHero ? (
             <span
@@ -1402,7 +1593,7 @@ function PhotoCard(props: {
               {photo.failed ? 'RETRYING' : 'UPLOADING'}
             </span>
           ) : null}
-        </div>
+        </button>
         <div className="min-w-0 flex-1">
           <textarea
             rows={2}
