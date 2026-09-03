@@ -50,6 +50,7 @@ function buildCompletionCertificatePdfBuffer(args: {
   customerName: string
   propertyAddress: string
   jobType?: string | null
+  workDescription?: string | null
   completionDate?: string | null
   generatedDate: string
 }): Buffer {
@@ -106,7 +107,8 @@ function buildCompletionCertificatePdfBuffer(args: {
 
   doc.setFontSize(13)
   doc.setTextColor(17, 24, 39)
-  const workTypePhrase = titleCase(args.jobType).toLowerCase()
+  const workTypeDisplay = args.workDescription?.trim() || titleCase(args.jobType)
+  const workTypePhrase = workTypeDisplay.toLowerCase()
   const intro = doc.splitTextToSize(
     `This certifies that ${args.companyName} has completed the contracted ${workTypePhrase} work for the property listed below.`,
     pageW - 2 * margin - 2 * innerPad
@@ -124,7 +126,7 @@ function buildCompletionCertificatePdfBuffer(args: {
     ['PROPERTY', args.propertyAddress || '—'],
     ['JOB NUMBER', args.jobNumber || 'Not assigned'],
     ['COMPLETION DATE', displayDate(args.completionDate)],
-    ['WORK TYPE', titleCase(args.jobType)],
+    ['WORK TYPE', workTypeDisplay],
   ]
 
   doc.setFontSize(10)
@@ -218,8 +220,24 @@ export async function getExistingCompletionCertificate(
 
 export async function generateCompletionCertificateDocument(
   supabase: SupabaseClient,
-  args: { orgId: string; jobId: string; uploadedBy: string; force?: boolean }
+  args: {
+    orgId: string
+    jobId: string
+    uploadedBy: string
+    force?: boolean
+    /** When provided, persisted to production_jobs and used as the certificate's WORK TYPE text instead of job_type. */
+    workDescription?: string | null
+  }
 ) {
+  if (typeof args.workDescription === 'string') {
+    const trimmed = args.workDescription.trim()
+    await supabase
+      .from('production_jobs')
+      .update({ completion_certificate_work_description: trimmed || null })
+      .eq('id', args.jobId)
+      .eq('org_id', args.orgId)
+  }
+
   if (!args.force) {
     const existing = await getExistingCompletionCertificate(supabase, args)
     if (existing) return { document: existing, generated: false }
@@ -233,6 +251,7 @@ export async function generateCompletionCertificateDocument(
       customer_id,
       job_number,
       job_type,
+      completion_certificate_work_description,
       status,
       address_text,
       completed_at,
@@ -259,6 +278,7 @@ export async function generateCompletionCertificateDocument(
     customerName: customer?.name || 'Customer',
     propertyAddress: (job as any).address_text || '',
     jobType: (job as any).job_type,
+    workDescription: (job as any).completion_certificate_work_description,
     completionDate: (job as any).completed_at || generatedDate,
     generatedDate,
   })

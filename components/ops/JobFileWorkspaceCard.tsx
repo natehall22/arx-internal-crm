@@ -203,6 +203,27 @@ export default function JobFileWorkspaceCard({
 
   const customerCertificateRecipient = useMemo(() => pickValidEmail(customerEmail), [customerEmail])
 
+  const [certWorkDescription, setCertWorkDescription] = useState('')
+  const [certJobTypePlaceholder, setCertJobTypePlaceholder] = useState('')
+  /** Guards against POSTing the empty initial state over an existing override before the GET below resolves. */
+  const [certMetaLoaded, setCertMetaLoaded] = useState(false)
+
+  useEffect(() => {
+    let alive = true
+    fetch(`/api/ops/jobs/${jobId}/completion-certificate`, { method: 'GET', cache: 'no-store' })
+      .then((response) => response.json().catch(() => ({})))
+      .then((data) => {
+        if (!alive) return
+        setCertWorkDescription(typeof data?.work_description === 'string' ? data.work_description : '')
+        setCertJobTypePlaceholder(typeof data?.job_type === 'string' ? data.job_type : '')
+        setCertMetaLoaded(true)
+      })
+      .catch(() => {})
+    return () => {
+      alive = false
+    }
+  }, [jobId])
+
   const loadData = async (aliveRef?: { current: boolean }, options?: { keepLoadedUI?: boolean }) => {
     if (!options?.keepLoadedUI) {
       setLoading(true)
@@ -658,7 +679,7 @@ export default function JobFileWorkspaceCard({
       await fetchOpsJson(`/api/ops/jobs/${jobId}/completion-certificate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ force }),
+        body: JSON.stringify(certMetaLoaded ? { force, work_description: certWorkDescription } : { force }),
       })
       setStatusMessage({
         type: 'success',
@@ -1189,6 +1210,19 @@ export default function JobFileWorkspaceCard({
                     ? 'Attached in documents for this customer/job.'
                     : 'Generate a simple proof-of-completion PDF for customer or insurance records.'}
                 </p>
+                <div className="mt-2">
+                  <label className="block text-[10px] font-semibold uppercase tracking-wide text-emerald-800">
+                    Work type on certificate
+                  </label>
+                  <input
+                    type="text"
+                    value={certWorkDescription}
+                    onChange={(e) => setCertWorkDescription(e.target.value)}
+                    disabled={!certMetaLoaded}
+                    placeholder={certJobTypePlaceholder ? `Default: ${certJobTypePlaceholder}` : 'e.g. Roofing and Interior Work'}
+                    className="mt-1 min-h-[34px] w-full sm:w-72 rounded-lg border border-emerald-200 bg-white px-2 py-1 text-sm text-gray-900 disabled:opacity-60"
+                  />
+                </div>
               </div>
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                 <button

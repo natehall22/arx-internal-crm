@@ -19,7 +19,7 @@ export async function GET(
 
     const { data: job } = await supabase
       .from('production_jobs')
-      .select('id, status, customer:customers(email)')
+      .select('id, status, job_type, completion_certificate_work_description, customer:customers(email)')
       .eq('id', params.id)
       .eq('org_id', profile.org_id)
       .single()
@@ -36,6 +36,8 @@ export async function GET(
       document,
       can_send: (job as any).status === 'complete' || (job as any).status === 'collected',
       default_email: pickValidEmail(customer?.email) ?? '',
+      job_type: (job as any).job_type ?? null,
+      work_description: (job as any).completion_certificate_work_description ?? null,
     })
   } catch (error: any) {
     return NextResponse.json(
@@ -58,6 +60,7 @@ export async function POST(
       jobId: params.id,
       uploadedBy: profile.id,
       force: body?.force === true,
+      workDescription: typeof body?.work_description === 'string' ? body.work_description : undefined,
     })
 
     return NextResponse.json({ success: true, ...result })
