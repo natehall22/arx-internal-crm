@@ -109,8 +109,10 @@ function buildCompletionCertificatePdfBuffer(args: {
   doc.setTextColor(17, 24, 39)
   const workTypeDisplay = args.workDescription?.trim() || titleCase(args.jobType)
   const workTypePhrase = workTypeDisplay.toLowerCase()
+  /** Custom work-type text (e.g. "Roofing and Interior Work") often already ends in "work" — don't double it. */
+  const workTypeClause = /\bwork$/.test(workTypePhrase) ? workTypePhrase : `${workTypePhrase} work`
   const intro = doc.splitTextToSize(
-    `This certifies that ${args.companyName} has completed the contracted ${workTypePhrase} work for the property listed below.`,
+    `This certifies that ${args.companyName} has completed the contracted ${workTypeClause} for the property listed below.`,
     pageW - 2 * margin - 2 * innerPad
   )
   doc.text(intro, pageW / 2, y, { align: 'center' })
