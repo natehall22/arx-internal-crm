@@ -74,5 +74,173 @@
       "wallFlashingLf": 46.58,
       "stepFlashingLf": 25.58
     }
+  },
+  {
+    "id": "bentley-duke-adam-farm-bureau",
+    "provider": "EagleView via NC Farm Bureau estimate",
+    "sourceFile": "/Users/nathanhall/Downloads/Attachment.pdf",
+    "address": "2004 Duke Adam St, Kannapolis, NC 28083",
+    "targets": {
+      "totalRoofSqft": 1282.41,
+      "totalSquares": 12.82,
+      "facetCount": 2,
+      "totalPerimeterLf": 175.94,
+      "ridgeLf": 31.97,
+      "hipLf": 0
+    }
+  },
+  {
+    "id": "green-florence-usaa",
+    "provider": "Hover via USAA estimate",
+    "sourceFile": "/Users/nathanhall/Downloads/USAA_REPORT.PDF.pdf",
+    "address": "521 Florence Ave, Kannapolis, NC 28083",
+    "targets": {
+      "totalRoofSqft": 1265.44,
+      "totalSquares": 12.65,
+      "totalPerimeterLf": 150.71,
+      "ridgeLf": 45.69,
+      "hipLf": 0
+    }
+  },
+  {
+    "id": "white-briarfield-erie",
+    "provider": "Erie roof plan",
+    "sourceFile": "/Users/nathanhall/Downloads/A00007494448 White Estimate of Record.pdf",
+    "address": "145 Briarfield Dr, Mooresville, NC 28115",
+    "targets": {
+      "totalRoofSqft": 3820.5,
+      "totalSquares": 38.2,
+      "eavesLf": 174.59,
+      "ridgeLf": 104.95
+    }
+  },
+  {
+    "id": "nottingham-terrill-ridge-amica",
+    "provider": "Signature Claim Solutions / Amica estimate",
+    "sourceFile": "/Users/nathanhall/Downloads/Estimate for the repairs.pdf",
+    "address": "11699 Terrill Ridge Dr, Davidson, NC 28036",
+    "targets": {
+      "totalRoofSqft": 3783.16,
+      "totalSquares": 37.83,
+      "predominantPitch": "10/12-12/12",
+      "totalPerimeterLf": 385.57,
+      "ridgeLf": 123.5,
+      "hipLf": 26.76
+    }
+  },
+  {
+    "id": "alvey-brookgreen-state-farm",
+    "provider": "EagleView via State Farm estimate",
+    "sourceFile": "/Users/nathanhall/Downloads/New July Statefarm.pdf",
+    "address": "364 Brookgreen Pl NW, Concord, NC 28027",
+    "targets": {
+      "totalRoofSqft": 1661.37,
+      "totalSquares": 16.61,
+      "totalPerimeterLf": 183.52,
+      "ridgeLf": 45.98
+    }
+  },
+  {
+    "id": "morales-bostian-homesite",
+    "provider": "Homesite / Progressive estimate",
+    "sourceFile": "/Users/nathanhall/Downloads/PAY0014PropertyPaymentExplanation.pdf",
+    "address": "635 Bostian Rd, China Grove, NC 28023",
+    "targets": {
+      "totalRoofSqft": 1259.7,
+      "totalSquares": 12.6,
+      "totalPerimeterLf": 186.79,
+      "ridgeLf": 55.75,
+      "hipLf": 0
+    }
+  },
+  {
+    "id": "lloyd-denbur-allstate",
+    "provider": "EagleView via Allstate estimate",
+    "sourceFile": "/Users/nathanhall/Downloads/SUSAN_LLOYD3_FINAL_DRAFT_DEPR_W_FAC_P_ALLST.pdf",
+    "address": "8313 Denbur Dr, Charlotte, NC 28215",
+    "targets": {
+      "totalRoofSqft": 2777.58,
+      "totalSquares": 27.78,
+      "ridgeLf": 80.93,
+      "structures": [
+        {
+          "label": "Secondary Roof 2",
+          "roofSqft": 25.04,
+          "squares": 0.25,
+          "ridgeLf": 4.63
+        },
+        {
+          "label": "Secondary Roof 3",
+          "roofSqft": 1058.3,
+          "squares": 10.58,
+          "ridgeLf": 18.61
+        }
+      ]
+    }
+  },
+  {
+    "id": "wittersheim-mount-olivet-farm-bureau",
+    "provider": "EagleView via NC Farm Bureau estimate",
+    "sourceFile": "/Users/nathanhall/Downloads/Attachment-2.pdf",
+    "address": "1101 Mt Olivet Rd, Kannapolis, NC 28083",
+    "targets": {
+      "totalRoofSqft": 2244.85,
+      "totalSquares": 22.45,
+      "totalPerimeterLf": 217.14,
+      "ridgeLf": 102.88,
+      "hipLf": 55.47,
+      "structures": [
+        {
+          "label": "Carport",
+          "roofSqft": 971.87,
+          "squares": 9.72,
+          "ridgeLf": 38.42
+        },
+        {
+          "label": "Shed",
+          "roofSqft": 476.33,
+          "squares": 4.76,
+          "ridgeLf": 22.12
+        }
+      ]
+    }
+  },
+  {
+    "id": "peduto-whispering-oaks-erie",
+    "provider": "Erie roof plan",
+    "sourceFile": "/Users/nathanhall/Downloads/CLM Property - REPAIR ESTIMATE - A00007694723 - 8_12_2026 - 1128996311.pdf",
+    "address": "2563 Whispering Oaks Dr, Harrisburg, NC 28075",
+    "targets": {
+      "totalRoofSqft": 3459.61,
+      "totalSquares": 34.6,
+      "eavesLf": 163.39,
+      "ridgeLf": 100.88,
+      "structures": [
+        {
+          "label": "Workshop",
+          "roofSqft": 2191.78,
+          "squares": 21.9,
+          "ridgeLf": 61.62
+        },
+        {
+          "label": "Shed",
+          "roofSqft": 581.2,
+          "squares": 5.8,
+          "ridgeLf": 18.25
+        }
+      ]
+    }
+  },
+  {
+    "id": "kaestner-spring-street-erie",
+    "provider": "Hover via Erie estimate",
+    "sourceFile": "/Users/nathanhall/Downloads/Kaestner estimate.pdf",
+    "address": "639 Spring St SW, Concord, NC 28025",
+    "targets": {
+      "totalRoofSqft": 2315.78,
+      "totalSquares": 23.16,
+      "eavesLf": 187.77,
+      "ridgeLf": 107.72
+    }
   }
 ]
