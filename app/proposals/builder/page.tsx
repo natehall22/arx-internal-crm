@@ -18,6 +18,7 @@ interface PricebookItem {
   visibility: string
   show_to_customer?: boolean
   price_type?: 'fixed' | 'percentage' | null
+  image_url?: string | null
 }
 
 interface RoofingType {
@@ -1905,7 +1906,15 @@ export default function ProposalBuilderPage() {
                       onClick={() => addLineItem(adder)}
                       className="flex items-center justify-between p-4 border-2 border-gray-200 rounded-xl hover:border-indigo-300 hover:bg-indigo-50 transition-all text-left"
                     >
-                      <div>
+                      <div className="flex items-center gap-3 min-w-0">
+                        {adder.image_url && (
+                          <img
+                            src={adder.image_url}
+                            alt=""
+                            className="w-12 h-12 rounded-lg object-cover flex-shrink-0 border border-gray-200"
+                          />
+                        )}
+                        <div className="min-w-0">
                         <p className="font-medium text-gray-900">{adder.name}</p>
                         <div className="flex items-center gap-2">
                           <p className="text-sm text-gray-500">{adder.adder_category || adder.category}</p>
@@ -1919,6 +1928,7 @@ export default function ProposalBuilderPage() {
                               % based
                             </span>
                           )}
+                        </div>
                         </div>
                       </div>
                       <div className="text-right">

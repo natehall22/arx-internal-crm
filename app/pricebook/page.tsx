@@ -5,6 +5,10 @@ import Nav from '@/components/Nav'
 import { redirect } from 'next/navigation'
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 import { isBarredFromSalesDocAccess } from '@/lib/permissions'
+import PricebookItemPhotoCell from '@/components/pricebook/PricebookItemPhotoCell'
+
+// Matches the role gate on /api/admin/pricing/items/[id]/image
+const PRICEBOOK_IMAGE_EDIT_ROLES = new Set(['admin', 'operations'])
 
 export default async function PricebookPage() {
   const { profile, authUser: user } = await requireAuth()
@@ -59,6 +63,8 @@ export default async function PricebookPage() {
     .order('category', { ascending: true })
     .order('name', { ascending: true })
 
+  const canEditPhotos = PRICEBOOK_IMAGE_EDIT_ROLES.has(profile.role)
+
   const itemsByCategory: Record<string, any[]> = items?.reduce((acc, item) => {
     if (!acc[item.category]) {
       acc[item.category] = []
@@ -82,6 +88,9 @@ export default async function PricebookPage() {
                   <thead className="bg-gray-50">
                     <tr>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Photo
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         Name
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -104,6 +113,14 @@ export default async function PricebookPage() {
                   <tbody className="bg-white divide-y divide-gray-200">
                     {categoryItems.map((item: any) => (
                       <tr key={item.id}>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <PricebookItemPhotoCell
+                            itemId={item.id}
+                            itemName={item.name}
+                            initialImageUrl={item.image_url ?? null}
+                            canEdit={canEditPhotos}
+                          />
+                        </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                           {item.name}
                         </td>
