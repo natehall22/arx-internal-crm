@@ -32,6 +32,7 @@ import {
   type InspectionOutcomeConfigRow,
 } from '@/lib/inspection-outcomes'
 import { isOrgSuperuserRoleSlug } from '@/lib/org-role-constants'
+import { reconcileStaleFormField } from '@/lib/stale-form-field'
 
 // Helper to convert UTC ISO string to datetime-local format in Eastern time
 function toEasternDatetimeLocal(isoString: string | null): string {
@@ -66,6 +67,15 @@ function formatEasternDate(isoString: string | null): string {
     timeZone: 'America/New_York',
   })
 }
+
+/**
+ * Roles allowed to change a lead's setter / closer attribution. Written twice in this file
+ * before (render-side `disabled`, and again inside the updateLead server action), which is how
+ * the two could silently drift apart — the action's gate is what actually protects the write.
+ * The action still re-derives its own boolean from a fresh requireAuth() rather than closing
+ * over the rendered one; only the role list is shared.
+ */
+const LEAD_ATTRIBUTION_EDIT_ROLES = ['admin', 'owner', 'operations', 'regional_manager', 'sales_manager', 'manager']
 
 export default async function LeadDetailPage({
   params,
@@ -167,15 +177,27 @@ export default async function LeadDetailPage({
     'won',
     'lost',
   ] as const
-  const leadSources = [
-    'ad_campaign',
-    'door_to_door',
-    'call_in',
-    'call_center',
-    'referral',
-    'web',
-    'other',
-  ]
+  // Must cover every value production actually stores, or this <select> renders blank for an
+  // unlisted source and the save below writes `source: null`. 'canvass' alone is ~96% of leads
+  // and was missing: opening any canvass lead here and hitting save silently erased its source
+  // (seen on lead 3e141d02, 2026-09-01). lead.source is unioned in so a value this list has
+  // never heard of — the website's free-text sources, a future integration — still round-trips.
+  const leadSources = Array.from(
+    new Set(
+      [
+        'canvass',
+        'door_to_door',
+        'csv_import',
+        'ad_campaign',
+        'call_in',
+        'call_center',
+        'referral',
+        'web',
+        'other',
+        lead.source,
+      ].filter((source): source is string => Boolean(source))
+    )
+  )
 
   const closerName =
     (closers || []).find((closer: any) => closer.id === lead.closer_user_id)?.full_name ||
@@ -183,7 +205,7 @@ export default async function LeadDetailPage({
     null
 
   /** Setter / closer on the lead are synced to opportunities (setter_user_id / owner_user_id) for payroll. */
-  const canEditLeadAttribution = ['admin', 'owner', 'operations', 'regional_manager', 'sales_manager', 'manager'].includes(
+  const canEditLeadAttribution = LEAD_ATTRIBUTION_EDIT_ROLES.includes(
     profile.role
   )
 
@@ -251,7 +273,7 @@ export default async function LeadDetailPage({
     const canvassDisposition = String(formData.get('canvass_disposition') ?? '')
     const closerUserIdRaw = String(formData.get('closer_user_id') ?? '')
     const ownerUserIdFromForm = String(formData.get('owner_user_id') ?? '')
-    const canEditAttribution = ['admin', 'owner', 'operations', 'regional_manager', 'sales_manager', 'manager'].includes(
+    const canEditAttribution = LEAD_ATTRIBUTION_EDIT_ROLES.includes(
       profile.role
     )
     const inspectionScheduledFor = canEditAttribution
@@ -271,8 +293,31 @@ export default async function LeadDetailPage({
 
     if (!freshLead) return
 
-    const effectiveSetterId = canEditAttribution ? (ownerUserIdFromForm.trim() || null) : freshLead.owner_user_id
-    const effectiveCloserId = canEditAttribution ? (closerUserIdRaw.trim() || null) : freshLead.closer_user_id
+    const baseline = (key: string) => String(formData.get(key) ?? '').trim() || null
+
+    // Setter and closer both reassign themselves out from under this form: canvass moves the
+    // setter on a stale-pin re-knock, and scheduling round-robin picks the closer. The closer is
+    // the higher-stakes of the two — it feeds syncCloserAttributionDownstream and every linked
+    // opportunity's owner_user_id, i.e. commission.
+    const effectiveSetterId = canEditAttribution
+      ? reconcileStaleFormField({
+          baseline: baseline('owner_user_id_baseline'),
+          submitted: ownerUserIdFromForm.trim() || null,
+          current: freshLead.owner_user_id ?? null,
+        })
+      : freshLead.owner_user_id
+    const effectiveCloserId = canEditAttribution
+      ? reconcileStaleFormField({
+          baseline: baseline('closer_user_id_baseline'),
+          submitted: closerUserIdRaw.trim() || null,
+          current: freshLead.closer_user_id ?? null,
+        })
+      : freshLead.closer_user_id
+    const effectiveSource = reconcileStaleFormField({
+      baseline: baseline('source_baseline'),
+      submitted: source || null,
+      current: freshLead.source ?? null,
+    })
 
     // When converting to opportunity (status = inspection), require name, phone, and address
     if (status === 'inspection') {
@@ -292,7 +337,7 @@ export default async function LeadDetailPage({
 
     const updates: Record<string, any> = {
       status,
-      source: source || null,
+      source: effectiveSource,
       canvass_disposition: canvassDisposition || null,
       closer_user_id: effectiveCloserId,
       canvass_notes: canvassNotes || null,
@@ -860,6 +905,8 @@ export default async function LeadDetailPage({
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
               <div>
                 <label className="text-sm font-medium text-gray-500">Source</label>
+                {/* Baseline for reconcileStaleFormField — see effectiveSource. */}
+                <input type="hidden" name="source_baseline" value={lead.source ?? ''} />
                 <select
                   name="source"
                   defaultValue={lead.source ?? ''}
@@ -916,6 +963,8 @@ export default async function LeadDetailPage({
                   <label className="text-sm font-medium text-gray-500">
                     Setter {!canEditLeadAttribution && <span className="text-gray-400 font-normal">(ask a manager to change)</span>}
                   </label>
+                  {/* Baseline for the stale-form guard in updateLead — see effectiveSetterId. */}
+                  <input type="hidden" name="owner_user_id_baseline" value={lead.owner_user_id || ''} />
                   <select
                     name="owner_user_id"
                     defaultValue={lead.owner_user_id || ''}
@@ -935,6 +984,8 @@ export default async function LeadDetailPage({
                 </div>
                 <div>
                   <label className="text-sm font-medium text-gray-500">Closer</label>
+                  {/* Baseline for reconcileStaleFormField — see effectiveCloserId. */}
+                  <input type="hidden" name="closer_user_id_baseline" value={lead.closer_user_id || ''} />
                   <select
                     name="closer_user_id"
                     defaultValue={lead.closer_user_id || ''}

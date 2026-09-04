@@ -25,7 +25,7 @@ import { ensureLeadHasMapPinOrThrow } from '@/lib/lead-map-pin'
 import { isOrgSuperuserRoleSlug } from '@/lib/org-role-constants'
 import { deleteCanvassLeadWithDependencies } from '@/lib/canvass-lead-delete'
 import { createServiceClient } from '@/lib/supabase/service'
-import { getAttributedCanvassLeadUserId, isCanvassDoorEligible } from '@/lib/canvass-lead-attribution'
+import { isCanvassDoorEligible } from '@/lib/canvass-lead-attribution'
 
 export const dynamic = 'force-dynamic'
 
@@ -750,14 +750,21 @@ export async function POST(request: Request) {
       console.error('Ignoring unparseable knocked_at, falling back to server time:', knockedAtRaw)
     }
     if (isCanvassDoorEligible({ source: leadRow.source, canvass_disposition: newDisposition })) {
-      // A genuine field knock (the canvass app always sends knocked_at — see above) credits
-      // whoever is actually at the door THIS visit, not whoever first dropped the pin: like
-      // SalesRabbit/Terros, re-knocking someone else's existing pin is the knocking rep's own
-      // door, not the original setter's forever. Non-field callers (e.g. schedule-inspection's
-      // server-to-server forward, which never sends knocked_at) keep the frozen pin attribution
-      // so an office action can't mint door credit for whoever happens to click "schedule."
-      const knockUserId =
-        knockedAtRaw !== undefined ? profile.id : getAttributedCanvassLeadUserId(leadRow) ?? profile.id
+      // The knock is always credited to the authenticated caller — never to the pin's frozen
+      // original setter. Re-knocking someone else's existing pin is the knocking rep's own
+      // door (same as SalesRabbit/Terros), and there is no second attribution model for
+      // non-field callers.
+      //
+      // The removed `knocked_at ? profile.id : pin_attributed_user_id` split was meant to stop
+      // an office "schedule" click from minting door credit for whoever clicked. In practice it
+      // did something worse: on 2026-09-01 a CRM scheduling forward
+      // (app/api/leads/[id]/schedule-inspection/route.ts, which never sends knocked_at) logged a
+      // door against Caleb Dearey — a DEACTIVATED rep frozen into pin_attributed_user_id since
+      // March — in the same request that correctly reassigned owner_user_id away from him. That
+      // phantom door then carried a fabricated 0.3 hr of field time onto the Setter TIF email.
+      // Crediting a rep who was never at the door is strictly worse than crediting the person
+      // who took the action, so the fallback is gone rather than re-routed.
+      const knockUserId = profile.id
       const { error: knockError } = await supabase.rpc('log_canvass_knock', {
         p_org_id: profile.org_id,
         p_lead_id: leadRow.id,
