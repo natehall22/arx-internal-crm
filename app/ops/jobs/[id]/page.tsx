@@ -568,6 +568,21 @@ export default async function JobDetailPage({ params }: PageProps) {
     }
   }
 
+  // Customer-facing roof report (photo documentation PDF), if the field rep built one on the opportunity.
+  let roofReport: { id: string; pdf_generated_at: string | null } | null = null
+  if (resolvedOppId) {
+    const { data: report } = await supabaseService
+      .from('inspection_reports')
+      .select('id, pdf_generated_at')
+      .eq('opportunity_id', resolvedOppId)
+      .eq('org_id', profile.org_id)
+      .not('pdf_generated_at', 'is', null)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    roofReport = report ?? null
+  }
+
   let soldScope: JobSoldScope | null = null
   let financialSourceProposalOptions: FinancialSourceProposalOption[] = []
 
@@ -851,6 +866,7 @@ export default async function JobDetailPage({ params }: PageProps) {
       opportunity_id: resolvedOppId,
       installation_agreement: installationAgreement,
       payroll_attribution: payrollAttribution,
+      roof_report: roofReport,
       sold_scope: soldScope,
     } as Record<string, unknown>,
     canViewJobFinancials

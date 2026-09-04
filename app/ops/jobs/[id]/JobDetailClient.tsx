@@ -125,6 +125,7 @@ interface Job {
     sold_roof_squares?: number | null
   } | null
   installation_agreement?: { pdf_url: string | null; status: string; agreement_type?: string | null } | null
+  roof_report?: { id: string; pdf_generated_at: string | null } | null
   sold_scope?: JobSoldScope | null
 }
 
@@ -976,6 +977,7 @@ export default function JobDetailClient({
           /** Server job payload does not include opportunity / payroll attribution — preserve from SSR. */
           payroll_attribution: job.payroll_attribution,
           opportunity_id: job.opportunity_id,
+          roof_report: job.roof_report,
           sold_scope: job.sold_scope,
         }
         setJob(transformedJob)
@@ -2348,6 +2350,16 @@ export default function JobDetailClient({
                   >
                     View Accepted Proposal →
                   </Link>
+                )}
+                {job.roof_report?.pdf_generated_at && (
+                  <a
+                    href={`/api/inspection-reports/${job.roof_report.id}/pdf?redirect=1`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="min-h-[44px] flex items-center text-sm text-indigo-600 hover:text-indigo-800"
+                  >
+                    View Roof Report →
+                  </a>
                 )}
                 {/* Deliberately loud: ops asked for a run sheet they can spot instantly on this page. */}
                 <Link
