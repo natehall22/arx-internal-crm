@@ -14,6 +14,7 @@ import JobReadyToPayBanner from '@/components/ops/JobReadyToPayBanner'
 import JobPayrollSentBanner from '@/components/ops/JobPayrollSentBanner'
 import AINoteSummary from '@/components/jobs/AINoteSummary'
 import LinkCustomerButton from '@/components/customers/LinkCustomerButton'
+import CopyableContact from '@/components/CopyableContact'
 import JobWorkOrdersCard from '@/components/ops/JobWorkOrdersCard'
 import SoldScopeCard from '@/components/ops/SoldScopeCard'
 import JobMaterialsCard from '@/components/ops/JobMaterialsCard'
@@ -1984,14 +1985,21 @@ export default function JobDetailClient({
                 <div>
                   <div className="font-medium text-gray-900 mb-2 break-words">{job.customer.name}</div>
                   {job.customer.phone && (
-                    <a href={`tel:${job.customer.phone}`} className="min-h-[44px] flex items-center text-sm text-indigo-600 mb-1">
-                      📞 {job.customer.phone}
-                    </a>
+                    <CopyableContact
+                      value={job.customer.phone}
+                      href={`tel:${job.customer.phone}`}
+                      icon="📞"
+                      label="phone number"
+                      className="mb-1"
+                    />
                   )}
                   {job.customer.email && (
-                    <a href={`mailto:${job.customer.email}`} className="min-h-[44px] flex items-center text-sm text-indigo-600 break-all">
-                      ✉️ {job.customer.email}
-                    </a>
+                    <CopyableContact
+                      value={job.customer.email}
+                      href={`mailto:${job.customer.email}`}
+                      icon="✉️"
+                      label="email address"
+                    />
                   )}
                   <Link
                     href={`/customers/${job.customer.id}`}
