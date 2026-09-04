@@ -12,7 +12,16 @@
     "test:watch": "jest --watch",
     "roof-measure:classify": "tsx scripts/roof-measure-classify-eval.ts",
     "roof-measure:prelaunch": "tsx scripts/roof-measure-prelaunch.ts",
-    "roof-measure:topology": "tsx scripts/roof-topology-eval.ts"
+    "roof-measure:topology": "tsx scripts/roof-topology-eval.ts",
+    "solar-permits:audit": "tsx scripts/solar-permits/audit.ts",
+    "solar-permits:extract": "tsx scripts/solar-permits/extract.ts",
+    "solar-permits:expand": "tsx scripts/solar-permits/expand.ts",
+    "solar-permits:coverage": "tsx scripts/solar-permits/coverage.ts",
+    "solar-permits:installer-status": "tsx scripts/solar-permits/report-installer-status.ts",
+    "solar-permits:census": "tsx scripts/solar-permits/census.ts",
+    "solar-permits:ingest": "tsx --env-file=.env.local scripts/solar-permits/ingest.ts",
+    "solar-permits:geocode": "tsx --env-file=.env.local scripts/solar-permits/geocode.ts",
+    "solar-permits:mail-list": "tsx --env-file=.env.local scripts/solar-permits/mail-list.ts"
   },
   "dependencies": {
     "@react-pdf/renderer": "^4.3.2",

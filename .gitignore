@@ -51,3 +51,6 @@ next-env.d.ts
 
 # Local generated artifacts
 /tmp/
+
+# Solar permit audit downloads (local only)
+/scripts/solar-permits/data/
