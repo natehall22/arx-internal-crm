@@ -12,9 +12,12 @@ import Link from 'next/link'
 export default function JobRunSheetBanner({
   jobId,
   jobNumber,
+  roofReportId,
 }: {
   jobId: string
   jobNumber: string
+  /** Present only when the linked opportunity has a roof report with a generated PDF. */
+  roofReportId?: string | null
 }) {
   const pdfUrl = `/api/ops/jobs/${jobId}/run-sheet/pdf`
 
@@ -61,6 +64,16 @@ export default function JobRunSheetBanner({
           >
             Edit sheet
           </Link>
+          {roofReportId && (
+            <a
+              href={`/api/inspection-reports/${roofReportId}/pdf?redirect=1`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex min-h-[44px] items-center justify-center rounded-lg border-2 border-white px-5 py-2.5 text-sm font-bold text-white hover:bg-white/15"
+            >
+              View Roof Report
+            </a>
+          )}
         </div>
       </div>
     </div>

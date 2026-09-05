@@ -1314,7 +1314,11 @@ export default function JobDetailClient({
         </div>
 
         {/* First card on the page, every breakpoint — ops needs this findable from a phone. */}
-        <JobRunSheetBanner jobId={job.id} jobNumber={job.job_number} />
+        <JobRunSheetBanner
+          jobId={job.id}
+          jobNumber={job.job_number}
+          roofReportId={job.roof_report?.pdf_generated_at ? job.roof_report.id : null}
+        />
 
         <JobReadyToPayBanner
           status={job.status}
@@ -2350,16 +2354,6 @@ export default function JobDetailClient({
                   >
                     View Accepted Proposal →
                   </Link>
-                )}
-                {job.roof_report?.pdf_generated_at && (
-                  <a
-                    href={`/api/inspection-reports/${job.roof_report.id}/pdf?redirect=1`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="min-h-[44px] flex items-center text-sm text-indigo-600 hover:text-indigo-800"
-                  >
-                    View Roof Report →
-                  </a>
                 )}
                 {/* Deliberately loud: ops asked for a run sheet they can spot instantly on this page. */}
                 <Link
