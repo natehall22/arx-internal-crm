@@ -253,7 +253,7 @@ export default function PayrollStatementView({
                               className="w-24 rounded border px-2 py-1 text-right text-sm"
                               value={
                                 overrideDrafts[key] ??
-                                (d.overrideAmount ? String(d.overrideAmount) : '')
+                                (d.overrideAmount != null ? String(d.overrideAmount) : '')
                               }
                               onChange={(e) =>
                                 onOverrideDraftChange(d.jobId, d.role, e.target.value)
@@ -269,7 +269,7 @@ export default function PayrollStatementView({
                             </button>
                           </div>
                         ) : (
-                          formatPayrollMoney(d.overrideAmount)
+                          d.overrideAmount != null ? formatPayrollMoney(d.overrideAmount) : '—'
                         )}
                       </td>
                       <td className="px-3 py-2 text-right tabular-nums font-medium">

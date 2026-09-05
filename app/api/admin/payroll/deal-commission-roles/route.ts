@@ -2,6 +2,12 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import { isPayrollAdminRole } from '@/lib/payroll-admin-access'
+import {
+  collectParticipants,
+  producerStorageRoleForParticipant,
+  PRODUCER_OVERRIDE_STORAGE_ROLES,
+  type ProducerOverrideStorageRole,
+} from '@/lib/payroll-export'
 
 export const dynamic = 'force-dynamic'
 
@@ -18,10 +24,25 @@ const STORAGE_ROLES = new Set([
   'custom',
 ])
 
-/** Statement/payout role names that map onto a storage role. */
+/**
+ * Statement/payout role names that map onto a storage role.
+ *
+ * `sales_rep` and `owner` both fold onto `closer` — the table has never had separate
+ * names for them. Kept in sync with producerStorageRoleForParticipant() in
+ * lib/payroll-export.ts, which performs the same mapping when payroll reads the row
+ * back; the two must not drift or an override would save under a role nothing looks up.
+ */
 const ROLE_MAP: Record<string, string> = {
   owner: 'closer',
   sales_rep: 'closer',
+}
+
+const PRODUCER_STORAGE_ROLE_SET = new Set<string>(PRODUCER_OVERRIDE_STORAGE_ROLES)
+
+/** Human-readable name for the producer a `closer`/`setter` override must match. */
+const PRODUCER_ROLE_DESCRIPTION: Record<ProducerOverrideStorageRole, string> = {
+  setter: "the opportunity's setter",
+  closer: "the job's salesperson (or the opportunity owner when no salesperson is set)",
 }
 
 export async function PATCH(request: NextRequest) {
@@ -114,13 +135,58 @@ export async function PATCH(request: NextRequest) {
 
     const { data: job } = await supabase
       .from('production_jobs')
-      .select('id')
+      .select('id, salesperson_id, project_id')
       .eq('id', body.job_id)
       .eq('org_id', orgId)
       .maybeSingle()
 
     if (!job) {
       return NextResponse.json({ error: 'Job not found' }, { status: 404 })
+    }
+
+    const validateProducerRoleMatches = async (): Promise<NextResponse | null> => {
+      let opportunity: { owner_user_id?: string | null; setter_user_id?: string | null } | null =
+        null
+      if (job.project_id) {
+        const { data: project } = await supabase
+          .from('projects')
+          .select('opportunity_id')
+          .eq('id', job.project_id)
+          .eq('org_id', orgId)
+          .maybeSingle()
+        if (project?.opportunity_id) {
+          const { data: opp } = await supabase
+            .from('opportunities')
+            .select('owner_user_id, setter_user_id')
+            .eq('id', project.opportunity_id)
+            .eq('org_id', orgId)
+            .maybeSingle()
+          opportunity = opp ?? null
+        }
+      }
+
+      // Resolved with the same function payroll uses, so "who is a producer here"
+      // cannot be answered differently by the two sides — including its dedupe rule,
+      // where one person closing AND setting a job holds only the closer line.
+      const match = collectParticipants(job, opportunity).find(
+        (participant) =>
+          participant.userId === body.user_id &&
+          producerStorageRoleForParticipant(participant.role) === storageRole
+      )
+
+      if (!match) {
+        return NextResponse.json(
+          {
+            error:
+              `This user is not ${PRODUCER_ROLE_DESCRIPTION[storageRole as ProducerOverrideStorageRole]} on this job, ` +
+              `so a "${storageRole}" override would not change any payout. Fix the job's ` +
+              'attribution first, or use a "custom" override to add a separate paid line.',
+            code: 'not_a_producer_on_job',
+          },
+          { status: 400 }
+        )
+      }
+      return null
     }
 
     // Settled history is not editable — but "settled" has to mean this job's pay was
@@ -163,6 +229,17 @@ export async function PATCH(request: NextRequest) {
         },
         { status: 400 }
       )
+    }
+
+    // A `setter`/`closer` override REPLACES a comp-plan-driven producer line, so it only
+    // means anything if this user actually holds that producer role on this job. One that
+    // matches nobody used to be accepted, audited, and then silently ignored at payroll
+    // time — the failure behind the 26-0035 / 26-0036 misallocation. Reject it rather
+    // than let an admin believe pay was changed. Runs after the settled-period check so
+    // an already-paid job reports that first, which is the more actionable answer.
+    if (PRODUCER_STORAGE_ROLE_SET.has(storageRole)) {
+      const producerError = await validateProducerRoleMatches()
+      if (producerError) return producerError
     }
 
     // The row is org-scoped, but the user it credits must belong to this org too —
