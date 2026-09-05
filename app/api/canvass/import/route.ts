@@ -1,27 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireAuthApi } from '@/lib/auth'
 import { createServerClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = createServerClient()
-    
-    // Get current user
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
+    let profile
+    try {
+      ;({ profile } = await requireAuthApi())
+    } catch {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    // Get user's org_id
-    const { data: profile } = await supabase
-      .from('users')
-      .select('org_id')
-      .eq('id', user.id)
-      .single()
-
-    if (!profile?.org_id) {
+    if (!profile.org_id) {
       return NextResponse.json({ error: 'User profile not found' }, { status: 400 })
     }
+
+    // RLS-bound client: the dedup read and the bulk insert below both go through the
+    // caller's own policies on `leads`, which is what keeps this endpoint from writing
+    // outside their org. Do not swap in a service client without replacing that check.
+    const supabase = createServerClient()
 
     const { leads } = await request.json()
 
@@ -108,7 +106,7 @@ export async function POST(request: NextRequest) {
       })
       .map((lead: any) => ({
         org_id: profile.org_id,
-        owner_user_id: user.id,
+        owner_user_id: profile.id,
         status: 'new',
         source: 'csv_import',
         homeowner_name: lead.homeowner_name || null,
@@ -157,7 +155,7 @@ export async function POST(request: NextRequest) {
         data.map((row: { id: string; canvass_disposition: string | null }) => ({
           org_id: profile.org_id,
           lead_id: row.id,
-          user_id: user.id,
+          user_id: profile.id,
           disposition: row.canvass_disposition,
           source: 'csv_import',
         }))

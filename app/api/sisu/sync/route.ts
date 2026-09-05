@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { requireAuthApi } from '@/lib/auth'
 import { formatReward } from '@/lib/incentive-metrics'
 import { countDoorsKnockedForBadgeAward } from '@/lib/sisu-weekly-doors'
 import { countClosedSalesForBadgeAward } from '@/lib/sisu-monthly-closed-sales'
@@ -241,37 +241,25 @@ async function computeCurrentValue(
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = createClient()
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser()
-
-    if (userError || !user) {
+    let profile
+    try {
+      ;({ profile } = await requireAuthApi())
+    } catch {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
     const rawBody = (await request.json().catch(() => ({}))) as SyncRequestBody
     const bodyUserId = requestedUserId(rawBody)
-    const userId = bodyUserId ?? user.id
+    const userId = bodyUserId ?? profile.id
 
-    if (userId !== user.id) {
+    // Callers may only sync themselves.
+    if (userId !== profile.id) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
     const admin = createServiceClient()
 
-    const { data: profile, error: profileError } = await admin
-      .from('users')
-      .select('id, org_id, role')
-      .eq('id', userId)
-      .single()
-
-    if (profileError || !profile) {
-      return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
-    }
-
-    const userProfile = profile as UserProfile
+    const userProfile: UserProfile = profile
     const nowIso = new Date().toISOString()
 
     const { data: spiffRows, error: spiffError } = await admin

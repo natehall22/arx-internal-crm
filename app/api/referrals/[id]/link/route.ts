@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
-import { createClient } from '@/lib/supabase/server'
 import { canEditCustomerRecordsFromPermissionNames } from '@/lib/permissions'
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 import {
@@ -18,31 +18,26 @@ const TARGET_TABLES: Record<ReferralLinkTargetType, { table: string; nameColumn:
   lead: { table: 'leads', nameColumn: 'homeowner_name' },
 }
 
-async function authorize(request: NextRequest) {
-  const supabase = createClient()
-  const adminClient = createServiceClient()
-
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) {
+async function authorize() {
+  let profile
+  try {
+    ;({ profile } = await requireAuthApi())
+  } catch {
     return { error: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) }
   }
 
-  const { data: profile } = await adminClient
-    .from('users')
-    .select('org_id, role, custom_role_id')
-    .eq('id', user.id)
-    .single()
-
-  if (!profile?.org_id) {
+  if (!profile.org_id) {
     return { error: NextResponse.json({ error: 'User profile not found' }, { status: 404 }) }
   }
 
-  const permissions = await resolveEffectivePermissionNames(adminClient, user.id, profile)
+  const adminClient = createServiceClient()
+
+  const permissions = await resolveEffectivePermissionNames(adminClient, profile.id, profile)
   if (!canEditCustomerRecordsFromPermissionNames(permissions)) {
     return { error: NextResponse.json({ error: 'Forbidden' }, { status: 403 }) }
   }
 
-  return { adminClient, userId: user.id, orgId: profile.org_id as string }
+  return { adminClient, userId: profile.id, orgId: profile.org_id as string }
 }
 
 /** Loads the referral and proves it belongs to the caller's org before any write. */
@@ -66,7 +61,7 @@ async function loadReferral(
 // POST - attach an existing record, or create a lead from the referral and attach that
 export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const auth = await authorize(request)
+    const auth = await authorize()
     if ('error' in auth) return auth.error
     const { adminClient, orgId, userId } = auth
 
@@ -191,7 +186,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
 // DELETE - detach the referral from every record, leaving the typed details intact
 export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const auth = await authorize(request)
+    const auth = await authorize()
     if ('error' in auth) return auth.error
     const { adminClient, orgId } = auth
 

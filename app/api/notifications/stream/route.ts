@@ -1,16 +1,21 @@
 import { NextRequest } from 'next/server'
-import { createServerClient } from '@/lib/supabase/server'
+import { requireAuthApi } from '@/lib/auth'
+import { createClient } from '@/lib/supabase/server'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
 export async function GET(request: NextRequest) {
-  const supabase = createServerClient()
-  
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) {
+  let profile
+  try {
+    ;({ profile } = await requireAuthApi())
+  } catch {
     return new Response('Unauthorized', { status: 401 })
   }
+
+  // RLS-bound client: this route's reads/writes rely on the org policies on the
+  // tables below, so it must stay the caller's client rather than a service client.
+  const supabase = createClient()
 
   const encoder = new TextEncoder()
   let isConnected = true
@@ -44,14 +49,14 @@ export async function GET(request: NextRequest) {
           const { data: notifications } = await supabase
             .from('notifications')
             .select('*')
-            .eq('recipient_user_id', user.id)
+            .eq('recipient_user_id', profile.id)
             .order('created_at', { ascending: false })
             .limit(10)
 
           const { count: unreadCount } = await supabase
             .from('notifications')
             .select('id', { count: 'exact', head: true })
-            .eq('recipient_user_id', user.id)
+            .eq('recipient_user_id', profile.id)
             .is('read_at', null)
 
           sendEvent('notifications', {
@@ -59,14 +64,16 @@ export async function GET(request: NextRequest) {
             unread_count: unreadCount || 0,
           })
 
-          // Fetch user profile to determine role
-          const { data: profile } = await supabase
+          // Re-read per tick so a role change lands without a reconnect. `profile.role`
+          // from connect time would save this query on every tick of every open stream
+          // — worth doing, but it is a behaviour change, not part of the auth migration.
+          const { data: liveProfile } = await supabase
             .from('users')
             .select('role')
-            .eq('id', user.id)
+            .eq('id', profile.id)
             .single()
 
-          const role = profile?.role || ''
+          const role = liveProfile?.role || ''
           const isCloser = ['closer', 'rep', 'sales_rep', 'admin', 'manager'].includes(role)
           const isSetter = ['setter', 'canvasser'].includes(role)
 
@@ -95,7 +102,7 @@ export async function GET(request: NextRequest) {
                   )
                 )
               `)
-              .eq('closer_user_id', user.id)
+              .eq('closer_user_id', profile.id)
               .eq('completed', false)
               .lte('prompt_at', new Date().toISOString())
               .order('prompt_at', { ascending: true })
@@ -110,7 +117,7 @@ export async function GET(request: NextRequest) {
             const { data: results } = await supabase
               .from('notifications')
               .select('*')
-              .eq('recipient_user_id', user.id)
+              .eq('recipient_user_id', profile.id)
               .eq('type', 'inspection_outcome')
               .is('read_at', null)
               .order('created_at', { ascending: false })

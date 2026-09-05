@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
+import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
-import { createClient } from '@/lib/supabase/server'
 import { upsertCustomer } from '@/lib/customers'
 import { canEditCustomerRecordsFromPermissionNames } from '@/lib/permissions'
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
@@ -10,25 +10,16 @@ export const dynamic = 'force-dynamic'
 // POST - Link existing customer to a source record OR create from source
 export async function POST(request: Request) {
   try {
-    const supabase = createClient()
-    const adminClient = createServiceClient()
-
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
+    let profile
+    try {
+      ;({ profile } = await requireAuthApi())
+    } catch {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const { data: profile } = await adminClient
-      .from('users')
-      .select('org_id, role, custom_role_id')
-      .eq('id', user.id)
-      .single()
+    const adminClient = createServiceClient()
 
-    if (!profile) {
-      return NextResponse.json({ error: 'User profile not found' }, { status: 404 })
-    }
-
-    const customerPermissions = await resolveEffectivePermissionNames(adminClient, user.id, profile)
+    const customerPermissions = await resolveEffectivePermissionNames(adminClient, profile.id, profile)
     if (!canEditCustomerRecordsFromPermissionNames(customerPermissions)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }

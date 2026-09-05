@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
-import { createClient } from '@/lib/supabase/server'
 import { isReferralManagerRole } from '@/lib/referral-links'
 
 export const dynamic = 'force-dynamic'
@@ -25,23 +25,18 @@ const ALLOWED_STATUSES_SET = new Set<string>(ALLOWED_STATUSES)
 
 export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const supabase = createClient()
-    const adminClient = createServiceClient()
-
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
-      return NextResponse.json({ error: 'Your session has expired — sign in again.' }, { status: 401 })
+    let profile
+    try {
+      ;({ profile } = await requireAuthApi())
+    } catch {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const { data: profile } = await adminClient
-      .from('users')
-      .select('org_id, role')
-      .eq('id', user.id)
-      .single()
-
-    if (!profile?.org_id) {
+    if (!profile.org_id) {
       return NextResponse.json({ error: 'User profile not found' }, { status: 404 })
     }
+
+    const adminClient = createServiceClient()
 
     if (!isReferralManagerRole(profile.role)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })

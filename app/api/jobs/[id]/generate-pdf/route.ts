@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireAuthApi } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 
 // POST: Generate a PDF (proposal, contract, change order, invoice)
@@ -6,27 +7,21 @@ export async function POST(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-
-  if (!user) {
+  let profile
+  try {
+    ;({ profile } = await requireAuthApi())
+  } catch {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+
+  // RLS-bound client: this route's reads/writes rely on the org policies on the
+  // tables below, so it must stay the caller's client rather than a service client.
+  const supabase = createClient()
 
   const jobId = params.id
   const body = await request.json()
   const { type = 'proposal', estimate_id } = body
 
-  // Get user's org
-  const { data: profile } = await supabase
-    .from('users')
-    .select('org_id, full_name')
-    .eq('id', user.id)
-    .single()
-
-  if (!profile) {
-    return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
-  }
 
   // Get job with customer info
   const { data: job } = await supabase
@@ -92,7 +87,7 @@ export async function POST(
     job,
     estimate,
     estimateLines: estimateLines ?? [],
-    generatedBy: profile.full_name,
+    generatedBy: profile.full_name ?? '',
     generatedAt: new Date(),
   })
 

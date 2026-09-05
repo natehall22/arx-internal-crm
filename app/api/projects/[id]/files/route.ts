@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireAuthApi } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 
 export const dynamic = 'force-dynamic'
@@ -8,12 +9,16 @@ export async function POST(
   { params }: { params: { id: string } }
 ) {
   try {
-    const supabase = await createClient()
-    const { data: { user } } = await supabase.auth.getUser()
-
-    if (!user) {
+    let profile
+    try {
+      ;({ profile } = await requireAuthApi())
+    } catch {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+
+    // RLS-bound client: this route's reads/writes rely on the org policies on the
+    // tables below, so it must stay the caller's client rather than a service client.
+    const supabase = createClient()
 
     const projectId = params.id
     const formData = await request.formData()
@@ -24,14 +29,8 @@ export async function POST(
       return NextResponse.json({ error: 'File is required' }, { status: 400 })
     }
 
-    // Validate org and project access
-    const { data: profile } = await supabase
-      .from('users')
-      .select('id, org_id')
-      .eq('id', user.id)
-      .single()
 
-    if (!profile?.org_id) {
+    if (!profile.org_id) {
       return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
     }
 
@@ -70,10 +69,10 @@ export async function POST(
     }
 
     const insertAttempts: Record<string, unknown>[] = [
-      { ...basePayload, size_bytes: file.size, uploaded_by: user.id },
-      { ...basePayload, uploaded_by: user.id },
-      { ...basePayload, size_bytes: file.size, user_id: user.id },
-      { ...basePayload, user_id: user.id },
+      { ...basePayload, size_bytes: file.size, uploaded_by: profile.id },
+      { ...basePayload, uploaded_by: profile.id },
+      { ...basePayload, size_bytes: file.size, user_id: profile.id },
+      { ...basePayload, user_id: profile.id },
     ]
 
     let inserted: { id: string } | null = null

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
+import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
-import { createClient } from '@/lib/supabase/server'
-import { canAccessJobBilling } from '@/lib/finance-access'
+import { callerCanAccessJobBilling } from '@/lib/finance-access'
 import {
   getInvoiceWithDetails,
   addInvoiceItem,
@@ -18,33 +18,16 @@ export async function GET(
   { params }: { params: { invoiceId: string } }
 ) {
   try {
-    const supabase = createClient()
-    const adminClient = createServiceClient()
-
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
+    let profile
+    try {
+      ;({ profile } = await requireAuthApi())
+    } catch {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const { data: profile } = await adminClient
-      .from('users')
-      .select('org_id, role, custom_role_id, custom_role:custom_roles(name, display_name)')
-      .eq('id', user.id)
-      .single()
+    const adminClient = createServiceClient()
 
-    if (!profile) {
-      return NextResponse.json({ error: 'User profile not found' }, { status: 404 })
-    }
-
-    const customRole = Array.isArray((profile as any).custom_role)
-      ? (profile as any).custom_role[0]
-      : (profile as any).custom_role
-
-    if (!canAccessJobBilling({
-      role: (profile as any).role,
-      customRoleName: customRole?.name,
-      customRoleDisplayName: customRole?.display_name,
-    })) {
+    if (!(await callerCanAccessJobBilling(adminClient, profile))) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
@@ -74,33 +57,16 @@ export async function PATCH(
   { params }: { params: { invoiceId: string } }
 ) {
   try {
-    const supabase = createClient()
-    const adminClient = createServiceClient()
-
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
+    let profile
+    try {
+      ;({ profile } = await requireAuthApi())
+    } catch {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const { data: profile } = await adminClient
-      .from('users')
-      .select('org_id, role, custom_role_id, custom_role:custom_roles(name, display_name)')
-      .eq('id', user.id)
-      .single()
+    const adminClient = createServiceClient()
 
-    if (!profile) {
-      return NextResponse.json({ error: 'User profile not found' }, { status: 404 })
-    }
-
-    const customRole = Array.isArray((profile as any).custom_role)
-      ? (profile as any).custom_role[0]
-      : (profile as any).custom_role
-
-    if (!canAccessJobBilling({
-      role: (profile as any).role,
-      customRoleName: customRole?.name,
-      customRoleDisplayName: customRole?.display_name,
-    })) {
+    if (!(await callerCanAccessJobBilling(adminClient, profile))) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
@@ -185,7 +151,7 @@ export async function PATCH(
       }
 
       case 'duplicate': {
-        const invoice = await duplicateInvoiceAsDraft(adminClient, params.invoiceId, user.id)
+        const invoice = await duplicateInvoiceAsDraft(adminClient, params.invoiceId, profile.id)
         return NextResponse.json({ success: true, invoice })
       }
 

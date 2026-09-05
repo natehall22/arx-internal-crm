@@ -1,31 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireAuthApi } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 
 // GET - List all campaigns
 export async function GET(request: NextRequest) {
-  const supabase = createClient()
-  
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) {
+  let profile
+  try {
+    ;({ profile } = await requireAuthApi())
+  } catch {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const { data: profile } = await supabase
-    .from('users')
-    .select('org_id, role')
-    .eq('id', user.id)
-    .single()
-
-  if (!profile) {
-    return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
-  }
+  // RLS-bound client: this route's reads/writes rely on the org policies on the
+  // tables below, so it must stay the caller's client rather than a service client.
+  const supabase = createClient()
 
   // Check permission
   const allowedRoles = ['admin', 'regional_manager', 'operations']
   const { data: hasPermission } = await supabase
     .from('user_permissions')
     .select('id')
-    .eq('user_id', user.id)
+    .eq('user_id', profile.id)
     .eq('permissions.name', 'campaigns:view')
     .maybeSingle()
 
@@ -82,20 +77,18 @@ export async function GET(request: NextRequest) {
 
 // POST - Create a new campaign
 export async function POST(request: NextRequest) {
-  const supabase = createClient()
-  
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) {
+  let profile
+  try {
+    ;({ profile } = await requireAuthApi())
+  } catch {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const { data: profile } = await supabase
-    .from('users')
-    .select('org_id, role')
-    .eq('id', user.id)
-    .single()
+  // RLS-bound client: this route's reads/writes rely on the org policies on the
+  // tables below, so it must stay the caller's client rather than a service client.
+  const supabase = createClient()
 
-  if (!profile || !['admin', 'regional_manager'].includes(profile.role)) {
+  if (!['admin', 'regional_manager'].includes(profile.role)) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
@@ -145,7 +138,7 @@ export async function POST(request: NextRequest) {
       external_id: external_id || null,
       start_date: start_date || null,
       end_date: end_date || null,
-      created_by: user.id,
+      created_by: profile.id,
     })
     .select()
     .single()
@@ -162,20 +155,18 @@ export async function POST(request: NextRequest) {
 
 // PUT - Update a campaign
 export async function PUT(request: NextRequest) {
-  const supabase = createClient()
-  
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) {
+  let profile
+  try {
+    ;({ profile } = await requireAuthApi())
+  } catch {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const { data: profile } = await supabase
-    .from('users')
-    .select('org_id, role')
-    .eq('id', user.id)
-    .single()
+  // RLS-bound client: this route's reads/writes rely on the org policies on the
+  // tables below, so it must stay the caller's client rather than a service client.
+  const supabase = createClient()
 
-  if (!profile || !['admin', 'regional_manager'].includes(profile.role)) {
+  if (!['admin', 'regional_manager'].includes(profile.role)) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
@@ -212,20 +203,18 @@ export async function PUT(request: NextRequest) {
 
 // DELETE - Delete a campaign
 export async function DELETE(request: NextRequest) {
-  const supabase = createClient()
-  
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) {
+  let profile
+  try {
+    ;({ profile } = await requireAuthApi())
+  } catch {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const { data: profile } = await supabase
-    .from('users')
-    .select('org_id, role')
-    .eq('id', user.id)
-    .single()
+  // RLS-bound client: this route's reads/writes rely on the org policies on the
+  // tables below, so it must stay the caller's client rather than a service client.
+  const supabase = createClient()
 
-  if (!profile || !['admin', 'regional_manager'].includes(profile.role)) {
+  if (!['admin', 'regional_manager'].includes(profile.role)) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 

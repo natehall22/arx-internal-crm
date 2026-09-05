@@ -1,7 +1,8 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { NextResponse } from 'next/server'
+import { requireAuthApi } from '@/lib/auth'
 import { getEasternPaceFactor, getEasternTodayIso } from '@/lib/eastern-datetime'
 import { INSPECTION_SET_APPOINTMENT_TYPE_OR } from '@/lib/inspection-set-metrics'
+import { isSisuAdminRole } from '@/lib/sisu-admin-access'
 import type { DbUserRole } from '@/lib/types/database'
 import { createServiceClient } from '@/lib/supabase/service'
 
@@ -11,10 +12,6 @@ type AuthResult = {
   userId: string
   orgId: string
   role: string
-}
-
-type SessionData = {
-  access_token?: string
 }
 
 type OrgUser = {
@@ -38,17 +35,6 @@ type GoalRow = {
   weekly_sales_target: number | null
 }
 
-const ADMIN_ROLES = [
-  'admin',
-  'owner',
-  'regional_manager',
-  'regional_setter_manager',
-  'sales_manager',
-  'setter_manager',
-  'manager',
-  'operations',
-]
-
 // Roles that see only their direct reports (manager_user_id = viewer.id)
 const MANAGER_SCOPED_ROLES = new Set(['setter_manager', 'sales_manager', 'regional_setter_manager'])
 
@@ -58,90 +44,26 @@ const MANAGER_SCOPED_ROLES = new Set(['setter_manager', 'sales_manager', 'region
 const ACCOUNTABILITY_ROLES: DbUserRole[] = ['setter', 'canvasser']
 const DOOR_SOURCES = ['door_to_door', 'canvass', 'door_knock']
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null
-}
-
-function getSessionFromRequest(req: NextRequest): SessionData | null {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const projectRef = supabaseUrl.match(/https:\/\/([^.]+)\./)?.[1] || ''
-  const cookieName = `sb-${projectRef}-auth-token`
-
-  const singleCookie = req.cookies.get(cookieName)
-  if (singleCookie?.value) {
-    try {
-      const parsed: unknown = JSON.parse(decodeURIComponent(singleCookie.value))
-      return isRecord(parsed) ? { access_token: String(parsed.access_token ?? '') } : null
-    } catch {
-      return null
-    }
+/**
+ * Resolves the caller once — identity, active check, role and org in a single pass.
+ * Replaces a local cookie parser + anon auth client that never checked `users.active`.
+ */
+async function assertAdmin(): Promise<AuthResult | NextResponse> {
+  let profile
+  try {
+    ;({ profile } = await requireAuthApi())
+  } catch {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const chunks: string[] = []
-  let i = 0
-  while (true) {
-    const chunk = req.cookies.get(`${cookieName}.${i}`)
-    if (!chunk?.value) break
-    chunks.push(chunk.value)
-    i += 1
-  }
-
-  if (chunks.length > 0) {
-    try {
-      const parsed: unknown = JSON.parse(decodeURIComponent(chunks.join('')))
-      return isRecord(parsed) ? { access_token: String(parsed.access_token ?? '') } : null
-    } catch {
-      return null
-    }
-  }
-
-  return null
-}
-
-function getAuthClient(req: NextRequest) {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  const sessionData = getSessionFromRequest(req)
-
-  return createClient(supabaseUrl, supabaseKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-    global: sessionData?.access_token
-      ? { headers: { Authorization: `Bearer ${sessionData.access_token}` } }
-      : undefined,
-  })
-}
-
-async function getAuthedUser(req: NextRequest) {
-  const client = getAuthClient(req)
-  const {
-    data: { user },
-    error,
-  } = await client.auth.getUser()
-
-  if (error || !user) return null
-  return user
-}
-
-async function assertAdmin(req: NextRequest): Promise<AuthResult | NextResponse> {
-  const user = await getAuthedUser(req)
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
-  const admin = createServiceClient()
-  const { data: profile } = await admin
-    .from('users')
-    .select('role, org_id')
-    .eq('id', user.id)
-    .single()
-
-  if (!profile?.role || !ADMIN_ROLES.includes(profile.role)) {
+  if (!isSisuAdminRole(profile.role)) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
-
   if (!profile.org_id) {
     return NextResponse.json({ error: 'No org found' }, { status: 400 })
   }
 
-  return { userId: user.id, orgId: profile.org_id, role: profile.role }
+  return { userId: profile.id, orgId: profile.org_id, role: profile.role }
 }
 
 function getTimeZoneDateParts(date: Date, timezone: string): { year: number; month: number; day: number; weekday: string } {
@@ -246,8 +168,8 @@ function incrementCount(map: Map<string, number>, userId: string | null) {
   map.set(userId, (map.get(userId) ?? 0) + 1)
 }
 
-export async function GET(req: NextRequest) {
-  const authResult = await assertAdmin(req)
+export async function GET() {
+  const authResult = await assertAdmin()
   if (authResult instanceof NextResponse) return authResult
 
   const admin = createServiceClient()

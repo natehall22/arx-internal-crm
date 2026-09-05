@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerClient } from '@/lib/supabase/server'
+import { requireAuthApi } from '@/lib/auth'
+import { createClient } from '@/lib/supabase/server'
 import {
   FEEDBACK_PROMPT_SNOOZE_DURATION_MS,
   isPromptEscalated,
@@ -7,22 +8,20 @@ import {
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = createServerClient()
-
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
+    let profile
+    try {
+      ;({ profile } = await requireAuthApi())
+    } catch {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const { data: profile } = await supabase
-      .from('users')
-      .select('org_id')
-      .eq('id', user.id)
-      .single()
-
-    if (!profile?.org_id) {
+    if (!profile.org_id) {
       return NextResponse.json({ error: 'Profile not found' }, { status: 403 })
     }
+
+    // RLS-bound client: this route's reads/writes rely on the org policies on the
+    // tables below, so it must stay the caller's client rather than a service client.
+    const supabase = createClient()
 
     const body = await request.json()
     const { prompt_id } = body
@@ -36,7 +35,7 @@ export async function POST(request: NextRequest) {
       .select('snooze_count')
       .eq('id', prompt_id)
       .eq('org_id', profile.org_id)
-      .eq('closer_user_id', user.id)
+      .eq('closer_user_id', profile.id)
       .single()
 
     if (fetchError || !existing) {
@@ -66,7 +65,7 @@ export async function POST(request: NextRequest) {
       .update(update)
       .eq('id', prompt_id)
       .eq('org_id', profile.org_id)
-      .eq('closer_user_id', user.id)
+      .eq('closer_user_id', profile.id)
       .eq('snooze_count', existing.snooze_count)
       .select('snooze_count')
 

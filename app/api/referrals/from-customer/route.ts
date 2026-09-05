@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
-import { createClient } from '@/lib/supabase/server'
 import {
   canAccessCustomerRecordsFromPermissionNames,
   canEditCustomerRecordsFromPermissionNames,
@@ -58,26 +58,21 @@ function pickEditableFields(body: Record<string, unknown>): Record<string, unkno
 }
 
 async function authorize() {
-  const supabase = createClient()
-  const adminClient = createServiceClient()
-
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) {
+  let profile
+  try {
+    ;({ profile } = await requireAuthApi())
+  } catch {
     return { error: NextResponse.json({ error: 'Your session has expired — sign in again.' }, { status: 401 }) }
   }
 
-  const { data: profile } = await adminClient
-    .from('users')
-    .select('org_id, role, custom_role_id')
-    .eq('id', user.id)
-    .single()
-
-  if (!profile?.org_id) {
+  if (!profile.org_id) {
     return { error: NextResponse.json({ error: 'User profile not found' }, { status: 404 }) }
   }
 
-  const permissions = await resolveEffectivePermissionNames(adminClient, user.id, profile)
-  return { adminClient, orgId: profile.org_id as string, userId: user.id, permissions }
+  const adminClient = createServiceClient()
+
+  const permissions = await resolveEffectivePermissionNames(adminClient, profile.id, profile)
+  return { adminClient, orgId: profile.org_id as string, userId: profile.id, permissions }
 }
 
 /** Resolves the optional link payload into the single column the DB trigger expands. */

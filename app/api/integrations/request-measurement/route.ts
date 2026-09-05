@@ -1,26 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireAuthApi } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 
 // Request a roof measurement from an external provider
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = createClient()
-    
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
+    let profile
+    try {
+      ;({ profile } = await requireAuthApi())
+    } catch {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const { data: profile } = await supabase
-      .from('users')
-      .select('org_id')
-      .eq('id', user.id)
-      .single()
-
-    if (!profile) {
-      return NextResponse.json({ error: 'User profile not found' }, { status: 404 })
-    }
+    // RLS-bound client: this route's reads/writes rely on the org policies on the
+    // tables below, so it must stay the caller's client rather than a service client.
+    const supabase = createClient()
 
     const body = await request.json()
     const { provider, address, lat, lng, opportunity_id, options } = body
@@ -55,7 +50,7 @@ export async function POST(request: NextRequest) {
         lat,
         lng,
         opportunity_id,
-        requested_by: user.id,
+        requested_by: profile.id,
         status: 'pending',
       })
       .select()
@@ -90,7 +85,7 @@ export async function POST(request: NextRequest) {
               .insert({
                 org_id: profile.org_id,
                 opportunity_id,
-                created_by: user.id,
+                created_by: profile.id,
                 address_text: address,
                 lat,
                 lng,
@@ -278,12 +273,16 @@ async function requestGoogleSolarData(config: any, lat: number, lng: number) {
 // GET endpoint to check request status
 export async function GET(request: NextRequest) {
   try {
-    const supabase = createClient()
-    
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
+    let profile
+    try {
+      ;({ profile } = await requireAuthApi())
+    } catch {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+
+    // RLS-bound client: this route's reads/writes rely on the org policies on the
+    // tables below, so it must stay the caller's client rather than a service client.
+    const supabase = createClient()
 
     const requestId = request.nextUrl.searchParams.get('id')
     
