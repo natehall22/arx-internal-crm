@@ -10,6 +10,7 @@ import JobInvoicesCard from '@/components/ops/JobInvoicesCard'
 import CompleteJobModal from '@/components/ops/CompleteJobModal'
 import JobPaymentMethodBanner from '@/components/ops/JobPaymentMethodBanner'
 import JobRunSheetBanner from '@/components/ops/JobRunSheetBanner'
+import MaterialsOrderBanner from '@/components/ops/MaterialsOrderBanner'
 import JobReadyToPayBanner from '@/components/ops/JobReadyToPayBanner'
 import JobPayrollSentBanner from '@/components/ops/JobPayrollSentBanner'
 import AINoteSummary from '@/components/jobs/AINoteSummary'
@@ -1282,6 +1283,21 @@ export default function JobDetailClient({
     }
   }
 
+  /** Banner → order list. Same mobile-tab dance as the add-cost shortcut below. */
+  const handleEditOrderQuantities = () => {
+    const isMobile = typeof window !== 'undefined' && window.innerWidth < 1024
+    const scrollToList = () => {
+      document.getElementById('materials-order')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+
+    if (isMobile) {
+      setMobileTab('materials')
+      setTimeout(scrollToList, 100)
+    } else {
+      scrollToList()
+    }
+  }
+
   const handleAddCostShortcut = () => {
     const isMobile = typeof window !== 'undefined' && window.innerWidth < 1024
 
@@ -1319,6 +1335,16 @@ export default function JobDetailClient({
           jobNumber={job.job_number}
           roofReportId={job.roof_report?.pdf_generated_at ? job.roof_report.id : null}
         />
+
+        {/* The supplier-facing twin. Gated exactly like MaterialsOrderCard so the banner can never
+            promise an order sheet the job has no measurement or sold scope to build. */}
+        {job.sold_scope && job.job_type === 'roofing' ? (
+          <MaterialsOrderBanner
+            jobId={job.id}
+            jobNumber={job.job_number}
+            onEditQuantities={handleEditOrderQuantities}
+          />
+        ) : null}
 
         <JobReadyToPayBanner
           status={job.status}

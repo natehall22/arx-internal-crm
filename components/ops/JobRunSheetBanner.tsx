@@ -22,11 +22,11 @@ export default function JobRunSheetBanner({
   const pdfUrl = `/api/ops/jobs/${jobId}/run-sheet/pdf`
 
   return (
-    <div className="mb-4 rounded-xl bg-[#e6007a] p-4 shadow-sm sm:p-5">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-start gap-3">
+    <div className="mb-3 rounded-xl bg-[#e6007a] p-4 shadow-sm sm:px-5 sm:py-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+        <div className="flex items-start gap-3 sm:items-center">
           <svg
-            className="mt-0.5 h-7 w-7 shrink-0 text-white"
+            className="mt-0.5 h-7 w-7 shrink-0 text-white sm:mt-0 sm:h-6 sm:w-6"
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
@@ -40,10 +40,10 @@ export default function JobRunSheetBanner({
             />
           </svg>
           <div>
-            <h2 className="text-lg font-bold leading-tight text-white sm:text-xl">
+            <h2 className="text-base font-bold leading-tight text-white sm:text-[17px]">
               Job Run Sheet — {jobNumber}
             </h2>
-            <p className="text-sm text-white/90">
+            <p className="text-sm leading-snug text-white/90">
               One page with everything needed to run this job. Print it or email it to the crew.
             </p>
           </div>
@@ -54,13 +54,13 @@ export default function JobRunSheetBanner({
             href={pdfUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex min-h-[44px] items-center justify-center rounded-lg bg-[#fff100] px-5 py-2.5 text-sm font-extrabold uppercase tracking-wide text-[#c40068] hover:bg-[#ffe600]"
+            className="flex min-h-[44px] items-center justify-center rounded-lg bg-[#fff100] px-4 py-2.5 sm:min-h-[36px] sm:py-1.5 text-sm font-extrabold uppercase tracking-wide text-[#c40068] hover:bg-[#ffe600]"
           >
             Open PDF
           </a>
           <Link
             href={`/ops/jobs/${jobId}/run-sheet`}
-            className="flex min-h-[44px] items-center justify-center rounded-lg border-2 border-white px-5 py-2.5 text-sm font-bold text-white hover:bg-white/15"
+            className="flex min-h-[44px] items-center justify-center rounded-lg border-2 border-white px-4 py-2.5 sm:min-h-[36px] sm:py-1.5 text-sm font-bold text-white hover:bg-white/15"
           >
             Edit sheet
           </Link>
@@ -69,7 +69,7 @@ export default function JobRunSheetBanner({
               href={`/api/inspection-reports/${roofReportId}/pdf?redirect=1`}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex min-h-[44px] items-center justify-center rounded-lg border-2 border-white px-5 py-2.5 text-sm font-bold text-white hover:bg-white/15"
+              className="flex min-h-[44px] items-center justify-center rounded-lg border-2 border-white px-4 py-2.5 sm:min-h-[36px] sm:py-1.5 text-sm font-bold text-white hover:bg-white/15"
             >
               View Roof Report
             </a>
