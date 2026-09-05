@@ -1,8 +1,53 @@
+/**
+ * Ownership transfers reassigned at or after this instant move reporting credit to the rep who
+ * re-knocked the pin. 2026-09-05T00:00 America/New_York — a clean day boundary strictly ahead of
+ * every reassignment on record at the time this shipped (the latest was 2026-09-04 15:50 ET).
+ *
+ * The cutoff exists so this change is forward-only. Reports recompute from live data, so flipping
+ * the precedence outright would have retroactively restated per-rep door counts on the 151 leads
+ * already reassigned — moving credit off departed reps in periods that have already been read,
+ * screenshotted and acted on. Transfers from here on are attributed to whoever actually knocked;
+ * everything before keeps reporting exactly what it has always reported.
+ */
+export const CANVASS_OWNERSHIP_TRANSFER_EFFECTIVE_FROM = '2026-09-05T04:00:00.000Z'
+
+/**
+ * Whether a lead's ownership transfer is recent enough to carry reporting credit with it.
+ * A lead never reassigned (or a row whose `ownership_reassigned_at` was not selected) is false,
+ * which is the pre-cutoff behavior — see the warning on getAttributedCanvassLeadUserId.
+ */
+export function canvassOwnershipTransferApplies(ownershipReassignedAt?: string | null): boolean {
+  if (!ownershipReassignedAt) return false
+  const reassignedAt = new Date(ownershipReassignedAt).getTime()
+  if (!Number.isFinite(reassignedAt)) return false
+  return reassignedAt >= Date.parse(CANVASS_OWNERSHIP_TRANSFER_EFFECTIVE_FROM)
+}
+
+/**
+ * Which rep a canvass lead's activity is credited to in reporting.
+ *
+ * `pin_attributed_user_id` is frozen for the life of the pin by the leads_assignee_display_names
+ * trigger (it only ever fills a null), so preferring it meant a re-knocked pin kept crediting
+ * whoever first dropped it — including reps who have since left. That is the read-side twin of
+ * the canvass_knocks bug fixed in c94d056: on 2026-09-01 a lead Evan re-knocked still credited
+ * Caleb Dearey, a deactivated canvasser, and 151 reassigned leads were in the same state.
+ *
+ * For transfers from CANVASS_OWNERSHIP_TRANSFER_EFFECTIVE_FROM onward, `owner_user_id` — which the
+ * stale-pin rule in app/api/canvass/lead/route.ts moves to the rep who actually re-knocked — wins.
+ * `pin_attributed_user_id` remains the fallback for its other genuine job: keeping a pin
+ * attributed when `owner_user_id` is cleared on user delete (see app/api/canvass/data/route.ts).
+ *
+ * IMPORTANT: callers must select `ownership_reassigned_at`. A row missing it silently falls back
+ * to the frozen pin owner rather than failing, so an omitted column looks like "nothing happened."
+ */
 export function getAttributedCanvassLeadUserId(lead: {
   pin_attributed_user_id?: string | null
   owner_user_id?: string | null
+  ownership_reassigned_at?: string | null
 }): string | null {
-  // Reporting should stick with the frozen canvass attribution when present.
+  if (canvassOwnershipTransferApplies(lead.ownership_reassigned_at)) {
+    return lead.owner_user_id || lead.pin_attributed_user_id || null
+  }
   return lead.pin_attributed_user_id || lead.owner_user_id || null
 }
 

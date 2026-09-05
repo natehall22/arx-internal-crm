@@ -8,6 +8,7 @@ type LeadRow = {
   org_id: string
   owner_user_id: string | null
   pin_attributed_user_id: string | null
+  ownership_reassigned_at?: string | null
   installation_agreement_signed_at: string | null
 }
 
@@ -93,7 +94,7 @@ export async function deleteCanvassLeadWithDependencies(args: {
 
   const { data: lead, error: fetchError } = await admin
     .from('leads')
-    .select('id, org_id, owner_user_id, pin_attributed_user_id, installation_agreement_signed_at')
+    .select('id, org_id, owner_user_id, pin_attributed_user_id, ownership_reassigned_at, installation_agreement_signed_at')
     .eq('id', leadId)
     .single()
 

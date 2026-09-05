@@ -56,7 +56,7 @@ export default async function IncentivesPage() {
   // Doors knocked this week
   const { data: doorLeads } = await supabase
     .from('leads')
-    .select('id, source, canvass_disposition, pin_attributed_user_id, owner_user_id')
+    .select('id, source, canvass_disposition, pin_attributed_user_id, owner_user_id, ownership_reassigned_at')
     .eq('org_id', profile.org_id)
     .gte('created_at', weekStart.toISOString())
     .lt('created_at', weekEnd.toISOString())

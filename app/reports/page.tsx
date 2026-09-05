@@ -243,7 +243,12 @@ export default function ReportsPage() {
       withDateColumn(
         supabase
           .from('leads')
-          .select('id, status, source, canvass_disposition, created_at, owner_user_id')
+          // pin_attributed_user_id + ownership_reassigned_at so scopedLeads resolves attribution
+          // the same way the rep-scoped queries below do — without them the helper silently falls
+          // through to owner_user_id and this section ignores the transfer cutoff.
+          .select(
+            'id, status, source, canvass_disposition, created_at, owner_user_id, pin_attributed_user_id, ownership_reassigned_at'
+          )
           .eq('org_id', orgId),
         'created_at',
         dateStart,
@@ -443,7 +448,7 @@ export default function ReportsPage() {
         const { data: regionLeads } = await withDateColumn(
           supabase
             .from('leads')
-            .select('id, status, source, canvass_disposition, owner_user_id, pin_attributed_user_id')
+            .select('id, status, source, canvass_disposition, owner_user_id, pin_attributed_user_id, ownership_reassigned_at')
             .eq('org_id', orgId)
             .or(
               userIds.length > 0
@@ -551,7 +556,7 @@ export default function ReportsPage() {
         const { data: teamLeads } = await withDateColumn(
           supabase
             .from('leads')
-            .select('id, status, source, canvass_disposition, owner_user_id, pin_attributed_user_id')
+            .select('id, status, source, canvass_disposition, owner_user_id, pin_attributed_user_id, ownership_reassigned_at')
             .eq('org_id', orgId)
             .or(
               userIds.length > 0
@@ -650,7 +655,7 @@ export default function ReportsPage() {
         const { data: userLeads } = await withDateColumn(
           supabase
             .from('leads')
-            .select('id, status, source, canvass_disposition, owner_user_id, pin_attributed_user_id')
+            .select('id, status, source, canvass_disposition, owner_user_id, pin_attributed_user_id, ownership_reassigned_at')
             .eq('org_id', orgId)
             .or(`owner_user_id.eq.${user.id},pin_attributed_user_id.eq.${user.id}`),
           'created_at',

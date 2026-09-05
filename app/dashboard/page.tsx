@@ -138,7 +138,7 @@ export default async function DashboardPage() {
   // Fetch leads created this week (filter in query to avoid Supabase row limits)
   let leadsQuery = supabase
     .from('leads')
-    .select('id, status, source, canvass_disposition, created_at, owner_user_id, pin_attributed_user_id')
+    .select('id, status, source, canvass_disposition, created_at, owner_user_id, pin_attributed_user_id, ownership_reassigned_at')
     .eq('org_id', profile.org_id)
     .gte('created_at', weekStart.toISOString())
     .lt('created_at', weekEnd.toISOString())

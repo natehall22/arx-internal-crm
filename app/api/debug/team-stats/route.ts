@@ -187,7 +187,7 @@ export async function GET(request: NextRequest) {
     // Fetch data SCOPED to team members only (for scalability)
     let leadsQuery = supabase
       .from('leads')
-      .select('id, owner_user_id, pin_attributed_user_id, canvass_disposition, source, created_at')
+      .select('id, owner_user_id, pin_attributed_user_id, canvass_disposition, source, created_at, ownership_reassigned_at')
       .eq('org_id', profile.org_id)
       .gte('created_at', start.toISOString())
       .lt('created_at', end.toISOString())
