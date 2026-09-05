@@ -38,6 +38,16 @@ import {
   type RoofAgeFeatureCollection,
   type RoofAgeEmptyReason,
 } from '../lib/roof-age-overlay'
+import {
+  MIN_SOLAR_ZOOM,
+  SOLAR_LEGEND,
+  SOLAR_MARKER_STROKE,
+  SOLAR_MARKER_Z_INDEX,
+  solarBucket,
+  solarMarkerRadiusMeters,
+  type SolarFeatureCollection,
+} from '../lib/solar-overlay'
+import { useCanvassOverlay } from '../lib/useCanvassOverlay'
 
 export type { WeatherContext }
 
@@ -84,6 +94,7 @@ interface Props {
   onWeatherContextChange?: (context: WeatherContext | null) => void
   /** Roof-age parcel layer (county year-built data) — flag-gated like weather */
   roofAgeEnabled?: boolean
+  solarEnabled?: boolean
 }
 
 // Default pin colors (fallback if no admin settings)
@@ -216,6 +227,7 @@ export default function CanvassMap({
   weatherOverlayEnabled = false,
   weatherTimeWindowDays = 730,
   roofAgeEnabled = false,
+  solarEnabled = false,
   onWeatherContextChange,
 }: Props) {
   // Keep latest handlers without re-running marker sync / re-binding map listeners every render.
@@ -1022,6 +1034,62 @@ export default function CanvassMap({
     }
   }, [clearRoofAgeCircles])
 
+  // ---- Solar layer (permitted PV arrays, colored by installer status) ----
+  // Uses the shared useCanvassOverlay hook rather than repeating the fetch/
+  // toggle/cleanup dance a third time. Weather and roof-age above still have
+  // their own copies; migrating them is a separate, reviewable change.
+  const solarCirclesRef = useRef<any[]>([])
+
+  const clearSolarCircles = useCallback(() => {
+    solarCirclesRef.current.forEach((circle) => circle.setMap(null))
+    solarCirclesRef.current = []
+  }, [])
+
+  const paintSolarCollection = useCallback(
+    (collection: SolarFeatureCollection) => {
+      clearSolarCircles()
+      const map = mapInstanceRef.current
+      if (!map) return
+      for (const feature of collection.features) {
+        if (feature.geometry?.type !== 'Point') continue
+        const [lng, lat] = feature.geometry.coordinates as [number, number]
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue
+        const status = feature.properties.installerStatus
+        const bucket = solarBucket(status)
+        try {
+          solarCirclesRef.current.push(
+            new google.maps.Circle({
+              map,
+              center: { lat, lng },
+              radius: solarMarkerRadiusMeters(status),
+              fillColor: bucket.fill,
+              fillOpacity: 1,
+              ...SOLAR_MARKER_STROKE,
+              clickable: false,
+              zIndex: SOLAR_MARKER_Z_INDEX,
+            }),
+          )
+        } catch {
+          // drop this marker, keep going
+        }
+      }
+    },
+    [clearSolarCircles],
+  )
+
+  const solar = useCanvassOverlay<SolarFeatureCollection>({
+    enabled: solarEnabled,
+    endpoint: '/api/canvass/solar',
+    minZoom: MIN_SOLAR_ZOOM,
+    storageKey: 'canvass-solar-on',
+    mapRef: mapInstanceRef,
+    mapLoaded,
+    paint: paintSolarCollection,
+    clear: clearSolarCircles,
+  })
+  const solarOnMapIdleRef = useRef(solar.onMapIdle)
+  solarOnMapIdleRef.current = solar.onMapIdle
+
   // Load Google Maps script with marker clusterer
   useEffect(() => {
     const loadScripts = async () => {
@@ -1160,6 +1228,11 @@ export default function CanvassMap({
         roofAgeIdleTimerRef.current = null
         void fetchRoofAgeRef.current()
       }, 700)
+    })
+
+    // Solar layer — the hook owns its own debounce and enabled/on guards.
+    mapInstanceRef.current.addListener('idle', () => {
+      solarOnMapIdleRef.current(700)
     })
 
     // Track heading changes for compass
@@ -1847,6 +1920,85 @@ export default function CanvassMap({
                     strokeLinejoin="round"
                     strokeWidth={2}
                     d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"
+                  />
+                </svg>
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Solar layer control — permitted PV arrays by installer status */}
+        {solarEnabled && (
+          <div className="flex flex-col gap-1.5 items-start">
+            {solar.on ? (
+              <>
+                <div className="bg-white rounded-full shadow-lg flex items-center h-12 pl-1 pr-1">
+                  <div className="flex items-center gap-1.5 h-10 pl-2 pr-1.5">
+                    <svg className="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"
+                      />
+                    </svg>
+                    <span className="text-xs font-bold uppercase tracking-wide text-[#2c2c2a]">
+                      Solar
+                    </span>
+                    {solar.zoomHint ? (
+                      <span className="text-[11px] font-semibold text-gray-500">· zoom in</span>
+                    ) : solar.loadError ? (
+                      <span className="text-[11px] font-semibold text-gray-500">· couldn&apos;t load</span>
+                    ) : solar.noData ? (
+                      <span className="text-[11px] font-semibold text-gray-500">
+                        {solar.emptyReason === 'no_permits_loaded'
+                          ? '· county not loaded'
+                          : '· none here'}
+                      </span>
+                    ) : null}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={solar.toggle}
+                    className="w-10 h-10 rounded-full flex items-center justify-center text-gray-500 active:bg-gray-100"
+                    aria-label="Turn solar layer off"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+                {!solar.zoomHint && (
+                  <div className="bg-white rounded-xl shadow-lg px-3 py-2 space-y-1 text-[11px] leading-tight text-[#2c2c2a]">
+                    {SOLAR_LEGEND.map((item) => (
+                      <div key={item.status} className="flex items-center gap-2">
+                        <span
+                          className="w-3 h-3 rounded-[2px] flex-shrink-0"
+                          style={{
+                            backgroundColor: item.fill,
+                            boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.35), 0 0 0 1.5px #FFFFFF',
+                          }}
+                        />
+                        <span>{item.label}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={solar.toggle}
+                className="w-12 h-12 bg-white rounded-full shadow-lg flex items-center justify-center"
+                title="Solar"
+                aria-label="Show solar layer"
+              >
+                <svg className="w-6 h-6 text-[#2c2c2a]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"
                   />
                 </svg>
               </button>

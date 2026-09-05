@@ -124,6 +124,23 @@ describe('setter field-time update', () => {
     ])
   })
 
+  it('drops a knock credited to a deactivated rep', () => {
+    // fetchSetterFieldUpdateReports now selects users with active = true, so a knock belonging
+    // to someone who has left the company finds no user row and is dropped here. Regression for
+    // 2026-09-01, when a CRM scheduling forward logged a phantom door against a deactivated rep
+    // and this email rendered it as a real 0.3 hr line on his old team's report.
+    const rows = summarizeSetterFieldRows(
+      [
+        { created_at: '2026-09-01T19:56:35Z', source: 'canvass', disposition: 'hot_lead', user_id: 'departed-rep' },
+        { created_at: '2026-09-01T20:00:41Z', source: 'canvass', disposition: 'hot_lead', user_id: 'rep-a' },
+      ],
+      [{ id: 'rep-a', full_name: 'Rep A', team_id: 'east' }],
+      new Set(['hot_lead'])
+    )
+
+    expect(rows).toEqual([expect.objectContaining({ repName: 'Rep A', doors: 1 })])
+  })
+
   it('excludes call_center-sourced contacts even with a disposition set', () => {
     // A phone contact isn't a physical door; canvass_knocks can theoretically carry a
     // call_center row (any non-web/inbound source with a disposition is knock-eligible),

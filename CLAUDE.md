@@ -33,7 +33,16 @@ Subcontractor model (no in-house crews). Based in the US, field reps canvass doo
 ## Key Rules — Never Violate
 - `requireAuth()` / `requireAuthApi()` for all auth — never raw `supabase.auth.getUser()`. NOTE: `requireAuthApi()` *throws* on failure (does not return null) — wrap in try/catch → 401.
 - `PAYROLL_ADMIN_ROLES = ['admin', 'owner', 'operations']` — never expand this set
-- `pin_attributed_user_id` takes precedence over `owner_user_id` for canvass lead attribution
+- **Canvass attribution: `owner_user_id` wins once a pin has been transferred.** This reverses the
+  old "`pin_attributed_user_id` always takes precedence" rule (amended 2026-09-04, Nathan's call).
+  `pin_attributed_user_id` is frozen for the life of the pin by the `leads_assignee_display_names`
+  trigger, so preferring it credited whoever *first* dropped a pin forever — including reps who
+  have left. `getAttributedCanvassLeadUserId` now prefers `owner_user_id` for leads reassigned at
+  or after `CANVASS_OWNERSHIP_TRANSFER_EFFECTIVE_FROM`; `pin_attributed_user_id` stays as the
+  fallback for its real remaining job, keeping a pin attributed when `owner_user_id` is cleared on
+  user delete. The cutoff makes this forward-only so historical door counts don't restate.
+  **Any caller of that helper must select `ownership_reassigned_at`** — a row missing it silently
+  falls back to the frozen pin owner instead of failing.
 - All schema changes must be nullable/additive — system is live and in daily use
 - `bonus_status` enum: `pending_approval | approved | rejected | paid`
 - `manager_user_id` self-referential FK for org hierarchy traversal
@@ -90,6 +99,8 @@ listed file, migrate it.
 | 6 | **Formatters re-implemented per file.** No shared `lib/format.ts`. | 18 local `formatCurrency`/`formatMoney`, 33 local `formatDate`/`formatTime`, 22 raw `Intl.NumberFormat`, 159 raw `toLocaleDateString` | Medium — proposals/PDFs/commissions can render the same number differently. |
 | 7 | **Error-response literals.** | `NextResponse.json({error:'Unauthorized'},{status:401})` **348×**; `'Forbidden'` 403 **168×**; plus 6 competing synonyms for 403 (`'Access denied'` 24, `'Not authorized'` 8, `'Permission denied'` 4, …) | Low severity, high volume — inconsistent client-side error handling. Needs `unauthorized()` / `forbidden()` helpers. |
 
+| 8 | **Doors are counted twice, from two different tables.** Migrations `202608250002/3` moved dashboard door counts onto `canvass_knocks` (credited to the actual knocker at write time), but `app/dashboard/page.tsx:376` (`rawDoors`, per-member) and `app/sisu/page.tsx:64` (`doorsKnocked`) still count them from `leads` via `getAttributedCanvassLeadUserId`. The two disagree on any reassigned pin — and since 2026-09-04 the leads path is additionally cutoff-gated, so member rows need not sum to the org total beside them. Found during the 2026-09-04 attribution work; not fixed there because collapsing it changes what the dashboard reports. | 2 read paths | Medium-high — two live answers to "how many doors did this rep knock," one of them payroll-adjacent. |
+
 **Rule going forward:** items 1, 3b, 4 and 5 are the ones that can cause a real incident.
 Fix opportunistically — when a task already touches one of these files, migrate
 that file rather than extending the pattern.
@@ -140,7 +151,8 @@ Incentive program for setters:
 - Offline-first: Zustand + IndexedDB queue syncs when connectivity returns
 - Rep geo-tagging: captures rep's physical GPS at knock time (`rep_lat/lng/accuracy/captured_at`) — separate from pin lat/lng (property address)
 - Territory assignment and visibility controls per role
-- Canvass attribution: `pin_attributed_user_id` > `owner_user_id`
+- Canvass attribution: `owner_user_id` > `pin_attributed_user_id` for pins transferred on/after
+  `CANVASS_OWNERSHIP_TRANSFER_EFFECTIVE_FROM` (see Key Rules); frozen pin owner before that
 
 ## Active Initiatives (as of June 2026)
 - **Recruiting plan** — scaling to 30+ reps by Sept 1 2026; priority #1 is insurance pipeline rep (July 15); 8 active setters target; second closer contingent on 4 conditions; Opportunity Nights every other Tuesday 6:30pm; full playbook at https://arxrecruiting.netlify.app/

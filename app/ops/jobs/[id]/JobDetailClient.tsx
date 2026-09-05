@@ -14,6 +14,7 @@ import JobReadyToPayBanner from '@/components/ops/JobReadyToPayBanner'
 import JobPayrollSentBanner from '@/components/ops/JobPayrollSentBanner'
 import AINoteSummary from '@/components/jobs/AINoteSummary'
 import LinkCustomerButton from '@/components/customers/LinkCustomerButton'
+import CopyableContact from '@/components/CopyableContact'
 import JobWorkOrdersCard from '@/components/ops/JobWorkOrdersCard'
 import SoldScopeCard from '@/components/ops/SoldScopeCard'
 import JobMaterialsCard from '@/components/ops/JobMaterialsCard'
@@ -124,6 +125,7 @@ interface Job {
     sold_roof_squares?: number | null
   } | null
   installation_agreement?: { pdf_url: string | null; status: string; agreement_type?: string | null } | null
+  roof_report?: { id: string; pdf_generated_at: string | null } | null
   sold_scope?: JobSoldScope | null
 }
 
@@ -975,6 +977,7 @@ export default function JobDetailClient({
           /** Server job payload does not include opportunity / payroll attribution — preserve from SSR. */
           payroll_attribution: job.payroll_attribution,
           opportunity_id: job.opportunity_id,
+          roof_report: job.roof_report,
           sold_scope: job.sold_scope,
         }
         setJob(transformedJob)
@@ -1311,7 +1314,11 @@ export default function JobDetailClient({
         </div>
 
         {/* First card on the page, every breakpoint — ops needs this findable from a phone. */}
-        <JobRunSheetBanner jobId={job.id} jobNumber={job.job_number} />
+        <JobRunSheetBanner
+          jobId={job.id}
+          jobNumber={job.job_number}
+          roofReportId={job.roof_report?.pdf_generated_at ? job.roof_report.id : null}
+        />
 
         <JobReadyToPayBanner
           status={job.status}
@@ -1984,14 +1991,21 @@ export default function JobDetailClient({
                 <div>
                   <div className="font-medium text-gray-900 mb-2 break-words">{job.customer.name}</div>
                   {job.customer.phone && (
-                    <a href={`tel:${job.customer.phone}`} className="min-h-[44px] flex items-center text-sm text-indigo-600 mb-1">
-                      📞 {job.customer.phone}
-                    </a>
+                    <CopyableContact
+                      value={job.customer.phone}
+                      href={`tel:${job.customer.phone}`}
+                      icon="📞"
+                      label="phone number"
+                      className="mb-1"
+                    />
                   )}
                   {job.customer.email && (
-                    <a href={`mailto:${job.customer.email}`} className="min-h-[44px] flex items-center text-sm text-indigo-600 break-all">
-                      ✉️ {job.customer.email}
-                    </a>
+                    <CopyableContact
+                      value={job.customer.email}
+                      href={`mailto:${job.customer.email}`}
+                      icon="✉️"
+                      label="email address"
+                    />
                   )}
                   <Link
                     href={`/customers/${job.customer.id}`}

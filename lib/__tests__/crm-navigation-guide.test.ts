@@ -85,6 +85,17 @@ describe('crm-navigation-guide', () => {
     expect(prompt).toContain('lead with the exact count')
   })
 
+  it('includes insurance benchmarks with historical-use limits when provided', () => {
+    const prompt = buildAiChatSystemPrompt({
+      fullName: 'Alex',
+      role: 'sales_rep',
+      insuranceBenchmarkAppendix:
+        '\n\n<crm_insurance_benchmark_data>\n- sample\n</crm_insurance_benchmark_data>',
+    })
+    expect(prompt).toContain('crm_insurance_benchmark_data')
+    expect(prompt).toContain('never present it as current pricing')
+  })
+
   it('does not add aggregate citation rules without aggregate appendix', () => {
     const prompt = buildAiChatSystemPrompt({
       fullName: 'Alex',

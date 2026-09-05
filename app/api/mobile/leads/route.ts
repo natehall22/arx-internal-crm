@@ -33,7 +33,7 @@ export async function GET() {
     const { data: rows, error } = await admin
       .from('leads')
       .select(
-        'id, lat, lng, address_text, homeowner_name, phone, canvass_disposition, canvass_notes, status, created_at, updated_at, owner_user_id, pin_attributed_user_id'
+        'id, lat, lng, address_text, homeowner_name, phone, canvass_disposition, canvass_notes, status, created_at, updated_at, owner_user_id, pin_attributed_user_id, ownership_reassigned_at'
       )
       .eq('org_id', profile.org_id)
       .or(`owner_user_id.eq.${userId},pin_attributed_user_id.eq.${userId}`)
@@ -50,8 +50,12 @@ export async function GET() {
         getAttributedCanvassLeadUserId(lead) === userId || lead.owner_user_id === userId
     )
 
-    const hasMore = mine.length > LEAD_LIMIT
-    const sliced = hasMore ? mine.slice(0, LEAD_LIMIT) : mine
+    // Measured on the DB result, not the filtered one. The SQL prefilter matches pins where
+    // EITHER column is this user, but the attribution helper now drops a pin transferred away
+    // from them (owner moved to the rep who re-knocked it). Deriving hasMore from `mine` would
+    // read that attrition as "no more leads" and silently truncate the rep's list.
+    const hasMore = (rows || []).length > LEAD_LIMIT
+    const sliced = mine.slice(0, LEAD_LIMIT)
 
     const leads = sliced.map((lead) => ({
       id: lead.id,

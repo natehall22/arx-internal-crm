@@ -222,7 +222,12 @@ export async function fetchSetterFieldUpdateReports(
     { data: teams, error: teamsError },
   ] = await Promise.all([
     supabase.from('orgs').select('settings').eq('id', orgId).single(),
-    supabase.from('users').select('id, full_name, team_id').eq('org_id', orgId),
+    // active only, matching the manager-resolution query in sendSetterFieldUpdateEmail below.
+    // A row whose user_id is missing from this map is dropped by summarizeSetterFieldRows, so
+    // this is also the backstop that keeps a deactivated rep off the report even if a knock
+    // somehow lands on them: on 2026-09-01 a phantom door for a rep who left the company
+    // rendered as a real 0.3 hr line on this email.
+    supabase.from('users').select('id, full_name, team_id').eq('org_id', orgId).eq('active', true),
     supabase.from('teams').select('id, name').eq('org_id', orgId).order('name'),
   ])
   if (orgError) throw orgError

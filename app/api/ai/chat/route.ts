@@ -12,6 +12,7 @@ import {
 import { getAiChatAggregateAppendix } from '@/lib/ai/chat-aggregates'
 import { getAiChatRecordContextAppendix } from '@/lib/ai/chat-record-context'
 import { getAiChatRecordUrlAppendix } from '@/lib/ai/chat-record-url'
+import { getInsuranceClaimBenchmarkAppendix } from '@/lib/ai/insurance-claim-benchmarks'
 import { formatAiChatSseEvent } from '@/lib/ai/chat-stream'
 import {
   buildAiChatSystemPrompt,
@@ -308,6 +309,7 @@ export async function POST(request: NextRequest) {
       role: profile.role,
       recordContextAppendix,
       aggregateContextAppendix,
+      insuranceBenchmarkAppendix: getInsuranceClaimBenchmarkAppendix(trimmedMessage),
     })
 
     let conversation: { messages?: unknown } | null = null

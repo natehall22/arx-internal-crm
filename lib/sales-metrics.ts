@@ -48,6 +48,9 @@ export type CanvassMetricsLeadRow = {
   canvass_disposition?: string | null
   pin_attributed_user_id?: string | null
   owner_user_id?: string | null
+  // Required by getAttributedCanvassLeadUserId to honor the transfer cutoff; a row that omits it
+  // silently credits the frozen pin owner instead.
+  ownership_reassigned_at?: string | null
   homeowner_name?: string | null
   address_text?: string | null
   phone?: string | null

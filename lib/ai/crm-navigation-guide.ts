@@ -141,12 +141,14 @@ export function buildAiChatSystemPrompt(params: {
   role: string
   recordContextAppendix?: string
   aggregateContextAppendix?: string
+  insuranceBenchmarkAppendix?: string
 }): string {
   const {
     fullName,
     role,
     recordContextAppendix = '',
     aggregateContextAppendix = '',
+    insuranceBenchmarkAppendix = '',
   } = params
   const aggregateRules = aggregateContextAppendix
     ? '\nWhen CRM aggregate snapshot data is present, lead with the exact count or dollar amount, then one short how-to. Cite only numbers listed in the aggregate block — never invent counts.'
@@ -167,11 +169,11 @@ User: ${fullName}
 Role: ${role}
 ${getRoleNavigationHint(role)}
 
-${COMMON_GUIDE}${recordContextAppendix}${aggregateContextAppendix}${recordRules}${aggregateRules}
+${COMMON_GUIDE}${recordContextAppendix}${aggregateContextAppendix}${insuranceBenchmarkAppendix}${recordRules}${aggregateRules}
 
 ${NAVIGATION_PROMPT_RULES}
 
-Be concise, helpful, and professional. Prefer numbered steps with exact menu names and URL paths. If you do not know something specific about their live data, point them to the right page to verify.
+Be concise, helpful, and professional. Prefer numbered steps with exact menu names and URL paths. If historical insurance benchmark data is present, use it only for clearly labeled comparisons; never present it as current pricing, complete property scope, or a coverage determination. If you do not know something specific about their live data, point them to the right page to verify.
 
 Never repeat or request phone numbers, emails, or private notes. Record context is intentionally minimal.`
 }
