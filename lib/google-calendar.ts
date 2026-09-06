@@ -18,25 +18,59 @@ export interface GoogleTokens {
   scope: string
 }
 
+/**
+ * A timed instant (used by every existing caller — appointment sync, adjuster
+ * meetings, closer calendar sync): a specific time plus an IANA timezone.
+ */
+export interface CalendarEventDateTime {
+  dateTime: string
+  timeZone?: string
+}
+
+/**
+ * An all-day date (used by install scheduling): a bare `YYYY-MM-DD`, no time
+ * or timezone component at all — this is Google's own representation of an
+ * all-day event and must never be constructed from a JS `Date`/`toISOString()`
+ * round-trip, which can shift the calendar day.
+ */
+export interface CalendarEventDate {
+  date: string
+}
+
 export interface CalendarEvent {
   id?: string
   summary: string
   description?: string
   location?: string
-  start: {
-    dateTime: string
-    timeZone?: string
-  }
-  end: {
-    dateTime: string
-    timeZone?: string
-  }
+  start: CalendarEventDateTime | CalendarEventDate
+  end: CalendarEventDateTime | CalendarEventDate
   attendees?: { email: string }[]
 }
 
 export interface FreeBusySlot {
   start: string
   end: string
+}
+
+/**
+ * Carries Google's HTTP status so callers can react to it rather than
+ * string-matching a message — notably a 404/410 on update, which means the
+ * event is gone and the caller should create a fresh one instead of retrying
+ * a dead id forever.
+ */
+export class GoogleCalendarError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number
+  ) {
+    super(message)
+    this.name = 'GoogleCalendarError'
+  }
+}
+
+/** True when Google says the event no longer exists, so a stored id is stale. */
+export function isMissingEventError(error: unknown): boolean {
+  return error instanceof GoogleCalendarError && (error.status === 404 || error.status === 410)
 }
 
 /**
@@ -322,19 +356,28 @@ export async function updateCalendarEvent(
   accessToken: string,
   eventId: string,
   event: Partial<CalendarEvent>,
-  calendarId: string = 'primary'
+  calendarId: string = 'primary',
+  /**
+   * Google's `events.patch` defaults this to `none` — an updated event notifies
+   * NOBODY unless asked. Callers whose attendees must hear about a change (a
+   * moved install, a reassigned crew) have to pass 'all' explicitly. Default
+   * stays 'none' so existing callers keep their current behavior.
+   */
+  sendUpdates: 'all' | 'externalOnly' | 'none' = 'none'
 ): Promise<CalendarEvent> {
-  const response = await fetch(
-    `${calendarEventsBase(calendarId)}/${encodeURIComponent(eventId)}`,
-    {
-      method: 'PATCH',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(event),
-    }
-  )
+  const eventUrl = new URL(`${calendarEventsBase(calendarId)}/${encodeURIComponent(eventId)}`)
+  if (sendUpdates !== 'none') {
+    eventUrl.searchParams.set('sendUpdates', sendUpdates)
+  }
+
+  const response = await fetch(eventUrl.toString(), {
+    method: 'PATCH',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(event),
+  })
 
   if (!response.ok) {
     const detail = await response.text().catch(() => '')
@@ -342,7 +385,7 @@ export async function updateCalendarEvent(
       status: response.status,
       detail: detail.slice(0, 500),
     })
-    throw new Error(`Google Calendar update failed (${response.status})`)
+    throw new GoogleCalendarError(`Google Calendar update failed (${response.status})`, response.status)
   }
 
   return response.json()
@@ -354,17 +397,26 @@ export async function updateCalendarEvent(
 export async function deleteCalendarEvent(
   accessToken: string,
   eventId: string,
-  calendarId: string = 'primary'
+  calendarId: string = 'primary',
+  /**
+   * As with patch, Google's `events.delete` defaults to `none` — cancelling an
+   * event tells the attendees nothing. Pass 'all' when someone is relying on
+   * that event (a sub who would otherwise drive to a cancelled job). Default
+   * stays 'none' to preserve existing callers.
+   */
+  sendUpdates: 'all' | 'externalOnly' | 'none' = 'none'
 ): Promise<void> {
-  const response = await fetch(
-    `${calendarEventsBase(calendarId)}/${encodeURIComponent(eventId)}`,
-    {
-      method: 'DELETE',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-      },
-    }
-  )
+  const eventUrl = new URL(`${calendarEventsBase(calendarId)}/${encodeURIComponent(eventId)}`)
+  if (sendUpdates !== 'none') {
+    eventUrl.searchParams.set('sendUpdates', sendUpdates)
+  }
+
+  const response = await fetch(eventUrl.toString(), {
+    method: 'DELETE',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+    },
+  })
 
   if (!response.ok && response.status !== 404) {
     const detail = await response.text().catch(() => '')

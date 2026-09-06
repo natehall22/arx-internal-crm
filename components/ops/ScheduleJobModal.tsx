@@ -29,11 +29,17 @@ interface SubContractor {
 
 interface Props {
   job: Job
-  crews: Crew[]
+  /**
+   * Retained for backward compatibility with existing callers that still fetch/pass crew
+   * lists (`/admin/crews` is not being removed — see CLAUDE.md). ARX is a subcontractor-only
+   * shop (no in-house crews), so this modal no longer offers a crew assignment path; the prop
+   * is accepted but unused.
+   */
+  crews?: Crew[]
   subs: SubContractor[]
   onClose: () => void
   onSave: () => void
-  /** `reassign` only updates crew/sub; does not change schedule date or force status. */
+  /** `reassign` only updates the sub; does not change schedule date or force status. */
   mode?: 'schedule' | 'reassign'
 }
 
@@ -68,23 +74,13 @@ export function subServicesMatchJobType(services: string[] | null | undefined, j
   })
 }
 
-export default function ScheduleJobModal({ job, crews, subs, onClose, onSave, mode = 'schedule' }: Props) {
+export default function ScheduleJobModal({ job, subs, onClose, onSave, mode = 'schedule' }: Props) {
   const isReassignOnly = mode === 'reassign'
-  const [assigneeType, setAssigneeType] = useState<'crew' | 'sub'>(
-    job.assigned_sub_id ? 'sub' : 'crew'
-  )
-  const [selectedCrewId, setSelectedCrewId] = useState(job.assigned_crew_id || '')
   const [selectedSubId, setSelectedSubId] = useState(job.assigned_sub_id || '')
   const [scheduledDate, setScheduledDate] = useState(job.scheduled_date?.split('T')[0] || '')
   const [scheduledTimeStart, setScheduledTimeStart] = useState('08:00')
   const [estimatedHours, setEstimatedHours] = useState('8')
   const [saving, setSaving] = useState(false)
-
-  // Filter crews by job type
-  const relevantCrews = crews.filter(crew => {
-    if (crew.crew_type === 'general') return true
-    return crew.crew_type === job.job_type
-  })
 
   const relevantSubs = subs.filter((sub) => subServicesMatchJobType(sub.services, job.job_type))
 
@@ -94,12 +90,7 @@ export default function ScheduleJobModal({ job, crews, subs, onClose, onSave, mo
       return
     }
 
-    if (assigneeType === 'crew' && !selectedCrewId) {
-      alert('Please select a crew')
-      return
-    }
-
-    if (assigneeType === 'sub' && !selectedSubId) {
+    if (!selectedSubId) {
       alert('Please select a sub-contractor')
       return
     }
@@ -107,43 +98,41 @@ export default function ScheduleJobModal({ job, crews, subs, onClose, onSave, mo
     setSaving(true)
 
     try {
-      let updates: Record<string, unknown>
-
-      if (isReassignOnly) {
-        updates = {}
-        if (assigneeType === 'crew') {
-          updates.assigned_crew_id = selectedCrewId
-          updates.assigned_sub_id = null
-        } else {
-          updates.assigned_sub_id = selectedSubId
-          updates.assigned_crew_id = null
-        }
-      } else {
-        updates = {
-          scheduled_date: scheduledDate,
-          scheduled_time_start: scheduledTimeStart,
-          estimated_duration_hours: parseFloat(estimatedHours) || 8,
-          status: 'scheduled',
-        }
-
-        if (assigneeType === 'crew') {
-          updates.assigned_crew_id = selectedCrewId
-          updates.assigned_sub_id = null
-        } else {
-          updates.assigned_sub_id = selectedSubId
-          updates.assigned_crew_id = null
-        }
+      // The install-schedule assign route is the single write path for scheduling —
+      // it clears the legacy crew assignment, guards the status transition, and syncs
+      // the sub's Google invite. The generic job PATCH touches the same columns but
+      // does none of that, so scheduling must never go through it (see CLAUDE.md).
+      const payload: Record<string, unknown> = {
+        jobId: job.id,
+        subId: selectedSubId,
+      }
+      if (!isReassignOnly) {
+        payload.scheduledDate = scheduledDate
+        payload.scheduledTimeStart = scheduledTimeStart
+        payload.estimatedDurationHours = parseFloat(estimatedHours) || 8
       }
 
-      const response = await fetch(`/api/ops/jobs/${job.id}`, {
-        method: 'PATCH',
+      const response = await fetch('/api/ops/install-schedule/assign', {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updates),
+        body: JSON.stringify(payload),
       })
 
       if (!response.ok) {
-        const error = await response.json()
+        const error = await response.json().catch(() => ({}))
         throw new Error(error.error || 'Failed to schedule job')
+      }
+
+      // Say what actually happened. The job is scheduled either way — the calendar
+      // invite is best-effort, and claiming one was sent when it wasn't is worse
+      // than saying nothing.
+      const result = await response.json().catch(() => null)
+      if (result?.calendar === 'no_token') {
+        alert(
+          'Job scheduled. No calendar invite was sent — connect your Google account in Settings to email the sub automatically.'
+        )
+      } else if (result?.calendar === 'failed') {
+        alert('Job scheduled, but the Google Calendar invite failed to send. Notify the sub directly.')
       }
 
       onSave()
@@ -161,7 +150,7 @@ export default function ScheduleJobModal({ job, crews, subs, onClose, onSave, mo
         {/* Header */}
         <div className="p-6 border-b">
           <h2 className="text-xl font-bold text-gray-900">
-            {isReassignOnly ? 'Reassign crew or sub' : 'Schedule Job'}
+            {isReassignOnly ? 'Reassign sub-contractor' : 'Schedule Job'}
           </h2>
           <p className="text-gray-500 text-sm mt-1">
             {job.job_number} • {job.customer?.name || job.address_text}
@@ -244,85 +233,14 @@ export default function ScheduleJobModal({ job, crews, subs, onClose, onSave, mo
           </div>
           )}
 
-          {/* Assignment Type */}
+          {/* Assignment */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-3">
-              Assign To *
+              Assign To Sub-Contractor *
             </label>
-            <div className="flex gap-4 mb-4">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="radio"
-                  name="assigneeType"
-                  checked={assigneeType === 'crew'}
-                  onChange={() => setAssigneeType('crew')}
-                  className="w-4 h-4 text-indigo-600"
-                />
-                <span className="text-sm text-gray-700">In-House Crew</span>
-              </label>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="radio"
-                  name="assigneeType"
-                  checked={assigneeType === 'sub'}
-                  onChange={() => setAssigneeType('sub')}
-                  className="w-4 h-4 text-indigo-600"
-                />
-                <span className="text-sm text-gray-700">Sub-Contractor</span>
-              </label>
-            </div>
-
-            {/* Crew Selection */}
-            {assigneeType === 'crew' && (
-              <div className="space-y-2">
-                {relevantCrews.length === 0 ? (
-                  <div className="text-center py-6 bg-gray-50 rounded-lg">
-                    <p className="text-gray-500 text-sm">No crews available for {job.job_type} jobs</p>
-                    <a href="/admin/crews" className="text-indigo-600 text-sm hover:underline">
-                      Create a crew →
-                    </a>
-                  </div>
-                ) : (
-                  relevantCrews.map(crew => (
-                    <label
-                      key={crew.id}
-                      className={`flex items-center gap-3 p-3 border rounded-lg cursor-pointer transition ${
-                        selectedCrewId === crew.id 
-                          ? 'border-indigo-500 bg-indigo-50' 
-                          : 'border-gray-200 hover:border-gray-300'
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="crew"
-                        checked={selectedCrewId === crew.id}
-                        onChange={() => setSelectedCrewId(crew.id)}
-                        className="sr-only"
-                      />
-                      <div 
-                        className="w-4 h-4 rounded-full flex-shrink-0" 
-                        style={{ backgroundColor: crew.color }}
-                      />
-                      <div className="flex-1">
-                        <div className="font-medium text-gray-900">{crew.name}</div>
-                        <div className="text-xs text-gray-500">
-                          {crew.crew_type} • {crew.daily_capacity} jobs/day capacity
-                        </div>
-                      </div>
-                      {selectedCrewId === crew.id && (
-                        <svg className="w-5 h-5 text-indigo-600" fill="currentColor" viewBox="0 0 20 20">
-                          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                        </svg>
-                      )}
-                    </label>
-                  ))
-                )}
-              </div>
-            )}
 
             {/* Sub Selection */}
-            {assigneeType === 'sub' && (
-              <div className="space-y-2">
+            <div className="space-y-2">
                 {relevantSubs.length === 0 ? (
                   <div className="text-center py-6 bg-gray-50 rounded-lg">
                     <p className="text-gray-500 text-sm">No sub-contractors match this job type.</p>
@@ -372,8 +290,7 @@ export default function ScheduleJobModal({ job, crews, subs, onClose, onSave, mo
                     </label>
                   ))
                 )}
-              </div>
-            )}
+            </div>
           </div>
         </div>
 

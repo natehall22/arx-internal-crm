@@ -11,12 +11,15 @@ interface SubContractor {
   contact_name: string | null
   phone: string | null
   email: string | null
+  scheduling_email: string | null
   services: string[]
   active: boolean
   portal_access_enabled: boolean
   rating: number | null
   created_at: string
 }
+
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 export default function SubContractorsPage() {
   const router = useRouter()
@@ -33,6 +36,7 @@ export default function SubContractorsPage() {
     contact_name: '',
     phone: '',
     email: '',
+    scheduling_email: '',
     address: '',
     city: '',
     state: '',
@@ -102,6 +106,7 @@ export default function SubContractorsPage() {
         contact_name: sub.contact_name || '',
         phone: sub.phone || '',
         email: sub.email || '',
+        scheduling_email: sub.scheduling_email || '',
         address: '',
         city: '',
         state: '',
@@ -118,6 +123,7 @@ export default function SubContractorsPage() {
         contact_name: '',
         phone: '',
         email: '',
+        scheduling_email: '',
         address: '',
         city: '',
         state: '',
@@ -146,6 +152,12 @@ export default function SubContractorsPage() {
       return
     }
 
+    const schedulingEmail = formData.scheduling_email.trim()
+    if (schedulingEmail && !EMAIL_PATTERN.test(schedulingEmail)) {
+      alert('Scheduling email must be a valid email address (or left blank)')
+      return
+    }
+
     setSaving(true)
 
     try {
@@ -154,6 +166,7 @@ export default function SubContractorsPage() {
         contact_name: formData.contact_name || null,
         phone: formData.phone || null,
         email: formData.email || null,
+        scheduling_email: schedulingEmail || null,
         address: formData.address || null,
         city: formData.city || null,
         state: formData.state || null,
@@ -480,6 +493,26 @@ export default function SubContractorsPage() {
                       className="w-full px-4 py-2 border border-gray-300 rounded-lg"
                     />
                   </div>
+                </div>
+
+                <div>
+                  <label htmlFor="scheduling_email" className="block text-sm font-medium mb-2" style={{ color: '#2c2c2a' }}>
+                    Scheduling email (Google)
+                  </label>
+                  <input
+                    id="scheduling_email"
+                    type="email"
+                    value={formData.scheduling_email}
+                    onChange={(e) => setFormData(prev => ({ ...prev, scheduling_email: e.target.value }))}
+                    placeholder="crew@gmail.com"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg min-h-[44px]"
+                    style={{ color: '#2c2c2a' }}
+                  />
+                  <p className="text-sm mt-1" style={{ color: '#2c2c2a' }}>
+                    The Google address install invites are sent to — Google will push the job onto this
+                    sub&apos;s own calendar and email them any changes. The sub needs a Google account for it
+                    to appear on their calendar. Leave blank if they don&apos;t have one yet.
+                  </p>
                 </div>
 
                 <div>
