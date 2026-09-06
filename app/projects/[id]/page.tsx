@@ -32,6 +32,8 @@ import { resolveOpsAccess } from '@/lib/ops-access'
 import PayrollAttributionEditor, {
   type PayrollAttributionData,
 } from '@/components/payroll/PayrollAttributionEditor'
+import ReviewRequestCard from '@/components/reviews/ReviewRequestCard'
+import { isReviewEligibleStatus } from '@/lib/review-requests'
 
 /** Label for list/detail — matches `mapJobStatusToProjectStatus` on projects list (job is source of truth). */
 function jobStatusLabel(jobStatus: string | null | undefined): string {
@@ -571,6 +573,12 @@ export default async function ProjectDetailPage({
             )}
           </div>
         </div>
+
+        {productionJob?.id && isReviewEligibleStatus(productionJob.status) && (
+          <div className="mb-6">
+            <ReviewRequestCard jobId={productionJob.id} />
+          </div>
+        )}
 
         {showPayrollAttribution && payrollAttribution && (
           <div className="mb-6">
