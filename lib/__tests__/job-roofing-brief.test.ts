@@ -6,6 +6,7 @@ const baseScope: JobSoldScope = {
   total_squares_source: 'proposal_enriched',
   measured_squares: 44.9,
   waste_percent: 11.2,
+  measure_suggested_waste_percent: null,
   source: 'proposal',
   proposal_id: 'p-1',
   proposal_number: '26-0032',

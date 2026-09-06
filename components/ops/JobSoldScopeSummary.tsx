@@ -6,53 +6,25 @@ import { roofCapBundlesFromLf } from '@/lib/roof-material-order'
 import { starterFromLinearFt } from '@/lib/starter-strip'
 import { computeRoofSquaresEquation, formatSqPart } from '@/lib/roof-squares-equation'
 
-export type JobSoldScopeLineItem = {
-  id: string
-  name: string
-  description: string | null
-  category: string
-  quantity: number
-  unit: string
-  unit_price: number
-  line_total: number
-  is_adder: boolean
-}
+/**
+ * The sold-scope shape is declared once, server-side, in `lib/job-sold-scope.ts`
+ * — the module that actually builds it. These are re-exports so existing
+ * consumers keep their import path; there is no second declaration to drift.
+ * (`export type` is erased at build, so importing from a server-side module
+ * pulls nothing into the client bundle.)
+ */
+export type {
+  JobSoldScope,
+  JobSoldScopeLineItem,
+  JobSoldScopeMaterialsExtras,
+  JobSoldScopeRoofMeasureLf,
+} from '@/lib/job-sold-scope'
 
-export type JobSoldScopeRoofMeasureLf = {
-  source: string | null
-  ridges_lf: number | null
-  valleys_lf: number | null
-  hips_lf: number | null
-  eaves_lf: number | null
-  rakes_lf: number | null
-  flashing_lf: number | null
-  step_flashing_lf: number | null
-  wall_flashing_lf: number | null
-  drip_edge_lf?: number | null
-}
-
-/** Extra measurement-derived inputs for the materials order list (additive; may be absent on older payloads). */
-export type JobSoldScopeMaterialsExtras = {
-  ridge_segment_count: number | null
-  low_slope_area_sqft: number | null
-  low_slope_facet_count: number | null
-  penetration_count: number | null
-}
-
-export type JobSoldScope = {
-  total_squares: number | null
-  total_squares_source: 'proposal_enriched' | 'project_legacy' | 'roof_measure_total' | null
-  measured_squares: number | null
-  waste_percent: number | null
-  /** Fallback when proposal has no waste — roof_measurements.suggested_waste_percent */
-  measure_suggested_waste_percent?: number | null
-  source: 'proposal' | 'project_legacy' | null
-  proposal_id: string | null
-  proposal_number: string | null
-  line_items: JobSoldScopeLineItem[]
-  roof_measurement_linear: JobSoldScopeRoofMeasureLf | null
-  materials_extras?: JobSoldScopeMaterialsExtras | null
-}
+import type {
+  JobSoldScope,
+  JobSoldScopeLineItem,
+  JobSoldScopeRoofMeasureLf,
+} from '@/lib/job-sold-scope'
 
 const SOLD_SCOPE_LINE_PREVIEW = 14
 

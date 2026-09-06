@@ -11,7 +11,6 @@ import DeleteProjectButton from '@/components/DeleteProjectButton'
 import ProjectFinancialSnapshot from '@/components/ProjectFinancialSnapshot'
 import LinkCustomerButton from '@/components/customers/LinkCustomerButton'
 import ProjectFileUpload from '@/components/ProjectFileUpload'
-import ProjectSoldScope from '@/components/ProjectSoldScope'
 import JobNotesReadOnly from '@/components/JobNotesReadOnly'
 import ChangeOrdersSection from '@/components/change-orders/ChangeOrdersSection'
 import ProjectReviewButton from '@/components/projects/ProjectReviewButton'
@@ -655,8 +654,33 @@ export default async function ProjectDetailPage({
           </div>
         )}
 
-        {/* What Was Sold - Accepted Proposal Summary */}
-        <ProjectSoldScope projectId={project.id} />
+        {/* What Was Sold — the job page's Sold Scope card (lib/job-sold-scope.ts) is the single
+            source of truth for squares/line items; this project page only links to it rather
+            than re-resolving the sold proposal itself. */}
+        {(productionJob?.id || project.sold_roof_squares) && (
+          <div className="bg-white shadow rounded-lg p-6 mb-6">
+            <h2 className="text-xl font-bold text-gray-900 mb-4">What Was Sold</h2>
+            {productionJob?.id ? (
+              showOpsJobLinks ? (
+                <Link
+                  href={`/ops/jobs/${productionJob.id}`}
+                  className="text-indigo-600 hover:text-indigo-800 text-sm font-medium"
+                >
+                  View sold scope, squares, and line items on the job page →
+                </Link>
+              ) : (
+                <p className="text-sm text-gray-600">
+                  Sold scope, squares, and line items are tracked on this project&apos;s job record.
+                </p>
+              )
+            ) : (
+              <p className="text-sm text-gray-600">
+                {Number(project.sold_roof_squares).toFixed(1)} sq recorded on the project.
+                No production job yet, so no linked proposal or line items to show.
+              </p>
+            )}
+          </div>
+        )}
 
         {/* Job Notes - Read Only from associated production job */}
         {productionJob && (

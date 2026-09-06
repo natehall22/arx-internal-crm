@@ -6,13 +6,10 @@ import { createClientBrowser } from '@/lib/supabase/client'
 import GenerateJobPacketButton from './GenerateJobPacketButton'
 import AIJobPacketModal from '@/components/jobs/AIJobPacketModal'
 import type { JobNoteWithAuthor } from '@/lib/types/job-notes'
-import {
-  resolveProposalMeasuredSquares,
-  resolveProposalSoldRoofSquares,
-  resolveProposalWastePercent,
-} from '@/lib/sold-roof-squares'
+import type { JobSoldScope } from '@/lib/job-sold-scope'
 
-interface LineItem {
+/** Display shape shared by proposal line items (from `scope`) and estimate lines (fetched here). */
+type DisplayLineItem = {
   id: string
   name: string
   description: string | null
@@ -38,9 +35,6 @@ interface AvailableProposal {
   total: number
   scope_of_work?: string | null
   accepted_at: string | null
-  sold_squares?: number | null
-  measured_squares?: number | null
-  sold_waste_percent?: number | null
 }
 
 interface JobCostLine {
@@ -51,11 +45,23 @@ interface JobCostLine {
   status: string | null
 }
 
+/** Cosmetic proposal metadata `lib/job-sold-scope.ts` doesn't carry ($ total, free-text scope, accepted date). */
+interface ProposalMeta {
+  id: string
+  proposal_number: string
+  total: number
+  scope_of_work: string | null
+  accepted_at: string | null
+}
+
 interface SoldScopeCardProps {
+  /**
+   * The single source of truth for "what was sold on this job" — see `lib/job-sold-scope.ts`.
+   * `null` means nothing sold and nothing measured resolved for this job.
+   */
+  scope: JobSoldScope | null
   projectId: string
-  acceptedProposalId?: string | null
   acceptedEstimateId?: string | null
-  linkedProposalId?: string | null
   opportunityId?: string | null
   jobId?: string
   orgId?: string
@@ -64,11 +70,10 @@ interface SoldScopeCardProps {
   jobMaterialsNotes?: string | null
 }
 
-export default function SoldScopeCard({ 
-  projectId, 
-  acceptedProposalId, 
+export default function SoldScopeCard({
+  scope,
+  projectId,
   acceptedEstimateId,
-  linkedProposalId,
   opportunityId,
   jobId,
   orgId,
@@ -77,26 +82,16 @@ export default function SoldScopeCard({
   jobMaterialsNotes = null,
 }: SoldScopeCardProps) {
   const [loading, setLoading] = useState(true)
-  const [lineItems, setLineItems] = useState<LineItem[]>([])
-  const [additionalScope, setAdditionalScope] = useState<AdditionalScopeItem[]>([])
+  const [lineItems, setLineItems] = useState<DisplayLineItem[]>([])
   const [scopeText, setScopeText] = useState<string | null>(null)
-  const [proposalInfo, setProposalInfo] = useState<{ 
-    id: string
-    proposal_number: string
-    total: number
-    scope_of_work: string | null
-    accepted_at: string | null
-    sold_squares?: number | null
-    measured_squares?: number | null
-    sold_waste_percent?: number | null
-  } | null>(null)
+  const [proposalMeta, setProposalMeta] = useState<ProposalMeta | null>(null)
   const [estimateInfo, setEstimateInfo] = useState<{ id: string; total: number } | null>(null)
-  
+
   // Manual linking state
   const [showLinkDropdown, setShowLinkDropdown] = useState(false)
   const [availableProposals, setAvailableProposals] = useState<AvailableProposal[]>([])
   const [linkingProposal, setLinkingProposal] = useState(false)
-  
+
   // Add scope item state
   const [showAddForm, setShowAddForm] = useState(false)
   const [newItem, setNewItem] = useState({ description: '', quantity: '1', unit: 'each', unit_price: '0' })
@@ -104,63 +99,48 @@ export default function SoldScopeCard({
   const [packetModalOpen, setPacketModalOpen] = useState(false)
   const [jobCostLines, setJobCostLines] = useState<JobCostLine[]>([])
   const [notes, setNotes] = useState<JobNoteWithAuthor[]>([])
+  const [additionalScope, setAdditionalScope] = useState<AdditionalScopeItem[]>([])
+
+  const proposalId = scope?.proposal_id ?? null
+  const hasProposal = proposalId != null
 
   const loadSoldScope = useCallback(async () => {
+    setLoading(true)
+    setProposalMeta(null)
+    setEstimateInfo(null)
+    setScopeText(null)
+    setLineItems([])
+
     const supabase = createClientBrowser()
-    const proposalSelectWithSquares =
-      'id, proposal_number, total, scope_of_work, accepted_at, sold_squares, measured_squares, sold_waste_percent'
-    const proposalSelectFallback = 'id, proposal_number, total, scope_of_work, accepted_at'
 
     try {
-      // Use linkedProposalId first (manual override)
-      const effectiveProposalId = linkedProposalId || acceptedProposalId
-
-      // Strategy 1: Use effectiveProposalId if provided
-      if (effectiveProposalId) {
-        let proposal: any = null
-        const proposalWithSquares = await supabase
+      if (proposalId) {
+        // The proposal id is already authoritative (resolved server-side by buildJobSoldScope) —
+        // this only fills in cosmetic fields it doesn't model ($ total, free-text scope, accepted
+        // date). Squares, waste, and line items all come from `scope`, so this fetch can never
+        // disagree with the rest of the page about *which* proposal was sold.
+        const { data: proposal } = await supabase
           .from('proposals')
-          .select(proposalSelectWithSquares)
-          .eq('id', effectiveProposalId)
-          .single()
-
-        if (proposalWithSquares.error) {
-          const fallbackProposal = await supabase
-            .from('proposals')
-            .select(proposalSelectFallback)
-            .eq('id', effectiveProposalId)
-            .single()
-          proposal = fallbackProposal.data
-        } else {
-          proposal = proposalWithSquares.data
-        }
+          .select('id, proposal_number, total, scope_of_work, accepted_at')
+          .eq('id', proposalId)
+          .maybeSingle()
 
         if (proposal) {
-          setProposalInfo({ 
-            id: proposal.id, 
-            proposal_number: proposal.proposal_number, 
-            total: proposal.total,
-            scope_of_work: proposal.scope_of_work,
-            accepted_at: proposal.accepted_at,
-            sold_squares: proposal.sold_squares ?? null,
-            measured_squares: proposal.measured_squares ?? null,
-            sold_waste_percent: proposal.sold_waste_percent ?? null,
+          setProposalMeta({
+            id: proposal.id,
+            proposal_number: proposal.proposal_number ?? scope?.proposal_number ?? '',
+            total: Number(proposal.total) || 0,
+            scope_of_work: proposal.scope_of_work ?? null,
+            accepted_at: proposal.accepted_at ?? null,
           })
-          setScopeText(proposal.scope_of_work)
-
-          const { data: items } = await supabase
-            .from('proposal_line_items')
-            .select('id, name, description, category, quantity, unit, unit_price, line_total')
-            .eq('proposal_id', effectiveProposalId)
-            .order('sort_order')
-
-          setLineItems(items || [])
-          setLoading(false)
-          return
+          setScopeText(proposal.scope_of_work ?? null)
         }
+        setLineItems(scope?.line_items ?? [])
+        return
       }
 
-      // Strategy 2: Use acceptedEstimateId if provided
+      // No proposal backs this job — fall back to an accepted estimate: explicit id first, then
+      // the most recently approved estimate on the project.
       if (acceptedEstimateId) {
         const { data: estimate } = await supabase
           .from('estimates')
@@ -178,121 +158,23 @@ export default function SoldScopeCard({
             .eq('estimate_id', acceptedEstimateId)
             .order('sort_order')
 
-          setLineItems((items || []).map(item => ({
-            id: item.id,
-            name: item.name,
-            description: null,
-            category: item.category,
-            quantity: item.qty,
-            unit: item.unit,
-            unit_price: item.unit_price,
-            line_total: item.line_total,
-          })))
-          setLoading(false)
+          setLineItems(
+            (items || []).map((item) => ({
+              id: item.id,
+              name: item.name,
+              description: null,
+              category: item.category,
+              quantity: item.qty,
+              unit: item.unit,
+              unit_price: item.unit_price,
+              line_total: item.line_total,
+            }))
+          )
           return
         }
       }
 
-      // Strategy 3: Find accepted proposal by opportunity_id
-      if (opportunityId) {
-        let proposals: any[] | null = null
-        const proposalsWithSquares = await supabase
-          .from('proposals')
-          .select(proposalSelectWithSquares)
-          .eq('opportunity_id', opportunityId)
-          .not('accepted_at', 'is', null)
-          .order('accepted_at', { ascending: false })
-          .limit(1)
-
-        if (proposalsWithSquares.error) {
-          const fallbackProposals = await supabase
-            .from('proposals')
-            .select(proposalSelectFallback)
-            .eq('opportunity_id', opportunityId)
-            .not('accepted_at', 'is', null)
-            .order('accepted_at', { ascending: false })
-            .limit(1)
-          proposals = fallbackProposals.data
-        } else {
-          proposals = proposalsWithSquares.data
-        }
-
-        if (proposals && proposals.length > 0) {
-          const proposal = proposals[0]
-          setProposalInfo({ 
-            id: proposal.id, 
-            proposal_number: proposal.proposal_number, 
-            total: proposal.total,
-            scope_of_work: proposal.scope_of_work,
-            accepted_at: proposal.accepted_at,
-            sold_squares: proposal.sold_squares ?? null,
-            measured_squares: proposal.measured_squares ?? null,
-            sold_waste_percent: proposal.sold_waste_percent ?? null,
-          })
-          setScopeText(proposal.scope_of_work)
-
-          const { data: items } = await supabase
-            .from('proposal_line_items')
-            .select('id, name, description, category, quantity, unit, unit_price, line_total')
-            .eq('proposal_id', proposal.id)
-            .order('sort_order')
-
-          setLineItems(items || [])
-          setLoading(false)
-          return
-        }
-      }
-
-      // Strategy 4: Fallback - find accepted proposal by project_id
       if (projectId) {
-        let proposals: any[] | null = null
-        const proposalsWithSquares = await supabase
-          .from('proposals')
-          .select(proposalSelectWithSquares)
-          .eq('project_id', projectId)
-          .not('accepted_at', 'is', null)
-          .order('accepted_at', { ascending: false })
-          .limit(1)
-
-        if (proposalsWithSquares.error) {
-          const fallbackProposals = await supabase
-            .from('proposals')
-            .select(proposalSelectFallback)
-            .eq('project_id', projectId)
-            .not('accepted_at', 'is', null)
-            .order('accepted_at', { ascending: false })
-            .limit(1)
-          proposals = fallbackProposals.data
-        } else {
-          proposals = proposalsWithSquares.data
-        }
-
-        if (proposals && proposals.length > 0) {
-          const proposal = proposals[0]
-          setProposalInfo({ 
-            id: proposal.id, 
-            proposal_number: proposal.proposal_number, 
-            total: proposal.total,
-            scope_of_work: proposal.scope_of_work,
-            accepted_at: proposal.accepted_at,
-            sold_squares: proposal.sold_squares ?? null,
-            measured_squares: proposal.measured_squares ?? null,
-            sold_waste_percent: proposal.sold_waste_percent ?? null,
-          })
-          setScopeText(proposal.scope_of_work)
-
-          const { data: items } = await supabase
-            .from('proposal_line_items')
-            .select('id, name, description, category, quantity, unit, unit_price, line_total')
-            .eq('proposal_id', proposal.id)
-            .order('sort_order')
-
-          setLineItems(items || [])
-          setLoading(false)
-          return
-        }
-
-        // Strategy 5: Fallback - find accepted estimate by project_id
         const { data: estimates } = await supabase
           .from('estimates')
           .select('id, total, scope_text, status')
@@ -312,16 +194,18 @@ export default function SoldScopeCard({
             .eq('estimate_id', estimate.id)
             .order('sort_order')
 
-          setLineItems((items || []).map(item => ({
-            id: item.id,
-            name: item.name,
-            description: null,
-            category: item.category,
-            quantity: item.qty,
-            unit: item.unit,
-            unit_price: item.unit_price,
-            line_total: item.line_total,
-          })))
+          setLineItems(
+            (items || []).map((item) => ({
+              id: item.id,
+              name: item.name,
+              description: null,
+              category: item.category,
+              quantity: item.qty,
+              unit: item.unit,
+              unit_price: item.unit_price,
+              line_total: item.line_total,
+            }))
+          )
         }
       }
     } catch (err) {
@@ -329,11 +213,11 @@ export default function SoldScopeCard({
     } finally {
       setLoading(false)
     }
-  }, [acceptedEstimateId, acceptedProposalId, linkedProposalId, opportunityId, projectId])
+  }, [scope, proposalId, acceptedEstimateId, projectId])
 
   const loadAdditionalScope = useCallback(async () => {
     if (!jobId) return
-    
+
     try {
       const response = await fetch(`/api/jobs/${jobId}/additional-scope`)
       if (response.ok) {
@@ -347,20 +231,20 @@ export default function SoldScopeCard({
 
   const loadAvailableProposals = async () => {
     const supabase = createClientBrowser()
-    
+
     try {
-      // Find accepted proposals from the same opportunity or org
+      // Find accepted proposals from the same opportunity, for manual linking only.
       let query = supabase
         .from('proposals')
-        .select('id, proposal_number, total, scope_of_work, accepted_at, sold_squares, measured_squares, sold_waste_percent')
+        .select('id, proposal_number, total, scope_of_work, accepted_at')
         .not('accepted_at', 'is', null)
         .order('accepted_at', { ascending: false })
         .limit(20)
-      
+
       if (opportunityId) {
         query = query.eq('opportunity_id', opportunityId)
       }
-      
+
       const { data } = await query
       setAvailableProposals(data || [])
     } catch (err) {
@@ -406,21 +290,21 @@ export default function SoldScopeCard({
     }
   }, [jobId, loadSoldScope, loadAdditionalScope, loadAIContextData])
 
-  const handleLinkProposal = async (proposalId: string) => {
+  const handleLinkProposal = async (proposalIdToLink: string) => {
     if (!jobId) return
     setLinkingProposal(true)
-    
+
     const supabase = createClientBrowser()
-    
+
     try {
       const { error } = await supabase
         .from('production_jobs')
-        .update({ linked_proposal_id: proposalId })
+        .update({ linked_proposal_id: proposalIdToLink })
         .eq('id', jobId)
-      
+
       if (!error) {
         setShowLinkDropdown(false)
-        // Reload with the new linked proposal
+        // Reload so the server recomputes `job.sold_scope` (buildJobSoldScope) for the new link.
         window.location.reload()
       }
     } catch (err) {
@@ -436,7 +320,7 @@ export default function SoldScopeCard({
       return
     }
     setSavingItem(true)
-    
+
     try {
       const response = await fetch(`/api/jobs/${jobId}/additional-scope`, {
         method: 'POST',
@@ -448,12 +332,12 @@ export default function SoldScopeCard({
           unit_price: newItem.unit_price,
         }),
       })
-      
+
       if (!response.ok) {
         const error = await response.json()
         throw new Error(error.error || 'Failed to add item')
       }
-      
+
       const data = await response.json()
       console.log('[AddScopeItem] Success:', data)
       setAdditionalScope([...additionalScope, data])
@@ -469,14 +353,14 @@ export default function SoldScopeCard({
 
   const handleDeleteScopeItem = async (itemId: string) => {
     if (!jobId) return
-    
+
     try {
       const response = await fetch(`/api/jobs/${jobId}/additional-scope?itemId=${itemId}`, {
         method: 'DELETE',
       })
-      
+
       if (response.ok) {
-        setAdditionalScope(additionalScope.filter(item => item.id !== itemId))
+        setAdditionalScope(additionalScope.filter((item) => item.id !== itemId))
       }
     } catch (err) {
       console.error('Error deleting scope item:', err)
@@ -489,12 +373,20 @@ export default function SoldScopeCard({
     if (!acc[cat]) acc[cat] = []
     acc[cat].push(item)
     return acc
-  }, {} as Record<string, LineItem[]>)
+  }, {} as Record<string, DisplayLineItem[]>)
 
-  const hasNoProposal = !proposalInfo && !estimateInfo && lineItems.length === 0
-  const soldRoofSquares = resolveProposalSoldRoofSquares(proposalInfo, lineItems)
-  const measuredSquares = resolveProposalMeasuredSquares(proposalInfo, lineItems)
-  const soldWastePercent = resolveProposalWastePercent(proposalInfo, lineItems)
+  const soldRoofSquares = scope?.total_squares ?? null
+  const measuredSquares = scope?.measured_squares ?? null
+  const soldWastePercentRaw = scope?.waste_percent ?? null
+  const measureSuggestedWastePercent = scope?.measure_suggested_waste_percent ?? null
+  const wasteIsEstimateOnly = soldWastePercentRaw == null && measureSuggestedWastePercent != null
+  const effectiveWastePercent = soldWastePercentRaw ?? measureSuggestedWastePercent
+
+  const hasSquareData =
+    soldRoofSquares != null || measuredSquares != null || effectiveWastePercent != null
+
+  const showEstimateBox = Boolean(estimateInfo) && !hasProposal
+  const showEmptyState = !hasProposal && !estimateInfo
 
   return (
     <div className="bg-white rounded-xl shadow-sm border p-6">
@@ -502,9 +394,9 @@ export default function SoldScopeCard({
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3">
           <h2 className="text-lg font-semibold text-gray-900">Sold Scope</h2>
-          {proposalInfo && (
+          {hasProposal && (
             <Link
-              href={`/proposals/${proposalInfo.id}`}
+              href={`/proposals/${proposalId}`}
               className="text-sm text-indigo-600 hover:text-indigo-800"
             >
               View Proposal →
@@ -537,22 +429,31 @@ export default function SoldScopeCard({
         </div>
       </div>
 
-      {proposalInfo && soldRoofSquares != null && (
+      {hasSquareData && (
         <div className="mb-4 flex flex-wrap gap-2">
-          <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">
-            Sold {soldRoofSquares.toFixed(1)} sq
-          </span>
+          {soldRoofSquares != null && (
+            <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">
+              Sold {soldRoofSquares.toFixed(1)} sq
+            </span>
+          )}
           {measuredSquares != null && (
             <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-700">
               Measured {measuredSquares.toFixed(1)} sq
             </span>
           )}
-          {soldWastePercent != null && (
+          {effectiveWastePercent != null && (
             <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-medium text-amber-800">
-              Waste {soldWastePercent.toFixed(1)}%
+              Waste {wasteIsEstimateOnly ? '(est.) ' : ''}
+              {effectiveWastePercent.toFixed(1)}%
             </span>
           )}
         </div>
+      )}
+
+      {!hasProposal && scope?.total_squares_source === 'project_legacy' && (
+        <p className="mb-4 text-xs text-gray-600">
+          Squares stored on the project record — no proposal is linked to this job.
+        </p>
       )}
 
       {loading ? (
@@ -561,10 +462,10 @@ export default function SoldScopeCard({
           <div className="h-4 bg-gray-200 rounded w-1/2"></div>
           <div className="h-4 bg-gray-200 rounded w-2/3"></div>
         </div>
-      ) : hasNoProposal ? (
+      ) : showEmptyState ? (
         <div className="text-center py-4">
           <p className="text-sm text-gray-500">No accepted proposal linked to this job.</p>
-          
+
           {/* Manual Link Dropdown */}
           {jobId && (
             <div className="mt-3">
@@ -612,28 +513,32 @@ export default function SoldScopeCard({
       ) : (
         <>
           {/* Accepted Proposal/Estimate Info */}
-          {proposalInfo && (
+          {hasProposal && (
             <div className="mb-4 p-3 bg-green-50 rounded-lg border border-green-200">
               <div className="flex items-center justify-between">
                 <div>
                   <span className="text-sm font-medium text-green-800">
-                    {proposalInfo.proposal_number}
+                    {scope?.proposal_number || proposalMeta?.proposal_number || 'Proposal'}
                   </span>
-                  {proposalInfo.accepted_at && (
+                  {proposalMeta?.accepted_at && (
                     <span className="text-xs text-green-600 ml-2">
-                      Accepted {new Date(proposalInfo.accepted_at).toLocaleDateString()}
+                      Accepted {new Date(proposalMeta.accepted_at).toLocaleDateString()}
                     </span>
                   )}
                 </div>
-                <span className="text-sm font-bold text-green-800">
-                  ${proposalInfo.total.toLocaleString()}
-                </span>
+                {proposalMeta && (
+                  <span className="text-sm font-bold text-green-800">
+                    ${proposalMeta.total.toLocaleString()}
+                  </span>
+                )}
               </div>
-              {soldRoofSquares != null && (
+              {hasSquareData && (
                 <div className="mt-3 grid gap-2 sm:grid-cols-3">
                   <div className="rounded-md bg-white/70 px-3 py-2">
                     <div className="text-[11px] uppercase tracking-wide text-green-700">Sold</div>
-                    <div className="text-sm font-semibold text-green-900">{soldRoofSquares.toFixed(1)} sq</div>
+                    <div className="text-sm font-semibold text-green-900">
+                      {soldRoofSquares != null ? `${soldRoofSquares.toFixed(1)} sq` : 'Not available'}
+                    </div>
                   </div>
                   <div className="rounded-md bg-white/70 px-3 py-2">
                     <div className="text-[11px] uppercase tracking-wide text-green-700">Measured</div>
@@ -644,7 +549,9 @@ export default function SoldScopeCard({
                   <div className="rounded-md bg-white/70 px-3 py-2">
                     <div className="text-[11px] uppercase tracking-wide text-green-700">Waste</div>
                     <div className="text-sm font-semibold text-green-900">
-                      {soldWastePercent != null ? `${soldWastePercent.toFixed(1)}%` : 'Not available'}
+                      {effectiveWastePercent != null
+                        ? `${wasteIsEstimateOnly ? 'Est. ' : ''}${effectiveWastePercent.toFixed(1)}%`
+                        : 'Not available'}
                     </div>
                   </div>
                 </div>
@@ -652,7 +559,7 @@ export default function SoldScopeCard({
             </div>
           )}
 
-          {estimateInfo && !proposalInfo && (
+          {showEstimateBox && estimateInfo && (
             <div className="mb-4 p-3 bg-green-50 rounded-lg border border-green-200">
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium text-green-800">Accepted Estimate</span>
@@ -830,7 +737,7 @@ export default function SoldScopeCard({
           scope_of_work: jobScopeOfWork,
           materials_notes: jobMaterialsNotes,
         }}
-        proposals={proposalInfo ? [proposalInfo] : []}
+        proposals={proposalMeta ? [proposalMeta] : []}
         proposalLineItems={lineItems}
         jobCostLines={jobCostLines}
         notes={notes}

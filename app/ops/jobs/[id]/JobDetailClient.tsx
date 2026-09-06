@@ -9,8 +9,7 @@ import JobPaymentsCard from '@/components/ops/JobPaymentsCard'
 import JobInvoicesCard from '@/components/ops/JobInvoicesCard'
 import CompleteJobModal from '@/components/ops/CompleteJobModal'
 import JobPaymentMethodBanner from '@/components/ops/JobPaymentMethodBanner'
-import JobRunSheetBanner from '@/components/ops/JobRunSheetBanner'
-import MaterialsOrderBanner from '@/components/ops/MaterialsOrderBanner'
+import JobDocumentsBanner from '@/components/ops/JobDocumentsBanner'
 import JobReadyToPayBanner from '@/components/ops/JobReadyToPayBanner'
 import JobPayrollSentBanner from '@/components/ops/JobPayrollSentBanner'
 import AINoteSummary from '@/components/jobs/AINoteSummary'
@@ -1329,43 +1328,252 @@ export default function JobDetailClient({
           </Link>
         </div>
 
-        {/* First card on the page, every breakpoint — ops needs this findable from a phone. */}
-        <JobRunSheetBanner
-          jobId={job.id}
-          jobNumber={job.job_number}
-          roofReportId={job.roof_report?.pdf_generated_at ? job.roof_report.id : null}
-        />
+        {/* IDENTITY BLOCK — job #, status, customer, address, badges, pipeline, primary action.
+            Above every banner: who/where and what state the job is in are needed on every visit;
+            the banners below are only needed occasionally. */}
+        <div className="mb-4 sm:mb-6 bg-white rounded-xl shadow-sm border p-4 sm:p-6">
+          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-4">
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2 mb-2">
+                <span className="text-sm font-mono text-gray-900">{job.job_number}</span>
+                <span className={`px-3 py-1 text-sm font-medium rounded-full ${status.bgColor} ${status.color}`}>
+                  {status.label}
+                </span>
+                {job.priority !== 'normal' && (
+                  <span className={`px-2 py-1 text-xs font-medium rounded-full ${
+                    job.priority === 'urgent' ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'
+                  }`}>
+                    {job.priority}
+                  </span>
+                )}
+                {canViewJobBilling && paymentSummary && (() => {
+                  const saleCents = Math.round((job.sale_amount || 0) * 100)
+                  if (saleCents <= 0) return null
+                  const collected = paymentSummary.collected_cents
+                  const full = collected >= saleCents
+                  const partial = collected > 0 && !full
+                  const label = full ? 'Paid in full' : partial ? 'Partially paid' : 'Unpaid'
+                  const cls = full
+                    ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                    : partial
+                      ? 'bg-amber-50 text-amber-800 border-amber-200'
+                      : 'bg-gray-50 text-gray-700 border-gray-200'
+                  return (
+                    <span
+                      className={`px-2.5 py-1 text-xs font-medium rounded-full border ${cls}`}
+                      title={
+                        full
+                          ? 'Recorded payments cover the contract amount'
+                          : `Collected ${paymentSummary.collected_dollars.toLocaleString('en-US', { style: 'currency', currency: 'USD' })} of ${(job.sale_amount || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD' })}`
+                      }
+                    >
+                      {label}
+                    </span>
+                  )
+                })()}
+              </div>
+              <h1 className="text-xl sm:text-2xl font-bold text-gray-900 break-words">
+                {job.customer?.name || 'Customer'}
+              </h1>
+              {job.address_text ? (
+                <a
+                  href={`https://maps.google.com/?q=${encodeURIComponent(job.address_text)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-1 text-sm sm:text-base text-indigo-600 hover:text-indigo-800 break-words inline-flex items-start gap-1.5 min-h-[44px] sm:min-h-0 items-center"
+                >
+                  <span className="break-words">{job.address_text}</span>
+                  <svg className="w-4 h-4 flex-shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden>
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                  </svg>
+                </a>
+              ) : (
+                <p className="text-gray-500 mt-1 text-sm">No address</p>
+              )}
 
-        {/* The supplier-facing twin. Gated exactly like MaterialsOrderCard so the banner can never
-            promise an order sheet the job has no measurement or sold scope to build. */}
-        {job.sold_scope && job.job_type === 'roofing' ? (
-          <MaterialsOrderBanner
-            jobId={job.id}
-            jobNumber={job.job_number}
-            onEditQuantities={handleEditOrderQuantities}
-          />
-        ) : null}
+              {job.job_type === 'roofing' && job.sold_scope ? (
+                <JobRoofingBrief
+                  scope={job.sold_scope}
+                  jobId={job.id}
+                  project={job.project}
+                  specialInstructions={job.special_instructions}
+                  materialsNotes={job.materials_notes}
+                  coverageOverrides={materialsCoverageOverrides ?? null}
+                />
+              ) : null}
 
-        <JobReadyToPayBanner
-          status={job.status}
-          paymentSummary={paymentSummary}
-          saleAmount={job.sale_amount}
-          canViewBilling={canViewJobBilling}
-          onMarkCollected={handleCollectedClick}
-          onMarkJobComplete={handleCompleteClick}
-        />
-        <JobPayrollSentBanner
-          jobId={job.id}
-          status={job.status}
-          payrollSentAt={job.payroll_sent_at ?? null}
-          paymentSummary={paymentSummary}
-          saleAmount={job.sale_amount}
-          allowCloseWithBalance={job.allow_close_with_balance ?? false}
-          canViewBilling={canViewJobBilling}
-          onUpdated={reloadJob}
-        />
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Link
+                  href={`/ops/jobs/${job.id}/measure`}
+                  className="inline-flex min-h-[44px] items-center justify-center rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800"
+                >
+                  Exterior Measure
+                </Link>
+              </div>
 
-        {/* Mobile Quick Actions — same workflow priority as desktop */}
+              {/** Pipeline — milestones; vertical on small screens, horizontal on lg+ */}
+              {(() => {
+                const pipelineCurrentIdx = getJobPipelineCurrentIndex(job)
+                const currentLabel = PIPELINE_STAGES[pipelineCurrentIdx] ?? '—'
+                return (
+                  <>
+                    <div className="mt-3 pt-3 border-t border-gray-100 lg:hidden">
+                      <div className="flex items-baseline justify-between gap-2 mb-3">
+                        <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                          Job progress
+                        </span>
+                        <span className="text-sm font-semibold text-indigo-700 tabular-nums shrink-0">
+                          Now: {currentLabel}
+                        </span>
+                      </div>
+                      <ol className="space-y-0" aria-label="Job pipeline steps">
+                        {PIPELINE_STAGES.map((label, i) => {
+                          const isDone = i < pipelineCurrentIdx
+                          const isCurrent = i === pipelineCurrentIdx
+                          const isLast = i === PIPELINE_STAGES.length - 1
+                          return (
+                            <li key={label} className="flex gap-3">
+                              <div className="flex flex-col items-center w-7 flex-shrink-0 pt-0.5">
+                                <span
+                                  className={`rounded-full w-3 h-3 border-2 shrink-0 ${
+                                    isDone
+                                      ? 'bg-emerald-500 border-emerald-500'
+                                      : isCurrent
+                                        ? 'bg-indigo-600 border-indigo-600 shadow-[0_0_0_3px_rgba(79,70,229,0.25)]'
+                                        : 'bg-white border-gray-300'
+                                  }`}
+                                  aria-hidden
+                                />
+                                {!isLast && (
+                                  <span
+                                    className={`w-0.5 flex-1 min-h-[14px] my-0.5 rounded-full ${
+                                      pipelineCurrentIdx > i ? 'bg-emerald-400' : 'bg-gray-200'
+                                    }`}
+                                    aria-hidden
+                                  />
+                                )}
+                              </div>
+                              <div className={`pb-2.5 min-w-0 ${isLast ? 'pb-0' : ''}`}>
+                                <span
+                                  className={`text-sm leading-snug ${
+                                    isCurrent
+                                      ? 'font-semibold text-gray-900'
+                                      : isDone
+                                        ? 'text-gray-800'
+                                        : 'text-gray-400'
+                                  }`}
+                                >
+                                  {label}
+                                </span>
+                              </div>
+                            </li>
+                          )
+                        })}
+                      </ol>
+                    </div>
+
+                    <div className="mt-3 pt-3 border-t border-gray-100 overflow-x-auto pb-0.5 hidden lg:block">
+                      <div className="flex items-center min-w-[520px]">
+                        {PIPELINE_STAGES.map((label, i) => (
+                          <div key={label} className="flex items-center flex-1 min-w-0">
+                            {i > 0 && (
+                              <div
+                                className={`h-1 flex-1 rounded-full mx-1 min-w-[8px] ${
+                                  pipelineCurrentIdx >= i ? 'bg-emerald-400' : 'bg-gray-200'
+                                }`}
+                              />
+                            )}
+                            <div className="flex flex-col items-center shrink-0 flex-1 min-w-[4.5rem]">
+                              <span
+                                className={`text-[10px] uppercase tracking-wide text-center leading-tight px-0.5 ${
+                                  i === pipelineCurrentIdx
+                                    ? 'text-indigo-800 font-semibold'
+                                    : i < pipelineCurrentIdx
+                                      ? 'text-gray-600'
+                                      : 'text-gray-400'
+                                }`}
+                              >
+                                {label}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </>
+                )
+              })()}
+            </div>
+            <span className={`text-sm px-3 py-1 rounded-full whitespace-nowrap self-start ${
+              job.job_type === 'roofing' ? 'bg-blue-100 text-blue-700' :
+              job.job_type === 'siding' ? 'bg-green-100 text-green-700' :
+              job.job_type === 'windows' ? 'bg-purple-100 text-purple-700' :
+              'bg-gray-100 text-gray-700'
+            }`}>
+              {job.job_type}
+            </span>
+          </div>
+
+          {/* Desktop: one primary CTA + outlined secondaries + More (pause/delete) */}
+          <div className="hidden lg:flex flex-wrap items-center gap-2 pt-4 border-t">
+            {(() => {
+              const { primary: primaryId, secondary: secondaryIds } = getWorkflowPrimaryAndSecondaryIds(job)
+              const wfOpts = {
+                saving,
+                openScheduleModal,
+                updateStatus,
+                handleCompleteClick,
+                handleCollectedClick,
+                markCollectedDisabled,
+                markCollectedTitle,
+              }
+              const overflowAllowed =
+                (job.status !== 'on_hold' && job.status !== 'complete' && job.status !== 'collected') ||
+                canDeleteProductionJob
+              return (
+                <>
+                  {renderWorkflowButton(job, primaryId, true, wfOpts)}
+                  {secondaryIds.map((id) => renderWorkflowButton(job, id, false, wfOpts))}
+                  <div className="flex-1 min-w-[8px]" aria-hidden />
+                  {overflowAllowed && (
+                    <details className="relative">
+                      <summary className="list-none cursor-pointer min-h-[44px] px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50 inline-flex items-center gap-1 select-none [&::-webkit-details-marker]:hidden">
+                        More
+                        <span className="text-gray-400">▾</span>
+                      </summary>
+                      <div className="absolute right-0 top-full mt-1 w-52 rounded-lg border border-gray-200 bg-white shadow-lg z-20 py-1">
+                        {job.status !== 'on_hold' && job.status !== 'complete' && job.status !== 'collected' && (
+                          <button
+                            type="button"
+                            onClick={() => updateStatus('on_hold')}
+                            disabled={saving}
+                            className="w-full text-left px-3 py-2.5 text-sm text-orange-700 hover:bg-orange-50 disabled:opacity-50"
+                          >
+                            Pause Job
+                          </button>
+                        )}
+                        {canDeleteProductionJob && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              void deleteJob()
+                            }}
+                            disabled={deleting}
+                            className="w-full text-left px-3 py-2.5 text-sm text-red-600 hover:bg-red-50 disabled:opacity-50"
+                          >
+                            {deleting ? 'Deleting…' : 'Delete Job'}
+                          </button>
+                        )}
+                      </div>
+                    </details>
+                  )}
+                </>
+              )
+            })()}
+          </div>
+        </div>
+
+        {/* Mobile Quick Actions — same workflow priority as desktop; kept above every banner too. */}
         <div className="lg:hidden mb-4 bg-white rounded-xl shadow-sm border p-4">
           <div className="flex flex-col gap-2">
             {(() => {
@@ -1421,7 +1629,7 @@ export default function JobDetailClient({
               )
             })()}
           </div>
-          
+
           {/* Mobile Assignment & Materials Summary */}
           <div className="mt-3 pt-3 border-t grid grid-cols-2 gap-3 text-sm">
             <div>
@@ -1438,6 +1646,75 @@ export default function JobDetailClient({
             </div>
           </div>
         </div>
+
+        {/* CUSTOMER CONTACT — promoted next to the identity block. Ops calls customers
+            constantly; this used to be buried in a sidebar card below Schedule/Assignment/Insurance. */}
+        <div className="mb-4 sm:mb-6 bg-white rounded-xl shadow-sm border p-4 sm:p-6">
+          <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-4">Customer</h2>
+          {job.customer ? (
+            <div>
+              <div className="font-medium text-gray-900 mb-2 break-words">{job.customer.name}</div>
+              {job.customer.phone && (
+                <CopyableContact
+                  value={job.customer.phone}
+                  href={`tel:${job.customer.phone}`}
+                  icon="📞"
+                  label="phone number"
+                  className="mb-1"
+                />
+              )}
+              {job.customer.email && (
+                <CopyableContact
+                  value={job.customer.email}
+                  href={`mailto:${job.customer.email}`}
+                  icon="✉️"
+                  label="email address"
+                />
+              )}
+              <Link
+                href={`/customers/${job.customer.id}`}
+                className="min-h-[44px] flex items-center text-sm text-gray-900 hover:text-indigo-600 mt-2"
+              >
+                View customer →
+              </Link>
+            </div>
+          ) : (
+            <div>
+              <p className="text-gray-900 mb-2">No customer linked</p>
+              <LinkCustomerButton sourceType="job" sourceId={job.id} />
+            </div>
+          )}
+        </div>
+
+        {/* Job documents — merged crew run sheet + supplier order sheet banner. Replaces the
+            former JobRunSheetBanner + MaterialsOrderBanner pair (deliberate visual twins that
+            invited a misclick). Same links, same gating. */}
+        <JobDocumentsBanner
+          jobId={job.id}
+          jobNumber={job.job_number}
+          roofReportId={job.roof_report?.pdf_generated_at ? job.roof_report.id : null}
+          showOrderSheet={Boolean(job.sold_scope && job.job_type === 'roofing')}
+          onEditOrderQuantities={handleEditOrderQuantities}
+        />
+
+        <JobReadyToPayBanner
+          status={job.status}
+          paymentSummary={paymentSummary}
+          saleAmount={job.sale_amount}
+          canViewBilling={canViewJobBilling}
+          onMarkCollected={handleCollectedClick}
+          onMarkJobComplete={handleCompleteClick}
+        />
+        <JobPayrollSentBanner
+          jobId={job.id}
+          status={job.status}
+          payrollSentAt={job.payroll_sent_at ?? null}
+          paymentSummary={paymentSummary}
+          saleAmount={job.sale_amount}
+          allowCloseWithBalance={job.allow_close_with_balance ?? false}
+          canViewBilling={canViewJobBilling}
+          onUpdated={reloadJob}
+        />
 
         {/* Job costs live on the Materials card (+ Job Cost). Surface a shortcut at the top so
             it is not buried. Desktop always shows it. Mobile hides it only on the Financials
@@ -1496,248 +1773,6 @@ export default function JobDetailClient({
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
           <div className="lg:col-span-2 space-y-4 sm:space-y-6">
-            <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
-              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-4">
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2 mb-2">
-                    <span className="text-sm font-mono text-gray-900">{job.job_number}</span>
-                    <span className={`px-3 py-1 text-sm font-medium rounded-full ${status.bgColor} ${status.color}`}>
-                      {status.label}
-                    </span>
-                    {job.priority !== 'normal' && (
-                      <span className={`px-2 py-1 text-xs font-medium rounded-full ${
-                        job.priority === 'urgent' ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'
-                      }`}>
-                        {job.priority}
-                      </span>
-                    )}
-                    {canViewJobBilling && paymentSummary && (() => {
-                      const saleCents = Math.round((job.sale_amount || 0) * 100)
-                      if (saleCents <= 0) return null
-                      const collected = paymentSummary.collected_cents
-                      const full = collected >= saleCents
-                      const partial = collected > 0 && !full
-                      const label = full ? 'Paid in full' : partial ? 'Partially paid' : 'Unpaid'
-                      const cls = full
-                        ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                        : partial
-                          ? 'bg-amber-50 text-amber-800 border-amber-200'
-                          : 'bg-gray-50 text-gray-700 border-gray-200'
-                      return (
-                        <span
-                          className={`px-2.5 py-1 text-xs font-medium rounded-full border ${cls}`}
-                          title={
-                            full
-                              ? 'Recorded payments cover the contract amount'
-                              : `Collected ${paymentSummary.collected_dollars.toLocaleString('en-US', { style: 'currency', currency: 'USD' })} of ${(job.sale_amount || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD' })}`
-                          }
-                        >
-                          {label}
-                        </span>
-                      )
-                    })()}
-                  </div>
-                  <h1 className="text-xl sm:text-2xl font-bold text-gray-900 break-words">
-                    {job.customer?.name || 'Customer'}
-                  </h1>
-                  {job.address_text ? (
-                    <a
-                      href={`https://maps.google.com/?q=${encodeURIComponent(job.address_text)}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="mt-1 text-sm sm:text-base text-indigo-600 hover:text-indigo-800 break-words inline-flex items-start gap-1.5 min-h-[44px] sm:min-h-0 items-center"
-                    >
-                      <span className="break-words">{job.address_text}</span>
-                      <svg className="w-4 h-4 flex-shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden>
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                      </svg>
-                    </a>
-                  ) : (
-                    <p className="text-gray-500 mt-1 text-sm">No address</p>
-                  )}
-
-                  {job.job_type === 'roofing' && job.sold_scope ? (
-                    <JobRoofingBrief
-                      scope={job.sold_scope}
-                      jobId={job.id}
-                      project={job.project}
-                      specialInstructions={job.special_instructions}
-                      materialsNotes={job.materials_notes}
-                      coverageOverrides={materialsCoverageOverrides ?? null}
-                    />
-                  ) : null}
-
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <Link
-                      href={`/ops/jobs/${job.id}/measure`}
-                      className="inline-flex min-h-[44px] items-center justify-center rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800"
-                    >
-                      Exterior Measure
-                    </Link>
-                  </div>
-
-                  {/** Pipeline — milestones; vertical on small screens, horizontal on lg+ */}
-                  {(() => {
-                    const pipelineCurrentIdx = getJobPipelineCurrentIndex(job)
-                    const currentLabel = PIPELINE_STAGES[pipelineCurrentIdx] ?? '—'
-                    return (
-                      <>
-                        <div className="mt-3 pt-3 border-t border-gray-100 lg:hidden">
-                          <div className="flex items-baseline justify-between gap-2 mb-3">
-                            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                              Job progress
-                            </span>
-                            <span className="text-sm font-semibold text-indigo-700 tabular-nums shrink-0">
-                              Now: {currentLabel}
-                            </span>
-                          </div>
-                          <ol className="space-y-0" aria-label="Job pipeline steps">
-                            {PIPELINE_STAGES.map((label, i) => {
-                              const isDone = i < pipelineCurrentIdx
-                              const isCurrent = i === pipelineCurrentIdx
-                              const isLast = i === PIPELINE_STAGES.length - 1
-                              return (
-                                <li key={label} className="flex gap-3">
-                                  <div className="flex flex-col items-center w-7 flex-shrink-0 pt-0.5">
-                                    <span
-                                      className={`rounded-full w-3 h-3 border-2 shrink-0 ${
-                                        isDone
-                                          ? 'bg-emerald-500 border-emerald-500'
-                                          : isCurrent
-                                            ? 'bg-indigo-600 border-indigo-600 shadow-[0_0_0_3px_rgba(79,70,229,0.25)]'
-                                            : 'bg-white border-gray-300'
-                                      }`}
-                                      aria-hidden
-                                    />
-                                    {!isLast && (
-                                      <span
-                                        className={`w-0.5 flex-1 min-h-[14px] my-0.5 rounded-full ${
-                                          pipelineCurrentIdx > i ? 'bg-emerald-400' : 'bg-gray-200'
-                                        }`}
-                                        aria-hidden
-                                      />
-                                    )}
-                                  </div>
-                                  <div className={`pb-2.5 min-w-0 ${isLast ? 'pb-0' : ''}`}>
-                                    <span
-                                      className={`text-sm leading-snug ${
-                                        isCurrent
-                                          ? 'font-semibold text-gray-900'
-                                          : isDone
-                                            ? 'text-gray-800'
-                                            : 'text-gray-400'
-                                      }`}
-                                    >
-                                      {label}
-                                    </span>
-                                  </div>
-                                </li>
-                              )
-                            })}
-                          </ol>
-                        </div>
-
-                        <div className="mt-3 pt-3 border-t border-gray-100 overflow-x-auto pb-0.5 hidden lg:block">
-                          <div className="flex items-center min-w-[520px]">
-                            {PIPELINE_STAGES.map((label, i) => (
-                              <div key={label} className="flex items-center flex-1 min-w-0">
-                                {i > 0 && (
-                                  <div
-                                    className={`h-1 flex-1 rounded-full mx-1 min-w-[8px] ${
-                                      pipelineCurrentIdx >= i ? 'bg-emerald-400' : 'bg-gray-200'
-                                    }`}
-                                  />
-                                )}
-                                <div className="flex flex-col items-center shrink-0 flex-1 min-w-[4.5rem]">
-                                  <span
-                                    className={`text-[10px] uppercase tracking-wide text-center leading-tight px-0.5 ${
-                                      i === pipelineCurrentIdx
-                                        ? 'text-indigo-800 font-semibold'
-                                        : i < pipelineCurrentIdx
-                                          ? 'text-gray-600'
-                                          : 'text-gray-400'
-                                    }`}
-                                  >
-                                    {label}
-                                  </span>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      </>
-                    )
-                  })()}
-                </div>
-                <span className={`text-sm px-3 py-1 rounded-full whitespace-nowrap self-start ${
-                  job.job_type === 'roofing' ? 'bg-blue-100 text-blue-700' :
-                  job.job_type === 'siding' ? 'bg-green-100 text-green-700' :
-                  job.job_type === 'windows' ? 'bg-purple-100 text-purple-700' :
-                  'bg-gray-100 text-gray-700'
-                }`}>
-                  {job.job_type}
-                </span>
-              </div>
-
-              {/* Desktop: one primary CTA + outlined secondaries + More (pause/delete) */}
-              <div className="hidden lg:flex flex-wrap items-center gap-2 pt-4 border-t">
-                {(() => {
-                  const { primary: primaryId, secondary: secondaryIds } = getWorkflowPrimaryAndSecondaryIds(job)
-                  const wfOpts = {
-                    saving,
-                    openScheduleModal,
-                    updateStatus,
-                    handleCompleteClick,
-                    handleCollectedClick,
-                    markCollectedDisabled,
-                    markCollectedTitle,
-                  }
-                  const overflowAllowed =
-                    (job.status !== 'on_hold' && job.status !== 'complete' && job.status !== 'collected') ||
-                    canDeleteProductionJob
-                  return (
-                    <>
-                      {renderWorkflowButton(job, primaryId, true, wfOpts)}
-                      {secondaryIds.map((id) => renderWorkflowButton(job, id, false, wfOpts))}
-                      <div className="flex-1 min-w-[8px]" aria-hidden />
-                      {overflowAllowed && (
-                        <details className="relative">
-                          <summary className="list-none cursor-pointer min-h-[44px] px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50 inline-flex items-center gap-1 select-none [&::-webkit-details-marker]:hidden">
-                            More
-                            <span className="text-gray-400">▾</span>
-                          </summary>
-                          <div className="absolute right-0 top-full mt-1 w-52 rounded-lg border border-gray-200 bg-white shadow-lg z-20 py-1">
-                            {job.status !== 'on_hold' && job.status !== 'complete' && job.status !== 'collected' && (
-                              <button
-                                type="button"
-                                onClick={() => updateStatus('on_hold')}
-                                disabled={saving}
-                                className="w-full text-left px-3 py-2.5 text-sm text-orange-700 hover:bg-orange-50 disabled:opacity-50"
-                              >
-                                Pause Job
-                              </button>
-                            )}
-                            {canDeleteProductionJob && (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  void deleteJob()
-                                }}
-                                disabled={deleting}
-                                className="w-full text-left px-3 py-2.5 text-sm text-red-600 hover:bg-red-50 disabled:opacity-50"
-                              >
-                                {deleting ? 'Deleting…' : 'Delete Job'}
-                              </button>
-                            )}
-                          </div>
-                        </details>
-                      )}
-                    </>
-                  )
-                })()}
-              </div>
-            </div>
-
             {/* SCOPE TAB */}
             <div className={mobileTab !== 'scope' ? 'hidden lg:block' : undefined}>
               <OperationsSnapshotCard
@@ -1756,10 +1791,9 @@ export default function JobDetailClient({
 
               {/* Sold Scope + Job Packet - What was sold (from accepted proposal) */}
               <SoldScopeCard
+                scope={job.sold_scope ?? null}
                 projectId={job.project_id}
-                acceptedProposalId={job.accepted_proposal_id}
                 acceptedEstimateId={job.accepted_estimate_id}
-                linkedProposalId={job.linked_proposal_id}
                 opportunityId={job.opportunity_id}
                 jobId={job.id}
                 orgId={job.org_id}
@@ -1884,10 +1918,21 @@ export default function JobDetailClient({
           </div>
 
           <div className="space-y-4 sm:space-y-6">
-            {/* OVERVIEW TAB — Schedule, Assignment, Customer */}
+            {/* OVERVIEW TAB — Schedule & Assignment (merged: one card answers "when, and who") */}
             <div className={mobileTab !== 'overview' ? 'hidden lg:block' : undefined}>
             <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
-              <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-4">Schedule</h2>
+              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-4">
+                <h2 className="text-base sm:text-lg font-semibold text-gray-900">Schedule &amp; Assignment</h2>
+                {(job.scheduled_date || job.assigned_crew || job.assigned_sub) && (
+                  <button
+                    type="button"
+                    onClick={() => openScheduleModal('reassign')}
+                    className="min-h-[44px] shrink-0 px-4 py-2 text-sm font-medium rounded-lg border border-gray-300 text-gray-800 hover:bg-gray-50 w-full sm:w-auto"
+                  >
+                    Reassign crew or sub
+                  </button>
+                )}
+              </div>
               {job.scheduled_date ? (
                 <div>
                   <div className="text-lg sm:text-xl font-bold text-gray-900">
@@ -1903,19 +1948,6 @@ export default function JobDetailClient({
                   )}
                   {job.estimated_duration_hours && (
                     <p className="text-sm sm:text-base text-gray-900">Duration: {job.estimated_duration_hours} hours</p>
-                  )}
-                  {(job.assigned_crew?.name || job.assigned_sub?.company_name) && (
-                    <p className="text-sm font-medium text-gray-800 mt-2 pt-2 border-t border-gray-100">
-                      {job.assigned_crew?.name ? (
-                        <>
-                          Crew: <span className="text-indigo-700">{job.assigned_crew.name}</span>
-                        </>
-                      ) : (
-                        <>
-                          Sub: <span className="text-indigo-700">{job.assigned_sub?.company_name}</span>
-                        </>
-                      )}
-                    </p>
                   )}
                 </div>
               ) : (
@@ -1940,112 +1972,54 @@ export default function JobDetailClient({
                   </div>
                 </div>
               )}
-            </div>
 
-            <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
-              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-4">
-                <h2 className="text-base sm:text-lg font-semibold text-gray-900">Assignment</h2>
-                {(job.scheduled_date || job.assigned_crew || job.assigned_sub) && (
-                  <button
-                    type="button"
-                    onClick={() => openScheduleModal('reassign')}
-                    className="min-h-[44px] shrink-0 px-4 py-2 text-sm font-medium rounded-lg border border-gray-300 text-gray-800 hover:bg-gray-50 w-full sm:w-auto"
-                  >
-                    Reassign crew or sub
-                  </button>
+              <div className="mt-4 pt-4 border-t border-gray-100">
+                {job.assigned_crew ? (
+                  <div className="flex items-center gap-3">
+                    <div
+                      className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold flex-shrink-0"
+                      style={{ backgroundColor: job.assigned_crew.color }}
+                    >
+                      {job.assigned_crew.name.charAt(0)}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="font-medium text-gray-900 truncate">{job.assigned_crew.name}</div>
+                      <div className="text-sm text-gray-900">In-House Crew</div>
+                      {job.assigned_crew.phone && (
+                        <a href={`tel:${job.assigned_crew.phone}`} className="text-sm text-indigo-600 min-h-[44px] inline-flex items-center">
+                          {job.assigned_crew.phone}
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                ) : job.assigned_sub ? (
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-orange-100 rounded-full flex items-center justify-center flex-shrink-0">
+                      <span className="text-orange-600 font-bold">S</span>
+                    </div>
+                    <div className="min-w-0">
+                      <div className="font-medium text-gray-900 truncate">{job.assigned_sub.company_name}</div>
+                      <div className="text-sm text-gray-900">Sub-Contractor</div>
+                      {job.assigned_sub.phone && (
+                        <a href={`tel:${job.assigned_sub.phone}`} className="text-sm text-indigo-600 min-h-[44px] inline-flex items-center">
+                          {job.assigned_sub.phone}
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-center py-4">
+                    <p className="text-gray-900 mb-3">Not assigned</p>
+                    <button
+                      type="button"
+                      onClick={() => openScheduleModal('schedule')}
+                      className="min-h-[44px] text-sm text-indigo-600 hover:text-indigo-800"
+                    >
+                      Assign crew or sub →
+                    </button>
+                  </div>
                 )}
               </div>
-              {job.assigned_crew ? (
-                <div className="flex items-center gap-3">
-                  <div 
-                    className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold flex-shrink-0"
-                    style={{ backgroundColor: job.assigned_crew.color }}
-                  >
-                    {job.assigned_crew.name.charAt(0)}
-                  </div>
-                  <div className="min-w-0">
-                    <div className="font-medium text-gray-900 truncate">{job.assigned_crew.name}</div>
-                    <div className="text-sm text-gray-900">In-House Crew</div>
-                    {job.assigned_crew.phone && (
-                      <a href={`tel:${job.assigned_crew.phone}`} className="text-sm text-indigo-600 min-h-[44px] inline-flex items-center">
-                        {job.assigned_crew.phone}
-                      </a>
-                    )}
-                  </div>
-                </div>
-              ) : job.assigned_sub ? (
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-orange-100 rounded-full flex items-center justify-center flex-shrink-0">
-                    <span className="text-orange-600 font-bold">S</span>
-                  </div>
-                  <div className="min-w-0">
-                    <div className="font-medium text-gray-900 truncate">{job.assigned_sub.company_name}</div>
-                    <div className="text-sm text-gray-900">Sub-Contractor</div>
-                    {job.assigned_sub.phone && (
-                      <a href={`tel:${job.assigned_sub.phone}`} className="text-sm text-indigo-600 min-h-[44px] inline-flex items-center">
-                        {job.assigned_sub.phone}
-                      </a>
-                    )}
-                  </div>
-                </div>
-              ) : (
-                <div className="text-center py-4">
-                  <p className="text-gray-900 mb-3">Not assigned</p>
-                  <button
-                    type="button"
-                    onClick={() => openScheduleModal('schedule')}
-                    className="min-h-[44px] text-sm text-indigo-600 hover:text-indigo-800"
-                  >
-                    Assign crew or sub →
-                  </button>
-                </div>
-              )}
-            </div>
-
-            <InsuranceCard job={job} onUpdate={(fields) => {
-              setJob(j => ({ ...j, ...fields }))
-              fetch(`/api/ops/jobs/${job.id}`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(fields),
-              })
-            }} />
-
-            <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
-              <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-4">Customer</h2>
-              {job.customer ? (
-                <div>
-                  <div className="font-medium text-gray-900 mb-2 break-words">{job.customer.name}</div>
-                  {job.customer.phone && (
-                    <CopyableContact
-                      value={job.customer.phone}
-                      href={`tel:${job.customer.phone}`}
-                      icon="📞"
-                      label="phone number"
-                      className="mb-1"
-                    />
-                  )}
-                  {job.customer.email && (
-                    <CopyableContact
-                      value={job.customer.email}
-                      href={`mailto:${job.customer.email}`}
-                      icon="✉️"
-                      label="email address"
-                    />
-                  )}
-                  <Link
-                    href={`/customers/${job.customer.id}`}
-                    className="min-h-[44px] flex items-center text-sm text-gray-900 hover:text-indigo-600 mt-2"
-                  >
-                    View customer →
-                  </Link>
-                </div>
-              ) : (
-                <div>
-                  <p className="text-gray-900 mb-2">No customer linked</p>
-                  <LinkCustomerButton sourceType="job" sourceId={job.id} />
-                </div>
-              )}
             </div>
 
             </div>{/* end overview tab wrapper */}
@@ -2317,8 +2291,17 @@ export default function JobDetailClient({
             )}
             </div>{/* end costs tab wrapper */}
 
-            {/* OVERVIEW TAB — Permit + Related */}
+            {/* OVERVIEW TAB — Insurance, Permit, Related (all conditional / miscellaneous) */}
             <div className={mobileTab !== 'overview' ? 'hidden lg:block' : undefined}>
+
+            <InsuranceCard job={job} onUpdate={(fields) => {
+              setJob(j => ({ ...j, ...fields }))
+              fetch(`/api/ops/jobs/${job.id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(fields),
+              })
+            }} />
 
             {job.permit_required && (
               <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
@@ -2365,37 +2348,10 @@ export default function JobDetailClient({
                     </div>
                   )
                 )}
-                {job.project_id && (
-                  <Link
-                    href={`/projects/${job.project_id}`}
-                    className="min-h-[44px] flex items-center text-sm text-indigo-600 hover:text-indigo-800"
-                  >
-                    View Project →
-                  </Link>
-                )}
-                {job.accepted_proposal_id && (
-                  <Link
-                    href={`/proposals/${job.accepted_proposal_id}`}
-                    className="min-h-[44px] flex items-center text-sm text-indigo-600 hover:text-indigo-800"
-                  >
-                    View Accepted Proposal →
-                  </Link>
-                )}
-                {/* Deliberately loud: ops asked for a run sheet they can spot instantly on this page. */}
-                <Link
-                  href={`/ops/jobs/${job.id}/run-sheet`}
-                  className="min-h-[44px] my-1 flex items-center gap-2 rounded-lg border-2 border-[#c40068] bg-[#fff100] px-3 py-2 text-sm font-extrabold uppercase tracking-wide text-[#c40068] hover:bg-[#ffe600]"
-                >
-                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"
-                    />
-                  </svg>
-                  Job Run Sheet (1-page PDF) →
-                </Link>
+                {/* "View Project →" lives on the Operations Snapshot header now — one link, not two.
+                    "View Accepted Proposal →" lives inside the Sold Scope card, which can point at a
+                    different proposal than job.accepted_proposal_id — one source of truth, not two.
+                    The Job Run Sheet link duplicated the Job documents banner at the top of the page. */}
                 {job.salesperson && (
                   <p className="text-sm text-gray-900 py-2">
                     Sold by: {job.salesperson.full_name}
