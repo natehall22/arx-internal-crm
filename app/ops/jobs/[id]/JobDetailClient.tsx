@@ -16,6 +16,7 @@ import AINoteSummary from '@/components/jobs/AINoteSummary'
 import LinkCustomerButton from '@/components/customers/LinkCustomerButton'
 import CopyableContact from '@/components/CopyableContact'
 import JobWorkOrdersCard from '@/components/ops/JobWorkOrdersCard'
+import { PIPELINE_STAGES, getJobPipelineCurrentIndex } from '@/lib/job-pipeline'
 import SoldScopeCard from '@/components/ops/SoldScopeCard'
 import JobMaterialsCard from '@/components/ops/JobMaterialsCard'
 import JobRoofingBrief from '@/components/ops/JobRoofingBrief'
@@ -185,31 +186,6 @@ function unpaidContractBalanceCents(args: {
 }
 
 /** First incomplete pipeline stage index (0–4), or 4 when fully done. */
-function depositMilestoneMet(job: Job): boolean {
-  if (job.status !== 'sold') return true
-  const sale = job.sale_amount
-  if (!sale || sale <= 0) return true
-  const pct = job.deposit_required_percent
-  if (pct == null || pct <= 0) return (job.deposit ?? 0) > 0
-  const required = sale * (pct / 100)
-  return (job.deposit ?? 0) >= required - 0.005
-}
-
-function getJobPipelineCurrentIndex(job: Job): number {
-  const d1 = depositMilestoneMet(job)
-  const d2 = !!job.scheduled_date
-  const d3 =
-    job.status === 'in_progress' ||
-    !!job.started_at ||
-    job.status === 'complete' ||
-    job.status === 'collected'
-  const d4 = job.status === 'complete' || job.status === 'collected' || !!job.completed_at
-  const done = [true, d1, d2, d3, d4]
-  const firstOpen = done.findIndex((v) => !v)
-  return firstOpen === -1 ? 4 : firstOpen
-}
-
-const PIPELINE_STAGES = ['Sold', 'Deposit', 'Scheduled', 'In Progress', 'Complete'] as const
 
 type WorkflowBtnId = 'schedule' | 'materials' | 'materialsReady' | 'startJob' | 'complete' | 'collected'
 
