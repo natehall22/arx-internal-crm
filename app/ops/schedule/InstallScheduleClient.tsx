@@ -387,7 +387,16 @@ export default function InstallScheduleClient() {
       const subName = subs.find((s) => s.id === subId)?.company_name || 'the sub'
       const calendar: CalendarSyncResult | undefined = body?.calendar
       if (calendar === 'synced') {
-        pushToast(`Scheduled — ${subName} was emailed the calendar invite.`, 'success')
+        // A synced event only reaches the sub if they are an attendee on it,
+        // which requires a scheduling email on file. Say which happened.
+        if (body?.subNotified) {
+          pushToast(`Scheduled — ${subName} was emailed the calendar invite.`, 'success')
+        } else {
+          pushToast(
+            `Scheduled, but ${subName} was not notified — add a scheduling email to their record to send install invites.`,
+            'warning'
+          )
+        }
       } else if (calendar === 'no_token') {
         pushToast(
           'Job scheduled — no calendar invite was sent because the scheduling user hasn’t connected Google Calendar.',

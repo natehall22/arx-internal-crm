@@ -127,7 +127,13 @@ export default function ScheduleJobModal({ job, subs, onClose, onSave, mode = 's
       // invite is best-effort, and claiming one was sent when it wasn't is worse
       // than saying nothing.
       const result = await response.json().catch(() => null)
-      if (result?.calendar === 'no_token') {
+      if (result?.calendar === 'synced' && !result?.subNotified) {
+        // Synced, but the sub is not an attendee — they have no scheduling
+        // email on file, so Google emailed nobody.
+        alert(
+          'Job scheduled, but the sub was not notified — add a scheduling email to their record to send install invites.'
+        )
+      } else if (result?.calendar === 'no_token') {
         alert(
           'Job scheduled. No calendar invite was sent — connect your Google account in Settings to email the sub automatically.'
         )

@@ -227,5 +227,14 @@ export async function POST(request: Request) {
     },
     calendar: syncResult.outcome,
     calendarError: syncResult.error ?? null,
+    /**
+     * Whether the SUB was actually told. A synced event with no attendee on it
+     * notifies nobody — Google only emails guests, and a sub with no
+     * `scheduling_email` on file is not a guest. Without this the UI reports
+     * "the sub was emailed the invite" for a sub who has no address, which is
+     * the default state for every sub until ops fills the field in.
+     */
+    subNotified: syncResult.outcome === 'synced' && Boolean(sub.scheduling_email),
+    subHasSchedulingEmail: Boolean(sub.scheduling_email),
   })
 }
