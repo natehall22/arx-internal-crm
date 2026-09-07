@@ -167,7 +167,15 @@ export function buildInstallEvent(input: BuildInstallEventInput): CalendarEvent 
   ].filter((line): line is string => line !== null)
 
   const schedulingEmail = (input.schedulingEmail ?? '').trim().toLowerCase()
-  const attendees = schedulingEmail ? [{ email: schedulingEmail }] : undefined
+  /**
+   * ALWAYS present, empty when there is no address. Google's `events.patch`
+   * leaves omitted fields untouched, so omitting this on a reassignment would
+   * leave the PREVIOUS sub attached to the event as a guest — and, now that the
+   * patch correctly sends `sendUpdates: 'all'`, would email them the details of
+   * a job that is no longer theirs while the new crew hears nothing. An explicit
+   * empty array is what actually clears the guest list.
+   */
+  const attendees = schedulingEmail ? [{ email: schedulingEmail }] : []
 
   return {
     summary: `Roof install — ${input.customerName}${squares != null ? ` (${squares} sq)` : ''}`,
@@ -191,7 +199,7 @@ export function buildInstallEvent(input: BuildInstallEventInput): CalendarEvent 
         { method: 'popup', minutes: 7 * 60 },
       ],
     },
-    ...(attendees ? { attendees } : {}),
+    attendees,
   }
 }
 

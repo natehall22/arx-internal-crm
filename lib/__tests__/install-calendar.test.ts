@@ -91,19 +91,29 @@ describe('buildInstallEvent', () => {
     expect(event.attendees).toEqual([{ email: 'sub@example.com' }])
   })
 
-  it('omits attendees when scheduling_email is null', () => {
+  it('sends an EMPTY guest list when scheduling_email is null, never an absent one', () => {
+    // Google's events.patch leaves omitted fields alone, so an absent `attendees`
+    // on a reassignment would strand the previous sub on the invite and email
+    // them about a job that is no longer theirs.
     const event = buildInstallEvent({ ...base, schedulingEmail: null })
-    expect(event.attendees).toBeUndefined()
+    expect(event.attendees).toEqual([])
   })
 
-  it('omits attendees when scheduling_email is undefined', () => {
+  it('clears a previous guest when reassigned to a sub with no email', () => {
+    const withSub = buildInstallEvent({ ...base, schedulingEmail: 'ramirez@example.com' })
+    expect(withSub.attendees).toEqual([{ email: 'ramirez@example.com' }])
+    const reassigned = buildInstallEvent({ ...base, schedulingEmail: null })
+    expect(reassigned.attendees).toEqual([])
+  })
+
+  it('sends an empty guest list when scheduling_email is undefined', () => {
     const event = buildInstallEvent({ ...base })
-    expect(event.attendees).toBeUndefined()
+    expect(event.attendees).toEqual([])
   })
 
-  it('omits attendees when scheduling_email is blank', () => {
+  it('sends an empty guest list when scheduling_email is blank', () => {
     const event = buildInstallEvent({ ...base, schedulingEmail: '   ' })
-    expect(event.attendees).toBeUndefined()
+    expect(event.attendees).toEqual([])
   })
 
   it('names the homeowner in the title, since that is what a crew looks for', () => {

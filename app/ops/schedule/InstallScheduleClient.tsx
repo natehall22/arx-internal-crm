@@ -844,8 +844,10 @@ export default function InstallScheduleClient() {
                                       /* Hidden until hover/keyboard focus: it un-schedules real work
                                          and emails the sub a cancellation, so it should not sit
                                          permanently under a thumb — and reclaiming its 32px is what
-                                         lets the chip text fit the narrower column. */
-                                      className="flex min-h-[32px] min-w-[32px] shrink-0 items-center justify-center rounded-full text-[#57574f] opacity-0 transition-opacity hover:bg-white hover:text-red-600 focus:opacity-100 focus-visible:opacity-100 group-hover:opacity-100"
+                                         lets the chip text fit the narrower column. Kept always
+                                         visible on touch devices (hover:none), where a landscape
+                                         tablet hits the lg grid but has no hover to reveal it. */
+                                      className="flex min-h-[32px] min-w-[32px] shrink-0 items-center justify-center rounded-full text-[#57574f] opacity-0 transition-opacity hover:bg-white hover:text-red-600 focus:opacity-100 focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
                                       aria-label={`Remove ${job.job_number} from schedule`}
                                       title="Remove from schedule"
                                     >
