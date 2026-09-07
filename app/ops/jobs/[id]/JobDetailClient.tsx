@@ -1399,17 +1399,6 @@ export default function JobDetailClient({
                 <p className="text-gray-500 mt-1 text-sm">No address</p>
               )}
 
-              {job.job_type === 'roofing' && job.sold_scope ? (
-                <JobRoofingBrief
-                  scope={job.sold_scope}
-                  jobId={job.id}
-                  project={job.project}
-                  specialInstructions={job.special_instructions}
-                  materialsNotes={job.materials_notes}
-                  coverageOverrides={materialsCoverageOverrides ?? null}
-                />
-              ) : null}
-
               <div className="mt-3 flex flex-wrap gap-2">
                 <Link
                   href={`/ops/jobs/${job.id}/measure`}
@@ -1657,18 +1646,23 @@ export default function JobDetailClient({
 
         {/* CUSTOMER CONTACT — promoted next to the identity block. Ops calls customers
             constantly; this used to be buried in a sidebar card below Schedule/Assignment/Insurance. */}
-        <div className="mb-4 sm:mb-6 bg-white rounded-xl shadow-sm border p-4 sm:p-6">
-          <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-4">Customer</h2>
+        <div className="mb-4 sm:mb-6 bg-white rounded-xl shadow-sm border p-4 sm:px-6 sm:py-4">
           {job.customer ? (
-            <div>
-              <div className="font-medium text-gray-900 mb-2 break-words">{job.customer.name}</div>
+            /* One row on desktop, stacked on mobile. This card moved out of the narrow
+               sidebar and kept its vertical stacking, which cost 270px of full-width page
+               for three lines of contact — enough to push the whole two-column grid below
+               the fold. Same content, same 44px targets, a third of the height. */
+            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-6 sm:gap-y-2">
+              <h2 className="text-base font-semibold text-gray-900 sm:sr-only">Customer</h2>
+              <div className="font-semibold text-gray-900 break-words sm:text-lg">
+                {job.customer.name}
+              </div>
               {job.customer.phone && (
                 <CopyableContact
                   value={job.customer.phone}
                   href={`tel:${job.customer.phone}`}
                   icon="📞"
                   label="phone number"
-                  className="mb-1"
                 />
               )}
               {job.customer.email && (
@@ -1681,13 +1675,14 @@ export default function JobDetailClient({
               )}
               <Link
                 href={`/customers/${job.customer.id}`}
-                className="min-h-[44px] flex items-center text-sm text-gray-900 hover:text-indigo-600 mt-2"
+                className="min-h-[44px] flex items-center text-sm text-gray-900 hover:text-indigo-600 sm:ml-auto"
               >
                 View customer →
               </Link>
             </div>
           ) : (
             <div>
+              <h2 className="text-base font-semibold text-gray-900 mb-2">Customer</h2>
               <p className="text-gray-900 mb-2">No customer linked</p>
               <LinkCustomerButton sourceType="job" sourceId={job.id} />
             </div>
@@ -1796,6 +1791,22 @@ export default function JobDetailClient({
                   ) : undefined
                 }
               />
+
+              {/* The materials brief lives here, with the rest of "what was sold", NOT up in the
+                  identity block where it was: 579px of shingle/ridge/flashing detail sat directly
+                  under the address and pushed the customer's phone number to y=1540 — two screens
+                  down, on the card ops opens specifically to call someone. It is reference detail
+                  for ordering and installing, so it belongs beside the sold scope. */}
+              {job.job_type === 'roofing' && job.sold_scope ? (
+                <JobRoofingBrief
+                  scope={job.sold_scope}
+                  jobId={job.id}
+                  project={job.project}
+                  specialInstructions={job.special_instructions}
+                  materialsNotes={job.materials_notes}
+                  coverageOverrides={materialsCoverageOverrides ?? null}
+                />
+              ) : null}
 
               {/* Sold Scope + Job Packet - What was sold (from accepted proposal) */}
               <SoldScopeCard
