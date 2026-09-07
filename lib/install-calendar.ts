@@ -1,12 +1,19 @@
 /**
  * Google Calendar sync for roof install scheduling.
  *
- * ARX uses subcontractor crews only (no in-house crews). A sub has no CRM
- * login and no Google OAuth of their own — instead they give ARX a Google
- * email address (`sub_contractors.scheduling_email`), and that address is
- * added to the install event as an ATTENDEE so Google pushes the invite to
- * the sub's own calendar and emails them updates natively. We never send the
- * sub anything ourselves; Google does it because they're a guest on the event.
+ * ARX uses subcontractor crews only (no in-house crews). A sub has no CRM login
+ * and no Google OAuth of their own — instead they give ARX whatever email they
+ * already use (`sub_contractors.scheduling_email`), and that address goes on the
+ * install event as an ATTENDEE. Google then emails them the invite and every
+ * later change. We never send the sub anything ourselves; Google does it because
+ * they are a guest on the event.
+ *
+ * IT DOES NOT HAVE TO BE A GOOGLE ACCOUNT. Google mails an invitation with a
+ * standard `.ics` attachment to any attendee address — Gmail renders it inline
+ * with RSVP buttons, and Outlook / iCloud / Yahoo open the attachment and offer
+ * "add to calendar". A Google account only decides whether it lands on their
+ * calendar automatically or after one tap. Nothing here should ever tell ops the
+ * sub must create an account first; that is a made-up onboarding step.
  *
  * An install is an ALL-DAY event lasting 1-2 days (`production_jobs.
  * install_days`, NULL treated as 1).
@@ -117,33 +124,73 @@ export type BuildInstallEventInput = {
   totalSquares?: number | null
   /** The sub's Google address (`sub_contractors.scheduling_email`); omitted when not on file. */
   schedulingEmail?: string | null
+  /** ARX's own number, so the crew has someone to call from the invite itself. */
+  orgPhone?: string | null
   appUrl?: string | null
 }
 
-/** Pure function — no I/O. Builds the Google all-day event body for a job's install. */
+/**
+ * Pure function — no I/O. Builds the Google all-day event body for a job's install.
+ *
+ * WRITTEN FOR THE CREW, NOT FOR US. The person who opens this is a subcontractor
+ * on a phone deciding where to drive tomorrow morning. So the body leads with the
+ * address and the size of the roof, repeats the address as text (not every mail
+ * client surfaces the `location` field), and gives them a number to call when
+ * something is wrong on site.
+ *
+ * The CRM job link is explicitly marked staff-only: the sub has no login, so for
+ * them it is a dead end that bounces to a sign-in page. It stays because the same
+ * event sits on ARX's own calendar, where ops can use it.
+ *
+ * Any email address works as an attendee — Google mails an invitation with an
+ * `.ics` attachment to Gmail, Outlook, iCloud alike. A Google account is NOT
+ * required, and nothing in this event assumes one.
+ */
 export function buildInstallEvent(input: BuildInstallEventInput): CalendarEvent {
   const days = input.installDays === 2 ? 2 : 1
   const startDate = input.scheduledDate
   // Google's all-day `end.date` is EXCLUSIVE — see file header.
   const endDate = addDaysToDateOnly(startDate, days)
 
+  const squares =
+    typeof input.totalSquares === 'number' && input.totalSquares > 0 ? input.totalSquares : null
+
   const descriptionLines = [
-    `Job #: ${input.jobNumber}`,
-    typeof input.totalSquares === 'number' && input.totalSquares > 0
-      ? `Squares: ${input.totalSquares}`
-      : null,
-    `Job page: ${installJobPageUrl(input.jobId, input.appUrl)}`,
-  ].filter((line): line is string => Boolean(line))
+    input.addressText ? `📍 ${input.addressText}` : null,
+    squares != null ? `Roof: ${squares} sq${days === 2 ? ' · 2-day install' : ''}` : days === 2 ? '2-day install' : null,
+    `Homeowner: ${input.customerName}`,
+    '',
+    input.orgPhone ? `Questions or a problem on site — call ARX at ${input.orgPhone}.` : 'Questions or a problem on site — call ARX.',
+    `Job #${input.jobNumber} (quote this when you call).`,
+    '',
+    `ARX staff only: ${installJobPageUrl(input.jobId, input.appUrl)}`,
+  ].filter((line): line is string => line !== null)
 
   const schedulingEmail = (input.schedulingEmail ?? '').trim().toLowerCase()
   const attendees = schedulingEmail ? [{ email: schedulingEmail }] : undefined
 
   return {
-    summary: `Install — ${input.jobNumber} — ${input.customerName}`,
+    summary: `Roof install — ${input.customerName}${squares != null ? ` (${squares} sq)` : ''}`,
     description: descriptionLines.join('\n'),
     ...(input.addressText ? { location: input.addressText } : {}),
     start: { date: startDate },
     end: { date: endDate },
+    // An all-day event otherwise inherits whatever default the guest happens to
+    // have — often nothing at all. A crew that isn't reminded doesn't show up.
+    //
+    // Google measures an all-day reminder backwards from MIDNIGHT at the start of
+    // the day, so a positive offset can never land on the morning of the job
+    // itself. Both of these therefore fire the day before, which is the useful
+    // time anyway — that is when a crew plans the day and loads the truck:
+    //   15h -> 9:00 AM the day before
+    //    7h -> 5:00 PM the day before
+    reminders: {
+      useDefault: false,
+      overrides: [
+        { method: 'popup', minutes: 15 * 60 },
+        { method: 'popup', minutes: 7 * 60 },
+      ],
+    },
     ...(attendees ? { attendees } : {}),
   }
 }
@@ -169,6 +216,8 @@ export type SyncInstallToCalendarParams = {
   schedulingEmail?: string | null
   /** The ops user performing the assignment — their connected Google token is used. */
   schedulingUserId: string
+  /** ARX's own number, surfaced in the invite so the crew can call about the job. */
+  orgPhone?: string | null
   appUrl?: string | null
 }
 
@@ -251,6 +300,7 @@ export async function syncInstallToCalendar(
     installDays: job.install_days,
     totalSquares: params.totalSquares,
     schedulingEmail: params.schedulingEmail,
+    orgPhone: params.orgPhone,
     appUrl: params.appUrl,
   })
 

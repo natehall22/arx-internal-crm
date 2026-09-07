@@ -497,21 +497,24 @@ export default function SubContractorsPage() {
 
                 <div>
                   <label htmlFor="scheduling_email" className="block text-sm font-medium mb-2" style={{ color: '#2c2c2a' }}>
-                    Scheduling email (Google)
+                    Scheduling email
                   </label>
                   <input
                     id="scheduling_email"
                     type="email"
                     value={formData.scheduling_email}
                     onChange={(e) => setFormData(prev => ({ ...prev, scheduling_email: e.target.value }))}
-                    placeholder="crew@gmail.com"
+                    placeholder="crew@example.com"
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg min-h-[44px]"
                     style={{ color: '#2c2c2a' }}
                   />
                   <p className="text-sm mt-1" style={{ color: '#2c2c2a' }}>
-                    The Google address install invites are sent to — Google will push the job onto this
-                    sub&apos;s own calendar and email them any changes. The sub needs a Google account for it
-                    to appear on their calendar. Leave blank if they don&apos;t have one yet.
+                    Where install invites go. Whenever a job is scheduled, moved, or cancelled, this
+                    address gets a calendar invite with the date, address and job number.
+                    <strong> Any email works</strong> — Gmail, Outlook, iCloud, whatever they already
+                    use. They don&apos;t need a Google account, and there&apos;s nothing for them to set
+                    up: the invite opens in their normal mail app and adds to their calendar in one tap.
+                    Leave blank and the job still schedules, but the crew won&apos;t be told.
                   </p>
                 </div>
 

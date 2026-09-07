@@ -132,6 +132,14 @@ export async function POST(request: Request) {
       .maybeSingle(),
   ])
 
+  // The crew gets this number in the invite so they have someone to call from
+  // the job site. Non-fatal: a missing phone just drops that line.
+  const { data: org } = await adminClient
+    .from('orgs')
+    .select('phone')
+    .eq('id', orgId)
+    .maybeSingle()
+
   if (jobError || !job) {
     return NextResponse.json({ error: 'Job not found' }, { status: 404 })
   }
@@ -216,6 +224,7 @@ export async function POST(request: Request) {
     customerName,
     totalSquares,
     schedulingEmail: sub.scheduling_email,
+    orgPhone: org?.phone ?? null,
     schedulingUserId: authUser.id,
   })
 

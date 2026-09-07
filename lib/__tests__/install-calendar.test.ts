@@ -106,9 +106,9 @@ describe('buildInstallEvent', () => {
     expect(event.attendees).toBeUndefined()
   })
 
-  it('builds a summary with job number and customer name', () => {
-    const event = buildInstallEvent({ ...base })
-    expect(event.summary).toBe('Install — 26-0099 — Jane Homeowner')
+  it('names the homeowner in the title, since that is what a crew looks for', () => {
+    const event = buildInstallEvent({ ...base, totalSquares: 28.5 })
+    expect(event.summary).toBe('Roof install — Jane Homeowner (28.5 sq)')
   })
 
   it('uses the job address as the event location', () => {
@@ -121,16 +121,48 @@ describe('buildInstallEvent', () => {
     expect(event.location).toBeUndefined()
   })
 
-  it('includes job number, squares, and a job page link in the description', () => {
+  it('gives the crew the address, the roof size and the job number', () => {
     const event = buildInstallEvent({ ...base, totalSquares: 28.5 })
-    expect(event.description).toContain('Job #: 26-0099')
-    expect(event.description).toContain('Squares: 28.5')
-    expect(event.description).toContain('/ops/jobs/job-1')
+    expect(event.description).toContain('123 Main St, Charlotte, NC')
+    expect(event.description).toContain('28.5 sq')
+    expect(event.description).toContain('26-0099')
   })
 
-  it('omits the squares line when squares are unknown', () => {
+  it('gives the crew a number to call, when the org has one', () => {
+    const withPhone = buildInstallEvent({ ...base, orgPhone: '(704) 555-0100' })
+    expect(withPhone.description).toContain('(704) 555-0100')
+    // No number on file must not print a dangling "call ARX at ".
+    const without = buildInstallEvent({ ...base, orgPhone: null })
+    expect(without.description).toContain('call ARX')
+    expect(without.description).not.toContain('call ARX at')
+  })
+
+  it('marks the CRM link staff-only — the sub has no login and it just bounces them', () => {
+    const event = buildInstallEvent({ ...base })
+    expect(event.description).toContain('/ops/jobs/job-1')
+    expect(event.description).toContain('ARX staff only')
+  })
+
+  it('omits the roof size when squares are unknown', () => {
     const event = buildInstallEvent({ ...base, totalSquares: null })
-    expect(event.description).not.toContain('Squares:')
+    expect(event.description).not.toContain(' sq')
+    expect(event.summary).toBe('Roof install — Jane Homeowner')
+  })
+
+  it('sets its own reminders rather than inheriting the guest default', () => {
+    // An all-day event otherwise reminds many guests not at all. Google counts
+    // these back from midnight of the start date, so both land the day before.
+    const event = buildInstallEvent({ ...base })
+    expect(event.reminders?.useDefault).toBe(false)
+    expect(event.reminders?.overrides).toEqual([
+      { method: 'popup', minutes: 900 },
+      { method: 'popup', minutes: 420 },
+    ])
+  })
+
+  it('flags a 2-day install in the body so the crew blocks both days', () => {
+    const event = buildInstallEvent({ ...base, installDays: 2, totalSquares: 40 })
+    expect(event.description).toContain('2-day install')
   })
 })
 

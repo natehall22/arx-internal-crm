@@ -45,6 +45,11 @@ export interface CalendarEvent {
   start: CalendarEventDateTime | CalendarEventDate
   end: CalendarEventDateTime | CalendarEventDate
   attendees?: { email: string }[]
+  /** Explicit reminder overrides. For all-day events Google counts back from midnight of the start date. */
+  reminders?: {
+    useDefault: boolean
+    overrides?: { method: 'popup' | 'email'; minutes: number }[]
+  }
 }
 
 export interface FreeBusySlot {

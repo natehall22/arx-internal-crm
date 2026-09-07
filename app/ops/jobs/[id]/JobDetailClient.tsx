@@ -1203,6 +1203,14 @@ export default function JobDetailClient({
 
   const status = statusConfig[job.status] || statusConfig.sold
   const materials = materialsConfig[job.materials_status] || materialsConfig.not_ordered
+  /**
+   * Costs logged through the Files workspace ("+ Add cost line" -> `job_cost_lines`).
+   * A SEPARATE system from the "+ Job Cost" button on the Materials tab
+   * (`job_product_orders`), and only the latter feeds Est. profit below. Surfaced so a
+   * cost logged in the other place is visible here instead of silently missing.
+   */
+  const [costLinesTotal, setCostLinesTotal] = useState(0)
+
   const effectiveMaterialCost = materialOrdersTotal ?? job.material_cost ?? null
   const canViewFinancialTab = canViewProfitability || canViewJobBilling
   const payrollSnapshot = useMemo(() => buildCommissionPayrollSnapshot(job), [job])
@@ -1844,6 +1852,7 @@ export default function JobDetailClient({
                 customerEmail={job.customer?.email || null}
                 registerOpenCostAttachmentShortcut={registerOpenCostAttachmentShortcut}
                 dealerFeeAmount={job.dealer_fee_amount ?? null}
+                onCostLinesTotalChange={setCostLinesTotal}
               />
             </div>
 
@@ -2210,6 +2219,23 @@ export default function JobDetailClient({
                       {effectiveMaterialCost !== null ? formatCents(materialCostCents) : '—'}
                     </span>
                   </div>
+                  {costLinesTotal > 0 && (
+                    <div className="rounded-md border border-amber-300 bg-amber-50 p-2.5">
+                      <div className="flex justify-between gap-4">
+                        <span className="font-medium" style={{ color: '#2c2c2a' }}>
+                          Cost lines (Photos &amp; files)
+                        </span>
+                        <span className="font-semibold tabular-nums" style={{ color: '#2c2c2a' }}>
+                          {formatCents(Math.round(costLinesTotal * 100))}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-xs" style={{ color: '#2c2c2a' }}>
+                        Logged under Photos &amp; files, which is a separate list from the job costs
+                        on the Materials tab. <strong>Not included in Est. profit below.</strong>{' '}
+                        If this is the same cost as one on the Materials tab, it has been entered twice.
+                      </p>
+                    </div>
+                  )}
                   <div className="border-t border-gray-200 pt-3 flex justify-between gap-4">
                     <span className="text-gray-900 font-medium">Est. profit</span>
                     <span className={`font-semibold tabular-nums ${job.sale_amount !== null ? 'text-green-600' : 'text-gray-900'}`}>
