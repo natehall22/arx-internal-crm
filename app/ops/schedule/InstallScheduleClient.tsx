@@ -115,16 +115,44 @@ function formatWeekdayAbbrev(iso: string): string {
   return isoToUtcNoon(iso).toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' })
 }
 
+/**
+ * Surname only for the grid chip. A day column is ~124px; "26-0044 · Caitlin
+ * Kaestner" needs ~143px and truncates to "26-0044 …", losing the very thing
+ * ops identifies a job by. The full name stays in the chip's title/aria-label
+ * and on the job page one click away.
+ */
+function shortCustomerName(name: string | null): string | null {
+  if (!name) return null
+  const parts = name.trim().split(/\s+/)
+  return parts.length > 1 ? parts[parts.length - 1] : parts[0]
+}
+
 function formatJobType(jobType: string): string {
   return jobType
     .replace(/[_-]+/g, ' ')
     .replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
-const WINDOW_LENGTH_DAYS = 14
-const LABEL_COL_W = 224
-const DAY_COL_W = 104
-const LANE_HEIGHT = 34
+// A 2-week window looked "at a glance" but wasn't — at a typical desktop
+// width only ~8 of 14 columns fit before horizontal scroll anyway, and the
+// narrow columns that resulted truncated the job chip text down to the job
+// number alone (customer name invisible). A 7-day window is how ops actually
+// thinks ("what does this week look like") and gives each column enough
+// width to show job number + customer name; Prev/Next (see shiftWindow)
+// pages by the same 7 days so paging moves one clean week at a time.
+const WINDOW_LENGTH_DAYS = 7
+// 200 fits the longest real sub name ("Carolina Peak Contractors" measures
+// 177px) with padding to spare, and hands the 24px back to the day columns.
+const LABEL_COL_W = 200
+// Sized so the whole week fits without horizontal scroll at a typical desktop
+// board width (200 label + 7*128 = 1096). Wider columns render the chip text in
+// full but hide 2-3 days behind a scroll, which defeats the point of the board —
+// the question ops asks it is "who is free this week", and a day you cannot see
+// is a day you cannot answer for. Chips carry the surname (full name in the
+// tooltip) and the destructive remove button only appears on hover/focus, so the
+// text still fits in the narrower column.
+const DAY_COL_W = 128
+const LANE_HEIGHT = 44
 
 /* ------------------------------------------------------------------------ *
  * Stable per-sub colour so the board is scannable at a glance.
@@ -522,14 +550,14 @@ export default function InstallScheduleClient() {
                 <button
                   type="button"
                   onClick={() => setPlacingInstallDays(1)}
-                  className={`px-3 py-1.5 text-xs font-medium ${placingInstallDays === 1 ? 'bg-indigo-600 text-white' : 'bg-white text-[#2c2c2a]'}`}
+                  className={`flex min-h-[44px] items-center justify-center px-3 text-xs font-medium ${placingInstallDays === 1 ? 'bg-indigo-600 text-white' : 'bg-white text-[#2c2c2a]'}`}
                 >
                   1 day
                 </button>
                 <button
                   type="button"
                   onClick={() => setPlacingInstallDays(2)}
-                  className={`px-3 py-1.5 text-xs font-medium ${placingInstallDays === 2 ? 'bg-indigo-600 text-white' : 'bg-white text-[#2c2c2a]'}`}
+                  className={`flex min-h-[44px] items-center justify-center px-3 text-xs font-medium ${placingInstallDays === 2 ? 'bg-indigo-600 text-white' : 'bg-white text-[#2c2c2a]'}`}
                 >
                   2 days
                 </button>
@@ -537,7 +565,7 @@ export default function InstallScheduleClient() {
               <button
                 type="button"
                 onClick={() => setPlacingJobId(null)}
-                className="rounded-md border border-[#c9c7c0] bg-white px-3 py-1.5 text-xs font-medium text-[#2c2c2a] hover:bg-[#f2f1ee]"
+                className="flex min-h-[44px] items-center justify-center rounded-md border border-[#c9c7c0] bg-white px-3 text-xs font-medium text-[#2c2c2a] hover:bg-[#f2f1ee]"
               >
                 Cancel (Esc)
               </button>
@@ -585,7 +613,7 @@ export default function InstallScheduleClient() {
           >
             Today
           </button>
-          {loading && <span className="text-xs text-[#8a8a82]">Loading…</span>}
+          {loading && <span className="text-xs text-[#57574f]">Loading…</span>}
         </div>
 
         <div className="flex flex-col gap-4 lg:flex-row">
@@ -637,7 +665,7 @@ export default function InstallScheduleClient() {
                           )}
                         </div>
                         <div className="truncate text-xs text-[#57574f]">{job.customer_name || job.address_text}</div>
-                        <div className="mt-1 flex items-center gap-2 text-[10px] text-[#8a8a82]">
+                        <div className="mt-1 flex items-center gap-2 text-[10px] text-[#57574f]">
                           <span className="rounded bg-[#f2f1ee] px-1.5 py-0.5">{formatJobType(job.job_type)}</span>
                           {job.total_squares ? <span>{job.total_squares} sq</span> : null}
                         </div>
@@ -655,7 +683,7 @@ export default function InstallScheduleClient() {
           </div>
 
           {/* Board */}
-          <div className="order-2 min-w-0 flex-1 lg:order-1">
+          <div className="order-2 flex min-w-0 flex-1 flex-col lg:order-1">
             {loading && subs.length === 0 && !loadError ? (
               <div className="rounded-lg border border-[#e5e3dc] bg-white p-8 text-center text-sm text-[#57574f]">
                 Loading schedule…
@@ -671,7 +699,7 @@ export default function InstallScheduleClient() {
             ) : (
               <>
                 {/* Desktop / tablet: sub rows × day columns */}
-                <div className="hidden overflow-x-auto rounded-lg border border-[#e5e3dc] bg-white lg:block">
+                <div className="hidden overflow-x-auto rounded-lg border border-[#e5e3dc] bg-white lg:block lg:flex-1">
                   <div style={{ width: LABEL_COL_W + windowDays.length * DAY_COL_W }}>
                     <div className="flex border-b border-[#e5e3dc] bg-[#f7f6f2]">
                       <div
@@ -689,7 +717,7 @@ export default function InstallScheduleClient() {
                             className={`shrink-0 border-r border-[#e5e3dc] px-1 py-2 text-center ${weekend ? 'bg-[#efeee8]' : ''} ${isToday ? 'bg-indigo-100' : ''}`}
                             style={{ width: DAY_COL_W }}
                           >
-                            <div className={`text-[10px] uppercase ${weekend ? 'text-[#8a8a82]' : 'text-[#57574f]'}`}>
+                            <div className="text-[10px] uppercase text-[#57574f]">
                               {formatWeekdayAbbrev(dateIso)}
                             </div>
                             <div className={`text-sm font-semibold ${isToday ? 'text-indigo-700' : 'text-[#2c2c2a]'}`}>
@@ -721,6 +749,17 @@ export default function InstallScheduleClient() {
                               <span className="truncate text-sm font-semibold text-[#2c2c2a]">{sub.company_name}</span>
                             </div>
                             {sub.phone && <div className="mt-0.5 truncate text-xs text-[#57574f]">{sub.phone}</div>}
+                            {!sub.scheduling_email && (
+                              /* Say it BEFORE the job is placed, not after. Scheduling still works
+                                 without an address, but nothing reaches the crew — and finding that
+                                 out from a toast once the work is already booked is too late. */
+                              <div
+                                className="mt-0.5 truncate text-xs font-medium text-[#9a3412]"
+                                title={`${sub.company_name} has no scheduling email, so they will not be sent install invites. Add one on the subcontractor record.`}
+                              >
+                                No email — won&apos;t be notified
+                              </div>
+                            )}
                           </div>
 
                           <div className="relative flex" style={{ width: windowDays.length * DAY_COL_W }}>
@@ -729,6 +768,9 @@ export default function InstallScheduleClient() {
                               const weekend = isWeekendISO(dateIso)
                               const load = layout.loadByDay[idx] || 0
                               const isDragTarget = dragOverCell?.subId === sub.id && dragOverCell?.dateIso === dateIso
+                              const cellLabel = `${sub.company_name} — ${formatShortDate(dateIso)}, ${
+                                load === 0 ? 'free' : `${load} job${load === 1 ? '' : 's'}`
+                              }`
                               return (
                                 <button
                                   key={dateIso}
@@ -740,6 +782,9 @@ export default function InstallScheduleClient() {
                                   }}
                                   onDragLeave={() => setDragOverCell(null)}
                                   onDrop={(e) => handleDrop(e, sub.id, dateIso)}
+                                  aria-label={cellLabel}
+                                  title={cellLabel}
+                                  tabIndex={placingJob ? 0 : -1}
                                   className={[
                                     'relative h-full shrink-0 border-r border-[#e5e3dc] px-1 pt-1 text-left align-top',
                                     weekend ? 'bg-[#f7f6f2]' : 'bg-white',
@@ -749,9 +794,12 @@ export default function InstallScheduleClient() {
                                   ].join(' ')}
                                   style={{ width: DAY_COL_W }}
                                 >
-                                  {load > 0 && (
-                                    <span className="rounded-full bg-[#e5e3dc] px-1.5 text-[10px] font-medium text-[#2c2c2a]">
-                                      {load}
+                                  {placingJob && (
+                                    <span
+                                      aria-hidden="true"
+                                      className="pointer-events-none absolute inset-0 flex items-center justify-center text-xl font-light text-indigo-300"
+                                    >
+                                      +
                                     </span>
                                   )}
                                 </button>
@@ -765,7 +813,7 @@ export default function InstallScheduleClient() {
                                   draggable
                                   onDragStart={(e) => handleDragStartScheduled(e, job)}
                                   onDragEnd={() => setDragOverCell(null)}
-                                  className="pointer-events-auto absolute overflow-hidden rounded-md border px-1.5 py-1 text-[11px] shadow-sm"
+                                  className="group pointer-events-auto absolute overflow-hidden rounded-md border px-1.5 py-1 text-[11px] shadow-sm"
                                   style={{
                                     left: `${(visStart / windowDays.length) * 100}%`,
                                     width: `calc(${(visSpan / windowDays.length) * 100}% - 4px)`,
@@ -782,7 +830,9 @@ export default function InstallScheduleClient() {
                                       title={`${job.job_number} — ${job.customer_name || job.address_text}${job.total_squares ? ` · ${job.total_squares} sq` : ''}`}
                                     >
                                       {job.job_number}
-                                      {job.customer_name ? ` · ${job.customer_name}` : ''}
+                                      {shortCustomerName(job.customer_name)
+                                        ? ` · ${shortCustomerName(job.customer_name)}`
+                                        : ''}
                                     </Link>
                                     <button
                                       type="button"
@@ -791,7 +841,11 @@ export default function InstallScheduleClient() {
                                         e.stopPropagation()
                                         unassignJob(job, sub.company_name)
                                       }}
-                                      className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[#57574f] hover:bg-white hover:text-red-600"
+                                      /* Hidden until hover/keyboard focus: it un-schedules real work
+                                         and emails the sub a cancellation, so it should not sit
+                                         permanently under a thumb — and reclaiming its 32px is what
+                                         lets the chip text fit the narrower column. */
+                                      className="flex min-h-[32px] min-w-[32px] shrink-0 items-center justify-center rounded-full text-[#57574f] opacity-0 transition-opacity hover:bg-white hover:text-red-600 focus:opacity-100 focus-visible:opacity-100 group-hover:opacity-100"
                                       aria-label={`Remove ${job.job_number} from schedule`}
                                       title="Remove from schedule"
                                     >
@@ -893,7 +947,7 @@ export default function InstallScheduleClient() {
                                               e.stopPropagation()
                                               unassignJob(job, sub.company_name)
                                             }}
-                                            className="flex h-6 w-6 items-center justify-center text-[#57574f] hover:text-red-600"
+                                            className="flex min-h-[36px] min-w-[36px] shrink-0 items-center justify-center text-[#57574f] hover:text-red-600"
                                             aria-label={`Remove ${job.job_number}`}
                                           >
                                             ×
