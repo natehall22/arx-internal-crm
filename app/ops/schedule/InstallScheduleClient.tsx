@@ -824,15 +824,22 @@ export default function InstallScheduleClient() {
                                   }}
                                 >
                                   <div className="flex h-full items-center gap-1">
+                                    {/* Two lines, not one. A day column gives the chip ~112px of
+                                        text; "26-0041 · WITTERSHEIM" needs 134px and truncated to
+                                        "26-0041 · …", losing the name entirely. Stacked, the job
+                                        number and the surname each fit their own line inside the
+                                        same 40px chip. */}
                                     <Link
                                       href={`/ops/jobs/${job.id}`}
-                                      className="min-w-0 flex-1 truncate font-medium text-[#2c2c2a] hover:underline"
+                                      className="flex min-w-0 flex-1 flex-col justify-center leading-tight text-[#2c2c2a] hover:underline"
                                       title={`${job.job_number} — ${job.customer_name || job.address_text}${job.total_squares ? ` · ${job.total_squares} sq` : ''}`}
                                     >
-                                      {job.job_number}
-                                      {shortCustomerName(job.customer_name)
-                                        ? ` · ${shortCustomerName(job.customer_name)}`
-                                        : ''}
+                                      <span className="truncate font-semibold">{job.job_number}</span>
+                                      {shortCustomerName(job.customer_name) && (
+                                        <span className="truncate text-[10px] text-[#57574f]">
+                                          {shortCustomerName(job.customer_name)}
+                                        </span>
+                                      )}
                                     </Link>
                                     <button
                                       type="button"
@@ -843,11 +850,13 @@ export default function InstallScheduleClient() {
                                       }}
                                       /* Hidden until hover/keyboard focus: it un-schedules real work
                                          and emails the sub a cancellation, so it should not sit
-                                         permanently under a thumb — and reclaiming its 32px is what
-                                         lets the chip text fit the narrower column. Kept always
-                                         visible on touch devices (hover:none), where a landscape
-                                         tablet hits the lg grid but has no hover to reveal it. */
-                                      className="flex min-h-[32px] min-w-[32px] shrink-0 items-center justify-center rounded-full text-[#57574f] opacity-0 transition-opacity hover:bg-white hover:text-red-600 focus:opacity-100 focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
+                                         permanently under a thumb. Positioned ABSOLUTE, not just
+                                         opacity-0: a transparent element still occupies its 32px of
+                                         flex layout, which was squeezing the chip text to 74px and
+                                         truncating it anyway. Kept visible on touch devices
+                                         (hover:none), where a landscape tablet renders the lg grid
+                                         but has no hover to reveal it with. */
+                                      className="absolute right-0 top-1/2 flex min-h-[32px] min-w-[32px] -translate-y-1/2 items-center justify-center rounded-full bg-white/85 text-[#57574f] opacity-0 shadow-sm transition-opacity hover:bg-white hover:text-red-600 focus:opacity-100 focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
                                       aria-label={`Remove ${job.job_number} from schedule`}
                                       title="Remove from schedule"
                                     >

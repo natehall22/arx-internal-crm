@@ -83,7 +83,8 @@ function OpsBoardJobCardInner({
     (enrichedTotal != null || measuredSquares != null)
 
   const needsMaterials = job.materials_status === 'not_ordered'
-  const needsCrew = job.scheduled_date && !job.assigned_crew && !job.assigned_sub
+  // Scheduled but nobody is going: installs go to subcontractors now, not crews.
+  const needsAssignee = job.scheduled_date && !job.assigned_crew && !job.assigned_sub
   const isPastDue =
     job.scheduled_date &&
     new Date(job.scheduled_date + 'T23:59:59') < new Date() &&
@@ -160,7 +161,7 @@ function OpsBoardJobCardInner({
         </div>
       )}
 
-      {(needsMaterials || needsCrew || isPastDue) && (
+      {(needsMaterials || needsAssignee || isPastDue) && (
         <div className="flex flex-wrap gap-1 mb-2.5">
           {isPastDue && (
             <span className="text-[11px] px-1.5 py-0.5 rounded bg-orange-50 text-orange-700 font-medium">Overdue</span>
@@ -168,8 +169,8 @@ function OpsBoardJobCardInner({
           {needsMaterials && (
             <span className="text-[11px] px-1.5 py-0.5 rounded bg-red-50 text-red-600 font-medium">Materials needed</span>
           )}
-          {needsCrew && (
-            <span className="text-[11px] px-1.5 py-0.5 rounded bg-yellow-50 text-yellow-700 font-medium">No crew</span>
+          {needsAssignee && (
+            <span className="text-[11px] px-1.5 py-0.5 rounded bg-yellow-50 text-yellow-700 font-medium">No sub</span>
           )}
         </div>
       )}
@@ -205,7 +206,7 @@ function OpsBoardJobCardInner({
               Sub: {job.assigned_sub.company_name}
             </span>
           )}
-          {!job.assigned_crew && !job.assigned_sub && <span className="text-xs text-gray-400">No crew assigned</span>}
+          {!job.assigned_crew && !job.assigned_sub && <span className="text-xs text-gray-500">Not assigned</span>}
         </div>
         {job.sale_amount && (
           <span className="text-xs font-semibold text-gray-700 shrink-0 ml-2">${job.sale_amount.toLocaleString()}</span>
