@@ -36,7 +36,9 @@ export default function MaterialsOrderCard({
   const [overrides, setOverrides] = useState<JobMaterialOrderOverrideRow[]>([])
   const [loadingOverrides, setLoadingOverrides] = useState(true)
   const [savingKey, setSavingKey] = useState<string | null>(null)
-  const [expanded, setExpanded] = useState(false)
+  // Open by default. Collapsed-by-default is what made this unfindable — ops could not tell the
+  // list existed, let alone that it was the thing to send a supplier.
+  const [expanded, setExpanded] = useState(true)
 
   const computedItems = useMemo(
     () =>
@@ -124,7 +126,7 @@ export default function MaterialsOrderCard({
   const summaryText = summaryParts.join(' · ')
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border p-6 mb-6">
+    <div id="materials-order" className="scroll-mt-4 bg-white rounded-xl shadow-sm border p-6 mb-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <button
           type="button"

@@ -1,84 +1,63 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
 
-function getSessionFromRequest(req: NextRequest) {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const projectRef = supabaseUrl.match(/https:\/\/([^.]+)\./)?.[1] || ''
-  const cookieName = `sb-${projectRef}-auth-token`
-  
-  const singleCookie = req.cookies.get(cookieName)
-  if (singleCookie?.value) {
-    try {
-      const decoded = decodeURIComponent(singleCookie.value)
-      return JSON.parse(decoded)
-    } catch {
-      return null
-    }
-  }
-  
-  const chunks: string[] = []
-  let i = 0
-  while (true) {
-    const chunk = req.cookies.get(`${cookieName}.${i}`)
-    if (!chunk?.value) break
-    chunks.push(chunk.value)
-    i++
-  }
-  
-  if (chunks.length > 0) {
-    try {
-      const decoded = decodeURIComponent(chunks.join(''))
-      return JSON.parse(decoded)
-    } catch {
-      return null
-    }
-  }
-  
-  return null
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+function isValidOptionalEmail(value: unknown): boolean {
+  if (value === null || value === undefined || value === '') return true
+  return typeof value === 'string' && EMAIL_PATTERN.test(value)
 }
 
-export async function GET(request: NextRequest) {
+// Fields the subs admin UI (app/admin/subs/page.tsx) legitimately edits via
+// PATCH. Whitelisted to block mass-assignment: without this, `const { id,
+// ...updates } = body` followed by `.update(updates)` lets a caller set ANY
+// column on sub_contractors, including org_id (moving a sub to another
+// tenant), portal_access_token, user_id, or a raw `active` flip outside the
+// normal toggle path. Deliberately excludes id, org_id, user_id,
+// portal_access_token, and created/updated audit columns.
+const ALLOWED_FIELDS = new Set([
+  'company_name',
+  'contact_name',
+  'phone',
+  'email',
+  'scheduling_email',
+  'address',
+  'city',
+  'state',
+  'zip',
+  'license_number',
+  'services',
+  'internal_notes',
+  'portal_access_enabled',
+  'active',
+])
+
+export async function GET() {
   try {
-    const sessionData = getSessionFromRequest(request)
-    if (!sessionData?.access_token) {
+    let profile
+    try {
+      ;({ profile } = await requireAuthApi())
+    } catch {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const supabase = createServiceClient()
-
-    // Verify user
-    const authClient = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      { auth: { autoRefreshToken: false, persistSession: false } }
-    )
-    const { data: { user }, error: authError } = await authClient.auth.getUser(sessionData.access_token)
-    
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
-    // Get profile
-    const { data: profile } = await supabase
-      .from('users')
-      .select('org_id, role')
-      .eq('id', user.id)
-      .single()
-
-    if (!profile) {
-      return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
-    }
-
-    // Check role
     const adminRoles = ['admin', 'regional_manager', 'operations', 'manager', 'sales_manager', 'owner']
     if (!adminRoles.includes(profile.role)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
-    // Get subs
+    // Service client: every query in this file is explicitly scoped with
+    // `.eq('org_id', profile.org_id)` rather than relying on RLS for org
+    // isolation, so a service client does not widen access here — it just
+    // skips a redundant anon-client round trip. This matches the rationale in
+    // commit 183f45e: where the service client already did the data work and
+    // the anon client existed only to call getUser(), the anon client is
+    // deleted outright rather than kept "for safety."
+    const supabase = createServiceClient()
+
     const { data: subs, error } = await supabase
       .from('sub_contractors')
       .select('*')
@@ -101,34 +80,11 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const sessionData = getSessionFromRequest(request)
-    if (!sessionData?.access_token) {
+    let profile
+    try {
+      ;({ profile } = await requireAuthApi())
+    } catch {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
-    const supabase = createServiceClient()
-
-    // Verify user
-    const authClient = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      { auth: { autoRefreshToken: false, persistSession: false } }
-    )
-    const { data: { user }, error: authError } = await authClient.auth.getUser(sessionData.access_token)
-    
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
-    // Get profile
-    const { data: profile } = await supabase
-      .from('users')
-      .select('org_id, role')
-      .eq('id', user.id)
-      .single()
-
-    if (!profile) {
-      return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
     }
 
     const adminRoles = ['admin', 'regional_manager', 'operations', 'manager', 'sales_manager', 'owner']
@@ -136,14 +92,23 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
+    // Service client — see rationale in GET above; this insert scopes org_id
+    // explicitly from the caller's own profile rather than trusting RLS.
+    const supabase = createServiceClient()
+
     const body = await request.json()
-    
+
+    if (!isValidOptionalEmail(body.scheduling_email)) {
+      return NextResponse.json({ error: 'Scheduling email must be a valid email address' }, { status: 400 })
+    }
+
     const subData = {
       org_id: profile.org_id,
       company_name: body.company_name,
       contact_name: body.contact_name || null,
       phone: body.phone || null,
       email: body.email || null,
+      scheduling_email: body.scheduling_email || null,
       address: body.address || null,
       city: body.city || null,
       state: body.state || null,
@@ -174,34 +139,11 @@ export async function POST(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   try {
-    const sessionData = getSessionFromRequest(request)
-    if (!sessionData?.access_token) {
+    let profile
+    try {
+      ;({ profile } = await requireAuthApi())
+    } catch {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
-    const supabase = createServiceClient()
-
-    // Verify user
-    const authClient = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      { auth: { autoRefreshToken: false, persistSession: false } }
-    )
-    const { data: { user }, error: authError } = await authClient.auth.getUser(sessionData.access_token)
-    
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
-    // Get profile
-    const { data: profile } = await supabase
-      .from('users')
-      .select('org_id, role')
-      .eq('id', user.id)
-      .single()
-
-    if (!profile) {
-      return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
     }
 
     const adminRoles = ['admin', 'regional_manager', 'operations', 'manager', 'sales_manager', 'owner']
@@ -209,11 +151,29 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
+    // Service client — see rationale in GET above; this update stays scoped to
+    // the caller's own org via the explicit .eq('org_id', ...) below.
+    const supabase = createServiceClient()
+
     const body = await request.json()
-    const { id, ...updates } = body
+    const { id, ...rawUpdates } = body
 
     if (!id) {
       return NextResponse.json({ error: 'Sub ID required' }, { status: 400 })
+    }
+
+    // Whitelist updateable fields to prevent mass-assignment (matches the
+    // guard in app/api/ops/jobs/[id]/route.ts).
+    const updates: Record<string, unknown> = {}
+    for (const key of Object.keys(rawUpdates)) {
+      if (ALLOWED_FIELDS.has(key)) updates[key] = rawUpdates[key]
+    }
+    if (Object.keys(updates).length === 0) {
+      return NextResponse.json({ error: 'No valid fields to update' }, { status: 400 })
+    }
+
+    if ('scheduling_email' in updates && !isValidOptionalEmail(updates.scheduling_email)) {
+      return NextResponse.json({ error: 'Scheduling email must be a valid email address' }, { status: 400 })
     }
 
     const { data, error } = await supabase
@@ -237,40 +197,21 @@ export async function PATCH(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
-    const sessionData = getSessionFromRequest(request)
-    if (!sessionData?.access_token) {
+    let profile
+    try {
+      ;({ profile } = await requireAuthApi())
+    } catch {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
-    const supabase = createServiceClient()
-
-    // Verify user
-    const authClient = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      { auth: { autoRefreshToken: false, persistSession: false } }
-    )
-    const { data: { user }, error: authError } = await authClient.auth.getUser(sessionData.access_token)
-    
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
-    // Get profile
-    const { data: profile } = await supabase
-      .from('users')
-      .select('org_id, role')
-      .eq('id', user.id)
-      .single()
-
-    if (!profile) {
-      return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
     }
 
     // Only admin can delete
     if (profile.role !== 'admin') {
       return NextResponse.json({ error: 'Only admins can delete subcontractors' }, { status: 403 })
     }
+
+    // Service client — see rationale in GET above; every query here is
+    // explicitly scoped to the caller's own org.
+    const supabase = createServiceClient()
 
     const { searchParams } = new URL(request.url)
     const id = searchParams.get('id')
@@ -294,8 +235,8 @@ export async function DELETE(request: NextRequest) {
     ])
 
     if ((assignedJobs && assignedJobs.length > 0) || (assignedWorkOrders && assignedWorkOrders.length > 0)) {
-      return NextResponse.json({ 
-        error: 'Cannot delete subcontractor with assigned jobs or work orders. Reassign or complete them first, or deactivate the sub instead.' 
+      return NextResponse.json({
+        error: 'Cannot delete subcontractor with assigned jobs or work orders. Reassign or complete them first, or deactivate the sub instead.'
       }, { status: 400 })
     }
 

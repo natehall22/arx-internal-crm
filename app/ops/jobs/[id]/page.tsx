@@ -7,17 +7,8 @@ import { notFound, redirect } from 'next/navigation'
 import JobDetailClient from './JobDetailClient'
 import { canAccessJobBilling } from '@/lib/finance-access'
 import { redactProductionJobFinancialSummaryFields, resolveOpsAccess } from '@/lib/ops-access'
-import {
-  enrichOpsJobsWithMeasureSoldSquaresFallback,
-  enrichOpsJobsWithSoldSquares,
-} from '@/lib/ops-board-sold-squares'
 import { isOrgSuperuserRoleSlug } from '@/lib/permissions'
-import {
-  resolveProposalMeasuredSquares,
-  resolveProposalSoldRoofSquares,
-  resolveProposalWastePercent,
-} from '@/lib/sold-roof-squares'
-import { buildMaterialsExtras } from '@/lib/materials-order-extras'
+import { buildJobSoldScope, type JobSoldScope } from '@/lib/job-sold-scope'
 import {
   resolveMaterialsCoverageOverrides,
   type MaterialsCoverageOverrides,
@@ -25,56 +16,6 @@ import {
 
 interface PageProps {
   params: { id: string }
-}
-
-type JobSoldScopeLineItem = {
-  id: string
-  name: string
-  description: string | null
-  category: string
-  quantity: number
-  unit: string
-  unit_price: number
-  line_total: number
-  is_adder: boolean
-}
-
-type JobSoldScopeRoofMeasureLf = {
-  source: string | null
-  ridges_lf: number | null
-  valleys_lf: number | null
-  hips_lf: number | null
-  eaves_lf: number | null
-  rakes_lf: number | null
-  flashing_lf: number | null
-  step_flashing_lf: number | null
-  wall_flashing_lf: number | null
-  drip_edge_lf?: number | null
-}
-
-/** Extra measurement-derived inputs for the ops materials order list (all optional/additive). */
-type JobSoldScopeMaterialsExtras = {
-  ridge_segment_count: number | null
-  low_slope_area_sqft: number | null
-  low_slope_facet_count: number | null
-  penetration_count: number | null
-}
-
-type JobSoldScope = {
-  total_squares: number | null
-  /** Proposal-derived total includes waste factor; legacy project field does not claim that. */
-  total_squares_source: 'proposal_enriched' | 'project_legacy' | 'roof_measure_total' | null
-  measured_squares: number | null
-  waste_percent: number | null
-  /** When proposal has no waste %, ARX / roof_measurements.suggested_waste_percent (estimate only). */
-  measure_suggested_waste_percent: number | null
-  source: 'proposal' | 'project_legacy' | null
-  proposal_id: string | null
-  proposal_number: string | null
-  line_items: JobSoldScopeLineItem[]
-  /** Ridge / valley / flashing LF from roof_measurements linked to the proposal (or opp/project fallback). */
-  roof_measurement_linear: JobSoldScopeRoofMeasureLf | null
-  materials_extras?: JobSoldScopeMaterialsExtras | null
 }
 
 type FinancialSourceProposalOption = {
@@ -88,66 +29,6 @@ type FinancialSourceProposalOption = {
   subtotal: number | null
   accepted_at: string | null
   updated_at: string | null
-}
-
-function positiveLinearFt(value: unknown): number | null {
-  const n = typeof value === 'number' ? value : Number(value)
-  if (Number.isNaN(n) || n <= 0) return null
-  return Math.round(n * 10) / 10
-}
-
-function positiveWastePercent(value: unknown): number | null {
-  const n = typeof value === 'number' ? value : Number(value)
-  if (Number.isNaN(n) || n <= 0) return null
-  return Math.round(n * 10) / 10
-}
-
-function buildRoofMeasurementLinear(
-  row: {
-    ridges_lf?: number | null
-    valleys_lf?: number | null
-    hips_lf?: number | null
-    eaves_lf?: number | null
-    rakes_lf?: number | null
-    flashing_lf?: number | null
-    step_flashing_lf?: number | null
-    drip_edge_lf?: number | null
-    source?: string | null
-    raw_data?: unknown
-  } | null
-): JobSoldScopeRoofMeasureLf | null {
-  if (!row) return null
-  const raw =
-    row.raw_data && typeof row.raw_data === 'object' && !Array.isArray(row.raw_data)
-      ? (row.raw_data as Record<string, unknown>)
-      : null
-
-  const out: JobSoldScopeRoofMeasureLf = {
-    source: row.source ?? null,
-    ridges_lf: positiveLinearFt(row.ridges_lf),
-    valleys_lf: positiveLinearFt(row.valleys_lf),
-    hips_lf: positiveLinearFt(row.hips_lf),
-    eaves_lf: positiveLinearFt(row.eaves_lf),
-    rakes_lf: positiveLinearFt(row.rakes_lf),
-    flashing_lf: positiveLinearFt(row.flashing_lf),
-    step_flashing_lf:
-      positiveLinearFt(row.step_flashing_lf) ?? (raw ? positiveLinearFt(raw.step_flashing_lf) : null),
-    wall_flashing_lf: raw ? positiveLinearFt(raw.wall_flashing_lf) : null,
-    drip_edge_lf:
-      positiveLinearFt(row.drip_edge_lf) ?? (raw ? positiveLinearFt(raw.drip_edge_lf) : null),
-  }
-
-  const hasNumeric =
-    out.ridges_lf != null ||
-    out.valleys_lf != null ||
-    out.hips_lf != null ||
-    out.eaves_lf != null ||
-    out.rakes_lf != null ||
-    out.flashing_lf != null ||
-    out.step_flashing_lf != null ||
-    out.wall_flashing_lf != null
-
-  return hasNumeric ? out : null
 }
 
 const jobSelectWithPaymentMethod = `
@@ -345,10 +226,6 @@ export default async function JobDetailPage({ params }: PageProps) {
   }
 
   const supabaseService = createServiceClient()
-
-  const jobRowForSquares = { ...jobRes.data }
-  await enrichOpsJobsWithSoldSquares(supabaseService, profile.org_id, [jobRowForSquares])
-  await enrichOpsJobsWithMeasureSoldSquaresFallback(supabaseService, profile.org_id, [jobRowForSquares])
 
   // Original contract + change orders (same sources as /projects/[id])
   let originalContract: {
@@ -639,204 +516,14 @@ export default async function JobDetailPage({ params }: PageProps) {
   }
 
   try {
-    const jr = jobRes.data
-    const projectLegacySq =
-      rawProject &&
-      typeof rawProject === 'object' &&
-      'sold_roof_squares' in rawProject &&
-      (rawProject as { sold_roof_squares?: number | null }).sold_roof_squares != null
-        ? Number((rawProject as { sold_roof_squares?: number | null }).sold_roof_squares)
-        : null
-    const legacyPositive = projectLegacySq != null && !Number.isNaN(projectLegacySq) && projectLegacySq > 0
-
-    let proposalId: string | null =
-      jr.linked_proposal_id || jr.accepted_proposal_id || null
-
-    if (!proposalId && jr.project_id) {
-      const { data: p } = await supabaseService
-        .from('proposals')
-        .select('id')
-        .eq('org_id', profile.org_id)
-        .eq('project_id', jr.project_id)
-        .not('accepted_at', 'is', null)
-        .order('accepted_at', { ascending: false })
-        .limit(1)
-        .maybeSingle()
-      proposalId = p?.id ?? null
-    }
-
-    let proposal_number: string | null = null
-    let proposalSquares: {
-      sold_squares?: number | null
-      measured_squares?: number | null
-      sold_waste_percent?: number | null
-    } | null = null
-    let line_items: JobSoldScopeLineItem[] = []
-
-    if (proposalId) {
-      const { data: propMeta } = await supabaseService
-        .from('proposals')
-        .select('id, proposal_number, sold_squares, measured_squares, sold_waste_percent')
-        .eq('org_id', profile.org_id)
-        .eq('id', proposalId)
-        .maybeSingle()
-      proposal_number = propMeta?.proposal_number ?? null
-      proposalSquares = propMeta
-
-      const { data: li } = await supabaseService
-        .from('proposal_line_items')
-        .select(
-          'id, name, description, category, unit, quantity, unit_price, line_total, is_adder, sort_order'
-        )
-        .eq('proposal_id', proposalId)
-        .order('sort_order', { ascending: true })
-
-      line_items = (li || []).map((row) => ({
-        id: row.id,
-        name: row.name || 'Line item',
-        description: row.description ?? null,
-        category: row.category || 'general',
-        quantity: Number(row.quantity) || 0,
-        unit: row.unit || '',
-        unit_price: Number(row.unit_price) || 0,
-        line_total: Number(row.line_total) || 0,
-        is_adder: Boolean(row.is_adder),
-      }))
-    }
-
-    const proposalResolvedTotalSquares = proposalSquares
-      ? resolveProposalSoldRoofSquares(proposalSquares, line_items)
-      : null
-    const proposalResolvedMeasuredSquares = proposalSquares
-      ? resolveProposalMeasuredSquares(proposalSquares, line_items)
-      : null
-    const proposalResolvedWastePercent = proposalSquares
-      ? resolveProposalWastePercent(proposalSquares, line_items)
-      : null
-
-    const soldSqPositive =
-      proposalId != null
-        ? proposalResolvedTotalSquares
-        : typeof jobRowForSquares.sold_squares === 'number' && jobRowForSquares.sold_squares > 0
-          ? Number(jobRowForSquares.sold_squares)
-          : null
-    const soldSquaresFromMeasureRow =
-      proposalId == null &&
-      (jobRowForSquares as { sold_squares_from_measure?: boolean }).sold_squares_from_measure === true
-
-    const totalSquares =
-      soldSqPositive ?? (proposalId == null && legacyPositive ? projectLegacySq : null)
-    const totalSquaresSource: JobSoldScope['total_squares_source'] =
-      soldSqPositive != null && soldSquaresFromMeasureRow
-        ? 'roof_measure_total'
-        : soldSqPositive != null
-          ? 'proposal_enriched'
-          : proposalId == null && legacyPositive && projectLegacySq != null
-            ? 'project_legacy'
-            : null
-
-    const measureSelect =
-      'ridges_lf, valleys_lf, hips_lf, eaves_lf, rakes_lf, flashing_lf, step_flashing_lf, drip_edge_lf, penetration_count, source, raw_data, suggested_waste_percent'
-    let measurementRow: Parameters<typeof buildRoofMeasurementLinear>[0] = null
-
-    if (proposalId) {
-      const { data } = await supabaseService
-        .from('roof_measurements')
-        .select(measureSelect)
-        .eq('org_id', profile.org_id)
-        .eq('proposal_id', proposalId)
-        .order('updated_at', { ascending: false })
-        .limit(1)
-        .maybeSingle()
-      measurementRow = data
-    }
-    if (!measurementRow && resolvedOppId) {
-      const { data } = await supabaseService
-        .from('roof_measurements')
-        .select(measureSelect)
-        .eq('org_id', profile.org_id)
-        .eq('opportunity_id', resolvedOppId)
-        .order('updated_at', { ascending: false })
-        .limit(1)
-        .maybeSingle()
-      measurementRow = data
-    }
-    if (!measurementRow && jr.project_id) {
-      const { data } = await supabaseService
-        .from('roof_measurements')
-        .select(measureSelect)
-        .eq('org_id', profile.org_id)
-        .eq('project_id', jr.project_id)
-        .order('updated_at', { ascending: false })
-        .limit(1)
-        .maybeSingle()
-      measurementRow = data
-    }
-
-    const roofMeasurementLinear = buildRoofMeasurementLinear(measurementRow)
-    const proposalHasWaste = proposalId != null
-      ? proposalResolvedWastePercent != null && proposalResolvedWastePercent > 0
-      : typeof jobRowForSquares.sold_waste_percent === 'number' &&
-        Number(jobRowForSquares.sold_waste_percent) > 0
-    let measureSuggestedWasteOnly: number | null = null
-    if (measurementRow && !proposalHasWaste) {
-      measureSuggestedWasteOnly = positiveWastePercent(
-        (measurementRow as { suggested_waste_percent?: unknown }).suggested_waste_percent
-      )
-      if (measureSuggestedWasteOnly == null && measurementRow.raw_data && typeof measurementRow.raw_data === 'object') {
-        const raw = measurementRow.raw_data as Record<string, unknown>
-        measureSuggestedWasteOnly = positiveWastePercent(raw.suggested_waste)
-      }
-    }
-
-    const fromProposal =
-      proposalId != null ||
-      line_items.length > 0
-
-    const source: 'proposal' | 'project_legacy' | null = fromProposal
-      ? 'proposal'
-      : legacyPositive
-        ? 'project_legacy'
-        : null
-
-    const hasMeasurementsOnly =
-      (proposalId != null && proposalResolvedMeasuredSquares != null && proposalResolvedMeasuredSquares > 0) ||
-      (proposalId != null && proposalResolvedWastePercent != null && proposalResolvedWastePercent > 0) ||
-      (proposalId == null &&
-        ((typeof jobRowForSquares.measured_squares === 'number' && jobRowForSquares.measured_squares > 0) ||
-          (typeof jobRowForSquares.sold_waste_percent === 'number' && jobRowForSquares.sold_waste_percent > 0)))
-
-    if (
-      totalSquares != null ||
-      line_items.length > 0 ||
-      hasMeasurementsOnly ||
-      roofMeasurementLinear ||
-      measureSuggestedWasteOnly != null
-    ) {
-      soldScope = {
-        total_squares: totalSquares,
-        total_squares_source: totalSquaresSource,
-        measured_squares:
-          proposalId != null
-            ? proposalResolvedMeasuredSquares
-            : typeof jobRowForSquares.measured_squares === 'number' && jobRowForSquares.measured_squares > 0
-              ? jobRowForSquares.measured_squares
-              : null,
-        waste_percent:
-          proposalId != null
-            ? proposalResolvedWastePercent
-            : typeof jobRowForSquares.sold_waste_percent === 'number' && jobRowForSquares.sold_waste_percent > 0
-              ? jobRowForSquares.sold_waste_percent
-              : null,
-        measure_suggested_waste_percent: measureSuggestedWasteOnly,
-        source,
-        proposal_id: proposalId,
-        proposal_number,
-        line_items,
-        roof_measurement_linear: roofMeasurementLinear,
-        materials_extras: buildMaterialsExtras(measurementRow),
-      }
-    }
+    soldScope = await buildJobSoldScope({
+      admin: supabaseService,
+      orgId: profile.org_id,
+      job: jobRes.data,
+      // This page resolves the opportunity from the signed contract / address match before
+      // falling back to the project, which is richer than the shared default chain.
+      opportunityId: resolvedOppId,
+    })
   } catch {
     soldScope = null
   }

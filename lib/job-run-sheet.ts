@@ -14,7 +14,19 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 
+import {
+  resolveMaterialsCoverageOverrides,
+  type MaterialsCoverageOverrides,
+  type OrgMaterialsCoverageRow,
+} from '@/lib/materials-coverage-overrides'
+import {
+  findJobRoofMeasurementRow,
+  resolveJobOpportunityId,
+  resolveJobProposalId,
+} from '@/lib/job-sold-scope'
+import { MATERIALS_ORDER_STARTER_CUSHION_PERCENT } from '@/lib/materials-order-list'
 import { parseProjectReviewStored } from '@/lib/project-review'
+import { starterFromLinearFt } from '@/lib/starter-strip'
 
 export const RUN_SHEET_FIELD_KEYS = [
   'schedule_note',
@@ -179,31 +191,6 @@ export function headsUpBlocksToText(blocks: RunSheetHeadsUpBlock[]): string | nu
 }
 
 /**
- * Resolves the proposal backing this job, mirroring `/ops/jobs/[id]` precedence:
- * explicit link → accepted proposal → most recently accepted proposal on the project.
- */
-async function resolveProposalId(
-  admin: SupabaseClient,
-  orgId: string,
-  job: { linked_proposal_id: string | null; accepted_proposal_id: string | null; project_id: string | null }
-): Promise<string | null> {
-  const explicit = job.linked_proposal_id || job.accepted_proposal_id
-  if (explicit) return explicit
-  if (!job.project_id) return null
-
-  const { data } = await admin
-    .from('proposals')
-    .select('id')
-    .eq('org_id', orgId)
-    .eq('project_id', job.project_id)
-    .not('accepted_at', 'is', null)
-    .order('accepted_at', { ascending: false })
-    .limit(1)
-
-  return data?.[0]?.id ?? null
-}
-
-/**
  * Same lookup order as `/ops/jobs/[id]`: proposal → opportunity → project.
  *
  * The opportunity leg is not optional — in practice essentially every roof_measurements row is
@@ -214,28 +201,18 @@ async function resolveMeasurements(
   orgId: string,
   proposalId: string | null,
   opportunityId: string | null,
-  projectId: string | null
+  projectId: string | null,
+  coverage: MaterialsCoverageOverrides
 ): Promise<RunSheetMeasurement[]> {
   const columns =
     'total_squares, ridges_lf, hips_lf, valleys_lf, eaves_lf, rakes_lf, step_flashing_lf, drip_edge_lf, flashing_lf, predominant_pitch, raw_data'
 
-  const attempts: [string, string][] = []
-  if (proposalId) attempts.push(['proposal_id', proposalId])
-  if (opportunityId) attempts.push(['opportunity_id', opportunityId])
-  if (projectId) attempts.push(['project_id', projectId])
-
-  let row: Record<string, unknown> | null = null
-  for (const [column, value] of attempts) {
-    const { data } = await admin
-      .from('roof_measurements')
-      .select(columns)
-      .eq('org_id', orgId)
-      .eq(column, value)
-      .order('updated_at', { ascending: false })
-      .limit(1)
-    row = data?.[0] ?? null
-    if (row) break
-  }
+  const row = await findJobRoofMeasurementRow<Record<string, unknown>>(
+    admin,
+    orgId,
+    { proposalId, opportunityId, projectId },
+    columns
+  )
 
   if (!row) return []
 
@@ -253,48 +230,38 @@ async function resolveMeasurements(
   const wallFlashing =
     (positiveNumber(raw?.wall_flashing_lf) ?? 0) + (positiveNumber(pick('flashing_lf')) ?? 0)
 
-  const linear: [string, unknown][] = [
-    ['Ridge', pick('ridges_lf')],
-    ['Hip', pick('hips_lf')],
-    ['Valley', pick('valleys_lf')],
-    ['Eave', pick('eaves_lf')],
-    ['Rake', pick('rakes_lf')],
-    ['Step flash', pick('step_flashing_lf')],
-    ['Wall flash', wallFlashing],
-    ['Drip edge', pick('drip_edge_lf')],
-  ]
-  for (const [label, value] of linear) {
+  const pushLf = (label: string, value: unknown) => {
     const n = positiveNumber(value)
     if (n != null) out.push({ label, value: fmtLf(n) })
   }
-  return out
-}
 
-/** Opportunity behind this job, via the proposal or the project — needed for measurements. */
-async function resolveOpportunityId(
-  admin: SupabaseClient,
-  orgId: string,
-  proposalId: string | null,
-  projectId: string | null
-): Promise<string | null> {
-  if (proposalId) {
-    const { data } = await admin
-      .from('proposals')
-      .select('opportunity_id')
-      .eq('id', proposalId)
-      .maybeSingle()
-    if (data?.opportunity_id) return data.opportunity_id
+  pushLf('Ridge', pick('ridges_lf'))
+  pushLf('Hip', pick('hips_lf'))
+  pushLf('Valley', pick('valleys_lf'))
+  pushLf('Eave', pick('eaves_lf'))
+  pushLf('Rake', pick('rakes_lf'))
+
+  // Starter is a bundle count, not an LF, but the sheet doubles as the supplier order — so it
+  // rides here next to the eave/rake it comes from. Same helper + cushion as the materials order
+  // list, so the two can never quote the supplier different numbers.
+  const starter = starterFromLinearFt({
+    eaves_lf: positiveNumber(pick('eaves_lf')),
+    rakes_lf: positiveNumber(pick('rakes_lf')),
+    lfPerBundle: coverage.starterLfPerBundle,
+    cushionPercent: MATERIALS_ORDER_STARTER_CUSHION_PERCENT,
+  })
+  if (starter) {
+    out.push({
+      label: 'Starter',
+      value: `${starter.bundles} bundle${starter.bundles === 1 ? '' : 's'}`,
+    })
   }
-  if (projectId) {
-    const { data } = await admin
-      .from('projects')
-      .select('opportunity_id')
-      .eq('id', projectId)
-      .eq('org_id', orgId)
-      .maybeSingle()
-    if (data?.opportunity_id) return data.opportunity_id
-  }
-  return null
+
+  pushLf('Step flash', pick('step_flashing_lf'))
+  pushLf('Wall flash', wallFlashing)
+  pushLf('Drip edge', pick('drip_edge_lf'))
+
+  return out
 }
 
 function makeField(
@@ -346,8 +313,14 @@ export async function buildJobRunSheet(
   const project = first(job.project as any)
 
   const [orgRes, proposalId, overrides] = await Promise.all([
-    admin.from('orgs').select('name, phone').eq('id', orgId).maybeSingle(),
-    resolveProposalId(admin, orgId, {
+    admin
+      .from('orgs')
+      .select(
+        'name, phone, starter_lf_per_bundle, cap_lf_per_bundle, underlayment_sq_per_roll, ridge_vent_lf_per_piece, ridge_vent_end_setback_ft, ice_water_lf_per_roll'
+      )
+      .eq('id', orgId)
+      .maybeSingle(),
+    resolveJobProposalId(admin, orgId, {
       linked_proposal_id: job.linked_proposal_id,
       accepted_proposal_id: job.accepted_proposal_id,
       project_id: job.project_id,
@@ -373,10 +346,17 @@ export async function buildJobRunSheet(
     lineItems = itemsRes.data ?? []
   }
 
-  const opportunityId = await resolveOpportunityId(admin, orgId, proposalId, job.project_id)
+  const opportunityId = await resolveJobOpportunityId(admin, orgId, proposalId, job.project_id)
 
   const [measurements, notesRes] = await Promise.all([
-    resolveMeasurements(admin, orgId, proposalId, opportunityId, job.project_id),
+    resolveMeasurements(
+      admin,
+      orgId,
+      proposalId,
+      opportunityId,
+      job.project_id,
+      resolveMaterialsCoverageOverrides(orgRes.data as OrgMaterialsCoverageRow | null)
+    ),
     admin
       .from('production_job_notes')
       .select('note')

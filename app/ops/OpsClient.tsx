@@ -403,16 +403,26 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
           </div>
           <div className="flex items-center gap-3">
             <Link
+              href="/ops/schedule"
+              className="px-4 py-2 border border-gray-300 bg-white rounded-lg hover:bg-gray-50 text-sm font-medium text-gray-700"
+            >
+              🔨 Install Schedule
+            </Link>
+            <Link
               href="/ops/calendar"
               className="px-4 py-2 border border-gray-300 bg-white rounded-lg hover:bg-gray-50 text-sm font-medium text-gray-700"
             >
               📅 Calendar View
             </Link>
+            {/* Points at subs, not crews. The in-house crew path is retired (1 dead row,
+                0 jobs) and installs go to subcontractors — and this is where the
+                scheduling email that actually notifies a crew gets entered, which
+                the board had no route to at all. */}
             <Link
-              href="/admin/crews"
+              href="/admin/subs"
               className="px-4 py-2 border border-gray-300 bg-white rounded-lg hover:bg-gray-50 text-sm font-medium text-gray-700"
             >
-              👷 Manage Crews
+              👷 Manage Subs
             </Link>
           </div>
         </div>
@@ -593,7 +603,7 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
                     {/* Crew + date */}
                     <div className="flex items-center justify-between text-xs text-gray-500 mb-3">
                       <span className="truncate">
-                        {job.assigned_crew?.name || job.assigned_sub?.company_name || 'No crew assigned'}
+                        {job.assigned_crew?.name || job.assigned_sub?.company_name || 'Not assigned'}
                       </span>
                       <span className={`shrink-0 ml-2 font-medium ${isPastDue ? 'text-orange-600' : 'text-gray-700'}`}>
                         {job.scheduled_date

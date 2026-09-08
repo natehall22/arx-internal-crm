@@ -64,6 +64,8 @@ interface JobFileWorkspaceCardProps {
   registerOpenCostAttachmentShortcut?: (openPicker: (() => void) | null) => void
   registerOpenAddCostShortcut?: (openForm: (() => void) | null) => void
   dealerFeeAmount?: number | null
+  /** Total of real (non-dealer-fee) cost lines, so the Financials card can say they exist. */
+  onCostLinesTotalChange?: (total: number) => void
 }
 
 type StatusMessage = {
@@ -149,6 +151,7 @@ export default function JobFileWorkspaceCard({
   registerOpenCostAttachmentShortcut,
   registerOpenAddCostShortcut,
   dealerFeeAmount,
+  onCostLinesTotalChange,
 }: JobFileWorkspaceCardProps) {
   const supabase = useMemo(() => createClientBrowser(), [])
 
@@ -275,13 +278,24 @@ export default function JobFileWorkspaceCard({
           data: null,
           error: { message: error?.message || 'Failed to load documents', code: null },
         })),
-      supabase
-        .from('job_cost_lines')
-        .select('id, description, amount, cost_type, status, approved, vendors(name)')
-        .eq('job_id', jobId)
-        .is('deleted_at', null)
-        .order('created_at', { ascending: false })
-        .limit(20),
+      // Authenticated route, not the browser/anon client: the session lives in an
+      // httpOnly cookie the browser client cannot read, so its reads run as anon
+      // and this table's org-scoped RLS returned nothing on every job.
+      fetch(`/api/ops/jobs/${jobId}/cost-lines`, { method: 'GET', cache: 'no-store' })
+        .then(async (response) => {
+          const data = await response.json().catch(() => ({}))
+          if (!response.ok) {
+            return {
+              data: null,
+              error: { message: data?.error || 'Failed to load cost lines', code: data?.code || null },
+            }
+          }
+          return { data: (data?.costLines || []) as JobCostLineQueryRow[], error: null }
+        })
+        .catch((error: any) => ({
+          data: null,
+          error: { message: error?.message || 'Failed to load cost lines', code: null },
+        })),
     ])
 
     if (aliveRef && !aliveRef.current) return
@@ -345,6 +359,15 @@ export default function JobFileWorkspaceCard({
           ]
         : normalizedCostLines
     setCostLines(displayCostLines)
+    // Report only REAL logged cost lines upward. The synthetic/persisted
+    // "Lender / dealer fee" rows are excluded because the job page's profit math
+    // already subtracts `dealer_fee_amount` from its own column — counting them
+    // here would invent a discrepancy that does not exist.
+    onCostLinesTotalChange?.(
+      displayCostLines
+        .filter((line) => !isSystemCostLine(line))
+        .reduce((sum, line) => sum + (Number(line.amount) || 0), 0)
+    )
     const firstAttachableLine = displayCostLines.find((line) => !isSystemCostLine(line))
     setSelectedCostLineId((prev) => {
       if (prev && displayCostLines.some((line) => line.id === prev && !isSystemCostLine(line))) return prev

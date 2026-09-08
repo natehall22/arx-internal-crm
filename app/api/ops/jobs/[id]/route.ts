@@ -63,11 +63,16 @@ export async function PATCH(
     const body = await request.json()
 
     // Whitelist updateable fields to prevent mass-assignment
+    // Scheduling fields are deliberately NOT here. `scheduled_date`,
+    // `scheduled_time_start`, `estimated_duration_hours`, `assigned_sub_id` and
+    // `assigned_crew_id` are written only by POST /api/ops/install-schedule/assign,
+    // which also syncs the sub's Google invite and guards the status transition —
+    // neither of which this route does. Writing them here would schedule a job
+    // and never tell the crew. Verified 2026-09-06: no caller in the app or the
+    // iOS client sends them to this route.
     const ALLOWED_FIELDS = new Set([
       'status', 'materials_status', 'materials_ordered_at',
-      'started_at', 'completed_at', 'scheduled_date',
-      'scheduled_time_start', 'estimated_duration_hours',
-      'assigned_crew_id', 'assigned_sub_id',
+      'started_at', 'completed_at',
       'labor_cost', 'internal_notes',
       'deposit_required_percent', 'finance_submitted_at',
       'allow_close_with_balance', 'close_balance_reason',
