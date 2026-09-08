@@ -127,8 +127,14 @@ all-day events. Three environment variables, and they are NOT interchangeable:
 
 | Var | What it is |
 |---|---|
-| `GOOGLE_INSTALL_CALENDAR_ID` | The calendar install events are **written to**. Unset = the scheduling user's own `primary`, so installs scatter across staff calendars. Set it to one ARX-owned calendar. |
+| `GOOGLE_INSTALL_CALENDAR_ID` | Legacy fallback for the calendar installs are written to. Prefer `orgs.install_scheduling_calendar_id` (below), which needs no deploy. |
 | `CRON_SECRET` | Unrelated; existing. |
+
+**`info@arxroofing.com` cannot be the scheduling account.** It is the
+customer-facing address (contracts, warranty claims, `lib/crm-email-from.ts`) but
+is an ALIAS, not a Workspace mailbox — it cannot own a calendar or hold a Google
+token, and there is no `users` row for it. Confirmed with Nathan 2026-09-08; do
+not re-propose it without checking that first.
 
 **Which Google account installs act as** is `orgs.install_scheduling_user_id`, a
 column rather than an env var so it changes without a deploy (set to Nathan
@@ -142,6 +148,14 @@ share with exactly one address and RSVP is read off events that account owns.
 Unset, it falls back to the acting user. The subs admin page prints that same
 account's email in its share instructions, resolved server-side, so what crews
 are told cannot drift from what the server reads.
+
+**Which calendar** is `orgs.install_scheduling_calendar_id`, resolved in the same
+call (`resolveInstallCalendarConfig`) because nothing ever needs the account
+without the calendar. NULL falls back to `GOOGLE_INSTALL_CALENDAR_ID`, then that
+account's `primary` — i.e. someone's personal calendar, which is what a dedicated
+install calendar exists to avoid. Note `production_jobs.install_calendar_id` is a
+different thing: it records where a specific job's event actually went, so an
+update or delete still finds it after this setting changes.
 
 Subs do **not** OAuth. They share their calendar once at Google's "See only
 free/busy (hide details)" — ARX sees busy blocks, never event details. A sub who

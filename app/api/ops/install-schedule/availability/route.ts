@@ -5,7 +5,7 @@ import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import { resolveOpsAccess } from '@/lib/ops-access'
 import { parseScheduleWindow } from '@/lib/schedule-window'
-import { resolveInstallCalendarId, resolveInstallGoogleToken } from '@/lib/install-calendar'
+import { resolveInstallCalendarConfig } from '@/lib/install-calendar'
 import { CALENDAR_BUSINESS_TZ } from '@/lib/calendar-business-tz'
 import {
   getFreeBusyForCalendars,
@@ -79,7 +79,11 @@ export async function GET(request: Request) {
   // Same account installs are written from — see `resolveInstallGoogleToken`.
   // Reads and writes MUST act as one account: crews share their free/busy with a
   // single address, and RSVP is read off events that account owns.
-  const token = await resolveInstallGoogleToken(adminClient, orgId, authUser.id)
+  const { token, calendarId: installCalendarId } = await resolveInstallCalendarConfig(
+    adminClient,
+    orgId,
+    authUser.id
+  )
 
   // No connected Google account anywhere degrades gracefully — not an error,
   // just nothing to report, same as install scheduling itself.
@@ -187,7 +191,6 @@ export async function GET(request: Request) {
         assigned_sub_id: string | null
       }[]
       if (jobs.length > 0) {
-        const installCalendarId = resolveInstallCalendarId()
         const events = await listCalendarEventsInRange(
           token,
           installCalendarId,

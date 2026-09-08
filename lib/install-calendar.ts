@@ -81,55 +81,77 @@ export function installJobPageUrl(jobId: string, appUrl?: string | null): string
 }
 
 /**
- * Which Google account install scheduling ACTS AS — for writing the event and
- * for reading crews' free/busy.
+ * Everything install scheduling needs to talk to Google: WHICH ACCOUNT it acts
+ * as, and WHICH OF ITS CALENDARS events land on. One org read answers both,
+ * because there is no case where a caller wants one without the other.
  *
- * Appointment scheduling already answers this per-user: a closer connects their
- * own Google on `/admin/scheduling` and their appointments land on their own
- * calendar. This reuses that exact plumbing (`user_google_tokens`,
- * `getValidAccessToken`) — the only thing installs need on top is a different
- * answer to *which* user, because an install belongs to the company and a
- * subcontractor, not to whoever happened to click.
+ * Appointment scheduling already answers "which account" per-user: a closer
+ * connects their own Google on `/admin/scheduling` and their appointments land
+ * on their own calendar. This reuses that exact plumbing (`user_google_tokens`,
+ * `getValidAccessToken`) — installs just need a different answer to *which*
+ * user, because an install belongs to the company and a subcontractor rather
+ * than to whoever happened to click schedule.
  *
- * `orgs.install_scheduling_user_id` nominates that account. Using it for writes
- * as well as reads matters for three reasons:
+ * Using one nominated account for writes AND free/busy reads matters because:
  *
- *   1. Crews share their calendar with exactly one address. If reads came from
- *      that account but writes from whoever clicked, the two would never line up
- *      and RSVP lookups would find nothing.
+ *   1. Crews share their calendar with exactly one address. Reads from that
+ *      account and writes from the clicker would never line up, and RSVP
+ *      lookups would silently find nothing.
  *   2. Every install lands on ONE calendar instead of scattering across staff
  *      primaries, so the schedule survives someone leaving.
- *   3. An ops user who has never connected Google can still schedule, and the
- *      crew still gets the invite. Previously that produced a booked job that
- *      silently notified nobody.
+ *   3. An ops user who has never connected Google can still schedule and the
+ *      crew still gets the invite. Previously that booked a job and notified
+ *      nobody at all.
  *
- * Falls back to the acting user's own token when unset, or when the nominated
- * account has not connected Google — so this works with no configuration.
+ * Both settings fall back safely: no nominated account uses the acting user's
+ * own token, and no nominated calendar uses `GOOGLE_INSTALL_CALENDAR_ID` and
+ * then that account's `primary`.
  */
-export async function resolveInstallGoogleToken(
+export type InstallCalendarConfig = {
+  token: string | null
+  calendarId: string
+}
+
+export async function resolveInstallCalendarConfig(
   adminClient: SupabaseClient,
   orgId: string,
   fallbackUserId: string
-): Promise<string | null> {
+): Promise<InstallCalendarConfig> {
+  let nominatedUserId: string | null = null
+  let nominatedCalendarId: string | null = null
+
   try {
     const { data: org } = await adminClient
       .from('orgs')
-      .select('install_scheduling_user_id')
+      .select('install_scheduling_user_id, install_scheduling_calendar_id')
       .eq('id', orgId)
       .maybeSingle()
-    const nominated = org?.install_scheduling_user_id
-    if (nominated) {
-      const token = await getValidAccessToken(adminClient, nominated)
-      if (token) return token
-    }
+    nominatedUserId = org?.install_scheduling_user_id ?? null
+    nominatedCalendarId = org?.install_scheduling_calendar_id ?? null
   } catch (e) {
-    console.warn('resolveInstallGoogleToken: nominated account lookup failed', e)
+    console.warn('resolveInstallCalendarConfig: org lookup failed, falling back', e)
   }
-  try {
-    return await getValidAccessToken(adminClient, fallbackUserId)
-  } catch (e) {
-    console.warn('resolveInstallGoogleToken: fallback token lookup failed', e)
-    return null
+
+  let token: string | null = null
+  if (nominatedUserId) {
+    try {
+      token = await getValidAccessToken(adminClient, nominatedUserId)
+    } catch (e) {
+      console.warn('resolveInstallCalendarConfig: nominated account token failed', e)
+    }
+  }
+  if (!token) {
+    try {
+      token = await getValidAccessToken(adminClient, fallbackUserId)
+    } catch (e) {
+      console.warn('resolveInstallCalendarConfig: fallback token failed', e)
+      token = null
+    }
+  }
+
+  return {
+    token,
+    calendarId: nominatedCalendarId?.trim() || resolveInstallCalendarId(),
   }
 }
 
@@ -334,7 +356,11 @@ export async function syncInstallToCalendar(
     return { outcome: 'failed', eventId: job.install_google_event_id, calendarId: job.install_calendar_id, error: message }
   }
 
-  const token = await resolveInstallGoogleToken(adminClient, job.org_id, params.schedulingUserId)
+  const { token, calendarId: defaultCalendarId } = await resolveInstallCalendarConfig(
+    adminClient,
+    job.org_id,
+    params.schedulingUserId
+  )
 
   if (!token) {
     // Not an error — most ops users have not connected Google, and the
@@ -359,7 +385,9 @@ export async function syncInstallToCalendar(
     appUrl: params.appUrl,
   })
 
-  const calendarId = job.install_calendar_id || resolveInstallCalendarId()
+  // The job's own stored calendar wins so an update or delete finds the event
+  // it actually created, even if the org setting has changed since.
+  const calendarId = job.install_calendar_id || defaultCalendarId
 
   try {
     let eventId = job.install_google_event_id
@@ -427,7 +455,7 @@ export async function removeInstallFromCalendar(
   }
 
   let warning: string | null = null
-  const token = await resolveInstallGoogleToken(
+  const { token, calendarId: defaultCalendarId } = await resolveInstallCalendarConfig(
     adminClient,
     params.job.org_id,
     params.schedulingUserId
@@ -440,7 +468,7 @@ export async function removeInstallFromCalendar(
       await deleteCalendarEvent(
         token,
         job.install_google_event_id,
-        job.install_calendar_id || resolveInstallCalendarId(),
+        job.install_calendar_id || defaultCalendarId,
         // The sub is an attendee — cancelling without telling them means a crew
         // drives to a job that is no longer theirs.
         INSTALL_SEND_UPDATES
