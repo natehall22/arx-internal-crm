@@ -297,6 +297,139 @@ export async function getFreeBusy(
 }
 
 /**
+ * Per-calendar free/busy result for {@link getFreeBusyForCalendars}: either the
+ * calendar's busy blocks, or the error Google returned for it (e.g. `notFound`
+ * when it was never shared with this account, `forbidden` when access was
+ * revoked). Callers MUST branch on `'error' in result` before reading `busy` —
+ * a calendar that errored has no `busy` array, and must never be treated as
+ * "no busy blocks found" (i.e. free). See `lib/sub-availability.ts`, which
+ * turns this into a per-sub share status instead of an availability answer.
+ */
+export type FreeBusyCalendarResult = { busy: FreeBusySlot[] } | { error: string }
+
+/**
+ * Free/busy for a specific, caller-supplied list of calendars — unlike
+ * {@link getFreeBusy}, which ignores its `calendarId` argument and always
+ * queries every calendar the token owner personally owns. This is for reading
+ * OTHER people's calendars that were explicitly shared with the token owner
+ * (sub-contractor free/busy shares), where querying "all of my calendars"
+ * would be wrong.
+ *
+ * Returns one result per requested calendar id — never throws per-calendar;
+ * a `notFound`/`forbidden` from Google surfaces as `{ error }` on that one
+ * entry rather than failing the whole batch, so one broken share doesn't hide
+ * every other sub's availability.
+ */
+export async function getFreeBusyForCalendars(
+  accessToken: string,
+  timeMin: Date,
+  timeMax: Date,
+  calendarIds: string[]
+): Promise<Record<string, FreeBusyCalendarResult>> {
+  const uniqueIds = Array.from(new Set(calendarIds.map((id) => id.trim()).filter(Boolean)))
+  if (uniqueIds.length === 0) return {}
+
+  const response = await fetch(`${GOOGLE_CALENDAR_API}/freeBusy`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      timeMin: timeMin.toISOString(),
+      timeMax: timeMax.toISOString(),
+      items: uniqueIds.map((id) => ({ id })),
+    }),
+  })
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => '')
+    console.error(`getFreeBusyForCalendars: API error ${response.status}:`, errorText)
+    throw new Error(`Failed to get free/busy info: ${response.status}`)
+  }
+
+  const data = await response.json()
+  const result: Record<string, FreeBusyCalendarResult> = {}
+
+  for (const id of uniqueIds) {
+    const calendarData = data.calendars?.[id]
+    const errors = calendarData?.errors as { domain?: string; reason?: string }[] | undefined
+
+    if (errors && errors.length > 0) {
+      // Prefer `reason` (e.g. "notFound", "forbidden") — that's what
+      // `lib/sub-availability.ts` pattern-matches to tell "never shared" apart
+      // from "share was revoked" apart from a generic error.
+      result[id] = { error: errors[0]?.reason || errors[0]?.domain || 'unknown_error' }
+      continue
+    }
+
+    if (!calendarData) {
+      // Google omitted this calendar from the response entirely (has happened
+      // for malformed ids). Treat as an error, not as "zero busy slots" — we
+      // genuinely don't know, and reporting free would be worse than reporting
+      // unknown.
+      result[id] = { error: 'no_response' }
+      continue
+    }
+
+    result[id] = { busy: (calendarData.busy || []) as FreeBusySlot[] }
+  }
+
+  return result
+}
+
+/** One event as returned by {@link listCalendarEventsInRange} — only the fields that route needs. */
+export interface CalendarEventListItem {
+  id: string
+  attendees?: { email: string; responseStatus?: string }[]
+}
+
+/**
+ * List events on `calendarId` overlapping `[timeMinIso, timeMaxIso)`, paging
+ * through `nextPageToken` until exhausted. Used to read RSVP status off OUR
+ * OWN install events in one call per window instead of one `events.get` per
+ * job — see `resolveInstallCalendarId()` in `lib/install-calendar.ts` for
+ * which calendar that is. Requires no permission beyond the token owner's own
+ * calendar access, since these are events ARX created.
+ */
+export async function listCalendarEventsInRange(
+  accessToken: string,
+  calendarId: string,
+  timeMinIso: string,
+  timeMaxIso: string
+): Promise<CalendarEventListItem[]> {
+  const items: CalendarEventListItem[] = []
+  let pageToken: string | undefined
+
+  do {
+    const url = new URL(calendarEventsBase(calendarId))
+    url.searchParams.set('timeMin', timeMinIso)
+    url.searchParams.set('timeMax', timeMaxIso)
+    url.searchParams.set('singleEvents', 'true')
+    url.searchParams.set('maxResults', '2500')
+    if (pageToken) url.searchParams.set('pageToken', pageToken)
+
+    const response = await fetch(url.toString(), {
+      headers: { 'Authorization': `Bearer ${accessToken}` },
+    })
+
+    if (!response.ok) {
+      const detail = await response.text().catch(() => '')
+      console.error('listCalendarEventsInRange: API error', response.status, detail.slice(0, 500))
+      throw new GoogleCalendarError(`Failed to list events (${response.status})`, response.status)
+    }
+
+    const data = await response.json()
+    for (const item of data.items || []) {
+      if (item?.id) items.push({ id: item.id, attendees: item.attendees })
+    }
+    pageToken = data.nextPageToken || undefined
+  } while (pageToken)
+
+  return items
+}
+
+/**
  * Check if a time slot is available
  */
 export async function isSlotAvailable(

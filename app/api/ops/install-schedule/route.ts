@@ -3,31 +3,11 @@ import { NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import { resolveOpsAccess } from '@/lib/ops-access'
+import { parseScheduleWindow } from '@/lib/schedule-window'
 import {
   enrichOpsJobsWithMeasureSoldSquaresFallback,
   enrichOpsJobsWithSoldSquares,
 } from '@/lib/ops-board-sold-squares'
-
-/** Board window cap — matches the "cap at 90 days" instruction; keeps the query bounded on a live table. */
-const MAX_WINDOW_DAYS = 90
-
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
-
-function isValidDateString(value: unknown): value is string {
-  return typeof value === 'string' && DATE_RE.test(value)
-}
-
-/** Inclusive day count between two `YYYY-MM-DD` strings, computed on the date parts only (no `Date`/TZ round-trip). */
-function daysBetweenDateOnly(startStr: string, endStr: string): number {
-  const [sy, sm, sd] = startStr.split('-').map(Number)
-  const [ey, em, ed] = endStr.split('-').map(Number)
-  // UTC constructors here are safe: both sides are built the same way purely to diff two
-  // calendar dates, and the result is discarded as soon as we have a day count — no calendar
-  // date is ever read back out of these Date objects.
-  const startUtc = Date.UTC(sy, (sm || 1) - 1, sd || 1)
-  const endUtc = Date.UTC(ey, (em || 1) - 1, ed || 1)
-  return Math.round((endUtc - startUtc) / 86_400_000)
-}
 
 /** Job columns the install-schedule board needs, plus what `enrichOpsJobsWith*SoldSquares` require to resolve squares. */
 const INSTALL_SCHEDULE_JOB_COLUMNS = `
@@ -98,26 +78,11 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  const { searchParams } = new URL(request.url)
-  const start = searchParams.get('start')
-  const end = searchParams.get('end')
-
-  if (!isValidDateString(start) || !isValidDateString(end)) {
-    return NextResponse.json(
-      { error: 'start and end are required as YYYY-MM-DD' },
-      { status: 400 }
-    )
+  const parsed = parseScheduleWindow(new URL(request.url).searchParams)
+  if (!parsed.ok) {
+    return NextResponse.json({ error: parsed.error }, { status: 400 })
   }
-  if (end < start) {
-    return NextResponse.json({ error: 'end must not be before start' }, { status: 400 })
-  }
-  const windowDays = daysBetweenDateOnly(start, end)
-  if (windowDays > MAX_WINDOW_DAYS) {
-    return NextResponse.json(
-      { error: `Window too large — max ${MAX_WINDOW_DAYS} days` },
-      { status: 400 }
-    )
-  }
+  const { start, end } = parsed.window
 
   const orgId = profile.org_id
 

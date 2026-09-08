@@ -18,12 +18,18 @@ function isValidOptionalEmail(value: unknown): boolean {
 // tenant), portal_access_token, user_id, or a raw `active` flip outside the
 // normal toggle path. Deliberately excludes id, org_id, user_id,
 // portal_access_token, and created/updated audit columns.
+//
+// `calendar_share_verified_at` is deliberately NOT here even though
+// `scheduling_calendar_id` is: it's system-written (set by the free/busy
+// read job, see the availability route owned elsewhere), and a client must
+// not be able to fake "connected" by PATCHing it directly.
 const ALLOWED_FIELDS = new Set([
   'company_name',
   'contact_name',
   'phone',
   'email',
   'scheduling_email',
+  'scheduling_calendar_id',
   'address',
   'city',
   'state',
@@ -102,6 +108,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Scheduling email must be a valid email address' }, { status: 400 })
     }
 
+    if (!isValidOptionalEmail(body.scheduling_calendar_id)) {
+      return NextResponse.json({ error: 'Calendar address must be a valid email address' }, { status: 400 })
+    }
+
     const subData = {
       org_id: profile.org_id,
       company_name: body.company_name,
@@ -109,6 +119,7 @@ export async function POST(request: NextRequest) {
       phone: body.phone || null,
       email: body.email || null,
       scheduling_email: body.scheduling_email || null,
+      scheduling_calendar_id: body.scheduling_calendar_id || null,
       address: body.address || null,
       city: body.city || null,
       state: body.state || null,
@@ -174,6 +185,10 @@ export async function PATCH(request: NextRequest) {
 
     if ('scheduling_email' in updates && !isValidOptionalEmail(updates.scheduling_email)) {
       return NextResponse.json({ error: 'Scheduling email must be a valid email address' }, { status: 400 })
+    }
+
+    if ('scheduling_calendar_id' in updates && !isValidOptionalEmail(updates.scheduling_calendar_id)) {
+      return NextResponse.json({ error: 'Calendar address must be a valid email address' }, { status: 400 })
     }
 
     const { data, error } = await supabase

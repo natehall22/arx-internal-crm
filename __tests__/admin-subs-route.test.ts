@@ -159,6 +159,16 @@ describe('POST /api/admin/subs', () => {
     expect(supabase.from).not.toHaveBeenCalled()
   })
 
+  it('rejects an invalid scheduling_calendar_id', async () => {
+    mockRequireAuthApi.mockResolvedValue(adminAuth)
+    const supabase = mockSupabaseQueues({})
+    mockCreateServiceClient.mockReturnValue(supabase as never)
+
+    const res = await POST(makeJsonRequest({ company_name: 'Acme', scheduling_calendar_id: 'not-an-email' }))
+    expect(res.status).toBe(400)
+    expect(supabase.from).not.toHaveBeenCalled()
+  })
+
   it('inserts with org_id taken from the caller profile, not the request body', async () => {
     mockRequireAuthApi.mockResolvedValue(regionalManagerAuth)
     const insertedSub = { id: 'sub-1', org_id: 'org-1', company_name: 'Acme Roofing' }
@@ -243,6 +253,31 @@ describe('PATCH /api/admin/subs', () => {
     expect(updateArg.id).toBeUndefined()
   })
 
+  it('strips calendar_share_verified_at from a PATCH body (system-written, not client-settable)', async () => {
+    mockRequireAuthApi.mockResolvedValue(adminAuth)
+    const updatedSub = { id: 'sub-1', org_id: 'org-1', scheduling_calendar_id: 'crew@example.com' }
+    const supabase = mockSupabaseQueues({
+      sub_contractors: [{ data: updatedSub }],
+    })
+    mockCreateServiceClient.mockReturnValue(supabase as never)
+
+    const res = await PATCH(
+      makeJsonRequest({
+        id: 'sub-1',
+        scheduling_calendar_id: 'crew@example.com',
+        calendar_share_verified_at: '2026-09-08T00:00:00Z', // fake a verified share — must be dropped
+      })
+    )
+    const body = await res.json()
+    expect(res.status).toBe(200)
+    expect(body.sub).toEqual(updatedSub)
+
+    const builder = supabase._builders.sub_contractors[0]
+    const updateArg = (builder.update as jest.Mock).mock.calls[0][0]
+    expect(updateArg).toEqual({ scheduling_calendar_id: 'crew@example.com' })
+    expect(updateArg.calendar_share_verified_at).toBeUndefined()
+  })
+
   it('allows the whitelisted active toggle used by the deactivate/activate button', async () => {
     mockRequireAuthApi.mockResolvedValue(adminAuth)
     const updatedSub = { id: 'sub-1', org_id: 'org-1', active: false }
@@ -278,6 +313,16 @@ describe('PATCH /api/admin/subs', () => {
     mockCreateServiceClient.mockReturnValue(supabase as never)
 
     const res = await PATCH(makeJsonRequest({ id: 'sub-1', scheduling_email: 'not-an-email' }))
+    expect(res.status).toBe(400)
+    expect(supabase.from).not.toHaveBeenCalled()
+  })
+
+  it('rejects an invalid scheduling_calendar_id in updates', async () => {
+    mockRequireAuthApi.mockResolvedValue(adminAuth)
+    const supabase = mockSupabaseQueues({})
+    mockCreateServiceClient.mockReturnValue(supabase as never)
+
+    const res = await PATCH(makeJsonRequest({ id: 'sub-1', scheduling_calendar_id: 'not-an-email' }))
     expect(res.status).toBe(400)
     expect(supabase.from).not.toHaveBeenCalled()
   })

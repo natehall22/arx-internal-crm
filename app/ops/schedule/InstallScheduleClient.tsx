@@ -50,6 +50,36 @@ interface InstallScheduleResponse {
 type CalendarSyncResult = 'synced' | 'no_token' | 'failed'
 
 /* ------------------------------------------------------------------------ *
+ * Sub calendar availability (GET .../install-schedule/availability) — a
+ * SEPARATE, best-effort fetch. Nathan's call: warn, never block. Subs share
+ * "free/busy only" and work for other GCs too, so their calendar is a signal,
+ * not the truth. Everything below degrades to "no signal" rather than
+ * throwing, since this must never break or delay the board itself.
+ * ------------------------------------------------------------------------ */
+
+type ShareStatus = 'ok' | 'not_configured' | 'not_shared' | 'error'
+type RsvpStatus = 'accepted' | 'declined' | 'tentative' | 'needsAction' | null
+
+interface SubAvailability {
+  shareStatus: ShareStatus
+  busyDates: Set<string>
+}
+
+interface AvailabilityState {
+  source: 'connected' | 'no_token'
+  subs: Map<string, SubAvailability>
+  rsvp: Record<string, RsvpStatus>
+}
+
+/** Raw shape of the availability response, parsed defensively — it's owned by
+ *  another route and fetched off the critical path. */
+interface RawAvailabilityResponse {
+  source?: string
+  subs?: { id?: string; shareStatus?: string; busyDates?: unknown }[]
+  rsvp?: Record<string, string | null>
+}
+
+/* ------------------------------------------------------------------------ *
  * Pure calendar-day math. `scheduled_date` / `sold_at` are bare date strings —
  * this codebase has already shipped one double-timezone bug from running a
  * bare date through `new Date(...)`. Every helper below works on the
@@ -133,6 +163,60 @@ function formatJobType(jobType: string): string {
     .replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
+const VALID_SHARE_STATUSES: ShareStatus[] = ['ok', 'not_configured', 'not_shared', 'error']
+const VALID_RSVP_STATUSES: Exclude<RsvpStatus, null>[] = ['accepted', 'declined', 'tentative', 'needsAction']
+
+/** Defensive parse of the availability response — a malformed field just
+ *  degrades that one item to "no signal" instead of throwing and losing the
+ *  whole board. `null` in (fetch failed / 404 / bad JSON) means `null` out. */
+function parseAvailability(data: RawAvailabilityResponse | null): AvailabilityState | null {
+  if (!data) return null
+  const subsMap = new Map<string, SubAvailability>()
+  if (Array.isArray(data.subs)) {
+    for (const s of data.subs) {
+      if (!s || typeof s.id !== 'string') continue
+      const shareStatus = VALID_SHARE_STATUSES.includes(s.shareStatus as ShareStatus)
+        ? (s.shareStatus as ShareStatus)
+        : 'error'
+      const busyDates = new Set(
+        Array.isArray(s.busyDates) ? s.busyDates.filter((d): d is string => typeof d === 'string') : []
+      )
+      subsMap.set(s.id, { shareStatus, busyDates })
+    }
+  }
+  const rsvp: Record<string, RsvpStatus> = {}
+  if (data.rsvp && typeof data.rsvp === 'object') {
+    for (const [jobId, v] of Object.entries(data.rsvp)) {
+      rsvp[jobId] = VALID_RSVP_STATUSES.includes(v as Exclude<RsvpStatus, null>) ? (v as RsvpStatus) : null
+    }
+  }
+  return {
+    source: data.source === 'connected' ? 'connected' : 'no_token',
+    subs: subsMap,
+    rsvp,
+  }
+}
+
+/** Which day(s) of an `installDays`-long span starting `startIso` the sub's
+ *  own calendar shows busy — used only to decide whether to warn before an
+ *  assign, never to block it. */
+function busyDatesInRange(sub: SubAvailability | undefined, startIso: string, installDays: number): string[] {
+  if (!sub || sub.busyDates.size === 0) return []
+  const out: string[] = []
+  for (let i = 0; i < installDays; i++) {
+    const d = addDaysISO(startIso, i)
+    if (sub.busyDates.has(d)) out.push(d)
+  }
+  return out
+}
+
+function formatBusyDatesList(dates: string[]): string {
+  const formatted = dates.map((d) => formatShortDate(d))
+  if (formatted.length <= 1) return formatted[0] ?? ''
+  if (formatted.length === 2) return `${formatted[0]} and ${formatted[1]}`
+  return `${formatted.slice(0, -1).join(', ')}, and ${formatted[formatted.length - 1]}`
+}
+
 // A 2-week window looked "at a glance" but wasn't — at a typical desktop
 // width only ~8 of 14 columns fit before horizontal scroll anyway, and the
 // narrow columns that resulted truncated the job chip text down to the job
@@ -153,6 +237,17 @@ const LABEL_COL_W = 200
 // text still fits in the narrower column.
 const DAY_COL_W = 128
 const LANE_HEIGHT = 44
+
+/** Subdued diagonal hatch for a day the sub's own calendar shows busy.
+ *  Layered as a background-image (not a solid fill), so it stays distinct
+ *  from the weekend tint (solid `bg-[#f7f6f2]`) and the today ring (indigo
+ *  outline) it can co-occur with, and never reads as a booked job — job
+ *  chips are solid-bordered blocks positioned in their own lane, not a cell
+ *  tint. */
+const BUSY_HATCH_STYLE: React.CSSProperties = {
+  backgroundImage:
+    'repeating-linear-gradient(135deg, rgba(87,87,79,0.16) 0px, rgba(87,87,79,0.16) 3px, transparent 3px, transparent 11px)',
+}
 
 /* ------------------------------------------------------------------------ *
  * Stable per-sub colour so the board is scannable at a glance.
@@ -209,6 +304,18 @@ interface DragPayload {
   installDays?: number
 }
 
+/** An assign that's paused for the "sub shows busy" confirm — set by
+ *  `attemptAssign`, resolved either by `performAssign` (Schedule anyway) or
+ *  by being cleared (Pick another day / Esc). */
+interface PendingAssignConfirm {
+  jobId: string
+  subId: string
+  subName: string
+  dateIso: string
+  installDays: 1 | 2
+  busyDates: string[]
+}
+
 export default function InstallScheduleClient() {
   const [windowStart, setWindowStart] = useState<string>(() => startOfWeekISO(todayISO()))
   const [subs, setSubs] = useState<ScheduleSub[]>([])
@@ -222,6 +329,12 @@ export default function InstallScheduleClient() {
   const [placingInstallDays, setPlacingInstallDays] = useState<1 | 2>(1)
   const [assigning, setAssigning] = useState(false)
   const [dragOverCell, setDragOverCell] = useState<{ subId: string; dateIso: string } | null>(null)
+
+  // Sub calendar availability — best-effort, fetched separately from the
+  // board's own data (see the load effect below). Stays null (⇒ show nothing)
+  // until a request actually succeeds.
+  const [availability, setAvailability] = useState<AvailabilityState | null>(null)
+  const [pendingConfirm, setPendingConfirm] = useState<PendingAssignConfirm | null>(null)
 
   const [toasts, setToasts] = useState<ToastState[]>([])
   const toastIdRef = useRef(0)
@@ -267,7 +380,15 @@ export default function InstallScheduleClient() {
         setLoadError(err instanceof Error ? err.message : 'Failed to load schedule')
       })
       .finally(() => {
-        if (!cancelled) setLoading(false)
+        if (cancelled) return
+        setLoading(false)
+        // Availability is a SEPARATE request, fired only after the board's
+        // own data has settled (success or failure) — it must never block or
+        // break the board. Its own fetch below has its own try/catch and
+        // never throws into this chain; a 404 (route not deployed yet), a
+        // network error, or a malformed body all just mean "no availability
+        // shown," same as today, with no toast and no error surfaced.
+        fetchAvailability(windowStart, windowEnd, () => cancelled)
       })
 
     return () => {
@@ -284,6 +405,34 @@ export default function InstallScheduleClient() {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [placingJobId])
+
+  /* ---- Esc dismisses the "sub shows busy" confirm ---- */
+  useEffect(() => {
+    if (!pendingConfirm) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setPendingConfirm(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [pendingConfirm])
+
+  /** Fire-and-forget: never throws, never sets `loadError`, never blocks the
+   *  board render. `isCancelled` mirrors the owning effect's `cancelled` flag
+   *  so a stale response from a since-changed window can't clobber state. */
+  function fetchAvailability(start: string, end: string, isCancelled: () => boolean) {
+    fetch(`/api/ops/install-schedule/availability?start=${start}&end=${end}`, {
+      cache: 'no-store',
+      credentials: 'same-origin',
+    })
+      .then((res) => (res.ok ? (res.json() as Promise<RawAvailabilityResponse>) : null))
+      .then((data) => {
+        if (isCancelled()) return
+        setAvailability(parseAvailability(data))
+      })
+      .catch(() => {
+        if (!isCancelled()) setAvailability(null)
+      })
+  }
 
   const placingJob = unscheduled.find((j) => j.id === placingJobId) ?? null
 
@@ -446,9 +595,27 @@ export default function InstallScheduleClient() {
     }
   }
 
+  /** Gate between "place" and "POST". Nathan's call: warn, never block — a
+   *  sub's shared calendar is free/busy only and doesn't cover work they do
+   *  for other GCs, so a hard block would fight ops more than it would help.
+   *  When the target span is clear (or we have no availability signal at
+   *  all — no fetch yet, fetch failed, sub not in the response) this
+   *  proceeds exactly as before, keeping the normal case a 2-click flow.
+   *  Only an actual busy hit pauses for a confirm. */
+  function attemptAssign(jobId: string, subId: string, dateIso: string, installDays: 1 | 2) {
+    if (assigning) return
+    const busyDates = busyDatesInRange(availability?.subs.get(subId), dateIso, installDays)
+    if (busyDates.length === 0) {
+      performAssign(jobId, subId, dateIso, installDays)
+      return
+    }
+    const subName = subs.find((s) => s.id === subId)?.company_name || 'This sub'
+    setPendingConfirm({ jobId, subId, subName, dateIso, installDays, busyDates })
+  }
+
   function handleCellClick(subId: string, dateIso: string) {
     if (assigning || !placingJob) return
-    performAssign(placingJob.id, subId, dateIso, placingInstallDays)
+    attemptAssign(placingJob.id, subId, dateIso, placingInstallDays)
   }
 
   function handleDrop(e: React.DragEvent, subId: string, dateIso: string) {
@@ -460,7 +627,7 @@ export default function InstallScheduleClient() {
     try {
       const payload = JSON.parse(raw) as DragPayload
       if (!payload?.jobId) return
-      performAssign(payload.jobId, subId, dateIso, payload.installDays === 2 ? 2 : 1)
+      attemptAssign(payload.jobId, subId, dateIso, payload.installDays === 2 ? 2 : 1)
     } catch {
       // malformed drag payload — ignore
     }
@@ -529,6 +696,11 @@ export default function InstallScheduleClient() {
             <p className="text-sm text-[#57574f]">
               View a sub&apos;s calendar and put a job on it — same screen, at most 2 clicks.
             </p>
+            {availability?.source === 'no_token' && (
+              <p className="mt-1 text-xs text-[#57574f]">
+                Sub availability isn&apos;t shown — connect Google Calendar to see who&apos;s already busy.
+              </p>
+            )}
           </div>
           <Link
             href="/ops"
@@ -731,6 +903,7 @@ export default function InstallScheduleClient() {
                     {subs.map((sub) => {
                       const layout: RowLayout =
                         subLayouts.get(sub.id) ?? { lanes: 1, items: [], loadByDay: new Array(windowDays.length).fill(0) }
+                      const subAvail = availability?.subs.get(sub.id)
                       return (
                         <div
                           key={sub.id}
@@ -760,6 +933,22 @@ export default function InstallScheduleClient() {
                                 No email — won&apos;t be notified
                               </div>
                             )}
+                            {/* Quieter than the email warning above on purpose — a missing
+                                email means the crew never hears about the job; an unshared
+                                calendar just means ops has less information. "ok" (the good
+                                state) renders nothing at all. */}
+                            {subAvail && subAvail.shareStatus !== 'ok' && (
+                              <div
+                                className="mt-0.5 truncate text-xs text-[#57574f]"
+                                title={
+                                  subAvail.shareStatus === 'error'
+                                    ? "ARX couldn't read this sub's calendar right now — availability just isn't shown until that clears."
+                                    : `${sub.company_name} hasn't shared their Google Calendar with ARX. Ask them to share it with ARX at "See only free/busy" to show availability here.`
+                                }
+                              >
+                                {subAvail.shareStatus === 'error' ? 'Calendar unavailable' : 'Calendar not shared'}
+                              </div>
+                            )}
                           </div>
 
                           <div className="relative flex" style={{ width: windowDays.length * DAY_COL_W }}>
@@ -767,10 +956,11 @@ export default function InstallScheduleClient() {
                               const isToday = dateIso === todayIso
                               const weekend = isWeekendISO(dateIso)
                               const load = layout.loadByDay[idx] || 0
+                              const busy = subAvail?.busyDates.has(dateIso) ?? false
                               const isDragTarget = dragOverCell?.subId === sub.id && dragOverCell?.dateIso === dateIso
                               const cellLabel = `${sub.company_name} — ${formatShortDate(dateIso)}, ${
                                 load === 0 ? 'free' : `${load} job${load === 1 ? '' : 's'}`
-                              }`
+                              }${busy ? ', busy on their own calendar' : ''}`
                               return (
                                 <button
                                   key={dateIso}
@@ -792,7 +982,7 @@ export default function InstallScheduleClient() {
                                     placingJob ? 'cursor-pointer hover:bg-indigo-50' : 'cursor-default',
                                     isDragTarget ? 'bg-indigo-100' : '',
                                   ].join(' ')}
-                                  style={{ width: DAY_COL_W }}
+                                  style={busy ? { width: DAY_COL_W, ...BUSY_HATCH_STYLE } : { width: DAY_COL_W }}
                                 >
                                   {placingJob && (
                                     <span
@@ -807,64 +997,94 @@ export default function InstallScheduleClient() {
                             })}
 
                             <div className="pointer-events-none absolute inset-0">
-                              {layout.items.map(({ job, visStart, visSpan, lane }) => (
-                                <div
-                                  key={job.id}
-                                  draggable
-                                  onDragStart={(e) => handleDragStartScheduled(e, job)}
-                                  onDragEnd={() => setDragOverCell(null)}
-                                  className="group pointer-events-auto absolute overflow-hidden rounded-md border px-1.5 py-1 text-[11px] shadow-sm"
-                                  style={{
-                                    left: `${(visStart / windowDays.length) * 100}%`,
-                                    width: `calc(${(visSpan / windowDays.length) * 100}% - 4px)`,
-                                    top: 24 + lane * LANE_HEIGHT,
-                                    height: LANE_HEIGHT - 4,
-                                    backgroundColor: `${colorForSubId(sub.id)}1f`,
-                                    borderColor: colorForSubId(sub.id),
-                                  }}
-                                >
-                                  <div className="flex h-full items-center gap-1">
-                                    {/* Two lines, not one. A day column gives the chip ~112px of
-                                        text; "26-0041 · WITTERSHEIM" needs 134px and truncated to
-                                        "26-0041 · …", losing the name entirely. Stacked, the job
-                                        number and the surname each fit their own line inside the
-                                        same 40px chip. */}
-                                    <Link
-                                      href={`/ops/jobs/${job.id}`}
-                                      className="flex min-w-0 flex-1 flex-col justify-center leading-tight text-[#2c2c2a] hover:underline"
-                                      title={`${job.job_number} — ${job.customer_name || job.address_text}${job.total_squares ? ` · ${job.total_squares} sq` : ''}`}
-                                    >
-                                      <span className="truncate font-semibold">{job.job_number}</span>
-                                      {shortCustomerName(job.customer_name) && (
-                                        <span className="truncate text-[10px] text-[#57574f]">
-                                          {shortCustomerName(job.customer_name)}
+                              {layout.items.map(({ job, visStart, visSpan, lane }) => {
+                                const rsvp = availability?.rsvp[job.id] ?? null
+                                const rsvpGlyph = rsvp === 'accepted' ? '✓' : rsvp === 'declined' ? '✗' : null
+                                const rsvpText =
+                                  rsvp === 'accepted'
+                                    ? 'Sub accepted the invite'
+                                    : rsvp === 'declined'
+                                      ? 'Sub declined the invite'
+                                      : rsvp === 'tentative'
+                                        ? 'Sub marked the invite tentative'
+                                        : rsvp === 'needsAction'
+                                          ? "Sub hasn't responded to the invite yet"
+                                          : null
+                                return (
+                                  <div
+                                    key={job.id}
+                                    draggable
+                                    onDragStart={(e) => handleDragStartScheduled(e, job)}
+                                    onDragEnd={() => setDragOverCell(null)}
+                                    className="group pointer-events-auto absolute overflow-hidden rounded-md border px-1.5 py-1 text-[11px] shadow-sm"
+                                    style={{
+                                      left: `${(visStart / windowDays.length) * 100}%`,
+                                      width: `calc(${(visSpan / windowDays.length) * 100}% - 4px)`,
+                                      top: 24 + lane * LANE_HEIGHT,
+                                      height: LANE_HEIGHT - 4,
+                                      backgroundColor: `${colorForSubId(sub.id)}1f`,
+                                      borderColor: colorForSubId(sub.id),
+                                    }}
+                                  >
+                                    <div className="flex h-full items-center gap-1">
+                                      {/* Two lines, not one. A day column gives the chip ~112px of
+                                          text; "26-0041 · WITTERSHEIM" needs 134px and truncated to
+                                          "26-0041 · …", losing the name entirely. Stacked, the job
+                                          number and the surname each fit their own line inside the
+                                          same 40px chip. The RSVP glyph (✓/✗) rides on the job-number
+                                          line — a single extra character, well inside the ~112px of
+                                          room a 7-char job number leaves. */}
+                                      <Link
+                                        href={`/ops/jobs/${job.id}`}
+                                        className="flex min-w-0 flex-1 flex-col justify-center leading-tight text-[#2c2c2a] hover:underline"
+                                        title={`${job.job_number} — ${job.customer_name || job.address_text}${job.total_squares ? ` · ${job.total_squares} sq` : ''}${rsvpText ? ` · ${rsvpText}` : ''}`}
+                                      >
+                                        <span className="flex min-w-0 items-baseline gap-0.5 font-semibold">
+                                          {/* `truncate` needs `min-w-0` on every flex ancestor down to
+                                              itself to actually ellipsis instead of just overflowing —
+                                              it lives on this inner span, not the flex row, so the
+                                              shrink-0 glyph next to it is never at risk of being clipped. */}
+                                          <span className="min-w-0 truncate">{job.job_number}</span>
+                                          {rsvpGlyph && (
+                                            <span
+                                              aria-hidden="true"
+                                              className={`shrink-0 ${rsvp === 'accepted' ? 'text-green-700' : 'text-red-700'}`}
+                                            >
+                                              {rsvpGlyph}
+                                            </span>
+                                          )}
                                         </span>
-                                      )}
-                                    </Link>
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.preventDefault()
-                                        e.stopPropagation()
-                                        unassignJob(job, sub.company_name)
-                                      }}
-                                      /* Hidden until hover/keyboard focus: it un-schedules real work
-                                         and emails the sub a cancellation, so it should not sit
-                                         permanently under a thumb. Positioned ABSOLUTE, not just
-                                         opacity-0: a transparent element still occupies its 32px of
-                                         flex layout, which was squeezing the chip text to 74px and
-                                         truncating it anyway. Kept visible on touch devices
-                                         (hover:none), where a landscape tablet renders the lg grid
-                                         but has no hover to reveal it with. */
-                                      className="absolute right-0 top-1/2 flex min-h-[32px] min-w-[32px] -translate-y-1/2 items-center justify-center rounded-full bg-white/85 text-[#57574f] opacity-0 shadow-sm transition-opacity hover:bg-white hover:text-red-600 focus:opacity-100 focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
-                                      aria-label={`Remove ${job.job_number} from schedule`}
-                                      title="Remove from schedule"
-                                    >
-                                      ×
-                                    </button>
+                                        {shortCustomerName(job.customer_name) && (
+                                          <span className="truncate text-[10px] text-[#57574f]">
+                                            {shortCustomerName(job.customer_name)}
+                                          </span>
+                                        )}
+                                      </Link>
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.preventDefault()
+                                          e.stopPropagation()
+                                          unassignJob(job, sub.company_name)
+                                        }}
+                                        /* Hidden until hover/keyboard focus: it un-schedules real work
+                                           and emails the sub a cancellation, so it should not sit
+                                           permanently under a thumb. Positioned ABSOLUTE, not just
+                                           opacity-0: a transparent element still occupies its 32px of
+                                           flex layout, which was squeezing the chip text to 74px and
+                                           truncating it anyway. Kept visible on touch devices
+                                           (hover:none), where a landscape tablet renders the lg grid
+                                           but has no hover to reveal it with. */
+                                        className="absolute right-0 top-1/2 flex min-h-[32px] min-w-[32px] -translate-y-1/2 items-center justify-center rounded-full bg-white/85 text-[#57574f] opacity-0 shadow-sm transition-opacity hover:bg-white hover:text-red-600 focus:opacity-100 focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
+                                        aria-label={`Remove ${job.job_number} from schedule`}
+                                        title="Remove from schedule"
+                                      >
+                                        ×
+                                      </button>
+                                    </div>
                                   </div>
-                                </div>
-                              ))}
+                                )
+                              })}
                             </div>
                           </div>
                         </div>
@@ -898,6 +1118,7 @@ export default function InstallScheduleClient() {
                               (it) => dayIdx >= it.visStart && dayIdx < it.visStart + it.visSpan
                             )
                             const load = layout?.loadByDay[dayIdx] ?? 0
+                            const busy = availability?.subs.get(sub.id)?.busyDates.has(dateIso) ?? false
                             return (
                               <div
                                 key={sub.id}
@@ -913,6 +1134,7 @@ export default function InstallScheduleClient() {
                                 onDragOver={(e) => placingJob && e.preventDefault()}
                                 onDrop={(e) => handleDrop(e, sub.id, dateIso)}
                                 className={`flex min-h-[44px] w-full items-start gap-2 px-3 py-2 text-left ${placingJob ? 'cursor-pointer active:bg-indigo-50' : ''}`}
+                                style={busy ? BUSY_HATCH_STYLE : undefined}
                               >
                                 <span
                                   className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full"
@@ -927,6 +1149,11 @@ export default function InstallScheduleClient() {
                                       </span>
                                     )}
                                   </span>
+                                  {busy && (
+                                    <span className="block text-[10px] font-medium text-[#57574f]">
+                                      Busy on their own calendar
+                                    </span>
+                                  )}
                                   {dayJobs.length === 0 ? (
                                     placingJob && (
                                       <span className="text-xs text-indigo-600">
@@ -935,36 +1162,59 @@ export default function InstallScheduleClient() {
                                     )
                                   ) : (
                                     <span className="mt-0.5 flex flex-wrap gap-1">
-                                      {dayJobs.map(({ job }) => (
-                                        <span
-                                          key={job.id}
-                                          className="inline-flex min-h-[32px] items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs"
-                                          style={{
-                                            backgroundColor: `${colorForSubId(sub.id)}1f`,
-                                            borderColor: colorForSubId(sub.id),
-                                          }}
-                                        >
-                                          <Link
-                                            href={`/ops/jobs/${job.id}`}
-                                            className="text-[#2c2c2a] hover:underline"
-                                            onClick={(e) => e.stopPropagation()}
-                                          >
-                                            {job.job_number}
-                                            {job.customer_name ? ` · ${job.customer_name}` : ''}
-                                          </Link>
-                                          <button
-                                            type="button"
-                                            onClick={(e) => {
-                                              e.stopPropagation()
-                                              unassignJob(job, sub.company_name)
+                                      {dayJobs.map(({ job }) => {
+                                        const rsvp = availability?.rsvp[job.id] ?? null
+                                        const rsvpGlyph = rsvp === 'accepted' ? '✓' : rsvp === 'declined' ? '✗' : null
+                                        const rsvpText =
+                                          rsvp === 'accepted'
+                                            ? 'Sub accepted the invite'
+                                            : rsvp === 'declined'
+                                              ? 'Sub declined the invite'
+                                              : rsvp === 'tentative'
+                                                ? 'Sub marked the invite tentative'
+                                                : rsvp === 'needsAction'
+                                                  ? "Sub hasn't responded to the invite yet"
+                                                  : null
+                                        return (
+                                          <span
+                                            key={job.id}
+                                            className="inline-flex min-h-[32px] items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs"
+                                            style={{
+                                              backgroundColor: `${colorForSubId(sub.id)}1f`,
+                                              borderColor: colorForSubId(sub.id),
                                             }}
-                                            className="flex min-h-[36px] min-w-[36px] shrink-0 items-center justify-center text-[#57574f] hover:text-red-600"
-                                            aria-label={`Remove ${job.job_number}`}
                                           >
-                                            ×
-                                          </button>
-                                        </span>
-                                      ))}
+                                            <Link
+                                              href={`/ops/jobs/${job.id}`}
+                                              className="text-[#2c2c2a] hover:underline"
+                                              onClick={(e) => e.stopPropagation()}
+                                              title={rsvpText ?? undefined}
+                                            >
+                                              {job.job_number}
+                                              {job.customer_name ? ` · ${job.customer_name}` : ''}
+                                              {rsvpGlyph && (
+                                                <span
+                                                  aria-hidden="true"
+                                                  className={`ml-0.5 ${rsvp === 'accepted' ? 'text-green-700' : 'text-red-700'}`}
+                                                >
+                                                  {rsvpGlyph}
+                                                </span>
+                                              )}
+                                            </Link>
+                                            <button
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation()
+                                                unassignJob(job, sub.company_name)
+                                              }}
+                                              className="flex min-h-[36px] min-w-[36px] shrink-0 items-center justify-center text-[#57574f] hover:text-red-600"
+                                              aria-label={`Remove ${job.job_number}`}
+                                            >
+                                              ×
+                                            </button>
+                                          </span>
+                                        )
+                                      })}
                                     </span>
                                   )}
                                 </span>
@@ -981,6 +1231,51 @@ export default function InstallScheduleClient() {
           </div>
         </div>
       </div>
+
+      {pendingConfirm && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="busy-confirm-heading"
+        >
+          <div className="w-full max-w-sm rounded-lg border border-amber-300 bg-white p-4 shadow-xl">
+            <div className="mb-3 flex items-start gap-2">
+              <span aria-hidden="true" className="text-lg leading-none text-amber-600">
+                ⚠
+              </span>
+              <p id="busy-confirm-heading" className="text-sm font-semibold text-[#2c2c2a]">
+                {pendingConfirm.subName} shows busy {formatBusyDatesList(pendingConfirm.busyDates)} on their own
+                calendar.
+              </p>
+            </div>
+            <p className="mb-4 text-xs text-[#57574f]">
+              Their calendar is free/busy only and doesn&apos;t include work for other GCs — you can schedule
+              anyway.
+            </p>
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={() => setPendingConfirm(null)}
+                className="min-h-[44px] rounded-md border border-[#c9c7c0] bg-white px-3 text-sm font-medium text-[#2c2c2a] hover:bg-[#f2f1ee]"
+              >
+                Pick another day
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const p = pendingConfirm
+                  setPendingConfirm(null)
+                  if (p) performAssign(p.jobId, p.subId, p.dateIso, p.installDays)
+                }}
+                className="min-h-[44px] rounded-md bg-amber-700 px-3 text-sm font-semibold text-white hover:bg-amber-800"
+              >
+                Schedule anyway
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="pointer-events-none fixed bottom-4 right-4 z-50 flex flex-col gap-2">
         {toasts.map((t) => (

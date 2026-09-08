@@ -121,6 +121,25 @@ that file rather than extending the pattern.
 - **Weather overlay Phase 2** — Phase 1 + Phase 2 merged (PR #3, #4). The 8 Bugbot items (stale-warning clearing, error-as-empty `degraded` flag, swath read/ingest caps, response-cache expiry, atomic swath replace, clear-day orphans, ingest size guard) are **fixed in PR #5** (`feat/weather-phase2-bugfixes`) — verify on merge. No open weather-code debt after that. Prod flag `NEXT_PUBLIC_CANVASS_WEATHER_OVERLAY` stays OFF until the human deploy checklist (GitHub/Vercel secrets, 4th cron, migration-history reconcile, MRMS backfill, preview field QA) is done — see `docs/canvass-weather-overlay-phase2-verification.md`. Claims-safe copy ("est.", "recorded", etc.) is enforced in code; not a separate legal gate. Separate open question (non-weather): confirm the `info@` feedback-routing + canvass "Report Issue" change bundled in commit `22e6ab5` is intended org-wide.
 - **Sold add-ons missing from the materials-ORDER flow (not just the brief)** — 2026-07-15: `components/ops/JobRoofingBrief.tsx` "Job materials brief" card now shows sold proposal adders (Gutters, Decking, Siding, Skylights, Chimney, Ventilation category — from `proposal_line_items` where `is_adder=true`, surfaced via `formatSoldAddOns()` in `lib/job-roofing-brief.ts`), fixing a bug where e.g. Ashley Gaines' job (26-0026, proposal P-00118, 306 LF Seamless Gutters + fascia board + OSB + siding) showed no gutters at all. **This was a display-only fix.** The actual materials-*ordering* system (`job_material_order_overrides` table, `/api/jobs/[id]/material-order`, `job_product_orders` table) still only tracks core roofing materials computed from roof measurements (`lib/materials-order-list.ts`: field shingles, starter, hip/ridge cap, ridge vent, underlayment, ice & water, drip edge, step/wall flashing, pipe boots) — it has no path for sold adders at all. So a sold "Gutters" or "Decking" line can now be *seen* on the job page but still won't flow into whatever ops uses to actually place the supplier order. Before touching `job_material_order_overrides`/`job_product_orders`/the ordering UI, trace where ops actually places material orders today (manually off the proposal, or via `job_product_orders`?) and confirm whether adders need to join that flow or whether the ops team already treats "Sold add-ons" as sufficient at-a-glance visibility.
 
+## Install Scheduling — deployment knobs
+`/ops/schedule` assigns installs to subcontractors and exports them to Google as
+all-day events. Three environment variables, and they are NOT interchangeable:
+
+| Var | What it is |
+|---|---|
+| `GOOGLE_INSTALL_CALENDAR_ID` | The calendar install events are **written to**. Unset = the scheduling user's own `primary`, so installs scatter across staff calendars. Set it to one ARX-owned calendar. |
+| `NEXT_PUBLIC_INSTALL_AVAILABILITY_ACCOUNT` | The ARX **staff account crews share their calendar with**, whose Google token reads free/busy for everyone. Deliberately the same variable the subs admin page prints in its setup instructions, so the address we tell crews and the account we read with cannot drift. Unset = falls back to the requesting user's own token, which means every scheduler needs their own share from every crew. |
+| `CRON_SECRET` | Unrelated; existing. |
+
+Subs do **not** OAuth. They share their calendar once at Google's "See only
+free/busy (hide details)" — ARX sees busy blocks, never event details. A sub who
+never shared is reported `not_shared`, **never** as "free"; conflating those
+would make the board confidently wrong. Conflicts warn, never block: subs work
+for other GCs and their calendar is not the whole truth.
+
+Invites reach any email address — Google mails a standard `.ics`. **A Google
+account is not required**; do not reintroduce copy claiming otherwise.
+
 ## Major Features / Modules
 | Module | Path | Notes |
 |---|---|---|
