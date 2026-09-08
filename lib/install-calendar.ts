@@ -81,6 +81,59 @@ export function installJobPageUrl(jobId: string, appUrl?: string | null): string
 }
 
 /**
+ * Which Google account install scheduling ACTS AS — for writing the event and
+ * for reading crews' free/busy.
+ *
+ * Appointment scheduling already answers this per-user: a closer connects their
+ * own Google on `/admin/scheduling` and their appointments land on their own
+ * calendar. This reuses that exact plumbing (`user_google_tokens`,
+ * `getValidAccessToken`) — the only thing installs need on top is a different
+ * answer to *which* user, because an install belongs to the company and a
+ * subcontractor, not to whoever happened to click.
+ *
+ * `orgs.install_scheduling_user_id` nominates that account. Using it for writes
+ * as well as reads matters for three reasons:
+ *
+ *   1. Crews share their calendar with exactly one address. If reads came from
+ *      that account but writes from whoever clicked, the two would never line up
+ *      and RSVP lookups would find nothing.
+ *   2. Every install lands on ONE calendar instead of scattering across staff
+ *      primaries, so the schedule survives someone leaving.
+ *   3. An ops user who has never connected Google can still schedule, and the
+ *      crew still gets the invite. Previously that produced a booked job that
+ *      silently notified nobody.
+ *
+ * Falls back to the acting user's own token when unset, or when the nominated
+ * account has not connected Google — so this works with no configuration.
+ */
+export async function resolveInstallGoogleToken(
+  adminClient: SupabaseClient,
+  orgId: string,
+  fallbackUserId: string
+): Promise<string | null> {
+  try {
+    const { data: org } = await adminClient
+      .from('orgs')
+      .select('install_scheduling_user_id')
+      .eq('id', orgId)
+      .maybeSingle()
+    const nominated = org?.install_scheduling_user_id
+    if (nominated) {
+      const token = await getValidAccessToken(adminClient, nominated)
+      if (token) return token
+    }
+  } catch (e) {
+    console.warn('resolveInstallGoogleToken: nominated account lookup failed', e)
+  }
+  try {
+    return await getValidAccessToken(adminClient, fallbackUserId)
+  } catch (e) {
+    console.warn('resolveInstallGoogleToken: fallback token lookup failed', e)
+    return null
+  }
+}
+
+/**
  * Which calendar an install event is written to:
  * `GOOGLE_INSTALL_CALENDAR_ID` when configured, else the scheduling user's
  * own `'primary'` calendar.
@@ -281,13 +334,7 @@ export async function syncInstallToCalendar(
     return { outcome: 'failed', eventId: job.install_google_event_id, calendarId: job.install_calendar_id, error: message }
   }
 
-  let token: string | null = null
-  try {
-    token = await getValidAccessToken(adminClient, params.schedulingUserId)
-  } catch (e) {
-    console.warn('syncInstallToCalendar: token lookup failed, treating as no_token', e)
-    token = null
-  }
+  const token = await resolveInstallGoogleToken(adminClient, job.org_id, params.schedulingUserId)
 
   if (!token) {
     // Not an error — most ops users have not connected Google, and the
@@ -380,12 +427,11 @@ export async function removeInstallFromCalendar(
   }
 
   let warning: string | null = null
-  let token: string | null = null
-  try {
-    token = await getValidAccessToken(adminClient, params.schedulingUserId)
-  } catch (e) {
-    token = null
-  }
+  const token = await resolveInstallGoogleToken(
+    adminClient,
+    params.job.org_id,
+    params.schedulingUserId
+  )
 
   if (!token) {
     warning = 'No connected Google Calendar for this user; the existing event was not removed from Google.'

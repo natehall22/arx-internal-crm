@@ -23,16 +23,18 @@ interface SubContractor {
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
-// Filled in at build time when set (Vercel env). Falls back to a placeholder
-// rather than ever hardcoding a real-looking ARX address in source.
-const ARX_CALENDAR_SHARE_EMAIL =
-  process.env.NEXT_PUBLIC_INSTALL_AVAILABILITY_ACCOUNT || '[your ARX scheduling email]'
-
 // Plain-language steps a sub can follow with no Google/tech background.
 // Written so Nathan can paste this whole block into a text message to a crew
 // as-is. Keep the free/busy-only reassurance explicit — that's the line that
 // gets a crew to actually do this instead of ignoring it.
-const CALENDAR_SHARE_INSTRUCTIONS = `Share your calendar with ARX (optional)
+//
+// The address comes from the server (`orgs.install_scheduling_user_id`), which
+// is the SAME account the availability read acts as. Hardcoding it, or reading a
+// separate env var, would let the address crews are told drift away from the
+// calendar anyone actually looks at.
+function buildCalendarShareInstructions(shareEmail: string | null): string {
+  const address = shareEmail || '[set an install scheduling account in Ops settings]'
+  return `Share your calendar with ARX (optional)
 
 This lets us see when your crew is already busy so we don't double-book you. ARX will only ever see that a time is "busy" — never the appointment details, never what the job is.
 
@@ -40,15 +42,19 @@ This lets us see when your crew is already busy so we don't double-book you. ARX
 2. Click the gear icon in the top right, then "Settings".
 3. On the left, under "Settings for my calendars", click your calendar's name.
 4. Click "Share with specific people or groups".
-5. Click "Add people and groups" and enter this address: ${ARX_CALENDAR_SHARE_EMAIL}
+5. Click "Add people and groups" and enter this address: ${address}
 6. Under permissions, choose "See only free/busy (hide details)".
 7. Click "Send".
 
 That's it. ARX will only see when you're busy, never any details about the appointment. This is optional — it just helps us schedule installs more accurately around your other jobs.`
+}
 
 export default function SubContractorsPage() {
   const router = useRouter()
   const [subs, setSubs] = useState<SubContractor[]>([])
+  /** The ARX account crews share their calendar with — server-resolved, see the API route. */
+  const [installSchedulingEmail, setInstallSchedulingEmail] = useState<string | null>(null)
+  const calendarShareInstructions = buildCalendarShareInstructions(installSchedulingEmail)
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
   const [editingSub, setEditingSub] = useState<SubContractor | null>(null)
@@ -100,12 +106,12 @@ export default function SubContractorsPage() {
 
   const copyInstructions = async () => {
     try {
-      await navigator.clipboard.writeText(CALENDAR_SHARE_INSTRUCTIONS)
+      await navigator.clipboard.writeText(calendarShareInstructions)
       setInstructionsCopied(true)
       if (instructionsCopyTimer.current) clearTimeout(instructionsCopyTimer.current)
       instructionsCopyTimer.current = setTimeout(() => setInstructionsCopied(false), 2000)
     } catch {
-      prompt('Copy these instructions:', CALENDAR_SHARE_INSTRUCTIONS)
+      prompt('Copy these instructions:', calendarShareInstructions)
     }
   }
 
@@ -132,6 +138,9 @@ export default function SubContractorsPage() {
       
       const data = await response.json()
       setSubs(data.subs || [])
+      setInstallSchedulingEmail(
+        typeof data.installSchedulingEmail === 'string' ? data.installSchedulingEmail : null
+      )
       setOrgId(data.orgId)
       setLoading(false)
     } catch (err) {
@@ -624,7 +633,7 @@ export default function SubContractorsPage() {
                         className="mt-2 whitespace-pre-wrap text-sm p-3 bg-white border border-gray-200 rounded-lg"
                         style={{ color: '#2c2c2a', fontFamily: 'inherit' }}
                       >
-                        {CALENDAR_SHARE_INSTRUCTIONS}
+                        {calendarShareInstructions}
                       </pre>
                       <button
                         type="button"

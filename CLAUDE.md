@@ -128,8 +128,20 @@ all-day events. Three environment variables, and they are NOT interchangeable:
 | Var | What it is |
 |---|---|
 | `GOOGLE_INSTALL_CALENDAR_ID` | The calendar install events are **written to**. Unset = the scheduling user's own `primary`, so installs scatter across staff calendars. Set it to one ARX-owned calendar. |
-| `NEXT_PUBLIC_INSTALL_AVAILABILITY_ACCOUNT` | The ARX **staff account crews share their calendar with**, whose Google token reads free/busy for everyone. Deliberately the same variable the subs admin page prints in its setup instructions, so the address we tell crews and the account we read with cannot drift. Unset = falls back to the requesting user's own token, which means every scheduler needs their own share from every crew. |
 | `CRON_SECRET` | Unrelated; existing. |
+
+**Which Google account installs act as** is `orgs.install_scheduling_user_id`, a
+column rather than an env var so it changes without a deploy (set to Nathan
+2026-09-08). It reuses the per-user Google connection that appointment
+scheduling already has — `user_google_tokens` + `getValidAccessToken`, connected
+on `/admin/scheduling`. Appointments are per-closer because a rep owns their own
+booking; an install belongs to the company and a subcontractor, so it needs one
+nominated account instead. `resolveInstallGoogleToken` is the single answer, used
+for BOTH the event write and the free/busy read — they must match, because crews
+share with exactly one address and RSVP is read off events that account owns.
+Unset, it falls back to the acting user. The subs admin page prints that same
+account's email in its share instructions, resolved server-side, so what crews
+are told cannot drift from what the server reads.
 
 Subs do **not** OAuth. They share their calendar once at Google's "See only
 free/busy (hide details)" — ARX sees busy blocks, never event details. A sub who

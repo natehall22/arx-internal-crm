@@ -4,9 +4,8 @@ import { fromZonedTime } from 'date-fns-tz'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import { resolveOpsAccess } from '@/lib/ops-access'
-import { getValidAccessToken } from '@/lib/appointment-calendar-sync'
 import { parseScheduleWindow } from '@/lib/schedule-window'
-import { resolveInstallCalendarId } from '@/lib/install-calendar'
+import { resolveInstallCalendarId, resolveInstallGoogleToken } from '@/lib/install-calendar'
 import { CALENDAR_BUSINESS_TZ } from '@/lib/calendar-business-tz'
 import {
   getFreeBusyForCalendars,
@@ -77,47 +76,13 @@ export async function GET(request: Request) {
 
   const orgId = profile.org_id
 
-  /**
-   * Whose Google account reads the subs' calendars.
-   *
-   * A sub grants free/busy by sharing their calendar with ONE ARX address, so
-   * reading with whoever happens to be looking at the board would mean every
-   * scheduler needs their own share from every crew — and a colleague who was
-   * never shared with would see a board that says "free" everywhere.
-   *
-   * `NEXT_PUBLIC_INSTALL_AVAILABILITY_ACCOUNT` names the single ARX staff account
-   * crews share with; its token is used for everyone. Unset (or that account has
-   * not connected Google), it falls back to the requesting user's own token, so
-   * this works with no configuration at all — just with more shares to collect.
-   *
-   * Deliberately the SAME variable the subs admin page prints in its setup
-   * instructions: the address we tell crews to share with and the account we
-   * actually read with must never be able to drift apart. Note this is NOT
-   * `GOOGLE_INSTALL_CALENDAR_ID`, which is the calendar install events are
-   * WRITTEN to — different thing, easy to confuse.
-   */
-  let token: string | null = null
-  try {
-    const designated = (process.env.NEXT_PUBLIC_INSTALL_AVAILABILITY_ACCOUNT || '').trim().toLowerCase()
-    if (designated) {
-      const { data: reader } = await adminClient
-        .from('users')
-        .select('id')
-        .eq('org_id', orgId)
-        .ilike('email', designated)
-        .maybeSingle()
-      if (reader?.id) {
-        token = await getValidAccessToken(adminClient, reader.id)
-      }
-    }
-    if (!token) {
-      token = await getValidAccessToken(adminClient, authUser.id)
-    }
-  } catch (e) {
-    console.warn('[install-schedule availability GET] token lookup failed, treating as no_token', e)
-    token = null
-  }
+  // Same account installs are written from — see `resolveInstallGoogleToken`.
+  // Reads and writes MUST act as one account: crews share their free/busy with a
+  // single address, and RSVP is read off events that account owns.
+  const token = await resolveInstallGoogleToken(adminClient, orgId, authUser.id)
 
+  // No connected Google account anywhere degrades gracefully — not an error,
+  // just nothing to report, same as install scheduling itself.
   if (!token) {
     return NextResponse.json({ source: 'no_token', subs: [], rsvp: {} })
   }

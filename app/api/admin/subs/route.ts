@@ -74,9 +74,34 @@ export async function GET() {
       console.error('Error fetching subs:', error)
     }
 
+    // The address crews are told to share their calendar with MUST be the same
+    // account the server reads free/busy as, or the instructions send them to a
+    // calendar nobody looks at. Both come from `orgs.install_scheduling_user_id`
+    // — see `resolveInstallGoogleToken` in lib/install-calendar.ts.
+    let installSchedulingEmail: string | null = null
+    try {
+      const { data: org } = await supabase
+        .from('orgs')
+        .select('install_scheduling_user_id')
+        .eq('id', profile.org_id)
+        .maybeSingle()
+      if (org?.install_scheduling_user_id) {
+        const { data: schedulingUser } = await supabase
+          .from('users')
+          .select('email')
+          .eq('id', org.install_scheduling_user_id)
+          .eq('org_id', profile.org_id)
+          .maybeSingle()
+        installSchedulingEmail = schedulingUser?.email ?? null
+      }
+    } catch (e) {
+      console.error('Subs API: could not resolve install scheduling account', e)
+    }
+
     return NextResponse.json({
       subs: subs || [],
       orgId: profile.org_id,
+      installSchedulingEmail,
     })
   } catch (error) {
     console.error('Subs API error:', error)
