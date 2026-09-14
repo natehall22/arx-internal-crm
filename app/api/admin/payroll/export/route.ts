@@ -23,6 +23,7 @@ import {
 } from '@/lib/payroll-export'
 import type { CompPlanForCalc } from '@/lib/calculate-commission-from-plan'
 import { isPayrollAdminRole } from '@/lib/payroll-admin-access'
+import { CANCELLED_JOB_STATUS } from '@/lib/job-status'
 import {
   buildAdditiveParticipantsForJob,
   loadDerivedCommissionContext,
@@ -74,6 +75,7 @@ export async function GET(request: NextRequest) {
         'id, sale_date, salesperson_id, commission_comp_base, dealer_fee_amount, sale_amount, project_id'
       )
       .eq('org_id', orgId)
+      .neq('status', CANCELLED_JOB_STATUS)
       .gte('sale_date', volFrom)
       .lte('sale_date', volTo)
       .not('sale_date', 'is', null)
@@ -141,6 +143,7 @@ export async function GET(request: NextRequest) {
         'id, job_number, address_text, sale_date, sale_amount, commission_comp_base, commission_pre_tax_subtotal, dealer_fee_amount, salesperson_id, project_id, customer_id'
       )
       .eq('org_id', orgId)
+      .neq('status', CANCELLED_JOB_STATUS)
       .gte('sale_date', from)
       .lte('sale_date', to)
       .not('sale_date', 'is', null)

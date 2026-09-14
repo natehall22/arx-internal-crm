@@ -1,8 +1,9 @@
-import { isJobPastDue, jobStatusConfig, paymentStatusChip, resumeStatusForJob } from '@/lib/ops-job-status'
+import { isJobPastDue, jobStatusConfig, paymentStatusChip, resumeStatusForJob } from '@/lib/job-status'
 
 describe('jobStatusConfig', () => {
   it('has a label for on_hold (the /ops list used to crash on it)', () => {
     expect(jobStatusConfig('on_hold').label).toBe('On Hold')
+    expect(jobStatusConfig('cancelled').label).toBe('Cancelled')
   })
 
   it('shows an unknown status as itself instead of mislabelling it', () => {
@@ -20,6 +21,7 @@ describe('isJobPastDue', () => {
     expect(isJobPastDue({ scheduled_date: past, status: 'on_hold' })).toBe(false)
     expect(isJobPastDue({ scheduled_date: past, status: 'complete' })).toBe(false)
     expect(isJobPastDue({ scheduled_date: past, status: 'collected' })).toBe(false)
+    expect(isJobPastDue({ scheduled_date: past, status: 'cancelled' })).toBe(false)
   })
   it('does not flag an unscheduled job', () => {
     expect(isJobPastDue({ scheduled_date: null, status: 'sold' })).toBe(false)

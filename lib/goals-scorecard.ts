@@ -34,6 +34,7 @@ import {
 import { countsAsInspectionSet, INSPECTION_SET_APPOINTMENT_TYPE_OR } from '@/lib/inspection-set-metrics'
 import { isCanvassDoorLead, SALE_AGREEMENT_TYPES } from '@/lib/sales-metrics'
 import { fetchSupabaseAllPages } from '@/lib/supabase-fetch-all-pages'
+import { CANCELLED_JOB_STATUS } from '@/lib/job-status'
 
 export type OrgMonthlyGoal = {
   id: string
@@ -388,6 +389,7 @@ export async function buildScorecardPayload(
       'id, sale_amount, sale_date, created_at, labor_cost, material_cost, dealer_fee_amount, commission_comp_base, commission_pre_tax_subtotal'
     )
     .eq('org_id', orgId)
+    .neq('status', CANCELLED_JOB_STATUS)
     .gte('sale_date', monthStart)
     .lte('sale_date', monthEndStr)
     .limit(FETCH_LIMIT)
@@ -400,6 +402,7 @@ export async function buildScorecardPayload(
       'id, sale_amount, sale_date, created_at, labor_cost, material_cost, dealer_fee_amount, commission_comp_base, commission_pre_tax_subtotal'
     )
     .eq('org_id', orgId)
+    .neq('status', CANCELLED_JOB_STATUS)
     .is('sale_date', null)
     .gte('created_at', startIso)
     .lt('created_at', endIso)

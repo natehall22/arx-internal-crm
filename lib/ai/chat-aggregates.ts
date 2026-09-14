@@ -19,6 +19,7 @@ const JOB_STATUS_LABELS: Record<string, string> = {
   complete: 'Completed',
   collected: 'Collected',
   on_hold: 'On Hold',
+  cancelled: 'Cancelled',
 }
 
 export type AiChatAggregateAccess = {

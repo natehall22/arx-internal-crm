@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { CompPlanForCalc } from '@/lib/calculate-commission-from-plan'
 import { buildCommissionPayrollSnapshot } from '@/lib/commission-payroll'
 import { roundMoney } from '@/lib/money'
+import { CANCELLED_JOB_STATUS } from '@/lib/job-status'
 import {
   buildAdditiveParticipantsForJob,
   loadDerivedCommissionContext,
@@ -335,6 +336,7 @@ export async function materializePayrollPeriod(
     .from('production_jobs')
     .select('id, sale_date, salesperson_id, commission_comp_base, dealer_fee_amount, sale_amount, project_id')
     .eq('org_id', orgId)
+    .neq('status', CANCELLED_JOB_STATUS)
     .gte('sale_date', bounds.from)
     .lte('sale_date', bounds.to)
     .not('sale_date', 'is', null)

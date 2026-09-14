@@ -29,6 +29,9 @@ export const OPS_BOARD_JOB_COLUMNS = `
   material_cost,
   dealer_fee_amount,
   priority,
+  cancelled_at,
+  cancellation_reason,
+  cancellation_notes,
   created_at,
   updated_at
 `

@@ -9,7 +9,7 @@ import {
   opsJobCompletionCertificateHref,
 } from '@/lib/ops-completion-cert-link'
 import type { JobStatus, OpsBoardJob } from '@/lib/ops-board-types'
-import { JOB_STATUS_CONFIG, isJobPastDue, paymentStatusChip, resumeStatusForJob } from '@/lib/ops-job-status'
+import { JOB_STATUS_CONFIG, isJobPastDue, paymentStatusChip, resumeStatusForJob } from '@/lib/job-status'
 import { computeRoofSquaresEquation, formatSqPart } from '@/lib/roof-squares-equation'
 
 const priorityConfig: Record<string, { icon: string; color: string }> = {

@@ -4,6 +4,7 @@ import { requireAuthApi } from '@/lib/auth'
 import { classifyWeeklyPayrollJob } from '@/lib/weekly-payroll/eligibility'
 import { hasResolvableCompPlanForUserOnDate } from '@/lib/payroll-export'
 import { isPayrollAdminRole } from '@/lib/payroll-admin-access'
+import { CANCELLED_JOB_STATUS } from '@/lib/job-status'
 
 export const dynamic = 'force-dynamic'
 
@@ -57,6 +58,7 @@ export async function GET(request: NextRequest) {
         'id, job_number, status, sale_amount, sale_date, completed_at, salesperson_id, project_id, customer_id, allow_close_with_balance, ntp_commission_percent'
       )
       .eq('org_id', orgId)
+      .neq('status', CANCELLED_JOB_STATUS)
       .order('updated_at', { ascending: false })
       .limit(limit)
 

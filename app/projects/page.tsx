@@ -13,13 +13,7 @@ import {
   isRepLikeCustomerRecordRole,
 } from '@/lib/permissions'
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
-
-function mapJobStatusToProjectStatus(jobStatus: string) {
-  if (jobStatus === 'collected') return 'collected'
-  if (jobStatus === 'complete') return 'complete'
-  if (jobStatus === 'on_hold') return 'on hold'
-  return 'in progress'
-}
+import { projectStatusLabelForJobStatus } from '@/lib/job-status'
 
 function leadFromProject(project: any) {
   if (!project.leads) return null
@@ -33,7 +27,7 @@ function customerDisplayName(project: any) {
 function resolveDisplayStatus(project: any) {
   const jobs = Array.isArray(project.production_jobs) ? project.production_jobs : []
   if (jobs.length > 0 && jobs[0]?.status) {
-    return mapJobStatusToProjectStatus(jobs[0].status)
+    return projectStatusLabelForJobStatus(jobs[0].status)
   }
   return String(project.status || 'open').replace('_', ' ')
 }

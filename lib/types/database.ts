@@ -1,3 +1,5 @@
+import type { JobStatus } from '@/lib/job-status'
+
 export type UserRole = 
   | 'admin' 
   | 'owner'
@@ -53,7 +55,7 @@ export type LeadStatus = 'new' | 'contacted' | 'appointment' | 'inspection' | 'e
 
 export type CanvassDisposition = string
 
-export type ProjectStatus = 'open' | 'in_progress' | 'on_hold' | 'complete' | 'collected'
+export type ProjectStatus = 'open' | 'in_progress' | 'on_hold' | 'complete' | 'collected' | 'cancelled'
 
 export type ProjectType = 'roofing' | 'siding' | 'windows' | 'mixed'
 
@@ -925,14 +927,7 @@ export interface WorkOrderStatusHistory {
 // OPERATIONS / PRODUCTION TYPES
 // ============================================
 
-export type JobStatus = 
-  | 'sold'           // Contract signed, ready for ops
-  | 'materials'      // Materials being ordered
-  | 'scheduled'      // Install date set
-  | 'in_progress'    // Work in progress
-  | 'complete'       // Work done, pending collection
-  | 'collected'      // Payment collected
-  | 'on_hold'        // Paused for some reason
+export type { JobStatus }
 
 export type CrewType = 'roofing' | 'siding' | 'gutters' | 'windows' | 'general'
 

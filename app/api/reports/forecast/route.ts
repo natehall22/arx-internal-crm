@@ -3,6 +3,7 @@ import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import { canAccessReportsFromPermissionNames } from '@/lib/permissions'
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
+import { CANCELLED_JOB_STATUS } from '@/lib/job-status'
 
 export const dynamic = 'force-dynamic'
 
@@ -84,6 +85,7 @@ export async function GET(request: NextRequest) {
       .from('production_jobs')
       .select('sale_amount')
       .eq('org_id', profile.org_id)
+      .neq('status', CANCELLED_JOB_STATUS)
       .not('sale_amount', 'is', null)
       .gte('sale_date', ninetyDaysAgo.toISOString().split('T')[0])
       .gt('sale_amount', 0)
@@ -203,7 +205,7 @@ export async function GET(request: NextRequest) {
       .select('id, project_id, insurance_stage, acv_amount, depreciation_amount, supplement_amount, sale_amount, status')
       .eq('org_id', profile.org_id)
       .eq('job_source', 'insurance')
-      .not('status', 'in', '("collected")')
+      .not('status', 'in', `("collected","${CANCELLED_JOB_STATUS}")`)
 
     const insuranceJobProjectIds = (insuranceJobs || [])
       .map((job) => job.project_id)
