@@ -6,6 +6,7 @@ import { commissionCompBaseFromPreTaxAndDealerFee } from '@/lib/commission-payro
 import { resolveCustomerDisplayName, upsertCustomer } from '@/lib/customers'
 import { resolveProposalSoldRoofSquares } from '@/lib/sold-roof-squares'
 import { createServiceClient } from '@/lib/supabase/service'
+import { reinstateCancelledJob } from '@/lib/job-cancellation'
 
 type EmbeddedLeadRow = { owner_user_id?: string | null; closer_user_id?: string | null }
 type AdminSupabaseClient = ReturnType<typeof createServiceClient>
@@ -686,6 +687,13 @@ export async function POST(request: NextRequest) {
               }
             } else {
               console.log('[Contract Sign] Production job already exists:', existingJob.job_number)
+              await reinstateCancelledJob(supabase, {
+                orgId: contract.org_id,
+                jobId: existingJob.id,
+                projectId,
+                userId: contract.created_by ?? null,
+                saleAmount: contract.project_cost ?? null,
+              })
               if (proposalFinancing.dealer_fee_amount != null || contract.proposal_id) {
                 await supabase
                   .from('production_jobs')
@@ -880,6 +888,13 @@ export async function POST(request: NextRequest) {
               })
             }
           } else {
+            await reinstateCancelledJob(supabase, {
+              orgId: contract.org_id,
+              jobId: existingJob.id,
+              projectId,
+              userId: contract.created_by ?? null,
+              saleAmount: contract.project_cost ?? null,
+            })
             if (
               proposalFinancingExisting.dealer_fee_amount != null ||
               contract.proposal_id ||

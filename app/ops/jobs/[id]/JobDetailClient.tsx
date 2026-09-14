@@ -32,8 +32,14 @@ import { JobPaymentSummary } from '@/lib/types/job-payments'
 import { buildCommissionPayrollSnapshot, SALES_COMMISSION_POOL_RATE } from '@/lib/commission-payroll'
 import { computeFinancedContractTotal, netCommissionableFromJob } from '@/lib/financing'
 import { canShowCompletionCertificateBoardLink } from '@/lib/ops-completion-cert-link'
+import {
+  JOB_CANCELLATION_REASONS,
+  isJobCancellationReason,
+  jobCancellationReasonLabel,
+  type JobCancellationReason,
+  type JobStatus,
+} from '@/lib/job-status'
 
-type JobStatus = 'sold' | 'materials' | 'scheduled' | 'in_progress' | 'complete' | 'collected' | 'on_hold'
 
 interface Job {
   id: string
@@ -47,6 +53,9 @@ interface Job {
   collected_cents?: number | null
   deposit: number | null
   deposit_required_percent: number | null
+  cancelled_at?: string | null
+  cancellation_reason?: string | null
+  cancellation_notes?: string | null
   finance_submitted_at: string | null
   payroll_sent_at?: string | null
   sale_date: string | null
@@ -152,6 +161,7 @@ const statusConfig: Record<JobStatus, { label: string; color: string; bgColor: s
   complete: { label: 'Complete', color: 'text-green-700', bgColor: 'bg-green-100' },
   collected: { label: 'Collected', color: 'text-gray-700', bgColor: 'bg-gray-100' },
   on_hold: { label: 'On Hold', color: 'text-orange-700', bgColor: 'bg-orange-100' },
+  cancelled: { label: 'Cancelled', color: 'text-rose-800', bgColor: 'bg-rose-100' },
 }
 
 const materialsConfig: Record<string, { label: string; color: string }> = {
@@ -605,6 +615,11 @@ export default function JobDetailClient({
   const [jobNotes, setJobNotes] = useState<JobNote[]>([])
   const [loadingNotes, setLoadingNotes] = useState(true)
   const [deleting, setDeleting] = useState(false)
+  const [cancelDialogOpen, setCancelDialogOpen] = useState(false)
+  const [cancelReason, setCancelReason] = useState<JobCancellationReason | ''>('')
+  const [cancelNotes, setCancelNotes] = useState('')
+  const [uncancelling, setUncancelling] = useState(false)
+  const [cancelling, setCancelling] = useState(false)
   const [showCompleteModal, setShowCompleteModal] = useState(false)
   const [showCollectModal, setShowCollectModal] = useState(false)
   const [paymentSummary, setPaymentSummary] = useState<JobPaymentSummary | null>(null)
@@ -1177,6 +1192,63 @@ export default function JobDetailClient({
     }
   }
 
+  const isCancelled = job.status === 'cancelled'
+  // Mirrors the guards in cancel_production_job; the server is the authority.
+  const canCancelJob =
+    !isCancelled && job.status !== 'complete' && job.status !== 'collected' && !job.payroll_sent_at
+
+  const cancelNotesRequired = cancelReason === 'other'
+  const canSubmitCancel = isJobCancellationReason(cancelReason) && (!cancelNotesRequired || cancelNotes.trim().length > 0)
+
+  const cancelJob = async () => {
+    if (!canSubmitCancel) return
+    setCancelling(true)
+    try {
+      const response = await fetch(`/api/ops/jobs/${job.id}/cancel`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: cancelReason, notes: cancelNotes.trim() || null }),
+      })
+      const data = await response.json().catch(() => null)
+      if (!response.ok) {
+        alert(typeof data?.error === 'string' ? data.error : 'Failed to cancel job')
+        return
+      }
+      setCancelDialogOpen(false)
+      setCancelReason('')
+      setCancelNotes('')
+      if (data?.calendarWarning) {
+        alert(`Job cancelled, but the crew's calendar invite may still be there: ${data.calendarWarning}`)
+      }
+      await reloadJob()
+    } catch (error) {
+      console.error('Error cancelling job:', error)
+      alert('Failed to cancel job')
+    } finally {
+      setCancelling(false)
+    }
+  }
+
+  // Admin/owner only — the same gate as deleting a job; the API enforces it.
+  const uncancelJob = async () => {
+    if (!confirm(`Undo the cancellation of ${job.job_number}? The signed agreement will count as a sale again.`)) return
+    setUncancelling(true)
+    try {
+      const response = await fetch(`/api/ops/jobs/${job.id}/cancel`, { method: 'DELETE' })
+      const data = await response.json().catch(() => null)
+      if (!response.ok) {
+        alert(typeof data?.error === 'string' ? data.error : 'Failed to undo cancellation')
+        return
+      }
+      await reloadJob()
+    } catch (error) {
+      console.error('Error undoing cancellation:', error)
+      alert('Failed to undo cancellation')
+    } finally {
+      setUncancelling(false)
+    }
+  }
+
   const status = statusConfig[job.status] || statusConfig.sold
   const materials = materialsConfig[job.materials_status] || materialsConfig.not_ordered
   /**
@@ -1384,8 +1456,31 @@ export default function JobDetailClient({
                 </Link>
               </div>
 
-              {/** Pipeline — milestones; vertical on small screens, horizontal on lg+ */}
+              {isCancelled && (
+                <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2">
+                  <p className="text-sm font-semibold text-rose-900">
+                    Cancelled{job.cancelled_at ? ` ${new Date(job.cancelled_at).toLocaleDateString()}` : ''}
+                  </p>
+                  <p className="text-sm text-[#2c2c2a] mt-0.5 break-words">
+                    {jobCancellationReasonLabel(job.cancellation_reason)}
+                    {job.cancellation_notes ? ` — ${job.cancellation_notes}` : ''}
+                  </p>
+                  {canDeleteProductionJob && (
+                    <button
+                      type="button"
+                      onClick={() => void uncancelJob()}
+                      disabled={uncancelling}
+                      className="mt-2 min-h-[44px] px-3 py-2 text-sm font-medium border border-rose-300 rounded-lg text-rose-900 bg-white hover:bg-rose-100 disabled:opacity-50"
+                    >
+                      {uncancelling ? 'Undoing…' : 'Undo cancellation'}
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/** Pipeline — milestones; vertical on small screens, horizontal on lg+. Meaningless on a cancelled job. */}
               {(() => {
+                if (isCancelled) return null
                 const pipelineCurrentIdx = getJobPipelineCurrentIndex(job)
                 const currentLabel = PIPELINE_STAGES[pipelineCurrentIdx] ?? '—'
                 return (
@@ -1501,12 +1596,13 @@ export default function JobDetailClient({
                 markCollectedTitle,
               }
               const overflowAllowed =
-                (job.status !== 'on_hold' && job.status !== 'complete' && job.status !== 'collected') ||
+                (job.status !== 'on_hold' && job.status !== 'complete' && job.status !== 'collected' && !isCancelled) ||
+                canCancelJob ||
                 canDeleteProductionJob
               return (
                 <>
-                  {renderWorkflowButton(job, primaryId, true, wfOpts)}
-                  {secondaryIds.map((id) => renderWorkflowButton(job, id, false, wfOpts))}
+                  {!isCancelled && renderWorkflowButton(job, primaryId, true, wfOpts)}
+                  {!isCancelled && secondaryIds.map((id) => renderWorkflowButton(job, id, false, wfOpts))}
                   <div className="flex-1 min-w-[8px]" aria-hidden />
                   {overflowAllowed && (
                     <details className="relative">
@@ -1515,7 +1611,7 @@ export default function JobDetailClient({
                         <span className="text-gray-400">▾</span>
                       </summary>
                       <div className="absolute right-0 top-full mt-1 w-52 rounded-lg border border-gray-200 bg-white shadow-lg z-20 py-1">
-                        {job.status !== 'on_hold' && job.status !== 'complete' && job.status !== 'collected' && (
+                        {job.status !== 'on_hold' && job.status !== 'complete' && job.status !== 'collected' && !isCancelled && (
                           <button
                             type="button"
                             onClick={() => updateStatus('on_hold')}
@@ -1523,6 +1619,16 @@ export default function JobDetailClient({
                             className="w-full text-left px-3 py-2.5 text-sm text-orange-700 hover:bg-orange-50 disabled:opacity-50"
                           >
                             Pause Job
+                          </button>
+                        )}
+                        {canCancelJob && (
+                          <button
+                            type="button"
+                            onClick={() => setCancelDialogOpen(true)}
+                            disabled={saving}
+                            className="w-full text-left px-3 py-2.5 text-sm text-rose-700 hover:bg-rose-50 disabled:opacity-50"
+                          >
+                            Cancel Job
                           </button>
                         )}
                         {canDeleteProductionJob && (
@@ -1561,12 +1667,15 @@ export default function JobDetailClient({
                 markCollectedTitle,
               }
               const overflowAllowed =
-                (job.status !== 'on_hold' && job.status !== 'complete' && job.status !== 'collected') ||
+                (job.status !== 'on_hold' && job.status !== 'complete' && job.status !== 'collected' && !isCancelled) ||
+                canCancelJob ||
                 canDeleteProductionJob
               return (
                 <>
-                  <div className="w-full [&>button]:w-full">{renderWorkflowButton(job, primaryId, true, wfOpts)}</div>
-                  {secondaryIds.length > 0 && (
+                  {!isCancelled && (
+                    <div className="w-full [&>button]:w-full">{renderWorkflowButton(job, primaryId, true, wfOpts)}</div>
+                  )}
+                  {!isCancelled && secondaryIds.length > 0 && (
                     <div className="grid grid-cols-2 gap-2 [&>button]:w-full">{secondaryIds.map((id) => renderWorkflowButton(job, id, false, wfOpts))}</div>
                   )}
                   {overflowAllowed && (
@@ -1575,7 +1684,7 @@ export default function JobDetailClient({
                         More actions ▾
                       </summary>
                       <div className="mt-1 rounded-lg border border-gray-200 bg-gray-50 py-1">
-                        {job.status !== 'on_hold' && job.status !== 'complete' && job.status !== 'collected' && (
+                        {job.status !== 'on_hold' && job.status !== 'complete' && job.status !== 'collected' && !isCancelled && (
                           <button
                             type="button"
                             onClick={() => updateStatus('on_hold')}
@@ -1583,6 +1692,16 @@ export default function JobDetailClient({
                             className="w-full text-left px-3 py-2.5 text-sm text-orange-700 disabled:opacity-50"
                           >
                             Pause Job
+                          </button>
+                        )}
+                        {canCancelJob && (
+                          <button
+                            type="button"
+                            onClick={() => setCancelDialogOpen(true)}
+                            disabled={saving}
+                            className="w-full text-left px-3 py-2.5 text-sm text-rose-700 disabled:opacity-50"
+                          >
+                            Cancel Job
                           </button>
                         )}
                         {canDeleteProductionJob && (
@@ -1619,6 +1738,79 @@ export default function JobDetailClient({
             </div>
           </div>
         </div>
+
+        {cancelDialogOpen && (
+          <div
+            className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50"
+            onClick={() => !cancelling && setCancelDialogOpen(false)}
+          >
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="cancel-job-title"
+              className="bg-white rounded-xl shadow-xl max-w-md w-full p-5"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h2 id="cancel-job-title" className="text-lg font-semibold text-[#2c2c2a]">
+                Cancel job {job.job_number}?
+              </h2>
+              <p className="mt-1 text-sm text-[#2c2c2a]">
+                The job comes off the board and the install schedule, and the signed agreement is voided so it no
+                longer counts as a sale. A new signed agreement brings it back.
+              </p>
+              <fieldset className="mt-4">
+                <legend className="text-sm font-medium text-[#2c2c2a]">Reason (required)</legend>
+                <div className="mt-2 flex flex-col gap-1">
+                  {(Object.entries(JOB_CANCELLATION_REASONS) as [JobCancellationReason, string][]).map(([code, label]) => (
+                    <label
+                      key={code}
+                      className="flex items-center gap-3 min-h-[44px] px-3 rounded-lg border border-gray-200 text-sm text-[#2c2c2a] cursor-pointer has-[:checked]:border-rose-400 has-[:checked]:bg-rose-50"
+                    >
+                      <input
+                        type="radio"
+                        name="cancel-job-reason"
+                        value={code}
+                        checked={cancelReason === code}
+                        onChange={() => setCancelReason(code)}
+                      />
+                      {label}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+              <label htmlFor="cancel-job-notes" className="block mt-4 text-sm font-medium text-[#2c2c2a]">
+                Notes{cancelNotesRequired ? ' (required)' : ' (optional)'}
+              </label>
+              <textarea
+                id="cancel-job-notes"
+                value={cancelNotes}
+                onChange={(e) => setCancelNotes(e.target.value)}
+                maxLength={500}
+                rows={3}
+                className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-[#2c2c2a]"
+                placeholder="e.g. Approved, then failed on DTI"
+              />
+              <div className="mt-4 flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setCancelDialogOpen(false)}
+                  disabled={cancelling}
+                  className="min-h-[44px] px-4 py-2 border border-gray-300 rounded-lg text-sm text-[#2c2c2a] hover:bg-gray-50 disabled:opacity-50"
+                >
+                  Keep job
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void cancelJob()}
+                  disabled={cancelling || !canSubmitCancel}
+                  className="min-h-[44px] px-4 py-2 bg-rose-700 text-white rounded-lg text-sm font-medium hover:bg-rose-800 disabled:opacity-50"
+                >
+                  {cancelling ? 'Cancelling…' : 'Cancel job'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* CUSTOMER CONTACT — promoted next to the identity block. Ops calls customers
             constantly; this used to be buried in a sidebar card below Schedule/Assignment/Insurance. */}

@@ -4,6 +4,7 @@ import { toZonedTime } from 'date-fns-tz'
 import { createServiceClient } from '@/lib/supabase/service'
 import { requireAuthApi } from '@/lib/auth'
 import { getDateRangeForTimeFrame } from '@/lib/date-ranges'
+import { CANCELLED_JOB_STATUS } from '@/lib/job-status'
 
 export const dynamic = 'force-dynamic'
 
@@ -38,6 +39,7 @@ export async function GET(request: NextRequest) {
         .from('production_jobs')
         .select('id', { count: 'exact', head: true })
         .eq('org_id', profile.org_id)
+        .neq('status', CANCELLED_JOB_STATUS)
         .not('sale_date', 'is', null)
         .gte('sale_date', saleDateStart)
         .lte('sale_date', saleDateEnd),
@@ -48,14 +50,15 @@ export async function GET(request: NextRequest) {
         .not('completed_at', 'is', null)
         .gte('completed_at', startIso)
         .lt('completed_at', endIso),
+      // Sold jobs that fell through. This used to count declined proposals,
+      // which are customers who never bought — not cancellations.
       supabase
-        .from('proposals')
+        .from('production_jobs')
         .select('id', { count: 'exact', head: true })
         .eq('org_id', profile.org_id)
-        .eq('status', 'declined')
-        .not('declined_at', 'is', null)
-        .gte('declined_at', startIso)
-        .lt('declined_at', endIso),
+        .eq('status', CANCELLED_JOB_STATUS)
+        .gte('cancelled_at', startIso)
+        .lt('cancelled_at', endIso),
     ])
 
     if (soldRes.error) console.error('ops-metrics jobs sold:', soldRes.error)

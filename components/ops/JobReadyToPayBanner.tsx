@@ -1,8 +1,7 @@
 'use client'
 
 import type { JobPaymentSummary } from '@/lib/types/job-payments'
-
-type JobStatus = 'sold' | 'materials' | 'scheduled' | 'in_progress' | 'complete' | 'collected' | 'on_hold'
+import type { JobStatus } from '@/lib/job-status'
 
 interface JobReadyToPayBannerProps {
   status: JobStatus
@@ -32,8 +31,8 @@ export default function JobReadyToPayBanner({
 
   const collected = paymentSummary.collected_cents ?? 0
   const fullyPaid = collected >= saleCents
-  /** Hide once job is collected — payroll handoff uses JobPayrollSentBanner */
-  if (!fullyPaid || status === 'collected') return null
+  /** Hide once job is collected — payroll handoff uses JobPayrollSentBanner. A cancelled job is never collected. */
+  if (!fullyPaid || status === 'collected' || status === 'cancelled') return null
 
   const scrollPayments = () => {
     document.getElementById('payments-section')?.scrollIntoView({ behavior: 'smooth', block: 'center' })

@@ -1,4 +1,6 @@
-export type JobStatus = 'sold' | 'materials' | 'scheduled' | 'in_progress' | 'complete' | 'collected'
+import type { JobStatus } from '@/lib/job-status'
+
+export type { JobStatus }
 
 /** Shape used by /ops board + list (subset of production_jobs + joins). */
 export interface OpsBoardJob {
@@ -18,6 +20,9 @@ export interface OpsBoardJob {
   labor_cost?: number | null
   material_cost?: number | null
   sale_date: string | null
+  cancelled_at?: string | null
+  cancellation_reason?: string | null
+  cancellation_notes?: string | null
   scheduled_date: string | null
   materials_status: string
   permit_status: string

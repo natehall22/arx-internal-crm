@@ -17,6 +17,7 @@ import ProjectReviewButton from '@/components/projects/ProjectReviewButton'
 import ProjectAddressEdit from '@/components/projects/ProjectAddressEdit'
 import RecordAIContextHelper from '@/components/RecordAIContextHelper'
 import { parseProjectReviewStored } from '@/lib/project-review'
+import { projectStatusLabelForJobStatus } from '@/lib/job-status'
 import {
   canAccessProjectsFromPermissionNames,
   canViewAllProjects,
@@ -31,15 +32,6 @@ import { resolveOpsAccess } from '@/lib/ops-access'
 import PayrollAttributionEditor, {
   type PayrollAttributionData,
 } from '@/components/payroll/PayrollAttributionEditor'
-
-/** Label for list/detail — matches `mapJobStatusToProjectStatus` on projects list (job is source of truth). */
-function jobStatusLabel(jobStatus: string | null | undefined): string {
-  if (!jobStatus) return ''
-  if (jobStatus === 'collected') return 'Collected'
-  if (jobStatus === 'complete') return 'Complete'
-  if (jobStatus === 'on_hold') return 'On hold'
-  return 'In progress'
-}
 
 export default async function ProjectDetailPage({
   params,
@@ -479,7 +471,7 @@ export default async function ProjectDetailPage({
               <h3 className="text-sm font-medium text-gray-500">Status</h3>
               <p className="mt-1 text-sm text-gray-900 capitalize">
                 {productionJob?.status
-                  ? jobStatusLabel(productionJob.status)
+                  ? projectStatusLabelForJobStatus(productionJob.status)
                   : String(project.status || 'open').replace('_', ' ')}
               </p>
               {productionJob?.id ? (

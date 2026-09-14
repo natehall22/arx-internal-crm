@@ -11,6 +11,7 @@ import {
 } from '@/lib/permissions'
 import { createServiceClient } from '@/lib/supabase/service'
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
+import { CANCELLED_JOB_STATUS } from '@/lib/job-status'
 
 type JobStatus = 'sold' | 'materials' | 'scheduled' | 'in_progress' | 'complete' | 'collected'
 
@@ -49,12 +50,12 @@ export default async function OpsDashboardPage() {
     { data: materialsNeeded },
     { data: recentNotes },
   ] = await Promise.all([
-    // All active jobs (not collected)
+    // All active jobs (not collected or cancelled)
     supabase
       .from('production_jobs')
       .select('id, status, job_type, priority')
       .eq('org_id', profile.org_id)
-      .neq('status', 'collected'),
+      .not('status', 'in', `(collected,${CANCELLED_JOB_STATUS})`),
     // Today's scheduled jobs
     supabase
       .from('production_jobs')
