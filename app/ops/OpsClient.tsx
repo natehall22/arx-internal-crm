@@ -16,8 +16,9 @@ import {
   opsJobCompletionCertificateHref,
 } from '@/lib/ops-completion-cert-link'
 import type { JobStatus, OpsBoardJob } from '@/lib/ops-board-types'
+import { CANCELLED_JOB_STATUS, jobCancellationReasonLabel } from '@/lib/job-status'
 
-type BoardColumnStatus = Exclude<JobStatus, 'collected'>
+type BoardColumnStatus = Exclude<JobStatus, 'collected' | 'on_hold' | 'cancelled'>
 
 interface Crew {
   id: string
@@ -48,6 +49,8 @@ const statusConfig: Record<JobStatus, { label: string; color: string; bgColor: s
   in_progress: { label: 'In Progress', color: 'text-indigo-700', bgColor: 'bg-indigo-50 border-indigo-200' },
   complete: { label: 'Completed', color: 'text-green-700', bgColor: 'bg-green-50 border-green-200' },
   collected: { label: 'Collected', color: 'text-gray-700', bgColor: 'bg-gray-50 border-gray-200' },
+  on_hold: { label: 'On Hold', color: 'text-orange-700', bgColor: 'bg-orange-50 border-orange-200' },
+  cancelled: { label: 'Cancelled', color: 'text-rose-800', bgColor: 'bg-rose-50 border-rose-200' },
 }
 
 const priorityConfig: Record<string, { icon: string; color: string }> = {
@@ -228,7 +231,14 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
   }
 
   const activeJobs = useMemo(
-    () => jobs.filter((job) => job.status !== 'collected'),
+    () => jobs.filter((job) => job.status !== 'collected' && job.status !== CANCELLED_JOB_STATUS),
+    [jobs]
+  )
+  const cancelledJobs = useMemo(
+    () =>
+      jobs
+        .filter((job) => job.status === CANCELLED_JOB_STATUS)
+        .sort((a, b) => String(b.cancelled_at ?? '').localeCompare(String(a.cancelled_at ?? ''))),
     [jobs]
   )
   const completedJobs = useMemo(
@@ -983,6 +993,38 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
             </table>
           </div>
         </div>
+
+        {cancelledJobs.length > 0 && (
+          <details className="mt-6 bg-white rounded-lg border p-4">
+            <summary className="cursor-pointer select-none text-lg font-semibold text-[#2c2c2a]">
+              Cancelled Jobs <span className="text-sm font-normal text-gray-600">({cancelledJobs.length})</span>
+            </summary>
+            <ul className="mt-3 divide-y">
+              {cancelledJobs.map((job) => (
+                <li key={job.id} className="py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 sm:gap-4">
+                  <div className="min-w-0">
+                    <p className="text-sm text-[#2c2c2a]">
+                      <span className="font-mono">{job.job_number}</span>
+                      {' · '}
+                      {job.customer?.name || '-'}
+                    </p>
+                    <p className="text-xs text-gray-600 truncate">{job.address_text}</p>
+                    <p className="text-sm text-rose-800 mt-0.5">
+                      {jobCancellationReasonLabel(job.cancellation_reason)}
+                      {job.cancellation_notes ? <span className="text-[#2c2c2a]"> — {job.cancellation_notes}</span> : null}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-3 shrink-0 text-xs text-gray-600">
+                    {job.cancelled_at && <span>{new Date(job.cancelled_at).toLocaleDateString()}</span>}
+                    <Link href={`/ops/jobs/${job.id}`} className="text-indigo-700 hover:underline font-medium">
+                      View
+                    </Link>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
       </div>
 
       {snapshotJob && (

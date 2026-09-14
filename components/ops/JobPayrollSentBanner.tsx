@@ -2,8 +2,7 @@
 
 import { useState } from 'react'
 import type { JobPaymentSummary } from '@/lib/types/job-payments'
-
-type JobStatus = 'sold' | 'materials' | 'scheduled' | 'in_progress' | 'complete' | 'collected' | 'on_hold'
+import type { JobStatus } from '@/lib/job-status'
 
 interface JobPayrollSentBannerProps {
   jobId: string

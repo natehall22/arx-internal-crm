@@ -4,6 +4,7 @@ import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import { resolveOpsAccess } from '@/lib/ops-access'
 import { syncInstallToCalendar, type InstallSyncJobRow } from '@/lib/install-calendar'
+import { CANCELLED_JOB_STATUS } from '@/lib/job-status'
 import {
   enrichOpsJobsWithMeasureSoldSquaresFallback,
   enrichOpsJobsWithSoldSquares,
@@ -142,6 +143,9 @@ export async function POST(request: Request) {
 
   if (jobError || !job) {
     return NextResponse.json({ error: 'Job not found' }, { status: 404 })
+  }
+  if (job.status === CANCELLED_JOB_STATUS) {
+    return NextResponse.json({ error: 'This job is cancelled and cannot be scheduled' }, { status: 409 })
   }
   if (subError || !sub) {
     return NextResponse.json({ error: 'Subcontractor not found' }, { status: 404 })

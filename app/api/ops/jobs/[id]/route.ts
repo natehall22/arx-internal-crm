@@ -3,6 +3,7 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { getJobPaymentSummary } from '@/lib/job-payments'
 import { requireAuthApi } from '@/lib/auth'
 import { resolveOpsAccess, redactProductionJobFinancialSummaryFields } from '@/lib/ops-access'
+import { CANCELLED_JOB_STATUS, projectStatusForJobStatus } from '@/lib/job-status'
 
 const jobSelectWithPaymentMethod = `
   *,
@@ -21,13 +22,6 @@ const jobSelectWithoutPaymentMethod = `
   salesperson:users!production_jobs_salesperson_id_fkey(id, full_name),
   project:projects(id, scope_of_work, product_summary, ops_notes, sold_roof_squares, permits_status, install_date, project_review, customers(id, name, phone, email), leads(id, homeowner_name, phone, email))
 `
-
-function mapJobStatusToProjectStatus(jobStatus: string) {
-  if (jobStatus === 'collected') return 'collected'
-  if (jobStatus === 'complete') return 'complete'
-  if (jobStatus === 'on_hold') return 'on_hold'
-  return 'in_progress'
-}
 
 // PATCH - Update a production job
 export async function PATCH(
@@ -88,6 +82,21 @@ export async function PATCH(
     }
     if (Object.keys(updateData).length === 0) {
       return NextResponse.json({ error: 'No valid fields to update' }, { status: 400 })
+    }
+
+    // Cancelling also voids the sale agreement and loses the opportunity, all
+    // atomically — a bare status write here would do none of that.
+    if (updateData.status === CANCELLED_JOB_STATUS) {
+      return NextResponse.json(
+        { error: 'Use Cancel Job so the sale agreement is voided too' },
+        { status: 400 }
+      )
+    }
+    if (existingJob.status === CANCELLED_JOB_STATUS && 'status' in updateData) {
+      return NextResponse.json(
+        { error: 'This job is cancelled. Signing a new agreement reinstates it.' },
+        { status: 409 }
+      )
     }
 
     if (!canViewJobFinancials && 'labor_cost' in updateData) {
@@ -175,7 +184,7 @@ export async function PATCH(
 
     // Keep linked project status aligned with job lifecycle status.
     if (updatedJob?.project_id && updatedJob?.status) {
-      const mappedProjectStatus = mapJobStatusToProjectStatus(updatedJob.status)
+      const mappedProjectStatus = projectStatusForJobStatus(updatedJob.status)
       const { error: projectStatusError } = await adminClient
         .from('projects')
         .update({ status: mappedProjectStatus })

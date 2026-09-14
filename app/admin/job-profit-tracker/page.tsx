@@ -4,6 +4,7 @@ import Nav from '@/components/Nav'
 import { requireAuth } from '@/lib/auth'
 import { isPayrollAdminRole } from '@/lib/payroll-admin-access'
 import { createServiceClient } from '@/lib/supabase/service'
+import { CANCELLED_JOB_STATUS } from '@/lib/job-status'
 import {
   getSignedOrderAmount,
   isMissingJobProductOrdersTable,
@@ -202,14 +203,15 @@ export default async function AdminJobProfitTrackerPage({
     .order('created_at', { ascending: false })
     .limit(500)
 
-  if (status !== 'all') {
-    if (status === 'closed') {
-      query = query.in('status', ['complete', 'collected'])
-    } else if (status === 'open') {
-      query = query.not('status', 'in', '(complete,collected)')
-    } else {
-      query = query.eq('status', status)
-    }
+  // A cancelled job has no profit to track; it shows only when asked for by name.
+  if (status === 'all') {
+    query = query.neq('status', CANCELLED_JOB_STATUS)
+  } else if (status === 'closed') {
+    query = query.in('status', ['complete', 'collected'])
+  } else if (status === 'open') {
+    query = query.not('status', 'in', `(complete,collected,${CANCELLED_JOB_STATUS})`)
+  } else {
+    query = query.eq('status', status)
   }
 
   if (from) query = query.gte('sale_date', from)
@@ -434,6 +436,7 @@ export default async function AdminJobProfitTrackerPage({
                 <option value="complete">Complete</option>
                 <option value="collected">Collected</option>
                 <option value="on_hold">On hold</option>
+                <option value="cancelled">Cancelled</option>
               </select>
             </label>
             <label className="block">

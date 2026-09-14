@@ -11,20 +11,14 @@ import CreateAddOnOpportunityButton from '@/components/customers/CreateAddOnOppo
 import { canAccessCustomerRecordsFromPermissionNames, isRepLikeCustomerRecordRole } from '@/lib/permissions'
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 import { isReferralManagerRole } from '@/lib/referral-links'
+import { projectStatusLabelForJobStatus } from '@/lib/job-status'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
-
-function mapJobStatusToProjectStatus(jobStatus: string) {
-  if (jobStatus === 'collected') return 'collected'
-  if (jobStatus === 'complete') return 'complete'
-  if (jobStatus === 'on_hold') return 'on hold'
-  return 'in progress'
-}
 
 function resolveProjectDisplayStatus(project: any) {
   const jobs = Array.isArray(project.production_jobs) ? project.production_jobs : []
   if (jobs.length > 0 && jobs[0]?.status) {
-    return mapJobStatusToProjectStatus(jobs[0].status)
+    return projectStatusLabelForJobStatus(jobs[0].status)
   }
   return String(project.status || 'open').replace(/_/g, ' ')
 }

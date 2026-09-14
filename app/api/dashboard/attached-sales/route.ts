@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import { SALE_AGREEMENT_TYPES } from '@/lib/sales-metrics'
+import { CANCELLED_JOB_STATUS } from '@/lib/job-status'
 
 export const dynamic = 'force-dynamic'
 
@@ -202,6 +203,7 @@ export async function GET() {
       `
       )
       .eq('org_id', profile.org_id)
+      .neq('status', CANCELLED_JOB_STATUS)
       .order('updated_at', { ascending: false })
       .limit(200)
 
