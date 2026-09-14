@@ -59,7 +59,6 @@ describe('sumHybridSaleComponents', () => {
 describe('calculateCommissionFromPlanForSale — hybrid plans', () => {
   const base = {
     commissionableAmount: 14000,
-    periodVolume: 0,
     periodSits: 0,
     periodClosingRatePct: null,
     overridePercentage: null,
@@ -116,7 +115,7 @@ describe('calculateCommissionFromPlanForSale — hybrid plans', () => {
     expect(result.countsTowardPoolCap).toBe(true)
   })
 
-  it('stacks a volume bonus onto the hybrid percentage components', () => {
+  it('stacks a bonus tier onto the hybrid percentage components', () => {
     const result = calculateCommissionFromPlanForSale({
       ...base,
       plan: {
@@ -124,10 +123,10 @@ describe('calculateCommissionFromPlanForSale — hybrid plans', () => {
         plan_type: 'hybrid',
         hybrid_components: [{ type: 'percentage', rate: 6 }],
         volume_bonuses: [
-          { min_volume: 10000, max_volume: null, bonus_type: 'percentage', bonus_value: 1.5 },
+          { min_volume: 10, max_volume: null, bonus_type: 'percentage', bonus_value: 1.5, tier_metric: 'sits' },
         ],
       },
-      periodVolume: 50000,
+      periodSits: 12,
     })
     expect(result.effectiveRate).toBe(7.5)
     expect(result.totalAmount).toBe(1050)

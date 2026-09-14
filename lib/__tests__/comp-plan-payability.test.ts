@@ -20,7 +20,6 @@ describe('planTypePaysCommission', () => {
       const result = calculateCommissionFromPlanForSale({
         plan: { id: 'p', plan_type: planType, base_percentage: 7 },
         commissionableAmount: 10000,
-        periodVolume: 0,
         periodSits: 0,
         periodClosingRatePct: null,
         overridePercentage: null,
@@ -31,7 +30,6 @@ describe('planTypePaysCommission', () => {
     const paid = calculateCommissionFromPlanForSale({
       plan: { id: 'p', plan_type: 'percentage', base_percentage: 7 },
       commissionableAmount: 10000,
-      periodVolume: 0,
       periodSits: 0,
       periodClosingRatePct: null,
       overridePercentage: null,

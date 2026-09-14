@@ -62,7 +62,7 @@ interface VolumeTier {
   max_volume: number | null
   bonus_type: 'percentage' | 'flat'
   bonus_value: number
-  tier_metric?: 'volume' | 'closing_rate' | 'sits'
+  tier_metric?: 'closing_rate' | 'sits' | null
 }
 
 interface TeamMemberStat {
@@ -589,11 +589,10 @@ export default function DashboardClient({
         ? Number(personalStats.closeRate)
         : null
     return {
-      periodVolume: monthlyCommissionableVolume,
       periodSits: personalStats.sits,
       periodClosingRatePct: cr,
     }
-  }, [monthlyCommissionableVolume, personalStats.sits, personalStats.closeRate])
+  }, [personalStats.sits, personalStats.closeRate])
 
   useEffect(() => {
     setMounted(true)
@@ -2214,12 +2213,12 @@ export default function DashboardClient({
                     </div>
                   )}
                   
-                  {/* Volume Bonuses */}
+                  {/* Bonus tiers (sits / close rate) */}
                   {compPlanDetails.volume_bonuses && compPlanDetails.volume_bonuses.length > 0 && (
                     <div className="bg-gray-50 rounded-xl p-3 sm:p-4">
-                      <h4 className="font-semibold text-gray-900 mb-2 sm:mb-3 text-sm sm:text-base">Volume Bonuses</h4>
+                      <h4 className="font-semibold text-gray-900 mb-2 sm:mb-3 text-sm sm:text-base">Bonus Tiers</h4>
                       <p className="text-xs sm:text-sm text-gray-600 mb-2 sm:mb-3">
-                        Tiers can use volume ($), sits, or close rate (see team stats for your current period).
+                        Tiers use sits or close rate (see team stats for your current period).
                       </p>
                       <div className="space-y-2">
                         {compPlanDetails.volume_bonuses.map((tier: VolumeTier, idx: number) => {
@@ -2272,7 +2271,6 @@ export default function DashboardClient({
                       ) : (
                         <>
                           <li>Commission uses net sale after dealer fees (financed jobs)</li>
-                          <li>Volume bonuses reward consistent performance</li>
                           <li>Focus on quality to maximize close rate</li>
                         </>
                       )}
@@ -2442,7 +2440,7 @@ export default function DashboardClient({
                             className="w-full px-3 sm:px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-base"
                           />
                           <p className="text-xs text-gray-500 mt-1">
-                            0% = cash or no lender fee. Volume tiers use net commissionable dollars.
+                            0% = cash or no lender fee.
                           </p>
                         </div>
                         
@@ -2598,8 +2596,7 @@ export default function DashboardClient({
                 <div className="bg-gray-50 rounded-xl p-3 sm:p-4">
                   <h4 className="font-semibold text-gray-900 mb-2 sm:mb-3 text-sm sm:text-base">Commission Tiers</h4>
                   <p className="text-xs text-gray-500 mb-2">
-                    Highlights the tier that matches this calculator (volume) and your current team stats (sits /
-                    close rate).
+                    Highlights the tier that matches your current team stats (sits / close rate).
                   </p>
                   <div className="space-y-2">
                     {compPlanDetails.volume_bonuses.map((tier: VolumeTier, idx: number) => {

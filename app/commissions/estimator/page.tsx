@@ -14,7 +14,6 @@ interface CompPlan {
   base_percentage: number | null
   flat_amount: number | null
   tiers: { min: number; max: number | null; rate: number }[] | null
-  volume_bonuses: { min_volume: number; max_volume: number | null; bonus_type: string; bonus_value: number }[] | null
   is_manager_plan: boolean
   personal_sales_enabled: boolean
   /** @deprecated Management overlays are calculated by payroll, not this estimator. */
@@ -50,7 +49,6 @@ export default function CommissionEstimatorPage() {
   // Calculated results
   const [estimate, setEstimate] = useState({
     personalCommission: 0,
-    personalVolumeBonus: 0,
     totalEstimate: 0,
     effectivePersonalRate: 0,
     totalSaleAmount: 0,
@@ -209,7 +207,6 @@ export default function CommissionEstimatorPage() {
     const commissionableAmount = baseSales + commissionableAdders
 
     let personalCommission = 0
-    let personalVolumeBonus = 0
     let effectivePersonalRate = 0
 
     // Calculate personal commission on COMMISSIONABLE amount only
@@ -227,28 +224,12 @@ export default function CommissionEstimatorPage() {
         effectivePersonalRate = tier?.rate || compPlan.base_percentage || 0
         personalCommission = commissionableAmount * (effectivePersonalRate / 100)
       }
-
-      // Calculate volume bonus based on commissionable amount
-      if (compPlan.volume_bonuses && compPlan.volume_bonuses.length > 0) {
-        const volumeTier = compPlan.volume_bonuses.find(vb =>
-          commissionableAmount >= vb.min_volume && (vb.max_volume === null || commissionableAmount <= vb.max_volume)
-        )
-        if (volumeTier) {
-          if (volumeTier.bonus_type === 'percentage') {
-            effectivePersonalRate += volumeTier.bonus_value
-            personalVolumeBonus = commissionableAmount * (volumeTier.bonus_value / 100)
-          } else {
-            personalVolumeBonus = volumeTier.bonus_value
-          }
-        }
-      }
     }
 
-    const totalEstimate = personalCommission + personalVolumeBonus + managerSpoFromAdders
+    const totalEstimate = personalCommission + managerSpoFromAdders
 
     setEstimate({
       personalCommission,
-      personalVolumeBonus,
       totalEstimate,
       effectivePersonalRate,
       totalSaleAmount,
@@ -408,11 +389,6 @@ export default function CommissionEstimatorPage() {
                         ? `$${compPlan.flat_amount} per sale`
                         : `${compPlan.base_percentage}%`}
                     </p>
-                    {compPlan.volume_bonuses && compPlan.volume_bonuses.length > 0 && (
-                      <p className="text-sm text-gray-600 mt-1">
-                        <span className="font-medium">Volume Bonuses:</span> Available based on volume
-                      </p>
-                    )}
                   </div>
                 </div>
               )}
@@ -441,14 +417,6 @@ export default function CommissionEstimatorPage() {
                           ${estimate.personalCommission.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </span>
                       </div>
-                      {estimate.personalVolumeBonus > 0 && (
-                        <div className="flex justify-between text-sm">
-                          <span className="text-indigo-200">Volume Bonus</span>
-                          <span className="font-medium text-green-300">
-                            +${estimate.personalVolumeBonus.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                          </span>
-                        </div>
-                      )}
                     </>
                   )}
                   {estimate.managerSpoFromAdders > 0 && (
@@ -515,7 +483,7 @@ export default function CommissionEstimatorPage() {
                     <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                       <div>
                         <p className="font-medium text-gray-900">Effective Personal Rate</p>
-                        <p className="text-xs text-gray-500">Base + Volume Bonus</p>
+                        <p className="text-xs text-gray-500">Base rate</p>
                       </div>
                       <div className="text-2xl font-bold text-indigo-600">
                         {estimate.effectivePersonalRate.toFixed(1)}%

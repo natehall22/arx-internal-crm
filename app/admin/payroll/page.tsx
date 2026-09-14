@@ -21,7 +21,6 @@ type PayrollRow = {
   raw_commission: number
   scaled_commission: number
   pool_cap_enforced: boolean
-  period_volume: number
   effective_rate_pct: number
   unsupported_plan: boolean
   note: string | null
@@ -150,8 +149,8 @@ export default function AdminPayrollPage() {
           </div>
           <p className="text-gray-600 mt-2 max-w-3xl">
             Preview or download commission lines by job. Each person&apos;s <strong>comp plan</strong> and{' '}
-            <strong>override %</strong> come from their user assignment. Monthly <strong>volume bonuses</strong> use
-            attributed sales volume. The org <strong>18% commission pool cap</strong> applies per job on top of the
+            <strong>override %</strong> come from their user assignment. Plan <strong>bonus tiers</strong> use the person&apos;s
+            monthly sits or close rate. The org <strong>18% commission pool cap</strong> applies per job on top of the
             commissionable base below.
           </p>
           <div className="mt-4 max-w-3xl rounded-lg border border-indigo-100 bg-indigo-50/80 px-4 py-3 text-sm text-indigo-950">
@@ -248,7 +247,6 @@ export default function AdminPayrollPage() {
                     <th className="px-3 py-2 font-medium">Plan</th>
                     <th className="px-3 py-2 font-medium text-right">Commissionable base</th>
                     <th className="px-3 py-2 font-medium text-right">Pool cap</th>
-                    <th className="px-3 py-2 font-medium text-right">Vol (mo.)</th>
                     <th className="px-3 py-2 font-medium text-right">Eff. %</th>
                     <th className="px-3 py-2 font-medium text-right">Raw $</th>
                     <th className="px-3 py-2 font-medium text-right">Paid $</th>
@@ -282,7 +280,6 @@ export default function AdminPayrollPage() {
                       <td className="px-3 py-2 text-right tabular-nums">
                         {r.pool_cap != null ? r.pool_cap.toFixed(2) : '—'}
                       </td>
-                      <td className="px-3 py-2 text-right tabular-nums">{r.period_volume.toFixed(0)}</td>
                       <td className="px-3 py-2 text-right tabular-nums">{r.effective_rate_pct.toFixed(2)}</td>
                       <td className="px-3 py-2 text-right tabular-nums">{r.raw_commission.toFixed(2)}</td>
                       <td className="px-3 py-2 text-right font-medium tabular-nums">{r.scaled_commission.toFixed(2)}</td>

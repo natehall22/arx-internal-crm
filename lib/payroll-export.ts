@@ -1,4 +1,3 @@
-import { buildCommissionPayrollSnapshot } from '@/lib/commission-payroll'
 import { calculateCommissionFromPlanForSale, type CompPlanForCalc } from '@/lib/calculate-commission-from-plan'
 import {
   getSitOutcomeNormalizedIdSet,
@@ -268,7 +267,6 @@ export type PayrollExportRow = {
   comp_plan_name: string | null
   plan_type: string | null
   base_rate_pct: number | null
-  period_volume: number
   volume_bonus_rate_pct: number
   volume_bonus_flat: number
   effective_rate_pct: number
@@ -369,13 +367,6 @@ export async function loadActiveCompPlanForUser(
   return null
 }
 
-/** Roles that accumulate monthly volume for tier bonuses (not manager additive roles). */
-const VOLUME_ACCUMULATING_PARTICIPANT_ROLES = new Set<PayrollParticipant['role']>([
-  'sales_rep',
-  'setter',
-  'owner',
-])
-
 /**
  * True when commission export would resolve a plan for this user on the job sale date
  * (an active `user_comp_plans` row with a joined plan).
@@ -396,43 +387,6 @@ export async function hasResolvableCompPlanForUserOnDate(
 
 function roundMoney(n: number): number {
   return Math.round((Number(n) || 0) * 100) / 100
-}
-
-/**
- * Sum(comp_base) per user per YYYY-MM for volume bonus tiers.
- */
-export function buildMonthlyVolumeMaps(
-  jobs: Array<{
-    id: string
-    sale_date: string | null
-    salesperson_id: string | null
-    commission_comp_base?: number | null
-    dealer_fee_amount?: number | null
-    sale_amount?: number | null
-  }>,
-  opportunityByProjectId: Map<string, { owner_user_id?: string | null; setter_user_id?: string | null } | null>,
-  projectIdByJobId: Map<string, string>
-): Map<string, number> {
-  const vol = new Map<string, number>()
-
-  for (const job of jobs) {
-    const snap = buildCommissionPayrollSnapshot(job)
-    const compBase = snap.compBase
-    if (compBase == null || compBase <= 0) continue
-    const mk = monthKeyFromSaleDate(job.sale_date)
-    if (!mk) continue
-
-    const projectId = projectIdByJobId.get(job.id)
-    const opp = projectId ? opportunityByProjectId.get(projectId) ?? null : null
-    const participants = collectParticipants(job, opp)
-
-    for (const p of participants) {
-      if (!VOLUME_ACCUMULATING_PARTICIPANT_ROLES.has(p.role)) continue
-      const key = `${p.userId}|${mk}`
-      vol.set(key, roundMoney((vol.get(key) || 0) + compBase))
-    }
-  }
-  return vol
 }
 
 export async function loadOrgSitOutcomeIdSet(
@@ -459,8 +413,8 @@ export async function loadOrgSitOutcomeIdSet(
 export async function buildMonthlyTierMetricMaps(
   supabase: SupabaseClient,
   orgId: string,
-  volFrom: string,
-  volTo: string
+  monthFrom: string,
+  monthTo: string
 ): Promise<{
   sitsBySetterMonth: Map<string, number>
   sitsByOwnerMonth: Map<string, number>
@@ -476,11 +430,11 @@ export async function buildMonthlyTierMetricMaps(
   const salesByOwnerMonth = new Map<string, number>()
   const skippedOpportunityIds: string[] = []
 
-  // Half-open [start, end) boundary in the org's payroll timezone (Eastern) — volFrom/
-  // volTo are calendar-month first/last days, so end is Eastern midnight of the day
-  // after volTo. Prevents a late-evening Eastern sit near month-end from rolling into
+  // Half-open [start, end) boundary in the org's payroll timezone (Eastern) — monthFrom/
+  // monthTo are calendar-month first/last days, so end is Eastern midnight of the day
+  // after monthTo. Prevents a late-evening Eastern sit near month-end from rolling into
   // the next UTC calendar month's tier bucket.
-  const { start, end } = getCustomDateRange(volFrom, volTo, EASTERN_TZ)
+  const { start, end } = getCustomDateRange(monthFrom, monthTo, EASTERN_TZ)
   const startIso = start.toISOString()
   const endIso = end.toISOString()
 
@@ -488,7 +442,7 @@ export async function buildMonthlyTierMetricMaps(
   if (sitSet.size > 0) {
     // Resolves each opportunity's FIRST qualifying sit (not whatever the
     // opportunity's inspection_outcome column currently holds) so a later
-    // re-attempt can't shift which month a sit's volume-bonus tier counts
+    // re-attempt can't shift which month a sit's bonus tier counts
     // toward — same resolution the per-unit sit-pay calculation uses.
     // Let failures propagate: a payroll export computed from an empty sit map
     // would look valid while silently omitting every tier bonus.
@@ -640,7 +594,6 @@ export function scaleCommissionsToPool(
 export function computeRawCommissionForParticipant(input: {
   plan: CompPlanForCalc
   commissionableAmount: number
-  periodVolume: number
   periodSits: number
   periodClosingRatePct: number | null
   overridePercentage: number | null
@@ -648,7 +601,6 @@ export function computeRawCommissionForParticipant(input: {
   return calculateCommissionFromPlanForSale({
     plan: input.plan,
     commissionableAmount: input.commissionableAmount,
-    periodVolume: input.periodVolume,
     periodSits: input.periodSits,
     periodClosingRatePct: input.periodClosingRatePct,
     overridePercentage: input.overridePercentage,

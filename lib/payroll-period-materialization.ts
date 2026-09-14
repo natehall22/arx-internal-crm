@@ -2,7 +2,6 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { CompPlanForCalc } from '@/lib/calculate-commission-from-plan'
 import { buildCommissionPayrollSnapshot } from '@/lib/commission-payroll'
 import { roundMoney } from '@/lib/money'
-import { CANCELLED_JOB_STATUS } from '@/lib/job-status'
 import {
   buildAdditiveParticipantsForJob,
   loadDerivedCommissionContext,
@@ -10,7 +9,6 @@ import {
 } from '@/lib/job-derived-commission-lines'
 import {
   buildMonthlyTierMetricMaps,
-  buildMonthlyVolumeMaps,
   collectParticipants,
   computeRawCommissionForParticipant,
   loadActiveCompPlanForUser,
@@ -332,48 +330,6 @@ export async function materializePayrollPeriod(
   )
 
   const bounds = monthBounds(eligibleJobs, period.cutoff_at)
-  const { data: volumeJobs, error: volumeError } = await supabase
-    .from('production_jobs')
-    .select('id, sale_date, salesperson_id, commission_comp_base, dealer_fee_amount, sale_amount, project_id')
-    .eq('org_id', orgId)
-    .neq('status', CANCELLED_JOB_STATUS)
-    .gte('sale_date', bounds.from)
-    .lte('sale_date', bounds.to)
-    .not('sale_date', 'is', null)
-  if (volumeError) throw volumeError
-  const volumeProjectIds = Array.from(
-    new Set((volumeJobs || []).map((j) => j.project_id).filter((v): v is string => Boolean(v)))
-  )
-  const { data: volumeProjects, error: volumeProjectError } = volumeProjectIds.length
-    ? await supabase
-        .from('projects')
-        .select('id, opportunity_id')
-        .eq('org_id', orgId)
-        .in('id', volumeProjectIds)
-    : { data: [], error: null }
-  if (volumeProjectError) throw volumeProjectError
-  const volumeOppIds = Array.from(
-    new Set((volumeProjects || []).map((p) => p.opportunity_id).filter((v): v is string => Boolean(v)))
-  )
-  const { data: volumeOpps, error: volumeOppError } = volumeOppIds.length
-    ? await supabase
-        .from('opportunities')
-        .select('id, owner_user_id, setter_user_id')
-        .eq('org_id', orgId)
-        .in('id', volumeOppIds)
-    : { data: [], error: null }
-  if (volumeOppError) throw volumeOppError
-  const volumeOppById = new Map((volumeOpps || []).map((o) => [o.id as string, o]))
-  const volumeOppByProject = new Map<string, { owner_user_id?: string | null; setter_user_id?: string | null } | null>()
-  for (const project of volumeProjects || []) {
-    volumeOppByProject.set(
-      project.id as string,
-      project.opportunity_id ? volumeOppById.get(project.opportunity_id as string) || null : null
-    )
-  }
-  const projectIdByJobId = new Map<string, string>()
-  for (const job of volumeJobs || []) if (job.project_id) projectIdByJobId.set(job.id as string, job.project_id as string)
-  const volumeMap = buildMonthlyVolumeMaps(volumeJobs || [], volumeOppByProject, projectIdByJobId)
   const tierMetrics = await buildMonthlyTierMetricMaps(supabase, orgId, bounds.from, bounds.to)
 
   const now = new Date().toISOString()
@@ -445,7 +401,6 @@ export async function materializePayrollPeriod(
       const assignment = await loadActiveCompPlanForUser(supabase, participant.userId, orgId, saleDate)
       const plan = assignment?.comp_plans as unknown as CompPlanForCalc | null
       if (!plan) continue
-      const periodVolume = monthKey ? volumeMap.get(`${participant.userId}|${monthKey}`) || 0 : 0
       const metrics = periodSitsAndCloseRateForParticipant({
         userId: participant.userId,
         monthKey,
@@ -457,7 +412,6 @@ export async function materializePayrollPeriod(
       const calc = computeRawCommissionForParticipant({
         plan,
         commissionableAmount: payrollSnapshot.compBase,
-        periodVolume,
         periodSits: metrics.periodSits,
         periodClosingRatePct: metrics.periodClosingRatePct,
         overridePercentage: assignment?.override_percentage ?? null,

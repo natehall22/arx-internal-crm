@@ -24,8 +24,8 @@
  *
  *   1. every pay-affecting field, deep-equal
  *   2. `calculateCommissionFromPlanForSale` output on the job's real commissionable
- *      amount, across volume/sit/close-rate combinations that exercise tiers and
- *      volume bonuses, to the cent
+ *      amount, across sit/close-rate combinations that exercise tiers and
+ *      bonus tiers, to the cent
  *
  * It reads only. Nothing is written, in either mode.
  */
@@ -57,12 +57,12 @@ const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
 type PlanRow = Record<string, unknown> & { id: string; org_id: string; name: string }
 
-/** Settings that select different tiers / volume bonuses inside a plan body. */
+/** Settings that select different bonus tiers inside a plan body. */
 const CALC_SHAPES = [
-  { periodVolume: 0, periodSits: 0, periodClosingRatePct: null },
-  { periodVolume: 50_000, periodSits: 5, periodClosingRatePct: 25 },
-  { periodVolume: 250_000, periodSits: 20, periodClosingRatePct: 50 },
-  { periodVolume: 1_000_000, periodSits: 60, periodClosingRatePct: 80 },
+  { periodSits: 0, periodClosingRatePct: null },
+  { periodSits: 5, periodClosingRatePct: 25 },
+  { periodSits: 20, periodClosingRatePct: 50 },
+  { periodSits: 60, periodClosingRatePct: 80 },
 ] as const
 
 function bodyOf(plan: Record<string, unknown>): Record<string, unknown> {
@@ -175,12 +175,11 @@ async function main() {
       }
 
       for (const amount of amounts) {
-        // Volume, sits and closing rate all select tiers/bonuses inside the plan body,
+        // Sits and closing rate both select bonus tiers inside the plan body,
         // so a body difference could hide at one setting and show at another.
         for (const shape of CALC_SHAPES) {
           const args = {
             commissionableAmount: amount,
-            periodVolume: shape.periodVolume,
             periodSits: shape.periodSits,
             periodClosingRatePct: shape.periodClosingRatePct,
             overridePercentage: (assignment.override_percentage as number | null) ?? null,

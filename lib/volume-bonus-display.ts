@@ -1,57 +1,41 @@
-export type VolumeBonusTierMetric = 'volume' | 'closing_rate' | 'sits'
+import { volumeBonusTierMetric } from '@/lib/calculate-commission-from-plan'
 
-export function normalizeVolumeBonusTierMetric(m: string | null | undefined): VolumeBonusTierMetric {
-  if (m === 'closing_rate' || m === 'sits') return m
-  return 'volume'
+type TierBounds = { min_volume: number; max_volume: number | null; tier_metric?: string | null }
+
+/** The values a bonus tier can be measured against. Same inputs payroll uses. */
+export type BonusTierValues = {
+  periodSits: number
+  periodClosingRatePct: number | null
 }
 
 /** Human-readable range for tier rows (min/max semantics depend on metric). */
 export function formatVolumeBonusTierRange(
-  tier: { min_volume: number; max_volume: number | null; tier_metric?: string | null },
+  tier: TierBounds,
   opts?: { nextMinVolume?: number | null }
 ): string {
-  const m = normalizeVolumeBonusTierMetric(tier.tier_metric)
+  const m = volumeBonusTierMetric(tier.tier_metric)
   const min = tier.min_volume
   const max = tier.max_volume
-  if (m === 'sits') {
-    const hi =
-      max != null
-        ? max
-        : opts?.nextMinVolume != null
-          ? opts.nextMinVolume - 1
-          : null
-    return hi != null ? `${min} – ${hi} sits` : `${min}+ sits`
-  }
-  if (m === 'closing_rate') {
-    const hi =
-      max != null
-        ? max
-        : opts?.nextMinVolume != null
-          ? opts.nextMinVolume - 1
-          : null
-    return hi != null ? `${min}% – ${hi}% close rate` : `${min}%+ close rate`
-  }
-  return max != null
-    ? `$${min.toLocaleString()} – $${max.toLocaleString()} volume`
-    : `$${min.toLocaleString()}+ volume`
+  const hi =
+    max != null
+      ? max
+      : opts?.nextMinVolume != null
+        ? opts.nextMinVolume - 1
+        : null
+  if (m === 'sits') return hi != null ? `${min} – ${hi} sits` : `${min}+ sits`
+  if (m === 'closing_rate') return hi != null ? `${min}% – ${hi}% close rate` : `${min}%+ close rate`
+  // Payroll pays nothing on a row without a supported metric — say so rather than
+  // render it as if it were a live tier.
+  return 'Inactive tier (no sits / close-rate metric)'
 }
 
 export function volumeBonusTierInRange(
-  tier: { min_volume: number; max_volume: number | null; tier_metric?: string | null },
-  values: {
-    periodVolume: number
-    periodSits: number
-    periodClosingRatePct: number | null
-  },
+  tier: TierBounds,
+  values: BonusTierValues,
   opts?: { nextMinVolume?: number | null }
 ): boolean {
-  const m = normalizeVolumeBonusTierMetric(tier.tier_metric)
-  let v: number | null
-  if (m === 'volume') v = values.periodVolume
-  else if (m === 'sits') v = values.periodSits
-  else {
-    v = values.periodClosingRatePct
-  }
+  const m = volumeBonusTierMetric(tier.tier_metric)
+  const v = m === 'sits' ? values.periodSits : m === 'closing_rate' ? values.periodClosingRatePct : null
   if (v === null) return false
   const minV = Number(tier.min_volume) || 0
   const maxV =
@@ -68,20 +52,10 @@ export function volumeBonusTierInRange(
 /** First matching tier wins (same rule as payroll `calculateCommissionFromPlanForSale`). */
 export function applyFirstMatchingVolumeBonus(
   bonuses:
-    | Array<{
-        min_volume: number
-        max_volume: number | null
-        bonus_type: string
-        bonus_value: number
-        tier_metric?: string | null
-      }>
+    | Array<TierBounds & { bonus_type: string; bonus_value: number }>
     | null
     | undefined,
-  values: {
-    periodVolume: number
-    periodSits: number
-    periodClosingRatePct: number | null
-  }
+  values: BonusTierValues
 ): { extraRatePct: number; flatPerSale: number } {
   if (!bonuses?.length) return { extraRatePct: 0, flatPerSale: 0 }
   for (let i = 0; i < bonuses.length; i++) {

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { hasUnsupportedBonusTier } from '@/lib/calculate-commission-from-plan'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import { isPayrollAdminRole } from '@/lib/payroll-admin-access'
@@ -347,6 +348,12 @@ export async function POST(request: NextRequest) {
       if (data.plan_purpose === 'management_overlay' && (basePercentage === null || !Number.isFinite(basePercentage) || basePercentage < 0 || basePercentage > 100)) {
         return NextResponse.json({ error: 'Management overlay rate must be between 0 and 100' }, { status: 400 })
       }
+      if (hasUnsupportedBonusTier(data.volume_bonuses)) {
+        return NextResponse.json(
+          { error: 'Bonus tiers must be measured by sits or close rate.' },
+          { status: 400 }
+        )
+      }
       const planData = {
         org_id: profile.org_id,
         name: data.name,
@@ -579,6 +586,12 @@ export async function PATCH(request: NextRequest) {
         : Number(data.base_percentage)
       if (data.plan_purpose === 'management_overlay' && (basePercentage === null || !Number.isFinite(basePercentage) || basePercentage < 0 || basePercentage > 100)) {
         return NextResponse.json({ error: 'Management overlay rate must be between 0 and 100' }, { status: 400 })
+      }
+      if (hasUnsupportedBonusTier(data.volume_bonuses)) {
+        return NextResponse.json(
+          { error: 'Bonus tiers must be measured by sits or close rate.' },
+          { status: 400 }
+        )
       }
 
       const nextBody = {

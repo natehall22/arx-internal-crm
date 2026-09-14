@@ -1,18 +1,24 @@
 /**
- * Mirrors supabase `calculate_commission_with_volume` (see migration 027):
- * tiered tiers use commissionable amount; percentage applies to commissionable amount.
+ * Per-sale commission from a comp plan. Tiered plans select a rate by the sale's
+ * commissionable amount; percentage applies to the commissionable amount.
  */
 
 import { roundMoney } from '@/lib/money'
 
-export type VolumeBonusTierMetric = 'volume' | 'closing_rate' | 'sits'
+/**
+ * What a bonus tier's min/max bounds measure. Monthly $ sales volume was a third
+ * metric until 2026-09-14: the current comp plan (arx-website src/lib/comp-plan.ts)
+ * has no volume tiers and no plan or plan version in prod ever carried one, so the
+ * metric was deleted rather than kept computing a number nothing paid on.
+ */
+export type VolumeBonusTierMetric = 'closing_rate' | 'sits'
 
+/** One row of `comp_plans.volume_bonuses` — the column name predates sits/close-rate tiers. */
 export type VolumeBonusRow = {
   min_volume: number
   max_volume: number | null
   bonus_type: string
   bonus_value: number
-  /** What min/max bounds apply to. Defaults to volume ($) when omitted (legacy rows). */
   tier_metric?: VolumeBonusTierMetric | string | null
 }
 
@@ -91,21 +97,44 @@ export function sumHybridSaleComponents(
   }
 }
 
-function normalizeTierMetric(row: VolumeBonusRow): VolumeBonusTierMetric {
-  const m = row.tier_metric
-  if (m === 'closing_rate' || m === 'sits') return m
-  return 'volume'
+/**
+ * The tier's metric, or null for a row with no supported metric — including a legacy
+ * row with `tier_metric` omitted or `'volume'`. Such a row pays nothing: guessing a
+ * metric for it would pay a bonus on terms nobody set.
+ */
+export function volumeBonusTierMetric(
+  m: string | null | undefined
+): VolumeBonusTierMetric | null {
+  return m === 'closing_rate' || m === 'sits' ? m : null
+}
+
+/**
+ * True when a submitted `volume_bonuses` value contains a row payroll would ignore
+ * (no `sits` / `closing_rate` metric). Comp-plan writes reject these so an admin can't
+ * save a tier that reps see on their dashboard but that never pays.
+ */
+export function hasUnsupportedBonusTier(rows: unknown): boolean {
+  if (rows == null) return false
+  if (!Array.isArray(rows)) return true
+  return rows.some(
+    (row) =>
+      !row ||
+      typeof row !== 'object' ||
+      volumeBonusTierMetric((row as { tier_metric?: string | null }).tier_metric) === null
+  )
 }
 
 function compareValueForVolumeBonus(
   row: VolumeBonusRow,
-  input: { periodVolume: number; periodSits: number; periodClosingRatePct: number | null }
+  input: { periodSits: number; periodClosingRatePct: number | null }
 ): number | null {
-  const metric = normalizeTierMetric(row)
-  if (metric === 'volume') return roundMoney(Number(input.periodVolume) || 0)
+  const metric = volumeBonusTierMetric(row.tier_metric)
   if (metric === 'sits') return Math.round(Number(input.periodSits) || 0)
-  if (input.periodClosingRatePct == null || !Number.isFinite(input.periodClosingRatePct)) return null
-  return roundMoney(input.periodClosingRatePct)
+  if (metric === 'closing_rate') {
+    if (input.periodClosingRatePct == null || !Number.isFinite(input.periodClosingRatePct)) return null
+    return roundMoney(input.periodClosingRatePct)
+  }
+  return null
 }
 
 function flatDollars(plan: CompPlanForCalc): number {
@@ -115,8 +144,6 @@ function flatDollars(plan: CompPlanForCalc): number {
 export function calculateCommissionFromPlanForSale(input: {
   plan: CompPlanForCalc
   commissionableAmount: number
-  /** User-attributed commission base sum for the sale month (volume bonus tiers). */
-  periodVolume: number
   /** Setter: setter-attributed sits; closer (owner/rep): owner-attributed sits in period. */
   periodSits: number
   /** Closer-only: install sales / sits × 100 for the sale month; null if sits is 0. */
@@ -228,7 +255,6 @@ export function calculateCommissionFromPlanForSale(input: {
   if (vb && Array.isArray(vb)) {
     for (const row of vb as VolumeBonusRow[]) {
       const cmp = compareValueForVolumeBonus(row, {
-        periodVolume: input.periodVolume,
         periodSits: input.periodSits,
         periodClosingRatePct: input.periodClosingRatePct,
       })

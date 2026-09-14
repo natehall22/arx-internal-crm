@@ -8,7 +8,8 @@ import CompanyCommissionRatesCard from '@/components/admin/CompanyCommissionRate
 import ManagerOverrideCard from '@/components/admin/ManagerOverrideCard'
 import { eligibleOverrideManagerIds, resolveOverlayRatePercent } from '@/lib/management-override-admin'
 import PerJobOverridesCard from '@/components/admin/PerJobOverridesCard'
-import { formatVolumeBonusTierRange, normalizeVolumeBonusTierMetric } from '@/lib/volume-bonus-display'
+import { formatVolumeBonusTierRange } from '@/lib/volume-bonus-display'
+import { volumeBonusTierMetric } from '@/lib/calculate-commission-from-plan'
 import {
   COMP_PLAN_UNIT_RATE_LABELS,
   isKnownCompPlanUnitType,
@@ -33,8 +34,8 @@ interface VolumeTier {
   max_volume: number | null
   bonus_type: 'percentage' | 'flat'  // percentage adds to base rate, flat is dollar amount
   bonus_value: number
-  /** Bound basis: commission $ volume (default), closer close rate %, or setter sit count. */
-  tier_metric?: 'volume' | 'closing_rate' | 'sits'
+  /** Bound basis: closer close rate % or sit count. ($ sales volume was removed 2026-09-14.) */
+  tier_metric?: 'closing_rate' | 'sits'
 }
 
 interface OverrideTier {
@@ -200,11 +201,9 @@ function CompPlanWarningList({ warnings }: { warnings: CompPlanWarning[] }) {
 }
 
 function volumeTierFieldLabels(m: VolumeTier['tier_metric']) {
-  const t = normalizeVolumeBonusTierMetric(m)
-  if (t === 'closing_rate')
+  if (volumeBonusTierMetric(m) === 'closing_rate')
     return { min: 'Min close rate (%)', max: 'Max close rate (%)' }
-  if (t === 'sits') return { min: 'Min sits', max: 'Max sits' }
-  return { min: 'Min volume ($)', max: 'Max volume ($)' }
+  return { min: 'Min sits', max: 'Max sits' }
 }
 
 function formatEffectiveRange(effectiveFrom: string, effectiveTo: string | null) {
@@ -376,7 +375,7 @@ export default function CompPlansPage() {
 
     for (let index = 0; planForm.plan_purpose === 'primary' && index < planForm.volume_bonuses.length; index += 1) {
       const bonus = planForm.volume_bonuses[index]
-      const row = `Volume bonus ${index + 1}`
+      const row = `Bonus tier ${index + 1}`
       if (
         !requiredDraft(bonus.min_volume, `${row} min`) ||
         !optionalDraft(bonus.max_volume, `${row} max`) ||
@@ -721,7 +720,9 @@ export default function CompPlansPage() {
       })),
       volume_bonuses: (plan.volume_bonuses || []).map((b) => ({
         ...b,
-        tier_metric: normalizeVolumeBonusTierMetric(b.tier_metric) as VolumeTier['tier_metric'],
+        // A legacy row with no supported metric opens as Sits so the admin sees and fixes
+        // it; payroll pays nothing on it until they do (none existed in prod at removal).
+        tier_metric: volumeBonusTierMetric(b.tier_metric) ?? 'sits',
         min_volume: formatNumericDraft(b.min_volume),
         max_volume: b.max_volume == null ? '' : formatNumericDraft(b.max_volume),
         bonus_value: formatNumericDraft(b.bonus_value),
@@ -797,7 +798,7 @@ export default function CompPlansPage() {
     }))
   }
 
-  // Volume bonus functions
+  // Bonus tier functions (stored in comp_plans.volume_bonuses)
   const addVolumeBonus = () => {
     const lastBonus = planForm.volume_bonuses[planForm.volume_bonuses.length - 1]
     const lastMax = lastBonus
@@ -810,10 +811,10 @@ export default function CompPlansPage() {
       ...prev,
       volume_bonuses: [...prev.volume_bonuses, {
         min_volume: String(newMin),
-        max_volume: String(newMin + 50000),
-        bonus_type: 'percentage',
-        bonus_value: '1',
-        tier_metric: 'volume',
+        max_volume: String(newMin + 9),
+        bonus_type: 'flat',
+        bonus_value: '500',
+        tier_metric: 'sits',
       }],
     }))
   }
@@ -1169,7 +1170,7 @@ export default function CompPlansPage() {
 
                   {plan.volume_bonuses && plan.volume_bonuses.length > 0 && (
                     <div className="text-sm">
-                      <span className="text-gray-500">Volume Bonuses:</span>
+                      <span className="text-gray-500">Bonus tiers:</span>
                       <div className="mt-1 space-y-1">
                         {plan.volume_bonuses.map((vb, i) => (
                           <div key={i} className="text-xs bg-blue-50 px-2 py-1 rounded">
@@ -1196,7 +1197,7 @@ export default function CompPlansPage() {
 
                   {plan.plan_purpose === 'management_overlay' && (
                     <div className="rounded-lg border border-purple-200 bg-purple-50 px-3 py-2 text-xs text-purple-900">
-                      Fixed setter or closer rate is versioned when this overlay is assigned. No volume tiers.
+                      Fixed setter or closer rate is versioned when this overlay is assigned. No bonus tiers.
                     </div>
                   )}
 
@@ -1579,7 +1580,7 @@ export default function CompPlansPage() {
                       className="w-full px-4 py-2 border border-gray-300 rounded-lg"
                       placeholder="1.00"
                     />
-                    <p className="mt-1 text-xs text-gray-600">Plan-owned fixed rate; no volume tiers. Create a new future plan to change it after assignment.</p>
+                    <p className="mt-1 text-xs text-gray-600">Plan-owned fixed rate; no bonus tiers. Create a new future plan to change it after assignment.</p>
                   </div>
                 )}
 
@@ -1977,13 +1978,13 @@ export default function CompPlansPage() {
                   </div>
                 )}
 
-                {/* Volume Bonuses - Sliding Scale */}
+                {/* Bonus tiers - sliding scale */}
                 <div className="border-t pt-4">
                   <div className="flex items-center justify-between mb-2">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700">Volume Bonuses (Sliding Scale)</label>
+                      <label className="block text-sm font-medium text-gray-700">Bonus Tiers (Sliding Scale)</label>
                       <p className="text-xs text-gray-500 mt-0.5">
-                        Bonus tiers by monthly commissionable volume ($), sit count (setters), or close rate % (closers).
+                        Bonus tiers by monthly sit count (setters) or close rate % (closers).
                         Use % add or a flat $ bonus per sale.
                       </p>
                     </div>
@@ -2005,11 +2006,10 @@ export default function CompPlansPage() {
                           <div className="w-full sm:w-40">
                             <label className="text-xs text-gray-600">Tier basis</label>
                             <select
-                              value={normalizeVolumeBonusTierMetric(vb.tier_metric)}
+                              value={volumeBonusTierMetric(vb.tier_metric) ?? 'sits'}
                               onChange={(e) => updateVolumeBonus(index, 'tier_metric', e.target.value)}
                               className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm"
                             >
-                              <option value="volume">Volume ($)</option>
                               <option value="closing_rate">Close rate (%)</option>
                               <option value="sits">Sits (count)</option>
                             </select>
@@ -2071,13 +2071,13 @@ export default function CompPlansPage() {
                     </div>
                   ) : (
                     <div className="text-center py-4 border-2 border-dashed border-gray-200 rounded-lg">
-                      <p className="text-sm text-gray-500">No volume bonuses configured</p>
+                      <p className="text-sm text-gray-500">No bonus tiers configured</p>
                       <button
                         type="button"
                         onClick={addVolumeBonus}
                         className="mt-2 text-sm text-indigo-600 hover:text-indigo-800"
                       >
-                        + Add first volume tier
+                        + Add first bonus tier
                       </button>
                     </div>
                   )}
@@ -2153,7 +2153,7 @@ export default function CompPlansPage() {
                       Changing the pay terms?
                     </h3>
                     <p className="mt-1 text-xs" style={{ color: INK }}>
-                      Rates, tiers, volume bonuses and manager flags are effective-dated. Editing
+                      Rates, tiers, bonus tiers and manager flags are effective-dated. Editing
                       them records a new version from the date below — jobs sold before it keep
                       paying the terms they were sold under. Name, description, roles and the plan
                       details text are not versioned and change immediately.

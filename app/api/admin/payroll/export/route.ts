@@ -5,7 +5,6 @@ import { buildCommissionPayrollSnapshot } from '@/lib/commission-payroll'
 import {
   ADDITIVE_DEAL_COMMISSION_ROLES,
   buildMonthlyTierMetricMaps,
-  buildMonthlyVolumeMaps,
   collectParticipants,
   computeRawCommissionForParticipant,
   loadActiveCompPlanForUser,
@@ -32,13 +31,13 @@ import {
 
 export const dynamic = 'force-dynamic'
 
-function padMonthRange(from: string, to: string): { volFrom: string; volTo: string } {
-  const volFrom = from.length >= 7 ? `${from.slice(0, 7)}-01` : from
+function padMonthRange(from: string, to: string): { monthFrom: string; monthTo: string } {
+  const monthFrom = from.length >= 7 ? `${from.slice(0, 7)}-01` : from
   const y = to.slice(0, 4)
   const m = parseInt(to.slice(5, 7), 10) || 12
   const last = new Date(parseInt(y, 10), m, 0).getDate()
-  const volTo = to.length >= 7 ? `${to.slice(0, 7)}-${String(last).padStart(2, '0')}` : to
-  return { volFrom, volTo }
+  const monthTo = to.length >= 7 ? `${to.slice(0, 7)}-${String(last).padStart(2, '0')}` : to
+  return { monthFrom, monthTo }
 }
 
 export async function GET(request: NextRequest) {
@@ -67,73 +66,15 @@ export async function GET(request: NextRequest) {
     const supabase = createServiceClient()
     const orgId = profile.org_id
 
-    const { volFrom, volTo } = padMonthRange(from, to)
-
-    const { data: volJobs, error: volErr } = await supabase
-      .from('production_jobs')
-      .select(
-        'id, sale_date, salesperson_id, commission_comp_base, dealer_fee_amount, sale_amount, project_id'
-      )
-      .eq('org_id', orgId)
-      .neq('status', CANCELLED_JOB_STATUS)
-      .gte('sale_date', volFrom)
-      .lte('sale_date', volTo)
-      .not('sale_date', 'is', null)
-
-    if (volErr) {
-      console.error('payroll export volume jobs', volErr)
-      return NextResponse.json({ error: 'Failed to load jobs for volume' }, { status: 500 })
-    }
-
-    const projectIds = Array.from(
-      new Set((volJobs || []).map((j) => j.project_id).filter(Boolean))
-    ) as string[]
-
-    const { data: projects } =
-      projectIds.length > 0
-        ? await supabase.from('projects').select('id, opportunity_id').in('id', projectIds)
-        : { data: [] as { id: string; opportunity_id: string | null }[] }
-
-    const projectOpp = new Map<string, string | null>()
-    for (const p of projects || []) {
-      projectOpp.set(p.id, p.opportunity_id ?? null)
-    }
-
-    const oppIds = Array.from(new Set(Array.from(projectOpp.values()).filter(Boolean))) as string[]
-
-    const { data: opps } =
-      oppIds.length > 0
-        ? await supabase.from('opportunities').select('id, owner_user_id, setter_user_id').in('id', oppIds)
-        : { data: [] as { id: string; owner_user_id: string | null; setter_user_id: string | null }[] }
-
-    const opportunityById = new Map<string, { owner_user_id?: string | null; setter_user_id?: string | null }>()
-    for (const o of opps || []) {
-      opportunityById.set(o.id, { owner_user_id: o.owner_user_id, setter_user_id: o.setter_user_id })
-    }
-
-    const opportunityByProjectId = new Map<string, { owner_user_id?: string | null; setter_user_id?: string | null } | null>()
-    for (const [pid, oid] of Array.from(projectOpp.entries())) {
-      if (!oid) {
-        opportunityByProjectId.set(pid, null)
-        continue
-      }
-      opportunityByProjectId.set(pid, opportunityById.get(oid) ?? null)
-    }
-
-    const projectIdByJobId = new Map<string, string>()
-    for (const j of volJobs || []) {
-      if (j.project_id) projectIdByJobId.set(j.id, j.project_id)
-    }
-
-    const volumeMap = buildMonthlyVolumeMaps(volJobs || [], opportunityByProjectId, projectIdByJobId)
+    const { monthFrom, monthTo } = padMonthRange(from, to)
 
     const { sitsBySetterMonth, sitsByOwnerMonth, salesByOwnerMonth, skippedOpportunityIds } =
-      await buildMonthlyTierMetricMaps(supabase, orgId, volFrom, volTo)
+      await buildMonthlyTierMetricMaps(supabase, orgId, monthFrom, monthTo)
 
     if (skippedOpportunityIds.length > 0) {
       console.warn(
         'payroll export: opportunities skipped for missing inspection timestamp',
-        { orgId, volFrom, volTo, skippedOpportunityIds }
+        { orgId, monthFrom, monthTo, skippedOpportunityIds }
       )
     }
 
@@ -154,6 +95,9 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to load jobs' }, { status: 500 })
     }
 
+    // Every project/opportunity lookup below is keyed off the jobs actually being
+    // exported. (This used to piggy-back on a wider month-padded job query that fed
+    // monthly $-volume tiers; that query went when volume tiers were deleted.)
     const exportProjectIds = Array.from(
       new Set(
         (exportJobs || [])
@@ -161,17 +105,40 @@ export async function GET(request: NextRequest) {
           .filter((id): id is string => typeof id === 'string')
       )
     )
+    const projectOpp = new Map<string, string | null>()
     const customerIdByProjectId = new Map<string, string>()
     if (exportProjectIds.length > 0) {
-      const { data: projRows } = await supabase
+      const { data: projRows, error: projErr } = await supabase
         .from('projects')
-        .select('id, customer_id')
+        .select('id, opportunity_id, customer_id')
         .eq('org_id', orgId)
         .in('id', exportProjectIds)
+      // Fail closed: a missing project map drops every setter/closer from the export.
+      if (projErr) throw projErr
       for (const p of projRows || []) {
+        projectOpp.set(p.id as string, (p.opportunity_id as string | null) ?? null)
         const cid = p.customer_id as string | null | undefined
         if (cid) customerIdByProjectId.set(p.id as string, cid)
       }
+    }
+
+    const oppIds = Array.from(new Set(Array.from(projectOpp.values()).filter(Boolean))) as string[]
+    const opportunityById = new Map<string, { owner_user_id?: string | null; setter_user_id?: string | null }>()
+    if (oppIds.length > 0) {
+      const { data: opps, error: oppErr } = await supabase
+        .from('opportunities')
+        .select('id, owner_user_id, setter_user_id')
+        .eq('org_id', orgId)
+        .in('id', oppIds)
+      if (oppErr) throw oppErr
+      for (const o of opps || []) {
+        opportunityById.set(o.id as string, { owner_user_id: o.owner_user_id, setter_user_id: o.setter_user_id })
+      }
+    }
+
+    const opportunityByProjectId = new Map<string, { owner_user_id?: string | null; setter_user_id?: string | null } | null>()
+    for (const [pid, oid] of Array.from(projectOpp.entries())) {
+      opportunityByProjectId.set(pid, oid ? opportunityById.get(oid) ?? null : null)
     }
 
     const customerIds = Array.from(
@@ -324,7 +291,6 @@ export async function GET(request: NextRequest) {
         {
           plan: CompPlanForCalc | null
           calc: ReturnType<typeof computeRawCommissionForParticipant> | null
-          periodVolume: number
           role: string
           effectiveFlatBonus: number
         }
@@ -357,7 +323,6 @@ export async function GET(request: NextRequest) {
         }
 
         const assignment = await loadActiveCompPlanForUser(supabase, part.userId, orgId, saleDate)
-        const periodVolume = mk ? volumeMap.get(`${part.userId}|${mk}`) || 0 : 0
         const { periodSits, periodClosingRatePct } = periodSitsAndCloseRateForParticipant({
           userId: part.userId,
           monthKey: mk,
@@ -371,7 +336,6 @@ export async function GET(request: NextRequest) {
           metaByUser.set(part.userId, {
             plan: null,
             calc: null,
-            periodVolume,
             role: part.role,
             effectiveFlatBonus: 0,
           })
@@ -383,7 +347,6 @@ export async function GET(request: NextRequest) {
         const calc = computeRawCommissionForParticipant({
           plan,
           commissionableAmount: compBase,
-          periodVolume,
           periodSits,
           periodClosingRatePct,
           overridePercentage: assignment.override_percentage,
@@ -397,7 +360,7 @@ export async function GET(request: NextRequest) {
           rawFlatBonus > 0 && !flatBonusApplied.has(bonusKey) ? rawFlatBonus : 0
         if (rawFlatBonus > 0) flatBonusApplied.set(bonusKey, true)
 
-        metaByUser.set(part.userId, { plan, calc, periodVolume, role: part.role, effectiveFlatBonus })
+        metaByUser.set(part.userId, { plan, calc, role: part.role, effectiveFlatBonus })
         // Per-COMPONENT pool-cap rule — see lib/calculate-commission-from-plan.ts.
         const excludeFromPool = calc.unsupported || !calc.countsTowardPoolCap
         rawByUser.set(poolKey(part.userId, part.role), excludeFromPool ? 0 : calc.totalAmount)
@@ -462,7 +425,6 @@ export async function GET(request: NextRequest) {
           base_rate_pct: producerOverride
             ? producerOverride.overridePercent
             : calc?.baseRate ?? null,
-          period_volume: meta?.periodVolume ?? 0,
           volume_bonus_rate_pct: calc?.volumeBonusRate ?? 0,
           volume_bonus_flat: meta?.effectiveFlatBonus ?? 0,
           effective_rate_pct: producerOverride
@@ -504,7 +466,6 @@ export async function GET(request: NextRequest) {
           comp_plan_name: null,
           plan_type: null,
           base_rate_pct: resolved.basis === 'percent' ? participant.overridePercent : null,
-          period_volume: 0,
           volume_bonus_rate_pct: 0,
           volume_bonus_flat: 0,
           effective_rate_pct: resolved.basis === 'percent' ? participant.overridePercent ?? 0 : 0,
@@ -537,7 +498,6 @@ export async function GET(request: NextRequest) {
         'comp_plan_name',
         'plan_type',
         'base_rate_pct',
-        'period_volume',
         'volume_bonus_rate_pct',
         'volume_bonus_flat',
         'effective_rate_pct',
@@ -564,7 +524,6 @@ export async function GET(request: NextRequest) {
             `"${(r.comp_plan_name || '').replace(/"/g, '""')}"`,
             r.plan_type ?? '',
             r.base_rate_pct ?? '',
-            r.period_volume,
             r.volume_bonus_rate_pct,
             r.volume_bonus_flat,
             r.effective_rate_pct ?? '',

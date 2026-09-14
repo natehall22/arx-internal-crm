@@ -73,7 +73,7 @@ interface VolumeTier {
   max_volume: number | null
   bonus_type: 'percentage' | 'flat'
   bonus_value: number
-  tier_metric?: 'volume' | 'closing_rate' | 'sits'
+  tier_metric?: 'closing_rate' | 'sits' | null
 }
 
 export default function CommissionWidget() {
@@ -111,7 +111,6 @@ export default function CommissionWidget() {
   const commissionablePerJob = netCommissionableFromFinancedTotal(calcAvgSalePriceNum, avgDealerFeePercentNum)
   const monthlyCommissionableVolume = commissionablePerJob * calcJobsClosedNum
   const widgetTierValues = {
-    periodVolume: monthlyCommissionableVolume,
     periodSits: calcPeriodSitsNum,
     periodClosingRatePct:
       calcPeriodSitsNum > 0 ? Math.round((calcJobsClosedNum / calcPeriodSitsNum) * 1000) / 10 : null,
@@ -622,10 +621,10 @@ export default function CommissionWidget() {
                     </div>
                   )}
                   
-                  {/* Volume Bonuses */}
+                  {/* Bonus tiers (sits / close rate) */}
                   {compPlanDetails.volume_bonuses && compPlanDetails.volume_bonuses.length > 0 && (
                     <div className="bg-gray-50 rounded-xl p-4">
-                      <h4 className="font-semibold text-gray-900 mb-3">Volume Bonuses</h4>
+                      <h4 className="font-semibold text-gray-900 mb-3">Bonus Tiers</h4>
                       <p className="text-sm text-gray-600 mb-3">Hit these thresholds to earn bonus commissions:</p>
                       <div className="space-y-2">
                         {compPlanDetails.volume_bonuses.map((tier: VolumeTier, idx: number) => {
@@ -706,7 +705,6 @@ export default function CommissionWidget() {
                       ) : isSetterLikeRole(userRole) ? (
                         <>
                           <li>Your commission is based on jobs that close from your sets</li>
-                          <li>Higher monthly volume unlocks better commission tiers</li>
                           <li>Quality sets lead to higher close rates</li>
                         </>
                       ) : (userRole === 'manager' || userRole === 'sales_manager') ? (
@@ -718,7 +716,6 @@ export default function CommissionWidget() {
                       ) : (
                         <>
                           <li>Your commission is based on total sale amount</li>
-                          <li>Volume bonuses reward consistent performance</li>
                           <li>Focus on quality to maximize close rate</li>
                         </>
                       )}
@@ -799,7 +796,7 @@ export default function CommissionWidget() {
                     className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-lg"
                   />
                   <p className="text-xs text-gray-500 mt-1">
-                    0% = cash or no fee. Estimator uses net commissionable volume for tiers.
+                    0% = cash or no fee.
                   </p>
                 </div>
                 
@@ -855,7 +852,7 @@ export default function CommissionWidget() {
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="text-left text-gray-500">
-                        <th className="pb-2">Tier (volume / sits / close %)</th>
+                        <th className="pb-2">Tier (sits / close %)</th>
                         <th className="pb-2 text-right">Bonus</th>
                       </tr>
                     </thead>
