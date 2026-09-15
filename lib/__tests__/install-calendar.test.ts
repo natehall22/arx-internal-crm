@@ -1,4 +1,4 @@
-import { addDaysToDateOnly, buildInstallEvent } from '@/lib/install-calendar'
+import { addDaysToDateOnly, buildInstallEvent, withoutClearedTimeFields } from '@/lib/install-calendar'
 
 /**
  * Pure-function tests only — no network. `buildInstallEvent` and
@@ -51,34 +51,34 @@ describe('buildInstallEvent', () => {
 
   it('emits a 1-day install as start=date, end=date+1', () => {
     const event = buildInstallEvent({ ...base, installDays: 1 })
-    expect(event.start).toEqual({ date: '2026-09-10' })
-    expect(event.end).toEqual({ date: '2026-09-11' })
+    expect(event.start).toEqual({ date: '2026-09-10', dateTime: null, timeZone: null })
+    expect(event.end).toEqual({ date: '2026-09-11', dateTime: null, timeZone: null })
   })
 
   it('treats a null/undefined installDays as 1 day', () => {
     const eventNull = buildInstallEvent({ ...base, installDays: null })
-    expect(eventNull.end).toEqual({ date: '2026-09-11' })
+    expect(eventNull.end).toEqual({ date: '2026-09-11', dateTime: null, timeZone: null })
 
     const eventUndefined = buildInstallEvent({ ...base })
-    expect(eventUndefined.end).toEqual({ date: '2026-09-11' })
+    expect(eventUndefined.end).toEqual({ date: '2026-09-11', dateTime: null, timeZone: null })
   })
 
   it('emits a 2-day install as start=date, end=date+2', () => {
     const event = buildInstallEvent({ ...base, installDays: 2 })
-    expect(event.start).toEqual({ date: '2026-09-10' })
-    expect(event.end).toEqual({ date: '2026-09-12' })
+    expect(event.start).toEqual({ date: '2026-09-10', dateTime: null, timeZone: null })
+    expect(event.end).toEqual({ date: '2026-09-12', dateTime: null, timeZone: null })
   })
 
   it('emits the scheduled date verbatim across a DST boundary (2026-03-08)', () => {
     const event = buildInstallEvent({ ...base, scheduledDate: '2026-03-08', installDays: 1 })
-    expect(event.start).toEqual({ date: '2026-03-08' })
-    expect(event.end).toEqual({ date: '2026-03-09' })
+    expect(event.start).toEqual({ date: '2026-03-08', dateTime: null, timeZone: null })
+    expect(event.end).toEqual({ date: '2026-03-09', dateTime: null, timeZone: null })
   })
 
   it('emits the scheduled date verbatim on a new year boundary (2026-01-01)', () => {
     const event = buildInstallEvent({ ...base, scheduledDate: '2026-01-01', installDays: 2 })
-    expect(event.start).toEqual({ date: '2026-01-01' })
-    expect(event.end).toEqual({ date: '2026-01-03' })
+    expect(event.start).toEqual({ date: '2026-01-01', dateTime: null, timeZone: null })
+    expect(event.end).toEqual({ date: '2026-01-03', dateTime: null, timeZone: null })
   })
 
   it('includes the sub as an attendee when scheduling_email is set', () => {
@@ -194,28 +194,28 @@ describe('buildInstallEvent — trades and crew lengths', () => {
 
   it('spans 1½ days over two all-day dates (end exclusive)', () => {
     const event = buildInstallEvent({ ...base, installDays: 1.5 })
-    expect(event.start).toEqual({ date: '2026-09-18' })
-    expect(event.end).toEqual({ date: '2026-09-20' })
+    expect(event.start).toEqual({ date: '2026-09-18', dateTime: null, timeZone: null })
+    expect(event.end).toEqual({ date: '2026-09-20', dateTime: null, timeZone: null })
   })
 
   it('sends a ½ day as a 4-hour timed block in the business timezone, from the wall clock', () => {
     const event = buildInstallEvent({ ...base, installDays: 0.5, scheduledTimeStart: '13:00:00' })
-    expect(event.start).toEqual({ dateTime: '2026-09-18T13:00:00', timeZone: 'America/New_York' })
-    expect(event.end).toEqual({ dateTime: '2026-09-18T17:00:00', timeZone: 'America/New_York' })
+    expect(event.start).toEqual({ dateTime: '2026-09-18T13:00:00', timeZone: 'America/New_York', date: null })
+    expect(event.end).toEqual({ dateTime: '2026-09-18T17:00:00', timeZone: 'America/New_York', date: null })
     expect(event.summary).toContain('(½ day)')
     expect(event.description).toContain('½ day — starts 1:00 PM')
   })
 
   it('defaults a ½ day with no start time to 8:00 AM', () => {
     const event = buildInstallEvent({ ...base, installDays: 0.5 })
-    expect(event.start).toEqual({ dateTime: '2026-09-18T08:00:00', timeZone: 'America/New_York' })
-    expect(event.end).toEqual({ dateTime: '2026-09-18T12:00:00', timeZone: 'America/New_York' })
+    expect(event.start).toEqual({ dateTime: '2026-09-18T08:00:00', timeZone: 'America/New_York', date: null })
+    expect(event.end).toEqual({ dateTime: '2026-09-18T12:00:00', timeZone: 'America/New_York', date: null })
   })
 
   it('keeps a late ½-day block inside its own day', () => {
     const event = buildInstallEvent({ ...base, installDays: 0.5, scheduledTimeStart: '22:30' })
-    expect(event.start).toEqual({ dateTime: '2026-09-18T19:00:00', timeZone: 'America/New_York' })
-    expect(event.end).toEqual({ dateTime: '2026-09-18T23:00:00', timeZone: 'America/New_York' })
+    expect(event.start).toEqual({ dateTime: '2026-09-18T19:00:00', timeZone: 'America/New_York', date: null })
+    expect(event.end).toEqual({ dateTime: '2026-09-18T23:00:00', timeZone: 'America/New_York', date: null })
   })
 
   it('fires both reminders the day before for a timed ½ day too (9 AM and 5 PM)', () => {
@@ -230,6 +230,26 @@ describe('buildInstallEvent — trades and crew lengths', () => {
   it('puts the crew photo link in the notes when the trade has one', () => {
     const event = buildInstallEvent({ ...base, crewLinkToken: 'tok_abc123', appUrl: 'https://crm.example' })
     expect(event.description).toContain('📸 When you finish, take the job photos here: https://crm.example/crew/tok_abc123')
+  })
+
+  it('clears the other kind of time on every body, so a PATCH can switch ½ day ↔ full day', () => {
+    // events.patch merges start/end field by field. Without explicit nulls, an
+    // all-day event patched to ½ day keeps its `date` next to the new `dateTime`
+    // and Google rejects it; JSON.stringify must keep the nulls on the wire.
+    const toHalf = JSON.parse(JSON.stringify(buildInstallEvent({ ...base, installDays: 0.5 })))
+    expect(toHalf.start).toHaveProperty('date', null)
+    expect(toHalf.end).toHaveProperty('date', null)
+    const toFull = JSON.parse(JSON.stringify(buildInstallEvent({ ...base, installDays: 1 })))
+    expect(toFull.start).toMatchObject({ dateTime: null, timeZone: null })
+    expect(toFull.end).toMatchObject({ dateTime: null, timeZone: null })
+  })
+
+  it('sends a brand-new event without the clearing nulls', () => {
+    expect(withoutClearedTimeFields(buildInstallEvent({ ...base, installDays: 1 })).start).toEqual({ date: '2026-09-18' })
+    expect(withoutClearedTimeFields(buildInstallEvent({ ...base, installDays: 0.5 })).start).toEqual({
+      dateTime: '2026-09-18T08:00:00',
+      timeZone: 'America/New_York',
+    })
   })
 
   it('omits the photo line when there is no link', () => {

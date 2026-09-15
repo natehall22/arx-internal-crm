@@ -25,6 +25,12 @@ export interface GoogleTokens {
 export interface CalendarEventDateTime {
   dateTime: string
   timeZone?: string
+  /**
+   * Send `null` when PATCHing an event that was all-day: events.patch merges
+   * nested objects field by field, so an omitted `date` survives next to the new
+   * `dateTime` and Google rejects the update.
+   */
+  date?: null
 }
 
 /**
@@ -35,6 +41,9 @@ export interface CalendarEventDateTime {
  */
 export interface CalendarEventDate {
   date: string
+  /** Send `null` when PATCHing an event that was timed — see {@link CalendarEventDateTime.date}. */
+  dateTime?: null
+  timeZone?: null
 }
 
 export interface CalendarEvent {

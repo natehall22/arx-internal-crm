@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 
 import { createServiceClient } from '@/lib/supabase/service'
-import { CREW_LINK_MAX_PHOTOS, crewLinkPhotoCounts, resolveCrewLink } from '@/lib/crew-link'
+import { crewLinkUploadRefusal, resolveCrewLink } from '@/lib/crew-link'
 import { registerJobPhotoUpload } from '@/lib/job-photo-upload'
 
 export const runtime = 'nodejs'
@@ -22,10 +22,9 @@ export async function POST(request: Request, { params }: { params: { token: stri
     )
   }
 
-  const counts = await crewLinkPhotoCounts(admin, link.ctx)
-  const total = Object.values(counts).reduce((a, b) => a + b, 0)
-  if (total >= CREW_LINK_MAX_PHOTOS) {
-    return NextResponse.json({ error: 'Photo limit reached for this job — call ARX.' }, { status: 429 })
+  const refusal = await crewLinkUploadRefusal(admin, link.ctx)
+  if (refusal) {
+    return NextResponse.json({ error: refusal }, { status: 429 })
   }
 
   const body = (await request.json().catch(() => null)) as { filename?: unknown } | null

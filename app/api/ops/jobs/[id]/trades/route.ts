@@ -211,8 +211,6 @@ export async function PATCH(request: Request, { params }: { params: { id: string
     if (trade.status === 'completed') {
       return NextResponse.json({ error: 'Reopen a completed trade before removing it' }, { status: 400 })
     }
-    const removal = await removeInstallFromCalendar(admin, { trade, schedulingUserId: ctx.authUser.id })
-    calendarWarning = removal.warning ?? null
     update = {
       status: 'cancelled',
       scheduled_date: null,
@@ -226,6 +224,14 @@ export async function PATCH(request: Request, { params }: { params: { id: string
   if (error) {
     console.error('[job trades PATCH]', action, error)
     return NextResponse.json({ error: 'Failed to update trade' }, { status: 500 })
+  }
+
+  // Only after the trade is actually off the job: the sub is emailed a
+  // cancellation here, which must never happen for a trade that still stands.
+  // `trade` was read before the update, so it still carries the event ids.
+  if (action === 'remove') {
+    const removal = await removeInstallFromCalendar(admin, { trade, schedulingUserId: ctx.authUser.id })
+    calendarWarning = removal.warning ?? null
   }
 
   const derived = await syncJobScheduleFromTrades(admin, orgId, job.id, {

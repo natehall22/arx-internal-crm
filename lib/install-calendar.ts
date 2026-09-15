@@ -284,16 +284,25 @@ export function buildInstallEvent(input: BuildInstallEventInput): CalendarEvent 
   let reminderAnchorMinutes: number
   if (halfDay) {
     const startMinutes = halfDayStartMinutes(input.scheduledTimeStart)
-    start = { dateTime: `${input.scheduledDate}T${minutesToWallClock(startMinutes)}`, timeZone: CALENDAR_BUSINESS_TZ }
+    // Explicit `date: null` / `dateTime: null`: the same body PATCHes an existing
+    // event, and events.patch merges start/end field by field — a trade changed
+    // from 1 day to ½ day would otherwise keep its old `date` beside the new
+    // `dateTime` and Google rejects it (and the reverse for ½ day → 1 day).
+    start = {
+      dateTime: `${input.scheduledDate}T${minutesToWallClock(startMinutes)}`,
+      timeZone: CALENDAR_BUSINESS_TZ,
+      date: null,
+    }
     end = {
       dateTime: `${input.scheduledDate}T${minutesToWallClock(startMinutes + HALF_DAY_HOURS * 60)}`,
       timeZone: CALENDAR_BUSINESS_TZ,
+      date: null,
     }
     reminderAnchorMinutes = startMinutes
   } else {
-    start = { date: input.scheduledDate }
+    start = { date: input.scheduledDate, dateTime: null, timeZone: null }
     // Google's all-day `end.date` is EXCLUSIVE — see file header.
-    end = { date: addDaysToDateOnly(input.scheduledDate, calendarDaySpan(installDays)) }
+    end = { date: addDaysToDateOnly(input.scheduledDate, calendarDaySpan(installDays)), dateTime: null, timeZone: null }
     reminderAnchorMinutes = 0
   }
 
@@ -318,6 +327,16 @@ export function buildInstallEvent(input: BuildInstallEventInput): CalendarEvent 
     },
     attendees,
   }
+}
+
+/**
+ * The explicit nulls in {@link buildInstallEvent} exist only to clear fields on
+ * a PATCH. A brand-new event has nothing to clear, so insert sends the plain shape.
+ */
+export function withoutClearedTimeFields(event: CalendarEvent): CalendarEvent {
+  const strip = (t: CalendarEvent['start']): CalendarEvent['start'] =>
+    Object.fromEntries(Object.entries(t).filter(([, v]) => v !== null)) as CalendarEvent['start']
+  return { ...event, start: strip(event.start), end: strip(event.end) }
 }
 
 /** The subset of a trade (`work_orders` row + its job) the sync layer needs. */
@@ -453,7 +472,7 @@ export async function syncInstallToCalendar(
       }
     }
     if (!eventId) {
-      const created = await createCalendarEvent(token, event, calendarId, INSTALL_SEND_UPDATES)
+      const created = await createCalendarEvent(token, withoutClearedTimeFields(event), calendarId, INSTALL_SEND_UPDATES)
       eventId = created?.id ?? null
       if (!eventId) {
         const message = 'Google Calendar accepted the event but returned no id.'
