@@ -18,12 +18,18 @@ function isValidOptionalEmail(value: unknown): boolean {
 // tenant), portal_access_token, user_id, or a raw `active` flip outside the
 // normal toggle path. Deliberately excludes id, org_id, user_id,
 // portal_access_token, and created/updated audit columns.
+//
+// `calendar_share_verified_at` is deliberately NOT here even though
+// `scheduling_calendar_id` is: it's system-written (set by the free/busy
+// read job, see the availability route owned elsewhere), and a client must
+// not be able to fake "connected" by PATCHing it directly.
 const ALLOWED_FIELDS = new Set([
   'company_name',
   'contact_name',
   'phone',
   'email',
   'scheduling_email',
+  'scheduling_calendar_id',
   'address',
   'city',
   'state',
@@ -68,9 +74,34 @@ export async function GET() {
       console.error('Error fetching subs:', error)
     }
 
+    // The address crews are told to share their calendar with MUST be the same
+    // account the server reads free/busy as, or the instructions send them to a
+    // calendar nobody looks at. Both come from `orgs.install_scheduling_user_id`
+    // — see `resolveInstallGoogleToken` in lib/install-calendar.ts.
+    let installSchedulingEmail: string | null = null
+    try {
+      const { data: org } = await supabase
+        .from('orgs')
+        .select('install_scheduling_user_id')
+        .eq('id', profile.org_id)
+        .maybeSingle()
+      if (org?.install_scheduling_user_id) {
+        const { data: schedulingUser } = await supabase
+          .from('users')
+          .select('email')
+          .eq('id', org.install_scheduling_user_id)
+          .eq('org_id', profile.org_id)
+          .maybeSingle()
+        installSchedulingEmail = schedulingUser?.email ?? null
+      }
+    } catch (e) {
+      console.error('Subs API: could not resolve install scheduling account', e)
+    }
+
     return NextResponse.json({
       subs: subs || [],
       orgId: profile.org_id,
+      installSchedulingEmail,
     })
   } catch (error) {
     console.error('Subs API error:', error)
@@ -102,6 +133,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Scheduling email must be a valid email address' }, { status: 400 })
     }
 
+    if (!isValidOptionalEmail(body.scheduling_calendar_id)) {
+      return NextResponse.json({ error: 'Calendar address must be a valid email address' }, { status: 400 })
+    }
+
     const subData = {
       org_id: profile.org_id,
       company_name: body.company_name,
@@ -109,6 +144,7 @@ export async function POST(request: NextRequest) {
       phone: body.phone || null,
       email: body.email || null,
       scheduling_email: body.scheduling_email || null,
+      scheduling_calendar_id: body.scheduling_calendar_id || null,
       address: body.address || null,
       city: body.city || null,
       state: body.state || null,
@@ -176,6 +212,10 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: 'Scheduling email must be a valid email address' }, { status: 400 })
     }
 
+    if ('scheduling_calendar_id' in updates && !isValidOptionalEmail(updates.scheduling_calendar_id)) {
+      return NextResponse.json({ error: 'Calendar address must be a valid email address' }, { status: 400 })
+    }
+
     const { data, error } = await supabase
       .from('sub_contractors')
       .update(updates)
@@ -230,7 +270,10 @@ export async function DELETE(request: NextRequest) {
       supabase
         .from('work_orders')
         .select('id')
-        .eq('sub_contractor_id', id)
+        // Was `sub_contractor_id`, a column that doesn't exist: the query errored,
+        // came back null, and the guard let a sub with work orders be deleted.
+        .eq('assigned_sub_id', id)
+        .eq('org_id', profile.org_id)
         .limit(1),
     ])
 

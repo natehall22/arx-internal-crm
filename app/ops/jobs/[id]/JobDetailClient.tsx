@@ -4,7 +4,8 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
-import ScheduleJobModal from '@/components/ops/ScheduleJobModal'
+import JobTradesCard, { type JobTradeView } from '@/components/ops/JobTradesCard'
+import { TRADE_LABELS } from '@/lib/job-trades'
 import JobPaymentsCard from '@/components/ops/JobPaymentsCard'
 import JobInvoicesCard from '@/components/ops/JobInvoicesCard'
 import CompleteJobModal from '@/components/ops/CompleteJobModal'
@@ -130,20 +131,6 @@ interface Job {
   sold_scope?: JobSoldScope | null
 }
 
-interface Crew {
-  id: string
-  name: string
-  crew_type: string
-  color: string
-  daily_capacity: number
-}
-
-interface SubContractor {
-  id: string
-  company_name: string
-  services: string[]
-}
-
 const statusConfig: Record<JobStatus, { label: string; color: string; bgColor: string }> = {
   sold: { label: 'Sold', color: 'text-blue-700', bgColor: 'bg-blue-100' },
   materials: { label: 'Materials', color: 'text-amber-700', bgColor: 'bg-amber-100' },
@@ -218,7 +205,7 @@ function renderWorkflowButton(
   isPrimary: boolean,
     opts: {
     saving: boolean
-    openScheduleModal: (mode?: 'schedule' | 'reassign') => void
+    goToCrews: () => void
     updateStatus: (newStatus: JobStatus, extraUpdates?: Record<string, unknown>) => void | Promise<void>
     handleCompleteClick: () => void
     handleCollectedClick: () => void
@@ -237,13 +224,13 @@ function renderWorkflowButton(
   const pc = isPrimary ? primaryIndigo : outline
   const pcGreen = isPrimary ? primaryGreen : outline
   const pcGray = isPrimary ? primaryGray : outline
-  const { saving, openScheduleModal, updateStatus, handleCompleteClick, handleCollectedClick, markCollectedDisabled, markCollectedTitle } = opts
+  const { saving, goToCrews, updateStatus, handleCompleteClick, handleCollectedClick, markCollectedDisabled, markCollectedTitle } = opts
 
   switch (id) {
     case 'schedule':
       return (
-        <button key={id} type="button" onClick={() => openScheduleModal('schedule')} className={pc}>
-          {job.scheduled_date ? 'Reschedule' : 'Schedule Job'}
+        <button key={id} type="button" onClick={goToCrews} className={pc}>
+          {job.scheduled_date ? 'Crews & schedule' : 'Schedule crews'}
         </button>
       )
     case 'materials':
@@ -350,8 +337,6 @@ interface JobDetailClientProps {
   /** Resolved server-side (project → contract → financing); null when genuinely unknown. */
   paymentMethod: string | null
   materialsCoverageOverrides?: MaterialsCoverageOverrides
-  crews: Crew[]
-  subs: SubContractor[]
   userRole: string
   canViewProfitability: boolean
   canDeleteProductionJob: boolean
@@ -561,8 +546,6 @@ export default function JobDetailClient({
   initialJob,
   paymentMethod,
   materialsCoverageOverrides,
-  crews,
-  subs,
   userRole,
   canViewProfitability,
   canDeleteProductionJob,
@@ -577,30 +560,8 @@ export default function JobDetailClient({
   const [materialOrdersTotal, setMaterialOrdersTotal] = useState<number | null>(null)
   const [saving, setSaving] = useState(false)
   const [savingLaborCost, setSavingLaborCost] = useState(false)
-  const [showScheduleModal, setShowScheduleModal] = useState(false)
-  const [scheduleModalMode, setScheduleModalMode] = useState<'schedule' | 'reassign'>('schedule')
-  const [scheduleCrews, setScheduleCrews] = useState<Crew[]>(crews)
-  const [scheduleSubs, setScheduleSubs] = useState<SubContractor[]>(subs)
-
-  useEffect(() => {
-    setScheduleCrews(crews)
-    setScheduleSubs(subs)
-  }, [crews, subs])
-
-  const openScheduleModal = useCallback(async (mode: 'schedule' | 'reassign' = 'schedule') => {
-    try {
-      const res = await fetch('/api/ops/scheduling-assignees')
-      if (res.ok) {
-        const data = await res.json()
-        if (Array.isArray(data.crews)) setScheduleCrews(data.crews)
-        if (Array.isArray(data.subs)) setScheduleSubs(data.subs)
-      }
-    } catch {
-      /* keep lists from last server render */
-    }
-    setScheduleModalMode(mode)
-    setShowScheduleModal(true)
-  }, [])
+  /** The job's crews, reported by JobTradesCard — used to warn before completing the job with crews still open. */
+  const [jobTrades, setJobTrades] = useState<JobTradeView[]>([])
   const [newNoteText, setNewNoteText] = useState('')
   const [jobNotes, setJobNotes] = useState<JobNote[]>([])
   const [loadingNotes, setLoadingNotes] = useState(true)
@@ -963,6 +924,21 @@ export default function JobDetailClient({
     }
   }
 
+  // A crew change can move the job's derived date/status — refresh the header.
+  const reloadJobRef = useRef(reloadJob)
+  reloadJobRef.current = reloadJob
+  const handleTradesChange = useCallback((trades: JobTradeView[], changed: boolean) => {
+    setJobTrades(trades)
+    if (changed) void reloadJobRef.current()
+  }, [])
+
+  const goToCrews = () => {
+    setMobileTab('overview')
+    requestAnimationFrame(() =>
+      document.getElementById('job-trades')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    )
+  }
+
   const updateStatus = async (newStatus: JobStatus, extraUpdates?: Record<string, any>) => {
     setSaving(true)
 
@@ -1013,6 +989,17 @@ export default function JobDetailClient({
   })
 
   const handleCompleteClick = () => {
+    // Warn, don't block: crews finish out one at a time, and ops may know a
+    // trade is done before its row says so. 'complete' starts payroll, so ask.
+    const openTrades = jobTrades.filter((t) => t.status !== 'completed')
+    if (
+      openTrades.length > 0 &&
+      !window.confirm(
+        `${openTrades.map((t) => TRADE_LABELS[t.trade]).join(', ')} ${openTrades.length === 1 ? "isn't" : "aren't"} marked done.\n\nMark the whole job complete anyway?`
+      )
+    ) {
+      return
+    }
     if (unpaidContractCents > 0) {
       setShowCompleteModal(true)
     } else {
@@ -1493,7 +1480,7 @@ export default function JobDetailClient({
               const { primary: primaryId, secondary: secondaryIds } = getWorkflowPrimaryAndSecondaryIds(job)
               const wfOpts = {
                 saving,
-                openScheduleModal,
+                goToCrews,
                 updateStatus,
                 handleCompleteClick,
                 handleCollectedClick,
@@ -1553,7 +1540,7 @@ export default function JobDetailClient({
               const { primary: primaryId, secondary: secondaryIds } = getWorkflowPrimaryAndSecondaryIds(job)
               const wfOpts = {
                 saving,
-                openScheduleModal,
+                goToCrews,
                 updateStatus,
                 handleCompleteClick,
                 handleCollectedClick,
@@ -1606,9 +1593,11 @@ export default function JobDetailClient({
           {/* Mobile Assignment & Materials Summary */}
           <div className="mt-3 pt-3 border-t grid grid-cols-2 gap-3 text-sm">
             <div>
-              <span className="text-gray-500 text-xs block">Assigned</span>
+              <span className="text-gray-500 text-xs block">Crews</span>
               <span className="font-medium text-gray-900 truncate block">
-                {job.assigned_crew?.name || job.assigned_sub?.company_name || 'Not assigned'}
+                {jobTrades.length === 0
+                  ? job.assigned_sub?.company_name || 'Not assigned'
+                  : `${jobTrades.filter((t) => t.scheduled_date).length}/${jobTrades.length} scheduled`}
               </span>
             </div>
             <div>
@@ -1914,115 +1903,18 @@ export default function JobDetailClient({
           </div>
 
           <div className="space-y-4 sm:space-y-6">
-            {/* OVERVIEW TAB — Schedule & Assignment (merged: one card answers "when, and who") */}
+            {/* OVERVIEW TAB — Schedule & Crews: one row per trade (roofing, gutters, siding…) */}
             <div className={mobileTab !== 'overview' ? 'hidden lg:block' : undefined}>
-            <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
-              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-4">
-                <h2 className="text-base sm:text-lg font-semibold text-gray-900">Schedule &amp; Assignment</h2>
-                {(job.scheduled_date || job.assigned_crew || job.assigned_sub) && (
-                  <button
-                    type="button"
-                    onClick={() => openScheduleModal('reassign')}
-                    className="min-h-[44px] shrink-0 px-4 py-2 text-sm font-medium rounded-lg border border-gray-300 text-gray-800 hover:bg-gray-50 w-full sm:w-auto"
-                  >
-                    Reassign crew or sub
-                  </button>
-                )}
-              </div>
-              {job.scheduled_date ? (
-                <div>
-                  <div className="text-lg sm:text-xl font-bold text-gray-900">
-                    {new Date(job.scheduled_date + 'T12:00:00').toLocaleDateString('en-US', {
-                      weekday: 'long',
-                      month: 'long',
-                      day: 'numeric',
-                      timeZone: 'America/New_York',
-                    })}
-                  </div>
-                  {job.scheduled_time_start && (
-                    <p className="text-sm sm:text-base text-gray-900 mt-1">Start: {job.scheduled_time_start}</p>
-                  )}
-                  {job.estimated_duration_hours && (
-                    <p className="text-sm sm:text-base text-gray-900">Duration: {job.estimated_duration_hours} hours</p>
-                  )}
-                </div>
-              ) : (
-                <div className="rounded-lg border border-amber-200 bg-amber-50/90 px-3 py-3 sm:py-4">
-                  <div className="flex gap-3">
-                    <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-amber-100 text-amber-700" aria-hidden>
-                      <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                      </svg>
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-semibold text-amber-900">Not scheduled yet</p>
-                      <p className="text-xs text-amber-800/90 mt-0.5">Add a date to get this job on the calendar.</p>
-                      <button
-                        type="button"
-                        onClick={() => openScheduleModal('schedule')}
-                        className="mt-3 min-h-[44px] w-full sm:w-auto px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium"
-                      >
-                        Schedule now
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              <div className="mt-4 pt-4 border-t border-gray-100">
-                {job.assigned_crew ? (
-                  <div className="flex items-center gap-3">
-                    <div
-                      className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold flex-shrink-0"
-                      style={{ backgroundColor: job.assigned_crew.color }}
-                    >
-                      {job.assigned_crew.name.charAt(0)}
-                    </div>
-                    <div className="min-w-0">
-                      <div className="font-medium text-gray-900 truncate">{job.assigned_crew.name}</div>
-                      <div className="text-sm text-gray-900">In-House Crew</div>
-                      {job.assigned_crew.phone && (
-                        <a href={`tel:${job.assigned_crew.phone}`} className="text-sm text-indigo-600 min-h-[44px] inline-flex items-center">
-                          {job.assigned_crew.phone}
-                        </a>
-                      )}
-                    </div>
-                  </div>
-                ) : job.assigned_sub ? (
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-orange-100 rounded-full flex items-center justify-center flex-shrink-0">
-                      <span className="text-orange-600 font-bold">S</span>
-                    </div>
-                    <div className="min-w-0">
-                      <div className="font-medium text-gray-900 truncate">{job.assigned_sub.company_name}</div>
-                      <div className="text-sm text-gray-900">Sub-Contractor</div>
-                      {job.assigned_sub.phone && (
-                        <a href={`tel:${job.assigned_sub.phone}`} className="text-sm text-indigo-600 min-h-[44px] inline-flex items-center">
-                          {job.assigned_sub.phone}
-                        </a>
-                      )}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="text-center py-4">
-                    <p className="text-gray-900 mb-3">Not assigned</p>
-                    <button
-                      type="button"
-                      onClick={() => openScheduleModal('schedule')}
-                      className="min-h-[44px] text-sm text-indigo-600 hover:text-indigo-800"
-                    >
-                      Assign crew or sub →
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-
+              <JobTradesCard
+                jobId={job.id}
+                jobLabel={`${job.job_number} • ${job.customer?.name || job.address_text}`}
+                onTradesChange={handleTradesChange}
+              />
             </div>{/* end overview tab wrapper */}
 
             {/* Final photos — desktop: above Financials (admin/owner); mobile: Photos tab */}
             <div className={mobileTab !== 'photos' ? 'hidden lg:block' : undefined}>
-              <FinalPhotosCard jobId={job.id} projectId={job.project_id} orgId={job.org_id} />
+              <FinalPhotosCard jobId={job.id} trades={jobTrades} />
             </div>
 
             {/* FINANCIALS TAB — Financials, Payments, Invoices, Work Orders */}
@@ -2382,33 +2274,6 @@ export default function JobDetailClient({
           </div>
         </div>
       </div>
-
-      {showScheduleModal && job && (
-        <ScheduleJobModal
-          mode={scheduleModalMode}
-          job={{
-            id: job.id,
-            job_number: job.job_number,
-            address_text: job.address_text,
-            job_type: job.job_type,
-            scheduled_date: job.scheduled_date,
-            assigned_crew_id: job.assigned_crew?.id || null,
-            assigned_sub_id: job.assigned_sub?.id || null,
-            customer: job.customer,
-          }}
-          crews={scheduleCrews}
-          subs={scheduleSubs}
-          onClose={() => {
-            setShowScheduleModal(false)
-            setScheduleModalMode('schedule')
-          }}
-          onSave={() => {
-            setShowScheduleModal(false)
-            setScheduleModalMode('schedule')
-            reloadJob()
-          }}
-        />
-      )}
 
       {showCompleteModal && (
         <CompleteJobModal

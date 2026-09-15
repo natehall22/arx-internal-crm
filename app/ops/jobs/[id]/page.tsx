@@ -98,18 +98,8 @@ export default async function JobDetailPage({ params }: PageProps) {
         .single()
     : jobResWithPaymentMethod
 
-  const [jobRes, crewsRes, subsRes, orgCoverageRes] = await Promise.all([
+  const [jobRes, orgCoverageRes] = await Promise.all([
     Promise.resolve(jobResult),
-    supabase
-      .from('crews')
-      .select('id, name, crew_type, color, daily_capacity')
-      .eq('org_id', profile.org_id)
-      .eq('active', true),
-    supabase
-      .from('sub_contractors')
-      .select('id, company_name, services')
-      .eq('org_id', profile.org_id)
-      .eq('active', true),
     supabase
       .from('orgs')
       .select(
@@ -584,8 +574,6 @@ export default async function JobDetailPage({ params }: PageProps) {
       initialJob={transformedJob as any}
       paymentMethod={resolvedPaymentMethod}
       materialsCoverageOverrides={materialsCoverageOverrides}
-      crews={crewsRes.data || []}
-      subs={subsRes.data || []}
       userRole={profile.role}
       canViewProfitability={canViewJobFinancials}
       canDeleteProductionJob={canDeleteProductionJob}

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
@@ -12,6 +12,8 @@ interface SubContractor {
   phone: string | null
   email: string | null
   scheduling_email: string | null
+  scheduling_calendar_id: string | null
+  calendar_share_verified_at: string | null
   services: string[]
   active: boolean
   portal_access_enabled: boolean
@@ -21,15 +23,46 @@ interface SubContractor {
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
+// Plain-language steps a sub can follow with no Google/tech background.
+// Written so Nathan can paste this whole block into a text message to a crew
+// as-is. Keep the free/busy-only reassurance explicit — that's the line that
+// gets a crew to actually do this instead of ignoring it.
+//
+// The address comes from the server (`orgs.install_scheduling_user_id`), which
+// is the SAME account the availability read acts as. Hardcoding it, or reading a
+// separate env var, would let the address crews are told drift away from the
+// calendar anyone actually looks at.
+function buildCalendarShareInstructions(shareEmail: string | null): string {
+  const address = shareEmail || '[set an install scheduling account in Ops settings]'
+  return `Share your calendar with ARX (optional)
+
+This lets us see when your crew is already busy so we don't double-book you. ARX will only ever see that a time is "busy" — never the appointment details, never what the job is.
+
+1. On a computer, open Google Calendar (calendar.google.com).
+2. Click the gear icon in the top right, then "Settings".
+3. On the left, under "Settings for my calendars", click your calendar's name.
+4. Click "Share with specific people or groups".
+5. Click "Add people and groups" and enter this address: ${address}
+6. Under permissions, choose "See only free/busy (hide details)".
+7. Click "Send".
+
+That's it. ARX will only see when you're busy, never any details about the appointment. This is optional — it just helps us schedule installs more accurately around your other jobs.`
+}
+
 export default function SubContractorsPage() {
   const router = useRouter()
   const [subs, setSubs] = useState<SubContractor[]>([])
+  /** The ARX account crews share their calendar with — server-resolved, see the API route. */
+  const [installSchedulingEmail, setInstallSchedulingEmail] = useState<string | null>(null)
+  const calendarShareInstructions = buildCalendarShareInstructions(installSchedulingEmail)
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
   const [editingSub, setEditingSub] = useState<SubContractor | null>(null)
   const [saving, setSaving] = useState(false)
   const [orgId, setOrgId] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [instructionsCopied, setInstructionsCopied] = useState(false)
+  const instructionsCopyTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const [formData, setFormData] = useState({
     company_name: '',
@@ -37,6 +70,7 @@ export default function SubContractorsPage() {
     phone: '',
     email: '',
     scheduling_email: '',
+    scheduling_calendar_id: '',
     address: '',
     city: '',
     state: '',
@@ -66,6 +100,21 @@ export default function SubContractorsPage() {
     loadSubs()
   }, [])
 
+  useEffect(() => () => {
+    if (instructionsCopyTimer.current) clearTimeout(instructionsCopyTimer.current)
+  }, [])
+
+  const copyInstructions = async () => {
+    try {
+      await navigator.clipboard.writeText(calendarShareInstructions)
+      setInstructionsCopied(true)
+      if (instructionsCopyTimer.current) clearTimeout(instructionsCopyTimer.current)
+      instructionsCopyTimer.current = setTimeout(() => setInstructionsCopied(false), 2000)
+    } catch {
+      prompt('Copy these instructions:', calendarShareInstructions)
+    }
+  }
+
   const loadSubs = async () => {
     try {
       const response = await fetch('/api/admin/subs')
@@ -89,6 +138,9 @@ export default function SubContractorsPage() {
       
       const data = await response.json()
       setSubs(data.subs || [])
+      setInstallSchedulingEmail(
+        typeof data.installSchedulingEmail === 'string' ? data.installSchedulingEmail : null
+      )
       setOrgId(data.orgId)
       setLoading(false)
     } catch (err) {
@@ -107,6 +159,7 @@ export default function SubContractorsPage() {
         phone: sub.phone || '',
         email: sub.email || '',
         scheduling_email: sub.scheduling_email || '',
+        scheduling_calendar_id: sub.scheduling_calendar_id || '',
         address: '',
         city: '',
         state: '',
@@ -124,6 +177,7 @@ export default function SubContractorsPage() {
         phone: '',
         email: '',
         scheduling_email: '',
+        scheduling_calendar_id: '',
         address: '',
         city: '',
         state: '',
@@ -158,6 +212,12 @@ export default function SubContractorsPage() {
       return
     }
 
+    const schedulingCalendarId = formData.scheduling_calendar_id.trim()
+    if (schedulingCalendarId && !EMAIL_PATTERN.test(schedulingCalendarId)) {
+      alert('Calendar address must be a valid email address (or left blank)')
+      return
+    }
+
     setSaving(true)
 
     try {
@@ -167,6 +227,7 @@ export default function SubContractorsPage() {
         phone: formData.phone || null,
         email: formData.email || null,
         scheduling_email: schedulingEmail || null,
+        scheduling_calendar_id: schedulingCalendarId || null,
         address: formData.address || null,
         city: formData.city || null,
         state: formData.state || null,
@@ -516,6 +577,74 @@ export default function SubContractorsPage() {
                     up: the invite opens in their normal mail app and adds to their calendar in one tap.
                     Leave blank and the job still schedules, but the crew won&apos;t be told.
                   </p>
+                </div>
+
+                <div>
+                  <label htmlFor="scheduling_calendar_id" className="block text-sm font-medium mb-2" style={{ color: '#2c2c2a' }}>
+                    Calendar address (optional)
+                  </label>
+                  <input
+                    id="scheduling_calendar_id"
+                    type="email"
+                    value={formData.scheduling_calendar_id}
+                    onChange={(e) => setFormData(prev => ({ ...prev, scheduling_calendar_id: e.target.value }))}
+                    placeholder="Leave blank to use the scheduling email above"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg min-h-[44px]"
+                    style={{ color: '#2c2c2a' }}
+                  />
+                  <p className="text-sm mt-1" style={{ color: '#2c2c2a' }}>
+                    Only needed if the calendar the crew shares with ARX (see below) is a{' '}
+                    <strong>different</strong> address than the scheduling email above.{' '}
+                    <strong>Leaving this blank is the normal case</strong> — ARX will check the
+                    scheduling email&apos;s calendar for availability instead.
+                  </p>
+                </div>
+
+                <div className="p-4 rounded-lg border" style={{
+                  borderColor: editingSub?.calendar_share_verified_at ? '#bbf7d0' : '#fde68a',
+                  backgroundColor: editingSub?.calendar_share_verified_at ? '#f0fdf4' : '#fffbeb',
+                }}>
+                  <div className="flex items-center gap-2 text-sm font-semibold" style={{ color: '#2c2c2a' }}>
+                    <span aria-hidden="true">{editingSub?.calendar_share_verified_at ? '✅' : '⚠️'}</span>
+                    {editingSub ? (
+                      editingSub.calendar_share_verified_at ? (
+                        <span>
+                          Calendar connected — last checked{' '}
+                          {new Date(editingSub.calendar_share_verified_at).toLocaleString('en-US', {
+                            dateStyle: 'medium',
+                            timeStyle: 'short',
+                          })}
+                        </span>
+                      ) : (
+                        <span>Calendar not shared yet</span>
+                      )
+                    ) : (
+                      <span>Calendar sharing status (save this sub first)</span>
+                    )}
+                  </div>
+
+                  {(!editingSub || !editingSub.calendar_share_verified_at) && (
+                    <div className="mt-3">
+                      <p className="text-sm" style={{ color: '#2c2c2a' }}>
+                        Text or read these steps to the crew so ARX can see when they&apos;re already
+                        busy before booking a new install:
+                      </p>
+                      <pre
+                        className="mt-2 whitespace-pre-wrap text-sm p-3 bg-white border border-gray-200 rounded-lg"
+                        style={{ color: '#2c2c2a', fontFamily: 'inherit' }}
+                      >
+                        {calendarShareInstructions}
+                      </pre>
+                      <button
+                        type="button"
+                        onClick={copyInstructions}
+                        className="mt-2 min-h-[44px] px-3 py-2 border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-100"
+                        style={{ color: '#2c2c2a' }}
+                      >
+                        {instructionsCopied ? 'Copied ✓' : 'Copy instructions'}
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 <div>

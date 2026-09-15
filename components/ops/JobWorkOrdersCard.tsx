@@ -94,6 +94,8 @@ export default function JobWorkOrdersCard({ jobId, projectId }: JobWorkOrdersCar
           assigned_sub:sub_contractors!work_orders_assigned_sub_id_fkey(company_name),
           completed_by_sub:sub_contractors!work_orders_completed_by_sub_id_fkey(company_name)
         `)
+        // Crews (trades) are shown in Schedule & Crews, not duplicated here.
+        .is('trade', null)
         .order('created_at', { ascending: false })
 
       // Prefer job_id, fallback to project_id for backwards compatibility

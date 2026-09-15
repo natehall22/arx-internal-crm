@@ -121,6 +121,71 @@ that file rather than extending the pattern.
 - **Weather overlay Phase 2** — Phase 1 + Phase 2 merged (PR #3, #4). The 8 Bugbot items (stale-warning clearing, error-as-empty `degraded` flag, swath read/ingest caps, response-cache expiry, atomic swath replace, clear-day orphans, ingest size guard) are **fixed in PR #5** (`feat/weather-phase2-bugfixes`) — verify on merge. No open weather-code debt after that. Prod flag `NEXT_PUBLIC_CANVASS_WEATHER_OVERLAY` stays OFF until the human deploy checklist (GitHub/Vercel secrets, 4th cron, migration-history reconcile, MRMS backfill, preview field QA) is done — see `docs/canvass-weather-overlay-phase2-verification.md`. Claims-safe copy ("est.", "recorded", etc.) is enforced in code; not a separate legal gate. Separate open question (non-weather): confirm the `info@` feedback-routing + canvass "Report Issue" change bundled in commit `22e6ab5` is intended org-wide.
 - **Sold add-ons missing from the materials-ORDER flow (not just the brief)** — 2026-07-15: `components/ops/JobRoofingBrief.tsx` "Job materials brief" card now shows sold proposal adders (Gutters, Decking, Siding, Skylights, Chimney, Ventilation category — from `proposal_line_items` where `is_adder=true`, surfaced via `formatSoldAddOns()` in `lib/job-roofing-brief.ts`), fixing a bug where e.g. Ashley Gaines' job (26-0026, proposal P-00118, 306 LF Seamless Gutters + fascia board + OSB + siding) showed no gutters at all. **This was a display-only fix.** The actual materials-*ordering* system (`job_material_order_overrides` table, `/api/jobs/[id]/material-order`, `job_product_orders` table) still only tracks core roofing materials computed from roof measurements (`lib/materials-order-list.ts`: field shingles, starter, hip/ridge cap, ridge vent, underlayment, ice & water, drip edge, step/wall flashing, pipe boots) — it has no path for sold adders at all. So a sold "Gutters" or "Decking" line can now be *seen* on the job page but still won't flow into whatever ops uses to actually place the supplier order. Before touching `job_material_order_overrides`/`job_product_orders`/the ordering UI, trace where ops actually places material orders today (manually off the proposal, or via `job_product_orders`?) and confirm whether adders need to join that flow or whether the ops team already treats "Sold add-ons" as sufficient at-a-glance visibility.
 
+## Install Scheduling — crews per trade (2026-09-15)
+A job's crews are **trades**: one `work_orders` row per trade (`trade` = roofing | gutters |
+siding | windows | other, `work_order_type='install'`), each with its own sub, date, length
+(`install_days` ½ | 1 | 1½ | 2, ops-selected), Google invite, and crew photo link. Pure helpers
+in `lib/job-trades.ts` (client-safe), DB in `lib/job-trades-db.ts`.
+- **One write path:** `POST /api/ops/install-schedule/assign|unassign` take `workOrderId`.
+  `production_jobs.scheduled_date/install_days/assigned_sub_id` are DERIVED by
+  `syncJobScheduleFromTrades` — never write them directly. Earliest crew date; roofing crew as the sub.
+- **Trades are created lazily** by `ensureJobTrades` (board + job page load): the primary trade
+  adopts the job's existing sub/date/Google event; gutters/siding/windows are auto-added from sold
+  line items (fascia/soffit deliberately not). Removing a trade sets `cancelled` (kept, so it isn't re-added).
+- **Crew photo link** `/crew/[token]` (public, `lib/crew-link.ts`): 4 walk-around photos per trade
+  into `photos.work_order_id`. Token rotates on sub change, dies on unschedule/remove/job cancel,
+  expires 30 days after the crew's last day. Link goes in the invite notes.
+- Marking a trade done needs its 4 photos (override allowed). The JOB is never auto-completed —
+  `complete` starts payroll; the job page warns if crews are still open.
+- ½ day is a timed 4-hour event; 1/1½/2 are all-day over 1/2/2 dates.
+- **Legacy `/sub-portal/[token]` no longer works** — its anon RLS policy leaked every portal-enabled
+  sub's token/phone/email and was dropped 2026-09-15. Deletion candidate (the crew link replaces it).
+
+## Install Scheduling — deployment knobs
+`/ops/schedule` assigns installs to subcontractors and exports them to Google as
+all-day events. Three environment variables, and they are NOT interchangeable:
+
+| Var | What it is |
+|---|---|
+| `GOOGLE_INSTALL_CALENDAR_ID` | Legacy fallback for the calendar installs are written to. Prefer `orgs.install_scheduling_calendar_id` (below), which needs no deploy. |
+| `CRON_SECRET` | Unrelated; existing. |
+
+**`info@arxroofing.com` cannot be the scheduling account.** It is the
+customer-facing address (contracts, warranty claims, `lib/crm-email-from.ts`) but
+is an ALIAS, not a Workspace mailbox — it cannot own a calendar or hold a Google
+token, and there is no `users` row for it. Confirmed with Nathan 2026-09-08; do
+not re-propose it without checking that first.
+
+**Which Google account installs act as** is `orgs.install_scheduling_user_id`, a
+column rather than an env var so it changes without a deploy (set to Nathan
+2026-09-08). It reuses the per-user Google connection that appointment
+scheduling already has — `user_google_tokens` + `getValidAccessToken`, connected
+on `/admin/scheduling`. Appointments are per-closer because a rep owns their own
+booking; an install belongs to the company and a subcontractor, so it needs one
+nominated account instead. `resolveInstallGoogleToken` is the single answer, used
+for BOTH the event write and the free/busy read — they must match, because crews
+share with exactly one address and RSVP is read off events that account owns.
+Unset, it falls back to the acting user. The subs admin page prints that same
+account's email in its share instructions, resolved server-side, so what crews
+are told cannot drift from what the server reads.
+
+**Which calendar** is `orgs.install_scheduling_calendar_id`, resolved in the same
+call (`resolveInstallCalendarConfig`) because nothing ever needs the account
+without the calendar. NULL falls back to `GOOGLE_INSTALL_CALENDAR_ID`, then that
+account's `primary` — i.e. someone's personal calendar, which is what a dedicated
+install calendar exists to avoid. Note `production_jobs.install_calendar_id` is a
+different thing: it records where a specific job's event actually went, so an
+update or delete still finds it after this setting changes.
+
+Subs do **not** OAuth. They share their calendar once at Google's "See only
+free/busy (hide details)" — ARX sees busy blocks, never event details. A sub who
+never shared is reported `not_shared`, **never** as "free"; conflating those
+would make the board confidently wrong. Conflicts warn, never block: subs work
+for other GCs and their calendar is not the whole truth.
+
+Invites reach any email address — Google mails a standard `.ics`. **A Google
+account is not required**; do not reintroduce copy claiming otherwise.
+
 ## Major Features / Modules
 | Module | Path | Notes |
 |---|---|---|

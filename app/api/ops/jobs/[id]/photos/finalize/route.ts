@@ -1,8 +1,7 @@
 import { NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
-import { FILES_BUCKET } from '@/lib/files/storage'
-import { findStorageObjectByRecordPrefix } from '@/lib/files/direct-upload-utils'
+import { finalizeJobPhotoUpload } from '@/lib/job-photo-upload'
 
 export const runtime = 'nodejs'
 
@@ -46,39 +45,46 @@ export async function POST(
           ? body.fileSize
           : null
 
-    const folderPath = `${profile.org_id}/jobs/${jobId}/photos`
-    const found = await findStorageObjectByRecordPrefix(supabase, FILES_BUCKET, folderPath, photoId)
-    if (!found) {
-      return NextResponse.json(
-        { error: 'Upload not found in storage. Try uploading again.' },
-        { status: 400 }
-      )
+    const workOrderId = await resolveJobWorkOrderId(supabase, profile.org_id, jobId, body?.work_order_id)
+    if (workOrderId === false) {
+      return NextResponse.json({ error: 'Trade not found on this job' }, { status: 400 })
     }
 
-    const { data: photo, error: insertError } = await supabase
-      .from('photos')
-      .insert({
-        id: photoId,
-        org_id: profile.org_id,
-        job_id: jobId,
-        storage_path: found.storagePath,
-        filename: found.displayFilename,
-        file_size: found.size ?? fileSize,
-        mime_type: mimeType || found.mimeType,
-        photo_tag: photoTag || null,
-        uploaded_by: profile.id,
-      })
-      .select('*')
-      .single()
-
-    if (insertError) {
-      await supabase.storage.from(FILES_BUCKET).remove([found.storagePath])
-      return NextResponse.json({ error: insertError.message }, { status: 500 })
+    const result = await finalizeJobPhotoUpload(supabase, {
+      orgId: profile.org_id,
+      jobId,
+      photoId,
+      photoTag,
+      mimeType,
+      fileSize,
+      uploadedBy: profile.id,
+      workOrderId,
+    })
+    if ('error' in result) {
+      return NextResponse.json({ error: result.error }, { status: result.status })
     }
-
-    return NextResponse.json({ photo })
+    return NextResponse.json({ photo: result.photo })
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Failed to finalize photo upload'
     return NextResponse.json({ error: message }, { status: 500 })
   }
+}
+
+/** null = no trade given; false = a trade was given that isn't on this job. */
+async function resolveJobWorkOrderId(
+  supabase: ReturnType<typeof createServiceClient>,
+  orgId: string,
+  jobId: string,
+  raw: unknown
+): Promise<string | null | false> {
+  if (raw === undefined || raw === null || raw === '') return null
+  if (typeof raw !== 'string') return false
+  const { data } = await supabase
+    .from('work_orders')
+    .select('id')
+    .eq('id', raw)
+    .eq('org_id', orgId)
+    .eq('job_id', jobId)
+    .maybeSingle()
+  return data ? data.id : false
 }

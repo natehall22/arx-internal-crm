@@ -25,6 +25,8 @@ export async function GET() {
       .from('work_orders')
       .select('*', { count: 'exact', head: true })
       .eq('org_id', profile.org_id)
+      // Job crews (trades) are install scheduling, not service work orders.
+      .is('trade', null)
       .not('status', 'in', '("completed","cancelled")')
 
     // Get pending materials count (orders with status 'ordered')

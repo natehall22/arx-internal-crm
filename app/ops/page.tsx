@@ -25,26 +25,11 @@ export default async function OpsPage() {
 
   const supabase = createClient()
 
-  // Load jobs, crews, and subs in parallel
-  const [jobsRes, crewsRes, subsRes] = await Promise.all([
-    supabase
-      .from('production_jobs')
-      .select(opsBoardJobsSelectEmbedded())
-      .eq('org_id', profile.org_id)
-      .order('scheduled_date', { ascending: true, nullsFirst: false }),
-    supabase
-      .from('crews')
-      .select('id, name, crew_type, color, daily_capacity')
-      .eq('org_id', profile.org_id)
-      .eq('active', true)
-      .order('name'),
-    supabase
-      .from('sub_contractors')
-      .select('id, company_name, services')
-      .eq('org_id', profile.org_id)
-      .eq('active', true)
-      .order('company_name'),
-  ])
+  const jobsRes = await supabase
+    .from('production_jobs')
+    .select(opsBoardJobsSelectEmbedded())
+    .eq('org_id', profile.org_id)
+    .order('scheduled_date', { ascending: true, nullsFirst: false })
 
   const rawJobs = (jobsRes.data ?? []) as unknown as Array<{ id: string } & Record<string, unknown>>
   await enrichOpsJobsWithPayrollSentAt(supabase, profile.org_id, rawJobs)
@@ -103,8 +88,6 @@ export default async function OpsPage() {
   return (
     <OpsClient 
       initialJobs={transformedJobs as unknown as OpsBoardJob[]}
-      initialCrews={crewsRes.data || []}
-      initialSubs={subsRes.data || []}
       orgId={profile.org_id}
       canViewProfitability={ops.canViewJobFinancials}
     />
