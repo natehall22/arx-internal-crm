@@ -20,7 +20,7 @@ export default async function WorkOrderDetailPage({ params }: PageProps) {
       projects(id, address_text),
       customers(id, name, phone),
       assigned_user:users!work_orders_assigned_user_id_fkey(id, full_name, email),
-      assigned_sub:sub_contractors(id, company_name, contact_name, phone),
+      assigned_sub:sub_contractors!work_orders_assigned_sub_id_fkey(id, company_name, contact_name, phone),
       created_by_user:users!work_orders_created_by_fkey(full_name)
     `)
     .eq('id', params.id)

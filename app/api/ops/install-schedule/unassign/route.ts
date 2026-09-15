@@ -3,18 +3,20 @@ import { NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import { resolveOpsAccess } from '@/lib/ops-access'
-import { removeInstallFromCalendar, type InstallSyncJobRow } from '@/lib/install-calendar'
+import { removeInstallFromCalendar } from '@/lib/install-calendar'
+import { loadTradeWithJob } from '@/lib/job-trade-calendar'
+import { JOB_TRADE_COLUMNS } from '@/lib/job-trades'
+import { syncJobScheduleFromTrades } from '@/lib/job-trades-db'
 
 /**
  * POST /api/ops/install-schedule/unassign
- * body: { jobId }
+ * body: { workOrderId }
  *
- * Pulls a job back off the install schedule: clears scheduled_date,
- * install_days, assigned_sub_id, and reverts status to 'materials' only if
- * the job is currently 'scheduled' (never touches in_progress/complete/
- * collected/on_hold). Removes the Google Calendar event best-effort — see
- * `lib/install-calendar.ts` for the failure contract; a Google failure never
- * blocks this database write.
+ * Pulls ONE trade back off the schedule: clears its date, length and sub, sets
+ * it back to 'pending', kills its crew photo link, and removes its Google event
+ * best-effort (a Google failure never blocks this write). The job-level columns
+ * and status are then re-derived from the job's remaining trades — the job only
+ * drops back to 'materials' when no trade is still booked.
  */
 export async function POST(request: Request) {
   let authUser: { id: string }
@@ -40,66 +42,50 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
   }
 
-  const { jobId } = (body ?? {}) as { jobId?: unknown }
-  if (typeof jobId !== 'string' || !jobId) {
-    return NextResponse.json({ error: 'jobId is required' }, { status: 400 })
+  const { workOrderId } = (body ?? {}) as { workOrderId?: unknown }
+  if (typeof workOrderId !== 'string' || !workOrderId) {
+    return NextResponse.json({ error: 'workOrderId is required' }, { status: 400 })
   }
 
   const orgId = profile.org_id
-
-  const { data: job, error: jobError } = await adminClient
-    .from('production_jobs')
-    .select(
-      'id, org_id, job_number, address_text, status, scheduled_date, install_days, install_google_event_id, install_calendar_id'
-    )
-    .eq('id', jobId)
-    .eq('org_id', orgId)
-    .maybeSingle()
-
-  if (jobError || !job) {
-    return NextResponse.json({ error: 'Job not found' }, { status: 404 })
+  const loaded = await loadTradeWithJob(adminClient, orgId, workOrderId)
+  if (!loaded) {
+    return NextResponse.json({ error: 'Trade not found' }, { status: 404 })
+  }
+  const { trade, job } = loaded
+  if (trade.status === 'completed') {
+    return NextResponse.json({ error: 'This trade is already complete — reopen it first' }, { status: 400 })
   }
 
-  const nextStatus = job.status === 'scheduled' ? 'materials' : job.status
-
-  const { data: updatedJob, error: updateError } = await adminClient
-    .from('production_jobs')
+  const { data: updated, error: updateError } = await adminClient
+    .from('work_orders')
     .update({
       scheduled_date: null,
       install_days: null,
       assigned_sub_id: null,
-      ...(nextStatus !== job.status ? { status: nextStatus } : {}),
+      crew_link_token: null,
+      ...(trade.status === 'cancelled' ? {} : { status: 'pending' }),
     })
-    .eq('id', jobId)
+    .eq('id', trade.id)
     .eq('org_id', orgId)
-    .select('id, job_number, status, job_type, address_text, scheduled_date, install_days, assigned_sub_id')
+    .select(JOB_TRADE_COLUMNS)
     .single()
 
-  if (updateError || !updatedJob) {
+  if (updateError || !updated) {
     console.error('[install-schedule unassign] update failed:', updateError)
     return NextResponse.json({ error: 'Failed to unassign install' }, { status: 500 })
   }
 
-  // Capture the pre-clear event/calendar ids to remove — the DB row we just
-  // wrote no longer carries them here, but `job` (read before the update) does.
-  const removalJobRow: InstallSyncJobRow = {
-    id: job.id,
-    org_id: job.org_id,
-    job_number: job.job_number,
-    address_text: job.address_text,
-    scheduled_date: job.scheduled_date,
-    install_days: job.install_days,
-    install_google_event_id: job.install_google_event_id,
-    install_calendar_id: job.install_calendar_id,
-  }
+  await syncJobScheduleFromTrades(adminClient, orgId, job.id, { revertToMaterials: true })
 
+  // `trade` was read before the update, so it still carries the event ids to remove.
   const removal = await removeInstallFromCalendar(adminClient, {
-    job: removalJobRow,
+    trade,
     schedulingUserId: authUser.id,
   })
 
   return NextResponse.json({
-    job: updatedJob,
+    trade: { ...updated, install_google_event_id: null, install_calendar_id: null },
     calendarWarning: removal.warning ?? null,
   })
 }

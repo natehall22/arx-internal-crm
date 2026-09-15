@@ -121,6 +121,26 @@ that file rather than extending the pattern.
 - **Weather overlay Phase 2** — Phase 1 + Phase 2 merged (PR #3, #4). The 8 Bugbot items (stale-warning clearing, error-as-empty `degraded` flag, swath read/ingest caps, response-cache expiry, atomic swath replace, clear-day orphans, ingest size guard) are **fixed in PR #5** (`feat/weather-phase2-bugfixes`) — verify on merge. No open weather-code debt after that. Prod flag `NEXT_PUBLIC_CANVASS_WEATHER_OVERLAY` stays OFF until the human deploy checklist (GitHub/Vercel secrets, 4th cron, migration-history reconcile, MRMS backfill, preview field QA) is done — see `docs/canvass-weather-overlay-phase2-verification.md`. Claims-safe copy ("est.", "recorded", etc.) is enforced in code; not a separate legal gate. Separate open question (non-weather): confirm the `info@` feedback-routing + canvass "Report Issue" change bundled in commit `22e6ab5` is intended org-wide.
 - **Sold add-ons missing from the materials-ORDER flow (not just the brief)** — 2026-07-15: `components/ops/JobRoofingBrief.tsx` "Job materials brief" card now shows sold proposal adders (Gutters, Decking, Siding, Skylights, Chimney, Ventilation category — from `proposal_line_items` where `is_adder=true`, surfaced via `formatSoldAddOns()` in `lib/job-roofing-brief.ts`), fixing a bug where e.g. Ashley Gaines' job (26-0026, proposal P-00118, 306 LF Seamless Gutters + fascia board + OSB + siding) showed no gutters at all. **This was a display-only fix.** The actual materials-*ordering* system (`job_material_order_overrides` table, `/api/jobs/[id]/material-order`, `job_product_orders` table) still only tracks core roofing materials computed from roof measurements (`lib/materials-order-list.ts`: field shingles, starter, hip/ridge cap, ridge vent, underlayment, ice & water, drip edge, step/wall flashing, pipe boots) — it has no path for sold adders at all. So a sold "Gutters" or "Decking" line can now be *seen* on the job page but still won't flow into whatever ops uses to actually place the supplier order. Before touching `job_material_order_overrides`/`job_product_orders`/the ordering UI, trace where ops actually places material orders today (manually off the proposal, or via `job_product_orders`?) and confirm whether adders need to join that flow or whether the ops team already treats "Sold add-ons" as sufficient at-a-glance visibility.
 
+## Install Scheduling — crews per trade (2026-09-15)
+A job's crews are **trades**: one `work_orders` row per trade (`trade` = roofing | gutters |
+siding | windows | other, `work_order_type='install'`), each with its own sub, date, length
+(`install_days` ½ | 1 | 1½ | 2, ops-selected), Google invite, and crew photo link. Pure helpers
+in `lib/job-trades.ts` (client-safe), DB in `lib/job-trades-db.ts`.
+- **One write path:** `POST /api/ops/install-schedule/assign|unassign` take `workOrderId`.
+  `production_jobs.scheduled_date/install_days/assigned_sub_id` are DERIVED by
+  `syncJobScheduleFromTrades` — never write them directly. Earliest crew date; roofing crew as the sub.
+- **Trades are created lazily** by `ensureJobTrades` (board + job page load): the primary trade
+  adopts the job's existing sub/date/Google event; gutters/siding/windows are auto-added from sold
+  line items (fascia/soffit deliberately not). Removing a trade sets `cancelled` (kept, so it isn't re-added).
+- **Crew photo link** `/crew/[token]` (public, `lib/crew-link.ts`): 4 walk-around photos per trade
+  into `photos.work_order_id`. Token rotates on sub change, dies on unschedule/remove/job cancel,
+  expires 30 days after the crew's last day. Link goes in the invite notes.
+- Marking a trade done needs its 4 photos (override allowed). The JOB is never auto-completed —
+  `complete` starts payroll; the job page warns if crews are still open.
+- ½ day is a timed 4-hour event; 1/1½/2 are all-day over 1/2/2 dates.
+- **Legacy `/sub-portal/[token]` no longer works** — its anon RLS policy leaked every portal-enabled
+  sub's token/phone/email and was dropped 2026-09-15. Deletion candidate (the crew link replaces it).
+
 ## Install Scheduling — deployment knobs
 `/ops/schedule` assigns installs to subcontractors and exports them to Google as
 all-day events. Three environment variables, and they are NOT interchangeable:

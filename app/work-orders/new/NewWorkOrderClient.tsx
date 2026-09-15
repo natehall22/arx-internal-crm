@@ -311,7 +311,8 @@ export default function NewWorkOrderClient({
                   <option value="warranty">Warranty</option>
                   <option value="punch_list">Punch List</option>
                   <option value="inspection">Inspection</option>
-                  <option value="install">Install</option>
+                  {/* No "Install": installs are a job's crews, scheduled on the job page
+                      (Schedule & Crews) where the sub's invite and photo link are sent. */}
                   <option value="service_call">Service Call</option>
                 </select>
               </div>

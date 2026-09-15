@@ -29,8 +29,8 @@ import {
  *
  * Returns, per active sub in the window: whether their calendar could be read
  * (`shareStatus`) and which bare dates they're already busy on
- * (`busyDates`) — plus RSVP status for jobs in the window that already have
- * an install invite out (`install_google_event_id`).
+ * (`busyDates`) — plus RSVP status for trades in the window that already have
+ * an install invite out (`work_orders.install_google_event_id`), keyed by trade.
  *
  * See `lib/sub-availability.ts` for the permission model: subs share
  * free/busy with an ARX Google account rather than doing OAuth themselves, so
@@ -169,28 +169,30 @@ export async function GET(request: Request) {
   }
 
   // RSVP: one events.list call against the install calendar for the whole
-  // window, mapped back onto jobs by install_google_event_id — never one API
-  // call per job.
+  // window, mapped back onto trades by install_google_event_id — never one API
+  // call per trade.
   const rsvp: Record<string, RsvpStatus | null> = {}
   try {
-    const { data: jobsData, error: jobsError } = await adminClient
-      .from('production_jobs')
+    // One invite per trade, so RSVP is per trade (keyed by work order id).
+    const { data: tradesData, error: tradesError } = await adminClient
+      .from('work_orders')
       .select('id, install_google_event_id, assigned_sub_id')
       .eq('org_id', orgId)
+      .not('trade', 'is', null)
       .not('scheduled_date', 'is', null)
       .not('install_google_event_id', 'is', null)
       .gte('scheduled_date', start)
       .lte('scheduled_date', end)
 
-    if (jobsError) {
-      console.error('[install-schedule availability GET] jobs (rsvp):', jobsError)
+    if (tradesError) {
+      console.error('[install-schedule availability GET] trades (rsvp):', tradesError)
     } else {
-      const jobs = (jobsData || []) as {
+      const trades = (tradesData || []) as {
         id: string
         install_google_event_id: string | null
         assigned_sub_id: string | null
       }[]
-      if (jobs.length > 0) {
+      if (trades.length > 0) {
         const events = await listCalendarEventsInRange(
           token,
           installCalendarId,
@@ -219,18 +221,18 @@ export async function GET(request: Request) {
           if (addr) subAddressById.set(sub.id, addr.trim().toLowerCase())
         }
 
-        for (const job of jobs) {
-          if (!job.install_google_event_id) continue
-          const attendees = attendeesByEventId.get(job.install_google_event_id)
+        for (const trade of trades) {
+          if (!trade.install_google_event_id) continue
+          const attendees = attendeesByEventId.get(trade.install_google_event_id)
           if (!attendees || attendees.length === 0) {
-            rsvp[job.id] = null
+            rsvp[trade.id] = null
             continue
           }
-          const wanted = job.assigned_sub_id ? subAddressById.get(job.assigned_sub_id) : undefined
+          const wanted = trade.assigned_sub_id ? subAddressById.get(trade.assigned_sub_id) : undefined
           const match = wanted ? attendees.find((a) => a.email === wanted) : undefined
           // No address on file for the sub means nobody was invited; report
           // "unknown" rather than borrowing whoever else is on the event.
-          rsvp[job.id] = match ? match.status : null
+          rsvp[trade.id] = match ? match.status : null
         }
       }
     }

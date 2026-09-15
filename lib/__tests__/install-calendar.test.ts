@@ -116,9 +116,9 @@ describe('buildInstallEvent', () => {
     expect(event.attendees).toEqual([])
   })
 
-  it('names the homeowner in the title, since that is what a crew looks for', () => {
+  it('names the trade and the homeowner in the title, since that is what a crew looks for', () => {
     const event = buildInstallEvent({ ...base, totalSquares: 28.5 })
-    expect(event.summary).toBe('Roof install — Jane Homeowner (28.5 sq)')
+    expect(event.summary).toBe('Roofing install — Jane Homeowner (28.5 sq)')
   })
 
   it('uses the job address as the event location', () => {
@@ -156,7 +156,7 @@ describe('buildInstallEvent', () => {
   it('omits the roof size when squares are unknown', () => {
     const event = buildInstallEvent({ ...base, totalSquares: null })
     expect(event.description).not.toContain(' sq')
-    expect(event.summary).toBe('Roof install — Jane Homeowner')
+    expect(event.summary).toBe('Roofing install — Jane Homeowner')
   })
 
   it('sets its own reminders rather than inheriting the guest default', () => {
@@ -170,9 +170,70 @@ describe('buildInstallEvent', () => {
     ])
   })
 
-  it('flags a 2-day install in the body so the crew blocks both days', () => {
-    const event = buildInstallEvent({ ...base, installDays: 2, totalSquares: 40 })
-    expect(event.description).toContain('2-day install')
+  it('states the crew length in the body so the crew blocks the right time', () => {
+    expect(buildInstallEvent({ ...base, installDays: 2, totalSquares: 40 }).description).toContain('Roofing: 2 days')
+    expect(buildInstallEvent({ ...base, installDays: 1.5 }).description).toContain('1½ days')
+  })
+})
+
+describe('buildInstallEvent — trades and crew lengths', () => {
+  const base = {
+    jobId: 'job-1',
+    jobNumber: '26-0044',
+    customerName: 'Pat Smith',
+    addressText: '639 Spring St SW, Concord, NC',
+    scheduledDate: '2026-09-18',
+  }
+
+  it('titles a gutter crew as gutters and never quotes roof squares to it', () => {
+    const event = buildInstallEvent({ ...base, trade: 'gutters', totalSquares: 26 })
+    expect(event.summary).toBe('Gutters install — Pat Smith')
+    expect(event.description).not.toContain(' sq')
+    expect(event.description).toContain('Gutters: 1 day')
+  })
+
+  it('spans 1½ days over two all-day dates (end exclusive)', () => {
+    const event = buildInstallEvent({ ...base, installDays: 1.5 })
+    expect(event.start).toEqual({ date: '2026-09-18' })
+    expect(event.end).toEqual({ date: '2026-09-20' })
+  })
+
+  it('sends a ½ day as a 4-hour timed block in the business timezone, from the wall clock', () => {
+    const event = buildInstallEvent({ ...base, installDays: 0.5, scheduledTimeStart: '13:00:00' })
+    expect(event.start).toEqual({ dateTime: '2026-09-18T13:00:00', timeZone: 'America/New_York' })
+    expect(event.end).toEqual({ dateTime: '2026-09-18T17:00:00', timeZone: 'America/New_York' })
+    expect(event.summary).toContain('(½ day)')
+    expect(event.description).toContain('½ day — starts 1:00 PM')
+  })
+
+  it('defaults a ½ day with no start time to 8:00 AM', () => {
+    const event = buildInstallEvent({ ...base, installDays: 0.5 })
+    expect(event.start).toEqual({ dateTime: '2026-09-18T08:00:00', timeZone: 'America/New_York' })
+    expect(event.end).toEqual({ dateTime: '2026-09-18T12:00:00', timeZone: 'America/New_York' })
+  })
+
+  it('keeps a late ½-day block inside its own day', () => {
+    const event = buildInstallEvent({ ...base, installDays: 0.5, scheduledTimeStart: '22:30' })
+    expect(event.start).toEqual({ dateTime: '2026-09-18T19:00:00', timeZone: 'America/New_York' })
+    expect(event.end).toEqual({ dateTime: '2026-09-18T23:00:00', timeZone: 'America/New_York' })
+  })
+
+  it('fires both reminders the day before for a timed ½ day too (9 AM and 5 PM)', () => {
+    // 8:00 AM start: 23h before = 9 AM previous day, 15h before = 5 PM previous day.
+    const event = buildInstallEvent({ ...base, installDays: 0.5, scheduledTimeStart: '08:00' })
+    expect(event.reminders?.overrides).toEqual([
+      { method: 'popup', minutes: 23 * 60 },
+      { method: 'popup', minutes: 15 * 60 },
+    ])
+  })
+
+  it('puts the crew photo link in the notes when the trade has one', () => {
+    const event = buildInstallEvent({ ...base, crewLinkToken: 'tok_abc123', appUrl: 'https://crm.example' })
+    expect(event.description).toContain('📸 When you finish, take the job photos here: https://crm.example/crew/tok_abc123')
+  })
+
+  it('omits the photo line when there is no link', () => {
+    expect(buildInstallEvent({ ...base }).description).not.toContain('📸')
   })
 })
 

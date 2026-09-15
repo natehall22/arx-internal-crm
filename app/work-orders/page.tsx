@@ -15,9 +15,11 @@ export default async function WorkOrdersPage() {
       projects(id, address_text),
       customers(id, name),
       assigned_user:users!work_orders_assigned_user_id_fkey(id, full_name),
-      assigned_sub:sub_contractors(id, company_name)
+      assigned_sub:sub_contractors!work_orders_assigned_sub_id_fkey(id, company_name)
     `)
     .eq('org_id', profile.org_id)
+    // Job crews (trades) live on each job's Schedule & Crews card.
+    .is('trade', null)
     .order('created_at', { ascending: false })
 
   return <WorkOrdersClient initialWorkOrders={workOrders || []} />

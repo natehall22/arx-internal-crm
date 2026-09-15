@@ -34,7 +34,8 @@ export interface OpsBoardJobCardProps {
   job: OpsBoardJob
   onNavigateToJob: (jobId: string) => void
   onOpenSnapshot: (job: OpsBoardJob) => void
-  onSchedule: (job: OpsBoardJob, mode: 'schedule' | 'reassign') => void
+  /** Opens the job's crews (each trade is scheduled on the job page). */
+  onSchedule: (job: OpsBoardJob) => void
   onStartMaterials: (jobId: string) => void
   onMarkOrdered: (jobId: string) => void
   onJobStatus: (jobId: string, status: JobStatus) => void
@@ -252,23 +253,12 @@ function OpsBoardJobCardInner({
         <button
           onClick={(e) => {
             e.stopPropagation()
-            onSchedule(job, 'schedule')
+            onSchedule(job)
           }}
           className="flex-1 min-h-[38px] text-xs py-2 px-2 bg-indigo-50 text-indigo-700 rounded-lg font-medium hover:bg-indigo-100 border border-indigo-200"
         >
-          {job.scheduled_date ? 'Reschedule' : 'Schedule'}
+          {job.scheduled_date ? 'Crews' : 'Schedule'}
         </button>
-        {(job.scheduled_date || job.assigned_crew || job.assigned_sub) && (
-          <button
-            onClick={(e) => {
-              e.stopPropagation()
-              onSchedule(job, 'reassign')
-            }}
-            className="flex-1 min-h-[38px] text-xs py-2 px-2 bg-white text-gray-800 rounded-lg font-medium hover:bg-gray-50 border border-gray-300"
-          >
-            Reassign
-          </button>
-        )}
         {job.status === 'scheduled' && (
           <button
             onClick={(e) => {

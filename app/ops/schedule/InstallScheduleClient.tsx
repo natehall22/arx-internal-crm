@@ -3,6 +3,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import Nav from '@/components/Nav'
+import {
+  INSTALL_DAY_OPTIONS,
+  TRADE_LABELS,
+  calendarDaySpan,
+  formatInstallDays,
+  type InstallDays,
+  type Trade,
+} from '@/lib/job-trades'
 
 /* ------------------------------------------------------------------------ *
  * API contract (GET /api/ops/install-schedule, POST .../assign, .../unassign)
@@ -16,27 +24,34 @@ interface ScheduleSub {
   phone: string | null
 }
 
+/** One crew (trade) of a job on the board. `id` is the trade's work order id. */
 interface ScheduledJob {
   id: string
+  job_id: string
   job_number: string
+  trade: Trade
   customer_name: string | null
   address_text: string
   /** Bare YYYY-MM-DD — never parse with `new Date(...)`. */
   scheduled_date: string
-  install_days: number | null
+  scheduled_time_start: string | null
+  install_days: InstallDays
   assigned_sub_id: string
+  /** The trade's own status ('scheduled' | 'completed' | …). */
   status: string
-  job_type: string
+  job_status: string
   total_squares: number | null
 }
 
+/** A trade on an open job with no date yet. `id` is the trade's work order id. */
 interface UnscheduledJob {
   id: string
+  job_id: string
   job_number: string
+  trade: Trade
   customer_name: string | null
   address_text: string
-  status: string
-  job_type: string
+  job_status: string
   total_squares: number | null
   sold_at: string | null
 }
@@ -157,12 +172,6 @@ function shortCustomerName(name: string | null): string | null {
   return parts.length > 1 ? parts[parts.length - 1] : parts[0]
 }
 
-function formatJobType(jobType: string): string {
-  return jobType
-    .replace(/[_-]+/g, ' ')
-    .replace(/\b\w/g, (c) => c.toUpperCase())
-}
-
 const VALID_SHARE_STATUSES: ShareStatus[] = ['ok', 'not_configured', 'not_shared', 'error']
 const VALID_RSVP_STATUSES: Exclude<RsvpStatus, null>[] = ['accepted', 'declined', 'tentative', 'needsAction']
 
@@ -200,10 +209,10 @@ function parseAvailability(data: RawAvailabilityResponse | null): AvailabilitySt
 /** Which day(s) of an `installDays`-long span starting `startIso` the sub's
  *  own calendar shows busy — used only to decide whether to warn before an
  *  assign, never to block it. */
-function busyDatesInRange(sub: SubAvailability | undefined, startIso: string, installDays: number): string[] {
+function busyDatesInRange(sub: SubAvailability | undefined, startIso: string, installDays: InstallDays): string[] {
   if (!sub || sub.busyDates.size === 0) return []
   const out: string[] = []
-  for (let i = 0; i < installDays; i++) {
+  for (let i = 0; i < calendarDaySpan(installDays); i++) {
     const d = addDaysISO(startIso, i)
     if (sub.busyDates.has(d)) out.push(d)
   }
@@ -300,6 +309,7 @@ interface ToastState {
 }
 
 interface DragPayload {
+  /** The trade's work order id. */
   jobId: string
   installDays?: number
 }
@@ -312,7 +322,7 @@ interface PendingAssignConfirm {
   subId: string
   subName: string
   dateIso: string
-  installDays: 1 | 2
+  installDays: InstallDays
   busyDates: string[]
 }
 
@@ -326,7 +336,7 @@ export default function InstallScheduleClient() {
   const [reloadTick, setReloadTick] = useState(0)
 
   const [placingJobId, setPlacingJobId] = useState<string | null>(null)
-  const [placingInstallDays, setPlacingInstallDays] = useState<1 | 2>(1)
+  const [placingInstallDays, setPlacingInstallDays] = useState<InstallDays>(1)
   const [assigning, setAssigning] = useState(false)
   const [dragOverCell, setDragOverCell] = useState<{ subId: string; dateIso: string } | null>(null)
 
@@ -464,7 +474,7 @@ export default function InstallScheduleClient() {
       const candidates: { job: ScheduledJob; visStart: number; visEnd: number }[] = []
 
       for (const job of jobs) {
-        const installDays = job.install_days === 2 ? 2 : 1
+        const installDays = calendarDaySpan(job.install_days)
         const startIdx = diffDaysISO(windowStart, job.scheduled_date)
         const endIdxExclusive = startIdx + installDays
         const visStart = Math.max(startIdx, 0)
@@ -520,7 +530,7 @@ export default function InstallScheduleClient() {
   /* ---- assignment: the same click/drop path handles a brand-new placement
    *      and moving an already-scheduled chip, since both are just
    *      "put this job on this sub's day". ---- */
-  async function performAssign(jobId: string, subId: string, scheduledDate: string, installDays: 1 | 2) {
+  async function performAssign(jobId: string, subId: string, scheduledDate: string, installDays: InstallDays) {
     if (assigning) return
     setAssigning(true)
     setPlacingJobId(null)
@@ -535,14 +545,17 @@ export default function InstallScheduleClient() {
       setScheduled((cur) => {
         const optimisticJob: ScheduledJob = {
           id: jobId,
+          job_id: base.job_id,
           job_number: base.job_number,
+          trade: base.trade,
           customer_name: base.customer_name,
           address_text: base.address_text,
           scheduled_date: scheduledDate,
+          scheduled_time_start: fromScheduled?.scheduled_time_start ?? null,
           install_days: installDays,
           assigned_sub_id: subId,
           status: 'scheduled',
-          job_type: base.job_type,
+          job_status: base.job_status,
           total_squares: base.total_squares,
         }
         return [...cur.filter((j) => j.id !== jobId), optimisticJob]
@@ -554,7 +567,7 @@ export default function InstallScheduleClient() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
-        body: JSON.stringify({ jobId, subId, scheduledDate, installDays }),
+        body: JSON.stringify({ workOrderId: jobId, subId, scheduledDate, installDays }),
       })
       const body = await res.json().catch(() => null)
       if (!res.ok) {
@@ -602,7 +615,7 @@ export default function InstallScheduleClient() {
    *  all — no fetch yet, fetch failed, sub not in the response) this
    *  proceeds exactly as before, keeping the normal case a 2-click flow.
    *  Only an actual busy hit pauses for a confirm. */
-  function attemptAssign(jobId: string, subId: string, dateIso: string, installDays: 1 | 2) {
+  function attemptAssign(jobId: string, subId: string, dateIso: string, installDays: InstallDays) {
     if (assigning) return
     const busyDates = busyDatesInRange(availability?.subs.get(subId), dateIso, installDays)
     if (busyDates.length === 0) {
@@ -627,7 +640,7 @@ export default function InstallScheduleClient() {
     try {
       const payload = JSON.parse(raw) as DragPayload
       if (!payload?.jobId) return
-      attemptAssign(payload.jobId, subId, dateIso, payload.installDays === 2 ? 2 : 1)
+      attemptAssign(payload.jobId, subId, dateIso, (INSTALL_DAY_OPTIONS as readonly number[]).includes(Number(payload.installDays)) ? (Number(payload.installDays) as InstallDays) : 1)
     } catch {
       // malformed drag payload — ignore
     }
@@ -641,13 +654,13 @@ export default function InstallScheduleClient() {
 
   function handleDragStartScheduled(e: React.DragEvent, job: ScheduledJob) {
     e.dataTransfer.effectAllowed = 'move'
-    const payload: DragPayload = { jobId: job.id, installDays: job.install_days === 2 ? 2 : 1 }
+    const payload: DragPayload = { jobId: job.id, installDays: job.install_days }
     e.dataTransfer.setData('application/json', JSON.stringify(payload))
   }
 
   async function unassignJob(job: ScheduledJob, subName: string) {
     const ok = window.confirm(
-      `Remove ${job.job_number}${job.customer_name ? ` — ${job.customer_name}` : ''} from ${subName}'s schedule?\n\nThis un-schedules the job and emails ${subName} that the install date was removed.`
+      `Remove ${TRADE_LABELS[job.trade]} for ${job.job_number}${job.customer_name ? ` — ${job.customer_name}` : ''} from ${subName}'s schedule?\n\nThis un-schedules that crew and emails ${subName} that the date was removed.`
     )
     if (!ok) return
 
@@ -655,11 +668,12 @@ export default function InstallScheduleClient() {
     setUnscheduled((cur) => [
       {
         id: job.id,
+        job_id: job.job_id,
         job_number: job.job_number,
+        trade: job.trade,
         customer_name: job.customer_name,
         address_text: job.address_text,
-        status: 'sold',
-        job_type: job.job_type,
+        job_status: job.job_status,
         total_squares: job.total_squares,
         sold_at: null,
       },
@@ -671,7 +685,7 @@ export default function InstallScheduleClient() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
-        body: JSON.stringify({ jobId: job.id }),
+        body: JSON.stringify({ workOrderId: job.id }),
       })
       const body = await res.json().catch(() => null)
       if (!res.ok) {
@@ -694,7 +708,7 @@ export default function InstallScheduleClient() {
           <div>
             <h1 className="text-2xl font-bold text-[#2c2c2a]">Install Schedule</h1>
             <p className="text-sm text-[#57574f]">
-              View a sub&apos;s calendar and put a job on it — same screen, at most 2 clicks.
+              Each crew on a job — roofing, gutters, siding — is its own card. Put it on a sub&apos;s day.
             </p>
             {availability?.source === 'no_token' && (
               <p className="mt-1 text-xs text-[#57574f]">
@@ -713,26 +727,23 @@ export default function InstallScheduleClient() {
         {placingJob && (
           <div className="sticky top-2 z-30 mb-4 flex flex-col gap-2 rounded-lg border border-indigo-300 bg-indigo-50 px-4 py-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
             <div className="text-sm text-[#2c2c2a]">
-              <span className="font-semibold">Placing:</span> {placingJob.job_number}
+              <span className="font-semibold">Placing:</span> {TRADE_LABELS[placingJob.trade]} · {placingJob.job_number}
               {placingJob.customer_name ? ` · ${placingJob.customer_name}` : ''} — click (or tap) a day on a
               sub&apos;s row to schedule it.
             </div>
             <div className="flex items-center gap-3">
-              <div className="flex overflow-hidden rounded-md border border-indigo-300" role="group" aria-label="Install length">
-                <button
-                  type="button"
-                  onClick={() => setPlacingInstallDays(1)}
-                  className={`flex min-h-[44px] items-center justify-center px-3 text-xs font-medium ${placingInstallDays === 1 ? 'bg-indigo-600 text-white' : 'bg-white text-[#2c2c2a]'}`}
-                >
-                  1 day
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPlacingInstallDays(2)}
-                  className={`flex min-h-[44px] items-center justify-center px-3 text-xs font-medium ${placingInstallDays === 2 ? 'bg-indigo-600 text-white' : 'bg-white text-[#2c2c2a]'}`}
-                >
-                  2 days
-                </button>
+              <div className="flex overflow-hidden rounded-md border border-indigo-300" role="group" aria-label="Crew time on site">
+                {INSTALL_DAY_OPTIONS.map((d) => (
+                  <button
+                    key={d}
+                    type="button"
+                    aria-pressed={placingInstallDays === d}
+                    onClick={() => setPlacingInstallDays(d)}
+                    className={`flex min-h-[44px] items-center justify-center px-2.5 text-xs font-medium ${placingInstallDays === d ? 'bg-indigo-600 text-white' : 'bg-white text-[#2c2c2a]'}`}
+                  >
+                    {formatInstallDays(d)}
+                  </button>
+                ))}
               </div>
               <button
                 type="button"
@@ -800,7 +811,7 @@ export default function InstallScheduleClient() {
               </div>
               {sortedUnscheduled.length === 0 ? (
                 <p className="py-4 text-center text-xs text-amber-800">
-                  Nothing waiting — everything sold is on the board.
+                  Nothing waiting — every crew is on the board.
                 </p>
               ) : (
                 <div className="max-h-[70vh] space-y-2 overflow-y-auto pr-0.5">
@@ -829,7 +840,9 @@ export default function InstallScheduleClient() {
                         }`}
                       >
                         <div className="flex items-center justify-between gap-2">
-                          <span className="truncate text-sm font-semibold text-[#2c2c2a]">{job.job_number}</span>
+                          <span className="truncate text-sm font-semibold text-[#2c2c2a]">
+                            {job.job_number}
+                          </span>
                           {daysSinceSold !== null && daysSinceSold >= 3 && (
                             <span className="shrink-0 rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-700">
                               {daysSinceSold}d
@@ -838,7 +851,9 @@ export default function InstallScheduleClient() {
                         </div>
                         <div className="truncate text-xs text-[#57574f]">{job.customer_name || job.address_text}</div>
                         <div className="mt-1 flex items-center gap-2 text-[10px] text-[#57574f]">
-                          <span className="rounded bg-[#f2f1ee] px-1.5 py-0.5">{formatJobType(job.job_type)}</span>
+                          <span className="rounded bg-[#e8e6df] px-1.5 py-0.5 font-semibold text-[#2c2c2a]">
+                            {TRADE_LABELS[job.trade]}
+                          </span>
                           {job.total_squares ? <span>{job.total_squares} sq</span> : null}
                         </div>
                         {selected && (
@@ -1010,10 +1025,11 @@ export default function InstallScheduleClient() {
                                         : rsvp === 'needsAction'
                                           ? "Sub hasn't responded to the invite yet"
                                           : null
+                                const done = job.status === 'completed'
                                 return (
                                   <div
                                     key={job.id}
-                                    draggable
+                                    draggable={!done}
                                     onDragStart={(e) => handleDragStartScheduled(e, job)}
                                     onDragEnd={() => setDragOverCell(null)}
                                     className="group pointer-events-auto absolute overflow-hidden rounded-md border px-1.5 py-1 text-[11px] shadow-sm"
@@ -1022,8 +1038,8 @@ export default function InstallScheduleClient() {
                                       width: `calc(${(visSpan / windowDays.length) * 100}% - 4px)`,
                                       top: 24 + lane * LANE_HEIGHT,
                                       height: LANE_HEIGHT - 4,
-                                      backgroundColor: `${colorForSubId(sub.id)}1f`,
-                                      borderColor: colorForSubId(sub.id),
+                                      backgroundColor: done ? '#eef6f0' : `${colorForSubId(sub.id)}1f`,
+                                      borderColor: done ? '#6b9a78' : colorForSubId(sub.id),
                                     }}
                                   >
                                     <div className="flex h-full items-center gap-1">
@@ -1035,9 +1051,9 @@ export default function InstallScheduleClient() {
                                           line — a single extra character, well inside the ~112px of
                                           room a 7-char job number leaves. */}
                                       <Link
-                                        href={`/ops/jobs/${job.id}`}
+                                        href={`/ops/jobs/${job.job_id}#job-trades`}
                                         className="flex min-w-0 flex-1 flex-col justify-center leading-tight text-[#2c2c2a] hover:underline"
-                                        title={`${job.job_number} — ${job.customer_name || job.address_text}${job.total_squares ? ` · ${job.total_squares} sq` : ''}${rsvpText ? ` · ${rsvpText}` : ''}`}
+                                        title={`${TRADE_LABELS[job.trade]} · ${formatInstallDays(job.install_days)} — ${job.job_number} — ${job.customer_name || job.address_text}${job.total_squares ? ` · ${job.total_squares} sq` : ''}${done ? ' · Done' : ''}${rsvpText ? ` · ${rsvpText}` : ''}`}
                                       >
                                         <span className="flex min-w-0 items-baseline gap-0.5 font-semibold">
                                           {/* `truncate` needs `min-w-0` on every flex ancestor down to
@@ -1045,6 +1061,14 @@ export default function InstallScheduleClient() {
                                               it lives on this inner span, not the flex row, so the
                                               shrink-0 glyph next to it is never at risk of being clipped. */}
                                           <span className="min-w-0 truncate">{job.job_number}</span>
+                                          {job.install_days === 0.5 && (
+                                            <span className="shrink-0 font-normal text-[#57574f]">½</span>
+                                          )}
+                                          {done && (
+                                            <span aria-hidden="true" className="shrink-0 text-green-800">
+                                              ✓
+                                            </span>
+                                          )}
                                           {rsvpGlyph && (
                                             <span
                                               aria-hidden="true"
@@ -1054,12 +1078,13 @@ export default function InstallScheduleClient() {
                                             </span>
                                           )}
                                         </span>
-                                        {shortCustomerName(job.customer_name) && (
-                                          <span className="truncate text-[10px] text-[#57574f]">
-                                            {shortCustomerName(job.customer_name)}
-                                          </span>
-                                        )}
+                                        {/* Trade first: one sub can hold a job's roofing AND its gutters. */}
+                                        <span className="truncate text-[10px] text-[#2c2c2a]">
+                                          <span className="font-semibold">{TRADE_LABELS[job.trade]}</span>
+                                          {shortCustomerName(job.customer_name) ? ` · ${shortCustomerName(job.customer_name)}` : ''}
+                                        </span>
                                       </Link>
+                                      {!done && (
                                       <button
                                         type="button"
                                         onClick={(e) => {
@@ -1076,11 +1101,12 @@ export default function InstallScheduleClient() {
                                            (hover:none), where a landscape tablet renders the lg grid
                                            but has no hover to reveal it with. */
                                         className="absolute right-0 top-1/2 flex min-h-[32px] min-w-[32px] -translate-y-1/2 items-center justify-center rounded-full bg-white/85 text-[#57574f] opacity-0 shadow-sm transition-opacity hover:bg-white hover:text-red-600 focus:opacity-100 focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
-                                        aria-label={`Remove ${job.job_number} from schedule`}
+                                        aria-label={`Remove ${TRADE_LABELS[job.trade]} ${job.job_number} from schedule`}
                                         title="Remove from schedule"
                                       >
                                         ×
                                       </button>
+                                      )}
                                     </div>
                                   </div>
                                 )
@@ -1157,7 +1183,7 @@ export default function InstallScheduleClient() {
                                   {dayJobs.length === 0 ? (
                                     placingJob && (
                                       <span className="text-xs text-indigo-600">
-                                        Tap to place {placingJob.job_number} here
+                                        Tap to place {TRADE_LABELS[placingJob.trade]} · {placingJob.job_number} here
                                       </span>
                                     )
                                   ) : (
@@ -1185,13 +1211,16 @@ export default function InstallScheduleClient() {
                                             }}
                                           >
                                             <Link
-                                              href={`/ops/jobs/${job.id}`}
+                                              href={`/ops/jobs/${job.job_id}#job-trades`}
                                               className="text-[#2c2c2a] hover:underline"
                                               onClick={(e) => e.stopPropagation()}
                                               title={rsvpText ?? undefined}
                                             >
-                                              {job.job_number}
+                                              <span className="font-semibold">{TRADE_LABELS[job.trade]}</span>
+                                              {` · ${job.job_number}`}
                                               {job.customer_name ? ` · ${job.customer_name}` : ''}
+                                              {job.install_days !== 1 ? ` · ${formatInstallDays(job.install_days)}` : ''}
+                                              {job.status === 'completed' ? ' ✓' : ''}
                                               {rsvpGlyph && (
                                                 <span
                                                   aria-hidden="true"
@@ -1201,17 +1230,19 @@ export default function InstallScheduleClient() {
                                                 </span>
                                               )}
                                             </Link>
-                                            <button
-                                              type="button"
-                                              onClick={(e) => {
-                                                e.stopPropagation()
-                                                unassignJob(job, sub.company_name)
-                                              }}
-                                              className="flex min-h-[36px] min-w-[36px] shrink-0 items-center justify-center text-[#57574f] hover:text-red-600"
-                                              aria-label={`Remove ${job.job_number}`}
-                                            >
-                                              ×
-                                            </button>
+                                            {job.status !== 'completed' && (
+                                              <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                  e.stopPropagation()
+                                                  unassignJob(job, sub.company_name)
+                                                }}
+                                                className="flex min-h-[36px] min-w-[36px] shrink-0 items-center justify-center text-[#57574f] hover:text-red-600"
+                                                aria-label={`Remove ${TRADE_LABELS[job.trade]} ${job.job_number}`}
+                                              >
+                                                ×
+                                              </button>
+                                            )}
                                           </span>
                                         )
                                       })}

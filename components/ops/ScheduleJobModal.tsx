@@ -2,23 +2,16 @@
 
 import { useState } from 'react'
 
-interface Job {
-  id: string
-  job_number: string
-  address_text: string
-  job_type: string
-  scheduled_date: string | null
-  assigned_crew_id?: string | null
-  assigned_sub_id?: string | null
-  customer?: { name: string } | null
-}
+import { INSTALL_DAY_OPTIONS, TRADE_LABELS, formatInstallDays, type InstallDays, type Trade } from '@/lib/job-trades'
 
-interface Crew {
+/** One trade (crew) of a job, as the modal needs it. */
+export interface ScheduleTrade {
   id: string
-  name: string
-  crew_type: string
-  color: string
-  daily_capacity: number
+  trade: Trade
+  scheduled_date: string | null
+  scheduled_time_start: string | null
+  install_days: number | null
+  assigned_sub_id: string | null
 }
 
 interface SubContractor {
@@ -28,123 +21,99 @@ interface SubContractor {
 }
 
 interface Props {
-  job: Job
-  /**
-   * Retained for backward compatibility with existing callers that still fetch/pass crew
-   * lists (`/admin/crews` is not being removed — see CLAUDE.md). ARX is a subcontractor-only
-   * shop (no in-house crews), so this modal no longer offers a crew assignment path; the prop
-   * is accepted but unused.
-   */
-  crews?: Crew[]
+  trade: ScheduleTrade
+  jobLabel: string
   subs: SubContractor[]
   onClose: () => void
   onSave: () => void
-  /** `reassign` only updates the sub; does not change schedule date or force status. */
-  mode?: 'schedule' | 'reassign'
 }
 
-/** Match admin-entered service labels (e.g. "Gutter", "Gutters") to job_type slugs (e.g. gutters). */
+/** Match admin-entered service labels (e.g. "Gutter", "Gutters") to a trade/job type slug (e.g. gutters). */
 export function subServicesMatchJobType(services: string[] | null | undefined, jobType: string): boolean {
   if (!services || services.length === 0) return true
   const j = jobType.toLowerCase().trim()
-  if (!j || j === 'mixed') return true
+  if (!j || j === 'mixed' || j === 'other') return true
 
   const variants: string[] = [j]
   const jAlt = j.endsWith('s') && j.length > 2 ? j.slice(0, -1) : `${j}s`
   if (!variants.includes(jAlt)) variants.push(jAlt)
 
-  const cap = jobType.charAt(0).toUpperCase() + jobType.slice(1).toLowerCase()
-  const capVariants: string[] = [cap]
-  const capAlt = cap.endsWith('s') && cap.length > 2 ? cap.slice(0, -1) : `${cap}s`
-  if (!capVariants.includes(capAlt)) capVariants.push(capAlt)
-
   return services.some((raw) => {
-    const s = raw.trim()
-    if (!s) return false
-    const low = s.toLowerCase()
-    for (let i = 0; i < variants.length; i++) {
-      const v = variants[i]
-      if (v && low.includes(v)) return true
-    }
-    for (let i = 0; i < capVariants.length; i++) {
-      const c = capVariants[i]
-      if (c && s.includes(c)) return true
-    }
-    return false
+    const low = raw.trim().toLowerCase()
+    return Boolean(low) && variants.some((v) => v && low.includes(v))
   })
 }
 
-export default function ScheduleJobModal({ job, subs, onClose, onSave, mode = 'schedule' }: Props) {
-  const isReassignOnly = mode === 'reassign'
-  const [selectedSubId, setSelectedSubId] = useState(job.assigned_sub_id || '')
-  const [scheduledDate, setScheduledDate] = useState(job.scheduled_date?.split('T')[0] || '')
-  const [scheduledTimeStart, setScheduledTimeStart] = useState('08:00')
-  const [estimatedHours, setEstimatedHours] = useState('8')
-  const [saving, setSaving] = useState(false)
+const HALF_DAY_STARTS: { value: string; label: string }[] = [
+  { value: '07:00', label: '7:00 AM' },
+  { value: '08:00', label: '8:00 AM' },
+  { value: '09:00', label: '9:00 AM' },
+  { value: '10:00', label: '10:00 AM' },
+  { value: '12:00', label: '12:00 PM' },
+  { value: '13:00', label: '1:00 PM' },
+]
 
-  const relevantSubs = subs.filter((sub) => subServicesMatchJobType(sub.services, job.job_type))
+/** Browser-local today as YYYY-MM-DD (input `min` only). */
+function todayIsoLocal(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+/**
+ * Schedule (or reschedule / reassign) ONE trade: date, crew time on site
+ * (½, 1, 1½, 2 days — ops-selected), a start time for a ½ day, and the sub.
+ * Goes through the single install write path, which syncs that trade's invite.
+ */
+export default function ScheduleJobModal({ trade, jobLabel, subs, onClose, onSave }: Props) {
+  const [selectedSubId, setSelectedSubId] = useState(trade.assigned_sub_id || '')
+  const [scheduledDate, setScheduledDate] = useState(trade.scheduled_date || '')
+  const [installDays, setInstallDays] = useState<InstallDays>(
+    (INSTALL_DAY_OPTIONS as readonly number[]).includes(Number(trade.install_days))
+      ? (Number(trade.install_days) as InstallDays)
+      : 1
+  )
+  const [halfDayStart, setHalfDayStart] = useState((trade.scheduled_time_start || '08:00').slice(0, 5))
+  const [showAllSubs, setShowAllSubs] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const matchingSubs = subs.filter((sub) => subServicesMatchJobType(sub.services, trade.trade))
+  const visibleSubs = showAllSubs ? subs : matchingSubs
+  const hiddenCount = subs.length - matchingSubs.length
 
   const handleSave = async () => {
-    if (!isReassignOnly && !scheduledDate) {
-      alert('Please select a date')
-      return
-    }
-
-    if (!selectedSubId) {
-      alert('Please select a sub-contractor')
-      return
-    }
-
+    if (!scheduledDate) return setError('Pick a date')
+    if (!selectedSubId) return setError('Pick a sub-contractor')
+    setError(null)
     setSaving(true)
-
     try {
-      // The install-schedule assign route is the single write path for scheduling —
-      // it clears the legacy crew assignment, guards the status transition, and syncs
-      // the sub's Google invite. The generic job PATCH touches the same columns but
-      // does none of that, so scheduling must never go through it (see CLAUDE.md).
-      const payload: Record<string, unknown> = {
-        jobId: job.id,
-        subId: selectedSubId,
-      }
-      if (!isReassignOnly) {
-        payload.scheduledDate = scheduledDate
-        payload.scheduledTimeStart = scheduledTimeStart
-        payload.estimatedDurationHours = parseFloat(estimatedHours) || 8
-      }
-
       const response = await fetch('/api/ops/install-schedule/assign', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          workOrderId: trade.id,
+          subId: selectedSubId,
+          scheduledDate,
+          installDays,
+          ...(installDays === 0.5 ? { scheduledTimeStart: halfDayStart } : {}),
+        }),
       })
-
-      if (!response.ok) {
-        const error = await response.json().catch(() => ({}))
-        throw new Error(error.error || 'Failed to schedule job')
-      }
-
-      // Say what actually happened. The job is scheduled either way — the calendar
-      // invite is best-effort, and claiming one was sent when it wasn't is worse
-      // than saying nothing.
       const result = await response.json().catch(() => null)
-      if (result?.calendar === 'synced' && !result?.subNotified) {
-        // Synced, but the sub is not an attendee — they have no scheduling
-        // email on file, so Google emailed nobody.
-        alert(
-          'Job scheduled, but the sub was not notified — add a scheduling email to their record to send install invites.'
-        )
-      } else if (result?.calendar === 'no_token') {
-        alert(
-          'Job scheduled. No calendar invite was sent — connect your Google account in Settings to email the sub automatically.'
-        )
-      } else if (result?.calendar === 'failed') {
-        alert('Job scheduled, but the Google Calendar invite failed to send. Notify the sub directly.')
-      }
+      if (!response.ok) throw new Error(result?.error || 'Failed to schedule')
 
+      // Say what actually happened. The trade is scheduled either way — the
+      // calendar invite is best-effort, and claiming one was sent when it wasn't
+      // is worse than saying nothing.
+      if (result?.calendar === 'synced' && !result?.subNotified) {
+        alert('Scheduled, but the sub was not notified — add a scheduling email to their record to send invites.')
+      } else if (result?.calendar === 'no_token') {
+        alert('Scheduled. No calendar invite was sent — no Google account is connected for install scheduling.')
+      } else if (result?.calendar === 'failed') {
+        alert('Scheduled, but the Google Calendar invite failed to send. Notify the sub directly.')
+      }
       onSave()
-    } catch (error) {
-      console.error('Error scheduling job:', error)
-      alert(error instanceof Error ? error.message : 'Failed to schedule job')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to schedule')
     } finally {
       setSaving(false)
     }
@@ -152,168 +121,144 @@ export default function ScheduleJobModal({ job, subs, onClose, onSave, mode = 's
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full">
-        {/* Header */}
-        <div className="p-6 border-b">
-          <h2 className="text-xl font-bold text-gray-900">
-            {isReassignOnly ? 'Reassign sub-contractor' : 'Schedule Job'}
+      <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full max-h-[90vh] flex flex-col">
+        <div className="p-5 sm:p-6 border-b">
+          <h2 className="text-xl font-bold text-[#2c2c2a]">
+            {trade.scheduled_date ? 'Change' : 'Schedule'} {TRADE_LABELS[trade.trade]}
           </h2>
-          <p className="text-gray-500 text-sm mt-1">
-            {job.job_number} • {job.customer?.name || job.address_text}
-          </p>
+          <p className="text-[#57574f] text-sm mt-1">{jobLabel}</p>
         </div>
 
-        {/* Content */}
-        <div className="p-6 space-y-6">
-          {isReassignOnly && job.scheduled_date && (
-            <div className="rounded-lg bg-gray-50 border border-gray-200 px-3 py-2 text-sm text-gray-700">
-              <span className="font-medium text-gray-900">Current install date: </span>
-              {new Date(job.scheduled_date + 'T12:00:00').toLocaleDateString('en-US', {
-                weekday: 'short',
-                month: 'short',
-                day: 'numeric',
-                timeZone: 'America/New_York',
-              })}
-              <span className="text-gray-500"> (unchanged)</span>
-            </div>
-          )}
-
-          {/* Date Selection */}
-          {!isReassignOnly && (
+        <div className="p-5 sm:p-6 space-y-5 overflow-y-auto">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Install Date *
+            <label htmlFor="trade-date" className="block text-sm font-medium text-[#2c2c2a] mb-2">
+              Start date *
             </label>
             <input
+              id="trade-date"
               type="date"
               value={scheduledDate}
               onChange={(e) => setScheduledDate(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-              min={new Date().toISOString().split('T')[0]}
+              className="w-full min-h-[44px] px-4 py-2 border border-gray-300 rounded-lg text-[#2c2c2a]"
+              min={trade.scheduled_date && trade.scheduled_date < todayIsoLocal() ? undefined : todayIsoLocal()}
             />
           </div>
-          )}
 
-          {/* Time & Duration */}
-          {!isReassignOnly && (
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Start Time
-              </label>
-              <select
-                value={scheduledTimeStart}
-                onChange={(e) => setScheduledTimeStart(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-              >
-                <option value="06:00">6:00 AM</option>
-                <option value="06:30">6:30 AM</option>
-                <option value="07:00">7:00 AM</option>
-                <option value="07:30">7:30 AM</option>
-                <option value="08:00">8:00 AM</option>
-                <option value="08:30">8:30 AM</option>
-                <option value="09:00">9:00 AM</option>
-                <option value="10:00">10:00 AM</option>
-                <option value="11:00">11:00 AM</option>
-                <option value="12:00">12:00 PM</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Est. Duration
-              </label>
-              <select
-                value={estimatedHours}
-                onChange={(e) => setEstimatedHours(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-              >
-                <option value="2">2 hours</option>
-                <option value="4">4 hours (Half Day)</option>
-                <option value="6">6 hours</option>
-                <option value="8">8 hours (Full Day)</option>
-                <option value="12">12 hours</option>
-                <option value="16">2 Days</option>
-                <option value="24">3 Days</option>
-              </select>
-            </div>
-          </div>
-          )}
-
-          {/* Assignment */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-3">
-              Assign To Sub-Contractor *
-            </label>
-
-            {/* Sub Selection */}
-            <div className="space-y-2">
-                {relevantSubs.length === 0 ? (
-                  <div className="text-center py-6 bg-gray-50 rounded-lg">
-                    <p className="text-gray-500 text-sm">No sub-contractors match this job type.</p>
-                    <p className="text-gray-400 text-xs mt-1 px-2">
-                      On Admin → Sub-Contractors, tag the company with a matching service (e.g. Gutters), or leave
-                      services empty to allow all job types. Opening this dialog refreshes the list.
-                    </p>
-                    <a href="/admin/subs" className="text-indigo-600 text-sm hover:underline">
-                      Add a sub-contractor →
-                    </a>
-                  </div>
-                ) : (
-                  relevantSubs.map(sub => (
-                    <label
-                      key={sub.id}
-                      className={`flex items-center gap-3 p-3 border rounded-lg cursor-pointer transition ${
-                        selectedSubId === sub.id 
-                          ? 'border-orange-500 bg-orange-50' 
-                          : 'border-gray-200 hover:border-gray-300'
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="sub"
-                        checked={selectedSubId === sub.id}
-                        onChange={() => setSelectedSubId(sub.id)}
-                        className="sr-only"
-                      />
-                      <div className="w-8 h-8 bg-orange-100 rounded-full flex items-center justify-center flex-shrink-0">
-                        <span className="text-orange-600 text-sm font-medium">
-                          {sub.company_name.charAt(0)}
-                        </span>
-                      </div>
-                      <div className="flex-1">
-                        <div className="font-medium text-gray-900">{sub.company_name}</div>
-                        {sub.services && sub.services.length > 0 && (
-                          <div className="text-xs text-gray-500">
-                            {sub.services.slice(0, 3).join(', ')}
-                          </div>
-                        )}
-                      </div>
-                      {selectedSubId === sub.id && (
-                        <svg className="w-5 h-5 text-orange-600" fill="currentColor" viewBox="0 0 20 20">
-                          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                        </svg>
-                      )}
-                    </label>
-                  ))
-                )}
+            <span className="block text-sm font-medium text-[#2c2c2a] mb-2">Crew time on site *</span>
+            <div className="grid grid-cols-4 gap-2" role="radiogroup" aria-label="Crew time on site">
+              {INSTALL_DAY_OPTIONS.map((d) => (
+                <button
+                  key={d}
+                  type="button"
+                  role="radio"
+                  aria-checked={installDays === d}
+                  onClick={() => setInstallDays(d)}
+                  className={`min-h-[44px] rounded-lg border text-sm font-medium ${
+                    installDays === d
+                      ? 'border-indigo-600 bg-indigo-600 text-white'
+                      : 'border-gray-300 bg-white text-[#2c2c2a] hover:bg-gray-50'
+                  }`}
+                >
+                  {formatInstallDays(d)}
+                </button>
+              ))}
             </div>
+            {installDays === 1.5 && (
+              <p className="mt-2 text-xs text-[#57574f]">Blocks both days on the crew&apos;s calendar.</p>
+            )}
           </div>
+
+          {installDays === 0.5 && (
+            <div>
+              <label htmlFor="trade-start" className="block text-sm font-medium text-[#2c2c2a] mb-2">
+                Start time
+              </label>
+              <select
+                id="trade-start"
+                value={halfDayStart}
+                onChange={(e) => setHalfDayStart(e.target.value)}
+                className="w-full min-h-[44px] px-4 py-2 border border-gray-300 rounded-lg text-[#2c2c2a]"
+              >
+                {HALF_DAY_STARTS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-2 text-xs text-[#57574f]">Sent as a 4-hour block.</p>
+            </div>
+          )}
+
+          <div>
+            <span className="block text-sm font-medium text-[#2c2c2a] mb-2">Sub-contractor *</span>
+            <div className="space-y-2">
+              {visibleSubs.length === 0 ? (
+                <div className="text-center py-5 bg-gray-50 rounded-lg">
+                  <p className="text-[#2c2c2a] text-sm">No sub-contractors are tagged for {TRADE_LABELS[trade.trade]}.</p>
+                  <a href="/admin/subs" className="text-indigo-700 text-sm hover:underline">
+                    Manage sub-contractors →
+                  </a>
+                </div>
+              ) : (
+                visibleSubs.map((sub) => (
+                  <label
+                    key={sub.id}
+                    className={`flex min-h-[48px] items-center gap-3 p-3 border rounded-lg cursor-pointer transition ${
+                      selectedSubId === sub.id ? 'border-orange-500 bg-orange-50' : 'border-gray-200 hover:border-gray-300'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="sub"
+                      checked={selectedSubId === sub.id}
+                      onChange={() => setSelectedSubId(sub.id)}
+                      className="sr-only"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium text-[#2c2c2a] truncate">{sub.company_name}</div>
+                      {sub.services && sub.services.length > 0 && (
+                        <div className="text-xs text-[#57574f] truncate">{sub.services.join(', ')}</div>
+                      )}
+                    </div>
+                    {selectedSubId === sub.id && <span className="text-orange-700 font-bold" aria-hidden>✓</span>}
+                  </label>
+                ))
+              )}
+            </div>
+            {hiddenCount > 0 && (
+              <button
+                type="button"
+                onClick={() => setShowAllSubs((v) => !v)}
+                className="mt-2 min-h-[44px] text-sm text-indigo-700 hover:underline"
+              >
+                {showAllSubs ? `Only ${TRADE_LABELS[trade.trade]} subs` : `Show all subs (${hiddenCount} more)`}
+              </button>
+            )}
+          </div>
+
+          {error && (
+            <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800" role="alert">
+              {error}
+            </p>
+          )}
         </div>
 
-        {/* Footer */}
-        <div className="p-6 border-t flex justify-end gap-3">
+        <div className="p-5 sm:p-6 border-t flex justify-end gap-3">
           <button
+            type="button"
             onClick={onClose}
-            className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-700"
+            className="min-h-[44px] px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-[#2c2c2a]"
           >
             Cancel
           </button>
           <button
+            type="button"
             onClick={handleSave}
             disabled={saving}
-            className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+            className="min-h-[44px] px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
           >
-            {saving ? 'Saving...' : isReassignOnly ? 'Save assignment' : 'Schedule Job'}
+            {saving ? 'Saving…' : 'Save'}
           </button>
         </div>
       </div>

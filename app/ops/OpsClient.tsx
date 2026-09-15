@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
 import { createClientBrowser } from '@/lib/supabase/client'
-import ScheduleJobModal from '@/components/ops/ScheduleJobModal'
 import { handoffPreviewForJobBoard } from '@/lib/project-review'
 import OperationsSnapshotCard, {
   hasOperationsSnapshotData,
@@ -19,24 +18,8 @@ import type { JobStatus, OpsBoardJob } from '@/lib/ops-board-types'
 
 type BoardColumnStatus = Exclude<JobStatus, 'collected'>
 
-interface Crew {
-  id: string
-  name: string
-  crew_type: string
-  color: string
-  daily_capacity: number
-}
-
-interface SubContractor {
-  id: string
-  company_name: string
-  services: string[]
-}
-
 interface OpsClientProps {
   initialJobs: OpsBoardJob[]
-  initialCrews: Crew[]
-  initialSubs: SubContractor[]
   orgId: string
   canViewProfitability: boolean
 }
@@ -115,19 +98,9 @@ function formatJobTypeLabel(jobType: string): string {
     .join(' ')
 }
 
-export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgId, canViewProfitability }: OpsClientProps) {
+export default function OpsClient({ initialJobs, orgId, canViewProfitability }: OpsClientProps) {
   const router = useRouter()
   const [jobs, setJobs] = useState<OpsBoardJob[]>(initialJobs)
-  const [crews, setCrews] = useState<Crew[]>(initialCrews)
-  const [subs, setSubs] = useState<SubContractor[]>(initialSubs)
-
-  useEffect(() => {
-    setCrews(initialCrews)
-  }, [initialCrews])
-
-  useEffect(() => {
-    setSubs(initialSubs)
-  }, [initialSubs])
   const [viewMode, setViewMode] = useState<'board' | 'list'>('board')
 
   // Default to list view on mobile — board's 5 columns stack awkwardly on small screens
@@ -136,9 +109,6 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
       setViewMode('list')
     }
   }, [])
-  const [selectedJob, setSelectedJob] = useState<OpsBoardJob | null>(null)
-  const [showScheduleModal, setShowScheduleModal] = useState(false)
-  const [scheduleModalMode, setScheduleModalMode] = useState<'schedule' | 'reassign'>('schedule')
   const [snapshotJob, setSnapshotJob] = useState<OpsBoardJob | null>(null)
   const [filterType, setFilterType] = useState<string>('all')
   const [searchQuery, setSearchQuery] = useState('')
@@ -311,28 +281,13 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
       )
   }, [filteredActiveJobs, canViewProfitability])
 
-  const openScheduleModal = useCallback(async (job: OpsBoardJob, mode: 'schedule' | 'reassign' = 'schedule') => {
-    try {
-      const res = await fetch('/api/ops/scheduling-assignees')
-      if (res.ok) {
-        const data = await res.json()
-        if (Array.isArray(data.crews)) setCrews(data.crews)
-        if (Array.isArray(data.subs)) setSubs(data.subs)
-      }
-    } catch {
-      /* keep lists from last server render */
-    }
-    setScheduleModalMode(mode)
-    setSelectedJob(job)
-    setShowScheduleModal(true)
-  }, [])
-
-  const handleScheduleSave = useCallback(async () => {
-    setShowScheduleModal(false)
-    setSelectedJob(null)
-    setScheduleModalMode('schedule')
-    await loadData()
-  }, [loadData])
+  /** A job's crews (roofing, gutters, siding…) are each scheduled on the job page. */
+  const openJobCrews = useCallback(
+    (job: OpsBoardJob) => {
+      router.push(`/ops/jobs/${job.id}#job-trades`)
+    },
+    [router]
+  )
 
   const updateJobStatus = useCallback(async (jobId: string, newStatus: JobStatus) => {
     const updates: Record<string, unknown> = { status: newStatus }
@@ -539,7 +494,7 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
                           job={job}
                           onNavigateToJob={navigateToJob}
                           onOpenSnapshot={setSnapshotJob}
-                          onSchedule={openScheduleModal}
+                          onSchedule={openJobCrews}
                           onStartMaterials={onBoardStartMaterials}
                           onMarkOrdered={onBoardMarkOrdered}
                           onJobStatus={updateJobStatus}
@@ -615,20 +570,11 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
                     {/* Actions */}
                     <div className="flex flex-wrap gap-2 pt-3 border-t">
                       <button
-                        onClick={() => openScheduleModal(job, 'schedule')}
+                        onClick={() => openJobCrews(job)}
                         className="flex-1 min-w-[120px] min-h-[44px] text-sm py-2 px-3 bg-indigo-50 text-indigo-700 rounded-lg font-medium border border-indigo-200 hover:bg-indigo-100"
                       >
-                        {job.scheduled_date ? 'Reschedule' : 'Schedule'}
+                        {job.scheduled_date ? 'Crews' : 'Schedule'}
                       </button>
-                      {(job.scheduled_date || job.assigned_crew || job.assigned_sub) && (
-                        <button
-                          type="button"
-                          onClick={() => openScheduleModal(job, 'reassign')}
-                          className="flex-1 min-w-[120px] min-h-[44px] text-sm py-2 px-3 bg-white text-gray-800 rounded-lg font-medium border border-gray-300 hover:bg-gray-50"
-                        >
-                          Reassign
-                        </button>
-                      )}
                       <Link
                         href={`/ops/jobs/${job.id}`}
                         className="flex-1 min-w-[120px] min-h-[44px] flex items-center justify-center text-sm text-indigo-600 font-medium border border-indigo-200 rounded-lg hover:bg-indigo-50"
@@ -778,20 +724,11 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
                         <div className="flex justify-end flex-wrap gap-x-3 gap-y-1">
                           <button
                             type="button"
-                            onClick={() => openScheduleModal(job, 'schedule')}
+                            onClick={() => openJobCrews(job)}
                             className="text-xs text-indigo-600 hover:text-indigo-800"
                           >
-                            {job.scheduled_date ? 'Reschedule' : 'Schedule'}
+                            {job.scheduled_date ? 'Crews' : 'Schedule'}
                           </button>
-                          {(job.scheduled_date || job.assigned_crew || job.assigned_sub) && (
-                            <button
-                              type="button"
-                              onClick={() => openScheduleModal(job, 'reassign')}
-                              className="text-xs text-gray-700 hover:text-gray-900"
-                            >
-                              Reassign
-                            </button>
-                          )}
                           <Link
                             href={`/ops/jobs/${job.id}`}
                             className="text-xs text-gray-600 hover:text-gray-800"
@@ -1044,24 +981,6 @@ export default function OpsClient({ initialJobs, initialCrews, initialSubs, orgI
         </div>
       )}
 
-      {showScheduleModal && selectedJob && (
-        <ScheduleJobModal
-          mode={scheduleModalMode}
-          job={{
-            ...selectedJob,
-            assigned_crew_id: selectedJob.assigned_crew?.id ?? null,
-            assigned_sub_id: selectedJob.assigned_sub?.id ?? null,
-          }}
-          crews={crews}
-          subs={subs}
-          onClose={() => {
-            setShowScheduleModal(false)
-            setSelectedJob(null)
-            setScheduleModalMode('schedule')
-          }}
-          onSave={handleScheduleSave}
-        />
-      )}
     </div>
   )
 }

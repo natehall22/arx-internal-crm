@@ -270,7 +270,10 @@ export async function DELETE(request: NextRequest) {
       supabase
         .from('work_orders')
         .select('id')
-        .eq('sub_contractor_id', id)
+        // Was `sub_contractor_id`, a column that doesn't exist: the query errored,
+        // came back null, and the guard let a sub with work orders be deleted.
+        .eq('assigned_sub_id', id)
+        .eq('org_id', profile.org_id)
         .limit(1),
     ])
 

@@ -26,6 +26,9 @@ interface WorkOrder {
   completed_at: string | null
   completion_notes: string | null
   created_at: string
+  /** Set when this work order is one crew (trade) of a production job. */
+  trade?: string | null
+  job_id?: string | null
   projects?: { id: string; address_text: string } | null
   customers?: { id: string; name: string; phone: string } | null
   assigned_user?: { id: string; full_name: string; email: string } | null
@@ -195,6 +198,19 @@ export default function WorkOrderDetailClient({
                 </div>
               </div>
 
+              {workOrder.trade && workOrder.job_id ? (
+                /* A job's crew is scheduled, completed and removed on the job page, where
+                   its calendar invite, photo link and the job's own status stay in sync.
+                   Changing its status here would skip all three. */
+                <div className="pt-4 border-t">
+                  <Link
+                    href={`/ops/jobs/${workOrder.job_id}#job-trades`}
+                    className="inline-flex min-h-[44px] items-center rounded-lg bg-indigo-600 px-4 text-sm font-medium text-white hover:bg-indigo-700"
+                  >
+                    Manage this crew on the job →
+                  </Link>
+                </div>
+              ) : (
               <div className="flex flex-wrap gap-2 pt-4 border-t">
                 {workOrder.status === 'pending' && (
                   <button
@@ -242,6 +258,7 @@ export default function WorkOrderDetailClient({
                   </>
                 )}
               </div>
+              )}
             </div>
 
             {workOrder.description && (
