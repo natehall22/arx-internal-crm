@@ -291,7 +291,7 @@ function generateRepairPdf(contract: ContractData): Buffer {
   addWrapped(`Work: ${scope}`)
   addWrapped(`Price: ${formatCurrency(contract.project_cost)}`)
   if (contract.payment_method) {
-    addWrapped(`Payment: ${contract.payment_method}${contract.finance_company ? ` (${contract.finance_company})` : ''}`)
+    addWrapped(`Payment: ${contract.payment_method}${contract.payment_method === 'finance' && contract.finance_company ? ` (${contract.finance_company})` : ''}`)
   }
   if (contract.deposit_amount) {
     addWrapped(`Deposit: ${formatCurrency(contract.deposit_amount)}`)

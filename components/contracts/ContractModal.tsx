@@ -743,7 +743,7 @@ export default function ContractModal({
                       <div className="grid grid-cols-2 gap-2 text-sm">
                         <div><span className="text-gray-500">Project Cost:</span> ${previewNumber(formData.projectCost).toLocaleString()}</div>
                         <div><span className="text-gray-500">Deposit:</span> ${previewNumber(formData.depositAmount).toLocaleString()}</div>
-                        <div><span className="text-gray-500">Method:</span> {formData.paymentMethod}{formData.financeCompany && ` (${formData.financeCompany})`}</div>
+                        <div><span className="text-gray-500">Method:</span> {formData.paymentMethod}{formData.paymentMethod === 'finance' && formData.financeCompany && ` (${formData.financeCompany})`}</div>
                         {formData.estCompletionDate && (
                           <div><span className="text-gray-500">Est. Completion:</span> {formData.estCompletionDate}</div>
                         )}
