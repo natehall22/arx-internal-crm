@@ -2,7 +2,6 @@
  * Build the direct-mail list from ingested solar installs.
  *
  *   npx tsx --env-file=.env.local scripts/solar-permits/mail-list.ts
- *   npx tsx --env-file=.env.local scripts/solar-permits/mail-list.ts --tier A
  *   npx tsx --env-file=.env.local scripts/solar-permits/mail-list.ts --include-suppressed
  *
  * Writes data/mail-list.csv (gitignored). Read-only against the CRM.
@@ -11,11 +10,15 @@
  * per-piece statutory damages. Phone and SMS to this list would be TCPA exposure
  * at $500-$1,500 per contact. Do not repurpose this file for dialing.
  *
- * TIERS — urgency, not quality:
- *   A  installer confirmed gone AND system 10+ yrs   (no warranty + aging penetrations)
- *   B  installer confirmed gone, newer system
- *   C  system 10+ yrs, installer active or unknown   (roof pitch only)
- *   D  confirmed PV, newer, installer fine
+ * NO TIERS, BY DESIGN. Every home with solar is a candidate. A penetration that
+ * was never flashed properly leaks on a two-year-old roof — bad sealant, a lag
+ * bolt that missed the rafter, sloppy step flashing. That failure is the INSTALL,
+ * not the wear, so neither system age nor roof age gates the list.
+ *
+ * Age and installer data still ride along as columns: useful at the door
+ * ("your system is 11 years old and went on a roof that was already 12"), never
+ * as a filter. Sorted oldest-first only so a partial mail drop starts somewhere
+ * defensible — not because newer homes are excluded.
  *
  * `orphan_claim_safe` is the legal guardrail, carried per row. It is TRUE only
  * when a specific company's death is documented at HIGH confidence. Copy that
@@ -30,12 +33,8 @@ import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const args = process.argv.slice(2)
-const tierArg = args.indexOf('--tier') >= 0 ? args[args.indexOf('--tier') + 1] : null
 const INCLUDE_SUPPRESSED = args.includes('--include-suppressed')
 const OUT = join(__dirname, 'data', 'mail-list.csv')
-
-/** Systems at or past this age have penetrations old enough to be leaking. */
-const LEAK_WINDOW_YEARS = 10
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -57,6 +56,8 @@ type Row = {
   lng: number | null
   issued_on: string | null
   years_since_install: number | null
+  roof_age_at_install: number | null
+  roof_age_now: number | null
   current_owner_name: string | null
   installer_name_raw: string | null
   pv_class: string
@@ -109,21 +110,12 @@ async function pagedSelect<T>(table: string, columns: string): Promise<T[]> {
   return out
 }
 
-function tierOf(row: Row): 'A' | 'B' | 'C' | 'D' {
-  const orphaned = row.solar_installers?.service_orphaned === true
-  const aging = (row.years_since_install ?? 0) >= LEAK_WINDOW_YEARS
-  if (orphaned && aging) return 'A'
-  if (orphaned) return 'B'
-  if (aging) return 'C'
-  return 'D'
-}
-
 async function main() {
   console.log('=== Solar mail list ===')
 
   const rows = await pagedSelect<Row>(
     'solar_installs',
-    'id, property_key, county, address, pin, lat, lng, issued_on, years_since_install, current_owner_name, installer_name_raw, pv_class, is_commercial, solar_installers(display_name, status, status_confidence, service_orphaned)',
+    'id, property_key, county, address, pin, lat, lng, issued_on, years_since_install, roof_age_at_install, roof_age_now, current_owner_name, installer_name_raw, pv_class, is_commercial, solar_installers(display_name, status, status_confidence, service_orphaned)',
   )
   console.log(`solar_installs read: ${rows.length}`)
 
@@ -159,7 +151,6 @@ async function main() {
         orphaned && inst?.status_confidence === 'HIGH' && inst?.status === 'defunct'
       const key = addressKey(r.address)
       return {
-        tier: tierOf(r),
         suppressed: key ? suppress.has(key) : false,
         owner_name: r.current_owner_name ?? '',
         address: r.address ?? '',
@@ -167,6 +158,8 @@ async function main() {
         pin: r.pin ?? '',
         installed_on: r.issued_on ?? '',
         system_age_years: r.years_since_install ?? '',
+        roof_age_at_install: r.roof_age_at_install ?? '',
+        roof_age_now: r.roof_age_now ?? '',
         installer: inst?.display_name ?? '',
         installer_status: inst?.status ?? 'unknown',
         status_confidence: inst?.status_confidence ?? '',
@@ -179,11 +172,8 @@ async function main() {
       }
     })
     .filter((r) => (INCLUDE_SUPPRESSED ? true : !r.suppressed))
-    .filter((r) => (tierArg ? r.tier === tierArg.toUpperCase() : true))
-    .sort((a, b) => {
-      if (a.tier !== b.tier) return a.tier.localeCompare(b.tier)
-      return Number(b.system_age_years || 0) - Number(a.system_age_years || 0)
-    })
+    // Oldest system first — an ordering for partial drops, not a gate.
+    .sort((a, b) => Number(b.system_age_years || 0) - Number(a.system_age_years || 0))
 
   const headers = Object.keys(out[0] ?? { tier: '' })
   const csv = [
@@ -192,22 +182,16 @@ async function main() {
   ].join('\n')
   writeFileSync(OUT, `${csv}\n`)
 
-  const byTier: Record<string, number> = {}
-  out.forEach((r) => {
-    byTier[r.tier] = (byTier[r.tier] ?? 0) + 1
-  })
   const suppressedCount = mailable.length - out.length
 
   console.log('\n=== Result ===')
   console.log(`written: ${OUT}`)
   console.log(`rows:    ${out.length}`)
   console.log(`suppressed/filtered out: ${suppressedCount}`)
-  console.log(`by tier: ${JSON.stringify(byTier)}`)
   console.log(`with owner name: ${out.filter((r) => r.owner_name).length}`)
   console.log(`orphan_claim_safe (may name the installer): ${out.filter((r) => r.orphan_claim_safe).length}`)
-  console.log('\nTier A sample:')
+  console.log('\nOldest systems:')
   out
-    .filter((r) => r.tier === 'A')
     .slice(0, 8)
     .forEach((r) => {
       console.log(

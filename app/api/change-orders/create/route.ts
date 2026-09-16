@@ -147,6 +147,17 @@ export async function POST(request: NextRequest) {
 
     if (insertError) {
       console.error('[Change Order] Error inserting record:', insertError)
+      // idx_job_change_orders_unique_co (project_id, co_number): the form was opened before
+      // another CO landed, so its number AND its "original amount" are stale. Don't auto-renumber —
+      // that would chain the new CO off the old contract total. Make them reload instead.
+      if (insertError.code === '23505') {
+        return NextResponse.json(
+          {
+            error: `${coNumber} already exists on this job — this page is out of date. Refresh the page and start the change order again so it builds on the current contract total.`,
+          },
+          { status: 409 }
+        )
+      }
       return NextResponse.json(
         { error: 'Failed to save change order' },
         { status: 500 }

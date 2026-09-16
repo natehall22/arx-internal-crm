@@ -14,10 +14,22 @@
 
 import type { InstallerStatus } from '@/lib/solar-installers'
 
+/**
+ * Where a marker came from. A rep must be able to tell these apart: 'permit' is
+ * public record and certain, 'candidate' is an imagery detection that has not
+ * been looked at yet and is wrong roughly 1 time in 10.
+ */
+export type SolarSource = 'permit' | 'candidate'
+
 export type SolarFeature = {
   type: 'Feature'
   geometry: { type: 'Point'; coordinates: [number, number] } | null
   properties: {
+    kind: SolarSource
+    /** solar_candidates.id — present only on unverified candidates. */
+    candidateId?: string
+    /** Owner of record from county parcel data, for the verification sheet. */
+    ownerName?: string | null
     /** Permit-issue year — shown as system age in copy, never as the bucket. */
     installedYear?: number
     systemAge?: number
@@ -58,6 +70,14 @@ export const SOLAR_LEGEND: SolarBucket[] = [
   { status: 'active', fill: '#64748B', label: 'Installer still active' },
 ]
 
+/**
+ * Imagery-detected, nobody has verified it. Deliberately outside the status ramp
+ * above — it is a different KIND of claim, not a different severity, so it gets
+ * its own hue rather than a shade of the same one.
+ */
+export const SOLAR_CANDIDATE_FILL = '#7C3AED'
+export const SOLAR_CANDIDATE_LABEL = 'Possible solar — verify'
+
 export function solarBucket(status: InstallerStatus): SolarBucket {
   return SOLAR_LEGEND.find((b) => b.status === status) ?? SOLAR_LEGEND[2]
 }
@@ -72,6 +92,19 @@ export function solarBucket(status: InstallerStatus): SolarBucket {
 export function solarMarkerRadiusMeters(status: InstallerStatus): number {
   return status === 'defunct' ? 10 : 8
 }
+
+/** Slightly smaller than a confirmed marker — it claims less. */
+export const SOLAR_CANDIDATE_RADIUS_METERS = 7
+
+/**
+ * Hollow rather than filled: an unverified guess should not read as solidly on
+ * the map as a permit record does.
+ */
+export const SOLAR_CANDIDATE_STROKE = {
+  strokeColor: SOLAR_CANDIDATE_FILL,
+  strokeOpacity: 1,
+  strokeWeight: 3,
+} as const
 
 /** White ring for contrast against satellite imagery. */
 export const SOLAR_MARKER_STROKE = {
@@ -88,6 +121,7 @@ export const SOLAR_MARKER_Z_INDEX = 4
  * not the reasoning behind it.
  */
 export function solarMarkerLabel(props: SolarFeature['properties']): string {
+  if (props.kind === 'candidate') return 'Possible solar — verify'
   const parts: string[] = []
   if (props.systemAge != null) parts.push(`Solar, ${props.systemAge} yrs (est.)`)
   else parts.push('Solar')

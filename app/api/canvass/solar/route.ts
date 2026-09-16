@@ -26,8 +26,12 @@ export const dynamic = 'force-dynamic'
 /** Street-zoom guard, matching the roof-age layer — per-house data. */
 const MAX_BBOX_SPAN_DEGREES = 0.06
 
-/** Permit history changes only when we ingest; cache viewport reads for 6h. */
-const CACHE_MS = 1000 * 60 * 60 * 6
+/**
+ * Permits barely change, but candidates expire — a long cache could serve a
+ * candidate past its expires_at. One hour keeps the read cheap without letting
+ * the 30-day limit drift.
+ */
+const CACHE_MS = 1000 * 60 * 60
 
 /** Hard ceiling on rows pulled for one viewport. */
 const MAX_ROWS = 2000
@@ -102,6 +106,44 @@ export async function GET(request: NextRequest) {
     const features = dedupeByProperty(rows)
       .map((row) => toFeature(row, currentYear))
       .filter((f): f is SolarFeature => f !== null)
+
+    // Imagery-detected candidates awaiting a rep's eyes. Filtered on expires_at
+    // at READ time, so Google's 30-day cache limit holds even if a purge job
+    // never runs. Unverified rows only — once a rep answers, the candidate stops
+    // being a question and is promoted separately.
+    const { data: candidates } = await admin
+      .from('solar_candidates')
+      .select('id, lat, lng, owner_name, verified_has_solar')
+      .gte('lat', bbox.s)
+      .lte('lat', bbox.n)
+      .gte('lng', bbox.w)
+      .lte('lng', bbox.e)
+      .or(`and(verified_has_solar.is.null,expires_at.gt.${new Date().toISOString()}),verified_has_solar.is.true`)
+      .limit(MAX_ROWS)
+
+    for (const c of candidates ?? []) {
+      if (c.lat == null || c.lng == null) continue
+      // A rep already said yes: render it as a confirmed marker, not a question.
+      if (c.verified_has_solar === true) {
+        features.push({
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [c.lng as number, c.lat as number] },
+          properties: { kind: 'permit', installerStatus: 'unknown', installerName: null },
+        })
+        continue
+      }
+      features.push({
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [c.lng as number, c.lat as number] },
+        properties: {
+          kind: 'candidate',
+          candidateId: String(c.id),
+          ownerName: (c.owner_name as string | null) ?? null,
+          installerStatus: 'unknown',
+          installerName: null,
+        },
+      })
+    }
 
     const body: SolarResponse = { type: 'FeatureCollection', features }
     if (!features.length) {
