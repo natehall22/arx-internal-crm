@@ -133,8 +133,10 @@ export async function POST(request: NextRequest) {
         scope_siding: scopeSiding || false,
         scope_other: scopeOther || null,
         payment_method: safePaymentMethod,
+        // Only a finance deal has a lender. The modal pre-fills the proposal's lender and keeps it
+        // when the rep switches to insurance/cash, which printed "Insurance (Sunlight Financial)".
         finance_company:
-          safeAgreementType === 'installation' || safeAgreementType === 'repair'
+          (safeAgreementType === 'installation' || safeAgreementType === 'repair') && safePaymentMethod === 'finance'
             ? (financeCompany || null)
             : null,
         deposit_amount: safeDepositAmount,

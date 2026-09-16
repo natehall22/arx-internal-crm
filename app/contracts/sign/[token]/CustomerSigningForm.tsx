@@ -423,7 +423,7 @@ export default function CustomerSigningForm({ contract, token }: CustomerSigning
                     <span className="text-gray-500">Payment Method:</span>
                     <span className="ml-2 font-medium capitalize text-black">
                       {contract.payment_method}
-                      {contract.finance_company && ` (${contract.finance_company})`}
+                      {contract.payment_method === 'finance' && contract.finance_company && ` (${contract.finance_company})`}
                     </span>
                   </div>
                   <div>
