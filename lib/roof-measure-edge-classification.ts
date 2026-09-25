@@ -10,6 +10,9 @@ export interface ClassifiedEdge {
   lengthFt: number
   facetIdA: string
   facetIdB: string | null
+  /** Edge endpoints, so a drawn line can be matched to the auto edge it lies on. */
+  p1?: RoofMeasurePoint
+  p2?: RoofMeasurePoint
 }
 
 export interface EdgeClassificationResult {
@@ -421,7 +424,7 @@ export function classifyRoofEdges(facets: FacetInput[]): EdgeClassificationResul
       const lengthFt = haversineDistanceFeet(ea.p1, ea.p2)
       const type = classifyInteriorEdge(ea, eb, drainAzimuths, facetMap, lengthFt)
 
-      result.classifiedEdges.push({ type, lengthFt, facetIdA: ea.facetId, facetIdB: eb.facetId })
+      result.classifiedEdges.push({ type, lengthFt, facetIdA: ea.facetId, facetIdB: eb.facetId, p1: ea.p1, p2: ea.p2 })
       addInteriorLength(result, type, lengthFt)
       paired = true
       break
@@ -434,6 +437,8 @@ export function classifyRoofEdges(facets: FacetInput[]): EdgeClassificationResul
         lengthFt,
         facetIdA: ea.facetId,
         facetIdB: null,
+        p1: ea.p1,
+        p2: ea.p2,
       })
       result.unclassified_shared_lf += lengthFt
     }
@@ -452,7 +457,7 @@ export function classifyRoofEdges(facets: FacetInput[]): EdgeClassificationResul
 
     const type: EdgeType = Math.abs(dotSlope) >= EAVE_RAKE_DOT_THRESHOLD ? 'eave' : 'rake'
 
-    result.classifiedEdges.push({ type, lengthFt, facetIdA: e.facetId, facetIdB: null })
+    result.classifiedEdges.push({ type, lengthFt, facetIdA: e.facetId, facetIdB: null, p1: e.p1, p2: e.p2 })
     if (type === 'eave') result.eaves_lf += lengthFt
     if (type === 'rake') result.rakes_lf += lengthFt
   }

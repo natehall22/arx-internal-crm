@@ -38,6 +38,7 @@ import {
   slopeCorrectEdgeTotals,
   slopedLengthForLinearFeature,
 } from '@/lib/roof-edge-slope-correction'
+import { coveredAutoLf, mergeDrawnAndAutoLf } from '@/lib/roof-drawn-line-supersede'
 import { dsmPitchDisagreesWithSolar, DSM_PITCH_DISAGREE_THRESHOLD_DEG } from '@/lib/solar-dsm'
 import {
   facingCompassFromAzimuthDegrees,
@@ -137,7 +138,7 @@ interface RoofFacet {
 // Linear features that can be manually drawn (step flashing, custom valleys, etc.)
 interface LinearFeature {
   id: string
-  type: 'ridge' | 'step_flashing' | 'wall_flashing' | 'valley' | 'custom'
+  type: 'ridge' | 'hip' | 'step_flashing' | 'wall_flashing' | 'valley' | 'custom'
   points: Point[]
   /** Plan-view length as drawn on the satellite map. */
   length_ft: number
@@ -282,6 +283,7 @@ interface GeneratedEstimateResult {
 // Colors for different linear feature types
 const LINEAR_FEATURE_COLORS: Record<string, string> = {
   ridge: '#0EA5E9',         // sky
+  hip: '#EC4899',           // pink
   step_flashing: '#F59E0B', // amber
   wall_flashing: '#8B5CF6', // purple
   valley: '#EF4444',        // red
@@ -290,6 +292,7 @@ const LINEAR_FEATURE_COLORS: Record<string, string> = {
 
 const LINEAR_FEATURE_LABELS: Record<string, string> = {
   ridge: 'Ridge',
+  hip: 'Hip',
   step_flashing: 'Step flashing',
   wall_flashing: 'Wall flashing',
   valley: 'Valley',
@@ -513,11 +516,11 @@ export default function RoofMeasurePage() {
   // Linear features state
   const [linearFeatures, setLinearFeatures] = useState<LinearFeature[]>([])
   const [isDrawingLine, setIsDrawingLine] = useState(false)
-  const [lineDrawingType, setLineDrawingType] = useState<'ridge' | 'step_flashing' | 'wall_flashing' | 'valley' | 'custom'>('step_flashing')
+  const [lineDrawingType, setLineDrawingType] = useState<LinearFeature['type']>('step_flashing')
   const [showLineTypeModal, setShowLineTypeModal] = useState(false)
   /** Fetched from `/api/calendar/profile`; default true so sales users see hints if the request fails. */
   const [showDrawingToolHints, setShowDrawingToolHints] = useState(true)
-  const lineDrawingTypeRef = useRef<'ridge' | 'step_flashing' | 'wall_flashing' | 'valley' | 'custom'>('step_flashing')
+  const lineDrawingTypeRef = useRef<LinearFeature['type']>('step_flashing')
   /** After a satellite load attempt finishes for the current search (for empty-state messaging). */
   const [satelliteOutlineFetchSettled, setSatelliteOutlineFetchSettled] = useState(false)
   /** The user intentionally removed every section; do not treat this as a failed/never-run satellite load. */
@@ -2099,7 +2102,9 @@ export default function RoofMeasurePage() {
             ? 'step_flash'
             : feature.type === 'wall_flashing'
               ? 'wall_flash'
-              : feature.type,
+              : feature.type === 'hip'
+                ? 'ridge'
+                : feature.type,
         // Price off the slope-corrected length so the estimate matches the measurement.
         length_ft:
           measurements?.linear_features?.find((f) => f.id === feature.id)?.sloped_length_ft ??
@@ -2167,7 +2172,7 @@ export default function RoofMeasurePage() {
   }
 
   // Start drawing a linear feature (step flashing, valley, etc.)
-  const startDrawingLine = (type: 'ridge' | 'step_flashing' | 'wall_flashing' | 'valley' | 'custom') => {
+  const startDrawingLine = (type: LinearFeature['type']) => {
     if (!drawingManagerRef.current) return
     
     setLineDrawingType(type)
@@ -2836,21 +2841,29 @@ export default function RoofMeasurePage() {
     const manualRidges = featuresWithSlope
       .filter(f => f.type === 'ridge')
       .reduce((sum, f) => sum + featureLf(f), 0)
-    const ridges = manualRidges > 0 ? Math.round(manualRidges) : baseEdges.ridges_lf
+    const manualHips = featuresWithSlope
+      .filter(f => f.type === 'hip')
+      .reduce((sum, f) => sum + featureLf(f), 0)
+    const manualValleys = featuresWithSlope
+      .filter(f => f.type === 'valley')
+      .reduce((sum, f) => sum + featureLf(f), 0)
+
+    // A drawn line supersedes the auto edges it lies on — otherwise the same edge is counted twice
+    // (a ridge drawn over an auto "hip" doubled the cap LF).
+    const coveredAuto = coveredAutoLf({ result: rawGeoEdges, lines: featuresWithSlope, mults: multByFacetId })
+    const { ridges_lf: ridges, hips_lf: hips, valleys_lf: valleys } = mergeDrawnAndAutoLf({
+      auto: { ridges_lf: baseEdges.ridges_lf, hips_lf: baseEdges.hips_lf, valleys_lf: baseEdges.valleys_lf },
+      covered: coveredAuto,
+      drawn: { ridges_lf: manualRidges, hips_lf: manualHips, valleys_lf: manualValleys },
+    })
     if (manualRidges > 0) {
       validationNotes.push(
         'Manual ridge lines replaced the auto-estimated ridge length — verify total ridge LF before quoting.'
       )
     }
 
-    const hips  = baseEdges.hips_lf
     const eaves = baseEdges.eaves_lf
     const rakes = baseEdges.rakes_lf
-
-    const manualValleys = featuresWithSlope
-      .filter(f => f.type === 'valley')
-      .reduce((sum, f) => sum + featureLf(f), 0)
-    const valleys = baseEdges.valleys_lf + Math.round(manualValleys)
 
     // ---- FLASHING FROM MANUAL DRAWINGS (slope-corrected) ----
     const stepFlashing = featuresWithSlope
@@ -2962,6 +2975,10 @@ export default function RoofMeasurePage() {
       validationNotes.push('Complex roof detected: ridge lines are estimated. Draw ridge lines for production accuracy.')
       confidence = 'medium'
     }
+    if (isComplexRoof && manualHips === 0) {
+      validationNotes.push('Complex roof detected: hip lines are estimated. Draw hip lines for production accuracy.')
+      confidence = 'medium'
+    }
     if (isComplexRoof && manualValleys === 0) {
       validationNotes.push('Complex roof detected: valley lines are estimated. Draw valley lines to improve accuracy.')
       confidence = 'medium'
@@ -3064,7 +3081,7 @@ export default function RoofMeasurePage() {
       measuredRidges > 0
     ) {
       validationNotes.push(
-        'No hip LF on a multi-section roof — hip length may be counted as ridge or valley. Re-check outlines or draw ridge/valley lines before quoting.'
+        'No hip LF on a multi-section roof — hip length may be counted as ridge or valley. Re-check outlines or draw the hips before quoting.'
       )
       if (confidence === 'high') confidence = 'medium'
     }
@@ -3634,7 +3651,7 @@ export default function RoofMeasurePage() {
             </div>
 
             <div className="mb-2">
-              <p className="text-xs text-gray-400 mb-2">Ridge, valleys & flashing — optional:</p>
+              <p className="text-xs text-gray-400 mb-2">Ridge, hips, valleys & flashing — optional:</p>
               {isDrawingLine ? (
                 <button
                   type="button"
@@ -3656,6 +3673,15 @@ export default function RoofMeasurePage() {
                   >
                     <span className="w-2 h-2 bg-sky-500 rounded-full" />
                     Ridge
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => startDrawingLine('hip')}
+                    disabled={isDrawing}
+                    className="flex items-center justify-center gap-1.5 px-2 py-2 bg-pink-600/20 text-pink-400 border border-pink-600/50 rounded-lg text-xs font-medium hover:bg-pink-600/30 disabled:opacity-50"
+                  >
+                    <span className="w-2 h-2 bg-pink-500 rounded-full" />
+                    Hip
                   </button>
                   <button
                     type="button"

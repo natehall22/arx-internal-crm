@@ -97,9 +97,9 @@ export function slopeCorrectEdgeTotals(
 // Manually drawn / AI-loaded polylines (step flashing, valleys, custom runs)
 // ---------------------------------------------------------------------------
 
-type LocalPoint = { x: number; y: number }
+export type LocalPoint = { x: number; y: number }
 
-function toLocalMeters(p: RoofMeasurePoint, origin: RoofMeasurePoint): LocalPoint {
+export function toLocalMeters(p: RoofMeasurePoint, origin: RoofMeasurePoint): LocalPoint {
   return {
     x: (p.lng - origin.lng) * M_PER_DEG_LAT * Math.cos((origin.lat * Math.PI) / 180),
     y: (p.lat - origin.lat) * M_PER_DEG_LAT,
@@ -158,6 +158,7 @@ export type SlopedLineType =
   | 'step_flashing'
   | 'wall_flashing'
   | 'valley'
+  | 'hip'
   | 'custom'
 
 /**
@@ -166,7 +167,7 @@ export type SlopedLineType =
  * Per segment, the owning facet is probed perpendicular to the segment on both
  * sides (drawn lines usually sit on facet boundaries, so the midpoint itself can
  * fall on either face or neither):
- * - `valley`: hip/valley factor from the two flanking facets.
+ * - `valley` / `hip`: hip/valley factor from the two flanking facets.
  * - `step_flashing`: climbs the roof face beside the wall — × that face's multiplier.
  * - `ridge` / `wall_flashing`: horizontal runs — plan length is true length.
  * - `custom`: unknown semantics — left uncorrected.
@@ -220,7 +221,7 @@ export function slopedLengthForLinearFeature(input: {
 
     // Segments over untraced roof fall back to the roof-average multiplier.
     let factor: number
-    if (type === 'valley') {
+    if (type === 'valley' || type === 'hip') {
       const mA = leftMult ?? midMult ?? rightMult ?? fallbackMult
       const mB = rightMult ?? midMult ?? leftMult ?? fallbackMult
       factor = hipValleySlopeFactor(mA, mB)
@@ -250,6 +251,6 @@ function applyFallback(
     typeof fallbackMultiplier === 'number' && Number.isFinite(fallbackMultiplier) && fallbackMultiplier > 1
       ? fallbackMultiplier
       : 1
-  const factor = type === 'valley' ? hipValleySlopeFactor(mult, mult) : mult
+  const factor = type === 'valley' || type === 'hip' ? hipValleySlopeFactor(mult, mult) : mult
   return Math.round(planLengthFt * factor)
 }

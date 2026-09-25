@@ -179,6 +179,19 @@ describe('slopedLengthForLinearFeature', () => {
     expect(sloped).toBe(Math.round(50 * 1.1055)) // 55
   })
 
+  it('a drawn hip on the boundary between two facets uses the hip/valley factor, like a valley', () => {
+    const sharedLng = LNG + D_LNG
+    const line = [
+      { lat: LAT + D_LAT * 0.2, lng: sharedLng },
+      { lat: LAT + D_LAT * 0.8, lng: sharedLng },
+    ]
+    const args = { points: line, planLengthFt: 50, facets: [facetA, facetB] }
+    expect(slopedLengthForLinearFeature({ type: 'hip', ...args })).toBe(
+      slopedLengthForLinearFeature({ type: 'valley', ...args })
+    )
+    expect(slopedLengthForLinearFeature({ type: 'hip', ...args })).toBe(Math.round(50 * 1.1055))
+  })
+
   it('ridge and wall flashing are horizontal — plan length returned unchanged', () => {
     const line = [
       { lat: LAT + D_LAT / 2, lng: LNG + D_LNG * 0.25 },
