@@ -74,6 +74,7 @@ import {
   checkSolarFootprintOverlap,
   isManuallyDrawnFacet,
   overlapValidationNote,
+  solarCoverageNote,
 } from '@/lib/roof-measure-solar-overlap'
 
 declare const google: any
@@ -197,6 +198,8 @@ interface MeasurementData {
   solar_overlap_blocks_save?: boolean
   solar_overlap_ratio?: number | null
   solar_ground_footprint_sqft?: number | null
+  /** Google footprint (sq ft) for the building under the drawn roof — missing-section check. */
+  solar_coverage_ground_sqft?: number | null
   manual_draw_facet_count?: number
   overlap_override?: {
     acknowledged_at: string
@@ -535,6 +538,14 @@ export default function RoofMeasurePage() {
   const pendingOpportunityMapFocusRef = useRef<{ lat: number; lng: number } | null>(null)
   /** Summed Solar `ground_area` (sq ft). Overlapping segment quads sum above this — we scale totals to match. */
   const solarGroundFootprintReferenceRef = useRef<number | null>(null)
+  /**
+   * Google's footprint for the building UNDER THE DRAWN ROOF, fetched automatically for
+   * the "a section may be missing" check. Kept apart from the ref above on purpose: that
+   * one feeds the over-footprint check, which is calibrated for auto-loaded geometry and
+   * would false-alarm on hand-drawn roofs (their eave overhang reads 5–17% over).
+   */
+  const solarCoverageRef = useRef<{ lat: number; lng: number; sqft: number | null } | null>(null)
+  const solarCoverageInFlightRef = useRef<string | null>(null)
   /**
    * Last `/api/ai/detect-roof` `facet_source` (solar_mask_plane, vision, …), updated synchronously so
    * `updateMeasurements` uses the correct geometry family before the next paint.
@@ -2670,6 +2681,44 @@ export default function RoofMeasurePage() {
       validationNotes.push(overlapNote)
     }
 
+    // Missing-section check against Google's footprint for the building under the drawn roof.
+    const drawnPoints = currentFacets.flatMap((f) => f.points || [])
+    let coverageShort = false
+    if (drawnPoints.length > 0) {
+      const roofCenter = {
+        lat: drawnPoints.reduce((sum, p) => sum + p.lat, 0) / drawnPoints.length,
+        lng: drawnPoints.reduce((sum, p) => sum + p.lng, 0) / drawnPoints.length,
+      }
+      const coverage = solarCoverageRef.current
+      // ~25 m: same building. Anything further (a different house) needs a fresh lookup.
+      if (coverage && haversineDistanceFeet(coverage, roofCenter) < 82) {
+        const coverageNote = solarCoverageNote(flatAreaRaw, coverage.sqft)
+        if (coverageNote) {
+          validationNotes.push(coverageNote)
+          coverageShort = true
+        }
+      } else {
+        const key = `${roofCenter.lat.toFixed(4)},${roofCenter.lng.toFixed(4)}`
+        if (solarCoverageInFlightRef.current !== key) {
+          solarCoverageInFlightRef.current = key
+          fetch(`/api/measurements/solar-footprint?lat=${roofCenter.lat}&lng=${roofCenter.lng}`)
+            .then((res) => (res.ok ? res.json() : null))
+            .then((data) => {
+              if (solarCoverageInFlightRef.current !== key) return
+              solarCoverageRef.current = {
+                ...roofCenter,
+                sqft: typeof data?.ground_sqft === 'number' ? data.ground_sqft : null,
+              }
+              if (facetsRef.current.length > 0) updateMeasurements(facetsRef.current, linearFeaturesRef.current)
+            })
+            .catch(() => {
+              // Advisory only — a failed lookup just means no missing-section note.
+              solarCoverageInFlightRef.current = null
+            })
+        }
+      }
+    }
+
     if (
       !solarOverlap.fromVision &&
       (src === 'solar_bbox' || src === 'solar_mask_plane' || src === 'solar_mask_whole') &&
@@ -2918,6 +2967,7 @@ export default function RoofMeasurePage() {
     
     // Calculate measurement confidence
     let confidence: 'high' | 'medium' | 'low' = 'high'
+    if (coverageShort) confidence = 'medium'
 
     const dsmPitchConflicts = currentFacets.filter((facet) =>
       dsmPitchDisagreesWithSolar(
@@ -3160,6 +3210,7 @@ export default function RoofMeasurePage() {
       solar_overlap_blocks_save: solarOverlapBlocksSave,
       solar_overlap_ratio: solarOverlap.ratio,
       solar_ground_footprint_sqft: solarRef,
+      solar_coverage_ground_sqft: solarCoverageRef.current?.sqft ?? null,
       manual_draw_facet_count: manualDrawFacetCount,
     })
   }

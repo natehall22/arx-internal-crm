@@ -77,3 +77,28 @@ export function overlapValidationNote(check: SolarOverlapCheck): string | null {
     `Delete or resize overlapping sections before saving, or use Save for review if you verified the totals.`
   )
 }
+
+/**
+ * Under-coverage: the drawn roof is well SMALLER than Google's footprint for the
+ * building, i.e. a section (addition, porch, garage wing) was probably never drawn.
+ *
+ * Calibrated on the 12 carrier-scored fixtures (2026-09-26): every under-measured job
+ * sat at 0.40–0.83 of Google's ground area (Briarfield, Denbur, Florence, Peduto's
+ * missed addition), every correctly measured one at 0.97–1.17 (drawn roofs include
+ * eave overhang, which Google's ground area doesn't). Advisory only — never blocks.
+ * Google sometimes locks onto a neighbor or one wing (Kaestner read 250 sq ft), which
+ * only ever makes the ratio LARGER, so it can't create a false "missing area" note.
+ */
+export const SOLAR_COVERAGE_UNDER_THRESHOLD = 0.88
+
+export function solarCoverageNote(flatAreaSqft: number, solarGroundSqft: number | null): string | null {
+  if (solarGroundSqft == null || solarGroundSqft < SOLAR_OVERLAP_MIN_REFERENCE_SQFT || flatAreaSqft <= 0) return null
+  const ratio = flatAreaSqft / solarGroundSqft
+  if (ratio >= SOLAR_COVERAGE_UNDER_THRESHOLD) return null
+  const missing = Math.round(solarGroundSqft - flatAreaSqft)
+  return (
+    `Drawn roof is ${Math.round((1 - ratio) * 100)}% smaller than Google's footprint for this building ` +
+    `(~${Math.round(solarGroundSqft).toLocaleString()} sq ft) — about ${missing.toLocaleString()} sq ft may be missing. ` +
+    `Check for an addition, porch, or garage wing that isn't drawn.`
+  )
+}

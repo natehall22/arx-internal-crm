@@ -1,6 +1,7 @@
 // 2D footprint edge classification approximates Aurora roof_summary edge totals when
 // facet orientation is consistent; Aurora assigns edge types on a 3D model (SmartRoof / manual).
 
+import { classifyEdgeFromDsmPlanes, type FacetDsmPlane } from './roof-facet-dsm-plane'
 import { RoofMeasurePoint, haversineDistanceFeet } from './roof-measure-geometry'
 
 export type EdgeType = 'ridge' | 'hip' | 'valley' | 'eave' | 'rake' | 'unknown'
@@ -25,7 +26,11 @@ export interface EdgeClassificationResult {
   classifiedEdges: ClassifiedEdge[]
 }
 
-export type DrainAzimuthSource = 'footprint_auto' | 'manual' | 'solar_hint'
+/**
+ * Where a facet's downslope came from. `dsm` = least-squares plane fit to the Solar DSM
+ * inside the drawn polygon (lib/roof-facet-dsm-plane.ts); `manual` (rep-confirmed) still wins.
+ */
+export type DrainAzimuthSource = 'footprint_auto' | 'manual' | 'solar_hint' | 'dsm'
 
 export interface FacetInput {
   id: string
@@ -38,6 +43,8 @@ export interface FacetInput {
   plane_height_at_center_meters?: number | null
   pitch_degrees?: number | null
   solar_segment_index?: number | null
+  /** DSM plane fit for this facet; when both sides of an interior edge have one, the 3D rule decides ridge/hip/valley. */
+  dsm_plane?: FacetDsmPlane | null
 }
 
 /** ~0.3 m vertex snap for hand-drawn shared edges */
@@ -235,7 +242,7 @@ export function classifySharedEdge(
 
 function resolveFacetDrainAzimuth(f: FacetInput, sharedEdgeSet: Set<string>): number {
   if (
-    f.drain_azimuth_source === 'manual' &&
+    (f.drain_azimuth_source === 'manual' || f.drain_azimuth_source === 'dsm') &&
     f.drain_azimuth_degrees != null &&
     Number.isFinite(f.drain_azimuth_degrees)
   ) {
@@ -354,6 +361,19 @@ function classifyInteriorEdge(
   const facetA = facetMap.get(ea.facetId)
   const facetB = facetMap.get(eb.facetId)
   if (!facetA || !facetB) return base
+  // Real planes on both sides: decide from 3D geometry (fold direction + whether the
+  // edge is level) instead of the azimuth-difference rule. Ambiguous → fall through.
+  if (facetA.dsm_plane && facetB.dsm_plane) {
+    const from3d = classifyEdgeFromDsmPlanes(
+      ea.p1,
+      ea.p2,
+      facetA.dsm_plane,
+      centroidOfPoints(facetA.points),
+      facetB.dsm_plane,
+      centroidOfPoints(facetB.points)
+    )
+    if (from3d) return from3d
+  }
   const withHeightHint = applyHeightAwareValleyHint(base, facetA, facetB, ea.p1, ea.p2)
   return applyShortEdgeRidgeHeuristic(
     withHeightHint,
