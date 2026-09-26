@@ -287,27 +287,6 @@ export default function SubContractorsPage() {
     }
   }
 
-  const regenerateToken = async (sub: SubContractor) => {
-    if (!confirm('Regenerate portal access token? The old link will stop working.')) return
-
-    try {
-      const newToken = crypto.randomUUID()
-      const response = await fetch('/api/admin/subs', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: sub.id, portal_access_token: newToken }),
-      })
-      if (!response.ok) {
-        throw new Error('Failed to regenerate token')
-      }
-      alert(`New portal link: ${window.location.origin}/sub-portal/${newToken}`)
-      await loadSubs()
-    } catch (error) {
-      console.error('Error regenerating token:', error)
-      alert('Failed to regenerate token')
-    }
-  }
-
   const deleteSub = async (sub: SubContractor) => {
     if (!confirm(`Are you sure you want to delete "${sub.company_name}"? This cannot be undone.`)) {
       return
@@ -370,7 +349,7 @@ export default function SubContractorsPage() {
         </div>
 
         {/* Stats */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+        <div className="grid grid-cols-3 gap-4 mb-6">
           <div className="bg-white rounded-xl shadow-sm border p-4">
             <div className="text-2xl font-bold text-gray-900">{subs.length}</div>
             <div className="text-sm text-gray-500">Total Subs</div>
@@ -380,12 +359,6 @@ export default function SubContractorsPage() {
               {subs.filter(s => s.active).length}
             </div>
             <div className="text-sm text-gray-500">Active</div>
-          </div>
-          <div className="bg-white rounded-xl shadow-sm border p-4">
-            <div className="text-2xl font-bold text-indigo-600">
-              {subs.filter(s => s.portal_access_enabled).length}
-            </div>
-            <div className="text-sm text-gray-500">Portal Access</div>
           </div>
           <div className="bg-white rounded-xl shadow-sm border p-4">
             <div className="text-2xl font-bold text-gray-600">
@@ -420,7 +393,6 @@ export default function SubContractorsPage() {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Company</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Contact</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Services</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Portal</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
                   <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
                 </tr>
@@ -449,18 +421,6 @@ export default function SubContractorsPage() {
                       </div>
                     </td>
                     <td className="px-6 py-4">
-                      {sub.portal_access_enabled ? (
-                        <span className="inline-flex items-center gap-1 text-green-600 text-sm">
-                          <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                          </svg>
-                          Enabled
-                        </span>
-                      ) : (
-                        <span className="text-gray-400 text-sm">Disabled</span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4">
                       <span className={`px-2 py-1 text-xs font-medium rounded-full ${
                         sub.active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
                       }`}>
@@ -475,14 +435,6 @@ export default function SubContractorsPage() {
                         >
                           Edit
                         </button>
-                        {sub.portal_access_enabled && (
-                          <button
-                            onClick={() => regenerateToken(sub)}
-                            className="text-gray-600 hover:text-gray-800 text-sm font-medium"
-                          >
-                            New Link
-                          </button>
-                        )}
                         <button
                           onClick={() => toggleActive(sub)}
                           className={`text-sm font-medium ${
@@ -687,19 +639,6 @@ export default function SubContractorsPage() {
                   />
                 </div>
 
-                <div className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg">
-                  <input
-                    type="checkbox"
-                    id="portal_access"
-                    checked={formData.portal_access_enabled}
-                    onChange={(e) => setFormData(prev => ({ ...prev, portal_access_enabled: e.target.checked }))}
-                    className="w-4 h-4"
-                  />
-                  <label htmlFor="portal_access" className="text-sm text-gray-700">
-                    <span className="font-medium">Enable Portal Access</span>
-                    <p className="text-gray-500">Allow this sub to view assigned work orders via a unique link</p>
-                  </label>
-                </div>
               </div>
               <div className="p-6 border-t flex justify-end gap-3">
                 <button
