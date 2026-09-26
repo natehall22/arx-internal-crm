@@ -1,22 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
+import { verifyCronSecret } from '@/lib/cron-auth'
 
 const BUCKET = 'inspection-photos'
 const RETENTION_DAYS = 30
 
 export async function GET(request: NextRequest) {
   // Verify the Vercel cron secret to prevent unauthorized invocation
-  const authHeader = request.headers.get('authorization')
-  const cronSecret = process.env.CRON_SECRET
-
-  if (!cronSecret) {
-    console.error('CRON_SECRET env var not set — cleanup-inspection-photos will not run')
-    return NextResponse.json({ error: 'Cron endpoint not configured' }, { status: 503 })
-  }
-
-  if (authHeader !== `Bearer ${cronSecret}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const authFailure = verifyCronSecret(request, 'cleanup-inspection-photos')
+  if (authFailure) return authFailure
 
   const admin = createServiceClient()
   const cutoff = new Date(Date.now() - RETENTION_DAYS * 24 * 60 * 60 * 1000).toISOString()

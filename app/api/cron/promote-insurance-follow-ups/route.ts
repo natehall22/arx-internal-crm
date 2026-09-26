@@ -26,19 +26,11 @@ import {
   mapLatestInspectionByOpportunityId,
   withEffectiveInspectionFields,
 } from '@/lib/effective-inspection-state'
+import { verifyCronSecret } from '@/lib/cron-auth'
 
 export async function GET(request: NextRequest) {
-  const authHeader = request.headers.get('authorization')
-  const cronSecret = process.env.CRON_SECRET
-
-  if (!cronSecret) {
-    console.error('CRON_SECRET env var not set — promote-insurance-follow-ups will not run')
-    return NextResponse.json({ error: 'Cron endpoint not configured' }, { status: 503 })
-  }
-
-  if (authHeader !== `Bearer ${cronSecret}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const authFailure = verifyCronSecret(request, 'promote-insurance-follow-ups')
+  if (authFailure) return authFailure
 
   const admin = createServiceClient()
   const nowIso = new Date().toISOString()

@@ -5,6 +5,7 @@ import { sendMorningUpdateEmail } from '@/lib/morning-update-email'
 import { sendSetterFieldUpdateEmail } from '@/lib/setter-field-update-email'
 import { isMorningUpdateSendWindow } from '@/lib/morning-update-schedule'
 import { createServiceClient } from '@/lib/supabase/service'
+import { verifyCronSecret } from '@/lib/cron-auth'
 
 export const dynamic = 'force-dynamic'
 
@@ -32,17 +33,8 @@ async function fetchOrgsWithRetry(admin: SupabaseAdmin, attempts = 3) {
 }
 
 export async function GET(request: NextRequest) {
-  const authHeader = request.headers.get('authorization')
-  const cronSecret = process.env.CRON_SECRET
-
-  if (!cronSecret) {
-    console.error('CRON_SECRET env var not set — morning-update cron will not run')
-    return NextResponse.json({ error: 'Cron endpoint not configured' }, { status: 503 })
-  }
-
-  if (authHeader !== `Bearer ${cronSecret}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const authFailure = verifyCronSecret(request, 'morning-update')
+  if (authFailure) return authFailure
 
   if (!isMorningUpdateSendWindow()) {
     return NextResponse.json({ skipped: true, reason: 'outside_send_window' })

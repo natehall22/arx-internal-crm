@@ -1,0 +1,52 @@
+name: Lidar tile ingest
+
+# Pulls USGS lidar tiles and stores their building points for the roof-measure tool
+# (see scripts/lidar-ingest.ts, lib/lidar/). Free: public-repo Actions minutes.
+#
+# The runner never gets the Supabase service key. It claims tiles and reports back
+# through /api/cron/lidar-ingest with CRON_SECRET, and uploads each tile to a one-time
+# signed storage URL that endpoint hands out. Logs are public: they print tile names only.
+
+on:
+  schedule:
+    - cron: '17 * * * *' # hourly; each run works ~50 min, then hands off
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: 'Stop claiming new tiles after this many minutes'
+        required: false
+        default: '50'
+
+concurrency:
+  group: lidar-ingest
+  cancel-in-progress: false
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci --no-audit --no-fund
+
+      - name: Ingest tiles
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          LIDAR_INGEST_URL: ${{ vars.LIDAR_INGEST_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${LIDAR_INGEST_URL}" ] || [ -z "${CRON_SECRET}" ]; then
+            echo "LIDAR_INGEST_URL variable or CRON_SECRET secret not set — nothing to do"
+            exit 0
+          fi
+          npx tsx scripts/lidar-ingest.ts run \
+            --remote "${LIDAR_INGEST_URL}" \
+            --concurrency 4 \
+            --minutes "${{ github.event.inputs.minutes || '50' }}"

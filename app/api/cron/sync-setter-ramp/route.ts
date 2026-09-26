@@ -1,20 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { syncOrgSetterRampGates, syncSetterFloorBonuses } from '@/lib/sync-setter-ramp-core'
+import { verifyCronSecret } from '@/lib/cron-auth'
 
 export const dynamic = 'force-dynamic'
 
 export async function GET(request: NextRequest) {
-  const authHeader = request.headers.get('authorization')
-  const cronSecret = process.env.CRON_SECRET
-
-  if (!cronSecret) {
-    console.error('CRON_SECRET env var not set — sync-setter-ramp cron will not run')
-    return NextResponse.json({ error: 'Cron endpoint not configured' }, { status: 503 })
-  }
-  if (authHeader !== `Bearer ${cronSecret}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const authFailure = verifyCronSecret(request, 'sync-setter-ramp')
+  if (authFailure) return authFailure
 
   const admin = createServiceClient()
 

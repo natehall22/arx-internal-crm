@@ -8,14 +8,25 @@
  *       prioritised so tiles with real jobs go first.
  *   npm run lidar:ingest -- run [--limit 50] [--concurrency 3]
  *       Process the queue, highest priority first. Safe to stop and restart.
+ *   npm run lidar:ingest -- run --remote https://<app>/api/cron/lidar-ingest
+ *       Same, but through the cron endpoint with CRON_SECRET instead of the service key —
+ *       how the GitHub Actions workflow runs it (.github/workflows/lidar-ingest.yml).
  *   npm run lidar:ingest -- status
  */
 import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { createClient } from '@supabase/supabase-js'
+import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { buildingPointsFromLaz } from '../lib/lidar/laz-building-points'
 import { encodeTilePoints } from '../lib/lidar/tile-store'
-import { LIDAR_BUILDINGS_BUCKET, NC_LIDAR_DATASETS, lidarStoragePath, lidarTileId, type LidarDataset } from '../lib/lidar/sources'
+import { NC_LIDAR_DATASETS, lidarStoragePath, lidarTileId, type LidarDataset } from '../lib/lidar/sources'
+import {
+  claimNextTile,
+  completeTile,
+  createTileUploadTarget,
+  downloadWithRanges,
+  failTile,
+  type LidarTileRow,
+} from '../lib/lidar/ingest-queue'
 
 for (const filename of ['.env.local', '.env']) {
   const p = resolve(process.cwd(), filename)
@@ -26,9 +37,13 @@ for (const filename of ['.env.local', '.env']) {
     process.env[m[1]] = m[2].trim().replace(/^['"]|['"]$/g, '')
   }
 }
-const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, {
-  auth: { autoRefreshToken: false, persistSession: false },
-})
+let dbClient: SupabaseClient | null = null
+function serviceDb(): SupabaseClient {
+  dbClient ??= createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  })
+  return dbClient
+}
 
 const args = process.argv.slice(2)
 const cmd = args[0]
@@ -53,7 +68,7 @@ async function loadVpc(ds: LidarDataset): Promise<VpcTile[]> {
 async function allRows(table: string) {
   const out: { lat: number; lng: number }[] = []
   for (let from = 0; ; from += 1000) {
-    const { data, error } = await db.from(table).select('lat, lng').not('lat', 'is', null).not('lng', 'is', null).range(from, from + 999)
+    const { data, error } = await serviceDb().from(table).select('lat, lng').not('lat', 'is', null).not('lng', 'is', null).range(from, from + 999)
     if (error) throw error
     out.push(...(data as any[]).map((r) => ({ lat: Number(r.lat), lng: Number(r.lng) })))
     if (!data || data.length < 1000) break
@@ -85,7 +100,7 @@ async function plan() {
       }))
     for (let i = 0; i < rows.length; i += 500) {
       // ignoreDuplicates: re-planning never resets a tile that is already ready/processing
-      const { error } = await db.from('lidar_tiles').upsert(rows.slice(i, i + 500), { onConflict: 'id', ignoreDuplicates: true })
+      const { error } = await serviceDb().from('lidar_tiles').upsert(rows.slice(i, i + 500), { onConflict: 'id', ignoreDuplicates: true })
       if (error) throw error
     }
     queued += rows.length
@@ -94,75 +109,85 @@ async function plan() {
   console.log(`queued ${queued}`)
 }
 
-/** USGS rockyweb throttles per connection (~300 KB/s); 8 parallel ranges ≈ 4× faster. */
-async function download(url: string, parts = 8): Promise<Uint8Array> {
-  const head = await fetch(url, { method: 'HEAD' })
-  const size = Number(head.headers.get('content-length'))
-  if (!head.ok || !size) throw new Error(`HEAD ${head.status}`)
-  const out = new Uint8Array(size)
-  const chunk = Math.ceil(size / parts)
-  await Promise.all(Array.from({ length: parts }, async (_, i) => {
-    const start = i * chunk
-    const end = Math.min(size, start + chunk) - 1
-    for (let attempt = 1; ; attempt++) {
-      try {
-        const r = await fetch(url, { headers: { Range: `bytes=${start}-${end}` } })
-        if (r.status !== 206) throw new Error(`range HTTP ${r.status}`)
-        const buf = new Uint8Array(await r.arrayBuffer())
-        if (buf.length !== end - start + 1) throw new Error('short range')
-        out.set(buf, start)
-        return
-      } catch (e) {
-        if (attempt >= 4) throw e
-        await new Promise((r) => setTimeout(r, 2000 * attempt))
-      }
-    }
-  }))
-  return out
+/** Where tiles come from and go to: straight to the DB (service key) or via the cron endpoint. */
+type Queue = {
+  claim(): Promise<{ tile: LidarTileRow; signedUrl: string } | null>
+  complete(tile: LidarTileRow, stats: { totalPoints: number; buildingPoints: number; storedBytes: number; storagePath: string }): Promise<void>
+  fail(tile: LidarTileRow, message: string): Promise<void>
 }
 
-async function processTile(row: any) {
+const localQueue: Queue = {
+  async claim() {
+    const tile = await claimNextTile(serviceDb())
+    if (!tile) return null
+    const { signedUrl } = await createTileUploadTarget(serviceDb(), tile)
+    return { tile, signedUrl }
+  },
+  complete: (tile, stats) => completeTile(serviceDb(), tile.id, stats),
+  fail: (tile, message) => failTile(serviceDb(), tile.id, message),
+}
+
+function remoteQueue(endpoint: string): Queue {
+  const secret = process.env.CRON_SECRET
+  if (!secret) throw new Error('CRON_SECRET is required for --remote')
+  const call = async (body: Record<string, unknown>) => {
+    const r = await fetch(endpoint, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${secret}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    const json = await r.json().catch(() => ({}))
+    if (!r.ok) throw new Error(`${body.action} HTTP ${r.status}: ${json?.error ?? ''}`)
+    return json
+  }
+  return {
+    async claim() {
+      const res = await call({ action: 'claim' })
+      return res.tile ? { tile: res.tile, signedUrl: res.upload.signedUrl } : null
+    },
+    async complete(tile, stats) {
+      await call({ action: 'complete', id: tile.id, totalPoints: stats.totalPoints, buildingPoints: stats.buildingPoints, storedBytes: stats.storedBytes })
+    },
+    async fail(tile, message) {
+      await call({ action: 'fail', id: tile.id, error: message })
+    },
+  }
+}
+
+async function processTile(queue: Queue, tile: LidarTileRow, signedUrl: string) {
   const t0 = Date.now()
-  const laz = await download(row.source_url)
+  const laz = await downloadWithRanges(tile.source_url)
   const { total, xyz } = await buildingPointsFromLaz(laz)
   const gz = encodeTilePoints(xyz)
-  const path = lidarStoragePath(row.dataset, row.tile_name)
-  const { error: upErr } = await db.storage.from(LIDAR_BUILDINGS_BUCKET).upload(path, gz, { contentType: 'application/gzip', upsert: true })
-  if (upErr) throw upErr
-  const { error } = await db.from('lidar_tiles').update({
-    status: 'ready', storage_path: path, total_points: total, building_points: xyz.length / 3,
-    stored_bytes: gz.length, error: null, processed_at: new Date().toISOString(), updated_at: new Date().toISOString(),
-  }).eq('id', row.id)
-  if (error) throw error
-  console.log(`✓ ${row.tile_name}  ${(laz.length / 1e6).toFixed(0)} MB → ${xyz.length / 3} bldg pts, ${(gz.length / 1e6).toFixed(1)} MB  ${Math.round((Date.now() - t0) / 1000)}s`)
-}
-
-async function claim(): Promise<any | null> {
-  const { data } = await db.from('lidar_tiles').select('*').in('status', ['pending', 'failed']).lt('attempts', 3)
-    .order('priority', { ascending: false }).limit(10)
-  for (const row of data ?? []) {
-    const { data: got } = await db.from('lidar_tiles')
-      .update({ status: 'processing', attempts: row.attempts + 1, updated_at: new Date().toISOString() })
-      .eq('id', row.id).in('status', ['pending', 'failed']).select().maybeSingle()
-    if (got) return got
-  }
-  return null
+  const put = await fetch(signedUrl, { method: 'PUT', headers: { 'Content-Type': 'application/gzip', 'x-upsert': 'true' }, body: new Uint8Array(gz) })
+  if (!put.ok) throw new Error(`upload HTTP ${put.status}`)
+  await queue.complete(tile, {
+    totalPoints: total,
+    buildingPoints: xyz.length / 3,
+    storedBytes: gz.length,
+    storagePath: lidarStoragePath(tile.dataset, tile.tile_name),
+  })
+  console.log(`✓ ${tile.tile_name}  ${(laz.length / 1e6).toFixed(0)} MB → ${xyz.length / 3} bldg pts, ${(gz.length / 1e6).toFixed(1)} MB  ${Math.round((Date.now() - t0) / 1000)}s`)
 }
 
 async function run() {
   const limit = Number(flag('limit') || Infinity)
   const concurrency = Number(flag('concurrency') || 3)
+  const remote = flag('remote')
+  // Stop taking new tiles after this long so a CI job ends cleanly inside its time limit.
+  const deadline = Date.now() + Number(flag('minutes') || Infinity) * 60_000
+  const queue = remote ? remoteQueue(remote) : localQueue
   let done = 0
   await Promise.all(Array.from({ length: concurrency }, async () => {
-    while (done < limit) {
-      const row = await claim()
-      if (!row) return
+    while (done < limit && Date.now() < deadline) {
+      const claimed = await queue.claim()
+      if (!claimed) return
       done++
       try {
-        await processTile(row)
+        await processTile(queue, claimed.tile, claimed.signedUrl)
       } catch (e: any) {
-        console.error(`✗ ${row.tile_name}: ${e?.message ?? e}`)
-        await db.from('lidar_tiles').update({ status: 'failed', error: String(e?.message ?? e).slice(0, 500), updated_at: new Date().toISOString() }).eq('id', row.id)
+        console.error(`✗ ${claimed.tile.tile_name}: ${e?.message ?? e}`)
+        await queue.fail(claimed.tile, String(e?.message ?? e)).catch(() => {})
       }
     }
   }))
@@ -170,7 +195,7 @@ async function run() {
 }
 
 async function status() {
-  const { data } = await db.from('lidar_tiles').select('dataset, status, stored_bytes')
+  const { data } = await serviceDb().from('lidar_tiles').select('dataset, status, stored_bytes')
   const agg = new Map<string, { n: number; mb: number }>()
   for (const r of data ?? []) {
     const k = `${r.dataset} ${r.status}`

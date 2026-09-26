@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { REPORT_BUCKET } from '@/lib/inspection-report/types'
+import { verifyCronSecret } from '@/lib/cron-auth'
 
 // Storage-bloat control for roof reports: once the PDF is built, the PDF *is* the
 // deliverable — the individual source photos don't need to live in Supabase forever.
@@ -12,16 +13,8 @@ const RETENTION_DAYS_WITH_PDF = 30
 const RETENTION_DAYS_NO_PDF = 90
 
 export async function GET(request: NextRequest) {
-  const authHeader = request.headers.get('authorization')
-  const cronSecret = process.env.CRON_SECRET
-
-  if (!cronSecret) {
-    console.error('CRON_SECRET env var not set — cleanup-report-photos will not run')
-    return NextResponse.json({ error: 'Cron endpoint not configured' }, { status: 503 })
-  }
-  if (authHeader !== `Bearer ${cronSecret}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const authFailure = verifyCronSecret(request, 'cleanup-report-photos')
+  if (authFailure) return authFailure
 
   const admin = createServiceClient()
   const cutoffWithPdf = new Date(Date.now() - RETENTION_DAYS_WITH_PDF * 24 * 60 * 60 * 1000).toISOString()
