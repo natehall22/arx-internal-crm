@@ -73,6 +73,17 @@ describe('measureRoofFromLidar', () => {
     expect(r.totals.valleyLf).toBeLessThan(38)
   })
 
+  it('treats a steep roof running onto a shallow porch roof as a pitch change, not a valley', () => {
+    // Gable ridge along x at y=0 (12/12 both sides, eaves y=±5), then the south slope continues
+    // as a 3/12 porch roof from y=-5 to y=-9 — both drain south, so that seam is a transition.
+    const z = (_x: number, y: number) => (y >= -5 ? 10 - Math.abs(y) : 5 - 0.25 * (-5 - y))
+    const r = measureRoofFromLidar(sample(-6, 6, -9, 5, z))!
+    expect(r.planes.length).toBe(3)
+    expect(r.totals.valleyLf).toBe(0)
+    expect(r.totals.stepLf).toBeGreaterThan(30) // the ~12 m transition line
+    expect(r.totals.ridgeLf).toBeGreaterThan(35)
+  })
+
   it('returns null when there is no building near the pin (built after the survey)', () => {
     const farAway = sample(30, 40, 30, 40, () => 10)
     expect(measureRoofFromLidar(farAway)).toBeNull()

@@ -37,7 +37,14 @@ export type LidarPlane = {
   outline: { x: number; y: number }[]
 }
 export type LidarEdgeType = 'ridge' | 'hip' | 'valley' | 'step' | 'unknown'
-export type LidarEdge = { type: LidarEdgeType; lengthM: number; planeA: number; planeB: number }
+export type LidarEdge = {
+  type: LidarEdgeType
+  lengthM: number
+  planeA: number
+  planeB: number
+  /** Plan-view segments (local metres, house frame undone) — one per continuous run. */
+  segments: { x1: number; y1: number; x2: number; y2: number }[]
+}
 export type LidarRoofResult = {
   planes: LidarPlane[]
   edges: LidarEdge[]
@@ -363,13 +370,22 @@ function measureRoofOnce(
     if (dl < 1e-6) continue
     d = d.map((v) => v / dl)
     // span along the fold, split wherever the shared boundary breaks for > 1.5 m
-    const proj = samples.map((q) => q.x * d[0] + q.y * d[1]).sort((m, n) => m - n)
+    const along = samples.map((q) => ({ t: q.x * d[0] + q.y * d[1], q })).sort((m, n) => m.t - n.t)
+    const proj = along.map((e) => e.t)
     let len = 0
-    let runStart = proj[0]
+    const segments: LidarEdge['segments'] = []
+    let runStart = 0
     for (let t = 1; t <= proj.length; t++) {
       if (t === proj.length || proj[t] - proj[t - 1] > 1.5) {
-        len += proj[t - 1] - runStart + CELL
-        if (t < proj.length) runStart = proj[t]
+        len += proj[t - 1] - proj[runStart] + CELL
+        // run endpoints: the fold line through the run's mean position, spanning its extent
+        const run = along.slice(runStart, t)
+        const mx = run.reduce((acc, e) => acc + e.q.x, 0) / run.length
+        const my = run.reduce((acc, e) => acc + e.q.y, 0) / run.length
+        const mt = mx * d[0] + my * d[1]
+        const t1 = proj[runStart] - CELL / 2 - mt, t2 = proj[t - 1] + CELL / 2 - mt
+        segments.push({ x1: mx + d[0] * t1, y1: my + d[1] * t1, x2: mx + d[0] * t2, y2: my + d[1] * t2 })
+        runStart = t
       }
     }
     const cosAng = (A.a * B.a + A.b * B.b + 1) / (Math.hypot(A.a, A.b, 1) * Math.hypot(B.a, B.b, 1))
@@ -380,14 +396,19 @@ function measureRoofOnce(
     // extrapolated heights disagree a little at the seam (fits drift near edges); only a big
     // gap with no clear fold is a true step (upper roof over lower).
     const clearFold = Math.max(convex, concave) >= samples.length * 0.6 && Math.min(convex, concave) <= samples.length * 0.15
-    if (dihedral < 8 || medianGap > (clearFold ? 0.9 : 0.35)) type = 'step'
+    // Planes draining the same way (within 45°) fold at a pitch change — steep main roof onto
+    // a shallow porch roof — which carriers don't count as valley, hip or ridge. Count it with
+    // the steps (it's a flashing line, not a cap or valley line).
+    const azGap = Math.abs(((A.drainAzimuthDegrees - B.drainAzimuthDegrees + 540) % 360) - 180)
+    const sameDirection = azGap < 45 && Math.min(A.pitchDegrees, B.pitchDegrees) >= 2
+    if (dihedral < 8 || sameDirection || medianGap > (clearFold ? 0.9 : 0.35)) type = 'step'
     else if (convex >= concave * 2 && convex >= samples.length * 0.4) {
       // A ridge runs level; a hip descends at roughly pitch/√2 — judge against the flatter plane.
       type = edgeSlope < Math.max(3, Math.min(A.pitchDegrees, B.pitchDegrees) * 0.35) ? 'ridge' : 'hip'
     } else if (concave >= convex * 2 && concave >= samples.length * 0.4) type = 'valley'
     else type = 'unknown'
     const sloped = type === 'hip' || type === 'valley' ? len * Math.sqrt(1 + d[2] ** 2) : len
-    edges.push({ type, lengthM: sloped, planeA: ia, planeB: ib })
+    edges.push({ type, lengthM: sloped, planeA: ia, planeB: ib, segments })
   }
 
   // No edge-cell area correction: a 0.5 m grid reads a synthetic gable ~6% high, but on
@@ -443,6 +464,13 @@ function measureRoofOnce(
     pl.b = b
     pl.drainAzimuthDegrees = (((Math.atan2(-a, -b) * 180) / Math.PI) + 360) % 360
     pl.outline = pl.outline.map((q) => ({ x: q.x * cosT - q.y * sinT, y: q.x * sinT + q.y * cosT }))
+  }
+  const unrotate = (x: number, y: number) => ({ x: x * cosT - y * sinT, y: x * sinT + y * cosT })
+  for (const e of edges) {
+    e.segments = e.segments.map((sg) => {
+      const p1 = unrotate(sg.x1, sg.y1), p2 = unrotate(sg.x2, sg.y2)
+      return { x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y }
+    })
   }
 
   const sumLf = (t: LidarEdgeType) => Math.round(edges.filter((e) => e.type === t).reduce((s, e) => s + e.lengthM, 0) * M_TO_FT)
