@@ -38,6 +38,20 @@ export function isJobPastDue(job: Pick<OpsBoardJob, 'scheduled_date' | 'status'>
   )
 }
 
+/**
+ * Where a paused job goes when it's resumed. The status before the pause isn't stored,
+ * so it's inferred from how far the job actually got: started → In Progress,
+ * install date → Scheduled, materials ordered → Material Ordering, otherwise Sold.
+ */
+export function resumeStatusForJob(
+  job: Pick<OpsBoardJob, 'started_at' | 'scheduled_date' | 'materials_status'>
+): Exclude<JobStatus, 'on_hold' | 'complete' | 'collected'> {
+  if (job.started_at) return 'in_progress'
+  if (job.scheduled_date) return 'scheduled'
+  if (job.materials_status && job.materials_status !== 'not_ordered') return 'materials'
+  return 'sold'
+}
+
 export function paymentStatusChip(
   job: Pick<OpsBoardJob, 'sale_amount' | 'collected_cents'>
 ): { label: string; className: string } | null {

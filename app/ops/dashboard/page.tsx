@@ -113,6 +113,8 @@ export default async function OpsDashboardPage() {
 
   const totalActive = Object.values(pipelineStats).reduce((a, b) => a + b, 0)
   const urgentJobs = allJobs?.filter(j => j.priority === 'urgent').length || 0
+  // Paused jobs have no pipeline box and aren't in totalActive — call them out so they aren't forgotten.
+  const onHoldJobs = allJobs?.filter(j => j.status === 'on_hold').length || 0
 
   // Transform data to handle Supabase array returns
   const transformJob = (job: any) => ({
@@ -171,6 +173,9 @@ export default async function OpsDashboardPage() {
               <span className="text-gray-500">{totalActive} active jobs</span>
               {urgentJobs > 0 && (
                 <span className="text-red-600 font-medium">🔴 {urgentJobs} urgent</span>
+              )}
+              {onHoldJobs > 0 && (
+                <span className={`font-medium ${JOB_STATUS_CONFIG.on_hold.color}`}>⏸ {onHoldJobs} on hold</span>
               )}
             </div>
           </div>

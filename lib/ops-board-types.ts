@@ -26,6 +26,8 @@ export interface OpsBoardJob {
   material_cost?: number | null
   sale_date: string | null
   scheduled_date: string | null
+  started_at?: string | null
+  completed_at?: string | null
   materials_status: string
   permit_status: string
   priority: string

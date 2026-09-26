@@ -1,7 +1,7 @@
 'use client'
 
 import type { JobStatus } from '@/lib/ops-board-types'
-import { jobStatusConfig } from '@/lib/ops-job-status'
+import { JOB_STATUS_CONFIG, jobStatusConfig, resumeStatusForJob } from '@/lib/ops-job-status'
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
@@ -165,10 +165,12 @@ function unpaidContractBalanceCents(args: {
 
 /** First incomplete pipeline stage index (0–4), or 4 when fully done. */
 
-type WorkflowBtnId = 'schedule' | 'materials' | 'materialsReady' | 'startJob' | 'complete' | 'collected'
+type WorkflowBtnId = 'resume' | 'schedule' | 'materials' | 'materialsReady' | 'startJob' | 'complete' | 'collected'
 
 function getWorkflowPrimaryAndSecondaryIds(job: Job): { primary: WorkflowBtnId; secondary: WorkflowBtnId[] } {
-  const show: Record<WorkflowBtnId, boolean> = {
+  // A paused job's only next step is un-pausing it — no crews/invites while it's on hold.
+  if (job.status === 'on_hold') return { primary: 'resume', secondary: [] }
+  const show: Record<Exclude<WorkflowBtnId, 'resume'>, boolean> = {
     schedule: true,
     materials: job.status === 'sold',
     materialsReady: job.status === 'materials' && job.materials_status === 'received',
@@ -185,7 +187,7 @@ function getWorkflowPrimaryAndSecondaryIds(job: Job): { primary: WorkflowBtnId; 
   else if (show.collected) primary = 'collected'
   else primary = 'schedule'
 
-  const order: WorkflowBtnId[] = ['schedule', 'materials', 'materialsReady', 'startJob', 'complete', 'collected']
+  const order: Exclude<WorkflowBtnId, 'resume'>[] = ['schedule', 'materials', 'materialsReady', 'startJob', 'complete', 'collected']
   const secondary = order.filter((id) => id !== primary && show[id])
   return { primary, secondary }
 }
@@ -218,6 +220,14 @@ function renderWorkflowButton(
   const { saving, goToCrews, updateStatus, handleCompleteClick, handleCollectedClick, markCollectedDisabled, markCollectedTitle } = opts
 
   switch (id) {
+    case 'resume': {
+      const target = resumeStatusForJob(job)
+      return (
+        <button key={id} type="button" onClick={() => updateStatus(target)} disabled={saving} className={pc}>
+          Resume job → {JOB_STATUS_CONFIG[target].label}
+        </button>
+      )
+    }
     case 'schedule':
       return (
         <button key={id} type="button" onClick={goToCrews} className={pc}>

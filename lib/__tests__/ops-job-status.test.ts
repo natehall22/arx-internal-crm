@@ -1,4 +1,4 @@
-import { isJobPastDue, jobStatusConfig, paymentStatusChip } from '@/lib/ops-job-status'
+import { isJobPastDue, jobStatusConfig, paymentStatusChip, resumeStatusForJob } from '@/lib/ops-job-status'
 
 describe('jobStatusConfig', () => {
   it('has a label for on_hold (the /ops list used to crash on it)', () => {
@@ -32,5 +32,19 @@ describe('paymentStatusChip', () => {
     expect(paymentStatusChip({ sale_amount: 100, collected_cents: 1 })?.label).toBe('Partially paid')
     expect(paymentStatusChip({ sale_amount: 100, collected_cents: 0 })?.label).toBe('Unpaid')
     expect(paymentStatusChip({ sale_amount: 0, collected_cents: 0 })).toBeNull()
+  })
+})
+
+describe('resumeStatusForJob', () => {
+  const base = { started_at: null, scheduled_date: null, materials_status: 'not_ordered' }
+  it('sends an untouched job back to Sold', () => {
+    expect(resumeStatusForJob(base)).toBe('sold')
+  })
+  it('uses the furthest point the job actually reached', () => {
+    expect(resumeStatusForJob({ ...base, materials_status: 'ordered' })).toBe('materials')
+    expect(resumeStatusForJob({ ...base, materials_status: 'ordered', scheduled_date: '2026-10-01' })).toBe('scheduled')
+    expect(
+      resumeStatusForJob({ ...base, scheduled_date: '2026-10-01', started_at: '2026-10-01T12:00:00Z' })
+    ).toBe('in_progress')
   })
 })

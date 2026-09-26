@@ -10,7 +10,7 @@ import OperationsSnapshotCard, {
   hasOperationsSnapshotData,
 } from '@/components/ops/OperationsSnapshotCard'
 import { OpsBoardJobCard } from '@/components/ops/OpsBoardJobCard'
-import { JOB_STATUS_CONFIG, jobStatusConfig, isJobPastDue, paymentStatusChip } from '@/lib/ops-job-status'
+import { JOB_STATUS_CONFIG, jobStatusConfig, isJobPastDue, paymentStatusChip, resumeStatusForJob } from '@/lib/ops-job-status'
 import {
   canShowCompletionCertificateBoardLink,
   opsJobCompletionCertificateHref,
@@ -275,10 +275,12 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability }: 
   )
 
   const updateJobStatus = useCallback(async (jobId: string, newStatus: JobStatus) => {
+    const current = jobs.find((j) => j.id === jobId)
     const updates: Record<string, unknown> = { status: newStatus }
-    if (newStatus === 'in_progress') {
+    // Never overwrite a real start/finish date (e.g. resuming a paused job that had already started).
+    if (newStatus === 'in_progress' && !current?.started_at) {
       updates.started_at = new Date().toISOString()
-    } else if (newStatus === 'complete') {
+    } else if (newStatus === 'complete' && !current?.completed_at) {
       updates.completed_at = new Date().toISOString()
     }
 
@@ -300,7 +302,7 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability }: 
     }
 
     await loadData()
-  }, [loadData])
+  }, [jobs, loadData])
 
   const updateMaterialsStatus = useCallback(
     async (jobId: string, newStatus: string) => {
@@ -577,12 +579,21 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability }: 
 
                     {/* Actions */}
                     <div className="flex flex-wrap gap-2 pt-3 border-t">
-                      <button
-                        onClick={() => openJobCrews(job)}
-                        className="flex-1 min-w-[120px] min-h-[44px] text-sm py-2 px-3 bg-indigo-50 text-indigo-700 rounded-lg font-medium border border-indigo-200 hover:bg-indigo-100"
-                      >
-                        {job.scheduled_date ? 'Crews' : 'Schedule'}
-                      </button>
+                      {job.status === 'on_hold' ? (
+                        <button
+                          onClick={() => updateJobStatus(job.id, resumeStatusForJob(job))}
+                          className="flex-1 min-w-[120px] min-h-[44px] text-sm py-2 px-3 bg-orange-50 text-orange-800 rounded-lg font-medium border border-orange-200 hover:bg-orange-100"
+                        >
+                          Resume → {JOB_STATUS_CONFIG[resumeStatusForJob(job)].label}
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => openJobCrews(job)}
+                          className="flex-1 min-w-[120px] min-h-[44px] text-sm py-2 px-3 bg-indigo-50 text-indigo-700 rounded-lg font-medium border border-indigo-200 hover:bg-indigo-100"
+                        >
+                          {job.scheduled_date ? 'Crews' : 'Schedule'}
+                        </button>
+                      )}
                       <Link
                         href={`/ops/jobs/${job.id}`}
                         className="flex-1 min-w-[120px] min-h-[44px] flex items-center justify-center text-sm text-indigo-600 font-medium border border-indigo-200 rounded-lg hover:bg-indigo-50"
@@ -730,13 +741,23 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability }: 
                       )}
                       <td className="px-4 py-3 text-right">
                         <div className="flex justify-end flex-wrap gap-x-3 gap-y-1">
-                          <button
-                            type="button"
-                            onClick={() => openJobCrews(job)}
-                            className="text-xs text-indigo-600 hover:text-indigo-800"
-                          >
-                            {job.scheduled_date ? 'Crews' : 'Schedule'}
-                          </button>
+                          {job.status === 'on_hold' ? (
+                            <button
+                              type="button"
+                              onClick={() => updateJobStatus(job.id, resumeStatusForJob(job))}
+                              className="text-xs font-medium text-orange-800 hover:text-orange-900"
+                            >
+                              Resume → {JOB_STATUS_CONFIG[resumeStatusForJob(job)].label}
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => openJobCrews(job)}
+                              className="text-xs text-indigo-600 hover:text-indigo-800"
+                            >
+                              {job.scheduled_date ? 'Crews' : 'Schedule'}
+                            </button>
+                          )}
                           <Link
                             href={`/ops/jobs/${job.id}`}
                             className="text-xs text-gray-600 hover:text-gray-800"

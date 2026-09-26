@@ -9,7 +9,7 @@ import {
   opsJobCompletionCertificateHref,
 } from '@/lib/ops-completion-cert-link'
 import type { JobStatus, OpsBoardJob } from '@/lib/ops-board-types'
-import { isJobPastDue, paymentStatusChip } from '@/lib/ops-job-status'
+import { JOB_STATUS_CONFIG, isJobPastDue, paymentStatusChip, resumeStatusForJob } from '@/lib/ops-job-status'
 import { computeRoofSquaresEquation, formatSqPart } from '@/lib/roof-squares-equation'
 
 const priorityConfig: Record<string, { icon: string; color: string }> = {
@@ -234,15 +234,27 @@ function OpsBoardJobCardInner({
             Mark Ordered
           </button>
         )}
-        <button
-          onClick={(e) => {
-            e.stopPropagation()
-            onSchedule(job)
-          }}
-          className="flex-1 min-h-[38px] text-xs py-2 px-2 bg-indigo-50 text-indigo-700 rounded-lg font-medium hover:bg-indigo-100 border border-indigo-200"
-        >
-          {job.scheduled_date ? 'Crews' : 'Schedule'}
-        </button>
+        {job.status === 'on_hold' ? (
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              onJobStatus(job.id, resumeStatusForJob(job))
+            }}
+            className="flex-1 min-h-[38px] text-xs py-2 px-2 bg-orange-50 text-orange-800 rounded-lg font-medium hover:bg-orange-100 border border-orange-200"
+          >
+            Resume → {JOB_STATUS_CONFIG[resumeStatusForJob(job)].label}
+          </button>
+        ) : (
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              onSchedule(job)
+            }}
+            className="flex-1 min-h-[38px] text-xs py-2 px-2 bg-indigo-50 text-indigo-700 rounded-lg font-medium hover:bg-indigo-100 border border-indigo-200"
+          >
+            {job.scheduled_date ? 'Crews' : 'Schedule'}
+          </button>
+        )}
         {job.status === 'scheduled' && (
           <button
             onClick={(e) => {
