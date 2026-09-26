@@ -672,12 +672,13 @@ export default async function OpportunityDetailPage({
     } else if (!closeScheduledFor) {
       // Step 3 — proposal exists, need to schedule the close
       nextStep = { icon: '📅', title: 'Schedule the Close', body: 'Proposal is ready. Schedule the close appointment to sit down with the customer.', bg: 'bg-purple-50 border-purple-200', titleColor: 'text-purple-800', link: '#close-section', linkLabel: 'Schedule Close' }
-    } else if (!orderFormContracts || orderFormContracts.length === 0) {
+    } else if (!orderFormContracts || !orderFormContracts.some((c: any) => c.status !== 'voided')) {
       // Step 4 — close is scheduled/ran, create the contract
       nextStep = { icon: '✍️', title: 'Create the Contract', body: closeOutcome ? 'The close ran — generate the order form for the customer to sign.' : 'Close is coming up. Have the contract ready to send once the customer says yes.', bg: 'bg-emerald-50 border-emerald-200', titleColor: 'text-emerald-800', link: '#contract-section', linkLabel: 'Create Contract' }
     } else {
       // Step 6 — contract exists, waiting on signature (or all signed — prompt to close the loop in CRM)
-      const pendingContract = orderFormContracts.find((c: any) => c.status !== 'completed')
+      // Voided contracts are superseded history, not something awaiting a signature.
+      const pendingContract = orderFormContracts.find((c: any) => c.status === 'pending_customer' || c.status === 'draft')
       if (pendingContract) {
         nextStep = { icon: '⏳', title: 'Waiting for Customer Signature', body: 'Contract is out. Follow up with the customer to get it signed.', bg: 'bg-purple-50 border-purple-200', titleColor: 'text-purple-800', link: '#contract-section', linkLabel: 'View Contract' }
       } else {

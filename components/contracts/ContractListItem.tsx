@@ -74,6 +74,16 @@ export default function ContractListItem({ contract }: ContractListItemProps) {
               </svg>
               View {label}
             </a>
+          ) : contract.status === 'voided' && contract.customer_signed_at && contract.pdf_url ? (
+            // Superseded by a later signature — kept (never deleted) so the executed copy stays retrievable.
+            <a
+              href={contract.pdf_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm font-medium text-[#2c2c2a] underline hover:no-underline"
+            >
+              View signed copy (superseded)
+            </a>
           ) : isCompleted && !contract.pdf_url ? (
             <span className="text-sm text-gray-500 flex items-center gap-1">
               <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">

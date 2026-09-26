@@ -93,19 +93,19 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Delete any existing pending contracts for this opportunity
+    // Supersede any unsigned contract still out with the customer. Voided, not deleted:
+    // it keeps a record of what was sent, and its signing link stops working because
+    // /contracts/sign rejects voided contracts.
     if (opportunityId) {
-      const { error: deleteError } = await supabase
+      const { error: voidError } = await supabase
         .from('order_form_contracts')
-        .delete()
+        .update({ status: 'voided', updated_at: new Date().toISOString() })
         .eq('opportunity_id', opportunityId)
         .eq('agreement_type', safeAgreementType)
         .eq('status', 'pending_customer')
 
-      if (deleteError) {
-        console.error('Error deleting existing pending contracts:', deleteError)
-      } else {
-        console.log('Deleted existing pending contracts for opportunity:', opportunityId)
+      if (voidError) {
+        console.error('Error voiding existing pending contracts:', voidError)
       }
     }
 

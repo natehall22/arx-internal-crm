@@ -311,44 +311,30 @@ export async function POST(request: NextRequest) {
       console.error('notifyOrgAdminsOfSale (contract sign):', adminSaleErr)
     }
 
-    // Void and delete any older contracts for this opportunity
+    // Supersede older contracts for this opportunity by VOIDING them — never deleting.
+    // This used to hard-delete every other row (signed ones included) and purge their
+    // PDFs, which destroyed fully-executed agreements on split cash/finance deals
+    // (26-0040, 26-0031, 26-0010). Readers filter on status='completed', so a voided
+    // row drops out of totals exactly as a deleted one did, but the record and its
+    // PDF survive.
     if (contract.opportunity_id) {
       try {
-        // Find all other contracts for this opportunity (not the current one)
-        const { data: olderContracts } = await supabase
+        const { data: voided, error: voidError } = await supabase
           .from('order_form_contracts')
-          .select('id, pdf_storage_path')
+          .update({ status: 'voided', updated_at: new Date().toISOString() })
           .eq('opportunity_id', contract.opportunity_id)
           .eq('agreement_type', rawAgreementType)
           .neq('id', contract.id)
+          .neq('status', 'voided')
+          .select('id')
 
-        if (olderContracts && olderContracts.length > 0) {
-          console.log('[Contract Sign] Found', olderContracts.length, 'older contracts to void and delete')
-          
-          // Delete PDFs from storage
-          for (const oldContract of olderContracts) {
-            if (oldContract.pdf_storage_path) {
-              await supabase.storage
-                .from('files')
-                .remove([oldContract.pdf_storage_path])
-            }
-          }
-
-          // Delete the contract records
-          const oldIds = olderContracts.map(c => c.id)
-          const { error: deleteError } = await supabase
-            .from('order_form_contracts')
-            .delete()
-            .in('id', oldIds)
-
-          if (deleteError) {
-            console.error('[Contract Sign] Error deleting older contracts:', deleteError)
-          } else {
-            console.log('[Contract Sign] Deleted', oldIds.length, 'older contracts')
-          }
+        if (voidError) {
+          console.error('[Contract Sign] Error voiding older contracts:', voidError)
+        } else if (voided && voided.length > 0) {
+          console.log('[Contract Sign] Voided', voided.length, 'older contracts (records + PDFs kept)')
         }
       } catch (cleanupError) {
-        console.error('[Contract Sign] Error cleaning up older contracts:', cleanupError)
+        console.error('[Contract Sign] Error voiding older contracts:', cleanupError)
       }
     }
 
