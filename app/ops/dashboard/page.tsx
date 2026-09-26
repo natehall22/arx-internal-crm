@@ -11,17 +11,8 @@ import {
 } from '@/lib/permissions'
 import { createServiceClient } from '@/lib/supabase/service'
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
-
-type JobStatus = 'sold' | 'materials' | 'scheduled' | 'in_progress' | 'complete' | 'collected'
-
-const statusConfig: Record<JobStatus, { label: string; color: string; bgColor: string }> = {
-  sold: { label: 'Sold', color: 'text-blue-700', bgColor: 'bg-blue-100' },
-  materials: { label: 'Materials', color: 'text-amber-700', bgColor: 'bg-amber-100' },
-  scheduled: { label: 'Scheduled', color: 'text-purple-700', bgColor: 'bg-purple-100' },
-  in_progress: { label: 'In Progress', color: 'text-indigo-700', bgColor: 'bg-indigo-100' },
-  complete: { label: 'Complete', color: 'text-green-700', bgColor: 'bg-green-100' },
-  collected: { label: 'Collected', color: 'text-gray-700', bgColor: 'bg-gray-100' },
-}
+import type { JobStatus } from '@/lib/ops-board-types'
+import { JOB_STATUS_CONFIG, jobStatusConfig } from '@/lib/ops-job-status'
 
 export default async function OpsDashboardPage() {
   const { authUser, profile } = await requireAuth()
@@ -187,15 +178,15 @@ export default async function OpsDashboardPage() {
             {(['sold', 'materials', 'scheduled', 'in_progress', 'complete'] as JobStatus[]).map((status) => {
               const inner = (
                 <>
-                  <div className={`text-3xl font-bold ${statusConfig[status].color}`}>
+                  <div className={`text-3xl font-bold ${JOB_STATUS_CONFIG[status].color}`}>
                     {pipelineStats[status]}
                   </div>
-                  <div className={`text-sm font-medium ${statusConfig[status].color}`}>
-                    {statusConfig[status].label}
+                  <div className={`text-sm font-medium ${JOB_STATUS_CONFIG[status].color}`}>
+                    {JOB_STATUS_CONFIG[status].label}
                   </div>
                 </>
               )
-              const boxClass = `p-4 rounded-lg ${statusConfig[status].bgColor}`
+              const boxClass = `p-4 rounded-lg ${JOB_STATUS_CONFIG[status].pillClass}`
               return canJobBoard ? (
                 <Link
                   key={status}
@@ -234,8 +225,8 @@ export default async function OpsDashboardPage() {
                           <span className="font-semibold text-gray-900">#{job.job_number}</span>
                           {job.priority === 'urgent' && <span>🔴</span>}
                           {job.priority === 'high' && <span>🟠</span>}
-                          <span className={`px-2 py-0.5 text-xs font-medium rounded ${statusConfig[job.status as JobStatus]?.bgColor} ${statusConfig[job.status as JobStatus]?.color}`}>
-                            {statusConfig[job.status as JobStatus]?.label}
+                          <span className={`px-2 py-0.5 text-xs font-medium rounded ${jobStatusConfig(job.status).pillClass} ${jobStatusConfig(job.status).color}`}>
+                            {jobStatusConfig(job.status).label}
                           </span>
                         </div>
                         <p className="text-sm text-gray-600 truncate">{job.address_text}</p>

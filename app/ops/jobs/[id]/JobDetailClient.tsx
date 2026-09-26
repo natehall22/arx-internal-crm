@@ -1,5 +1,7 @@
 'use client'
 
+import type { JobStatus } from '@/lib/ops-board-types'
+import { jobStatusConfig } from '@/lib/ops-job-status'
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
@@ -34,7 +36,6 @@ import { buildCommissionPayrollSnapshot, SALES_COMMISSION_POOL_RATE } from '@/li
 import { computeFinancedContractTotal, netCommissionableFromJob } from '@/lib/financing'
 import { canShowCompletionCertificateBoardLink } from '@/lib/ops-completion-cert-link'
 
-type JobStatus = 'sold' | 'materials' | 'scheduled' | 'in_progress' | 'complete' | 'collected' | 'on_hold'
 
 interface Job {
   id: string
@@ -129,16 +130,6 @@ interface Job {
   installation_agreement?: { pdf_url: string | null; status: string; agreement_type?: string | null } | null
   roof_report?: { id: string; pdf_generated_at: string | null } | null
   sold_scope?: JobSoldScope | null
-}
-
-const statusConfig: Record<JobStatus, { label: string; color: string; bgColor: string }> = {
-  sold: { label: 'Sold', color: 'text-blue-700', bgColor: 'bg-blue-100' },
-  materials: { label: 'Materials', color: 'text-amber-700', bgColor: 'bg-amber-100' },
-  scheduled: { label: 'Scheduled', color: 'text-purple-700', bgColor: 'bg-purple-100' },
-  in_progress: { label: 'In Progress', color: 'text-indigo-700', bgColor: 'bg-indigo-100' },
-  complete: { label: 'Complete', color: 'text-green-700', bgColor: 'bg-green-100' },
-  collected: { label: 'Collected', color: 'text-gray-700', bgColor: 'bg-gray-100' },
-  on_hold: { label: 'On Hold', color: 'text-orange-700', bgColor: 'bg-orange-100' },
 }
 
 const materialsConfig: Record<string, { label: string; color: string }> = {
@@ -1164,7 +1155,7 @@ export default function JobDetailClient({
     }
   }
 
-  const status = statusConfig[job.status] || statusConfig.sold
+  const status = jobStatusConfig(job.status)
   const materials = materialsConfig[job.materials_status] || materialsConfig.not_ordered
   /**
    * Costs logged through the Files workspace ("+ Add cost line" -> `job_cost_lines`).
@@ -1307,7 +1298,7 @@ export default function JobDetailClient({
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2 mb-2">
                 <span className="text-sm font-mono text-gray-900">{job.job_number}</span>
-                <span className={`px-3 py-1 text-sm font-medium rounded-full ${status.bgColor} ${status.color}`}>
+                <span className={`px-3 py-1 text-sm font-medium rounded-full ${status.pillClass} ${status.color}`}>
                   {status.label}
                 </span>
                 {job.priority !== 'normal' && (

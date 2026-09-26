@@ -10,27 +10,20 @@ import OperationsSnapshotCard, {
   hasOperationsSnapshotData,
 } from '@/components/ops/OperationsSnapshotCard'
 import { OpsBoardJobCard } from '@/components/ops/OpsBoardJobCard'
+import { JOB_STATUS_CONFIG, jobStatusConfig, isJobPastDue, paymentStatusChip } from '@/lib/ops-job-status'
 import {
   canShowCompletionCertificateBoardLink,
   opsJobCompletionCertificateHref,
 } from '@/lib/ops-completion-cert-link'
 import type { JobStatus, OpsBoardJob } from '@/lib/ops-board-types'
 
-type BoardColumnStatus = Exclude<JobStatus, 'collected'>
+/** on_hold has no column — paused jobs render in a strip above the board instead. */
+type BoardColumnStatus = Exclude<JobStatus, 'collected' | 'on_hold'>
 
 interface OpsClientProps {
   initialJobs: OpsBoardJob[]
   orgId: string
   canViewProfitability: boolean
-}
-
-const statusConfig: Record<JobStatus, { label: string; color: string; bgColor: string }> = {
-  sold: { label: 'Sold', color: 'text-blue-700', bgColor: 'bg-blue-50 border-blue-200' },
-  materials: { label: 'Material Ordering', color: 'text-amber-700', bgColor: 'bg-amber-50 border-amber-200' },
-  scheduled: { label: 'Scheduled', color: 'text-purple-700', bgColor: 'bg-purple-50 border-purple-200' },
-  in_progress: { label: 'In Progress', color: 'text-indigo-700', bgColor: 'bg-indigo-50 border-indigo-200' },
-  complete: { label: 'Completed', color: 'text-green-700', bgColor: 'bg-green-50 border-green-200' },
-  collected: { label: 'Collected', color: 'text-gray-700', bgColor: 'bg-gray-50 border-gray-200' },
 }
 
 const priorityConfig: Record<string, { icon: string; color: string }> = {
@@ -44,19 +37,6 @@ const materialsConfig: Record<string, { label: string; color: string }> = {
   ordered: { label: 'Ordered', color: 'text-blue-600' },
   partial: { label: 'Partially Delivered', color: 'text-amber-600' },
   received: { label: 'Fully Delivered', color: 'text-green-600' },
-}
-
-function paymentStatusChip(job: OpsBoardJob): { label: string; className: string } | null {
-  const saleCents = Math.round((job.sale_amount || 0) * 100)
-  if (saleCents <= 0) return null
-  const collected = job.collected_cents ?? 0
-  if (collected >= saleCents) {
-    return { label: 'Paid in full', className: 'bg-emerald-50 text-emerald-800 border border-emerald-200' }
-  }
-  if (collected > 0) {
-    return { label: 'Partially paid', className: 'bg-amber-50 text-amber-800 border border-amber-200' }
-  }
-  return { label: 'Unpaid', className: 'bg-gray-50 text-gray-700 border border-gray-200' }
 }
 
 function matchesActiveSearch(job: OpsBoardJob, query: string): boolean {
@@ -247,6 +227,11 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability }: 
     base.sold = sortSoldColumn(base.sold)
     return base
   }, [filteredActiveJobs])
+
+  const onHoldJobs = useMemo(
+    () => filteredActiveJobs.filter((job) => job.status === 'on_hold'),
+    [filteredActiveJobs]
+  )
 
   const filteredCompletedJobs = useMemo(
     () =>
@@ -463,15 +448,38 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability }: 
           </div>
         </div>
 
+        {viewMode === 'board' && onHoldJobs.length > 0 && (
+          <div className={`mb-4 rounded-lg border ${JOB_STATUS_CONFIG.on_hold.panelClass}`}>
+            <div className="p-3 border-b border-orange-200 flex items-center justify-between">
+              <h3 className={`font-semibold ${JOB_STATUS_CONFIG.on_hold.color}`}>On Hold</h3>
+              <span className={`text-sm font-medium ${JOB_STATUS_CONFIG.on_hold.color}`}>{onHoldJobs.length}</span>
+            </div>
+            <div className="p-3 grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-3">
+              {onHoldJobs.map((job) => (
+                <OpsBoardJobCard
+                  key={job.id}
+                  job={job}
+                  onNavigateToJob={navigateToJob}
+                  onOpenSnapshot={setSnapshotJob}
+                  onSchedule={openJobCrews}
+                  onStartMaterials={onBoardStartMaterials}
+                  onMarkOrdered={onBoardMarkOrdered}
+                  onJobStatus={updateJobStatus}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
         {viewMode === 'board' && (
           <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
             {(['sold', 'materials', 'scheduled', 'in_progress', 'complete'] as BoardColumnStatus[]).map((status) => {
-              const config = statusConfig[status]
+              const config = JOB_STATUS_CONFIG[status]
               const statusJobs = jobsByBoardStatus[status]
 
               return (
-                <div key={status} className={`rounded-lg border ${config.bgColor}`}>
-                  <div className={`p-3 border-b ${config.bgColor}`}>
+                <div key={status} className={`rounded-lg border ${config.panelClass}`}>
+                  <div className={`p-3 border-b ${config.panelClass}`}>
                     <div className="flex items-center justify-between">
                       <h3 className={`font-semibold ${config.color}`}>{config.label}</h3>
                       <span className={`text-sm font-medium ${config.color}`}>{statusJobs.length}</span>
@@ -512,8 +520,8 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability }: 
           <>
             <div className="md:hidden space-y-3">
               {filteredActiveJobs.map((job) => {
-                const config = statusConfig[job.status]
-                const isPastDue = job.scheduled_date && new Date(job.scheduled_date + 'T23:59:59') < new Date() && job.status !== 'complete' && job.status !== 'collected'
+                const config = jobStatusConfig(job.status)
+                const isPastDue = isJobPastDue(job)
                 const needsMaterials = job.materials_status === 'not_ordered'
                 const payChip = paymentStatusChip(job)
                 return (
@@ -526,7 +534,7 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability }: 
                         </p>
                         <p className="text-sm text-gray-500 truncate">{job.address_text}</p>
                       </div>
-                      <span className={`shrink-0 text-xs px-2 py-1 rounded-full ${config.bgColor} ${config.color}`}>
+                      <span className={`shrink-0 text-xs px-2 py-1 rounded-full ${config.pillClass} ${config.color}`}>
                         {config.label}
                       </span>
                     </div>
@@ -619,7 +627,7 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability }: 
               </thead>
               <tbody className="divide-y">
                 {filteredActiveJobs.map(job => {
-                  const config = statusConfig[job.status]
+                  const config = jobStatusConfig(job.status)
                   const materials = materialsConfig[job.materials_status] || materialsConfig.not_ordered
                   const priority = priorityConfig[job.priority] || priorityConfig.normal
                   const profitability = getProfitability(job)
@@ -657,7 +665,7 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability }: 
                         </span>
                       </td>
                       <td className="px-4 py-3">
-                        <span className={`text-xs px-2 py-1 rounded-full ${config.bgColor} ${config.color}`}>
+                        <span className={`text-xs px-2 py-1 rounded-full ${config.pillClass} ${config.color}`}>
                           {config.label}
                         </span>
                       </td>

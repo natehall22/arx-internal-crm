@@ -1,4 +1,11 @@
-export type JobStatus = 'sold' | 'materials' | 'scheduled' | 'in_progress' | 'complete' | 'collected'
+export type JobStatus =
+  | 'sold'
+  | 'materials'
+  | 'scheduled'
+  | 'in_progress'
+  | 'complete'
+  | 'collected'
+  | 'on_hold'
 
 /** Shape used by /ops board + list (subset of production_jobs + joins). */
 export interface OpsBoardJob {

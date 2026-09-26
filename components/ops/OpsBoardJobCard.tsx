@@ -9,25 +9,13 @@ import {
   opsJobCompletionCertificateHref,
 } from '@/lib/ops-completion-cert-link'
 import type { JobStatus, OpsBoardJob } from '@/lib/ops-board-types'
+import { isJobPastDue, paymentStatusChip } from '@/lib/ops-job-status'
 import { computeRoofSquaresEquation, formatSqPart } from '@/lib/roof-squares-equation'
 
 const priorityConfig: Record<string, { icon: string; color: string }> = {
   urgent: { icon: '🔴', color: 'text-red-600' },
   high: { icon: '🟠', color: 'text-orange-600' },
   normal: { icon: '', color: 'text-gray-600' },
-}
-
-function paymentStatusChip(job: OpsBoardJob): { label: string; className: string } | null {
-  const saleCents = Math.round((job.sale_amount || 0) * 100)
-  if (saleCents <= 0) return null
-  const collected = job.collected_cents ?? 0
-  if (collected >= saleCents) {
-    return { label: 'Paid in full', className: 'bg-emerald-50 text-emerald-800 border border-emerald-200' }
-  }
-  if (collected > 0) {
-    return { label: 'Partially paid', className: 'bg-amber-50 text-amber-800 border border-amber-200' }
-  }
-  return { label: 'Unpaid', className: 'bg-gray-50 text-gray-700 border border-gray-200' }
 }
 
 export interface OpsBoardJobCardProps {
@@ -86,11 +74,7 @@ function OpsBoardJobCardInner({
   const needsMaterials = job.materials_status === 'not_ordered'
   // Scheduled but nobody is going: installs go to subcontractors now, not crews.
   const needsAssignee = job.scheduled_date && !job.assigned_crew && !job.assigned_sub
-  const isPastDue =
-    job.scheduled_date &&
-    new Date(job.scheduled_date + 'T23:59:59') < new Date() &&
-    job.status !== 'complete' &&
-    job.status !== 'collected'
+  const isPastDue = isJobPastDue(job)
 
   return (
     <div
