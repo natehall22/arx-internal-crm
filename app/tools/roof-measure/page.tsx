@@ -118,7 +118,7 @@ interface RoofFacet {
   facing_azimuth_degrees?: number | null
   suggested_azimuth_degrees?: number | null
   drain_azimuth_degrees?: number | null
-  drain_azimuth_source?: 'footprint_auto' | 'manual' | 'solar_hint'
+  drain_azimuth_source?: 'footprint_auto' | 'manual' | 'solar_hint' | 'dsm'
   suggested_drain_azimuth_degrees?: number | null
   section_type?: SectionType  // Optional classification for multi-level roofs
   suggested_pitch?: string | null
@@ -2022,6 +2022,10 @@ export default function RoofMeasurePage() {
         lidar_plane_id: draft.lidar_plane_id ?? null,
         lidar_eave_lf: draft.lidar_eave_lf ?? null,
         lidar_rake_lf: draft.lidar_rake_lf ?? null,
+        // Lidar measured which way the plane drains; don't guess it from the outline.
+        ...(geometrySource === 'lidar_plane' && typeof facingAz === 'number'
+          ? { drain_azimuth_degrees: facingAz, drain_azimuth_source: 'dsm' as const }
+          : {}),
         dsm_median_height_m:
           typeof draft.dsm_median_height_m === 'number' ? draft.dsm_median_height_m : null,
         pitch_suggested_from_dsm:

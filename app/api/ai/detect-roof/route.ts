@@ -6,8 +6,10 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { loadBuildingPointsNear } from '@/lib/lidar/building-points'
 import { measureRoofFromLidar } from '@/lib/lidar/roof-planes'
 import { LIDAR_FACET_SOURCE, lidarRoofToEdges, lidarRoofToFacets } from '@/lib/lidar/roof-facets'
+import { registerOutlinesToImage } from '@/lib/lidar/image-register'
 import { getBitmapDimensionsFromBase64 } from '@/lib/png-dimensions-from-base64'
-import { computeStaticLogicalSize, fetchStaticSatelliteMapBase64 } from '@/lib/static-satellite-map'
+import sharp from 'sharp'
+import { computeStaticLogicalSize, fetchStaticSatelliteMapBase64, staticMapImageBounds } from '@/lib/static-satellite-map'
 import { ROOF_MEASURE_LIDAR_ENABLED, ROOF_MEASURE_VISION_TRACE_ENABLED } from '@/lib/roof-measure-flags'
 import {
   buildSolarBboxFacetPayloads,
@@ -20,6 +22,9 @@ import {
 } from '@/lib/solar-roof-mask-facets'
 import { isPlaceholderVisionFacet, isStackedBandVisionTrace } from '@/lib/roof-vision-quality'
 import { fetchSolarDataLayerUrls, sampleDsmForFacetVertices } from '@/lib/solar-dsm'
+
+/** Lidar planes + photo alignment + Solar fallback can run several seconds on complex roofs. */
+export const maxDuration = 60
 
 type PixelPoint = [number, number]
 
@@ -1382,10 +1387,38 @@ export async function POST(request: Request) {
       // storage hiccup) falls through to the Solar path below unchanged.
       if (ROOF_MEASURE_LIDAR_ENABLED) {
         try {
-          const lidar = await loadBuildingPointsNear(admin, requestedCenter.lat, requestedCenter.lng)
-          const roof = lidar.status === 'ok' ? measureRoofFromLidar(lidar.points) : null
-          const lidarFacets = roof ? lidarRoofToFacets(roof, requestedCenter.lat, requestedCenter.lng) : []
-          if (roof && lidarFacets.length > 0) {
+          // The map centre first; if no building sits under it (the pin is on the yard or
+          // street), retry at Google's building centre for this address.
+          const anchor = solarContext.anchor
+          const pins = [requestedCenter]
+          if (anchor && distanceMeters(requestedCenter, anchor) > 5 && distanceMeters(requestedCenter, anchor) < 40) pins.push(anchor)
+          let lidar: Awaited<ReturnType<typeof loadBuildingPointsNear>> | null = null
+          let roof: ReturnType<typeof measureRoofFromLidar> = null
+          let pin = requestedCenter
+          for (const candidate of pins) {
+            lidar = await loadBuildingPointsNear(admin, candidate.lat, candidate.lng)
+            roof = lidar.status === 'ok' ? measureRoofFromLidar(lidar.points) : null
+            pin = candidate
+            if (roof || lidar.status !== 'ok') break
+          }
+          // Line the sections up with the photo the rep edits on (survey vs imagery drift).
+          let shift = { eastM: 0, northM: 0 }
+          if (roof) {
+            try {
+              const zoom = 21
+              const photo = Buffer.from(await fetchStaticSatelliteMapBase64({ lat: pin.lat, lng: pin.lng, zoom, sizeW: 640, sizeH: 640 }), 'base64')
+              const bounds = staticMapImageBounds(pin.lat, pin.lng, zoom, 640, 640)
+              const meta = await sharp(photo).metadata()
+              const widthPx = meta.width ?? 1280
+              const mpp = ((bounds.east - bounds.west) * 111_320 * Math.cos((pin.lat * Math.PI) / 180)) / widthPx
+              const reg = await registerOutlinesToImage({ outlines: roof.planes.map((p) => p.outline), image: photo, metersPerPixel: mpp })
+              if (reg.confident) shift = { eastM: reg.eastM, northM: reg.northM }
+            } catch (regError) {
+              console.warn('[detect-roof] lidar photo alignment skipped', regError)
+            }
+          }
+          const lidarFacets = roof ? lidarRoofToFacets(roof, pin.lat, pin.lng, shift) : []
+          if (lidar && roof && lidarFacets.length > 0) {
             const surveyYear = lidar.status === 'ok' && lidar.collectedEnd ? lidar.collectedEnd.slice(0, 4) : null
             return NextResponse.json({
               facets: lidarFacets,
@@ -1406,7 +1439,7 @@ export async function POST(request: Request) {
               openai_calls: 0,
             })
           }
-          console.info('[detect-roof] lidar unavailable; using Solar', { status: lidar.status, planes: roof?.planes.length ?? 0 })
+          console.info('[detect-roof] lidar unavailable; using Solar', { status: lidar?.status, planes: roof?.planes.length ?? 0 })
         } catch (lidarError) {
           console.warn('[detect-roof] lidar failed; using Solar', lidarError)
         }

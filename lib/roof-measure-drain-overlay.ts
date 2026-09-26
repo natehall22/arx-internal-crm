@@ -14,10 +14,10 @@ export type FacetDrainFields = {
   section_type?: string
 }
 
-/** Matches classifier precedence: manual drain when source=manual, else footprint auto. */
+/** Matches classifier precedence: manual or measured (lidar) drain when set, else footprint auto. */
 export function displayFacetDrainAzimuth(facet: FacetDrainFields, allFacets: FacetDrainFields[]): number {
   if (
-    facet.drain_azimuth_source === 'manual' &&
+    (facet.drain_azimuth_source === 'manual' || facet.drain_azimuth_source === 'dsm') &&
     facet.drain_azimuth_degrees != null &&
     Number.isFinite(facet.drain_azimuth_degrees)
   ) {
@@ -42,6 +42,8 @@ export function drainSourceLabel(source?: DrainAzimuthSource): string {
       return 'manual'
     case 'solar_hint':
       return 'Solar hint'
+    case 'dsm':
+      return 'measured (lidar)'
     default:
       return 'from outline'
   }

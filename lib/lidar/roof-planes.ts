@@ -15,7 +15,7 @@
  *
  * Scored against carrier reports with scripts/lidar-roof-eval.ts (2026-09-26, 5 roofs):
  * squares within ~5% (Corriher 74.7 vs 74.02), ridge+hip cap ~14%, ridge ~12%.
- * Pure and deterministic (seeded RNG) so results are repeatable.
+ * Pure and deterministic: seeded RANSAC, run over several fixed seeds by measureRoofFromLidar.
  */
 
 export type LocalPoint = { x: number; y: number; z: number }
@@ -124,7 +124,7 @@ function buildingUnderPin(points: LocalPoint[]): { pts: LocalPoint[]; footprintC
   return { pts: Array.from(comp).flatMap((k) => occ.get(k)!), footprintCells: comp.size }
 }
 
-export function measureRoofFromLidar(
+function measureRoofOnce(
   points: LocalPoint[],
   opts: { toleranceM?: number; minPlaneAreaM2?: number; seed?: number } = {}
 ): LidarRoofResult | null {
@@ -181,7 +181,9 @@ export function measureRoofFromLidar(
       if (patch.length > bestPatch.length) bestPatch = patch
     }
     const patchPts = bestPatch.flatMap((k) => cells.get(k)!)
-    const taken = new Set<LocalPoint>(patchPts.length >= minPts ? patchPts : inliers)
+    // Only the patch leaves the pool — the plane's other inliers may be separate faces that
+    // are coplanar with it, and must stay available to be found as their own planes.
+    const taken = new Set<LocalPoint>(patchPts)
     if (patchPts.length >= minPts) {
       found.push(fitPlane(patchPts) ?? refined)
       members.push(patchPts)
@@ -189,6 +191,29 @@ export function measureRoofFromLidar(
     pool = pool.filter((p) => !taken.has(p))
   }
   if (found.length === 0) return null
+
+  // ── 2b. work in the house's own frame ────────────────────────────────────────
+  // Roof planes drain square to the walls, so their drain directions cluster at one angle
+  // (mod 90°). Rotating so the walls run along the grid axes turns staircase outlines into
+  // straight ones. Circular mean of 4× the angle folds the four drain directions together.
+  let sx4 = 0, sy4 = 0
+  found.forEach((c, i) => {
+    const phi = Math.atan2(-c[1], -c[0]) // math angle of the drain direction
+    const w = members[i].length * Math.hypot(c[0], c[1]) // flat planes say nothing about walls
+    sx4 += w * Math.cos(4 * phi)
+    sy4 += w * Math.sin(4 * phi)
+  })
+  const theta = Math.atan2(sy4, sx4) / 4
+  const cosT = Math.cos(theta), sinT = Math.sin(theta)
+  const toFrame = (p: LocalPoint): LocalPoint => ({ x: p.x * cosT + p.y * sinT, y: -p.x * sinT + p.y * cosT, z: p.z })
+  const rotated = new Map<LocalPoint, LocalPoint>()
+  for (const p of pts) rotated.set(p, toFrame(p))
+  pts.splice(0, pts.length, ...pts.map((p) => rotated.get(p)!))
+  for (let i = 0; i < members.length; i++) members[i] = members[i].map((p) => rotated.get(p) ?? toFrame(p))
+  for (let i = 0; i < found.length; i++) {
+    const [a, b, c] = found[i]
+    found[i] = [a * cosT + b * sinT, -a * sinT + b * cosT, c]
+  }
 
   // ── 3. merge near-duplicates (normals ≤ 6°, surfaces ≤ 0.25 m apart) ──────────
   const normalAngle = (p: Coef, q: Coef) => {
@@ -351,7 +376,11 @@ export function measureRoofFromLidar(
     const dihedral = (Math.acos(Math.min(1, cosAng)) * 180) / Math.PI
     const edgeSlope = (Math.atan(Math.abs(d[2])) * 180) / Math.PI
     let type: LidarEdgeType
-    if (medianGap > 0.35 || dihedral < 8) type = 'step'
+    // A clear convex/concave vote means the planes fold into each other even when their
+    // extrapolated heights disagree a little at the seam (fits drift near edges); only a big
+    // gap with no clear fold is a true step (upper roof over lower).
+    const clearFold = Math.max(convex, concave) >= samples.length * 0.6 && Math.min(convex, concave) <= samples.length * 0.15
+    if (dihedral < 8 || medianGap > (clearFold ? 0.9 : 0.35)) type = 'step'
     else if (convex >= concave * 2 && convex >= samples.length * 0.4) {
       // A ridge runs level; a hip descends at roughly pitch/√2 — judge against the flatter plane.
       type = edgeSlope < Math.max(3, Math.min(A.pitchDegrees, B.pitchDegrees) * 0.35) ? 'ridge' : 'hip'
@@ -404,6 +433,16 @@ export function measureRoofFromLidar(
       if (side === 'eave+') pl.eaveM += span(vals)
       else pl.rakeM += span(vals) / cos // rakes run up the slope: true length = plan ÷ cos(pitch)
     }
+  }
+
+  // ── back to the original (east/north) frame for everything callers see ───────
+  for (const pl of planes) {
+    const a = pl.a * cosT - pl.b * sinT
+    const b = pl.a * sinT + pl.b * cosT
+    pl.a = a
+    pl.b = b
+    pl.drainAzimuthDegrees = (((Math.atan2(-a, -b) * 180) / Math.PI) + 360) % 360
+    pl.outline = pl.outline.map((q) => ({ x: q.x * cosT - q.y * sinT, y: q.x * sinT + q.y * cosT }))
   }
 
   const sumLf = (t: LidarEdgeType) => Math.round(edges.filter((e) => e.type === t).reduce((s, e) => s + e.lengthM, 0) * M_TO_FT)
@@ -474,7 +513,8 @@ function outlineOfCells(cellKeys: string[]): { x: number; y: number }[] {
     }
   }
   const pts = bestLoop.map(([i, j]) => ({ x: i * CELL, y: j * CELL }))
-  return douglasPeucker(pts, 0.35)
+  // 0.45 m: removes the half-cell steps left on diagonal (hip) edges, keeps real corners
+  return douglasPeucker(pts, 0.45)
 }
 
 function douglasPeucker(ring: { x: number; y: number }[], tol: number): { x: number; y: number }[] {
@@ -501,4 +541,38 @@ function douglasPeucker(ring: { x: number; y: number }[], tol: number): { x: num
   const first = simplify(ring.slice(0, far + 1))
   const second = simplify([...ring.slice(far), ring[0]])
   return [...first.slice(0, -1), ...second.slice(0, -1)]
+}
+
+/** Seeds for the ensemble — fixed, so the same points always give the same roof. */
+const ENSEMBLE_SEEDS = [12345, 1, 2, 3, 4, 5, 6]
+
+/**
+ * Measure a roof from lidar building points.
+ *
+ * RANSAC is the most accurate plane finder we tested, but one run's lines swing with the
+ * random samples (Corriher's ridge+hip ranged 226–328 ft over 8 seeds on identical points,
+ * while squares stayed within 1%). So it runs over fixed seeds and returns the run whose
+ * totals sit closest to the median of all runs: repeatable, far steadier, and still one
+ * self-consistent set of planes/sections. Region growing was tried as the deterministic
+ * alternative and split real faces, reading ridges ~20% short (2026-09-26).
+ */
+export function measureRoofFromLidar(
+  points: LocalPoint[],
+  opts: { toleranceM?: number; minPlaneAreaM2?: number; seeds?: number[] } = {}
+): LidarRoofResult | null {
+  const runs = (opts.seeds ?? ENSEMBLE_SEEDS)
+    .map((seed) => measureRoofOnce(points, { ...opts, seed }))
+    .filter((r): r is LidarRoofResult => r != null)
+  if (runs.length === 0) return null
+  const keys: (keyof LidarRoofResult['totals'])[] = ['squares', 'ridgeLf', 'hipLf', 'valleyLf', 'eaveLf', 'rakeLf']
+  const median = (xs: number[]) => { const v = xs.slice().sort((a, b) => a - b); return v[Math.floor(v.length / 2)] }
+  const med = Object.fromEntries(keys.map((k) => [k, median(runs.map((r) => r.totals[k]))])) as Record<string, number>
+  const scale = Object.fromEntries(keys.map((k) => [k, Math.max(1, med[k])])) as Record<string, number>
+  let best = runs[0]
+  let bestScore = Infinity
+  for (const r of runs) {
+    const score = keys.reduce((s, k) => s + Math.abs(r.totals[k] - med[k]) / scale[k], 0)
+    if (score < bestScore) { bestScore = score; best = r }
+  }
+  return best
 }

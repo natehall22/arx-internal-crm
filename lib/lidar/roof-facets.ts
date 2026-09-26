@@ -41,9 +41,19 @@ export function lidarRoofToEdges(roof: LidarRoofResult): LidarEdgePayload[] {
     .map((e) => ({ type: e.type, lf: Math.round(e.lengthM * 3.28084 * 10) / 10, a: e.planeA, b: e.planeB }))
 }
 
-export function lidarRoofToFacets(roof: LidarRoofResult, pinLat: number, pinLng: number): LidarFacetPayload[] {
+/**
+ * @param shiftM optional east/north offset (metres) that lines the outlines up with the
+ *   satellite photo (lib/lidar/image-register.ts). Moves where sections are drawn only.
+ */
+export function lidarRoofToFacets(
+  roof: LidarRoofResult,
+  pinLat: number,
+  pinLng: number,
+  shiftM: { eastM: number; northM: number } = { eastM: 0, northM: 0 }
+): LidarFacetPayload[] {
   const [px, py] = wgs84ToNcFt(pinLat, pinLng)
-  const toLatLng = (x: number, y: number) => ncFtToWgs84(px + x / US_SURVEY_FOOT_M, py + y / US_SURVEY_FOOT_M)
+  const toLatLng = (x: number, y: number) =>
+    ncFtToWgs84(px + (x + shiftM.eastM) / US_SURVEY_FOOT_M, py + (y + shiftM.northM) / US_SURVEY_FOOT_M)
   return roof.planes
     .filter((p) => p.flatAreaM2 * M2_TO_SQFT >= MIN_SECTION_SQFT && p.outline.length >= 3)
     .map((p) => {

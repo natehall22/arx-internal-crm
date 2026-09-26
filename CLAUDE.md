@@ -126,6 +126,26 @@ that file rather than extending the pattern.
 - **Weather overlay Phase 2** — Phase 1 + Phase 2 merged (PR #3, #4). The 8 Bugbot items (stale-warning clearing, error-as-empty `degraded` flag, swath read/ingest caps, response-cache expiry, atomic swath replace, clear-day orphans, ingest size guard) are **fixed in PR #5** (`feat/weather-phase2-bugfixes`) — verify on merge. No open weather-code debt after that. Prod flag `NEXT_PUBLIC_CANVASS_WEATHER_OVERLAY` stays OFF until the human deploy checklist (GitHub/Vercel secrets, 4th cron, migration-history reconcile, MRMS backfill, preview field QA) is done — see `docs/canvass-weather-overlay-phase2-verification.md`. Claims-safe copy ("est.", "recorded", etc.) is enforced in code; not a separate legal gate. Separate open question (non-weather): confirm the `info@` feedback-routing + canvass "Report Issue" change bundled in commit `22e6ab5` is intended org-wide.
 - **Sold add-ons missing from the materials-ORDER flow (not just the brief)** — 2026-07-15: `components/ops/JobRoofingBrief.tsx` "Job materials brief" card now shows sold proposal adders (Gutters, Decking, Siding, Skylights, Chimney, Ventilation category — from `proposal_line_items` where `is_adder=true`, surfaced via `formatSoldAddOns()` in `lib/job-roofing-brief.ts`), fixing a bug where e.g. Ashley Gaines' job (26-0026, proposal P-00118, 306 LF Seamless Gutters + fascia board + OSB + siding) showed no gutters at all. **This was a display-only fix.** The actual materials-*ordering* system (`job_material_order_overrides` table, `/api/jobs/[id]/material-order`, `job_product_orders` table) still only tracks core roofing materials computed from roof measurements (`lib/materials-order-list.ts`: field shingles, starter, hip/ridge cap, ridge vent, underlayment, ice & water, drip edge, step/wall flashing, pipe boots) — it has no path for sold adders at all. So a sold "Gutters" or "Decking" line can now be *seen* on the job page but still won't flow into whatever ops uses to actually place the supplier order. Before touching `job_material_order_overrides`/`job_product_orders`/the ordering UI, trace where ops actually places material orders today (manually off the proposal, or via `job_product_orders`?) and confirm whether adders need to join that flow or whether the ops team already treats "Sold add-ons" as sufficient at-a-glance visibility.
 
+## In-house roof measure from USGS lidar (2026-09-26)
+Nathan's goal: measure complex roofs ourselves — **no paid EagleView/Hover reports.** "Load roof"
+(`/api/ai/detect-roof`, solar mode) now tries lidar first and falls back to the Google Solar path.
+- **Data:** free USGS 3DEP lidar, NC Phase 4 (2016–17, QL1). Registry in `lib/lidar/sources.ts`.
+  USGS serves ~110 MB LAZ tiles at ~300 KB/s, so `npm run lidar:ingest -- plan|run|status` (runs on
+  any machine with the service key in `.env.local`; no paid compute) extracts building points once into
+  the private `lidar-buildings` bucket (`lib/lidar/tile-store.ts`, ~2–3 MB/tile) and tracks tiles in
+  `lidar_tiles`. `plan` queues only tiles holding our opportunities/measurements/leads — re-run it as
+  new territory comes in. Coordinates stay in NC State Plane ftUS (EPSG:6543).
+- **Geometry:** `lib/lidar/roof-planes.ts` — RANSAC planes over 7 fixed seeds, medoid run (one run's
+  lines swing ±20% with the random samples); 0.5 m label grid in the house's own frame; lines typed in
+  3D (ridge/hip/valley/step) + eaves and sloped rakes. `lib/lidar/image-register.ts` shifts outlines
+  onto the satellite photo (imagery drifts 0.5–3.6 m from survey truth); shapes/lengths unchanged.
+- **Page:** sections load as normal drafts (`geometry_source: 'lidar_plane'`, measured downslope
+  `drain_azimuth_source: 'dsm'`). Their lines come from lidar (`lidar_edges`, saved in raw_data) only
+  while every section is an unedited lidar plane; an edit hands the geometry back to the 2D classifier.
+- **Accuracy vs carrier reports** (`npm run lidar:eval`, 9 roofs): squares ~5%, ridge+hip ~17%, ridge ~14%.
+- **Limits:** anything built after the 2016–17 survey is missing (the "section may be missing" note
+  helps); tiles not yet ingested fall back to Solar silently. Kill switch: `ROOF_MEASURE_LIDAR=false`.
+
 ## Install Scheduling — crews per trade (2026-09-15)
 A job's crews are **trades**: one `work_orders` row per trade (`trade` = roofing | gutters |
 siding | windows | other, `work_order_type='install'`), each with its own sub, date, length
