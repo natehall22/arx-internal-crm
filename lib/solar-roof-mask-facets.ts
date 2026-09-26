@@ -51,6 +51,8 @@ const MAX_LABEL_OPS = 35_000_000
 const MIN_RING_AREA_PX = 80
 const MIN_SPLIT_RING_AREA_PX = 55
 const MAX_FACETS = 6
+/** Most planes a split may ship. Env override is for offline evals only. */
+const MAX_SPLIT_PLANES = Number(process.env.ROOF_MASK_MAX_SPLIT_PLANES) || MAX_FACETS
 const MAX_SEGMENTS_FOR_SPLIT = 22
 const MAX_SPLIT_FACETS_OUTPUT = 16
 /** Whole-roof / legacy multipolygon pick — keep UI light. */
@@ -2233,7 +2235,7 @@ function multiPlaneLinearizedRings(options: {
     }
     return null
   }
-  if (ordered.length < 3 || ordered.length > MAX_FACETS) return reject('plane_count')
+  if (ordered.length < 3 || ordered.length > MAX_SPLIT_PLANES) return reject('plane_count')
 
   const wholeRing = largestRing(
     contourRingsFromMask(bin, width, height, { smooth: false }).filter(
@@ -2430,7 +2432,7 @@ export function topologySimplifiedRings(options: {
     }
     return null
   }
-  if (ordered.length < 2 || ordered.length > MAX_FACETS) return reject('plane_count')
+  if (ordered.length < 2 || ordered.length > MAX_SPLIT_PLANES) return reject('plane_count')
   const scratch = new Float64Array(width * height)
   const temp = new Uint8Array(width * height)
   const locked = new Uint8Array(width * height)
@@ -2612,7 +2614,7 @@ export function topologyPartitionRings(options: {
     }
     return null
   }
-  if (ordered.length < 2 || ordered.length > MAX_FACETS) return reject('plane_count')
+  if (ordered.length < 2 || ordered.length > MAX_SPLIT_PLANES) return reject('plane_count')
 
   // --- Stage 1: exclusive-locked exact ring per plane (mirrors topologySimplifiedRings). ---
   const scratch = new Float64Array(width * height)
@@ -3336,7 +3338,7 @@ export async function tryFacetPayloadsFromSolarRoofMask(options: {
           nearest_split_m: nearestDist,
         })
         // Try whole-roof before giving up on this query.
-      } else if (splitOut.length > MAX_FACETS) {
+      } else if (splitOut.length > MAX_SPLIT_PLANES) {
         // Over-segmented after consolidation (too many planes to ship as a clean split). Fall
         // through to the whole-mask contour — a clean outline + robust full-coverage total — in
         // preference to a rough Solar bbox. The save gate still requires a rep to split faces
