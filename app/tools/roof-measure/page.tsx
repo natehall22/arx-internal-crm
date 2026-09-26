@@ -70,6 +70,7 @@ import {
   showMeasurementsButtonClass,
 } from '@/lib/roof-measure-layout'
 import { RoofFineTuneEditor } from '@/components/RoofFineTuneEditor'
+import type { LidarEdgePayload } from '@/lib/lidar/roof-facets'
 import {
   checkSolarFootprintOverlap,
   isManuallyDrawnFacet,
@@ -125,6 +126,10 @@ interface RoofFacet {
   solar_segment_index?: number | null
   plane_height_at_center_meters?: number | null
   suggested_sloped_area_sqft?: number | null
+  /** Set on sections loaded from lidar: the plane they came from, and its own eave/rake LF. */
+  lidar_plane_id?: number | null
+  lidar_eave_lf?: number | null
+  lidar_rake_lf?: number | null
   dsm_median_height_m?: number | null
   pitch_suggested_from_dsm?: number | null
   dsm_available?: boolean
@@ -200,6 +205,8 @@ interface MeasurementData {
   solar_ground_footprint_sqft?: number | null
   /** Google footprint (sq ft) for the building under the drawn roof — missing-section check. */
   solar_coverage_ground_sqft?: number | null
+  /** Plane-to-plane lines from lidar (ridge/hip/valley between plane ids) — see lib/lidar/roof-facets.ts. */
+  lidar_edges?: LidarEdgePayload[] | null
   manual_draw_facet_count?: number
   overlap_override?: {
     acknowledged_at: string
@@ -223,6 +230,10 @@ interface AIDraftSection {
   solar_segment_index?: number | null
   plane_height_at_center_meters?: number | null
   suggested_sloped_area_sqft?: number | null
+  /** Set on sections loaded from lidar: the plane they came from, and its own eave/rake LF. */
+  lidar_plane_id?: number | null
+  lidar_eave_lf?: number | null
+  lidar_rake_lf?: number | null
   dsm_median_height_m?: number | null
   pitch_suggested_from_dsm?: number | null
   dsm_available?: boolean
@@ -373,6 +384,8 @@ function geometrySourceLabel(source: string | null | undefined): string | null {
       return 'Edited outline'
     case 'ai_draft':
       return 'Satellite draft'
+    case 'lidar_plane':
+      return 'Lidar (measured)'
     default:
       return source ? String(source).replaceAll('_', ' ') : null
   }
@@ -545,6 +558,8 @@ export default function RoofMeasurePage() {
    * would false-alarm on hand-drawn roofs (their eave overhang reads 5–17% over).
    */
   const solarCoverageRef = useRef<{ lat: number; lng: number; sqft: number | null } | null>(null)
+  /** Lines between lidar planes from the last lidar "Load roof" (or the reopened save). */
+  const lidarEdgesRef = useRef<LidarEdgePayload[] | null>(null)
   const solarCoverageInFlightRef = useRef<string | null>(null)
   /**
    * Last `/api/ai/detect-roof` `facet_source` (solar_mask_plane, vision, …), updated synchronously so
@@ -855,6 +870,7 @@ export default function RoofMeasurePage() {
         return facet
       })
     const restoredFeatures = (saved.linear_features || []).filter((feature) => feature.points?.length >= 2)
+    lidarEdgesRef.current = Array.isArray(saved.lidar_edges) ? saved.lidar_edges : null
     if (restoredFacets.length === 0 && restoredFeatures.length === 0) return false
 
     polygonsRef.current.forEach((polygon) => polygon.setMap(null))
@@ -1736,6 +1752,8 @@ export default function RoofMeasurePage() {
         solarGroundFootprintReferenceRef.current = data.solar_ground_footprint_sqft
       }
 
+      lidarEdgesRef.current = Array.isArray(data.lidar_edges) ? (data.lidar_edges as LidarEdgePayload[]) : null
+
       const apiFacets =
         Array.isArray(data.facets) && data.facets.length > 0
           ? data.facets
@@ -1757,6 +1775,9 @@ export default function RoofMeasurePage() {
           typeof facet.suggested_sloped_area_sqft === 'number'
             ? Number(facet.suggested_sloped_area_sqft)
             : null,
+        lidar_plane_id: typeof facet.lidar_plane_id === 'number' ? facet.lidar_plane_id : null,
+        lidar_eave_lf: typeof facet.lidar_eave_lf === 'number' ? facet.lidar_eave_lf : null,
+        lidar_rake_lf: typeof facet.lidar_rake_lf === 'number' ? facet.lidar_rake_lf : null,
         dsm_median_height_m:
           typeof facet.dsm_median_height_m === 'number' ? Number(facet.dsm_median_height_m) : null,
         pitch_suggested_from_dsm:
@@ -1998,6 +2019,9 @@ export default function RoofMeasurePage() {
           typeof draft.suggested_sloped_area_sqft === 'number'
             ? draft.suggested_sloped_area_sqft
             : null,
+        lidar_plane_id: draft.lidar_plane_id ?? null,
+        lidar_eave_lf: draft.lidar_eave_lf ?? null,
+        lidar_rake_lf: draft.lidar_rake_lf ?? null,
         dsm_median_height_m:
           typeof draft.dsm_median_height_m === 'number' ? draft.dsm_median_height_m : null,
         pitch_suggested_from_dsm:
@@ -2866,6 +2890,31 @@ export default function RoofMeasurePage() {
       }
     }
 
+    // Lidar planes measured the lines in 3D. Use them while every section is still an
+    // unedited lidar plane; the moment a rep edits or hand-draws a section, the geometry is
+    // theirs and the 2D classifier takes over. Lines count only between sections still here,
+    // so deleting a neighbour's garage drops its lines too.
+    const lidarEdges = lidarEdgesRef.current
+    if (
+      lidarEdges &&
+      currentFacets.length > 0 &&
+      currentFacets.every((f) => f.geometry_source === 'lidar_plane' && typeof f.lidar_plane_id === 'number')
+    ) {
+      const present = new Set(currentFacets.map((f) => f.lidar_plane_id as number))
+      const between = (type: LidarEdgePayload['type']) =>
+        Math.round(lidarEdges.filter((e) => e.type === type && present.has(e.a) && present.has(e.b)).reduce((sum, e) => sum + e.lf, 0))
+      baseEdges = {
+        ...geoEdges,
+        ridges_lf: between('ridge'),
+        hips_lf: between('hip'),
+        valleys_lf: between('valley'),
+        eaves_lf: Math.round(currentFacets.reduce((sum, f) => sum + (f.lidar_eave_lf ?? 0), 0)),
+        rakes_lf: Math.round(currentFacets.reduce((sum, f) => sum + (f.lidar_rake_lf ?? 0), 0)),
+        unclassified_shared_lf: 0,
+      }
+      topologyNote = 'Linear footage measured from lidar roof planes (3D).'
+    }
+
     if (topologyNote) {
       validationNotes.push(topologyNote)
     }
@@ -3211,6 +3260,7 @@ export default function RoofMeasurePage() {
       solar_overlap_ratio: solarOverlap.ratio,
       solar_ground_footprint_sqft: solarRef,
       solar_coverage_ground_sqft: solarCoverageRef.current?.sqft ?? null,
+      lidar_edges: lidarEdgesRef.current,
       manual_draw_facet_count: manualDrawFacetCount,
     })
   }

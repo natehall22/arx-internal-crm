@@ -3,9 +3,12 @@ import OpenAI from 'openai'
 import { requireAuthApi } from '@/lib/auth'
 import { resolveSalesDocAccessBarred } from '@/lib/sales-doc-access'
 import { createServiceClient } from '@/lib/supabase/service'
+import { loadBuildingPointsNear } from '@/lib/lidar/building-points'
+import { measureRoofFromLidar } from '@/lib/lidar/roof-planes'
+import { LIDAR_FACET_SOURCE, lidarRoofToEdges, lidarRoofToFacets } from '@/lib/lidar/roof-facets'
 import { getBitmapDimensionsFromBase64 } from '@/lib/png-dimensions-from-base64'
 import { computeStaticLogicalSize, fetchStaticSatelliteMapBase64 } from '@/lib/static-satellite-map'
-import { ROOF_MEASURE_VISION_TRACE_ENABLED } from '@/lib/roof-measure-flags'
+import { ROOF_MEASURE_LIDAR_ENABLED, ROOF_MEASURE_VISION_TRACE_ENABLED } from '@/lib/roof-measure-flags'
 import {
   buildSolarBboxFacetPayloads,
   SOLAR_BBOX_ONLY_USER_NOTES,
@@ -1373,6 +1376,42 @@ export async function POST(request: Request) {
 
     /** Default path: Solar roof mask GeoTIFF when available — $0 LLM. */
     if (!useVision) {
+      // Lidar first: USGS 3DEP building points cached by scripts/lidar-ingest.ts give real
+      // roof planes on complex roofs, where the Solar mask gives up past 6 planes. Anything
+      // short of a clean result (tile not ingested yet, house built after the 2016–17 survey,
+      // storage hiccup) falls through to the Solar path below unchanged.
+      if (ROOF_MEASURE_LIDAR_ENABLED) {
+        try {
+          const lidar = await loadBuildingPointsNear(admin, requestedCenter.lat, requestedCenter.lng)
+          const roof = lidar.status === 'ok' ? measureRoofFromLidar(lidar.points) : null
+          const lidarFacets = roof ? lidarRoofToFacets(roof, requestedCenter.lat, requestedCenter.lng) : []
+          if (roof && lidarFacets.length > 0) {
+            const surveyYear = lidar.status === 'ok' && lidar.collectedEnd ? lidar.collectedEnd.slice(0, 4) : null
+            return NextResponse.json({
+              facets: lidarFacets,
+              ridges: [],
+              valleys: [],
+              step_flashing: [],
+              wall_flashing: [],
+              notes:
+                `Roof loaded from USGS lidar${surveyYear ? ` (${surveyYear} survey)` : ''}: ${lidarFacets.length} planes, ` +
+                `pitch and slope direction measured. Anything built after the survey won't be here — check for new additions.`,
+              solar_segments: solarSegments,
+              solar_ground_footprint_sqft: solarGroundFootprintSqFtEarly,
+              facet_source: LIDAR_FACET_SOURCE,
+              lidar_totals: roof.totals,
+              lidar_edges: lidarRoofToEdges(roof),
+              lidar_collected_end: lidar.status === 'ok' ? lidar.collectedEnd : null,
+              detection_mode: 'lidar',
+              openai_calls: 0,
+            })
+          }
+          console.info('[detect-roof] lidar unavailable; using Solar', { status: lidar.status, planes: roof?.planes.length ?? 0 })
+        } catch (lidarError) {
+          console.warn('[detect-roof] lidar failed; using Solar', lidarError)
+        }
+      }
+
       const mapsKey = process.env.GOOGLE_MAPS_API_KEY || process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
 
       let solarFacets: FacetResponsePayload[] = []

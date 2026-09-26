@@ -5,6 +5,12 @@
 export const ROOF_MEASURE_VISION_TRACE_ENABLED = false
 
 /**
+ * "Load roof" tries in-house lidar planes (lib/lidar/) before the Google Solar mask.
+ * On by default; set ROOF_MEASURE_LIDAR=false (server env) to switch it off without a deploy.
+ */
+export const ROOF_MEASURE_LIDAR_ENABLED = process.env.ROOF_MEASURE_LIDAR !== 'false'
+
+/**
  * Plane-intersection ridge/hip/valley LF (2.5D). Default off until Greenway calibration beats 2D in production.
  * Ops may set NEXT_PUBLIC_USE_PLANE_INTERSECTION_LF=true for staged testing only.
  */
