@@ -285,13 +285,44 @@ export async function DELETE(
     // Verify job exists and belongs to user's org
     const { data: existingJob, error: fetchError } = await adminClient
       .from('production_jobs')
-      .select('id, org_id, job_number')
+      .select('id, org_id, job_number, status, payroll_sent_at')
       .eq('id', params.id)
       .eq('org_id', profile.org_id)
       .single()
 
     if (fetchError || !existingJob) {
       return NextResponse.json({ error: 'Job not found' }, { status: 404 })
+    }
+
+    // Deleting is permanent, so it takes two deliberate steps: pause, then delete
+    // (Nathan, 2026-09-26). A dead deal should be cancelled instead, which keeps the
+    // record. Installed and cancelled jobs can't be paused, so they can't be deleted.
+    if (existingJob.status !== 'on_hold') {
+      return NextResponse.json(
+        { error: 'Pause the job before deleting it. If the deal fell through, use Cancel Job instead — it keeps the record.' },
+        { status: 409 }
+      )
+    }
+
+    // Deleting a job CASCADES to its payments, invoices and payroll rows. Never let a
+    // delete take money records with it — a job that has any must be cancelled instead.
+    const moneyChecks = await Promise.all(
+      ['job_payments', 'job_invoices', 'payroll_payout_lines', 'payroll_job_snapshots'].map((table) =>
+        adminClient.from(table).select('id', { count: 'exact', head: true }).eq('job_id', params.id)
+      )
+    )
+    const moneyCheckFailed = moneyChecks.some((r) => r.error)
+    const hasMoneyRecords = moneyChecks.some((r) => (r.count ?? 0) > 0)
+    if (moneyCheckFailed || hasMoneyRecords || existingJob.payroll_sent_at) {
+      if (moneyCheckFailed) console.error('DELETE job: money-record check failed', moneyChecks.map((r) => r.error))
+      return NextResponse.json(
+        {
+          error: moneyCheckFailed
+            ? 'Could not confirm this job has no payments or payroll records, so it was not deleted.'
+            : 'This job has payments or payroll records, so it cannot be deleted. Use Cancel Job instead — it keeps the record.',
+        },
+        { status: 409 }
+      )
     }
 
     // Delete the job

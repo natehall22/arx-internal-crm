@@ -1155,8 +1155,12 @@ export default function JobDetailClient({
     }
   }
 
+  // Delete is admin-only AND needs the job paused first — two deliberate steps for a
+  // permanent action. The API enforces the same rule.
+  const canDeletePausedJob = canDeleteProductionJob && job.status === 'on_hold'
+
   const deleteJob = async () => {
-    if (!confirm(`Are you sure you want to delete job ${job.job_number}? This action cannot be undone.`)) {
+    if (!confirm(`Permanently delete job ${job.job_number}? This cannot be undone.\n\nIf the deal fell through, use Cancel Job instead — it keeps the record.`)) {
       return
     }
 
@@ -1587,7 +1591,7 @@ export default function JobDetailClient({
               const overflowAllowed =
                 (job.status !== 'on_hold' && job.status !== 'complete' && job.status !== 'collected' && !isCancelled) ||
                 canCancelJob ||
-                canDeleteProductionJob
+                canDeletePausedJob
               return (
                 <>
                   {!isCancelled && renderWorkflowButton(job, primaryId, true, wfOpts)}
@@ -1620,7 +1624,7 @@ export default function JobDetailClient({
                             Cancel Job
                           </button>
                         )}
-                        {canDeleteProductionJob && (
+                        {canDeletePausedJob && (
                           <button
                             type="button"
                             onClick={() => {
@@ -1658,7 +1662,7 @@ export default function JobDetailClient({
               const overflowAllowed =
                 (job.status !== 'on_hold' && job.status !== 'complete' && job.status !== 'collected' && !isCancelled) ||
                 canCancelJob ||
-                canDeleteProductionJob
+                canDeletePausedJob
               return (
                 <>
                   {!isCancelled && (
@@ -1693,7 +1697,7 @@ export default function JobDetailClient({
                             Cancel Job
                           </button>
                         )}
-                        {canDeleteProductionJob && (
+                        {canDeletePausedJob && (
                           <button
                             type="button"
                             onClick={() => void deleteJob()}
