@@ -123,7 +123,7 @@ async function main() {
     const polys = facets.map((f) => `<polygon points="${f.lat_lng_vertices.map(px).join(' ')}" fill="#3B82F6" fill-opacity="0.25" stroke="white" stroke-width="2"/>`).join('')
     const color: Record<string, string> = { ridge: '#EF4444', hip: '#F59E0B', valley: '#10B981', eave: '#FFFFFF', rake: '#A855F7', unknown: '#000000' }
     const edges = classifyRoofEdges(toInput(true)).classifiedEdges
-      .map((e) => { const [x1, y1] = px(e.p1).split(','); const [x2, y2] = px(e.p2).split(','); return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${color[e.type]}" stroke-width="${e.facetIdB ? 7 : 3}"/>` })
+      .filter((e) => e.p1 && e.p2).map((e) => { const [x1, y1] = px(e.p1!).split(','); const [x2, y2] = px(e.p2!).split(','); return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${color[e.type]}" stroke-width="${e.facetIdB ? 7 : 3}"/>` })
       .join('')
     const legend = `<rect x="10" y="10" width="470" height="44" fill="#000" fill-opacity="0.7"/><text x="20" y="40" font-size="24" fill="#fff">${roof.label} — <tspan fill="#EF4444">ridge</tspan> <tspan fill="#F59E0B">hip</tspan> <tspan fill="#10B981">valley</tspan> <tspan fill="#A855F7">rake</tspan> eave</text>`
     const svg = Buffer.from(`<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">${polys}${edges}${legend}</svg>`)
