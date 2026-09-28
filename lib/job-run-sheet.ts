@@ -39,6 +39,7 @@ import {
   type JobMaterialOrderOverrideRow,
 } from '@/lib/materials-order-overrides'
 import { parseProjectReviewStored } from '@/lib/project-review'
+import { DEFAULT_TIMEZONE } from '@/lib/timezone'
 
 export const RUN_SHEET_FIELD_KEYS = [
   'schedule_note',
@@ -70,7 +71,7 @@ export const RUN_SHEET_FIELD_SOURCES: Record<RunSheetFieldKey, string> = {
   tear_off_and_decking: 'Project review → tear-off, layers & decking',
   accessories: 'Project review → accessories',
   add_ons_sold: 'Accepted proposal → adder line items, plus signed contract → additional products',
-  heads_up: 'Project review (HOA, site, open items), job instructions, crew notes, signed change orders',
+  heads_up: 'Project review (HOA, site, open items), job instructions, crew notes. Signed change orders always print after this.',
 }
 
 export type RunSheetField = {
@@ -293,7 +294,12 @@ export function toRunSheetChangeOrders(
     if (!body) continue
     const signed = row.customer_signed_at ?? row.signed_at
     const date = signed
-      ? new Date(signed).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+      ? new Date(signed).toLocaleDateString('en-US', {
+          month: 'short',
+          day: 'numeric',
+          // Rendered on the server (UTC); an evening Eastern signing must not print as the next day.
+          timeZone: DEFAULT_TIMEZONE,
+        })
       : null
     out.push({
       // co_number is already "CO-001"-shaped in prod; don't prefix it with another "#".
@@ -425,9 +431,6 @@ export async function buildJobRunSheet(
     pushHeadsUp(computedHeadsUp, 'Note for crew', clean(row.note))
   }
   const changeOrders = toRunSheetChangeOrders(changeOrdersRes.data ?? [])
-  for (const co of changeOrders) {
-    pushHeadsUp(computedHeadsUp, co.label, co.body)
-  }
 
   const fields: Record<RunSheetFieldKey, RunSheetField> = {
     schedule_note: makeField('schedule_note', null, overrides?.schedule_note ?? null),
@@ -459,9 +462,12 @@ export async function buildJobRunSheet(
   }
 
   const headsUpField = fields.heads_up
-  const headsUp: RunSheetHeadsUpBlock[] = headsUpField.override
-    ? [{ label: null, body: headsUpField.override }]
-    : computedHeadsUp
+  // Change orders are appended AFTER the (possibly ops-edited) heads-up, never folded into it: an
+  // ops edit to this box would otherwise hide every CO signed after it from the crew.
+  const headsUp: RunSheetHeadsUpBlock[] = [
+    ...(headsUpField.override ? [{ label: null, body: headsUpField.override }] : computedHeadsUp),
+    ...changeOrders.filter((co) => !headsUpField.override?.includes(co.body)),
+  ]
 
   const runningName =
     clean(crew?.name) || clean(sub?.company_name) || clean(sub?.contact_name) || 'Unassigned'

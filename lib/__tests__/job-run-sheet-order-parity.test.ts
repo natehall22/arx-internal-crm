@@ -102,3 +102,10 @@ describe('toRunSheetChangeOrders', () => {
     expect(toRunSheetChangeOrders([row('$450.00')])).toEqual([])
   })
 })
+
+it('dates a change order in Eastern time, not the server clock', () => {
+  const [co] = toRunSheetChangeOrders([
+    { co_number: 'CO-002', description: 'Garage roof', customer_signed_at: '2026-09-03T01:00:00Z', signed_at: null },
+  ])
+  expect(co.label).toBe('Change order CO-002 (signed Sep 2)')
+})
