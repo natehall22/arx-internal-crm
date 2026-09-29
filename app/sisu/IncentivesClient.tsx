@@ -1115,6 +1115,19 @@ function BadgesSection({
         </div>
       )}
 
+      {locked.length > 0 && (
+        <div className="mt-2">
+          <p className="text-xs text-gray-400 font-semibold uppercase tracking-widest mb-3">
+            Up for grabs · {locked.length}
+          </p>
+          <div className="grid grid-cols-2 gap-3">
+            {locked.map((b) => (
+              <BadgeItem key={b.id} badge={b} />
+            ))}
+          </div>
+        </div>
+      )}
+
     </section>
   )
 }
