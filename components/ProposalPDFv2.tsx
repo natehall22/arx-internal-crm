@@ -483,27 +483,27 @@ const createStyles = (theme: Theme) => {
     },
 
     // ========== WAYS TO PAY ==========
-    waysToPayLead: {
-      fontSize: f.base,
-      color: c.text,
-      lineHeight: 1.5,
-      marginBottom: s.lg,
-    },
-    waysToPayStack: {
-      gap: s.md,
+    // 2x2 grid: side-by-side options read as equal choices, not a ranked list.
+    waysToPayGrid: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      justifyContent: 'space-between',
     },
     waysToPayCard: {
-      width: '100%',
+      width: '48.5%',
       backgroundColor: c.cardBg,
       borderRadius: r.lg,
-      padding: s.lg,
+      padding: s.md,
       borderWidth: 1,
       borderColor: c.border,
+      borderTopWidth: 4,
+      borderTopColor: c.gold,
       marginBottom: s.md,
     },
-    waysToPayCardHeader: {
-      flexDirection: 'row',
-      alignItems: 'center',
+    waysToPayTitle: {
+      fontSize: f.lg,
+      fontFamily: 'Helvetica-Bold',
+      color: c.text,
       marginBottom: s.sm,
     },
     waysToPayBody: {
@@ -587,11 +587,27 @@ const createStyles = (theme: Theme) => {
       color: c.text,
       marginTop: s.xs,
     },
-    selectedPaymentLine: {
-      fontSize: f.base,
+    selectedPaymentBox: {
+      padding: s.md,
+      borderRadius: r.lg,
+      borderWidth: 2,
+      borderColor: c.gold,
+      alignItems: 'center',
+    },
+    selectedPaymentLabel: {
+      fontSize: f.sm,
+      color: c.textMuted,
+      marginBottom: s.xs,
+    },
+    selectedPaymentAmount: {
+      fontSize: f.xl,
       fontFamily: 'Helvetica-Bold',
       color: c.text,
-      marginTop: s.sm,
+    },
+    selectedPaymentTerms: {
+      fontSize: f.sm,
+      color: c.text,
+      marginTop: s.xs,
     },
     // ========== LINE ITEMS TABLE ==========
     table: {
@@ -746,40 +762,52 @@ const whyUsPoints = [
   },
   {
     headline: 'Insurance Guidance',
-    description: 'We help navigate the claims process without overpromising outcomes.',
+    description: 'Filing a claim? We help you through the process without overpromising outcomes.',
   },
 ]
 
 export const WAYS_TO_PAY_TITLE = 'Ways to Pay'
-export const WAYS_TO_PAY_SUBTITLE = 'Insurance, cash, or optional payment plans — your choice'
-export const WAYS_TO_PAY_LEAD =
-  'Most homeowners pay through insurance or in full. Payment plans are optional.'
+export const WAYS_TO_PAY_SUBTITLE = 'One project, flexible ways to pay — choose what works for you'
 
+// Listed as equal options, not steps: no ranking, no "most homeowners" framing.
 export const waysToPayOptions = [
   {
-    headline: 'Insurance claim',
-    body: 'Most storm work is handled through the carrier. ARX helps throughout the process. Coverage decisions are made by the carrier.',
-  },
-  {
+    id: 'full',
     headline: 'Pay in full',
-    body: 'Pay by cash or check with no lender involved.',
+    body: 'Pay by cash or check. Simple, fast, and nothing to apply for.',
   },
   {
-    headline: 'Optional payment plans',
-    body: 'Available if you want them and if you qualify. Includes a 12-month no-payment option. You can pay off early — none of these plans have a prepayment penalty. Your representative can walk through options. ARX does not make credit decisions; a third-party lender does.',
+    id: 'financing',
+    headline: 'Monthly payment plans',
+    body: "Get your roof now and pay monthly over time if you qualify — including a 12-month no-payment option. No prepayment penalty, so pay it off early anytime.",
+  },
+  {
+    id: 'insurance',
+    headline: 'Insurance claim',
+    body: "Storm damage? Your homeowner's insurance may help pay for your new roof. We document everything with photos and a written scope and walk you through the claim from start to finish.",
+  },
+  {
+    id: 'combined',
+    headline: 'Mix and match',
+    body: "Use any combination. If insurance doesn't cover the whole project — your deductible or upgrades — pay the rest in full or with a payment plan.",
   },
 ] as const
 
+export const WAYS_TO_PAY_CLOSING = 'Same Quality, However You Pay'
+export const WAYS_TO_PAY_CLOSING_SUBTEXT =
+  'Every option gets the same materials, the same crew standards, and the same final walkthrough.'
+
 export const WAYS_TO_PAY_DISCLAIMER =
-  'This is not a credit offer. Approval and exact terms come from the lender at application. This page does not change the Total Investment on the next page.'
+  'Financing through third-party lenders, subject to credit approval; exact terms come from the lender at application. Not a credit offer. How you pay does not change the Total Investment on the next page.'
 
 /** Combined customer-facing Ways to Pay copy for compliance checks. */
 export function getWaysToPayCustomerCopy(): string {
   return [
     WAYS_TO_PAY_TITLE,
     WAYS_TO_PAY_SUBTITLE,
-    WAYS_TO_PAY_LEAD,
     ...waysToPayOptions.flatMap((option) => [option.headline, option.body]),
+    WAYS_TO_PAY_CLOSING,
+    WAYS_TO_PAY_CLOSING_SUBTEXT,
     WAYS_TO_PAY_DISCLAIMER,
   ].join(' ')
 }
@@ -1098,26 +1126,30 @@ export const ProposalPDFv2 = ({ data, theme = 'print' }: ProposalPDFProps) => {
             <Text style={styles.sectionSubtitle}>{WAYS_TO_PAY_SUBTITLE}</Text>
           </View>
 
-          <Text style={styles.waysToPayLead}>{WAYS_TO_PAY_LEAD}</Text>
-
-          <View style={styles.waysToPayStack}>
-            {waysToPayOptions.map((option, index) => (
-              <View key={index} style={styles.waysToPayCard}>
-                <View style={styles.waysToPayCardHeader}>
-                  <View style={styles.stepNumber}>
-                    <Text style={styles.stepNumberText}>{index + 1}</Text>
-                  </View>
-                  <Text style={styles.stepTitle}>{option.headline}</Text>
-                </View>
+          <View style={styles.waysToPayGrid}>
+            {waysToPayOptions.map((option) => (
+              <View key={option.id} style={styles.waysToPayCard}>
+                <Text style={styles.waysToPayTitle}>{option.headline}</Text>
                 <Text style={styles.waysToPayBody}>{option.body}</Text>
-                {index === 2 && showSelectedPayment && financing && (
-                  <Text style={styles.selectedPaymentLine}>
-                    This proposal includes an estimated {formatMonthlyPayment(financing.monthly_payment)}/month
-                    {' '}({formatSelectedFinancingTerms(financing)}) if you qualify.
-                  </Text>
-                )}
               </View>
             ))}
+          </View>
+
+          {showSelectedPayment && financing && (
+            <View style={styles.selectedPaymentBox}>
+              <Text style={styles.selectedPaymentLabel}>Your estimated payment plan</Text>
+              <Text style={styles.selectedPaymentAmount}>
+                {formatMonthlyPayment(financing.monthly_payment)}/month
+              </Text>
+              <Text style={styles.selectedPaymentTerms}>
+                {formatSelectedFinancingTerms(financing)}, if you qualify
+              </Text>
+            </View>
+          )}
+
+          <View style={styles.processTagline}>
+            <Text style={styles.processTaglineText}>{WAYS_TO_PAY_CLOSING}</Text>
+            <Text style={styles.processTaglineSubtext}>{WAYS_TO_PAY_CLOSING_SUBTEXT}</Text>
           </View>
 
           <View style={styles.disclaimer}>

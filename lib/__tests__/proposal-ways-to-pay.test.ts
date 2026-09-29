@@ -30,6 +30,16 @@ describe('proposal Ways to Pay PDF copy', () => {
     expect(copy).toMatch(/prepayment penalty/i)
     expect(copy).toMatch(/Insurance claim/)
     expect(copy).toMatch(/not a credit offer/i)
+    expect(copy).toMatch(/exact terms come from the lender/i)
+    expect(copy).toMatch(/does not change the Total Investment/i)
+    expect(copy).toMatch(/Mix and match/)
+  })
+
+  it('does not steer homeowners toward one way to pay', () => {
+    expect(copy).not.toMatch(/most (homeowners|storm work)/i)
+    expect(copy).not.toMatch(/coverage decisions/i)
+    expect(copy).not.toMatch(/affordable/i)
+    expect(copy).not.toMatch(/insurance (will|can) (pay|cover)/i)
   })
 })
 
