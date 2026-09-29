@@ -43,6 +43,15 @@ describe('contract → sheet fields', () => {
     expect(contractAddOnLines([contract({ additionalProducts: 'Gutters' })], ['Seamless Gutters'])).toEqual([])
   })
 
+  it('keeps a multi-item extra even when one item is a sold adder', () => {
+    expect(
+      contractAddOnLines(
+        [contract({ additionalProducts: 'Seamless Gutters, Remove/Re-Install 46 Solar Panels' })],
+        ['Seamless Gutters']
+      )
+    ).toEqual(['Seamless Gutters, Remove/Re-Install 46 Solar Panels'])
+  })
+
   it('never prints a price from the contract', () => {
     expect(contractAddOnLines([contract({ additionalProducts: 'Tree trimming - $450' })], [])).toEqual(['Tree trimming'])
     expect(stripDollarAmounts('Adding gutters: $1,395.20')).toBe('Adding gutters')

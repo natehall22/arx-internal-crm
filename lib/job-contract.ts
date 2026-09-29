@@ -117,9 +117,10 @@ export function contractProductText(contracts: JobSignedContract[]): string | nu
 }
 
 /**
- * The contract's "additional products", as add-on lines. Skipped when a sold proposal adder
- * already names the same thing ("Gutters" vs the "Seamless Gutters" adder) so the crew isn't
- * told twice.
+ * The contract's "additional products", as add-on lines. Skipped only when the whole text is
+ * already named by a sold proposal adder ("Gutters" vs the "Seamless Gutters" adder), so the crew
+ * isn't told twice. Never skipped because an adder merely appears inside a longer entry: in
+ * "Seamless Gutters, Remove/Re-Install 46 Solar Panels" the solar detach is still work to do.
  */
 export function contractAddOnLines(contracts: JobSignedContract[], adderNames: string[]): string[] {
   const adders = adderNames.map((n) => n.toLowerCase().trim()).filter(Boolean)
@@ -128,7 +129,7 @@ export function contractAddOnLines(contracts: JobSignedContract[], adderNames: s
     const body = stripDollarAmounts(text)
     if (!body) continue
     const lower = body.toLowerCase()
-    if (adders.some((a) => a.includes(lower) || lower.includes(a))) continue
+    if (adders.some((a) => a.includes(lower))) continue
     lines.push(body)
   }
   return lines

@@ -57,6 +57,16 @@ function formatPhone(phone: string | null): string | null {
   return phone
 }
 
+/** Most wrapped lines a PRODUCT / ACCESSORIES block prints before it says how many it left off. */
+export const SPEC_MAX_LINES = 6
+
+export function capSpecLines(all: string[], max: number = SPEC_MAX_LINES): { lines: string[]; hidden: number } {
+  if (all.length <= max) return { lines: all, hidden: 0 }
+  // The "+ N more" marker takes the last slot, so the block never grows past `max` rows.
+  const lines = all.slice(0, max - 1)
+  return { lines, hidden: all.length - lines.length }
+}
+
 export function generateJobMaterialOrderPDF(data: JobMaterialOrderData): Buffer {
   const doc = new jsPDF({ unit: 'pt', format: 'letter' })
 
@@ -131,10 +141,17 @@ export function generateJobMaterialOrderPDF(data: JobMaterialOrderData): Buffer 
     setText(doc, INK)
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(10)
-    // Capped so a long review answer can never push the order itself off the page.
-    const lines = (doc.splitTextToSize(safe(body), CONTENT_W - 110) as string[]).slice(0, 4)
+    // Capped so a long review answer can never push the order itself off the page — but never
+    // silently: a dropped accessory line is an item the supplier never sees.
+    const { lines, hidden } = capSpecLines(doc.splitTextToSize(safe(body), CONTENT_W - 110) as string[])
     lines.forEach((line, i) => doc.text(line, MARGIN + 110, y + i * 12))
-    y += Math.max(1, lines.length) * 12 + 6
+    if (hidden > 0) {
+      setText(doc, ACCENT)
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(9)
+      doc.text(`+ ${hidden} more line${hidden === 1 ? '' : 's'} - see the job in the CRM`, MARGIN + 110, y + lines.length * 12)
+    }
+    y += (Math.max(1, lines.length) + (hidden > 0 ? 1 : 0)) * 12 + 6
   }
   if (data.product || data.accessories) y += 10
 
