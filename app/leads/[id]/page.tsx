@@ -33,6 +33,7 @@ import {
 } from '@/lib/inspection-outcomes'
 import { isOrgSuperuserRoleSlug } from '@/lib/org-role-constants'
 import { reconcileStaleFormField } from '@/lib/stale-form-field'
+import { leadSourceEditOptions, leadSourceLabel } from '@/lib/lead-sources'
 
 // Helper to convert UTC ISO string to datetime-local format in Eastern time
 function toEasternDatetimeLocal(isoString: string | null): string {
@@ -182,22 +183,7 @@ export default async function LeadDetailPage({
   // and was missing: opening any canvass lead here and hitting save silently erased its source
   // (seen on lead 3e141d02, 2026-09-01). lead.source is unioned in so a value this list has
   // never heard of — the website's free-text sources, a future integration — still round-trips.
-  const leadSources = Array.from(
-    new Set(
-      [
-        'canvass',
-        'door_to_door',
-        'csv_import',
-        'ad_campaign',
-        'call_in',
-        'call_center',
-        'referral',
-        'web',
-        'other',
-        lead.source,
-      ].filter((source): source is string => Boolean(source))
-    )
-  )
+  const leadSources = leadSourceEditOptions(lead.source)
 
   const closerName =
     (closers || []).find((closer: any) => closer.id === lead.closer_user_id)?.full_name ||
@@ -915,7 +901,7 @@ export default async function LeadDetailPage({
                   <option value="">Select source</option>
                   {leadSources.map((source) => (
                     <option key={source} value={source}>
-                      {source.replace('_', ' ')}
+                      {leadSourceLabel(source)}
                     </option>
                   ))}
                 </select>
