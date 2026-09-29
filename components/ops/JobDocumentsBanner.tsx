@@ -18,7 +18,6 @@ export default function JobDocumentsBanner({
   jobNumber,
   roofReportId,
   showOrderSheet,
-  onEditOrderQuantities,
 }: {
   jobId: string
   jobNumber: string
@@ -26,8 +25,6 @@ export default function JobDocumentsBanner({
   roofReportId?: string | null
   /** Gate identical to MaterialsOrderCard: job.sold_scope && job.job_type === 'roofing'. */
   showOrderSheet: boolean
-  /** Switches to the materials tab on mobile and scrolls the order list into view. */
-  onEditOrderQuantities: () => void
 }) {
   const runSheetPdfUrl = `/api/ops/jobs/${jobId}/run-sheet/pdf`
   const orderSheetPdfUrl = `/api/ops/jobs/${jobId}/material-order/pdf`
@@ -70,7 +67,7 @@ export default function JobDocumentsBanner({
               Open PDF
             </a>
             <Link
-              href={`/ops/jobs/${jobId}/run-sheet`}
+              href={`/ops/jobs/${jobId}/sheets`}
               className="flex min-h-[44px] items-center justify-center rounded-lg border-2 border-white px-4 py-2.5 sm:min-h-[36px] sm:py-1.5 text-sm font-bold text-white hover:bg-white/15"
             >
               Edit sheet
@@ -122,20 +119,11 @@ export default function JobDocumentsBanner({
                 Open PDF
               </a>
               <Link
-                href={`/ops/jobs/${jobId}/material-order/print`}
-                target="_blank"
-                rel="noopener noreferrer"
+                href={`/ops/jobs/${jobId}/sheets`}
                 className="flex min-h-[44px] items-center justify-center rounded-lg border-2 border-white px-4 py-2.5 sm:min-h-[36px] sm:py-1.5 text-sm font-bold text-white hover:bg-white/15"
               >
-                Order sheet
+                Edit sheet
               </Link>
-              <button
-                type="button"
-                onClick={onEditOrderQuantities}
-                className="flex min-h-[44px] items-center justify-center rounded-lg border-2 border-white px-4 py-2.5 sm:min-h-[36px] sm:py-1.5 text-sm font-bold text-white hover:bg-white/15"
-              >
-                Edit quantities
-              </button>
             </div>
           </div>
         )}

@@ -33,6 +33,8 @@ export type JobSoldScopeRoofMeasureLf = {
   step_flashing_lf: number | null
   wall_flashing_lf: number | null
   drip_edge_lf?: number | null
+  /** e.g. "6/12". Not an LF, but it rides here so every sheet reads pitch off the same row. */
+  predominant_pitch?: string | null
 }
 
 /** Extra measurement-derived inputs for the ops materials order list (all optional/additive). */
@@ -54,6 +56,8 @@ export type JobSoldScope = {
   source: 'proposal' | 'project_legacy' | null
   proposal_id: string | null
   proposal_number: string | null
+  /** The opportunity the measurement was resolved against — also how a signed contract is found. */
+  opportunity_id?: string | null
   line_items: JobSoldScopeLineItem[]
   /** Ridge / valley / flashing LF from roof_measurements linked to the proposal (or opp/project fallback). */
   roof_measurement_linear: JobSoldScopeRoofMeasureLf | null
@@ -62,7 +66,7 @@ export type JobSoldScope = {
 
 /** Roof measurement columns the sold scope needs. Shared so every consumer asks for the same shape. */
 export const JOB_ROOF_MEASUREMENT_COLUMNS =
-  'ridges_lf, valleys_lf, hips_lf, eaves_lf, rakes_lf, flashing_lf, step_flashing_lf, drip_edge_lf, penetration_count, source, raw_data, suggested_waste_percent'
+  'ridges_lf, valleys_lf, hips_lf, eaves_lf, rakes_lf, flashing_lf, step_flashing_lf, drip_edge_lf, predominant_pitch, penetration_count, source, raw_data, suggested_waste_percent'
 
 export type JobRoofMeasurementRow = {
   penetration_count?: number | null
@@ -75,6 +79,7 @@ export type JobRoofMeasurementRow = {
   flashing_lf?: number | null
   step_flashing_lf?: number | null
   drip_edge_lf?: number | null
+  predominant_pitch?: string | null
   source?: string | null
   suggested_waste_percent?: number | null
 }
@@ -121,6 +126,10 @@ export function buildRoofMeasurementLinear(
     step_flashing_lf: lf('step_flashing_lf'),
     wall_flashing_lf: raw ? positiveLinearFt(raw.wall_flashing_lf) : null,
     drip_edge_lf: lf('drip_edge_lf'),
+    predominant_pitch:
+      typeof row.predominant_pitch === 'string' && row.predominant_pitch.trim()
+        ? row.predominant_pitch.trim()
+        : null,
   }
 
   const hasNumeric =
@@ -455,6 +464,7 @@ export async function buildJobSoldScope(input: {
     source,
     proposal_id: proposalId,
     proposal_number,
+    opportunity_id: opportunityId,
     line_items,
     roof_measurement_linear: roofMeasurementLinear,
     materials_extras: buildMaterialsExtras(measurementRow),

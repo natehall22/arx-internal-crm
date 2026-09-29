@@ -29,7 +29,7 @@ describe('buildMaterialsOrderList', () => {
   it('matches the sold-scope card starter math (168 LF → 2 bundles)', () => {
     expect(byKey.starter.status).toBe('ready')
     expect(byKey.starter.qty).toBe('2 bundles')
-    expect(byKey.starter.detail).toContain('5% safety cushion')
+    expect(byKey.starter.detail).toContain('+ 5% cushion =')
   })
 
   it('adds starter safety cushion for borderline LF totals', () => {

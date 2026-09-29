@@ -115,6 +115,61 @@ export function generateJobMaterialOrderPDF(data: JobMaterialOrderData): Buffer 
 
   y += 34 + 20
 
+  // ---- Product + sold accessories ------------------------------------------
+  // Same text the crew's run sheet prints (ops edits included). A supplier order with bundle
+  // counts but no product line is not an order.
+  const specs: [string, string | null][] = [
+    ['PRODUCT', data.product],
+    ['ACCESSORIES SOLD', data.accessories],
+  ]
+  for (const [label, body] of specs) {
+    if (!body) continue
+    setText(doc, ACCENT)
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(8)
+    doc.text(label, MARGIN, y)
+    setText(doc, INK)
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(10)
+    // Capped so a long review answer can never push the order itself off the page.
+    const lines = (doc.splitTextToSize(safe(body), CONTENT_W - 110) as string[]).slice(0, 4)
+    lines.forEach((line, i) => doc.text(line, MARGIN + 110, y + i * 12))
+    y += Math.max(1, lines.length) * 12 + 6
+  }
+  if (data.product || data.accessories) y += 10
+
+  // Change orders are dollars + free text — nothing they add or remove is in the quantities below,
+  // so they print loudly above the order rather than as a footnote.
+  if (data.changeOrders.length > 0) {
+    setText(doc, ACCENT)
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(9)
+    doc.text('CHANGE ORDERS - NOT IN THE QUANTITIES BELOW, ADJUST BEFORE ORDERING', MARGIN, y)
+    y += 6
+    setDraw(doc, ACCENT)
+    doc.setLineWidth(1)
+    doc.line(MARGIN, y, PAGE_W - MARGIN, y)
+    y += 13
+    // Capped so a CO-heavy job still leaves room for the order itself.
+    for (const co of data.changeOrders.slice(0, 4)) {
+      setText(doc, INK)
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(9)
+      doc.text(safe(co.label), MARGIN, y)
+      doc.setFont('helvetica', 'normal')
+      const lines = (doc.splitTextToSize(safe(co.body), CONTENT_W - 170) as string[]).slice(0, 3)
+      lines.forEach((line, i) => doc.text(line, MARGIN + 170, y + i * 11))
+      y += Math.max(1, lines.length) * 11 + 5
+    }
+    if (data.changeOrders.length > 4) {
+      setText(doc, MUTED)
+      doc.setFontSize(8)
+      doc.text(`+ ${data.changeOrders.length - 4} more - see the job in the CRM`, MARGIN, y)
+      y += 11
+    }
+    y += 12
+  }
+
   // ---- Sections -------------------------------------------------------------
   const QTY_X = PAGE_W - MARGIN
   let truncated = false

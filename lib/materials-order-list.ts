@@ -109,15 +109,18 @@ export function buildMaterialsOrderList(input: MaterialsOrderInput): MaterialsOr
       })
     : null
   if (starter) {
-    const cushionNote =
+    // `combinedLf` already carries the cushion, so show the raw sum first — "366.5 + 141.6 = 533.5"
+    // reads as an arithmetic error to a supplier.
+    const rawLf = Math.round((starter.eaves_lf + starter.rakes_lf) * 10) / 10
+    const cushionStep =
       MATERIALS_ORDER_STARTER_CUSHION_PERCENT > 0
-        ? ` incl. ${MATERIALS_ORDER_STARTER_CUSHION_PERCENT}% safety cushion`
+        ? ` + ${MATERIALS_ORDER_STARTER_CUSHION_PERCENT}% cushion = ${fmtLf(starter.combinedLf)} LF`
         : ''
     items.push({
       key: 'starter',
       label: 'Starter strip',
       qty: `${starter.bundles} bundle${starter.bundles === 1 ? '' : 's'}`,
-      detail: `eaves ${fmtLf(starter.eaves_lf)} LF + rakes ${fmtLf(starter.rakes_lf)} LF = ${fmtLf(starter.combinedLf)} LF @ ${starter.lfPerBundle} LF/bundle${cushionNote}`,
+      detail: `eaves ${fmtLf(starter.eaves_lf)} LF + rakes ${fmtLf(starter.rakes_lf)} LF = ${fmtLf(rawLf)} LF${cushionStep} @ ${starter.lfPerBundle} LF/bundle`,
       status: 'ready',
       note: null,
     })
@@ -230,7 +233,7 @@ export function buildMaterialsOrderList(input: MaterialsOrderInput): MaterialsOr
       key: 'drip_edge',
       label: 'Drip edge',
       qty: `${sticks} sticks if needed`,
-      detail: `${fmtLf(dripLf)} LF @ ${DRIP_EDGE_LF_PER_STICK}' sticks (eaves + rakes)`,
+      detail: `${fmtLf(dripLf)} LF @ ${DRIP_EDGE_LF_PER_STICK}' sticks${pos(linear?.drip_edge_lf) > 0 ? '' : ' (eaves + rakes)'}`,
       status: 'confirm',
       note: 'Not ordered on every job — confirm existing drip edge / scope before adding.',
     })

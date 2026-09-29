@@ -53,7 +53,7 @@ const COMMON_GUIDE = `
 - **Job Board**: **Job Board** (\`/ops\`) — all production jobs, status columns, materials, scheduling. Ops dashboard: \`/ops/dashboard\`; production calendar: \`/ops/calendar\`.
 - **Single job file**: Job Board → open job (\`/ops/jobs/[id]\`) — tabs: **Overview**, **Materials**, **Financials** (permissioned), **Photos & files**, **Notes**.
 - **Photo types on a job**: \`/ops/jobs/[id]\` → **Photos & files** — production / final install photos, Job Files Workspace, cost lines. **Not** for the customer Roof Report built during inspection.
-- **Materials Order List (computed takeoff)**: **Materials** tab → **Materials Order List** card; print \`/ops/jobs/[id]/material-order/print\`. Supplier sheet from measurements — separate from **+ Job Cost** rows (\`/ops/jobs/[id]/orders\`).
+- **Materials Order List (computed takeoff)**: **Materials** tab → **Materials Order List** card; edit + print both the crew run sheet and the supplier order sheet at \`/ops/jobs/[id]/sheets\` (one page, same numbers on both). Supplier sheet from measurements — separate from **+ Job Cost** rows (\`/ops/jobs/[id]/orders\`).
 - **Job materials brief / sold add-ons**: Sold proposal adders (gutters, decking, etc.) show on the ops job brief card for visibility; ordering adders may still be manual ops practice — do not claim adders auto-flow into supplier PO unless asked.
 - **Crew / sub assignment**: Job **Overview** tab → **Schedule now** or **Reassign crew or sub** (schedule modal).
 - **Labor cost**: Job → **Materials** tab → **Labor Cost** card (not the read-only **Financials** profitability summary).

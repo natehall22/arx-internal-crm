@@ -1331,21 +1331,6 @@ export default function JobDetailClient({
     }
   }
 
-  /** Banner → order list. Same mobile-tab dance as the add-cost shortcut below. */
-  const handleEditOrderQuantities = () => {
-    const isMobile = typeof window !== 'undefined' && window.innerWidth < 1024
-    const scrollToList = () => {
-      document.getElementById('materials-order')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    }
-
-    if (isMobile) {
-      setMobileTab('materials')
-      setTimeout(scrollToList, 100)
-    } else {
-      scrollToList()
-    }
-  }
-
   const handleAddCostShortcut = () => {
     const isMobile = typeof window !== 'undefined' && window.innerWidth < 1024
 
@@ -1860,7 +1845,6 @@ export default function JobDetailClient({
           jobNumber={job.job_number}
           roofReportId={job.roof_report?.pdf_generated_at ? job.roof_report.id : null}
           showOrderSheet={Boolean(job.sold_scope && job.job_type === 'roofing')}
-          onEditOrderQuantities={handleEditOrderQuantities}
         />
 
         <JobReadyToPayBanner
@@ -1991,9 +1975,6 @@ export default function JobDetailClient({
                 <MaterialsOrderCard
                   scope={job.sold_scope}
                   jobId={job.id}
-                  jobNumber={job.job_number}
-                  customerName={job.customer?.name ?? null}
-                  address={job.address_text}
                   coverageOverrides={materialsCoverageOverrides ?? null}
                 />
               ) : null}

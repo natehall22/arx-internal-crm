@@ -20,13 +20,25 @@ import {
   type OrgMaterialsCoverageRow,
 } from '@/lib/materials-coverage-overrides'
 import {
-  findJobRoofMeasurementRow,
+  contractAddOnLines,
+  contractProductText,
+  findJobSignedContracts,
+  stripDollarAmounts,
+  type JobSignedContract,
+} from '@/lib/job-contract'
+import {
+  buildJobSoldScope,
   resolveJobOpportunityId,
   resolveJobProposalId,
+  type JobSoldScope,
 } from '@/lib/job-sold-scope'
-import { MATERIALS_ORDER_STARTER_CUSHION_PERCENT } from '@/lib/materials-order-list'
+import { buildMaterialsOrderList } from '@/lib/materials-order-list'
+import {
+  applyMaterialOrderOverrides,
+  type DisplayMaterialsOrderItem,
+  type JobMaterialOrderOverrideRow,
+} from '@/lib/materials-order-overrides'
 import { parseProjectReviewStored } from '@/lib/project-review'
-import { starterFromLinearFt } from '@/lib/starter-strip'
 
 export const RUN_SHEET_FIELD_KEYS = [
   'schedule_note',
@@ -54,11 +66,11 @@ export const RUN_SHEET_FIELD_LABELS: Record<RunSheetFieldKey, string> = {
 export const RUN_SHEET_FIELD_SOURCES: Record<RunSheetFieldKey, string> = {
   schedule_note: 'Not auto-filled — add anything about timing or meeting on site',
   scope_of_work: 'Project review → scope, else project scope of work',
-  materials_and_products: 'Project review → materials, else project product summary',
+  materials_and_products: 'Project review → materials, else project product summary, else signed contract',
   tear_off_and_decking: 'Project review → tear-off, layers & decking',
   accessories: 'Project review → accessories',
-  add_ons_sold: 'Accepted proposal → adder line items',
-  heads_up: 'Project review (HOA, site, open items), job instructions, crew notes',
+  add_ons_sold: 'Accepted proposal → adder line items, plus signed contract → additional products',
+  heads_up: 'Project review (HOA, site, open items), job instructions, crew notes, signed change orders',
 }
 
 export type RunSheetField = {
@@ -84,6 +96,8 @@ export type RunSheetMeasurement = {
   label: string
   value: string
 }
+
+export type RunSheetChangeOrder = { label: string; body: string }
 
 export type RunSheetHeadsUpBlock = {
   /** Null when the block is an ops override (their text stands on its own, unlabeled). */
@@ -112,6 +126,22 @@ export type JobRunSheetData = {
   fields: Record<RunSheetFieldKey, RunSheetField>
   /** Effective heads-up blocks after any override is applied. */
   headsUp: RunSheetHeadsUpBlock[]
+  /** The one sold-scope answer both sheets print from. */
+  soldScope: JobSoldScope | null
+  coverage: MaterialsCoverageOverrides
+  /** The materials order list with ops quantity edits applied — the supplier sheet's rows. */
+  materialOrder: DisplayMaterialsOrderItem[]
+  /**
+   * Signed change orders. COs are dollars + free text only — they never touch proposal line items,
+   * so nothing they add or remove is in the squares, LF or order quantities. Both sheets print them
+   * so a garage roof added after the sale can't be silently left off the order.
+   */
+  changeOrders: RunSheetChangeOrder[]
+  /**
+   * The signed contract(s), shown to ops as a reference beside the boxes. Never printed whole:
+   * `notes` routinely carries deductibles and payment terms.
+   */
+  signedContracts: JobSignedContract[]
   anyEdits: boolean
   overridesUpdatedAt: string | null
   generatedAt: string
@@ -154,13 +184,22 @@ function first<T>(value: T | T[] | null | undefined): T | null {
 }
 
 /**
- * Sold adders in proposal order. `percent`-unit rows are pricing modifiers, not things anyone
- * installs, so they are dropped — a crew reading "Premier Pricing" on a materials line is noise.
+ * Price-tier adders nobody installs. The pricebook has no flag for this (Premier Pricing is an
+ * `each`-unit "addon" like OSB), so it has to be the name. It used to be caught only by the
+ * `percent` check below, which Premier Pricing never matched — it printed on 14 crew sheets.
  */
-function formatAddOns(
-  lineItems: { name: string; quantity: unknown; unit: string | null; is_adder: boolean }[]
+const PRICING_ONLY_ADDER = /\bpricing\b/i
+
+/**
+ * Sold adders in proposal order. `percent`-unit rows and price tiers are pricing modifiers, not
+ * things anyone installs, so they are dropped — a crew reading "Premier Pricing" is noise.
+ */
+export function formatAddOns(
+  lineItems: { name: string; quantity: unknown; unit: string | null; is_adder: boolean }[],
+  contracts: JobSignedContract[]
 ): string | null {
   const parts: string[] = []
+  const adderNames: string[] = []
   for (const item of lineItems) {
     if (!item.is_adder) continue
     const qty = positiveNumber(item.quantity)
@@ -169,9 +208,12 @@ function formatAddOns(
     if (unit === 'percent') continue
     const unitLabel = ADDER_UNIT_LABELS[unit] ?? item.unit ?? ''
     const name = clean(item.name)
-    if (!name) continue
+    if (!name || PRICING_ONLY_ADDER.test(name)) continue
     parts.push(`${name} — ${[fmtQty(qty), unitLabel].filter(Boolean).join(' ')}`)
+    adderNames.push(name)
   }
+  // What the contract lists beyond the proposal (solar detach, tree trimming, a gate repair).
+  parts.push(...contractAddOnLines(contracts, adderNames))
   return parts.length > 0 ? parts.join('\n') : null
 }
 
@@ -191,76 +233,74 @@ export function headsUpBlocksToText(blocks: RunSheetHeadsUpBlock[]): string | nu
 }
 
 /**
- * Same lookup order as `/ops/jobs/[id]`: proposal → opportunity → project.
- *
- * The opportunity leg is not optional — in practice essentially every roof_measurements row is
- * linked by `opportunity_id` only, so skipping it means the sheet never shows a single LF figure.
+ * The measurement strip, read straight off the sold scope and the materials order list — never
+ * off its own measurement lookup. The supplier order sheet is built from the same two objects, so
+ * the squares, LF and starter count on the crew's paper are the ones the supplier was sent.
  */
-async function resolveMeasurements(
-  admin: SupabaseClient,
-  orgId: string,
-  proposalId: string | null,
-  opportunityId: string | null,
-  projectId: string | null,
-  coverage: MaterialsCoverageOverrides
-): Promise<RunSheetMeasurement[]> {
-  const columns =
-    'total_squares, ridges_lf, hips_lf, valleys_lf, eaves_lf, rakes_lf, step_flashing_lf, drip_edge_lf, flashing_lf, predominant_pitch, raw_data'
-
-  const row = await findJobRoofMeasurementRow<Record<string, unknown>>(
-    admin,
-    orgId,
-    { proposalId, opportunityId, projectId },
-    columns
-  )
-
-  if (!row) return []
-
-  // Some measurement fields only ever landed in raw_data, same as the job page's fallback.
-  const raw =
-    row.raw_data && typeof row.raw_data === 'object' && !Array.isArray(row.raw_data)
-      ? (row.raw_data as Record<string, unknown>)
-      : null
-  const pick = (key: string): unknown => row![key] ?? raw?.[key]
-
+export function buildMeasurementStrip(
+  scope: JobSoldScope | null,
+  orderItems: DisplayMaterialsOrderItem[]
+): RunSheetMeasurement[] {
   const out: RunSheetMeasurement[] = []
-  const pitch = clean(row.predominant_pitch)
-  if (pitch) out.push({ label: 'Pitch', value: pitch })
+  const squares = positiveNumber(scope?.total_squares)
+  // Squares lead the strip — it is the number the crew checks first.
+  if (squares != null) out.push({ label: 'Squares (w/ waste)', value: `${squares.toFixed(1)} sq` })
 
-  const wallFlashing =
-    (positiveNumber(raw?.wall_flashing_lf) ?? 0) + (positiveNumber(pick('flashing_lf')) ?? 0)
+  const linear = scope?.roof_measurement_linear ?? null
+  if (!linear) return out
+
+  const pitch = clean(linear.predominant_pitch)
+  if (pitch) out.push({ label: 'Pitch', value: pitch })
 
   const pushLf = (label: string, value: unknown) => {
     const n = positiveNumber(value)
     if (n != null) out.push({ label, value: fmtLf(n) })
   }
 
-  pushLf('Ridge', pick('ridges_lf'))
-  pushLf('Hip', pick('hips_lf'))
-  pushLf('Valley', pick('valleys_lf'))
-  pushLf('Eave', pick('eaves_lf'))
-  pushLf('Rake', pick('rakes_lf'))
+  pushLf('Ridge', linear.ridges_lf)
+  pushLf('Hip', linear.hips_lf)
+  pushLf('Valley', linear.valleys_lf)
+  pushLf('Eave', linear.eaves_lf)
+  pushLf('Rake', linear.rakes_lf)
 
-  // Starter is a bundle count, not an LF, but the sheet doubles as the supplier order — so it
-  // rides here next to the eave/rake it comes from. Same helper + cushion as the materials order
-  // list, so the two can never quote the supplier different numbers.
-  const starter = starterFromLinearFt({
-    eaves_lf: positiveNumber(pick('eaves_lf')),
-    rakes_lf: positiveNumber(pick('rakes_lf')),
-    lfPerBundle: coverage.starterLfPerBundle,
-    cushionPercent: MATERIALS_ORDER_STARTER_CUSHION_PERCENT,
-  })
-  if (starter) {
+  // Starter is a bundle count, not an LF, but crews check the delivery against it — so it is the
+  // order sheet's row, ops edits included. Excluded from the order = not on the crew sheet either.
+  const starter = orderItems.find((i) => i.key === 'starter' && !i.isExcluded)
+  if (starter?.qty) out.push({ label: 'Starter', value: starter.qty })
+
+  pushLf('Step flash', linear.step_flashing_lf)
+  pushLf('Wall flash', (linear.wall_flashing_lf ?? 0) + (linear.flashing_lf ?? 0))
+  pushLf('Drip edge', linear.drip_edge_lf ?? (linear.eaves_lf ?? 0) + (linear.rakes_lf ?? 0))
+
+  return out
+}
+
+/**
+ * Signed COs as sheet blocks. Dollar figures are stripped: the run sheet carries no pricing, and
+ * reps often write the price into the description ("Adding black seamless gutters - $1,395.20").
+ */
+export function toRunSheetChangeOrders(
+  rows: {
+    co_number: number | string | null
+    description: string | null
+    customer_signed_at: string | null
+    signed_at: string | null
+  }[]
+): RunSheetChangeOrder[] {
+  const out: RunSheetChangeOrder[] = []
+  for (const row of rows) {
+    const body = clean(stripDollarAmounts(row.description ?? ''))
+    if (!body) continue
+    const signed = row.customer_signed_at ?? row.signed_at
+    const date = signed
+      ? new Date(signed).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+      : null
     out.push({
-      label: 'Starter',
-      value: `${starter.bundles} bundle${starter.bundles === 1 ? '' : 's'}`,
+      // co_number is already "CO-001"-shaped in prod; don't prefix it with another "#".
+      label: `Change order${row.co_number != null ? ` ${row.co_number}` : ''}${date ? ` (signed ${date})` : ''}`,
+      body,
     })
   }
-
-  pushLf('Step flash', pick('step_flashing_lf'))
-  pushLf('Wall flash', wallFlashing)
-  pushLf('Drip edge', pick('drip_edge_lf'))
-
   return out
 }
 
@@ -290,14 +330,14 @@ export async function buildJobRunSheet(
     .from('production_jobs')
     .select(
       `
-      id, job_number, job_type, status, address_text, scheduled_date, scheduled_time_start,
+      id, org_id, job_number, job_type, status, address_text, scheduled_date, scheduled_time_start,
       estimated_duration_hours, special_instructions, materials_notes, permit_required, permit_number,
       project_id, accepted_proposal_id, linked_proposal_id,
       customer:customers(name, phone),
       assigned_crew:crews(name, phone),
       assigned_sub:sub_contractors(company_name, contact_name, phone),
       salesperson:users!production_jobs_salesperson_id_fkey(full_name, phone),
-      project:projects(scope_of_work, product_summary, project_review, sold_roof_squares)
+      project:projects(opportunity_id, scope_of_work, product_summary, project_review, sold_roof_squares, customers(name), leads(homeowner_name))
     `
     )
     .eq('id', jobId)
@@ -312,7 +352,12 @@ export async function buildJobRunSheet(
   const salesperson = first(job.salesperson as any)
   const project = first(job.project as any)
 
-  const [orgRes, proposalId, overrides] = await Promise.all([
+  // A CO made from the project page can have no job_id yet — it still belongs to this job.
+  const coFilter = job.project_id
+    ? `job_id.eq.${job.id},and(job_id.is.null,project_id.eq.${job.project_id})`
+    : `job_id.eq.${job.id}`
+
+  const [orgRes, scope, overrides, orderOverridesRes, notesRes, changeOrdersRes] = await Promise.all([
     admin
       .from('orgs')
       .select(
@@ -320,43 +365,12 @@ export async function buildJobRunSheet(
       )
       .eq('id', orgId)
       .maybeSingle(),
-    resolveJobProposalId(admin, orgId, {
-      linked_proposal_id: job.linked_proposal_id,
-      accepted_proposal_id: job.accepted_proposal_id,
-      project_id: job.project_id,
-    }),
+    buildJobSoldScope({ admin, orgId, job }),
     loadRunSheetOverrides(admin, jobId),
-  ])
-
-  let proposalNumber: string | null = null
-  let lineItems: { name: string; quantity: unknown; unit: string | null; is_adder: boolean }[] = []
-  let proposalSoldSquares: number | null = null
-
-  if (proposalId) {
-    const [propRes, itemsRes] = await Promise.all([
-      admin.from('proposals').select('proposal_number, sold_squares').eq('id', proposalId).maybeSingle(),
-      admin
-        .from('proposal_line_items')
-        .select('name, quantity, unit, is_adder')
-        .eq('proposal_id', proposalId)
-        .order('sort_order'),
-    ])
-    proposalNumber = clean(propRes.data?.proposal_number)
-    proposalSoldSquares = positiveNumber(propRes.data?.sold_squares)
-    lineItems = itemsRes.data ?? []
-  }
-
-  const opportunityId = await resolveJobOpportunityId(admin, orgId, proposalId, job.project_id)
-
-  const [measurements, notesRes] = await Promise.all([
-    resolveMeasurements(
-      admin,
-      orgId,
-      proposalId,
-      opportunityId,
-      job.project_id,
-      resolveMaterialsCoverageOverrides(orgRes.data as OrgMaterialsCoverageRow | null)
-    ),
+    admin
+      .from('job_material_order_overrides')
+      .select('id, job_id, item_key, qty_text, excluded, note, updated_by, updated_at')
+      .eq('job_id', jobId),
     admin
       .from('production_job_notes')
       .select('note')
@@ -364,15 +378,41 @@ export async function buildJobRunSheet(
       .eq('share_with_sub', true)
       .order('created_at', { ascending: false })
       .limit(5),
+    admin
+      .from('job_change_orders')
+      .select('co_number, description, customer_signed_at, signed_at')
+      .eq('org_id', orgId)
+      .eq('status', 'completed')
+      .or(coFilter)
+      .order('created_at', { ascending: true }),
   ])
 
-  const review = parseProjectReviewStored(project?.project_review)?.answers ?? null
+  const coverage = resolveMaterialsCoverageOverrides(orgRes.data as OrgMaterialsCoverageRow | null)
 
-  // Squares lead the measurement strip — it is the number the crew checks first.
-  const squares = proposalSoldSquares ?? positiveNumber(project?.sold_roof_squares)
-  if (squares != null) {
-    measurements.unshift({ label: 'Squares (w/ waste)', value: `${squares.toFixed(2)} sq` })
-  }
+  // No sold scope (no proposal, measurement or squares) still can have a signed contract.
+  const contractProposalId = scope ? scope.proposal_id : await resolveJobProposalId(admin, orgId, job)
+  const contractOpportunityId = scope
+    ? scope.opportunity_id ?? null
+    : await resolveJobOpportunityId(admin, orgId, contractProposalId, job.project_id, job.address_text)
+  const signedContracts = await findJobSignedContracts(admin, orgId, {
+    proposalId: contractProposalId,
+    opportunityId: contractOpportunityId,
+  })
+  const materialOrder = applyMaterialOrderOverrides(
+    buildMaterialsOrderList({
+      totalSquaresWithWaste: scope?.total_squares ?? null,
+      linear: scope?.roof_measurement_linear ?? null,
+      ridgeSegmentCount: scope?.materials_extras?.ridge_segment_count ?? null,
+      lowSlopeAreaSqft: scope?.materials_extras?.low_slope_area_sqft ?? null,
+      lowSlopeFacetCount: scope?.materials_extras?.low_slope_facet_count ?? null,
+      penetrationCount: scope?.materials_extras?.penetration_count ?? null,
+      coverageOverrides: coverage,
+    }),
+    (orderOverridesRes.data ?? []) as JobMaterialOrderOverrideRow[]
+  )
+
+  const measurements = buildMeasurementStrip(scope, materialOrder)
+  const review = parseProjectReviewStored(project?.project_review)?.answers ?? null
 
   const computedHeadsUp: RunSheetHeadsUpBlock[] = []
   pushHeadsUp(computedHeadsUp, 'Permits & HOA', clean(review?.permitsAndHoa))
@@ -384,6 +424,10 @@ export async function buildJobRunSheet(
   for (const row of notesRes.data ?? []) {
     pushHeadsUp(computedHeadsUp, 'Note for crew', clean(row.note))
   }
+  const changeOrders = toRunSheetChangeOrders(changeOrdersRes.data ?? [])
+  for (const co of changeOrders) {
+    pushHeadsUp(computedHeadsUp, co.label, co.body)
+  }
 
   const fields: Record<RunSheetFieldKey, RunSheetField> = {
     schedule_note: makeField('schedule_note', null, overrides?.schedule_note ?? null),
@@ -394,7 +438,10 @@ export async function buildJobRunSheet(
     ),
     materials_and_products: makeField(
       'materials_and_products',
-      clean(review?.materialsAndProducts) || clean(project?.product_summary),
+      // The contract only fills a blank — ops' later product notes are usually more specific.
+      clean(review?.materialsAndProducts) ||
+        clean(project?.product_summary) ||
+        contractProductText(signedContracts),
       overrides?.materials_and_products ?? null
     ),
     tear_off_and_decking: makeField(
@@ -403,7 +450,11 @@ export async function buildJobRunSheet(
       overrides?.tear_off_and_decking ?? null
     ),
     accessories: makeField('accessories', clean(review?.accessories), overrides?.accessories ?? null),
-    add_ons_sold: makeField('add_ons_sold', formatAddOns(lineItems), overrides?.add_ons_sold ?? null),
+    add_ons_sold: makeField(
+      'add_ons_sold',
+      formatAddOns(scope?.line_items ?? [], signedContracts),
+      overrides?.add_ons_sold ?? null
+    ),
     heads_up: makeField('heads_up', headsUpBlocksToText(computedHeadsUp), overrides?.heads_up ?? null),
   }
 
@@ -428,10 +479,14 @@ export async function buildJobRunSheet(
     estimatedDurationHours: positiveNumber(job.estimated_duration_hours),
     permitRequired: Boolean(job.permit_required),
     permitNumber: clean(job.permit_number),
-    proposalNumber,
+    proposalNumber: clean(scope?.proposal_number),
     homeowner: {
       label: 'Homeowner',
-      name: clean(customer?.name) || 'Unknown',
+      name:
+        clean(customer?.name) ||
+        clean(first(project?.customers as any)?.name) ||
+        clean(first(project?.leads as any)?.homeowner_name) ||
+        'Unknown',
       phone: clean(customer?.phone),
     },
     runningJob: {
@@ -445,10 +500,32 @@ export async function buildJobRunSheet(
     measurements,
     fields,
     headsUp,
+    soldScope: scope,
+    coverage,
+    materialOrder,
+    changeOrders,
+    signedContracts,
     anyEdits: RUN_SHEET_FIELD_KEYS.some((k) => fields[k].edited),
     overridesUpdatedAt: overrides?.updated_at ?? null,
     generatedAt: new Date().toISOString(),
   }
+}
+
+/**
+ * What the job sheets editor gets. The sold scope carries line-item prices — the run sheet never
+ * does. `signedContracts` stays: the editor is ops-only and shows it as a non-printing reference.
+ */
+export type ClientJobRunSheet = Omit<JobRunSheetData, 'soldScope' | 'coverage' | 'materialOrder' | 'changeOrders'>
+
+export function toClientRunSheet(sheet: JobRunSheetData): ClientJobRunSheet {
+  const {
+    soldScope: _soldScope,
+    coverage: _coverage,
+    materialOrder: _materialOrder,
+    changeOrders: _changeOrders,
+    ...rest
+  } = sheet
+  return rest
 }
 
 /** Pre-migration deploys must not 500 the whole job page — treat a missing table as "no edits". */
