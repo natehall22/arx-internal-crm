@@ -46,4 +46,15 @@ describe('generateJobMaterialOrderPDF', () => {
     expect(pdf).toContain('Chimney flashing')
     expect(pdf).not.toContain('more line')
   })
+
+  it('says how many lines of a long change order it left off', () => {
+    const body = Array.from({ length: 5 }, (_, i) => `CO item ${i + 1}`).join('\n')
+    const pdf = generateJobMaterialOrderPDF({
+      ...base,
+      changeOrders: [{ label: 'Change order CO-001', body }],
+    }).toString('latin1')
+    expect(pdf).toContain('CO item 2')
+    expect(pdf).not.toContain('CO item 3')
+    expect(pdf).toContain('+ 3 more lines - see the job in the CRM')
+  })
 })

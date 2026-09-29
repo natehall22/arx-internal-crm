@@ -174,9 +174,15 @@ export function generateJobMaterialOrderPDF(data: JobMaterialOrderData): Buffer 
       doc.setFontSize(9)
       doc.text(safe(co.label), MARGIN, y)
       doc.setFont('helvetica', 'normal')
-      const lines = (doc.splitTextToSize(safe(co.body), CONTENT_W - 170) as string[]).slice(0, 3)
+      // Capped, but never silently — a dropped CO line is work the supplier never hears about.
+      const { lines, hidden } = capSpecLines(doc.splitTextToSize(safe(co.body), CONTENT_W - 170) as string[], 3)
       lines.forEach((line, i) => doc.text(line, MARGIN + 170, y + i * 11))
-      y += Math.max(1, lines.length) * 11 + 5
+      if (hidden > 0) {
+        setText(doc, ACCENT)
+        doc.setFont('helvetica', 'bold')
+        doc.text(`+ ${hidden} more line${hidden === 1 ? '' : 's'} - see the job in the CRM`, MARGIN + 170, y + lines.length * 11)
+      }
+      y += (Math.max(1, lines.length) + (hidden > 0 ? 1 : 0)) * 11 + 5
     }
     if (data.changeOrders.length > 4) {
       setText(doc, MUTED)
