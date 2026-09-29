@@ -9,7 +9,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 import { requireAuthApi } from '@/lib/auth'
-import { buildJobRunSheet, RUN_SHEET_FIELD_KEYS, type RunSheetFieldKey } from '@/lib/job-run-sheet'
+import {
+  buildJobRunSheet,
+  RUN_SHEET_FIELD_KEYS,
+  toClientRunSheet,
+  type RunSheetFieldKey,
+} from '@/lib/job-run-sheet'
 import { resolveOpsAccess } from '@/lib/ops-access'
 import { createServiceClient } from '@/lib/supabase/service'
 
@@ -42,7 +47,7 @@ export async function GET(_request: NextRequest, { params }: { params: { id: str
     if (!sheet) {
       return NextResponse.json({ error: 'Job not found' }, { status: 404 })
     }
-    return NextResponse.json({ sheet, can_edit: ctx.access.canEditJobs })
+    return NextResponse.json({ sheet: toClientRunSheet(sheet), can_edit: ctx.access.canEditJobs })
   } catch (error) {
     console.error('[Run sheet] GET failed:', error)
     return NextResponse.json({ error: 'Failed to load run sheet' }, { status: 500 })
@@ -122,5 +127,5 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
   }
 
   const sheet = await buildJobRunSheet(ctx.admin, ctx.profile.org_id, params.id)
-  return NextResponse.json({ sheet, can_edit: true })
+  return NextResponse.json({ sheet: sheet ? toClientRunSheet(sheet) : null, can_edit: true })
 }

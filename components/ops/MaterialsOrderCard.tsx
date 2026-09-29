@@ -15,10 +15,9 @@ import type { JobSoldScope } from '@/components/ops/JobSoldScopeSummary'
 type Props = {
   scope: JobSoldScope
   jobId: string
-  jobNumber?: string | null
-  customerName?: string | null
-  address?: string | null
   coverageOverrides?: MaterialsCoverageOverrides | null
+  /** Off on the job sheets page itself, where the link would point at the page you are on. */
+  showSheetLink?: boolean
 }
 
 /**
@@ -28,10 +27,8 @@ type Props = {
 export default function MaterialsOrderCard({
   scope,
   jobId,
-  jobNumber,
-  customerName,
-  address,
   coverageOverrides,
+  showSheetLink = true,
 }: Props) {
   const [overrides, setOverrides] = useState<JobMaterialOrderOverrideRow[]>([])
   const [loadingOverrides, setLoadingOverrides] = useState(true)
@@ -116,7 +113,7 @@ export default function MaterialsOrderCard({
   const manual = items.filter((i) => i.status === 'manual' && !i.isExcluded)
   const excluded = items.filter((i) => i.isExcluded)
 
-  const printHref = `/ops/jobs/${jobId}/material-order/print`
+  const sheetHref = `/ops/jobs/${jobId}/sheets`
 
   const summaryParts: string[] = []
   if (ready.length > 0) summaryParts.push(`${ready.length} order`)
@@ -157,14 +154,14 @@ export default function MaterialsOrderCard({
           {loadingOverrides ? (
             <span className="text-[11px] text-gray-500">Loading edits…</span>
           ) : null}
-          <Link
-            href={printHref}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-[#2c2c2a] hover:bg-gray-50"
-          >
-            Print order sheet
-          </Link>
+          {showSheetLink ? (
+            <Link
+              href={sheetHref}
+              className="inline-flex items-center rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-[#2c2c2a] hover:bg-gray-50"
+            >
+              Order sheet
+            </Link>
+          ) : null}
         </div>
       </div>
 
