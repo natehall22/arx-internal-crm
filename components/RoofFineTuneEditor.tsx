@@ -88,20 +88,26 @@ export function RoofFineTuneEditor({
   const [viewScale, setViewScale] = useState(3)
   const [pan, setPan] = useState({ x: 0, y: 0 })
   const [editPoints, setEditPoints] = useState<LatLng[]>([])
+  const [selectedIndex, setSelectedIndex] = useState<number | null>(null)
   const [canvasSize, setCanvasSize] = useState({ w: 800, h: 600 })
   const [dragging, setDragging] = useState<
     { kind: 'pan'; startX: number; startY: number; panX: number; panY: number } | { kind: 'vertex'; index: number } | null
   >(null)
 
   const facetPointsRef = useRef<LatLng[]>([])
+  const facetsRef = useRef(facets)
+  facetsRef.current = facets
 
+  // Seed only when the section changes: the parent passes a fresh `facets` array every render,
+  // and re-seeding on that would wipe in-progress moves/deletes.
   useEffect(() => {
-    const facet = facets.find((f) => f.id === selectedFacetId)
+    const facet = facetsRef.current.find((f) => f.id === selectedFacetId)
     if (!facet) return
     const pts = facet.points.map((p) => ({ ...p }))
     facetPointsRef.current = pts
     setEditPoints(pts)
-  }, [selectedFacetId, facets])
+    setSelectedIndex(null)
+  }, [selectedFacetId])
 
   useEffect(() => {
     return () => {
@@ -269,12 +275,15 @@ export function RoofFineTuneEditor({
       ctx.stroke()
 
       if (isSelected) {
-        for (let i = 0; i < screenPts.length; i++) {
+        // Selected handle drawn last so it sits on top of overlapping neighbours.
+        const order = screenPts.map((_, i) => i).filter((i) => i !== selectedIndex)
+        if (selectedIndex != null && selectedIndex < screenPts.length) order.push(selectedIndex)
+        for (const i of order) {
           ctx.beginPath()
           ctx.arc(screenPts[i].x, screenPts[i].y, HANDLE_RADIUS, 0, Math.PI * 2)
-          ctx.fillStyle = '#ffffff'
+          ctx.fillStyle = i === selectedIndex ? '#fca5a5' : '#ffffff'
           ctx.fill()
-          ctx.strokeStyle = facet.color
+          ctx.strokeStyle = i === selectedIndex ? '#ef4444' : facet.color
           ctx.lineWidth = 3
           ctx.stroke()
           ctx.fillStyle = '#111827'
@@ -285,7 +294,7 @@ export function RoofFineTuneEditor({
         }
       }
     }
-  }, [canvasSize, editPoints, facets, imageSrc, imageTransform, latLngToScreen, selectedFacetId])
+  }, [canvasSize, editPoints, facets, imageSrc, imageTransform, latLngToScreen, selectedFacetId, selectedIndex])
 
   useEffect(() => {
     draw()
@@ -309,6 +318,7 @@ export function RoofFineTuneEditor({
     const sy = e.clientY - rect.top
     const vi = hitVertex(sx, sy)
     if (vi != null) {
+      setSelectedIndex(vi)
       setDragging({ kind: 'vertex', index: vi })
     } else {
       setDragging({ kind: 'pan', startX: e.clientX, startY: e.clientY, panX: pan.x, panY: pan.y })
@@ -336,6 +346,36 @@ export function RoofFineTuneEditor({
 
   const onPointerUp = () => setDragging(null)
 
+  // A section needs 3 corners; the main map ignores anything smaller.
+  const canDeletePoint = selectedIndex != null && selectedIndex < editPoints.length && editPoints.length > 3
+
+  const deletePoint = (index: number) => {
+    if (editPoints.length <= 3 || index < 0 || index >= editPoints.length) return
+    setEditPoints((prev) => prev.filter((_, i) => i !== index))
+    setSelectedIndex(null)
+  }
+
+  const onContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault()
+    const rect = canvasRef.current?.getBoundingClientRect()
+    if (!rect) return
+    const vi = hitVertex(e.clientX - rect.left, e.clientY - rect.top)
+    if (vi != null) deletePoint(vi)
+  }
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Delete' && e.key !== 'Backspace') return
+      const target = e.target as HTMLElement | null
+      if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return
+      if (selectedIndex == null) return
+      e.preventDefault()
+      deletePoint(selectedIndex)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  })
+
   const onWheel = (e: React.WheelEvent) => {
     e.preventDefault()
     const delta = e.deltaY > 0 ? 0.88 : 1.14
@@ -346,18 +386,29 @@ export function RoofFineTuneEditor({
 
   return (
     <div className="fixed inset-0 z-[100] flex flex-col bg-gray-950">
-      <div className="flex items-center justify-between gap-3 border-b border-gray-800 px-4 py-3">
-        <div>
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-800 px-4 py-3">
+        <div className="min-w-[14rem] flex-1">
           <h2 className="text-sm font-semibold text-white">Super zoom — edit section edges</h2>
           <p className="text-xs text-gray-400">
-            HD satellite (0.1 m/px) — scroll or use +/- to zoom past Google Maps. Drag numbered handles to move corners.
+            HD satellite (0.1 m/px) — scroll or use +/- to zoom past Google Maps. Drag numbered handles to move corners. Tap one, then Delete point to remove it.
             {imagerySource === 'static_map' && (
               <span className="block mt-1 text-amber-400/90">Using standard satellite (Solar HD unavailable here).</span>
             )}
           </p>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex flex-wrap items-center justify-end gap-2 ml-auto">
           <span className="text-xs text-gray-500 hidden sm:inline">Zoom {viewScale.toFixed(1)}×</span>
+          {selectedIndex != null && (
+            <button
+              type="button"
+              disabled={!canDeletePoint}
+              onClick={() => selectedIndex != null && deletePoint(selectedIndex)}
+              title={canDeletePoint ? undefined : 'A section needs at least 3 points'}
+              className="px-3 py-2 text-sm rounded-lg border border-red-500/70 bg-red-900/40 text-red-50 hover:bg-red-900/70 disabled:opacity-50"
+            >
+              Delete point {selectedIndex + 1}
+            </button>
+          )}
           <button
             type="button"
             onClick={onClose}
@@ -421,6 +472,7 @@ export function RoofFineTuneEditor({
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
           onPointerLeave={onPointerUp}
+          onContextMenu={onContextMenu}
           onWheel={onWheel}
         />
 

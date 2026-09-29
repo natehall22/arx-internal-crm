@@ -473,6 +473,9 @@ export default function RoofMeasurePage() {
   const [mapCenter, setMapCenter] = useState({ lat: 32.7767, lng: -96.7970 })
   const [facets, setFacets] = useState<RoofFacet[]>([])
   const [selectedFacet, setSelectedFacet] = useState<string | null>(null)
+  // Corner tapped on the map, so it can be deleted from the section card.
+  const [selectedVertex, setSelectedVertex] = useState<{ facetId: string; index: number } | null>(null)
+  const selectedVertexMarkerRef = useRef<any>(null)
   const [isAdjustingDrain, setIsAdjustingDrain] = useState(false)
   const [isDrawing, setIsDrawing] = useState(false)
   const [showPitchModal, setShowPitchModal] = useState(false)
@@ -623,12 +626,40 @@ export default function RoofMeasurePage() {
   const selectFacet = (facetId: string | null) => {
     setIsAdjustingDrain(false)
     setSelectedFacet(facetId)
+    setSelectedVertex((v) => (v && v.facetId === facetId ? v : null))
     if (facetId) {
       window.requestAnimationFrame(() => {
         sectionListItemRefs.current.get(facetId)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
       })
     }
   }
+
+  useEffect(() => {
+    const point = selectedVertex
+      ? facets.find((f) => f.id === selectedVertex.facetId)?.points[selectedVertex.index]
+      : undefined
+    if (!point || !googleMapRef.current || !window.google?.maps) {
+      selectedVertexMarkerRef.current?.setMap(null)
+      selectedVertexMarkerRef.current = null
+      return
+    }
+    if (!selectedVertexMarkerRef.current) {
+      selectedVertexMarkerRef.current = new google.maps.Marker({
+        map: googleMapRef.current,
+        clickable: false,
+        zIndex: 1000,
+        icon: {
+          path: google.maps.SymbolPath.CIRCLE,
+          scale: 9,
+          fillColor: '#EF4444',
+          fillOpacity: 1,
+          strokeColor: '#FFFFFF',
+          strokeWeight: 2,
+        },
+      })
+    }
+    selectedVertexMarkerRef.current.setPosition(point)
+  }, [selectedVertex, facets])
 
   const clearDrainOverlay = () => {
     const overlay = drainOverlaysRef.current
@@ -1628,10 +1659,30 @@ export default function RoofMeasurePage() {
   const attachPolygonEditListeners = (facetId: string, polygon: any) => {
     const path = polygon.getPath()
     const sync = () => syncFacetFromOverlay(facetId, polygon)
+    // Inserting/removing a corner shifts every later index, so a held selection would point at the wrong corner.
+    const syncAndClearVertex = () => {
+      setSelectedVertex(null)
+      sync()
+    }
 
     google.maps.event.addListener(path, 'set_at', sync)
-    google.maps.event.addListener(path, 'insert_at', sync)
-    google.maps.event.addListener(path, 'remove_at', sync)
+    google.maps.event.addListener(path, 'insert_at', syncAndClearVertex)
+    google.maps.event.addListener(path, 'remove_at', syncAndClearVertex)
+
+    polygon.addListener('click', (e: any) => {
+      setSelectedVertex(typeof e?.vertex === 'number' ? { facetId, index: e.vertex } : null)
+    })
+    // Shortcut: right-click (or long-press on touch) a corner to delete it.
+    polygon.addListener('contextmenu', (e: any) => {
+      if (typeof e?.vertex === 'number') deleteFacetVertex(facetId, e.vertex)
+    })
+  }
+
+  const deleteFacetVertex = (facetId: string, index: number) => {
+    const path = polygonsRef.current.get(facetId)?.getPath()
+    // A section needs 3 corners; syncFacetFromOverlay would silently ignore a 2-point path.
+    if (!path || path.getLength() <= 3 || index < 0 || index >= path.getLength()) return
+    path.removeAt(index) // remove_at listener recomputes area + measurements
   }
 
   const attachPolylineEditListeners = (featureId: string, polyline: any) => {
@@ -4603,6 +4654,22 @@ export default function RoofMeasurePage() {
               )}
               {renderFacetDrainSidebar(selectedFacetData)}
               <div className="mt-3 flex flex-col gap-2">
+                {selectedVertex?.facetId === selectedFacetData.id &&
+                selectedVertex.index < selectedFacetData.points.length ? (
+                  selectedFacetData.points.length > 3 ? (
+                    <button
+                      type="button"
+                      onClick={() => deleteFacetVertex(selectedFacetData.id, selectedVertex.index)}
+                      className="w-full rounded-lg border border-red-400/70 bg-red-900/50 px-3 py-2 text-xs font-semibold text-red-50 hover:bg-red-900/70"
+                    >
+                      Delete point
+                    </button>
+                  ) : (
+                    <p className="text-[11px] text-amber-200">A section needs at least 3 points.</p>
+                  )
+                ) : (
+                  <p className="text-[11px] text-gray-300">Tap a corner to delete it.</p>
+                )}
                 <button
                   type="button"
                   onClick={() => zoomMapToFacet(selectedFacetData)}
