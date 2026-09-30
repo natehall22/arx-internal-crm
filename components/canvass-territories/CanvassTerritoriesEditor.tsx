@@ -124,6 +124,9 @@ export function CanvassTerritoriesEditor({
 
   /** Mirrors Google drawing mode for mobile toolbar (default control is hidden — too small to tap). */
   const [mapTool, setMapTool] = useState<'draw' | 'pan'>('draw')
+  const [searchText, setSearchText] = useState('')
+  const [searchMsg, setSearchMsg] = useState<string | null>(null)
+  const [searching, setSearching] = useState(false)
   /** Reuses `/api/canvass/leads/viewport` — same pins as main canvass map. Default on so assigning areas shows context. */
   const [showLeadPins, setShowLeadPins] = useState(true)
   const [leadPinsHint, setLeadPinsHint] = useState<string | null>(null)
@@ -528,6 +531,33 @@ export function CanvassTerritoriesEditor({
     }
   }, [syncPanVersusDraw])
 
+  /** Jump the map to an address/place so a manager can draw around it (same Geocoder the roof-measure tool uses). */
+  const searchAddress = useCallback(() => {
+    const q = searchText.trim()
+    const map = mapInstanceRef.current
+    if (!q || !map || searching) return
+    setSearching(true)
+    setSearchMsg(null)
+    new google.maps.Geocoder().geocode(
+      { address: q, componentRestrictions: { country: 'US' } },
+      (results: any, status: any) => {
+        setSearching(false)
+        if (status === google.maps.GeocoderStatus.OK && results?.[0]) {
+          const geo = results[0].geometry
+          if (geo.viewport) map.fitBounds(geo.viewport)
+          else {
+            map.setCenter(geo.location)
+            map.setZoom(16)
+          }
+        } else if (status === google.maps.GeocoderStatus.ZERO_RESULTS) {
+          setSearchMsg('No match — try a street address, city or ZIP.')
+        } else {
+          setSearchMsg('Search failed — try again.')
+        }
+      }
+    )
+  }, [searchText, searching])
+
   const recenterMapOnUser = useCallback(() => {
     const map = mapInstanceRef.current
     if (!map) return
@@ -852,6 +882,36 @@ export function CanvassTerritoriesEditor({
               </div>
             )}
             <div ref={mapRef} className="w-full h-full min-h-[200px] touch-manipulation" />
+            {ready && mapInitialized && (
+              <form
+                className="absolute left-2 right-2 top-2 z-[5] flex max-w-md flex-col gap-1"
+                onSubmit={(e) => {
+                  e.preventDefault()
+                  searchAddress()
+                }}
+              >
+                <div className="flex gap-2 rounded-xl bg-white p-1.5 shadow-md">
+                  <input
+                    type="search"
+                    value={searchText}
+                    onChange={(e) => setSearchText(e.target.value)}
+                    placeholder="Search address, city or ZIP"
+                    aria-label="Search address"
+                    className="min-h-[40px] min-w-0 flex-1 rounded-lg border border-gray-300 bg-white px-3 text-sm text-[#2c2c2a] placeholder:text-gray-500"
+                  />
+                  <button
+                    type="submit"
+                    disabled={searching || !searchText.trim()}
+                    className="min-h-[40px] rounded-lg bg-indigo-600 px-4 text-sm font-semibold text-white disabled:opacity-50"
+                  >
+                    {searching ? '…' : 'Go'}
+                  </button>
+                </div>
+                {searchMsg && (
+                  <p className="rounded-lg bg-white px-3 py-1.5 text-xs text-[#2c2c2a] shadow-md">{searchMsg}</p>
+                )}
+              </form>
+            )}
             {ready && mapInitialized && (
               <div
                 className="pointer-events-none absolute inset-x-0 bottom-0 z-[5] flex justify-center bg-gradient-to-t from-white/95 via-white/70 to-transparent px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-3 sm:px-3"
