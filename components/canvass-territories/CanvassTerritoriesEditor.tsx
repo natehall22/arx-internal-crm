@@ -38,6 +38,7 @@ type OrgUser = {
   email: string | null
   role: string
   dashboard_view?: string | null
+  active?: boolean | null
 }
 type OrgTeam = { id: string; name: string }
 
@@ -813,7 +814,7 @@ export function CanvassTerritoriesEditor({
                 <div>
                   <label className="block text-xs font-medium text-gray-700 mb-1">Assigned reps</label>
                   <p className="text-xs text-gray-500 mb-1.5">
-                    Sales-side users only (Ops dashboard users are not listed).
+                    Active sales-side users only (Ops dashboard users and deactivated reps are not listed).
                   </p>
                   <div className="max-h-40 overflow-y-auto border rounded p-2 space-y-1">
                     {users.map((u) => (
