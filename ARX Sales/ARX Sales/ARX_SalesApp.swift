@@ -38,6 +38,8 @@ struct ARX_SalesApp: App {
                             let userId = session.user.id.uuidString.lowercased()
                             await OfflineLeadQueueBridge.shared.configure(forUserId: userId)
                             isAuthenticated = true
+                            // Not awaited: a slow request must not stall the auth-state loop.
+                            Task { await OrgConfig.refresh() }
                             // Push permission only after sign-in (never unexplained cold-launch prompt).
                             PushManager.shared.requestAuthorizationAfterSignIn()
                         } else {

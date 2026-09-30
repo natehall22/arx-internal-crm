@@ -222,6 +222,7 @@ struct CanvassView: View {
             }
             mapCoordinator.flyToCoordinate = { flyTarget = $0 }
             Task { await vm.loadMyUserId() }
+            Task { await OrgConfig.refresh() }
         }
         .onChange(of: showTerritories) { _ in vm.loadTerritoriesIfNeeded(show: showTerritories) }
         // Weather/roof-age, unlike territories, were never wired to an onChange — flipping
