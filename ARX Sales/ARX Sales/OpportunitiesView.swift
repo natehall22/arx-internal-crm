@@ -202,7 +202,7 @@ struct OpportunityRow: View {
                 if let outcome = opportunity.inspectionOutcomeLabel {
                     Label(outcome, systemImage: "checkmark.circle")
                         .font(.caption2)
-                        .foregroundColor(opportunity.inspection_outcome == "completed" ? .green : .orange)
+                        .foregroundColor(opportunity.inspectionOutcomeColorHex.map { Color(hex: $0) } ?? .orange)
                 }
                 if let pt = opportunity.project_type {
                     Label(pt.capitalized, systemImage: "house")

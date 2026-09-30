@@ -538,13 +538,20 @@ struct Opportunity: Decodable, Identifiable {
     }
 
     var inspectionOutcomeLabel: String? {
+        if let info = InspectionOutcomeInfo.find(inspection_outcome) { return info.label }
         switch inspection_outcome {
         case "completed": return "Inspected"
         case "no_show": return "No Show"
         case "cancelled": return "Cancelled"
         case "rescheduled": return "Rescheduled"
-        default: return inspection_outcome?.capitalized
+        default: return inspection_outcome?.replacingOccurrences(of: "_", with: " ").capitalized
         }
+    }
+
+    /// Admin-configured outcome color; nil when the outcome isn't in the org's list.
+    var inspectionOutcomeColorHex: String? {
+        if let hex = InspectionOutcomeInfo.find(inspection_outcome)?.color { return hex }
+        return inspection_outcome == "completed" ? "#22C55E" : nil   // legacy id, was green
     }
 }
 
@@ -603,12 +610,15 @@ struct LidarMeasurePayload: Encodable {
 
 // MARK: - Canvass Dispositions
 
-struct CanvassDisposition: Identifiable {
+struct CanvassDisposition: Identifiable, Codable {
     let id: String
     let label: String
     let color: String   // hex
+    var active: Bool = true
+    var sort_order: Int = 0
 
-    static let all: [CanvassDisposition] = [
+    /// Built-in fallback: first launch, offline, or an org that never customised its pin types.
+    private static let defaults: [CanvassDisposition] = [
         .init(id: "hot_lead",        label: "Hot Lead",        color: "#EF4444"),
         .init(id: "go_back",         label: "Go Back",         color: "#F59E0B"),
         .init(id: "not_home",        label: "Not Home",        color: "#9CA3AF"),
@@ -617,8 +627,76 @@ struct CanvassDisposition: Identifiable {
         .init(id: "renter",          label: "Renter",          color: "#A1A1AA"),
     ]
 
+    private static let cacheKey = "canvass_dispositions_v1"
+
+    /// Org's pin types (cached from the server), including retired ones.
+    private static var stored: [CanvassDisposition] {
+        guard let data = UserDefaults.standard.data(forKey: cacheKey),
+              let list = try? JSONDecoder().decode([CanvassDisposition].self, from: data),
+              !list.isEmpty else { return defaults }
+        return list
+    }
+
+    /// Types offered in the picker — active only.
+    static var all: [CanvassDisposition] { stored.filter { $0.active } }
+
+    /// Lookup includes retired types so existing pins keep their label and color.
     static func find(_ id: String?) -> CanvassDisposition? {
-        all.first { $0.id == id }
+        stored.first { $0.id == id }
+    }
+
+    fileprivate static func cache(_ list: [CanvassDisposition]?) {
+        if let list, !list.isEmpty {
+            UserDefaults.standard.set(try? JSONEncoder().encode(list), forKey: cacheKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: cacheKey)
+        }
+    }
+}
+
+// MARK: - Inspection Outcomes
+
+struct InspectionOutcomeInfo: Codable {
+    let id: String      // normalized: lowercase, hyphens → underscores
+    let label: String
+    let color: String   // hex
+    let active: Bool
+
+    private static let cacheKey = "inspection_outcomes_v1"
+
+    private static var stored: [InspectionOutcomeInfo] {
+        guard let data = UserDefaults.standard.data(forKey: cacheKey),
+              let list = try? JSONDecoder().decode([InspectionOutcomeInfo].self, from: data)
+        else { return [] }
+        return list
+    }
+
+    /// Same id normalization the server applies, so `No-Show` and `no_show` match.
+    static func find(_ raw: String?) -> InspectionOutcomeInfo? {
+        let id = (raw ?? "").trimmingCharacters(in: .whitespaces).lowercased().replacingOccurrences(of: "-", with: "_")
+        return stored.first { $0.id == id }
+    }
+
+    fileprivate static func cache(_ list: [InspectionOutcomeInfo]?) {
+        guard let list, !list.isEmpty else { return }
+        UserDefaults.standard.set(try? JSONEncoder().encode(list), forKey: cacheKey)
+    }
+}
+
+// MARK: - Org Config (admin-configured lists)
+
+enum OrgConfig {
+    /// Pulls the org's pin types and inspection outcomes; on any failure the last cached
+    /// lists (or built-in defaults) stay in use.
+    static func refresh() async {
+        struct Response: Decodable {
+            let dispositions: [CanvassDisposition]?
+            let inspection_outcomes: [InspectionOutcomeInfo]?
+        }
+        guard let data = try? await APIClient.request(path: "/api/mobile/org-config"),
+              let resp = try? JSONDecoder().decode(Response.self, from: data) else { return }
+        CanvassDisposition.cache(resp.dispositions)
+        InspectionOutcomeInfo.cache(resp.inspection_outcomes)
     }
 }
 
