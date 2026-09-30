@@ -143,7 +143,7 @@ export async function PATCH(
     if (uids.length > 0) {
       const { data: validUsers } = await admin
         .from('users')
-        .select('id, dashboard_view, role')
+        .select('id, dashboard_view, role, active')
         .eq('org_id', profile.org_id)
         .in('id', uids)
       const ok = new Set(
