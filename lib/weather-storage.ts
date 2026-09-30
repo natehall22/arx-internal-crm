@@ -37,6 +37,44 @@ export type WeatherGeoFeature = {
   properties: Record<string, unknown>
 }
 
+/**
+ * Collapse duplicate storm reports. NWS re-issues a corrected report at the same
+ * (rounded) spot and date, so the feed carries both and the map drew two dots for one
+ * event. Same layer + same point + same day = one report: keeps the largest measured
+ * magnitude and stays a damage report if either copy was. Non-report features (warnings,
+ * swaths) and point-less reports pass through untouched.
+ */
+export function dedupeReportFeatures(features: WeatherGeoFeature[]): WeatherGeoFeature[] {
+  const out: WeatherGeoFeature[] = []
+  const seen = new Map<string, WeatherGeoFeature>()
+  for (const f of features) {
+    const g = f.geometry
+    if (f.properties.kind !== 'report' || !g || g.type !== 'Point') {
+      out.push(f)
+      continue
+    }
+    const day = String(f.properties.date ?? '').slice(0, 10)
+    const key = [
+      String(f.properties.layer ?? ''),
+      g.coordinates[0].toFixed(3),
+      g.coordinates[1].toFixed(3),
+      day,
+    ].join('|')
+    const prev = seen.get(key)
+    if (!prev) {
+      seen.set(key, f)
+      out.push(f)
+      continue
+    }
+    prev.properties = {
+      ...prev.properties,
+      magnitude: Math.max(Number(prev.properties.magnitude) || 0, Number(f.properties.magnitude) || 0),
+      damage: Boolean(prev.properties.damage) || Boolean(f.properties.damage),
+    }
+  }
+  return out
+}
+
 function collectCoordinates(geometry: GeoJSON.Geometry, coords: Array<[number, number]>) {
   switch (geometry.type) {
     case 'Point':

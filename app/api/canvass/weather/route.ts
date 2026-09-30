@@ -3,6 +3,7 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { clampQueryBbox, clampWindowDays } from '@/lib/weather-footprint'
 import { fetchNwsWarningFeatures } from '@/lib/weather-nws'
 import {
+  dedupeReportFeatures,
   isActiveWeatherWarning,
   maxIsoTimestamp,
   readWeatherCacheFeatures,
@@ -149,7 +150,7 @@ export async function GET(request: NextRequest) {
 
     const warningFeatures = warningFeaturesForResponse(cacheRead.features, liveWarnings)
     const features = [
-      ...reportFeatures,
+      ...dedupeReportFeatures(reportFeatures),
       ...warningFeatures,
       ...swathRead.features,
     ]

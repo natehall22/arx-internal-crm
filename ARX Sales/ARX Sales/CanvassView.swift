@@ -32,6 +32,7 @@ struct CanvassView: View {
     @AppStorage(AppSettings.Keys.showTerritories) private var showTerritories = true
     @AppStorage(AppSettings.Keys.showWeather) private var showWeather = false
     @AppStorage(AppSettings.Keys.showRoofAge) private var showRoofAge = false
+    @AppStorage(AppSettings.Keys.showStormReports) private var showStormReports = true
     @AppStorage(AppSettings.Keys.myPinsOnly) private var myPinsOnly = false
     @AppStorage(AppSettings.Keys.focusMode) private var focusMode = false
     @AppStorage(AppSettings.Keys.pinTimeFilter) private var pinTimeFilterRaw = PinTimeFilter.all.rawValue
@@ -59,7 +60,7 @@ struct CanvassView: View {
                 pins: visiblePins,
                 territories: showTerritories ? vm.territories : [],
                 weatherPolygons: (showWeather && weatherOverlayAvailable) ? vm.weatherPolygons : [],
-                overlayPoints: vm.overlayPoints(showWeather: showWeather && weatherOverlayAvailable, showRoofAge: showRoofAge),
+                overlayPoints: vm.overlayPoints(showWeather: showWeather && weatherOverlayAvailable, showRoofAge: showRoofAge, showStormReports: showStormReports),
                 roofAgeCircles: visibleRoofAgeCircles,
                 userLocation: vm.userLocation,
                 hasInitiallyZoomed: $hasInitiallyZoomed,
@@ -724,8 +725,10 @@ struct CanvassMapView: UIViewRepresentable {
     }
 
     private func syncOverlayAnnotations(_ map: MKMapView, context: Context) {
-        let toRemove = map.annotations.filter { $0 is OverlayPointAnnotation }
-        map.removeAnnotations(toRemove)
+        let existing = map.annotations.compactMap { $0 as? OverlayPointAnnotation }
+        // Leave the map alone when nothing changed so an open storm-report callout stays open.
+        if Set(existing.map { $0.point.id }) == Set(overlayPoints.map { $0.id }) { return }
+        map.removeAnnotations(existing)
         for pt in overlayPoints {
             map.addAnnotation(OverlayPointAnnotation(point: pt))
         }
@@ -852,6 +855,19 @@ struct CanvassMapView: UIViewRepresentable {
             return MKOverlayRenderer(overlay: overlay)
         }
 
+        private static func stormDotImage(hex: String) -> UIImage {
+            let size = CGSize(width: 18, height: 18)
+            return UIGraphicsImageRenderer(size: size).image { _ in
+                let rect = CGRect(origin: .zero, size: size).insetBy(dx: 2, dy: 2)
+                UIColor(hex: hex).setFill()
+                UIBezierPath(ovalIn: rect).fill()
+                UIColor.white.setStroke()
+                let ring = UIBezierPath(ovalIn: rect)
+                ring.lineWidth = 2
+                ring.stroke()
+            }
+        }
+
         func mapView(_ mapView: MKMapView, viewFor annotation: MKAnnotation) -> MKAnnotationView? {
             if let overlay = annotation as? OverlayPointAnnotation {
                 let id = "OverlayPoint"
@@ -862,6 +878,19 @@ struct CanvassMapView: UIViewRepresentable {
                 view.glyphImage = UIImage(systemName: overlay.kind == "weather" ? "cloud.bolt" : "house")
                 view.canShowCallout = false
                 view.clusteringIdentifier = nil
+                if overlay.kind == "weather" {
+                    // A small dot with a tap callout, not a full pin: report coordinates are only
+                    // good to ~1 km, so a teardrop pin implied a precision the data doesn't have.
+                    let reuse = "StormReportDot"
+                    let dot = mapView.dequeueReusableAnnotationView(withIdentifier: reuse)
+                        ?? MKAnnotationView(annotation: annotation, reuseIdentifier: reuse)
+                    dot.annotation = annotation
+                    dot.image = Self.stormDotImage(hex: overlay.colorHex)
+                    dot.canShowCallout = true
+                    dot.clusteringIdentifier = nil
+                    dot.displayPriority = .defaultLow
+                    return dot
+                }
                 return view
             }
             if let cluster = annotation as? MKClusterAnnotation {
@@ -980,6 +1009,8 @@ class OverlayPointAnnotation: NSObject, MKAnnotation {
     var coordinate: CLLocationCoordinate2D { point.coordinate }
     var colorHex: String { point.colorHex }
     var kind: String { point.kind }
+    var title: String? { point.title }
+    var subtitle: String? { point.subtitle }
 
     init(point: MapOverlayPoint) {
         self.point = point

@@ -91,6 +91,7 @@ struct LayersSheetView: View {
     @AppStorage(AppSettings.Keys.showTerritories) private var showTerritories = true
     @AppStorage(AppSettings.Keys.showWeather) private var showWeather = false
     @AppStorage(AppSettings.Keys.showRoofAge) private var showRoofAge = false
+    @AppStorage(AppSettings.Keys.showStormReports) private var showStormReports = true
     @AppStorage(AppSettings.Keys.myPinsOnly) private var myPinsOnly = false
     @AppStorage(AppSettings.Keys.mapStyle) private var mapStyleRaw = MapStyleSetting.hybrid.rawValue
 
@@ -103,6 +104,9 @@ struct LayersSheetView: View {
                     Toggle("Territories", isOn: $showTerritories)
                     if weatherAvailable {
                         Toggle("Weather (hail/wind)", isOn: $showWeather)
+                        if showWeather {
+                            Toggle("Storm report dots", isOn: $showStormReports)
+                        }
                     }
                     Toggle("Roof age (est.)", isOn: $showRoofAge)
                     Toggle("My pins only", isOn: $myPinsOnly)
