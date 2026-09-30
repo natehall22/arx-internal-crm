@@ -15,6 +15,7 @@ enum AppSettings {
         static let showTerritories = "settings.showTerritories"
         static let showWeather = "settings.showWeather"
         static let showRoofAge = "settings.showRoofAge"
+        static let showStormReports = "settings.showStormReports"
         static let myPinsOnly = "settings.myPinsOnly"
 
         // Phase 4

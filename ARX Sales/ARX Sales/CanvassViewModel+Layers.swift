@@ -9,6 +9,9 @@ struct MapOverlayPoint: Identifiable {
     let coordinate: CLLocationCoordinate2D
     let colorHex: String
     let kind: String
+    /// Callout text. Storm reports only — nil for other overlay points.
+    var title: String? = nil
+    var subtitle: String? = nil
 }
 
 /// Parcel roof-age layer circle — matches web `roofAgeMarkerRadiusMeters` at street zoom.
@@ -152,9 +155,9 @@ extension CanvassViewModel {
         }
     }
 
-    func overlayPoints(showWeather: Bool, showRoofAge: Bool) -> [MapOverlayPoint] {
+    func overlayPoints(showWeather: Bool, showRoofAge: Bool, showStormReports: Bool = true) -> [MapOverlayPoint] {
         var pts: [MapOverlayPoint] = []
-        if showWeather { pts.append(contentsOf: weatherPoints) }
+        if showWeather && showStormReports { pts.append(contentsOf: weatherPoints) }
         _ = showRoofAge // roof-age parcel layer uses MKCircle overlays, not point markers
         return pts
     }
@@ -275,18 +278,56 @@ extension MKCoordinateRegion {
 }
 
 extension MapOverlayPoint {
+    /// Storm report dot. Severity colors and thresholds match web `reportDotFill`.
     static func fromWeatherFeature(_ f: [String: Any], layer: String) -> MapOverlayPoint? {
         guard let geom = f["geometry"] as? [String: Any],
               let coords = geom["coordinates"] as? [Double], coords.count >= 2,
               let props = f["properties"] as? [String: Any] else { return nil }
         let layerName = props["layer"] as? String ?? layer
-        let color = layerName == "wind" ? "#3B82F6" : "#EF4444"
+        let magnitude = (props["magnitude"] as? NSNumber)?.doubleValue ?? 0
+        let damage = props["damage"] as? Bool ?? false
+
+        let color: String
+        let title: String
+        if layerName == "wind" {
+            if damage || magnitude <= 0 {
+                color = "#EA580C"
+                title = "Wind damage report"
+            } else {
+                color = magnitude >= 70 ? "#B91C1C" : (magnitude >= 58 ? "#EA580C" : "#F59E0B")
+                title = "Wind gust \(Int(magnitude.rounded())) mph (est.)"
+            }
+        } else {
+            color = magnitude >= 1.75 ? "#B91C1C" : (magnitude >= 1.0 ? "#EA580C" : "#F59E0B")
+            title = String(format: "Hail %.2f\" (est.)", magnitude)
+        }
+        // Storm-report coordinates are rounded to ~1 km upstream, so say so rather than
+        // imply the dot marks a specific house.
+        var subtitle = "Approximate location"
+        if let date = Self.reportDateLabel(props["date"] as? String) {
+            subtitle = date + " · " + subtitle
+        }
         return MapOverlayPoint(
-            id: UUID().uuidString,
+            // Stable id (not a UUID) so an unchanged report isn't torn down and re-added on every
+            // refresh — that closed an open callout mid-read.
+            id: "\(coords[1]),\(coords[0]),\(title),\(subtitle)",
             coordinate: CLLocationCoordinate2D(latitude: coords[1], longitude: coords[0]),
             colorHex: color,
-            kind: "weather"
+            kind: "weather",
+            title: title,
+            subtitle: subtitle
         )
+    }
+
+    private static func reportDateLabel(_ raw: String?) -> String? {
+        guard let raw, !raw.isEmpty else { return nil }
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let plain = ISO8601DateFormatter()
+        guard let date = iso.date(from: raw) ?? plain.date(from: raw) else { return nil }
+        let out = DateFormatter()
+        out.dateFormat = "MMM d, yyyy"
+        return out.string(from: date)
     }
 
     static func fromRoofAgeFeature(_ f: [String: Any]) -> MapOverlayPoint? {
