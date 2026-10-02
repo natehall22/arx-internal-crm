@@ -17,6 +17,8 @@ enum AppSettings {
         static let showRoofAge = "settings.showRoofAge"
         static let showStormReports = "settings.showStormReports"
         static let myPinsOnly = "settings.myPinsOnly"
+        /// Hide the org's "Solar Home" pins (thousands bulk-created from the solar permit list).
+        static let hideSolarHomePins = "settings.hideSolarHomePins"
 
         // Phase 4
         static let focusMode = "settings.focusMode"
@@ -182,5 +184,17 @@ enum CanvassPinFilters {
     static func matchesOwner(_ pin: CanvassPin, myUserId: String?) -> Bool {
         guard let myUserId, !myUserId.isEmpty else { return false }
         return pin.o == myUserId
+    }
+
+    /// Every pin except `hiddenDisposition` (nil = hide nothing). Same rule as the web map's
+    /// '!<id>' filter in lib/canvass-pin-filter.ts.
+    static func matchesDisposition(_ pin: CanvassPin, hiddenDisposition: String?) -> Bool {
+        guard let hiddenDisposition else { return true }
+        return pin.d != hiddenDisposition
+    }
+
+    /// The disposition to hide right now, or nil — the setting is on AND this org has a Solar Home pin type.
+    static func hiddenDisposition(hideSolarHomePins: Bool) -> String? {
+        hideSolarHomePins ? CanvassDisposition.solarHomeId : nil
     }
 }

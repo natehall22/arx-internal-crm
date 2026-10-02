@@ -34,6 +34,7 @@ struct CanvassView: View {
     @AppStorage(AppSettings.Keys.showRoofAge) private var showRoofAge = false
     @AppStorage(AppSettings.Keys.showStormReports) private var showStormReports = true
     @AppStorage(AppSettings.Keys.myPinsOnly) private var myPinsOnly = false
+    @AppStorage(AppSettings.Keys.hideSolarHomePins) private var hideSolarHomePins = false
     @AppStorage(AppSettings.Keys.focusMode) private var focusMode = false
     @AppStorage(AppSettings.Keys.pinTimeFilter) private var pinTimeFilterRaw = PinTimeFilter.all.rawValue
 
@@ -45,7 +46,8 @@ struct CanvassView: View {
             myUserId: vm.myUserId,
             focusMode: focusMode,
             myPinsOnly: myPinsOnly,
-            timeFilter: timeFilter
+            timeFilter: timeFilter,
+            hiddenDisposition: CanvassPinFilters.hiddenDisposition(hideSolarHomePins: hideSolarHomePins)
         )
     }
 
@@ -157,6 +159,9 @@ struct CanvassView: View {
                         if timeFilter != .all {
                             MapHUDChip { Text("Filter: Last \(timeFilter.label)") }
                         }
+                        if CanvassPinFilters.hiddenDisposition(hideSolarHomePins: hideSolarHomePins) != nil {
+                            MapHUDChip { Text("Solar Home pins hidden") }
+                        }
                         if let err = vm.loadError {
                             MapHUDChip {
                                 HStack(spacing: 8) {
@@ -239,6 +244,12 @@ struct CanvassView: View {
             if let region = vm.lastRegion {
                 vm.loadOverlays(for: region, weather: showWeather && weatherOverlayAvailable, roofAge: showRoofAge)
             }
+        }
+        // The server leaves hidden pins out of the viewport response, so turning them back on
+        // needs a fresh fetch; the covered-bounds shortcut in loadPins would otherwise skip it.
+        .onChange(of: hideSolarHomePins) { _ in
+            vm.invalidateBoundsCache()
+            if let region = vm.lastRegion { vm.loadPins(for: region) }
         }
     }
 
@@ -487,7 +498,10 @@ class CanvassViewModel: NSObject, ObservableObject, CLLocationManagerDelegate {
                 let response = try await APIClient.viewportPins(
                     minLat: minLat, maxLat: maxLat,
                     minLng: minLng, maxLng: maxLng,
-                    zoom: zoom
+                    zoom: zoom,
+                    hiddenDisposition: CanvassPinFilters.hiddenDisposition(
+                        hideSolarHomePins: UserDefaults.standard.bool(forKey: AppSettings.Keys.hideSolarHomePins)
+                    )
                 )
                 guard !Task.isCancelled else { return }
                 await MainActor.run {

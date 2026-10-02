@@ -645,6 +645,12 @@ struct CanvassDisposition: Identifiable, Codable {
         stored.first { $0.id == id }
     }
 
+    /// The org's "Solar Home" pin type — admin-created, so its id differs per org; matched by
+    /// label exactly like the web map (findSolarHomeDispositionId in lib/canvass-pin-filter.ts).
+    static var solarHomeId: String? {
+        all.first { $0.label.range(of: #"\bsolar\b"#, options: [.regularExpression, .caseInsensitive]) != nil }?.id
+    }
+
     fileprivate static func cache(_ list: [CanvassDisposition]?) {
         if let list, !list.isEmpty {
             UserDefaults.standard.set(try? JSONEncoder().encode(list), forKey: cacheKey)
@@ -860,14 +866,20 @@ struct APIClient {
 
     // MARK: - Canvass
 
-    static func viewportPins(minLat: Double, maxLat: Double, minLng: Double, maxLng: Double, zoom: Int) async throws -> CanvassViewportResponse {
-        let data = try await request(path: "/api/canvass/leads/viewport", queryItems: [
+    static func viewportPins(minLat: Double, maxLat: Double, minLng: Double, maxLng: Double, zoom: Int, hiddenDisposition: String? = nil) async throws -> CanvassViewportResponse {
+        var items = [
             URLQueryItem(name: "minLat", value: "\(minLat)"),
             URLQueryItem(name: "maxLat", value: "\(maxLat)"),
             URLQueryItem(name: "minLng", value: "\(minLng)"),
             URLQueryItem(name: "maxLng", value: "\(maxLng)"),
             URLQueryItem(name: "zoom",   value: "\(zoom)"),
-        ])
+        ]
+        // Server-side too, not just on the phone: the viewport API caps pins per zoom level, and
+        // hidden pins would otherwise use up that budget and leave real pins unloaded.
+        if let hiddenDisposition {
+            items.append(URLQueryItem(name: "disposition", value: "!\(hiddenDisposition)"))
+        }
+        let data = try await request(path: "/api/canvass/leads/viewport", queryItems: items)
         return try JSONDecoder().decode(CanvassViewportResponse.self, from: data)
     }
 
