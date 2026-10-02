@@ -16,11 +16,13 @@ import {
 import { fetchEffectiveSitOpportunitiesInPeriod } from '@/lib/dashboard-sit-metrics'
 import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
 import {
+  EXCLUDE_SOLAR_IMPORT_LEADS_OR,
   getAttributedInstallationSales,
   getContactDispositionIdSet,
   isCanvassDoorLead,
   isContactDisposition,
   SALE_AGREEMENT_TYPES,
+  SOLAR_IMPORT_LEAD_SOURCE,
   type InstallationSaleContractRow,
 } from '@/lib/sales-metrics'
 import { getAttributedCanvassLeadUserId } from '@/lib/canvass-lead-attribution'
@@ -142,6 +144,7 @@ export default async function DashboardPage() {
     .eq('org_id', profile.org_id)
     .gte('created_at', weekStart.toISOString())
     .lt('created_at', weekEnd.toISOString())
+    .or(EXCLUDE_SOLAR_IMPORT_LEADS_OR)
   
   if (!isAdmin) {
     if (teamMemberIds.length > 1) {
@@ -241,7 +244,8 @@ export default async function DashboardPage() {
     .from('leads')
     .select('id, status, source', { count: 'exact', head: true })
     .eq('org_id', profile.org_id)
-    .neq('source', 'door_to_door') // Exclude raw door knocks from "Total Leads"
+    // Exclude raw door knocks and the bulk-created Solar Home pins (solar_import) from "Total Leads"
+    .not('source', 'in', `(door_to_door,${SOLAR_IMPORT_LEAD_SOURCE})`)
   
   if (!isAdmin) {
     if (teamMemberIds.length > 1) {
@@ -258,7 +262,7 @@ export default async function DashboardPage() {
     .select('id', { count: 'exact', head: true })
     .eq('org_id', profile.org_id)
     .eq('status', 'new')
-    .neq('source', 'door_to_door')
+    .not('source', 'in', `(door_to_door,${SOLAR_IMPORT_LEAD_SOURCE})`)
   
   if (!isAdmin) {
     if (teamMemberIds.length > 1) {

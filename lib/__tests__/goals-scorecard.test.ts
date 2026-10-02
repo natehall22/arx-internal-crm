@@ -23,6 +23,10 @@ describe('resolveLeadChannel', () => {
     expect(resolveLeadChannel({ source: 'csv_import' })).toBe('canvass')
   })
 
+  it('does not count solar_import pins as canvass doors even with a disposition', () => {
+    expect(resolveLeadChannel({ source: 'solar_import', canvass_disposition: 'dispo_1790799669778' })).toBe('other')
+  })
+
   it('defaults unknown non-canvass sources to other', () => {
     expect(resolveLeadChannel({ source: 'referral' })).toBe('other')
   })
@@ -106,5 +110,13 @@ describe('getEasternMonthEndDate', () => {
   it('is not thrown off by the DST transitions bracketing March and November', () => {
     expect(getEasternMonthEndDate('2026-03')).toBe('2026-03-31')
     expect(getEasternMonthEndDate('2026-10')).toBe('2026-10-31')
+  })
+})
+
+describe('solar_import exclusion', () => {
+  it('keeps NULL-source leads and drops only solar_import in the query filter', () => {
+    const { EXCLUDE_SOLAR_IMPORT_LEADS_OR, SOLAR_IMPORT_LEAD_SOURCE } = jest.requireActual('@/lib/sales-metrics')
+    expect(SOLAR_IMPORT_LEAD_SOURCE).toBe('solar_import')
+    expect(EXCLUDE_SOLAR_IMPORT_LEADS_OR).toBe('source.is.null,source.neq.solar_import')
   })
 })

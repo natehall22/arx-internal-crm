@@ -1,7 +1,21 @@
 const DOOR_COUNT_SOURCES = new Set(['door_to_door', 'canvass', 'door_knock', 'csv_import'])
 
+/** Source on the Solar Home pins bulk-created from solar_installs/solar_candidates (2026-10-01). */
+export const SOLAR_IMPORT_LEAD_SOURCE = 'solar_import'
+
+/**
+ * PostgREST `.or()` filter that drops solar_import pins IN THE QUERY. Use it on any unpaginated
+ * leads select that feeds a stat: those selects are capped at 1,000 rows, and 6,487 same-day
+ * solar pins would otherwise crowd real knocks out of the window before isCanvassDoorLead runs.
+ * Keeps NULL-source rows (a bare `.neq('source', …)` would silently drop them).
+ */
+export const EXCLUDE_SOLAR_IMPORT_LEADS_OR = `source.is.null,source.neq.${SOLAR_IMPORT_LEAD_SOURCE}`
+
 /** Inbound leads: disposition alone must not turn them into canvass doors (see migration 130). */
-const NON_CANVASS_DISPOSITION_SOURCES = new Set(['web', 'inbound', 'call_center'])
+// solar_import: pins bulk-created from solar_installs/solar_candidates with the "Solar Home"
+// disposition (2026-10-01) — nobody knocked them, so they must not count as doors. A later real
+// re-knock still logs to canvass_knocks via isCanvassDoorEligible, which deliberately omits it.
+const NON_CANVASS_DISPOSITION_SOURCES = new Set(['web', 'inbound', 'call_center', SOLAR_IMPORT_LEAD_SOURCE])
 const CONTACT_DISPOSITIONS = new Set(['go_back', 'hot_lead', 'not_interested', 'renter'])
 export const SALE_AGREEMENT_TYPES = ['installation', 'repair'] as const
 
