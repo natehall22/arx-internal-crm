@@ -3,7 +3,7 @@ import { requireAuthApi } from '@/lib/auth'
 import { getDateRangeForTimeFrame } from '@/lib/date-ranges'
 import { getEasternTodayIso } from '@/lib/eastern-datetime'
 import { INSPECTION_SET_APPOINTMENT_TYPE_OR } from '@/lib/inspection-set-metrics'
-import { isCanvassDoorLead } from '@/lib/sales-metrics'
+import { EXCLUDE_SOLAR_IMPORT_LEADS_OR, isCanvassDoorLead } from '@/lib/sales-metrics'
 import { getAttributedCanvassLeadUserId } from '@/lib/canvass-lead-attribution'
 import { countClosedSalesInRange } from '@/lib/sisu-monthly-closed-sales'
 import type {
@@ -86,6 +86,7 @@ export async function GET() {
       .eq('org_id', profile.org_id)
       .gte('created_at', weekStart.toISOString())
       .lt('created_at', weekEnd.toISOString())
+      .or(EXCLUDE_SOLAR_IMPORT_LEADS_OR)
 
     if (doorError) {
       return NextResponse.json({ error: doorError.message }, { status: 500 })

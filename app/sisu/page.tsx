@@ -13,7 +13,7 @@ import {
 } from '@/lib/sisu-monthly-closed-sales'
 import { countDoorsKnockedForBadgeAward } from '@/lib/sisu-weekly-doors'
 import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
-import { SALE_AGREEMENT_TYPES, isCanvassDoorLead } from '@/lib/sales-metrics'
+import { EXCLUDE_SOLAR_IMPORT_LEADS_OR, SALE_AGREEMENT_TYPES, isCanvassDoorLead } from '@/lib/sales-metrics'
 import { getAttributedCanvassLeadUserId } from '@/lib/canvass-lead-attribution'
 import { INSPECTION_SET_APPOINTMENT_TYPE_OR } from '@/lib/inspection-set-metrics'
 import type {
@@ -60,6 +60,7 @@ export default async function IncentivesPage() {
     .eq('org_id', profile.org_id)
     .gte('created_at', weekStart.toISOString())
     .lt('created_at', weekEnd.toISOString())
+    .or(EXCLUDE_SOLAR_IMPORT_LEADS_OR)
 
   const doorsKnocked = (doorLeads ?? []).filter(
     (l) => isCanvassDoorLead(l) && getAttributedCanvassLeadUserId(l) === profile.id

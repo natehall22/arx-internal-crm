@@ -12,6 +12,7 @@ import {
   type InspectionOutcomeConfigRow,
 } from '@/lib/inspection-outcomes'
 import {
+  EXCLUDE_SOLAR_IMPORT_LEADS_OR,
   getAttributedInstallationSales,
   getContactDispositionIdSet,
   isCanvassDoorLead,
@@ -249,7 +250,8 @@ export default function ReportsPage() {
           .select(
             'id, status, source, canvass_disposition, created_at, owner_user_id, pin_attributed_user_id, ownership_reassigned_at'
           )
-          .eq('org_id', orgId),
+          .eq('org_id', orgId)
+          .or(EXCLUDE_SOLAR_IMPORT_LEADS_OR),
         'created_at',
         dateStart,
         dateEnd,
