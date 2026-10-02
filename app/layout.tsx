@@ -6,6 +6,7 @@ import SetterFeedbackPrompt from '@/components/SetterFeedbackPrompt'
 import { AIAssistantProvider } from '@/components/AIAssistantProvider'
 import AIAssistantWrapper from '@/components/AIAssistantWrapper'
 import SessionKeepalive from '@/components/SessionKeepalive'
+import SessionOnly from '@/components/SessionOnly'
 
 export const metadata: Metadata = {
   title: 'ARX Internal CRM',
@@ -50,10 +51,12 @@ export default function RootLayout({
         <AIAssistantProvider>
           {children}
           <ServiceWorkerRegistration />
-          <SessionKeepalive />
-          <AppointmentFeedbackPrompt />
-          <SetterFeedbackPrompt />
-          <AIAssistantWrapper />
+          <SessionOnly>
+            <SessionKeepalive />
+            <AppointmentFeedbackPrompt />
+            <SetterFeedbackPrompt />
+            <AIAssistantWrapper />
+          </SessionOnly>
         </AIAssistantProvider>
       </body>
     </html>

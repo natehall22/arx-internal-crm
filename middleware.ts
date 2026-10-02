@@ -1,4 +1,5 @@
 import { type NextRequest, NextResponse } from 'next/server'
+import { isPublicPath } from '@/lib/public-paths'
 import { getSupabaseSessionFromCookieStore } from '@/lib/supabase/session-cookie'
 import {
   isExpired,
@@ -17,27 +18,7 @@ export async function middleware(request: NextRequest) {
   }
 
   // Public paths - no auth required
-  if (
-    pathname === '/' ||
-    pathname === '/login' ||
-    pathname === '/trial' ||
-    pathname === '/reset-password' ||
-    pathname === '/privacy' ||
-    pathname === '/terms' ||
-    pathname.startsWith('/login/') ||
-    pathname.startsWith('/contracts/') ||
-    pathname.startsWith('/change-orders/sign/') ||
-    pathname.startsWith('/r/') || // public inspection-report share links (unguessable tokens)
-    pathname.startsWith('/crew/') || // crew photo links from install invites (unguessable per-trade tokens)
-    pathname.startsWith('/_next/') ||
-    pathname === '/favicon.ico' ||
-    pathname.endsWith('.json') ||
-    pathname.endsWith('.js') ||
-    pathname.endsWith('.png') ||
-    pathname.endsWith('.ico') ||
-    pathname.endsWith('.svg') ||
-    pathname.endsWith('.css')
-  ) {
+  if (isPublicPath(pathname)) {
     return NextResponse.next()
   }
 

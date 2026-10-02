@@ -81,7 +81,8 @@ class RealtimeManager {
       if (this.listeners.size === 0) return // Don't connect if no listeners
       
       try {
-        this.eventSource = new EventSource('/api/notifications/stream')
+        const source = new EventSource('/api/notifications/stream')
+        this.eventSource = source
 
         this.eventSource.onopen = () => {
           this.reconnectAttempts = 0
@@ -123,14 +124,44 @@ class RealtimeManager {
         })
 
         this.eventSource.onerror = () => {
+          if (this.eventSource !== source) return
           this.updateState({ connected: false })
-          this.scheduleReconnect()
+          // CLOSED means the server answered with an HTTP error (e.g. 401 once
+          // the session is gone), not a dropped connection — check the session
+          // before retrying instead of hammering the stream.
+          if (source.readyState === EventSource.CLOSED) {
+            void this.reconnectIfSessionAlive(source)
+          } else {
+            this.scheduleReconnect()
+          }
         }
       } catch (error) {
         console.error('Failed to create EventSource:', error)
         this.scheduleReconnect()
       }
     }, 100)
+  }
+
+  /**
+   * /api/auth/refresh 401s only when there is no usable session, and rotates
+   * an expired access token otherwise — so a long-open page whose token lapsed
+   * recovers on the next attempt, and a logged-out one stops retrying.
+   */
+  private async reconnectIfSessionAlive(source: EventSource) {
+    let sessionGone = false
+    try {
+      const res = await fetch('/api/auth/refresh', { method: 'POST' })
+      sessionGone = res.status === 401
+    } catch {
+      // Offline — fall through to the normal backoff.
+    }
+    // Superseded while we waited (unsubscribed, or a newer connection opened).
+    if (this.eventSource !== source) return
+    if (sessionGone) {
+      this.disconnect()
+      return
+    }
+    this.scheduleReconnect()
   }
 
   private scheduleReconnect() {
