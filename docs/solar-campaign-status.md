@@ -7,6 +7,72 @@ Strategy page: https://claude.ai/code/artifact/c9130255-3b26-47bd-b358-cabd2aae4
 
 ---
 
+## Update 2026-09-10 — satellite discovery + rep verification
+
+**112 Cabarrus solar homes found that permits cannot see**, now on the canvass map
+as tappable purple rings. Cabarrus has no bulk permit layer after 2018, so
+2019–2026 installs were invisible; imagery fills exactly that gap.
+
+**Google Solar API, measured not assumed** (`solar-api-pilot.ts`):
+- recall **~74%** against 100 known-solar homes — misses 1 in 4
+- false positives **~1%** against 200 no-permit addresses (matches base rate)
+- hit rate decays with distance from known solar: 9.8% (closest 400) → 4.3% (next 2,000)
+- 2,800 of 10,000 free monthly calls used
+
+**Rep verification (new).** Tapping a purple ring asks "Solar on this house?" —
+Yes/No, nothing else. A **Yes** strips the row of Google provenance (source becomes
+`rep_verified`, imagery date cleared, expiry removed): the claim is now a person's
+observation, which is ours and doesn't lapse. A **No** is recorded too — it stops
+the layer re-asking and is the only feedback we get on the detector's real accuracy.
+
+`solar_candidates` rows carry `expires_at` and the canvass route filters on it at
+READ time, so the 30-day Google cache limit holds even if a purge job never runs.
+
+---
+
+## Update 2026-09-09 — filters deleted, list grew 45%
+
+**Mail list: 4,164 → 6,022 addresses.** Same three counties, same free data. The
+gain came from deleting filters and fixing the classifier, not new sources.
+
+**Tiering is gone.** A solar penetration that was never flashed properly leaks on
+a two-year-old roof — bad sealant, a lag bolt that missed the rafter. That's an
+INSTALL defect, not wear, so neither system age nor roof age gates the list.
+Every home with solar is a candidate. Age and installer data ride along as
+columns for the door conversation, never as a filter.
+
+**Classifier fixed (`enrich-roof-age.ts`).** Mecklenburg concatenates
+`REPAIR/REPLACE. EXTERIOR ROOF ADDITION(S)` boilerplate onto `permitdesc`, and the
+original classifier demanded a literal PV token — so obviously-real installs
+("ROOFTOP SOLAR", "SOLAR PANEL INSTALLATION") were dumped into AMBIGUOUS.
+
+| | Before | After |
+|---|---:|---:|
+| CONFIRMED_PV | 3,251 | **5,656** |
+| LIKELY_PV | 986 | 397 |
+| AMBIGUOUS (excluded) | 2,406 | **495** |
+| Mailable | 4,181 | **6,053** |
+
+**Roof age added** from Mecklenburg `TaxParcel_camadata` (join on `pid`, carries
+`yearbuilt` + `effyearblt`) and Cabarrus `canvass_parcel_years`. Average roof age
+*at the moment the panels went on* is **12 years** — the typical array here was
+bolted through an already middle-aged roof. Not a filter; good copy.
+
+**Google Solar API pilot built** (`solar-api-pilot.ts`), unrun — needs
+`GOOGLE_SOLAR_API_KEY` on the **company** Google Cloud account. Runs
+probe → validate → control before discovery, so we measure the detector's
+false-negative rate against the 5,656 homes we already know have solar before
+paying for a scan. Note Google's terms allow only **30 days** of caching, so it
+writes a dated CSV, never a row in `solar_installs`. Intended flow: Google points
+→ rep confirms at the door → the rep's observation is the permanent record.
+
+**Open:** Cabarrus GIS was returning `"Could not access any server machines"` on
+2026-09-09 — their outage, not ours. Blocks the last 28 Cabarrus ambiguous rows;
+retry. `arcgis.ts` now detects that error shape instead of crashing on
+"features is not iterable".
+
+---
+
 ## TL;DR for the morning
 
 - **6,643 solar properties** are now in the CRM (`solar_installs`), from Cabarrus,

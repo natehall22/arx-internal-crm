@@ -8,6 +8,7 @@ import CanvassMap, { type WeatherContext } from './components/CanvassMap'
 import CanvassNav from './components/CanvassNav'
 import LeadModal from './components/LeadModal'
 import StormPeekSheet from './components/StormPeekSheet'
+import SolarVerifySheet, { type SolarCandidatePeek } from './components/SolarVerifySheet'
 import SyncStatus from './components/SyncStatus'
 import { lookupPinStorm } from './lib/weather-overlay'
 import { recordSuccessfulInspectionSubmit } from './lib/inspectionSubmitCooldown'
@@ -106,6 +107,8 @@ export default function CanvassPage() {
   const weatherOverlayEnabled = process.env.NEXT_PUBLIC_CANVASS_WEATHER_OVERLAY === 'true'
   const roofAgeEnabled = process.env.NEXT_PUBLIC_CANVASS_ROOF_AGE === 'true'
   const solarEnabled = process.env.NEXT_PUBLIC_CANVASS_SOLAR === 'true'
+  const [solarPeek, setSolarPeek] = useState<SolarCandidatePeek | null>(null)
+  const [answeredSolarCandidateId, setAnsweredSolarCandidateId] = useState<string | null>(null)
 
   const peekSummary = useMemo(() => {
     if (!peekLocation) return null
@@ -717,6 +720,8 @@ export default function CanvassPage() {
             onWeatherContextChange={setWeatherContext}
             roofAgeEnabled={roofAgeEnabled}
             solarEnabled={solarEnabled}
+            onSolarVerify={(candidate) => setSolarPeek(candidate)}
+            answeredSolarCandidateId={answeredSolarCandidateId}
           />
         ) : (
           <div className="h-full overflow-y-auto p-4 pb-24">
@@ -825,6 +830,15 @@ export default function CanvassPage() {
             setPeekLocation(null)
           }}
           onClose={() => setPeekLocation(null)}
+        />
+      )}
+
+      {/* Solar candidate verification (tap a purple ring) */}
+      {solarPeek && (
+        <SolarVerifySheet
+          candidate={solarPeek}
+          onAnswered={(candidateId) => setAnsweredSolarCandidateId(candidateId)}
+          onClose={() => setSolarPeek(null)}
         />
       )}
 

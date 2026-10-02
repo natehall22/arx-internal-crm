@@ -20,7 +20,11 @@ export type ArcGISQueryResult = {
   features: ArcGISFeature[]
   exceededTransferLimit?: boolean
   count?: number
+  /** Shape 1: a query-level error (bad field, bad where clause). */
   error?: { code?: number; message?: string }
+  /** Shape 2: a service-level error (backend down). Also arrives HTTP 200. */
+  status?: string
+  messages?: string[]
 }
 
 function sleep(ms: number): Promise<void> {
@@ -91,6 +95,19 @@ export async function queryArcGISLayer(options: {
     throw new Error(
       `ArcGIS error ${body.error.code ?? '?'}: ${body.error.message ?? 'unknown'}`,
     )
+  }
+  // ArcGIS reports failures in two different shapes, both with HTTP 200. The
+  // second — {status:"error", messages:[...]} — is what a downed backend returns
+  // ("Could not access any server machines", seen live on Cabarrus 2026-09-09).
+  // Without this it slips through as a body with no `features` and callers die
+  // on "page.features is not iterable", which reads like our bug, not theirs.
+  if (body.status === 'error') {
+    throw new Error(
+      `ArcGIS service error: ${(body.messages ?? []).join('; ') || 'unknown'} (${options.layerUrl})`,
+    )
+  }
+  if (!Array.isArray(body.features) && !options.returnCountOnly) {
+    throw new Error(`ArcGIS returned no feature array for ${options.layerUrl}`)
   }
   return body
 }

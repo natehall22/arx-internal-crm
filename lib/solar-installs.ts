@@ -82,6 +82,7 @@ export function toFeature(row: InstallRow, currentYear: number): SolarFeature | 
     type: 'Feature',
     geometry: { type: 'Point', coordinates: [row.lng, row.lat] },
     properties: {
+      kind: 'permit',
       installedYear,
       systemAge: installedYear ? currentYear - installedYear : undefined,
       installerStatus: toStatus(row.solar_installers?.status),

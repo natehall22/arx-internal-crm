@@ -40,6 +40,10 @@ import {
 } from '../lib/roof-age-overlay'
 import {
   MIN_SOLAR_ZOOM,
+  SOLAR_CANDIDATE_FILL,
+  SOLAR_CANDIDATE_LABEL,
+  SOLAR_CANDIDATE_RADIUS_METERS,
+  SOLAR_CANDIDATE_STROKE,
   SOLAR_LEGEND,
   SOLAR_MARKER_STROKE,
   SOLAR_MARKER_Z_INDEX,
@@ -100,6 +104,10 @@ interface Props {
   /** Roof-age parcel layer (county year-built data) — flag-gated like weather */
   roofAgeEnabled?: boolean
   solarEnabled?: boolean
+  /** Tapped an unverified solar candidate — opens the verify sheet. */
+  onSolarVerify?: (candidate: { candidateId: string; ownerName: string | null }) => void
+  /** Set by the page after a verify saves, so the marker clears immediately. */
+  answeredSolarCandidateId?: string | null
 }
 
 // Default pin colors (fallback if no admin settings)
@@ -233,6 +241,8 @@ export default function CanvassMap({
   weatherTimeWindowDays = 730,
   roofAgeEnabled = false,
   solarEnabled = false,
+  onSolarVerify,
+  answeredSolarCandidateId = null,
   onWeatherContextChange,
 }: Props) {
   // Keep latest handlers without re-running marker sync / re-binding map listeners every render.
@@ -1044,9 +1054,16 @@ export default function CanvassMap({
   // toggle/cleanup dance a third time. Weather and roof-age above still have
   // their own copies; migrating them is a separate, reviewable change.
   const solarCirclesRef = useRef<any[]>([])
+  const onSolarVerifyRef = useRef(onSolarVerify)
+  onSolarVerifyRef.current = onSolarVerify
+  /** Answered this session — hidden immediately so the rep sees their tap land. */
+  const answeredCandidatesRef = useRef<Set<string>>(new Set())
+  /** candidateId → its ring, so an answer removes just that marker. */
+  const candidateCirclesRef = useRef<Map<string, any>>(new Map())
 
   const clearSolarCircles = useCallback(() => {
     solarCirclesRef.current.forEach((circle) => circle.setMap(null))
+    candidateCirclesRef.current.clear()
     solarCirclesRef.current = []
   }, [])
 
@@ -1060,20 +1077,50 @@ export default function CanvassMap({
         const [lng, lat] = feature.geometry.coordinates as [number, number]
         if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue
         const status = feature.properties.installerStatus
+        const isCandidate = feature.properties.kind === 'candidate'
+        const candidateId = feature.properties.candidateId
+        // Already answered in this session — don't re-ask on the next viewport
+        // refetch, which would look like the tap didn't register.
+        if (isCandidate && candidateId && answeredCandidatesRef.current.has(candidateId)) continue
         const bucket = solarBucket(status)
         try {
-          solarCirclesRef.current.push(
-            new google.maps.Circle({
-              map,
-              center: { lat, lng },
-              radius: solarMarkerRadiusMeters(status),
-              fillColor: bucket.fill,
-              fillOpacity: 1,
-              ...SOLAR_MARKER_STROKE,
-              clickable: false,
-              zIndex: SOLAR_MARKER_Z_INDEX,
-            }),
+          const circle = new google.maps.Circle(
+            isCandidate
+              ? {
+                  map,
+                  center: { lat, lng },
+                  radius: SOLAR_CANDIDATE_RADIUS_METERS,
+                  // Hollow ring: an unverified imagery guess should not read as
+                  // solidly as a permit record. Reps knock the filled ones first.
+                  fillColor: SOLAR_CANDIDATE_FILL,
+                  fillOpacity: 0.15,
+                  ...SOLAR_CANDIDATE_STROKE,
+                  // Only candidates are tappable — they're the ones asking a
+                  // question. Permit markers are settled fact.
+                  clickable: Boolean(candidateId),
+                  zIndex: SOLAR_MARKER_Z_INDEX - 1,
+                }
+              : {
+                  map,
+                  center: { lat, lng },
+                  radius: solarMarkerRadiusMeters(status),
+                  fillColor: bucket.fill,
+                  fillOpacity: 1,
+                  ...SOLAR_MARKER_STROKE,
+                  clickable: false,
+                  zIndex: SOLAR_MARKER_Z_INDEX,
+                },
           )
+          if (isCandidate && candidateId) {
+            candidateCirclesRef.current.set(candidateId, circle)
+            circle.addListener('click', () =>
+              onSolarVerifyRef.current?.({
+                candidateId,
+                ownerName: feature.properties.ownerName ?? null,
+              }),
+            )
+          }
+          solarCirclesRef.current.push(circle)
         } catch {
           // drop this marker, keep going
         }
@@ -1094,6 +1141,21 @@ export default function CanvassMap({
   })
   const solarOnMapIdleRef = useRef(solar.onMapIdle)
   solarOnMapIdleRef.current = solar.onMapIdle
+
+  // A rep just answered. Remove just that ring now rather than waiting for the next
+  // viewport refetch — otherwise it lingers and the tap feels ignored. Deliberately NOT
+  // clear-all + refetch: useCanvassOverlay returns a new object every render (so an effect
+  // keyed on it re-runs constantly) and its refetch skips bounds it already loaded, which
+  // together blanked the whole solar layer until the rep panned.
+  useEffect(() => {
+    if (!answeredSolarCandidateId) return
+    answeredCandidatesRef.current.add(answeredSolarCandidateId)
+    const circle = candidateCirclesRef.current.get(answeredSolarCandidateId)
+    if (circle) {
+      circle.setMap(null)
+      candidateCirclesRef.current.delete(answeredSolarCandidateId)
+    }
+  }, [answeredSolarCandidateId])
 
   // Load Google Maps script with marker clusterer
   useEffect(() => {
@@ -1998,6 +2060,16 @@ export default function CanvassMap({
                         <span>{item.label}</span>
                       </div>
                     ))}
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="w-3 h-3 rounded-full flex-shrink-0"
+                        style={{
+                          backgroundColor: 'transparent',
+                          boxShadow: `inset 0 0 0 2px ${SOLAR_CANDIDATE_FILL}, 0 0 0 1.5px #FFFFFF`,
+                        }}
+                      />
+                      <span>{SOLAR_CANDIDATE_LABEL}</span>
+                    </div>
                   </div>
                 )}
               </>
