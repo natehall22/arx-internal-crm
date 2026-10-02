@@ -145,12 +145,14 @@ extension CanvassViewModel {
         myUserId: String?,
         focusMode: Bool,
         myPinsOnly: Bool,
-        timeFilter: PinTimeFilter
+        timeFilter: PinTimeFilter,
+        hiddenDisposition: String? = nil
     ) -> [CanvassPin] {
         displayPins(merging: pending, queuedItems: queuedItems).filter { pin in
             if focusMode || myPinsOnly {
                 guard CanvassPinFilters.matchesOwner(pin, myUserId: myUserId) else { return false }
             }
+            guard CanvassPinFilters.matchesDisposition(pin, hiddenDisposition: hiddenDisposition) else { return false }
             return CanvassPinFilters.matchesTime(pin, filter: timeFilter)
         }
     }

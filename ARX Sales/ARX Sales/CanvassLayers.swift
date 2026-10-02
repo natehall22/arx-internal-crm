@@ -93,6 +93,7 @@ struct LayersSheetView: View {
     @AppStorage(AppSettings.Keys.showRoofAge) private var showRoofAge = false
     @AppStorage(AppSettings.Keys.showStormReports) private var showStormReports = true
     @AppStorage(AppSettings.Keys.myPinsOnly) private var myPinsOnly = false
+    @AppStorage(AppSettings.Keys.hideSolarHomePins) private var hideSolarHomePins = false
     @AppStorage(AppSettings.Keys.mapStyle) private var mapStyleRaw = MapStyleSetting.hybrid.rawValue
 
     let weatherAvailable: Bool
@@ -110,6 +111,12 @@ struct LayersSheetView: View {
                     }
                     Toggle("Roof age (est.)", isOn: $showRoofAge)
                     Toggle("My pins only", isOn: $myPinsOnly)
+                    if CanvassDisposition.solarHomeId != nil {
+                        Toggle("Solar Home pins", isOn: Binding(
+                            get: { !hideSolarHomePins },
+                            set: { hideSolarHomePins = !$0 }
+                        ))
+                    }
                 }
                 Section("Map Style") {
                     Picker("Style", selection: $mapStyleRaw) {

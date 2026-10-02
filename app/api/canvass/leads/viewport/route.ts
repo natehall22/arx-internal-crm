@@ -7,7 +7,7 @@
  * Query params:
  *   - minLat, maxLat, minLng, maxLng: Bounding box (required)
  *   - zoom: Current zoom level (required for density control)
- *   - disposition: Filter by disposition (optional)
+ *   - disposition: Filter by disposition (optional); '!<id>' = every pin except that disposition
  *   - excludeIds: Comma-separated IDs already loaded (optional, for incremental loading)
  */
 
@@ -19,6 +19,7 @@ import {
   leadLngLatInRings,
 } from '@/lib/canvass-territories'
 import { ensureLeadHasMapPin } from '@/lib/lead-map-pin'
+import { isExcludeDispositionFilter, parseExcludedDisposition } from '@/lib/canvass-pin-filter'
 import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
@@ -303,7 +304,14 @@ export async function GET(request: NextRequest) {
 
     // Apply disposition filter if provided
     // "Scheduled" in the app maps pins with status=inspection (and/or disposition inspection_scheduled), not canvass_disposition='scheduled'
-    if (disposition) {
+    const excludedDisposition = parseExcludedDisposition(disposition)
+    if (isExcludeDispositionFilter(disposition)) {
+      // "Everything except X" (e.g. hide Solar Home pins). Undispositioned pins stay visible;
+      // an id that fails validation applies no filter rather than reaching the .or() string.
+      if (excludedDisposition) {
+        query = query.or(`canvass_disposition.is.null,canvass_disposition.neq.${excludedDisposition}`)
+      }
+    } else if (disposition) {
       if (disposition === 'scheduled') {
         query = query.or('status.eq.inspection,canvass_disposition.eq.inspection_scheduled')
       } else {

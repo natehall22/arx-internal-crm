@@ -48,6 +48,11 @@ import {
   type SolarFeatureCollection,
 } from '../lib/solar-overlay'
 import { useCanvassOverlay } from '../lib/useCanvassOverlay'
+import {
+  excludeDispositionFilter,
+  findSolarHomeDispositionId,
+  parseExcludedDisposition,
+} from '@/lib/canvass-pin-filter'
 
 export type { WeatherContext }
 
@@ -1610,6 +1615,17 @@ export default function CanvassMap({
     return options
   }, [dispositions])
 
+  // Solar Home pins (thousands bulk-created from the solar permit list) can be hidden without
+  // touching any other pin. Hiding is the '!<id>' shape of the same disposition filter.
+  const solarHomeDispositionId = useMemo(() => findSolarHomeDispositionId(dispositions), [dispositions])
+  const solarHomePinsHidden =
+    solarHomeDispositionId != null && dispositionFilter === excludeDispositionFilter(solarHomeDispositionId)
+  const excludedFilterLabel = useMemo(() => {
+    const excludedId = parseExcludedDisposition(dispositionFilter)
+    if (!excludedId) return null
+    return dispositions.find((d) => d.id === excludedId)?.label ?? null
+  }, [dispositionFilter, dispositions])
+
   return (
     <div className="relative h-full w-full">
       <div ref={mapRef} className="h-full w-full" />
@@ -2114,7 +2130,9 @@ export default function CanvassMap({
                 style={{ backgroundColor: filterOptions.find(d => d.value === dispositionFilter)?.color || '#6B7280' }}
               ></span>
               <span className="text-sm font-medium text-gray-900">
-                {filterOptions.find(d => d.value === dispositionFilter)?.label || 'All Pins'}
+                {excludedFilterLabel
+                  ? `All except ${excludedFilterLabel}`
+                  : filterOptions.find(d => d.value === dispositionFilter)?.label || 'All Pins'}
               </span>
               <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -2141,6 +2159,33 @@ export default function CanvassMap({
                     <span className="text-sm text-gray-900">{d.label}</span>
                   </button>
                 ))}
+                {solarHomeDispositionId && (
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={!solarHomePinsHidden}
+                    onClick={() => {
+                      onDispositionFilterChange(
+                        solarHomePinsHidden ? null : excludeDispositionFilter(solarHomeDispositionId)
+                      )
+                      setShowFilterMenu(false)
+                    }}
+                    className="w-full mt-1 border-t px-4 py-2.5 text-left flex items-center justify-between gap-3 hover:bg-gray-50"
+                  >
+                    <span className="text-sm font-medium text-[#2c2c2a]">Solar Home pins</span>
+                    <span
+                      className={`relative inline-flex h-5 w-9 flex-shrink-0 rounded-full transition-colors ${
+                        solarHomePinsHidden ? 'bg-gray-300' : 'bg-blue-600'
+                      }`}
+                    >
+                      <span
+                        className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${
+                          solarHomePinsHidden ? 'translate-x-0.5' : 'translate-x-[18px]'
+                        }`}
+                      />
+                    </span>
+                  </button>
+                )}
               </div>
             )}
           </div>
