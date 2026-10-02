@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import { createClientBrowser } from '@/lib/supabase/client'
 import CloseScheduleModal, { type CloseScheduleConfirm } from '@/components/appointments/CloseScheduleModal'
 import LeadInspectionScheduleModal from '@/components/leads/LeadInspectionScheduleModal'
+import { MANUAL_LEAD_SOURCES } from '@/lib/lead-sources'
 
 interface ReferrerResult {
   id: string
@@ -25,16 +26,6 @@ const leadStatuses = [
   'won',
   'lost',
 ] as const
-
-const leadSources = [
-  'ad_campaign',
-  'door_to_door',
-  'call_in',
-  'call_center',
-  'referral',
-  'web',
-  'other',
-]
 
 interface LeadFormWithReferralProps {
   orgId: string
@@ -571,9 +562,9 @@ export default function LeadFormWithReferral({
             className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
           >
             <option value="">Select source</option>
-            {leadSources.map((s) => (
-              <option key={s} value={s}>
-                {s.replace('_', ' ')}
+            {MANUAL_LEAD_SOURCES.map((s) => (
+              <option key={s.value} value={s.value}>
+                {s.label}
               </option>
             ))}
           </select>

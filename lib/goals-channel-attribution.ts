@@ -10,6 +10,7 @@ const INSIDE_SALES_SOURCES = new Set([
   'Website Contact Form',
   'inbound',
   'call_center',
+  'yelp',
 ])
 
 export type LeadChannelInput = {
