@@ -14,6 +14,7 @@
 'use client'
 
 import { useState, useCallback, useRef, useEffect } from 'react'
+import { isExcludeDispositionFilter } from '@/lib/canvass-pin-filter'
 
 // Minimal pin data from viewport API
 export interface ViewportPin {
@@ -129,6 +130,8 @@ interface UseViewportLeadsReturn {
   setDispositionFilter: (d: string | null) => void
 }
 
+const EXCLUDE_FILTER_STORAGE_KEY = 'canvass:pin-exclude-filter'
+
 export function useViewportLeads(): UseViewportLeadsReturn {
   const [state, setState] = useState<ViewportState>({
     pins: new Map(),
@@ -140,6 +143,33 @@ export function useViewportLeads(): UseViewportLeadsReturn {
   })
   
   const [dispositionFilter, setDispositionFilter] = useState<string | null>(null)
+  const filterRestoredRef = useRef(false)
+
+  // A hide filter (e.g. "hide Solar Home pins") is a standing preference, so it survives app
+  // restarts on this device. "Only X" filters are not remembered — reopening the app to a map
+  // showing only hot leads would look like the other pins vanished.
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(EXCLUDE_FILTER_STORAGE_KEY)
+      if (saved && isExcludeDispositionFilter(saved)) setDispositionFilter(saved)
+    } catch {
+      // storage blocked (private mode) — default to all pins
+    }
+    filterRestoredRef.current = true
+  }, [])
+
+  useEffect(() => {
+    if (!filterRestoredRef.current) return
+    try {
+      if (isExcludeDispositionFilter(dispositionFilter)) {
+        localStorage.setItem(EXCLUDE_FILTER_STORAGE_KEY, dispositionFilter as string)
+      } else {
+        localStorage.removeItem(EXCLUDE_FILTER_STORAGE_KEY)
+      }
+    } catch {
+      // storage blocked — preference just won't persist
+    }
+  }, [dispositionFilter])
   
   const debounceRef = useRef<NodeJS.Timeout | null>(null)
   const pruneFrameRef = useRef<number | null>(null)
