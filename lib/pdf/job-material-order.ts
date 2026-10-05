@@ -250,9 +250,8 @@ export function generateJobMaterialOrderPDF(data: JobMaterialOrderData): Buffer 
       const detailParts: string[] = []
       if (row.detail) detailParts.push(row.detail)
       if (row.note) detailParts.push(row.note)
-      if (row.isEdited && row.computedQty) {
-        detailParts.push(`Edited — CRM computed ${row.computedQty}`)
-      }
+      // No "edited / CRM computed" provenance: the supplier needs the quantity to pull, not our
+      // internal history. Ops still see what they changed in the sheets editor.
 
       if (detailParts.length > 0) {
         setText(doc, MUTED)
