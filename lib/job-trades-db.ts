@@ -13,6 +13,7 @@ import {
   detectTradesFromLineItems,
   newCrewLinkToken,
   primaryTradeForJobType,
+  sortTrades,
   type DerivedJobSchedule,
   type JobTradeRow,
   type Trade,
@@ -223,6 +224,27 @@ export async function addManualTrade(
     return { error: 'Failed to add trade', status: 500 }
   }
   return { trade: data as JobTradeRow }
+}
+
+/* ------------------------------------------------------------------------ *
+ * loadActiveJobTrades
+ * ------------------------------------------------------------------------ */
+
+/** A job's crews that still count (not cancelled), roofing first. Read-only. */
+export async function loadActiveJobTrades(
+  admin: SupabaseClient,
+  orgId: string,
+  jobId: string
+): Promise<{ trades: JobTradeRow[]; error: { message?: string } | null }> {
+  const { data, error } = await admin
+    .from('work_orders')
+    .select(JOB_TRADE_COLUMNS)
+    .eq('org_id', orgId)
+    .eq('job_id', jobId)
+    .not('trade', 'is', null)
+    .neq('status', 'cancelled')
+  if (error) return { trades: [], error }
+  return { trades: sortTrades((data || []) as JobTradeRow[]), error: null }
 }
 
 /* ------------------------------------------------------------------------ *

@@ -38,6 +38,8 @@ import {
   type DisplayMaterialsOrderItem,
   type JobMaterialOrderOverrideRow,
 } from '@/lib/materials-order-overrides'
+import { formatInstallDays, TRADE_LABELS, type JobTradeRow } from '@/lib/job-trades'
+import { loadActiveJobTrades } from '@/lib/job-trades-db'
 import { parseProjectReviewStored } from '@/lib/project-review'
 import { DEFAULT_TIMEZONE } from '@/lib/timezone'
 
@@ -121,7 +123,12 @@ export type JobRunSheetData = {
   permitNumber: string | null
   proposalNumber: string | null
   homeowner: RunSheetContact
-  runningJob: RunSheetContact
+  /**
+   * One card per crew on the job (each trade on `work_orders`), roofing first, each labelled with
+   * its trade, date and length. Falls back to the job's single legacy crew/sub when the job has no
+   * trades yet. 26-0046 printed only the roofer while 10 Star Solar was also booked on it.
+   */
+  crews: RunSheetContact[]
   soldBy: RunSheetContact | null
   measurements: RunSheetMeasurement[]
   fields: Record<RunSheetFieldKey, RunSheetField>
@@ -327,6 +334,35 @@ function makeField(
   }
 }
 
+type RunSheetSub = { company_name: string | null; contact_name: string | null; phone: string | null }
+
+function shortDate(date: string | null): string | null {
+  if (!date) return null
+  const d = new Date(`${date}T12:00:00Z`)
+  if (Number.isNaN(d.getTime())) return null
+  return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' })
+}
+
+/** The crew cards: every active trade, else the job's one legacy assignment. */
+export function buildRunSheetCrews(
+  trades: Pick<JobTradeRow, 'trade' | 'assigned_sub_id' | 'scheduled_date' | 'install_days'>[],
+  subsById: Map<string, RunSheetSub>,
+  legacy: RunSheetContact
+): RunSheetContact[] {
+  if (trades.length === 0) return [legacy]
+  return trades.map((t) => {
+    const sub = t.assigned_sub_id ? subsById.get(t.assigned_sub_id) ?? null : null
+    const when = t.scheduled_date
+      ? [shortDate(t.scheduled_date), formatInstallDays(t.install_days)].filter(Boolean).join(' · ')
+      : 'not scheduled'
+    return {
+      label: `${TRADE_LABELS[t.trade] ?? 'Crew'} · ${when}`,
+      name: clean(sub?.company_name) || clean(sub?.contact_name) || 'Unassigned',
+      phone: clean(sub?.phone),
+    }
+  })
+}
+
 export async function buildJobRunSheet(
   admin: SupabaseClient,
   orgId: string,
@@ -471,6 +507,26 @@ export async function buildJobRunSheet(
 
   const runningName =
     clean(crew?.name) || clean(sub?.company_name) || clean(sub?.contact_name) || 'Unassigned'
+  const legacyCrew: RunSheetContact = {
+    label: crew ? 'Crew' : 'Subcontractor',
+    name: runningName,
+    phone: clean(crew?.phone) || clean(sub?.phone),
+  }
+  const { trades, error: tradesError } = await loadActiveJobTrades(admin, orgId, job.id)
+  if (tradesError) console.error('[Run sheet] trade load failed:', tradesError)
+  const tradeSubIds = Array.from(new Set(trades.map((t) => t.assigned_sub_id).filter(Boolean))) as string[]
+  const { data: tradeSubs } = tradeSubIds.length
+    ? await admin
+        .from('sub_contractors')
+        .select('id, company_name, contact_name, phone')
+        .eq('org_id', orgId)
+        .in('id', tradeSubIds)
+    : { data: [] }
+  const crews = buildRunSheetCrews(
+    trades,
+    new Map(((tradeSubs ?? []) as (RunSheetSub & { id: string })[]).map((row) => [row.id, row])),
+    legacyCrew
+  )
 
   return {
     jobId,
@@ -495,11 +551,7 @@ export async function buildJobRunSheet(
         'Unknown',
       phone: clean(customer?.phone),
     },
-    runningJob: {
-      label: crew ? 'Crew' : 'Subcontractor',
-      name: runningName,
-      phone: clean(crew?.phone) || clean(sub?.phone),
-    },
+    crews,
     soldBy: salesperson
       ? { label: 'Sold by', name: clean(salesperson.full_name) || 'Unknown', phone: clean(salesperson.phone) }
       : null,
