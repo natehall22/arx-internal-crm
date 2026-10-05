@@ -175,6 +175,17 @@ struct LeadSheetView: View {
         return .createOnSchedule(save)
     }
 
+    /// Active pin types, plus this pin's current one if the org has since retired it — otherwise the
+    /// picker shows nothing selected and saving can't keep the value the pin already has.
+    private var dispositionChoices: [CanvassDisposition] {
+        var list = CanvassDisposition.all
+        if !disposition.isEmpty, !list.contains(where: { $0.id == disposition }),
+           let current = CanvassDisposition.find(disposition) {
+            list.append(current)
+        }
+        return list
+    }
+
     var body: some View {
         NavigationView {
             Form {
@@ -286,7 +297,7 @@ struct LeadSheetView: View {
                 Section(isNew ? "What happened?" : "Update Disposition") {
                     Picker("Disposition", selection: $disposition) {
                         Text("— Not Set —").tag("")
-                        ForEach(CanvassDisposition.all) { d in
+                        ForEach(dispositionChoices) { d in
                             Label {
                                 Text(d.label)
                             } icon: {

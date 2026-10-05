@@ -1052,7 +1052,7 @@ class PinAnnotation: NSObject, MKAnnotation {
         if let d = pin.d, let disp = CanvassDisposition.find(d) {
             return UIColor(hex: disp.color)
         }
-        return UIColor(hex: "#3B82F6")
+        return UIColor(hex: "#4F46E5")   // web `defaultPinColors.default` (indigo)
     }
 
     var glyphImage: UIImage? {

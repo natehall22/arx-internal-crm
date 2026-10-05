@@ -641,8 +641,10 @@ struct CanvassDisposition: Identifiable, Codable {
     static var all: [CanvassDisposition] { stored.filter { $0.active } }
 
     /// Lookup includes retired types so existing pins keep their label and color.
+    /// Falls back to the built-in six like the web map does (its colors start from the defaults and
+    /// the org's list is laid over them), so a pin whose id the org list lacks still gets its color.
     static func find(_ id: String?) -> CanvassDisposition? {
-        stored.first { $0.id == id }
+        stored.first { $0.id == id } ?? defaults.first { $0.id == id }
     }
 
     /// The org's "Solar Home" pin type — admin-created, so its id differs per org; matched by
