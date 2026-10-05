@@ -169,15 +169,15 @@ select.bg-slate-950:-webkit-autofill {
 .login-dark input,
 .login-dark textarea,
 .login-dark select {
-  color: #ffffff !important;
-  background-color: #020617 !important; /* slate-950 */
-  -webkit-text-fill-color: #ffffff !important;
-  caret-color: #ffffff !important;
+  color: #F6F1E7 !important;
+  background-color: #141312 !important;
+  -webkit-text-fill-color: #F6F1E7 !important;
+  caret-color: #F6F1E7 !important;
 }
 
 .login-dark input::placeholder,
 .login-dark textarea::placeholder {
-  color: #94a3b8 !important; /* slate-400 */
+  color: #8F8778 !important;
 }
 
 /* Keep browser autofill readable on dark login form. */
@@ -186,10 +186,10 @@ select.bg-slate-950:-webkit-autofill {
 .login-dark input:-webkit-autofill:focus,
 .login-dark textarea:-webkit-autofill,
 .login-dark select:-webkit-autofill {
-  -webkit-text-fill-color: #ffffff !important;
-  caret-color: #ffffff !important;
-  -webkit-box-shadow: 0 0 0px 1000px #020617 inset !important; /* slate-950 */
-  box-shadow: 0 0 0px 1000px #020617 inset !important;
+  -webkit-text-fill-color: #F6F1E7 !important;
+  caret-color: #F6F1E7 !important;
+  -webkit-box-shadow: 0 0 0px 1000px #141312 inset !important;
+  box-shadow: 0 0 0px 1000px #141312 inset !important;
   transition: background-color 9999s ease-out 0s !important;
 }
 
