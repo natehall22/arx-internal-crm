@@ -641,8 +641,10 @@ struct CanvassDisposition: Identifiable, Codable {
     static var all: [CanvassDisposition] { stored.filter { $0.active } }
 
     /// Lookup includes retired types so existing pins keep their label and color.
+    /// Falls back to the built-in six like the web map does (its colors start from the defaults and
+    /// the org's list is laid over them), so a pin whose id the org list lacks still gets its color.
     static func find(_ id: String?) -> CanvassDisposition? {
-        stored.first { $0.id == id }
+        stored.first { $0.id == id } ?? defaults.first { $0.id == id }
     }
 
     /// The org's "Solar Home" pin type — admin-created, so its id differs per org; matched by
@@ -752,6 +754,27 @@ struct APIClient {
             throw APIError.httpError(http.statusCode)
         }
         return data
+    }
+
+    /// DELETE /api/canvass/lead?id= — same call as the web "Delete Pin". A 404 counts as success
+    /// (already gone), like web. Other failures surface the server's message, which says why
+    /// (not your pin, signed customer, completed inspection...).
+    static func deleteLead(id: String) async throws {
+        guard let token = await bearerToken() else { throw APIError.unauthenticated }
+        var components = URLComponents(string: baseURL + "/api/canvass/lead")!
+        components.queryItems = [URLQueryItem(name: "id", value: id)]
+        var req = URLRequest(url: components.url!)
+        req.httpMethod = "DELETE"
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        req.timeoutInterval = 20
+        let (data, response) = try await URLSession.shared.data(for: req)
+        guard let http = response as? HTTPURLResponse else { throw APIError.invalidResponse }
+        if http.statusCode < 400 || http.statusCode == 404 { return }
+        if let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let msg = obj["error"] as? String, !msg.isEmpty {
+            throw APIError.serverMessage(msg)
+        }
+        throw APIError.httpError(http.statusCode)
     }
 
     static func delete(path: String, body: some Encodable) async throws {
@@ -1104,6 +1127,8 @@ enum APIError: Error, LocalizedError {
     case offlineQueueUnavailable
     /// Scheduling-specific errors returned by the server (e.g. conflict, no closer).
     case schedulingConflict(String)
+    /// The server's own `{ "error": ... }` text, shown as-is (e.g. delete permission failures).
+    case serverMessage(String)
     var errorDescription: String? {
         switch self {
         case .unauthenticated: return "Not signed in"
@@ -1112,6 +1137,7 @@ enum APIError: Error, LocalizedError {
         case .offlineQueued: return "Saved offline — will sync when back online"
         case .offlineQueueUnavailable: return "Not signed in — could not save offline"
         case .schedulingConflict(let msg): return msg
+        case .serverMessage(let msg): return msg
         }
     }
 }

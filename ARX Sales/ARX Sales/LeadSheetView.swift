@@ -58,6 +58,8 @@ struct LeadSheetView: View {
     @State private var showScheduleSheet = false
     @State private var offlineSaved = false
     @State private var newClientLeadId: String?
+    @State private var showDeleteConfirm = false
+    @State private var isDeleting = false
 
     @AppStorage(AppSettings.Keys.navigationApp) private var navigationAppRaw = NavigationAppSetting.appleMaps.rawValue
 
@@ -175,6 +177,43 @@ struct LeadSheetView: View {
         return .createOnSchedule(save)
     }
 
+    /// Existing, fully synced pins only — an unsynced pin has no server row yet and a queued edit
+    /// would later fail against a deleted lead. Sold-customer pins are admin-only on the server
+    /// (it enforces that too), so they're not offered here.
+    private var canDeletePin: Bool {
+        guard let pin, !isNew, !pin.isPending, !pin.isPendingEdit, !pin.id.isEmpty else { return false }
+        return pin.ia != true
+    }
+
+    private func deletePin() async {
+        guard let pin, canDeletePin else { return }
+        isDeleting = true
+        error = nil
+        do {
+            try await APIClient.deleteLead(id: pin.id)
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            dismiss()   // map reloads pins from the sheet's onDismiss
+        } catch let urlError as URLError {
+            error = urlError.code == .notConnectedToInternet || urlError.code == .timedOut
+                ? "Can't reach the server — deleting a pin needs a connection."
+                : urlError.localizedDescription
+        } catch {
+            self.error = error.localizedDescription
+        }
+        isDeleting = false
+    }
+
+    /// Active pin types, plus this pin's current one if the org has since retired it — otherwise the
+    /// picker shows nothing selected and saving can't keep the value the pin already has.
+    private var dispositionChoices: [CanvassDisposition] {
+        var list = CanvassDisposition.all
+        if !disposition.isEmpty, !list.contains(where: { $0.id == disposition }),
+           let current = CanvassDisposition.find(disposition) {
+            list.append(current)
+        }
+        return list
+    }
+
     var body: some View {
         NavigationView {
             Form {
@@ -286,7 +325,7 @@ struct LeadSheetView: View {
                 Section(isNew ? "What happened?" : "Update Disposition") {
                     Picker("Disposition", selection: $disposition) {
                         Text("— Not Set —").tag("")
-                        ForEach(CanvassDisposition.all) { d in
+                        ForEach(dispositionChoices) { d in
                             Label {
                                 Text(d.label)
                             } icon: {
@@ -387,8 +426,29 @@ struct LeadSheetView: View {
                         }
                     }
                 }
+
+                if canDeletePin {
+                    Section {
+                        Button(role: .destructive) {
+                            showDeleteConfirm = true
+                        } label: {
+                            HStack {
+                                Spacer()
+                                if isDeleting { ProgressView() } else { Text("Delete Pin").fontWeight(.semibold) }
+                                Spacer()
+                            }
+                        }
+                        .disabled(isDeleting)
+                    }
+                }
             }
             .navigationTitle(isNew ? "New Lead" : "Edit Lead")
+            .confirmationDialog("Delete this pin?", isPresented: $showDeleteConfirm, titleVisibility: .visible) {
+                Button("Delete Pin", role: .destructive) { Task { await deletePin() } }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This can't be undone.")
+            }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
