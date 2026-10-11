@@ -557,7 +557,9 @@ export async function PATCH(request: NextRequest) {
     }
 
     const resetLink = linkData.properties.action_link
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://arx-internal-crm.vercel.app'
+    // Use the origin the admin is actually on: a stale/missing NEXT_PUBLIC_APP_URL
+    // sent the emailed link to a host that doesn't serve this app.
+    const appUrl = new URL(request.url).origin
     // Replace Supabase redirect with our app's reset-password page
     const finalLink = resetLink.replace(
       /redirect_to=[^&]*/,
