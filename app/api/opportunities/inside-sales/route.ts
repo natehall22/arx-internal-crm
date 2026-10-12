@@ -453,7 +453,7 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const items = queueItems
+    const ranked = queueItems
       .map((item: any) => {
         const activities = activityMap.get(item.id) || []
         const attempts = activities.filter(
@@ -526,10 +526,30 @@ export async function GET(request: NextRequest) {
           adjusterMeetingSync: adjusterSyncByOpportunity.get(item.id) ?? null,
           priorityTier: priority.tier,
           _priority: priority,
+          _stormEnteredMs: item.followUpKind === 'storm' && Number.isFinite(enteredMs) ? enteredMs : null,
         }
       })
       .sort((a: any, b: any) => comparePriority(a._priority, b._priority))
-      .map(({ _priority, ...item }: any) => item)
+
+    // Storms: freshest storm first. The shared tiers rank overdue follow-ups oldest-first,
+    // which buries the newest storm under stale ones. Re-sort only the storm rows, into the
+    // slots storms already occupy, so everything else keeps its place. Tier stays the
+    // primary key: a storm lead called an hour ago (tier 5) or still in rep grace (tier 7)
+    // must never jump ahead of one nobody has called yet.
+    const stormSlots: number[] = []
+    ranked.forEach((r: any, i: number) => {
+      if (r._stormEnteredMs !== null) stormSlots.push(i)
+    })
+    const stormsNewestFirst = stormSlots
+      .map((i) => ranked[i])
+      .sort(
+        (a: any, b: any) =>
+          a._priority.tier - b._priority.tier || b._stormEnteredMs - a._stormEnteredMs
+      )
+    stormSlots.forEach((slot, k) => {
+      ranked[slot] = stormsNewestFirst[k]
+    })
+    const items = ranked.map(({ _priority, _stormEnteredMs, ...item }: any) => item)
 
     const readyCount = items.filter((item: any) => item.callableNow).length
 
