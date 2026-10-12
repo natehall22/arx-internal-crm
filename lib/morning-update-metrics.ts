@@ -66,7 +66,7 @@ export type MorningUpdateMetrics = {
   lastWeekVsGoals: MorningUpdateLastWeekVsGoals | null
 }
 
-async function countDoors(
+export async function countDoors(
   supabase: SupabaseClient,
   orgId: string,
   startIso: string,
@@ -113,7 +113,7 @@ type SignedContractRow = {
   project_cost: number | string | null
 }
 
-async function fetchSignedContractsInPeriod(
+export async function fetchSignedContractsInPeriod(
   supabase: SupabaseClient,
   orgId: string,
   startIso: string,
@@ -145,7 +145,7 @@ async function fetchSignedContractsInPeriod(
   return rows
 }
 
-function summarizeSignedContracts(rows: SignedContractRow[]): { salesCount: number; revenue: number } {
+export function summarizeSignedContracts(rows: SignedContractRow[]): { salesCount: number; revenue: number } {
   const seen = new Set<string>()
   let revenue = 0
 
@@ -169,7 +169,7 @@ export function countUniqueGeneratedProposalOpportunities(rows: GeneratedProposa
   return new Set(rows.map((proposal) => proposal.opportunity_id || proposal.id)).size
 }
 
-async function countGeneratedProposalOpportunitiesInPeriod(
+export async function countGeneratedProposalOpportunitiesInPeriod(
   supabase: SupabaseClient,
   orgId: string,
   startIso: string,
