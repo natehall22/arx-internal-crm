@@ -6,8 +6,8 @@ import { resolveOpsAccess } from '@/lib/ops-access'
 import { removeInstallFromCalendar } from '@/lib/install-calendar'
 import { loadTradeWithJob } from '@/lib/job-trade-calendar'
 import { missingRequiredPhotoTags } from '@/lib/final-photo-tags'
-import { JOB_TRADE_COLUMNS, crewLinkUrl, installDaysOrDefault, isTrade, sortTrades, type JobTradeRow } from '@/lib/job-trades'
-import { addManualTrade, ensureJobTrades, syncJobScheduleFromTrades } from '@/lib/job-trades-db'
+import { crewLinkUrl, installDaysOrDefault, isTrade } from '@/lib/job-trades'
+import { addManualTrade, ensureJobTrades, loadActiveJobTrades, syncJobScheduleFromTrades } from '@/lib/job-trades-db'
 
 type AuthCtx = { authUser: { id: string }; profile: { id: string; org_id: string; role: string; custom_role_id?: string | null } }
 
@@ -47,18 +47,11 @@ export async function GET(_request: Request, { params }: { params: { id: string 
   // job-level columns already agree — no status write on a read.
   await ensureJobTrades(admin, orgId, [job.id])
 
-  const { data: tradesData, error } = await admin
-    .from('work_orders')
-    .select(JOB_TRADE_COLUMNS)
-    .eq('org_id', orgId)
-    .eq('job_id', job.id)
-    .not('trade', 'is', null)
-    .neq('status', 'cancelled')
+  const { trades, error } = await loadActiveJobTrades(admin, orgId, job.id)
   if (error) {
     console.error('[job trades GET]', error)
     return NextResponse.json({ error: 'Failed to load trades' }, { status: 500 })
   }
-  const trades = sortTrades((tradesData || []) as JobTradeRow[])
 
   const subIds = Array.from(new Set(trades.map((t) => t.assigned_sub_id).filter(Boolean))) as string[]
   const tradeIds = trades.map((t) => t.id)

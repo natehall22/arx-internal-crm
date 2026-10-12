@@ -217,44 +217,54 @@ function drawHeader(doc: jsPDF, data: JobRunSheetData): number {
   return barH
 }
 
+/** More cards than this per row and a name like "10 Star Solar" no longer fits. */
+const CARDS_PER_ROW = 4
+
 function drawContactCards(doc: jsPDF, data: JobRunSheetData, top: number): number {
-  const cards = [data.homeowner, data.runningJob, data.soldBy].filter(
+  // Every crew on the job gets a card — a sheet naming only the roofer left the second crew
+  // (26-0046's solar detach) off the page entirely.
+  const cards = [data.homeowner, ...data.crews, data.soldBy].filter(
     (c): c is NonNullable<typeof c> => c != null
   )
   const gutter = 10
-  const cardW = (CONTENT_W - gutter * (cards.length - 1)) / cards.length
   const cardH = 50
+  const rowGap = 8
+  const rows = Math.ceil(cards.length / CARDS_PER_ROW)
+  const perRow = Math.ceil(cards.length / rows)
+  const cardW = (CONTENT_W - gutter * (perRow - 1)) / perRow
 
-  cards.forEach((card, i) => {
+  cards.forEach((card, idx) => {
+    const i = idx % perRow
+    const rowTop = top + Math.floor(idx / perRow) * (cardH + rowGap)
     const x = MARGIN + i * (cardW + gutter)
     setFill(doc, [248, 247, 244])
     setDraw(doc, RULE)
     doc.setLineWidth(0.6)
-    doc.roundedRect(x, top, cardW, cardH, 3, 3, 'FD')
+    doc.roundedRect(x, rowTop, cardW, cardH, 3, 3, 'FD')
 
     setText(doc, MUTED)
     doc.setFont('helvetica', 'bold')
     doc.setFontSize(7)
-    doc.text(card.label.toUpperCase(), x + 8, top + 13)
+    doc.text(wrap(doc, card.label.toUpperCase(), cardW - 16, 1)[0], x + 8, rowTop + 13)
 
     setText(doc, INK)
     doc.setFont('helvetica', 'bold')
     doc.setFontSize(11)
-    doc.text(wrap(doc, card.name, cardW - 16, 1)[0], x + 8, top + 28)
+    doc.text(wrap(doc, card.name, cardW - 16, 1)[0], x + 8, rowTop + 28)
 
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(11)
     const phone = formatPhone(card.phone)
     if (phone) {
-      doc.text(phone, x + 8, top + 42)
+      doc.text(phone, x + 8, rowTop + 42)
     } else {
       setText(doc, MUTED)
       doc.setFontSize(9)
-      doc.text('No phone on file', x + 8, top + 42)
+      doc.text('No phone on file', x + 8, rowTop + 42)
     }
   })
 
-  return top + cardH
+  return top + rows * cardH + (rows - 1) * rowGap
 }
 
 /**
