@@ -8,9 +8,13 @@ Subcontractor model (no in-house crews). Based in the US, field reps canvass doo
 | Owner | Domain |
 |---|---|
 | Nathan Hall | Closing, tech stack, training, leadership development |
-| Evan | Setting, social media, relationships, recruiting |
 | Steve | In-field operations (paid via OPP 9% of commissionable) |
 | Andrew | Back office operations and finance (paid via OPP 9% of commissionable) |
+
+Owners are Nathan, Steve and Andrew at 33.33% each. **Evan exited** (Pay and Exit Agreement signed
+2026-09-01, effective 2026-08-17) — he is no longer an owner; don't list him as setting/recruiting lead.
+Cam Hill is earning in under the Ownership Earn-In Agreement (effective 2026-09-14), not yet an owner.
+Buyout/earn-in tracking spec: `docs/SURVEY_TO_CRM_SPEC.md` module 6.
 
 ## Business Model
 - **Lead gen:** Door-to-door canvassing (setters) → inspection → close
