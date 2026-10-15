@@ -54,3 +54,6 @@ next-env.d.ts
 
 # Solar permit audit downloads (local only)
 /scripts/solar-permits/data/
+
+# Generated reports/PDFs (contain payout + reconciliation data)
+/output/
