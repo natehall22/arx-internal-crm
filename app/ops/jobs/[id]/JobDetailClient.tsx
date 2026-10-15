@@ -16,6 +16,7 @@ import Nav from '@/components/Nav'
 import Link from 'next/link'
 import JobTradesCard, { type JobTradeView } from '@/components/ops/JobTradesCard'
 import { TRADE_LABELS } from '@/lib/job-trades'
+import { summarizeJobCosts, type JobCostLineInput } from '@/lib/job-costs'
 import JobPaymentsCard from '@/components/ops/JobPaymentsCard'
 import JobInvoicesCard from '@/components/ops/JobInvoicesCard'
 import CompleteJobModal from '@/components/ops/CompleteJobModal'
@@ -1244,21 +1245,29 @@ export default function JobDetailClient({
 
   const status = jobStatusConfig(job.status)
   const materials = materialsConfig[job.materials_status] || materialsConfig.not_ordered
-  /**
-   * Costs logged through the Files workspace ("+ Add cost line" -> `job_cost_lines`).
-   * A SEPARATE system from the "+ Job Cost" button on the Materials tab
-   * (`job_product_orders`), and only the latter feeds Est. profit below. Surfaced so a
-   * cost logged in the other place is visible here instead of silently missing.
-   */
-  const [costLinesTotal, setCostLinesTotal] = useState(0)
+  const [costLines, setCostLines] = useState<JobCostLineInput[]>([])
 
-  const effectiveMaterialCost = materialOrdersTotal ?? job.material_cost ?? null
+  // One shared answer to "what did this job cost" (lib/job-costs) — same figure as the ops board,
+  // profit tracker and goals. Stored columns win; cost lines supply permit/misc extras.
+  const jobCosts = useMemo(
+    () =>
+      summarizeJobCosts({
+        materialCostColumn: job.material_cost,
+        laborCostColumn: job.labor_cost,
+        dealerFeeAmount: job.dealer_fee_amount,
+        ordersTotal: materialOrdersTotal ? materialOrdersTotal : null,
+        lines: costLines,
+      }),
+    [job.material_cost, job.labor_cost, job.dealer_fee_amount, materialOrdersTotal, costLines]
+  )
+  const effectiveMaterialCost = jobCosts.materials
   const canViewFinancialTab = canViewProfitability || canViewJobBilling
   const payrollSnapshot = useMemo(() => buildCommissionPayrollSnapshot(job), [job])
   const saleAmount = job.sale_amount || 0
-  const laborCost = job.labor_cost || 0
-  const materialCost = effectiveMaterialCost || 0
-  const dealerFeeCost = job.dealer_fee_amount || 0
+  const laborCost = jobCosts.labor
+  const materialCost = jobCosts.materials
+  const extraCost = jobCosts.permit + jobCosts.misc
+  const dealerFeeCost = jobCosts.finance
   const toCents = (value: number) => Math.round(value * 100)
   const formatCents = (valueInCents: number) =>
     `$${(valueInCents / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -1266,6 +1275,7 @@ export default function JobDetailClient({
   const saleAmountCents = toCents(saleAmount)
   const laborCostCents = toCents(laborCost)
   const materialCostCents = toCents(materialCost)
+  const extraCostCents = toCents(extraCost)
   const dealerFeeCents = toCents(dealerFeeCost)
   const netToArxCents = toCents(netCommissionableFromJob(saleAmount, dealerFeeCost))
   const commissionCents =
@@ -1273,7 +1283,7 @@ export default function JobDetailClient({
       ? Math.round(payrollSnapshot.poolCap * 100)
       : Math.round(saleAmountCents * SALES_COMMISSION_POOL_RATE)
   const profitCents =
-    saleAmountCents - laborCostCents - materialCostCents - dealerFeeCents - commissionCents
+    saleAmountCents - laborCostCents - materialCostCents - extraCostCents - dealerFeeCents - commissionCents
   const profitPercent = saleAmountCents > 0 ? ((profitCents / saleAmountCents) * 100).toFixed(1) : '0.0'
   const loanInfoParts = [
     job.financing_lender_name?.trim() || null,
@@ -2007,7 +2017,7 @@ export default function JobDetailClient({
                 customerEmail={job.customer?.email || null}
                 registerOpenCostAttachmentShortcut={registerOpenCostAttachmentShortcut}
                 dealerFeeAmount={job.dealer_fee_amount ?? null}
-                onCostLinesTotalChange={setCostLinesTotal}
+                onCostLinesChange={setCostLines}
               />
             </div>
 
@@ -2268,30 +2278,26 @@ export default function JobDetailClient({
                   <div className="flex justify-between gap-4">
                     <span className="text-gray-700">Labor</span>
                     <span className="font-medium text-gray-900 tabular-nums">
-                      {job.labor_cost !== null ? formatCents(laborCostCents) : '—'}
+                      {jobCosts.sources.includes('labor:column') || laborCostCents > 0 ? formatCents(laborCostCents) : '—'}
                     </span>
                   </div>
                   <div className="flex justify-between gap-4">
                     <span className="text-gray-700">Materials</span>
                     <span className="font-medium text-gray-900 tabular-nums">
-                      {effectiveMaterialCost !== null ? formatCents(materialCostCents) : '—'}
+                      {jobCosts.sources.includes('materials:column') || materialCostCents > 0 ? formatCents(materialCostCents) : '—'}
                     </span>
                   </div>
-                  {costLinesTotal > 0 && (
-                    <div className="rounded-md border border-amber-300 bg-amber-50 p-2.5">
-                      <div className="flex justify-between gap-4">
-                        <span className="font-medium" style={{ color: '#2c2c2a' }}>
-                          Cost lines (Photos &amp; files)
-                        </span>
-                        <span className="font-semibold tabular-nums" style={{ color: '#2c2c2a' }}>
-                          {formatCents(Math.round(costLinesTotal * 100))}
-                        </span>
-                      </div>
-                      <p className="mt-1 text-xs" style={{ color: '#2c2c2a' }}>
-                        Logged under Photos &amp; files, which is a separate list from the job costs
-                        on the Materials tab. <strong>Not included in Est. profit below.</strong>{' '}
-                        If this is the same cost as one on the Materials tab, it has been entered twice.
-                      </p>
+                  {extraCostCents > 0 && (
+                    <div className="flex justify-between gap-4">
+                      <span className="text-gray-700">
+                        Permit &amp; other costs
+                        {jobCosts.pendingExtras > 0 && (
+                          <span className="ml-1 text-xs text-amber-700">
+                            ({formatCents(toCents(jobCosts.pendingExtras))} awaiting approval)
+                          </span>
+                        )}
+                      </span>
+                      <span className="font-medium text-gray-900 tabular-nums">{formatCents(extraCostCents)}</span>
                     </div>
                   )}
                   <div className="border-t border-gray-200 pt-3 flex justify-between gap-4">

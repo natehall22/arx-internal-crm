@@ -170,8 +170,8 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability }: 
     const hasLabor = typeof job.labor_cost === 'number'
     const hasMaterial = typeof job.material_cost === 'number'
     const hasCompleteCosts = hasLabor && hasMaterial
-    const dealerFee = job.dealer_fee_amount ?? 0
-    const directCosts = (job.labor_cost ?? 0) + (job.material_cost ?? 0) + dealerFee
+    const dealerFee = job.cost_finance ?? job.dealer_fee_amount ?? 0
+    const directCosts = (job.cost_direct ?? (job.labor_cost ?? 0) + (job.material_cost ?? 0)) + dealerFee
     const profit = revenue - directCosts
     const marginPercent = revenue > 0 ? (profit / revenue) * 100 : 0
 
@@ -272,13 +272,10 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability }: 
   const knownGrossProfit = useMemo(() => {
     if (!canViewProfitability) return null
     return filteredActiveJobs
-      .filter((j) => typeof j.labor_cost === 'number' && typeof j.material_cost === 'number')
-      .reduce(
-        (sum, j) =>
-          sum +
-          ((j.sale_amount || 0) - ((j.labor_cost || 0) + (j.material_cost || 0) + (j.dealer_fee_amount || 0))),
-        0
-      )
+      .map(getProfitability)
+      .filter((p) => p.hasCompleteCosts)
+      .reduce((sum, p) => sum + p.profit, 0)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- getProfitability is a pure function of the job
   }, [filteredActiveJobs, canViewProfitability])
 
   /** A job's crews (roofing, gutters, siding…) are each scheduled on the job page. */

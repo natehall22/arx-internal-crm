@@ -7,6 +7,7 @@ import {
   isMissingJobProductOrdersTable,
   mapMaterialOrdersRowsToUi,
   syncJobMaterialCost,
+  computeMaterialCostTotalForJob,
 } from '@/lib/ops-product-orders'
 
 export async function PATCH(
@@ -47,6 +48,8 @@ export async function PATCH(
     }
 
     const serviceSupabase = createServiceClient()
+
+    const totalBefore = await computeMaterialCostTotalForJob(serviceSupabase, jobId)
 
     // Verify order belongs to user's org
     const { data: order, error: orderError } = await serviceSupabase
@@ -108,7 +111,7 @@ export async function PATCH(
 
       const mapped = mapMaterialOrdersRowsToUi([fallbackUpdated])[0]
       try {
-        await syncJobMaterialCost(serviceSupabase, profile.org_id, jobId)
+        await syncJobMaterialCost(serviceSupabase, profile.org_id, jobId, totalBefore)
       } catch (syncError) {
         console.error('[Product Orders] Material cost sync error:', syncError)
       }
@@ -138,7 +141,7 @@ export async function PATCH(
     }
 
     try {
-      await syncJobMaterialCost(serviceSupabase, profile.org_id, jobId)
+      await syncJobMaterialCost(serviceSupabase, profile.org_id, jobId, totalBefore)
     } catch (syncError) {
       console.error('[Product Orders] Material cost sync error:', syncError)
     }
@@ -163,6 +166,8 @@ export async function DELETE(
     }
 
     const serviceSupabase = createServiceClient()
+
+    const totalBefore = await computeMaterialCostTotalForJob(serviceSupabase, jobId)
 
     // Verify order belongs to user's org
     const { data: order, error: orderError } = await serviceSupabase
@@ -201,7 +206,7 @@ export async function DELETE(
       }
 
       try {
-        await syncJobMaterialCost(serviceSupabase, profile.org_id, jobId)
+        await syncJobMaterialCost(serviceSupabase, profile.org_id, jobId, totalBefore)
       } catch (syncError) {
         console.error('[Product Orders] Material cost sync error:', syncError)
       }
@@ -223,7 +228,7 @@ export async function DELETE(
     }
 
     try {
-      await syncJobMaterialCost(serviceSupabase, profile.org_id, jobId)
+      await syncJobMaterialCost(serviceSupabase, profile.org_id, jobId, totalBefore)
     } catch (syncError) {
       console.error('[Product Orders] Material cost sync error:', syncError)
     }

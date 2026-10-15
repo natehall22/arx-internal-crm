@@ -143,21 +143,53 @@ export async function computeMaterialCostTotalForJob(
   )
 }
 
+/**
+ * Keep `production_jobs.material_cost` in step with the job's product orders WITHOUT clobbering it.
+ *
+ * Ops add orders as they go (QXO, then Lowe's, then a one-off), so an order change must move the
+ * job's cost. But the column also holds hand-reconciled figures (the ARX Tracker), and overwriting it
+ * with the order total once replaced Cox's $11,318.09 of shingles with its $8,050 solar D&R order.
+ * So: an empty column is seeded from the order total; a stored column moves by exactly what this
+ * change added or removed (`totalBefore` is the order total captured before the mutation); with no
+ * `totalBefore` a stored column is left alone.
+ */
 export async function syncJobMaterialCost(
   serviceSupabase: any,
   orgId: string,
-  jobId: string
+  jobId: string,
+  totalBefore?: number
 ) {
   const total = await computeMaterialCostTotalForJob(serviceSupabase, jobId)
-  const { error } = await serviceSupabase
-    .from('production_jobs')
-    .update({ material_cost: total })
-    .eq('id', jobId)
-    .eq('org_id', orgId)
 
-  if (error) {
-    throw error
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const { data: job, error: readError } = await serviceSupabase
+      .from('production_jobs')
+      .select('material_cost')
+      .eq('id', jobId)
+      .eq('org_id', orgId)
+      .single()
+    if (readError) throw readError
+
+    const current = job?.material_cost
+    const hasCurrent = current !== null && current !== undefined
+    if (hasCurrent && totalBefore === undefined) return total
+
+    const next = hasCurrent
+      ? Math.max(0, Math.round((Number(current) + (total - (totalBefore as number))) * 100) / 100)
+      : total
+    if (hasCurrent && next === Number(current)) return total
+
+    // Compare-and-set so two orders saved at once can't overwrite each other's delta.
+    let update = serviceSupabase
+      .from('production_jobs')
+      .update({ material_cost: next })
+      .eq('id', jobId)
+      .eq('org_id', orgId)
+    update = hasCurrent ? update.eq('material_cost', current) : update.is('material_cost', null)
+    const { data: updated, error } = await update.select('id')
+    if (error) throw error
+    if (updated && updated.length > 0) return total
   }
 
-  return total
+  throw new Error(`Could not sync material cost for job ${jobId}: concurrent updates`)
 }

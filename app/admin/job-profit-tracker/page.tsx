@@ -5,11 +5,7 @@ import { requireAuth } from '@/lib/auth'
 import { isPayrollAdminRole } from '@/lib/payroll-admin-access'
 import { createServiceClient } from '@/lib/supabase/service'
 import { CANCELLED_JOB_STATUS } from '@/lib/job-status'
-import {
-  getSignedOrderAmount,
-  isMissingJobProductOrdersTable,
-  mapMaterialOrdersRowsToUi,
-} from '@/lib/ops-product-orders'
+import { loadJobCostInputs, netProductOrdersTotal, summarizeJobCosts } from '@/lib/job-costs'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -42,22 +38,9 @@ type JobRow = {
   } | null
 }
 
-type CostLine = {
-  job_id: string
-  amount: number | string | null
-  cost_type: string | null
-  approved: boolean
-}
-
 type PaymentLine = {
   job_id: string
   amount_cents: number | null
-}
-
-type ProductOrderLine = {
-  job_id: string
-  amount: number | string | null
-  status: 'ordered' | 'received' | 'paid' | 'returned'
 }
 
 function moneyValue(value: number | string | null | undefined): number {
@@ -67,12 +50,6 @@ function moneyValue(value: number | string | null | undefined): number {
     return Number.isFinite(parsed) ? parsed : 0
   }
   return 0
-}
-
-function hasMoneyValue(value: number | string | null | undefined): boolean {
-  if (typeof value === 'number') return Number.isFinite(value)
-  if (typeof value === 'string') return value.trim() !== '' && Number.isFinite(Number(value))
-  return false
 }
 
 function formatMoney(value: number): string {
@@ -248,30 +225,14 @@ export default async function AdminJobProfitTrackerPage({
   }
 
   const jobIds = jobs.map((job) => job.id)
-  const costLinesByJob = new Map<string, CostLine[]>()
   const collectedCentsByJob = new Map<string, number>()
-  const materialOrdersByJob = new Map<string, number>()
+  const costInputs = await loadJobCostInputs(supabase, profile.org_id, jobIds)
 
   if (jobIds.length > 0) {
-    const [{ data: costLines }, { data: payments }] = await Promise.all([
-      supabase
-        .from('job_cost_lines')
-        .select('job_id, amount, cost_type, approved')
-        .eq('org_id', profile.org_id)
-        .eq('status', 'active')
-        .is('deleted_at', null)
-        .in('job_id', jobIds),
-      supabase
-        .from('job_payments')
-        .select('job_id, amount_cents')
-        .in('job_id', jobIds),
-    ])
-
-    for (const line of (costLines || []) as CostLine[]) {
-      const existing = costLinesByJob.get(line.job_id) || []
-      existing.push(line)
-      costLinesByJob.set(line.job_id, existing)
-    }
+    const { data: payments } = await supabase
+      .from('job_payments')
+      .select('job_id, amount_cents')
+      .in('job_id', jobIds)
 
     for (const payment of (payments || []) as PaymentLine[]) {
       collectedCentsByJob.set(
@@ -279,64 +240,25 @@ export default async function AdminJobProfitTrackerPage({
         (collectedCentsByJob.get(payment.job_id) || 0) + (payment.amount_cents || 0)
       )
     }
-
-    const { data: productOrders, error: productOrdersError } = await supabase
-      .from('job_product_orders')
-      .select('job_id, amount, status')
-      .in('job_id', jobIds)
-
-    if (!productOrdersError) {
-      for (const order of (productOrders || []) as ProductOrderLine[]) {
-        materialOrdersByJob.set(
-          order.job_id,
-          (materialOrdersByJob.get(order.job_id) || 0) +
-            getSignedOrderAmount(moneyValue(order.amount), order.status)
-        )
-      }
-    } else if (isMissingJobProductOrdersTable(productOrdersError)) {
-      const { data: fallbackOrders, error: fallbackOrdersError } = await supabase
-        .from('material_orders')
-        .select('id, org_id, job_id, supplier, items, status, total_cost, notes, created_at')
-        .in('job_id', jobIds)
-
-      if (fallbackOrdersError) {
-        throw new Error(`Failed to load material orders: ${fallbackOrdersError.message}`)
-      }
-
-      for (const order of mapMaterialOrdersRowsToUi(fallbackOrders)) {
-        materialOrdersByJob.set(
-          order.job_id,
-          (materialOrdersByJob.get(order.job_id) || 0) +
-            getSignedOrderAmount(moneyValue(order.amount), order.status)
-        )
-      }
-    } else {
-      throw new Error(`Failed to load product orders: ${productOrdersError.message}`)
-    }
   }
 
   const rows = jobs.map((job, index) => {
     const saleAmount = moneyValue(job.sale_amount)
     const financeCost = moneyValue(job.dealer_fee_amount)
     const commissionableAmount = Math.max(0, saleAmount - financeCost)
-    const costLines = costLinesByJob.get(job.id) || []
-    const hasUnreviewedCostLines = costLines.some((line) => !line.approved)
-    const materialLines = costLines
-      .filter((line) => line.cost_type === 'material')
-      .reduce((sum, line) => sum + moneyValue(line.amount), 0)
-    const laborLines = costLines
-      .filter((line) => line.cost_type === 'labor' || line.cost_type === 'subcontractor')
-      .reduce((sum, line) => sum + moneyValue(line.amount), 0)
-    const misc = costLines
-      .filter((line) => !['material', 'labor', 'subcontractor'].includes(String(line.cost_type || '')))
-      .reduce((sum, line) => sum + moneyValue(line.amount), 0)
-    const materials = hasMoneyValue(job.material_cost)
-      ? moneyValue(job.material_cost)
-      : materialOrdersByJob.has(job.id)
-        ? materialOrdersByJob.get(job.id) || 0
-        : materialLines
-    const labor = hasMoneyValue(job.labor_cost) ? moneyValue(job.labor_cost) : laborLines
-    const totalExpenses = materials + labor + misc
+    const costs = summarizeJobCosts({
+      materialCostColumn: job.material_cost,
+      laborCostColumn: job.labor_cost,
+      dealerFeeAmount: job.dealer_fee_amount,
+      ordersTotal: netProductOrdersTotal(costInputs.orders.get(job.id) || []),
+      lines: costInputs.lines.get(job.id) || [],
+    })
+    const hasUnreviewedCostLines = costs.pendingLines > 0
+    const { materials, labor } = costs
+    const misc = costs.permit + costs.misc
+    // Finance (lender/dealer) fee is a real expense in the books, so it is included here even though
+    // the ARX Tracker sheet keeps it in its own column and leaves it out of Total Expenses.
+    const totalExpenses = costs.total
     const setterCommission = commissionableAmount * 0.05
     const closerCommission = commissionableAmount * 0.07
     const salesCommission = commissionableAmount * 0.06

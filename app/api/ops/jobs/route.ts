@@ -9,6 +9,7 @@ import {
 import { requireAuthApi } from '@/lib/auth'
 import { opsBoardJobsSelectEmbedded } from '@/lib/ops-board-query'
 import { enrichOpsJobsWithPayrollSentAt } from '@/lib/ops-payroll-enrich'
+import { enrichJobsWithCostSummary } from '@/lib/job-costs'
 import { SALE_AGREEMENT_TYPES } from '@/lib/sales-metrics'
 import {
   enrichOpsJobsWithMeasureSoldSquaresFallback,
@@ -306,6 +307,7 @@ export async function GET(request: Request) {
 
     const jobList = (jobs ?? []) as unknown as Array<{ id: string } & Record<string, unknown>>
     await enrichOpsJobsWithPayrollSentAt(adminClient, profile.org_id, jobList)
+    if (canViewJobFinancials) await enrichJobsWithCostSummary(adminClient, profile.org_id, jobList)
     await enrichOpsJobsWithSoldSquares(adminClient, profile.org_id, jobList)
     await enrichOpsJobsWithMeasureSoldSquaresFallback(adminClient, profile.org_id, jobList)
     const jobIds = jobList.map((j) => j.id)

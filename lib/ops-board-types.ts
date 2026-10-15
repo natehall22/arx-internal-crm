@@ -19,6 +19,9 @@ export interface OpsBoardJob {
   dealer_fee_amount?: number | null
   labor_cost?: number | null
   material_cost?: number | null
+  /** materials + labor + permit + misc from lib/job-costs (finance excluded). Absent without financial access. */
+  cost_direct?: number | null
+  cost_finance?: number | null
   sale_date: string | null
   cancelled_at?: string | null
   cancellation_reason?: string | null

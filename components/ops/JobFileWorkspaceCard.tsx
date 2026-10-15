@@ -7,6 +7,7 @@ import { createClientBrowser } from '@/lib/supabase/client'
 import { pickValidEmail } from '@/lib/email-address'
 import { isOrgSuperuserRoleSlug } from '@/lib/permissions'
 import { isPayrollAdminRole } from '@/lib/payroll-admin-access'
+import { isLenderFeeCostLine, type JobCostLineInput } from '@/lib/job-costs'
 import PhotoLightbox from '@/components/PhotoLightbox'
 import { jobPhotoDownloadUrl } from '@/lib/ops-job-photo-url'
 
@@ -64,8 +65,8 @@ interface JobFileWorkspaceCardProps {
   registerOpenCostAttachmentShortcut?: (openPicker: (() => void) | null) => void
   registerOpenAddCostShortcut?: (openForm: (() => void) | null) => void
   dealerFeeAmount?: number | null
-  /** Total of real (non-dealer-fee) cost lines, so the Financials card can say they exist. */
-  onCostLinesTotalChange?: (total: number) => void
+  /** Active cost lines, so the Financials card can feed the shared job-cost calculator (lib/job-costs). */
+  onCostLinesChange?: (lines: JobCostLineInput[]) => void
 }
 
 type StatusMessage = {
@@ -82,10 +83,8 @@ function formatDate(value: string | null | undefined) {
   })
 }
 
-const SYSTEM_COST_LINE_DESCRIPTION = /lender|dealer fee/i
-
 function isSystemCostLine(line: Pick<CostLineRow, 'is_system' | 'description'>): boolean {
-  return Boolean(line.is_system) || SYSTEM_COST_LINE_DESCRIPTION.test(line.description)
+  return Boolean(line.is_system)
 }
 
 function formatCurrency(amount: number) {
@@ -151,7 +150,7 @@ export default function JobFileWorkspaceCard({
   registerOpenCostAttachmentShortcut,
   registerOpenAddCostShortcut,
   dealerFeeAmount,
-  onCostLinesTotalChange,
+  onCostLinesChange,
 }: JobFileWorkspaceCardProps) {
   const supabase = useMemo(() => createClientBrowser(), [])
 
@@ -338,7 +337,7 @@ export default function JobFileWorkspaceCard({
         status: row.status,
         approved: row.approved,
         vendor_name: Array.isArray(row.vendors) ? row.vendors[0]?.name || null : row.vendors?.name || null,
-        is_system: SYSTEM_COST_LINE_DESCRIPTION.test(row.description ?? ''),
+        is_system: isLenderFeeCostLine({ cost_type: row.cost_type, description: row.description }),
       })
     )
     const hasPersistedDealerFee = normalizedCostLines.some((line) => isSystemCostLine(line))
@@ -359,15 +358,8 @@ export default function JobFileWorkspaceCard({
           ]
         : normalizedCostLines
     setCostLines(displayCostLines)
-    // Report only REAL logged cost lines upward. The synthetic/persisted
-    // "Lender / dealer fee" rows are excluded because the job page's profit math
-    // already subtracts `dealer_fee_amount` from its own column — counting them
-    // here would invent a discrepancy that does not exist.
-    onCostLinesTotalChange?.(
-      displayCostLines
-        .filter((line) => !isSystemCostLine(line))
-        .reduce((sum, line) => sum + (Number(line.amount) || 0), 0)
-    )
+    // The calculator (lib/job-costs) separates the lender/dealer-fee line from real extras itself.
+    onCostLinesChange?.(normalizedCostLines.filter((line) => line.status === 'active'))
     const firstAttachableLine = displayCostLines.find((line) => !isSystemCostLine(line))
     setSelectedCostLineId((prev) => {
       if (prev && displayCostLines.some((line) => line.id === prev && !isSystemCostLine(line))) return prev

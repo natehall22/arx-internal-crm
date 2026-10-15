@@ -1,5 +1,6 @@
 import { buildCommissionPayrollSnapshot } from '@/lib/commission-payroll'
 import { roundMoney } from '@/lib/money'
+import { netProductOrdersTotal, summarizeJobCosts, type JobCostLineInput, type JobProductOrderInput } from '@/lib/job-costs'
 
 export type JobEconomicsRow = {
   id: string
@@ -11,12 +12,6 @@ export type JobEconomicsRow = {
   dealer_fee_amount?: number | string | null
   commission_comp_base?: number | string | null
   commission_pre_tax_subtotal?: number | string | null
-}
-
-export type JobCostLineRow = {
-  job_id: string
-  amount: number | string | null
-  cost_type: string | null
 }
 
 export type JobEconomicsSummary = {
@@ -43,28 +38,24 @@ function hasMoney(value: number | string | null | undefined): boolean {
   return false
 }
 
-function jobHasCostData(job: JobEconomicsRow, costLines: JobCostLineRow[]): boolean {
+function jobHasCostData(job: JobEconomicsRow, costLines: JobCostLineInput[]): boolean {
   if (hasMoney(job.labor_cost) || hasMoney(job.material_cost)) return true
   return costLines.some((line) => money(line.amount) > 0)
 }
 
-function jobDirectCosts(job: JobEconomicsRow, costLines: JobCostLineRow[]): number {
-  const materialFromJob = hasMoney(job.material_cost) ? money(job.material_cost) : null
-  const laborFromJob = hasMoney(job.labor_cost) ? money(job.labor_cost) : null
-
-  const materialLines = costLines
-    .filter((line) => line.cost_type === 'material')
-    .reduce((sum, line) => sum + money(line.amount), 0)
-  const laborLines = costLines
-    .filter((line) => line.cost_type === 'labor' || line.cost_type === 'subcontractor')
-    .reduce((sum, line) => sum + money(line.amount), 0)
-  const misc = costLines
-    .filter((line) => !['material', 'labor', 'subcontractor'].includes(String(line.cost_type || '')))
-    .reduce((sum, line) => sum + money(line.amount), 0)
-
-  const materials = materialFromJob ?? materialLines
-  const labor = laborFromJob ?? laborLines
-  return roundMoney(materials + labor + misc)
+/** All job costs including the lender/dealer fee, which the books treat as an expense. */
+function jobTotalCosts(
+  job: JobEconomicsRow,
+  costLines: JobCostLineInput[],
+  orders: JobProductOrderInput[]
+): number {
+  return summarizeJobCosts({
+    materialCostColumn: job.material_cost,
+    laborCostColumn: job.labor_cost,
+    dealerFeeAmount: job.dealer_fee_amount,
+    ordersTotal: netProductOrdersTotal(orders),
+    lines: costLines,
+  }).total
 }
 
 function jobCommissions(job: JobEconomicsRow): number {
@@ -79,7 +70,8 @@ function jobCommissions(job: JobEconomicsRow): number {
 
 export function summarizeJobEconomics(
   jobs: JobEconomicsRow[],
-  costLinesByJob: Map<string, JobCostLineRow[]>
+  costLinesByJob: Map<string, JobCostLineInput[]>,
+  ordersByJob: Map<string, JobProductOrderInput[]> = new Map()
 ): JobEconomicsSummary {
   let totalSale = 0
   let totalCosts = 0
@@ -91,7 +83,7 @@ export function summarizeJobEconomics(
     const lines = costLinesByJob.get(job.id) || []
     if (!jobHasCostData(job, lines)) jobsMissingCostData += 1
 
-    const direct = jobDirectCosts(job, lines)
+    const direct = jobTotalCosts(job, lines, ordersByJob.get(job.id) || [])
     const commissions = jobCommissions(job)
     totalSale += sale
     totalCosts += direct + commissions

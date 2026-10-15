@@ -16,7 +16,6 @@ import {
 } from '@/lib/goals-forecast'
 import {
   summarizeJobEconomics,
-  type JobCostLineRow,
   type JobEconomicsRow,
 } from '@/lib/goals-job-economics'
 import {
@@ -33,6 +32,7 @@ import {
 } from '@/lib/inspection-outcomes'
 import { countsAsInspectionSet, INSPECTION_SET_APPOINTMENT_TYPE_OR } from '@/lib/inspection-set-metrics'
 import { isCanvassDoorLead, SALE_AGREEMENT_TYPES } from '@/lib/sales-metrics'
+import { loadJobCostInputs } from '@/lib/job-costs'
 import { fetchSupabaseAllPages } from '@/lib/supabase-fetch-all-pages'
 import { CANCELLED_JOB_STATUS } from '@/lib/job-status'
 
@@ -416,26 +416,9 @@ export async function buildScorecardPayload(
   ]
 
   const jobIds = jobs.map((j) => j.id)
-  const costLinesByJob = new Map<string, JobCostLineRow[]>()
-  if (jobIds.length > 0) {
-    const { data: costLines, error: costErr } = await supabase
-      .from('job_cost_lines')
-      .select('job_id, amount, cost_type')
-      .eq('org_id', orgId)
-      .eq('status', 'active')
-      .is('deleted_at', null)
-      .in('job_id', jobIds)
-      .limit(FETCH_LIMIT)
+  const costInputs = await loadJobCostInputs(supabase, orgId, jobIds)
 
-    if (costErr) throw costErr
-    for (const line of (costLines || []) as JobCostLineRow[]) {
-      const existing = costLinesByJob.get(line.job_id) || []
-      existing.push(line)
-      costLinesByJob.set(line.job_id, existing)
-    }
-  }
-
-  const economics = summarizeJobEconomics(jobs, costLinesByJob)
+  const economics = summarizeJobEconomics(jobs, costInputs.lines, costInputs.orders)
 
   const leadIds = new Set<string>()
   for (const set of sets) if (set.lead_id) leadIds.add(set.lead_id)

@@ -8,6 +8,7 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { redactProductionJobFinancialSummaryFields, resolveOpsAccess } from '@/lib/ops-access'
 import { opsBoardJobsSelectEmbedded } from '@/lib/ops-board-query'
 import { enrichOpsJobsWithPayrollSentAt } from '@/lib/ops-payroll-enrich'
+import { enrichJobsWithCostSummary } from '@/lib/job-costs'
 import type { OpsBoardJob } from '@/lib/ops-board-types'
 import {
   enrichOpsJobsWithMeasureSoldSquaresFallback,
@@ -33,6 +34,7 @@ export default async function OpsPage() {
 
   const rawJobs = (jobsRes.data ?? []) as unknown as Array<{ id: string } & Record<string, unknown>>
   await enrichOpsJobsWithPayrollSentAt(supabase, profile.org_id, rawJobs)
+  if (ops.canViewJobFinancials) await enrichJobsWithCostSummary(admin, profile.org_id, rawJobs)
   await enrichOpsJobsWithSoldSquares(supabase, profile.org_id, rawJobs)
   await enrichOpsJobsWithMeasureSoldSquaresFallback(supabase, profile.org_id, rawJobs)
   const jobIds = rawJobs.map((j) => j.id)
