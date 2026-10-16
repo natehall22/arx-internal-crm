@@ -7,7 +7,8 @@ import {
   isMissingJobProductOrdersTable,
   mapMaterialOrdersRowsToUi,
   syncJobMaterialCost,
-  computeMaterialCostTotalForJob,
+  getSignedOrderAmount,
+  type UiProductOrderStatus,
 } from '@/lib/ops-product-orders'
 
 export async function PATCH(
@@ -48,8 +49,6 @@ export async function PATCH(
     }
 
     const serviceSupabase = createServiceClient()
-
-    const totalBefore = await computeMaterialCostTotalForJob(serviceSupabase, jobId)
 
     // Verify order belongs to user's org
     const { data: order, error: orderError } = await serviceSupabase
@@ -111,7 +110,13 @@ export async function PATCH(
 
       const mapped = mapMaterialOrdersRowsToUi([fallbackUpdated])[0]
       try {
-        await syncJobMaterialCost(serviceSupabase, profile.org_id, jobId, totalBefore)
+        await syncJobMaterialCost(
+          serviceSupabase,
+          profile.org_id,
+          jobId,
+          getSignedOrderAmount(nextAmount, nextStatus as UiProductOrderStatus) -
+            getSignedOrderAmount(Number(mappedExisting.amount || 0), mappedExisting.status)
+        )
       } catch (syncError) {
         console.error('[Product Orders] Material cost sync error:', syncError)
       }
@@ -141,7 +146,13 @@ export async function PATCH(
     }
 
     try {
-      await syncJobMaterialCost(serviceSupabase, profile.org_id, jobId, totalBefore)
+      await syncJobMaterialCost(
+        serviceSupabase,
+        profile.org_id,
+        jobId,
+        getSignedOrderAmount(Number(data.amount || 0), data.status) -
+          getSignedOrderAmount(Number(order.amount || 0), order.status)
+      )
     } catch (syncError) {
       console.error('[Product Orders] Material cost sync error:', syncError)
     }
@@ -167,12 +178,10 @@ export async function DELETE(
 
     const serviceSupabase = createServiceClient()
 
-    const totalBefore = await computeMaterialCostTotalForJob(serviceSupabase, jobId)
-
     // Verify order belongs to user's org
     const { data: order, error: orderError } = await serviceSupabase
       .from('job_product_orders')
-      .select('id')
+      .select('id, amount, status')
       .eq('id', orderId)
       .eq('job_id', jobId)
       .eq('org_id', profile.org_id)
@@ -185,7 +194,7 @@ export async function DELETE(
     if (orderError && isMissingJobProductOrdersTable(orderError)) {
       const { data: fallbackOrder, error: fallbackLookupError } = await serviceSupabase
         .from('material_orders')
-        .select('id')
+        .select('id, org_id, notes, supplier, items, total_cost, status')
         .eq('id', orderId)
         .eq('job_id', jobId)
         .eq('org_id', profile.org_id)
@@ -205,8 +214,14 @@ export async function DELETE(
         return NextResponse.json({ error: fallbackDeleteError.message }, { status: 500 })
       }
 
+      const removed = mapMaterialOrdersRowsToUi([fallbackOrder])[0]
       try {
-        await syncJobMaterialCost(serviceSupabase, profile.org_id, jobId, totalBefore)
+        await syncJobMaterialCost(
+          serviceSupabase,
+          profile.org_id,
+          jobId,
+          -getSignedOrderAmount(Number(removed.amount || 0), removed.status)
+        )
       } catch (syncError) {
         console.error('[Product Orders] Material cost sync error:', syncError)
       }
@@ -228,7 +243,12 @@ export async function DELETE(
     }
 
     try {
-      await syncJobMaterialCost(serviceSupabase, profile.org_id, jobId, totalBefore)
+      await syncJobMaterialCost(
+        serviceSupabase,
+        profile.org_id,
+        jobId,
+        -getSignedOrderAmount(Number(order.amount || 0), order.status)
+      )
     } catch (syncError) {
       console.error('[Product Orders] Material cost sync error:', syncError)
     }

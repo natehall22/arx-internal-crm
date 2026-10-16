@@ -38,8 +38,8 @@ function hasMoney(value: number | string | null | undefined): boolean {
   return false
 }
 
-function jobHasCostData(job: JobEconomicsRow, costLines: JobCostLineInput[]): boolean {
-  if (hasMoney(job.labor_cost) || hasMoney(job.material_cost)) return true
+function jobHasCostData(job: JobEconomicsRow, costLines: JobCostLineInput[], orders: JobProductOrderInput[]): boolean {
+  if (hasMoney(job.labor_cost) || hasMoney(job.material_cost) || orders.length > 0) return true
   return costLines.some((line) => money(line.amount) > 0)
 }
 
@@ -81,9 +81,10 @@ export function summarizeJobEconomics(
   for (const job of jobs) {
     const sale = money(job.sale_amount)
     const lines = costLinesByJob.get(job.id) || []
-    if (!jobHasCostData(job, lines)) jobsMissingCostData += 1
+    const orders = ordersByJob.get(job.id) || []
+    if (!jobHasCostData(job, lines, orders)) jobsMissingCostData += 1
 
-    const direct = jobTotalCosts(job, lines, ordersByJob.get(job.id) || [])
+    const direct = jobTotalCosts(job, lines, orders)
     const commissions = jobCommissions(job)
     totalSale += sale
     totalCosts += direct + commissions

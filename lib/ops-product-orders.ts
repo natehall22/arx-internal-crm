@@ -149,15 +149,16 @@ export async function computeMaterialCostTotalForJob(
  * Ops add orders as they go (QXO, then Lowe's, then a one-off), so an order change must move the
  * job's cost. But the column also holds hand-reconciled figures (the ARX Tracker), and overwriting it
  * with the order total once replaced Cox's $11,318.09 of shingles with its $8,050 solar D&R order.
- * So: an empty column is seeded from the order total; a stored column moves by exactly what this
- * change added or removed (`totalBefore` is the order total captured before the mutation); with no
- * `totalBefore` a stored column is left alone.
+ * So: an empty column is seeded from the order total; a stored column moves by `delta`, the signed
+ * amount THIS one order change added (or removed, if negative) — never by a before/after difference
+ * of whole-job totals, which double-applies a concurrent save's change; with no `delta` a stored
+ * column is left alone.
  */
 export async function syncJobMaterialCost(
   serviceSupabase: any,
   orgId: string,
   jobId: string,
-  totalBefore?: number
+  delta?: number
 ) {
   const total = await computeMaterialCostTotalForJob(serviceSupabase, jobId)
 
@@ -172,10 +173,10 @@ export async function syncJobMaterialCost(
 
     const current = job?.material_cost
     const hasCurrent = current !== null && current !== undefined
-    if (hasCurrent && totalBefore === undefined) return total
+    if (hasCurrent && delta === undefined) return total
 
     const next = hasCurrent
-      ? Math.max(0, Math.round((Number(current) + (total - (totalBefore as number))) * 100) / 100)
+      ? Math.max(0, Math.round((Number(current) + (delta as number)) * 100) / 100)
       : total
     if (hasCurrent && next === Number(current)) return total
 

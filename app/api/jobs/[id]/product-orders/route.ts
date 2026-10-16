@@ -7,7 +7,7 @@ import {
   isMissingJobProductOrdersTable,
   mapMaterialOrdersRowsToUi,
   syncJobMaterialCost,
-  computeMaterialCostTotalForJob,
+  type UiProductOrderStatus,
 } from '@/lib/ops-product-orders'
 
 export async function GET(
@@ -111,8 +111,6 @@ export async function POST(
       return NextResponse.json({ error: 'Job not found' }, { status: 404 })
     }
 
-    const totalBefore = await computeMaterialCostTotalForJob(serviceSupabase, jobId)
-
     const { data, error } = await serviceSupabase
       .from('job_product_orders')
       .insert({
@@ -156,7 +154,12 @@ export async function POST(
 
       const mapped = mapMaterialOrdersRowsToUi([fallbackData])[0]
       try {
-        await syncJobMaterialCost(serviceSupabase, profile.org_id, jobId, totalBefore)
+        await syncJobMaterialCost(
+          serviceSupabase,
+          profile.org_id,
+          jobId,
+          getSignedOrderAmount(numericAmount, (status || 'ordered') as UiProductOrderStatus)
+        )
       } catch (syncError) {
         console.error('[Product Orders] Material cost sync error:', syncError)
       }
@@ -164,7 +167,12 @@ export async function POST(
     }
 
     try {
-      await syncJobMaterialCost(serviceSupabase, profile.org_id, jobId, totalBefore)
+      await syncJobMaterialCost(
+          serviceSupabase,
+          profile.org_id,
+          jobId,
+          getSignedOrderAmount(numericAmount, (status || 'ordered') as UiProductOrderStatus)
+        )
     } catch (syncError) {
       console.error('[Product Orders] Material cost sync error:', syncError)
     }

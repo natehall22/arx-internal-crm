@@ -1,4 +1,4 @@
-import { netProductOrdersTotal, summarizeJobCosts } from '@/lib/job-costs'
+import { isLenderFeeCostLine, netProductOrdersTotal, summarizeJobCosts } from '@/lib/job-costs'
 
 const base = { materialCostColumn: null, laborCostColumn: null, dealerFeeAmount: null, ordersTotal: null, lines: [] }
 
@@ -95,5 +95,14 @@ describe('netProductOrdersTotal', () => {
         { amount: 200, status: 'returned' },
       ])
     ).toBe(800)
+  })
+})
+
+describe('isLenderFeeCostLine', () => {
+  it.each(['Lender / dealer fee', 'lending fee', 'Lending Fee (Sunlight)', 'Dealer fee'])('matches %s', (description) => {
+    expect(isLenderFeeCostLine({ cost_type: 'misc', description })).toBe(true)
+  })
+  it.each(['Lender required roof inspection', 'Permit - lender requirement', 'Dumpster'])('does not match %s', (description) => {
+    expect(isLenderFeeCostLine({ cost_type: 'misc', description })).toBe(false)
   })
 })

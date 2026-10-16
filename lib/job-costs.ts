@@ -13,6 +13,7 @@
  * exists to prevent. Pure and client-safe; DB access lives in `loadJobCostInputs`.
  */
 import { roundMoney } from '@/lib/money'
+import { isMissingJobProductOrdersTable, mapMaterialOrdersRowsToUi } from '@/lib/ops-product-orders'
 
 export type JobCostLineInput = {
   job_id?: string
@@ -57,7 +58,10 @@ export type JobCostSummary = {
 }
 
 const JOB_ID_CHUNK = 50
-const LENDER_FEE_LINE = /lender|lending|dealer fee/i
+// Anchored to the START of the description so an unrelated line that merely mentions a lender
+// ("Lender required roof inspection") is a real extra, not the financing fee. Matches the auto-synced
+// "Lender / dealer fee" and the hand-typed "lending fee" / "Lending Fee (Sunlight)" lines in prod.
+const LENDER_FEE_LINE = /^\s*(lender|lending|dealer)(\s*\/\s*(lender|dealer))?\s+fees?\b/i
 
 /** The auto-synced / hand-entered lender or dealer financing fee line. Material and labor lines are never fee lines. */
 export function isLenderFeeCostLine(line: Pick<JobCostLineInput, 'cost_type' | 'description'>): boolean {
@@ -154,22 +158,43 @@ export async function loadJobCostInputs(
   if (jobIds.length === 0) return { lines, orders }
 
   // Chunk the id list: keeps each request URL short and each result well under PostgREST's 1000-row cap.
-  for (let i = 0; i < jobIds.length; i += JOB_ID_CHUNK) {
-    const ids = jobIds.slice(i, i + JOB_ID_CHUNK)
-    const [linesRes, ordersRes] = await Promise.all([
-      supabase
-        .from('job_cost_lines')
-        .select('job_id, amount, cost_type, approved, description')
-        .eq('org_id', orgId)
-        .eq('status', 'active')
-        .is('deleted_at', null)
-        .in('job_id', ids),
-      supabase.from('job_product_orders').select('job_id, amount, status').eq('org_id', orgId).in('job_id', ids),
-    ])
-    if (linesRes.error) throw new Error(`Failed to load job cost lines: ${linesRes.error.message}`)
-    if (ordersRes.error) throw new Error(`Failed to load job product orders: ${ordersRes.error.message}`)
-    for (const l of (linesRes.data || []) as JobCostLineInput[]) lines.set(l.job_id!, [...(lines.get(l.job_id!) || []), l])
-    for (const o of (ordersRes.data || []) as JobProductOrderInput[]) orders.set(o.job_id!, [...(orders.get(o.job_id!) || []), o])
+  const chunks: string[][] = []
+  for (let i = 0; i < jobIds.length; i += JOB_ID_CHUNK) chunks.push(jobIds.slice(i, i + JOB_ID_CHUNK))
+
+  const results = await Promise.all(
+    chunks.map(async (ids) => {
+      const [linesRes, ordersRes] = await Promise.all([
+        supabase
+          .from('job_cost_lines')
+          .select('job_id, amount, cost_type, approved, description')
+          .eq('org_id', orgId)
+          .eq('status', 'active')
+          .is('deleted_at', null)
+          .in('job_id', ids),
+        supabase.from('job_product_orders').select('job_id, amount, status').eq('org_id', orgId).in('job_id', ids),
+      ])
+      if (linesRes.error) throw new Error(`Failed to load job cost lines: ${linesRes.error.message}`)
+
+      let orderRows = (ordersRes.data || []) as JobProductOrderInput[]
+      if (ordersRes.error) {
+        if (!isMissingJobProductOrdersTable(ordersRes.error)) {
+          throw new Error(`Failed to load job product orders: ${ordersRes.error.message}`)
+        }
+        // Older environments keep orders in `material_orders` (same fallback the order routes use).
+        const fallback = await supabase
+          .from('material_orders')
+          .select('id, org_id, job_id, supplier, items, status, total_cost, notes, created_at')
+          .eq('org_id', orgId)
+          .in('job_id', ids)
+        if (fallback.error) throw new Error(`Failed to load material orders: ${fallback.error.message}`)
+        orderRows = mapMaterialOrdersRowsToUi(fallback.data)
+      }
+      return { lineRows: (linesRes.data || []) as JobCostLineInput[], orderRows }
+    })
+  )
+  for (const { lineRows, orderRows } of results) {
+    for (const l of lineRows) lines.set(l.job_id!, [...(lines.get(l.job_id!) || []), l])
+    for (const o of orderRows) orders.set(o.job_id!, [...(orders.get(o.job_id!) || []), o])
   }
   return { lines, orders }
 }

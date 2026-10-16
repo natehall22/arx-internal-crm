@@ -28,28 +28,36 @@ function fakeSupabase(job: { material_cost: number | null }, orders: Array<{ amo
 describe('syncJobMaterialCost', () => {
   it('seeds an empty column from the order total', async () => {
     const job = { material_cost: null }
-    await syncJobMaterialCost(fakeSupabase(job, [{ amount: 500, status: 'ordered' }]), 'org', 'job', 0)
+    await syncJobMaterialCost(fakeSupabase(job, [{ amount: 500, status: 'ordered' }]), 'org', 'job', 500)
     expect(job.material_cost).toBe(500)
   })
 
   it('adds a new order on top of a reconciled column instead of replacing it (Cox: $11,318.09 + $8,050 D&R)', async () => {
     const job = { material_cost: 11318.09 }
-    await syncJobMaterialCost(fakeSupabase(job, [{ amount: 8050, status: 'ordered' }]), 'org', 'job', 0)
+    await syncJobMaterialCost(fakeSupabase(job, [{ amount: 8050, status: 'ordered' }]), 'org', 'job', 8050)
     expect(job.material_cost).toBe(19368.09)
   })
 
   it('moves by the edit delta and by a deletion, never below zero', async () => {
     const edited = { material_cost: 1000 }
-    await syncJobMaterialCost(fakeSupabase(edited, [{ amount: 700, status: 'ordered' }]), 'org', 'job', 600)
+    await syncJobMaterialCost(fakeSupabase(edited, [{ amount: 700, status: 'ordered' }]), 'org', 'job', 100)
     expect(edited.material_cost).toBe(1100)
     const deleted = { material_cost: 100 }
-    await syncJobMaterialCost(fakeSupabase(deleted, []), 'org', 'job', 600)
+    await syncJobMaterialCost(fakeSupabase(deleted, []), 'org', 'job', -600)
     expect(deleted.material_cost).toBe(0)
   })
 
-  it('leaves a stored column alone when no before-total is given', async () => {
+  it('leaves a stored column alone when no delta is given', async () => {
     const job = { material_cost: 4000 }
     await syncJobMaterialCost(fakeSupabase(job, [{ amount: 9, status: 'ordered' }]), 'org', 'job')
     expect(job.material_cost).toBe(4000)
+  })
+
+  it('two saves applied back to back each add only their own change (no double count)', async () => {
+    const job = { material_cost: 1000 }
+    const db = fakeSupabase(job, [])
+    await syncJobMaterialCost(db, 'org', 'job', 50)
+    await syncJobMaterialCost(db, 'org', 'job', 30)
+    expect(job.material_cost).toBe(1080)
   })
 })
