@@ -1,4 +1,5 @@
 import { jsPDF } from 'jspdf'
+import { meaningful } from '@/lib/job-contract'
 
 export interface ContractData {
   id: string
@@ -481,7 +482,7 @@ export async function generateContractPdf(contract: ContractData): Promise<Buffe
     doc.text(`Other: ${contract.scope_other}`, margin, y)
     y += 16
   }
-  doc.text(`Primary Roofing System / Material: ${contract.roofing_material || ''}`, margin, y)
+  doc.text(`Primary Roofing System / Material: ${meaningful(contract.roofing_material) || ''}`, margin, y)
   y += 16
   doc.text(`Total Squares: ${contract.total_squares || ''}`, margin, y)
   doc.text(`Project Cost: ${formatCurrency(contract.project_cost)}`, 300, y)

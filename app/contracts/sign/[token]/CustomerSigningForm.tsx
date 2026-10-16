@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import SignaturePad from '@/components/contracts/SignaturePad'
+import { meaningful } from '@/lib/job-contract'
 
 interface Contract {
   id: string
@@ -376,10 +377,10 @@ export default function CustomerSigningForm({ contract, token }: CustomerSigning
                     {contract.scope_other && <span className="px-2 py-1 bg-indigo-100 text-black font-medium rounded">{contract.scope_other}</span>}
                   </div>
                 </div>
-                {!isContingency && !isRepair && contract.roofing_material && (
+                {!isContingency && !isRepair && meaningful(contract.roofing_material) && (
                   <div>
                     <span className="text-gray-500">Primary Roofing System:</span>
-                    <span className="ml-2 font-medium text-black">{contract.roofing_material}</span>
+                    <span className="ml-2 font-medium text-black">{meaningful(contract.roofing_material)}</span>
                   </div>
                 )}
                 {!isContingency && !isRepair && contract.total_squares && (

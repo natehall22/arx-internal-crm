@@ -41,7 +41,8 @@ function clean(value: unknown): string | null {
 /** "N/A" on a siding job's material line is the rep skipping the box, not a product. */
 const PLACEHOLDER = /^(n\/?a|none|-+|tbd)$/i
 
-function meaningful(value: unknown): string | null {
+/** Trimmed text, or null when empty or a placeholder ("N/A", "none", "-", "TBD"). Shared by every reader/writer of contract free text. */
+export function meaningful(value: unknown): string | null {
   const v = clean(value)
   return v && !PLACEHOLDER.test(v) ? v : null
 }

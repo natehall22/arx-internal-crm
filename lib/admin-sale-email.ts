@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getOrgEmailBlastSettings, resolveEmailBlastRecipients } from '@/lib/admin-email-blasts'
 import { getCrmEmailFrom, getMailTransport } from '@/lib/setter-email'
+import { meaningful } from '@/lib/job-contract'
 
 function escapeHtml(s: string): string {
   return s
@@ -21,7 +22,8 @@ export function buildOrderFormContractSaleDescription(contract: {
   additional_products?: string | null
 }): string {
   const parts: string[] = []
-  if (contract.roofing_material?.trim()) parts.push(contract.roofing_material.trim())
+  const material = meaningful(contract.roofing_material)
+  if (material) parts.push(material)
   const scopes: string[] = []
   if (contract.scope_roof_replacement) scopes.push('Roof replacement')
   if (contract.scope_roof_repair) scopes.push('Roof repair')

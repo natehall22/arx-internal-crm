@@ -4,6 +4,7 @@ import { resolveSalesDocAccessBarred } from '@/lib/sales-doc-access'
 import { createServiceClient } from '@/lib/supabase/service'
 import nodemailer from 'nodemailer'
 import { getCrmEmailFrom } from '@/lib/crm-email-from'
+import { meaningful } from '@/lib/job-contract'
 
 export async function POST(request: NextRequest) {
   try {
@@ -60,7 +61,7 @@ export async function POST(request: NextRequest) {
     const safeRoofingMaterial =
       safeAgreementType === 'contingency' || safeAgreementType === 'repair'
         ? null
-        : (roofingMaterial || null)
+        : meaningful(roofingMaterial)
     const safeEstCompletionDate = safeAgreementType === 'contingency' ? null : (estCompletionDate || null)
     const safeExclusions = safeAgreementType === 'contingency' ? null : (exclusions || null)
     const safeAdditionalProducts =
