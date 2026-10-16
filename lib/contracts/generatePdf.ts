@@ -1,5 +1,6 @@
 import { jsPDF } from 'jspdf'
 import { meaningful } from '@/lib/job-contract'
+import { computeBalanceDue, paymentNotes } from '@/lib/contracts/payment-copy'
 
 export interface ContractData {
   id: string
@@ -298,6 +299,14 @@ function generateRepairPdf(contract: ContractData): Buffer {
   if (contract.deposit_amount) {
     addWrapped(`Deposit: ${formatCurrency(contract.deposit_amount)}`)
   }
+  if (meaningful(contract.roofing_material)) addWrapped(`Material: ${meaningful(contract.roofing_material)}`)
+  if (meaningful(contract.roofing_color_style)) addWrapped(`Color / Style: ${meaningful(contract.roofing_color_style)}`)
+  doc.setFont('helvetica', 'bold')
+  addWrapped(`Balance due at completion: ${formatCurrency(computeBalanceDue(contract.project_cost, contract.deposit_amount))}`, 9, 10)
+  doc.setFont('helvetica', 'normal')
+  for (const note of paymentNotes({ paymentMethod: contract.payment_method, financeCompany: contract.finance_company })) {
+    addWrapped(note, 8, 9)
+  }
   if (contract.est_completion_date) {
     addWrapped(`Finish by about: ${formatDate(contract.est_completion_date)}`)
   }
@@ -543,13 +552,17 @@ export async function generateContractPdf(contract: ContractData): Promise<Buffe
   doc.text(`Deposit: ${formatCurrency(contract.deposit_amount)} (Due At Signing)`, margin, y)
   y += 16
   doc.setFont('helvetica', 'bold')
-  doc.text(`Balance Due At Completion: ${formatCurrency(Math.max(0, (contract.project_cost || 0) - (contract.deposit_amount || 0)))}`, margin, y)
+  doc.text(`Balance Due At Completion: ${formatCurrency(computeBalanceDue(contract.project_cost, contract.deposit_amount))}`, margin, y)
   doc.setFont('helvetica', 'normal')
   y += 14
   doc.setFontSize(9)
-  for (const line of wrapText(doc, 'The balance is due as soon as the work is substantially complete, or when an insurance carrier approves the completed scope, whichever comes first. It does not depend on insurance payments (see Terms and Conditions, Section 2.1).', contentWidth)) {
-    doc.text(line, margin, y)
-    y += 12
+  for (const note of paymentNotes({ paymentMethod: contract.payment_method, financeCompany: contract.finance_company })) {
+    for (const line of wrapText(doc, note, contentWidth)) {
+      checkNewPage(12)
+      doc.text(line, margin, y)
+      y += 12
+    }
+    y += 3
   }
   doc.setFontSize(10)
   y += 4
@@ -798,6 +811,7 @@ function getTermsAndConditions(): { title: string; content: string[] }[] {
       content: [
         '2.1 Final payment is due immediately upon Substantial Completion of the Work or upon approval of the completed scope by any insurance carrier, whichever occurs first. Customer\'s obligation to make final payment is not contingent upon receipt of insurance proceeds, recoverable depreciation, or supplemental payments.',
         '2.2 If any payment is not made when due, ARX may, upon written notice, suspend work until payment is received. Any unpaid balances may accrue interest at the rate of one and one-half percent (1.5%) per month or the maximum allowed by law, whichever is less. Customer agrees to pay reasonable costs of collection if amounts remain unpaid.',
+        '2.3 "Substantial Completion" means the Work described in this Agreement is installed and the installed system is functioning for its intended purpose (for a roof, it is in place and protecting the Property), even if minor punch-list items remain, such as touch-ups, final cleanup, or items awaiting weather or materials. ARX will complete punch-list items promptly, and they do not delay final payment.',
       ],
     },
     {

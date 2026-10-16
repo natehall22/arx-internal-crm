@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import SignaturePad from '@/components/contracts/SignaturePad'
 import { meaningful } from '@/lib/job-contract'
+import { computeBalanceDue, paymentNotes } from '@/lib/contracts/payment-copy'
 
 interface Contract {
   id: string
@@ -378,13 +379,13 @@ export default function CustomerSigningForm({ contract, token }: CustomerSigning
                     {contract.scope_other && <span className="px-2 py-1 bg-indigo-100 text-black font-medium rounded">{contract.scope_other}</span>}
                   </div>
                 </div>
-                {!isContingency && !isRepair && meaningful(contract.roofing_material) && (
+                {!isContingency && meaningful(contract.roofing_material) && (
                   <div>
                     <span className="text-gray-500">Material:</span>
                     <span className="ml-2 font-medium text-black">{meaningful(contract.roofing_material)}</span>
                   </div>
                 )}
-                {!isContingency && !isRepair && meaningful(contract.roofing_color_style) && (
+                {!isContingency && meaningful(contract.roofing_color_style) && (
                   <div>
                     <span className="text-gray-500">Color / Style:</span>
                     <span className="ml-2 font-medium text-black">{meaningful(contract.roofing_color_style)}</span>
@@ -439,14 +440,12 @@ export default function CustomerSigningForm({ contract, token }: CustomerSigning
                     <span className="ml-2 font-medium text-black">${contract.deposit_amount.toLocaleString()}</span>
                   </div>
                   <div className="md:col-span-2 rounded-lg bg-amber-50 p-3 text-black">
-                    <span className="font-semibold">Balance due at completion: </span>
                     <span className="font-semibold">
-                      ${Math.max(0, (contract.project_cost || 0) - (contract.deposit_amount || 0)).toLocaleString()}
+                      Balance due at completion: ${computeBalanceDue(contract.project_cost, contract.deposit_amount).toLocaleString()}
                     </span>
-                    <p className="mt-1">
-                      Due as soon as the work is substantially complete, or when an insurance carrier approves the
-                      completed scope, whichever comes first. It does not depend on insurance payments.
-                    </p>
+                    {paymentNotes({ paymentMethod: contract.payment_method, financeCompany: contract.finance_company }).map((note) => (
+                      <p key={note} className="mt-1">{note}</p>
+                    ))}
                   </div>
                 </div>
                 {contract.notes && (

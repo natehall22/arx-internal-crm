@@ -59,12 +59,8 @@ export async function POST(request: NextRequest) {
       safeAgreementType === 'contingency' || safeAgreementType === 'repair'
         ? null
         : (totalSquares || null)
-    const safeRoofingMaterial =
-      safeAgreementType === 'contingency' || safeAgreementType === 'repair'
-        ? null
-        : meaningful(roofingMaterial)
-    const safeRoofingColorStyle =
-      safeAgreementType === 'contingency' || safeAgreementType === 'repair' ? null : meaningful(roofingColorStyle)
+    const safeRoofingMaterial = safeAgreementType === 'contingency' ? null : meaningful(roofingMaterial)
+    const safeRoofingColorStyle = safeAgreementType === 'contingency' ? null : meaningful(roofingColorStyle)
     const safeEstCompletionDate = safeAgreementType === 'contingency' ? null : (estCompletionDate || null)
     const safeExclusions = safeAgreementType === 'contingency' ? null : (exclusions || null)
     const safeAdditionalProducts =
