@@ -30,6 +30,7 @@ interface ContractFormData {
   projectCost: string
   totalSquares: number | null
   roofingMaterial: string
+  roofingColorStyle: string
   scopeRoofReplacement: boolean
   scopeRoofRepair: boolean
   scopeGutters: boolean
@@ -75,6 +76,7 @@ export default function ContractModal({
     projectCost: projectCost ? String(projectCost) : '',
     totalSquares: totalSquares || null,
     roofingMaterial: '',
+    roofingColorStyle: '',
     scopeRoofReplacement: true,
     scopeRoofRepair: false,
     scopeGutters: false,
@@ -120,6 +122,10 @@ export default function ContractModal({
       case 1:
         if (!formData.customerName || !formData.projectAddress) {
           setError('Please fill in customer name and project address')
+          return false
+        }
+        if (formData.agreementType === 'installation' && !meaningful(formData.roofingColorStyle)) {
+          setError('Please enter the color / style the customer chose (or "Customer to choose")')
           return false
         }
         if (formData.agreementType === 'installation' || formData.agreementType === 'repair') {
@@ -410,13 +416,25 @@ export default function ContractModal({
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Primary Roofing System / Material
+                          Material
                         </label>
                         <input
                           type="text"
                           placeholder={formData.scopeRoofReplacement || formData.scopeRoofRepair ? 'e.g., Architectural Shingles' : 'Product for this job, e.g., 6" white seamless gutters'}
                           value={formData.roofingMaterial}
                           onChange={e => handleInputChange('roofingMaterial', e.target.value)}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Color / Style *
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="e.g., Charcoal (or Customer to choose)"
+                          value={formData.roofingColorStyle}
+                          onChange={e => handleInputChange('roofingColorStyle', e.target.value)}
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                         />
                       </div>
@@ -734,7 +752,10 @@ export default function ContractModal({
                       {formData.scopeOther && <span className="px-2 py-1 bg-gray-100 rounded">{formData.scopeOther}</span>}
                     </div>
                     {formData.agreementType === 'installation' && meaningful(formData.roofingMaterial) && (
-                      <p className="text-sm mt-2"><span className="text-gray-500">Roofing System / Material:</span> {formData.roofingMaterial}</p>
+                      <p className="text-sm mt-2"><span className="text-gray-500">Material:</span> {formData.roofingMaterial}</p>
+                    )}
+                    {formData.agreementType === 'installation' && meaningful(formData.roofingColorStyle) && (
+                      <p className="text-sm mt-1"><span className="text-gray-500">Color / Style:</span> {formData.roofingColorStyle}</p>
                     )}
                   </div>
 
@@ -743,7 +764,8 @@ export default function ContractModal({
                       <h4 className="font-medium text-gray-900 mb-2">Payment</h4>
                       <div className="grid grid-cols-2 gap-2 text-sm">
                         <div><span className="text-gray-500">Project Cost:</span> ${previewNumber(formData.projectCost).toLocaleString()}</div>
-                        <div><span className="text-gray-500">Deposit:</span> ${previewNumber(formData.depositAmount).toLocaleString()}</div>
+                        <div><span className="text-gray-500">Deposit (due at signing):</span> ${previewNumber(formData.depositAmount).toLocaleString()}</div>
+                        <div className="col-span-2"><span className="text-gray-500">Balance due at completion:</span> <strong>${Math.max(0, previewNumber(formData.projectCost) - previewNumber(formData.depositAmount)).toLocaleString()}</strong> — due as soon as the work is substantially complete (or the insurance carrier approves the completed scope, whichever is first). It does not wait on insurance payments.</div>
                         <div><span className="text-gray-500">Method:</span> {formData.paymentMethod}{formData.paymentMethod === 'finance' && formData.financeCompany && ` (${formData.financeCompany})`}</div>
                         {formData.estCompletionDate && (
                           <div><span className="text-gray-500">Est. Completion:</span> {formData.estCompletionDate}</div>

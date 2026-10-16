@@ -14,6 +14,7 @@ interface Contract {
   project_cost: number
   total_squares: number | null
   roofing_material: string | null
+  roofing_color_style?: string | null
   scope_roof_replacement: boolean
   scope_roof_repair: boolean
   scope_gutters: boolean
@@ -379,8 +380,14 @@ export default function CustomerSigningForm({ contract, token }: CustomerSigning
                 </div>
                 {!isContingency && !isRepair && meaningful(contract.roofing_material) && (
                   <div>
-                    <span className="text-gray-500">Primary Roofing System:</span>
+                    <span className="text-gray-500">Material:</span>
                     <span className="ml-2 font-medium text-black">{meaningful(contract.roofing_material)}</span>
+                  </div>
+                )}
+                {!isContingency && !isRepair && meaningful(contract.roofing_color_style) && (
+                  <div>
+                    <span className="text-gray-500">Color / Style:</span>
+                    <span className="ml-2 font-medium text-black">{meaningful(contract.roofing_color_style)}</span>
                   </div>
                 )}
                 {!isContingency && !isRepair && contract.total_squares && (
@@ -430,6 +437,16 @@ export default function CustomerSigningForm({ contract, token }: CustomerSigning
                   <div>
                     <span className="text-gray-500">Deposit (Due At Signing):</span>
                     <span className="ml-2 font-medium text-black">${contract.deposit_amount.toLocaleString()}</span>
+                  </div>
+                  <div className="md:col-span-2 rounded-lg bg-amber-50 p-3 text-black">
+                    <span className="font-semibold">Balance due at completion: </span>
+                    <span className="font-semibold">
+                      ${Math.max(0, (contract.project_cost || 0) - (contract.deposit_amount || 0)).toLocaleString()}
+                    </span>
+                    <p className="mt-1">
+                      Due as soon as the work is substantially complete, or when an insurance carrier approves the
+                      completed scope, whichever comes first. It does not depend on insurance payments.
+                    </p>
                   </div>
                 </div>
                 {contract.notes && (

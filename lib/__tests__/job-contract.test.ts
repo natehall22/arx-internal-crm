@@ -12,6 +12,7 @@ const contract = (patch: Partial<JobSignedContract>): JobSignedContract => ({
   agreementType: 'installation',
   pdfUrl: null,
   roofingMaterial: null,
+  roofingColorStyle: null,
   scopeOther: null,
   additionalProducts: null,
   exclusions: null,
@@ -22,6 +23,9 @@ const contract = (patch: Partial<JobSignedContract>): JobSignedContract => ({
 describe('contract → sheet fields', () => {
   it('uses the signed product line (26-0046: only the contract had it)', () => {
     expect(contractProductText([contract({ roofingMaterial: 'IKO Harvard Slate' })])).toBe('IKO Harvard Slate')
+    expect(contractProductText([contract({ roofingMaterial: 'Architectural shingles', roofingColorStyle: 'Charcoal' })])).toBe(
+      'Architectural shingles — Charcoal'
+    )
   })
 
   it('joins distinct products when a split deal has two contracts', () => {

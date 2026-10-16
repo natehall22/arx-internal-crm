@@ -22,6 +22,7 @@ export type JobSignedContract = {
   agreementType: string | null
   pdfUrl: string | null
   roofingMaterial: string | null
+  roofingColorStyle: string | null
   scopeOther: string | null
   additionalProducts: string | null
   exclusions: string | null
@@ -30,7 +31,7 @@ export type JobSignedContract = {
 }
 
 const CONTRACT_COLUMNS =
-  'id, customer_signed_at, created_at, agreement_type, pdf_url, roofing_material, scope_other, additional_products, exclusions, notes'
+  'id, customer_signed_at, created_at, agreement_type, pdf_url, roofing_material, roofing_color_style, scope_other, additional_products, exclusions, notes'
 
 function clean(value: unknown): string | null {
   if (typeof value !== 'string') return null
@@ -65,6 +66,7 @@ function toContract(row: Record<string, any>): JobSignedContract {
     agreementType: clean(row.agreement_type),
     pdfUrl: clean(row.pdf_url),
     roofingMaterial: meaningful(row.roofing_material),
+    roofingColorStyle: meaningful(row.roofing_color_style),
     scopeOther: meaningful(row.scope_other),
     additionalProducts: meaningful(row.additional_products),
     exclusions: meaningful(row.exclusions),
@@ -113,7 +115,9 @@ function distinct(values: (string | null)[]): string[] {
 
 /** The product line as the customer signed for it. Joined when a split deal has two contracts. */
 export function contractProductText(contracts: JobSignedContract[]): string | null {
-  const parts = distinct(contracts.map((c) => c.roofingMaterial))
+  const parts = distinct(
+    contracts.map((c) => [c.roofingMaterial, c.roofingColorStyle].filter(Boolean).join(' — ') || null)
+  )
   return parts.length > 0 ? parts.join('\n') : null
 }
 

@@ -28,6 +28,7 @@ export async function POST(request: NextRequest) {
       projectCost,
       totalSquares,
       roofingMaterial,
+      roofingColorStyle,
       scopeRoofReplacement,
       scopeRoofRepair,
       scopeGutters,
@@ -62,6 +63,8 @@ export async function POST(request: NextRequest) {
       safeAgreementType === 'contingency' || safeAgreementType === 'repair'
         ? null
         : meaningful(roofingMaterial)
+    const safeRoofingColorStyle =
+      safeAgreementType === 'contingency' || safeAgreementType === 'repair' ? null : meaningful(roofingColorStyle)
     const safeEstCompletionDate = safeAgreementType === 'contingency' ? null : (estCompletionDate || null)
     const safeExclusions = safeAgreementType === 'contingency' ? null : (exclusions || null)
     const safeAdditionalProducts =
@@ -128,6 +131,7 @@ export async function POST(request: NextRequest) {
         project_cost: safeProjectCost,
         total_squares: safeTotalSquares,
         roofing_material: safeRoofingMaterial,
+        roofing_color_style: safeRoofingColorStyle,
         scope_roof_replacement: scopeRoofReplacement || false,
         scope_roof_repair: scopeRoofRepair || false,
         scope_gutters: scopeGutters || false,

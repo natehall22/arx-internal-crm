@@ -458,7 +458,8 @@ function SignedContractPanel({ contracts }: { contracts: JobSignedContract[] }) 
             )}
           </div>
           <dl className="space-y-2">
-            <ContractLine label="Product" value={c.roofingMaterial} />
+            <ContractLine label="Material" value={c.roofingMaterial} />
+            <ContractLine label="Color / Style" value={c.roofingColorStyle} />
             <ContractLine label="Other scope" value={c.scopeOther} />
             <ContractLine label="Additional products" value={c.additionalProducts} />
             <ContractLine label="Exclusions" value={c.exclusions} />

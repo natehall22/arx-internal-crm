@@ -11,6 +11,7 @@ export interface ContractData {
   project_cost: number
   total_squares?: number
   roofing_material?: string
+  roofing_color_style?: string
   scope_roof_replacement?: boolean
   scope_roof_repair?: boolean
   scope_gutters?: boolean
@@ -482,7 +483,9 @@ export async function generateContractPdf(contract: ContractData): Promise<Buffe
     doc.text(`Other: ${contract.scope_other}`, margin, y)
     y += 16
   }
-  doc.text(`Primary Roofing System / Material: ${meaningful(contract.roofing_material) || ''}`, margin, y)
+  doc.text(`Material: ${meaningful(contract.roofing_material) || ''}`, margin, y)
+  y += 16
+  doc.text(`Color / Style: ${meaningful(contract.roofing_color_style) || ''}`, margin, y)
   y += 16
   doc.text(`Total Squares: ${contract.total_squares || ''}`, margin, y)
   doc.text(`Project Cost: ${formatCurrency(contract.project_cost)}`, 300, y)
@@ -539,6 +542,17 @@ export async function generateContractPdf(contract: ContractData): Promise<Buffe
   y += 16
   doc.text(`Deposit: ${formatCurrency(contract.deposit_amount)} (Due At Signing)`, margin, y)
   y += 16
+  doc.setFont('helvetica', 'bold')
+  doc.text(`Balance Due At Completion: ${formatCurrency(Math.max(0, (contract.project_cost || 0) - (contract.deposit_amount || 0)))}`, margin, y)
+  doc.setFont('helvetica', 'normal')
+  y += 14
+  doc.setFontSize(9)
+  for (const line of wrapText(doc, 'The balance is due as soon as the work is substantially complete, or when an insurance carrier approves the completed scope, whichever comes first. It does not depend on insurance payments (see Terms and Conditions, Section 2.1).', contentWidth)) {
+    doc.text(line, margin, y)
+    y += 12
+  }
+  doc.setFontSize(10)
+  y += 4
 
   if (contract.notes) {
     doc.text('Notes:', margin, y)
