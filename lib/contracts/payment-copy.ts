@@ -21,6 +21,9 @@ export const CHANGE_ORDERS_PLAIN =
 export const INSURANCE_SCOPE_PLAIN =
   'Working with your insurance: your carrier decides what is covered, and the approved scope can change as the job goes on, for example if hidden damage is found or the carrier approves a supplement. We handle that with your carrier for you. Any change to the work is put in writing first, so there are no surprises.'
 
+export const CANCELLATION_PLAIN =
+  'If you cancel after the 3-day cancellation window, your deposit is refunded in full if nothing has been started or ordered. If ARX has already paid for things on your job (permits, materials ordered, delivery), only those documented costs are taken from your deposit and the rest is refunded. ARX does not profit from a cancellation; we only recover what we have already spent.'
+
 export function financeBalancePlain(financeCompany?: string | null): string | null {
   const lender = financeCompany?.trim()
   return lender ? `Your balance is paid through your ${lender} financing when the work is complete.` : null
@@ -33,6 +36,7 @@ export function paymentNotes(args: { paymentMethod?: string | null; financeCompa
     if (finance) notes.push(finance)
   }
   notes.push(CHANGE_ORDERS_PLAIN)
+  notes.push(CANCELLATION_PLAIN)
   if (args.paymentMethod === 'insurance') notes.push(INSURANCE_SCOPE_PLAIN)
   return notes
 }

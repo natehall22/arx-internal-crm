@@ -14,6 +14,7 @@ describe('paymentNotes', () => {
     expect(notes).toMatch(/balance is due when the work is substantially complete/)
     expect(notes).toMatch(/"Substantially complete" means/)
     expect(notes).toMatch(/change orders are due with this final payment/)
+    expect(notes).toMatch(/does not profit from a cancellation/)
     expect(notes).not.toMatch(/insurance carrier decides|Working with your insurance/)
   })
   it('names the lender only on finance deals and the insurance note only on insurance deals', () => {
