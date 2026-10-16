@@ -11,11 +11,14 @@ describe('computeBalanceDue', () => {
 describe('paymentNotes', () => {
   it('always states the balance rule, the Substantial Completion meaning and change orders', () => {
     const notes = paymentNotes({ paymentMethod: 'cash' }).join(' ')
-    expect(notes).toMatch(/balance is due when the work is substantially complete/)
-    expect(notes).toMatch(/"Substantially complete" means/)
-    expect(notes).toMatch(/change orders are due with this final payment/)
+    expect(notes).toMatch(/balance is due when the work is substantially complete/i)
+    expect(notes).toMatch(/"substantially complete" means/)
+    expect(notes).toMatch(/change orders are due with this final payment/i)
     expect(notes).toMatch(/does not profit from a cancellation/)
-    expect(notes).not.toMatch(/insurance carrier decides|Working with your insurance/)
+    expect(notes).not.toMatch(/insurance/i)
+  })
+  it('mentions the carrier approving the scope only on insurance deals', () => {
+    expect(paymentNotes({ paymentMethod: 'insurance' }).join(' ')).toMatch(/insurance carrier approves the completed scope/)
   })
   it('names the lender only on finance deals and the insurance note only on insurance deals', () => {
     expect(paymentNotes({ paymentMethod: 'finance', financeCompany: 'Sunlight' }).join(' ')).toMatch(/through your Sunlight financing/)

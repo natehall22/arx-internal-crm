@@ -1,6 +1,7 @@
 import { jsPDF } from 'jspdf'
 import { meaningful } from '@/lib/job-contract'
 import { computeBalanceDue, paymentNotes } from '@/lib/contracts/payment-copy'
+import { DEFAULT_TIMEZONE } from '@/lib/timezone'
 
 export interface ContractData {
   id: string
@@ -43,14 +44,22 @@ export interface ContractData {
 function formatDate(dateStr?: string): string {
   if (!dateStr) return ''
   try {
-    return new Date(dateStr).toLocaleDateString('en-US', {
+    // A bare date ("2026-11-30") is a calendar day, not an instant: pin it so no timezone shifts it a
+    // day. A timestamp (signing time) is shown on the business's calendar, not the server's (UTC).
+    const calendarDay = /^\d{4}-\d{2}-\d{2}$/.test(dateStr)
+    return new Date(calendarDay ? `${dateStr}T12:00:00Z` : dateStr).toLocaleDateString('en-US', {
       year: 'numeric',
       month: 'long',
       day: 'numeric',
+      timeZone: calendarDay ? 'UTC' : DEFAULT_TIMEZONE,
     })
   } catch {
     return dateStr
   }
+}
+
+function repairPaymentLabel(method?: string): string {
+  return method === 'cash' ? 'Cash' : method === 'finance' ? 'Finance' : method === 'insurance' ? 'Insurance claim' : method || ''
 }
 
 function formatCurrency(amount?: number): string {
@@ -264,7 +273,7 @@ function generateRepairPdf(contract: ContractData): Buffer {
   y += 22
 
   doc.setFontSize(9)
-  doc.text('Customer & property', margin, y)
+  doc.text('Customer and Property', margin, y)
   y += 4
   doc.line(margin, y, pageWidth - margin, y)
   y += 12
@@ -278,7 +287,7 @@ function generateRepairPdf(contract: ContractData): Buffer {
   y += 18
 
   doc.setFont('helvetica', 'bold')
-  doc.text('Work and price', margin, y)
+  doc.text('Work and Price', margin, y)
   y += 4
   doc.line(margin, y, pageWidth - margin, y)
   y += 12
@@ -294,7 +303,7 @@ function generateRepairPdf(contract: ContractData): Buffer {
   addWrapped(`Work: ${scope}`)
   addWrapped(`Price: ${formatCurrency(contract.project_cost)}`)
   if (contract.payment_method) {
-    addWrapped(`Payment: ${contract.payment_method}${contract.payment_method === 'finance' && contract.finance_company ? ` (${contract.finance_company})` : ''}`)
+    addWrapped(`Payment: ${repairPaymentLabel(contract.payment_method)}${contract.payment_method === 'finance' && contract.finance_company ? ` (${contract.finance_company})` : ''}`)
   }
   if (contract.deposit_amount) {
     addWrapped(`Deposit: ${formatCurrency(contract.deposit_amount)}`)
@@ -304,14 +313,19 @@ function generateRepairPdf(contract: ContractData): Buffer {
   doc.setFont('helvetica', 'bold')
   addWrapped(`Balance due at completion: ${formatCurrency(computeBalanceDue(contract.project_cost, contract.deposit_amount))}`, 9, 10)
   doc.setFont('helvetica', 'normal')
-  for (const note of paymentNotes({ paymentMethod: contract.payment_method, financeCompany: contract.finance_company })) {
-    addWrapped(note, 8, 9)
-  }
   if (contract.est_completion_date) {
     addWrapped(`Finish by about: ${formatDate(contract.est_completion_date)}`)
   }
   if (contract.exclusions) addWrapped(`Not included: ${contract.exclusions}`)
   if (contract.notes) addWrapped(`Notes: ${contract.notes}`)
+  y += 4
+  doc.setFont('helvetica', 'bold')
+  addWrapped('Payment terms in plain language', 8.5, 10)
+  doc.setFont('helvetica', 'normal')
+  for (const note of paymentNotes({ paymentMethod: contract.payment_method, financeCompany: contract.finance_company, repair: true })) {
+    addWrapped(note, 8, 9)
+    y += 3
+  }
   y += 6
 
   doc.setFont('helvetica', 'bold')
@@ -406,12 +420,8 @@ export async function generateContractPdf(contract: ContractData): Promise<Buffe
   let y = margin
   let pageNum = 1
 
-  const addPageNumber = () => {
-    doc.setFontSize(8)
-    doc.setTextColor(100)
-    doc.text(`Page ${pageNum} of 7 | ARX Roofing & Exteriors LLC`, pageWidth / 2, pageHeight - 30, { align: 'center' })
-    doc.setTextColor(0)
-  }
+  // Footers are stamped once at the end, when the real page count is known.
+  const addPageNumber = () => {}
 
   const checkNewPage = (neededHeight: number = 50) => {
     if (y + neededHeight > pageHeight - 60) {
@@ -457,7 +467,7 @@ export async function generateContractPdf(contract: ContractData): Promise<Buffe
   // Customer And Premise Section
   doc.setFontSize(12)
   doc.setFont('helvetica', 'bold')
-  doc.text('Customer And Premise', margin, y)
+  doc.text('Customer and Premises', margin, y)
   y += 3
   doc.line(margin, y, pageWidth - margin, y)
   y += 15
@@ -472,7 +482,7 @@ export async function generateContractPdf(contract: ContractData): Promise<Buffe
   doc.text(`Email: ${contract.customer_email || ''}`, 300, y)
   y += 16
   const contactPref = contract.preferred_contact === 'phone' ? '[X] Phone  [ ] Email' : contract.preferred_contact === 'email' ? '[ ] Phone  [X] Email' : '[ ] Phone  [ ] Email'
-  doc.text(`Preferred Method Of Contact: ${contactPref}`, margin, y)
+  doc.text(`Preferred Method of Contact: ${contactPref}`, margin, y)
   y += 25
 
   // Project Details Section
@@ -485,7 +495,7 @@ export async function generateContractPdf(contract: ContractData): Promise<Buffe
 
   doc.setFontSize(10)
   doc.setFont('helvetica', 'normal')
-  const scopeText = `Scope Of Work: ${contract.scope_roof_replacement ? '[X]' : '[ ]'} Roof Replacement  ${contract.scope_roof_repair ? '[X]' : '[ ]'} Roof Repair  ${contract.scope_gutters ? '[X]' : '[ ]'} Gutters  ${contract.scope_siding ? '[X]' : '[ ]'} Siding`
+  const scopeText = `Scope of Work: ${contract.scope_roof_replacement ? '[X]' : '[ ]'} Roof Replacement  ${contract.scope_roof_repair ? '[X]' : '[ ]'} Roof Repair  ${contract.scope_gutters ? '[X]' : '[ ]'} Gutters  ${contract.scope_siding ? '[X]' : '[ ]'} Siding`
   doc.text(scopeText, margin, y)
   y += 16
   if (contract.scope_other) {
@@ -549,13 +559,17 @@ export async function generateContractPdf(contract: ContractData): Promise<Buffe
     : contract.payment_method || ''
   doc.text(`Payment Method: ${paymentMethodText}`, margin, y)
   y += 16
-  doc.text(`Deposit: ${formatCurrency(contract.deposit_amount)} (Due At Signing)`, margin, y)
+  doc.text(`Deposit: ${formatCurrency(contract.deposit_amount)} (Due at Signing)`, margin, y)
   y += 16
   doc.setFont('helvetica', 'bold')
-  doc.text(`Balance Due At Completion: ${formatCurrency(computeBalanceDue(contract.project_cost, contract.deposit_amount))}`, margin, y)
+  doc.text(`Balance Due at Completion: ${formatCurrency(computeBalanceDue(contract.project_cost, contract.deposit_amount))}`, margin, y)
   doc.setFont('helvetica', 'normal')
   y += 14
   doc.setFontSize(9)
+  doc.setFont('helvetica', 'bold')
+  doc.text('Payment Terms in Plain Language', margin, y)
+  doc.setFont('helvetica', 'normal')
+  y += 13
   for (const note of paymentNotes({ paymentMethod: contract.payment_method, financeCompany: contract.finance_company })) {
     for (const line of wrapText(doc, note, contentWidth)) {
       checkNewPage(12)
@@ -583,7 +597,14 @@ export async function generateContractPdf(contract: ContractData): Promise<Buffe
   y += 20
 
   // Signature Block
-  checkNewPage(180)
+  checkNewPage(200)
+  doc.setFontSize(12)
+  doc.setFont('helvetica', 'bold')
+  doc.text('Agreement and Signatures', margin, y)
+  y += 3
+  doc.line(margin, y, pageWidth - margin, y)
+  y += 15
+  doc.setFont('helvetica', 'normal')
   doc.setFontSize(8)
   const legalText = 'By signing below, the undersigned represents that (i) he or she has read the above Order Form and the Terms and Conditions (collectively, the "Agreement") in its entirety, and (ii) he or she agrees to be bound by the terms and conditions of the Agreement.'
   const legalLines = wrapText(doc, legalText, contentWidth)
@@ -660,7 +681,7 @@ export async function generateContractPdf(contract: ContractData): Promise<Buffe
 
   doc.setFontSize(14)
   doc.setFont('helvetica', 'bold')
-  doc.text('Terms And Conditions', pageWidth / 2, y, { align: 'center' })
+  doc.text('Terms and Conditions', pageWidth / 2, y, { align: 'center' })
   y += 25
 
   const terms = getTermsAndConditions()
@@ -789,7 +810,15 @@ NOT LATER THAN MIDNIGHT OF ${formatDate(cancellationDeadline.toISOString())}`
   
   doc.text('Date: _________________________________', margin, y)
 
-  addPageNumber()
+  const totalPages = doc.getNumberOfPages()
+  for (let page = 1; page <= totalPages; page++) {
+    doc.setPage(page)
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(8)
+    doc.setTextColor(100)
+    doc.text(`Page ${page} of ${totalPages} | ARX Roofing & Exteriors LLC`, pageWidth / 2, pageHeight - 30, { align: 'center' })
+    doc.setTextColor(0)
+  }
 
   // Convert to Buffer
   const pdfOutput = doc.output('arraybuffer')
@@ -799,7 +828,7 @@ NOT LATER THAN MIDNIGHT OF ${formatDate(cancellationDeadline.toISOString())}`
 function getTermsAndConditions(): { title: string; content: string[] }[] {
   return [
     {
-      title: 'Section 1 — Scope Of Work',
+      title: 'Section 1 — Scope of Work',
       content: [
         '1.1 ARX will furnish labor and materials necessary to perform the checked Scope of Work above, in a workmanlike manner, and in reasonable compliance with applicable North Carolina codes and permitting requirements.',
         '1.2 Standard Roof Replacement (if selected) generally includes: Tear-off and disposal of existing roofing materials. Underlayment, ice/water protection where code/conditions require, drip edge, flashings, and ventilation components as specified. Installation of new shingles/metal/roofing system per manufacturer instructions and code. Basic pipe boot/penetration flashing replacement as needed for the roofing system. Final cleanup and magnet sweep (see Section 8).',
@@ -896,7 +925,7 @@ function getTermsAndConditions(): { title: string; content: string[] }[] {
         '12.2 If this is a home-solicitation sale or otherwise subject to a 3-business-day right to cancel, Customer may cancel as stated in the attached Notice of Cancellation.',
         '12.3 If Customer terminates after work begins, Customer will pay for work performed and costs incurred to date (labor, materials ordered, permits, disposal) less any amounts already paid.',
         '12.4 Once materials are delivered to the Property, risk of loss due to theft, vandalism, or weather generally transfers to Customer, except to the extent caused by ARX\'s negligence while materials are under ARX\'s control.',
-        '12.5 If Customer cancels after the cancellation period in the attached Notice of Cancellation has ended and before work has begun, ARX will refund the deposit and any other payments received, less only ARX\'s documented out-of-pocket costs already incurred for the Project, such as permit fees, delivery or dumpster charges, and any supplier restocking or cancellation fees for materials already ordered. If no such costs were incurred, the full deposit is refunded. Customer is responsible for those documented costs, including restocking fees, to the extent they exceed the amounts paid. ARX does not charge a cancellation penalty or earn a profit on a cancellation; the purpose is only to recover costs already incurred. ARX will provide receipts for the costs on request and issue any refund promptly once they are totaled. If work has already begun, Section 12.3 applies.',
+        '12.5 If Customer cancels after the cancellation period in the attached Notice of Cancellation has ended and before work has begun, ARX will refund the deposit and any other payments received, less only ARX\'s documented out-of-pocket costs already incurred for the Work, such as permit fees, delivery or dumpster charges, and any supplier restocking or cancellation fees for materials already ordered. If no such costs were incurred, the full deposit is refunded. Customer is responsible for those documented costs, including restocking fees, to the extent they exceed the amounts paid. ARX does not charge a cancellation penalty or earn a profit on a cancellation; the purpose is only to recover costs already incurred. ARX will provide receipts for the costs on request and issue any refund promptly once they are totaled. If work has already begun, Section 12.3 applies.',
       ],
     },
     {
