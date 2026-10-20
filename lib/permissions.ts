@@ -99,6 +99,9 @@ export type PermissionName =
   // Pricebook
   | 'pricebook:view'
   | 'pricebook:edit'
+  // Referral Partners
+  | 'referral_partners:view'
+  | 'referral_partners:manage'
   // Admin
   | 'admin:access'
   | 'admin:roles'
@@ -658,7 +661,9 @@ export function hasAllPermissions(role: UserRole, permissions: Permission[]): bo
  * Get all permissions for a role
  */
 export function getPermissions(role: UserRole): Permission[] {
-  return rolePermissions[role] || []
+  // Every role may open Referral Partners: reps add and work their own. Managing (reassign,
+  // Company Relationship, import) is admin-only and arrives via `admin:full`.
+  return [...(rolePermissions[role] || []), 'referral_partners:view']
 }
 
 /**
@@ -1070,6 +1075,7 @@ export const permissionCategories = [
   'Users',
   'Scheduling',
   'Pricebook',
+  'Referral Partners',
   'Admin',
 ] as const
 
@@ -1190,6 +1196,10 @@ export const allPermissions: Array<{
   // Pricebook
   { name: 'pricebook:view', displayName: 'View Pricebook', description: 'Access pricing information', category: 'Pricebook' },
   { name: 'pricebook:edit', displayName: 'Edit Pricebook', description: 'Modify pricing and items', category: 'Pricebook' },
+  
+  // Referral Partners
+  { name: 'referral_partners:view', displayName: 'View Referral Partners', description: 'See, add, and log touches on your own Referral Partners', category: 'Referral Partners' },
+  { name: 'referral_partners:manage', displayName: 'Manage Referral Partners', description: 'Reassign partners, set Company Relationship, bulk import, edit partner types', category: 'Referral Partners' },
   
   // Admin
   { name: 'admin:access', displayName: 'Access Admin Panel', description: 'Enter admin settings area', category: 'Admin' },

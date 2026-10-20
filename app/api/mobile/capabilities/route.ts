@@ -3,6 +3,7 @@ import { requireAuthApi } from '@/lib/auth'
 import { effectiveHasPermission, resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 import { weatherOverlayFeatureEnabled } from '@/lib/weather-footprint'
 import { hasInsideSalesQueuePermissionGrant } from '@/lib/inside-sales-follow-up'
+import { canSetReferredBy, getPartnerAccess } from '@/lib/referral-partners'
 import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
@@ -42,6 +43,8 @@ export async function GET() {
       opportunities_tab: canViewOpportunities,
       measure_tab: canUseMeasure,
       weather_overlay: weatherOverlayFeatureEnabled(),
+      // Referred By decides who is paid on a deal: only payroll-attribution roles / partner managers set it.
+      referred_by_edit: canSetReferredBy(profile.role, await getPartnerAccess(admin, authContext.authUser.id, profile)),
     })
   } catch (error) {
     console.error('Mobile capabilities error:', error)

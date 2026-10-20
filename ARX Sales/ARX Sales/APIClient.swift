@@ -491,6 +491,7 @@ struct Opportunity: Decodable, Identifiable {
     let customer_id: String?
     let owner_user_id: String?
     let setter_user_id: String?
+    let referral_partner_id: String?
     let address_text: String?
     let project_type: String?
     let status: String?
@@ -1153,19 +1154,23 @@ struct MobileAppCapabilities: Decodable, Equatable {
     let opportunitiesTab: Bool
     let measureTab: Bool
     let weatherOverlay: Bool
+    /// Referred By decides who is paid on a deal; only payroll-attribution roles may set it.
+    let referredByEdit: Bool
 
     enum CodingKeys: String, CodingKey {
         case appAccess = "app_access"
         case opportunitiesTab = "opportunities_tab"
         case measureTab = "measure_tab"
         case weatherOverlay = "weather_overlay"
+        case referredByEdit = "referred_by_edit"
     }
 
-    init(appAccess: Bool = true, opportunitiesTab: Bool = false, measureTab: Bool = false, weatherOverlay: Bool = false) {
+    init(appAccess: Bool = true, opportunitiesTab: Bool = false, measureTab: Bool = false, weatherOverlay: Bool = false, referredByEdit: Bool = false) {
         self.appAccess = appAccess
         self.opportunitiesTab = opportunitiesTab
         self.measureTab = measureTab
         self.weatherOverlay = weatherOverlay
+        self.referredByEdit = referredByEdit
     }
 
     init(from decoder: Decoder) throws {
@@ -1174,6 +1179,7 @@ struct MobileAppCapabilities: Decodable, Equatable {
         opportunitiesTab = try c.decodeIfPresent(Bool.self, forKey: .opportunitiesTab) ?? false
         measureTab = try c.decodeIfPresent(Bool.self, forKey: .measureTab) ?? false
         weatherOverlay = try c.decodeIfPresent(Bool.self, forKey: .weatherOverlay) ?? false
+        referredByEdit = try c.decodeIfPresent(Bool.self, forKey: .referredByEdit) ?? false
     }
 }
 

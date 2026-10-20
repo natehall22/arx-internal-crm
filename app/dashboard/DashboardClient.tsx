@@ -7,6 +7,7 @@ import { isPromptEscalated } from '@/lib/inspection-feedback-prompt'
 import type { CloseScheduleConfirm } from '@/components/appointments/CloseScheduleModal'
 import CommissionWidget from '@/components/CommissionWidget'
 import UnpaidReferralsAlert from '@/components/UnpaidReferralsAlert'
+import MyPartnersCard from '@/components/referral-partners/MyPartnersCard'
 import { netCommissionableFromFinancedTotal } from '@/lib/financing'
 import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
 import {
@@ -1028,6 +1029,8 @@ export default function DashboardClient({
       <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-8">
         {/* Unpaid Referrals Alert */}
         <UnpaidReferralsAlert />
+
+        <MyPartnersCard />
 
         {profile.role === 'admin' && dashboardDoorAttributionPinFirst === false && (
           <div

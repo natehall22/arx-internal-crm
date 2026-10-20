@@ -267,6 +267,7 @@ export default function Nav() {
     { href: '/calendar', label: 'Calendar', requiresAnyPermission: ['scheduling:view', 'scheduling:create', 'scheduling:edit', 'scheduling:manage_team', 'scheduling:manage_region', 'scheduling:manage_queue'] },
     { href: '/leads', label: 'Leads', requiresAnyPermission: ['leads:view', 'leads:create', 'leads:edit', 'leads:delete', 'leads:assign', 'leads:view_inbound', 'leads:manage_inbound', 'leads:claim_inbound'] },
     { href: '/opportunities', label: 'Opportunities', requiresAnyPermission: ['opportunities:view', 'opportunities:edit'] },
+    { href: '/referral-partners', label: 'Referral Partners', requiresAnyPermission: ['referral_partners:view'] },
     { href: '/inside-sales', label: 'Inside Sales', insideSalesOnly: true },
     {
       href: '/projects',
@@ -405,6 +406,24 @@ export default function Nav() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
               </svg>
             </Link>
+            {/* Always visible (not buried in the mobile hamburger): reps log a touch or add a partner in the field. */}
+            {(hasFullNavAccess || effectivePermissionNames.has('referral_partners:view')) && (
+              <>
+                <Link
+                  href="/referral-partners"
+                  className="hidden min-[420px]:inline md:hidden px-2 py-1.5 text-xs font-semibold text-gray-200 hover:text-white hover:bg-gray-700 rounded-md whitespace-nowrap"
+                >
+                  Partners
+                </Link>
+                <Link
+                  href="/referral-partners?add=1"
+                  className="px-2 py-1.5 text-xs font-semibold text-gray-900 bg-amber-400 hover:bg-amber-300 rounded-md whitespace-nowrap"
+                  title="Add a Referral Partner"
+                >
+                  + Partner
+                </Link>
+              </>
+            )}
             <FeedbackButton />
             <NotificationBell />
             <button

@@ -13,6 +13,7 @@ export function formatParticipantRoleLabel(role: string): string {
   if (role === 'setter_manager_override') return 'Setter manager override'
   if (role === 'closer_manager_override') return 'Sales manager override'
   if (role === 'self_gen') return 'Self-generated'
+  if (role === 'partner_owner') return 'Referral partner owner'
   return role.replace(/_/g, ' ')
 }
 

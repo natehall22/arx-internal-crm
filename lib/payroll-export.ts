@@ -20,6 +20,7 @@ export type DealCommissionRoleParticipant = {
     | 'setter_manager_override'
     | 'closer_manager_override'
     | 'self_gen'
+    | 'partner_owner'
     | 'custom'
   overrideAmount: number | null
   overridePercent: number | null
@@ -35,6 +36,8 @@ export const ADDITIVE_DEAL_COMMISSION_ROLES: readonly DealCommissionRoleParticip
   'setter_manager_override',
   'closer_manager_override',
   'self_gen',
+  // Written at sale by write_partner_owner_role(); pays only once a rate is set on the row.
+  'partner_owner',
   'custom',
 ] as const
 

@@ -71,7 +71,9 @@ struct ContentView: View {
     private var mainTabs: some View {
         ZStack(alignment: .bottom) {
             ZStack {
-                tabRoot(.dashboard) { DashboardView(onOpenSettings: { showSettings = true }) }
+                tabRoot(.dashboard) {
+                    DashboardView(onOpenSettings: { showSettings = true }, onOpenPartners: { selectedTab = .partners })
+                }
                 tabRoot(.sisu) { SisuView(onOpenSettings: { showSettings = true }) }
                 tabRoot(.canvass) {
                     CanvassView(
@@ -85,6 +87,7 @@ struct ContentView: View {
                 if mobileCaps?.measureTab == true {
                     tabRoot(.measure) { MeasureView() }
                 }
+                tabRoot(.partners) { ReferralPartnersView() }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
@@ -113,7 +116,7 @@ struct ContentView: View {
                     return true
                 case .canvass:
                     return oldHome.tab == .canvass
-                case .opportunities, .measure:
+                case .opportunities, .measure, .partners:
                     return false
                 }
             }()

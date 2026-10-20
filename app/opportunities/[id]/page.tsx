@@ -25,6 +25,8 @@ import {
 } from '@/lib/inspection-outcomes'
 import OpportunityQueueSidebar from '@/components/opportunities/OpportunityQueueSidebar'
 import RecordAIContextHelper from '@/components/RecordAIContextHelper'
+import ReferredByPicker from '@/components/referral-partners/ReferredByPicker'
+import { assignedToLabel, canSetReferredBy, getPartnerAccess, type ReferralPartnerRow } from '@/lib/referral-partners'
 import InsideSalesFollowUpDrawer from '@/components/opportunities/InsideSalesFollowUpDrawer'
 import {
   canViewInsideSalesFollowUp,
@@ -80,6 +82,24 @@ export default async function OpportunityDetailPage({
 
   if (!opportunity) {
     notFound()
+  }
+
+  // "Referred By" partner (name + who it is Assigned To), shown next to Setter / Closer.
+  let referredBy: { id: string; name: string; assigned_to: string } | null = null
+  if (opportunity.referral_partner_id) {
+    const { data: partnerRow } = await supabase
+      .from('referral_partners')
+      .select('id, name, status, assignee:users!referral_partners_assigned_user_id_fkey(id, full_name)')
+      .eq('id', opportunity.referral_partner_id)
+      .eq('org_id', profile.org_id)
+      .maybeSingle()
+    if (partnerRow) {
+      referredBy = {
+        id: partnerRow.id,
+        name: partnerRow.name,
+        assigned_to: assignedToLabel(partnerRow as unknown as Pick<ReferralPartnerRow, 'status' | 'assignee'>),
+      }
+    }
   }
 
   let viewerCustomRole: { name: string | null; display_name: string | null } | null = null
@@ -795,6 +815,11 @@ export default async function OpportunityDetailPage({
                 <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">Closer</p>
                 <p className="text-gray-900 mt-0.5">{closer?.full_name || '—'}</p>
               </div>
+              <ReferredByPicker
+                opportunityId={opportunity.id}
+                current={referredBy}
+                canEdit={canSetReferredBy(profile.role, await getPartnerAccess(supabase, authUser.id, profile))}
+              />
               <div>
                 <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">Customer</p>
                 {opportunity.customer_id ? (

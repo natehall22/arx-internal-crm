@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { syncCloserAttributionDownstream } from '@/lib/payroll-attribution-sync'
+import { canSetReferredBy, getPartnerAccess } from '@/lib/referral-partners'
 import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
@@ -103,7 +104,7 @@ export async function PATCH(
       'status', 'stage', 'outcome', 'notes', 'inspection_outcome', 'inspection_outcome_at',
       'inspection_notes', 'sale_amount', 'contact_name', 'contact_email', 'contact_phone',
       'address_text', 'assigned_user_id', 'closer_user_id', 'setter_user_id', 'owner_user_id',
-      'job_source', 'insurance_stage',
+      'job_source', 'insurance_stage', 'referral_partner_id',
       'insurance_company', 'claim_number', 'adjuster_name', 'adjuster_phone',
       'deductible', 'rcv', 'acv', 'profit_margin', 'contract_signed_at',
       'customer_id', 'follow_up_at', 'source', 'pipeline_stage',
@@ -141,6 +142,36 @@ export async function PATCH(
       return NextResponse.json({ error: 'Opportunity not found' }, { status: 404 })
     }
 
+    // "Referred By": admin/owner/operations only; must be a partner in this org.
+    let referredPartnerChanged = false
+    if (Object.prototype.hasOwnProperty.call(updateData, 'referral_partner_id')) {
+      // Referred By decides who is paid on the deal, so it carries the same gate as setter/closer.
+      const partnerAccess = await getPartnerAccess(adminClient, authContext.authUser.id, profile)
+      if (!canSetReferredBy(profile.role, partnerAccess)) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+      }
+      const nextPartnerId = updateData.referral_partner_id
+      if (nextPartnerId !== null && typeof nextPartnerId !== 'string') {
+        return NextResponse.json({ error: 'Invalid partner' }, { status: 400 })
+      }
+      if (nextPartnerId) {
+        const { data: partnerRow } = await adminClient
+          .from('referral_partners')
+          .select('id')
+          .eq('id', nextPartnerId)
+          .eq('org_id', profile.org_id)
+          .maybeSingle()
+        if (!partnerRow) return NextResponse.json({ error: 'Partner not found' }, { status: 400 })
+      }
+      const { data: currentPartner } = await adminClient
+        .from('opportunities')
+        .select('referral_partner_id')
+        .eq('id', params.id)
+        .eq('org_id', profile.org_id)
+        .single()
+      referredPartnerChanged = (currentPartner?.referral_partner_id ?? null) !== (nextPartnerId ?? null)
+    }
+
     const { data: opportunity, error } = await adminClient
       .from('opportunities')
       .update(updateData)
@@ -152,6 +183,19 @@ export async function PATCH(
     if (error) {
       console.error('Opportunity update error:', error)
       return NextResponse.json({ error: 'Failed to update opportunity' }, { status: 500 })
+    }
+
+    // Referred By changed after the job already exists: re-record the partner owner as of the sale.
+    if (referredPartnerChanged) {
+      const { data: jobsForOpp } = await adminClient
+        .from('production_jobs')
+        .select('id, project:projects!inner(opportunity_id)')
+        .eq('org_id', profile.org_id)
+        .eq('project.opportunity_id', params.id)
+      for (const job of jobsForOpp ?? []) {
+        const { error: roleErr } = await adminClient.rpc('write_partner_owner_role', { p_job_id: job.id })
+        if (roleErr) console.error('write_partner_owner_role failed:', roleErr)
+      }
     }
 
     if (touchesPayrollAttribution && opportunity) {
