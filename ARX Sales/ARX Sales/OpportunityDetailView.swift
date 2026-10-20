@@ -160,6 +160,8 @@ struct OpportunityDetailView: View {
                 StatusBadge(label: opportunity.statusLabel, hex: opportunity.statusColor)
             }
 
+            ReferredByRow(opportunityId: opportunity.id, partnerId: opportunity.referral_partner_id)
+
             if let phone = opportunity.lead_phone, !phone.isEmpty {
                 HStack(spacing: 6) {
                     Image(systemName: "phone.fill").foregroundColor(.green).font(.caption)

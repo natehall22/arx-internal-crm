@@ -68,6 +68,10 @@ export async function resolveEffectivePermissionNames(
     return { fullAccess: true, permissionNames: new Set() }
   }
 
+  // Every role — custom roles included — can open Referral Partners. If a new custom role
+  // lacked this, those reps would simply never find the page.
+  names.add('referral_partners:view')
+
   return { fullAccess: false, permissionNames: names }
 }
 

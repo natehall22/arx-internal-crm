@@ -6,6 +6,7 @@ import Supabase
 struct DashboardView: View {
     var onRoleLoaded: ((String) -> Void)? = nil
     var onOpenSettings: (() -> Void)? = nil
+    var onOpenPartners: (() -> Void)? = nil
 
     @AppStorage(AppSettings.Keys.focusMode) private var focusMode = false
 
@@ -24,6 +25,9 @@ struct DashboardView: View {
                 VStack(spacing: 20) {
                     // Additive — hides itself when empty / fetch fails; never blanks stats.
                     NextAppointmentCard(refreshToken: appointmentRefreshToken)
+
+                    // Additive — hides itself if the fetch fails.
+                    MyPartnersCard(refreshToken: appointmentRefreshToken, onOpenPartners: onOpenPartners)
 
                     // MARK: - Timeframe Picker
                     Picker("Timeframe", selection: $timeframe) {

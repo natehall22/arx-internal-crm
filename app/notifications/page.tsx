@@ -180,7 +180,12 @@ export default function NotificationsPage() {
                 return (
                   <div
                     key={notification.id}
-                    onClick={() => !notification.read_at && markAsRead([notification.id])}
+                    onClick={() => {
+                      if (!notification.read_at) markAsRead([notification.id])
+                      if (notification.link_url?.startsWith('/') && /^(referral_partner|partner_owner)/.test(notification.type)) {
+                        window.location.assign(notification.link_url)
+                      }
+                    }}
                     className={`p-4 hover:bg-gray-50 transition cursor-pointer ${
                       !notification.read_at ? 'bg-indigo-50/30' : ''
                     }`}

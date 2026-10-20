@@ -6,6 +6,7 @@ enum AppTab: String, CaseIterable, Identifiable {
     case canvass
     case opportunities
     case measure
+    case partners
 
     var id: String { rawValue }
 
@@ -16,6 +17,7 @@ enum AppTab: String, CaseIterable, Identifiable {
         case .canvass: return "Canvass"
         case .opportunities: return "Opportunities"
         case .measure: return "Measure"
+        case .partners: return "Partners"
         }
     }
 
@@ -26,6 +28,7 @@ enum AppTab: String, CaseIterable, Identifiable {
         case .canvass: return "map.fill"
         case .opportunities: return "briefcase.fill"
         case .measure: return "ruler.fill"
+        case .partners: return "person.2.fill"
         }
     }
 }
@@ -74,6 +77,7 @@ struct TabBarConfig: Codable, Equatable {
         .init(tab: AppTab.canvass.rawValue, visible: true),
         .init(tab: AppTab.opportunities.rawValue, visible: true),
         .init(tab: AppTab.measure.rawValue, visible: true),
+        .init(tab: AppTab.partners.rawValue, visible: true),
     ])
 
     static func load(from raw: String) -> TabBarConfig {
@@ -93,9 +97,16 @@ struct TabBarConfig: Codable, Equatable {
             seen.insert(entry.tab)
             cleaned.append(entry)
         }
-        for required in [AppTab.dashboard, .canvass] {
+        // Partners is required too: a saved tab-bar config from before it existed must still show it.
+        for required in [AppTab.dashboard, .canvass, .partners] {
             if !seen.contains(required.rawValue) {
-                cleaned.insert(.init(tab: required.rawValue, visible: true), at: required == .dashboard ? 0 : min(1, cleaned.count))
+                let index: Int
+                switch required {
+                case .dashboard: index = 0
+                case .canvass: index = min(1, cleaned.count)
+                default: index = min(2, cleaned.count)
+                }
+                cleaned.insert(.init(tab: required.rawValue, visible: true), at: index)
                 seen.insert(required.rawValue)
             }
         }
@@ -116,7 +127,7 @@ struct TabBarConfig: Codable, Equatable {
             let tab = (storedTab == .dashboard || storedTab == .sisu) ? homeScreen.hubTab : storedTab
             guard !result.contains(tab) else { continue }
             switch tab {
-            case .dashboard, .sisu, .canvass:
+            case .dashboard, .sisu, .canvass, .partners:
                 result.append(tab)
             case .opportunities:
                 if capabilities?.opportunitiesTab == true { result.append(tab) }

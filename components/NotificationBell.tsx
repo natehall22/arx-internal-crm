@@ -140,7 +140,12 @@ export default function NotificationBell() {
                 return (
                   <div
                     key={notification.id}
-                    onClick={() => !notification.read_at && markAsRead([notification.id])}
+                    onClick={() => {
+                      if (!notification.read_at) markAsRead([notification.id])
+                      if (notification.link_url?.startsWith('/') && /^(referral_partner|partner_owner)/.test(notification.type)) {
+                        window.location.assign(notification.link_url)
+                      }
+                    }}
                     className={`px-4 py-3 border-b last:border-b-0 cursor-pointer hover:bg-gray-50 transition-colors ${
                       !notification.read_at ? 'bg-indigo-50/50' : ''
                     }`}

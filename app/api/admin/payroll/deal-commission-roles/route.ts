@@ -21,6 +21,7 @@ const STORAGE_ROLES = new Set([
   'setter_manager_override',
   'closer_manager_override',
   'self_gen',
+  'partner_owner',
   'custom',
 ])
 
