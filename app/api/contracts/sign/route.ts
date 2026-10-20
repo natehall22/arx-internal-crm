@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import nodemailer from 'nodemailer'
 import { getCrmEmailFrom } from '@/lib/crm-email-from'
 import { buildOrderFormContractSaleDescription, notifyOrgAdminsOfSale } from '@/lib/admin-sale-email'
-import { commissionCompBaseFromPreTaxAndDealerFee } from '@/lib/commission-payroll'
+import { commissionCompBaseFromSale } from '@/lib/commission-payroll'
 import { resolveCustomerDisplayName, upsertCustomer } from '@/lib/customers'
 import { resolveProposalSoldRoofSquares } from '@/lib/sold-roof-squares'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -131,6 +131,18 @@ async function sendEmail(
     console.error('Email send error:', error)
     return false
   }
+}
+
+/**
+ * An already-existing job keeps its own commission base: a second agreement on the project (gutters,
+ * repair) must not overwrite it with that contract's price. Only job creation and
+ * reinstateCancelledJob (a re-signed price) set the base.
+ */
+function financingFieldsOnly<T extends { commission_pre_tax_subtotal?: unknown; commission_comp_base?: unknown }>(
+  f: T
+): Omit<T, 'commission_pre_tax_subtotal' | 'commission_comp_base'> {
+  const { commission_pre_tax_subtotal: _pre, commission_comp_base: _base, ...rest } = f
+  return rest
 }
 
 export async function POST(request: NextRequest) {
@@ -588,17 +600,17 @@ export async function POST(request: NextRequest) {
                 .eq('id', contract.proposal_id)
                 .maybeSingle()
               if (propRow) {
-                const preTax = Math.round((Number(propRow.subtotal) || 0) * 100) / 100
+                const sale = Math.round((Number(contract.project_cost) || 0) * 100) / 100
                 const isFinance = contract.payment_method === 'finance'
-                const compBase = commissionCompBaseFromPreTaxAndDealerFee(
-                  Number(propRow.subtotal) || 0,
+                const compBase = commissionCompBaseFromSale(
+                  sale,
                   isFinance ? propRow.dealer_fee_amount : null
                 )
                 proposalFinancing = {
                   financing_program_id: isFinance ? propRow.financing_program_id : null,
                   dealer_fee_percent: isFinance ? propRow.dealer_fee_percent : null,
                   dealer_fee_amount: isFinance ? propRow.dealer_fee_amount : null,
-                  commission_pre_tax_subtotal: preTax,
+                  commission_pre_tax_subtotal: sale,
                   commission_comp_base: compBase,
                 }
               }
@@ -679,12 +691,13 @@ export async function POST(request: NextRequest) {
                 projectId,
                 userId: contract.created_by ?? null,
                 saleAmount: contract.project_cost ?? null,
+                dealerFeeAmount: proposalFinancing.dealer_fee_amount,
               })
               if (proposalFinancing.dealer_fee_amount != null || contract.proposal_id) {
                 await supabase
                   .from('production_jobs')
                   .update({
-                    ...proposalFinancing,
+                    ...financingFieldsOnly(proposalFinancing),
                     accepted_proposal_id: contract.proposal_id || null,
                   })
                   .eq('id', existingJob.id)
@@ -793,17 +806,17 @@ export async function POST(request: NextRequest) {
               .eq('id', contract.proposal_id)
               .maybeSingle()
             if (propRow2) {
-              const preTax = Math.round((Number(propRow2.subtotal) || 0) * 100) / 100
+              const sale = Math.round((Number(contract.project_cost) || 0) * 100) / 100
               const isFinance = contract.payment_method === 'finance'
-              const compBase = commissionCompBaseFromPreTaxAndDealerFee(
-                Number(propRow2.subtotal) || 0,
+              const compBase = commissionCompBaseFromSale(
+                sale,
                 isFinance ? propRow2.dealer_fee_amount : null
               )
               proposalFinancingExisting = {
                 financing_program_id: isFinance ? propRow2.financing_program_id : null,
                 dealer_fee_percent: isFinance ? propRow2.dealer_fee_percent : null,
                 dealer_fee_amount: isFinance ? propRow2.dealer_fee_amount : null,
-                commission_pre_tax_subtotal: preTax,
+                commission_pre_tax_subtotal: sale,
                 commission_comp_base: compBase,
               }
             }
@@ -880,6 +893,7 @@ export async function POST(request: NextRequest) {
               projectId,
               userId: contract.created_by ?? null,
               saleAmount: contract.project_cost ?? null,
+              dealerFeeAmount: proposalFinancingExisting.dealer_fee_amount,
             })
             if (
               proposalFinancingExisting.dealer_fee_amount != null ||
@@ -890,7 +904,7 @@ export async function POST(request: NextRequest) {
               await supabase
                 .from('production_jobs')
                 .update({
-                  ...proposalFinancingExisting,
+                  ...financingFieldsOnly(proposalFinancingExisting),
                   accepted_proposal_id: contract.proposal_id || null,
                   customer_id: projectData?.customer_id || null,
                   salesperson_id: projectData?.owner_user_id || contract.created_by,

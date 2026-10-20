@@ -2198,7 +2198,7 @@ export default function JobDetailClient({
                       ) : (
                         <p>
                           Cash keeps the contract total and any existing dealer fee on the job for profitability.
-                          Lender fields clear; commission base uses the full pre-tax amount (dealer fee not subtracted).
+                          Lender fields clear; commission base uses the full sale amount (dealer fee not subtracted).
                         </p>
                       )}
                     </div>

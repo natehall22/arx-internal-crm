@@ -26,15 +26,18 @@ export function isPoolCapExcludedPlanType(planType: string | null | undefined): 
 }
 
 /**
- * Commission comp base = pre–sales-tax subtotal minus dealer fee (when both known from proposal).
+ * Commission comp base = the full signed sale amount (tax included) minus dealer fee.
+ * The sale amount is the signed contract total / latest change-order total — never the proposal
+ * subtotal, which is before discount and tax and drifts from what the customer actually signed.
+ * Pass a null fee for cash/insurance jobs.
  */
-export function commissionCompBaseFromPreTaxAndDealerFee(
-  preTaxSubtotal: number,
+export function commissionCompBaseFromSale(
+  saleAmount: number,
   dealerFeeAmount: number | null | undefined
 ): number {
-  const pre = roundMoney(preTaxSubtotal)
+  const sale = roundMoney(saleAmount)
   const fee = roundMoney(dealerFeeAmount ?? 0)
-  return Math.max(0, roundMoney(pre - fee))
+  return Math.max(0, roundMoney(sale - fee))
 }
 
 export function commissionPoolCap(compBase: number): number {
@@ -63,7 +66,7 @@ type JobRow = {
 
 /**
  * Build payroll-facing numbers for a production job.
- * Prefer stored columns (set at contract sign from proposal subtotal + dealer fee).
+ * Prefer stored columns (set from sale_amount minus dealer fee when written; change orders then shift it).
  */
 export function buildCommissionPayrollSnapshot(job: JobRow): CommissionPayrollSnapshot {
   const dealerFee = roundMoney(job.dealer_fee_amount ?? 0)
@@ -93,7 +96,7 @@ export function buildCommissionPayrollSnapshot(job: JobRow): CommissionPayrollSn
       poolRate: SALES_COMMISSION_POOL_RATE,
       source: 'computed_fallback',
       fallbackNote:
-        'Comp base estimated from sale amount and dealer fee (pre-tax subtotal not on file). Confirm with proposal if tax or pricing differs.',
+        'Comp base estimated from sale amount and dealer fee (stored base not on file).',
     }
   }
 

@@ -156,7 +156,7 @@ export default function AdminPayrollPage() {
           <div className="mt-4 max-w-3xl rounded-lg border border-indigo-100 bg-indigo-50/80 px-4 py-3 text-sm text-indigo-950">
             <p className="font-semibold text-indigo-950">Commissionable base</p>
             <p className="mt-1 text-indigo-900/90">
-              Shown in the table as <strong>Commissionable base</strong>: pre-tax subtotal <strong>minus dealer fee</strong>{' '}
+              Shown in the table as <strong>Commissionable base</strong>: full sale amount (tax included) <strong>minus dealer fee</strong>{' '}
               (same number used for the pool cap). If the export used an estimate, a note appears on that row.
             </p>
           </div>

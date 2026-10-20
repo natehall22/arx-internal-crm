@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { CANCELLED_JOB_STATUS, jobCancellationReasonLabel } from '@/lib/job-status'
+import { commissionCompBaseFromSale } from '@/lib/commission-payroll'
 
 /**
  * Bring a cancelled job back when the customer signs a new sale agreement
@@ -27,11 +28,13 @@ export async function reinstateCancelledJob(
     projectId: string
     userId: string | null
     saleAmount: number | null
+    /** Fee for the re-signed deal (null = no fee); omit to keep the job's stored fee. */
+    dealerFeeAmount?: number | string | null
   }
 ): Promise<boolean> {
   const { data: job } = await supabase
     .from('production_jobs')
-    .select('id, status, cancellation_reason, cancellation_notes')
+    .select('id, status, cancellation_reason, cancellation_notes, dealer_fee_amount')
     .eq('id', args.jobId)
     .eq('org_id', args.orgId)
     .maybeSingle()
@@ -43,7 +46,17 @@ export async function reinstateCancelledJob(
     .update({
       status: 'sold',
       sale_date: new Date().toISOString().split('T')[0],
-      ...(args.saleAmount != null ? { sale_amount: args.saleAmount } : {}),
+      // A re-signed price moves the commission base with it (base = sale minus dealer fee).
+      ...(args.saleAmount != null
+        ? {
+            sale_amount: args.saleAmount,
+            commission_pre_tax_subtotal: args.saleAmount,
+            commission_comp_base: commissionCompBaseFromSale(
+              args.saleAmount,
+              args.dealerFeeAmount !== undefined ? Number(args.dealerFeeAmount) || 0 : job.dealer_fee_amount
+            ),
+          }
+        : {}),
       cancelled_at: null,
       cancelled_by_user_id: null,
       cancellation_reason: null,
