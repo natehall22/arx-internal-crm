@@ -93,6 +93,7 @@ export default function UsersPage() {
   const [error, setError] = useState<string | null>(null)
   const [filterRole, setFilterRole] = useState<string>('')
   const [filterTeam, setFilterTeam] = useState<string>('')
+  const [filterStatus, setFilterStatus] = useState<'active' | 'inactive' | 'all'>('active')
   const [viewMode, setViewMode] = useState<'list' | 'hierarchy'>('list')
 
   useEffect(() => {
@@ -460,8 +461,11 @@ export default function UsersPage() {
       }
     }
     if (filterTeam && u.team_id !== filterTeam) return false
+    if (filterStatus === 'active' && !u.active) return false
+    if (filterStatus === 'inactive' && u.active) return false
     return true
   })
+  const inactiveCount = users.filter(u => !u.active).length
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -531,6 +535,18 @@ export default function UsersPage() {
                       {team.name}
                     </option>
                   ))}
+                </select>
+              </div>
+              <div className="flex-1 sm:flex-initial">
+                <label className="block text-xs font-medium text-gray-500 mb-1">Status</label>
+                <select
+                  value={filterStatus}
+                  onChange={(e) => setFilterStatus(e.target.value as 'active' | 'inactive' | 'all')}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-sm"
+                >
+                  <option value="active">Active</option>
+                  <option value="inactive">Inactive ({inactiveCount})</option>
+                  <option value="all">All</option>
                 </select>
               </div>
             </div>
