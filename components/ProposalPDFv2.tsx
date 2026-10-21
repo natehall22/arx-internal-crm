@@ -826,9 +826,11 @@ export const ProposalPDFv2 = ({ data, theme = 'print' }: ProposalPDFProps) => {
   }
   const showSelectedPayment = shouldShowSelectedFinancingPayment(financing)
 
-  const hasAdders = lineItems.filter(i => i.is_adder && i.show_to_customer).length > 0
-  const visibleLineItems = lineItems.filter(i => i.show_to_customer && !i.is_adder)
-  const visibleAdders = lineItems.filter(i => i.is_adder && i.show_to_customer)
+  // Selected add-ons (gutters, decking, ...) are part of the price, so they list with the rest of the scope.
+  const visibleLineItems = [
+    ...lineItems.filter(i => i.show_to_customer && !i.is_adder),
+    ...lineItems.filter(i => i.show_to_customer && i.is_adder),
+  ]
 
   const totalPages = 7
 
@@ -1220,25 +1222,6 @@ export const ProposalPDFv2 = ({ data, theme = 'print' }: ProposalPDFProps) => {
                 If you qualify. Exact terms come from the lender at application.
               </Text>
             </View>
-          )}
-
-          {/* Adders */}
-          {hasAdders && (
-            <>
-              <View style={[styles.sectionHeader, { marginTop: tokens.spacing.lg }]}>
-                <Text style={styles.sectionTitle}>Additional Items</Text>
-              </View>
-              <View style={styles.table}>
-                {visibleAdders.map((item) => (
-                  <View key={item.id} style={styles.tableRow}>
-                    <Text style={[styles.tableCellBold, { width: '70%' }]}>{item.name}</Text>
-                    <Text style={[styles.tableCellBold, { width: '30%', textAlign: 'right' }]}>
-                      {formatCurrency(item.line_total)}
-                    </Text>
-                  </View>
-                ))}
-              </View>
-            </>
           )}
 
           <View style={styles.disclaimer}>
