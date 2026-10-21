@@ -444,20 +444,21 @@ export async function POST(request: NextRequest) {
       // Non-critical, continue
     }
 
-    // Create a notification for the assigned user (if notifications table exists)
-    try {
-      await adminClient.from('notifications').insert({
+    // Bell notification for the assigned user (non-blocking). It used to write
+    // non-existent `user_id`/`read` columns, so it never landed.
+    if (ownerUserId) {
+      const { error: notifyError } = await adminClient.from('notifications').insert({
         org_id,
-        user_id: ownerUserId,
+        recipient_user_id: ownerUserId,
         type: 'new_lead',
         title: 'New Web Lead',
         body: `New lead from website: ${fullName || 'Unknown'} - ${phone || email || 'No contact info'}`,
+        link_url: `/leads/${lead.id}`,
         data: { lead_id: lead.id },
-        read: false,
       })
-    } catch (e) {
-      // Notifications table might not exist, that's ok
-      console.log('Could not create notification (table may not exist)')
+      if (notifyError) {
+        console.error('Web lead notification insert failed:', notifyError.message)
+      }
     }
 
     console.log('Lead created successfully:', lead.id)

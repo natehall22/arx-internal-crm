@@ -29,6 +29,7 @@ import CopyableContact from '@/components/CopyableContact'
 import JobWorkOrdersCard from '@/components/ops/JobWorkOrdersCard'
 import { PIPELINE_STAGES, getJobPipelineCurrentIndex } from '@/lib/job-pipeline'
 import SoldScopeCard from '@/components/ops/SoldScopeCard'
+import { noteMentionHighlightRegex } from '@/lib/note-mentions'
 import JobMaterialsCard from '@/components/ops/JobMaterialsCard'
 import JobRoofingBrief from '@/components/ops/JobRoofingBrief'
 import { type JobSoldScope } from '@/components/ops/JobSoldScopeSummary'
@@ -613,6 +614,9 @@ export default function JobDetailClient({
   const [showMentionDropdown, setShowMentionDropdown] = useState(false)
   const [mentionSearch, setMentionSearch] = useState('')
   const [mentionCursorPos, setMentionCursorPos] = useState(0)
+  // Ids picked from the @ dropdown. The server only uses them to tell apart two
+  // people with the same name; a pick whose "@Name" was deleted from the draft is ignored.
+  const [pickedMentionIds, setPickedMentionIds] = useState<string[]>([])
 
   useEffect(() => {
     setJob(initialJob)
@@ -806,6 +810,7 @@ export default function JobDetailClient({
     // Insert the mention
     const newText = `${beforeAt}@${user.full_name} ${textAfterCursor}`
     setNewNoteText(newText)
+    setPickedMentionIds((prev) => (prev.includes(user.id) ? prev : [...prev, user.id]))
     setShowMentionDropdown(false)
     setMentionSearch('')
   }
@@ -815,32 +820,30 @@ export default function JobDetailClient({
     user.full_name.toLowerCase().includes(mentionSearch)
   ).slice(0, 5)
 
-  // Render note text with highlighted mentions
+  // Render note text with highlighted mentions (display only — recipients are resolved on the server).
   const renderNoteWithMentions = (text: string) => {
-    const mentionRegex = /@([A-Za-z\s]+?)(?=\s|$|@)/g
-    const parts = []
+    const mentionRegex = noteMentionHighlightRegex()
+    const parts: React.ReactNode[] = []
     let lastIndex = 0
-    let match
+    let match: RegExpExecArray | null
 
     while ((match = mentionRegex.exec(text)) !== null) {
-      // Add text before the mention
-      if (match.index > lastIndex) {
-        parts.push(text.substring(lastIndex, match.index))
+      const atIndex = match.index + match[1].length
+      if (atIndex > lastIndex) {
+        parts.push(text.substring(lastIndex, atIndex))
       }
-      // Add the mention with styling
       parts.push(
-        <span key={match.index} className="text-indigo-600 font-medium">
-          @{match[1]}
+        <span key={atIndex} className="text-indigo-600 font-medium">
+          @{match[2]}
         </span>
       )
-      lastIndex = match.index + match[0].length
+      lastIndex = atIndex + 1 + match[2].length
     }
-    
-    // Add remaining text
+
     if (lastIndex < text.length) {
       parts.push(text.substring(lastIndex))
     }
-    
+
     return parts.length > 0 ? parts : text
   }
 
@@ -850,25 +853,15 @@ export default function JobDetailClient({
     setSaving(true)
     try {
       const noteText = newNoteText.trim()
-      const mentionedUserIds = orgUsers
-        .filter((u) => {
-          if (!u?.id || !u?.full_name) return false
-          const escapedName = u.full_name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-          const mentionPattern = new RegExp(`(^|\\s)@${escapedName}(?=\\s|$|[.,!?;:])`, 'i')
-          return mentionPattern.test(noteText)
-        })
-        .map((u) => u.id)
-
       const response = await fetch(`/api/ops/jobs/${job.id}/notes`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           note: noteText,
-          mentioned_user_ids: mentionedUserIds,
+          // Ids picked from the dropdown; the server resolves who is actually mentioned
+          // (exact "@Full Name" in the text) from its own candidate list.
+          mentioned_user_ids: pickedMentionIds,
           customer_name: job.customer?.name || null,
-          customer_id: job.customer?.id || null,
-          job_number: job.job_number || null,
-          page_url: typeof window !== 'undefined' ? window.location.href : undefined,
         }),
       })
       
@@ -876,6 +869,7 @@ export default function JobDetailClient({
         const data = await response.json()
         setJobNotes(prev => [data.note, ...prev])
         setNewNoteText('')
+        setPickedMentionIds([])
       } else {
         alert('Failed to add note')
       }
