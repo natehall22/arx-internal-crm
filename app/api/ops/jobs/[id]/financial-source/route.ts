@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { requireAuthApi } from '@/lib/auth'
 import { resolveOpsAccess } from '@/lib/ops-access'
-import { commissionCompBaseFromPreTaxAndDealerFee } from '@/lib/commission-payroll'
+import { commissionCompBaseFromSale } from '@/lib/commission-payroll'
 import { computeFinancedContractTotal } from '@/lib/financing'
 
 type PaymentMethod = 'cash' | 'finance' | 'insurance' | 'other'
@@ -323,19 +323,28 @@ export async function PATCH(
       )
       nextDealerFeeAmount = normalizeMoney(dealerFeeAmount)
     }
+    // Commission base is the job's signed sale amount, never the linked proposal's subtotal —
+    // relinking a proposal changes lender/dealer-fee fields, not what the customer signed.
+    // Signed change orders marked non-commissionable already moved sale_amount but not the base;
+    // keep them out so a relink doesn't add them back.
+    const { data: nonCommissionableCos } = await adminClient
+      .from('job_change_orders')
+      .select('original_amount, updated_total')
+      .eq('org_id', profile.org_id)
+      .eq('job_id', job.id)
+      .eq('status', 'completed')
+      .eq('is_commissionable', false)
+    const nonCommissionableDelta = (nonCommissionableCos || []).reduce(
+      (sum, co) => sum + (Number(co.updated_total) || 0) - (Number(co.original_amount) || 0),
+      0
+    )
     const nextPreTaxSubtotal =
-      proposal?.subtotal != null
-        ? normalizeMoney(proposal.subtotal)
-        : (job.commission_pre_tax_subtotal != null ? normalizeMoney(job.commission_pre_tax_subtotal) : null)
-    const fallbackBase =
-      nextPreTaxSubtotal != null
-        ? nextPreTaxSubtotal
-        : (job.sale_amount != null ? normalizeMoney(job.sale_amount) : null)
-    // Cash/other: comp base uses full pre-tax total — dealer fee stays on job for COGS but not commission math.
+      job.sale_amount != null ? normalizeMoney(job.sale_amount) - nonCommissionableDelta : null
+    // Cash/other: comp base uses the full sale — dealer fee stays on job for COGS but not commission math.
     const dealerFeeForCompBase = isFinance ? nextDealerFeeAmount : null
     const nextCommissionBase =
-      fallbackBase != null
-        ? commissionCompBaseFromPreTaxAndDealerFee(fallbackBase, dealerFeeForCompBase)
+      nextPreTaxSubtotal != null
+        ? commissionCompBaseFromSale(nextPreTaxSubtotal, dealerFeeForCompBase)
         : null
 
     // Intentionally do not write accepted_proposal_id here — that stays the signed IA / job-packet anchor;
@@ -345,8 +354,10 @@ export async function PATCH(
       financing_program_id: isFinance ? (proposal?.financing_program_id ?? null) : null,
       dealer_fee_percent: nextDealerFeePercent,
       dealer_fee_amount: nextDealerFeeAmount,
-      commission_pre_tax_subtotal: nextPreTaxSubtotal,
-      commission_comp_base: nextCommissionBase,
+      // No sale amount on file: keep whatever base is stored rather than writing nulls over it.
+      ...(nextPreTaxSubtotal != null
+        ? { commission_pre_tax_subtotal: nextPreTaxSubtotal, commission_comp_base: nextCommissionBase }
+        : {}),
     }
 
     const previousJobValues = {

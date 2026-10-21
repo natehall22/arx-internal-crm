@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { commissionCompBaseFromPreTaxAndDealerFee } from '@/lib/commission-payroll'
+import { commissionCompBaseFromSale } from '@/lib/commission-payroll'
 
 export type InstallationContractSnapshot = {
   project_cost: number
@@ -111,13 +111,11 @@ export async function resolveProductionJobFinancials(
       ? Number(proposalRow.dealer_fee_percent)
       : null
 
-  const preTax =
-    proposalRow?.subtotal != null ? roundMoney(Number(proposalRow.subtotal)) : null
-
-  const commission_pre_tax_subtotal = preTax
+  // Commission is on the full sale amount (tax included), not the proposal subtotal.
+  const commission_pre_tax_subtotal = sale_amount
   const commission_comp_base =
-    preTax != null
-      ? commissionCompBaseFromPreTaxAndDealerFee(preTax, isFinance ? dealer_fee_amount : null)
+    sale_amount != null
+      ? commissionCompBaseFromSale(sale_amount, isFinance ? dealer_fee_amount : null)
       : null
 
   const financing_program_id =
