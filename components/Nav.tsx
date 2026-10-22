@@ -345,11 +345,11 @@ export default function Nav() {
   return (
     <>
     <nav className="bg-gray-800 text-white">
-      <div className="max-w-full mx-auto px-4 sm:px-6 lg:px-8">
+      <div className="max-w-full mx-auto px-3 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           {/* Company Logo/Name */}
           <div className="flex-shrink-0">
-            <Link href={isOpsOnly ? '/ops/dashboard' : '/dashboard'} className="flex items-center gap-2 text-xl font-bold whitespace-nowrap">
+            <Link href={isOpsOnly ? '/ops/dashboard' : '/dashboard'} className="flex min-h-[44px] items-center gap-2 text-xl font-bold whitespace-nowrap">
               {companyLogo ? (
                 <img
                   src={companyLogo}
@@ -397,10 +397,10 @@ export default function Nav() {
           </div>
 
           {/* Right side icons */}
-          <div className="flex items-center gap-1 flex-shrink-0">
+          <div className="flex items-center gap-0.5 sm:gap-1 flex-shrink-0">
             <Link
               href="/settings"
-              className="p-2 text-gray-300 hover:text-white hover:bg-gray-700 rounded-full"
+              className="hidden min-[420px]:inline-flex h-11 w-11 items-center justify-center text-gray-300 hover:text-white hover:bg-gray-700 rounded-full"
               title="My Settings"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -419,7 +419,7 @@ export default function Nav() {
                 </Link>
                 <Link
                   href="/referral-partners?add=1"
-                  className="px-2 py-1.5 text-xs font-semibold text-gray-900 bg-amber-400 hover:bg-amber-300 rounded-md whitespace-nowrap"
+                  className="inline-flex min-h-[44px] items-center px-2 text-xs font-semibold text-gray-900 bg-amber-400 hover:bg-amber-300 rounded-md whitespace-nowrap"
                   title="Add a Referral Partner"
                 >
                   + Partner
@@ -444,7 +444,8 @@ export default function Nav() {
             {/* Mobile menu button */}
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="md:hidden p-2 text-gray-300 hover:text-white hover:bg-gray-700 rounded-md"
+              aria-label="Menu"
+              className="md:hidden inline-flex h-11 w-11 items-center justify-center text-gray-300 hover:text-white hover:bg-gray-700 rounded-md"
             >
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 {mobileMenuOpen ? (
@@ -467,7 +468,7 @@ export default function Nav() {
                 key={item.href}
                 href={item.href}
                 onClick={() => setMobileMenuOpen(false)}
-                className={`block px-3 py-2 rounded-md text-base font-medium ${
+                className={`block px-3 py-3 rounded-md text-base font-medium ${
                   pathname === item.href || pathname?.startsWith(item.href + '/')
                     ? 'bg-gray-900 text-white'
                     : 'text-gray-300 hover:bg-gray-700 hover:text-white'
@@ -477,9 +478,16 @@ export default function Nav() {
               </Link>
             ))}
             <Link
+              href="/settings"
+              onClick={() => setMobileMenuOpen(false)}
+              className="block px-3 py-3 rounded-md text-base font-medium text-gray-300 hover:bg-gray-700 hover:text-white min-[420px]:hidden"
+            >
+              Settings
+            </Link>
+            <Link
               href="/whats-new"
               onClick={() => setMobileMenuOpen(false)}
-              className="block px-3 py-2 rounded-md text-base font-medium text-gray-300 hover:bg-gray-700 hover:text-white"
+              className="block px-3 py-3 rounded-md text-base font-medium text-gray-300 hover:bg-gray-700 hover:text-white"
             >
               What&apos;s new
             </Link>
@@ -488,7 +496,7 @@ export default function Nav() {
                 setMobileMenuOpen(false)
                 handleLogout()
               }}
-              className="block w-full text-left px-3 py-2 rounded-md text-base font-medium text-gray-300 hover:bg-gray-700 hover:text-white sm:hidden"
+              className="block w-full text-left px-3 py-3 rounded-md text-base font-medium text-gray-300 hover:bg-gray-700 hover:text-white sm:hidden"
             >
               Logout
             </button>

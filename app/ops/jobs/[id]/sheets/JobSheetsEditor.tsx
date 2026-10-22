@@ -143,7 +143,7 @@ export default function JobSheetsEditor({ initialSheet, canEdit, scope, coverage
         <div className="mx-auto max-w-[1400px] px-6 py-5">
           <Link
             href={`/ops/jobs/${sheet.jobId}`}
-            className="text-sm font-medium text-white/90 underline-offset-2 hover:underline"
+            className="inline-flex min-h-[44px] items-center text-sm font-medium text-white/90 underline-offset-2 hover:underline"
           >
             ← Back to job {sheet.jobNumber}
           </Link>
@@ -220,7 +220,7 @@ export default function JobSheetsEditor({ initialSheet, canEdit, scope, coverage
                           type="button"
                           onClick={() => handleReset(key)}
                           disabled={saving}
-                          className="ml-auto text-xs font-medium text-[#57574f] underline underline-offset-2 hover:text-[#2c2c2a] disabled:opacity-50"
+                          className="ml-auto inline-flex min-h-[44px] min-w-[44px] items-center justify-center text-xs font-medium text-[#57574f] underline underline-offset-2 hover:text-[#2c2c2a] disabled:opacity-50"
                         >
                           Reset
                         </button>
@@ -238,7 +238,7 @@ export default function JobSheetsEditor({ initialSheet, canEdit, scope, coverage
                           ? undefined
                           : 'Nothing on the job for this — type it in if the crew needs it.'
                       }
-                      className="w-full rounded-md border border-[#c9c7c0] px-3 py-2 text-sm text-[#2c2c2a] placeholder:text-[#8a8a82] focus:border-[#2b0a3d] focus:outline-none focus:ring-1 focus:ring-[#2b0a3d] disabled:bg-[#f2f1ee]"
+                      className="w-full rounded-md border border-[#c9c7c0] px-3 py-2 text-base sm:text-sm text-[#2c2c2a] placeholder:text-[#8a8a82] focus:border-[#2b0a3d] focus:outline-none focus:ring-1 focus:ring-[#2b0a3d] disabled:bg-[#f2f1ee]"
                     />
                     {field.edited && field.computed && (
                       <details className="mt-2">
@@ -265,7 +265,7 @@ export default function JobSheetsEditor({ initialSheet, canEdit, scope, coverage
                   type="button"
                   onClick={handleSave}
                   disabled={saving || dirtyKeys.length === 0}
-                  className="rounded-lg px-5 py-2 text-sm font-semibold text-white disabled:opacity-40"
+                  className="min-h-[44px] rounded-lg px-5 py-2 text-sm font-semibold text-white disabled:opacity-40"
                   style={{ backgroundColor: ACCENT }}
                 >
                   {saving
@@ -334,7 +334,7 @@ export default function JobSheetsEditor({ initialSheet, canEdit, scope, coverage
               <button
                 type="button"
                 onClick={() => setPreviewKey((k) => k + 1)}
-                className="text-xs font-medium text-[#57574f] underline underline-offset-2 hover:text-[#2c2c2a]"
+                className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center text-xs font-medium text-[#57574f] underline underline-offset-2 hover:text-[#2c2c2a]"
               >
                 Refresh
               </button>
@@ -372,14 +372,14 @@ function SheetButtons({
         href={pdfUrl}
         target="_blank"
         rel="noopener noreferrer"
-        className="rounded-md bg-[#fff100] px-3 py-1.5 text-sm font-extrabold uppercase tracking-wide text-[#2c2c2a] hover:bg-[#ffe600]"
+        className="inline-flex min-h-[44px] items-center rounded-md bg-[#fff100] px-3 py-1.5 text-sm font-extrabold uppercase tracking-wide text-[#2c2c2a] hover:bg-[#ffe600]"
       >
         Open / Print
       </a>
       <a
         href={`${pdfUrl}?download=1`}
         title={downloadTitle}
-        className="rounded-md border border-white/70 px-3 py-1.5 text-sm font-semibold text-white hover:bg-white/10"
+        className="inline-flex min-h-[44px] items-center rounded-md border border-white/70 px-3 py-1.5 text-sm font-semibold text-white hover:bg-white/10"
       >
         {downloadLabel}
       </a>
@@ -421,7 +421,7 @@ function PreviewTab({
       role="tab"
       aria-selected={active}
       onClick={onClick}
-      className="rounded-md px-3 py-1.5 text-sm font-semibold"
+      className="min-h-[44px] rounded-md px-3 py-1.5 text-sm font-semibold"
       style={active ? { backgroundColor: color, color: '#fff' } : { color: '#2c2c2a', backgroundColor: '#e9e7e2' }}
     >
       {children}

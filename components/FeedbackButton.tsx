@@ -45,7 +45,7 @@ export default function FeedbackButton() {
     <>
       <button
         onClick={() => setIsOpen(true)}
-        className="p-2 text-gray-300 hover:text-white hover:bg-gray-700 rounded-full transition-colors"
+        className="inline-flex h-11 w-11 items-center justify-center text-gray-300 hover:text-white hover:bg-gray-700 rounded-full transition-colors"
         title="Send Feedback"
       >
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

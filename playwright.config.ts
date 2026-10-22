@@ -16,7 +16,7 @@ export default defineConfig({
     { name: 'iphone-13', use: { ...devices['iPhone 13'], browserName: 'chromium' } },
   ],
   webServer: {
-    command: 'NEXT_PUBLIC_SUPABASE_URL= NEXT_PUBLIC_SUPABASE_ANON_KEY= npx next dev -p 3111',
+    command: 'NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:9 NEXT_PUBLIC_SUPABASE_ANON_KEY=harness-anon-key npx next dev -p 3111',
     url: 'http://localhost:3111/dev-harness/needs-you',
     reuseExistingServer: true,
     timeout: 180_000,

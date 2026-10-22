@@ -285,9 +285,9 @@ export default function CustomerSigningForm({ contract, token }: CustomerSigning
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8 px-4">
+    <div className="min-h-screen bg-gray-50 py-4 sm:py-8 px-3 sm:px-4">
       <div className="max-w-3xl mx-auto">
-        <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+        <div className="bg-white rounded-xl shadow-lg overflow-clip">
           {/* Header */}
           <div className="bg-indigo-900 text-white p-6 text-center">
             <h1 className="text-2xl font-bold">ARX ROOFING & EXTERIORS LLC</h1>
@@ -302,7 +302,7 @@ export default function CustomerSigningForm({ contract, token }: CustomerSigning
             </div>
           </div>
 
-          <form onSubmit={handleSubmit} className="p-6 space-y-8">
+          <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-8 max-sm:[&_input:not([type=checkbox]):not([type=radio])]:min-h-[44px] max-sm:[&_input]:text-base max-sm:[&_select]:min-h-[44px] max-sm:[&_select]:text-base max-sm:[&_textarea]:text-base">
             {error && (
               <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
                 <p className="text-sm text-red-700">{error}</p>
@@ -459,7 +459,7 @@ export default function CustomerSigningForm({ contract, token }: CustomerSigning
               <button
                 type="button"
                 onClick={() => setShowTerms(!showTerms)}
-                className="flex items-center gap-2 text-indigo-600 hover:text-indigo-800 text-sm font-medium"
+                className="flex min-h-[44px] items-center gap-2 text-indigo-700 hover:text-indigo-900 text-sm font-medium"
               >
                 <svg className={`w-4 h-4 transition-transform ${showTerms ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
@@ -669,11 +669,11 @@ export default function CustomerSigningForm({ contract, token }: CustomerSigning
             </section>
 
             {/* Submit Button */}
-            <div className="pt-6 border-t">
+            <div className="sticky bottom-0 z-10 -mx-4 border-t bg-white px-4 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:static sm:mx-0 sm:px-0 sm:pt-6 sm:pb-0">
               <button
                 type="submit"
                 disabled={submitting}
-                className="w-full py-3 px-4 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                className="w-full min-h-[48px] py-3 px-4 bg-green-700 text-white font-semibold rounded-lg hover:bg-green-800 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
                 {submitting ? (
                   <>

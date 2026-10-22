@@ -107,6 +107,71 @@ export const SUPPLIERS = {
   ],
 }
 
+export const HARNESS_CONTRACT = {
+  id: 'c1', agreement_type: 'installation', customer_name: 'Pat Customer', customer_email: 'pat@example.test', customer_phone: '7045550100',
+  project_address: '12 Elm Street, Concord NC 28025', project_cost: 16325, total_squares: 28, roofing_material: 'Owens Corning Duration — Driftwood',
+  scope_roof_replacement: true, scope_roof_repair: false, scope_gutters: true, scope_siding: false, scope_other: null,
+  payment_method: 'finance', finance_company: 'GoodLeap', deposit_amount: 1000, est_completion_date: '2026-11-20',
+  exclusions: 'Interior repairs, chimney masonry.', additional_products: null, notes: null,
+  rep_name: 'Nathan Hall', rep_title: 'Project Consultant', rep_signature_data: 'data:image/png;base64,iVBORw0KGgo=', rep_signed_at: '2026-10-20T15:00:00Z',
+}
+
+const job = (n: number, over: Record<string, unknown> = {}) => ({
+  id: `job-${n}`, project_id: `p-${n}`, job_number: `26-00${40 + n}`, status: 'in_progress', job_type: 'roofing',
+  address_text: `${100 + n} Long Street Name Boulevard, Mooresville NC 28117`, sale_amount: 16325 + n * 1000, sale_date: '2026-10-01',
+  scheduled_date: '2026-11-0' + n, materials_status: 'ordered', permit_status: 'approved', priority: 'normal',
+  customer: { id: `c${n}`, name: `Customer With A Long Name ${n}`, phone: '7045550100' }, salesperson: { id: 'u1', full_name: 'Nathan Hall' },
+  assigned_sub: { id: 's1', company_name: 'Sparky Roofing LLC' }, collected_cents: 500000, job_costs: { total: 8000, materials: 5000, labor: 3000, other: 0, lineCount: 2 },
+  project: { id: `p-${n}`, scope_of_work: 'Full replacement', product_summary: 'Duration Driftwood' }, ...over,
+})
+export const HARNESS_OPS_JOBS = [job(1), job(2, { status: 'sold', materials_status: 'not_ordered' }), job(3, { status: 'complete' }), job(4, { status: 'scheduled' })]
+
+export const HARNESS_JOB = {
+  id: 'job-1', org_id: 'org-1', project_id: 'p-1', job_number: '26-0042', status: 'complete', job_type: 'roofing',
+  address_text: '12 Elm Street, Concord NC 28025', sale_amount: 16325, collected_cents: 1632500, deposit: 1000, deposit_required_percent: 0.1,
+  finance_submitted_at: null, payroll_sent_at: null, sale_date: '2026-10-01', materials_status: 'ordered', materials_ordered_at: '2026-10-05T12:00:00Z',
+  materials_eta: null, materials_notes: null, scheduled_date: '2026-10-12', scheduled_time_start: null, estimated_duration_hours: 8,
+  permit_required: true, permit_status: 'approved', permit_number: 'BP-2026-1234', started_at: '2026-10-12T12:00:00Z', completed_at: '2026-10-13T20:00:00Z',
+  completion_notes: null, priority: 'normal', internal_notes: null, allow_close_with_balance: false, close_balance_reason: null, close_balance_by: null,
+  dealer_fee_amount: 0, dealer_fee_percent: null, final_front: true, final_back: true, final_left: true, final_right: true, final_slope_1: false, final_slope_2: false,
+  flashing_detail: false, pipe_boots: false, before_photos: [], progress_photos: [], after_photos: [], created_at: '2026-10-01T12:00:00Z',
+  opportunity_id: 'opp-1', special_instructions: null, job_source: 'retail',
+  payroll_attribution: { opportunity_id: 'opp-1', setter_user_id: 'u2', closer_user_id: 'u1', setter_name: 'Stevo Potts', closer_name: 'Nathan Hall' },
+  assigned_crew: null, assigned_sub: { id: 's1', company_name: 'Sparky Roofing LLC', contact_name: 'Sparky', phone: '7045550101' },
+  customer: { id: 'c1', name: 'Pat Customer', phone: '7045550100', email: 'pat@example.test' }, salesperson: { id: 'u1', full_name: 'Nathan Hall' },
+  project: { id: 'p-1', scope_of_work: 'Full roof replacement', product_summary: 'Duration Driftwood', ops_notes: null, permits_status: 'approved', install_date: '2026-10-12', payment_method: 'finance', sold_roof_squares: 28 },
+  installation_agreement: null, roof_report: null, sold_scope: null,
+}
+
+const sheetField = (key: string, label: string, value: string | null, edited = false) => ({ key, label, source: 'Project review → scope, else project scope of work', computed: value, override: edited ? value : null, value, edited })
+export const HARNESS_RUN_SHEET = {
+  jobId: 'job-1', orgName: 'ARX Roofing & Exteriors', orgPhone: '7045550100', jobNumber: '26-0042', jobType: 'roofing', status: 'scheduled',
+  address: '12 Elm Street, Concord NC 28025', scheduledDate: '2026-11-03', scheduledTimeStart: null, estimatedDurationHours: 8,
+  permitRequired: true, permitNumber: 'BP-2026-1234', proposalNumber: 'P-00118',
+  homeowner: { label: 'Homeowner', name: 'Pat Customer With A Long Name', phone: '7045550100' },
+  runningJob: { label: 'Subcontractor', name: 'Sparky Roofing LLC', phone: '7045550101' },
+  soldBy: { label: 'Sold by', name: 'Nathan Hall', phone: '7045550102' },
+  measurements: [{ label: 'Squares', value: '28.5' }, { label: 'Ridge LF', value: '64' }, { label: 'Valley LF', value: '41' }, { label: 'Pitch', value: '6/12' }],
+  fields: {
+    schedule_note: sheetField('schedule_note', 'Schedule note', null),
+    scope_of_work: sheetField('scope_of_work', 'Scope of work', 'Full tear-off and replacement of the main house roof, garage and covered porch. Replace all pipe boots and flashing.'),
+    materials_and_products: sheetField('materials_and_products', 'Materials & products', 'Owens Corning Duration, Driftwood. Synthetic underlayment, ice & water at eaves and valleys.', true),
+    tear_off_and_decking: sheetField('tear_off_and_decking', 'Tear-off, layers & decking', '1 layer. Replace rotten decking at $85/sheet.'),
+    accessories: sheetField('accessories', 'Accessories', 'Ridge vent, 4 pipe boots, drip edge.'),
+    add_ons_sold: sheetField('add_ons_sold', 'Add-ons sold', '306 LF seamless gutters, white.'),
+    heads_up: sheetField('heads_up', 'Read before you start', 'HOA requires 8am start. Dog in backyard.'),
+  },
+  headsUp: [{ label: 'HOA', body: 'HOA requires 8am start.' }, { label: null, body: 'Dog in backyard — call before entering.' }],
+  signedContracts: [{ id: 'k1', signedAt: '2026-10-01T12:00:00Z', agreementType: 'installation', pdfUrl: null, roofingMaterial: 'Duration', scopeOther: null, additionalProducts: null, exclusions: 'Interior repairs', notes: 'Deductible $1,500 paid at signing.' }],
+  anyEdits: true, overridesUpdatedAt: '2026-10-20T12:00:00Z', generatedAt: '2026-10-21T12:00:00Z',
+}
+
+export const HARNESS_DASHBOARD = {
+  profile: { id: 'u1', full_name: 'Nathan Hall', role: 'admin', org_id: 'org-1', email: 'nathan@example.test' },
+  stats: { totalLeads: 120, newLeads: 14, totalOpportunities: 40, openOpportunities: 22, totalProjects: 18, activeProjects: 9, closeRate: 31, efficiency: 12, doorsKnockedThisWeek: 412, contactsThisWeek: 96, inspectionsSetThisWeek: 11, sitsThisWeek: 8, salesThisWeek: 3 },
+  progress: { doors_knocked: { current: 412, goal: 500 }, contacts: { current: 96, goal: 120 }, inspections: { current: 11, goal: 12 }, sales: { current: 3, goal: 4 } },
+}
+
 export const BANNER = {
   announcement: {
     id: '11111111-1111-4111-8111-111111111111', title: "What's new",

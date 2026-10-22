@@ -435,16 +435,16 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability }: 
                 placeholder="Search by job number, address, or customer..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm"
+                className="w-full min-h-[44px] px-4 py-2 border border-gray-300 rounded-lg text-base sm:text-sm"
               />
             </div>
-            <div className="flex gap-3">
+            <div className="flex flex-wrap gap-3">
               <select
                 id="ops-job-type-filter"
                 name="ops-job-type-filter"
                 value={filterType}
                 onChange={(e) => setFilterType(e.target.value)}
-                className="px-4 py-2 border border-gray-300 rounded-lg text-sm"
+                className="min-h-[44px] px-4 py-2 border border-gray-300 rounded-lg text-base sm:text-sm"
               >
                 <option value="all">All Types</option>
                 {jobTypeOptions.map((jobType) => (
@@ -456,13 +456,13 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability }: 
               <div className="flex border border-gray-300 rounded-lg overflow-hidden">
                 <button
                   onClick={() => setViewMode('board')}
-                  className={`px-4 py-2 text-sm ${viewMode === 'board' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-700'}`}
+                  className={`min-h-[44px] px-4 py-2 text-sm ${viewMode === 'board' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-700'}`}
                 >
                   Board
                 </button>
                 <button
                   onClick={() => setViewMode('list')}
-                  className={`px-4 py-2 text-sm ${viewMode === 'list' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-700'}`}
+                  className={`min-h-[44px] px-4 py-2 text-sm ${viewMode === 'list' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-700'}`}
                 >
                   List
                 </button>
@@ -820,7 +820,7 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability }: 
                 placeholder="Search completed by job #, customer, or address..."
                 value={completedSearchQuery}
                 onChange={(e) => setCompletedSearchQuery(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm"
+                className="w-full min-h-[44px] px-4 py-2 border border-gray-300 rounded-lg text-base sm:text-sm"
               />
             </div>
           </div>

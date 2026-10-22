@@ -17,6 +17,11 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next()
   }
 
+  // Dev-only test harness for the mobile checks (e2e/mobile.spec.ts). Never reachable in a production build.
+  if (process.env.NODE_ENV !== 'production' && pathname.startsWith('/dev-harness')) {
+    return NextResponse.next()
+  }
+
   // Public paths - no auth required
   if (isPublicPath(pathname)) {
     return NextResponse.next()

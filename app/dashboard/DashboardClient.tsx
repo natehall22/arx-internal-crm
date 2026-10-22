@@ -1063,7 +1063,7 @@ export default function DashboardClient({
             <select
               value={timeFrame}
               onChange={(e) => setTimeFrame(e.target.value as TimeFrame)}
-              className="text-sm border border-gray-300 rounded-lg px-3 py-1.5 bg-white focus:ring-2 focus:ring-indigo-500"
+              className="text-base sm:text-sm min-h-[44px] sm:min-h-0 border border-gray-300 rounded-lg px-3 py-1.5 bg-white focus:ring-2 focus:ring-indigo-500"
             >
               {TIME_FRAMES.map((tf) => (
                 <option key={tf} value={tf}>
@@ -1095,7 +1095,7 @@ export default function DashboardClient({
             {(profile.role === 'admin' || profile.role === 'regional_manager') && (
               <Link
                 href="/admin/dashboard-settings"
-                className="text-sm text-indigo-600 hover:text-indigo-700 flex items-center gap-1"
+                className="text-sm text-indigo-600 hover:text-indigo-700 flex items-center gap-1 min-h-[44px]"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
@@ -1315,7 +1315,7 @@ export default function DashboardClient({
           <div className="flex gap-2 mt-4 pt-4 border-t border-white/20">
             <button 
               onClick={() => setShowCompPlanModal(true)}
-              className="flex-1 flex items-center justify-center gap-2 py-2 px-3 bg-white/20 hover:bg-white/30 rounded-lg transition-colors text-sm font-medium"
+              className="flex-1 flex items-center justify-center gap-2 py-2 px-3 min-h-[44px] bg-white/20 hover:bg-white/30 rounded-lg transition-colors text-sm font-medium"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -1799,7 +1799,7 @@ export default function DashboardClient({
             <div className="bg-white rounded-xl shadow-sm p-4 sm:p-6 border border-gray-100">
               <div className="flex items-center justify-between mb-3 sm:mb-4">
                 <h2 className="text-base sm:text-lg font-semibold text-gray-900">Upcoming Appointments</h2>
-                <Link href="/schedule" className="text-sm text-indigo-600 hover:text-indigo-700">
+                <Link href="/schedule" className="inline-flex min-h-[44px] items-center text-sm text-indigo-600 hover:text-indigo-700">
                   View all
                 </Link>
               </div>
@@ -1898,7 +1898,7 @@ export default function DashboardClient({
               <div className="bg-white rounded-xl shadow-sm p-4 sm:p-6 border border-gray-100">
                 <div className="flex items-center justify-between mb-3 sm:mb-4">
                   <h2 className="text-base sm:text-lg font-semibold text-gray-900">Custom Reports</h2>
-                  <Link href="/reports/explore" className="text-sm text-indigo-600 hover:text-indigo-700">
+                  <Link href="/reports/explore" className="inline-flex min-h-[44px] items-center text-sm text-indigo-600 hover:text-indigo-700">
                     View all
                   </Link>
                 </div>

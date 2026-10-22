@@ -85,7 +85,7 @@ export default function CustomerSigningForm({ changeOrder, token }: CustomerSign
 
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-      <form onSubmit={handleSubmit} className="max-w-2xl w-full bg-white rounded-xl shadow-lg p-6 space-y-5">
+      <form onSubmit={handleSubmit} className="max-w-2xl w-full bg-white rounded-xl shadow-lg p-4 sm:p-6 space-y-5 max-sm:[&_input:not([type=checkbox]):not([type=radio])]:min-h-[44px] max-sm:[&_input]:text-base max-sm:[&_select]:min-h-[44px] max-sm:[&_select]:text-base max-sm:[&_textarea]:text-base">
         <div>
           <h1 className="text-xl font-bold text-gray-900">Sign Change Order {changeOrder.co_number}</h1>
           <p className="text-sm text-gray-600 mt-1">
@@ -120,7 +120,7 @@ export default function CustomerSigningForm({ changeOrder, token }: CustomerSign
         <button
           type="submit"
           disabled={submitting}
-          className="w-full py-3 bg-indigo-600 text-white font-semibold rounded-lg hover:bg-indigo-700 disabled:opacity-60"
+          className="w-full min-h-[48px] py-3 bg-indigo-700 text-white font-semibold rounded-lg hover:bg-indigo-800 disabled:opacity-60"
         >
           {submitting ? 'Submitting...' : 'Sign Change Order'}
         </button>
