@@ -9,6 +9,7 @@ import { isOrgSuperuserRoleSlug } from '@/lib/permissions'
 import { isPayrollAdminRole } from '@/lib/payroll-admin-access'
 import PhotoLightbox from '@/components/PhotoLightbox'
 import { jobPhotoDownloadUrl } from '@/lib/ops-job-photo-url'
+import { isDealerFeeCostLine } from '@/lib/job-cost-ledger'
 
 type PhotoRow = {
   id: string
@@ -64,8 +65,10 @@ interface JobFileWorkspaceCardProps {
   registerOpenCostAttachmentShortcut?: (openPicker: (() => void) | null) => void
   registerOpenAddCostShortcut?: (openForm: (() => void) | null) => void
   dealerFeeAmount?: number | null
-  /** Total of real (non-dealer-fee) cost lines, so the Financials card can say they exist. */
-  onCostLinesTotalChange?: (total: number) => void
+  /** Bumped by the job page when the Materials card changed the cost ledger. */
+  ledgerVersion?: number
+  /** Called after this card adds or reviews a cost line, so the Materials/Financials cards reload. */
+  onLedgerMutated?: () => void
 }
 
 type StatusMessage = {
@@ -82,10 +85,8 @@ function formatDate(value: string | null | undefined) {
   })
 }
 
-const SYSTEM_COST_LINE_DESCRIPTION = /lender|dealer fee/i
-
 function isSystemCostLine(line: Pick<CostLineRow, 'is_system' | 'description'>): boolean {
-  return Boolean(line.is_system) || SYSTEM_COST_LINE_DESCRIPTION.test(line.description)
+  return Boolean(line.is_system) || isDealerFeeCostLine(line)
 }
 
 function formatCurrency(amount: number) {
@@ -151,7 +152,8 @@ export default function JobFileWorkspaceCard({
   registerOpenCostAttachmentShortcut,
   registerOpenAddCostShortcut,
   dealerFeeAmount,
-  onCostLinesTotalChange,
+  ledgerVersion = 0,
+  onLedgerMutated,
 }: JobFileWorkspaceCardProps) {
   const supabase = useMemo(() => createClientBrowser(), [])
 
@@ -338,7 +340,7 @@ export default function JobFileWorkspaceCard({
         status: row.status,
         approved: row.approved,
         vendor_name: Array.isArray(row.vendors) ? row.vendors[0]?.name || null : row.vendors?.name || null,
-        is_system: SYSTEM_COST_LINE_DESCRIPTION.test(row.description ?? ''),
+        is_system: isDealerFeeCostLine(row),
       })
     )
     const hasPersistedDealerFee = normalizedCostLines.some((line) => isSystemCostLine(line))
@@ -359,15 +361,6 @@ export default function JobFileWorkspaceCard({
           ]
         : normalizedCostLines
     setCostLines(displayCostLines)
-    // Report only REAL logged cost lines upward. The synthetic/persisted
-    // "Lender / dealer fee" rows are excluded because the job page's profit math
-    // already subtracts `dealer_fee_amount` from its own column — counting them
-    // here would invent a discrepancy that does not exist.
-    onCostLinesTotalChange?.(
-      displayCostLines
-        .filter((line) => !isSystemCostLine(line))
-        .reduce((sum, line) => sum + (Number(line.amount) || 0), 0)
-    )
     const firstAttachableLine = displayCostLines.find((line) => !isSystemCostLine(line))
     setSelectedCostLineId((prev) => {
       if (prev && displayCostLines.some((line) => line.id === prev && !isSystemCostLine(line))) return prev
@@ -406,6 +399,13 @@ export default function JobFileWorkspaceCard({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jobId, supabase])
+
+  // The Materials card shares this ledger; reload quietly when it changes it.
+  useEffect(() => {
+    if (ledgerVersion === 0) return
+    void loadData(undefined, { keepLoadedUI: true })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ledgerVersion])
 
   useEffect(() => {
     if (!registerOpenCostAttachmentShortcut) return
@@ -929,6 +929,7 @@ export default function JobFileWorkspaceCard({
       setNewCostType('material')
       setShowAddCostForm(false)
       await loadData()
+      onLedgerMutated?.()
     } catch (err: any) {
       setStatusMessage({ type: 'error', text: err?.message || 'Could not add cost line' })
     } finally {
@@ -952,6 +953,7 @@ export default function JobFileWorkspaceCard({
       const data = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(data.error || 'Could not update cost line')
       await loadData(undefined, { keepLoadedUI: true })
+      onLedgerMutated?.()
     } catch (err: any) {
       setStatusMessage({ type: 'error', text: err?.message || 'Could not update cost line' })
     } finally {

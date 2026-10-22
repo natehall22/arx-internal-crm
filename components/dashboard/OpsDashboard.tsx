@@ -28,7 +28,6 @@ interface RecentMaterialOrder {
   description: string
   supplier: string | null
   amount: number
-  status: 'ordered' | 'received' | 'paid' | 'returned'
   created_at: string
 }
 
@@ -57,13 +56,6 @@ type TimeFrame =
   | 'quarter'
   | 'year'
   | 'all'
-
-const statusConfig = {
-  ordered: { label: 'Ordered', bg: 'bg-blue-100', text: 'text-blue-700' },
-  received: { label: 'Received', bg: 'bg-green-100', text: 'text-green-700' },
-  paid: { label: 'Paid', bg: 'bg-gray-100', text: 'text-gray-700' },
-  returned: { label: 'Returned', bg: 'bg-red-100', text: 'text-red-700' },
-}
 
 const opsTimeFrameLabel: Record<TimeFrame, string> = {
   today: 'today',
@@ -410,7 +402,6 @@ export default function OpsDashboard({ profile, canJobBoard }: OpsDashboardProps
           ) : (
             <div className="divide-y divide-gray-100">
               {recentOrders.map((order) => {
-                const config = statusConfig[order.status]
                 const body = (
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
@@ -431,16 +422,13 @@ export default function OpsDashboard({ profile, canJobBoard }: OpsDashboardProps
                       <span className="text-sm font-medium text-gray-900">
                         {formatCurrency(order.amount)}
                       </span>
-                      <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${config.bg} ${config.text}`}>
-                        {config.label}
-                      </span>
                     </div>
                   </div>
                 )
                 return canJobBoard ? (
                   <Link
                     key={order.id}
-                    href={`/ops/jobs/${order.job_id}/orders`}
+                    href={`/ops/jobs/${order.job_id}#materials-section`}
                     className="block p-4 hover:bg-gray-50"
                   >
                     {body}

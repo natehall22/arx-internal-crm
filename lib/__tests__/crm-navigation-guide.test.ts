@@ -153,7 +153,8 @@ describe('crm-navigation-guide', () => {
   it('returns material order fallback', () => {
     const response = getNavigationFallbackResponse('how do I add a material order', 'operations')
     expect(response).toContain('Job Cost')
-    expect(response).toContain('/orders')
+    // The separate /ops/jobs/[id]/orders list was folded into the Materials card (2026-10-21).
+    expect(response).not.toContain('/orders')
   })
 
   it('returns crew assignment fallback without inspection misroute', () => {

@@ -5,6 +5,7 @@ import { classifyWeeklyPayrollJob } from '@/lib/weekly-payroll/eligibility'
 import { hasResolvableCompPlanForUserOnDate } from '@/lib/payroll-export'
 import { isPayrollAdminRole } from '@/lib/payroll-admin-access'
 import { CANCELLED_JOB_STATUS } from '@/lib/job-status'
+import { loadJobCostLedger } from '@/lib/job-cost-ledger'
 
 export const dynamic = 'force-dynamic'
 
@@ -113,7 +114,11 @@ export async function GET(request: NextRequest) {
         ? supabase.from('job_payments').select('job_id, amount_cents, funding_status').in('job_id', jobIds)
         : Promise.resolve({ data: [] as { job_id: string; amount_cents: number; funding_status: string }[] }),
       jobIds.length
-        ? supabase.from('job_cost_lines').select('job_id, approved, deduct_from_commission_base').in('job_id', jobIds)
+        ? // The one cost ledger reader: live lines only (this used to count archived and
+          // soft-deleted lines, so a removed duplicate could still block a job).
+          loadJobCostLedger(supabase, orgId, jobIds).then((ledger) => ({
+            data: Array.from(ledger.values()).flatMap((entry) => entry.lines),
+          }))
         : Promise.resolve({ data: [] as { job_id: string; approved: boolean; deduct_from_commission_base: boolean }[] }),
     ])
 

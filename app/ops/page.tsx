@@ -8,6 +8,7 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { redactProductionJobFinancialSummaryFields, resolveOpsAccess } from '@/lib/ops-access'
 import { opsBoardJobsSelectEmbedded } from '@/lib/ops-board-query'
 import { enrichOpsJobsWithPayrollSentAt } from '@/lib/ops-payroll-enrich'
+import { enrichJobsWithCostLedger } from '@/lib/job-cost-ledger'
 import type { OpsBoardJob } from '@/lib/ops-board-types'
 import {
   enrichOpsJobsWithMeasureSoldSquaresFallback,
@@ -35,6 +36,7 @@ export default async function OpsPage() {
   await enrichOpsJobsWithPayrollSentAt(supabase, profile.org_id, rawJobs)
   await enrichOpsJobsWithSoldSquares(supabase, profile.org_id, rawJobs)
   await enrichOpsJobsWithMeasureSoldSquaresFallback(supabase, profile.org_id, rawJobs)
+  if (ops.canViewJobFinancials) await enrichJobsWithCostLedger(admin, profile.org_id, rawJobs)
   const jobIds = rawJobs.map((j) => j.id)
   const collectedByJob: Record<string, number> = {}
   if (jobIds.length > 0) {

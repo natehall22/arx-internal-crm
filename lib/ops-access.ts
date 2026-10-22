@@ -57,7 +57,7 @@ export async function resolveOpsAccess(
 }
 
 /** Mirrors SSR `/ops` board — coarse cost fields gated by jobs:financials:view (+ fullAccess). */
-const REDACT_PRODUCTION_JOB_FINANCIAL_SUMMARY_KEYS = ['labor_cost', 'material_cost', 'dealer_fee_amount'] as const
+const REDACT_PRODUCTION_JOB_FINANCIAL_SUMMARY_KEYS = ['labor_cost', 'material_cost', 'dealer_fee_amount', 'job_costs'] as const
 
 export function redactProductionJobFinancialSummaryFields<T extends Record<string, unknown>>(
   job: T,

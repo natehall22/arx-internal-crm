@@ -1,4 +1,5 @@
 import type { JobStatus } from '@/lib/job-status'
+import type { JobCostSummary } from '@/lib/job-cost-ledger'
 
 export type { JobStatus }
 
@@ -17,8 +18,8 @@ export interface OpsBoardJob {
   /** Set when sold_squares came from roof_measurements (proposal + project legacy had nothing). */
   sold_squares_from_measure?: boolean
   dealer_fee_amount?: number | null
-  labor_cost?: number | null
-  material_cost?: number | null
+  /** Job cost ledger summary (lib/job-cost-ledger.ts); absent when redacted or unavailable. */
+  job_costs?: JobCostSummary | null
   sale_date: string | null
   cancelled_at?: string | null
   cancellation_reason?: string | null

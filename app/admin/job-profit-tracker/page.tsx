@@ -5,11 +5,7 @@ import { requireAuth } from '@/lib/auth'
 import { isPayrollAdminRole } from '@/lib/payroll-admin-access'
 import { createServiceClient } from '@/lib/supabase/service'
 import { CANCELLED_JOB_STATUS } from '@/lib/job-status'
-import {
-  getSignedOrderAmount,
-  isMissingJobProductOrdersTable,
-  mapMaterialOrdersRowsToUi,
-} from '@/lib/ops-product-orders'
+import { jobDirectCost, ledgerSummaryFor, loadJobCostLedger, type JobCostLedger } from '@/lib/job-cost-ledger'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -32,8 +28,6 @@ type JobRow = {
   sale_date: string | null
   completed_at: string | null
   dealer_fee_amount?: number | string | null
-  material_cost?: number | string | null
-  labor_cost?: number | string | null
   internal_notes?: string | null
   customer?: { name: string | null } | null
   project?: {
@@ -42,22 +36,9 @@ type JobRow = {
   } | null
 }
 
-type CostLine = {
-  job_id: string
-  amount: number | string | null
-  cost_type: string | null
-  approved: boolean
-}
-
 type PaymentLine = {
   job_id: string
   amount_cents: number | null
-}
-
-type ProductOrderLine = {
-  job_id: string
-  amount: number | string | null
-  status: 'ordered' | 'received' | 'paid' | 'returned'
 }
 
 function moneyValue(value: number | string | null | undefined): number {
@@ -67,12 +48,6 @@ function moneyValue(value: number | string | null | undefined): number {
     return Number.isFinite(parsed) ? parsed : 0
   }
   return 0
-}
-
-function hasMoneyValue(value: number | string | null | undefined): boolean {
-  if (typeof value === 'number') return Number.isFinite(value)
-  if (typeof value === 'string') return value.trim() !== '' && Number.isFinite(Number(value))
-  return false
 }
 
 function formatMoney(value: number): string {
@@ -191,8 +166,6 @@ export default async function AdminJobProfitTrackerPage({
         sale_date,
         completed_at,
         dealer_fee_amount,
-        material_cost,
-        labor_cost,
         internal_notes,
         customer:customers(name),
         project:projects(customers(name), leads(homeowner_name, source))
@@ -248,30 +221,21 @@ export default async function AdminJobProfitTrackerPage({
   }
 
   const jobIds = jobs.map((job) => job.id)
-  const costLinesByJob = new Map<string, CostLine[]>()
   const collectedCentsByJob = new Map<string, number>()
-  const materialOrdersByJob = new Map<string, number>()
+  // Costs come from the one job cost ledger (lib/job-cost-ledger.ts) — the same numbers the
+  // job page, ops board, goals and payroll use. The old production_jobs.material_cost /
+  // labor_cost columns and job_product_orders are no longer read (Known Redundancy #11).
+  let ledger: JobCostLedger = new Map()
 
   if (jobIds.length > 0) {
-    const [{ data: costLines }, { data: payments }] = await Promise.all([
-      supabase
-        .from('job_cost_lines')
-        .select('job_id, amount, cost_type, approved')
-        .eq('org_id', profile.org_id)
-        .eq('status', 'active')
-        .is('deleted_at', null)
-        .in('job_id', jobIds),
+    const [loadedLedger, { data: payments }] = await Promise.all([
+      loadJobCostLedger(supabase, profile.org_id, jobIds),
       supabase
         .from('job_payments')
         .select('job_id, amount_cents')
         .in('job_id', jobIds),
     ])
-
-    for (const line of (costLines || []) as CostLine[]) {
-      const existing = costLinesByJob.get(line.job_id) || []
-      existing.push(line)
-      costLinesByJob.set(line.job_id, existing)
-    }
+    ledger = loadedLedger
 
     for (const payment of (payments || []) as PaymentLine[]) {
       collectedCentsByJob.set(
@@ -279,69 +243,27 @@ export default async function AdminJobProfitTrackerPage({
         (collectedCentsByJob.get(payment.job_id) || 0) + (payment.amount_cents || 0)
       )
     }
-
-    const { data: productOrders, error: productOrdersError } = await supabase
-      .from('job_product_orders')
-      .select('job_id, amount, status')
-      .in('job_id', jobIds)
-
-    if (!productOrdersError) {
-      for (const order of (productOrders || []) as ProductOrderLine[]) {
-        materialOrdersByJob.set(
-          order.job_id,
-          (materialOrdersByJob.get(order.job_id) || 0) +
-            getSignedOrderAmount(moneyValue(order.amount), order.status)
-        )
-      }
-    } else if (isMissingJobProductOrdersTable(productOrdersError)) {
-      const { data: fallbackOrders, error: fallbackOrdersError } = await supabase
-        .from('material_orders')
-        .select('id, org_id, job_id, supplier, items, status, total_cost, notes, created_at')
-        .in('job_id', jobIds)
-
-      if (fallbackOrdersError) {
-        throw new Error(`Failed to load material orders: ${fallbackOrdersError.message}`)
-      }
-
-      for (const order of mapMaterialOrdersRowsToUi(fallbackOrders)) {
-        materialOrdersByJob.set(
-          order.job_id,
-          (materialOrdersByJob.get(order.job_id) || 0) +
-            getSignedOrderAmount(moneyValue(order.amount), order.status)
-        )
-      }
-    } else {
-      throw new Error(`Failed to load product orders: ${productOrdersError.message}`)
-    }
   }
 
   const rows = jobs.map((job, index) => {
     const saleAmount = moneyValue(job.sale_amount)
     const financeCost = moneyValue(job.dealer_fee_amount)
     const commissionableAmount = Math.max(0, saleAmount - financeCost)
-    const costLines = costLinesByJob.get(job.id) || []
-    const hasUnreviewedCostLines = costLines.some((line) => !line.approved)
-    const materialLines = costLines
-      .filter((line) => line.cost_type === 'material')
-      .reduce((sum, line) => sum + moneyValue(line.amount), 0)
-    const laborLines = costLines
-      .filter((line) => line.cost_type === 'labor' || line.cost_type === 'subcontractor')
-      .reduce((sum, line) => sum + moneyValue(line.amount), 0)
-    const misc = costLines
-      .filter((line) => !['material', 'labor', 'subcontractor'].includes(String(line.cost_type || '')))
-      .reduce((sum, line) => sum + moneyValue(line.amount), 0)
-    const materials = hasMoneyValue(job.material_cost)
-      ? moneyValue(job.material_cost)
-      : materialOrdersByJob.has(job.id)
-        ? materialOrdersByJob.get(job.id) || 0
-        : materialLines
-    const labor = hasMoneyValue(job.labor_cost) ? moneyValue(job.labor_cost) : laborLines
-    const totalExpenses = materials + labor + misc
+    const costs = ledgerSummaryFor(ledger, job.id)
+    const hasUnreviewedCostLines = costs.hasUnreviewed
+    const materials = costs.materials
+    const labor = costs.labor
+    const misc = costs.other
+    const totalExpenses = costs.total
+    // The finance (dealer) fee is subtracted exactly once, from dealer_fee_amount. Before the
+    // one-ledger change it was only subtracted on jobs that happened to carry a mirrored
+    // "Lender / dealer fee" cost line, so older financed jobs overstated profit.
+    const directCost = jobDirectCost(costs, financeCost)
     const setterCommission = commissionableAmount * 0.05
     const closerCommission = commissionableAmount * 0.07
     const salesCommission = commissionableAmount * 0.06
     const opp = saleAmount * 0.09
-    const grossProfit = saleAmount - totalExpenses - salesCommission - opp
+    const grossProfit = saleAmount - directCost - salesCommission - opp
     const grossProfitPercent = saleAmount > 0 ? (grossProfit / saleAmount) * 100 : null
     const ownerDraw = grossProfit * 0.2
     const ownerDrawPerOwner = ownerDraw / 4
