@@ -55,7 +55,8 @@ import { MATERIALS_ORDER_LIST_TRADE } from '@/lib/materials-order-list'
 import type { DisplayMaterialsOrderItem } from '@/lib/materials-order-overrides'
 import { renderJobMaterialOrderPDF } from '@/lib/pdf/job-material-order'
 import { composeSupplierOrderEmail, type ComposedSupplierEmail, type SupplierOrderSender } from '@/lib/supplier-order-email'
-import { supplierChannelProblem, type SupplierOrderTransmission, type SupplierOrderTransmitResult } from '@/lib/suppliers/send-order'
+import { loadOpenApprovals, loadSupplierApiSettings, type OpenApproval } from '@/lib/suppliers/abc/settings-db'
+import { connectorFor, supplierChannelProblem, type SupplierOrderTransmission, type SupplierOrderTransmitResult } from '@/lib/suppliers/send-order'
 import { DEFAULT_TIMEZONE } from '@/lib/timezone'
 import { FILES_BUCKET } from '@/lib/files/storage'
 import { resolveOpsAccess } from '@/lib/ops-access'
@@ -119,6 +120,8 @@ export type SupplierOrderContext = {
   sends: SendRecord[]
   /** Sourcing at the most recent successful send on this job (installer-change warning). */
   lastSentSourcing: SourcingSnapshot | null
+  /** Second-approver requests still open on this job (supplier API orders only). */
+  apiApprovals?: OpenApproval[]
 }
 
 export type LoadResult =
@@ -152,6 +155,7 @@ export async function loadSupplierOrderContext(
   const sheet = await buildJobRunSheet(admin, orgId, jobId)
   if (!sheet) return { ok: false, reason: 'not_found' }
 
+  const [apiSettings, apiApprovals] = await Promise.all([loadSupplierApiSettings(admin, orgId), loadOpenApprovals(admin, orgId, jobId)])
   const [vendorsRes, overridesRes, tradesRes, tradeOvRes, orgDefaultsRes, ordersRes, sendsRes] = await Promise.all([
     admin
       .from('vendors')
@@ -336,7 +340,7 @@ export async function loadSupplierOrderContext(
       baseSheet: materialOrderFromRunSheet(sheet),
       displayByKey,
       lines,
-      suppliers: ((vendorsRes.data ?? []) as Record<string, unknown>[]).map(supplierFromRow),
+      suppliers: ((vendorsRes.data ?? []) as Record<string, unknown>[]).map((row) => ({ ...supplierFromRow(row), api: apiSettings.get(String(row.id)) ?? null })),
       trades,
       tradeOverrides: ((tradeOvRes.data ?? []) as Record<string, unknown>[]).map((r) => ({
         trade: String(r.trade),
@@ -347,6 +351,7 @@ export async function loadSupplierOrderContext(
       orders,
       sends,
       lastSentSourcing,
+      apiApprovals,
     },
   }
 }
@@ -423,7 +428,7 @@ export function buildSupplierOrdersView(ctx: SupplierOrderContext, now: Date = n
 
   const cards: SupplierCard[] = sourcing.supplierGroups.map((g) => {
     const order = orderByVendor.get(g.supplier.id) ?? null
-    const channel = supplierChannelProblem(g.supplier)
+    const channel = supplierChannelProblem(g.supplier, snapshotLines(g.lines))
     return {
       vendorId: g.supplier.id,
       supplierName: g.supplier.name,
@@ -582,7 +587,7 @@ export function buildSupplierOrderPreview(
     if (!req.manual && !deliveryDate) blockers.push('Pick a delivery date.')
     if (!req.manual && !deliveryAddress) blockers.push('Add a delivery address.')
   }
-  const channelProblem = req.manual ? null : supplierChannelProblem(supplier)
+  const channelProblem = req.manual ? null : supplierChannelProblem(supplier, isCancel ? undefined : snapshotLines(lines))
   if (channelProblem) blockers.push(channelProblem)
 
   const latest = ctx.sends.find((s) => s.supplierOrderId === order?.id && (s.status === 'sent' || s.status === 'unknown')) ?? null
@@ -591,6 +596,9 @@ export function buildSupplierOrderPreview(
   if (!decision.ok) blockers.push(decision.message)
 
   const kind: SendKind = decision.ok ? decision.kind : isCancel ? 'cancellation' : 'order'
+  // An API connector may only carry a first order: a revision/resend/cancel would be a second order or a no-op at the supplier.
+  const kindProblem = req.manual ? null : connectorFor(supplier)?.kindProblem?.(kind) ?? null
+  if (kindProblem) blockers.push(kindProblem)
   const revision = decision.ok ? decision.revision : order?.revision ?? 0
   const number = order?.poNumber ?? poNumber(ctx.jobNumber, nextPoLetter(usedLetters(ctx)))
   const label = poLabel(number, revision)
@@ -652,11 +660,19 @@ export function buildSupplierOrderPreview(
     },
   }
 
+  // Someone else already asked to send this exact order and it needs a second person.
+  const waiting = supplier.connectionType === 'api' && order
+    ? (ctx.apiApprovals ?? []).find((a) => a.supplierOrderId === order.id && a.contentHash === contentHash && a.status === 'pending' && a.requestedBy !== sender.id)
+    : undefined
+  const approvalPrompt = waiting
+    ? `${waiting.requestedByName ?? 'Someone'} asked to send this order and it needs a second person to approve. Sending it now approves it and places the order with ${supplier.name}.`
+    : null
+
   let pdf: Buffer | null = null
   if (!isCancel && lines.length > 0) {
     const rendered = renderJobMaterialOrderPDF(sheet)
     pdf = rendered.pdf
-    if (rendered.truncated && !req.manual) {
+    if (rendered.truncated && !req.manual && supplier.connectionType !== 'api') {
       blockers.push('This order does not fit on one page, so it cannot be emailed from here. Download the order sheet and email it yourself.')
     }
   }
@@ -679,7 +695,7 @@ export function buildSupplierOrderPreview(
   })
 
   const previewToken = sha256(
-    JSON.stringify([kind, revision, label, email.to, email.cc, email.subject, contentHash, note, deliveryNotes, supplier.connectionType])
+    JSON.stringify([kind, revision, label, email.to, email.cc, email.subject, contentHash, note, deliveryNotes, supplier.connectionType, apiFingerprint(supplier)])
   )
 
   const verb = kind === 'cancellation' ? 'Send cancellation to' : kind === 'revision' ? 'Send revised order to' : 'Send order to'
@@ -703,7 +719,7 @@ export function buildSupplierOrderPreview(
       lines: snapshotLines(lines),
       linesHash,
       contentHash,
-      confirmMessage: decision.ok ? decision.confirmMessage : null,
+      confirmMessage: decision.ok ? decision.confirmMessage ?? approvalPrompt : null,
       blockers: Array.from(new Set(blockers)),
       previewToken,
       sheet,
@@ -711,6 +727,15 @@ export function buildSupplierOrderPreview(
       sendButtonLabel: `${verb} ${supplier.name}`,
     },
   }
+}
+
+/** Everything about the API connection that changes what an order does, so a switch/environment/mapping change after the preview invalidates its token. */
+function apiFingerprint(supplier: SupplierRecord): string | null {
+  const a = supplier.api
+  if (!a) return null
+  return sha256(
+    JSON.stringify([a.environment, a.orderingEnabled, a.orgOrderingEnabled, a.shipToNumber, a.branchNumber, a.deliveryService, [...a.itemMap].sort((x, y) => x.lineKey.localeCompare(y.lineKey))])
+  )
 }
 
 function displayFromLine(l: OrderLine): DisplayMaterialsOrderItem {
@@ -754,6 +779,11 @@ export type SendDeps = {
   /** Cancelling a PO takes "ordered" back off the job when materials are no longer all covered. */
   unmarkMaterialsOrdered?: (args: { orgId: string; jobId: string }) => Promise<unknown>
   now?: () => Date
+  /**
+   * Runs after the double-send checks and BEFORE a send row exists, only for real (non-manual) orders.
+   * The supplier-API second-approver rule lives here; a refusal places nothing and leaves no send behind.
+   */
+  beforeTransmit?: (args: { ctx: SupplierOrderContext; supplier: SupplierRecord; preview: SupplierOrderPreview; actor: SendActor; orderId: string }) => Promise<{ ok: true } | { ok: false; status: number; message: string }>
 }
 
 export type SendActor = SupplierOrderSender & { canSend: boolean }
@@ -815,6 +845,11 @@ export async function executeSupplierOrderSend(
     (loadedOrder?.revision ?? 0) !== order.revision
   ) {
     return { ok: false, status: 409, message: 'This order was just sent or changed from another screen. Refresh and review it again.' }
+  }
+
+  if (!input.manual && deps.beforeTransmit) {
+    const gate = await deps.beforeTransmit({ ctx, supplier, preview, actor, orderId: order.id })
+    if (!gate.ok) return gate
   }
 
   const startedAt = now()
@@ -935,7 +970,7 @@ export async function executeSupplierOrderSend(
       return {
         ok: false,
         status: 502,
-        message: 'Not sure this went out (the mail server did not answer). Check your sent mail before sending again.',
+        message: 'Not sure this went out (the supplier did not answer). Check your sent mail or call them before sending again.',
         detail,
       }
     }

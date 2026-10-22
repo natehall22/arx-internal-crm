@@ -161,6 +161,9 @@ Nathan's goal: measure complex roofs ourselves — **no paid EagleView/Hover rep
 - **Limits:** anything built after the 2016–17 survey is missing (the "section may be missing" note
   helps); tiles not yet ingested fall back to Solar silently. Kill switch: `ROOF_MEASURE_LIDAR=false`.
 
+## Supplier ordering by API (ABC Supply) — 2026-10-23
+Built on the single send door in `lib/suppliers/send-order.ts`; **OFF by default** (env `SUPPLIER_API_ORDERING`, `orgs.supplier_api_ordering_enabled`, per-supplier switch), sandbox first, second owner approves orders over the limit or of unknown size, one attempt and never an auto-retry, only first orders (no API revise/cancel), append-only `supplier_api_events`. **Never call ABC's Pricing API or compare ABC prices with other suppliers — their Terms forbid it** (test-enforced). Setup and gaps: `docs/abc-supply-connector.md`.
+
 ## Install Scheduling — crews per trade (2026-09-15)
 A job's crews are **trades**: one `work_orders` row per trade (`trade` = roofing | gutters |
 siding | windows | other, `work_order_type='install'`), each with its own sub, date, length

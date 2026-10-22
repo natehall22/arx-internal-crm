@@ -18,6 +18,21 @@ describe('supplier orders are never sent by anything automatic', () => {
       .filter((f) => !f.endsWith('lib/suppliers/send-order.ts'))
       .filter((f) => readFileSync(f, 'utf8').includes('sendOrderToSupplier'))
       .map((f) => f.slice(root.length + 1))
-    expect(users).toEqual(['app/api/ops/jobs/[id]/supplier-orders/send/route.ts'])
+    // The audit wrapper is the send route's own door: it calls sendOrderToSupplier and is imported only by that route.
+    expect(users).toEqual(['app/api/ops/jobs/[id]/supplier-orders/send/route.ts', 'lib/suppliers/abc/audited-transmit.ts'])
+    const wrappers = [...walk(join(root, 'app')), ...walk(join(root, 'lib')), ...walk(join(root, 'components'))]
+      .filter((f) => !f.endsWith('audited-transmit.ts'))
+      .filter((f) => readFileSync(f, 'utf8').includes('makeAuditedTransmit'))
+      .map((f) => f.slice(root.length + 1))
+    expect(wrappers).toEqual(['app/api/ops/jobs/[id]/supplier-orders/send/route.ts'])
+  })
+
+  it('the ABC submit call is reachable only through the connector', () => {
+    const root = process.cwd()
+    const users = [...walk(join(root, 'app')), ...walk(join(root, 'lib')), ...walk(join(root, 'components'))]
+      .filter((f) => !f.endsWith('lib/suppliers/abc/client.ts'))
+      .filter((f) => readFileSync(f, 'utf8').includes('submitAbcOrder'))
+      .map((f) => f.slice(root.length + 1))
+    expect(users).toEqual(['lib/suppliers/abc/connector.ts'])
   })
 })

@@ -16,6 +16,7 @@
  * Pure and client-safe: the job page, the preview, the send route and tests all call this.
  */
 import { TRADE_LABELS } from '@/lib/job-trades'
+import type { SupplierApiSettings } from '@/lib/suppliers/abc/types'
 
 export const MATERIAL_SOURCES = ['supplier', 'installer', 'customer', 'stock'] as const
 export type MaterialSource = (typeof MATERIAL_SOURCES)[number]
@@ -69,6 +70,8 @@ export type SupplierRecord = {
   active: boolean
   /** How orders reach this supplier; 'api' is reserved for a connector (lib/suppliers/send-order.ts). */
   connectionType: 'email' | 'api'
+  /** ABC (or other API) settings + item map; null when this supplier has none. Loaded by loadSupplierOrderContext. */
+  api?: SupplierApiSettings | null
 }
 
 export type TradeInstaller = {
