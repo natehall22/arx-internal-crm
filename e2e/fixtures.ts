@@ -142,3 +142,32 @@ export const HARNESS_JOB = {
   project: { id: 'p-1', scope_of_work: 'Full roof replacement', product_summary: 'Duration Driftwood', ops_notes: null, permits_status: 'approved', install_date: '2026-10-12', payment_method: 'finance', sold_roof_squares: 28 },
   installation_agreement: null, roof_report: null, sold_scope: null,
 }
+
+const sheetField = (key: string, label: string, value: string | null, edited = false) => ({ key, label, source: 'Project review → scope, else project scope of work', computed: value, override: edited ? value : null, value, edited })
+export const HARNESS_RUN_SHEET = {
+  jobId: 'job-1', orgName: 'ARX Roofing & Exteriors', orgPhone: '7045550100', jobNumber: '26-0042', jobType: 'roofing', status: 'scheduled',
+  address: '12 Elm Street, Concord NC 28025', scheduledDate: '2026-11-03', scheduledTimeStart: null, estimatedDurationHours: 8,
+  permitRequired: true, permitNumber: 'BP-2026-1234', proposalNumber: 'P-00118',
+  homeowner: { label: 'Homeowner', name: 'Pat Customer With A Long Name', phone: '7045550100' },
+  runningJob: { label: 'Subcontractor', name: 'Sparky Roofing LLC', phone: '7045550101' },
+  soldBy: { label: 'Sold by', name: 'Nathan Hall', phone: '7045550102' },
+  measurements: [{ label: 'Squares', value: '28.5' }, { label: 'Ridge LF', value: '64' }, { label: 'Valley LF', value: '41' }, { label: 'Pitch', value: '6/12' }],
+  fields: {
+    schedule_note: sheetField('schedule_note', 'Schedule note', null),
+    scope_of_work: sheetField('scope_of_work', 'Scope of work', 'Full tear-off and replacement of the main house roof, garage and covered porch. Replace all pipe boots and flashing.'),
+    materials_and_products: sheetField('materials_and_products', 'Materials & products', 'Owens Corning Duration, Driftwood. Synthetic underlayment, ice & water at eaves and valleys.', true),
+    tear_off_and_decking: sheetField('tear_off_and_decking', 'Tear-off, layers & decking', '1 layer. Replace rotten decking at $85/sheet.'),
+    accessories: sheetField('accessories', 'Accessories', 'Ridge vent, 4 pipe boots, drip edge.'),
+    add_ons_sold: sheetField('add_ons_sold', 'Add-ons sold', '306 LF seamless gutters, white.'),
+    heads_up: sheetField('heads_up', 'Read before you start', 'HOA requires 8am start. Dog in backyard.'),
+  },
+  headsUp: [{ label: 'HOA', body: 'HOA requires 8am start.' }, { label: null, body: 'Dog in backyard — call before entering.' }],
+  signedContracts: [{ id: 'k1', signedAt: '2026-10-01T12:00:00Z', agreementType: 'installation', pdfUrl: null, roofingMaterial: 'Duration', scopeOther: null, additionalProducts: null, exclusions: 'Interior repairs', notes: 'Deductible $1,500 paid at signing.' }],
+  anyEdits: true, overridesUpdatedAt: '2026-10-20T12:00:00Z', generatedAt: '2026-10-21T12:00:00Z',
+}
+
+export const HARNESS_DASHBOARD = {
+  profile: { id: 'u1', full_name: 'Nathan Hall', role: 'admin', org_id: 'org-1', email: 'nathan@example.test' },
+  stats: { totalLeads: 120, newLeads: 14, totalOpportunities: 40, openOpportunities: 22, totalProjects: 18, activeProjects: 9, closeRate: 31, efficiency: 12, doorsKnockedThisWeek: 412, contactsThisWeek: 96, inspectionsSetThisWeek: 11, sitsThisWeek: 8, salesThisWeek: 3 },
+  progress: { doors_knocked: { current: 412, goal: 500 }, contacts: { current: 96, goal: 120 }, inspections: { current: 11, goal: 12 }, sales: { current: 3, goal: 4 } },
+}

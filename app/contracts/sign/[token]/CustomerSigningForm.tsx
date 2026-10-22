@@ -287,7 +287,7 @@ export default function CustomerSigningForm({ contract, token }: CustomerSigning
   return (
     <div className="min-h-screen bg-gray-50 py-4 sm:py-8 px-3 sm:px-4">
       <div className="max-w-3xl mx-auto">
-        <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+        <div className="bg-white rounded-xl shadow-lg overflow-clip">
           {/* Header */}
           <div className="bg-indigo-900 text-white p-6 text-center">
             <h1 className="text-2xl font-bold">ARX ROOFING & EXTERIORS LLC</h1>

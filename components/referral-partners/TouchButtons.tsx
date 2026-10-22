@@ -49,7 +49,7 @@ export default function TouchButtons({
             disabled={busy !== null}
             onClick={() => log(b.type, b.label)}
             className={`rounded-lg border border-gray-300 bg-white font-semibold text-[#2c2c2a] hover:bg-gray-50 active:bg-gray-100 disabled:opacity-50 ${
-              compact ? 'px-1 py-2 text-xs' : 'px-2 py-3 text-sm'
+              compact ? 'min-h-[44px] px-1 py-2 text-xs' : 'min-h-[44px] px-2 py-3 text-sm'
             }`}
           >
             {busy === b.type ? '…' : b.label}

@@ -28,7 +28,9 @@ import ContractModal from '@/components/contracts/ContractModal'
 import ExploreClient from '@/app/reports/explore/ExploreClient'
 import ReportsPage from '@/app/reports/page'
 import PayrollPeriodsPage from '@/app/admin/payroll/periods/page'
-import { HARNESS_NEEDS_YOU } from '@/e2e/fixtures'
+import { HARNESS_NEEDS_YOU, HARNESS_RUN_SHEET, HARNESS_DASHBOARD } from '@/e2e/fixtures'
+import JobSheetsEditor from '@/app/ops/jobs/[id]/sheets/JobSheetsEditor'
+import DashboardClient from '@/app/dashboard/DashboardClient'
 
 export default function Harness({ params }: { params: { screen: string } }) {
   if (process.env.NODE_ENV === 'production') notFound()
@@ -109,6 +111,10 @@ export default function Harness({ params }: { params: { screen: string } }) {
       return <ReportsPage />
     case 'reports-explore':
       return <ExploreClient />
+    case 'job-sheets':
+      return <JobSheetsEditor initialSheet={HARNESS_RUN_SHEET as never} canEdit scope={null} coverage={{} as never} showOrder={false} />
+    case 'dashboard':
+      return <DashboardClient {...(HARNESS_DASHBOARD as never)} pendingPrompts={[]} upcomingAppointments={[]} recentActivities={[]} settings={{}} />
     case 'payroll-periods':
       return <PayrollPeriodsPage />
     default:

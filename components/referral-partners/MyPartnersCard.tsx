@@ -21,7 +21,9 @@ export default function MyPartnersCard() {
     try {
       const res = await fetch('/api/referral-partners/summary')
       if (!res.ok) throw new Error()
-      setSummary(await res.json())
+      const json = await res.json()
+      if (!json || !Array.isArray(json.opening_soon)) throw new Error()
+      setSummary(json)
       setFailed(false)
     } catch {
       setFailed(true)
@@ -38,7 +40,7 @@ export default function MyPartnersCard() {
     <div className="mb-4 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
       <div className="flex items-center justify-between gap-3">
         <h2 className="text-base font-semibold text-[#2c2c2a]">My Partners</h2>
-        <Link href="/referral-partners" className="text-sm font-semibold text-indigo-700 hover:text-indigo-900">
+        <Link href="/referral-partners" className="inline-flex min-h-[44px] items-center text-sm font-semibold text-indigo-700 hover:text-indigo-900">
           Open Referral Partners →
         </Link>
       </div>
@@ -65,7 +67,7 @@ export default function MyPartnersCard() {
               {summary.opening_soon.map((p) => (
                 <li key={p.id} className="py-3">
                   <div className="mb-2 flex items-baseline justify-between gap-2">
-                    <Link href={`/referral-partners/${p.id}`} className="text-sm font-semibold text-[#2c2c2a] hover:underline">
+                    <Link href={`/referral-partners/${p.id}`} className="inline-flex min-h-[44px] items-center text-sm font-semibold text-[#2c2c2a] hover:underline">
                       {p.name}
                     </Link>
                     <span className="text-xs font-medium text-amber-900">

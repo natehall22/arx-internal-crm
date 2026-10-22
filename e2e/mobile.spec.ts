@@ -23,6 +23,7 @@ async function mockApi(page: Page) {
     if (p === '/api/admin/suppliers') return route.fulfill(json(SUPPLIERS))
     if (p === '/api/admin/payroll/periods') return route.fulfill(json(PAYROLL_PERIODS))
     if (p.endsWith('/sale-credit')) return route.fulfill(json(SALE_CREDIT))
+    if (p === '/api/referral-partners/summary') return route.fulfill(json({ assigned_count: 9, opening_soon: [{ id: 'rp1', name: 'Concord Realty Group', days_until_open: 3 }], opening_soon_count: 1, jobs_this_month: 2 }))
     if (p === '/api/users') return route.fulfill(json(USERS))
     if (p.includes('/effective-permissions')) return route.fulfill(json({ permissions: [], fullAccess: true }))
     return route.fulfill(json({}))
@@ -69,6 +70,9 @@ const SCREENS: Screen[] = [
       { name: 'table', run: async (p) => { await p.getByRole('button', { name: 'Sales by closer' }).click(); await p.getByRole('button', { name: 'Show table' }).click() } },
       { name: 'drill', run: async (p) => { await p.getByRole('button', { name: 'Sales by closer' }).click(); await p.getByText('Nathan Hall').first().click() } },
     ] },
+  { name: 'job-sheets-editor', path: '/dev-harness/job-sheets', ready: 'text=Scope of work',
+    states: [{ name: 'editing', run: async (p) => { await p.locator('textarea').first().click(); await p.locator('textarea').first().fill('Edited scope for the crew.'); await p.waitForTimeout(200) } }] },
+  { name: 'dashboard-tiles', path: '/dev-harness/dashboard', ready: 'text=Doors' },
   { name: 'payroll-periods', path: '/dev-harness/payroll-periods', ready: 'text=2026-W42' },
 ]
 
