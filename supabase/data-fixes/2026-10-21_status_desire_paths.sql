@@ -59,7 +59,7 @@ trd AS (
 appt_outcome AS (
   SELECT a.id, a.status AS before_status,
          (SELECT u.outcome FROM inspection_status_updates u
-           WHERE u.lead_id = a.lead_id AND u.org_id = a.org_id AND u.created_at >= a.scheduled_for - INTERVAL '1 day'
+           WHERE u.lead_id = a.lead_id AND u.org_id = a.org_id AND u.created_at >= a.scheduled_for - INTERVAL '1 day' AND u.created_at < a.scheduled_for + INTERVAL '7 days'
            ORDER BY u.created_at ASC LIMIT 1) AS outcome
   FROM scheduled_appointments a
   WHERE a.status = 'scheduled' AND COALESCE(a.appointment_type, 'inspection') = 'inspection'
@@ -68,7 +68,8 @@ appt_outcome AS (
 appt_contract AS (
   SELECT a.id, a.status AS before_status, a.appointment_type
   FROM scheduled_appointments a
-  WHERE a.status = 'scheduled' AND a.scheduled_for < NOW() - INTERVAL '2 hours' AND a.opportunity_id IS NOT NULL
+  WHERE a.status = 'scheduled' AND COALESCE(a.appointment_type, 'inspection') = 'inspection'
+    AND a.scheduled_for < NOW() - INTERVAL '2 hours' AND a.opportunity_id IS NOT NULL
     AND EXISTS (SELECT 1 FROM order_form_contracts c
                  WHERE c.opportunity_id = a.opportunity_id AND c.org_id = a.org_id AND c.status = 'completed'
                    AND c.agreement_type IN ('installation', 'repair') AND c.customer_signed_at >= a.scheduled_for)
@@ -153,24 +154,6 @@ UPDATE work_orders w
   FROM fix_c f
  WHERE w.id = f.id AND w.status = f.old_status;
 
--- D. jobs with a completed crew still before "in progress" → in_progress
-CREATE TEMP TABLE fix_d ON COMMIT DROP AS
-SELECT j.id, j.org_id, j.status AS old_status, j.started_at AS old_started_at
-FROM production_jobs j
-WHERE j.status IN ('sold', 'materials', 'scheduled')
-  AND EXISTS (SELECT 1 FROM work_orders w WHERE w.job_id = j.id AND w.trade IS NOT NULL AND w.status = 'completed');
-
-INSERT INTO public._datafix_20261021_status_paths (table_name, row_id, org_id, column_name, old_value, new_value)
-SELECT 'production_jobs', id, org_id, 'status', old_status, 'in_progress' FROM fix_d
-UNION ALL SELECT 'production_jobs', id, org_id, 'started_at', old_started_at::text, COALESCE(old_started_at, NOW())::text FROM fix_d
-ON CONFLICT DO NOTHING;
-
-UPDATE production_jobs j
-   SET status = 'in_progress', started_at = COALESCE(j.started_at, NOW())
-  FROM fix_d f
- WHERE j.id = f.id AND j.status = f.old_status;
--- (projects.status maps sold/materials/scheduled/in_progress all to in_progress — nothing to sync.)
-
 -- B. installed jobs whose materials still say not_ordered → received
 CREATE TEMP TABLE fix_b ON COMMIT DROP AS
 SELECT id, org_id, materials_status AS old_materials
@@ -186,13 +169,31 @@ UPDATE production_jobs j
   FROM fix_b f
  WHERE j.id = f.id AND j.materials_status = 'not_ordered';
 
+-- D. jobs with a completed crew still before "in progress" → in_progress
+CREATE TEMP TABLE fix_d ON COMMIT DROP AS
+SELECT j.id, j.org_id, j.status AS old_status, j.started_at AS old_started_at
+FROM production_jobs j
+WHERE j.status IN ('sold', 'materials', 'scheduled')
+  AND EXISTS (SELECT 1 FROM work_orders w WHERE w.job_id = j.id AND w.trade IS NOT NULL AND w.status = 'completed');
+
+INSERT INTO public._datafix_20261021_status_paths (table_name, row_id, org_id, column_name, old_value, new_value)
+SELECT 'production_jobs', id, org_id, 'status', old_status, 'in_progress' FROM fix_d
+UNION ALL SELECT 'production_jobs', id, org_id, 'started_at', old_started_at::text, COALESCE(old_started_at, (SELECT MIN(w.completed_at) FROM work_orders w WHERE w.job_id = fix_d.id AND w.trade IS NOT NULL AND w.status = 'completed'))::text FROM fix_d
+ON CONFLICT DO NOTHING;
+
+UPDATE production_jobs j
+   SET status = 'in_progress', started_at = COALESCE(j.started_at, (SELECT MIN(w.completed_at) FROM work_orders w WHERE w.job_id = j.id AND w.trade IS NOT NULL AND w.status = 'completed'))
+  FROM fix_d f
+ WHERE j.id = f.id AND j.status = f.old_status;
+-- (projects.status maps sold/materials/scheduled/in_progress all to in_progress — nothing to sync.)
+
 -- E + F. past appointments with proof of what happened
 CREATE TEMP TABLE fix_e ON COMMIT DROP AS
 SELECT x.id, x.org_id, CASE WHEN x.outcome = 'not_home' THEN 'no_show' ELSE 'completed' END AS new_status
 FROM (
   SELECT a.id, a.org_id,
          (SELECT u.outcome FROM inspection_status_updates u
-           WHERE u.lead_id = a.lead_id AND u.org_id = a.org_id AND u.created_at >= a.scheduled_for - INTERVAL '1 day'
+           WHERE u.lead_id = a.lead_id AND u.org_id = a.org_id AND u.created_at >= a.scheduled_for - INTERVAL '1 day' AND u.created_at < a.scheduled_for + INTERVAL '7 days'
            ORDER BY u.created_at ASC LIMIT 1) AS outcome
   FROM scheduled_appointments a
   WHERE a.status = 'scheduled' AND COALESCE(a.appointment_type, 'inspection') = 'inspection'
@@ -203,7 +204,8 @@ WHERE x.outcome IS NOT NULL AND x.outcome <> 'rescheduled';
 INSERT INTO fix_e
 SELECT a.id, a.org_id, 'completed'
 FROM scheduled_appointments a
-WHERE a.status = 'scheduled' AND a.scheduled_for < NOW() - INTERVAL '2 hours' AND a.opportunity_id IS NOT NULL
+WHERE a.status = 'scheduled' AND COALESCE(a.appointment_type, 'inspection') = 'inspection'
+    AND a.scheduled_for < NOW() - INTERVAL '2 hours' AND a.opportunity_id IS NOT NULL
   AND a.id NOT IN (SELECT id FROM fix_e)
   AND EXISTS (SELECT 1 FROM order_form_contracts c
                WHERE c.opportunity_id = a.opportunity_id AND c.org_id = a.org_id AND c.status = 'completed'

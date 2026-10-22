@@ -244,22 +244,31 @@ export async function closeOutLeadAppointments(
   }
 ): Promise<{ closed: number }> {
   const nowIso = args.nowIso ?? new Date().toISOString()
-  const update: Record<string, unknown> = { status: args.status }
-  if (args.opportunityId) update.opportunity_id = args.opportunityId
   const { data, error } = await admin
     .from('scheduled_appointments')
-    .update(update)
+    .update({ status: args.status })
     .eq('org_id', args.orgId)
     .eq('lead_id', args.leadId)
     .eq('status', OPEN_APPOINTMENT_STATUS)
     .or('appointment_type.is.null,appointment_type.eq.inspection')
     .lte('scheduled_for', nowIso)
-    .select('id')
+    .select('id, scheduled_for, opportunity_id')
   if (error) {
     console.error('[closeOutLeadAppointments]', args.leadId, error)
     return { closed: 0 }
   }
-  return { closed: (data || []).length }
+  const closed = (data || []) as { id: string; scheduled_for: string; opportunity_id: string | null }[]
+  // Link only the most recent closed appointment (the one this outcome is about) to the deal,
+  // and only if it has no deal yet — older abandoned visits keep their own history.
+  const latest = [...closed].sort((a, b) => String(b.scheduled_for).localeCompare(String(a.scheduled_for)))[0]
+  if (args.opportunityId && latest && !latest.opportunity_id) {
+    await admin
+      .from('scheduled_appointments')
+      .update({ opportunity_id: args.opportunityId })
+      .eq('id', latest.id)
+      .eq('org_id', args.orgId)
+  }
+  return { closed: closed.length }
 }
 
 /* ------------------------------------------------------------------------ *
@@ -320,6 +329,9 @@ export async function applyContractSignedStatuses(
         .eq('org_id', args.orgId)
         .eq('opportunity_id', args.opportunityId)
         .eq('status', OPEN_APPOINTMENT_STATUS)
+        // Inspections only: `completed` on an adjuster meeting / insurance call pays the
+        // inside-sales booker and is gated behind canCompleteAdjusterMeeting elsewhere.
+        .or('appointment_type.is.null,appointment_type.eq.inspection')
         .lte('scheduled_for', args.signedAtIso)
         .select('id')
       if (error) console.error('[applyContractSignedStatuses] appointments', args.opportunityId, error)
