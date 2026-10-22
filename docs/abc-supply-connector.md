@@ -1,5 +1,7 @@
 # ABC Supply ordering connector
 
+Design background (QXO, SRS, other suppliers, phased plan): `docs/supplier-integrations-spec.md`.
+
 Status: built, **OFF everywhere**, sandbox only until an owner changes it. Orders still go by email until all
 three switches below are on and a supplier's lines are mapped to ABC item numbers.
 
