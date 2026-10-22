@@ -25,8 +25,6 @@ export const OPS_BOARD_JOB_COLUMNS = `
   permit_status,
   started_at,
   completed_at,
-  labor_cost,
-  material_cost,
   dealer_fee_amount,
   priority,
   cancelled_at,

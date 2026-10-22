@@ -15,11 +15,8 @@ import {
   type ForecastResult,
   type GoalCoverage,
 } from '@/lib/goals-forecast'
-import {
-  summarizeJobEconomics,
-  type JobCostLineRow,
-  type JobEconomicsRow,
-} from '@/lib/goals-job-economics'
+import { summarizeJobEconomics, type JobEconomicsRow } from '@/lib/goals-job-economics'
+import { loadJobCostLedger, type JobCostSummary } from '@/lib/job-cost-ledger'
 import {
   countInclusiveDays,
   getEasternDateRange,
@@ -388,7 +385,7 @@ export async function buildScorecardPayload(
   const { data: monthJobs, error: jobsErr } = await supabase
     .from('production_jobs')
     .select(
-      'id, sale_amount, sale_date, created_at, labor_cost, material_cost, dealer_fee_amount, commission_comp_base, commission_pre_tax_subtotal'
+      'id, sale_amount, sale_date, created_at, dealer_fee_amount, commission_comp_base, commission_pre_tax_subtotal'
     )
     .eq('org_id', orgId)
     .neq('status', CANCELLED_JOB_STATUS)
@@ -401,7 +398,7 @@ export async function buildScorecardPayload(
   const fallbackJobsQuery = await supabase
     .from('production_jobs')
     .select(
-      'id, sale_amount, sale_date, created_at, labor_cost, material_cost, dealer_fee_amount, commission_comp_base, commission_pre_tax_subtotal'
+      'id, sale_amount, sale_date, created_at, dealer_fee_amount, commission_comp_base, commission_pre_tax_subtotal'
     )
     .eq('org_id', orgId)
     .neq('status', CANCELLED_JOB_STATUS)
@@ -418,26 +415,13 @@ export async function buildScorecardPayload(
   ]
 
   const jobIds = jobs.map((j) => j.id)
-  const costLinesByJob = new Map<string, JobCostLineRow[]>()
+  const costsByJob = new Map<string, JobCostSummary>()
   if (jobIds.length > 0) {
-    const { data: costLines, error: costErr } = await supabase
-      .from('job_cost_lines')
-      .select('job_id, amount, cost_type')
-      .eq('org_id', orgId)
-      .eq('status', 'active')
-      .is('deleted_at', null)
-      .in('job_id', jobIds)
-      .limit(FETCH_LIMIT)
-
-    if (costErr) throw costErr
-    for (const line of (costLines || []) as JobCostLineRow[]) {
-      const existing = costLinesByJob.get(line.job_id) || []
-      existing.push(line)
-      costLinesByJob.set(line.job_id, existing)
-    }
+    const ledger = await loadJobCostLedger(supabase, orgId, jobIds)
+    for (const [jobId, entry] of Array.from(ledger.entries())) costsByJob.set(jobId, entry.summary)
   }
 
-  const economics = summarizeJobEconomics(jobs, costLinesByJob)
+  const economics = summarizeJobEconomics(jobs, costsByJob)
 
   const leadIds = new Set<string>()
   for (const set of sets) if (set.lead_id) leadIds.add(set.lead_id)

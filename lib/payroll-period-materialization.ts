@@ -3,6 +3,7 @@ import type { CompPlanForCalc } from '@/lib/calculate-commission-from-plan'
 import { buildCommissionPayrollSnapshot } from '@/lib/commission-payroll'
 import { evaluateJobCollection } from '@/lib/job-collection'
 import { roundMoney } from '@/lib/money'
+import { loadJobCostLedger } from '@/lib/job-cost-ledger'
 import {
   buildAdditiveParticipantsForJob,
   loadDerivedCommissionContext,
@@ -261,12 +262,12 @@ export async function materializePayrollPeriod(
       .from('job_payments')
       .select('job_id, amount_cents, funding_status, paid_at, created_at')
       .in('job_id', jobIds),
-    supabase
-      .from('job_cost_lines')
-      .select('job_id, amount, approved, deduct_from_commission_base, created_at, updated_at')
-      .eq('org_id', orgId)
-      .in('job_id', jobIds)
-      .is('deleted_at', null),
+    // The one cost ledger reader (lib/job-cost-ledger.ts): live lines only, so an archived
+    // duplicate (26-0013's two $918 lending-fee lines) no longer counts or blocks.
+    loadJobCostLedger(supabase, orgId, jobIds).then(
+      (ledger) => ({ data: Array.from(ledger.values()).flatMap((entry) => entry.lines), error: null }),
+      (error) => ({ data: null, error })
+    ),
     supabase
       .from('payroll_payout_lines')
       .select('payroll_job_snapshot_id')
