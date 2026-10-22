@@ -18,8 +18,8 @@ export function getPreviousFullMonthRange(timezone: string = SISU_METRICS_TIMEZO
 }
 
 /** Closed sales a person was credited on in a window — read from the reporting view like every other sales number. */
-export async function countClosedSalesInRange(db: unknown, orgId: string, userId: string, range: DateRange): Promise<number> {
-  return countUserSales(db as SupabaseClient, orgId, userId, range)
+export async function countClosedSalesInRange(db: SupabaseClient, orgId: string, userId: string, range: DateRange): Promise<number> {
+  return countUserSales(db, orgId, userId, range)
 }
 
 /**
@@ -27,7 +27,7 @@ export async function countClosedSalesInRange(db: unknown, orgId: string, userId
  * Covers reps who hit threshold at month-end but sync after the new month starts.
  */
 export async function countClosedSalesForBadgeAward(
-  db: unknown,
+  db: SupabaseClient,
   orgId: string,
   userId: string,
 ): Promise<number> {

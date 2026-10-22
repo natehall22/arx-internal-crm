@@ -141,6 +141,8 @@ export async function countUserDoors(admin: SupabaseClient, orgId: string, userI
 
 /** Sales one person was credited on (as closer or setter) in a window, once per opportunity. */
 export async function countUserSales(admin: SupabaseClient, orgId: string, userId: string, range: { start: Date; end: Date }): Promise<number> {
+  // userId goes into a PostgREST filter string: only a plain UUID may.
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId)) throw new Error('Invalid user id')
   const rows = await fetchSupabaseAllPages<Row>(async (from, to) =>
     admin
       .from('rpt_sales')

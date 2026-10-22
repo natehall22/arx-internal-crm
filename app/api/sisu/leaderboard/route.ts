@@ -26,12 +26,6 @@ type OrgUser = {
   active: boolean | null
 }
 
-type CountRow = {
-  owner_id?: string
-  canvasser_id?: string
-  cnt: number | string
-}
-
 type LeaderboardEntry = {
   user_id: string
   full_name: string
@@ -57,15 +51,6 @@ const TIMEZONE = 'America/New_York'
 function toNumber(value: unknown) {
   const parsed = Number(value ?? 0)
   return Number.isFinite(parsed) ? parsed : 0
-}
-
-function countMap(rows: CountRow[], idKey: 'owner_id' | 'canvasser_id') {
-  const map = new Map<string, number>()
-  for (const row of rows) {
-    const userId = row[idKey]
-    if (userId) map.set(userId, toNumber(row.cnt))
-  }
-  return map
 }
 
 function rankEntries(

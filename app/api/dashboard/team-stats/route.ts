@@ -194,7 +194,7 @@ export async function GET(request: NextRequest) {
     )
 
     const teamMemberStatsAll: TeamStatRow[] = members.map((member) => {
-      // Doors/contacts: pin-first credit from dashboard_* RPCs (see migration 127/128) for every role,
+      // Doors/contacts: credited to whoever knocked (reporting views) for every role,
       // so closers / admins who canvass still see knocks; sits/sales stay setter vs owner lane below.
       const { doors: doorsKnocked, contacts, inspectionsSet, inspectionsReceived, sits, sales, calendar: apptsOnCalendar } = memberStatsById.get(member.id)!
 

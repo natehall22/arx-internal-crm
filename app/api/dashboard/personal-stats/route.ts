@@ -26,8 +26,6 @@ export async function GET(request: NextRequest) {
 
     const isSetter = isSetterLikeRole(profile.role)
     const orgWideKpis = isDashboardPersonalKpiOrgWide(profile.role)
-    // Empty scope = whole org in dashboard_*_scoped RPCs; reps see only their id.
-    const scopeForRpc = orgWideKpis ? [] : [profile.id]
 
     const { data: orgRow } = await supabase
       .from('orgs')
