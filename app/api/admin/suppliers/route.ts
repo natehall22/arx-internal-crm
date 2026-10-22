@@ -1,103 +1,145 @@
 /**
- * Suppliers (the vendors table) as the ordering flow sees them: order email, cc, account, default
- * trades, delivery notes, how orders are sent. Same access as sending orders (ops job editors /
- * super admins). Two ACTIVE suppliers may not both be the default for the same trade.
+ * Suppliers (the vendors table as the ordering flow sees them). OWNERS ONLY (super admin or owner role):
+ * a supplier's order email decides where a job's address and materials list are sent.
+ *   GET  — suppliers + "last order sent to" + the recent change log
+ *   POST — create or update one supplier; validated (lib/supplier-admin.ts) and logged old → new
+ * Two ACTIVE suppliers may not both be the default for the same trade; names are unique per company.
  */
 import { NextRequest, NextResponse } from 'next/server'
 
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
-import { isValidEmail } from '@/lib/supplier-order-email'
-import { resolveSupplierOrderAccess } from '@/lib/supplier-orders'
+import { canManageSuppliers, describeChange, diffSupplier, parseSupplierInput, type SupplierInput } from '@/lib/supplier-admin'
 
 export const dynamic = 'force-dynamic'
 
 const COLUMNS =
-  'id, name, active, order_email, order_cc_emails, account_number, default_branch, default_delivery_notes, default_for_trades, connection_type'
+  'id, updated_at, name, active, order_email, order_cc_emails, account_number, default_branch, default_delivery_notes, default_for_trades, connection_type'
 
 async function authorize() {
   try {
-    const { authUser, profile } = await requireAuthApi()
-    const admin = createServiceClient()
-    const access = await resolveSupplierOrderAccess(admin, authUser.id, profile)
-    return { admin, profile, ...access }
+    const { profile } = await requireAuthApi()
+    if (!canManageSuppliers(profile)) return { error: NextResponse.json({ error: 'Only owners can manage suppliers' }, { status: 403 }) }
+    return { profile, admin: createServiceClient() }
   } catch {
-    return null
+    return { error: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) }
   }
 }
 
 export async function GET() {
-  const auth = await authorize()
-  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  if (!auth.canView) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-  const { data, error } = await auth.admin
-    .from('vendors')
-    .select(COLUMNS)
-    .eq('org_id', auth.profile.org_id)
-    .is('deleted_at', null)
-    .order('name')
-  if (error) return NextResponse.json({ error: 'Could not load suppliers' }, { status: 500 })
-  return NextResponse.json({ suppliers: data ?? [], canEdit: auth.canSend })
-}
+  const a = await authorize()
+  if ('error' in a) return a.error
+  const orgId = a.profile.org_id
 
-function cleanEmails(v: unknown): string[] | null {
-  if (!Array.isArray(v)) return null
-  const out = v.map((x) => String(x).trim().toLowerCase()).filter(Boolean)
-  return out.every(isValidEmail) ? out : null
-}
-
-/** POST { id?, name, order_email, order_cc_emails[], account_number, default_branch, default_delivery_notes, default_for_trades[], active } — creates or updates. */
-export async function POST(request: NextRequest) {
-  const auth = await authorize()
-  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  if (!auth.canSend) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-  const b = (await request.json().catch(() => null)) as Record<string, unknown> | null
-  if (!b) return NextResponse.json({ error: 'Invalid body' }, { status: 400 })
-
-  const name = typeof b.name === 'string' ? b.name.trim().slice(0, 120) : ''
-  if (!name) return NextResponse.json({ error: 'Name is required' }, { status: 400 })
-  const orderEmail = typeof b.order_email === 'string' && b.order_email.trim() ? b.order_email.trim().toLowerCase() : null
-  if (orderEmail && /[,;<>\s]/.test(orderEmail)) return NextResponse.json({ error: 'Enter one order email address (use the cc box for others)' }, { status: 400 })
-  if (orderEmail && !isValidEmail(orderEmail)) return NextResponse.json({ error: 'Order email is not a valid address' }, { status: 400 })
-  const cc = b.order_cc_emails === undefined ? [] : cleanEmails(b.order_cc_emails)
-  if (cc === null) return NextResponse.json({ error: 'A cc address is not valid' }, { status: 400 })
-  const trades = Array.isArray(b.default_for_trades)
-    ? Array.from(new Set(b.default_for_trades.map((t) => String(t).trim().toLowerCase()).filter(Boolean)))
-    : []
-  const active = b.active !== false
-  const text = (v: unknown, max = 500) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : null)
-  const id = typeof b.id === 'string' && b.id ? b.id : null
-  const orgId = auth.profile.org_id
-
-  if (active && trades.length > 0) {
-    const { data: others } = await auth.admin
-      .from('vendors')
-      .select('id, name, default_for_trades')
+  const [suppliersRes, , logRes] = await Promise.all([
+    a.admin.from('vendors').select(COLUMNS).eq('org_id', orgId).is('deleted_at', null).order('name'),
+    Promise.resolve(null),
+    a.admin
+      .from('supplier_audit_log')
+      .select('id, vendor_id, action, changed_at, changes, changed_by, users:changed_by(full_name)')
       .eq('org_id', orgId)
-      .eq('active', true)
-      .is('deleted_at', null)
-      .overlaps('default_for_trades', trades)
-    const clash = (others ?? []).find((o) => o.id !== id)
-    if (clash) {
-      return NextResponse.json({ error: `${clash.name} is already the default supplier for one of those trades` }, { status: 409 })
+      .order('changed_at', { ascending: false })
+      .limit(200),
+  ])
+  if (suppliersRes.error) return NextResponse.json({ error: 'Could not load suppliers' }, { status: 500 })
+
+  // Last REAL email per supplier ("sent by hand" has no address). One small query each, so an old
+  // supplier is never crowded out by newer sends to others.
+  const lastOrder = new Map<string, { to: string; at: string | null; po: string }>()
+  await Promise.all(
+    (suppliersRes.data ?? []).map(async (s) => {
+      const { data } = await a.admin
+        .from('supplier_order_sends')
+        .select('to_email, sent_at, po_label')
+        .eq('org_id', orgId)
+        .eq('vendor_id', s.id as string)
+        .eq('status', 'sent')
+        .neq('to_email', 'sent by hand')
+        .order('sent_at', { ascending: false })
+        .limit(1)
+      const row = (data ?? [])[0]
+      if (row) lastOrder.set(s.id as string, { to: row.to_email as string, at: row.sent_at as string | null, po: row.po_label as string })
+    })
+  )
+  const logByVendor = new Map<string, Array<{ at: string; by: string | null; action: string; lines: string[] }>>()
+  for (const row of (logRes.data ?? []) as Array<Record<string, any>>) {
+    const list = logByVendor.get(row.vendor_id) ?? []
+    if (list.length < 10) {
+      list.push({
+        at: row.changed_at,
+        by: (Array.isArray(row.users) ? row.users[0]?.full_name : row.users?.full_name) ?? null,
+        action: row.action,
+        lines: (row.changes ?? []).map(describeChange),
+      })
     }
+    logByVendor.set(row.vendor_id, list)
   }
 
-  const row = {
-    name,
-    active,
-    order_email: orderEmail,
-    order_cc_emails: cc,
-    account_number: text(b.account_number, 100),
-    default_branch: text(b.default_branch, 200),
-    default_delivery_notes: text(b.default_delivery_notes, 1000),
-    default_for_trades: trades,
-    updated_at: new Date().toISOString(),
+  return NextResponse.json({
+    suppliers: (suppliersRes.data ?? []).map((s) => ({
+      ...s,
+      last_order: lastOrder.get(s.id as string) ?? null,
+      log: logByVendor.get(s.id as string) ?? [],
+    })),
+  })
+}
+
+export async function POST(request: NextRequest) {
+  const a = await authorize()
+  if ('error' in a) return a.error
+  const orgId = a.profile.org_id
+
+  const body = (await request.json().catch(() => null)) as Record<string, unknown> | null
+  const parsed = parseSupplierInput(body)
+  if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 })
+  const next = parsed.value
+  const id = typeof body?.id === 'string' && body.id ? body.id : null
+
+  let before: SupplierInput | null = null
+  if (id) {
+    const { data } = await a.admin.from('vendors').select(COLUMNS).eq('id', id).eq('org_id', orgId).is('deleted_at', null).maybeSingle()
+    if (!data) return NextResponse.json({ error: 'Supplier not found' }, { status: 404 })
+    // Stale form: someone saved this supplier after it was opened. Reload instead of overwriting them.
+    const seen = typeof body?.updated_at === 'string' ? body.updated_at : null
+    if (seen && (data as any).updated_at && new Date(seen).getTime() !== new Date((data as any).updated_at).getTime()) {
+      return NextResponse.json({ error: 'This supplier was changed by someone else since you opened it. Close and reopen it to see the latest.' }, { status: 409 })
+    }
+    before = { ...(data as unknown as SupplierInput), order_cc_emails: (data as any).order_cc_emails ?? [], default_for_trades: (data as any).default_for_trades ?? [] }
   }
-  const query = id
-    ? auth.admin.from('vendors').update(row).eq('id', id).eq('org_id', orgId).select(COLUMNS).maybeSingle()
-    : auth.admin.from('vendors').insert({ ...row, org_id: orgId, created_by: auth.profile.id }).select(COLUMNS).maybeSingle()
-  const { data, error } = await query
-  if (error || !data) return NextResponse.json({ error: 'Could not save the supplier' }, { status: 500 })
-  return NextResponse.json({ supplier: data })
+
+  const { data: others } = await a.admin
+    .from('vendors')
+    .select('id, name, active, default_for_trades')
+    .eq('org_id', orgId)
+    .is('deleted_at', null)
+  const clashName = (others ?? []).find((o) => o.id !== id && String(o.name).trim().toLowerCase() === next.name.toLowerCase())
+  if (clashName) return NextResponse.json({ error: `A supplier named "${clashName.name}" already exists` }, { status: 409 })
+  if (next.active && next.default_for_trades.length > 0) {
+    const clash = (others ?? []).find(
+      (o) => o.id !== id && o.active && ((o.default_for_trades as string[] | null) ?? []).some((t) => next.default_for_trades.includes(t))
+    )
+    if (clash) return NextResponse.json({ error: `${clash.name} is already the default supplier for one of those trades` }, { status: 409 })
+  }
+
+  const changes = diffSupplier(before, next)
+  if (id && changes.length === 0) return NextResponse.json({ supplier: { id, ...next }, unchanged: true })
+
+  const row = { ...next, updated_at: new Date().toISOString() }
+  const result = id
+    ? await a.admin.from('vendors').update(row).eq('id', id).eq('org_id', orgId).select(COLUMNS).maybeSingle()
+    : await a.admin.from('vendors').insert({ ...row, org_id: orgId, created_by: a.profile.id }).select(COLUMNS).maybeSingle()
+  if (result.error || !result.data) return NextResponse.json({ error: 'Could not save the supplier' }, { status: 500 })
+  const saved = result.data as unknown as { id: string }
+
+  const action = !id ? 'created' : before && before.active && !next.active ? 'deactivated' : before && !before.active && next.active ? 'reactivated' : 'updated'
+  const { error: logError } = await a.admin
+    .from('supplier_audit_log')
+    .insert({ org_id: orgId, vendor_id: saved.id, action, changed_by: a.profile.id, changes })
+  if (logError) {
+    // No change without a record of it: undo and report.
+    if (id && before) await a.admin.from('vendors').update(before).eq('id', id).eq('org_id', orgId)
+    else await a.admin.from('vendors').delete().eq('id', saved.id).eq('org_id', orgId)
+    return NextResponse.json({ error: 'Could not record the change, so it was not saved. Try again.' }, { status: 500 })
+  }
+  return NextResponse.json({ supplier: saved, changes: changes.map(describeChange) })
 }
