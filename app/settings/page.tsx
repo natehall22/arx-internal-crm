@@ -29,7 +29,7 @@ interface UserProfile {
   role: string
   full_name: string
   aiAssistantAllowlisted?: boolean
-  canManageSuppliers?: boolean
+  isOwner?: boolean
 }
 
 const defaultSettings: UserSettings = {
@@ -64,7 +64,7 @@ export default function SettingsPage() {
   const [aiEnabled, setAiEnabled] = useState(defaultSettings.ai_enabled)
   const [googleToken, setGoogleToken] = useState<any>(null)
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null)
-  const [activeTab, setActiveTab] = useState<'notifications' | 'calendar' | 'ai' | 'reports' | 'suppliers' | 'display'>('notifications')
+  const [activeTab, setActiveTab] = useState<'notifications' | 'calendar' | 'ai' | 'reports' | 'suppliers' | 'announcements' | 'display'>('notifications')
   const [calendarMessage, setCalendarMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   useEffect(() => {
@@ -243,7 +243,7 @@ export default function SettingsPage() {
       ? [{ id: 'ai', label: 'AI Assistant', icon: '🤖' }]
       : []),
     { id: 'reports', label: 'My Reports', icon: '📊' },
-    ...(userProfile?.canManageSuppliers ? [{ id: 'suppliers', label: 'Suppliers', icon: '🚚' }] : []),
+    ...(userProfile?.isOwner ? [{ id: 'suppliers', label: 'Suppliers', icon: '🚚' }, { id: 'announcements', label: 'Announcements', icon: '📣' }] : []),
     { id: 'display', label: 'Display', icon: '🎨' },
   ] as const
 
@@ -626,7 +626,7 @@ export default function SettingsPage() {
         )}
 
         {/* Display Tab */}
-        {activeTab === 'suppliers' && userProfile?.canManageSuppliers && (
+        {activeTab === 'suppliers' && userProfile?.isOwner && (
           <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
             <h2 className="text-lg font-semibold text-[#2c2c2a] mb-2">Suppliers</h2>
             <p className="text-sm text-[#2c2c2a] mb-4">
@@ -634,6 +634,18 @@ export default function SettingsPage() {
             </p>
             <a href="/admin/suppliers" className="inline-flex min-h-[44px] w-full sm:w-auto items-center justify-center rounded-lg bg-indigo-700 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-800">
               Open Suppliers
+            </a>
+          </div>
+        )}
+
+        {activeTab === 'announcements' && userProfile?.isOwner && (
+          <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
+            <h2 className="text-lg font-semibold text-[#2c2c2a] mb-2">Announcements</h2>
+            <p className="text-sm text-[#2c2c2a] mb-4">
+              The &quot;What&apos;s new&quot; banner: write short copy for each role, set the dates, and see who has closed it.
+            </p>
+            <a href="/admin/announcements" className="inline-flex min-h-[44px] w-full sm:w-auto items-center justify-center rounded-lg bg-indigo-700 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-800">
+              Open Announcements
             </a>
           </div>
         )}

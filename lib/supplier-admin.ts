@@ -2,16 +2,13 @@
  * Supplier records (the `vendors` table as the ordering flow uses it): who may edit them, how an edit is
  * validated, and how a change is described for the change log. One module for the API, the page and tests.
  */
-import { isSuperAdmin, type SuperAdminProfile } from '@/lib/super-admin'
+import { isOwnerProfile } from '@/lib/super-admin'
 /** ASCII-only, one address, max 254 chars. Stricter than the mailer's check on purpose: this is what we STORE. */
 const STORED_EMAIL_RE = /^[A-Za-z0-9._%+'-]{1,64}@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$/
 export const isStorableEmail = (v: string): boolean => v.length <= 254 && STORED_EMAIL_RE.test(v)
 
 /** Owners only: a super admin, or the `owner` role. Supplier emails decide where job addresses are sent. */
-export function canManageSuppliers(profile: (SuperAdminProfile & { role?: string | null }) | null | undefined): boolean {
-  if (!profile) return false
-  return isSuperAdmin(profile) || (profile.active !== false && String(profile.role || '').toLowerCase() === 'owner')
-}
+export const canManageSuppliers = isOwnerProfile
 
 export type SupplierInput = {
   name: string

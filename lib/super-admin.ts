@@ -22,3 +22,9 @@ export function isSuperAdmin(profile: SuperAdminProfile): boolean {
   if (profile.active === false) return false
   return profile.is_super_admin === true
 }
+
+/** An ARX owner: a super admin, or the `owner` role (active only). The one "who is an owner" check. */
+export function isOwnerProfile(profile: (NonNullable<SuperAdminProfile> & { role?: string | null }) | null | undefined): boolean {
+  if (!profile) return false
+  return isSuperAdmin(profile) || (profile.active !== false && String(profile.role || '').toLowerCase() === 'owner')
+}
