@@ -129,7 +129,8 @@ describe('computeJobSaleTotals — base excludes sales tax ONLY, never the deale
   })
 
   it('the writer never selects or uses the job dealer fee column', () => {
-    const src = require('fs').readFileSync(require('path').join(process.cwd(), 'lib/job-commission-base.ts'), 'utf8')
-    expect(src).not.toMatch(/dealer_fee_amount|dealerFee\s*[:=]/)
+    const raw = require('fs').readFileSync(require('path').join(process.cwd(), 'lib/job-commission-base.ts'), 'utf8')
+    const code = raw.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
+    expect(code).not.toMatch(/dealer_?fee/i)
   })
 })

@@ -8,7 +8,6 @@ import type { CloseScheduleConfirm } from '@/components/appointments/CloseSchedu
 import CommissionWidget from '@/components/CommissionWidget'
 import UnpaidReferralsAlert from '@/components/UnpaidReferralsAlert'
 import MyPartnersCard from '@/components/referral-partners/MyPartnersCard'
-import { netCommissionableFromFinancedTotal } from '@/lib/financing'
 import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
 import {
   TIME_FRAMES,
@@ -573,15 +572,14 @@ export default function DashboardClient({
   const [calcHoursWorked, setCalcHoursWorked] = useState('40')
   const [calcUnits, setCalcUnits] = useState('25')
   /** Avg dealer fee % of financed total — 0 for cash / no fee; drives net commissionable volume in calculator. */
-  const [avgDealerFeePercent, setAvgDealerFeePercent] = useState('0')
 
   const calcAvgSalePriceNum = previewNumber(calcAvgSalePrice)
   const calcJobsClosedNum = previewNumber(calcJobsClosed)
   const calcHoursWorkedNum = previewNumber(calcHoursWorked)
   const calcUnitsNum = previewNumber(calcUnits)
-  const avgDealerFeePercentNum = previewNumber(avgDealerFeePercent)
 
-  const commissionablePerJob = netCommissionableFromFinancedTotal(calcAvgSalePriceNum, avgDealerFeePercentNum)
+  // Commission is on the full sale amount — the dealer fee is never deducted.
+  const commissionablePerJob = calcAvgSalePriceNum
   const monthlyCommissionableVolume = commissionablePerJob * calcJobsClosedNum
 
   const compCalculatorTierValues = useMemo(() => {
@@ -2417,23 +2415,6 @@ export default function DashboardClient({
                             ))}
                           </div>
                         </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-2">
-                            Avg dealer fee % (of financed total)
-                          </label>
-                          <input
-                            type="number"
-                            min={0}
-                            max={50}
-                            step={0.25}
-                            value={avgDealerFeePercent}
-                            onChange={(e) => setAvgDealerFeePercent(e.target.value)}
-                            className="w-full px-3 sm:px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-base"
-                          />
-                          <p className="text-xs text-gray-500 mt-1">
-                            0% = cash or no lender fee.
-                          </p>
-                        </div>
                         
                         <div>
                           <label className="block text-sm font-medium text-gray-700 mb-2">Your Sales per Month</label>
@@ -2521,7 +2502,7 @@ export default function DashboardClient({
                       }
                       displayRows.push({ label: 'Your Sales/Month', value: `${calcJobsClosed}` })
                       displayRows.push({ label: 'Avg financed / job', value: `$${calcAvgSalePriceNum.toLocaleString()}` })
-                      displayRows.push({ label: 'Net commissionable volume', value: `$${monthlyVolume.toLocaleString()}` })
+                      displayRows.push({ label: 'Commissionable volume', value: `$${monthlyVolume.toLocaleString()}` })
                       displayRows.push({ label: 'Commission Rate', value: `${baseRate}%${appliedBonuses.length > 0 ? ` (${appliedBonuses.join(' ')})` : ''}` })
                       displayRows.push({ label: 'Personal Earnings', value: `$${Math.round(personalEarnings).toLocaleString()}` })
                     }
@@ -2543,7 +2524,7 @@ export default function DashboardClient({
                       displayRows = [
                         { label: 'Sales/Month', value: `${calcJobsClosed}` },
                         { label: 'Avg financed / job', value: `$${calcAvgSalePriceNum.toLocaleString()}` },
-                        { label: 'Net commissionable volume', value: `$${monthlyVolume.toLocaleString()}` },
+                        { label: 'Commissionable volume', value: `$${monthlyVolume.toLocaleString()}` },
                         { label: 'Base Rate', value: `${compPlanDetails.base_percentage || 0}%` },
                       ]
                       if (appliedBonuses.length > 0) {

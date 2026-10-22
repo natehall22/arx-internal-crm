@@ -210,9 +210,9 @@ export async function syncJobSaleAndCommissionBase(
     const { data: coRows, error: coError } = await coQuery
     if (coError) return { status: 'error', error: coError }
 
-    // Tax comes from the proposal the signed contract was built from; the job's own proposal is the
-    // fallback (repair agreements with no proposal carry no tax).
-    const taxProposalId = contractProposalId ?? proposalId
+    // Tax comes from the job's own proposal (the one its sale amount was built from — for financed
+    // deals that is the financed proposal), falling back to the signed contract's proposal.
+    const taxProposalId = proposalId ?? contractProposalId
     let salesTax = 0
     if (taxProposalId) {
       const { data: proposal } = await admin
