@@ -19,6 +19,7 @@ import { TRADE_LABELS } from '@/lib/job-trades'
 import JobPaymentsCard from '@/components/ops/JobPaymentsCard'
 import JobInvoicesCard from '@/components/ops/JobInvoicesCard'
 import CompleteJobModal from '@/components/ops/CompleteJobModal'
+import { PAID_IN_FULL_TOLERANCE_CENTS } from '@/lib/job-collection'
 import JobPaymentMethodBanner from '@/components/ops/JobPaymentMethodBanner'
 import JobDocumentsBanner from '@/components/ops/JobDocumentsBanner'
 import JobReadyToPayBanner from '@/components/ops/JobReadyToPayBanner'
@@ -81,6 +82,8 @@ interface Job {
   /** Ops acknowledged closing despite contract balance (complete and/or collected short). */
   allow_close_with_balance?: boolean | null
   close_balance_reason?: string | null
+  /** Super admin who forced paid-in-full (lib/job-collection.ts); null = legacy flag, not forced. */
+  close_balance_by?: string | null
   labor_cost: number | null
   material_cost: number | null
   dealer_fee_amount?: number | null
@@ -355,6 +358,8 @@ interface JobDetailClientProps {
   canViewJobBilling: boolean
   canEditPayrollAttribution: boolean
   canEditFinancialSource: boolean
+  /** Owner flag (lib/super-admin.ts): may close a job with a balance. */
+  isSuperAdmin?: boolean
   financialSourceProposalOptions: FinancialSourceProposalOption[]
   changeOrdersSection: JobChangeOrdersSectionProps | null
 }
@@ -564,6 +569,7 @@ export default function JobDetailClient({
   canViewJobBilling,
   canEditPayrollAttribution,
   canEditFinancialSource,
+  isSuperAdmin = false,
   financialSourceProposalOptions,
   changeOrdersSection,
 }: JobDetailClientProps) {
@@ -710,12 +716,9 @@ export default function JobDetailClient({
     if (job.status !== 'complete') return
     if (autoCollecting) return
 
-    const saleAmountCents = Math.round((job.sale_amount || 0) * 100)
-    const collectedCents = paymentSummary.collected_cents || 0
-
-    // Only auto-collect for paid jobs with an actual sale amount.
-    if (saleAmountCents <= 0) return
-    if (collectedCents < saleAmountCents) return
+    // Only auto-collect when payments cover the sale amount (lib/job-collection.ts, $0.05 tolerance).
+    // A forced close is a deliberate owner action and goes through /force-paid, not here.
+    if (!paymentSummary.paid_by_payments) return
 
     const markCollected = async () => {
       setAutoCollecting(true)
@@ -1017,52 +1020,59 @@ export default function JobDetailClient({
     ) {
       return
     }
-    if (unpaidContractCents > 0) {
+    if (unpaidContractCents > PAID_IN_FULL_TOLERANCE_CENTS) {
       setShowCompleteModal(true)
     } else {
       updateStatus('complete')
     }
   }
 
-  const handleCompleteWithBalance = async (reason?: string) => {
-    await updateStatus('complete', {
-      allow_close_with_balance: true,
-      close_balance_reason: reason || null,
-    })
+  // Completing with money still owed is normal (insurance, final check). It is NOT a
+  // paid-in-full override — that is owner-only, on the collect step below.
+  const handleCompleteWithBalance = async () => {
+    await updateStatus('complete')
     setShowCompleteModal(false)
   }
 
+  const forcedPaidInFull = Boolean(job.allow_close_with_balance && job.close_balance_by)
+
   const markCollectedDisabled = false
   const markCollectedTitle =
-    unpaidContractCents > 0 && !job.allow_close_with_balance
-      ? 'Outstanding balance — confirm to mark collected'
+    unpaidContractCents > 0 && !forcedPaidInFull
+      ? 'Outstanding balance — only an owner can close it'
       : undefined
 
   const handleCollectShortConfirm = async (reason?: string) => {
     const trimmed = reason?.trim()
-    await updateStatus('collected', {
-      allow_close_with_balance: true,
-      ...(trimmed ? { close_balance_reason: trimmed } : {}),
-    })
-    setShowCollectModal(false)
+    if (!isSuperAdmin || !trimmed) return
+    setSaving(true)
+    try {
+      const res = await fetch(`/api/ops/jobs/${job.id}/force-paid`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: trimmed, mark_collected: true }),
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        alert(typeof body.error === 'string' ? body.error : 'Could not close this job')
+      }
+    } finally {
+      await reloadJob()
+      setSaving(false)
+      setShowCollectModal(false)
+    }
   }
 
   const handleCollectedClick = () => {
     if (job.status !== 'complete') return
 
-    if (job.allow_close_with_balance) {
+    if (forcedPaidInFull) {
       void updateStatus('collected')
       return
     }
 
-    if (contractSaleAmountCents <= 0) {
-      void updateStatus('collected')
-      return
-    }
-
-    /** Only skip the modal when billing summary loaded and confirms nothing owed — otherwise always confirm short-collect */
-    const paymentSummarySaysFullyPaid =
-      paymentSummary != null && unpaidContractCents <= 0
+    /** Skip the modal only when the billing summary says paid in full (same rule the server enforces). */
+    const paymentSummarySaysFullyPaid = paymentSummary?.paid_in_full === true
 
     if (paymentSummarySaysFullyPaid) {
       void updateStatus('collected')
@@ -1862,6 +1872,7 @@ export default function JobDetailClient({
           paymentSummary={paymentSummary}
           saleAmount={job.sale_amount}
           allowCloseWithBalance={job.allow_close_with_balance ?? false}
+          closeBalanceBy={job.close_balance_by ?? null}
           canViewBilling={canViewJobBilling}
           onUpdated={reloadJob}
         />
@@ -2468,6 +2479,7 @@ export default function JobDetailClient({
           variant="collect"
           jobId={job.id}
           remainingCents={unpaidContractCents}
+          canForce={isSuperAdmin}
           onClose={() => setShowCollectModal(false)}
           onConfirm={handleCollectShortConfirm}
         />

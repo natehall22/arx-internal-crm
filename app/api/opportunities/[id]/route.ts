@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
-import { syncCloserAttributionDownstream } from '@/lib/payroll-attribution-sync'
+import { saveDealSaleCredit, type SaleCreditChange } from '@/lib/deal-sale-credit'
+import { isSuperAdmin } from '@/lib/super-admin'
 import { canSetReferredBy, getPartnerAccess } from '@/lib/referral-partners'
 import { createServiceClient } from '@/lib/supabase/service'
 
@@ -121,7 +122,11 @@ export async function PATCH(
       Object.prototype.hasOwnProperty.call(updateData, 'setter_user_id') ||
       Object.prototype.hasOwnProperty.call(updateData, 'owner_user_id')
 
-    if (touchesPayrollAttribution && !PAYROLL_ATTR_ROLES.has(String(profile.role || '').toLowerCase())) {
+    if (
+      touchesPayrollAttribution &&
+      !PAYROLL_ATTR_ROLES.has(String(profile.role || '').toLowerCase()) &&
+      !isSuperAdmin(profile)
+    ) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
@@ -140,6 +145,39 @@ export async function PATCH(
     // even if they somehow have the id (e.g. from a stale link or another surface).
     if (!(await canRepAccessOpportunity(adminClient, profile, authContext.authUser.id, existingOpp))) {
       return NextResponse.json({ error: 'Opportunity not found' }, { status: 404 })
+    }
+
+    // Setter / closer go through the one sale-credit writer: it locks them once the contract is
+    // signed (owner + reason only, logged) and keeps the job's salesperson in step.
+    if (touchesPayrollAttribution) {
+      const next: SaleCreditChange = {}
+      if (Object.prototype.hasOwnProperty.call(updateData, 'setter_user_id')) {
+        next.setterUserId = (updateData.setter_user_id as string | null) || null
+      }
+      if (Object.prototype.hasOwnProperty.call(updateData, 'owner_user_id')) {
+        next.closerUserId = (updateData.owner_user_id as string | null) || null
+      }
+      delete updateData.setter_user_id
+      delete updateData.owner_user_id
+      const saved = await saveDealSaleCredit(adminClient, {
+        orgId: profile.org_id,
+        opportunityId: params.id,
+        actor: profile,
+        next,
+        reason: typeof body.sale_credit_change_reason === 'string' ? body.sale_credit_change_reason : null,
+      })
+      if (!saved.ok) {
+        return NextResponse.json({ error: saved.error }, { status: saved.status })
+      }
+      if (Object.keys(updateData).length === 0) {
+        const { data: refreshed } = await adminClient
+          .from('opportunities')
+          .select()
+          .eq('id', params.id)
+          .eq('org_id', profile.org_id)
+          .single()
+        return NextResponse.json({ opportunity: refreshed })
+      }
     }
 
     // "Referred By": admin/owner/operations only; must be a partner in this org.
@@ -195,69 +233,6 @@ export async function PATCH(
       for (const job of jobsForOpp ?? []) {
         const { error: roleErr } = await adminClient.rpc('write_partner_owner_role', { p_job_id: job.id })
         if (roleErr) console.error('write_partner_owner_role failed:', roleErr)
-      }
-    }
-
-    if (touchesPayrollAttribution && opportunity) {
-      const setterChanged =
-        Object.prototype.hasOwnProperty.call(updateData, 'setter_user_id') &&
-        (existingOpp.setter_user_id ?? null) !== (opportunity.setter_user_id ?? null)
-      const closerChanged =
-        Object.prototype.hasOwnProperty.call(updateData, 'owner_user_id') &&
-        (existingOpp.owner_user_id ?? null) !== (opportunity.owner_user_id ?? null)
-
-      if (setterChanged || closerChanged) {
-        const ids = [
-          existingOpp.setter_user_id,
-          existingOpp.owner_user_id,
-          opportunity.setter_user_id,
-          opportunity.owner_user_id,
-        ].filter((x): x is string => typeof x === 'string')
-
-        const nameById = new Map<string, string>()
-        if (ids.length > 0) {
-          const { data: usersForNames } = await adminClient
-            .from('users')
-            .select('id, full_name')
-            .eq('org_id', profile.org_id)
-            .in('id', Array.from(new Set(ids)))
-
-          for (const u of usersForNames || []) {
-            nameById.set(u.id, u.full_name || u.id)
-          }
-        }
-
-        const fmt = (id: string | null | undefined) =>
-          id ? nameById.get(id) || id : '—'
-
-        const parts: string[] = []
-        parts.push(`Payroll attribution updated by ${profile.full_name || authContext.authUser.id}.`)
-        if (setterChanged) {
-          parts.push(
-            `Setter: ${fmt(existingOpp.setter_user_id)} → ${fmt(opportunity.setter_user_id)}.`
-          )
-        }
-        if (closerChanged) {
-          parts.push(
-            `Closer: ${fmt(existingOpp.owner_user_id)} → ${fmt(opportunity.owner_user_id)}.`
-          )
-        }
-
-        await adminClient.from('activities').insert({
-          org_id: profile.org_id,
-          opportunity_id: params.id,
-          user_id: authContext.authUser.id,
-          type: 'note',
-          body: parts.join(' '),
-        })
-      }
-
-      if (closerChanged) {
-        await syncCloserAttributionDownstream(adminClient, {
-          orgId: profile.org_id,
-          closerUserId: (opportunity.owner_user_id as string | null) ?? null,
-          opportunityId: params.id,
-        })
       }
     }
 

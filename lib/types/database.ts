@@ -108,6 +108,8 @@ export interface User {
   email: string | null
   active: boolean
   dashboard_view: DashboardViewType
+  /** Owner flag — see lib/super-admin.ts. Absent until migration 202610210010 is applied. */
+  is_super_admin?: boolean | null
   created_at: string
   updated_at: string
 }
@@ -990,8 +992,14 @@ export interface ProductionJob {
   // Financials
   labor_cost: number | null
   material_cost: number | null
+  /** Retired 2026-10-21 — cleared by lib/job-commission-base.ts. */
   commission_pre_tax_subtotal?: number | null
+  /** Signed contract + signed (commissionable) change orders. One writer: lib/job-commission-base.ts. */
   commission_comp_base?: number | null
+  allow_close_with_balance?: boolean | null
+  close_balance_reason?: string | null
+  close_balance_by?: string | null
+  close_balance_at?: string | null
   ntp_date?: string | null
   ntp_commission_percent?: number | null
   commission_hold_status?: 'held_till_install' | 'released' | null

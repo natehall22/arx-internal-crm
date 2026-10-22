@@ -45,7 +45,7 @@ export async function PATCH(
     // 124 is not applied, referencing that column makes the whole query fail with a false "not found".)
     const { data: existingJob, error: fetchError } = await adminClient
       .from('production_jobs')
-      .select('id, org_id, project_id, status, allow_close_with_balance, close_balance_reason')
+      .select('id, org_id, project_id, status')
       .eq('id', params.id)
       .eq('org_id', profile.org_id)
       .single()
@@ -69,7 +69,9 @@ export async function PATCH(
       'started_at', 'completed_at',
       'labor_cost', 'internal_notes',
       'deposit_required_percent', 'finance_submitted_at',
-      'allow_close_with_balance', 'close_balance_reason',
+      // `allow_close_with_balance` / `close_balance_reason` are deliberately NOT here: forcing a
+      // job "paid in full" with a balance is a super-admin action with a required reason, written
+      // only by POST /api/ops/jobs/[id]/force-paid (lib/job-collection.ts).
       // Insurance / job source (migration 099)
       'job_source', 'insurance_stage',
       'acv_amount', 'depreciation_amount', 'supplement_amount',
@@ -138,31 +140,21 @@ export async function PATCH(
       }
     }
 
+    // "Collected" is calculated (lib/job-collection.ts): payments within $0.05 of the sale
+    // amount, or a super admin forced it with a reason. Nothing else may mark a job collected.
     if (updateData.status === 'collected') {
-      const existingAck = Boolean((existingJob as { allow_close_with_balance?: boolean | null }).allow_close_with_balance)
-      const incomingAck = Boolean(updateData.allow_close_with_balance)
-
-      const reasonNew =
-        typeof updateData.close_balance_reason === 'string' ? updateData.close_balance_reason.trim() : ''
-      const reasonExisting = String(
-        (existingJob as { close_balance_reason?: string | null }).close_balance_reason || ''
-      ).trim()
-
-      if (incomingAck && reasonNew && reasonExisting && !reasonExisting.includes(reasonNew)) {
-        updateData.close_balance_reason = `${reasonExisting}; ${reasonNew}`
-      }
-
       const summary = await getJobPaymentSummary(adminClient, params.id)
       if (!summary) {
         return NextResponse.json({ error: 'Could not verify payments for this job' }, { status: 400 })
       }
-      const { sale_amount_cents: saleCents, collected_cents: collected } = summary
-      const shortfallAcknowledged = existingAck || incomingAck
-      if (saleCents > 0 && collected < saleCents && !shortfallAcknowledged) {
+      if (!summary.paid_in_full) {
         return NextResponse.json(
           {
-            error: 'Cannot mark as collected until the job is fully paid',
-            remaining_cents: saleCents - collected,
+            error:
+              summary.sale_amount_cents <= 0
+                ? 'This job has no sale amount yet, so it cannot be marked collected.'
+                : 'Cannot mark as collected until the job is paid in full. An owner can close it with a balance (reason required).',
+            remaining_cents: summary.remaining_cents,
           },
           { status: 400 }
         )

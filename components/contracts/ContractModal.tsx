@@ -65,6 +65,19 @@ export default function ContractModal({
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
 
+  // Sale credit: confirmed here and saved with the deal (lib/deal-sale-credit.ts).
+  const [creditUsers, setCreditUsers] = useState<Array<{ id: string; full_name: string | null }>>([])
+  const [credit, setCredit] = useState<{
+    closerUserId: string
+    setterUserId: string
+    isSelfGenerated: boolean
+  } | null>(null)
+  const [creditOriginal, setCreditOriginal] = useState<string>('')
+  const [creditLocked, setCreditLocked] = useState(false)
+  const [creditCanChange, setCreditCanChange] = useState(true)
+  const [creditReason, setCreditReason] = useState('')
+  const [creditLoadError, setCreditLoadError] = useState<string | null>(null)
+
   const [formData, setFormData] = useState<ContractFormData>({
     agreementType: 'installation',
     customerName: customerName || '',
@@ -110,6 +123,40 @@ export default function ContractModal({
     }
   }, [isOpen, customerName, customerEmail, customerPhone, projectAddress, projectCost, totalSquares, defaultFinanceCompany])
 
+  useEffect(() => {
+    if (!isOpen || !opportunityId) return
+    let cancelled = false
+    setCreditLoadError(null)
+    setCreditReason('')
+    Promise.all([
+      fetch(`/api/opportunities/${opportunityId}/sale-credit`).then((r) => (r.ok ? r.json() : Promise.reject(r))),
+      fetch('/api/users').then((r) => (r.ok ? r.json() : { users: [] })),
+    ])
+      .then(([c, u]) => {
+        if (cancelled) return
+        const loaded = {
+          closerUserId: c.closerUserId || '',
+          setterUserId: c.setterUserId || '',
+          isSelfGenerated: c.isSelfGenerated === true,
+        }
+        setCredit(loaded)
+        setCreditOriginal(JSON.stringify(loaded))
+        setCreditLocked(Boolean(c.locked))
+        setCreditCanChange(c.canChange !== false)
+        setCreditUsers(u.users || [])
+      })
+      .catch(() => {
+        if (!cancelled) setCreditLoadError('Could not load sale credit. It stays as it is on the deal.')
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [isOpen, opportunityId])
+
+  const creditApplies = formData.agreementType === 'installation' || formData.agreementType === 'repair'
+  const creditChanged = credit != null && JSON.stringify(credit) !== creditOriginal
+  const creditUserName = (id: string) => creditUsers.find((u) => u.id === id)?.full_name || (id ? 'Unknown' : 'None')
+
   const handleInputChange = (field: keyof ContractFormData, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }))
   }
@@ -140,6 +187,20 @@ export default function ContractModal({
         }
         break
       case 3:
+        if (creditApplies && credit && creditCanChange) {
+          if (!credit.closerUserId) {
+            setError('Pick who closed this sale')
+            return false
+          }
+          if (credit.isSelfGenerated && credit.setterUserId && credit.setterUserId !== credit.closerUserId) {
+            setError('A self-generated sale has no separate setter. Clear the setter or untick self-generated.')
+            return false
+          }
+          if (creditLocked && creditChanged && !creditReason.trim()) {
+            setError('This sale is already signed. Give a reason for changing sale credit.')
+            return false
+          }
+        }
         if (!formData.repName || !formData.repSignature) {
           setError('Please enter your name and sign the contract')
           return false
@@ -177,6 +238,15 @@ export default function ContractModal({
           ...formData,
           projectCost: parseDraftFloat(formData.projectCost, { required: true }) ?? 0,
           depositAmount: parseDraftFloat(formData.depositAmount) ?? 0,
+          saleCredit:
+            creditApplies && credit && creditCanChange && (!creditLocked || creditChanged)
+              ? {
+                  closerUserId: credit.closerUserId || null,
+                  setterUserId: credit.isSelfGenerated ? null : credit.setterUserId || null,
+                  isSelfGenerated: credit.isSelfGenerated,
+                  reason: creditLocked ? creditReason.trim() : null,
+                }
+              : undefined,
         }),
       })
 
@@ -650,6 +720,77 @@ export default function ContractModal({
 
             {step === 3 && (
               <div className="space-y-6">
+                {creditApplies && (
+                  <div className="p-4 rounded-lg border border-gray-300 bg-white">
+                    <h3 className="font-semibold mb-1" style={{ color: '#2c2c2a' }}>Sale credit</h3>
+                    <p className="text-sm mb-3" style={{ color: '#2c2c2a' }}>
+                      Check who gets credit for this sale. This is what commission is paid on.
+                      {creditLocked ? ' This sale is already signed, so only an owner can change it.' : ''}
+                    </p>
+                    {creditLoadError && (
+                      <p className="text-sm" style={{ color: '#2c2c2a' }}>{creditLoadError}</p>
+                    )}
+                    {credit && (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium mb-1" style={{ color: '#2c2c2a' }}>Closer *</label>
+                          <select
+                            value={credit.closerUserId}
+                            disabled={!creditCanChange}
+                            onChange={(e) => setCredit({ ...credit, closerUserId: e.target.value })}
+                            className="w-full px-3 py-2 border border-gray-400 rounded-lg bg-white disabled:bg-gray-100"
+                            style={{ color: '#2c2c2a' }}
+                          >
+                            <option value="">Pick the closer</option>
+                            {creditUsers.map((u) => (
+                              <option key={u.id} value={u.id}>{u.full_name || 'Unnamed'}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium mb-1" style={{ color: '#2c2c2a' }}>Setter</label>
+                          <select
+                            value={credit.isSelfGenerated ? '' : credit.setterUserId}
+                            disabled={!creditCanChange || credit.isSelfGenerated}
+                            onChange={(e) => setCredit({ ...credit, setterUserId: e.target.value })}
+                            className="w-full px-3 py-2 border border-gray-400 rounded-lg bg-white disabled:bg-gray-100"
+                            style={{ color: '#2c2c2a' }}
+                          >
+                            <option value="">No setter</option>
+                            {creditUsers.map((u) => (
+                              <option key={u.id} value={u.id}>{u.full_name || 'Unnamed'}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <label className="flex items-start gap-2 md:col-span-2 text-sm" style={{ color: '#2c2c2a' }}>
+                          <input
+                            type="checkbox"
+                            className="mt-1"
+                            checked={credit.isSelfGenerated}
+                            disabled={!creditCanChange}
+                            onChange={(e) => setCredit({ ...credit, isSelfGenerated: e.target.checked })}
+                          />
+                          <span>The closer found this customer themselves (self-generated, no setter)</span>
+                        </label>
+                        {creditLocked && creditCanChange && (
+                          <div className="md:col-span-2">
+                            <label className="block text-sm font-medium mb-1" style={{ color: '#2c2c2a' }}>
+                              Reason for changing (required if you change anything)
+                            </label>
+                            <input
+                              type="text"
+                              value={creditReason}
+                              onChange={(e) => setCreditReason(e.target.value)}
+                              className="w-full px-3 py-2 border border-gray-400 rounded-lg bg-white"
+                              style={{ color: '#2c2c2a' }}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 <div className="p-4 bg-indigo-50 rounded-lg">
                   <h3 className="font-medium text-indigo-900 mb-2">ARX Roofing & Exteriors Representative</h3>
                   <p className="text-sm text-indigo-700">
@@ -717,6 +858,14 @@ export default function ContractModal({
                             : 'Installation Agreement'}
                       </div>
                       <div><span className="text-gray-500">Name:</span> {formData.customerName}</div>
+                      {creditApplies && credit && (
+                        <div className="col-span-2" style={{ color: '#2c2c2a' }}>
+                          <span className="font-medium">Sale credit:</span> Closer {creditUserName(credit.closerUserId)}
+                          {credit.isSelfGenerated
+                            ? ' · Self-generated'
+                            : ` · Setter ${credit.setterUserId ? creditUserName(credit.setterUserId) : 'none'}`}
+                        </div>
+                      )}
                       <div><span className="text-gray-500">Address:</span> {formData.projectAddress}</div>
                       <div><span className="text-gray-500">Phone:</span> {formData.customerPhone || 'N/A'}</div>
                       <div><span className="text-gray-500">Email:</span> {formData.customerEmail || 'N/A'}</div>

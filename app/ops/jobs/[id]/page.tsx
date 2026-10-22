@@ -7,8 +7,8 @@ import { notFound, redirect } from 'next/navigation'
 import JobDetailClient from './JobDetailClient'
 import { canAccessJobBilling } from '@/lib/finance-access'
 import { redactProductionJobFinancialSummaryFields, resolveOpsAccess } from '@/lib/ops-access'
-import { isOrgSuperuserRoleSlug } from '@/lib/permissions'
 import { buildJobSoldScope, type JobSoldScope } from '@/lib/job-sold-scope'
+import { isSuperAdmin } from '@/lib/super-admin'
 import {
   resolveMaterialsCoverageOverrides,
   type MaterialsCoverageOverrides,
@@ -549,8 +549,9 @@ export default async function JobDetailPage({ params }: PageProps) {
     canViewJobFinancials
   )
 
-  const canEditPayrollAttribution =
-    isOrgSuperuserRoleSlug(profile.role) || profile.role === 'operations'
+  // Sale credit is confirmed at contract signing; afterwards only an owner (super admin) may
+  // change it, with a reason (enforced again in PATCH /api/opportunities/[id]).
+  const canEditPayrollAttribution = isSuperAdmin(profile)
 
   const materialsCoverageOverrides: MaterialsCoverageOverrides = resolveMaterialsCoverageOverrides(
     orgCoverageRes.data
@@ -579,6 +580,7 @@ export default async function JobDetailPage({ params }: PageProps) {
       canDeleteProductionJob={canDeleteProductionJob}
       canViewJobBilling={canViewJobBilling}
       canEditPayrollAttribution={canEditPayrollAttribution}
+      isSuperAdmin={isSuperAdmin(profile)}
       canEditFinancialSource={canEditFinancialSource}
       financialSourceProposalOptions={financialSourceProposalOptions}
       changeOrdersSection={
