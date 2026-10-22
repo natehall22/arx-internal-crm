@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { CompPlanForCalc } from '@/lib/calculate-commission-from-plan'
 import { buildCommissionPayrollSnapshot } from '@/lib/commission-payroll'
+import { evaluateJobCollection } from '@/lib/job-collection'
 import { roundMoney } from '@/lib/money'
 import {
   buildAdditiveParticipantsForJob,
@@ -45,6 +46,8 @@ type JobRow = {
   project_id: string | null
   completed_at: string | null
   allow_close_with_balance: boolean | null
+  close_balance_by?: string | null
+  close_balance_at?: string | null
 }
 
 type JobStateRow = {
@@ -110,13 +113,15 @@ export function derivePayrollEligibility(input: {
   }
 
   const cleared = input.payments.filter((p) => p.funding_status === 'cleared')
-  const collectedCents = cleared.reduce((sum, p) => sum + (Number(p.amount_cents) || 0), 0)
-  const requiredCents = Math.round((Number(input.job.sale_amount) || 0) * 100)
-  const funded =
-    requiredCents <= 0 ||
-    collectedCents >= requiredCents ||
-    (input.job.status === 'collected' && Boolean(input.job.allow_close_with_balance))
-  if (!funded) return { eligibleAt: null, reason: 'not_funded', deductibleCosts: 0 }
+  // One "paid in full" rule (lib/job-collection.ts): payments within $0.05, or a super
+  // admin forced it with a reason. A job with no sale amount is not paid — it is broken.
+  const collection = evaluateJobCollection({
+    saleAmount: input.job.sale_amount,
+    payments: input.payments,
+    allowCloseWithBalance: input.job.allow_close_with_balance,
+    closeBalanceBy: input.job.close_balance_by,
+  })
+  if (!collection.paidInFull) return { eligibleAt: null, reason: 'not_funded', deductibleCosts: 0 }
 
   const blockingCosts = input.costs.filter(
     (line) => line.deduct_from_commission_base && !line.approved
@@ -128,7 +133,7 @@ export function derivePayrollEligibility(input: {
   const fundedAt =
     input.state?.fully_funded_at ||
     latestIso(cleared.map(paidAtIso)) ||
-    (input.job.status === 'collected' && input.job.allow_close_with_balance ? installAt : null)
+    (collection.forcedPaidInFull ? input.job.close_balance_at || installAt : null)
   const costsAt =
     input.state?.costs_ready_at ||
     latestIso(input.costs.filter((c) => c.approved).map((c) => c.updated_at || c.created_at)) ||
@@ -183,7 +188,7 @@ export async function materializePayrollPeriod(
   let jobsQuery = supabase
     .from('production_jobs')
     .select(
-      'id, job_number, status, sale_date, sale_amount, commission_comp_base, commission_pre_tax_subtotal, dealer_fee_amount, salesperson_id, project_id, completed_at, allow_close_with_balance'
+      'id, job_number, status, sale_date, sale_amount, commission_comp_base, commission_pre_tax_subtotal, dealer_fee_amount, salesperson_id, project_id, completed_at, allow_close_with_balance, close_balance_by, close_balance_at'
     )
     .eq('org_id', orgId)
     .not('sale_date', 'is', null)

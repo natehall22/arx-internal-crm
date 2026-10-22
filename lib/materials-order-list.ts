@@ -18,6 +18,13 @@ import { starterFromLinearFt } from '@/lib/starter-strip'
 
 export type MaterialsOrderItemStatus = 'ready' | 'confirm' | 'manual'
 
+/**
+ * The trade this generator's lines belong to (it computes roof materials from a roof measure).
+ * Supplier ordering (lib/material-sourcing.ts) is trade-agnostic and only sees this as data;
+ * another trade's lines would come from its own generator tagged with its own trade.
+ */
+export const MATERIALS_ORDER_LIST_TRADE = 'roofing'
+
 export type MaterialsOrderItem = {
   key: string
   label: string

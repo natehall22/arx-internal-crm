@@ -1,3 +1,5 @@
+import { evaluateJobCollection } from './job-collection'
+
 /**
  * Production job lifecycle status — the one definition.
  *
@@ -126,14 +128,28 @@ export function resumeStatusForJob(
 }
 
 export function paymentStatusChip(
-  job: { sale_amount: number | null; collected_cents?: number | null }
+  job: {
+    sale_amount: number | null
+    collected_cents?: number | null
+    allow_close_with_balance?: boolean | null
+    close_balance_by?: string | null
+  }
 ): { label: string; className: string } | null {
-  const saleCents = Math.round((job.sale_amount || 0) * 100)
-  if (saleCents <= 0) return null
-  const collected = job.collected_cents ?? 0
-  if (collected >= saleCents) {
+  // One paid-in-full rule: lib/job-collection.ts ($0.05 tolerance, super-admin override).
+  const collection = evaluateJobCollection({
+    saleAmount: job.sale_amount,
+    collectedCents: job.collected_cents ?? 0,
+    allowCloseWithBalance: job.allow_close_with_balance,
+    closeBalanceBy: job.close_balance_by,
+  })
+  if (collection.missingSaleAmount) return null
+  if (collection.paidByPayments) {
     return { label: 'Paid in full', className: 'bg-emerald-50 text-emerald-800 border border-emerald-200' }
   }
+  if (collection.forcedPaidInFull) {
+    return { label: 'Closed with balance', className: 'bg-amber-50 text-amber-900 border border-amber-300' }
+  }
+  const collected = collection.collectedCents
   if (collected > 0) {
     return { label: 'Partially paid', className: 'bg-amber-50 text-amber-800 border border-amber-200' }
   }

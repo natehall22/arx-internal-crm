@@ -34,6 +34,7 @@ import PayrollAttributionEditor, {
 } from '@/components/payroll/PayrollAttributionEditor'
 import ReviewRequestCard from '@/components/reviews/ReviewRequestCard'
 import { isReviewEligibleStatus } from '@/lib/review-requests'
+import { isSuperAdmin } from '@/lib/super-admin'
 
 export default async function ProjectDetailPage({
   params,
@@ -300,8 +301,9 @@ export default async function ProjectDetailPage({
   const customerEmail = project.customers?.email || project.leads?.email || null
 
   const canViewJobBilling = canAccessJobBilling({ role: profile.role })
-  const canEditPayrollAttribution =
-    isOrgSuperuserRoleSlug(profile.role) || profile.role === 'operations'
+  // Sale credit is confirmed at contract signing; afterwards only an owner (super admin) may
+  // change it, with a reason (enforced again in PATCH /api/opportunities/[id]).
+  const canEditPayrollAttribution = isSuperAdmin(profile)
 
   let payrollAttribution: PayrollAttributionData | null = null
   const linkedOpportunityId = project.opportunity_id as string | null | undefined
