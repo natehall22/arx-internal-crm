@@ -56,6 +56,21 @@ export async function resolveOpsAccess(
   }
 }
 
+/**
+ * Who may read a job's internal notes (`production_job_notes`) through the API.
+ *
+ * The only screen that shows them is `/ops/jobs/[id]`, which redirects anyone
+ * without job-board access — so the API must refuse the same people. Before
+ * 2026-10-21 `/api/ops/jobs/[id]/notes` only checked the org, so any setter could
+ * read (and post to) every job's notes. Subs/crews are a separate path that only
+ * ever sees `share_with_sub = true` notes; this does not change it.
+ *
+ * Interim rule until note audiences exist (notes-messaging spec, Phase 0/1).
+ */
+export function canReadJobNotes(access: { canJobBoard: boolean }): boolean {
+  return access.canJobBoard === true
+}
+
 /** Mirrors SSR `/ops` board — coarse cost fields gated by jobs:financials:view (+ fullAccess). */
 const REDACT_PRODUCTION_JOB_FINANCIAL_SUMMARY_KEYS = ['labor_cost', 'material_cost', 'dealer_fee_amount'] as const
 
