@@ -97,3 +97,10 @@ export const SALE_CREDIT = {
   locked: false, canEdit: true, isSuperAdmin: false,
 }
 export const USERS = { users: [{ id: 'u1', full_name: 'Nathan Hall' }, { id: 'u2', full_name: 'Stevo Potts' }, { id: 'u3', full_name: 'Alex Setter' }] }
+
+export const SUPPLIERS = {
+  suppliers: [
+    { id: 'v1', name: 'ABC Supply', active: true, order_email: 'orders@abcsupply.example.test', order_cc_emails: [], account_number: '123', default_branch: 'Concord', default_delivery_notes: null, default_for_trades: ['roofing', 'gutters'], connection_type: 'email' },
+  ],
+  canEdit: true,
+}

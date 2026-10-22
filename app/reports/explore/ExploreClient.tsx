@@ -30,6 +30,15 @@ export default function ExploreClient() {
   const [loading, setLoading] = useState(false)
   const [saved, setSaved] = useState<Saved[]>([])
   const [drill, setDrill] = useState<string | null>(null)
+  // Template groups collapse on phones once a report is open; on wider screens the picker stays open.
+  const [wide, setWide] = useState(false)
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 640px)')
+    const apply = () => setWide(mq.matches)
+    apply()
+    mq.addEventListener('change', apply)
+    return () => mq.removeEventListener('change', apply)
+  }, [])
 
   useEffect(() => {
     void fetch('/api/reports/run').then(async (r) => {
@@ -114,7 +123,7 @@ export default function ExploreClient() {
   const btn = 'inline-flex min-h-[44px] items-center justify-center rounded-lg border border-[#5f5e5a] bg-white px-4 py-2 text-sm font-semibold text-[#2c2c2a]'
 
   return (
-    <main className="mx-auto max-w-[1000px] p-4 pb-28 text-[#2c2c2a]">
+    <main className="mx-auto max-w-[1000px] p-4 pb-28 sm:pb-4 text-[#2c2c2a]">
       <h1 className="mt-0 text-2xl font-bold">Reports</h1>
       {error && <p className="text-[#a32d2d]">{error}</p>}
       {!meta && !error && <p>Loading…</p>}
@@ -134,7 +143,7 @@ export default function ExploreClient() {
           )}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {groups.map((g) => (
-              <details key={g} className="rounded-lg border border-[#d3d1c7] bg-white p-3" open={!spec}>
+              <details key={g} className="rounded-lg border border-[#d3d1c7] bg-white p-3" open={wide || !spec}>
                 <summary className="flex min-h-[44px] cursor-pointer items-center font-semibold">{g}</summary>
                 <div className="mt-1 flex flex-col gap-2">
                   {meta.templates.filter((t) => t.group === g).map((t) => (
@@ -237,7 +246,7 @@ export default function ExploreClient() {
           )}
         </>
       )}
-      {spec && (
+      {spec && ds && (
         <div className="fixed inset-x-0 bottom-0 z-40 border-t border-[#d3d1c7] bg-white p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:static sm:mt-4 sm:border-0 sm:p-0">
           <button type="button" onClick={save} className="inline-flex min-h-[44px] w-full items-center justify-center rounded-lg bg-[#2b0a3d] px-4 py-2 text-sm font-semibold text-white sm:w-auto">
             Save / email…

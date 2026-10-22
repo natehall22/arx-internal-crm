@@ -115,7 +115,7 @@ export default function JobPayrollSentBanner({
             type="button"
             disabled={saving}
             onClick={markSent}
-            className="px-4 py-2 rounded-lg text-sm font-medium bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-60 shrink-0"
+            className="min-h-[44px] w-full sm:w-auto px-4 py-2 rounded-lg text-sm font-medium bg-indigo-700 text-white hover:bg-indigo-800 disabled:opacity-60 shrink-0"
           >
             {saving ? 'Saving…' : 'Ready for payroll'}
           </button>

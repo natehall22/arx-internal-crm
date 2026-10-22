@@ -77,11 +77,11 @@ export default function JobReadyToPayBanner({
             </p>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2 shrink-0">
+        <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-2 shrink-0">
           <button
             type="button"
             onClick={scrollPayments}
-            className="px-3 py-2 rounded-lg text-sm font-medium bg-white border border-emerald-300 text-emerald-900 hover:bg-emerald-50"
+            className="min-h-[44px] px-4 py-2 rounded-lg text-sm font-medium bg-white border border-emerald-300 text-emerald-900 hover:bg-emerald-50"
           >
             Payments
           </button>
@@ -89,7 +89,7 @@ export default function JobReadyToPayBanner({
             <button
               type="button"
               onClick={onMarkCollected}
-              className="px-3 py-2 rounded-lg text-sm font-medium bg-emerald-600 text-white hover:bg-emerald-700"
+              className="min-h-[44px] px-4 py-2 rounded-lg text-sm font-medium bg-emerald-600 text-white hover:bg-emerald-700"
             >
               Mark as collected
             </button>
@@ -98,7 +98,7 @@ export default function JobReadyToPayBanner({
             <button
               type="button"
               onClick={() => onMarkJobComplete?.()}
-              className="px-3 py-2 rounded-lg text-sm font-medium bg-emerald-700 text-white hover:bg-emerald-800"
+              className="min-h-[44px] px-4 py-2 rounded-lg text-sm font-medium bg-emerald-700 text-white hover:bg-emerald-800"
             >
               Mark job complete
             </button>

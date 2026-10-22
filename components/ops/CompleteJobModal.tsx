@@ -47,7 +47,7 @@ export default function CompleteJobModal({
         if (e.target === e.currentTarget && !saving) onClose()
       }}
     >
-      <div className="bg-white rounded-t-2xl sm:rounded-xl shadow-xl max-w-md w-full max-h-[92vh] overflow-y-auto p-5 sm:p-6">
+      <div className="bg-white rounded-t-2xl sm:rounded-xl shadow-xl max-w-md w-full max-h-[92dvh] overflow-y-auto p-5 sm:p-6">
         <div className="flex items-center gap-3 mb-4">
           <div className="w-12 h-12 rounded-full bg-amber-100 flex items-center justify-center">
             <svg className="w-6 h-6 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">

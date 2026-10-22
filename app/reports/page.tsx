@@ -107,7 +107,7 @@ export default function ReportsPage() {
             <h1 className="text-3xl font-bold">Reports</h1>
             <p className="mt-1">Performance at a glance. Click any card for the full report, filters, CSV and email.</p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             {activeTab === 'overview' && (
               <select value={preset} onChange={(e) => setPreset(e.target.value as DatePreset)} className="min-h-[44px] rounded-lg border border-[#8a877d] bg-white px-3 py-2 text-base">
                 <option value="7d">Last 7 days</option><option value="30d">Last 30 days</option><option value="90d">Last 90 days</option>
