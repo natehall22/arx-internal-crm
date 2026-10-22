@@ -88,6 +88,39 @@ export type MaterializePayrollPeriodResult = {
   selfGenSetterConflictJobIds: string[]
 }
 
+/**
+ * True when Postgres rejected a payroll write because the job (or job/rep/role) is
+ * already paid in a different period — raised by the single-period triggers in
+ * supabase/migrations/202610210002_payroll_no_cross_period_double_pay.sql.
+ */
+export function isPayrollAlreadyPaidError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
+  const { code, message } = error as { code?: unknown; message?: unknown }
+  return code === '23505' && typeof message === 'string' && message.startsWith('payroll_already_paid:')
+}
+
+/**
+ * Deletes a job snapshot only while it has no payout lines, in one atomic DB call
+ * (payroll_discard_lineless_job_snapshot, serialized with line inserts for the job).
+ * Used when the line write for a just-written snapshot fails. The "no lines" condition
+ * matters: if a concurrent lock of the SAME period already wrote this snapshot's lines
+ * (which is why our insert hit the unique index), deleting it would cascade away real
+ * pay. Best effort: a cleanup failure is logged and the original error is reported.
+ * If it does fail, the lineless snapshot is retried by the next lock of this period.
+ */
+async function discardSnapshotIfLineless(
+  supabase: SupabaseClient,
+  orgId: string,
+  snapshotId: string,
+  jobNumber: string
+): Promise<void> {
+  const { error } = await supabase.rpc('payroll_discard_lineless_job_snapshot', {
+    p_org_id: orgId,
+    p_snapshot_id: snapshotId,
+  })
+  if (error) console.error('materializePayrollPeriod: snapshot cleanup failed', { jobNumber, error })
+}
+
 function latestIso(values: Array<string | null | undefined>): string | null {
   const valid = values
     .filter((v): v is string => Boolean(v) && Number.isFinite(new Date(v as string).getTime()))
@@ -216,8 +249,9 @@ export async function materializePayrollPeriod(
     { data: stateData, error: stateError },
     { data: paymentData, error: paymentError },
     { data: costData, error: costError },
+    { data: periodLineData, error: periodLineError },
   ] = await Promise.all([
-    supabase.from('payroll_job_snapshots').select('job_id').in('job_id', jobIds),
+    supabase.from('payroll_job_snapshots').select('id, job_id, payroll_period_id').in('job_id', jobIds),
     supabase
       .from('job_payroll_state')
       .select('job_id, install_completed_at, fully_funded_at, costs_ready_at')
@@ -233,11 +267,27 @@ export async function materializePayrollPeriod(
       .eq('org_id', orgId)
       .in('job_id', jobIds)
       .is('deleted_at', null),
+    supabase
+      .from('payroll_payout_lines')
+      .select('payroll_job_snapshot_id')
+      .eq('payroll_period_id', periodId)
+      .in('job_id', jobIds),
   ])
-  const loadError = existingError || stateError || paymentError || costError
+  const loadError = existingError || stateError || paymentError || costError || periodLineError
   if (loadError) throw loadError
 
-  const alreadySnapshotted = new Set((existingSnapshots || []).map((r) => r.job_id as string))
+  // A job counts as paid if it has a snapshot in ANOTHER period, or one in THIS period
+  // that has payout lines. A lineless snapshot in this period is debris from a failed
+  // write (nothing was paid), so the job is retried; the same-period upsert below
+  // reuses that snapshot row.
+  const snapshotIdsWithLinesHere = new Set(
+    (periodLineData || []).map((r) => r.payroll_job_snapshot_id as string)
+  )
+  const alreadySnapshotted = new Set(
+    (existingSnapshots || [])
+      .filter((r) => r.payroll_period_id !== periodId || snapshotIdsWithLinesHere.has(r.id as string))
+      .map((r) => r.job_id as string)
+  )
   const stateByJob = new Map((stateData || []).map((r) => [r.job_id as string, r as JobStateRow]))
   const paymentsByJob = new Map<string, PaymentRow[]>()
   for (const row of (paymentData || []) as PaymentRow[]) {
@@ -594,15 +644,25 @@ export async function materializePayrollPeriod(
       )
       .select('id')
       .single()
+    if (isPayrollAlreadyPaidError(jobSnapshotError)) {
+      // Another lock paid this job after `alreadySnapshotted` was read. The DB trigger
+      // (202610210002_payroll_no_cross_period_double_pay.sql) rejected the write; skip
+      // the job exactly as the up-front check would have.
+      skippedJobs.push({ jobId: job.id, reason: 'already_paid_by_race' })
+      continue
+    }
     if (jobSnapshotError || !jobSnapshot) {
       throw jobSnapshotError || new Error(`Failed to snapshot job ${job.job_number}`)
     }
-    snapshotsCreated += 1
-
     const rowsWithSnapshot = allPayoutRows.map((row) => ({
       ...row,
       payroll_job_snapshot_id: jobSnapshot.id,
     }))
+    // Snapshot and lines are separate PostgREST calls, so a failure here would leave a
+    // snapshot with no lines: every later lock would treat the job as paid and it would
+    // never be paid at all. Remove that snapshot before giving up on the job.
+    let payoutError: unknown = null
+    let missingRows: typeof rowsWithSnapshot = []
     // Keep the application retry-safe even before the additive unique-index
     // migration reaches an environment with legacy migration-history drift.
     const { data: existingPayoutRows, error: existingPayoutError } = await supabase
@@ -610,18 +670,29 @@ export async function materializePayrollPeriod(
       .select('user_id, participant_role')
       .eq('payroll_period_id', periodId)
       .eq('job_id', job.id)
-    if (existingPayoutError) throw existingPayoutError
-    const existingPayoutKeys = new Set(
-      (existingPayoutRows || []).map((row) => `${row.user_id}|${row.participant_role}`)
-    )
-    const missingRows = rowsWithSnapshot.filter(
-      (row) => !existingPayoutKeys.has(`${row.user_id}|${row.participant_role}`)
-    )
-    const { error: payoutError } =
-      missingRows.length > 0
-        ? await supabase.from('payroll_payout_lines').insert(missingRows)
-        : { error: null }
-    if (payoutError) throw payoutError
+    if (existingPayoutError) {
+      payoutError = existingPayoutError
+    } else {
+      const existingPayoutKeys = new Set(
+        (existingPayoutRows || []).map((row) => `${row.user_id}|${row.participant_role}`)
+      )
+      missingRows = rowsWithSnapshot.filter(
+        (row) => !existingPayoutKeys.has(`${row.user_id}|${row.participant_role}`)
+      )
+      if (missingRows.length > 0) {
+        const { error } = await supabase.from('payroll_payout_lines').insert(missingRows)
+        payoutError = error
+      }
+    }
+    if (payoutError) {
+      await discardSnapshotIfLineless(supabase, orgId, jobSnapshot.id as string, job.job_number)
+      if (isPayrollAlreadyPaidError(payoutError)) {
+        skippedJobs.push({ jobId: job.id, reason: 'already_paid_by_race' })
+        continue
+      }
+      throw payoutError
+    }
+    snapshotsCreated += 1
     payoutLinesCreated += missingRows.length
 
     const { error: stateUpdateError } = await supabase.from('job_payroll_state').upsert(

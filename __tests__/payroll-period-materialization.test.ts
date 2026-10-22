@@ -1,4 +1,4 @@
-import { derivePayrollEligibility } from '@/lib/payroll-period-materialization'
+import { derivePayrollEligibility, isPayrollAlreadyPaidError } from '@/lib/payroll-period-materialization'
 
 const job = {
   id: 'job-1',
@@ -142,5 +142,28 @@ describe('derivePayrollEligibility — paid-in-full rule (lib/job-collection.ts)
   })
   it('a job with no sale amount is not funded', () => {
     expect(derivePayrollEligibility({ job: { ...job, sale_amount: null }, payments: [], costs: [] }).reason).toBe('not_funded')
+  })
+})
+
+describe('isPayrollAlreadyPaidError', () => {
+  it('matches the single-period trigger rejection', () => {
+    expect(
+      isPayrollAlreadyPaidError({
+        code: '23505',
+        message: 'payroll_already_paid: job abc is already snapshotted in payroll period def',
+      })
+    ).toBe(true)
+  })
+
+  it('does not swallow other unique violations or errors', () => {
+    expect(
+      isPayrollAlreadyPaidError({
+        code: '23505',
+        message: 'duplicate key value violates unique constraint "idx_payroll_payout_lines_period_job_user_role"',
+      })
+    ).toBe(false)
+    expect(isPayrollAlreadyPaidError({ code: '42501', message: 'payroll_already_paid: x' })).toBe(false)
+    expect(isPayrollAlreadyPaidError(null)).toBe(false)
+    expect(isPayrollAlreadyPaidError(new Error('boom'))).toBe(false)
   })
 })
