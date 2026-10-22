@@ -27,13 +27,16 @@ async function authorize() {
   }
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const a = await authorize()
   if (!a) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  const { data, error } = await a.admin
+  const dashboardOnly = request.nextUrl.searchParams.get('dashboard') === 'true'
+  let query = a.admin
     .from('saved_reports')
-    .select('id, name, spec, shared_roles, schedule, created_by, created_at')
+    .select('id, name, spec, shared_roles, schedule, dashboard_widget, created_by, created_at')
     .eq('org_id', a.profile.org_id)
+  if (dashboardOnly) query = query.eq('dashboard_widget', true)
+  const { data, error } = await query
     .or(`created_by.eq.${a.profile.id},shared_roles.cs.{${String(a.profile.role).replace(/[^a-z_]/gi, '')}}`)
     .order('created_at', { ascending: false })
   if (error) return NextResponse.json({ error: 'Could not load saved reports' }, { status: 500 })
@@ -64,7 +67,7 @@ export async function POST(request: NextRequest) {
   const roles: string[] = Array.isArray(b?.shared_roles) ? b!.shared_roles.map((r: unknown) => String(r).toLowerCase().replace(/[^a-z_]/g, '')).filter(Boolean) : []
   const { data, error } = await a.admin
     .from('saved_reports')
-    .insert({ org_id: a.profile.org_id, name, spec: parsed.spec, shared_roles: roles, schedule, schedule_recipients: recipients.slice(0, 10), created_by: a.profile.id })
+    .insert({ org_id: a.profile.org_id, name, spec: parsed.spec, shared_roles: roles, schedule, schedule_recipients: recipients.slice(0, 10), dashboard_widget: b?.dashboard_widget === true, created_by: a.profile.id })
     .select('id')
     .single()
   if (error) return NextResponse.json({ error: 'Could not save the report' }, { status: 500 })

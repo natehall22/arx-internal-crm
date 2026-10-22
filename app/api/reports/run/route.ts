@@ -71,5 +71,5 @@ export async function GET() {
     .map((d) => ({ key: d.key, label: d.label, description: d.description, columns: visibleColumns(ctx, d) }))
   const allowed = new Set(datasets.map((d) => d.key))
   const templates = REPORT_TEMPLATES.filter((t) => (ctx.finance || !t.finance) && allowed.has(t.spec.dataset))
-  return NextResponse.json({ templates, datasets, canExport: ctx.canExport, finance: ctx.finance, scope: ctx.scope })
+  return NextResponse.json({ templates, datasets, canExport: ctx.canExport, finance: ctx.finance, scope: ctx.scope, role: profile.role ?? null })
 }

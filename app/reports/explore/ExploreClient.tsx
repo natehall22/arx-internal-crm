@@ -97,9 +97,10 @@ export default function ExploreClient() {
     if (!name) return
     const email = window.prompt('Email it every morning to (comma separated, leave empty for no email)', '')
     const recipients = (email || '').split(',').map((e) => e.trim()).filter(Boolean)
+    const onDashboard = window.confirm('Also show this report as a tile on your dashboard?')
     const r = await fetch('/api/reports/saved', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, spec, schedule: recipients.length ? 'daily' : null, schedule_recipients: recipients }),
+      body: JSON.stringify({ name, spec, schedule: recipients.length ? 'daily' : null, schedule_recipients: recipients, dashboard_widget: onDashboard }),
     })
     const j = await r.json().catch(() => ({}))
     if (!r.ok) return setError(j.error || 'Could not save')

@@ -12,8 +12,9 @@
 1. Apply migration 202610220010 (views + `saved_reports`; additive). 2. Deploy. Cost numbers are only right once the cost-ledger data fix (#57) has run — `rpt_jobs.cost_total` reads the same ledger.
 
 ## Not done (decisions)
-- **Reports Overview zeros** (`app/reports/page.tsx` queries ~25 tables through the browser client, which has no Supabase session under our cookie auth). A thin proxy would re-implement scope enforcement; the clean fix is to retire those tiles onto `/reports/explore` templates (sales/appointments/doors/leads are all there). Your call.
-- **Old builder** (`/reports/builder`, `/api/reports/builder|custom`, 2 saved reports in prod): not deleted — the 2 reports need re-creating as saved reports first.
+- ~~**Reports Overview zeros**~~ DONE: the Overview tab is now KPI cards + 6 template tiles read through the one runner (the old ~25 browser queries, the old builder UI/APIs and the old Excel export route are deleted). The 2 old custom reports are recreated by `supabase/data-fixes/2026-10-22_recreate_saved_reports.sql`; the dashboard 'Custom Reports' tiles now read saved reports with `dashboard_widget`. Old tables `custom_reports`/`report_schedules` are left in place.
+- (old note) **Reports Overview zeros** (`app/reports/page.tsx` queries ~25 tables through the browser client, which has no Supabase session under our cookie auth). A thin proxy would re-implement scope enforcement; the clean fix is to retire those tiles onto `/reports/explore` templates (sales/appointments/doors/leads are all there). Your call.
+- ~~**Old builder**~~ deleted. (old note) **Old builder** (`/reports/builder`, `/api/reports/builder|custom`, 2 saved reports in prod): not deleted — the 2 reports need re-creating as saved reports first.
 - **Supplier orders dataset**: its tables ship with the email-order-sheet PR (#58); add `rpt_supplier_orders` once that merges.
 - Excel export = CSV (opens in Excel). Sharing is by role at save time via API; the UI only exposes "email it".
 - Aggregation happens in TypeScript over ≤50k rows per run (views hold the definitions; at larger volume push grouping into SQL).

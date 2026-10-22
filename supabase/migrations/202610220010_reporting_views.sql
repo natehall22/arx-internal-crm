@@ -226,6 +226,7 @@ CREATE TABLE IF NOT EXISTS saved_reports (
   shared_roles  text[] NOT NULL DEFAULT '{}', -- roles that can open it besides the creator
   schedule      text,                        -- NULL = not emailed; 'daily' | 'weekly_mon' | 'monthly_1' (sent by the 7am cron)
   schedule_recipients text[] NOT NULL DEFAULT '{}',
+  dashboard_widget boolean NOT NULL DEFAULT false, -- shown as a tile on the creator's dashboard
   created_by    uuid REFERENCES users(id) ON DELETE SET NULL,
   created_at    timestamptz NOT NULL DEFAULT now(),
   updated_at    timestamptz NOT NULL DEFAULT now(),
