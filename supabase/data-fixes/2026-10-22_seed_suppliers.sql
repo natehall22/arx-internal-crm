@@ -1,5 +1,5 @@
 -- Seed ARX's suppliers (vendors is empty in prod as of 2026-10-22).
---   ABC Supply  — active, NO order email yet (add it in Settings → Suppliers), default supplier for roofing, sent by email
+--   ABC Supply  — active, NO order email yet (add it in Settings → Suppliers), default supplier for roofing and gutters, sent by email
 --   QXO         — inactive (kept for later), no email
 -- Run AFTER migrations 202610210060 (supplier columns) and 202610220020 (supplier_audit_log).
 
@@ -13,7 +13,7 @@ WITH ins AS (
   INSERT INTO vendors (org_id, name, active, order_email, order_cc_emails, default_for_trades, connection_type)
   SELECT o.id, v.name, v.active, NULL, '{}', v.trades, 'email'
   FROM orgs o
-  CROSS JOIN (VALUES ('ABC Supply', true, ARRAY['roofing']::text[]), ('QXO', false, ARRAY[]::text[])) AS v(name, active, trades)
+  CROSS JOIN (VALUES ('ABC Supply', true, ARRAY['roofing','gutters']::text[]), ('QXO', false, ARRAY[]::text[])) AS v(name, active, trades)
   WHERE o.id = '9089d4ad-f46c-405b-9798-6751d45a7051'
     AND NOT EXISTS (SELECT 1 FROM vendors x WHERE x.org_id = o.id AND lower(x.name) = lower(v.name) AND x.deleted_at IS NULL)
   RETURNING id, org_id, name
