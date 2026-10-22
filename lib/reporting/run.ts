@@ -11,7 +11,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 import { canExportReportsFromPermissionNames, getReportScopeFromPermissionNames } from '@/lib/permissions'
 import { DATASETS, columnOf, type Dataset, type DatasetColumn } from '@/lib/reporting/catalog'
-import { MAX_ROWS_RETURNED, MAX_ROWS_SCANNED, dateBounds, type ReportSpec } from '@/lib/reporting/spec'
+import { MAX_ROWS_RETURNED, MAX_ROWS_SCANNED, dateBounds, type ReportSpec } from '@/lib/reporting/report-spec'
 import { PAYROLL_ADMIN_ROLES } from '@/lib/payroll-admin-access'
 
 export type ReportContext = {

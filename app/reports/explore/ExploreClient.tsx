@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import type { DatasetColumn } from '@/lib/reporting/catalog'
 import type { ReportResult } from '@/lib/reporting/run'
-import type { ReportSpec } from '@/lib/reporting/spec'
+import type { ReportSpec } from '@/lib/reporting/report-spec'
 import type { ReportTemplate } from '@/lib/reporting/templates'
 
 type DatasetInfo = { key: string; label: string; description: string; columns: DatasetColumn[] }

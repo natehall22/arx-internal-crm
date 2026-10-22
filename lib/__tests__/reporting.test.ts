@@ -1,6 +1,6 @@
 import { DATASETS, columnOf } from '@/lib/reporting/catalog'
 import { ReportAccessError, checkAccess, resultToCsv, runReport, type ReportContext } from '@/lib/reporting/run'
-import { parseSpec } from '@/lib/reporting/spec'
+import { parseSpec } from '@/lib/reporting/report-spec'
 import { REPORT_TEMPLATES } from '@/lib/reporting/templates'
 
 const ctx = (over: Partial<ReportContext> = {}): ReportContext => ({

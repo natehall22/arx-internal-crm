@@ -1,5 +1,5 @@
 import type { DatasetKey } from '@/lib/reporting/catalog'
-import type { ReportSpec } from '@/lib/reporting/spec'
+import type { ReportSpec } from '@/lib/reporting/report-spec'
 
 export type ReportTemplate = {
   key: string

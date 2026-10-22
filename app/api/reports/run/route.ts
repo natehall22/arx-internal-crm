@@ -10,7 +10,7 @@ import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 import { canAccessReportsFromPermissionNames } from '@/lib/permissions'
 import { DATASETS } from '@/lib/reporting/catalog'
 import { ReportAccessError, buildReportContext, resultToCsv, runReport, visibleColumns } from '@/lib/reporting/run'
-import { parseSpec } from '@/lib/reporting/spec'
+import { parseSpec } from '@/lib/reporting/report-spec'
 import { REPORT_TEMPLATES, templateByKey } from '@/lib/reporting/templates'
 import { createServiceClient } from '@/lib/supabase/service'
 

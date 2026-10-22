@@ -8,7 +8,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 import { canAccessReportsFromPermissionNames, canExportReportsFromPermissionNames } from '@/lib/permissions'
-import { parseSpec } from '@/lib/reporting/spec'
+import { parseSpec } from '@/lib/reporting/report-spec'
 import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'

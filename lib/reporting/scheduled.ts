@@ -7,7 +7,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { getCrmEmailFrom } from '@/lib/crm-email-from'
 import { buildReportContext, resultToCsv, runReport } from '@/lib/reporting/run'
-import { parseSpec } from '@/lib/reporting/spec'
+import { parseSpec } from '@/lib/reporting/report-spec'
 
 function dueToday(schedule: string, now: Date): boolean {
   if (schedule === 'daily') return true
