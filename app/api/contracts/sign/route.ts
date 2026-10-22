@@ -2,11 +2,12 @@ import { NextRequest, NextResponse } from 'next/server'
 import nodemailer from 'nodemailer'
 import { getCrmEmailFrom } from '@/lib/crm-email-from'
 import { buildOrderFormContractSaleDescription, notifyOrgAdminsOfSale } from '@/lib/admin-sale-email'
-import { commissionCompBaseFromPreTaxAndDealerFee } from '@/lib/commission-payroll'
+import { syncJobSaleForProjectOrJob } from '@/lib/job-commission-base'
 import { resolveCustomerDisplayName, upsertCustomer } from '@/lib/customers'
 import { resolveProposalSoldRoofSquares } from '@/lib/sold-roof-squares'
 import { createServiceClient } from '@/lib/supabase/service'
 import { reinstateCancelledJob } from '@/lib/job-cancellation'
+import { applyContractSignedStatuses } from '@/lib/job-status-events'
 
 type EmbeddedLeadRow = { owner_user_id?: string | null; closer_user_id?: string | null }
 type AdminSupabaseClient = ReturnType<typeof createServiceClient>
@@ -578,28 +579,21 @@ export async function POST(request: NextRequest) {
               financing_program_id?: string | null
               dealer_fee_percent?: number | null
               dealer_fee_amount?: number | null
-              commission_pre_tax_subtotal?: number | null
-              commission_comp_base?: number | null
             } = {}
             if (contract.proposal_id) {
               const { data: propRow } = await supabase
                 .from('proposals')
-                .select('financing_program_id, dealer_fee_percent, dealer_fee_amount, subtotal')
+                .select('financing_program_id, dealer_fee_percent, dealer_fee_amount')
                 .eq('id', contract.proposal_id)
                 .maybeSingle()
               if (propRow) {
-                const preTax = Math.round((Number(propRow.subtotal) || 0) * 100) / 100
+                // Lender bookkeeping only. The commission base is the signed contract total
+                // (+ signed change orders), written below by syncJobSaleForProjectOrJob.
                 const isFinance = contract.payment_method === 'finance'
-                const compBase = commissionCompBaseFromPreTaxAndDealerFee(
-                  Number(propRow.subtotal) || 0,
-                  isFinance ? propRow.dealer_fee_amount : null
-                )
                 proposalFinancing = {
                   financing_program_id: isFinance ? propRow.financing_program_id : null,
                   dealer_fee_percent: isFinance ? propRow.dealer_fee_percent : null,
                   dealer_fee_amount: isFinance ? propRow.dealer_fee_amount : null,
-                  commission_pre_tax_subtotal: preTax,
-                  commission_comp_base: compBase,
                 }
               }
             }
@@ -783,28 +777,20 @@ export async function POST(request: NextRequest) {
             financing_program_id?: string | null
             dealer_fee_percent?: number | null
             dealer_fee_amount?: number | null
-            commission_pre_tax_subtotal?: number | null
-            commission_comp_base?: number | null
           } = {}
           if (contract.proposal_id) {
             const { data: propRow2 } = await supabase
               .from('proposals')
-              .select('financing_program_id, dealer_fee_percent, dealer_fee_amount, subtotal')
+              .select('financing_program_id, dealer_fee_percent, dealer_fee_amount')
               .eq('id', contract.proposal_id)
               .maybeSingle()
             if (propRow2) {
-              const preTax = Math.round((Number(propRow2.subtotal) || 0) * 100) / 100
+              // Lender bookkeeping only — see the new-project branch above.
               const isFinance = contract.payment_method === 'finance'
-              const compBase = commissionCompBaseFromPreTaxAndDealerFee(
-                Number(propRow2.subtotal) || 0,
-                isFinance ? propRow2.dealer_fee_amount : null
-              )
               proposalFinancingExisting = {
                 financing_program_id: isFinance ? propRow2.financing_program_id : null,
                 dealer_fee_percent: isFinance ? propRow2.dealer_fee_percent : null,
                 dealer_fee_amount: isFinance ? propRow2.dealer_fee_amount : null,
-                commission_pre_tax_subtotal: preTax,
-                commission_comp_base: compBase,
               }
             }
           }
@@ -913,6 +899,18 @@ export async function POST(request: NextRequest) {
       console.error('Error creating project:', projectError)
     }
 
+    // Sale amount + commission base = signed contract total + signed change orders. Written once,
+    // here, by the one writer (lib/job-commission-base.ts) — for both the new-project and the
+    // existing-project branch above, and for a reinstated cancelled job.
+    if (!isContingency && projectId) {
+      const baseSync = await syncJobSaleForProjectOrJob(supabase, { orgId: contract.org_id, projectId })
+      if (baseSync?.status === 'error') {
+        console.error('[Contract Sign] Commission base sync failed:', baseSync.error)
+      } else if (baseSync?.status === 'skipped') {
+        console.warn('[Contract Sign] Commission base not written:', baseSync.totals.reason)
+      }
+    }
+
     if (contract.opportunity_id) {
       await supabase.from('activities').insert({
         org_id: contract.org_id,
@@ -920,6 +918,18 @@ export async function POST(request: NextRequest) {
         user_id: contract.created_by,
         type: 'status_change',
         body: `${agreementLabel} signed by ${printName} from IP ${clientIp}`,
+      })
+    }
+
+    // The signed sale agreement is the real "accept": mark its proposal accepted and close
+    // the deal's past appointments still sitting "scheduled" (desire paths, W4/W6).
+    if (isSaleAgreement) {
+      await applyContractSignedStatuses(supabase, {
+        orgId: contract.org_id,
+        proposalId: contract.proposal_id ?? null,
+        opportunityId: contract.opportunity_id ?? null,
+        projectId: projectId ?? null,
+        signedAtIso: customerSignedAt,
       })
     }
 

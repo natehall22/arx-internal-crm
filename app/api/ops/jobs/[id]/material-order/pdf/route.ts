@@ -38,7 +38,11 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
     const pdf = generateJobMaterialOrderPDF(order)
     const safeJobNumber = order.jobNumber.replace(/[^A-Za-z0-9._-]/g, '-')
     // `download=1` makes the browser save it (for emailing a supplier); default opens inline.
-    const disposition = request.nextUrl.searchParams.get('download') === '1' ? 'attachment' : 'inline'
+    const isDownload = request.nextUrl.searchParams.get('download') === '1'
+    const disposition = isDownload ? 'attachment' : 'inline'
+
+    // Downloading never records anything: "materials ordered" is set when an order is actually sent
+    // (CRM email) or when someone taps "I sent this myself" for that supplier.
 
     // Node Buffer is not a valid BodyInit for the web Response type; hand over the bytes.
     return new NextResponse(new Uint8Array(pdf), {

@@ -1,5 +1,6 @@
 export const dynamic = 'force-dynamic'
 
+import { sumCollectedCents } from '@/lib/job-collection'
 import { requireAuth } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -7,8 +8,8 @@ import { notFound, redirect } from 'next/navigation'
 import JobDetailClient from './JobDetailClient'
 import { canAccessJobBilling } from '@/lib/finance-access'
 import { redactProductionJobFinancialSummaryFields, resolveOpsAccess } from '@/lib/ops-access'
-import { isOrgSuperuserRoleSlug } from '@/lib/permissions'
 import { buildJobSoldScope, type JobSoldScope } from '@/lib/job-sold-scope'
+import { isSuperAdmin } from '@/lib/super-admin'
 import {
   resolveMaterialsCoverageOverrides,
   type MaterialsCoverageOverrides,
@@ -299,11 +300,11 @@ export default async function JobDetailPage({ params }: PageProps) {
     try {
       const { data: payments } = await supabaseService
         .from('job_payments')
-        .select('amount_cents')
+        .select('amount_cents, funding_status')
         .eq('job_id', jobRes.data.id)
 
       if (payments) {
-        amountCollected = payments.reduce((sum, p) => sum + (p.amount_cents || 0), 0) / 100
+        amountCollected = sumCollectedCents(payments) / 100
       }
     } catch {
       // ignore
@@ -549,8 +550,9 @@ export default async function JobDetailPage({ params }: PageProps) {
     canViewJobFinancials
   )
 
-  const canEditPayrollAttribution =
-    isOrgSuperuserRoleSlug(profile.role) || profile.role === 'operations'
+  // Sale credit is confirmed at contract signing; afterwards only an owner (super admin) may
+  // change it, with a reason (enforced again in PATCH /api/opportunities/[id]).
+  const canEditPayrollAttribution = isSuperAdmin(profile)
 
   const materialsCoverageOverrides: MaterialsCoverageOverrides = resolveMaterialsCoverageOverrides(
     orgCoverageRes.data
@@ -579,6 +581,7 @@ export default async function JobDetailPage({ params }: PageProps) {
       canDeleteProductionJob={canDeleteProductionJob}
       canViewJobBilling={canViewJobBilling}
       canEditPayrollAttribution={canEditPayrollAttribution}
+      isSuperAdmin={isSuperAdmin(profile)}
       canEditFinancialSource={canEditFinancialSource}
       financialSourceProposalOptions={financialSourceProposalOptions}
       changeOrdersSection={

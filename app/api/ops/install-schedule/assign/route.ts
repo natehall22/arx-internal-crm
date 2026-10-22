@@ -5,6 +5,8 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { resolveOpsAccess } from '@/lib/ops-access'
 import { loadTradeWithJob, syncTradeCalendar } from '@/lib/job-trade-calendar'
 import { syncJobScheduleFromTrades } from '@/lib/job-trades-db'
+import { markMaterialsOrdered } from '@/lib/job-status-events'
+import { refreshMaterialsOrderedFromSuppliers } from '@/lib/supplier-orders'
 import { JOB_TRADE_COLUMNS, newCrewLinkToken, parseInstallDays, type JobTradeRow } from '@/lib/job-trades'
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
@@ -149,6 +151,16 @@ export async function POST(request: Request) {
   }
 
   await syncJobScheduleFromTrades(adminClient, orgId, job.id)
+
+  // An installer-supplied trade counts as covered once its crew is scheduled; if that completes
+  // the job's materials, record it. Records a status only — never sends anything to a supplier.
+  try {
+    await refreshMaterialsOrderedFromSuppliers(adminClient, orgId, job.id, ({ orgId: o, jobId }) =>
+      markMaterialsOrdered(adminClient, { orgId: o, jobId, source: 'board' })
+    )
+  } catch (e) {
+    console.error('[install-schedule assign] materials roll-up failed', e)
+  }
 
   const sync = await syncTradeCalendar(adminClient, {
     trade: updated as JobTradeRow,

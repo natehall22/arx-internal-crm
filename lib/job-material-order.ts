@@ -36,6 +36,27 @@ export type JobMaterialOrderData = {
   /** True when nothing at all resolved — the caller should say so rather than print an empty sheet. */
   isEmpty: boolean
   generatedAt: string
+  /**
+   * Set only on a supplier purchase order (lib/supplier-orders.ts) — the same sheet with that
+   * supplier's lines only, plus PO number, supplier and delivery block. Absent = today's sheet.
+   */
+  purchaseOrder?: JobMaterialPurchaseOrder
+}
+
+export type JobMaterialPurchaseOrder = {
+  /** "PO 26-0141-A", "REVISED PO 26-0141-A-R1", "CANCEL PO 26-0141-A". */
+  heading: string
+  supplierName: string
+  accountNumber: string | null
+  branch: string | null
+  deliveryDate: string | null
+  deliveryAddress: string | null
+  deliveryNotes: string | null
+  note: string | null
+  /** Revision only: what changed since the last PO, in plain words. */
+  changes: string[]
+  /** Lines on this job that are NOT on this PO and why, e.g. "Gutters — supplied by installer (X)". */
+  notOnThisOrder: string[]
 }
 
 export function materialOrderFromRunSheet(sheet: JobRunSheetData): JobMaterialOrderData {

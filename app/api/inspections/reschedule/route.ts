@@ -372,17 +372,25 @@ export async function POST(request: NextRequest) {
     
     const rescheduleMessage = `Appointment with ${originalAppointment.leads?.homeowner_name || 'customer'} has been rescheduled to ${formatDateTimeInTimezone(scheduledForISO)} ET`
     
+    // Notifications never block the reschedule, but a failed insert is logged (it used to
+    // write a non-existent `user_id` column and drop every setter notification silently).
+    const notify = async (recipientUserId: string, title: string) => {
+      const { error: notifyError } = await supabase.from('notifications').insert({
+        org_id: profile.org_id,
+        recipient_user_id: recipientUserId,
+        actor_user_id: userId,
+        type: 'reschedule',
+        title,
+        body: rescheduleMessage,
+        data: notificationData,
+      })
+      if (notifyError) {
+        console.error('Reschedule notification insert failed:', notifyError.message)
+      }
+    }
+
     if (originalAppointment.canvasser_user_id) {
-      await supabase
-        .from('notifications')
-        .insert({
-          org_id: profile.org_id,
-          user_id: originalAppointment.canvasser_user_id,
-          type: 'reschedule',
-          title: 'Appointment Rescheduled',
-          body: rescheduleMessage,
-          data: notificationData,
-        })
+      await notify(originalAppointment.canvasser_user_id, 'Appointment Rescheduled')
 
       if (originalAppointment.canvasser_user_id !== userId) {
         try {
@@ -444,15 +452,7 @@ export async function POST(request: NextRequest) {
           .neq('id', userId)
         
         for (const manager of teamManagers || []) {
-          await supabase.from('notifications').insert({
-            org_id: profile.org_id,
-            recipient_user_id: manager.id,
-            actor_user_id: userId,
-            type: 'reschedule',
-            title: 'Team Appointment Rescheduled',
-            body: rescheduleMessage,
-            data: notificationData,
-          })
+          await notify(manager.id, 'Team Appointment Rescheduled')
         }
       }
     }
@@ -474,15 +474,7 @@ export async function POST(request: NextRequest) {
           .neq('id', userId)
         
         for (const manager of closerManagers || []) {
-          await supabase.from('notifications').insert({
-            org_id: profile.org_id,
-            recipient_user_id: manager.id,
-            actor_user_id: userId,
-            type: 'reschedule',
-            title: 'Team Appointment Rescheduled',
-            body: rescheduleMessage,
-            data: notificationData,
-          })
+          await notify(manager.id, 'Team Appointment Rescheduled')
         }
       }
     }

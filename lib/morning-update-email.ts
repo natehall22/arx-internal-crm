@@ -1,6 +1,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getOrgEmailBlastSettings, resolveEmailBlastRecipients } from '@/lib/admin-email-blasts'
 import { fetchMorningUpdateMetrics, type MorningUpdateMetrics } from '@/lib/morning-update-metrics'
+import { filterReportForViewer, loadDataHealth, type DataHealthReport } from '@/lib/data-health'
+import { resolveAppUrl } from '@/lib/job-trades'
 import { getCrmEmailFrom, getMailTransport } from '@/lib/setter-email'
 
 function escapeHtml(s: string): string {
@@ -82,7 +84,55 @@ function metricSection(
   `
 }
 
-export function buildMorningUpdateHtml(metrics: MorningUpdateMetrics, options?: { test?: boolean }): string {
+/** Job rows listed in the email before collapsing to "and N more" (the dashboard has them all). */
+const NEEDS_YOU_EMAIL_JOB_ROWS = 20
+
+/**
+ * "Needs you" block for the morning email — the same data-health check as the ops
+ * dashboard. Job numbers and plain-English problems only, no customer details.
+ * Exported for tests.
+ */
+export function buildNeedsYouHtml(report: DataHealthReport, appUrl?: string | null): string {
+  const base = resolveAppUrl(appUrl)
+  const dashboardUrl = `${base}/ops/dashboard`
+  if (report.count === 0) {
+    return `
+        <h2 style="margin: 28px 0 6px; color: #111827; font-size: 17px;">Needs you</h2>
+        <p style="margin: 0 0 8px; color: #2c2c2a; font-size: 14px;">All clear — no job has missing or conflicting info.</p>
+      `
+  }
+  const holdsPay = report.jobs.filter((j) => j.problems.some((p) => p.blocksPay)).length
+  const rows = report.jobs
+    .slice(0, NEEDS_YOU_EMAIL_JOB_ROWS)
+    .map((job) => {
+      const items = job.problems
+        .map((p) => {
+          const hold = p.blocksPay ? ' <strong style="color: #991b1b;">(holds pay)</strong>' : ''
+          return `<li style="margin: 2px 0;">${escapeHtml(p.message)}${hold} — <a href="${escapeHtml(base + p.fixHref)}" style="color: #2b0a3d;">${escapeHtml(p.fixLabel)}</a></li>`
+        })
+        .join('')
+      return `<tr><td style="padding: 8px 12px 8px 0; color: #2c2c2a; font-weight: 600; vertical-align: top; white-space: nowrap;"><a href="${escapeHtml(`${base}/ops/jobs/${job.jobId}`)}" style="color: #2c2c2a;">Job ${escapeHtml(job.jobNumber)}</a></td><td style="padding: 8px 0; color: #2c2c2a; font-size: 14px;"><ul style="margin: 0; padding-left: 18px;">${items}</ul></td></tr>`
+    })
+    .join('')
+  const moreJobs = report.jobs.length - NEEDS_YOU_EMAIL_JOB_ROWS
+  const moreLine = moreJobs > 0 ? `<p style="margin: 4px 0; color: #2c2c2a; font-size: 13px;">…and ${moreJobs} more jobs.</p>` : ''
+  const apptLine =
+    report.appointments.length > 0
+      ? `<p style="margin: 8px 0; color: #2c2c2a; font-size: 14px;">${report.appointments.length} past appointment${report.appointments.length === 1 ? '' : 's'} with no outcome logged.</p>`
+      : ''
+  return `
+        <h2 style="margin: 28px 0 6px; color: #111827; font-size: 17px;">Needs you (${report.count})</h2>
+        <p style="margin: 0 0 10px; color: #2c2c2a; font-size: 13px;">${holdsPay} job${holdsPay === 1 ? '' : 's'} can&apos;t be paid until fixed. <a href="${escapeHtml(dashboardUrl)}" style="color: #2b0a3d;">See the full list</a>.</p>
+        <table style="width: 100%; border-collapse: collapse; margin: 0 0 8px;">${rows}</table>
+        ${moreLine}
+        ${apptLine}
+      `
+}
+
+export function buildMorningUpdateHtml(
+  metrics: MorningUpdateMetrics,
+  options?: { test?: boolean; needsYou?: DataHealthReport | null }
+): string {
   const period = activityLabelPrefix(metrics.activityPeriodKind)
 
   const activitySubline =
@@ -165,6 +215,7 @@ export function buildMorningUpdateHtml(metrics: MorningUpdateMetrics, options?: 
           insurance: metrics.insuranceInspectionsMonthToDate,
         })}
         ${lastWeekSection}
+        ${options?.needsYou ? buildNeedsYouHtml(options.needsYou) : ''}
         <p style="color: #6B7280; font-size: 12px; margin-top: 20px;">
           Automated owner morning update from ARX CRM. Proposals shown is based on unique opportunities with a generated proposal PDF during the period. Revenue reflects signed installation and repair agreements. Insurance inspections are counted when feedback is recorded as Insurance Follow Up or Waiting on Insurance.
         </p>
@@ -228,7 +279,30 @@ export async function sendMorningUpdateEmail(
   const transporter = getMailTransport()
   const subjectPrefix = isTest ? '[TEST] ' : ''
   const subject = `${subjectPrefix}ARX Morning Update — ${metrics.sentDateLabel}`
-  const html = buildMorningUpdateHtml(metrics, { test: isTest })
+  // The daily data-health check rides along. It must never stop the update going out.
+  let needsYou: DataHealthReport | null = null
+  try {
+    needsYou = await loadDataHealth(supabase, params.orgId)
+  } catch (error) {
+    console.error('sendMorningUpdateEmail: data health failed', error)
+  }
+  // Money and credit rows in "Needs you" go to super admins (owners) only; everyone else gets the
+  // same email without them.
+  const { data: ownerRows, error: ownerError } = await supabase
+    .from('users')
+    .select('email')
+    .eq('org_id', params.orgId)
+    .eq('is_super_admin', true)
+    .eq('active', true)
+  if (ownerError) {
+    // Fail loudly in the logs: without the owner list nobody gets the money/credit rows.
+    console.error('sendMorningUpdateEmail: could not load owners (is migration 202610210010 applied?)', ownerError.message)
+  }
+  const ownerEmails = new Set((ownerRows || []).map((u: { email: string | null }) => String(u.email || '').trim().toLowerCase()))
+  const ownerHtml = buildMorningUpdateHtml(metrics, { test: isTest, needsYou })
+  const everyoneHtml = needsYou
+    ? buildMorningUpdateHtml(metrics, { test: isTest, needsYou: filterReportForViewer(needsYou, false) })
+    : ownerHtml
 
   let sent = 0
   let failed = 0
@@ -238,7 +312,7 @@ export async function sendMorningUpdateEmail(
         from: getCrmEmailFrom(),
         to,
         subject,
-        html,
+        html: ownerEmails.has(to.trim().toLowerCase()) ? ownerHtml : everyoneHtml,
       })
       sent += 1
     } catch (error) {
