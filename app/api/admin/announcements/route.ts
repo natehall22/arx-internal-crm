@@ -29,9 +29,9 @@ export async function GET() {
   const [annRes, usersRes, disRes] = await Promise.all([
     a.admin.from('announcements').select('id, slug, title, body, link_url, starts_at, ends_at, active').eq('org_id', orgId).order('starts_at', { ascending: false }).limit(50),
     a.admin.from('users').select('id, full_name, role, active').eq('org_id', orgId).eq('active', true),
-    a.admin.from('announcement_dismissals').select('announcement_id, user_id, dismissed_at').eq('org_id', orgId),
+    a.admin.from('announcement_dismissals').select('announcement_id, user_id, dismissed_at').eq('org_id', orgId).limit(5000),
   ])
-  if (annRes.error) return NextResponse.json({ error: 'Could not load announcements' }, { status: 500 })
+  if (annRes.error || disRes.error || usersRes.error) return NextResponse.json({ error: 'Could not load announcements' }, { status: 500 })
   const dismissed = new Map<string, Map<string, string>>()
   for (const d of disRes.data ?? []) {
     const m = dismissed.get(d.announcement_id as string) ?? new Map<string, string>()

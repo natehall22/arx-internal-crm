@@ -49,6 +49,7 @@ export async function GET(_request: NextRequest) {
         full_name: profile.full_name,
         aiAssistantAllowlisted: isAiAssistantAllowlistedAuth({ authUser, profile }),
         isOwner: isOwnerProfile(profile),
+        canManageSuppliers: isOwnerProfile(profile), // old name, kept for one release
       },
     })
   } catch (error) {

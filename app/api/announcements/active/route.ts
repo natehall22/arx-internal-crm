@@ -2,7 +2,7 @@
 import { NextResponse } from 'next/server'
 
 import { requireAuthApi } from '@/lib/auth'
-import { pickAnnouncement, type AnnouncementRow } from '@/lib/announcements'
+import { isSafeInternalLink, pickAnnouncement, type AnnouncementRow } from '@/lib/announcements'
 import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
@@ -16,8 +16,7 @@ export async function GET() {
   }
   const admin = createServiceClient()
   const nowIso = new Date().toISOString()
-  const [rowsRes, dismissedRes] = await Promise.all([
-    admin
+  const rowsRes = await admin
       .from('announcements')
       .select('id, title, body, link_url, starts_at, ends_at, active')
       .eq('org_id', profile.org_id)
@@ -25,13 +24,20 @@ export async function GET() {
       .lte('starts_at', nowIso)
       .gt('ends_at', nowIso)
       .order('starts_at', { ascending: false })
-      .limit(10),
-    admin.from('announcement_dismissals').select('announcement_id').eq('user_id', profile.id),
-  ])
+      .limit(10)
   // The banner must never break a page: any problem just means "no banner".
-  if (rowsRes.error || dismissedRes.error) return NextResponse.json({ announcement: null })
+  if (rowsRes.error) return NextResponse.json({ announcement: null })
+  // Re-check the link at read time too: a row written straight in SQL skips the editor's validation.
+  const rows = ((rowsRes.data ?? []) as AnnouncementRow[]).filter((r) => isSafeInternalLink(r.link_url))
+  if (rows.length === 0) return NextResponse.json({ announcement: null })
+  const dismissedRes = await admin
+    .from('announcement_dismissals')
+    .select('announcement_id')
+    .eq('user_id', profile.id)
+    .in('announcement_id', rows.map((r) => r.id))
+  if (dismissedRes.error) return NextResponse.json({ announcement: null })
   const picked = pickAnnouncement(
-    (rowsRes.data ?? []) as AnnouncementRow[],
+    rows,
     new Set((dismissedRes.data ?? []).map((d) => d.announcement_id as string)),
     profile.role,
     new Date()

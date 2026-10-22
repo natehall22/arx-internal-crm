@@ -12,7 +12,7 @@ jest.mock('@/lib/supabase/service', () => ({
     from: (table: string) => {
       const st: { op: string; payload?: unknown } = { op: 'select' }
       const q: Record<string, any> = {}
-      for (const m of ['select', 'eq', 'lte', 'gt', 'order', 'limit']) q[m] = () => q
+      for (const m of ['select', 'eq', 'lte', 'gt', 'in', 'order', 'limit']) q[m] = () => q
       q.upsert = (payload: unknown) => { st.op = 'upsert'; ops.push({ table, op: 'upsert', payload }); return q }
       q.insert = (payload: unknown) => { st.op = 'insert'; ops.push({ table, op: 'insert', payload }); return q }
       q.update = (payload: unknown) => { st.op = 'update'; ops.push({ table, op: 'update', payload }); return q }

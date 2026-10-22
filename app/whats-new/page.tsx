@@ -31,8 +31,9 @@ export default async function WhatsNewPage() {
     .eq('active', true)
     .lte('starts_at', new Date().toISOString())
     .order('starts_at', { ascending: false })
-    .limit(1)
-  const latest = data?.[0]
+    .limit(5)
+  // The newest announcement that has copy for this person's role.
+  const latest = (data ?? []).find((a) => linesFor(a.body as AnnouncementBody, group).length > 0)
   const lines = latest ? linesFor(latest.body as AnnouncementBody, group) : []
   const shots = (group && SHOTS[group]) || []
 
@@ -50,7 +51,7 @@ export default async function WhatsNewPage() {
               {group ? ` · for ${ROLE_GROUP_LABELS[group].toLowerCase()}` : ''}
             </p>
             <ul className="m-0 list-disc space-y-3 pl-5 text-base leading-snug">
-              {lines.map((l) => <li key={l}>{l}</li>)}
+              {lines.map((l, i) => <li key={i}>{l}</li>)}
             </ul>
             {shots.length > 0 && (
               <div className="mt-6 space-y-6">
