@@ -114,7 +114,7 @@ export default function Harness({ params }: { params: { screen: string } }) {
     case 'job-sheets':
       return <JobSheetsEditor initialSheet={HARNESS_RUN_SHEET as never} canEdit scope={null} coverage={{} as never} showOrder={false} />
     case 'dashboard':
-      return <DashboardClient {...(HARNESS_DASHBOARD as never)} pendingPrompts={[]} upcomingAppointments={[]} recentActivities={[]} settings={{}} />
+      return <DashboardClient profile={HARNESS_DASHBOARD.profile} stats={HARNESS_DASHBOARD.stats} progress={HARNESS_DASHBOARD.progress} pendingPrompts={[]} upcomingAppointments={[]} recentActivities={[]} settings={{}} />
     case 'payroll-periods':
       return <PayrollPeriodsPage />
     default:
