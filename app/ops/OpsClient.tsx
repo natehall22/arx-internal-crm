@@ -4,7 +4,6 @@ import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
-import { createClientBrowser } from '@/lib/supabase/client'
 import { handoffPreviewForJobBoard } from '@/lib/project-review'
 import OperationsSnapshotCard, {
   hasOperationsSnapshotData,
@@ -102,7 +101,6 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability }: 
   const [searchQuery, setSearchQuery] = useState('')
   const [completedSearchQuery, setCompletedSearchQuery] = useState('')
 
-  const supabase = createClientBrowser()
 
   const markPayrollSent = useCallback(async (jobId: string) => {
     try {
@@ -319,12 +317,23 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability }: 
     await loadData()
   }, [jobs, loadData])
 
-  const updateMaterialsStatus = useCallback(
-    async (jobId: string, newStatus: string) => {
-      await supabase.from('production_jobs').update({ materials_status: newStatus }).eq('id', jobId)
+  // Board one-tap "Mark ordered" goes through the same server event as the job page
+  // (records the date, moves Sold → Material Ordering) instead of a raw browser-side
+  // status write that skipped both.
+  const markMaterialsOrdered = useCallback(
+    async (jobId: string) => {
+      const response = await fetch(`/api/ops/jobs/${jobId}/materials-ordered`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ source: 'board' }),
+      })
+      if (!response.ok) {
+        const err = await response.json().catch(() => null)
+        alert(err?.error || 'Could not save. Try again.')
+      }
       await loadData()
     },
-    [supabase, loadData]
+    [loadData]
   )
 
   const navigateToJob = useCallback(
@@ -343,9 +352,9 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability }: 
 
   const onBoardMarkOrdered = useCallback(
     (jobId: string) => {
-      void updateMaterialsStatus(jobId, 'ordered')
+      void markMaterialsOrdered(jobId)
     },
-    [updateMaterialsStatus]
+    [markMaterialsOrdered]
   )
 
   return (

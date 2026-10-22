@@ -176,15 +176,17 @@ function unpaidContractBalanceCents(args: {
 
 /** First incomplete pipeline stage index (0–4), or 4 when fully done. */
 
-type WorkflowBtnId = 'resume' | 'schedule' | 'materials' | 'materialsReady' | 'startJob' | 'complete' | 'collected'
+type WorkflowBtnId = 'resume' | 'schedule' | 'materials' | 'startJob' | 'complete' | 'collected'
 
 function getWorkflowPrimaryAndSecondaryIds(job: Job): { primary: WorkflowBtnId; secondary: WorkflowBtnId[] } {
   // A paused job's only next step is un-pausing it — no crews/invites while it's on hold.
   if (job.status === 'on_hold') return { primary: 'resume', secondary: [] }
   const show: Record<Exclude<WorkflowBtnId, 'resume'>, boolean> = {
     schedule: true,
-    materials: job.status === 'sold',
-    materialsReady: job.status === 'materials' && job.materials_status === 'received',
+    // One tap that records the order (and moves Sold → Material Ordering). The old
+    // "Start Material Ordering" / "Materials Ready" pair were status flips nobody used;
+    // booking a crew already moves the job to Scheduled (deriveJobSchedule).
+    materials: (job.status === 'sold' || job.status === 'materials') && (job.materials_status || 'not_ordered') === 'not_ordered',
     startJob: job.status === 'scheduled',
     complete: job.status === 'in_progress',
     collected: job.status === 'complete',
@@ -192,13 +194,12 @@ function getWorkflowPrimaryAndSecondaryIds(job: Job): { primary: WorkflowBtnId; 
   let primary: WorkflowBtnId
   if (!job.scheduled_date) primary = 'schedule'
   else if (show.materials) primary = 'materials'
-  else if (show.materialsReady) primary = 'materialsReady'
   else if (show.startJob) primary = 'startJob'
   else if (show.complete) primary = 'complete'
   else if (show.collected) primary = 'collected'
   else primary = 'schedule'
 
-  const order: Exclude<WorkflowBtnId, 'resume'>[] = ['schedule', 'materials', 'materialsReady', 'startJob', 'complete', 'collected']
+  const order: Exclude<WorkflowBtnId, 'resume'>[] = ['schedule', 'materials', 'startJob', 'complete', 'collected']
   const secondary = order.filter((id) => id !== primary && show[id])
   return { primary, secondary }
 }
@@ -211,6 +212,7 @@ function renderWorkflowButton(
     saving: boolean
     goToCrews: () => void
     updateStatus: (newStatus: JobStatus, extraUpdates?: Record<string, unknown>) => void | Promise<void>
+    markMaterialsOrdered: () => void | Promise<void>
     handleCompleteClick: () => void
     handleCollectedClick: () => void
     markCollectedDisabled: boolean
@@ -228,7 +230,7 @@ function renderWorkflowButton(
   const pc = isPrimary ? primaryIndigo : outline
   const pcGreen = isPrimary ? primaryGreen : outline
   const pcGray = isPrimary ? primaryGray : outline
-  const { saving, goToCrews, updateStatus, handleCompleteClick, handleCollectedClick, markCollectedDisabled, markCollectedTitle } = opts
+  const { saving, goToCrews, updateStatus, markMaterialsOrdered, handleCompleteClick, handleCollectedClick, markCollectedDisabled, markCollectedTitle } = opts
 
   switch (id) {
     case 'resume': {
@@ -250,23 +252,11 @@ function renderWorkflowButton(
         <button
           key={id}
           type="button"
-          onClick={() => updateStatus('materials')}
+          onClick={() => void markMaterialsOrdered()}
           disabled={saving}
           className={pc}
         >
-          Start Material Ordering
-        </button>
-      )
-    case 'materialsReady':
-      return (
-        <button
-          key={id}
-          type="button"
-          onClick={() => updateStatus('scheduled')}
-          disabled={saving}
-          className={pc}
-        >
-          Materials Ready — Schedule Job
+          Mark materials ordered
         </button>
       )
     case 'startJob':
@@ -655,7 +645,7 @@ export default function JobDetailClient({
       if (window.innerWidth < 1024) {
         if (hash === '#materials-section') {
           setMobileTab('materials')
-        } else if (hash === '#payments-section' || hash === '#invoices-section') {
+        } else if (hash === '#payments-section' || hash === '#invoices-section' || hash === '#payroll-attribution-section') {
           setMobileTab('financials')
         } else if (hash === '#job-files-workspace-section' || hash === '#completion-certificate-tools') {
           setMobileTab('photos')
@@ -1072,31 +1062,44 @@ export default function JobDetailClient({
     setShowCollectModal(true)
   }
 
-  const updateMaterialsStatus = async (newStatus: string) => {
+  /** One tap: materials ordered (or undo). Server records the date and moves Sold → Material Ordering. */
+  const setMaterialsOrdered = async (ordered: boolean) => {
     setSaving(true)
-
-    const updates: any = { materials_status: newStatus }
-    if (newStatus === 'ordered' && !job.materials_ordered_at) {
-      updates.materials_ordered_at = new Date().toISOString()
-    }
-
     try {
-      const response = await fetch(`/api/ops/jobs/${job.id}`, {
-        method: 'PATCH',
+      const response = await fetch(`/api/ops/jobs/${job.id}/materials-ordered`, {
+        method: ordered ? 'POST' : 'DELETE',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updates),
+        body: ordered ? JSON.stringify({ source: 'one_tap' }) : undefined,
       })
-
       if (!response.ok) {
-        const error = await response.json()
-        console.error('Failed to update materials status:', error)
-        alert('Failed to update materials status')
+        const error = await response.json().catch(() => null)
+        console.error('Failed to save materials ordered:', error)
+        alert(error?.error || 'Could not save. Try again.')
       }
     } catch (error) {
-      console.error('Error updating materials status:', error)
-      alert('Failed to update materials status')
+      console.error('Error saving materials ordered:', error)
+      alert('Could not save. Try again.')
     }
+    await reloadJob()
+    setSaving(false)
+  }
 
+  const updatePermit = async (action: 'not_needed' | 'applied' | 'approved', permitNumber?: string) => {
+    setSaving(true)
+    try {
+      const response = await fetch(`/api/ops/jobs/${job.id}/permit`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, permit_number: permitNumber }),
+      })
+      if (!response.ok) {
+        const error = await response.json().catch(() => null)
+        alert(error?.error || 'Could not save. Try again.')
+      }
+    } catch (error) {
+      console.error('Error saving permit:', error)
+      alert('Could not save. Try again.')
+    }
     await reloadJob()
     setSaving(false)
   }
@@ -1568,6 +1571,7 @@ export default function JobDetailClient({
                 saving,
                 goToCrews,
                 updateStatus,
+                markMaterialsOrdered: () => setMaterialsOrdered(true),
                 handleCompleteClick,
                 handleCollectedClick,
                 markCollectedDisabled,
@@ -1639,6 +1643,7 @@ export default function JobDetailClient({
                 saving,
                 goToCrews,
                 updateStatus,
+                markMaterialsOrdered: () => setMaterialsOrdered(true),
                 handleCompleteClick,
                 handleCollectedClick,
                 markCollectedDisabled,
@@ -1845,6 +1850,15 @@ export default function JobDetailClient({
           jobNumber={job.job_number}
           roofReportId={job.roof_report?.pdf_generated_at ? job.roof_report.id : null}
           showOrderSheet={Boolean(job.sold_scope && job.job_type === 'roofing')}
+          materialsStatus={job.materials_status}
+          materialsOrderedAt={job.materials_ordered_at}
+          onMarkMaterialsOrdered={job.status === 'cancelled' ? undefined : () => void setMaterialsOrdered(true)}
+          onUndoMaterialsOrdered={job.status === 'cancelled' ? undefined : () => void setMaterialsOrdered(false)}
+          onOrderSheetDownloaded={() => {
+            // The download request records the order; give it a moment, then show it.
+            window.setTimeout(() => void reloadJob(), 2000)
+          }}
+          markingMaterials={saving}
         />
 
         <JobReadyToPayBanner
@@ -1982,9 +1996,6 @@ export default function JobDetailClient({
                 jobId={job.id}
                 userRole={userRole}
                 title="Materials"
-                materialsStatus={job.materials_status}
-                onMaterialsStatusChange={updateMaterialsStatus}
-                updatingMaterialsStatus={saving}
                 laborCost={job.labor_cost}
                 onSaveLaborCost={updateLaborCost}
                 savingLaborCost={savingLaborCost}
@@ -2387,24 +2398,58 @@ export default function JobDetailClient({
               })
             }} />
 
-            {job.permit_required && (
-              <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
-                <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-4">Permit</h2>
-                <div className="flex items-center gap-2 mb-2">
-                  <span className={`px-2 py-1 text-xs font-medium rounded-full ${
-                    job.permit_status === 'approved' ? 'bg-green-100 text-green-700' :
-                    job.permit_status === 'pending' ? 'bg-yellow-100 text-yellow-700' :
-                    job.permit_status === 'denied' ? 'bg-red-100 text-red-700' :
-                    'bg-gray-100 text-gray-600'
-                  }`}>
-                    {job.permit_status === 'not_needed' ? 'Not Needed' : job.permit_status}
-                  </span>
+            {/* Permit — recorded with one tap at each real step (needs one → applied → approved).
+                Before this the status had no way to be set, so every job said "Not needed". */}
+            <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
+              <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-2">Permit</h2>
+              <p className="text-sm text-[#2c2c2a] mb-3">
+                {!job.permit_required
+                  ? 'No permit on this job.'
+                  : job.permit_status === 'approved'
+                    ? `Permit approved${job.permit_number ? ` · #${job.permit_number}` : ''}`
+                    : job.permit_status === 'denied'
+                      ? 'Permit denied'
+                      : `Permit applied for${job.permit_number ? ` · #${job.permit_number}` : ''} — waiting on approval`}
+              </p>
+              {job.status !== 'cancelled' && (
+                <div className="flex flex-wrap gap-2">
+                  {!job.permit_required && (
+                    <button
+                      type="button"
+                      onClick={() => void updatePermit('applied')}
+                      disabled={saving}
+                      className="min-h-[44px] px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-[#2c2c2a] hover:bg-gray-50 disabled:opacity-50"
+                    >
+                      This job needs a permit — applied
+                    </button>
+                  )}
+                  {job.permit_required && job.permit_status !== 'approved' && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const number = window.prompt('Permit number (optional)', job.permit_number || '')
+                        if (number === null) return
+                        void updatePermit('approved', number)
+                      }}
+                      disabled={saving}
+                      className="min-h-[44px] px-4 py-2 bg-green-700 text-white rounded-lg text-sm font-medium hover:bg-green-800 disabled:opacity-50"
+                    >
+                      Permit approved
+                    </button>
+                  )}
+                  {job.permit_required && (
+                    <button
+                      type="button"
+                      onClick={() => void updatePermit('not_needed')}
+                      disabled={saving}
+                      className="min-h-[44px] px-4 py-2 text-sm font-medium text-[#2c2c2a] underline underline-offset-2 disabled:opacity-50"
+                    >
+                      No permit needed
+                    </button>
+                  )}
                 </div>
-                {job.permit_number && (
-                  <p className="text-sm text-gray-600">Permit #: {job.permit_number}</p>
-                )}
-              </div>
-            )}
+              )}
+            </div>
 
             <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
               <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-4">Related</h2>

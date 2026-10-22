@@ -155,7 +155,13 @@ export default function JobSheetsEditor({ initialSheet, canEdit, scope, coverage
             <div className="flex flex-wrap items-center gap-2">
               <SheetButtons label="Crew run sheet" pdfUrl={crewPdfUrl} color={CREW_ACCENT} />
               {showOrder && (
-                <SheetButtons label="Supplier order sheet" pdfUrl={supplierPdfUrl} color={SUPPLIER_ACCENT} />
+                <SheetButtons
+                  label="Supplier order sheet"
+                  pdfUrl={supplierPdfUrl}
+                  color={SUPPLIER_ACCENT}
+                  downloadLabel="Download to send"
+                  downloadTitle="Downloading the order sheet marks this job's materials as ordered."
+                />
               )}
             </div>
           </div>
@@ -346,7 +352,19 @@ export default function JobSheetsEditor({ initialSheet, canEdit, scope, coverage
   )
 }
 
-function SheetButtons({ label, pdfUrl, color }: { label: string; pdfUrl: string; color: string }) {
+function SheetButtons({
+  label,
+  pdfUrl,
+  color,
+  downloadLabel = 'Download',
+  downloadTitle,
+}: {
+  label: string
+  pdfUrl: string
+  color: string
+  downloadLabel?: string
+  downloadTitle?: string
+}) {
   return (
     <div className="flex items-center gap-1 rounded-lg p-1" style={{ backgroundColor: color }}>
       <span className="px-2 text-xs font-bold uppercase tracking-wide text-white">{label}</span>
@@ -360,9 +378,10 @@ function SheetButtons({ label, pdfUrl, color }: { label: string; pdfUrl: string;
       </a>
       <a
         href={`${pdfUrl}?download=1`}
+        title={downloadTitle}
         className="rounded-md border border-white/70 px-3 py-1.5 text-sm font-semibold text-white hover:bg-white/10"
       >
-        Download
+        {downloadLabel}
       </a>
     </div>
   )

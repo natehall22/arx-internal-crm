@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from 'next/server'
 
 import { requireAuthApi } from '@/lib/auth'
 import { buildJobMaterialOrder } from '@/lib/job-material-order'
+import { markMaterialsOrdered } from '@/lib/job-status-events'
 import { resolveOpsAccess } from '@/lib/ops-access'
 import { generateJobMaterialOrderPDF } from '@/lib/pdf/job-material-order'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -17,6 +18,7 @@ export const dynamic = 'force-dynamic'
 export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
   let profile
   let admin
+  let canEditJobs = false
   try {
     const auth = await requireAuthApi()
     profile = auth.profile
@@ -25,6 +27,7 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
     if (!access.canJobBoard) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
+    canEditJobs = access.canEditJobs
   } catch {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
@@ -38,7 +41,15 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
     const pdf = generateJobMaterialOrderPDF(order)
     const safeJobNumber = order.jobNumber.replace(/[^A-Za-z0-9._-]/g, '-')
     // `download=1` makes the browser save it (for emailing a supplier); default opens inline.
-    const disposition = request.nextUrl.searchParams.get('download') === '1' ? 'attachment' : 'inline'
+    const isDownload = request.nextUrl.searchParams.get('download') === '1'
+    const disposition = isDownload ? 'attachment' : 'inline'
+
+    // Downloading the sheet is how it gets sent to the supplier, so that IS the order being
+    // placed: record "materials ordered" here instead of asking ops to also flip a status.
+    // Opening it inline (preview, print check) records nothing. Forward-only and idempotent.
+    if (isDownload && canEditJobs) {
+      await markMaterialsOrdered(admin, { orgId: profile.org_id, jobId: params.id, source: 'order_sheet_download' })
+    }
 
     // Node Buffer is not a valid BodyInit for the web Response type; hand over the bytes.
     return new NextResponse(new Uint8Array(pdf), {

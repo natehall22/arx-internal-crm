@@ -7,6 +7,7 @@ import { resolveCustomerDisplayName, upsertCustomer } from '@/lib/customers'
 import { resolveProposalSoldRoofSquares } from '@/lib/sold-roof-squares'
 import { createServiceClient } from '@/lib/supabase/service'
 import { reinstateCancelledJob } from '@/lib/job-cancellation'
+import { applyContractSignedStatuses } from '@/lib/job-status-events'
 
 type EmbeddedLeadRow = { owner_user_id?: string | null; closer_user_id?: string | null }
 type AdminSupabaseClient = ReturnType<typeof createServiceClient>
@@ -920,6 +921,18 @@ export async function POST(request: NextRequest) {
         user_id: contract.created_by,
         type: 'status_change',
         body: `${agreementLabel} signed by ${printName} from IP ${clientIp}`,
+      })
+    }
+
+    // The signed sale agreement is the real "accept": mark its proposal accepted and close
+    // the deal's past appointments still sitting "scheduled" (desire paths, W4/W6).
+    if (isSaleAgreement) {
+      await applyContractSignedStatuses(supabase, {
+        orgId: contract.org_id,
+        proposalId: contract.proposal_id ?? null,
+        opportunityId: contract.opportunity_id ?? null,
+        projectId: projectId ?? null,
+        signedAtIso: customerSignedAt,
       })
     }
 
