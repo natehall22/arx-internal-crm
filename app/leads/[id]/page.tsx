@@ -1,4 +1,5 @@
 import { requireAuth } from '@/lib/auth'
+import { saleCreditLockBlock } from '@/lib/deal-sale-credit'
 import { createServiceClient } from '@/lib/supabase/service'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
@@ -350,6 +351,19 @@ export default async function LeadDetailPage({
 
     const prevSetterId = freshLead.owner_user_id ?? null
     const prevCloserId = freshLead.closer_user_id ?? null
+
+    // Moving setter/closer on a lead whose deal is signed changes who gets paid: owners only.
+    if (
+      canEditAttribution &&
+      (prevSetterId !== (effectiveSetterId ?? null) || prevCloserId !== (effectiveCloserId ?? null))
+    ) {
+      const creditBlock = await saleCreditLockBlock(supabase, {
+        orgId: profile.org_id,
+        leadId: params.id,
+        actor: profile as { is_super_admin?: boolean | null; active?: boolean | null },
+      })
+      if (creditBlock) throw new Error(creditBlock)
+    }
 
     await supabase.from('leads').update(updates).eq('id', params.id)
 

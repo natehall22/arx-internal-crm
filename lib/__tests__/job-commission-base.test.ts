@@ -91,3 +91,35 @@ describe('buildCommissionPayrollSnapshot reads only the stored base', () => {
     expect(s.source).toBe('unavailable')
   })
 })
+
+describe('computeJobSaleTotals — base excludes sales tax and the dealer fee (2026-10-22)', () => {
+  it('sale amount stays tax-included; base = signed total − tax − dealer fee', () => {
+    const t = computeJobSaleTotals({
+      contracts: [{ id: 'c', projectCost: 12998.56 }],
+      changeOrders: [],
+      salesTax: 805.81,
+      dealerFee: 681.12,
+    })
+    if (!t.ok) throw new Error('expected ok')
+    expect(t.saleAmount).toBe(12998.56)
+    expect(t.commissionBase).toBe(11511.63)
+  })
+
+  it('change orders add to the base, tax and fee still come off', () => {
+    const t = computeJobSaleTotals({
+      contracts: [{ id: 'c', projectCost: 10000 }],
+      changeOrders: [{ id: 'co', originalAmount: 10000, updatedTotal: 10500, isCommissionable: true, createdAt: '2026-01-01' }],
+      salesTax: 500,
+      dealerFee: 100,
+    })
+    if (!t.ok) throw new Error('expected ok')
+    expect(t.saleAmount).toBe(10500)
+    expect(t.commissionBase).toBe(9900)
+  })
+
+  it('never goes negative', () => {
+    const t = computeJobSaleTotals({ contracts: [{ id: 'c', projectCost: 100 }], changeOrders: [], salesTax: 80, dealerFee: 80 })
+    if (!t.ok) throw new Error('expected ok')
+    expect(t.commissionBase).toBe(0)
+  })
+})

@@ -1,3 +1,4 @@
+import { sumCollectedCents } from '@/lib/job-collection'
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import Nav from '@/components/Nav'
@@ -52,6 +53,7 @@ type CostLine = {
 type PaymentLine = {
   job_id: string
   amount_cents: number | null
+  funding_status?: string | null
 }
 
 type ProductOrderLine = {
@@ -263,7 +265,7 @@ export default async function AdminJobProfitTrackerPage({
         .in('job_id', jobIds),
       supabase
         .from('job_payments')
-        .select('job_id, amount_cents')
+        .select('job_id, amount_cents, funding_status')
         .in('job_id', jobIds),
     ])
 
@@ -276,7 +278,7 @@ export default async function AdminJobProfitTrackerPage({
     for (const payment of (payments || []) as PaymentLine[]) {
       collectedCentsByJob.set(
         payment.job_id,
-        (collectedCentsByJob.get(payment.job_id) || 0) + (payment.amount_cents || 0)
+        (collectedCentsByJob.get(payment.job_id) || 0) + sumCollectedCents([payment])
       )
     }
 

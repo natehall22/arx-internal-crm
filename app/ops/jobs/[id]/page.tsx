@@ -1,5 +1,6 @@
 export const dynamic = 'force-dynamic'
 
+import { sumCollectedCents } from '@/lib/job-collection'
 import { requireAuth } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -299,11 +300,11 @@ export default async function JobDetailPage({ params }: PageProps) {
     try {
       const { data: payments } = await supabaseService
         .from('job_payments')
-        .select('amount_cents')
+        .select('amount_cents, funding_status')
         .eq('job_id', jobRes.data.id)
 
       if (payments) {
-        amountCollected = payments.reduce((sum, p) => sum + (p.amount_cents || 0), 0) / 100
+        amountCollected = sumCollectedCents(payments) / 100
       }
     } catch {
       // ignore
