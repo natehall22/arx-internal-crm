@@ -196,7 +196,7 @@ export async function getAiChatRecordContextAppendix(
 - Address: ${job.address_text || 'Not set'}
 - Status: ${job.status}
 - Materials status: ${job.materials_status || 'Not set'}
-- Labor cost entry: Materials tab → Labor Cost card on this job (/ops/jobs/${recordId})
+- Labor cost entry: Materials tab → + Job Cost, type Labor (no separate Labor Cost box) on this job (/ops/jobs/${recordId})
 - Cost lines & photos: Photos & files tab → Job Files Workspace`
       )
     }

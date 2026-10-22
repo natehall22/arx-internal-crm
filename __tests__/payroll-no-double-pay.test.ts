@@ -67,7 +67,7 @@ type Builder = Record<string, jest.Mock> & { then: unknown }
 
 function makeBuilder(response: Resp): Builder {
   const builder: Record<string, unknown> = {}
-  for (const m of ['select', 'eq', 'in', 'not', 'lte', 'is', 'or', 'order', 'insert', 'update', 'upsert', 'delete', 'limit']) {
+  for (const m of ['select', 'eq', 'in', 'not', 'lte', 'is', 'or', 'order', 'insert', 'update', 'upsert', 'delete', 'limit', 'range']) {
     builder[m] = jest.fn(() => builder)
   }
   builder.maybeSingle = jest.fn(() => Promise.resolve(response))

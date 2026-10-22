@@ -1,22 +1,15 @@
 import { buildCommissionPayrollSnapshot } from '@/lib/commission-payroll'
 import { roundMoney } from '@/lib/money'
+import { EMPTY_JOB_COST_SUMMARY, jobDirectCost, type JobCostSummary } from '@/lib/job-cost-ledger'
 
 export type JobEconomicsRow = {
   id: string
   sale_amount: number | string | null
   sale_date: string | null
   created_at: string
-  labor_cost: number | string | null
-  material_cost: number | string | null
   dealer_fee_amount?: number | string | null
   commission_comp_base?: number | string | null
   commission_pre_tax_subtotal?: number | string | null
-}
-
-export type JobCostLineRow = {
-  job_id: string
-  amount: number | string | null
-  cost_type: string | null
 }
 
 export type JobEconomicsSummary = {
@@ -37,34 +30,13 @@ function money(value: number | string | null | undefined): number {
   return 0
 }
 
-function hasMoney(value: number | string | null | undefined): boolean {
-  if (typeof value === 'number') return Number.isFinite(value)
-  if (typeof value === 'string') return value.trim() !== '' && Number.isFinite(Number(value))
-  return false
-}
-
-function jobHasCostData(job: JobEconomicsRow, costLines: JobCostLineRow[]): boolean {
-  if (hasMoney(job.labor_cost) || hasMoney(job.material_cost)) return true
-  return costLines.some((line) => money(line.amount) > 0)
-}
-
-function jobDirectCosts(job: JobEconomicsRow, costLines: JobCostLineRow[]): number {
-  const materialFromJob = hasMoney(job.material_cost) ? money(job.material_cost) : null
-  const laborFromJob = hasMoney(job.labor_cost) ? money(job.labor_cost) : null
-
-  const materialLines = costLines
-    .filter((line) => line.cost_type === 'material')
-    .reduce((sum, line) => sum + money(line.amount), 0)
-  const laborLines = costLines
-    .filter((line) => line.cost_type === 'labor' || line.cost_type === 'subcontractor')
-    .reduce((sum, line) => sum + money(line.amount), 0)
-  const misc = costLines
-    .filter((line) => !['material', 'labor', 'subcontractor'].includes(String(line.cost_type || '')))
-    .reduce((sum, line) => sum + money(line.amount), 0)
-
-  const materials = materialFromJob ?? materialLines
-  const labor = laborFromJob ?? laborLines
-  return roundMoney(materials + labor + misc)
+/**
+ * Direct cost = the job cost ledger + the financing dealer fee, once (lib/job-cost-ledger.ts).
+ * Before 2026-10-21 this preferred the stale production_jobs.material_cost / labor_cost columns
+ * and then added misc cost lines on top, which double-counted 26-0041 and 26-0013.
+ */
+function jobDirectCosts(job: JobEconomicsRow, costs: JobCostSummary): number {
+  return jobDirectCost(costs, job.dealer_fee_amount)
 }
 
 function jobCommissions(job: JobEconomicsRow): number {
@@ -79,7 +51,7 @@ function jobCommissions(job: JobEconomicsRow): number {
 
 export function summarizeJobEconomics(
   jobs: JobEconomicsRow[],
-  costLinesByJob: Map<string, JobCostLineRow[]>
+  costsByJob: Map<string, JobCostSummary>
 ): JobEconomicsSummary {
   let totalSale = 0
   let totalCosts = 0
@@ -88,10 +60,10 @@ export function summarizeJobEconomics(
 
   for (const job of jobs) {
     const sale = money(job.sale_amount)
-    const lines = costLinesByJob.get(job.id) || []
-    if (!jobHasCostData(job, lines)) jobsMissingCostData += 1
+    const costs = costsByJob.get(job.id) ?? EMPTY_JOB_COST_SUMMARY
+    if (costs.lineCount === 0) jobsMissingCostData += 1
 
-    const direct = jobDirectCosts(job, lines)
+    const direct = jobDirectCosts(job, costs)
     const commissions = jobCommissions(job)
     totalSale += sale
     totalCosts += direct + commissions
