@@ -18,6 +18,11 @@ export default function JobDocumentsBanner({
   jobNumber,
   roofReportId,
   showOrderSheet,
+  materialsStatus,
+  materialsOrderedAt,
+  onMarkMaterialsOrdered,
+  onUndoMaterialsOrdered,
+  markingMaterials = false,
 }: {
   jobId: string
   jobNumber: string
@@ -25,7 +30,19 @@ export default function JobDocumentsBanner({
   roofReportId?: string | null
   /** Gate identical to MaterialsOrderCard: job.sold_scope && job.job_type === 'roofing'. */
   showOrderSheet: boolean
+  /** `production_jobs.materials_status`. Recorded here, where the order is sent (desire path). */
+  materialsStatus?: string | null
+  materialsOrderedAt?: string | null
+  /** One tap: "materials ordered". Omit to hide the button (read-only viewers). */
+  onMarkMaterialsOrdered?: () => void
+  /** Undo a mistaken tap. Only offered while the status is plain "ordered". */
+  onUndoMaterialsOrdered?: () => void
+  markingMaterials?: boolean
 }) {
+  const materialsOrdered = Boolean(materialsStatus && materialsStatus !== 'not_ordered')
+  const orderedOn = materialsOrderedAt
+    ? new Date(materialsOrderedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/New_York' })
+    : null
   const runSheetPdfUrl = `/api/ops/jobs/${jobId}/run-sheet/pdf`
   const orderSheetPdfUrl = `/api/ops/jobs/${jobId}/material-order/pdf`
 
@@ -118,6 +135,13 @@ export default function JobDocumentsBanner({
               >
                 Open PDF
               </a>
+              <a
+                href={`${orderSheetPdfUrl}?download=1`}
+                title="Download the order sheet to send it yourself."
+                className="flex min-h-[44px] items-center justify-center rounded-lg border-2 border-white px-4 py-2.5 sm:min-h-[36px] sm:py-1.5 text-sm font-bold text-white hover:bg-white/15"
+              >
+                Download
+              </a>
               <Link
                 href={`/ops/jobs/${jobId}/sheets`}
                 className="flex min-h-[44px] items-center justify-center rounded-lg border-2 border-white px-4 py-2.5 sm:min-h-[36px] sm:py-1.5 text-sm font-bold text-white hover:bg-white/15"
@@ -126,6 +150,37 @@ export default function JobDocumentsBanner({
               </Link>
             </div>
           </div>
+        )}
+      </div>
+
+      {/* Materials ordered — one fact, recorded where the order is placed. Replaces the
+          not ordered / ordered / partial / delivered picker (39 of 42 jobs were never moved off
+          "not ordered"). Shown for every job, including ones with no printable order sheet. */}
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-white px-3 py-2.5">
+        <p className="text-sm font-semibold text-[#2c2c2a]">
+          {materialsOrdered
+            ? `Materials ordered${orderedOn ? ` ${orderedOn}` : ''}`
+            : 'Materials not ordered yet'}
+        </p>
+        {!materialsOrdered && onMarkMaterialsOrdered && (
+          <button
+            type="button"
+            onClick={onMarkMaterialsOrdered}
+            disabled={markingMaterials}
+            className="min-h-[44px] rounded-lg bg-[#2b0a3d] px-4 py-2 text-sm font-bold text-white hover:bg-[#3d1257] disabled:opacity-60 sm:min-h-[36px] sm:py-1.5"
+          >
+            {markingMaterials ? 'Saving…' : 'Mark materials ordered'}
+          </button>
+        )}
+        {materialsStatus === 'ordered' && onUndoMaterialsOrdered && (
+          <button
+            type="button"
+            onClick={onUndoMaterialsOrdered}
+            disabled={markingMaterials}
+            className="min-h-[44px] px-2 text-sm font-semibold text-[#2c2c2a] underline underline-offset-2 disabled:opacity-60 sm:min-h-[36px]"
+          >
+            Undo
+          </button>
         )}
       </div>
     </div>

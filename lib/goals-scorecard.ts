@@ -1,3 +1,4 @@
+import { sumCollectedCents } from '@/lib/job-collection'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { fetchEffectiveSitOpportunitiesInPeriod } from '@/lib/dashboard-sit-metrics'
 import {
@@ -207,14 +208,15 @@ async function fetchCollectedPayments(
 
   const { data: payments, error } = await supabase
     .from('job_payments')
-    .select('amount_cents, paid_at, job_id')
+    .select('amount_cents, paid_at, job_id, funding_status')
     .in('job_id', jobIds)
     .gte('paid_at', startDate)
     .lte('paid_at', endDate)
     .limit(FETCH_LIMIT)
 
   if (error) throw error
-  return (payments || []).reduce((sum, p) => sum + (p.amount_cents || 0) / 100, 0)
+  // Pending payments are not money in hand (lib/job-collection.ts is the one rule).
+  return sumCollectedCents(payments || []) / 100
 }
 
 async function fetchLeadMap(supabase: SupabaseClient, orgId: string, leadIds: string[]) {
@@ -699,14 +701,14 @@ async function buildForecastHistory(
   if (jobIds.length > 0) {
     const { data: paymentRows, error: payErr } = await supabase
       .from('job_payments')
-      .select('paid_at, amount_cents')
+      .select('paid_at, amount_cents, funding_status')
       .in('job_id', jobIds)
       .gte('paid_at', historyStartDate)
       .lte('paid_at', endDateStr)
       .limit(FETCH_LIMIT)
 
     if (payErr) throw payErr
-    payments = (paymentRows || []).map((p) => ({
+    payments = (paymentRows || []).filter((p) => p.funding_status !== 'pending').map((p) => ({
       paidAt: `${p.paid_at}T12:00:00.000Z`,
       amount: (p.amount_cents || 0) / 100,
     }))

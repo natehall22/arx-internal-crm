@@ -1,3 +1,4 @@
+import { JOB_COLLECTION_COLUMNS, evaluateJobCollection } from '@/lib/job-collection'
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { requireAuthApi } from '@/lib/auth'
@@ -42,7 +43,7 @@ export async function GET() {
     // Get outstanding payments (sum of remaining balances on active jobs)
     const { data: activeJobs } = await supabase
       .from('production_jobs')
-      .select('id, sale_amount')
+      .select(`id, ${JOB_COLLECTION_COLUMNS}`)
       .eq('org_id', profile.org_id)
       .in('status', ['sold', 'materials', 'scheduled', 'in_progress', 'complete'])
 
@@ -53,21 +54,24 @@ export async function GET() {
       // Get all payments for these jobs
       const { data: payments } = await supabase
         .from('job_payments')
-        .select('job_id, amount_cents')
+        .select('job_id, amount_cents, funding_status')
         .in('job_id', jobIds)
 
-      // Calculate outstanding per job
-      const paymentsByJob: Record<string, number> = {}
+      // Outstanding per job comes from the one paid-in-full rule (lib/job-collection.ts)
+      const paymentsByJob: Record<string, { amount_cents: number | null; funding_status: string | null }[]> = {}
       payments?.forEach(p => {
-        paymentsByJob[p.job_id] = (paymentsByJob[p.job_id] || 0) + (p.amount_cents || 0)
+        ;(paymentsByJob[p.job_id] ||= []).push(p)
       })
 
       activeJobs.forEach(job => {
-        const saleAmountCents = Math.round((job.sale_amount || 0) * 100)
-        const paidCents = paymentsByJob[job.id] || 0
-        const remainingCents = saleAmountCents - paidCents
-        if (remainingCents > 0) {
-          outstandingPayments += remainingCents / 100
+        const c = evaluateJobCollection({
+          saleAmount: job.sale_amount,
+          payments: paymentsByJob[job.id] || [],
+          allowCloseWithBalance: job.allow_close_with_balance,
+          closeBalanceBy: job.close_balance_by,
+        })
+        if (!c.paidInFull && c.remainingCents > 0) {
+          outstandingPayments += c.remainingCents / 100
         }
       })
     }

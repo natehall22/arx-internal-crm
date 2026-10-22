@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { resolveCustomerDisplayName, upsertCustomer } from '@/lib/customers'
+import { syncJobSaleAndCommissionBase } from '@/lib/job-commission-base'
 
 export type OrderFormContractRow = {
   id: string
@@ -88,6 +89,9 @@ export async function ensureProductionJobForContract(
     console.error('[repair-order-form-project] production_jobs insert', jobError)
     return { production_job_id: null, job_number: null }
   }
+
+  // Sale amount + commission base from the signed contract (+ signed COs) — the one writer.
+  await syncJobSaleAndCommissionBase(supabase, { orgId, jobId: newJob.id })
 
   await supabase.from('projects').update({ status: 'in_progress' }).eq('id', projectId)
 

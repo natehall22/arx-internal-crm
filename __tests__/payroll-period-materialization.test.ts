@@ -1,4 +1,4 @@
-import { derivePayrollEligibility } from '@/lib/payroll-period-materialization'
+import { derivePayrollEligibility, isPayrollAlreadyPaidError } from '@/lib/payroll-period-materialization'
 
 const job = {
   id: 'job-1',
@@ -109,5 +109,61 @@ describe('derivePayrollEligibility', () => {
     })
 
     expect(result.reason).toBe('missing_costs')
+  })
+})
+
+describe('derivePayrollEligibility — paid-in-full rule (lib/job-collection.ts)', () => {
+  const pay = (cents: number) => ({
+    job_id: job.id,
+    amount_cents: cents,
+    funding_status: 'cleared',
+    paid_at: '2026-07-24',
+    created_at: '2026-07-24T01:00:14.609Z',
+  })
+  it('within $0.05 short is funded', () => {
+    expect(derivePayrollEligibility({ job, payments: [pay(662275)], costs: [] }).reason).toBeNull()
+  })
+  it('a legacy close-with-balance flag no longer counts as funded', () => {
+    const r = derivePayrollEligibility({
+      job: { ...job, allow_close_with_balance: true, close_balance_by: null },
+      payments: [pay(10000)],
+      costs: [],
+    })
+    expect(r.reason).toBe('not_funded')
+  })
+  it('a super-admin force counts, dated when it was forced', () => {
+    const r = derivePayrollEligibility({
+      job: { ...job, allow_close_with_balance: true, close_balance_by: 'owner', close_balance_at: '2026-07-30T00:00:00.000Z' },
+      payments: [],
+      costs: [],
+    })
+    expect(r.reason).toBeNull()
+    expect(r.eligibleAt).toBe('2026-07-30T00:00:00.000Z')
+  })
+  it('a job with no sale amount is not funded', () => {
+    expect(derivePayrollEligibility({ job: { ...job, sale_amount: null }, payments: [], costs: [] }).reason).toBe('not_funded')
+  })
+})
+
+describe('isPayrollAlreadyPaidError', () => {
+  it('matches the single-period trigger rejection', () => {
+    expect(
+      isPayrollAlreadyPaidError({
+        code: '23505',
+        message: 'payroll_already_paid: job abc is already snapshotted in payroll period def',
+      })
+    ).toBe(true)
+  })
+
+  it('does not swallow other unique violations or errors', () => {
+    expect(
+      isPayrollAlreadyPaidError({
+        code: '23505',
+        message: 'duplicate key value violates unique constraint "idx_payroll_payout_lines_period_job_user_role"',
+      })
+    ).toBe(false)
+    expect(isPayrollAlreadyPaidError({ code: '42501', message: 'payroll_already_paid: x' })).toBe(false)
+    expect(isPayrollAlreadyPaidError(null)).toBe(false)
+    expect(isPayrollAlreadyPaidError(new Error('boom'))).toBe(false)
   })
 })

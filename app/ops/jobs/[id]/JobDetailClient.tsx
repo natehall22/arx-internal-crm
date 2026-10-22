@@ -19,6 +19,7 @@ import { TRADE_LABELS } from '@/lib/job-trades'
 import JobPaymentsCard from '@/components/ops/JobPaymentsCard'
 import JobInvoicesCard from '@/components/ops/JobInvoicesCard'
 import CompleteJobModal from '@/components/ops/CompleteJobModal'
+import { PAID_IN_FULL_TOLERANCE_CENTS } from '@/lib/job-collection'
 import JobPaymentMethodBanner from '@/components/ops/JobPaymentMethodBanner'
 import JobDocumentsBanner from '@/components/ops/JobDocumentsBanner'
 import JobReadyToPayBanner from '@/components/ops/JobReadyToPayBanner'
@@ -29,6 +30,7 @@ import CopyableContact from '@/components/CopyableContact'
 import JobWorkOrdersCard from '@/components/ops/JobWorkOrdersCard'
 import { PIPELINE_STAGES, getJobPipelineCurrentIndex } from '@/lib/job-pipeline'
 import SoldScopeCard from '@/components/ops/SoldScopeCard'
+import { noteMentionHighlightRegex } from '@/lib/note-mentions'
 import JobMaterialsCard from '@/components/ops/JobMaterialsCard'
 import JobRoofingBrief from '@/components/ops/JobRoofingBrief'
 import { type JobSoldScope } from '@/components/ops/JobSoldScopeSummary'
@@ -82,6 +84,8 @@ interface Job {
   /** Ops acknowledged closing despite contract balance (complete and/or collected short). */
   allow_close_with_balance?: boolean | null
   close_balance_reason?: string | null
+  /** Super admin who forced paid-in-full (lib/job-collection.ts); null = legacy flag, not forced. */
+  close_balance_by?: string | null
   dealer_fee_amount?: number | null
   dealer_fee_percent?: number | null
   financing_program_id?: string | null
@@ -175,15 +179,17 @@ function unpaidContractBalanceCents(args: {
 
 /** First incomplete pipeline stage index (0–4), or 4 when fully done. */
 
-type WorkflowBtnId = 'resume' | 'schedule' | 'materials' | 'materialsReady' | 'startJob' | 'complete' | 'collected'
+type WorkflowBtnId = 'resume' | 'schedule' | 'materials' | 'startJob' | 'complete' | 'collected'
 
 function getWorkflowPrimaryAndSecondaryIds(job: Job): { primary: WorkflowBtnId; secondary: WorkflowBtnId[] } {
   // A paused job's only next step is un-pausing it — no crews/invites while it's on hold.
   if (job.status === 'on_hold') return { primary: 'resume', secondary: [] }
   const show: Record<Exclude<WorkflowBtnId, 'resume'>, boolean> = {
     schedule: true,
-    materials: job.status === 'sold',
-    materialsReady: job.status === 'materials' && job.materials_status === 'received',
+    // One tap that records the order (and moves Sold → Material Ordering). The old
+    // "Start Material Ordering" / "Materials Ready" pair were status flips nobody used;
+    // booking a crew already moves the job to Scheduled (deriveJobSchedule).
+    materials: (job.status === 'sold' || job.status === 'materials') && (job.materials_status || 'not_ordered') === 'not_ordered',
     startJob: job.status === 'scheduled',
     complete: job.status === 'in_progress',
     collected: job.status === 'complete',
@@ -191,13 +197,12 @@ function getWorkflowPrimaryAndSecondaryIds(job: Job): { primary: WorkflowBtnId; 
   let primary: WorkflowBtnId
   if (!job.scheduled_date) primary = 'schedule'
   else if (show.materials) primary = 'materials'
-  else if (show.materialsReady) primary = 'materialsReady'
   else if (show.startJob) primary = 'startJob'
   else if (show.complete) primary = 'complete'
   else if (show.collected) primary = 'collected'
   else primary = 'schedule'
 
-  const order: Exclude<WorkflowBtnId, 'resume'>[] = ['schedule', 'materials', 'materialsReady', 'startJob', 'complete', 'collected']
+  const order: Exclude<WorkflowBtnId, 'resume'>[] = ['schedule', 'materials', 'startJob', 'complete', 'collected']
   const secondary = order.filter((id) => id !== primary && show[id])
   return { primary, secondary }
 }
@@ -210,6 +215,7 @@ function renderWorkflowButton(
     saving: boolean
     goToCrews: () => void
     updateStatus: (newStatus: JobStatus, extraUpdates?: Record<string, unknown>) => void | Promise<void>
+    markMaterialsOrdered: () => void | Promise<void>
     handleCompleteClick: () => void
     handleCollectedClick: () => void
     markCollectedDisabled: boolean
@@ -227,7 +233,7 @@ function renderWorkflowButton(
   const pc = isPrimary ? primaryIndigo : outline
   const pcGreen = isPrimary ? primaryGreen : outline
   const pcGray = isPrimary ? primaryGray : outline
-  const { saving, goToCrews, updateStatus, handleCompleteClick, handleCollectedClick, markCollectedDisabled, markCollectedTitle } = opts
+  const { saving, goToCrews, updateStatus, markMaterialsOrdered, handleCompleteClick, handleCollectedClick, markCollectedDisabled, markCollectedTitle } = opts
 
   switch (id) {
     case 'resume': {
@@ -249,23 +255,11 @@ function renderWorkflowButton(
         <button
           key={id}
           type="button"
-          onClick={() => updateStatus('materials')}
+          onClick={() => void markMaterialsOrdered()}
           disabled={saving}
           className={pc}
         >
-          Start Material Ordering
-        </button>
-      )
-    case 'materialsReady':
-      return (
-        <button
-          key={id}
-          type="button"
-          onClick={() => updateStatus('scheduled')}
-          disabled={saving}
-          className={pc}
-        >
-          Materials Ready — Schedule Job
+          Mark materials ordered
         </button>
       )
     case 'startJob':
@@ -354,6 +348,8 @@ interface JobDetailClientProps {
   canViewJobBilling: boolean
   canEditPayrollAttribution: boolean
   canEditFinancialSource: boolean
+  /** Owner flag (lib/super-admin.ts): may close a job with a balance. */
+  isSuperAdmin?: boolean
   financialSourceProposalOptions: FinancialSourceProposalOption[]
   changeOrdersSection: JobChangeOrdersSectionProps | null
 }
@@ -563,6 +559,7 @@ export default function JobDetailClient({
   canViewJobBilling,
   canEditPayrollAttribution,
   canEditFinancialSource,
+  isSuperAdmin = false,
   financialSourceProposalOptions,
   changeOrdersSection,
 }: JobDetailClientProps) {
@@ -615,6 +612,9 @@ export default function JobDetailClient({
   const [showMentionDropdown, setShowMentionDropdown] = useState(false)
   const [mentionSearch, setMentionSearch] = useState('')
   const [mentionCursorPos, setMentionCursorPos] = useState(0)
+  // Ids picked from the @ dropdown. The server only uses them to tell apart two
+  // people with the same name; a pick whose "@Name" was deleted from the draft is ignored.
+  const [pickedMentionIds, setPickedMentionIds] = useState<string[]>([])
 
   useEffect(() => {
     setJob(initialJob)
@@ -657,7 +657,7 @@ export default function JobDetailClient({
       if (window.innerWidth < 1024) {
         if (hash === '#materials-section') {
           setMobileTab('materials')
-        } else if (hash === '#payments-section' || hash === '#invoices-section') {
+        } else if (hash === '#payments-section' || hash === '#invoices-section' || hash === '#payroll-attribution-section') {
           setMobileTab('financials')
         } else if (hash === '#job-files-workspace-section' || hash === '#completion-certificate-tools') {
           setMobileTab('photos')
@@ -695,12 +695,9 @@ export default function JobDetailClient({
     if (job.status !== 'complete') return
     if (autoCollecting) return
 
-    const saleAmountCents = Math.round((job.sale_amount || 0) * 100)
-    const collectedCents = paymentSummary.collected_cents || 0
-
-    // Only auto-collect for paid jobs with an actual sale amount.
-    if (saleAmountCents <= 0) return
-    if (collectedCents < saleAmountCents) return
+    // Only auto-collect when payments cover the sale amount (lib/job-collection.ts, $0.05 tolerance).
+    // A forced close is a deliberate owner action and goes through /force-paid, not here.
+    if (!paymentSummary.paid_by_payments) return
 
     const markCollected = async () => {
       setAutoCollecting(true)
@@ -791,6 +788,7 @@ export default function JobDetailClient({
     // Insert the mention
     const newText = `${beforeAt}@${user.full_name} ${textAfterCursor}`
     setNewNoteText(newText)
+    setPickedMentionIds((prev) => (prev.includes(user.id) ? prev : [...prev, user.id]))
     setShowMentionDropdown(false)
     setMentionSearch('')
   }
@@ -800,32 +798,30 @@ export default function JobDetailClient({
     user.full_name.toLowerCase().includes(mentionSearch)
   ).slice(0, 5)
 
-  // Render note text with highlighted mentions
+  // Render note text with highlighted mentions (display only — recipients are resolved on the server).
   const renderNoteWithMentions = (text: string) => {
-    const mentionRegex = /@([A-Za-z\s]+?)(?=\s|$|@)/g
-    const parts = []
+    const mentionRegex = noteMentionHighlightRegex()
+    const parts: React.ReactNode[] = []
     let lastIndex = 0
-    let match
+    let match: RegExpExecArray | null
 
     while ((match = mentionRegex.exec(text)) !== null) {
-      // Add text before the mention
-      if (match.index > lastIndex) {
-        parts.push(text.substring(lastIndex, match.index))
+      const atIndex = match.index + match[1].length
+      if (atIndex > lastIndex) {
+        parts.push(text.substring(lastIndex, atIndex))
       }
-      // Add the mention with styling
       parts.push(
-        <span key={match.index} className="text-indigo-600 font-medium">
-          @{match[1]}
+        <span key={atIndex} className="text-indigo-600 font-medium">
+          @{match[2]}
         </span>
       )
-      lastIndex = match.index + match[0].length
+      lastIndex = atIndex + 1 + match[2].length
     }
-    
-    // Add remaining text
+
     if (lastIndex < text.length) {
       parts.push(text.substring(lastIndex))
     }
-    
+
     return parts.length > 0 ? parts : text
   }
 
@@ -835,25 +831,15 @@ export default function JobDetailClient({
     setSaving(true)
     try {
       const noteText = newNoteText.trim()
-      const mentionedUserIds = orgUsers
-        .filter((u) => {
-          if (!u?.id || !u?.full_name) return false
-          const escapedName = u.full_name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-          const mentionPattern = new RegExp(`(^|\\s)@${escapedName}(?=\\s|$|[.,!?;:])`, 'i')
-          return mentionPattern.test(noteText)
-        })
-        .map((u) => u.id)
-
       const response = await fetch(`/api/ops/jobs/${job.id}/notes`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           note: noteText,
-          mentioned_user_ids: mentionedUserIds,
+          // Ids picked from the dropdown; the server resolves who is actually mentioned
+          // (exact "@Full Name" in the text) from its own candidate list.
+          mentioned_user_ids: pickedMentionIds,
           customer_name: job.customer?.name || null,
-          customer_id: job.customer?.id || null,
-          job_number: job.job_number || null,
-          page_url: typeof window !== 'undefined' ? window.location.href : undefined,
         }),
       })
       
@@ -861,6 +847,7 @@ export default function JobDetailClient({
         const data = await response.json()
         setJobNotes(prev => [data.note, ...prev])
         setNewNoteText('')
+        setPickedMentionIds([])
       } else {
         alert('Failed to add note')
       }
@@ -1002,52 +989,59 @@ export default function JobDetailClient({
     ) {
       return
     }
-    if (unpaidContractCents > 0) {
+    if (unpaidContractCents > PAID_IN_FULL_TOLERANCE_CENTS) {
       setShowCompleteModal(true)
     } else {
       updateStatus('complete')
     }
   }
 
-  const handleCompleteWithBalance = async (reason?: string) => {
-    await updateStatus('complete', {
-      allow_close_with_balance: true,
-      close_balance_reason: reason || null,
-    })
+  // Completing with money still owed is normal (insurance, final check). It is NOT a
+  // paid-in-full override — that is owner-only, on the collect step below.
+  const handleCompleteWithBalance = async () => {
+    await updateStatus('complete')
     setShowCompleteModal(false)
   }
 
+  const forcedPaidInFull = Boolean(job.allow_close_with_balance && job.close_balance_by)
+
   const markCollectedDisabled = false
   const markCollectedTitle =
-    unpaidContractCents > 0 && !job.allow_close_with_balance
-      ? 'Outstanding balance — confirm to mark collected'
+    unpaidContractCents > 0 && !forcedPaidInFull
+      ? 'Outstanding balance — only an owner can close it'
       : undefined
 
   const handleCollectShortConfirm = async (reason?: string) => {
     const trimmed = reason?.trim()
-    await updateStatus('collected', {
-      allow_close_with_balance: true,
-      ...(trimmed ? { close_balance_reason: trimmed } : {}),
-    })
-    setShowCollectModal(false)
+    if (!isSuperAdmin || !trimmed) return
+    setSaving(true)
+    try {
+      const res = await fetch(`/api/ops/jobs/${job.id}/force-paid`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: trimmed, mark_collected: true }),
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        alert(typeof body.error === 'string' ? body.error : 'Could not close this job')
+      }
+    } finally {
+      await reloadJob()
+      setSaving(false)
+      setShowCollectModal(false)
+    }
   }
 
   const handleCollectedClick = () => {
     if (job.status !== 'complete') return
 
-    if (job.allow_close_with_balance) {
+    if (forcedPaidInFull) {
       void updateStatus('collected')
       return
     }
 
-    if (contractSaleAmountCents <= 0) {
-      void updateStatus('collected')
-      return
-    }
-
-    /** Only skip the modal when billing summary loaded and confirms nothing owed — otherwise always confirm short-collect */
-    const paymentSummarySaysFullyPaid =
-      paymentSummary != null && unpaidContractCents <= 0
+    /** Skip the modal only when the billing summary says paid in full (same rule the server enforces). */
+    const paymentSummarySaysFullyPaid = paymentSummary?.paid_in_full === true
 
     if (paymentSummarySaysFullyPaid) {
       void updateStatus('collected')
@@ -1057,31 +1051,44 @@ export default function JobDetailClient({
     setShowCollectModal(true)
   }
 
-  const updateMaterialsStatus = async (newStatus: string) => {
+  /** One tap: materials ordered (or undo). Server records the date and moves Sold → Material Ordering. */
+  const setMaterialsOrdered = async (ordered: boolean) => {
     setSaving(true)
-
-    const updates: any = { materials_status: newStatus }
-    if (newStatus === 'ordered' && !job.materials_ordered_at) {
-      updates.materials_ordered_at = new Date().toISOString()
-    }
-
     try {
-      const response = await fetch(`/api/ops/jobs/${job.id}`, {
-        method: 'PATCH',
+      const response = await fetch(`/api/ops/jobs/${job.id}/materials-ordered`, {
+        method: ordered ? 'POST' : 'DELETE',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updates),
+        body: ordered ? JSON.stringify({ source: 'one_tap' }) : undefined,
       })
-
       if (!response.ok) {
-        const error = await response.json()
-        console.error('Failed to update materials status:', error)
-        alert('Failed to update materials status')
+        const error = await response.json().catch(() => null)
+        console.error('Failed to save materials ordered:', error)
+        alert(error?.error || 'Could not save. Try again.')
       }
     } catch (error) {
-      console.error('Error updating materials status:', error)
-      alert('Failed to update materials status')
+      console.error('Error saving materials ordered:', error)
+      alert('Could not save. Try again.')
     }
+    await reloadJob()
+    setSaving(false)
+  }
 
+  const updatePermit = async (action: 'not_needed' | 'applied' | 'approved', permitNumber?: string) => {
+    setSaving(true)
+    try {
+      const response = await fetch(`/api/ops/jobs/${job.id}/permit`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, permit_number: permitNumber }),
+      })
+      if (!response.ok) {
+        const error = await response.json().catch(() => null)
+        alert(error?.error || 'Could not save. Try again.')
+      }
+    } catch (error) {
+      console.error('Error saving permit:', error)
+      alert('Could not save. Try again.')
+    }
     await reloadJob()
     setSaving(false)
   }
@@ -1524,6 +1531,7 @@ export default function JobDetailClient({
                 saving,
                 goToCrews,
                 updateStatus,
+                markMaterialsOrdered: () => setMaterialsOrdered(true),
                 handleCompleteClick,
                 handleCollectedClick,
                 markCollectedDisabled,
@@ -1595,6 +1603,7 @@ export default function JobDetailClient({
                 saving,
                 goToCrews,
                 updateStatus,
+                markMaterialsOrdered: () => setMaterialsOrdered(true),
                 handleCompleteClick,
                 handleCollectedClick,
                 markCollectedDisabled,
@@ -1801,6 +1810,11 @@ export default function JobDetailClient({
           jobNumber={job.job_number}
           roofReportId={job.roof_report?.pdf_generated_at ? job.roof_report.id : null}
           showOrderSheet={Boolean(job.sold_scope && job.job_type === 'roofing')}
+          materialsStatus={job.materials_status}
+          materialsOrderedAt={job.materials_ordered_at}
+          onMarkMaterialsOrdered={job.status === 'cancelled' ? undefined : () => void setMaterialsOrdered(true)}
+          onUndoMaterialsOrdered={job.status === 'cancelled' ? undefined : () => void setMaterialsOrdered(false)}
+          markingMaterials={saving}
         />
 
         <JobReadyToPayBanner
@@ -1818,6 +1832,7 @@ export default function JobDetailClient({
           paymentSummary={paymentSummary}
           saleAmount={job.sale_amount}
           allowCloseWithBalance={job.allow_close_with_balance ?? false}
+          closeBalanceBy={job.close_balance_by ?? null}
           canViewBilling={canViewJobBilling}
           onUpdated={reloadJob}
         />
@@ -1938,9 +1953,6 @@ export default function JobDetailClient({
                 jobId={job.id}
                 userRole={userRole}
                 title="Materials"
-                materialsStatus={job.materials_status}
-                onMaterialsStatusChange={updateMaterialsStatus}
-                updatingMaterialsStatus={saving}
                 materialsOrderedAt={job.materials_ordered_at}
                 materialsEta={job.materials_eta}
                 materialsNotes={job.materials_notes}
@@ -2339,24 +2351,58 @@ export default function JobDetailClient({
               })
             }} />
 
-            {job.permit_required && (
-              <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
-                <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-4">Permit</h2>
-                <div className="flex items-center gap-2 mb-2">
-                  <span className={`px-2 py-1 text-xs font-medium rounded-full ${
-                    job.permit_status === 'approved' ? 'bg-green-100 text-green-700' :
-                    job.permit_status === 'pending' ? 'bg-yellow-100 text-yellow-700' :
-                    job.permit_status === 'denied' ? 'bg-red-100 text-red-700' :
-                    'bg-gray-100 text-gray-600'
-                  }`}>
-                    {job.permit_status === 'not_needed' ? 'Not Needed' : job.permit_status}
-                  </span>
+            {/* Permit — recorded with one tap at each real step (needs one → applied → approved).
+                Before this the status had no way to be set, so every job said "Not needed". */}
+            <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
+              <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-2">Permit</h2>
+              <p className="text-sm text-[#2c2c2a] mb-3">
+                {!job.permit_required
+                  ? 'No permit on this job.'
+                  : job.permit_status === 'approved'
+                    ? `Permit approved${job.permit_number ? ` · #${job.permit_number}` : ''}`
+                    : job.permit_status === 'denied'
+                      ? 'Permit denied'
+                      : `Permit applied for${job.permit_number ? ` · #${job.permit_number}` : ''} — waiting on approval`}
+              </p>
+              {job.status !== 'cancelled' && (
+                <div className="flex flex-wrap gap-2">
+                  {!job.permit_required && (
+                    <button
+                      type="button"
+                      onClick={() => void updatePermit('applied')}
+                      disabled={saving}
+                      className="min-h-[44px] px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-[#2c2c2a] hover:bg-gray-50 disabled:opacity-50"
+                    >
+                      This job needs a permit — applied
+                    </button>
+                  )}
+                  {job.permit_required && job.permit_status !== 'approved' && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const number = window.prompt('Permit number (optional)', job.permit_number || '')
+                        if (number === null) return
+                        void updatePermit('approved', number)
+                      }}
+                      disabled={saving}
+                      className="min-h-[44px] px-4 py-2 bg-green-700 text-white rounded-lg text-sm font-medium hover:bg-green-800 disabled:opacity-50"
+                    >
+                      Permit approved
+                    </button>
+                  )}
+                  {job.permit_required && (
+                    <button
+                      type="button"
+                      onClick={() => void updatePermit('not_needed')}
+                      disabled={saving}
+                      className="min-h-[44px] px-4 py-2 text-sm font-medium text-[#2c2c2a] underline underline-offset-2 disabled:opacity-50"
+                    >
+                      No permit needed
+                    </button>
+                  )}
                 </div>
-                {job.permit_number && (
-                  <p className="text-sm text-gray-600">Permit #: {job.permit_number}</p>
-                )}
-              </div>
-            )}
+              )}
+            </div>
 
             <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
               <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-4">Related</h2>
@@ -2420,6 +2466,7 @@ export default function JobDetailClient({
           variant="collect"
           jobId={job.id}
           remainingCents={unpaidContractCents}
+          canForce={isSuperAdmin}
           onClose={() => setShowCollectModal(false)}
           onConfirm={handleCollectShortConfirm}
         />

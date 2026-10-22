@@ -3,7 +3,7 @@ import { requireAuthApi } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { generateChangeOrderPdf } from '@/lib/contracts/generateChangeOrderPdf'
-import { applyChangeOrderToJob } from '@/lib/change-orders/apply-change-order-to-job'
+import { syncJobSaleForProjectOrJob } from '@/lib/job-commission-base'
 import nodemailer from 'nodemailer'
 import { getCrmEmailFrom } from '@/lib/crm-email-from'
 import crypto from 'crypto'
@@ -197,20 +197,20 @@ export async function POST(request: NextRequest) {
 
     // Sync the job's sale amount + commission base now, only for COs that are signed immediately.
     // Remote (send_to_customer) COs aren't binding yet — that sync happens in /api/change-orders/sign
-    // once the customer actually signs, so an unsigned CO can't move payroll numbers.
-    if (jobId && !isSendToCustomer) {
-      const { error: jobUpdateError } = await applyChangeOrderToJob(supabase, {
+    // once the customer actually signs, so an unsigned CO can't move payroll numbers. Runs on the
+    // service client: the recompute reads signed contracts + COs org-scoped, and a request-scoped
+    // client could silently update zero rows under RLS.
+    if (!isSendToCustomer) {
+      const result = await syncJobSaleForProjectOrJob(createServiceClient(), {
         orgId: profile.org_id,
-        jobId,
-        originalAmount: Number(originalAmount) || 0,
-        updatedTotal: Number(updatedTotal) || 0,
-        isCommissionable: commissionable,
+        jobId: jobId || null,
+        projectId,
       })
 
-      if (jobUpdateError) {
-        console.error('[Change Order] Error syncing job financials:', jobUpdateError)
-      } else {
-        console.log('[Change Order] Synced job sale_amount/commission base to:', updatedTotal)
+      if (result?.status === 'error') {
+        console.error('[Change Order] Error syncing job financials:', result.error)
+      } else if (result?.status === 'skipped') {
+        console.warn('[Change Order] Job sale amount not updated:', result.totals.reason)
       }
     }
 

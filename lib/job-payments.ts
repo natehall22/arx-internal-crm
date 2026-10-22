@@ -1,5 +1,6 @@
 import { SupabaseClient } from '@supabase/supabase-js'
 import { JobPayment, JobPaymentSummary, JobPaymentInsert } from './types/job-payments'
+import { evaluateJobCollection, JOB_COLLECTION_COLUMNS } from './job-collection'
 
 /**
  * Fetch all payments for a job (ordered by date)
@@ -23,40 +24,16 @@ export async function getPaymentsByJob(
 }
 
 /**
- * Calculate total collected for a job (sum of all payments, including negative refunds)
- */
-export async function calculateCollected(
-  supabase: SupabaseClient,
-  jobId: string
-): Promise<number> {
-  const payments = await getPaymentsByJob(supabase, jobId)
-  return payments.reduce((sum, p) => sum + p.amount_cents, 0)
-}
-
-/**
- * Calculate remaining balance for a job
- */
-export async function calculateRemaining(
-  supabase: SupabaseClient,
-  jobId: string,
-  saleAmountDollars: number
-): Promise<number> {
-  const collectedCents = await calculateCollected(supabase, jobId)
-  const saleAmountCents = Math.round(saleAmountDollars * 100)
-  return saleAmountCents - collectedCents
-}
-
-/**
- * Fetch all payments for a job and calculate summary
+ * Fetch all payments for a job and calculate summary. "Paid in full" comes from the one
+ * rule in lib/job-collection.ts — never compare collected vs sale cents yourself.
  */
 export async function getJobPaymentSummary(
   supabase: SupabaseClient,
   jobId: string
 ): Promise<JobPaymentSummary | null> {
-  // Fetch job to get sale_amount
   const { data: job, error: jobError } = await supabase
     .from('production_jobs')
-    .select('sale_amount')
+    .select(JOB_COLLECTION_COLUMNS)
     .eq('id', jobId)
     .single()
 
@@ -66,19 +43,39 @@ export async function getJobPaymentSummary(
   }
 
   const payments = await getPaymentsByJob(supabase, jobId)
-  const saleAmountCents = Math.round((job.sale_amount || 0) * 100)
-  const collectedCents = payments.reduce((sum, p) => sum + p.amount_cents, 0)
-  const remainingCents = saleAmountCents - collectedCents
+  return buildJobPaymentSummary(job as JobCollectionJobRow, payments)
+}
 
+type JobCollectionJobRow = {
+  sale_amount: number | null
+  allow_close_with_balance?: boolean | null
+  close_balance_by?: string | null
+}
+
+/** Pure: summary from an already-loaded job row + its payments. */
+export function buildJobPaymentSummary(
+  job: JobCollectionJobRow,
+  payments: JobPayment[]
+): JobPaymentSummary {
+  const collection = evaluateJobCollection({
+    saleAmount: job.sale_amount,
+    payments,
+    allowCloseWithBalance: job.allow_close_with_balance,
+    closeBalanceBy: job.close_balance_by,
+  })
   return {
     payments,
-    collected_cents: collectedCents,
-    collected_dollars: collectedCents / 100,
-    sale_amount_cents: saleAmountCents,
-    sale_amount_dollars: saleAmountCents / 100,
-    remaining_cents: remainingCents,
-    remaining_dollars: remainingCents / 100,
+    collected_cents: collection.collectedCents,
+    collected_dollars: collection.collectedCents / 100,
+    sale_amount_cents: collection.requiredCents,
+    sale_amount_dollars: collection.requiredCents / 100,
+    remaining_cents: collection.remainingCents,
+    remaining_dollars: collection.remainingCents / 100,
     payment_count: payments.length,
+    paid_in_full: collection.paidInFull,
+    paid_by_payments: collection.paidByPayments,
+    forced_paid_in_full: collection.forcedPaidInFull,
+    legacy_close_with_balance: collection.legacyCloseWithBalance,
   }
 }
 

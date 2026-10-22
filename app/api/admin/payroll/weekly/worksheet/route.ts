@@ -6,6 +6,7 @@ import { hasResolvableCompPlanForUserOnDate } from '@/lib/payroll-export'
 import { isPayrollAdminRole } from '@/lib/payroll-admin-access'
 import { CANCELLED_JOB_STATUS } from '@/lib/job-status'
 import { loadJobCostLedger } from '@/lib/job-cost-ledger'
+import { evaluateJobCollection } from '@/lib/job-collection'
 
 export const dynamic = 'force-dynamic'
 
@@ -21,6 +22,7 @@ type JobRow = {
   project_id: string | null
   customer_id: string | null
   allow_close_with_balance?: boolean | null
+  close_balance_by?: string | null
   ntp_commission_percent?: number | null
 }
 
@@ -56,7 +58,7 @@ export async function GET(request: NextRequest) {
     const { data: jobs, error: jobsErr } = await supabase
       .from('production_jobs')
       .select(
-        'id, job_number, status, sale_amount, sale_date, completed_at, salesperson_id, project_id, customer_id, allow_close_with_balance, ntp_commission_percent'
+        'id, job_number, status, sale_amount, sale_date, completed_at, salesperson_id, project_id, customer_id, allow_close_with_balance, close_balance_by, ntp_commission_percent'
       )
       .eq('org_id', orgId)
       .neq('status', CANCELLED_JOB_STATUS)
@@ -141,7 +143,7 @@ export async function GET(request: NextRequest) {
     const stateByJob = new Map((states || []).map((s: any) => [s.job_id as string, s]))
     const collectedByJob = new Map<string, number>()
     for (const p of payments || []) {
-      if (p.funding_status !== 'cleared') continue
+      if (p.funding_status === 'pending') continue
       collectedByJob.set(p.job_id, (collectedByJob.get(p.job_id) || 0) + p.amount_cents)
     }
 
@@ -169,15 +171,14 @@ export async function GET(request: NextRequest) {
           ? new Date(job.completed_at)
           : null
 
-      // sale_amount is kept in sync with the latest signed change order (see applyChangeOrderToJob),
-      // so it's already the current contract total — no need to add change orders on top here.
-      const sale = Number(job.sale_amount) || 0
-      const requiredCents = Math.round(sale * 100)
-      const collected = collectedByJob.get(job.id) || 0
-      const funded =
-        requiredCents <= 0 ||
-        collected >= requiredCents ||
-        (job.status === 'collected' && Boolean(job.allow_close_with_balance))
+      // sale_amount = signed contract + signed change orders (lib/job-commission-base.ts), so it is
+      // already the full contract total. "Funded" is the one paid-in-full rule (lib/job-collection.ts).
+      const funded = evaluateJobCollection({
+        saleAmount: job.sale_amount,
+        collectedCents: collectedByJob.get(job.id) || 0,
+        allowCloseWithBalance: job.allow_close_with_balance,
+        closeBalanceBy: job.close_balance_by,
+      }).paidInFull
 
       const fullyFundedAt = st?.fully_funded_at
         ? new Date(st.fully_funded_at)

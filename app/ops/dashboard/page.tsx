@@ -12,6 +12,9 @@ import {
 import { createServiceClient } from '@/lib/supabase/service'
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 import { CANCELLED_JOB_STATUS, type JobStatus, JOB_STATUS_CONFIG, jobStatusConfig } from '@/lib/job-status'
+import { filterReportForViewer, loadDataHealth, type DataHealthReport } from '@/lib/data-health'
+import { isPayrollAdminRole } from '@/lib/payroll-admin-access'
+import NeedsYouList from '@/components/ops/NeedsYouList'
 
 export default async function OpsDashboardPage() {
   const { authUser, profile } = await requireAuth()
@@ -101,6 +104,16 @@ export default async function OpsDashboardPage() {
       .limit(5),
   ])
 
+  // "Needs you" — the daily data-health check. Money and sale-credit rows are for
+  // payroll admins; everyone on this page sees the ops and appointment rows.
+  let needsYou: DataHealthReport | null = null
+  try {
+    const report = await loadDataHealth(admin, profile.org_id)
+    needsYou = filterReportForViewer(report, isPayrollAdminRole(profile.role))
+  } catch (error) {
+    console.error('[ops dashboard] data health failed', error)
+  }
+
   // Calculate pipeline stats
   const pipelineStats: Record<string, number> = {
     sold: allJobs?.filter(j => j.status === 'sold').length || 0,
@@ -169,6 +182,8 @@ export default async function OpsDashboardPage() {
             </Link>
           </div>
         </div>
+
+        {needsYou && <NeedsYouList report={needsYou} />}
 
         {/* Pipeline Overview */}
         <div className="bg-white rounded-xl shadow-sm border p-6 mb-6">

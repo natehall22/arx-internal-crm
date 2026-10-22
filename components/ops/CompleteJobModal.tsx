@@ -11,6 +11,8 @@ interface CompleteJobModalProps {
   onConfirm: (reason?: string) => void
   /** complete = job not done yet; collect = close to payroll despite unpaid contract balance */
   variant?: 'complete' | 'collect'
+  /** collect only: viewer is a super admin (owner). Only they may close a job with a balance. */
+  canForce?: boolean
 }
 
 export default function CompleteJobModal({
@@ -19,7 +21,11 @@ export default function CompleteJobModal({
   onClose,
   onConfirm,
   variant = 'complete',
+  canForce = false,
 }: CompleteJobModalProps) {
+  const isCollect = variant === 'collect'
+  // Closing with a balance is an owner decision and must say why (lib/job-collection.ts).
+  const blocked = isCollect && !canForce
   const [mounted, setMounted] = useState(false)
   const [reason, setReason] = useState('')
   const [saving, setSaving] = useState(false)
@@ -27,6 +33,7 @@ export default function CompleteJobModal({
   useEffect(() => setMounted(true), [])
 
   const handleConfirm = async () => {
+    if (blocked || (isCollect && !reason.trim())) return
     setSaving(true)
     await onConfirm(reason || undefined)
     setSaving(false)
@@ -53,7 +60,7 @@ export default function CompleteJobModal({
             </h3>
             <p className="text-sm text-gray-500">
               {variant === 'collect'
-                ? 'Contract is not fully paid — you can still close for payroll'
+                ? 'Payments recorded do not cover the contract'
                 : 'This job has an unpaid balance'}
             </p>
           </div>
@@ -68,40 +75,37 @@ export default function CompleteJobModal({
           </div>
         </div>
 
-        <p className="text-sm text-gray-600 mb-4">
-          {variant === 'collect' ? (
-            <>
-              Mark <strong>collected</strong> moves this job to the closed list so payroll can run. The unpaid amount
-              stays on record — you can add another payment later if money comes in (e.g. insurer releases withheld
-              depreciation).
-            </>
+        {isCollect ? (
+          blocked ? (
+            <p className="text-sm mb-6 p-3 rounded-lg border border-amber-300 bg-amber-50" style={{ color: '#2c2c2a' }}>
+              Only an owner can close a job that still owes money. Record the missing payment first, or ask an owner to
+              close it with a reason.
+            </p>
           ) : (
-            <>Are you sure you want to mark this job as complete with an outstanding balance?</>
-          )}
-        </p>
-
-        <div className="mb-6">
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Reason <span className="text-gray-400 font-normal">(optional)</span>
-          </label>
-          <input
-            type="text"
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            placeholder={
-              variant === 'collect'
-                ? 'e.g., Insurance depreciation short-paid — accepting balance'
-                : 'e.g., Payment pending, Insurance claim, etc.'
-            }
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
-          />
-        </div>
-
-        {variant === 'collect' && (
-          <p className="text-xs leading-relaxed text-amber-900/90 mb-6 p-3 bg-amber-50/90 border border-amber-200 rounded-lg">
-            <strong className="font-semibold">You are marking collected while this contract still has a balance.</strong>{' '}
-            The owed amount stays visible on the job until you record more payments. Use this only when ops accepts that
-            short-pay; add a brief reason above so the team remembers why.
+            <>
+              <p className="text-sm mb-4" style={{ color: '#2c2c2a' }}>
+                Closing this job counts it as paid in full for payroll even though the payments don&apos;t add up. The
+                unpaid amount stays on the job, and your name, the time and your reason are saved.
+              </p>
+              <div className="mb-6">
+                <label className="block text-sm font-medium mb-1" style={{ color: '#2c2c2a' }}>
+                  Reason <span className="font-normal">(required)</span>
+                </label>
+                <input
+                  type="text"
+                  value={reason}
+                  onChange={(e) => setReason(e.target.value)}
+                  placeholder="e.g., Insurance kept depreciation — we are accepting the short pay"
+                  className="w-full px-3 py-2 border border-gray-400 rounded-lg text-sm"
+                  style={{ color: '#2c2c2a' }}
+                />
+              </div>
+            </>
+          )
+        ) : (
+          <p className="text-sm mb-6" style={{ color: '#2c2c2a' }}>
+            Mark this job complete while money is still owed? It stays open for payments, and payroll won&apos;t pay it
+            until it is paid in full.
           </p>
         )}
 
@@ -111,11 +115,12 @@ export default function CompleteJobModal({
             disabled={saving}
             className="flex-1 px-4 py-2 border border-gray-300 rounded-lg font-medium hover:bg-gray-50 disabled:opacity-50"
           >
-            Cancel
+            {blocked ? 'Close' : 'Cancel'}
           </button>
+          {!blocked && (
           <button
             onClick={handleConfirm}
-            disabled={saving}
+            disabled={saving || (isCollect && !reason.trim())}
             className="flex-1 px-4 py-2 bg-amber-600 text-white rounded-lg font-medium hover:bg-amber-700 disabled:opacity-50"
           >
             {saving
@@ -123,9 +128,10 @@ export default function CompleteJobModal({
                 ? 'Saving…'
                 : 'Completing...'
               : variant === 'collect'
-                ? 'Mark collected anyway'
+                ? 'Close with balance'
                 : 'Complete Anyway'}
           </button>
+          )}
         </div>
       </div>
     </div>

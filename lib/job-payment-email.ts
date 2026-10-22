@@ -1,3 +1,4 @@
+import { PAID_IN_FULL_TOLERANCE_CENTS } from '@/lib/job-collection'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getOrgEmailBlastSettings, resolveEmailBlastRecipients } from '@/lib/admin-email-blasts'
 import { getCrmEmailFrom, getMailTransport } from '@/lib/setter-email'
@@ -67,7 +68,7 @@ export async function notifyAdminOpsOfJobPayment(
   const saleStr =
     params.saleAmountCents > 0 ? formatMoney(params.saleAmountCents) : '—'
   const fullyPaid =
-    params.saleAmountCents > 0 && params.collectedCents >= params.saleAmountCents
+    params.saleAmountCents > 0 && params.saleAmountCents - params.collectedCents <= PAID_IN_FULL_TOLERANCE_CENTS
 
   const html = `
       <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto; padding: 20px;">

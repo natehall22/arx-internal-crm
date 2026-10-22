@@ -291,6 +291,19 @@ export function inspectionOutcomeRoutesToInsideSalesDidntSit(
   return a === b && a.length > 0
 }
 
+/**
+ * The `scheduled_appointments.status` an outcome closes the appointment with: a
+ * didn't-sit outcome is a no-show, everything else (sale included) completed it.
+ * One answer for the appointment-id path and the lead-only path.
+ */
+export function appointmentStatusForOutcome(
+  orgRows: InspectionOutcomeConfigRow[] | null | undefined,
+  outcomeId: string | null | undefined
+): 'completed' | 'no_show' {
+  if (normalizeInspectionOutcomeId(outcomeId) === 'sale') return 'completed'
+  return inspectionOutcomeRoutesToInsideSalesDidntSit(orgRows, outcomeId) ? 'no_show' : 'completed'
+}
+
 /** Normalized outcome ids that count as a "sit" for Team Stats (admin Inspection outcomes). */
 export function getSitOutcomeNormalizedIdSet(
   orgRows: InspectionOutcomeConfigRow[] | null | undefined

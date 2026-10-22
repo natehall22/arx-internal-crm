@@ -1,3 +1,4 @@
+import { sumCollectedCents } from '@/lib/job-collection'
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { importProjectReviewNoteToJob } from '@/lib/project-review'
@@ -15,6 +16,7 @@ import {
   enrichOpsJobsWithMeasureSoldSquaresFallback,
   enrichOpsJobsWithSoldSquares,
 } from '@/lib/ops-board-sold-squares'
+import { syncJobSaleAndCommissionBase } from '@/lib/job-commission-base'
 import { resolveProductionJobFinancials } from '@/lib/resolve-production-job-sale-from-project'
 
 function roundMoney(n: number): number {
@@ -205,8 +207,6 @@ export async function POST(request: Request) {
         dealer_fee_amount: resolvedFinancials.dealer_fee_amount,
         dealer_fee_percent: resolvedFinancials.dealer_fee_percent,
         financing_program_id: resolvedFinancials.financing_program_id,
-        commission_pre_tax_subtotal: resolvedFinancials.commission_pre_tax_subtotal,
-        commission_comp_base: resolvedFinancials.commission_comp_base,
         created_by: authUser.id,
         job_source: opportunityForSource?.job_source || 'retail',
         insurance_stage: opportunityForSource?.job_source === 'insurance'
@@ -219,6 +219,16 @@ export async function POST(request: Request) {
     if (createError) {
       console.error('Error creating production job:', createError)
       return NextResponse.json({ error: 'Failed to create production job' }, { status: 500 })
+    }
+
+    // Sale amount + commission base come from the signed contract + signed change orders —
+    // one writer (lib/job-commission-base.ts). Overrides any sale amount typed above whenever
+    // a signed sale agreement is on file.
+    const baseSync = await syncJobSaleAndCommissionBase(adminClient, { orgId: profile.org_id, jobId: newJob.id })
+    if (baseSync.status === 'updated') {
+      newJob.sale_amount = baseSync.totals.saleAmount
+      newJob.commission_comp_base = baseSync.totals.commissionBase
+      newJob.commission_pre_tax_subtotal = null
     }
 
     const importResult = await importProjectReviewNoteToJob(adminClient, {
@@ -315,11 +325,11 @@ export async function GET(request: Request) {
     if (jobIds.length > 0) {
       const { data: paymentRows } = await adminClient
         .from('job_payments')
-        .select('job_id, amount_cents')
+        .select('job_id, amount_cents, funding_status')
         .in('job_id', jobIds)
       for (const row of paymentRows || []) {
         const jid = row.job_id as string
-        collectedByJob[jid] = (collectedByJob[jid] || 0) + (row.amount_cents as number)
+        collectedByJob[jid] = (collectedByJob[jid] || 0) + sumCollectedCents([row as { amount_cents: number; funding_status?: string | null }])
       }
     }
 

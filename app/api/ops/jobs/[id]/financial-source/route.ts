@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { requireAuthApi } from '@/lib/auth'
 import { resolveOpsAccess } from '@/lib/ops-access'
-import { commissionCompBaseFromPreTaxAndDealerFee } from '@/lib/commission-payroll'
+import { syncJobSaleAndCommissionBase } from '@/lib/job-commission-base'
 import { computeFinancedContractTotal } from '@/lib/financing'
 
 type PaymentMethod = 'cash' | 'finance' | 'insurance' | 'other'
@@ -240,7 +240,7 @@ export async function PATCH(
 
     const { data: job, error: jobError } = await adminClient
       .from('production_jobs')
-      .select('id, org_id, project_id, sale_amount, linked_proposal_id, accepted_proposal_id, financing_program_id, dealer_fee_percent, dealer_fee_amount, commission_pre_tax_subtotal, commission_comp_base')
+      .select('id, org_id, project_id, sale_amount, linked_proposal_id, accepted_proposal_id, financing_program_id, dealer_fee_percent, dealer_fee_amount')
       .eq('id', params.id)
       .eq('org_id', profile.org_id)
       .single()
@@ -323,20 +323,9 @@ export async function PATCH(
       )
       nextDealerFeeAmount = normalizeMoney(dealerFeeAmount)
     }
-    const nextPreTaxSubtotal =
-      proposal?.subtotal != null
-        ? normalizeMoney(proposal.subtotal)
-        : (job.commission_pre_tax_subtotal != null ? normalizeMoney(job.commission_pre_tax_subtotal) : null)
-    const fallbackBase =
-      nextPreTaxSubtotal != null
-        ? nextPreTaxSubtotal
-        : (job.sale_amount != null ? normalizeMoney(job.sale_amount) : null)
-    // Cash/other: comp base uses full pre-tax total — dealer fee stays on job for COGS but not commission math.
-    const dealerFeeForCompBase = isFinance ? nextDealerFeeAmount : null
-    const nextCommissionBase =
-      fallbackBase != null
-        ? commissionCompBaseFromPreTaxAndDealerFee(fallbackBase, dealerFeeForCompBase)
-        : null
+    // The commission base is NOT set here any more. It is the signed contract total + signed
+    // change orders, written only by lib/job-commission-base.ts. Picking a proposal changes the
+    // lender / dealer-fee bookkeeping (a job cost), never what commission is paid on.
 
     // Intentionally do not write accepted_proposal_id here — that stays the signed IA / job-packet anchor;
     // linked_proposal_id + job accounting fields are the admin override for financials.
@@ -345,8 +334,6 @@ export async function PATCH(
       financing_program_id: isFinance ? (proposal?.financing_program_id ?? null) : null,
       dealer_fee_percent: nextDealerFeePercent,
       dealer_fee_amount: nextDealerFeeAmount,
-      commission_pre_tax_subtotal: nextPreTaxSubtotal,
-      commission_comp_base: nextCommissionBase,
     }
 
     const previousJobValues = {
@@ -355,8 +342,6 @@ export async function PATCH(
       financing_program_id: job.financing_program_id ?? null,
       dealer_fee_percent: job.dealer_fee_percent ?? null,
       dealer_fee_amount: job.dealer_fee_amount ?? null,
-      commission_pre_tax_subtotal: job.commission_pre_tax_subtotal ?? null,
-      commission_comp_base: job.commission_comp_base ?? null,
     }
 
     const { error: updateJobError } = await adminClient
@@ -431,6 +416,10 @@ export async function PATCH(
         { status: 500 }
       )
     }
+
+    // linked_proposal_id is one of the anchors used to find the signed contract, so re-derive
+    // the base from the contract (a no-op when the same contract is found).
+    await syncJobSaleAndCommissionBase(adminClient, { orgId: profile.org_id, jobId: job.id })
 
     return NextResponse.json({
       success: true,

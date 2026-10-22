@@ -31,9 +31,6 @@ interface JobMaterialsCardProps {
   jobId: string
   userRole: string
   title?: string
-  materialsStatus?: string
-  onMaterialsStatusChange?: (status: string) => void
-  updatingMaterialsStatus?: boolean
   materialsOrderedAt?: string | null
   materialsEta?: string | null
   materialsNotes?: string | null
@@ -64,13 +61,6 @@ const typePill: Record<string, string> = {
   permit: 'bg-purple-100 text-purple-800',
 }
 
-const materialsWorkflowStatuses = ['not_ordered', 'ordered', 'partial', 'received'] as const
-const getMaterialDeliveryLabel = (status?: string) => {
-  if (status === 'ordered') return 'Ordered'
-  if (status === 'partial') return 'Partially Delivered'
-  if (status === 'received') return 'Fully Delivered'
-  return 'Not Ordered'
-}
 
 type CostForm = {
   description: string
@@ -86,9 +76,6 @@ export default function JobMaterialsCard({
   jobId,
   userRole,
   title = 'Materials',
-  materialsStatus,
-  onMaterialsStatusChange,
-  updatingMaterialsStatus = false,
   materialsOrderedAt,
   materialsEta,
   materialsNotes,
@@ -345,48 +332,8 @@ export default function JobMaterialsCard({
         )}
       </div>
 
-      {materialsStatus && (
-        <div className="border rounded-lg p-3 mb-4">
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-sm font-medium text-gray-900">Material Delivery</p>
-            <span className={`px-2 py-1 text-xs font-medium rounded-full ${
-              materialsStatus === 'received' ? 'bg-green-100 text-green-700' :
-              materialsStatus === 'ordered' ? 'bg-blue-100 text-blue-700' :
-              materialsStatus === 'partial' ? 'bg-amber-100 text-amber-700' :
-              'bg-gray-100 text-gray-600'
-            }`}>
-              {getMaterialDeliveryLabel(materialsStatus)}
-            </span>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            {materialsWorkflowStatuses.map((status) => {
-              const active = materialsStatus === status
-              const base = 'min-h-[40px] px-2 py-2 text-xs rounded-lg border font-medium transition'
-              const activeClass =
-                status === 'not_ordered'
-                  ? 'bg-gray-600 text-white border-gray-600 shadow-sm'
-                  : status === 'ordered'
-                    ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
-                    : status === 'partial'
-                      ? 'bg-amber-500 text-white border-amber-500 shadow-sm'
-                      : 'bg-green-600 text-white border-green-600 shadow-sm'
-              const idleClass = 'border-gray-300 bg-white text-gray-800 hover:bg-gray-50'
-              return (
-                <button
-                  key={status}
-                  type="button"
-                  onClick={() => onMaterialsStatusChange?.(status)}
-                  disabled={updatingMaterialsStatus || materialsStatus === status}
-                  className={`${base} ${active ? activeClass : idleClass} disabled:opacity-60`}
-                >
-                  {getMaterialDeliveryLabel(status)}
-                </button>
-              )
-            })}
-          </div>
-          <p className="text-xs text-gray-600 mt-2">This tracks material delivery only.</p>
-        </div>
-      )}
+      {/* "Materials ordered" is recorded on the Job documents banner (where the order is sent),
+          not with a delivery picker here — see lib/job-status-events.ts. */}
 
       {dealerFeeAmount != null && dealerFeeAmount > 0 && (
         <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50/80 p-3">

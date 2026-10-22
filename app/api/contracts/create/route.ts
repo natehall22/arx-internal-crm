@@ -2,6 +2,14 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { resolveSalesDocAccessBarred } from '@/lib/sales-doc-access'
 import { createServiceClient } from '@/lib/supabase/service'
+import {
+  saveDealSaleCredit,
+  loadDealSaleCredit,
+  diffSaleCredit,
+  SALE_CREDIT_EDIT_ROLES,
+  type SaleCreditChange,
+} from '@/lib/deal-sale-credit'
+import { isSuperAdmin } from '@/lib/super-admin'
 import nodemailer from 'nodemailer'
 import { getCrmEmailFrom } from '@/lib/crm-email-from'
 
@@ -42,6 +50,7 @@ export async function POST(request: NextRequest) {
       repName,
       repTitle,
       repSignature,
+      saleCredit,
     } = body
 
     const safeAgreementType =
@@ -91,6 +100,41 @@ export async function POST(request: NextRequest) {
         { error: 'Representative name and signature are required' },
         { status: 400 }
       )
+    }
+
+    // Sale credit (closer / setter / self-generated) is confirmed here, on the signing screen,
+    // and saved with the deal before the agreement goes out. Once a sale agreement is signed
+    // the same writer only lets an owner change it (lib/deal-sale-credit.ts).
+    if (opportunityId && needsProjectPrice && saleCredit && typeof saleCredit === 'object') {
+      const next: SaleCreditChange = {}
+      if ('closerUserId' in saleCredit) next.closerUserId = saleCredit.closerUserId || null
+      if ('setterUserId' in saleCredit) next.setterUserId = saleCredit.setterUserId || null
+      if (typeof saleCredit.isSelfGenerated === 'boolean') next.isSelfGenerated = saleCredit.isSelfGenerated
+      if (!next.closerUserId) {
+        return NextResponse.json({ error: 'Pick who closed this sale.' }, { status: 400 })
+      }
+      // Anyone who can send a contract may CONFIRM the stored credit; only owners (or a super
+      // admin) may change it — otherwise a rep could credit themselves before signing.
+      if (!SALE_CREDIT_EDIT_ROLES.has(String(profile.role || '').toLowerCase()) && !isSuperAdmin(profile)) {
+        const stored = await loadDealSaleCredit(supabase, profile.org_id, opportunityId)
+        const changes = stored ? diffSaleCredit(stored.credit, next) : next
+        if (Object.keys(changes).length > 0) {
+          return NextResponse.json(
+            { error: 'Only an owner or admin can change who gets credit for this sale.' },
+            { status: 403 }
+          )
+        }
+      }
+      const savedCredit = await saveDealSaleCredit(supabase, {
+        orgId: profile.org_id,
+        opportunityId,
+        actor: profile,
+        next,
+        reason: typeof saleCredit.reason === 'string' ? saleCredit.reason : null,
+      })
+      if (!savedCredit.ok) {
+        return NextResponse.json({ error: savedCredit.error }, { status: savedCredit.status })
+      }
     }
 
     // Supersede any unsigned contract still out with the customer. Voided, not deleted:

@@ -1,5 +1,6 @@
 export const dynamic = 'force-dynamic'
 
+import { sumCollectedCents } from '@/lib/job-collection'
 import { requireAuth } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
@@ -42,10 +43,11 @@ export default async function OpsPage() {
   if (jobIds.length > 0) {
     const { data: paymentRows } = await supabase
       .from('job_payments')
-      .select('job_id, amount_cents')
+      .select('job_id, amount_cents, funding_status')
       .in('job_id', jobIds)
+    // One rule for "collected" (pending payments are not money in hand): lib/job-collection.ts
     for (const row of paymentRows || []) {
-      collectedByJob[row.job_id] = (collectedByJob[row.job_id] || 0) + row.amount_cents
+      collectedByJob[row.job_id] = (collectedByJob[row.job_id] || 0) + sumCollectedCents([row])
     }
   }
 
