@@ -30,7 +30,7 @@ import {
   type InspectionOutcomeConfigRow,
 } from '@/lib/inspection-outcomes'
 import { countsAsInspectionSet, INSPECTION_SET_APPOINTMENT_TYPE_OR } from '@/lib/inspection-set-metrics'
-import { isCanvassDoorLead, SALE_AGREEMENT_TYPES } from '@/lib/sales-metrics'
+import { SALE_AGREEMENT_TYPES } from '@/lib/sales-metrics'
 import { fetchSupabaseAllPages } from '@/lib/supabase-fetch-all-pages'
 import { CANCELLED_JOB_STATUS } from '@/lib/job-status'
 
@@ -105,10 +105,10 @@ async function loadSitOutcomeSet(
 }
 
 /**
- * Exact org-wide door count via the same RPC the Dashboard uses — a plain
- * `.select().limit(FETCH_LIMIT)` fetch silently truncates once an org's monthly
- * lead volume exceeds 1000 rows (confirmed: June 2026 had 2682 leads, undercounting
- * the Scorecard's doors tile at 995 vs. the Dashboard's correct 2669).
+ * Org-wide doors in a period, read from the reporting view (`rpt_canvass_doors`: one row per knock, credited to
+ * the person who knocked) — the same definition the dashboard and /reports use. An exact head count, so a
+ * busy month can never be silently truncated at 1000 rows. Service-role client required (views are not
+ * readable with a user token).
  */
 async function countDoorsInPeriod(
   supabase: SupabaseClient,
@@ -116,38 +116,36 @@ async function countDoorsInPeriod(
   startIso: string,
   endIso: string
 ): Promise<number> {
-  const { data, error } = await supabase.rpc('dashboard_count_door_leads_scoped', {
-    p_org_id: orgId,
-    p_start: startIso,
-    p_end: endIso,
-    p_scope_user_ids: [],
-  })
-
+  const { count, error } = await supabase
+    .from('rpt_canvass_doors')
+    .select('knock_id', { count: 'exact', head: true })
+    .eq('org_id', orgId)
+    .gte('knocked_at', startIso)
+    .lt('knocked_at', endIso)
   if (error) throw error
-  return Number(data ?? 0)
+  return count ?? 0
 }
 
-/** Paginated fetch of door-lead rows for forecast history — a period this long can exceed 1000 rows. */
-async function fetchAllDoorLeadRows(
+/** Paginated door timestamps (one per knock) for forecast history — a period this long can exceed 1000 rows. */
+async function fetchAllDoorTimes(
   supabase: SupabaseClient,
   orgId: string,
   startIso: string,
   endIso: string
-): Promise<{ created_at: string; source: string | null; canvass_disposition: string | null }[]> {
-  return fetchSupabaseAllPages<{ created_at: string; source: string | null; canvass_disposition: string | null }>(
-    async (from, to) =>
-      supabase
-        .from('leads')
-        .select('created_at, source, canvass_disposition')
-        .eq('org_id', orgId)
-        .gte('created_at', startIso)
-        .lt('created_at', endIso)
-        // id tiebreaker: created_at alone isn't unique (e.g. a csv_import batch), so ties need a
-        // stable secondary sort or a batch straddling a page boundary can be split inconsistently.
-        .order('created_at', { ascending: true })
-        .order('id', { ascending: true })
-        .range(from, to)
+): Promise<string[]> {
+  const rows = await fetchSupabaseAllPages<{ knocked_at: string }>(async (from, to) =>
+    supabase
+      .from('rpt_canvass_doors')
+      .select('knocked_at, knock_id')
+      .eq('org_id', orgId)
+      .gte('knocked_at', startIso)
+      .lt('knocked_at', endIso)
+      // knock_id tiebreaker: knocked_at alone isn't unique, so ties need a stable secondary sort.
+      .order('knocked_at', { ascending: true })
+      .order('knock_id', { ascending: true })
+      .range(from, to)
   )
+  return rows.map((r) => r.knocked_at)
 }
 
 async function fetchInspectionSets(
@@ -631,8 +629,8 @@ async function buildForecastHistory(
   historyEndIso: string,
   sitOutcomeIdSet: Set<string>
 ): Promise<ForecastHistory> {
-  const [doorLeadRows, setRows, sitRows, contracts] = await Promise.all([
-    fetchAllDoorLeadRows(supabase, orgId, historyStartIso, historyEndIso),
+  const [doors, setRows, sitRows, contracts] = await Promise.all([
+    fetchAllDoorTimes(supabase, orgId, historyStartIso, historyEndIso),
     fetchSupabaseAllPages<{
       id: string
       scheduled_for: string
@@ -662,8 +660,6 @@ async function buildForecastHistory(
         }),
     fetchSignedContracts(supabase, orgId, historyStartIso, historyEndIso),
   ])
-
-  const doors = doorLeadRows.filter((row) => isCanvassDoorLead(row)).map((row) => row.created_at)
 
   // Conversion rates join on the pipeline record, so every stage has to carry its
   // opportunity/lead ids through — see computeSetToSitRate / computeSitToSaleRate.

@@ -9,25 +9,10 @@ import Nav from '@/components/Nav'
 import DashboardClient from './DashboardClient'
 import OpsDashboard from '@/components/dashboard/OpsDashboard'
 import { getDateRangeForTimeFrame } from '@/lib/date-ranges'
-import {
-  getSitOutcomeNormalizedIdSet,
-  type InspectionOutcomeConfigRow,
-} from '@/lib/inspection-outcomes'
-import { fetchEffectiveSitOpportunitiesInPeriod } from '@/lib/dashboard-sit-metrics'
 import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
-import {
-  EXCLUDE_SOLAR_IMPORT_LEADS_OR,
-  getAttributedInstallationSales,
-  getContactDispositionIdSet,
-  isCanvassDoorLead,
-  isContactDisposition,
-  SALE_AGREEMENT_TYPES,
-  SOLAR_IMPORT_LEAD_SOURCE,
-  type InstallationSaleContractRow,
-} from '@/lib/sales-metrics'
-import { getAttributedCanvassLeadUserId } from '@/lib/canvass-lead-attribution'
+import { getContactDispositionIdSet, SOLAR_IMPORT_LEAD_SOURCE } from '@/lib/sales-metrics'
+import { countContacts, fetchPeriodMetricRows } from '@/lib/reporting/period-metrics'
 import { shouldShowUserOnTeamLeaderboard } from '@/lib/dashboard-team-leaderboard'
-import { countsAsInspectionSet } from '@/lib/inspection-set-metrics'
 import { isOrgSuperuserRoleSlug, isRepLikeCustomerRecordRole } from '@/lib/permissions'
 import { createServiceClient } from '@/lib/supabase/service'
 import { resolveOpsAccess } from '@/lib/ops-access'
@@ -137,43 +122,10 @@ export default async function DashboardPage() {
   // Uses America/New_York timezone with Sunday as week start
   const { start: weekStart, end: weekEnd } = getDateRangeForTimeFrame('week', 'America/New_York')
 
-  // Fetch leads created this week (filter in query to avoid Supabase row limits)
-  let leadsQuery = supabase
-    .from('leads')
-    .select('id, status, source, canvass_disposition, created_at, owner_user_id, pin_attributed_user_id, ownership_reassigned_at')
-    .eq('org_id', profile.org_id)
-    .gte('created_at', weekStart.toISOString())
-    .lt('created_at', weekEnd.toISOString())
-    .or(EXCLUDE_SOLAR_IMPORT_LEADS_OR)
-  
-  if (!isAdmin) {
-    if (teamMemberIds.length > 1) {
-      const idList = teamMemberIds.join(',')
-      leadsQuery = leadsQuery.or(`owner_user_id.in.(${idList}),pin_attributed_user_id.in.(${idList})`)
-    } else {
-      leadsQuery = leadsQuery.or(
-        `owner_user_id.eq.${profile.id},pin_attributed_user_id.eq.${profile.id}`
-      )
-    }
-  }
-  const { data: allLeads, error: leadsError } = await leadsQuery
-
-  // Sales are signed Installation or Repair Agreements. Inspection feedback outcomes only drive sits/no-sits.
-  const { data: salesContracts } = await supabase
-    .from('order_form_contracts')
-    .select('id, opportunity_id, customer_signed_at, opportunities(owner_user_id, setter_user_id)')
-    .eq('org_id', profile.org_id)
-    .in('agreement_type', SALE_AGREEMENT_TYPES)
-    .eq('status', 'completed')
-    .not('customer_signed_at', 'is', null)
-    .gte('customer_signed_at', weekStart.toISOString())
-    .lt('customer_signed_at', weekEnd.toISOString())
-    .order('customer_signed_at', { ascending: false })
-  const salesOpportunities = getAttributedInstallationSales(
-    salesContracts as InstallationSaleContractRow[] | null
-  )
-
-  const [{ data: orgForSits }, { count: badgeCount }] = await Promise.all([
+  // This period's doors, inspections set, sits, sales and calendar appointments come from the reporting
+  // views (lib/reporting/period-metrics.ts) — one definition each, shared with /reports and the goals page.
+  // Who may see whose numbers stays here: the rows carry the credited people, we filter them below.
+  const [{ data: orgForSits }, { count: badgeCount }, periodRows] = await Promise.all([
     supabase
       .from('orgs')
       .select('settings')
@@ -183,42 +135,18 @@ export default async function DashboardPage() {
       .from('user_badges')
       .select('id', { count: 'exact', head: true })
       .eq('user_id', profile.id),
+    fetchPeriodMetricRows(createServiceClient(), {
+      orgId: profile.org_id,
+      startIso: weekStart.toISOString(),
+      endIso: weekEnd.toISOString(),
+    }),
   ])
 
-  const sitOutcomeIdSet = getSitOutcomeNormalizedIdSet(
-    orgForSits?.settings?.inspection_outcomes as InspectionOutcomeConfigRow[] | undefined
-  )
   const contactDispositionIdSet = getContactDispositionIdSet(
     orgForSits?.settings?.canvass_dispositions as any[] | undefined
   )
-
-  const sitOpportunities =
-    sitOutcomeIdSet.size === 0
-      ? []
-      : await fetchEffectiveSitOpportunitiesInPeriod(supabase, {
-          orgId: profile.org_id,
-          startIso: weekStart.toISOString(),
-          endIso: weekEnd.toISOString(),
-          sitOutcomeIdSet,
-        })
-
-  // Appointments on closer's calendar in this period (by scheduled_for) — efficiency denominator
-  const { data: apptsForEfficiency } = await supabase
-    .from('scheduled_appointments')
-    .select('id, closer_user_id')
-    .eq('org_id', profile.org_id)
-    .not('closer_user_id', 'is', null)
-    .gte('scheduled_for', weekStart.toISOString())
-    .lt('scheduled_for', weekEnd.toISOString())
-
-  // Fetch scheduled_appointments created this week for accurate inspection attribution
-  // canvasser_user_id = the setter who scheduled the inspection (SOURCE OF TRUTH)
-  const { data: allAppointments } = await supabase
-    .from('scheduled_appointments')
-    .select('id, canvasser_user_id, closer_user_id, lead_id, created_at, appointment_type, status')
-    .eq('org_id', profile.org_id)
-    .gte('created_at', weekStart.toISOString())
-    .lt('created_at', weekEnd.toISOString())
+  const visibleIds = new Set([profile.id, ...teamMemberIds])
+  const canSee = (id: string | null | undefined) => isAdmin || (!!id && visibleIds.has(id))
 
   let projectsQuery = supabase
     .from('projects')
@@ -377,40 +305,33 @@ export default async function DashboardPage() {
       const built: any[] = []
       for (const member of members) {
         // Leads attributed to this member (owner or frozen pin id if user was deleted)
-        const memberLeads = (allLeads || []).filter(
-          l => getAttributedCanvassLeadUserId(l) === member.id && isCanvassDoorLead(l)
-        )
-        const rawDoors = memberLeads.length
+        const memberDoors = periodRows.doors.filter((d) => d.user_id === member.id)
+        const rawDoors = memberDoors.length
 
         // Count contacts - only dispositions where they talked to someone
-        const rawContacts = memberLeads.filter(l => isContactDisposition(l.canvass_disposition, contactDispositionIdSet)).length
+        const rawContacts = countContacts(memberDoors, contactDispositionIdSet)
 
         // Inspections set this week - from scheduled_appointments.canvasser_user_id (SOURCE OF TRUTH)
-        const memberAppointments = (allAppointments || []).filter(
-          (a) => a.canvasser_user_id === member.id && countsAsInspectionSet(a)
-        )
-        const inspectionsSet = memberAppointments.length
-        const inspectionsReceived = (allAppointments || []).filter(
-          (a) => a.closer_user_id === member.id
-        ).length
+        const inspectionsSet = periodRows.sets.filter((a) => a.setter_user_id === member.id).length
+        const inspectionsReceived = periodRows.sets.filter((a) => a.closer_user_id === member.id).length
 
         const finalDoors = rawDoors
         const finalContacts = rawContacts
 
         const memberSalesCount = new Set(
-          (salesOpportunities || [])
-            .filter((o) => o.setter_user_id === member.id || o.owner_user_id === member.id)
-            .map((o) => o.opportunity_id || o.id)
+          periodRows.sales
+            .filter((o) => o.setter_user_id === member.id || o.closer_user_id === member.id)
+            .map((o) => o.opportunity_id)
         ).size
 
-        const sits = (sitOpportunities || []).filter((o) =>
+        const sits = periodRows.sits.filter((o) =>
           isSetterLikeRole(member.role)
             ? o.setter_user_id === member.id
-            : o.owner_user_id === member.id
+            : o.closer_user_id === member.id
         ).length
 
         const memberCloseRate = sits > 0 ? (memberSalesCount / sits * 100) : null
-        const memberApptsOnCalendar = (apptsForEfficiency || []).filter(
+        const memberApptsOnCalendar = periodRows.calendar.filter(
           (a) => a.closer_user_id === member.id
         ).length
         const memberEfficiency =
@@ -467,47 +388,26 @@ export default async function DashboardPage() {
   }
 
   // Data is already filtered by date in queries, so use directly
-  const thisWeekLeads = (allLeads || []).filter(isCanvassDoorLead)
-  const rawDoorsKnocked = thisWeekLeads.length
-  const rawContacts = thisWeekLeads.filter(l => isContactDisposition(l.canvass_disposition, contactDispositionIdSet)).length
-  
-  // Inspections set - from scheduled_appointments.canvasser_user_id (SOURCE OF TRUTH)
-  // Filter by user role for non-admins
-  const thisWeekAppointments = (allAppointments || []).filter(
-    (a) =>
-      countsAsInspectionSet(a) &&
-      (isAdmin ||
-        a.canvasser_user_id === profile.id ||
-        teamMemberIds.includes(a.canvasser_user_id || ''))
-  )
-  const inspectionsSet = thisWeekAppointments.length
-  
+  const myDoors = periodRows.doors.filter((d) => canSee(d.user_id))
+  const rawDoorsKnocked = myDoors.length
+  const rawContacts = countContacts(myDoors, contactDispositionIdSet)
+
+  // Inspections set: the setter who booked it (rpt_inspection_sets). Non-admins see themselves and their team.
+  const inspectionsSet = periodRows.sets.filter((a) => canSee(a.setter_user_id)).length
+
   const doorsKnocked = rawDoorsKnocked
   const contacts = rawContacts
-  
+
   // Sales attribution: each signed sale credits both the closer/owner and the setter.
   const salesThisWeek = new Set(
-    (salesOpportunities || [])
-      .filter((o) => {
-        if (isAdmin) return true
-        return (
-          o.setter_user_id === profile.id ||
-          o.owner_user_id === profile.id ||
-          teamMemberIds.includes(o.setter_user_id || '') ||
-          teamMemberIds.includes(o.owner_user_id || '')
-        )
-      })
-      .map((o) => o.opportunity_id || o.id)
+    periodRows.sales
+      .filter((o) => canSee(o.setter_user_id) || canSee(o.closer_user_id))
+      .map((o) => o.opportunity_id)
   ).size
 
-  const sitsThisWeek = (sitOpportunities || []).filter((o) => {
+  const sitsThisWeek = periodRows.sits.filter((o) => {
     if (isAdmin) return true
-    if (isSetterLikeRole(profile.role)) {
-      return (
-        o.setter_user_id === profile.id || teamMemberIds.includes(o.setter_user_id || '')
-      )
-    }
-    return o.owner_user_id === profile.id || teamMemberIds.includes(o.owner_user_id || '')
+    return isSetterLikeRole(profile.role) ? canSee(o.setter_user_id) : canSee(o.closer_user_id)
   }).length
 
   // Close rate = sales / sits for the selected period
@@ -516,9 +416,7 @@ export default async function DashboardPage() {
     : null
 
   // Efficiency = sales / appointments on closer's calendar in the selected period
-  const appointmentsOnCalendar = (apptsForEfficiency || []).filter((a) =>
-    isAdmin || a.closer_user_id === profile.id || teamMemberIds.includes(a.closer_user_id || '')
-  ).length
+  const appointmentsOnCalendar = periodRows.calendar.filter((a) => canSee(a.closer_user_id)).length
   const efficiency = appointmentsOnCalendar > 0
     ? parseFloat((salesThisWeek / appointmentsOnCalendar * 100).toFixed(1))
     : null

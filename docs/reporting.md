@@ -29,3 +29,7 @@
 - Sales view is one row per completed contract (a split cash/finance deal with two installation agreements counts twice — same as the dashboard today); setter-credited rows are visible only to the closer's scope (own-scope setters see none).
 - Month/week grouping and "this year" use UTC; rows with no date drop out of any dated preset.
 - Scheduling an email needs `reports:export`, goes only to active team members, and is re-checked at send time.
+
+## Dashboard, Sisu and goals read the views (2026-10-23)
+`lib/reporting/period-metrics.ts` (`fetchPeriodMetricRows`) is the one place the Dashboard's weekly numbers (doors, contacts, inspections set / received, sits, sales, calendar appointments), the team leaderboard, the Sisu live metrics and the goals scorecard's door counts come from. Who-sees-whose-numbers filtering stays in each screen. `npx tsx scripts/dashboard-views-compare.ts` (read-only, needs the service key) prints old → new for any window.
+**Not migrated (on purpose):** goals forecast history for sets/sits/sales and the scorecard's channel attribution (they need lead ids the views don't carry), payroll sit/period logic (`lib/comp-plan-period-unit-earnings.ts` — pay must not move), the Sisu badge counters (`lib/sisu-weekly-doors.ts`, `lib/sisu-monthly-closed-sales.ts`), `/api/dashboard/team-stats`.

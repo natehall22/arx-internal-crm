@@ -9,13 +9,11 @@ import IncentivesClient from './IncentivesClient'
 import { getDateRangeForTimeFrame } from '@/lib/date-ranges'
 import {
   countClosedSalesForBadgeAward,
-  countUserClosedSalesFromRows,
 } from '@/lib/sisu-monthly-closed-sales'
 import { countDoorsKnockedForBadgeAward } from '@/lib/sisu-weekly-doors'
 import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
-import { EXCLUDE_SOLAR_IMPORT_LEADS_OR, SALE_AGREEMENT_TYPES, isCanvassDoorLead } from '@/lib/sales-metrics'
-import { getAttributedCanvassLeadUserId } from '@/lib/canvass-lead-attribution'
-import { INSPECTION_SET_APPOINTMENT_TYPE_OR } from '@/lib/inspection-set-metrics'
+import { fetchPeriodMetricRows } from '@/lib/reporting/period-metrics'
+import { createServiceClient } from '@/lib/supabase/service'
 import type {
   Heat,
   HeatAchievement,
@@ -26,7 +24,6 @@ import type {
   BadgeWithEarned,
   LiveMetrics,
 } from '@/lib/incentive-metrics'
-import type { InstallationSaleContractRow } from '@/lib/sales-metrics'
 
 export default async function IncentivesPage() {
   const { profile } = await requireAuth()
@@ -40,47 +37,18 @@ export default async function IncentivesPage() {
 
   // ── Live metrics ─────────────────────────────────────────────────────────────
 
-  // Inspections set this week (canvasser_user_id is source of truth)
-  const { data: weekAppointments } = await supabase
-    .from('scheduled_appointments')
-    .select('id, canvasser_user_id')
-    .eq('org_id', profile.org_id)
-    .eq('canvasser_user_id', profile.id)
-    .gte('created_at', weekStart.toISOString())
-    .lt('created_at', weekEnd.toISOString())
-    .or(INSPECTION_SET_APPOINTMENT_TYPE_OR)
-    .neq('status', 'cancelled')
-
-  const inspectionsSet = weekAppointments?.length ?? 0
-
-  // Doors knocked this week
-  const { data: doorLeads } = await supabase
-    .from('leads')
-    .select('id, source, canvass_disposition, pin_attributed_user_id, owner_user_id, ownership_reassigned_at')
-    .eq('org_id', profile.org_id)
-    .gte('created_at', weekStart.toISOString())
-    .lt('created_at', weekEnd.toISOString())
-    .or(EXCLUDE_SOLAR_IMPORT_LEADS_OR)
-
-  const doorsKnocked = (doorLeads ?? []).filter(
-    (l) => isCanvassDoorLead(l) && getAttributedCanvassLeadUserId(l) === profile.id
-  ).length
-
-  // Closed sales this week
-  const { data: salesContracts } = await supabase
-    .from('order_form_contracts')
-    .select('id, opportunity_id, customer_signed_at, opportunities(owner_user_id, setter_user_id)')
-    .eq('org_id', profile.org_id)
-    .in('agreement_type', SALE_AGREEMENT_TYPES)
-    .eq('status', 'completed')
-    .not('customer_signed_at', 'is', null)
-    .gte('customer_signed_at', weekStart.toISOString())
-    .lt('customer_signed_at', weekEnd.toISOString())
-
-  const closedSales = countUserClosedSalesFromRows(
-    salesContracts as InstallationSaleContractRow[] | null,
-    profile.id,
-  )
+  // This week's inspections set, doors and closed sales — read from the reporting views, the same
+  // definitions the dashboard and /reports use (lib/reporting/period-metrics.ts).
+  const week = await fetchPeriodMetricRows(createServiceClient(), {
+    orgId: profile.org_id,
+    startIso: weekStart.toISOString(),
+    endIso: weekEnd.toISOString(),
+  })
+  const inspectionsSet = week.sets.filter((a) => a.setter_user_id === profile.id).length
+  const doorsKnocked = week.doors.filter((d) => d.user_id === profile.id).length
+  const closedSales = new Set(
+    week.sales.filter((o) => o.setter_user_id === profile.id || o.closer_user_id === profile.id).map((o) => o.opportunity_id)
+  ).size
 
   const [closedSalesMonth, doorsKnockedForBadge] = await Promise.all([
     countClosedSalesForBadgeAward(supabase, profile.org_id, profile.id),
