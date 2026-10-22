@@ -541,7 +541,7 @@ export function decideSend(args: {
   if (!order || order.status === 'draft') return { ok: true, kind: 'order', revision: 0, confirmMessage: null }
 
   const sentAt = order.lastSentAt ?? now.toISOString()
-  const to = order.lastSentTo ?? 'the supplier'
+  const to = order.lastSentTo === 'sent by hand' ? 'the supplier (by hand)' : order.lastSentTo ?? 'the supplier'
   if (order.status === 'cancelled') {
     const revision = order.revision + 1
     return {

@@ -109,3 +109,12 @@ describe('sending', () => {
     expect(calls).not.toContain('transmit')
   })
 })
+
+describe('manual record is orders only', () => {
+  it('refuses to record a cancellation by hand', async () => {
+    const { d, calls } = deps()
+    const r = await executeSupplierOrderSend(ctx(), { ...req, requested: 'cancellation', previewToken: '', confirmResend: false, manual: true }, actor, d)
+    expect(r.ok).toBe(false)
+    expect(calls).toEqual([])
+  })
+})

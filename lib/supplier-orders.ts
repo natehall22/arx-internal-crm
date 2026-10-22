@@ -784,6 +784,10 @@ export async function executeSupplierOrderSend(
     return { ok: false, status: 403, message: 'Only people who can edit jobs (or an owner) can send supplier orders.' }
   }
 
+  // "I sent it myself" only records an ORDER; a cancellation always goes through the preview.
+  if (input.manual && input.requested !== 'order') {
+    return { ok: false, status: 400, message: 'Only an order can be recorded as sent by hand.' }
+  }
   const built = buildSupplierOrderPreview(ctx, input, actor, now())
   if (!built.ok) return built
   const preview = built.preview

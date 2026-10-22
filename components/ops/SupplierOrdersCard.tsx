@@ -66,26 +66,30 @@ export default function SupplierOrdersCard({ jobId, onChanged }: { jobId: string
     void loadPreview(vendorId, kind, deliveryDate, note)
   }
 
-  const sentMyself = async (vendorId: string, supplierName: string) => {
-    if (!window.confirm(`Record that you sent this order to ${supplierName} yourself?`)) return
-    setBusy(true)
-    const res = await fetch(`/api/ops/jobs/${jobId}/supplier-orders/send`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ vendorId, kind: 'order', manual: true, deliveryDate: deliveryDate || null, confirmResend: false }),
-    })
-    const json = await res.json().catch(() => ({}))
-    setBusy(false)
-    if (res.status === 409 && json.needsConfirm) {
-      if (!window.confirm(json.confirmMessage)) return
-      await fetch(`/api/ops/jobs/${jobId}/supplier-orders/send`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ vendorId, kind: 'order', manual: true, deliveryDate: deliveryDate || null, confirmResend: true }),
+  const sentMyself = async (card: SupplierCard) => {
+    if (!window.confirm(`Record that you sent this order to ${card.supplierName} yourself?`)) return
+    const post = (confirmResend: boolean) =>
+      fetch(`/api/ops/jobs/${jobId}/supplier-orders/send`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ vendorId: card.vendorId, kind: 'order', manual: true, deliveryDate: null, confirmResend }),
       })
-    } else if (!res.ok) return setError(json.error || 'Could not record it. Try again.')
-    setError(null)
-    await load()
-    onChanged?.()
+    setBusy(true)
+    try {
+      let res = await post(false)
+      let json = await res.json().catch(() => ({}))
+      if (res.status === 409 && json.needsConfirm) {
+        if (!window.confirm(json.confirmMessage)) return
+        res = await post(true)
+        json = await res.json().catch(() => ({}))
+      }
+      if (!res.ok) return setError(json.error || 'Could not record it. Try again.')
+      setError(null)
+      await load()
+      onChanged?.()
+    } finally {
+      setBusy(false)
+    }
   }
 
   const send = async (confirmResend: boolean) => {
@@ -145,7 +149,7 @@ export default function SupplierOrdersCard({ jobId, onChanged }: { jobId: string
               <button type="button" onClick={() => openPreview(c.vendorId, 'order')} disabled={view.jobCancelled}>
                 Review &amp; send to {c.supplierName}
               </button>{' '}
-              <button type="button" disabled={busy || view.jobCancelled || c.state === 'sent'} onClick={() => sentMyself(c.vendorId, c.supplierName)}>
+              <button type="button" disabled={busy || view.jobCancelled || c.state === 'sent'} onClick={() => sentMyself(c)}>
                 I sent this to {c.supplierName} myself
               </button>{' '}
               {c.canCancel && (
