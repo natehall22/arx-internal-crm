@@ -16,9 +16,6 @@ interface JobMaterialsCardProps {
   jobId: string
   userRole: string
   title?: string
-  materialsStatus?: string
-  onMaterialsStatusChange?: (status: string) => void
-  updatingMaterialsStatus?: boolean
   laborCost?: number | null
   onSaveLaborCost?: (amount: number | null) => Promise<void> | void
   savingLaborCost?: boolean
@@ -41,21 +38,11 @@ const statusConfig = {
   returned: { label: 'Returned', bg: 'bg-red-100', text: 'text-red-700' },
 }
 
-const materialsWorkflowStatuses = ['not_ordered', 'ordered', 'partial', 'received'] as const
-const getMaterialDeliveryLabel = (status?: string) => {
-  if (status === 'ordered') return 'Ordered'
-  if (status === 'partial') return 'Partially Delivered'
-  if (status === 'received') return 'Fully Delivered'
-  return 'Not Ordered'
-}
 
 export default function JobMaterialsCard({
   jobId,
   userRole,
   title = 'Materials',
-  materialsStatus,
-  onMaterialsStatusChange,
-  updatingMaterialsStatus = false,
   laborCost,
   onSaveLaborCost,
   savingLaborCost = false,
@@ -267,60 +254,10 @@ export default function JobMaterialsCard({
         </div>
       </div>
 
-      {(materialsStatus || onSaveLaborCost) && (
+      {/* "Materials ordered" is recorded on the Job documents banner (where the order is sent),
+          not with a delivery picker here — see lib/job-status-events.ts. */}
+      {onSaveLaborCost && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-4">
-          {materialsStatus && (
-            <div className="border rounded-lg p-3">
-              <div className="flex items-center justify-between mb-2">
-                <p className="text-sm font-medium text-gray-900">Material Delivery</p>
-                <span className={`px-2 py-1 text-xs font-medium rounded-full ${
-                  materialsStatus === 'received' ? 'bg-green-100 text-green-700' :
-                  materialsStatus === 'ordered' ? 'bg-blue-100 text-blue-700' :
-                  materialsStatus === 'partial' ? 'bg-amber-100 text-amber-700' :
-                  'bg-gray-100 text-gray-600'
-                }`}>
-                  {getMaterialDeliveryLabel(materialsStatus)}
-                </span>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                {materialsWorkflowStatuses.map((status) => {
-                  const active = materialsStatus === status
-                  const base = 'min-h-[40px] px-2 py-2 text-xs rounded-lg border font-medium transition'
-                  const activeClass =
-                    status === 'not_ordered'
-                      ? 'bg-gray-600 text-white border-gray-600 shadow-sm'
-                      : status === 'ordered'
-                        ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
-                        : status === 'partial'
-                          ? 'bg-amber-500 text-white border-amber-500 shadow-sm'
-                          : 'bg-green-600 text-white border-green-600 shadow-sm'
-                  const idleClass = 'border-gray-300 bg-white text-gray-800 hover:bg-gray-50'
-                  return (
-                    <button
-                      key={status}
-                      type="button"
-                      onClick={() => onMaterialsStatusChange?.(status)}
-                      disabled={updatingMaterialsStatus || materialsStatus === status}
-                      className={`${base} ${active ? activeClass : idleClass} disabled:opacity-60`}
-                    >
-                      {status === 'not_ordered'
-                        ? 'Not Ordered'
-                        : status === 'ordered'
-                          ? 'Ordered'
-                          : status === 'partial'
-                            ? 'Partially Delivered'
-                            : 'Fully Delivered'}
-                    </button>
-                  )
-                })}
-              </div>
-              <p className="text-xs text-gray-500 mt-2">
-                This tracks material delivery only.
-              </p>
-            </div>
-          )}
-
-          {onSaveLaborCost && (
             <div className="border rounded-lg p-3">
               <p className="text-sm font-medium text-gray-900 mb-2">Labor Cost</p>
               <div className="flex gap-2">
@@ -343,7 +280,6 @@ export default function JobMaterialsCard({
               </div>
               <p className="text-xs text-gray-500 mt-2">Enter labor cost for this job.</p>
             </div>
-          )}
         </div>
       )}
 

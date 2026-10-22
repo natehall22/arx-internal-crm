@@ -65,7 +65,7 @@ export async function PATCH(
     // and never tell the crew. Verified 2026-09-06: no caller in the app or the
     // iOS client sends them to this route.
     const ALLOWED_FIELDS = new Set([
-      'status', 'materials_status', 'materials_ordered_at',
+      'status',
       'started_at', 'completed_at',
       'labor_cost', 'internal_notes',
       'deposit_required_percent', 'finance_submitted_at',

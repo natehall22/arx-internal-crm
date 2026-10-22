@@ -20,6 +20,7 @@ import {
   getInspectionOutcomeConfig,
   getInspectionOutcomeInsideSalesHandoff,
   inspectionOutcomeRoutesToInsideSalesDidntSit,
+  appointmentStatusForOutcome,
   normalizeInspectionOutcomeId,
   normalizeInspectionOutcomeRows,
 } from '@/lib/inspection-outcomes'
@@ -31,6 +32,7 @@ import {
 } from '@/lib/inside-sales-follow-up'
 import { bookInsuranceCallAppointment } from '@/lib/insurance-call-appointment'
 import { createServiceClient } from '@/lib/supabase/service'
+import { closeOutLeadAppointments } from '@/lib/job-status-events'
 import { isSaleCreditLocked } from '@/lib/deal-sale-credit'
 
 /** Supabase may return embedded FK rows as object or single-element array. */
@@ -806,17 +808,21 @@ export async function POST(request: NextRequest) {
     // lead/opportunity/close linked (close_appointments + new scheduled_appointments rows use these ids).
     if (appointment_id) {
       const appointmentUpdate: Record<string, unknown> = {
-        status:
-          outcome === 'sale'
-            ? 'completed'
-            : inspectionOutcomeRoutesToInsideSalesDidntSit(inspectionOutcomes, outcome)
-              ? 'no_show'
-              : 'completed',
+        status: appointmentStatusForOutcome(inspectionOutcomes, outcome),
       }
       if (opportunityId) {
         appointmentUpdate.opportunity_id = opportunityId
       }
       await supabase.from('scheduled_appointments').update(appointmentUpdate).eq('id', appointment_id)
+    } else if (leadId) {
+      // Outcome logged from the lead (no appointment id): close the lead's past open
+      // inspection appointment(s) too, or they sit "scheduled" forever (W4: 111 rows).
+      await closeOutLeadAppointments(supabase, {
+        orgId: profile.org_id,
+        leadId,
+        status: appointmentStatusForOutcome(inspectionOutcomes, outcome),
+        opportunityId,
+      })
     }
 
     /** Won sale → customer + project(opportunity_id) + production_jobs (idempotent). */

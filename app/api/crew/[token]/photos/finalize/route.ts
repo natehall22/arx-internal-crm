@@ -4,6 +4,7 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { CREW_PHOTO_TAGS } from '@/lib/final-photo-tags'
 import { CREW_LINK_MAX_PHOTOS, crewLinkPhotoCounts, resolveCrewLink } from '@/lib/crew-link'
 import { finalizeJobPhotoUpload } from '@/lib/job-photo-upload'
+import { completeTradeFromCrewPhotos } from '@/lib/job-status-events'
 
 export const runtime = 'nodejs'
 
@@ -54,5 +55,18 @@ export async function POST(request: Request, { params }: { params: { token: stri
   if ('error' in result) {
     return NextResponse.json({ error: result.error }, { status: result.status })
   }
-  return NextResponse.json({ ok: true, photoId: result.photo.id })
+  // The 4th walk-around angle IS "this crew is done" — record it here instead of
+  // waiting for ops to tap "mark done". Never completes the job itself.
+  let tradeDone = false
+  try {
+    const done = await completeTradeFromCrewPhotos(admin, {
+      orgId: link.ctx.orgId,
+      jobId: link.ctx.jobId,
+      workOrderId: link.ctx.workOrderId,
+    })
+    tradeDone = done.completed
+  } catch (error) {
+    console.error('[crew finalize] auto-complete trade failed', link.ctx.workOrderId, error)
+  }
+  return NextResponse.json({ ok: true, photoId: result.photo.id, tradeDone })
 }
