@@ -771,6 +771,7 @@ export default function DashboardClient({
   }
 
   const loadDashboardReports = async () => {
+    if (profile.role === 'canvasser') return
     try {
       const res = await fetch('/api/reports/saved?dashboard=true')
       const data = await res.json()
@@ -790,7 +791,8 @@ export default function DashboardClient({
           const rows = (result.result?.rows || []).map((r: any) => ({ label: r.group ?? '', value: Number(r.value) || 0 }))
           setReportData(prev => ({ ...prev, [report.id]: rows }))
         } catch {
-          setReportData(prev => ({ ...prev, [report.id]: [] }))
+          // Not the same as "no data": e.g. the role lost access to that report.
+          setReportData(prev => ({ ...prev, [report.id]: null as any }))
         }
       }
     } catch (error) {
@@ -1904,9 +1906,11 @@ export default function DashboardClient({
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                   {customReports.slice(0, 4).map((report) => {
-                    const data = reportData[report.id] || []
+                    const rawData = reportData[report.id]
+                    const failed = rawData === null
+                    const data = rawData || []
                     const maxValue = Math.max(...data.map((d: any) => d.value || 0), 1)
-                    const isLoading = !reportData[report.id]
+                    const isLoading = reportData[report.id] === undefined
                     
                     return (
                       <Link 
@@ -1916,7 +1920,7 @@ export default function DashboardClient({
                       >
                         <div className="flex items-center gap-2 mb-3">
                           <span className="text-lg">
-                            {'📊'}
+                            📊
                           </span>
                           <h3 className="font-medium text-gray-900 text-sm">{report.name}</h3>
                         </div>
@@ -1925,15 +1929,13 @@ export default function DashboardClient({
                           <div className="flex items-center justify-center py-4">
                             <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-indigo-600" />
                           </div>
+                        ) : failed ? (
+                          <div className="text-center py-4">
+                            <p className="text-sm text-gray-600">Not available for your role</p>
+                          </div>
                         ) : data.length === 0 ? (
                           <div className="text-center py-4">
                             <p className="text-sm text-gray-500">No data for this period</p>
-                          </div>
-                        ) : false ? (
-                          <div className="text-center py-2">
-                            <p className="text-3xl font-bold text-indigo-600">
-                              {(data[0]?.value || 0).toLocaleString()}
-                            </p>
                           </div>
                         ) : (
                           <div className="space-y-2">

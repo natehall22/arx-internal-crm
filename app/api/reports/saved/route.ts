@@ -35,7 +35,8 @@ export async function GET(request: NextRequest) {
     .from('saved_reports')
     .select('id, name, spec, shared_roles, schedule, dashboard_widget, created_by, created_at')
     .eq('org_id', a.profile.org_id)
-  if (dashboardOnly) query = query.eq('dashboard_widget', true)
+  // Pinning is personal: a tile on MY dashboard is one I made, never one shared to my role.
+  if (dashboardOnly) query = query.eq('dashboard_widget', true).eq('created_by', a.profile.id)
   const { data, error } = await query
     .or(`created_by.eq.${a.profile.id},shared_roles.cs.{${String(a.profile.role).replace(/[^a-z_]/gi, '')}}`)
     .order('created_at', { ascending: false })

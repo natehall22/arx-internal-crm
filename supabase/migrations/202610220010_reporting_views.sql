@@ -129,7 +129,7 @@ JOIN payroll_periods p ON p.id = l.payroll_period_id
 LEFT JOIN users u ON u.id = l.user_id
 LEFT JOIN production_jobs j ON j.id = l.job_id;
 
--- Appointments (inspections, adjuster meetings, ...). was_completed = appointment status 'completed'. NOTE: this is NOT the
+-- Appointments (inspections, adjuster meetings, ...). For sets and sits use rpt_inspection_sets / rpt_sits. was_completed = appointment status 'completed'. NOTE: this is NOT the
 -- goals/dashboard 'sit' (org-configured inspection outcomes on opportunities.inspection_outcome_at); see docs/reporting.md.
 CREATE OR REPLACE VIEW rpt_appointments WITH (security_invoker = true) AS
 SELECT a.org_id,
@@ -211,11 +211,65 @@ SELECT k.org_id,
        k.source
 FROM canvass_knocks k
 LEFT JOIN users u ON u.id = k.user_id
-WHERE k.source IS DISTINCT FROM 'solar_import';
+WHERE canvass_knock_is_door_eligible(k.source, k.disposition);  -- the same test the dashboard/scorecard RPCs use
+
+-- Inspection sets: ONE definition (matches lib/inspection-set-metrics.ts countsAsInspectionSet): inspection or
+-- untyped appointments that are not cancelled. set_at = when it was booked; scheduled_for = when it runs.
+CREATE OR REPLACE VIEW rpt_inspection_sets WITH (security_invoker = true) AS
+SELECT a.org_id,
+       a.id                       AS appointment_id,
+       a.created_at               AS set_at,
+       a.scheduled_for,
+       a.canvasser_user_id        AS setter_user_id,
+       st.full_name               AS setter,
+       a.closer_user_id,
+       cl.full_name               AS closer
+FROM scheduled_appointments a
+LEFT JOIN users st ON st.id = a.canvasser_user_id
+LEFT JOIN users cl ON cl.id = a.closer_user_id
+WHERE (a.appointment_type IS NULL OR a.appointment_type = 'inspection')
+  AND COALESCE(a.status, 'scheduled') <> 'cancelled';
+
+-- Sits: ONE definition (matches the dashboard/goals scorecard): an opportunity's latest effective inspection
+-- outcome counts as a sit when that outcome is in the org's counts_as_sit set (orgs.settings.inspection_outcomes).
+-- Known gap vs the TypeScript path: no "one opportunity per lead" cap, and orgs with no configured outcomes
+-- (null settings) have no sits here (the TypeScript path falls back to defaults). Compare before relying on it.
+CREATE OR REPLACE VIEW rpt_sits WITH (security_invoker = true) AS
+WITH sit_ids AS (
+  SELECT o.id AS org_id, array_agg(DISTINCT lower(replace(trim(x->>'id'), '-', '_'))) AS ids
+  FROM orgs o,
+       jsonb_array_elements(COALESCE(NULLIF(o.settings->'inspection_outcomes', 'null'::jsonb), '[]'::jsonb)) x
+  WHERE COALESCE((x->>'active')::boolean, true) AND (x->>'counts_as_sit')::boolean IS TRUE
+  GROUP BY 1
+), cand AS (
+  SELECT o.org_id, o.id AS opportunity_id, o.setter_user_id, o.owner_user_id, c.outcome, c.at,
+         row_number() OVER (PARTITION BY o.id ORDER BY c.at DESC NULLS LAST) AS rn
+  FROM opportunities o
+  CROSS JOIN LATERAL (
+    SELECT s.outcome, s.created_at AS at FROM inspection_status_updates s
+     WHERE s.outcome IS NOT NULL AND (s.opportunity_id = o.id OR (o.lead_id IS NOT NULL AND s.lead_id = o.lead_id))
+    UNION ALL
+    SELECT o.inspection_outcome, COALESCE(o.inspection_outcome_at, o.updated_at, o.created_at)
+     WHERE o.inspection_outcome IS NOT NULL
+  ) c
+)
+SELECT c.org_id,
+       c.opportunity_id,
+       c.at                       AS sat_at,
+       c.outcome,
+       c.owner_user_id            AS closer_user_id,
+       cl.full_name               AS closer,
+       c.setter_user_id,
+       st.full_name               AS setter
+FROM cand c
+JOIN sit_ids si ON si.org_id = c.org_id
+LEFT JOIN users cl ON cl.id = c.owner_user_id
+LEFT JOIN users st ON st.id = c.setter_user_id
+WHERE c.rn = 1 AND lower(replace(trim(c.outcome), '-', '_')) = ANY (si.ids);
 
 -- Views are read through the API only (service role). Nobody reads them with the anon key.
 REVOKE ALL ON rpt_jobs, rpt_sales, rpt_payments, rpt_job_costs, rpt_payroll_lines, rpt_appointments,
-              rpt_leads, rpt_opportunities, rpt_referral_partners, rpt_canvass_doors FROM anon, authenticated;
+              rpt_leads, rpt_opportunities, rpt_referral_partners, rpt_canvass_doors, rpt_inspection_sets, rpt_sits FROM anon, authenticated;
 
 -- Saved reports (shareable by role). Nullable/additive. org_id on every row.
 CREATE TABLE IF NOT EXISTS saved_reports (
@@ -240,4 +294,4 @@ COMMENT ON TABLE saved_reports IS 'Saved/shared report definitions (spec jsonb) 
 -- Rollback:
 --   DROP TABLE IF EXISTS saved_reports;
 --   DROP VIEW IF EXISTS rpt_jobs, rpt_sales, rpt_payments, rpt_job_costs, rpt_payroll_lines, rpt_appointments,
---     rpt_leads, rpt_opportunities, rpt_referral_partners, rpt_canvass_doors;
+--     rpt_leads, rpt_opportunities, rpt_referral_partners, rpt_canvass_doors, rpt_inspection_sets, rpt_sits;

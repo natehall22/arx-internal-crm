@@ -92,7 +92,7 @@ Canonical staff URLs that exist as `page.tsx` under `app/` (route groups like `(
 - `/commissions/statement`, `/commissions/statement/[periodId]`, `/commissions/team`, `/commissions/estimator`
 - `/admin/payroll`, `/admin/payroll/periods`, `/admin/payroll/statements`, `/admin/payroll/weekly`, `/admin/payroll/[periodId]/hours`
 - `/admin`, `/admin/users`, `/admin/teams`, `/admin/pricing`, `/admin/integrations`, …
-- `/reports`, `/reports/builder`, `/reports/coaching`
+- `/reports`, `/reports/explore`, `/reports/coaching`
 - `/settings`, `/notifications`
 - `/tools/roof-measure`, `/tools/roof-measure/measurements`
 

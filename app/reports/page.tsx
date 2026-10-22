@@ -19,7 +19,8 @@ const card: React.CSSProperties = { background: '#fff', color: INK, border: '1px
 
 const KPIS: { label: string; spec: Omit<ReportSpec, 'date'> }[] = [
   { label: 'Sales signed ($)', spec: { dataset: 'sales', mode: 'summary', metric: { kind: 'sum', column: 'amount' }, filters: [] } },
-  { label: 'Inspections run', spec: { dataset: 'appointments', mode: 'summary', metric: { kind: 'count' }, filters: [{ column: 'was_completed', op: 'is_true' }] } },
+  { label: 'Inspections set', spec: { dataset: 'inspection_sets', mode: 'summary', metric: { kind: 'count' }, filters: [] } },
+  { label: 'Sits', spec: { dataset: 'sits', mode: 'summary', metric: { kind: 'count' }, filters: [] } },
   { label: 'Doors knocked', spec: { dataset: 'canvass_doors', mode: 'summary', metric: { kind: 'count' }, filters: [] } },
   { label: 'New leads', spec: { dataset: 'leads', mode: 'summary', metric: { kind: 'count' }, filters: [] } },
 ]

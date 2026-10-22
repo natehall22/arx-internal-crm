@@ -31,7 +31,7 @@ export type Dataset = {
 
 export const DATASET_KEYS = [
   'jobs', 'sales', 'payments', 'job_costs', 'payroll_lines', 'canvass_doors', 'appointments', 'leads',
-  'opportunities', 'referral_partners',
+  'opportunities', 'referral_partners', 'inspection_sets', 'sits',
 ] as const
 export type DatasetKey = (typeof DATASET_KEYS)[number]
 
@@ -110,6 +110,16 @@ export const DATASETS: Record<DatasetKey, Dataset> = {
       c('created_at', 'Created', 'date'), c('status', 'Status'), c('pipeline_stage', 'Stage'), c('inspection_outcome', 'Inspection result'),
       c('job_source', 'Lead source'), c('closer', 'Closer'), c('setter', 'Setter'), c('estimated_value', 'Estimated value', 'money'), c('is_sold', 'Sold', 'bool'),
     ],
+  },
+  inspection_sets: {
+    idColumn: 'appointment_id', key: 'inspection_sets', label: 'Inspections set', description: 'Inspections booked (not cancelled) — the count the dashboard and goals use.',
+    view: 'rpt_inspection_sets', dateColumn: 'set_at', ownerColumn: 'setter_user_id',
+    columns: [c('set_at', 'Booked', 'date'), c('scheduled_for', 'Inspection date', 'date'), c('setter', 'Setter'), c('closer', 'Closer')],
+  },
+  sits: {
+    idColumn: 'opportunity_id', key: 'sits', label: 'Sits', description: 'Inspections that happened (latest outcome counts as a sit) — the count the dashboard and goals use.',
+    view: 'rpt_sits', dateColumn: 'sat_at', ownerColumn: 'closer_user_id',
+    columns: [c('sat_at', 'Sat', 'date'), c('outcome', 'Result'), c('closer', 'Closer'), c('setter', 'Setter')],
   },
   referral_partners: {
     idColumn: 'partner_id', key: 'referral_partners', label: 'Referral partners', description: 'Partners, who owns them, and what they referred.',
