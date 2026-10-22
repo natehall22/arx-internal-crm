@@ -68,7 +68,18 @@ export function capSpecLines(all: string[], max: number = SPEC_MAX_LINES): { lin
 }
 
 export function generateJobMaterialOrderPDF(data: JobMaterialOrderData): Buffer {
+  return renderJobMaterialOrderPDF(data).pdf
+}
+
+/**
+ * Same renderer, also reporting whether rows were trimmed to fit one page. A purchase order
+ * that was trimmed must not be emailed — the supplier cannot see "the rest is in the CRM".
+ */
+export function renderJobMaterialOrderPDF(data: JobMaterialOrderData): { pdf: Buffer; truncated: boolean } {
   const doc = new jsPDF({ unit: 'pt', format: 'letter' })
+  const po = data.purchaseOrder
+  /** A PO block line that did not fit — reported like a trimmed row. */
+  let truncatedSpec = false
 
   // ---- Masthead -------------------------------------------------------------
   setFill(doc, ACCENT)
@@ -77,7 +88,7 @@ export function generateJobMaterialOrderPDF(data: JobMaterialOrderData): Buffer 
   setText(doc, [255, 255, 255])
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(17)
-  doc.text('MATERIALS ORDER SHEET', MARGIN, 27)
+  doc.text(safe(po ? po.heading.toUpperCase() : 'MATERIALS ORDER SHEET'), MARGIN, 27)
 
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(10)
@@ -116,14 +127,62 @@ export function generateJobMaterialOrderPDF(data: JobMaterialOrderData): Buffer 
   setText(doc, ACCENT)
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(8)
-  doc.text('SEND TO SUPPLIER', PAGE_W - MARGIN, y + 14, { align: 'right' })
+  doc.text(safe(po ? `FOR ${po.supplierName.toUpperCase()}` : 'SEND TO SUPPLIER'), PAGE_W - MARGIN, y + 14, { align: 'right' })
   setText(doc, MUTED)
   doc.setFont('helvetica', 'normal')
-  doc.text('Quantities from sold scope + roof measure', PAGE_W - MARGIN, y + 26, {
-    align: 'right',
-  })
+  doc.text(
+    safe(po ? [po.accountNumber ? `Acct ${po.accountNumber}` : null, po.branch].filter(Boolean).join('  ·  ') || ' ' : 'Quantities from sold scope + roof measure'),
+    PAGE_W - MARGIN,
+    y + 26,
+    { align: 'right' }
+  )
 
   y += 34 + 20
+
+  // ---- Purchase order block (supplier PO only) -----------------------------
+  if (po) {
+    const rows: [string, string | null][] = [
+      ['DELIVER ON', po.deliveryDate],
+      ['DELIVER TO', po.deliveryAddress],
+      ['DELIVERY NOTES', po.deliveryNotes],
+      ['NOTE', po.note],
+    ]
+    for (const [label, body] of rows) {
+      if (!body) continue
+      setText(doc, ACCENT)
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(8)
+      doc.text(label, MARGIN, y)
+      setText(doc, INK)
+      doc.setFont('helvetica', label === 'DELIVER ON' ? 'bold' : 'normal')
+      doc.setFontSize(10)
+      const { lines, hidden } = capSpecLines(doc.splitTextToSize(safe(body), CONTENT_W - 110) as string[], 3)
+      lines.forEach((line, i) => doc.text(line, MARGIN + 110, y + i * 12))
+      if (hidden > 0) truncatedSpec = true
+      y += Math.max(1, lines.length) * 12 + 6
+    }
+    if (po.changes.length > 0) {
+      y += 4
+      setText(doc, ACCENT)
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(9)
+      doc.text('WHAT CHANGED SINCE THE LAST PO', MARGIN, y)
+      y += 6
+      setDraw(doc, ACCENT)
+      doc.setLineWidth(1)
+      doc.line(MARGIN, y, PAGE_W - MARGIN, y)
+      y += 12
+      setText(doc, INK)
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(9)
+      const changeLines = po.changes.flatMap((c) => doc.splitTextToSize(safe(`- ${c}`), CONTENT_W) as string[])
+      const { lines, hidden } = capSpecLines(changeLines, 8)
+      lines.forEach((line, i) => doc.text(line, MARGIN, y + i * 11))
+      if (hidden > 0) truncatedSpec = true
+      y += lines.length * 11 + 6
+    }
+    y += 8
+  }
 
   // ---- Product + sold accessories ------------------------------------------
   // Same text the crew's run sheet prints (ops edits included). A supplier order with bundle
@@ -146,6 +205,7 @@ export function generateJobMaterialOrderPDF(data: JobMaterialOrderData): Buffer 
     const { lines, hidden } = capSpecLines(doc.splitTextToSize(safe(body), CONTENT_W - 110) as string[])
     lines.forEach((line, i) => doc.text(line, MARGIN + 110, y + i * 12))
     if (hidden > 0) {
+      truncatedSpec = true
       setText(doc, ACCENT)
       doc.setFont('helvetica', 'bold')
       doc.setFontSize(9)
@@ -178,6 +238,7 @@ export function generateJobMaterialOrderPDF(data: JobMaterialOrderData): Buffer 
       const { lines, hidden } = capSpecLines(doc.splitTextToSize(safe(co.body), CONTENT_W - 170) as string[], 3)
       lines.forEach((line, i) => doc.text(line, MARGIN + 170, y + i * 11))
       if (hidden > 0) {
+        truncatedSpec = true
         setText(doc, ACCENT)
         doc.setFont('helvetica', 'bold')
         doc.text(`+ ${hidden} more line${hidden === 1 ? '' : 's'} - see the job in the CRM`, MARGIN + 170, y + lines.length * 11)
@@ -185,6 +246,7 @@ export function generateJobMaterialOrderPDF(data: JobMaterialOrderData): Buffer 
       y += (Math.max(1, lines.length) + (hidden > 0 ? 1 : 0)) * 11 + 5
     }
     if (data.changeOrders.length > 4) {
+      truncatedSpec = true
       setText(doc, MUTED)
       doc.setFontSize(8)
       doc.text(`+ ${data.changeOrders.length - 4} more - see the job in the CRM`, MARGIN, y)
@@ -286,6 +348,29 @@ export function generateJobMaterialOrderPDF(data: JobMaterialOrderData): Buffer 
     y += 12
   }
 
+  // ---- Not on this order (supplier PO only) --------------------------------
+  if (po && po.notOnThisOrder.length > 0 && !truncated) {
+    if (y + 30 > BODY_FLOOR) {
+      truncated = true
+    } else {
+      setText(doc, MUTED)
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(8)
+      doc.text('NOT ON THIS ORDER', MARGIN, y)
+      y += 11
+      doc.setFont('helvetica', 'normal')
+      for (const line of po.notOnThisOrder) {
+        if (y > BODY_FLOOR) {
+          truncated = true
+          break
+        }
+        doc.text(safe(line), MARGIN, y)
+        y += 10
+      }
+      y += 6
+    }
+  }
+
   // ---- Received-by block ----------------------------------------------------
   if (!truncated && y + 54 < BODY_FLOOR) {
     setDraw(doc, RULE)
@@ -317,5 +402,5 @@ export function generateJobMaterialOrderPDF(data: JobMaterialOrderData): Buffer 
   )
   doc.text(safe(data.orgName), PAGE_W - MARGIN, PAGE_H - 33, { align: 'right' })
 
-  return Buffer.from(doc.output('arraybuffer'))
+  return { pdf: Buffer.from(doc.output('arraybuffer')), truncated: truncated || truncatedSpec }
 }
