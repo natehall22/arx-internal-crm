@@ -31,7 +31,7 @@ import { syncJobScheduleFromTrades } from '@/lib/job-trades-db'
  * Materials
  * ------------------------------------------------------------------------ */
 
-export type MaterialsOrderedSource = 'order_sheet_download' | 'one_tap' | 'board'
+export type MaterialsOrderedSource = 'one_tap' | 'board' | 'supplier_order'
 
 /**
  * Pure: the update that records "materials ordered", or null when there is

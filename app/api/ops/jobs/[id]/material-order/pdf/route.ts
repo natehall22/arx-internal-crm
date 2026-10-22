@@ -8,7 +8,6 @@ import { NextRequest, NextResponse } from 'next/server'
 
 import { requireAuthApi } from '@/lib/auth'
 import { buildJobMaterialOrder } from '@/lib/job-material-order'
-import { markMaterialsOrdered } from '@/lib/job-status-events'
 import { resolveOpsAccess } from '@/lib/ops-access'
 import { generateJobMaterialOrderPDF } from '@/lib/pdf/job-material-order'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -18,7 +17,6 @@ export const dynamic = 'force-dynamic'
 export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
   let profile
   let admin
-  let canEditJobs = false
   try {
     const auth = await requireAuthApi()
     profile = auth.profile
@@ -27,7 +25,6 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
     if (!access.canJobBoard) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
-    canEditJobs = access.canEditJobs
   } catch {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
@@ -44,12 +41,8 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
     const isDownload = request.nextUrl.searchParams.get('download') === '1'
     const disposition = isDownload ? 'attachment' : 'inline'
 
-    // Downloading the sheet is how it gets sent to the supplier, so that IS the order being
-    // placed: record "materials ordered" here instead of asking ops to also flip a status.
-    // Opening it inline (preview, print check) records nothing. Forward-only and idempotent.
-    if (isDownload && canEditJobs) {
-      await markMaterialsOrdered(admin, { orgId: profile.org_id, jobId: params.id, source: 'order_sheet_download' })
-    }
+    // Downloading never records anything: "materials ordered" is set when an order is actually sent
+    // (CRM email) or when someone taps "I sent this myself" for that supplier.
 
     // Node Buffer is not a valid BodyInit for the web Response type; hand over the bytes.
     return new NextResponse(new Uint8Array(pdf), {
