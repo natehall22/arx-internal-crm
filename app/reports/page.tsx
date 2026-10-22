@@ -109,23 +109,23 @@ export default function ReportsPage() {
           </div>
           <div className="flex items-center gap-3">
             {activeTab === 'overview' && (
-              <select value={preset} onChange={(e) => setPreset(e.target.value as DatePreset)} className="px-3 py-2 border rounded-lg bg-white">
+              <select value={preset} onChange={(e) => setPreset(e.target.value as DatePreset)} className="min-h-[44px] rounded-lg border border-[#8a877d] bg-white px-3 py-2 text-base">
                 <option value="7d">Last 7 days</option><option value="30d">Last 30 days</option><option value="90d">Last 90 days</option>
                 <option value="ytd">This year</option><option value="all">All time</option>
               </select>
             )}
-            <Link href="/reports/explore" className="px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium text-sm">All reports</Link>
+            <Link href="/reports/explore" className="inline-flex min-h-[44px] items-center rounded-lg bg-indigo-700 px-4 py-2 text-sm font-medium text-white">All reports</Link>
           </div>
         </div>
 
-        <div className="flex gap-1 mb-6 border-b">
+        <div className="flex gap-1 mb-6 border-b overflow-x-auto">
           {(['overview', 'forecast'] as const).map((t) => (
             <button key={t} onClick={() => setActiveTab(t)}
-              className={`px-4 py-3 font-medium text-sm border-b-2 -mb-px ${activeTab === t ? 'border-indigo-600 text-indigo-700' : 'border-transparent text-gray-700 hover:text-gray-900'}`}>
+              className={`min-h-[44px] px-4 py-3 font-medium text-sm border-b-2 -mb-px ${activeTab === t ? 'border-indigo-600 text-indigo-700' : 'border-transparent text-gray-700 hover:text-gray-900'}`}>
               {t === 'overview' ? 'Overview' : 'Forecast'}
             </button>
           ))}
-          <Link href="/reports/coaching" className="px-4 py-3 font-medium text-sm border-b-2 border-transparent text-gray-700 hover:text-gray-900">
+          <Link href="/reports/coaching" className="inline-flex min-h-[44px] items-center px-4 py-3 font-medium text-sm border-b-2 border-transparent text-gray-700 hover:text-gray-900">
             Team Coaching
           </Link>
         </div>
