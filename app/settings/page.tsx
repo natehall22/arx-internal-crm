@@ -572,7 +572,7 @@ export default function SettingsPage() {
               
               <div className="space-y-4">
                 <a
-                  href="/reports/builder"
+                  href="/reports/explore"
                   className="flex items-center justify-between p-4 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition-colors border border-indigo-100"
                 >
                   <div className="flex items-center gap-3">
@@ -580,8 +580,8 @@ export default function SettingsPage() {
                       <span className="text-xl">📊</span>
                     </div>
                     <div>
-                      <p className="font-medium text-indigo-900">Create New Report</p>
-                      <p className="text-sm text-indigo-600">Build a custom report with charts and metrics</p>
+                      <p className="font-medium text-indigo-900">Open Reports</p>
+                      <p className="text-sm text-indigo-600">Ready-made reports, charts, CSV and email</p>
                     </div>
                   </div>
                   <svg className="w-5 h-5 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">

@@ -29,7 +29,8 @@
     "solar-permits:enrich": "tsx --env-file=.env.local scripts/solar-permits/enrich-roof-age.ts",
     "solar-permits:solar-api": "tsx --env-file=.env.local scripts/solar-permits/solar-api-pilot.ts",
     "solar-permits:candidates": "tsx --env-file=.env.local scripts/solar-permits/solar-candidates.ts",
-    "solar-permits:ingest-candidates": "tsx --env-file=.env.local scripts/solar-permits/ingest-candidates.ts"
+    "solar-permits:ingest-candidates": "tsx --env-file=.env.local scripts/solar-permits/ingest-candidates.ts",
+    "test:mobile": "playwright test"
   },
   "dependencies": {
     "@react-pdf/renderer": "^4.3.2",
@@ -59,6 +60,7 @@
     "zustand": "^5.0.11"
   },
   "devDependencies": {
+    "@playwright/test": "^1.49.1",
     "@testing-library/jest-dom": "^6.1.5",
     "@testing-library/react": "^14.1.2",
     "@types/d3-contour": "^3.0.6",

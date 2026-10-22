@@ -79,7 +79,7 @@ const COMMON_GUIDE = `
 
 ### Tools & admin
 - **Roof measure (aerial)**: **Tools → Roof Measure** (\`/tools/roof-measure\`).
-- **Reports**: **Reports** (\`/reports\`), custom builder (\`/reports/builder\`), coaching (\`/reports/coaching\`).
+- **Reports**: **Reports** (\`/reports\`), custom builder (\`/reports/explore\`), coaching (\`/reports/coaching\`).
 - **Notifications**: \`/notifications\`.
 - **Settings (personal)**: **Settings** (\`/settings\`) — calendar, **AI Assistant toggle**.
 - **Admin hub**: \`/admin\` — users, teams, integrations.

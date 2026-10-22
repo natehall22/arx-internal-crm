@@ -32,6 +32,7 @@ import { PIPELINE_STAGES, getJobPipelineCurrentIndex } from '@/lib/job-pipeline'
 import SoldScopeCard from '@/components/ops/SoldScopeCard'
 import { noteMentionHighlightRegex } from '@/lib/note-mentions'
 import JobMaterialsCard from '@/components/ops/JobMaterialsCard'
+import SupplierOrdersCard from '@/components/ops/SupplierOrdersCard'
 import JobRoofingBrief from '@/components/ops/JobRoofingBrief'
 import { type JobSoldScope } from '@/components/ops/JobSoldScopeSummary'
 import MaterialsOrderCard from '@/components/ops/MaterialsOrderCard'
@@ -1949,6 +1950,7 @@ export default function JobDetailClient({
                   coverageOverrides={materialsCoverageOverrides ?? null}
                 />
               ) : null}
+              <SupplierOrdersCard jobId={job.id} />
               <JobMaterialsCard
                 jobId={job.id}
                 userRole={userRole}
