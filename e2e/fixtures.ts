@@ -171,3 +171,19 @@ export const HARNESS_DASHBOARD = {
   stats: { totalLeads: 120, newLeads: 14, totalOpportunities: 40, openOpportunities: 22, totalProjects: 18, activeProjects: 9, closeRate: 31, efficiency: 12, doorsKnockedThisWeek: 412, contactsThisWeek: 96, inspectionsSetThisWeek: 11, sitsThisWeek: 8, salesThisWeek: 3 },
   progress: { doors_knocked: { current: 412, goal: 500 }, contacts: { current: 96, goal: 120 }, inspections: { current: 11, goal: 12 }, sales: { current: 3, goal: 4 } },
 }
+
+export const BANNER = {
+  announcement: {
+    id: '11111111-1111-4111-8111-111111111111', title: "What's new",
+    lines: ["Payroll is now one screen. Review 'Needs you', then press Approve.", 'Suppliers live in Settings → Suppliers: add ABC’s order email.', 'Reports: start from a template in Reports.'],
+    link: '/whats-new',
+  },
+}
+export const ANNOUNCEMENTS = {
+  announcements: [{
+    id: '11111111-1111-4111-8111-111111111111', slug: 'whats-new-2026-10', title: "What's new", link_url: '/whats-new', active: true,
+    starts_at: '2026-10-22T12:00:00Z', ends_at: '2026-11-05T12:00:00Z',
+    body: { owner: ['Payroll is now one screen.'], ops: ['Send material orders from the job’s order sheet.'] },
+    dismissed: [{ name: 'Nathan Hall', at: '2026-10-23T12:00:00Z' }], not_dismissed: [{ name: 'Setter Sam' }],
+  }],
+}

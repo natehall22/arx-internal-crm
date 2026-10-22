@@ -24,6 +24,8 @@ import OpsClient from '@/app/ops/OpsClient'
 import { HARNESS_OPS_JOBS } from '@/e2e/fixtures'
 import JobDetailClient from '@/app/ops/jobs/[id]/JobDetailClient'
 import { HARNESS_JOB } from '@/e2e/fixtures'
+import AnnouncementBanner from '@/components/AnnouncementBanner'
+import AnnouncementsClient from '@/app/admin/announcements/AnnouncementsClient'
 import ContractModal from '@/components/contracts/ContractModal'
 import ExploreClient from '@/app/reports/explore/ExploreClient'
 import ReportsPage from '@/app/reports/page'
@@ -107,6 +109,16 @@ export default function Harness({ params }: { params: { screen: string } }) {
           changeOrdersSection={null}
         />
       )
+    case 'announcement-banner':
+      return (
+        <div>
+          <div className="bg-gray-800 p-4 text-white">Site header</div>
+          <AnnouncementBanner />
+          <div className="p-4"><button type="button" className="min-h-[44px] rounded-lg bg-indigo-700 px-4 text-white">Page main action</button></div>
+        </div>
+      )
+    case 'announcements-admin':
+      return <AnnouncementsClient />
     case 'reports-home':
       return <ReportsPage />
     case 'reports-explore':
