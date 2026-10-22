@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
-import { saveDealSaleCredit, type SaleCreditChange } from '@/lib/deal-sale-credit'
+import { saveDealSaleCredit, SALE_CREDIT_EDIT_ROLES, type SaleCreditChange } from '@/lib/deal-sale-credit'
 import { isSuperAdmin } from '@/lib/super-admin'
 import { canSetReferredBy, getPartnerAccess } from '@/lib/referral-partners'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -98,7 +98,6 @@ export async function PATCH(
     const adminClient = createServiceClient()
     const body = await request.json()
 
-    const PAYROLL_ATTR_ROLES = new Set(['admin', 'owner', 'operations'])
 
     // Whitelist updateable fields to prevent mass-assignment of org_id, id, etc.
     const ALLOWED_FIELDS = new Set([
@@ -124,7 +123,7 @@ export async function PATCH(
 
     if (
       touchesPayrollAttribution &&
-      !PAYROLL_ATTR_ROLES.has(String(profile.role || '').toLowerCase()) &&
+      !SALE_CREDIT_EDIT_ROLES.has(String(profile.role || '').toLowerCase()) &&
       !isSuperAdmin(profile)
     ) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })

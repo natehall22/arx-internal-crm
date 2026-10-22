@@ -111,6 +111,9 @@ export async function loadDealSaleCredit(
 
 export type SaleCreditChange = Partial<DealSaleCredit>
 
+/** Roles that may change who gets sale credit (admin/owner/operations) — super admins always may. */
+export const SALE_CREDIT_EDIT_ROLES = new Set(['admin', 'owner', 'operations'])
+
 /** Pure: which fields actually change. Absent keys mean "leave alone". */
 export function diffSaleCredit(current: DealSaleCredit, next: SaleCreditChange): SaleCreditChange {
   const changed: SaleCreditChange = {}
