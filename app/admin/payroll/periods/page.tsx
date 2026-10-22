@@ -117,11 +117,58 @@ export default function PayrollPeriodsPage() {
     }
   }
 
+  const renderActions = (p: Period) => (
+    <>
+        <Link
+          href={`/admin/payroll/${p.id}/hours`}
+          className="inline-flex min-h-[44px] sm:min-h-0 items-center justify-center px-3 sm:px-0 text-indigo-700 hover:text-indigo-900 text-sm sm:text-xs font-medium"
+        >
+          Hours
+        </Link>
+        <Link
+          href={`/admin/payroll/statements?period_id=${p.id}`}
+          className="inline-flex min-h-[44px] sm:min-h-0 items-center justify-center px-3 sm:px-0 text-indigo-700 hover:text-indigo-900 text-sm sm:text-xs font-medium"
+        >
+          Statements
+        </Link>
+        {p.status === 'open' && (
+          <button
+            type="button"
+            disabled={actionLoading === `${p.id}-lock`}
+            onClick={() => runAction(p.id, 'lock')}
+            className="inline-flex min-h-[44px] sm:min-h-0 items-center justify-center px-3 sm:px-0 text-sm sm:text-xs font-medium text-amber-800 hover:text-amber-900 disabled:opacity-50"
+          >
+            Lock
+          </button>
+        )}
+        {p.status === 'locked' && (
+          <button
+            type="button"
+            disabled={actionLoading === `${p.id}-mark_paid`}
+            onClick={() => runAction(p.id, 'mark_paid')}
+            className="inline-flex min-h-[44px] sm:min-h-0 items-center justify-center px-3 sm:px-0 text-sm sm:text-xs font-medium text-indigo-700 disabled:opacity-50"
+          >
+            Mark paid
+          </button>
+        )}
+        {p.status === 'open' && (
+          <button
+            type="button"
+            disabled={actionLoading === `${p.id}-cancel`}
+            onClick={() => runAction(p.id, 'cancel')}
+            className="inline-flex min-h-[44px] sm:min-h-0 items-center justify-center px-3 sm:px-0 text-sm sm:text-xs text-gray-700 hover:text-gray-900 disabled:opacity-50"
+          >
+            Cancel
+          </button>
+        )}
+    </>
+  )
+
   return (
     <div className="min-h-screen bg-gray-50">
       <Nav />
       <div className="max-w-7xl mx-auto px-4 py-8">
-        <Link href="/admin/payroll" className="text-indigo-600 hover:text-indigo-800 text-sm font-medium">
+        <Link href="/admin/payroll" className="inline-flex min-h-[44px] items-center text-indigo-700 hover:text-indigo-900 text-sm font-medium">
           ← Payroll hub
         </Link>
 
@@ -144,31 +191,31 @@ export default function PayrollPeriodsPage() {
 
           <form onSubmit={createPeriod} className="mt-6 grid gap-4 sm:grid-cols-3 border rounded-lg p-4 bg-gray-50/50">
             <label className="text-sm">
-              <span className="text-gray-600">Label</span>
+              <span className="text-[#2c2c2a]">Label</span>
               <input
                 required
-                className="mt-1 w-full rounded border px-3 py-2"
+                className="mt-1 w-full min-h-[44px] rounded border border-gray-400 px-3 py-2 text-base text-[#2c2c2a]"
                 placeholder="2026-W22"
                 value={label}
                 onChange={(e) => setLabel(e.target.value)}
               />
             </label>
             <label className="text-sm">
-              <span className="text-gray-600">Cutoff (local → UTC)</span>
+              <span className="text-[#2c2c2a]">Cutoff (local → UTC)</span>
               <input
                 required
                 type="datetime-local"
-                className="mt-1 w-full rounded border px-3 py-2"
+                className="mt-1 w-full min-h-[44px] rounded border border-gray-400 px-3 py-2 text-base text-[#2c2c2a]"
                 value={cutoffAt}
                 onChange={(e) => setCutoffAt(e.target.value)}
               />
             </label>
             <label className="text-sm">
-              <span className="text-gray-600">Pay date</span>
+              <span className="text-[#2c2c2a]">Pay date</span>
               <input
                 required
                 type="date"
-                className="mt-1 w-full rounded border px-3 py-2"
+                className="mt-1 w-full min-h-[44px] rounded border border-gray-400 px-3 py-2 text-base text-[#2c2c2a]"
                 value={payDate}
                 onChange={(e) => setPayDate(e.target.value)}
               />
@@ -177,14 +224,34 @@ export default function PayrollPeriodsPage() {
               <button
                 type="submit"
                 disabled={creating}
-                className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50"
+                className="min-h-[44px] w-full sm:w-auto px-4 py-2 bg-indigo-700 text-white rounded-lg text-sm font-medium hover:bg-indigo-800 disabled:opacity-50"
               >
                 {creating ? 'Creating…' : 'Create period'}
               </button>
             </div>
           </form>
 
-          <div className="mt-8 overflow-x-auto border rounded-lg">
+          <ul className="mt-8 space-y-3 sm:hidden">
+            {loading ? (
+              <li className="text-center text-gray-600 py-6">Loading…</li>
+            ) : periods.length === 0 ? (
+              <li className="text-center text-gray-600 py-6">No periods yet.</li>
+            ) : (
+              periods.map((p) => (
+                <li key={p.id} className="rounded-lg border bg-white p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-semibold text-[#2c2c2a]">{p.period_label}</span>
+                    <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${statusBadge(p.status)}`}>{p.status}</span>
+                  </div>
+                  <p className="mt-1 text-sm text-[#2c2c2a]">Cutoff {new Date(p.cutoff_at).toLocaleString()}</p>
+                  <p className="text-sm text-[#2c2c2a]">Pay date {p.scheduled_pay_date}</p>
+                  <div className="mt-2 flex flex-wrap gap-1">{renderActions(p)}</div>
+                </li>
+              ))
+            )}
+          </ul>
+
+          <div className="mt-8 hidden overflow-x-auto border rounded-lg sm:block">
             <table className="min-w-full text-sm">
               <thead className="bg-gray-50 text-left text-gray-600">
                 <tr>
@@ -223,49 +290,8 @@ export default function PayrollPeriodsPage() {
                           {p.status}
                         </span>
                       </td>
-                      <td className="px-3 py-2 flex flex-wrap gap-2">
-                        <Link
-                          href={`/admin/payroll/${p.id}/hours`}
-                          className="text-indigo-600 hover:text-indigo-800 text-xs font-medium"
-                        >
-                          Hours
-                        </Link>
-                        <Link
-                          href={`/admin/payroll/statements?period_id=${p.id}`}
-                          className="text-indigo-600 hover:text-indigo-800 text-xs font-medium"
-                        >
-                          Statements
-                        </Link>
-                        {p.status === 'open' && (
-                          <button
-                            type="button"
-                            disabled={actionLoading === `${p.id}-lock`}
-                            onClick={() => runAction(p.id, 'lock')}
-                            className="text-xs font-medium text-amber-700 hover:text-amber-900 disabled:opacity-50"
-                          >
-                            Lock
-                          </button>
-                        )}
-                        {p.status === 'locked' && (
-                          <button
-                            type="button"
-                            disabled={actionLoading === `${p.id}-mark_paid`}
-                            onClick={() => runAction(p.id, 'mark_paid')}
-                            className="text-xs font-medium text-indigo-700 disabled:opacity-50"
-                          >
-                            Mark paid
-                          </button>
-                        )}
-                        {p.status === 'open' && (
-                          <button
-                            type="button"
-                            disabled={actionLoading === `${p.id}-cancel`}
-                            onClick={() => runAction(p.id, 'cancel')}
-                            className="text-xs text-gray-500 hover:text-gray-700 disabled:opacity-50"
-                          >
-                            Cancel
-                          </button>
-                        )}
+                      <td className="px-3 py-2">
+                        <div className="flex flex-wrap gap-2">{renderActions(p)}</div>
                       </td>
                     </tr>
                   ))

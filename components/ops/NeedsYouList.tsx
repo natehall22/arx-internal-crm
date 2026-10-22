@@ -41,14 +41,14 @@ export default function NeedsYouList({ report }: { report: DataHealthReport }) {
           {report.jobs.map((job) => (
             <li key={job.jobId} className="py-3">
               <div className="flex flex-wrap items-baseline gap-x-2">
-                <Link href={`/ops/jobs/${job.jobId}`} className="font-semibold text-[#2c2c2a] underline-offset-2 hover:underline">
+                <Link href={`/ops/jobs/${job.jobId}`} className="inline-flex min-h-[44px] items-center font-semibold text-[#2c2c2a] underline underline-offset-2">
                   Job {job.jobNumber}
                 </Link>
-                {job.addressText && <span className="text-sm text-[#57574f] truncate">{job.addressText}</span>}
+                {job.addressText && <span className="text-sm text-[#57574f] break-words">{job.addressText}</span>}
               </div>
               <ul className="mt-1.5 space-y-1.5">
                 {job.problems.map((p) => (
-                  <li key={p.code} className="flex flex-wrap items-center justify-between gap-2">
+                  <li key={p.code} className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                     <span className="text-sm text-[#2c2c2a]">
                       <span className="mr-1.5 rounded bg-gray-100 px-1.5 py-0.5 text-xs font-semibold text-[#2c2c2a]">
                         {AREA_LABEL[p.area] ?? p.area}
@@ -60,7 +60,7 @@ export default function NeedsYouList({ report }: { report: DataHealthReport }) {
                     </span>
                     <Link
                       href={p.fixHref}
-                      className="inline-flex min-h-[40px] items-center rounded-lg bg-[#2b0a3d] px-3 py-1.5 text-sm font-semibold text-white hover:bg-[#3d1257]"
+                      className="inline-flex min-h-[44px] w-full sm:w-auto items-center justify-center rounded-lg bg-[#2b0a3d] px-4 py-2 text-sm font-semibold text-white hover:bg-[#3d1257]"
                     >
                       {p.fixLabel}
                     </Link>
@@ -70,7 +70,7 @@ export default function NeedsYouList({ report }: { report: DataHealthReport }) {
             </li>
           ))}
           {report.appointments.slice(0, APPOINTMENT_ROWS_SHOWN).map((appt) => (
-            <li key={appt.appointmentId} className="py-3 flex flex-wrap items-center justify-between gap-2">
+            <li key={appt.appointmentId} className="py-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <span className="text-sm text-[#2c2c2a]">
                 <span className="mr-1.5 rounded bg-gray-100 px-1.5 py-0.5 text-xs font-semibold text-[#2c2c2a]">Sales</span>
                 {appt.problems[0]?.message}
@@ -79,7 +79,7 @@ export default function NeedsYouList({ report }: { report: DataHealthReport }) {
               {appt.problems[0] && (
                 <Link
                   href={appt.problems[0].fixHref}
-                  className="inline-flex min-h-[40px] items-center rounded-lg bg-[#2b0a3d] px-3 py-1.5 text-sm font-semibold text-white hover:bg-[#3d1257]"
+                  className="inline-flex min-h-[44px] w-full sm:w-auto items-center justify-center rounded-lg bg-[#2b0a3d] px-4 py-2 text-sm font-semibold text-white hover:bg-[#3d1257]"
                 >
                   {appt.problems[0].fixLabel}
                 </Link>

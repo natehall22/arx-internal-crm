@@ -272,18 +272,19 @@ export default function ContractModal({
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto">
-      <div className="flex min-h-full items-center justify-center p-4">
+      <div className="flex min-h-full items-end justify-center sm:items-center sm:p-4">
         <div className="fixed inset-0 bg-black/50" onClick={onClose} />
         
-        <div className="relative bg-white rounded-xl shadow-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
-          <div className="sticky top-0 bg-white border-b px-6 py-4 flex items-center justify-between z-10">
+        <div className="relative bg-white rounded-t-2xl sm:rounded-xl shadow-xl max-w-3xl w-full max-h-[92dvh] overflow-y-auto">
+          <div className="sticky top-0 bg-white border-b px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between z-10">
             <div>
               <h2 className="text-xl font-bold text-gray-900">Send Agreement</h2>
               <p className="text-sm text-gray-500">Step {step} of 4</p>
             </div>
             <button
               onClick={onClose}
-              className="text-gray-400 hover:text-gray-600"
+              aria-label="Close"
+              className="inline-flex h-11 w-11 items-center justify-center text-gray-600 hover:text-gray-800"
             >
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -295,7 +296,7 @@ export default function ContractModal({
             {[1, 2, 3, 4].map(s => (
               <div
                 key={s}
-                className={`flex-1 py-2 text-center text-sm font-medium ${
+                className={`flex-1 py-2 text-center text-sm font-medium ${s === step ? '' : 'hidden sm:block'} ${
                   s === step ? 'bg-indigo-50 text-indigo-700 border-b-2 border-indigo-600' :
                   s < step ? 'text-green-600' : 'text-gray-400'
                 }`}
@@ -308,7 +309,7 @@ export default function ContractModal({
             ))}
           </div>
 
-          <div className="p-6">
+          <div className="p-4 sm:p-6 max-sm:[&_input:not([type=checkbox]):not([type=radio])]:min-h-[44px] max-sm:[&_input]:text-base max-sm:[&_select]:min-h-[44px] max-sm:[&_select]:text-base max-sm:[&_textarea]:text-base">
             {error && (
               <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
                 <p className="text-sm text-red-700">{error}</p>
@@ -495,6 +496,7 @@ export default function ContractModal({
                         </label>
                         <input
                           type="number"
+                          inputMode="decimal"
                           step="0.1"
                           value={formData.totalSquares || ''}
                           onChange={e => handleInputChange('totalSquares', e.target.value ? parseFloat(e.target.value) : null)}
@@ -506,9 +508,10 @@ export default function ContractModal({
                           Project Cost *
                         </label>
                         <div className="relative">
-                          <span className="absolute left-3 top-2 text-gray-500">$</span>
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
                           <input
                             type="number"
+                          inputMode="decimal"
                             step="0.01"
                             value={formData.projectCost}
                             onChange={e => handleInputChange('projectCost', e.target.value)}
@@ -571,9 +574,10 @@ export default function ContractModal({
                           Project Cost (repair total) *
                         </label>
                         <div className="relative">
-                          <span className="absolute left-3 top-2 text-gray-500">$</span>
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
                           <input
                             type="number"
+                          inputMode="decimal"
                             step="0.01"
                             value={formData.projectCost}
                             onChange={e => handleInputChange('projectCost', e.target.value)}
@@ -691,9 +695,10 @@ export default function ContractModal({
                       Deposit (Due At Signing)
                     </label>
                     <div className="relative w-48">
-                      <span className="absolute left-3 top-2 text-gray-500">$</span>
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
                       <input
                         type="number"
+                          inputMode="decimal"
                         step="0.01"
                         value={formData.depositAmount}
                         onChange={e => handleInputChange('depositAmount', e.target.value)}
@@ -762,10 +767,10 @@ export default function ContractModal({
                             ))}
                           </select>
                         </div>
-                        <label className="flex items-start gap-2 md:col-span-2 text-sm" style={{ color: '#2c2c2a' }}>
+                        <label className="flex min-h-[44px] items-start gap-3 md:col-span-2 text-sm" style={{ color: '#2c2c2a' }}>
                           <input
                             type="checkbox"
-                            className="mt-1"
+                            className="mt-1 h-5 w-5"
                             checked={credit.isSelfGenerated}
                             disabled={!creditCanChange}
                             onChange={(e) => setCredit({ ...credit, isSelfGenerated: e.target.checked })}
@@ -935,11 +940,11 @@ export default function ContractModal({
             )}
           </div>
 
-          <div className="sticky bottom-0 bg-gray-50 border-t px-6 py-4 flex justify-between">
+          <div className="sticky bottom-0 bg-gray-50 border-t px-4 sm:px-6 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] flex justify-between gap-3">
             <button
               type="button"
               onClick={step === 1 ? onClose : prevStep}
-              className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
+              className="min-h-[44px] px-4 py-2 text-sm font-medium text-gray-800 bg-white border border-gray-400 rounded-lg hover:bg-gray-50"
             >
               {step === 1 ? 'Cancel' : 'Back'}
             </button>
@@ -948,7 +953,7 @@ export default function ContractModal({
               <button
                 type="button"
                 onClick={nextStep}
-                className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700"
+                className="min-h-[44px] flex-1 sm:flex-none px-6 py-2 text-sm font-medium text-white bg-indigo-700 rounded-lg hover:bg-indigo-800"
               >
                 Next
               </button>
@@ -957,7 +962,7 @@ export default function ContractModal({
                 type="button"
                 onClick={handleSubmit}
                 disabled={submitting || success}
-                className="px-6 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                className="min-h-[44px] flex-1 sm:flex-none justify-center px-6 py-2 text-sm font-medium text-white bg-green-700 rounded-lg hover:bg-green-800 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
               >
                 {submitting ? (
                   <>

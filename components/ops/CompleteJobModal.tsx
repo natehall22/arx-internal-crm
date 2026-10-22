@@ -41,13 +41,13 @@ export default function CompleteJobModal({
 
   const modalUi = (
     <div
-      className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4"
+      className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-[100] sm:p-4"
       role="presentation"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget && !saving) onClose()
       }}
     >
-      <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
+      <div className="bg-white rounded-t-2xl sm:rounded-xl shadow-xl max-w-md w-full max-h-[92dvh] overflow-y-auto p-5 sm:p-6">
         <div className="flex items-center gap-3 mb-4">
           <div className="w-12 h-12 rounded-full bg-amber-100 flex items-center justify-center">
             <svg className="w-6 h-6 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -96,7 +96,8 @@ export default function CompleteJobModal({
                   value={reason}
                   onChange={(e) => setReason(e.target.value)}
                   placeholder="e.g., Insurance kept depreciation — we are accepting the short pay"
-                  className="w-full px-3 py-2 border border-gray-400 rounded-lg text-sm"
+                  autoComplete="off"
+                  className="w-full min-h-[44px] px-3 py-2 border border-gray-400 rounded-lg text-base"
                   style={{ color: '#2c2c2a' }}
                 />
               </div>
@@ -109,11 +110,11 @@ export default function CompleteJobModal({
           </p>
         )}
 
-        <div className="flex gap-3">
+        <div className="sticky bottom-0 -mx-5 sm:mx-0 px-5 sm:px-0 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] bg-white flex gap-3">
           <button
             onClick={onClose}
             disabled={saving}
-            className="flex-1 px-4 py-2 border border-gray-300 rounded-lg font-medium hover:bg-gray-50 disabled:opacity-50"
+            className="flex-1 min-h-[44px] px-4 py-2 border border-gray-300 rounded-lg font-medium hover:bg-gray-50 disabled:opacity-50"
           >
             {blocked ? 'Close' : 'Cancel'}
           </button>
@@ -121,7 +122,7 @@ export default function CompleteJobModal({
           <button
             onClick={handleConfirm}
             disabled={saving || (isCollect && !reason.trim())}
-            className="flex-1 px-4 py-2 bg-amber-600 text-white rounded-lg font-medium hover:bg-amber-700 disabled:opacity-50"
+            className="flex-1 min-h-[44px] px-4 py-2 bg-amber-600 text-white rounded-lg font-medium hover:bg-amber-700 disabled:opacity-50"
           >
             {saving
               ? variant === 'collect'
