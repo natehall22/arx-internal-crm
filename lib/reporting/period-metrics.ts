@@ -33,7 +33,8 @@ export async function fetchPeriodMetricRows(
   args: { orgId: string; startIso: string; endIso: string }
 ): Promise<PeriodMetricRows> {
   const { orgId, startIso, endIso } = args
-  const page = (view: string, columns: string, dateCol: string) =>
+  // `idCol` is a unique tiebreaker: dates alone tie (bulk inserts, split deals), and a tie on a page boundary repeats or skips rows.
+  const page = (view: string, columns: string, dateCol: string, idCol: string) =>
     fetchSupabaseAllPages<Row>(async (from, to) =>
       admin
         .from(view)
@@ -42,15 +43,16 @@ export async function fetchPeriodMetricRows(
         .gte(dateCol, startIso)
         .lt(dateCol, endIso)
         .order(dateCol, { ascending: true })
+        .order(idCol, { ascending: true })
         .range(from, to) as never
     )
 
   const [doors, sets, sits, sales, calendar] = await Promise.all([
-    page('rpt_canvass_doors', 'user_id, disposition, knocked_at', 'knocked_at'),
-    page('rpt_inspection_sets', 'setter_user_id, closer_user_id, set_at', 'set_at'),
-    page('rpt_sits', 'opportunity_id, setter_user_id, closer_user_id, sat_at', 'sat_at'),
-    page('rpt_sales', 'opportunity_id, contract_id, setter_user_id, closer_user_id, signed_at', 'signed_at'),
-    page('rpt_appointments', 'closer_user_id, scheduled_for', 'scheduled_for'),
+    page('rpt_canvass_doors', 'knock_id, user_id, disposition, knocked_at', 'knocked_at', 'knock_id'),
+    page('rpt_inspection_sets', 'appointment_id, setter_user_id, closer_user_id, set_at', 'set_at', 'appointment_id'),
+    page('rpt_sits', 'opportunity_id, setter_user_id, closer_user_id, sat_at', 'sat_at', 'opportunity_id'),
+    page('rpt_sales', 'opportunity_id, contract_id, setter_user_id, closer_user_id, signed_at', 'signed_at', 'contract_id'),
+    page('rpt_appointments', 'appointment_id, closer_user_id, scheduled_for', 'scheduled_for', 'appointment_id'),
   ])
 
   // One sale per opportunity (a split cash/finance deal has two signed agreements).
