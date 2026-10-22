@@ -256,7 +256,7 @@ export default function PayrollPeriodsPage() {
                             Mark paid
                           </button>
                         )}
-                        {p.status !== 'cancelled' && p.status !== 'paid' && (
+                        {p.status === 'open' && (
                           <button
                             type="button"
                             disabled={actionLoading === `${p.id}-cancel`}
