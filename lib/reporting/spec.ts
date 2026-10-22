@@ -56,6 +56,15 @@ export function parseSpec(input: unknown): { ok: true; spec: ReportSpec } | { ok
   for (const f of Array.isArray(b.filters) ? b.filters.slice(0, 12) : []) {
     const col = columnOf(ds, String(f?.column))
     if (!col || !OPS.includes(f?.op)) return { ok: false, error: 'Bad filter' }
+    // Keep Postgres from ever seeing a cast it cannot do: ops must fit the column's type.
+    const numeric = col.type === 'money' || col.type === 'number'
+    const ok =
+      f.op === 'contains' ? col.type === 'text'
+      : f.op === 'is_true' || f.op === 'is_false' ? col.type === 'bool'
+      : f.op === 'gt' || f.op === 'gte' || f.op === 'lte' ? numeric || col.type === 'date'
+      : true
+    if (!ok) return { ok: false, error: `That filter does not work on ${col.label}` }
+    if (numeric && ['eq', 'neq', 'gt', 'gte', 'lte'].includes(f.op) && !Number.isFinite(Number(f.value))) return { ok: false, error: `${col.label} needs a number` }
     filters.push({ column: col.key, op: f.op, value: typeof f.value === 'number' ? f.value : f.value == null ? null : String(f.value).slice(0, 200) })
   }
 

@@ -25,3 +25,6 @@
 - **Profit:** `rpt_jobs` uses the cost-ledger rule from #57 (live lines + dealer fee, no approval gate).
 - Hidden/inactive users (`show_in_reports`, `active`) are not filtered; month/age math uses the database's UTC date.
 - Scheduled emails go with the Mon–Sat morning window ("daily" = Mon–Sat).
+- Sales view is one row per completed contract (a split cash/finance deal with two installation agreements counts twice — same as the dashboard today); setter-credited rows are visible only to the closer's scope (own-scope setters see none).
+- Month/week grouping and "this year" use UTC; rows with no date drop out of any dated preset.
+- Scheduling an email needs `reports:export`, goes only to active team members, and is re-checked at send time.

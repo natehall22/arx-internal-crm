@@ -30,7 +30,7 @@ export async function sendScheduledReports(
   let sent = 0
   let failed = 0
   for (const r of reports ?? []) {
-    if (!r.schedule || !dueToday(r.schedule, now)) continue
+    if (!r.schedule || !r.created_by || !dueToday(r.schedule, now)) continue
     if (r.last_sent_at && String(r.last_sent_at).slice(0, 10) === todayKey) continue
     // Claim today's send atomically so two overlapping cron fires cannot both email it.
     const { data: claimed } = await admin
@@ -50,11 +50,17 @@ export async function sendScheduledReports(
       const parsed = parseSpec(r.spec)
       if (!creator || creator.active === false || !parsed.ok) throw new Error('creator inactive or spec invalid')
       const ctx = await buildReportContext(admin, creator)
+      // The creator must STILL be allowed to see and export this, and recipients must still be team members.
+      if (!ctx.canExport) throw new Error('creator can no longer export reports')
+      const { data: staff } = await admin.from('users').select('email').eq('org_id', orgId).eq('active', true).in('email', r.schedule_recipients ?? [])
+      const known = new Set((staff ?? []).map((u: { email: string | null }) => String(u.email).toLowerCase()))
+      const recipients = (r.schedule_recipients ?? []).filter((e: string) => known.has(String(e).toLowerCase()))
+      if (recipients.length === 0) throw new Error('no active recipients')
       const result = await runReport(admin, ctx, parsed.spec)
       const { getMailTransport } = await import('@/lib/setter-email')
       await getMailTransport().sendMail({
         from: getCrmEmailFrom(),
-        to: r.schedule_recipients,
+        to: recipients,
         subject: `${r.name} — ${todayKey}`,
         text: `Your scheduled report "${r.name}" is attached (${result.rows.length} rows).`,
         attachments: [{ filename: `${String(r.name).replace(/[^a-z0-9_-]+/gi, '-')}.csv`, content: resultToCsv(result), contentType: 'text/csv' }],

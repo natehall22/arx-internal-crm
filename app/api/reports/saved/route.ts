@@ -7,7 +7,7 @@ import { NextRequest, NextResponse } from 'next/server'
 
 import { requireAuthApi } from '@/lib/auth'
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
-import { canAccessReportsFromPermissionNames } from '@/lib/permissions'
+import { canAccessReportsFromPermissionNames, canExportReportsFromPermissionNames } from '@/lib/permissions'
 import { parseSpec } from '@/lib/reporting/spec'
 import { createServiceClient } from '@/lib/supabase/service'
 
@@ -21,7 +21,7 @@ async function authorize() {
     const admin = createServiceClient()
     const perms = await resolveEffectivePermissionNames(admin, profile.id, profile)
     if (!canAccessReportsFromPermissionNames(perms)) return null
-    return { profile, admin }
+    return { profile, admin, canExport: canExportReportsFromPermissionNames(perms) }
   } catch {
     return null
   }
@@ -32,7 +32,7 @@ export async function GET() {
   if (!a) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const { data, error } = await a.admin
     .from('saved_reports')
-    .select('id, name, spec, shared_roles, schedule, schedule_recipients, created_by, created_at')
+    .select('id, name, spec, shared_roles, schedule, created_by, created_at')
     .eq('org_id', a.profile.org_id)
     .or(`created_by.eq.${a.profile.id},shared_roles.cs.{${String(a.profile.role).replace(/[^a-z_]/gi, '')}}`)
     .order('created_at', { ascending: false })
@@ -53,6 +53,13 @@ export async function POST(request: NextRequest) {
     ? b!.schedule_recipients.map((e: unknown) => String(e).trim().toLowerCase()).filter(Boolean)
     : []
   if (!recipients.every((e) => EMAIL.test(e))) return NextResponse.json({ error: 'A recipient email is not valid' }, { status: 400 })
+  if (schedule && !a.canExport) return NextResponse.json({ error: 'Emailing a report needs the export permission' }, { status: 403 })
+  if (recipients.length > 0) {
+    // Scheduled reports only go to people in the company.
+    const { data: staff } = await a.admin.from('users').select('email').eq('org_id', a.profile.org_id).eq('active', true).in('email', recipients)
+    const known = new Set((staff ?? []).map((u: { email: string | null }) => String(u.email).toLowerCase()))
+    if (!recipients.every((e) => known.has(e))) return NextResponse.json({ error: 'Reports can only be emailed to active team members' }, { status: 400 })
+  }
   if (schedule && recipients.length === 0) return NextResponse.json({ error: 'Add at least one email to send it to' }, { status: 400 })
   const roles: string[] = Array.isArray(b?.shared_roles) ? b!.shared_roles.map((r: unknown) => String(r).toLowerCase().replace(/[^a-z_]/g, '')).filter(Boolean) : []
   const { data, error } = await a.admin

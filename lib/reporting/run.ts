@@ -219,7 +219,8 @@ export async function runReport(admin: SupabaseClient, ctx: ReportContext, spec:
 export function resultToCsv(result: ReportResult): string {
   const esc = (v: unknown) => {
     let s = v === null || v === undefined ? '' : String(v)
-    if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`
+    // Real numbers (incl. negatives) stay numbers; only text that could be read as a formula is neutralised.
+    if (typeof v !== 'number' && /^[=+\-@\t\r]/.test(s)) s = `'${s}`
     return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
   }
   const lines = [result.columns.map((c) => esc(c.label)).join(',')]
