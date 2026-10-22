@@ -62,6 +62,12 @@ export interface JobPaymentSummary {
   remaining_cents: number
   remaining_dollars: number
   payment_count: number
+  /** lib/job-collection.ts: payments within $0.05 of the sale amount, or super-admin forced. */
+  paid_in_full?: boolean
+  paid_by_payments?: boolean
+  forced_paid_in_full?: boolean
+  /** Old "close with balance" flag with no super admin on record — does not count as paid. */
+  legacy_close_with_balance?: boolean
 }
 
 export const PAYMENT_TYPE_LABELS: Record<PaymentType, string> = {

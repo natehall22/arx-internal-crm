@@ -33,6 +33,7 @@ import {
 import { bookInsuranceCallAppointment } from '@/lib/insurance-call-appointment'
 import { createServiceClient } from '@/lib/supabase/service'
 import { closeOutLeadAppointments } from '@/lib/job-status-events'
+import { isSaleCreditLocked } from '@/lib/deal-sale-credit'
 
 /** Supabase may return embedded FK rows as object or single-element array. */
 function firstEmbeddedRow<T extends { id?: string }>(row: T | T[] | null | undefined): T | null {
@@ -689,6 +690,16 @@ export async function POST(request: NextRequest) {
         appointment?.canvasser_user_id || lead?.owner_user_id || null
       if (setterFromAppt) {
         opportunityUpdate.setter_user_id = setterFromAppt
+      }
+
+      // Sale credit is locked once a sale agreement is signed (lib/deal-sale-credit.ts) — logging
+      // an inspection outcome again must not silently re-credit a signed deal.
+      if (
+        ('owner_user_id' in opportunityUpdate || 'setter_user_id' in opportunityUpdate) &&
+        (await isSaleCreditLocked(supabase, profile.org_id, opportunityId).catch(() => true))
+      ) {
+        delete opportunityUpdate.owner_user_id
+        delete opportunityUpdate.setter_user_id
       }
 
       console.log('=== UPDATING EXISTING OPPORTUNITY ===')

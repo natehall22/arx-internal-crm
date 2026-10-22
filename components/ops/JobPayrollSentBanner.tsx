@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import type { JobPaymentSummary } from '@/lib/types/job-payments'
 import type { JobStatus } from '@/lib/job-status'
+import { evaluateJobCollection } from '@/lib/job-collection'
 
 interface JobPayrollSentBannerProps {
   jobId: string
@@ -12,6 +13,8 @@ interface JobPayrollSentBannerProps {
   saleAmount: number | null
   /** When true, job may be marked collected despite contract balance (e.g. insurer short-paid depreciation). */
   allowCloseWithBalance?: boolean | null
+  /** Super admin who forced paid-in-full; without it the flag above is a legacy one and ignored. */
+  closeBalanceBy?: string | null
   canViewBilling: boolean
   onUpdated: () => void | Promise<void>
 }
@@ -27,6 +30,7 @@ export default function JobPayrollSentBanner({
   paymentSummary,
   saleAmount,
   allowCloseWithBalance,
+  closeBalanceBy,
   canViewBilling,
   onUpdated,
 }: JobPayrollSentBannerProps) {
@@ -34,13 +38,17 @@ export default function JobPayrollSentBanner({
 
   if (!canViewBilling || !paymentSummary) return null
 
-  const saleCents = Math.round((saleAmount || 0) * 100)
-  if (saleCents <= 0) return null
-
-  const collected = paymentSummary.collected_cents ?? 0
-  const fullyPaid = collected >= saleCents
-  const collectedShortClosed =
-    status === 'collected' && Boolean(allowCloseWithBalance) && !fullyPaid
+  // One paid-in-full rule (lib/job-collection.ts). Closing short only counts when a super admin
+  // forced it (who is on record) — a legacy "close with balance" flag alone does not.
+  const collection = evaluateJobCollection({
+    saleAmount,
+    collectedCents: paymentSummary.collected_cents ?? 0,
+    allowCloseWithBalance,
+    closeBalanceBy,
+  })
+  if (collection.missingSaleAmount) return null
+  const fullyPaid = collection.paidByPayments
+  const collectedShortClosed = status === 'collected' && collection.forcedPaidInFull && !fullyPaid
 
   if (!fullyPaid && !collectedShortClosed) return null
 

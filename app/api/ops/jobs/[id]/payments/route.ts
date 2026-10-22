@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
-import { JobPaymentSummary } from '@/lib/types/job-payments'
+import type { JobPayment, JobPaymentSummary } from '@/lib/types/job-payments'
+import { JOB_COLLECTION_COLUMNS } from '@/lib/job-collection'
 import { enqueuePaymentRecorded } from '@/lib/integrations'
 import { callerCanAccessJobBilling } from '@/lib/finance-access'
-import { getJobPaymentSummary } from '@/lib/job-payments'
+import { buildJobPaymentSummary, getJobPaymentSummary } from '@/lib/job-payments'
 import { notifyAdminOpsOfJobPayment } from '@/lib/job-payment-email'
 
 // GET - Get all payments for a job with summary
@@ -29,7 +30,7 @@ export async function GET(
     // Verify job exists and belongs to user's org
     const { data: job, error: jobError } = await adminClient
       .from('production_jobs')
-      .select('id, sale_amount')
+      .select(`id, ${JOB_COLLECTION_COLUMNS}`)
       .eq('id', params.id)
       .eq('org_id', profile.org_id)
       .single()
@@ -50,21 +51,10 @@ export async function GET(
       return NextResponse.json({ error: 'Failed to fetch payments' }, { status: 500 })
     }
 
-    const paymentList = payments || []
-    const saleAmountCents = Math.round((job.sale_amount || 0) * 100)
-    const collectedCents = paymentList.reduce((sum, p) => sum + p.amount_cents, 0)
-    const remainingCents = saleAmountCents - collectedCents
-
-    const summary: JobPaymentSummary = {
-      payments: paymentList,
-      collected_cents: collectedCents,
-      collected_dollars: collectedCents / 100,
-      sale_amount_cents: saleAmountCents,
-      sale_amount_dollars: saleAmountCents / 100,
-      remaining_cents: remainingCents,
-      remaining_dollars: remainingCents / 100,
-      payment_count: paymentList.length,
-    }
+    const summary: JobPaymentSummary = buildJobPaymentSummary(
+      job as unknown as Parameters<typeof buildJobPaymentSummary>[0],
+      (payments || []) as JobPayment[]
+    )
 
     return NextResponse.json(summary)
 

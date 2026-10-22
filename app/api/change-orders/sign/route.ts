@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { generateChangeOrderPdf } from '@/lib/contracts/generateChangeOrderPdf'
-import { applyChangeOrderToJob } from '@/lib/change-orders/apply-change-order-to-job'
+import { syncJobSaleForProjectOrJob } from '@/lib/job-commission-base'
 import nodemailer from 'nodemailer'
 import { getCrmEmailFrom } from '@/lib/crm-email-from'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -52,16 +52,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to sign change order' }, { status: 500 })
     }
 
-    if (changeOrder.job_id) {
-      const { error: jobSyncError } = await applyChangeOrderToJob(supabase, {
+    {
+      const jobSync = await syncJobSaleForProjectOrJob(supabase, {
         orgId: changeOrder.org_id,
-        jobId: changeOrder.job_id,
-        originalAmount: Number(changeOrder.original_amount) || 0,
-        updatedTotal: Number(changeOrder.updated_total) || 0,
-        isCommissionable: changeOrder.is_commissionable !== false,
+        jobId: changeOrder.job_id ?? null,
+        projectId: changeOrder.project_id ?? null,
       })
-      if (jobSyncError) {
-        console.error('[Change Order Sign] job sync error:', jobSyncError)
+      if (jobSync?.status === 'error') {
+        console.error('[Change Order Sign] job sync error:', jobSync.error)
       }
     }
 
