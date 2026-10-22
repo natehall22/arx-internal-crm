@@ -7,6 +7,7 @@ import {
   ledgerSummaryFor,
   loadJobCostLedger,
   normalizeJobCostType,
+  isDealerFeeCostLine,
   resolveVendorId,
   signedCostAmount,
 } from '@/lib/job-cost-ledger'
@@ -117,6 +118,12 @@ export async function POST(request: Request, { params }: { params: { id: string 
 
     const body = await request.json().catch(() => ({}))
     const rawDescription = String(body.description || '').trim()
+    if (isDealerFeeCostLine({ description: rawDescription })) {
+      return NextResponse.json(
+        { error: 'The lender / dealer fee is added automatically from the financing. Use a different description.' },
+        { status: 400 }
+      )
+    }
     const costType = normalizeJobCostType(body.cost_type, 'other')
     const amountRaw = body.amount
     const amountParsed =

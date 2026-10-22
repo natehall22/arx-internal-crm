@@ -4,7 +4,7 @@
 -- Makes job_cost_lines the only place a job's costs live. Nothing is dropped:
 -- job_product_orders and production_jobs.material_cost / labor_cost stay as read-only history.
 --
--- PREREQUISITE: migration 202610210001_job_cost_ledger_source_order.sql (adds the
+-- PREREQUISITE: migration 202610220001_job_cost_ledger_source_order.sql (adds the
 -- job_cost_lines.source enum column this file writes).
 --
 -- What it does (state as read from prod 2026-10-21):
@@ -190,7 +190,7 @@ BEGIN;
 -- A. Mirror legacy Materials-tab orders not yet in the ledger (idempotent).
 INSERT INTO job_cost_lines (
   org_id, job_id, description, amount, cost_type, status, notes,
-  created_by, created_at, incurred_on, approved, approved_at,
+  created_by, created_at, updated_at, incurred_on, approved, approved_at,
   deduct_from_commission_base, source_product_order_id, source
 )
 SELECT o.org_id, o.job_id,
@@ -200,7 +200,7 @@ SELECT o.org_id, o.job_id,
        'active',
        'Mirrored from legacy Materials-tab order (' || o.status || '); original entry '
          || to_char(o.created_at, 'YYYY-MM-DD') || '. [datafix 2026-10-21 one-cost-ledger]',
-       o.created_by, o.created_at, o.created_at::date, true, now(),
+       o.created_by, o.created_at, o.created_at, o.created_at::date, true, now(),
        false, o.id, 'product_order_mirror'
 FROM job_product_orders o
 WHERE NOT EXISTS (SELECT 1 FROM job_cost_lines c WHERE c.source_product_order_id = o.id);
@@ -231,11 +231,11 @@ END $$;
 -- D. Move the legacy cost columns into the ledger where the job has no line of that type (idempotent).
 INSERT INTO job_cost_lines (
   org_id, job_id, description, amount, cost_type, status, notes,
-  approved, approved_at, deduct_from_commission_base, source
+  approved, approved_at, deduct_from_commission_base, source, created_at, updated_at
 )
 SELECT pj.org_id, pj.id, 'Materials (ARX Tracker import)', pj.material_cost, 'material', 'active',
        'Moved from production_jobs.material_cost (2026-07-08 ARX Tracker import). [datafix 2026-10-21 one-cost-ledger]',
-       true, now(), false, 'legacy_column_import'
+       true, now(), false, 'legacy_column_import', timestamptz '2026-07-08', timestamptz '2026-07-08'
 FROM production_jobs pj
 WHERE COALESCE(pj.material_cost, 0) <> 0
   AND NOT EXISTS (SELECT 1 FROM job_cost_lines c
@@ -244,11 +244,11 @@ WHERE COALESCE(pj.material_cost, 0) <> 0
 
 INSERT INTO job_cost_lines (
   org_id, job_id, description, amount, cost_type, status, notes,
-  approved, approved_at, deduct_from_commission_base, source
+  approved, approved_at, deduct_from_commission_base, source, created_at, updated_at
 )
 SELECT pj.org_id, pj.id, 'Labor (ARX Tracker import)', pj.labor_cost, 'labor', 'active',
        'Moved from production_jobs.labor_cost (2026-07-08 ARX Tracker import). [datafix 2026-10-21 one-cost-ledger]',
-       true, now(), false, 'legacy_column_import'
+       true, now(), false, 'legacy_column_import', timestamptz '2026-07-08', timestamptz '2026-07-08'
 FROM production_jobs pj
 WHERE COALESCE(pj.labor_cost, 0) <> 0
   AND NOT EXISTS (SELECT 1 FROM job_cost_lines c
@@ -296,7 +296,7 @@ COMMIT;
 BEGIN;
 INSERT INTO job_cost_lines (
   org_id, job_id, description, amount, cost_type, status, notes,
-  created_by, created_at, incurred_on, approved, approved_at,
+  created_by, created_at, updated_at, incurred_on, approved, approved_at,
   deduct_from_commission_base, source_product_order_id, source
 )
 SELECT o.org_id, o.job_id,
@@ -306,48 +306,50 @@ SELECT o.org_id, o.job_id,
        'active',
        'Mirrored from legacy Materials-tab order (' || o.status || '); original entry '
          || to_char(o.created_at, 'YYYY-MM-DD') || '. [datafix 2026-10-21 one-cost-ledger]',
-       o.created_by, o.created_at, o.created_at::date, true, now(),
+       o.created_by, o.created_at, o.created_at, o.created_at::date, true, now(),
        false, o.id, 'product_order_mirror'
 FROM job_product_orders o
 WHERE NOT EXISTS (SELECT 1 FROM job_cost_lines c WHERE c.source_product_order_id = o.id);
 COMMIT;
 
 
+-- Rollback is commented out so running this whole file can never apply and then undo the fix.
+-- To roll back, copy PART 3 into its own run and remove the leading '-- ' from each line.
 -- =====================================================================================
 -- PART 3 — ROLLBACK (one transaction). Restores the exact pre-fix state of every row above.
 -- Lines people add through the new app after the fix are not touched.
 -- =====================================================================================
-BEGIN;
+-- BEGIN;
 
 -- Refuse if receipts were attached to rows this fix inserted (deleting them would cascade).
-DO $$
-DECLARE n int;
-BEGIN
-  SELECT count(*) INTO n FROM cost_attachments a
-    JOIN job_cost_lines c ON c.id = a.job_cost_line_id
-   WHERE c.notes LIKE '%[datafix 2026-10-21 one-cost-ledger]%';
-  IF n > 0 THEN RAISE EXCEPTION 'rollback: % attachments sit on lines this fix inserted; move them first', n; END IF;
-END $$;
+-- DO $$
+-- DECLARE n int;
+-- BEGIN
+--   SELECT count(*) INTO n FROM cost_attachments a
+--     JOIN job_cost_lines c ON c.id = a.job_cost_line_id
+--    WHERE c.notes LIKE '%[datafix 2026-10-21 one-cost-ledger]%';
+--   IF n > 0 THEN RAISE EXCEPTION 'rollback: % attachments sit on lines this fix inserted; move them first', n; END IF;
+-- END $$;
 
 -- A + D: remove inserted lines.
-DELETE FROM job_cost_lines WHERE notes LIKE '%[datafix 2026-10-21 one-cost-ledger]%';
+-- DELETE FROM job_cost_lines WHERE notes LIKE '%[datafix 2026-10-21 one-cost-ledger]%';
 
 -- B: un-archive the 26-0011 line.
-UPDATE job_cost_lines SET status = 'active', deleted_at = NULL, deleted_by = NULL
- WHERE id = 'e04c17e6-3f6d-4d31-8795-1c22efd2a674';
+-- UPDATE job_cost_lines SET status = 'active', deleted_at = NULL, deleted_by = NULL
+--  WHERE id = 'e04c17e6-3f6d-4d31-8795-1c22efd2a674';
 
 -- C: restore cost_type.
-UPDATE job_cost_lines SET cost_type = 'material'
- WHERE id IN ('c9e8c9cb-02f3-40f9-9679-c3a81357ee14','d1ec1da8-9ab1-4320-bb34-861b9d2e21d4');
+-- UPDATE job_cost_lines SET cost_type = 'material'
+--  WHERE id IN ('c9e8c9cb-02f3-40f9-9679-c3a81357ee14','d1ec1da8-9ab1-4320-bb34-861b9d2e21d4');
 
 -- E: restore the deduct flag.
-UPDATE job_cost_lines SET deduct_from_commission_base = true
- WHERE id IN ('2fff1947-01ff-4f8b-9063-e1d586169829','31775d56-af94-4594-8fd4-46df157e8573',
-              '8b7553fa-5592-4712-8f51-6b15f3d87ddd','ad040358-1a70-449e-97ff-e58c7928fddf',
-              'd0ad9f9c-42f4-44c5-a78a-1f71eeeef4cd');
+-- UPDATE job_cost_lines SET deduct_from_commission_base = true
+--  WHERE id IN ('2fff1947-01ff-4f8b-9063-e1d586169829','31775d56-af94-4594-8fd4-46df157e8573',
+--               '8b7553fa-5592-4712-8f51-6b15f3d87ddd','ad040358-1a70-449e-97ff-e58c7928fddf',
+--               'd0ad9f9c-42f4-44c5-a78a-1f71eeeef4cd');
 
 -- F: clear backfilled origins (no app code writes these two values).
-UPDATE job_cost_lines SET source = NULL
- WHERE source IN ('product_order_mirror', 'dealer_fee_sync');
+-- UPDATE job_cost_lines SET source = NULL
+--  WHERE source IN ('product_order_mirror', 'dealer_fee_sync');
 
-COMMIT;
+-- COMMIT;

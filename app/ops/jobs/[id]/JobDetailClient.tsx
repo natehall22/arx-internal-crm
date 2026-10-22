@@ -2249,13 +2249,13 @@ export default function JobDetailClient({
                   <div className="border-t border-gray-200 pt-3 flex justify-between gap-4">
                     <span className="text-gray-900 font-medium">Est. profit</span>
                     <span className={`font-semibold tabular-nums ${job.sale_amount !== null ? 'text-green-600' : 'text-gray-900'}`}>
-                      {job.sale_amount !== null ? formatCents(profitCents) : '—'}
+                      {job.sale_amount !== null && costSummary ? formatCents(profitCents) : '—'}
                     </span>
                   </div>
                   <div className="flex justify-between gap-4">
                     <span className="text-gray-700">Margin</span>
                     <span className="font-semibold text-gray-900 tabular-nums">
-                      {job.sale_amount !== null ? `${profitPercent}%` : '—'}
+                      {job.sale_amount !== null && costSummary ? `${profitPercent}%` : '—'}
                     </span>
                   </div>
                 </div>

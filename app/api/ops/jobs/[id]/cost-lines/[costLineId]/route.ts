@@ -122,7 +122,7 @@ export async function PATCH(request: Request, { params }: RouteParams) {
       if (!Number.isFinite(n) || n < 0) {
         return NextResponse.json({ error: 'Invalid amount' }, { status: 400 })
       }
-      patch.amount = signedCostAmount(n, body.credit === true)
+      patch.amount = signedCostAmount(n, body.credit === undefined ? Number(existing.amount) < 0 : body.credit === true)
     }
     if (body.supplier !== undefined) {
       patch.vendor_id = await resolveVendorId(supabase, profile.org_id, body.supplier, profile.id)
