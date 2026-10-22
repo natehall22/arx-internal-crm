@@ -1,9 +1,12 @@
 /**
  * THE one writer of a production job's sale amount and commission base.
  *
- * Owner decision (Nathan, 2026-10-21): commission base = the sale amount = signed
- * contract total + signed change orders. It is set automatically when a contract or a
- * change order is signed. Nobody types it.
+ * Owner decision (Nathan, 2026-10-22): commission base = signed contract total + signed
+ * change orders, EXCLUDING sales tax, minus the dealer fee (commission is on the full sale
+ * amount less the dealer fee). The sale amount itself stays tax-included. It is set
+ * automatically when a contract or a change order is signed. Nobody types it.
+ * Sales tax is read from the job's proposal (`proposals.tax_amount`); contracts and change
+ * orders only carry the tax-included total.
  *
  * Before this, five places wrote `commission_comp_base` / `commission_pre_tax_subtotal`
  * and they disagreed: contract signing (twice — new project and existing project, both
@@ -50,6 +53,8 @@ export type JobSaleTotals =
       changeOrdersTotal: number
       commissionableChangeOrdersTotal: number
       saleAmount: number
+      salesTax: number
+      dealerFee: number
       commissionBase: number
     }
   | {
@@ -78,6 +83,10 @@ function money(value: number | null | undefined): number {
 export function computeJobSaleTotals(input: {
   contracts: SignedContractAmount[]
   changeOrders: SignedChangeOrderAmount[]
+  /** Sales tax inside the signed total (proposal tax_amount). Default 0. */
+  salesTax?: number | null
+  /** Lender / dealer fee deducted from the commission base. Default 0. */
+  dealerFee?: number | null
 }): JobSaleTotals {
   const contractRows = input.contracts.filter((c) => money(c.projectCost) > 0)
   const changeOrders = [...input.changeOrders].sort((a, b) =>
@@ -115,6 +124,8 @@ export function computeJobSaleTotals(input: {
   changeOrdersTotal = roundMoney(changeOrdersTotal)
   commissionableChangeOrdersTotal = roundMoney(commissionableChangeOrdersTotal)
 
+  const salesTax = money(input.salesTax)
+  const dealerFee = money(input.dealerFee)
   return {
     ok: true,
     contractSource,
@@ -122,7 +133,9 @@ export function computeJobSaleTotals(input: {
     changeOrdersTotal,
     commissionableChangeOrdersTotal,
     saleAmount: Math.max(0, roundMoney(contractTotal + changeOrdersTotal)),
-    commissionBase: Math.max(0, roundMoney(contractTotal + commissionableChangeOrdersTotal)),
+    salesTax,
+    dealerFee,
+    commissionBase: Math.max(0, roundMoney(contractTotal + commissionableChangeOrdersTotal - salesTax - dealerFee)),
   }
 }
 
@@ -148,7 +161,7 @@ export async function syncJobSaleAndCommissionBase(
   try {
     const { data: job, error: jobError } = await admin
       .from('production_jobs')
-      .select('id, project_id, linked_proposal_id, accepted_proposal_id, sale_amount, commission_comp_base, commission_pre_tax_subtotal')
+      .select('id, project_id, linked_proposal_id, accepted_proposal_id, sale_amount, commission_comp_base, commission_pre_tax_subtotal, dealer_fee_amount')
       .eq('id', jobId)
       .eq('org_id', orgId)
       .maybeSingle()
@@ -199,7 +212,20 @@ export async function syncJobSaleAndCommissionBase(
     const { data: coRows, error: coError } = await coQuery
     if (coError) return { status: 'error', error: coError }
 
+    let salesTax = 0
+    if (proposalId) {
+      const { data: proposal } = await admin
+        .from('proposals')
+        .select('tax_amount')
+        .eq('id', proposalId)
+        .eq('org_id', orgId)
+        .maybeSingle()
+      salesTax = Number(proposal?.tax_amount) || 0
+    }
+
     const totals = computeJobSaleTotals({
+      salesTax,
+      dealerFee: Number(job.dealer_fee_amount) || 0,
       contracts,
       changeOrders: (coRows || []).map((row) => ({
         id: row.id as string,

@@ -37,3 +37,40 @@ describe('checkSaleCreditChange', () => {
     expect(checkSaleCreditChange({ locked: false, actor: rep, merged: m, changed: { isSelfGenerated: true }, reason: null })?.status).toBe(400)
   })
 })
+
+import { saleCreditLockBlock, SALE_CREDIT_LOCKED_MESSAGE } from '@/lib/deal-sale-credit'
+
+function fakeLockAdmin(signedOppIds: string[], leadOpps: string[] = []) {
+  return {
+    from: (table: string) => {
+      const q: any = {}
+      let eqs: Record<string, string> = {}
+      q.select = () => q
+      q.eq = (k: string, v: string) => { eqs[k] = v; return q }
+      q.in = () => q
+      q.limit = () => q
+      q.then = (resolve: (v: unknown) => unknown) =>
+        resolve(
+          table === 'opportunities'
+            ? { data: leadOpps.map((id) => ({ id })), error: null }
+            : { data: signedOppIds.includes(eqs.opportunity_id) ? [{ id: 'c' }] : [], error: null }
+        )
+      return q
+    },
+  } as any
+}
+
+describe('saleCreditLockBlock', () => {
+  it('blocks a non-super-admin on a signed deal', async () => {
+    const msg = await saleCreditLockBlock(fakeLockAdmin(['o1']), { orgId: 'org', opportunityId: 'o1', actor: { is_super_admin: false } })
+    expect(msg).toBe(SALE_CREDIT_LOCKED_MESSAGE)
+  })
+  it('blocks via the lead\'s opportunities', async () => {
+    const msg = await saleCreditLockBlock(fakeLockAdmin(['o2'], ['o2']), { orgId: 'org', leadId: 'l1', actor: {} })
+    expect(msg).toBe(SALE_CREDIT_LOCKED_MESSAGE)
+  })
+  it('lets a super admin through and ignores unsigned deals', async () => {
+    expect(await saleCreditLockBlock(fakeLockAdmin(['o1']), { orgId: 'org', opportunityId: 'o1', actor: { is_super_admin: true } })).toBeNull()
+    expect(await saleCreditLockBlock(fakeLockAdmin([]), { orgId: 'org', opportunityId: 'o1', actor: {} })).toBeNull()
+  })
+})

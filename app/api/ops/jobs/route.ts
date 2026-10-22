@@ -1,3 +1,4 @@
+import { sumCollectedCents } from '@/lib/job-collection'
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { importProjectReviewNoteToJob } from '@/lib/project-review'
@@ -322,11 +323,11 @@ export async function GET(request: Request) {
     if (jobIds.length > 0) {
       const { data: paymentRows } = await adminClient
         .from('job_payments')
-        .select('job_id, amount_cents')
+        .select('job_id, amount_cents, funding_status')
         .in('job_id', jobIds)
       for (const row of paymentRows || []) {
         const jid = row.job_id as string
-        collectedByJob[jid] = (collectedByJob[jid] || 0) + (row.amount_cents as number)
+        collectedByJob[jid] = (collectedByJob[jid] || 0) + sumCollectedCents([row as { amount_cents: number; funding_status?: string | null }])
       }
     }
 

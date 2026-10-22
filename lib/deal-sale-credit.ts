@@ -326,3 +326,40 @@ export async function saveDealSaleCredit(
 
   return { ok: true, changed, credit: merged, locked }
 }
+
+
+export const SALE_CREDIT_LOCKED_MESSAGE =
+  'This deal is already signed. Only an owner (super admin) can change who gets credit for it.'
+
+/**
+ * Other screens that reassign a deal's closer/setter (appointment reassignment, the lead page) must
+ * go through this: a signed deal's credit is locked for everyone but a super admin. Returns the
+ * message to show, or null when the change may proceed. `opportunityId` and/or the lead's
+ * opportunities are checked.
+ */
+export async function saleCreditLockBlock(
+  admin: SupabaseClient,
+  args: {
+    orgId: string
+    opportunityId?: string | null
+    leadId?: string | null
+    actor: { is_super_admin?: boolean | null; active?: boolean | null } | null | undefined
+  }
+): Promise<string | null> {
+  if (args.actor?.is_super_admin === true && args.actor.active !== false) return null
+  const ids = new Set<string>()
+  if (args.opportunityId) ids.add(args.opportunityId)
+  if (args.leadId) {
+    const { data, error } = await admin
+      .from('opportunities')
+      .select('id')
+      .eq('lead_id', args.leadId)
+      .eq('org_id', args.orgId)
+    if (error) throw error
+    for (const row of data || []) ids.add(row.id as string)
+  }
+  for (const id of Array.from(ids)) {
+    if (await isSaleCreditLocked(admin, args.orgId, id)) return SALE_CREDIT_LOCKED_MESSAGE
+  }
+  return null
+}
