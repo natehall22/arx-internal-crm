@@ -784,6 +784,9 @@ export default function ReportsPage() {
             <p className="mt-1 text-gray-600">
               Performance metrics and analytics
             </p>
+            <a href="/reports/explore" className="mt-2 inline-block text-sm font-medium text-indigo-700 underline">
+              New: ready-made reports, charts, CSV and email →
+            </a>
           </div>
           <div className="flex items-center gap-4">
             {activeTab === 'overview' && (
