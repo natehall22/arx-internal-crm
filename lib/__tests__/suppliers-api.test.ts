@@ -39,14 +39,26 @@ describe('POST /api/admin/suppliers', () => {
   })
 
   it('saves through the ONE atomic database function, with the actor, org and stale-form token', async () => {
-    const res = await POST(post({ id: 'v1', updated_at: '2026-10-22T10:00:00Z', name: 'ABC Supply', order_email: 'o@abc.com', default_for_trades: ['roofing', 'gutters'] }))
+    const res = await POST(post({ id: '11111111-1111-4111-8111-111111111111', updated_at: '2026-10-22T10:00:00Z', name: 'ABC Supply', order_email: 'o@abc.com', default_for_trades: ['roofing', 'gutters'] }))
     expect(res?.status).toBe(200)
     expect(rpcCalls).toHaveLength(1)
     expect(rpcCalls[0].name).toBe('save_supplier')
-    expect(rpcCalls[0].args).toMatchObject({ p_org: 'org-1', p_actor: 'owner-1', p_id: 'v1', p_expected_updated_at: '2026-10-22T10:00:00Z' })
+    expect(rpcCalls[0].args).toMatchObject({ p_org: 'org-1', p_actor: 'owner-1', p_id: '11111111-1111-4111-8111-111111111111', p_expected_updated_at: '2026-10-22T10:00:00Z' })
     expect((rpcCalls[0].args.p_input as Record<string, unknown>).default_for_trades).toEqual(['roofing', 'gutters'])
     const json = await res!.json()
     expect(json.changes).toEqual(['Order email: (empty) → o@abc.com'])
+  })
+
+  it('an update without the version token is refused before the database', async () => {
+    const res = await POST(post({ id: '11111111-1111-4111-8111-111111111111', name: 'ABC Supply' }))
+    expect(res?.status).toBe(400)
+    expect(rpcCalls).toEqual([])
+  })
+
+  it('a non-uuid id is a 404, not a 500', async () => {
+    const res = await POST(post({ id: 'not-a-uuid', updated_at: 't', name: 'ABC Supply' }))
+    expect(res?.status).toBe(404)
+    expect(rpcCalls).toEqual([])
   })
 
   it.each([

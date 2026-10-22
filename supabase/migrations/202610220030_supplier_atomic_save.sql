@@ -17,6 +17,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_vendors_org_name_ci
 CREATE OR REPLACE FUNCTION public.vendors_one_default_per_trade()
 RETURNS trigger
 LANGUAGE plpgsql
+SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
 DECLARE clash text;
@@ -26,7 +27,7 @@ BEGIN
     SELECT v.name INTO clash
     FROM vendors v
     WHERE v.org_id = NEW.org_id AND v.id <> NEW.id AND v.deleted_at IS NULL AND v.active
-      AND v.default_for_trades && NEW.default_for_trades
+      AND ARRAY(SELECT lower(x) FROM unnest(v.default_for_trades) x) && ARRAY(SELECT lower(x) FROM unnest(NEW.default_for_trades) x)
     LIMIT 1;
     IF clash IS NOT NULL THEN
       RAISE EXCEPTION 'supplier_default_clash:%', clash USING ERRCODE = '23P01';
@@ -60,15 +61,18 @@ DECLARE
   f record;
 BEGIN
   IF v_name = '' THEN RAISE EXCEPTION 'supplier_name_required'; END IF;
-  PERFORM pg_advisory_xact_lock(hashtext('supplier:' || p_org::text));
 
+  -- Lock order is ROW first, then the company-wide advisory lock — the same order a direct UPDATE's trigger
+  -- takes them — so the function and a direct writer cannot deadlock.
   IF p_id IS NOT NULL THEN
     SELECT * INTO v_old FROM vendors WHERE id = p_id AND org_id = p_org AND deleted_at IS NULL FOR UPDATE;
     IF NOT FOUND THEN RAISE EXCEPTION 'supplier_not_found'; END IF;
-    IF p_expected_updated_at IS NOT NULL AND v_old.updated_at <> p_expected_updated_at THEN
+    -- An update must say which version it was based on; without it a stale form could overwrite a newer save.
+    IF p_expected_updated_at IS NULL OR v_old.updated_at <> p_expected_updated_at THEN
       RAISE EXCEPTION 'supplier_stale';
     END IF;
   END IF;
+  PERFORM pg_advisory_xact_lock(hashtext('supplier:' || p_org::text));
 
   IF EXISTS (SELECT 1 FROM vendors WHERE org_id = p_org AND deleted_at IS NULL AND lower(name) = lower(v_name) AND (p_id IS NULL OR id <> p_id)) THEN
     RAISE EXCEPTION 'supplier_name_taken';
@@ -76,13 +80,13 @@ BEGIN
 
   v_new := jsonb_build_object(
     'name', v_name,
-    'active', COALESCE((p_input->>'active')::boolean, true),
+    'active', CASE WHEN p_input->>'active' IN ('true','false') THEN (p_input->>'active')::boolean ELSE true END,
     'order_email', to_jsonb(NULLIF(btrim(COALESCE(p_input->>'order_email', '')), '')),
-    'order_cc_emails', COALESCE(p_input->'order_cc_emails', '[]'::jsonb),
+    'order_cc_emails', CASE WHEN jsonb_typeof(p_input->'order_cc_emails') = 'array' THEN p_input->'order_cc_emails' ELSE '[]'::jsonb END,
     'account_number', to_jsonb(NULLIF(btrim(COALESCE(p_input->>'account_number', '')), '')),
     'default_branch', to_jsonb(NULLIF(btrim(COALESCE(p_input->>'default_branch', '')), '')),
     'default_delivery_notes', to_jsonb(NULLIF(btrim(COALESCE(p_input->>'default_delivery_notes', '')), '')),
-    'default_for_trades', COALESCE(p_input->'default_for_trades', '[]'::jsonb),
+    'default_for_trades', CASE WHEN jsonb_typeof(p_input->'default_for_trades') = 'array' THEN p_input->'default_for_trades' ELSE '[]'::jsonb END,
     'connection_type', CASE WHEN p_input->>'connection_type' = 'api' THEN 'api' ELSE 'email' END
   );
 

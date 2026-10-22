@@ -31,9 +31,8 @@ export async function GET() {
   if ('error' in a) return a.error
   const orgId = a.profile.org_id
 
-  const [suppliersRes, , logRes] = await Promise.all([
+  const [suppliersRes, logRes] = await Promise.all([
     a.admin.from('vendors').select(COLUMNS).eq('org_id', orgId).is('deleted_at', null).order('name'),
-    Promise.resolve(null),
     a.admin
       .from('supplier_audit_log')
       .select('id, vendor_id, action, changed_at, changes, changed_by, users:changed_by(full_name)')
@@ -85,11 +84,11 @@ export async function GET() {
 }
 
 const RPC_ERRORS: Array<[RegExp, number, (m: RegExpMatchArray) => string]> = [
-  [/supplier_name_required/, 400, () => 'Name is required'],
-  [/supplier_not_found/, 404, () => 'Supplier not found'],
-  [/supplier_stale/, 409, () => 'This supplier was changed by someone else since you opened it. Close and reopen it to see the latest.'],
-  [/supplier_name_taken/, 409, () => 'A supplier with that name already exists'],
-  [/supplier_default_clash:(.+)/, 409, (m) => `${m[1].trim()} is already the default supplier for one of those trades`],
+  [/^supplier_name_required/, 400, () => 'Name is required'],
+  [/^supplier_not_found/, 404, () => 'Supplier not found'],
+  [/^supplier_stale/, 409, () => 'This supplier was changed by someone else since you opened it. Close and reopen it to see the latest.'],
+  [/^supplier_name_taken|uq_vendors_org_name_ci/, 409, () => 'A supplier with that name already exists'],
+  [/^supplier_default_clash:(.+)/, 409, (m) => `${m[1].trim()} is already the default supplier for one of those trades`],
 ]
 
 export async function POST(request: NextRequest) {
@@ -101,6 +100,8 @@ export async function POST(request: NextRequest) {
   if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 })
   const id = typeof body?.id === 'string' && body.id ? body.id : null
   const seen = typeof body?.updated_at === 'string' ? body.updated_at : null
+  if (id && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return NextResponse.json({ error: 'Supplier not found' }, { status: 404 })
+  if (id && !seen) return NextResponse.json({ error: 'Reload this supplier before saving it.' }, { status: 400 })
 
   // One database function does the whole save: validation of names/default trades under a lock, the vendors
   // write, the old -> new diff and the change-log row — all in one transaction (migration 202610220030).
