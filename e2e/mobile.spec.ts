@@ -38,6 +38,8 @@ const SCREENS: Screen[] = [
     } }] },
   { name: 'needs-you', path: '/dev-harness/needs-you', ready: 'text=Needs you' },
   { name: 'job-documents-banner', path: '/dev-harness/job-documents', ready: 'text=Job documents' },
+  { name: 'materials-cost-entry', path: '/dev-harness/materials-costs', ready: 'text=Total job costs',
+    states: [{ name: 'add-cost-open', run: async (p) => { await p.getByRole('button', { name: /Job Cost/i }).first().click(); await p.waitForTimeout(300) } }] },
   { name: 'supplier-orders', path: '/dev-harness/supplier-orders', ready: 'text=Supplier orders',
     states: [{ name: 'preview-open', run: async (p) => { await p.getByRole('button', { name: /Review & send to ABC Supply/ }).click(); await p.waitForSelector('text=Send to ABC Supply') } }] },
   { name: 'reports-home', path: '/dev-harness/reports-home', ready: 'text=Performance at a glance' },

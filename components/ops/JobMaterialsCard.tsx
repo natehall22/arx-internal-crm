@@ -273,6 +273,7 @@ export default function JobMaterialsCard({
             <label className="block text-sm font-medium text-gray-800 mb-1">Amount *</label>
             <input
               type="number"
+              inputMode="decimal"
               step="0.01"
               min="0"
               value={form.amount}
@@ -395,7 +396,7 @@ export default function JobMaterialsCard({
                   <button
                     type="button"
                     onClick={() => openEdit(line)}
-                    className="text-sm text-indigo-700 hover:text-indigo-900 min-h-[36px] px-2"
+                    className="text-sm text-indigo-700 hover:text-indigo-900 min-h-[44px] min-w-[44px] px-2"
                   >
                     Edit
                   </button>
@@ -403,7 +404,7 @@ export default function JobMaterialsCard({
                     <button
                       type="button"
                       onClick={() => handleDelete(line.id)}
-                      className="text-sm text-red-700 hover:text-red-900 min-h-[36px] px-2"
+                      className="text-sm text-red-700 hover:text-red-900 min-h-[44px] min-w-[44px] px-2"
                     >
                       Delete
                     </button>
@@ -416,13 +417,13 @@ export default function JobMaterialsCard({
       )}
 
       {showAddForm && (
-        <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 sm:p-4">
+          <div className="bg-white rounded-t-2xl sm:rounded-xl w-full sm:max-w-md max-h-[92vh] overflow-y-auto">
             <div className="p-4 border-b">
               <h3 className="text-lg font-semibold text-gray-900">Add Job Cost</h3>
             </div>
             {renderForm(newCost, setNewCost, { showSupplier: true, amountLocked: false })}
-            <div className="p-4 border-t flex gap-3">
+            <div className="sticky bottom-0 bg-white p-4 pb-[max(1rem,env(safe-area-inset-bottom))] border-t flex gap-3">
               <button
                 onClick={() => setShowAddForm(false)}
                 className="flex-1 px-4 py-2 border rounded-lg text-gray-800 hover:bg-gray-50 min-h-[44px]"
@@ -442,8 +443,8 @@ export default function JobMaterialsCard({
       )}
 
       {editingLine && (
-        <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 sm:p-4">
+          <div className="bg-white rounded-t-2xl sm:rounded-xl w-full sm:max-w-md max-h-[92vh] overflow-y-auto">
             <div className="p-4 border-b">
               <h3 className="text-lg font-semibold text-gray-900">Edit Job Cost</h3>
               {editingLine.approved && (
@@ -453,7 +454,7 @@ export default function JobMaterialsCard({
               )}
             </div>
             {renderForm(editForm, setEditForm, { showSupplier: true, amountLocked: editingLine.amount == null })}
-            <div className="p-4 border-t flex gap-3">
+            <div className="sticky bottom-0 bg-white p-4 pb-[max(1rem,env(safe-area-inset-bottom))] border-t flex gap-3">
               <button
                 type="button"
                 onClick={() => setEditingLine(null)}
