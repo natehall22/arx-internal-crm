@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import { REPORT_TEMPLATES } from '../lib/reporting/templates'
-import { COST_LINES, SUPPLIERS, PAYROLL_PERIODS, REPORT_RESULT, SALE_CREDIT, SUPPLIER_PREVIEW, SUPPLIER_VIEW, TEMPLATE_META, USERS } from './fixtures'
+import { ANNOUNCEMENTS, BANNER, COST_LINES, SUPPLIERS, PAYROLL_PERIODS, REPORT_RESULT, SALE_CREDIT, SUPPLIER_PREVIEW, SUPPLIER_VIEW, TEMPLATE_META, USERS } from './fixtures'
 
 const json = (body: unknown, status = 200) => ({ status, contentType: 'application/json', body: JSON.stringify(body) })
 
@@ -15,6 +15,8 @@ async function mockApi(page: Page) {
     if (p.endsWith('/cost-lines')) return route.fulfill(json(COST_LINES))
     if (p === '/api/reports/run') return route.fulfill(json(m === 'GET' ? TEMPLATE_META(REPORT_TEMPLATES.filter((t) => !t.finance || true)) : REPORT_RESULT))
     if (p === '/api/reports/saved') return route.fulfill(json({ reports: [{ id: 's1', name: 'Inspections Scheduled', spec: REPORT_TEMPLATES[0].spec, schedule: 'daily', created_by: 'u1' }], me: 'u1' }))
+    if (p === '/api/announcements/active') return route.fulfill(json(BANNER))
+    if (p === '/api/admin/announcements') return route.fulfill(json(ANNOUNCEMENTS))
     if (p === '/api/admin/suppliers') return route.fulfill(json(SUPPLIERS))
     if (p === '/api/admin/payroll/periods') return route.fulfill(json(PAYROLL_PERIODS))
     if (p.endsWith('/sale-credit')) return route.fulfill(json(SALE_CREDIT))
@@ -42,6 +44,18 @@ const SCREENS: Screen[] = [
   { name: 'pay-banners', path: '/dev-harness/pay-banners', ready: 'text=Mark' },
   { name: 'suppliers-admin', path: '/dev-harness/suppliers-admin', ready: 'text=Suppliers',
     states: [{ name: 'edit', run: async (p) => { await p.getByRole('button', { name: /Edit ABC Supply/ }).click(); await p.waitForSelector('text=Edit supplier') } }] },
+  { name: 'announcement-banner', path: '/dev-harness/announcement-banner', ready: 'text=See what',
+    states: [{ name: 'size', run: async (p) => {
+      const box = await p.getByRole('region', { name: "What's new" }).boundingBox()
+      const main = await p.getByRole('button', { name: 'Page main action' }).boundingBox()
+      const vp = p.viewportSize()!
+      // banner text clamps to two lines on phones (~44-70px tall) and never covers the page's main action
+      if (!box || box.height > 96) throw new Error(`banner too tall on a phone: ${box?.height}px`)
+      if (box.width > vp.width) throw new Error('banner wider than the screen')
+      if (!main || main.y < box.y + box.height - 1) throw new Error('banner overlaps the page main action')
+    } }] },
+  { name: 'announcements-admin', path: '/dev-harness/announcements-admin', ready: 'text=Announcements',
+    states: [{ name: 'edit', run: async (p) => { await p.getByRole('button', { name: 'Edit' }).click(); await p.waitForSelector('text=Edit announcement') } }] },
   { name: 'materials-cost-entry', path: '/dev-harness/materials-costs', ready: 'text=Total job costs',
     states: [{ name: 'add-cost-open', run: async (p) => { await p.getByRole('button', { name: /Job Cost/i }).first().click(); await p.waitForTimeout(300) } }] },
   { name: 'supplier-orders', path: '/dev-harness/supplier-orders', ready: 'text=Supplier orders',

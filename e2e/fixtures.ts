@@ -106,3 +106,19 @@ export const SUPPLIERS = {
     { id: 'v2', name: 'QXO', active: false, order_email: null, order_cc_emails: [], account_number: null, default_branch: null, default_delivery_notes: null, default_for_trades: [], connection_type: 'email', last_order: null, log: [] },
   ],
 }
+
+export const BANNER = {
+  announcement: {
+    id: '11111111-1111-4111-8111-111111111111', title: "What's new",
+    lines: ["Payroll is now one screen. Review 'Needs you', then press Approve.", 'Suppliers live in Settings → Suppliers: add ABC’s order email.', 'Reports: start from a template in Reports.'],
+    link: '/whats-new',
+  },
+}
+export const ANNOUNCEMENTS = {
+  announcements: [{
+    id: '11111111-1111-4111-8111-111111111111', slug: 'whats-new-2026-10', title: "What's new", link_url: '/whats-new', active: true,
+    starts_at: '2026-10-22T12:00:00Z', ends_at: '2026-11-05T12:00:00Z',
+    body: { owner: ['Payroll is now one screen.'], ops: ['Send material orders from the job’s order sheet.'] },
+    dismissed: [{ name: 'Nathan Hall', at: '2026-10-23T12:00:00Z' }], not_dismissed: [{ name: 'Setter Sam' }],
+  }],
+}
