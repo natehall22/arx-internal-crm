@@ -3,7 +3,6 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { createClientBrowser } from '@/lib/supabase/client'
-import { netCommissionableFromFinancedTotal } from '@/lib/financing'
 import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
 import { canUseManagerStatementView } from '@/lib/payroll-statement-access'
 import {
@@ -101,14 +100,13 @@ export default function CommissionWidget() {
   const [calcAvgSalePrice, setCalcAvgSalePrice] = useState('13500')
   const [calcJobsClosed, setCalcJobsClosed] = useState('4')
   const [calcPeriodSits, setCalcPeriodSits] = useState('12')
-  const [avgDealerFeePercent, setAvgDealerFeePercent] = useState('0')
 
   const calcAvgSalePriceNum = previewNumber(calcAvgSalePrice)
   const calcJobsClosedNum = previewNumber(calcJobsClosed)
   const calcPeriodSitsNum = previewNumber(calcPeriodSits)
-  const avgDealerFeePercentNum = previewNumber(avgDealerFeePercent)
 
-  const commissionablePerJob = netCommissionableFromFinancedTotal(calcAvgSalePriceNum, avgDealerFeePercentNum)
+  // Commission is on the full sale amount — the dealer fee is never deducted.
+  const commissionablePerJob = calcAvgSalePriceNum
   const monthlyCommissionableVolume = commissionablePerJob * calcJobsClosedNum
   const widgetTierValues = {
     periodSits: calcPeriodSitsNum,
@@ -781,23 +779,6 @@ export default function CommissionWidget() {
                       </button>
                     ))}
                   </div>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Avg dealer fee % (of financed total)
-                  </label>
-                  <input
-                    type="number"
-                    min={0}
-                    max={50}
-                    step={0.25}
-                    value={avgDealerFeePercent}
-                    onChange={(e) => setAvgDealerFeePercent(e.target.value)}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-lg"
-                  />
-                  <p className="text-xs text-gray-500 mt-1">
-                    0% = cash or no fee.
-                  </p>
                 </div>
                 
                 <div>

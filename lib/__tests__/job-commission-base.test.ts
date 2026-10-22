@@ -92,34 +92,45 @@ describe('buildCommissionPayrollSnapshot reads only the stored base', () => {
   })
 })
 
-describe('computeJobSaleTotals — base excludes sales tax and the dealer fee (2026-10-22)', () => {
-  it('sale amount stays tax-included; base = signed total − tax − dealer fee', () => {
-    const t = computeJobSaleTotals({
-      contracts: [{ id: 'c', projectCost: 12998.56 }],
-      changeOrders: [],
-      salesTax: 805.81,
-      dealerFee: 681.12,
-    })
+describe('computeJobSaleTotals — base excludes sales tax ONLY, never the dealer fee (2026-10-22)', () => {
+  it('sale amount stays tax-included; base = signed total − sales tax', () => {
+    const t = computeJobSaleTotals({ contracts: [{ id: 'c', projectCost: 12998.56 }], changeOrders: [], salesTax: 805.81 })
     if (!t.ok) throw new Error('expected ok')
     expect(t.saleAmount).toBe(12998.56)
-    expect(t.commissionBase).toBe(11511.63)
+    expect(t.commissionBase).toBe(12192.75)
   })
 
-  it('change orders add to the base, tax and fee still come off', () => {
+  it('change orders add to the base; tax still comes off', () => {
     const t = computeJobSaleTotals({
       contracts: [{ id: 'c', projectCost: 10000 }],
       changeOrders: [{ id: 'co', originalAmount: 10000, updatedTotal: 10500, isCommissionable: true, createdAt: '2026-01-01' }],
       salesTax: 500,
-      dealerFee: 100,
     })
     if (!t.ok) throw new Error('expected ok')
     expect(t.saleAmount).toBe(10500)
-    expect(t.commissionBase).toBe(9900)
+    expect(t.commissionBase).toBe(10000)
   })
 
   it('never goes negative', () => {
-    const t = computeJobSaleTotals({ contracts: [{ id: 'c', projectCost: 100 }], changeOrders: [], salesTax: 80, dealerFee: 80 })
+    const t = computeJobSaleTotals({ contracts: [{ id: 'c', projectCost: 100 }], changeOrders: [], salesTax: 150 })
     if (!t.ok) throw new Error('expected ok')
     expect(t.commissionBase).toBe(0)
+  })
+
+  it('a DEALER FEE NEVER REDUCES THE BASE, even if a caller passes one', () => {
+    const input = { contracts: [{ id: 'c', projectCost: 16325 }], changeOrders: [], salesTax: 0 }
+    const without = computeJobSaleTotals(input)
+    for (const fee of [1, 681.12, 5000, 99999]) {
+      const withFee = computeJobSaleTotals({ ...input, dealerFee: fee } as never)
+      if (!without.ok || !withFee.ok) throw new Error('expected ok')
+      expect(withFee.commissionBase).toBe(without.commissionBase)
+      expect(withFee.commissionBase).toBe(16325)
+    }
+  })
+
+  it('the writer never selects or uses the job dealer fee column', () => {
+    const raw = require('fs').readFileSync(require('path').join(process.cwd(), 'lib/job-commission-base.ts'), 'utf8')
+    const code = raw.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
+    expect(code).not.toMatch(/dealer_?fee/i)
   })
 })

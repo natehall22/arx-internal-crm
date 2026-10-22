@@ -44,6 +44,7 @@ Subcontractor model (no in-house crews). Based in the US, field reps canvass doo
   **Any caller of that helper must select `ownership_reassigned_at`** — a row missing it silently
   falls back to the frozen pin owner instead of failing.
 - All schema changes must be nullable/additive — system is live and in daily use
+- **Commission/OPP base = signed contract + signed change orders, minus SALES TAX only (Nathan's rule, 2026-10-22).** The dealer/lender fee is a profit-side cost and is NEVER deducted from the base. `lib/job-commission-base.ts` is the single source; a test fails if a fee ever reduces it.
 - **Never hard-delete a contract.** A superseded `order_form_contracts` row is set to `voided` and its PDF kept (fixed 2026-09-26; signing used to hard-delete + purge signed agreements on split cash/finance deals — 26-0040/0031/0010). Every sales/payroll reader filters on `status = 'completed'`, so a voided row drops out of totals on its own.
 - `bonus_status` enum: `pending_approval | approved | rejected | paid`
 - `manager_user_id` self-referential FK for org hierarchy traversal
