@@ -46,6 +46,7 @@ jest.mock('@/lib/supabase/service', () => ({
       const q: Record<string, any> = {}
       const chain = () => q
       Object.assign(q, { select: chain, eq: chain, not: chain, order: chain, insert: chain })
+      q.maybeSingle = async () => ({ data: table === 'customers' ? { name: 'Pat Customer' } : null, error: null })
       q.single = async () => {
         if (table === 'production_jobs')
           return { data: { id: 'job-1', org_id: 'org-1', job_number: '26-0042', address_text: '12 Elm St', customer_id: 'cust-1' }, error: null }
@@ -159,7 +160,7 @@ describe('mention email content follows the RECIPIENT’s access', () => {
     const m = mailTo('steve@example.test')
     expect(m.html).toContain('$14,200')
     expect(m.text).toContain('$14,200')
-    expect(m.subject).toBe('Pat Doe • 26-0042 • New tagged note')
+    expect(m.subject).toBe('Pat Customer • 26-0042 • New tagged note')
   })
 
   it('a setter recipient gets "{Sender} mentioned you on Job {#} – {address}" and the link, no note text', async () => {

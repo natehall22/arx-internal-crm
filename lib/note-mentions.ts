@@ -53,10 +53,16 @@ function continuesName(after: string): boolean {
 }
 
 /** The `@` at index `i` is inside a URL (scheme or www. in the same word). */
+const MAX_MENTIONS_PER_NOTE = 10
+/** Longer than any full name plus the continuation check needs. */
+const MAX_NAME_SPAN = 200
+
 function insideUrl(text: string, i: number): boolean {
-  const start = text.slice(0, i).search(/\S+$/)
+  // Bounded look-back keeps this linear on pathological notes.
+  const from = Math.max(0, i - 200)
+  const start = text.slice(from, i).search(/\S+$/)
   if (start === -1) return false
-  const word = text.slice(start, i).toLowerCase()
+  const word = text.slice(from + start, i).toLowerCase()
   return word.includes('://') || word.startsWith('www.')
 }
 
@@ -97,7 +103,8 @@ export function resolveNoteMentions<T extends MentionCandidate>(
     if (i > 0 && !ALLOWED_BEFORE_AT.test(lower.charAt(i - 1))) continue
     if (insideUrl(lower, i)) continue
 
-    const rest = lower.slice(i + 1)
+    if (out.length >= MAX_MENTIONS_PER_NOTE) break
+    const rest = lower.slice(i + 1, i + 1 + MAX_NAME_SPAN)
     // Longest candidate the text starts with. If the text continues it with more
     // letters, the writer typed some other (longer) name — no shorter name matches.
     const longest = names.find((n) => rest.startsWith(n))

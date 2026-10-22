@@ -81,6 +81,8 @@ export async function GET(
   }
 }
 
+const MAX_NOTE_LENGTH = 5000
+
 export async function POST(
   request: Request,
   { params }: { params: { id: string } }
@@ -117,10 +119,13 @@ export async function POST(
     }
 
     const body = await request.json()
-    const { note, mentioned_user_ids, customer_name } = body
+    const { note, mentioned_user_ids } = body
 
     if (!note || typeof note !== 'string' || !note.trim()) {
       return NextResponse.json({ error: 'Note is required' }, { status: 400 })
+    }
+    if (note.length > MAX_NOTE_LENGTH) {
+      return NextResponse.json({ error: `Note is too long (max ${MAX_NOTE_LENGTH} characters)` }, { status: 400 })
     }
 
     // Insert the note
@@ -164,6 +169,18 @@ export async function POST(
       const mentionedUsers = resolveNoteMentions(note, allUsers, explicitMentionIds)
 
       if (mentionedUsers.length > 0) {
+        // Customer name comes from the job's own customer row — never from the request body,
+        // which would let any caller put arbitrary text in a mention email subject.
+        let customerName: string | null = null
+        if (job.customer_id) {
+          const { data: customer } = await adminClient
+            .from('customers')
+            .select('name')
+            .eq('id', job.customer_id)
+            .eq('org_id', profile.org_id)
+            .maybeSingle()
+          customerName = (customer as { name?: string | null } | null)?.name ?? null
+        }
         const transporter = getMailTransport()
         // Links come only from the configured app URL — never the request's Origin
         // header or a client-sent page URL, which a caller can point at any domain.
@@ -185,7 +202,7 @@ export async function POST(
               jobNumber: job.job_number ?? null,
               jobAddress: job.address_text ?? null,
               customerId: job.customer_id ?? null,
-              customerName: typeof customer_name === 'string' ? customer_name : null,
+              customerName,
               senderName: profile.full_name || 'ARX Team',
               recipientName: mentionedUser.full_name,
               note: String(note),
