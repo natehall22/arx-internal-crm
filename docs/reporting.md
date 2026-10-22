@@ -17,3 +17,11 @@
 - **Supplier orders dataset**: its tables ship with the email-order-sheet PR (#58); add `rpt_supplier_orders` once that merges.
 - Excel export = CSV (opens in Excel). Sharing is by role at save time via API; the UI only exposes "email it".
 - Aggregation happens in TypeScript over ≤50k rows per run (views hold the definitions; at larger volume push grouping into SQL).
+
+## Known differences from existing definitions (from review; fix by converging, not by adding a third)
+- **Sit:** `rpt_appointments.was_completed` is appointment status. The goals scorecard/dashboard sit = org-configured inspection outcomes (`getSitOutcomeNormalizedIdSet`) keyed on `opportunities.inspection_outcome_at`. Reports will not match those until the sit definition is moved into one SQL view (Redundancy #8/#14).
+- **Doors/leads:** `rpt_canvass_doors` (canvass_knocks, credited to the actual knocker — the direction #8 wants) excludes only `solar_import`; `rpt_leads` owner is the current `owner_user_id` (not the CLAUDE.md transfer-cutoff rule) and includes non-door sources. Treat Leads as leads, not doors.
+- **Sales credit:** `rpt_sales` credits the opportunity's current owner/setter; payroll uses per-job overrides.
+- **Profit:** `rpt_jobs` uses the cost-ledger rule from #57 (live lines + dealer fee, no approval gate).
+- Hidden/inactive users (`show_in_reports`, `active`) are not filtered; month/age math uses the database's UTC date.
+- Scheduled emails go with the Mon–Sat morning window ("daily" = Mon–Sat).

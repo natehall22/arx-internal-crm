@@ -25,12 +25,13 @@ SELECT j.org_id,
        j.permit_status,
        j.salesperson_id,
        u.full_name                  AS salesperson,
-       COALESCE(j.sale_amount, 0)   AS sale_amount,
+       CASE WHEN j.status = 'cancelled' THEN 0 ELSE COALESCE(j.sale_amount, 0) END AS sale_amount, -- cancelled jobs are not sales
        COALESCE(j.dealer_fee_amount, 0) AS dealer_fee,
        -- cost = live ledger lines (dealer-fee mirror line excluded) + dealer fee (see docs/one-cost-ledger.md)
        COALESCE(c.cost, 0) + COALESCE(j.dealer_fee_amount, 0)                       AS cost_total,
        COALESCE(p.collected, 0)                                                     AS collected,
-       COALESCE(j.sale_amount, 0) - COALESCE(j.dealer_fee_amount, 0) - COALESCE(c.cost, 0) AS profit_before_commission,
+       CASE WHEN j.status = 'cancelled' THEN 0
+            ELSE COALESCE(j.sale_amount, 0) - COALESCE(j.dealer_fee_amount, 0) - COALESCE(c.cost, 0) END AS profit_before_commission,
        -- money still owed on the sale, and how old the sale is (AR aging); cancelled jobs owe nothing
        CASE WHEN j.status = 'cancelled' THEN 0
             ELSE GREATEST(COALESCE(j.sale_amount, 0) - COALESCE(p.collected, 0), 0) END AS balance_due,
@@ -128,7 +129,8 @@ JOIN payroll_periods p ON p.id = l.payroll_period_id
 LEFT JOIN users u ON u.id = l.user_id
 LEFT JOIN production_jobs j ON j.id = l.job_id;
 
--- Appointments (inspections, adjuster meetings, ...). was_sit / was_cancelled are the one definition of a sit.
+-- Appointments (inspections, adjuster meetings, ...). was_completed = appointment status 'completed'. NOTE: this is NOT the
+-- goals/dashboard 'sit' (org-configured inspection outcomes on opportunities.inspection_outcome_at); see docs/reporting.md.
 CREATE OR REPLACE VIEW rpt_appointments WITH (security_invoker = true) AS
 SELECT a.org_id,
        a.id                       AS appointment_id,
@@ -139,7 +141,7 @@ SELECT a.org_id,
        cl.full_name               AS closer,
        a.canvasser_user_id        AS setter_user_id,
        st.full_name               AS setter,
-       (a.status = 'completed')   AS was_sit,
+       (a.status = 'completed')   AS was_completed,
        (a.status = 'cancelled')   AS was_cancelled,
        a.opportunity_id,
        a.lead_id

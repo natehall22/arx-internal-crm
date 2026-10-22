@@ -95,7 +95,7 @@ export const DATASETS: Record<DatasetKey, Dataset> = {
     view: 'rpt_appointments', dateColumn: 'scheduled_for', ownerColumn: 'closer_user_id',
     columns: [
       c('scheduled_for', 'When', 'date'), c('appointment_type', 'Type'), c('status', 'Status'), c('closer', 'Closer'),
-      c('setter', 'Setter'), c('was_sit', 'Sat', 'bool'), c('was_cancelled', 'Cancelled', 'bool'),
+      c('setter', 'Setter'), c('was_completed', 'Completed', 'bool'), c('was_cancelled', 'Cancelled', 'bool'),
     ],
   },
   leads: {

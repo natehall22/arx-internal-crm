@@ -32,6 +32,14 @@ export async function sendScheduledReports(
   for (const r of reports ?? []) {
     if (!r.schedule || !dueToday(r.schedule, now)) continue
     if (r.last_sent_at && String(r.last_sent_at).slice(0, 10) === todayKey) continue
+    // Claim today's send atomically so two overlapping cron fires cannot both email it.
+    const { data: claimed } = await admin
+      .from('saved_reports')
+      .update({ last_sent_at: now.toISOString() })
+      .eq('id', r.id)
+      .or(r.last_sent_at ? `last_sent_at.eq.${r.last_sent_at}` : 'last_sent_at.is.null')
+      .select('id')
+    if (!claimed || claimed.length === 0) continue
     try {
       const { data: creator } = await admin
         .from('users')
@@ -51,10 +59,11 @@ export async function sendScheduledReports(
         text: `Your scheduled report "${r.name}" is attached (${result.rows.length} rows).`,
         attachments: [{ filename: `${String(r.name).replace(/[^a-z0-9_-]+/gi, '-')}.csv`, content: resultToCsv(result), contentType: 'text/csv' }],
       })
-      await admin.from('saved_reports').update({ last_sent_at: now.toISOString() }).eq('id', r.id)
       sent += 1
     } catch (error) {
       failed += 1
+      // Release the claim so the next fire retries.
+      await admin.from('saved_reports').update({ last_sent_at: r.last_sent_at ?? null }).eq('id', r.id)
       console.error('[scheduled-reports] failed', r.id, error instanceof Error ? error.message : error)
     }
   }
