@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from 'react'
 type LogEntry = { at: string; by: string | null; action: string; lines: string[] }
 type Supplier = {
   id?: string
+  updated_at?: string
   name: string
   active: boolean
   order_email: string | null

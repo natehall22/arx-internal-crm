@@ -3,7 +3,9 @@
  * validated, and how a change is described for the change log. One module for the API, the page and tests.
  */
 import { isSuperAdmin, type SuperAdminProfile } from '@/lib/super-admin'
-import { isValidEmail } from '@/lib/supplier-order-email'
+/** ASCII-only, one address, max 254 chars. Stricter than the mailer's check on purpose: this is what we STORE. */
+const STORED_EMAIL_RE = /^[A-Za-z0-9._%+'-]{1,64}@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$/
+export const isStorableEmail = (v: string): boolean => v.length <= 254 && STORED_EMAIL_RE.test(v)
 
 /** Owners only: a super admin, or the `owner` role. Supplier emails decide where job addresses are sent. */
 export function canManageSuppliers(profile: (SuperAdminProfile & { role?: string | null }) | null | undefined): boolean {
@@ -45,13 +47,13 @@ export function parseSupplierInput(b: Record<string, unknown> | null): { ok: tru
   if (!name) return { ok: false, error: 'Name is required' }
 
   const rawEmail = typeof b.order_email === 'string' ? b.order_email.trim().toLowerCase() : ''
-  if (rawEmail && (/[,;<>\s]/.test(rawEmail) || !isValidEmail(rawEmail))) {
+  if (rawEmail && !isStorableEmail(rawEmail)) {
     return { ok: false, error: 'Order email must be one valid address like orders@supplier.com (put extra addresses in CC)' }
   }
 
   const ccRaw = Array.isArray(b.order_cc_emails) ? b.order_cc_emails : typeof b.order_cc_emails === 'string' ? b.order_cc_emails.split(/[,;\n]/) : []
   const cc = Array.from(new Set(ccRaw.map((x) => String(x).trim().toLowerCase()).filter(Boolean)))
-  const badCc = cc.find((e) => /[<>\s]/.test(e) || !isValidEmail(e))
+  const badCc = cc.find((e) => !isStorableEmail(e))
   if (badCc) return { ok: false, error: `CC address "${badCc.slice(0, 60)}" is not a valid email` }
   if (cc.length > 10) return { ok: false, error: 'At most 10 CC addresses' }
 

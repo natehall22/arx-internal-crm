@@ -14,7 +14,7 @@ import { canManageSuppliers, describeChange, diffSupplier, parseSupplierInput, t
 export const dynamic = 'force-dynamic'
 
 const COLUMNS =
-  'id, name, active, order_email, order_cc_emails, account_number, default_branch, default_delivery_notes, default_for_trades, connection_type'
+  'id, updated_at, name, active, order_email, order_cc_emails, account_number, default_branch, default_delivery_notes, default_for_trades, connection_type'
 
 async function authorize() {
   try {
@@ -31,17 +31,9 @@ export async function GET() {
   if ('error' in a) return a.error
   const orgId = a.profile.org_id
 
-  const [suppliersRes, sendsRes, logRes] = await Promise.all([
+  const [suppliersRes, , logRes] = await Promise.all([
     a.admin.from('vendors').select(COLUMNS).eq('org_id', orgId).is('deleted_at', null).order('name'),
-    // Real emails only: a "sent by hand" record has no address.
-    a.admin
-      .from('supplier_order_sends')
-      .select('vendor_id, to_email, sent_at, po_label')
-      .eq('org_id', orgId)
-      .eq('status', 'sent')
-      .neq('to_email', 'sent by hand')
-      .order('sent_at', { ascending: false })
-      .limit(500),
+    Promise.resolve(null),
     a.admin
       .from('supplier_audit_log')
       .select('id, vendor_id, action, changed_at, changes, changed_by, users:changed_by(full_name)')
@@ -51,10 +43,24 @@ export async function GET() {
   ])
   if (suppliersRes.error) return NextResponse.json({ error: 'Could not load suppliers' }, { status: 500 })
 
+  // Last REAL email per supplier ("sent by hand" has no address). One small query each, so an old
+  // supplier is never crowded out by newer sends to others.
   const lastOrder = new Map<string, { to: string; at: string | null; po: string }>()
-  for (const row of sendsRes.data ?? []) {
-    if (!lastOrder.has(row.vendor_id as string)) lastOrder.set(row.vendor_id as string, { to: row.to_email as string, at: row.sent_at as string | null, po: row.po_label as string })
-  }
+  await Promise.all(
+    (suppliersRes.data ?? []).map(async (s) => {
+      const { data } = await a.admin
+        .from('supplier_order_sends')
+        .select('to_email, sent_at, po_label')
+        .eq('org_id', orgId)
+        .eq('vendor_id', s.id as string)
+        .eq('status', 'sent')
+        .neq('to_email', 'sent by hand')
+        .order('sent_at', { ascending: false })
+        .limit(1)
+      const row = (data ?? [])[0]
+      if (row) lastOrder.set(s.id as string, { to: row.to_email as string, at: row.sent_at as string | null, po: row.po_label as string })
+    })
+  )
   const logByVendor = new Map<string, Array<{ at: string; by: string | null; action: string; lines: string[] }>>()
   for (const row of (logRes.data ?? []) as Array<Record<string, any>>) {
     const list = logByVendor.get(row.vendor_id) ?? []
@@ -93,6 +99,11 @@ export async function POST(request: NextRequest) {
   if (id) {
     const { data } = await a.admin.from('vendors').select(COLUMNS).eq('id', id).eq('org_id', orgId).is('deleted_at', null).maybeSingle()
     if (!data) return NextResponse.json({ error: 'Supplier not found' }, { status: 404 })
+    // Stale form: someone saved this supplier after it was opened. Reload instead of overwriting them.
+    const seen = typeof body?.updated_at === 'string' ? body.updated_at : null
+    if (seen && (data as any).updated_at && new Date(seen).getTime() !== new Date((data as any).updated_at).getTime()) {
+      return NextResponse.json({ error: 'This supplier was changed by someone else since you opened it. Close and reopen it to see the latest.' }, { status: 409 })
+    }
     before = { ...(data as unknown as SupplierInput), order_cc_emails: (data as any).order_cc_emails ?? [], default_for_trades: (data as any).default_for_trades ?? [] }
   }
 
