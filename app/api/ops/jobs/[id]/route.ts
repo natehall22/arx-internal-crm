@@ -67,7 +67,8 @@ export async function PATCH(
     const ALLOWED_FIELDS = new Set([
       'status',
       'started_at', 'completed_at',
-      'labor_cost', 'internal_notes',
+      // labor_cost removed 2026-10-21: labor is a job cost line (lib/job-cost-ledger.ts).
+      'internal_notes',
       'deposit_required_percent', 'finance_submitted_at',
       // `allow_close_with_balance` / `close_balance_reason` are deliberately NOT here: forcing a
       // job "paid in full" with a balance is a super-admin action with a required reason, written
@@ -100,13 +101,6 @@ export async function PATCH(
         { error: 'This job is cancelled. Signing a new agreement reinstates it.' },
         { status: 409 }
       )
-    }
-
-    if (!canViewJobFinancials && 'labor_cost' in updateData) {
-      delete updateData.labor_cost
-    }
-    if (Object.keys(updateData).length === 0) {
-      return NextResponse.json({ error: 'No valid fields to update' }, { status: 400 })
     }
 
     if (updateData.payroll_sent_at !== undefined) {

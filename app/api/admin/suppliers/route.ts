@@ -3,13 +3,13 @@
  * a supplier's order email decides where a job's address and materials list are sent.
  *   GET  — suppliers + "last order sent to" + the recent change log
  *   POST — create or update one supplier; validated (lib/supplier-admin.ts) and logged old → new
- * Two ACTIVE suppliers may not both be the default for the same trade; names are unique per company.
+ * Atomic save + log and the one-default-per-trade rule live in the database (save_supplier + trigger).
  */
 import { NextRequest, NextResponse } from 'next/server'
 
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
-import { canManageSuppliers, describeChange, diffSupplier, parseSupplierInput, type SupplierInput } from '@/lib/supplier-admin'
+import { canManageSuppliers, describeChange, parseSupplierInput, type FieldChange } from '@/lib/supplier-admin'
 
 export const dynamic = 'force-dynamic'
 
@@ -31,9 +31,8 @@ export async function GET() {
   if ('error' in a) return a.error
   const orgId = a.profile.org_id
 
-  const [suppliersRes, , logRes] = await Promise.all([
+  const [suppliersRes, logRes] = await Promise.all([
     a.admin.from('vendors').select(COLUMNS).eq('org_id', orgId).is('deleted_at', null).order('name'),
-    Promise.resolve(null),
     a.admin
       .from('supplier_audit_log')
       .select('id, vendor_id, action, changed_at, changes, changed_by, users:changed_by(full_name)')
@@ -84,62 +83,43 @@ export async function GET() {
   })
 }
 
+const RPC_ERRORS: Array<[RegExp, number, (m: RegExpMatchArray) => string]> = [
+  [/^supplier_name_required/, 400, () => 'Name is required'],
+  [/^supplier_not_found/, 404, () => 'Supplier not found'],
+  [/^supplier_stale/, 409, () => 'This supplier was changed by someone else since you opened it. Close and reopen it to see the latest.'],
+  [/^supplier_name_taken|uq_vendors_org_name_ci/, 409, () => 'A supplier with that name already exists'],
+  [/^supplier_default_clash:(.+)/, 409, (m) => `${m[1].trim()} is already the default supplier for one of those trades`],
+]
+
 export async function POST(request: NextRequest) {
   const a = await authorize()
   if ('error' in a) return a.error
-  const orgId = a.profile.org_id
 
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null
   const parsed = parseSupplierInput(body)
   if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 })
-  const next = parsed.value
   const id = typeof body?.id === 'string' && body.id ? body.id : null
+  const seen = typeof body?.updated_at === 'string' ? body.updated_at : null
+  if (id && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return NextResponse.json({ error: 'Supplier not found' }, { status: 404 })
+  if (id && !seen) return NextResponse.json({ error: 'Reload this supplier before saving it.' }, { status: 400 })
 
-  let before: SupplierInput | null = null
-  if (id) {
-    const { data } = await a.admin.from('vendors').select(COLUMNS).eq('id', id).eq('org_id', orgId).is('deleted_at', null).maybeSingle()
-    if (!data) return NextResponse.json({ error: 'Supplier not found' }, { status: 404 })
-    // Stale form: someone saved this supplier after it was opened. Reload instead of overwriting them.
-    const seen = typeof body?.updated_at === 'string' ? body.updated_at : null
-    if (seen && (data as any).updated_at && new Date(seen).getTime() !== new Date((data as any).updated_at).getTime()) {
-      return NextResponse.json({ error: 'This supplier was changed by someone else since you opened it. Close and reopen it to see the latest.' }, { status: 409 })
+  // One database function does the whole save: validation of names/default trades under a lock, the vendors
+  // write, the old -> new diff and the change-log row — all in one transaction (migration 202610220030).
+  const { data, error } = await a.admin.rpc('save_supplier', {
+    p_org: a.profile.org_id,
+    p_actor: a.profile.id,
+    p_id: id,
+    p_expected_updated_at: seen,
+    p_input: parsed.value,
+  })
+  if (error) {
+    for (const [re, status, message] of RPC_ERRORS) {
+      const m = String(error.message || '').match(re)
+      if (m) return NextResponse.json({ error: message(m) }, { status })
     }
-    before = { ...(data as unknown as SupplierInput), order_cc_emails: (data as any).order_cc_emails ?? [], default_for_trades: (data as any).default_for_trades ?? [] }
+    console.error('[admin/suppliers] save failed', error.message)
+    return NextResponse.json({ error: 'Could not save the supplier' }, { status: 500 })
   }
-
-  const { data: others } = await a.admin
-    .from('vendors')
-    .select('id, name, active, default_for_trades')
-    .eq('org_id', orgId)
-    .is('deleted_at', null)
-  const clashName = (others ?? []).find((o) => o.id !== id && String(o.name).trim().toLowerCase() === next.name.toLowerCase())
-  if (clashName) return NextResponse.json({ error: `A supplier named "${clashName.name}" already exists` }, { status: 409 })
-  if (next.active && next.default_for_trades.length > 0) {
-    const clash = (others ?? []).find(
-      (o) => o.id !== id && o.active && ((o.default_for_trades as string[] | null) ?? []).some((t) => next.default_for_trades.includes(t))
-    )
-    if (clash) return NextResponse.json({ error: `${clash.name} is already the default supplier for one of those trades` }, { status: 409 })
-  }
-
-  const changes = diffSupplier(before, next)
-  if (id && changes.length === 0) return NextResponse.json({ supplier: { id, ...next }, unchanged: true })
-
-  const row = { ...next, updated_at: new Date().toISOString() }
-  const result = id
-    ? await a.admin.from('vendors').update(row).eq('id', id).eq('org_id', orgId).select(COLUMNS).maybeSingle()
-    : await a.admin.from('vendors').insert({ ...row, org_id: orgId, created_by: a.profile.id }).select(COLUMNS).maybeSingle()
-  if (result.error || !result.data) return NextResponse.json({ error: 'Could not save the supplier' }, { status: 500 })
-  const saved = result.data as unknown as { id: string }
-
-  const action = !id ? 'created' : before && before.active && !next.active ? 'deactivated' : before && !before.active && next.active ? 'reactivated' : 'updated'
-  const { error: logError } = await a.admin
-    .from('supplier_audit_log')
-    .insert({ org_id: orgId, vendor_id: saved.id, action, changed_by: a.profile.id, changes })
-  if (logError) {
-    // No change without a record of it: undo and report.
-    if (id && before) await a.admin.from('vendors').update(before).eq('id', id).eq('org_id', orgId)
-    else await a.admin.from('vendors').delete().eq('id', saved.id).eq('org_id', orgId)
-    return NextResponse.json({ error: 'Could not record the change, so it was not saved. Try again.' }, { status: 500 })
-  }
-  return NextResponse.json({ supplier: saved, changes: changes.map(describeChange) })
+  const result = data as { id: string; updated_at: string; changes: FieldChange[]; unchanged?: boolean }
+  return NextResponse.json({ supplier: { id: result.id, updated_at: result.updated_at }, changes: (result.changes ?? []).map(describeChange), unchanged: !!result.unchanged })
 }

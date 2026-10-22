@@ -456,8 +456,8 @@ function generateLegacyFallbackResponse(
 
     if (jobRelated) {
       return `For this ops job (${jobUrl}):
-- **Labor cost** → Materials tab → Labor Cost card
-- **Materials** → Materials tab (+ Job Cost) or ${jobUrl}/orders
+- **Labor cost** → Materials tab → + Job Cost, type Labor (no separate Labor Cost box)
+- **Materials** → Materials tab → + Job Cost, type Materials
 - **Cost lines** (permit, dump, misc) → Photos & files tab → Job Files Workspace
 - **Crew / sub** → Overview tab → Schedule now or Reassign crew or sub
 - **Work orders** → Financials tab → Work Orders card`

@@ -1,4 +1,4 @@
-import { canManageSuppliers, describeChange, diffSupplier, parseSupplierInput, type SupplierInput } from '@/lib/supplier-admin'
+import { canManageSuppliers, describeChange, parseSupplierInput } from '@/lib/supplier-admin'
 
 describe('canManageSuppliers (owners only)', () => {
   it('super admins and owners yes; everyone else no', () => {
@@ -44,16 +44,9 @@ describe('parseSupplierInput', () => {
   })
 })
 
-describe('diffSupplier', () => {
-  const before: SupplierInput = { name: 'ABC', active: true, order_email: null, order_cc_emails: [], account_number: null, default_branch: null, default_delivery_notes: null, default_for_trades: [], connection_type: 'email' }
-  it('lists only what changed, old → new', () => {
-    const changes = diffSupplier(before, { ...before, order_email: 'o@abc.com', default_for_trades: ['roofing'] })
-    expect(changes.map((c) => c.field)).toEqual(['order_email', 'default_for_trades'])
-    expect(describeChange(changes[0])).toBe('Order email: (empty) → o@abc.com')
-    expect(describeChange(changes[1])).toBe('Default for trades: (none) → roofing')
-  })
-  it('no change = empty list; a new supplier lists every set field', () => {
-    expect(diffSupplier(before, { ...before })).toEqual([])
-    expect(diffSupplier(null, { ...before }).map((c) => c.field)).toContain('name')
+describe('describeChange', () => {
+  it('renders old → new for the change log', () => {
+    expect(describeChange({ field: 'order_email', label: 'Order email', old: null, new: 'o@abc.com' })).toBe('Order email: (empty) → o@abc.com')
+    expect(describeChange({ field: 'default_for_trades', label: 'Default for trades', old: [], new: ['roofing', 'gutters'] })).toBe('Default for trades: (none) → roofing, gutters')
   })
 })

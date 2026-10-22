@@ -76,19 +76,8 @@ export function parseSupplierInput(b: Record<string, unknown> | null): { ok: tru
   }
 }
 
-export type FieldChange = { field: keyof SupplierInput; label: string; old: unknown; new: unknown }
-
-const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null)
-
-/** Every field that actually changed, old → new. `before` null = a new supplier. */
-export function diffSupplier(before: Partial<SupplierInput> | null, after: SupplierInput): FieldChange[] {
-  const out: FieldChange[] = []
-  for (const key of Object.keys(SUPPLIER_FIELD_LABELS) as Array<keyof SupplierInput>) {
-    const oldValue = before ? before[key] ?? (key === 'order_cc_emails' || key === 'default_for_trades' ? [] : null) : null
-    if (!same(oldValue, after[key])) out.push({ field: key, label: SUPPLIER_FIELD_LABELS[key], old: oldValue, new: after[key] })
-  }
-  return out
-}
+/** One entry of the change log (written by the database function save_supplier). */
+export type FieldChange = { field: string; label: string; old: unknown; new: unknown }
 
 /** One line for the change log screen. */
 export function describeChange(c: FieldChange): string {
