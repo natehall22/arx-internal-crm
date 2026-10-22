@@ -771,37 +771,28 @@ export default function DashboardClient({
   }
 
   const loadDashboardReports = async () => {
+    if (profile.role === 'canvasser') return
     try {
-      const res = await fetch('/api/reports/custom?dashboard=true')
+      const res = await fetch('/api/reports/saved?dashboard=true')
       const data = await res.json()
-      
-      if (!res.ok) {
-        console.error('Failed to load dashboard reports:', data.error, data.details)
-        return
-      }
-      
-      console.log('Dashboard reports loaded:', data.reports?.length || 0, 'reports')
-      setCustomReports(data.reports || [])
-      
-      // Load data for each report
-      for (const report of data.reports || []) {
+      if (!res.ok) return
+      const reports = (data.reports || []).slice(0, 4)
+      setCustomReports(reports)
+      // Each pinned report runs through the one report runner (/api/reports/run).
+      for (const report of reports) {
         try {
-          const dataRes = await fetch('/api/reports/custom', {
+          const dataRes = await fetch('/api/reports/run', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ report_id: report.id }),
+            body: JSON.stringify({ spec: report.spec }),
           })
-          if (dataRes.ok) {
-            const result = await dataRes.json()
-            console.log(`Report "${report.name}" data:`, result.data?.length || 0, 'items', result.data)
-            setReportData(prev => ({ ...prev, [report.id]: result.data || [] }))
-          } else {
-            console.error(`Failed to load data for report "${report.name}":`, await dataRes.text())
-            setReportData(prev => ({ ...prev, [report.id]: [] }))
-          }
-        } catch (err) {
-          console.error(`Error loading report "${report.name}":`, err)
-          setReportData(prev => ({ ...prev, [report.id]: [] }))
+          if (!dataRes.ok) throw new Error('report failed')
+          const result = await dataRes.json()
+          const rows = (result.result?.rows || []).map((r: any) => ({ label: r.group ?? '', value: Number(r.value) || 0 }))
+          setReportData(prev => ({ ...prev, [report.id]: rows }))
+        } catch {
+          // Not the same as "no data": e.g. the role lost access to that report.
+          setReportData(prev => ({ ...prev, [report.id]: null as any }))
         }
       }
     } catch (error) {
@@ -1909,28 +1900,27 @@ export default function DashboardClient({
               <div className="bg-white rounded-xl shadow-sm p-4 sm:p-6 border border-gray-100">
                 <div className="flex items-center justify-between mb-3 sm:mb-4">
                   <h2 className="text-base sm:text-lg font-semibold text-gray-900">Custom Reports</h2>
-                  <Link href="/reports?tab=custom" className="text-sm text-indigo-600 hover:text-indigo-700">
+                  <Link href="/reports/explore" className="text-sm text-indigo-600 hover:text-indigo-700">
                     View all
                   </Link>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                   {customReports.slice(0, 4).map((report) => {
-                    const data = reportData[report.id] || []
+                    const rawData = reportData[report.id]
+                    const failed = rawData === null
+                    const data = rawData || []
                     const maxValue = Math.max(...data.map((d: any) => d.value || 0), 1)
-                    const isLoading = !reportData[report.id]
+                    const isLoading = reportData[report.id] === undefined
                     
                     return (
                       <Link 
                         key={report.id} 
-                        href={`/reports?tab=custom&report=${report.id}`}
+                        href="/reports/explore"
                         className="border rounded-lg p-4 hover:border-indigo-300 hover:shadow-sm transition-all"
                       >
                         <div className="flex items-center gap-2 mb-3">
                           <span className="text-lg">
-                            {report.report_type === 'bar_chart' ? '📊' : 
-                             report.report_type === 'line_chart' ? '📈' : 
-                             report.report_type === 'pie_chart' ? '🥧' : 
-                             report.report_type === 'metric_card' ? '🔢' : '📋'}
+                            📊
                           </span>
                           <h3 className="font-medium text-gray-900 text-sm">{report.name}</h3>
                         </div>
@@ -1939,15 +1929,13 @@ export default function DashboardClient({
                           <div className="flex items-center justify-center py-4">
                             <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-indigo-600" />
                           </div>
+                        ) : failed ? (
+                          <div className="text-center py-4">
+                            <p className="text-sm text-gray-600">Not available for your role</p>
+                          </div>
                         ) : data.length === 0 ? (
                           <div className="text-center py-4">
                             <p className="text-sm text-gray-500">No data for this period</p>
-                          </div>
-                        ) : report.report_type === 'metric_card' ? (
-                          <div className="text-center py-2">
-                            <p className="text-3xl font-bold text-indigo-600">
-                              {(data[0]?.value || 0).toLocaleString()}
-                            </p>
                           </div>
                         ) : (
                           <div className="space-y-2">

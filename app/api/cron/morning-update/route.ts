@@ -6,6 +6,7 @@ import { sendSetterFieldUpdateEmail } from '@/lib/setter-field-update-email'
 import { isMorningUpdateSendWindow } from '@/lib/morning-update-schedule'
 import { createServiceClient } from '@/lib/supabase/service'
 import { verifyCronSecret } from '@/lib/cron-auth'
+import { sendScheduledReports } from '@/lib/reporting/scheduled'
 
 export const dynamic = 'force-dynamic'
 
@@ -54,6 +55,10 @@ export async function GET(request: NextRequest) {
 
   for (const org of orgRows || []) {
     const orgId = org.id as string
+    // Saved reports on a schedule go out with the morning update; independent of the blast switches.
+    await sendScheduledReports(admin, orgId).catch((error) => {
+      console.error(`[cron/morning-update] scheduled reports failed for org ${orgId}:`, error)
+    })
     const settings = getOrgEmailBlastSettings(org.settings)
     if (!settings.morning_update?.enabled && !settings.setter_field_update?.enabled) {
       results.push({ org_id: orgId, sent: 0, skipped: true, reason: 'disabled' })
