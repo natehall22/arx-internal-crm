@@ -100,7 +100,9 @@ export const USERS = { users: [{ id: 'u1', full_name: 'Nathan Hall' }, { id: 'u2
 
 export const SUPPLIERS = {
   suppliers: [
-    { id: 'v1', name: 'ABC Supply', active: true, order_email: 'orders@abcsupply.example.test', order_cc_emails: [], account_number: '123', default_branch: 'Concord', default_delivery_notes: null, default_for_trades: ['roofing', 'gutters'], connection_type: 'email' },
+    { id: 'v1', name: 'ABC Supply', active: true, order_email: 'orders@abcsupply-concord-branch.example.test', order_cc_emails: [], account_number: '123', default_branch: 'Concord', default_delivery_notes: null, default_for_trades: ['roofing', 'gutters'], connection_type: 'email',
+      last_order: { to: 'orders@abcsupply-concord-branch.example.test', at: '2026-10-21T14:00:00Z', po: 'PO-26-0042-A' },
+      log: [{ at: '2026-10-20T12:00:00Z', by: 'Nathan Hall', action: 'updated', lines: ['Order email: (empty) → orders@abcsupply-concord-branch.example.test'] }] },
+    { id: 'v2', name: 'QXO', active: false, order_email: null, order_cc_emails: [], account_number: null, default_branch: null, default_delivery_notes: null, default_for_trades: [], connection_type: 'email', last_order: null, log: [] },
   ],
-  canEdit: true,
 }

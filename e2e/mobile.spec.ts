@@ -41,7 +41,7 @@ const SCREENS: Screen[] = [
   { name: 'job-documents-banner', path: '/dev-harness/job-documents', ready: 'text=Job documents' },
   { name: 'pay-banners', path: '/dev-harness/pay-banners', ready: 'text=Mark' },
   { name: 'suppliers-admin', path: '/dev-harness/suppliers-admin', ready: 'text=Suppliers',
-    states: [{ name: 'edit', run: async (p) => { await p.getByRole('button', { name: /Add supplier/ }).click() } }] },
+    states: [{ name: 'edit', run: async (p) => { await p.getByRole('button', { name: /Edit ABC Supply/ }).click(); await p.waitForSelector('text=Edit supplier') } }] },
   { name: 'supplier-orders', path: '/dev-harness/supplier-orders', ready: 'text=Supplier orders',
     states: [{ name: 'preview-open', run: async (p) => { await p.getByRole('button', { name: /Review & send to ABC Supply/ }).click(); await p.waitForSelector('text=Send to ABC Supply') } }] },
   { name: 'reports-home', path: '/dev-harness/reports-home', ready: 'text=Performance at a glance' },

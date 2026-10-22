@@ -1,3 +1,4 @@
+import { canManageSuppliers } from '@/lib/supplier-admin'
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { isAiAssistantAllowlistedAuth } from '@/lib/ai/chat-allowlist'
@@ -47,6 +48,7 @@ export async function GET(_request: NextRequest) {
         role: profile.role,
         full_name: profile.full_name,
         aiAssistantAllowlisted: isAiAssistantAllowlistedAuth({ authUser, profile }),
+        canManageSuppliers: canManageSuppliers(profile),
       },
     })
   } catch (error) {
