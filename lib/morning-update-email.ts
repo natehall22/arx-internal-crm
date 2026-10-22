@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getOrgEmailBlastSettings, resolveEmailBlastRecipients } from '@/lib/admin-email-blasts'
 import { fetchMorningUpdateMetrics, type MorningUpdateMetrics } from '@/lib/morning-update-metrics'
-import { loadDataHealth, type DataHealthReport } from '@/lib/data-health'
+import { filterReportForViewer, loadDataHealth, type DataHealthReport } from '@/lib/data-health'
 import { resolveAppUrl } from '@/lib/job-trades'
 import { getCrmEmailFrom, getMailTransport } from '@/lib/setter-email'
 
@@ -286,7 +286,19 @@ export async function sendMorningUpdateEmail(
   } catch (error) {
     console.error('sendMorningUpdateEmail: data health failed', error)
   }
-  const html = buildMorningUpdateHtml(metrics, { test: isTest, needsYou })
+  // Money and credit rows in "Needs you" go to super admins (owners) only; everyone else gets the
+  // same email without them.
+  const { data: ownerRows } = await supabase
+    .from('users')
+    .select('email')
+    .eq('org_id', params.orgId)
+    .eq('is_super_admin', true)
+    .eq('active', true)
+  const ownerEmails = new Set((ownerRows || []).map((u: { email: string | null }) => String(u.email || '').trim().toLowerCase()))
+  const ownerHtml = buildMorningUpdateHtml(metrics, { test: isTest, needsYou })
+  const everyoneHtml = needsYou
+    ? buildMorningUpdateHtml(metrics, { test: isTest, needsYou: filterReportForViewer(needsYou, false) })
+    : ownerHtml
 
   let sent = 0
   let failed = 0
@@ -296,7 +308,7 @@ export async function sendMorningUpdateEmail(
         from: getCrmEmailFrom(),
         to,
         subject,
-        html,
+        html: ownerEmails.has(to.trim().toLowerCase()) ? ownerHtml : everyoneHtml,
       })
       sent += 1
     } catch (error) {

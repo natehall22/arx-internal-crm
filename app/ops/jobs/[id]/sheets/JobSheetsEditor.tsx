@@ -159,8 +159,8 @@ export default function JobSheetsEditor({ initialSheet, canEdit, scope, coverage
                   label="Supplier order sheet"
                   pdfUrl={supplierPdfUrl}
                   color={SUPPLIER_ACCENT}
-                  downloadLabel="Download to send"
-                  downloadTitle="Downloading the order sheet marks this job's materials as ordered."
+                  downloadLabel="Download"
+                  downloadTitle="Download the order sheet to send it yourself."
                 />
               )}
             </div>
