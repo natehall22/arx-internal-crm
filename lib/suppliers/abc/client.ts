@@ -8,6 +8,8 @@ import type { AbcEnvironment } from '@/lib/suppliers/abc/types'
  * is recorded as UNKNOWN, and the person must check ABC before sending again. NOTHING here retries.
  */
 export class AbcRefusedError extends Error {
+  /** Typed marker the send flow checks first, so wording changes can never flip refused ↔ unknown. */
+  readonly refused = true
   constructor(message: string) {
     super(`ABC refused the order: ${message}`)
   }
@@ -60,9 +62,9 @@ export function interpretSubmitResponse(status: number, body: unknown): AbcSubmi
   }
   const failed = Number(b.request?.ordersFailed ?? 0)
   const order = Array.isArray(b.orders) ? b.orders[0] : null
-  if (failed > 0 || !order) {
-    throw new AbcRefusedError(`${text(order?.message) ?? 'the order failed'}`.slice(0, 300))
-  }
+  // A 2xx we cannot read means ABC may well have taken the order: unknown, never "refused".
+  if (!order) throw new Error(`ABC answered ${status} but the answer could not be read; it is not known whether the order was received`)
+  if (failed > 0) throw new AbcRefusedError(`${text(order.message) ?? 'the order failed'}`.slice(0, 300))
   const confirmation = text(order.confirmationNumber)
   if (!confirmation) throw new Error('ABC answered but gave no confirmation number; it is not known whether the order was received')
   return { confirmationNumber: confirmation, message: text(order.message) }
@@ -83,5 +85,7 @@ export async function submitAbcOrder(
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   })
   const json = await res.json().catch(() => null)
+  // An old token (revoked/rotated) would otherwise keep failing for its whole cache life.
+  if (res.status === 401) tokens.delete(environment)
   return interpretSubmitResponse(res.status, json)
 }

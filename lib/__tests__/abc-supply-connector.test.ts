@@ -120,6 +120,11 @@ describe('ABC answers', () => {
     expect(() => interpretSubmitResponse(202, { request: { ordersFailed: 1 }, orders: [{ message: 'Item not found' }] })).toThrow(/refused/)
     expect(() => interpretSubmitResponse(500, {})).toThrow(/not known/)
     expect(() => interpretSubmitResponse(202, { request: { ordersFailed: 0 }, orders: [{ message: 'ok' }] })).toThrow(/not known/)
+    // unreadable / empty 2xx body: ABC may have the order
+    expect(() => interpretSubmitResponse(200, null)).toThrow(/not known/)
+    expect(() => interpretSubmitResponse(202, {})).toThrow(/not known/)
+    try { interpretSubmitResponse(202, null) } catch (e) { expect((e as { refused?: boolean }).refused).toBeUndefined() }
+    try { interpretSubmitResponse(400, {}) } catch (e) { expect((e as { refused?: boolean }).refused).toBe(true) }
     try { interpretSubmitResponse(500, {}) } catch (e) { expect((e as Error).message).not.toMatch(/refused|invalid|rejected/i) }
   })
   it('never retries: a timeout is one request, then an error', async () => {

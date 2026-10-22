@@ -17,7 +17,7 @@ export function makeAuditedTransmit(admin: SupabaseClient, who: { orgId: string;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       // Same split the send flow uses: a definite refusal vs "not sure it went out".
-      const refused = /refused|not set up|no order email|no API connection|invalid|rejected/i.test(message)
+      const refused = (error as { refused?: boolean })?.refused === true || /refused|not set up|no order email|no API connection|invalid|rejected/i.test(message)
       await logApiEvent(admin, { ...base, event: refused ? 'submit_refused' : 'submit_unknown', detail: { po: order.poLabel, error: message.slice(0, 500) } })
       throw error
     }

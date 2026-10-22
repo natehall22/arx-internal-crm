@@ -960,7 +960,7 @@ export async function executeSupplierOrderSend(
     const detail = error instanceof Error ? error.message : String(error)
     // A clear refusal means nothing left. Anything else (timeout, dropped connection) may have
     // been accepted by the server, so record it as unknown: the next send asks for a second yes.
-    const clearRefusal = /refused|not set up|no order email|no API connection|invalid|rejected/i.test(detail)
+    const clearRefusal = (error as { refused?: boolean })?.refused === true || /refused|not set up|no order email|no API connection|invalid|rejected/i.test(detail)
     if (!clearRefusal) {
       await deps.store.completeSend(sendId, {
         status: 'unknown',
