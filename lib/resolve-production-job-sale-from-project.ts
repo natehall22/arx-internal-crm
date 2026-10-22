@@ -1,5 +1,4 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { commissionCompBaseFromPreTaxAndDealerFee } from '@/lib/commission-payroll'
 
 export type InstallationContractSnapshot = {
   project_cost: number
@@ -12,8 +11,6 @@ export type ResolvedProductionJobFinancials = {
   dealer_fee_amount: number | null
   dealer_fee_percent: number | null
   financing_program_id: string | null
-  commission_pre_tax_subtotal: number | null
-  commission_comp_base: number | null
 }
 
 function roundMoney(n: number): number {
@@ -21,7 +18,9 @@ function roundMoney(n: number): number {
 }
 
 /**
- * Resolve sale + payroll snapshot when creating a production job from a project.
+ * Resolve the starting sale amount + lender details when creating a production job from a project.
+ * The commission base is NOT resolved here — lib/job-commission-base.ts writes it (and the final
+ * sale amount) from the signed contract + signed change orders right after the job is created.
  * Contract total comes from change orders / installation agreement; lender/dealer fee and financing
  * program come from the linked proposal (installation PDF often omits loan details).
  */
@@ -111,15 +110,6 @@ export async function resolveProductionJobFinancials(
       ? Number(proposalRow.dealer_fee_percent)
       : null
 
-  const preTax =
-    proposalRow?.subtotal != null ? roundMoney(Number(proposalRow.subtotal)) : null
-
-  const commission_pre_tax_subtotal = preTax
-  const commission_comp_base =
-    preTax != null
-      ? commissionCompBaseFromPreTaxAndDealerFee(preTax, isFinance ? dealer_fee_amount : null)
-      : null
-
   const financing_program_id =
     isFinance && proposalRow?.financing_program_id
       ? String(proposalRow.financing_program_id)
@@ -130,7 +120,5 @@ export async function resolveProductionJobFinancials(
     dealer_fee_amount,
     dealer_fee_percent,
     financing_program_id,
-    commission_pre_tax_subtotal,
-    commission_comp_base,
   }
 }

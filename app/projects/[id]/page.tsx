@@ -1,5 +1,6 @@
 export const dynamic = 'force-dynamic'
 
+import { sumCollectedCents } from '@/lib/job-collection'
 import { requireAuth } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import Nav from '@/components/Nav'
@@ -34,6 +35,7 @@ import PayrollAttributionEditor, {
 } from '@/components/payroll/PayrollAttributionEditor'
 import ReviewRequestCard from '@/components/reviews/ReviewRequestCard'
 import { isReviewEligibleStatus } from '@/lib/review-requests'
+import { isSuperAdmin } from '@/lib/super-admin'
 
 export default async function ProjectDetailPage({
   params,
@@ -284,11 +286,11 @@ export default async function ProjectDetailPage({
     try {
       const { data: payments } = await supabase
         .from('job_payments')
-        .select('amount_cents')
+        .select('amount_cents, funding_status')
         .eq('job_id', productionJob.id)
 
       if (payments) {
-        amountCollected = payments.reduce((sum, p) => sum + (p.amount_cents || 0), 0) / 100
+        amountCollected = sumCollectedCents(payments) / 100
       }
     } catch (e) {
       console.log('Could not fetch payments:', e)
@@ -300,8 +302,9 @@ export default async function ProjectDetailPage({
   const customerEmail = project.customers?.email || project.leads?.email || null
 
   const canViewJobBilling = canAccessJobBilling({ role: profile.role })
-  const canEditPayrollAttribution =
-    isOrgSuperuserRoleSlug(profile.role) || profile.role === 'operations'
+  // Sale credit is confirmed at contract signing; afterwards only an owner (super admin) may
+  // change it, with a reason (enforced again in PATCH /api/opportunities/[id]).
+  const canEditPayrollAttribution = isSuperAdmin(profile)
 
   let payrollAttribution: PayrollAttributionData | null = null
   const linkedOpportunityId = project.opportunity_id as string | null | undefined

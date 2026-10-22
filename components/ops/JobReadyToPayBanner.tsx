@@ -2,6 +2,7 @@
 
 import type { JobPaymentSummary } from '@/lib/types/job-payments'
 import type { JobStatus } from '@/lib/job-status'
+import { evaluateJobCollection } from '@/lib/job-collection'
 
 interface JobReadyToPayBannerProps {
   status: JobStatus
@@ -26,11 +27,14 @@ export default function JobReadyToPayBanner({
 }: JobReadyToPayBannerProps) {
   if (!canViewBilling || !paymentSummary) return null
 
-  const saleCents = Math.round((saleAmount || 0) * 100)
-  if (saleCents <= 0) return null
-
-  const collected = paymentSummary.collected_cents ?? 0
-  const fullyPaid = collected >= saleCents
+  // One paid-in-full rule (lib/job-collection.ts): payments within $0.05 of the sale amount.
+  // A super-admin "closed with balance" is not "paid in full" for this banner.
+  const collection = evaluateJobCollection({
+    saleAmount,
+    collectedCents: paymentSummary.collected_cents ?? 0,
+  })
+  if (collection.missingSaleAmount) return null
+  const fullyPaid = collection.paidByPayments
   /** Hide once job is collected — payroll handoff uses JobPayrollSentBanner. A cancelled job is never collected. */
   if (!fullyPaid || status === 'collected' || status === 'cancelled') return null
 

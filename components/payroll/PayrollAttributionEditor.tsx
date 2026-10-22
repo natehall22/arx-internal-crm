@@ -32,6 +32,8 @@ export default function PayrollAttributionEditor({
   const [saving, setSaving] = useState(false)
   const [setterEditId, setSetterEditId] = useState('')
   const [closerEditId, setCloserEditId] = useState('')
+  // Once the contract is signed, a change needs a reason (logged); the server enforces it.
+  const [reason, setReason] = useState('')
   const [display, setDisplay] = useState({
     setter_name: initial.setter_name,
     closer_name: initial.closer_name,
@@ -80,6 +82,7 @@ export default function PayrollAttributionEditor({
         body: JSON.stringify({
           setter_user_id: setterEditId || null,
           owner_user_id: closerEditId || null,
+          sale_credit_change_reason: reason.trim() || null,
         }),
       })
       if (!res.ok) {
@@ -100,6 +103,7 @@ export default function PayrollAttributionEditor({
         setter_name: setterName,
         closer_name: closerName,
       }
+      setReason('')
       setDisplay({
         setter_name: setterName,
         closer_name: closerName,
@@ -119,8 +123,8 @@ export default function PayrollAttributionEditor({
     <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
       <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-1">Payroll attribution</h2>
       <p className="text-xs text-gray-500 mb-4">
-        Setter and closer come from the linked opportunity and drive commission export. Closer uses the
-        opportunity &quot;owner&quot; field in the database.
+        Setter and closer were confirmed when the contract was signed and decide who is paid. Only an owner
+        can change them now, and the reason is saved.
       </p>
       {canEdit ? (
         <div className="space-y-4">
@@ -153,6 +157,18 @@ export default function PayrollAttributionEditor({
                 </option>
               ))}
             </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1" style={{ color: '#2c2c2a' }}>
+              Reason for the change (required after the contract is signed)
+            </label>
+            <input
+              type="text"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              className="w-full max-w-md border border-gray-400 rounded-lg px-3 py-2 text-sm"
+              style={{ color: '#2c2c2a' }}
+            />
           </div>
           <button
             type="button"

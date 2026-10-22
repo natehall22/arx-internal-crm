@@ -1,4 +1,3 @@
-import { netCommissionableFromJob } from '@/lib/financing'
 import { roundMoney } from '@/lib/money'
 
 /** Org policy: total rep commissions + incentives cannot exceed this fraction of commission comp base. */
@@ -25,23 +24,11 @@ export function isPoolCapExcludedPlanType(planType: string | null | undefined): 
   return POOL_CAP_EXCLUDED_PLAN_TYPES.has(String(planType || '').toLowerCase())
 }
 
-/**
- * Commission comp base = pre–sales-tax subtotal minus dealer fee (when both known from proposal).
- */
-export function commissionCompBaseFromPreTaxAndDealerFee(
-  preTaxSubtotal: number,
-  dealerFeeAmount: number | null | undefined
-): number {
-  const pre = roundMoney(preTaxSubtotal)
-  const fee = roundMoney(dealerFeeAmount ?? 0)
-  return Math.max(0, roundMoney(pre - fee))
-}
-
 export function commissionPoolCap(compBase: number): number {
   return roundMoney(roundMoney(compBase) * SALES_COMMISSION_POOL_RATE)
 }
 
-export type CommissionPayrollSource = 'stored' | 'computed_fallback' | 'unavailable'
+export type CommissionPayrollSource = 'stored' | 'unavailable'
 
 export type CommissionPayrollSnapshot = {
   preTaxSubtotal: number | null
@@ -63,13 +50,19 @@ type JobRow = {
 
 /**
  * Build payroll-facing numbers for a production job.
- * Prefer stored columns (set at contract sign from proposal subtotal + dealer fee).
+ *
+ * The base is read ONLY from `production_jobs.commission_comp_base`, which has exactly
+ * one writer (lib/job-commission-base.ts: signed contract + signed change orders). There
+ * is no fallback estimate any more — the old "sale amount minus dealer fee" guess was a
+ * second definition of the base. A job without a stored base is `unavailable`, and
+ * payroll skips it (`missing_commission_base`) until the data-health check gets it fixed.
  */
 export function buildCommissionPayrollSnapshot(job: JobRow): CommissionPayrollSnapshot {
   const dealerFee = roundMoney(job.dealer_fee_amount ?? 0)
+  const stored = job.commission_comp_base != null ? Number(job.commission_comp_base) : null
 
-  if (job.commission_comp_base != null && job.commission_comp_base > 0) {
-    const compBase = roundMoney(job.commission_comp_base)
+  if (stored != null && Number.isFinite(stored) && stored > 0) {
+    const compBase = roundMoney(stored)
     return {
       preTaxSubtotal:
         job.commission_pre_tax_subtotal != null ? roundMoney(job.commission_pre_tax_subtotal) : null,
@@ -82,21 +75,6 @@ export function buildCommissionPayrollSnapshot(job: JobRow): CommissionPayrollSn
     }
   }
 
-  const sale = job.sale_amount != null ? roundMoney(job.sale_amount) : null
-  if (sale != null && sale > 0) {
-    const approx = netCommissionableFromJob(sale, job.dealer_fee_amount)
-    return {
-      preTaxSubtotal: null,
-      dealerFeeAmount: dealerFee,
-      compBase: approx,
-      poolCap: commissionPoolCap(approx),
-      poolRate: SALES_COMMISSION_POOL_RATE,
-      source: 'computed_fallback',
-      fallbackNote:
-        'Comp base estimated from sale amount and dealer fee (pre-tax subtotal not on file). Confirm with proposal if tax or pricing differs.',
-    }
-  }
-
   return {
     preTaxSubtotal: null,
     dealerFeeAmount: dealerFee,
@@ -104,6 +82,6 @@ export function buildCommissionPayrollSnapshot(job: JobRow): CommissionPayrollSn
     poolCap: null,
     poolRate: SALES_COMMISSION_POOL_RATE,
     source: 'unavailable',
-    fallbackNote: null,
+    fallbackNote: 'No commission base on file. It is set when the contract or a change order is signed.',
   }
 }

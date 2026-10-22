@@ -10,6 +10,7 @@ import { mapScheduledAppointmentWriteError } from '@/lib/scheduled-appointment-e
 import { NextRequest, NextResponse } from 'next/server'
 import { resolveApiRequestAuthUser } from '@/lib/supabase-api-request-auth'
 import { deleteGoogleEventWithFallback, getValidAccessToken } from '@/lib/appointment-calendar-sync'
+import { saleCreditLockBlock } from '@/lib/deal-sale-credit'
 import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
@@ -61,7 +62,7 @@ export async function GET(
 
     let { data: profile } = await adminClient
       .from('users')
-      .select('org_id, role')
+      .select('org_id, role, is_super_admin, active')
       .eq('id', user.id)
       .maybeSingle()
 
@@ -93,9 +94,9 @@ export async function GET(
           },
           { onConflict: 'id' }
         )
-        .select('org_id, role')
+        .select('org_id, role, is_super_admin, active')
         .maybeSingle()
-      profile = recovered || { org_id: derivedOrgId, role: 'rep' as const }
+      profile = recovered || { org_id: derivedOrgId, role: 'rep' as const, is_super_admin: false, active: true }
     }
 
     if (!profile?.org_id) {
@@ -170,7 +171,7 @@ export async function PATCH(
     // Get user profile
     const { data: profile } = await adminClient
       .from('users')
-      .select('org_id, role, full_name, custom_role_id')
+      .select('org_id, role, full_name, custom_role_id, is_super_admin, active')
       .eq('id', user.id)
       .single()
 
@@ -265,6 +266,17 @@ export async function PATCH(
       if (!canReassign) {
         return NextResponse.json({ error: 'Only managers can reassign appointments' }, { status: 403 })
       }
+
+      // A signed deal's credit follows the closer: only a super admin may move it (lib/deal-sale-credit.ts).
+      const creditBlock = await saleCreditLockBlock(adminClient, {
+        orgId: profile.org_id,
+        opportunityId: (appointment.opportunity_id as string | null) ?? null,
+        // Only fall back to the lead's deals when the appointment isn't tied to one; a later
+        // appointment (repair, second deal) must stay reassignable after an earlier deal signed.
+        leadId: appointment.opportunity_id ? null : ((appointment.lead_id as string | null) ?? null),
+        actor: profile as { is_super_admin?: boolean | null; active?: boolean | null },
+      })
+      if (creditBlock) return NextResponse.json({ error: creditBlock }, { status: 403 })
 
       // Verify new closer exists in same org
       const { data: newCloser } = await adminClient
