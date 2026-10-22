@@ -171,10 +171,13 @@ export default function SupplierOrdersCard({ jobId, onChanged }: { jobId: string
         <p key={`${g.source}-${g.trade}`} className="my-1.5 text-sm">{g.label} — not on a purchase order</p>
       ))}
 
-      {open && preview && (
+      {open && (
         <div className="fixed inset-0 z-[100] flex items-end bg-black/50 sm:items-center sm:justify-center sm:p-4" role="dialog" aria-modal="true">
-          <div className="flex max-h-[92vh] w-full flex-col rounded-t-2xl bg-white sm:max-w-xl sm:rounded-xl">
+          <div className="flex max-h-[92dvh] w-full flex-col rounded-t-2xl bg-white sm:max-w-xl sm:rounded-xl">
             <div className="flex-1 overflow-y-auto p-4">
+              {!preview && !error && <p className="text-sm">Loading the preview…</p>}
+              {!preview && error && <p className="text-sm text-[#a32d2d]">{error}</p>}
+              {preview && (<>
               <h4 className="m-0 text-base font-semibold">{preview.sendButtonLabel}</h4>
               <p className="my-2 break-words text-sm">
                 To: {preview.email.to}{preview.email.cc.length > 0 && <> · Cc: {preview.email.cc.join(', ')}</>}
@@ -211,7 +214,7 @@ export default function SupplierOrdersCard({ jobId, onChanged }: { jobId: string
                 <iframe
                   title="Purchase order preview"
                   src={`/api/ops/jobs/${jobId}/supplier-orders/preview?vendorId=${open.vendorId}&kind=${open.kind}&deliveryDate=${deliveryDate}&format=pdf`}
-                  className="h-[50vh] w-full rounded border border-[#d3d1c7]"
+                  className="h-[50dvh] w-full rounded border border-[#d3d1c7]"
                 />
               )}
               {preview.blockers.map((b) => (
@@ -219,16 +222,17 @@ export default function SupplierOrdersCard({ jobId, onChanged }: { jobId: string
               ))}
               {confirm && <p className="text-sm font-semibold text-[#7a4b00]">{confirm}</p>}
               {error && <p className="text-sm text-[#a32d2d]">{error}</p>}
+              </>)}
             </div>
             <div className="flex flex-col-reverse gap-2 border-t border-[#e6e4dc] bg-white p-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:flex-row sm:justify-end">
               <button type="button" className={btn} onClick={() => { setOpen(null); setPreview(null); setConfirm(null) }}>Close</button>
               <button
                 type="button"
                 className="inline-flex min-h-[44px] w-full sm:w-auto items-center justify-center rounded-lg bg-[#2b0a3d] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-                disabled={busy || preview.blockers.length > 0}
+                disabled={busy || !preview || preview.blockers.length > 0}
                 onClick={() => send(!!confirm)}
               >
-                {busy ? 'Sending…' : confirm ? 'Yes, send anyway' : preview.sendButtonLabel}
+                {busy ? 'Sending…' : confirm ? 'Yes, send anyway' : preview?.sendButtonLabel ?? 'Send'}
               </button>
             </div>
           </div>

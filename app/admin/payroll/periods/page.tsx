@@ -121,13 +121,13 @@ export default function PayrollPeriodsPage() {
     <>
         <Link
           href={`/admin/payroll/${p.id}/hours`}
-          className="inline-flex min-h-[44px] items-center justify-center px-3 text-indigo-700 hover:text-indigo-900 text-sm font-medium"
+          className="inline-flex min-h-[44px] sm:min-h-0 items-center justify-center px-3 sm:px-0 text-indigo-700 hover:text-indigo-900 text-sm sm:text-xs font-medium"
         >
           Hours
         </Link>
         <Link
           href={`/admin/payroll/statements?period_id=${p.id}`}
-          className="inline-flex min-h-[44px] items-center justify-center px-3 text-indigo-700 hover:text-indigo-900 text-sm font-medium"
+          className="inline-flex min-h-[44px] sm:min-h-0 items-center justify-center px-3 sm:px-0 text-indigo-700 hover:text-indigo-900 text-sm sm:text-xs font-medium"
         >
           Statements
         </Link>
@@ -136,7 +136,7 @@ export default function PayrollPeriodsPage() {
             type="button"
             disabled={actionLoading === `${p.id}-lock`}
             onClick={() => runAction(p.id, 'lock')}
-            className="inline-flex min-h-[44px] items-center justify-center px-3 text-sm font-medium text-amber-800 hover:text-amber-900 disabled:opacity-50"
+            className="inline-flex min-h-[44px] sm:min-h-0 items-center justify-center px-3 sm:px-0 text-sm sm:text-xs font-medium text-amber-800 hover:text-amber-900 disabled:opacity-50"
           >
             Lock
           </button>
@@ -146,7 +146,7 @@ export default function PayrollPeriodsPage() {
             type="button"
             disabled={actionLoading === `${p.id}-mark_paid`}
             onClick={() => runAction(p.id, 'mark_paid')}
-            className="inline-flex min-h-[44px] items-center justify-center px-3 text-sm font-medium text-indigo-700 disabled:opacity-50"
+            className="inline-flex min-h-[44px] sm:min-h-0 items-center justify-center px-3 sm:px-0 text-sm sm:text-xs font-medium text-indigo-700 disabled:opacity-50"
           >
             Mark paid
           </button>
@@ -156,7 +156,7 @@ export default function PayrollPeriodsPage() {
             type="button"
             disabled={actionLoading === `${p.id}-cancel`}
             onClick={() => runAction(p.id, 'cancel')}
-            className="inline-flex min-h-[44px] items-center justify-center px-3 text-sm text-gray-700 hover:text-gray-900 disabled:opacity-50"
+            className="inline-flex min-h-[44px] sm:min-h-0 items-center justify-center px-3 sm:px-0 text-sm sm:text-xs text-gray-700 hover:text-gray-900 disabled:opacity-50"
           >
             Cancel
           </button>

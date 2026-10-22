@@ -12,6 +12,9 @@ import JobDocumentsBanner from '@/components/ops/JobDocumentsBanner'
 import JobMaterialsCard from '@/components/ops/JobMaterialsCard'
 import NeedsYouList from '@/components/ops/NeedsYouList'
 import SupplierOrdersCard from '@/components/ops/SupplierOrdersCard'
+import JobReadyToPayBanner from '@/components/ops/JobReadyToPayBanner'
+import JobPayrollSentBanner from '@/components/ops/JobPayrollSentBanner'
+import SuppliersClient from '@/app/admin/suppliers/SuppliersClient'
 import ContractModal from '@/components/contracts/ContractModal'
 import ExploreClient from '@/app/reports/explore/ExploreClient'
 import ReportsPage from '@/app/reports/page'
@@ -52,6 +55,17 @@ export default function Harness({ params }: { params: { screen: string } }) {
       return <div className="p-3"><JobMaterialsCard jobId="job-1" userRole="admin" title="Materials" /></div>
     case 'supplier-orders':
       return <div className="p-3"><SupplierOrdersCard jobId="job-1" /></div>
+    case 'pay-banners': {
+      const summary = { payments: [], collected_cents: 1632500, collected_dollars: 16325, sale_amount_cents: 1632500, sale_amount_dollars: 16325, remaining_cents: 0, remaining_dollars: 0, payment_count: 3, paid_in_full: true, paid_by_payments: true } as never
+      return (
+        <div className="p-3">
+          <JobReadyToPayBanner status="complete" paymentSummary={summary} saleAmount={16325} canViewBilling onMarkCollected={() => undefined} onMarkJobComplete={() => undefined} />
+          <JobPayrollSentBanner jobId="job-1" status="complete" payrollSentAt={null} paymentSummary={summary} saleAmount={16325} canViewBilling onUpdated={() => undefined} />
+        </div>
+      )
+    }
+    case 'suppliers-admin':
+      return <SuppliersClient />
     case 'reports-home':
       return <ReportsPage />
     case 'reports-explore':

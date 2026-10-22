@@ -29,6 +29,7 @@ interface UserProfile {
   role: string
   full_name: string
   aiAssistantAllowlisted?: boolean
+  canManageSuppliers?: boolean
 }
 
 const defaultSettings: UserSettings = {
@@ -63,7 +64,7 @@ export default function SettingsPage() {
   const [aiEnabled, setAiEnabled] = useState(defaultSettings.ai_enabled)
   const [googleToken, setGoogleToken] = useState<any>(null)
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null)
-  const [activeTab, setActiveTab] = useState<'notifications' | 'calendar' | 'ai' | 'reports' | 'display'>('notifications')
+  const [activeTab, setActiveTab] = useState<'notifications' | 'calendar' | 'ai' | 'reports' | 'suppliers' | 'display'>('notifications')
   const [calendarMessage, setCalendarMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   useEffect(() => {
@@ -242,6 +243,7 @@ export default function SettingsPage() {
       ? [{ id: 'ai', label: 'AI Assistant', icon: '🤖' }]
       : []),
     { id: 'reports', label: 'My Reports', icon: '📊' },
+    ...(userProfile?.canManageSuppliers ? [{ id: 'suppliers', label: 'Suppliers', icon: '🚚' }] : []),
     { id: 'display', label: 'Display', icon: '🎨' },
   ] as const
 
@@ -268,7 +270,7 @@ export default function SettingsPage() {
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id as any)}
-              className={`px-4 py-3 font-medium text-sm border-b-2 -mb-px whitespace-nowrap flex items-center gap-2 ${
+              className={`min-h-[44px] px-4 py-3 font-medium text-sm border-b-2 -mb-px whitespace-nowrap flex items-center gap-2 ${
                 activeTab === tab.id
                   ? 'border-indigo-600 text-indigo-600'
                   : 'border-transparent text-gray-500 hover:text-gray-700'
@@ -624,6 +626,18 @@ export default function SettingsPage() {
         )}
 
         {/* Display Tab */}
+        {activeTab === 'suppliers' && userProfile?.canManageSuppliers && (
+          <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
+            <h2 className="text-lg font-semibold text-[#2c2c2a] mb-2">Suppliers</h2>
+            <p className="text-sm text-[#2c2c2a] mb-4">
+              Where purchase orders are emailed, who the default supplier is for each trade, and a log of every change.
+            </p>
+            <a href="/admin/suppliers" className="inline-flex min-h-[44px] w-full sm:w-auto items-center justify-center rounded-lg bg-indigo-700 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-800">
+              Open Suppliers
+            </a>
+          </div>
+        )}
+
         {activeTab === 'display' && (
           <div className="bg-white rounded-xl shadow-sm border p-6 space-y-6">
             <div>

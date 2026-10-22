@@ -275,7 +275,7 @@ export default function ContractModal({
       <div className="flex min-h-full items-end justify-center sm:items-center sm:p-4">
         <div className="fixed inset-0 bg-black/50" onClick={onClose} />
         
-        <div className="relative bg-white rounded-t-2xl sm:rounded-xl shadow-xl max-w-3xl w-full max-h-[92vh] overflow-y-auto">
+        <div className="relative bg-white rounded-t-2xl sm:rounded-xl shadow-xl max-w-3xl w-full max-h-[92dvh] overflow-y-auto">
           <div className="sticky top-0 bg-white border-b px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between z-10">
             <div>
               <h2 className="text-xl font-bold text-gray-900">Send Agreement</h2>
@@ -309,7 +309,7 @@ export default function ContractModal({
             ))}
           </div>
 
-          <div className="p-4 sm:p-6 [&_input:not([type=checkbox]):not([type=radio])]:min-h-[44px] [&_input]:text-base [&_select]:min-h-[44px] [&_select]:text-base [&_textarea]:text-base">
+          <div className="p-4 sm:p-6 max-sm:[&_input:not([type=checkbox]):not([type=radio])]:min-h-[44px] max-sm:[&_input]:text-base max-sm:[&_select]:min-h-[44px] max-sm:[&_select]:text-base max-sm:[&_textarea]:text-base">
             {error && (
               <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
                 <p className="text-sm text-red-700">{error}</p>

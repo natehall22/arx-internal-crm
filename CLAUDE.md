@@ -124,6 +124,9 @@ that file rather than extending the pattern.
 ## UI Conventions
 - **Text contrast is an ongoing, recurring problem in this build — always verify text stands out.** Use explicit dark text (`#2c2c2a`, not generic gray) on light surfaces; never place text directly on the satellite/photo map — use a solid or opaque-scrim background; aim for WCAG AA. Validate legibility on a cheap Android in direct sun for any field-facing UI.
 
+- **Mobile standard (added 2026-10-22) — every new or changed screen must meet it, verified by `npm run test:mobile` (Playwright, iPhone SE 375 + iPhone 13).**
+  Works at 375px and 390–430px with **no sideways page scroll**; tables collapse to stacked cards on mobile or scroll inside their own box with the first column pinned (never the whole page); **tap targets ≥ 44px** and the primary action reachable by thumb (sticky bottom bar for Send / Approve / Save); dialogs are **full-height bottom sheets** on mobile (use `dvh`, not `vh`); body text ≥ 14px and **inputs ≥ 16px** (stops iOS zoom-on-focus); money/number inputs use `inputMode="decimal"`; **no hover-only actions**; contrast per the rule above. New screens get a case in `e2e/mobile.spec.ts` (client screens render through `app/dev-harness/[screen]` with mocked `/api`; the harness 404s in production). The spec fails on sideways scroll, taps under 44px, and inputs under 16px.
+
 ## Known Tech Debt
 - Canvass service worker `public/canvass-sw.js` (~line 46) skips `/api/*` — API responses get no SW caching; client-side fetches must handle their own caching/timeouts.
 - Vercel Cron pattern: `vercel.json` runs 3 crons (`sync-444`, `cleanup-inspection-photos`, `promote-insurance-follow-ups`), each secured by `Authorization: Bearer ${CRON_SECRET}` (503 if secret unset, 401 on mismatch) — always via `verifyCronSecret()` in `lib/cron-auth.ts` (constant-time; the 8 hand-copied checks were folded into it 2026-09-26). Reuse it for any new cron or Actions worker.
