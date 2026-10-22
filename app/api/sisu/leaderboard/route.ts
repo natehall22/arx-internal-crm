@@ -5,6 +5,7 @@ import { isCalendarDateString, isTimeFrame } from '@/lib/time-frames'
 import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
 import { resolveDashboardMemberScope } from '@/lib/dashboard-member-scope'
 import { shouldShowUserOnTeamLeaderboard } from '@/lib/dashboard-team-leaderboard'
+import { fetchPeriodMetricRows } from '@/lib/reporting/period-metrics'
 import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
@@ -23,12 +24,6 @@ type OrgUser = {
   role: string
   show_in_reports: boolean | null
   active: boolean | null
-}
-
-type CountRow = {
-  owner_id?: string
-  canvasser_id?: string
-  cnt: number | string
 }
 
 type LeaderboardEntry = {
@@ -56,15 +51,6 @@ const TIMEZONE = 'America/New_York'
 function toNumber(value: unknown) {
   const parsed = Number(value ?? 0)
   return Number.isFinite(parsed) ? parsed : 0
-}
-
-function countMap(rows: CountRow[], idKey: 'owner_id' | 'canvasser_id') {
-  const map = new Map<string, number>()
-  for (const row of rows) {
-    const userId = row[idKey]
-    if (userId) map.set(userId, toNumber(row.cnt))
-  }
-  return map
 }
 
 function rankEntries(
@@ -173,30 +159,21 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(responseBase)
     }
 
-    const rpcArgs = {
-      p_org_id: userProfile.org_id,
-      p_start: start.toISOString(),
-      p_end: end.toISOString(),
-      p_member_ids: memberIds,
+    // Doors, inspections set and sales from the reporting views (same definitions as the dashboard).
+    const period = await fetchPeriodMetricRows(admin, {
+      orgId: userProfile.org_id,
+      startIso: start.toISOString(),
+      endIso: end.toISOString(),
+    })
+    const tally = (ids: Array<string | null>) => {
+      const m = new Map<string, number>()
+      for (const id of ids) if (id) m.set(id, (m.get(id) ?? 0) + 1)
+      return m
     }
-
-    const [doorRows, inspectionRows, salesRows] = await Promise.all([
-      admin.rpc('dashboard_door_leads_by_owner', rpcArgs),
-      admin.rpc('dashboard_inspections_set_by_canvasser', rpcArgs),
-      admin.rpc('dashboard_install_sales_by_owner', rpcArgs),
-    ])
-
-    const rpcError = doorRows.error || inspectionRows.error || salesRows.error
-    if (rpcError) {
-      return NextResponse.json({ error: rpcError.message }, { status: 500 })
-    }
-
-    const doorsByUserId = countMap((doorRows.data ?? []) as unknown as CountRow[], 'owner_id')
-    const inspectionsByUserId = countMap(
-      (inspectionRows.data ?? []) as unknown as CountRow[],
-      'canvasser_id',
-    )
-    const salesByUserId = countMap((salesRows.data ?? []) as unknown as CountRow[], 'owner_id')
+    const doorsByUserId = tally(period.doors.map((d) => d.user_id))
+    const inspectionsByUserId = tally(period.sets.map((r) => r.setter_user_id))
+    // Closers are ranked on the sales they own (the opportunity's closer).
+    const salesByUserId = tally(period.sales.map((r) => r.closer_user_id))
 
     const { data: badgeRows, error: badgeCountError } = await admin
       .from('user_badges')
