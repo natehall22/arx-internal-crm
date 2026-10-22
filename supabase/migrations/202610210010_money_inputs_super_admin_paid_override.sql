@@ -58,7 +58,7 @@ COMMENT ON COLUMN production_jobs.close_balance_by IS
 COMMENT ON COLUMN production_jobs.close_balance_at IS
   'When the paid-in-full override was set.';
 COMMENT ON COLUMN production_jobs.commission_comp_base IS
-  'Commission base = signed contract total + signed commissionable change orders (dollars). One writer: lib/job-commission-base.ts.';
+  'Commission base = signed contract total + signed commissionable change orders, minus sales tax and dealer fee (dollars). One writer: lib/job-commission-base.ts.';
 COMMENT ON COLUMN production_jobs.commission_pre_tax_subtotal IS
   'RETIRED 2026-10-21. Cleared by lib/job-commission-base.ts; the base is no longer a pre-tax proposal figure.';
 
