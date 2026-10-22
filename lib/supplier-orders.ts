@@ -510,6 +510,8 @@ export type PreviewRequest = {
   deliveryDate: string | null
   deliveryAddress: string | null
   note: string | null
+  /** "I sent this to the supplier myself": record it without emailing. Skips email/date/page blockers. */
+  manual?: boolean
 }
 
 export type SupplierOrderPreview = {
@@ -576,11 +578,11 @@ export function buildSupplierOrderPreview(
     if (ctx.jobStatus === 'cancelled') blockers.push('This job is cancelled — orders cannot be sent.')
     if (!group) blockers.push(`Nothing on this job is ordered from ${supplier.name} right now.`)
     blockers.push(...sourcing.blockers)
-    if (group) blockers.push(...group.blockers)
-    if (!deliveryDate) blockers.push('Pick a delivery date.')
-    if (!deliveryAddress) blockers.push('Add a delivery address.')
+    if (group) blockers.push(...group.blockers.filter((b) => !(req.manual && /no order email/.test(b))))
+    if (!req.manual && !deliveryDate) blockers.push('Pick a delivery date.')
+    if (!req.manual && !deliveryAddress) blockers.push('Add a delivery address.')
   }
-  const channelProblem = supplierChannelProblem(supplier)
+  const channelProblem = req.manual ? null : supplierChannelProblem(supplier)
   if (channelProblem) blockers.push(channelProblem)
 
   const latest = ctx.sends.find((s) => s.supplierOrderId === order?.id && (s.status === 'sent' || s.status === 'unknown')) ?? null
@@ -654,7 +656,7 @@ export function buildSupplierOrderPreview(
   if (!isCancel && lines.length > 0) {
     const rendered = renderJobMaterialOrderPDF(sheet)
     pdf = rendered.pdf
-    if (rendered.truncated) {
+    if (rendered.truncated && !req.manual) {
       blockers.push('This order does not fit on one page, so it cannot be emailed from here. Download the order sheet and email it yourself.')
     }
   }
@@ -787,7 +789,7 @@ export async function executeSupplierOrderSend(
   const preview = built.preview
 
   if (preview.blockers.length > 0) return { ok: false, status: 409, message: preview.blockers[0] }
-  if (!input.previewToken || input.previewToken !== preview.previewToken) {
+  if (!input.manual && (!input.previewToken || input.previewToken !== preview.previewToken)) {
     return { ok: false, status: 409, message: 'The order changed since you opened the preview. Review it again before sending.' }
   }
   if (preview.confirmMessage && !input.confirmResend) {
@@ -825,8 +827,8 @@ export async function executeSupplierOrderSend(
     connection_type: supplier.connectionType,
     status: 'sending',
     sent_by: actor.id,
-    to_email: preview.email.to || supplier.name,
-    cc_emails: preview.email.cc,
+    to_email: input.manual ? 'sent by hand' : preview.email.to || supplier.name,
+    cc_emails: input.manual ? [] : preview.email.cc,
     subject: preview.email.subject,
     note: preview.note,
     delivery_date: preview.deliveryDate,
@@ -900,7 +902,9 @@ export async function executeSupplierOrderSend(
 
   let result: SupplierOrderTransmitResult
   try {
-    result = await deps.transmit({
+    result = input.manual
+      ? { channel: 'email', reference: null }
+      : await deps.transmit({
       kind: preview.kind,
       supplier,
       jobNumber: ctx.jobNumber,
@@ -936,6 +940,7 @@ export async function executeSupplierOrderSend(
 
   // ---- It went out. Everything below records it; none of it may un-send or re-send. ----
   const sentAt = now().toISOString()
+  const sentTo = input.manual ? 'sent by hand' : preview.email.to || supplier.name
   let warning: string | null = null
   const done = await deps.store.completeSend(sendId, {
     status: 'sent',
@@ -946,7 +951,7 @@ export async function executeSupplierOrderSend(
   })
   const isCancel = preview.kind === 'cancellation'
   const orderPatch: Record<string, unknown> = isCancel
-    ? { status: 'cancelled', cancelled_at: sentAt, cancelled_by: actor.id, last_sent_at: sentAt, last_sent_to: preview.email.to || supplier.name, updated_at: sentAt }
+    ? { status: 'cancelled', cancelled_at: sentAt, cancelled_by: actor.id, last_sent_at: sentAt, last_sent_to: sentTo, updated_at: sentAt }
     : {
         status: 'sent',
         revision: preview.revision,
@@ -958,7 +963,7 @@ export async function executeSupplierOrderSend(
         first_sent_at: order.lastSentAt ? undefined : sentAt,
         last_sent_at: sentAt,
         last_sent_by: actor.id,
-        last_sent_to: preview.email.to || supplier.name,
+        last_sent_to: sentTo,
         cancelled_at: null,
         cancelled_by: null,
         updated_at: sentAt,
@@ -995,7 +1000,7 @@ export async function executeSupplierOrderSend(
     await deps.unmarkMaterialsOrdered({ orgId: ctx.orgId, jobId: ctx.jobId }).catch(() => undefined)
   }
 
-  const via = supplier.connectionType === 'api' ? `${supplier.name} (by API)` : `${supplier.name} (${preview.email.to})`
+  const via = input.manual ? `${supplier.name} (sent by hand)` : supplier.connectionType === 'api' ? `${supplier.name} (by API)` : `${supplier.name} (${preview.email.to})`
   const who = actor.name || 'someone'
   const what =
     preview.kind === 'cancellation'
@@ -1007,7 +1012,7 @@ export async function executeSupplierOrderSend(
           : `PO ${preview.poLabel} sent to ${via} by ${who}.`
   await deps.store.insertJobNote(ctx.jobId, actor.id, `${what} ${rollup.summary}.`).catch(() => undefined)
 
-  return { ok: true, sentAt, poLabel: preview.poLabel, kind: preview.kind, to: preview.email.to, rollup, materialsMarkedOrdered, warning }
+  return { ok: true, sentAt, poLabel: preview.poLabel, kind: preview.kind, to: input.manual ? 'sent by hand' : preview.email.to, rollup, materialsMarkedOrdered, warning }
 }
 
 /**

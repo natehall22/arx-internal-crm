@@ -1,7 +1,8 @@
 /**
  * POST — send ONE supplier's order (or cancellation). The only route that places an order:
  * nothing else (status change, cron, background job) may call sendOrderToSupplier.
- *   { vendorId, kind: 'order'|'cancellation', deliveryDate, deliveryAddress, note, previewToken, confirmResend }
+ *   { vendorId, kind: 'order'|'cancellation', deliveryDate, deliveryAddress, note, previewToken, confirmResend, manual? }
+ * `manual: true` = "I sent this to the supplier myself": recorded in the same log and roll-up, nothing is emailed.
  * `previewToken` must match what the server would preview right now, so a person always sends
  * exactly what they just looked at.
  */
@@ -55,6 +56,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
         note: str(body?.note),
         previewToken: str(body?.previewToken) ?? '',
         confirmResend: body?.confirmResend === true,
+        manual: body?.manual === true,
       },
       {
         id: auth.authUser.id,

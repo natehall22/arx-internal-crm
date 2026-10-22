@@ -11,6 +11,8 @@
 - Failure never marks ordered. "Materials ordered" = every supplier PO sent unchanged; installer-supplied trades count once their crew is scheduled (`install-schedule/assign` re-checks).
 - Any trade works (electrical covered by tests). `lib/suppliers/send-order.ts` is the connector interface (ABC API plugs in there).
 
+- **Sending it yourself:** downloading the order sheet records nothing. Each supplier card has a one-tap **"I sent this to <supplier> myself"** (`manual: true` on the send route): same PO number, send log and N-of-M roll-up, nothing emailed, works even with no order email on file.
+
 ## Deploy order
 1. Migration `202610210060_supplier_orders.sql` (additive: new tables + nullable vendor columns + enums).
 2. Deploy. 3. Open /admin/suppliers, add ABC Supply (order email, default trades). 4. Needs `SMTP_HOST` etc. already used by other emails.
