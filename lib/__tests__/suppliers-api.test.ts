@@ -46,19 +46,19 @@ describe('POST /api/admin/suppliers', () => {
   it('403 for anyone who is not an owner', async () => {
     profileRef.current = { id: 'u', org_id: 'org-1', role: 'admin', is_super_admin: false, active: true }
     const res = await POST(post({ name: 'ABC' }))
-    expect(res.status).toBe(403)
+    expect(res?.status).toBe(403)
     expect(calls).toEqual([])
   })
 
   it('400 on a bad email and writes nothing', async () => {
     const res = await POST(post({ name: 'ABC', order_email: 'not-an-email' }))
-    expect(res.status).toBe(400)
+    expect(res?.status).toBe(400)
     expect(calls.filter((c) => c.op !== 'select')).toEqual([])
   })
 
   it('creates the supplier and logs who/what', async () => {
     const res = await POST(post({ name: 'ABC Supply', order_email: 'o@abc.com', default_for_trades: ['roofing'] }))
-    expect(res.status).toBe(200)
+    expect(res?.status).toBe(200)
     const log = calls.find((c) => c.table === 'supplier_audit_log')
     expect(log?.payload).toMatchObject({ org_id: 'org-1', vendor_id: 'v-new', action: 'created', changed_by: 'owner-1' })
     expect(JSON.stringify((log?.payload as any).changes)).toContain('o@abc.com')
@@ -67,19 +67,19 @@ describe('POST /api/admin/suppliers', () => {
   it('refuses a duplicate name', async () => {
     existing = [{ id: 'other', name: 'abc supply', active: true, default_for_trades: [] }]
     const res = await POST(post({ name: 'ABC Supply' }))
-    expect(res.status).toBe(409)
+    expect(res?.status).toBe(409)
   })
 
   it('refuses two active defaults for one trade', async () => {
     existing = [{ id: 'other', name: 'QXO', active: true, default_for_trades: ['roofing'] }]
     const res = await POST(post({ name: 'ABC Supply', default_for_trades: ['roofing'] }))
-    expect(res.status).toBe(409)
+    expect(res?.status).toBe(409)
   })
 
   it('does not keep a change it could not log', async () => {
     auditFails = true
     const res = await POST(post({ name: 'ABC Supply' }))
-    expect(res.status).toBe(500)
+    expect(res?.status).toBe(500)
     expect(calls.some((c) => c.table === 'vendors' && c.op === 'delete')).toBe(true)
   })
 })
