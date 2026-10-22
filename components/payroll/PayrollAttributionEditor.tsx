@@ -133,7 +133,7 @@ export default function PayrollAttributionEditor({
             <select
               value={setterEditId}
               onChange={(e) => setSetterEditId(e.target.value)}
-              className="w-full max-w-md border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900"
+              className="w-full max-w-md min-h-[44px] border border-gray-400 rounded-lg px-3 py-2 text-base sm:text-sm text-gray-900"
             >
               <option value="">— None —</option>
               {orgUsers.map((u) => (
@@ -148,7 +148,7 @@ export default function PayrollAttributionEditor({
             <select
               value={closerEditId}
               onChange={(e) => setCloserEditId(e.target.value)}
-              className="w-full max-w-md border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900"
+              className="w-full max-w-md min-h-[44px] border border-gray-400 rounded-lg px-3 py-2 text-base sm:text-sm text-gray-900"
             >
               <option value="">— None —</option>
               {orgUsers.map((u) => (
@@ -166,7 +166,7 @@ export default function PayrollAttributionEditor({
               type="text"
               value={reason}
               onChange={(e) => setReason(e.target.value)}
-              className="w-full max-w-md border border-gray-400 rounded-lg px-3 py-2 text-sm"
+              className="w-full max-w-md min-h-[44px] border border-gray-400 rounded-lg px-3 py-2 text-base sm:text-sm"
               style={{ color: '#2c2c2a' }}
             />
           </div>
@@ -174,7 +174,7 @@ export default function PayrollAttributionEditor({
             type="button"
             disabled={saving}
             onClick={save}
-            className="min-h-[44px] px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium disabled:opacity-50"
+            className="min-h-[44px] w-full sm:w-auto px-4 py-2 bg-indigo-700 text-white rounded-lg hover:bg-indigo-800 text-sm font-medium disabled:opacity-50"
           >
             {saving ? 'Saving…' : 'Save attribution'}
           </button>

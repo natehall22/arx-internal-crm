@@ -34,6 +34,8 @@ export default function SupplierOrdersCard({ jobId, onChanged }: { jobId: string
     const json = await res.json().catch(() => ({}))
     if (!res.ok) return setError(json.error || 'Could not load supplier orders')
     if (json.setupMissing) return setSetupMissing(json.message)
+    // A malformed answer must never take the whole job page down.
+    if (!json.rollup || !Array.isArray(json.cards)) return setError('Could not load supplier orders')
     setView(json)
     setDeliveryDate((d) => d || json.defaultDeliveryDate || '')
   }, [jobId])

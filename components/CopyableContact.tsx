@@ -48,7 +48,7 @@ export default function CopyableContact({ value, href, icon, label, className }:
         type="button"
         onClick={copy}
         aria-label={copied ? `${label} copied` : `Copy ${label}`}
-        className="shrink-0 px-2 py-1 rounded border border-gray-300 text-xs font-medium text-[#2c2c2a] hover:bg-gray-100"
+        className="inline-flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center px-3 py-1 rounded border border-gray-400 text-sm font-medium text-[#2c2c2a] hover:bg-gray-100"
       >
         {copied ? 'Copied ✓' : 'Copy'}
       </button>

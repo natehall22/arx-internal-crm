@@ -169,7 +169,7 @@ function OpsBoardJobCardInner({
               e.stopPropagation()
               onOpenSnapshot(job)
             }}
-            className={`text-xs font-medium text-indigo-700 hover:text-indigo-900 underline ${handoffPreview ? 'mt-1.5 block' : ''}`}
+            className={`inline-flex min-h-[44px] items-center text-xs font-medium text-indigo-700 hover:text-indigo-900 underline ${handoffPreview ? 'mt-1 block' : ''}`}
           >
             Operations snapshot
           </button>
@@ -218,7 +218,7 @@ function OpsBoardJobCardInner({
               e.stopPropagation()
               onStartMaterials(job.id)
             }}
-            className="flex-1 min-h-[38px] text-xs py-2 px-2 bg-amber-50 text-amber-700 rounded-lg font-medium hover:bg-amber-100 border border-amber-200"
+            className="flex-1 min-h-[44px] text-xs py-2 px-2 bg-amber-50 text-amber-700 rounded-lg font-medium hover:bg-amber-100 border border-amber-200"
           >
             Start Materials
           </button>
@@ -229,7 +229,7 @@ function OpsBoardJobCardInner({
               e.stopPropagation()
               onMarkOrdered(job.id)
             }}
-            className="flex-1 min-h-[38px] text-xs py-2 px-2 bg-red-50 text-red-700 rounded-lg font-medium hover:bg-red-100 border border-red-200"
+            className="flex-1 min-h-[44px] text-xs py-2 px-2 bg-red-50 text-red-700 rounded-lg font-medium hover:bg-red-100 border border-red-200"
           >
             Mark Ordered
           </button>
@@ -240,7 +240,7 @@ function OpsBoardJobCardInner({
               e.stopPropagation()
               onJobStatus(job.id, resumeStatusForJob(job))
             }}
-            className="flex-1 min-h-[38px] text-xs py-2 px-2 bg-orange-50 text-orange-800 rounded-lg font-medium hover:bg-orange-100 border border-orange-200"
+            className="flex-1 min-h-[44px] text-xs py-2 px-2 bg-orange-50 text-orange-800 rounded-lg font-medium hover:bg-orange-100 border border-orange-200"
           >
             Resume → {JOB_STATUS_CONFIG[resumeStatusForJob(job)].label}
           </button>
@@ -250,7 +250,7 @@ function OpsBoardJobCardInner({
               e.stopPropagation()
               onSchedule(job)
             }}
-            className="flex-1 min-h-[38px] text-xs py-2 px-2 bg-indigo-50 text-indigo-700 rounded-lg font-medium hover:bg-indigo-100 border border-indigo-200"
+            className="flex-1 min-h-[44px] text-xs py-2 px-2 bg-indigo-50 text-indigo-700 rounded-lg font-medium hover:bg-indigo-100 border border-indigo-200"
           >
             {job.scheduled_date ? 'Crews' : 'Schedule'}
           </button>
@@ -261,7 +261,7 @@ function OpsBoardJobCardInner({
               e.stopPropagation()
               onJobStatus(job.id, 'in_progress')
             }}
-            className="flex-1 min-h-[38px] text-xs py-2 px-2 bg-green-50 text-green-700 rounded-lg font-medium hover:bg-green-100 border border-green-200"
+            className="flex-1 min-h-[44px] text-xs py-2 px-2 bg-green-50 text-green-700 rounded-lg font-medium hover:bg-green-100 border border-green-200"
           >
             Start Job
           </button>
@@ -272,7 +272,7 @@ function OpsBoardJobCardInner({
               e.stopPropagation()
               onJobStatus(job.id, 'complete')
             }}
-            className="flex-1 min-h-[38px] text-xs py-2 px-2 bg-green-50 text-green-700 rounded-lg font-medium hover:bg-green-100 border border-green-200"
+            className="flex-1 min-h-[44px] text-xs py-2 px-2 bg-green-50 text-green-700 rounded-lg font-medium hover:bg-green-100 border border-green-200"
           >
             Mark Complete
           </button>
@@ -284,7 +284,7 @@ function OpsBoardJobCardInner({
           <Link
             href={opsJobCompletionCertificateHref(job.id)}
             prefetch={false}
-            className="block w-full text-center text-xs font-medium text-emerald-900 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg py-2 px-2"
+            className="flex min-h-[44px] w-full items-center justify-center text-center text-xs font-medium text-emerald-900 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg py-2 px-2"
           >
             Completion certificate — email customer
           </Link>

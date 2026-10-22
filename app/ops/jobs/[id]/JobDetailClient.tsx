@@ -392,7 +392,7 @@ function InsuranceCard({ job, onUpdate }: { job: Job; onUpdate: (fields: Partial
         <div className="flex gap-2">
           <button
             onClick={() => { onUpdate({ job_source: 'retail', insurance_stage: null }); setOpen(false) }}
-            className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
+            className={`min-h-[44px] px-4 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
               !isInsurance
                 ? 'bg-indigo-600 text-white border-indigo-600'
                 : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
@@ -402,7 +402,7 @@ function InsuranceCard({ job, onUpdate }: { job: Job; onUpdate: (fields: Partial
           </button>
           <button
             onClick={() => { onUpdate({ job_source: 'insurance' }); setOpen(true) }}
-            className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
+            className={`min-h-[44px] px-4 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
               isInsurance
                 ? 'bg-amber-500 text-white border-amber-500'
                 : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
@@ -1313,7 +1313,7 @@ export default function JobDetailClient({
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 max-sm:[&_button]:min-h-[44px] max-sm:[&_select]:min-h-[44px] max-sm:[&_select]:text-base max-sm:[&_input:not([type=checkbox]):not([type=radio]):not([type=file])]:min-h-[44px] max-sm:[&_input]:text-base max-sm:[&_textarea]:text-base">
       <Nav />
 
       {/* Full-bleed, outside the container, so the stripe really does run all the way across. */}
@@ -1881,7 +1881,7 @@ export default function JobDetailClient({
               <button
                 key={tab.key}
                 onClick={() => setMobileTab(tab.key)}
-                className={`flex-none min-w-[5.75rem] px-3 py-3 text-xs font-medium border-b-2 transition-colors ${
+                className={`flex-none min-w-[5.75rem] min-h-[44px] px-3 py-3 text-xs font-medium border-b-2 transition-colors ${
                   mobileTab === tab.key
                     ? 'border-indigo-600 text-indigo-600 bg-indigo-50/50'
                     : 'border-transparent text-gray-500 hover:text-gray-700'
@@ -1903,7 +1903,7 @@ export default function JobDetailClient({
                   job.project_id ? (
                     <Link
                       href={`/projects/${job.project_id}`}
-                      className="text-sm font-medium text-indigo-600 hover:text-indigo-800 shrink-0"
+                      className="inline-flex min-h-[44px] items-center text-sm font-medium text-indigo-700 hover:text-indigo-900 shrink-0"
                     >
                       View project →
                     </Link>

@@ -106,3 +106,39 @@ export const SUPPLIERS = {
     { id: 'v2', name: 'QXO', active: false, order_email: null, order_cc_emails: [], account_number: null, default_branch: null, default_delivery_notes: null, default_for_trades: [], connection_type: 'email', last_order: null, log: [] },
   ],
 }
+
+export const HARNESS_CONTRACT = {
+  id: 'c1', agreement_type: 'installation', customer_name: 'Pat Customer', customer_email: 'pat@example.test', customer_phone: '7045550100',
+  project_address: '12 Elm Street, Concord NC 28025', project_cost: 16325, total_squares: 28, roofing_material: 'Owens Corning Duration — Driftwood',
+  scope_roof_replacement: true, scope_roof_repair: false, scope_gutters: true, scope_siding: false, scope_other: null,
+  payment_method: 'finance', finance_company: 'GoodLeap', deposit_amount: 1000, est_completion_date: '2026-11-20',
+  exclusions: 'Interior repairs, chimney masonry.', additional_products: null, notes: null,
+  rep_name: 'Nathan Hall', rep_title: 'Project Consultant', rep_signature_data: 'data:image/png;base64,iVBORw0KGgo=', rep_signed_at: '2026-10-20T15:00:00Z',
+}
+
+const job = (n: number, over: Record<string, unknown> = {}) => ({
+  id: `job-${n}`, project_id: `p-${n}`, job_number: `26-00${40 + n}`, status: 'in_progress', job_type: 'roofing',
+  address_text: `${100 + n} Long Street Name Boulevard, Mooresville NC 28117`, sale_amount: 16325 + n * 1000, sale_date: '2026-10-01',
+  scheduled_date: '2026-11-0' + n, materials_status: 'ordered', permit_status: 'approved', priority: 'normal',
+  customer: { id: `c${n}`, name: `Customer With A Long Name ${n}`, phone: '7045550100' }, salesperson: { id: 'u1', full_name: 'Nathan Hall' },
+  assigned_sub: { id: 's1', company_name: 'Sparky Roofing LLC' }, collected_cents: 500000, job_costs: { total: 8000, materials: 5000, labor: 3000, other: 0, lineCount: 2 },
+  project: { id: `p-${n}`, scope_of_work: 'Full replacement', product_summary: 'Duration Driftwood' }, ...over,
+})
+export const HARNESS_OPS_JOBS = [job(1), job(2, { status: 'sold', materials_status: 'not_ordered' }), job(3, { status: 'complete' }), job(4, { status: 'scheduled' })]
+
+export const HARNESS_JOB = {
+  id: 'job-1', org_id: 'org-1', project_id: 'p-1', job_number: '26-0042', status: 'complete', job_type: 'roofing',
+  address_text: '12 Elm Street, Concord NC 28025', sale_amount: 16325, collected_cents: 1632500, deposit: 1000, deposit_required_percent: 0.1,
+  finance_submitted_at: null, payroll_sent_at: null, sale_date: '2026-10-01', materials_status: 'ordered', materials_ordered_at: '2026-10-05T12:00:00Z',
+  materials_eta: null, materials_notes: null, scheduled_date: '2026-10-12', scheduled_time_start: null, estimated_duration_hours: 8,
+  permit_required: true, permit_status: 'approved', permit_number: 'BP-2026-1234', started_at: '2026-10-12T12:00:00Z', completed_at: '2026-10-13T20:00:00Z',
+  completion_notes: null, priority: 'normal', internal_notes: null, allow_close_with_balance: false, close_balance_reason: null, close_balance_by: null,
+  dealer_fee_amount: 0, dealer_fee_percent: null, final_front: true, final_back: true, final_left: true, final_right: true, final_slope_1: false, final_slope_2: false,
+  flashing_detail: false, pipe_boots: false, before_photos: [], progress_photos: [], after_photos: [], created_at: '2026-10-01T12:00:00Z',
+  opportunity_id: 'opp-1', special_instructions: null, job_source: 'retail',
+  payroll_attribution: { opportunity_id: 'opp-1', setter_user_id: 'u2', closer_user_id: 'u1', setter_name: 'Stevo Potts', closer_name: 'Nathan Hall' },
+  assigned_crew: null, assigned_sub: { id: 's1', company_name: 'Sparky Roofing LLC', contact_name: 'Sparky', phone: '7045550101' },
+  customer: { id: 'c1', name: 'Pat Customer', phone: '7045550100', email: 'pat@example.test' }, salesperson: { id: 'u1', full_name: 'Nathan Hall' },
+  project: { id: 'p-1', scope_of_work: 'Full roof replacement', product_summary: 'Duration Driftwood', ops_notes: null, permits_status: 'approved', install_date: '2026-10-12', payment_method: 'finance', sold_roof_squares: 28 },
+  installation_agreement: null, roof_report: null, sold_scope: null,
+}
