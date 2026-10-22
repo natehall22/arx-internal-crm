@@ -169,7 +169,7 @@ function OpsBoardJobCardInner({
               e.stopPropagation()
               onOpenSnapshot(job)
             }}
-            className={`inline-flex min-h-[44px] items-center text-xs font-medium text-indigo-700 hover:text-indigo-900 underline ${handoffPreview ? 'mt-1 block' : ''}`}
+            className={`inline-flex min-h-[44px] items-center text-xs font-medium text-indigo-700 hover:text-indigo-900 underline ${handoffPreview ? 'mt-1 flex w-fit' : ''}`}
           >
             Operations snapshot
           </button>
