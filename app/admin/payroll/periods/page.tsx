@@ -31,6 +31,7 @@ export default function PayrollPeriodsPage() {
   const [periods, setPeriods] = useState<Period[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
   const [actionLoading, setActionLoading] = useState<string | null>(null)
 
   const [label, setLabel] = useState('')
@@ -96,6 +97,7 @@ export default function PayrollPeriodsPage() {
   const runAction = async (id: string, action: string) => {
     setActionLoading(`${id}-${action}`)
     setError('')
+    setNotice('')
     try {
       const res = await fetch(`/api/admin/payroll/periods/${id}`, {
         method: 'PATCH',
@@ -107,6 +109,8 @@ export default function PayrollPeriodsPage() {
         setError((j as { error?: string; message?: string }).error || (j as { message?: string }).message || 'Action failed')
         return
       }
+      const message = (j as { message?: string }).message
+      if (message) setNotice(message)
       await load()
     } finally {
       setActionLoading(null)
@@ -130,6 +134,11 @@ export default function PayrollPeriodsPage() {
           {error && (
             <p className="mt-4 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
               {error}
+            </p>
+          )}
+          {notice && (
+            <p className="mt-4 text-sm text-[#2c2c2a] bg-green-50 border border-green-200 rounded-lg px-3 py-2">
+              {notice}
             </p>
           )}
 
@@ -247,7 +256,7 @@ export default function PayrollPeriodsPage() {
                             Mark paid
                           </button>
                         )}
-                        {p.status !== 'cancelled' && p.status !== 'paid' && (
+                        {p.status === 'open' && (
                           <button
                             type="button"
                             disabled={actionLoading === `${p.id}-cancel`}

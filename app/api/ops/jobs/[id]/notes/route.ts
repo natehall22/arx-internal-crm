@@ -3,6 +3,10 @@ import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import nodemailer from 'nodemailer'
 import { getCrmEmailFrom } from '@/lib/crm-email-from'
+import { canReadJobNotes, resolveOpsAccess } from '@/lib/ops-access'
+import { mentionCandidates, resolveNoteMentions } from '@/lib/note-mentions'
+import { resolveAppUrl } from '@/lib/job-trades'
+import { buildMentionEmail } from '@/lib/note-mention-email'
 
 function getMailTransport() {
   return nodemailer.createTransport({
@@ -16,52 +20,25 @@ function getMailTransport() {
   })
 }
 
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
-}
-
-function normalizeName(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9\s'-]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-}
-
-function extractMentionFragments(noteText: string): string[] {
-  const matches = noteText.match(/@([^\n@]{1,80})/g) || []
-  return Array.from(
-    new Set(
-      matches
-        .map((m) => m.slice(1).trim())
-        .map((m) => m.replace(/[.,!?;:]+$/g, '').trim())
-        .filter(Boolean)
-    )
-  )
-}
-
 export async function GET(
   request: Request,
   { params }: { params: { id: string } }
 ) {
   try {
     let profile
+    let authUser
     try {
-      ;({ profile } = await requireAuthApi())
+      ;({ profile, authUser } = await requireAuthApi())
     } catch {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
     const adminClient = createServiceClient()
+
+    // Same people the job page lets in (it redirects anyone without job-board access).
+    if (!canReadJobNotes(await resolveOpsAccess(adminClient, authUser.id, profile))) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
 
     // Verify job exists and belongs to user's org
     const { data: job, error: jobError } = await adminClient
@@ -104,24 +81,32 @@ export async function GET(
   }
 }
 
+const MAX_NOTE_LENGTH = 5000
+
 export async function POST(
   request: Request,
   { params }: { params: { id: string } }
 ) {
   try {
     let profile
+    let authUser
     try {
-      ;({ profile } = await requireAuthApi())
+      ;({ profile, authUser } = await requireAuthApi())
     } catch {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
     const adminClient = createServiceClient()
 
+    // Same people the job page lets in (it redirects anyone without job-board access).
+    if (!canReadJobNotes(await resolveOpsAccess(adminClient, authUser.id, profile))) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+
     // Verify job exists and belongs to user's org
     const { data: job, error: jobError } = await adminClient
       .from('production_jobs')
-      .select('id, org_id')
+      .select('id, org_id, job_number, address_text, customer_id')
       .eq('id', params.id)
       .single()
 
@@ -134,10 +119,13 @@ export async function POST(
     }
 
     const body = await request.json()
-    const { note, page_url, mentioned_user_ids, customer_name, customer_id, job_number } = body
+    const { note, mentioned_user_ids } = body
 
     if (!note || typeof note !== 'string' || !note.trim()) {
       return NextResponse.json({ error: 'Note is required' }, { status: 400 })
+    }
+    if (note.length > MAX_NOTE_LENGTH) {
+      return NextResponse.json({ error: `Note is too long (max ${MAX_NOTE_LENGTH} characters)` }, { status: 400 })
     }
 
     // Insert the note
@@ -165,102 +153,63 @@ export async function POST(
     try {
       const { data: orgUsers } = await adminClient
         .from('users')
-        .select('id, full_name, email, active')
+        .select('id, full_name, email, active, role, custom_role_id')
         .eq('org_id', profile.org_id)
         .not('email', 'is', null)
 
-      const allUsers = (orgUsers || []).filter(
-        (u: any) =>
-          u?.active !== false &&
-          u?.id &&
-          typeof u.full_name === 'string' &&
-          typeof u.email === 'string' &&
-          u.email.trim()
-      )
+      // The one candidate list for mentions (active, named, has email). The composer
+      // sends only the ids picked from its dropdown; recipients are resolved here.
+      const allUsers = mentionCandidates(orgUsers || [])
       const explicitMentionIds = Array.isArray(mentioned_user_ids)
         ? mentioned_user_ids.filter((id: any) => typeof id === 'string')
         : []
-      const mentionFragments = extractMentionFragments(note)
 
-      // Fallback parsing for manually typed mentions.
-      const parsedMentionUsers = allUsers.filter((orgUser: any) => {
-        if (!orgUser?.full_name) return false
-        const mentionPattern = new RegExp(
-          `(^|\\s)@${escapeRegExp(orgUser.full_name)}(?=\\s|$|[.,!?;:])`,
-          'i'
-        )
-        return mentionPattern.test(note)
-      })
-
-      const fuzzyMentionUsers = allUsers.filter((orgUser: any) => {
-        const normalizedUserName = normalizeName(orgUser.full_name || '')
-        if (!normalizedUserName) return false
-
-        return mentionFragments.some((fragment) => {
-          const normalizedFragment = normalizeName(fragment)
-          if (!normalizedFragment) return false
-
-          return (
-            normalizedUserName === normalizedFragment ||
-            normalizedUserName.startsWith(normalizedFragment) ||
-            normalizedFragment.startsWith(normalizedUserName)
-          )
-        })
-      })
-
-      const mentionedUsers = allUsers.filter((orgUser: any) => {
-        if (!orgUser?.id || !orgUser?.email) {
-          return false
-        }
-        return (
-          explicitMentionIds.includes(orgUser.id) ||
-          parsedMentionUsers.some((u: any) => u.id === orgUser.id) ||
-          fuzzyMentionUsers.some((u: any) => u.id === orgUser.id)
-        )
-      })
+      // Exact `@Full Name` matches only (longest name wins); a picked id disambiguates
+      // two users with the same name. Never a prefix match — "@Ste" pings nobody.
+      const mentionedUsers = resolveNoteMentions(note, allUsers, explicitMentionIds)
 
       if (mentionedUsers.length > 0) {
-        const origin = request.headers.get('origin') || process.env.NEXT_PUBLIC_APP_URL || ''
-        const fallbackJobPath = `/ops/jobs/${params.id}`
-        const pageLink = typeof page_url === 'string' && page_url.trim()
-          ? page_url.trim()
-          : `${origin}${fallbackJobPath}`
-        const customerLink =
-          typeof customer_id === 'string' && customer_id.trim()
-            ? `${origin}/customers/${customer_id.trim()}`
-            : null
-
+        // Customer name comes from the job's own customer row — never from the request body,
+        // which would let any caller put arbitrary text in a mention email subject.
+        let customerName: string | null = null
+        if (job.customer_id) {
+          const { data: customer } = await adminClient
+            .from('customers')
+            .select('name')
+            .eq('id', job.customer_id)
+            .eq('org_id', profile.org_id)
+            .maybeSingle()
+          customerName = (customer as { name?: string | null } | null)?.name ?? null
+        }
         const transporter = getMailTransport()
-        const senderName = profile.full_name || 'ARX Team'
-        const customerLabel = typeof customer_name === 'string' && customer_name.trim()
-          ? customer_name.trim()
-          : 'Customer'
-        const jobLabel = typeof job_number === 'string' && job_number.trim()
-          ? job_number.trim()
-          : `Job ${params.id}`
-        const subject = `${customerLabel} • ${jobLabel} • New tagged note`
-
-        console.log(
-          'Sending @mention emails:',
-          mentionedUsers.map((u: any) => ({ id: u.id, email: u.email, full_name: u.full_name }))
-        )
+        // Links come only from the configured app URL — never the request's Origin
+        // header or a client-sent page URL, which a caller can point at any domain.
+        const appUrl = resolveAppUrl()
 
         const emailResults = await Promise.allSettled(
-          mentionedUsers.map((mentionedUser: any) =>
-            transporter.sendMail({
-              from: getCrmEmailFrom(),
-              to: mentionedUser.email,
-              subject,
-              html: `
-                <p>Hi ${mentionedUser.full_name || 'there'},</p>
-                <p><strong>${senderName}</strong> mentioned you in an internal note.</p>
-                <p><strong>Comment:</strong><br/>${escapeHtml(String(note)).replace(/\n/g, '<br/>')}</p>
-                <p><a href="${pageLink}">Open Job in CRM</a></p>
-                ${customerLink ? `<p><a href="${customerLink}">Open Customer in CRM</a></p>` : ''}
-              `,
-              text: `Hi ${mentionedUser.full_name || 'there'},\n\n${senderName} mentioned you in an internal note.\n\nComment:\n${note}\n\nOpen Job in CRM: ${pageLink}${customerLink ? `\nOpen Customer in CRM: ${customerLink}` : ''}`,
+          mentionedUsers.map(async (mentionedUser: any) => {
+            // Everyone active can be mentioned, but the email only carries the note
+            // text if THIS recipient may read job notes (same rule as the job page).
+            const recipientCanReadNote = canReadJobNotes(
+              await resolveOpsAccess(adminClient, mentionedUser.id, {
+                role: mentionedUser.role,
+                custom_role_id: mentionedUser.custom_role_id ?? null,
+              })
+            )
+            const mail = buildMentionEmail({
+              appUrl,
+              jobId: params.id,
+              jobNumber: job.job_number ?? null,
+              jobAddress: job.address_text ?? null,
+              customerId: job.customer_id ?? null,
+              customerName,
+              senderName: profile.full_name || 'ARX Team',
+              recipientName: mentionedUser.full_name,
+              note: String(note),
+              recipientCanReadNote,
             })
-          )
+            return transporter.sendMail({ from: getCrmEmailFrom(), to: mentionedUser.email, ...mail })
+          })
         )
 
         const failedCount = emailResults.filter((r) => r.status === 'rejected').length
