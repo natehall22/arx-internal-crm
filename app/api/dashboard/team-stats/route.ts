@@ -1,24 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { getDateRangeForTimeFrame, getDateRangeWithDebug, getCustomDateRange } from '@/lib/date-ranges'
-import {
-  getSitOutcomeNormalizedIdSet,
-  type InspectionOutcomeConfigRow,
-} from '@/lib/inspection-outcomes'
-import {
-  countSitsByOwner,
-  countSitsBySetter,
-  fetchEffectiveSitOpportunitiesInPeriod,
-} from '@/lib/dashboard-sit-metrics'
 import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
 import { resolveDashboardMemberScope } from '@/lib/dashboard-member-scope'
 import { shouldShowUserOnTeamLeaderboard } from '@/lib/dashboard-team-leaderboard'
-import {
-  getAttributedSaleAgreements,
-  getContactDispositionIdSet,
-  SALE_AGREEMENT_TYPES,
-  type SaleAgreementContractRow,
-} from '@/lib/sales-metrics'
+import { getContactDispositionIdSet } from '@/lib/sales-metrics'
+import { fetchPeriodMetricRows, summarizePeriodRows } from '@/lib/reporting/period-metrics'
 import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
@@ -125,8 +112,6 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
     }
 
-    const isAdmin = profile.role === 'admin'
-
     const searchParams = request.nextUrl.searchParams
     const timeframe = searchParams.get('timeframe') || 'week'
     const customStartDate = searchParams.get('startDate')
@@ -183,172 +168,35 @@ export async function GET(request: NextRequest) {
       .eq('id', profile.org_id)
       .single()
 
-    const sitOutcomeIdSet = getSitOutcomeNormalizedIdSet(
-      orgForSits?.settings?.inspection_outcomes as InspectionOutcomeConfigRow[] | undefined
-    )
     const contactDispositionIdSet = getContactDispositionIdSet(
       orgForSits?.settings?.canvass_dispositions as any[] | undefined
     )
-
-    const dispositionIds = Array.from(contactDispositionIdSet)
     const memberIds = members.map((m) => m.id)
-    const pOrg = profile.org_id
-    const pStart = start.toISOString()
-    const pEnd = end.toISOString()
 
-    let dashboardDoorAttributionPinFirst: boolean | null = null
-    if (isAdmin) {
-      const { data: attrData, error: attrErr } = await supabase.rpc(
-        'dashboard_door_rpc_attribution_is_pin_first'
-      )
-      const attrErrMessage = String(attrErr?.message || '')
-      const missingAttributionHelper =
-        attrErrMessage.includes('dashboard_door_rpc_attribution_is_pin_first') &&
-        (attrErrMessage.toLowerCase().includes('could not find the function') ||
-          attrErrMessage.toLowerCase().includes('function') ||
-          attrErrMessage.toLowerCase().includes('schema cache'))
-
-      if (!attrErr && typeof attrData === 'boolean') {
-        dashboardDoorAttributionPinFirst = attrData
-      } else if (missingAttributionHelper) {
-        dashboardDoorAttributionPinFirst = false
-        console.warn(
-          '[team-stats] Attribution helper RPC is missing. Treating dashboard door/contact attribution as unsafe until migration 130 (or 129 + 130) is applied.'
-        )
-      }
-      if (dashboardDoorAttributionPinFirst === false) {
-        console.warn(
-          '[team-stats] Door/contact SQL may still use owner-first attribution. Apply supabase migration 130 (or 129 + 130) so stats credit pin_attributed_user_id first and exclude inbound disposition-only leads.'
-        )
-      }
-    }
-
-    const [
-      doorRows,
-      contactRows,
-      inspRows,
-      inspRecvRows,
-      effRows,
-      effectiveSitOpportunities,
-      saleContractsRes,
-    ] = await Promise.all([
-      supabase.rpc('dashboard_door_leads_by_owner', {
-        p_org_id: pOrg,
-        p_start: pStart,
-        p_end: pEnd,
-        p_member_ids: memberIds,
-      }),
-      dispositionIds.length === 0
-        ? Promise.resolve({ data: [], error: null })
-        : supabase.rpc('dashboard_contact_leads_by_owner', {
-            p_org_id: pOrg,
-            p_start: pStart,
-            p_end: pEnd,
-            p_member_ids: memberIds,
-            p_disposition_ids: dispositionIds,
-          }),
-      supabase.rpc('dashboard_inspections_set_by_canvasser', {
-        p_org_id: pOrg,
-        p_start: pStart,
-        p_end: pEnd,
-        p_member_ids: memberIds,
-      }),
-      supabase.rpc('dashboard_inspections_received_by_closer', {
-        p_org_id: pOrg,
-        p_start: pStart,
-        p_end: pEnd,
-        p_member_ids: memberIds,
-      }),
-      supabase.rpc('dashboard_closer_calendar_appts_by_closer', {
-        p_org_id: pOrg,
-        p_start: pStart,
-        p_end: pEnd,
-        p_member_ids: memberIds,
-      }),
-      sitOutcomeIdSet.size === 0
-        ? Promise.resolve([])
-        : fetchEffectiveSitOpportunitiesInPeriod(supabase, {
-            orgId: pOrg,
-            startIso: pStart,
-            endIso: pEnd,
-            sitOutcomeIdSet,
-          }),
-      supabase
-        .from('order_form_contracts')
-        .select('id, opportunity_id, customer_signed_at, opportunities(owner_user_id, setter_user_id)')
-        .eq('org_id', pOrg)
-        .in('agreement_type', SALE_AGREEMENT_TYPES)
-        .eq('status', 'completed')
-        .not('customer_signed_at', 'is', null)
-        .gte('customer_signed_at', pStart)
-        .lt('customer_signed_at', pEnd),
-    ])
-
-    const rpcErr =
-      doorRows.error ||
-      contactRows.error ||
-      inspRows.error ||
-      inspRecvRows.error ||
-      effRows.error ||
-      saleContractsRes.error
-    if (rpcErr) throw rpcErr
-
-    type RpcRow = { owner_id?: string; setter_id?: string; canvasser_id?: string; closer_id?: string; cnt: number | string }
-    const num = (v: unknown) => Number(v ?? 0)
-
-    const doorByOwner = new Map<string, number>()
-    for (const r of (doorRows.data || []) as RpcRow[]) {
-      if (r.owner_id) doorByOwner.set(r.owner_id, num(r.cnt))
-    }
-    const contactByOwner = new Map<string, number>()
-    for (const r of (contactRows.data || []) as RpcRow[]) {
-      if (r.owner_id) contactByOwner.set(r.owner_id, num(r.cnt))
-    }
-    const inspByCanvasser = new Map<string, number>()
-    for (const r of (inspRows.data || []) as RpcRow[]) {
-      if (r.canvasser_id) inspByCanvasser.set(r.canvasser_id, num(r.cnt))
-    }
-    const inspReceivedByCloser = new Map<string, number>()
-    for (const r of (inspRecvRows.data || []) as RpcRow[]) {
-      if (r.closer_id) inspReceivedByCloser.set(r.closer_id, num(r.cnt))
-    }
-    const effByCloser = new Map<string, number>()
-    for (const r of (effRows.data || []) as RpcRow[]) {
-      if (r.closer_id) effByCloser.set(r.closer_id, num(r.cnt))
-    }
-    const sitBySetter = countSitsBySetter(effectiveSitOpportunities, memberIds)
-    const sitByOwner = countSitsByOwner(effectiveSitOpportunities, memberIds)
-    const memberIdSet = new Set(memberIds)
-    const saleAgreements = getAttributedSaleAgreements(
-      saleContractsRes.data as SaleAgreementContractRow[] | null
-    ).filter((sale) => {
-      return memberIdSet.has(sale.owner_user_id || '') || memberIdSet.has(sale.setter_user_id || '')
+    // One read of the reporting views (same rows as the Dashboard page, Sisu and /reports); each member's
+    // numbers are then summed from them. Doors/contacts credit whoever actually knocked.
+    const periodRows = await fetchPeriodMetricRows(supabase, {
+      orgId: profile.org_id,
+      startIso: start.toISOString(),
+      endIso: end.toISOString(),
     })
-    const salesByMember = new Map<string, Set<string>>()
-    const creditSaleToMember = (memberId: string | null, saleKey: string) => {
-      if (!memberId || !memberIdSet.has(memberId)) return
-      const existing = salesByMember.get(memberId) ?? new Set<string>()
-      existing.add(saleKey)
-      salesByMember.set(memberId, existing)
-    }
-    for (const sale of saleAgreements) {
-      const saleKey = sale.opportunity_id || sale.id
-      creditSaleToMember(sale.setter_user_id, saleKey)
-      creditSaleToMember(sale.owner_user_id, saleKey)
-    }
+    const memberIdSet = new Set(memberIds)
+    const memberStatsById = new Map(
+      members.map((m) => [
+        m.id,
+        summarizePeriodRows(periodRows, new Set([m.id]), { setterLane: isSetterLikeRole(m.role), contactDispositionIdSet }),
+      ])
+    )
+    const saleOpportunityIds = new Set(
+      periodRows.sales
+        .filter((sale) => memberIdSet.has(sale.closer_user_id || '') || memberIdSet.has(sale.setter_user_id || ''))
+        .map((sale) => sale.opportunity_id)
+    )
 
     const teamMemberStatsAll: TeamStatRow[] = members.map((member) => {
       // Doors/contacts: pin-first credit from dashboard_* RPCs (see migration 127/128) for every role,
       // so closers / admins who canvass still see knocks; sits/sales stay setter vs owner lane below.
-      const doorsKnocked = doorByOwner.get(member.id) ?? 0
-      const contacts = contactByOwner.get(member.id) ?? 0
-      const inspectionsSet = inspByCanvasser.get(member.id) ?? 0
-      const inspectionsReceived = inspReceivedByCloser.get(member.id) ?? 0
-      const sits = isSetterLikeRole(member.role)
-        ? (sitBySetter.get(member.id) ?? 0)
-        : (sitByOwner.get(member.id) ?? 0)
-      const sales = salesByMember.get(member.id)?.size ?? 0
-      const apptsOnCalendar = effByCloser.get(member.id) ?? 0
+      const { doors: doorsKnocked, contacts, inspectionsSet, inspectionsReceived, sits, sales, calendar: apptsOnCalendar } = memberStatsById.get(member.id)!
 
       const closeRate = sits > 0 ? (sales / sits) * 100 : null
       const efficiency = apptsOnCalendar > 0 ? (sales / apptsOnCalendar) * 100 : null
@@ -409,8 +257,8 @@ export async function GET(request: NextRequest) {
       })
 
     const distinctDealCounts = {
-      sitOpportunitiesInPeriod: effectiveSitOpportunities.length,
-      saleOpportunitiesInPeriod: new Set(saleAgreements.map((sale) => sale.opportunity_id || sale.id)).size,
+      sitOpportunitiesInPeriod: periodRows.sits.length,
+      saleOpportunitiesInPeriod: saleOpportunityIds.size,
     }
 
     const response: any = {
@@ -419,7 +267,6 @@ export async function GET(request: NextRequest) {
       closerStats,
       teamMemberCount: teamMemberStats.length,
       distinctDealCounts,
-      ...(isAdmin ? { dashboardDoorAttributionPinFirst } : {}),
     }
     
     // Include date range info in debug mode
@@ -432,8 +279,7 @@ export async function GET(request: NextRequest) {
         end_utc: end.toISOString(),
         start_local: debugDateRange.startLocal || start.toISOString(),
         end_local: debugDateRange.endLocal || end.toISOString(),
-        aggregates: 'postgres_rpc',
-        sit_outcome_ids_configured: sitOutcomeIdSet.size,
+        aggregates: 'reporting_views',
         distinct_sit_opportunities: distinctDealCounts.sitOpportunitiesInPeriod,
         distinct_sale_opportunities: distinctDealCounts.saleOpportunitiesInPeriod,
         team_member_count: teamMemberStats.length,

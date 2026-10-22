@@ -11,7 +11,7 @@ import OpsDashboard from '@/components/dashboard/OpsDashboard'
 import { getDateRangeForTimeFrame } from '@/lib/date-ranges'
 import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
 import { getContactDispositionIdSet, SOLAR_IMPORT_LEAD_SOURCE } from '@/lib/sales-metrics'
-import { countContacts, fetchPeriodMetricRows } from '@/lib/reporting/period-metrics'
+import { fetchPeriodMetricRows, summarizePeriodRows } from '@/lib/reporting/period-metrics'
 import { shouldShowUserOnTeamLeaderboard } from '@/lib/dashboard-team-leaderboard'
 import { isOrgSuperuserRoleSlug, isRepLikeCustomerRecordRole } from '@/lib/permissions'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -146,7 +146,6 @@ export default async function DashboardPage() {
     orgForSits?.settings?.canvass_dispositions as any[] | undefined
   )
   const visibleIds = new Set([profile.id, ...teamMemberIds])
-  const canSee = (id: string | null | undefined) => isAdmin || (!!id && visibleIds.has(id))
 
   let projectsQuery = supabase
     .from('projects')
@@ -305,35 +304,16 @@ export default async function DashboardPage() {
       const built: any[] = []
       for (const member of members) {
         // Leads attributed to this member (owner or frozen pin id if user was deleted)
-        const memberDoors = periodRows.doors.filter((d) => d.user_id === member.id)
-        const rawDoors = memberDoors.length
-
-        // Count contacts - only dispositions where they talked to someone
-        const rawContacts = countContacts(memberDoors, contactDispositionIdSet)
-
-        // Inspections set this week - from scheduled_appointments.canvasser_user_id (SOURCE OF TRUTH)
-        const inspectionsSet = periodRows.sets.filter((a) => a.setter_user_id === member.id).length
-        const inspectionsReceived = periodRows.sets.filter((a) => a.closer_user_id === member.id).length
-
+        const m = summarizePeriodRows(periodRows, new Set([member.id]), {
+          setterLane: isSetterLikeRole(member.role),
+          contactDispositionIdSet,
+        })
+        const { doors: rawDoors, contacts: rawContacts, inspectionsSet, inspectionsReceived, sits, sales: memberSalesCount } = m
         const finalDoors = rawDoors
         const finalContacts = rawContacts
 
-        const memberSalesCount = new Set(
-          periodRows.sales
-            .filter((o) => o.setter_user_id === member.id || o.closer_user_id === member.id)
-            .map((o) => o.opportunity_id)
-        ).size
-
-        const sits = periodRows.sits.filter((o) =>
-          isSetterLikeRole(member.role)
-            ? o.setter_user_id === member.id
-            : o.closer_user_id === member.id
-        ).length
-
         const memberCloseRate = sits > 0 ? (memberSalesCount / sits * 100) : null
-        const memberApptsOnCalendar = periodRows.calendar.filter(
-          (a) => a.closer_user_id === member.id
-        ).length
+        const memberApptsOnCalendar = m.calendar
         const memberEfficiency =
           memberApptsOnCalendar > 0 ? (memberSalesCount / memberApptsOnCalendar * 100) : null
 
@@ -388,27 +368,11 @@ export default async function DashboardPage() {
   }
 
   // Data is already filtered by date in queries, so use directly
-  const myDoors = periodRows.doors.filter((d) => canSee(d.user_id))
-  const rawDoorsKnocked = myDoors.length
-  const rawContacts = countContacts(myDoors, contactDispositionIdSet)
-
-  // Inspections set: the setter who booked it (rpt_inspection_sets). Non-admins see themselves and their team.
-  const inspectionsSet = periodRows.sets.filter((a) => canSee(a.setter_user_id)).length
-
-  const doorsKnocked = rawDoorsKnocked
-  const contacts = rawContacts
-
-  // Sales attribution: each signed sale credits both the closer/owner and the setter.
-  const salesThisWeek = new Set(
-    periodRows.sales
-      .filter((o) => canSee(o.setter_user_id) || canSee(o.closer_user_id))
-      .map((o) => o.opportunity_id)
-  ).size
-
-  const sitsThisWeek = periodRows.sits.filter((o) => {
-    if (isAdmin) return true
-    return isSetterLikeRole(profile.role) ? canSee(o.setter_user_id) : canSee(o.closer_user_id)
-  }).length
+  const mine = summarizePeriodRows(periodRows, isAdmin ? null : visibleIds, {
+    setterLane: isSetterLikeRole(profile.role),
+    contactDispositionIdSet,
+  })
+  const { doors: doorsKnocked, contacts, inspectionsSet, sits: sitsThisWeek, sales: salesThisWeek } = mine
 
   // Close rate = sales / sits for the selected period
   const closeRate = sitsThisWeek > 0
@@ -416,7 +380,7 @@ export default async function DashboardPage() {
     : null
 
   // Efficiency = sales / appointments on closer's calendar in the selected period
-  const appointmentsOnCalendar = periodRows.calendar.filter((a) => canSee(a.closer_user_id)).length
+  const appointmentsOnCalendar = mine.calendar
   const efficiency = appointmentsOnCalendar > 0
     ? parseFloat((salesThisWeek / appointmentsOnCalendar * 100).toFixed(1))
     : null

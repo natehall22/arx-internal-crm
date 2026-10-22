@@ -2,9 +2,7 @@ import { NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { getDateRangeForTimeFrame } from '@/lib/date-ranges'
 import { getEasternTodayIso } from '@/lib/eastern-datetime'
-import { INSPECTION_SET_APPOINTMENT_TYPE_OR } from '@/lib/inspection-set-metrics'
-import { EXCLUDE_SOLAR_IMPORT_LEADS_OR, isCanvassDoorLead } from '@/lib/sales-metrics'
-import { getAttributedCanvassLeadUserId } from '@/lib/canvass-lead-attribution'
+import { countUserDoors, countUserInspectionsSet } from '@/lib/reporting/period-metrics'
 import { countClosedSalesInRange } from '@/lib/sisu-monthly-closed-sales'
 import type {
   Heat,
@@ -65,35 +63,18 @@ export async function GET() {
     const nowIso = new Date().toISOString()
 
     // ── Live metrics (this week) ──────────────────────────────────────────────
-    const { data: weekAppointments, error: apptError } = await admin
-      .from('scheduled_appointments')
-      .select('id, canvasser_user_id')
-      .eq('org_id', profile.org_id)
-      .eq('canvasser_user_id', profile.id)
-      .gte('created_at', weekStart.toISOString())
-      .lt('created_at', weekEnd.toISOString())
-      .or(INSPECTION_SET_APPOINTMENT_TYPE_OR)
-      .neq('status', 'cancelled')
-
-    if (apptError) {
-      return NextResponse.json({ error: apptError.message }, { status: 500 })
+    const weekRange = { start: weekStart, end: weekEnd }
+    let inspectionsSet = 0
+    let doorsKnocked = 0
+    try {
+      ;[inspectionsSet, doorsKnocked] = await Promise.all([
+        countUserInspectionsSet(admin, profile.org_id, profile.id, weekRange),
+        countUserDoors(admin, profile.org_id, profile.id, weekRange),
+      ])
+    } catch (metricError) {
+      const message = metricError instanceof Error ? metricError.message : 'Failed to count this week'
+      return NextResponse.json({ error: message }, { status: 500 })
     }
-    const inspectionsSet = weekAppointments?.length ?? 0
-
-    const { data: doorLeads, error: doorError } = await admin
-      .from('leads')
-      .select('id, source, canvass_disposition, pin_attributed_user_id, owner_user_id, ownership_reassigned_at')
-      .eq('org_id', profile.org_id)
-      .gte('created_at', weekStart.toISOString())
-      .lt('created_at', weekEnd.toISOString())
-      .or(EXCLUDE_SOLAR_IMPORT_LEADS_OR)
-
-    if (doorError) {
-      return NextResponse.json({ error: doorError.message }, { status: 500 })
-    }
-    const doorsKnocked = (doorLeads ?? []).filter(
-      (l) => isCanvassDoorLead(l) && getAttributedCanvassLeadUserId(l) === profile.id,
-    ).length
 
     let closedSales = 0
     try {

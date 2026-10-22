@@ -12,7 +12,7 @@ import {
 } from '@/lib/sisu-monthly-closed-sales'
 import { countDoorsKnockedForBadgeAward } from '@/lib/sisu-weekly-doors'
 import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
-import { fetchPeriodMetricRows } from '@/lib/reporting/period-metrics'
+import { countUserDoors, countUserInspectionsSet, countUserSales } from '@/lib/reporting/period-metrics'
 import { createServiceClient } from '@/lib/supabase/service'
 import type {
   Heat,
@@ -37,22 +37,18 @@ export default async function IncentivesPage() {
 
   // ── Live metrics ─────────────────────────────────────────────────────────────
 
-  // This week's inspections set, doors and closed sales — read from the reporting views, the same
-  // definitions the dashboard and /reports use (lib/reporting/period-metrics.ts).
-  const week = await fetchPeriodMetricRows(createServiceClient(), {
-    orgId: profile.org_id,
-    startIso: weekStart.toISOString(),
-    endIso: weekEnd.toISOString(),
-  })
-  const inspectionsSet = week.sets.filter((a) => a.setter_user_id === profile.id).length
-  const doorsKnocked = week.doors.filter((d) => d.user_id === profile.id).length
-  const closedSales = new Set(
-    week.sales.filter((o) => o.setter_user_id === profile.id || o.closer_user_id === profile.id).map((o) => o.opportunity_id)
-  ).size
+  // This week's inspections set, doors and closed sales — the reporting views, like the dashboard and /reports.
+  const admin = createServiceClient()
+  const weekRange = { start: weekStart, end: weekEnd }
+  const [inspectionsSet, doorsKnocked, closedSales] = await Promise.all([
+    countUserInspectionsSet(admin, profile.org_id, profile.id, weekRange),
+    countUserDoors(admin, profile.org_id, profile.id, weekRange),
+    countUserSales(admin, profile.org_id, profile.id, weekRange),
+  ])
 
   const [closedSalesMonth, doorsKnockedForBadge] = await Promise.all([
-    countClosedSalesForBadgeAward(supabase, profile.org_id, profile.id),
-    countDoorsKnockedForBadgeAward(supabase, profile.org_id, profile.id),
+    countClosedSalesForBadgeAward(admin, profile.org_id, profile.id),
+    countDoorsKnockedForBadgeAward(admin, profile.org_id, profile.id),
   ])
 
   const liveMetrics: LiveMetrics = {

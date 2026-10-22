@@ -87,3 +87,84 @@ export function countContacts(doors: PeriodMetricRows['doors'], contactDispositi
 }
 
 export { getContactDispositionIdSet }
+
+/** Counts for one person, or for a whole scope (`null` = the whole org). The one place these rules live. */
+export type PeriodStats = {
+  doors: number
+  contacts: number
+  inspectionsSet: number
+  /** Inspections booked with this closer (real, non-cancelled inspections). */
+  inspectionsReceived: number
+  sits: number
+  sales: number
+  /** Appointments on the closer's calendar in the period (efficiency denominator). */
+  calendar: number
+}
+
+/**
+ * @param scope user ids whose numbers to total, or null for everyone. Sits credit the setter for setter-like
+ *   viewers and the closer otherwise; a sale credits both its setter and its closer once per opportunity.
+ */
+export function summarizePeriodRows(
+  rows: PeriodMetricRows,
+  scope: ReadonlySet<string> | null,
+  opts: { setterLane: boolean; contactDispositionIdSet: Set<string> }
+): PeriodStats {
+  const inScope = (id: string | null | undefined) => scope === null || (!!id && scope.has(id))
+  const doors = rows.doors.filter((d) => inScope(d.user_id))
+  return {
+    doors: doors.length,
+    contacts: countContacts(doors, opts.contactDispositionIdSet),
+    inspectionsSet: rows.sets.filter((r) => inScope(r.setter_user_id)).length,
+    inspectionsReceived: rows.sets.filter((r) => inScope(r.closer_user_id)).length,
+    sits: rows.sits.filter((r) => inScope(opts.setterLane ? r.setter_user_id : r.closer_user_id)).length,
+    sales: new Set(rows.sales.filter((r) => inScope(r.setter_user_id) || inScope(r.closer_user_id)).map((r) => r.opportunity_id)).size,
+    calendar: rows.calendar.filter((r) => inScope(r.closer_user_id)).length,
+  }
+}
+
+/**
+ * Doors one person knocked in a window — the Sisu badge counters. Same definition as everything else
+ * (`rpt_canvass_doors`). Needs the service-role client: the views are not readable with a user token.
+ */
+export async function countUserDoors(admin: SupabaseClient, orgId: string, userId: string, range: { start: Date; end: Date }): Promise<number> {
+  const { count, error } = await admin
+    .from('rpt_canvass_doors')
+    .select('knock_id', { count: 'exact', head: true })
+    .eq('org_id', orgId)
+    .eq('user_id', userId)
+    .gte('knocked_at', range.start.toISOString())
+    .lt('knocked_at', range.end.toISOString())
+  if (error) throw new Error(error.message)
+  return count ?? 0
+}
+
+/** Sales one person was credited on (as closer or setter) in a window, once per opportunity. */
+export async function countUserSales(admin: SupabaseClient, orgId: string, userId: string, range: { start: Date; end: Date }): Promise<number> {
+  const rows = await fetchSupabaseAllPages<Row>(async (from, to) =>
+    admin
+      .from('rpt_sales')
+      .select('opportunity_id, contract_id, signed_at')
+      .eq('org_id', orgId)
+      .or(`closer_user_id.eq.${userId},setter_user_id.eq.${userId}`)
+      .gte('signed_at', range.start.toISOString())
+      .lt('signed_at', range.end.toISOString())
+      .order('signed_at', { ascending: true })
+      .order('contract_id', { ascending: true })
+      .range(from, to) as never
+  )
+  return new Set(rows.map((r) => s(r.opportunity_id) ?? s(r.contract_id)).filter(Boolean)).size
+}
+
+/** Inspections one person booked (as the setter) in a window — real, non-cancelled inspections. */
+export async function countUserInspectionsSet(admin: SupabaseClient, orgId: string, userId: string, range: { start: Date; end: Date }): Promise<number> {
+  const { count, error } = await admin
+    .from('rpt_inspection_sets')
+    .select('appointment_id', { count: 'exact', head: true })
+    .eq('org_id', orgId)
+    .eq('setter_user_id', userId)
+    .gte('set_at', range.start.toISOString())
+    .lt('set_at', range.end.toISOString())
+  if (error) throw new Error(error.message)
+  return count ?? 0
+}

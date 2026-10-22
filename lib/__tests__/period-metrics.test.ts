@@ -1,5 +1,5 @@
 /** @jest-environment node */
-import { countContacts, fetchPeriodMetricRows } from '@/lib/reporting/period-metrics'
+import { countContacts, fetchPeriodMetricRows, summarizePeriodRows } from '@/lib/reporting/period-metrics'
 
 function fakeAdmin(tables: Record<string, Array<Record<string, unknown>>>) {
   const seen: string[] = []
@@ -42,5 +42,25 @@ describe('period metrics from the reporting views', () => {
     expect(rows.sales.map((s) => s.opportunity_id).sort()).toEqual(['k3', 'o9'])
     expect(rows.calendar).toEqual([{ closer_user_id: 'c1' }])
     expect(countContacts(rows.doors, new Set(['talked']))).toBe(1)
+  })
+})
+
+describe('summarizePeriodRows', () => {
+  const rows = {
+    doors: [{ user_id: 'u1', disposition: 'talked' }, { user_id: 'u1', disposition: 'not_home' }, { user_id: 'u2', disposition: 'talked' }, { user_id: null, disposition: null }],
+    sets: [{ setter_user_id: 'u1', closer_user_id: 'c1' }, { setter_user_id: 'u2', closer_user_id: 'c1' }],
+    sits: [{ opportunity_id: 'o1', setter_user_id: 'u1', closer_user_id: 'c1' }],
+    sales: [{ opportunity_id: 'o1', setter_user_id: 'u1', closer_user_id: 'c1' }, { opportunity_id: 'o2', setter_user_id: 'u2', closer_user_id: 'c1' }],
+    calendar: [{ closer_user_id: 'c1' }, { closer_user_id: 'c1' }],
+  }
+  const opts = { setterLane: false, contactDispositionIdSet: new Set(['talked']) }
+  it('totals one person: setter lane vs closer lane, sale credited to setter AND closer once', () => {
+    expect(summarizePeriodRows(rows, new Set(['u1']), { ...opts, setterLane: true })).toEqual({ doors: 2, contacts: 1, inspectionsSet: 1, inspectionsReceived: 0, sits: 1, sales: 1, calendar: 0 })
+    expect(summarizePeriodRows(rows, new Set(['c1']), opts)).toEqual({ doors: 0, contacts: 0, inspectionsSet: 0, inspectionsReceived: 2, sits: 1, sales: 2, calendar: 2 })
+    // a closer's sits are NOT counted in the setter lane
+    expect(summarizePeriodRows(rows, new Set(['c1']), { ...opts, setterLane: true }).sits).toBe(0)
+  })
+  it('null scope = whole org (rows with no credited person still count)', () => {
+    expect(summarizePeriodRows(rows, null, opts)).toMatchObject({ doors: 4, sales: 2, sits: 1, calendar: 2 })
   })
 })
