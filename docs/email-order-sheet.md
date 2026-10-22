@@ -3,7 +3,7 @@
 **Stacked on** `fix/money-inputs` (#54: `lib/super-admin.ts`) and `feat/status-desire-paths` (#56: `markMaterialsOrdered`). Merge those first; this branch contains both and will shrink to its own commits.
 
 ## Rules implemented
-- Suppliers are per-company rows (`vendors`): order email, cc, account, branch, delivery notes, default trades, `connection_type` (`email` default | `api`). Edit at **/admin/suppliers**. ARX uses ABC Supply.
+- Suppliers are per-company rows (`vendors`): order email, cc, account, branch, delivery notes, default trades, `connection_type` (`email` default | `api`). Owners (super admins) edit them in **Settings → Suppliers** (`/admin/suppliers`); every change is logged. Ops editors who hit a "no order email" blocker are told to ask an owner. ARX uses ABC Supply.
 - Every line has a source: supplier / installer / customer / stock — per-trade company default (`org_trade_material_defaults`), per-job override (`job_trade_material_sources`), per-line override. Only supplier lines make POs.
 - One PO per SUPPLIER (trades sectioned inside): PDF + email each. `supplier_orders` unique per (job, supplier); PO numbers `PO-<job>-<letter>`, unique per org.
 - Preview first (`GET …/supplier-orders/preview`, PDF iframe); explicit **Send to <supplier>** (`POST …/supplier-orders/send`) is the only door (`lib/__tests__/supplier-send-door.test.ts` fails if anything else imports `sendOrderToSupplier`). Nothing auto-sends.

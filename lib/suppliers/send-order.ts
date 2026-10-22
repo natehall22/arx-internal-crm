@@ -62,9 +62,9 @@ export function supplierChannelProblem(supplier: SupplierRecord): string | null 
   if (supplier.connectionType === 'api') {
     return connectorFor(supplier)
       ? null
-      : `${supplier.name} is set to order by API, but no API connection is installed yet. Switch it to email in Settings → Suppliers.`
+      : `${supplier.name} is set to order by API, but no API connection is installed yet. Ask an owner to switch it to email in Settings → Suppliers.`
   }
-  if (!supplier.orderEmail) return `${supplier.name} has no order email — add one in Settings → Suppliers`
+  if (!supplier.orderEmail) return `${supplier.name} has no order email — ask an owner to add one in Settings → Suppliers (or use "I sent this myself")`
   return null
 }
 

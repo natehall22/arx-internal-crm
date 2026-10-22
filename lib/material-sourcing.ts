@@ -187,7 +187,7 @@ export function resolveSourcing(input: SourcingInput): SourcingResult {
           ...line,
           source,
           vendorId: null,
-          problem: `${defaults.map((d) => d.name).join(' and ')} are both set as the default for ${tradeLabel(line.trade)} — pick one in Settings → Suppliers`,
+          problem: `${defaults.map((d) => d.name).join(' and ')} are both set as the default for ${tradeLabel(line.trade)} — ask an owner to pick one in Settings → Suppliers`,
         }
       }
       return { ...line, source, vendorId: null, problem: `No supplier set for ${tradeLabel(line.trade)}` }
@@ -216,7 +216,7 @@ export function resolveSourcing(input: SourcingInput): SourcingResult {
     const supplier = supplierById.get(id)!
     const groupBlockers: string[] = []
     if (supplier.connectionType === 'email' && !supplier.orderEmail) {
-      groupBlockers.push(`${supplier.name} has no order email — add one in Settings → Suppliers`)
+      groupBlockers.push(`${supplier.name} has no order email — ask an owner to add one in Settings → Suppliers (or use "I sent this myself")`)
     }
     return {
       supplier,
