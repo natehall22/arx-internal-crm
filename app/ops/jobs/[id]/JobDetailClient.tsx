@@ -1865,10 +1865,6 @@ export default function JobDetailClient({
           materialsOrderedAt={job.materials_ordered_at}
           onMarkMaterialsOrdered={job.status === 'cancelled' ? undefined : () => void setMaterialsOrdered(true)}
           onUndoMaterialsOrdered={job.status === 'cancelled' ? undefined : () => void setMaterialsOrdered(false)}
-          onOrderSheetDownloaded={() => {
-            // The download request records the order; give it a moment, then show it.
-            window.setTimeout(() => void reloadJob(), 2000)
-          }}
           markingMaterials={saving}
         />
 

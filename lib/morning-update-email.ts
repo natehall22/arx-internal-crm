@@ -288,12 +288,16 @@ export async function sendMorningUpdateEmail(
   }
   // Money and credit rows in "Needs you" go to super admins (owners) only; everyone else gets the
   // same email without them.
-  const { data: ownerRows } = await supabase
+  const { data: ownerRows, error: ownerError } = await supabase
     .from('users')
     .select('email')
     .eq('org_id', params.orgId)
     .eq('is_super_admin', true)
     .eq('active', true)
+  if (ownerError) {
+    // Fail loudly in the logs: without the owner list nobody gets the money/credit rows.
+    console.error('sendMorningUpdateEmail: could not load owners (is migration 202610210010 applied?)', ownerError.message)
+  }
   const ownerEmails = new Set((ownerRows || []).map((u: { email: string | null }) => String(u.email || '').trim().toLowerCase()))
   const ownerHtml = buildMorningUpdateHtml(metrics, { test: isTest, needsYou })
   const everyoneHtml = needsYou

@@ -21,7 +21,6 @@ export default function JobDocumentsBanner({
   materialsStatus,
   materialsOrderedAt,
   onMarkMaterialsOrdered,
-  onOrderSheetDownloaded,
   onUndoMaterialsOrdered,
   markingMaterials = false,
 }: {
@@ -36,8 +35,6 @@ export default function JobDocumentsBanner({
   materialsOrderedAt?: string | null
   /** One tap: "materials ordered". Omit to hide the button (read-only viewers). */
   onMarkMaterialsOrdered?: () => void
-  /** "Download" records the order server-side; the page refreshes so it shows. */
-  onOrderSheetDownloaded?: () => void
   /** Undo a mistaken tap. Only offered while the status is plain "ordered". */
   onUndoMaterialsOrdered?: () => void
   markingMaterials?: boolean
@@ -140,7 +137,6 @@ export default function JobDocumentsBanner({
               </a>
               <a
                 href={`${orderSheetPdfUrl}?download=1`}
-                onClick={() => onOrderSheetDownloaded?.()}
                 title="Download the order sheet to send it yourself."
                 className="flex min-h-[44px] items-center justify-center rounded-lg border-2 border-white px-4 py-2.5 sm:min-h-[36px] sm:py-1.5 text-sm font-bold text-white hover:bg-white/15"
               >
