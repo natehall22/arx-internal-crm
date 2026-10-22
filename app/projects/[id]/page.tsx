@@ -1,5 +1,6 @@
 export const dynamic = 'force-dynamic'
 
+import { sumCollectedCents } from '@/lib/job-collection'
 import { requireAuth } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import Nav from '@/components/Nav'
@@ -285,11 +286,11 @@ export default async function ProjectDetailPage({
     try {
       const { data: payments } = await supabase
         .from('job_payments')
-        .select('amount_cents')
+        .select('amount_cents, funding_status')
         .eq('job_id', productionJob.id)
 
       if (payments) {
-        amountCollected = payments.reduce((sum, p) => sum + (p.amount_cents || 0), 0) / 100
+        amountCollected = sumCollectedCents(payments) / 100
       }
     } catch (e) {
       console.log('Could not fetch payments:', e)

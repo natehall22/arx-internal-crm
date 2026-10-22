@@ -185,10 +185,11 @@ export async function syncJobSaleAndCommissionBase(
     if (proposalId) anchors.push(['proposal_id', proposalId])
     if (opportunityId) anchors.push(['opportunity_id', opportunityId])
     let contracts: SignedContractAmount[] = []
+    let contractProposalId: string | null = null
     for (const [column, value] of anchors) {
       const { data, error } = await admin
         .from('order_form_contracts')
-        .select('id, project_cost')
+        .select('id, project_cost, proposal_id')
         .eq('org_id', orgId)
         .eq(column, value)
         .eq('status', 'completed')
@@ -196,6 +197,7 @@ export async function syncJobSaleAndCommissionBase(
       if (error) return { status: 'error', error }
       if (data && data.length > 0) {
         contracts = data.map((row) => ({ id: row.id as string, projectCost: row.project_cost as number | null }))
+        contractProposalId = (data.find((row) => row.proposal_id)?.proposal_id as string | undefined) ?? null
         break
       }
     }
@@ -212,12 +214,15 @@ export async function syncJobSaleAndCommissionBase(
     const { data: coRows, error: coError } = await coQuery
     if (coError) return { status: 'error', error: coError }
 
+    // Tax comes from the proposal the signed contract was built from; the job's own proposal is the
+    // fallback (repair agreements with no proposal carry no tax).
+    const taxProposalId = contractProposalId ?? proposalId
     let salesTax = 0
-    if (proposalId) {
+    if (taxProposalId) {
       const { data: proposal } = await admin
         .from('proposals')
         .select('tax_amount')
-        .eq('id', proposalId)
+        .eq('id', taxProposalId)
         .eq('org_id', orgId)
         .maybeSingle()
       salesTax = Number(proposal?.tax_amount) || 0

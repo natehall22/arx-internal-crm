@@ -171,7 +171,7 @@ export async function PATCH(
     // Get user profile
     const { data: profile } = await adminClient
       .from('users')
-      .select('org_id, role, full_name, custom_role_id')
+      .select('org_id, role, full_name, custom_role_id, is_super_admin, active')
       .eq('id', user.id)
       .single()
 
@@ -271,7 +271,9 @@ export async function PATCH(
       const creditBlock = await saleCreditLockBlock(adminClient, {
         orgId: profile.org_id,
         opportunityId: (appointment.opportunity_id as string | null) ?? null,
-        leadId: (appointment.lead_id as string | null) ?? null,
+        // Only fall back to the lead's deals when the appointment isn't tied to one; a later
+        // appointment (repair, second deal) must stay reassignable after an earlier deal signed.
+        leadId: appointment.opportunity_id ? null : ((appointment.lead_id as string | null) ?? null),
         actor: profile as { is_super_admin?: boolean | null; active?: boolean | null },
       })
       if (creditBlock) return NextResponse.json({ error: creditBlock }, { status: 403 })

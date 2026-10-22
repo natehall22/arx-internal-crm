@@ -9,6 +9,7 @@
 --   new_base = GREATEST(0, sale_amount − proposals.tax_amount − production_jobs.dealer_fee_amount)
 -- (non-commissionable change orders: none exist in prod as of 2026-10-22.)
 --
+-- Rollback guard: PART D only restores rows still holding the values this fix wrote.
 -- Run order: PART A (preview, read-only; run on its own) → PART B (fix, one transaction) → PART C (verify).
 -- PART D is the rollback. Backups go to payroll_backup.money_inputs_20261022 (private; no API access).
 -- ════════════════════════════════════════════════════════════════════════════════
@@ -87,22 +88,8 @@ WHERE j.status <> 'cancelled' AND COALESCE(j.sale_amount, 0) > 0
 -- UPDATE production_jobs j
 -- SET sale_amount = b.sale_amount, commission_comp_base = b.commission_comp_base,
 --     commission_pre_tax_subtotal = b.commission_pre_tax_subtotal, updated_at = NOW()
--- FROM payroll_backup.money_inputs_20261022 b WHERE b.id = j.id;
+-- FROM payroll_backup.money_inputs_20261022 b WHERE b.id = j.id
+--   AND j.updated_at >= (SELECT max(updated_at) FROM payroll_backup.money_inputs_20261022);  -- skip rows edited since
 -- COMMIT;
 
--- ── PART E: SUPER ADMINS (owners) ────────────────────────────────────────────────
--- Nathan Hall, Andrew Waltz, Steve (Stevo Potts) — emails confirmed against users 2026-10-22.
--- Preview (read-only): SELECT id, full_name, email, role, is_super_admin FROM users
---   WHERE role = 'admin' AND lower(email) IN ('nathan@arxroofing.com','andrew@waltz.construction','stpotts2@gmail.com');
-BEGIN;
-UPDATE users SET is_super_admin = TRUE
-WHERE role = 'admin' AND active IS TRUE
-  AND lower(email) IN ('nathan@arxroofing.com', 'andrew@waltz.construction', 'stpotts2@gmail.com');
-DO $$
-DECLARE n int;
-BEGIN
-  SELECT count(*) INTO n FROM users WHERE is_super_admin;
-  IF n <> 3 THEN RAISE EXCEPTION 'expected exactly 3 super admins, found %', n; END IF;
-END $$;
-COMMIT;
--- Rollback: UPDATE users SET is_super_admin = FALSE WHERE lower(email) IN (same list);
+-- PART E (super admins) is its own file: 2026-10-22_super_admins.sql
