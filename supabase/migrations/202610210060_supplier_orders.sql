@@ -245,6 +245,12 @@ DROP POLICY IF EXISTS "Org can view trade material defaults" ON org_trade_materi
 CREATE POLICY "Org can view trade material defaults" ON org_trade_material_defaults FOR SELECT
   USING (org_id = (SELECT u.org_id FROM users u WHERE u.id = auth.uid()));
 
+-- vendors now carries where purchase orders are emailed. Any org user could rewrite it through
+-- PostgREST under the old INSERT/UPDATE policies; nothing in the app writes vendors with a user
+-- JWT (the admin route uses the service client), so writes are service-role only from here.
+DROP POLICY IF EXISTS "Users can insert vendors in their org" ON vendors;
+DROP POLICY IF EXISTS "Users can update vendors in their org" ON vendors;
+
 COMMIT;
 
 -- Rollback (only before any PO has been sent — after that the send log is the audit trail):

@@ -544,7 +544,7 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
 function cleanText(v: string | null | undefined, max = 1000): string | null {
   if (typeof v !== 'string') return null
-  const t = v.trim().slice(0, max)
+  const t = v.replace(/\s+/g, ' ').trim().slice(0, max)
   return t || null
 }
 
@@ -749,6 +749,8 @@ export type SendDeps = {
   transmit: (order: SupplierOrderTransmission) => Promise<SupplierOrderTransmitResult>
   /** status-paths' markMaterialsOrdered, bound to the admin client. */
   markMaterialsOrdered: (args: { orgId: string; jobId: string }) => Promise<{ changed: boolean; error?: string }>
+  /** Cancelling a PO takes "ordered" back off the job when materials are no longer all covered. */
+  unmarkMaterialsOrdered?: (args: { orgId: string; jobId: string }) => Promise<unknown>
   now?: () => Date
 }
 
@@ -796,6 +798,17 @@ export async function executeSupplierOrderSend(
   const order = await deps.store.ensureSupplierOrder({ orgId: ctx.orgId, jobId: ctx.jobId, vendorId: supplier.id, jobNumber: ctx.jobNumber })
   if (order.poNumber !== preview.poNumber) {
     return { ok: false, status: 409, message: 'Another order on this job was just started. Review the preview again before sending.' }
+  }
+
+  // Another tab may have sent this PO since our context was loaded: the preview token matched the
+  // OLD state, so refuse rather than double-send.
+  const loadedOrder = ctx.orders.find((o) => o.vendorId === supplier.id) ?? null
+  if (
+    (loadedOrder?.lastSentAt ?? null) !== (order.lastSentAt ?? null) ||
+    (loadedOrder?.status ?? 'draft') !== order.status ||
+    (loadedOrder?.revision ?? 0) !== order.revision
+  ) {
+    return { ok: false, status: 409, message: 'This order was just sent or changed from another screen. Refresh and review it again.' }
   }
 
   const startedAt = now()
@@ -901,7 +914,24 @@ export async function executeSupplierOrderSend(
       pdf: preview.pdf,
     })
   } catch (error) {
-    return fail(NOT_SENT_MESSAGE, error instanceof Error ? error.message : String(error))
+    const detail = error instanceof Error ? error.message : String(error)
+    // A clear refusal means nothing left. Anything else (timeout, dropped connection) may have
+    // been accepted by the server, so record it as unknown: the next send asks for a second yes.
+    const clearRefusal = /refused|not set up|no order email|no API connection|invalid|rejected/i.test(detail)
+    if (!clearRefusal) {
+      await deps.store.completeSend(sendId, {
+        status: 'unknown',
+        error: detail.slice(0, 1000),
+        completed_at: now().toISOString(),
+      })
+      return {
+        ok: false,
+        status: 502,
+        message: 'Not sure this went out (the mail server did not answer). Check your sent mail before sending again.',
+        detail,
+      }
+    }
+    return fail(NOT_SENT_MESSAGE, detail)
   }
 
   // ---- It went out. Everything below records it; none of it may un-send or re-send. ----
@@ -954,8 +984,15 @@ export async function executeSupplierOrderSend(
 
   let materialsMarkedOrdered = false
   if (!isCancel && rollup.allCovered && !warning) {
-    const marked = await deps.markMaterialsOrdered({ orgId: ctx.orgId, jobId: ctx.jobId })
-    materialsMarkedOrdered = marked.changed
+    try {
+      const marked = await deps.markMaterialsOrdered({ orgId: ctx.orgId, jobId: ctx.jobId })
+      materialsMarkedOrdered = marked.changed
+    } catch {
+      warning = 'Sent. The job status could not be updated — mark materials ordered by hand.'
+    }
+  }
+  if (isCancel && !rollup.allCovered && deps.unmarkMaterialsOrdered) {
+    await deps.unmarkMaterialsOrdered({ orgId: ctx.orgId, jobId: ctx.jobId }).catch(() => undefined)
   }
 
   const via = supplier.connectionType === 'api' ? `${supplier.name} (by API)` : `${supplier.name} (${preview.email.to})`

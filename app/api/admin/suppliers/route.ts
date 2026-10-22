@@ -57,6 +57,7 @@ export async function POST(request: NextRequest) {
   const name = typeof b.name === 'string' ? b.name.trim().slice(0, 120) : ''
   if (!name) return NextResponse.json({ error: 'Name is required' }, { status: 400 })
   const orderEmail = typeof b.order_email === 'string' && b.order_email.trim() ? b.order_email.trim().toLowerCase() : null
+  if (orderEmail && /[,;<>\s]/.test(orderEmail)) return NextResponse.json({ error: 'Enter one order email address (use the cc box for others)' }, { status: 400 })
   if (orderEmail && !isValidEmail(orderEmail)) return NextResponse.json({ error: 'Order email is not a valid address' }, { status: 400 })
   const cc = b.order_cc_emails === undefined ? [] : cleanEmails(b.order_cc_emails)
   if (cc === null) return NextResponse.json({ error: 'A cc address is not valid' }, { status: 400 })

@@ -8,7 +8,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 import { requireAuthApi } from '@/lib/auth'
-import { markMaterialsOrdered } from '@/lib/job-status-events'
+import { markMaterialsOrdered, unmarkMaterialsOrdered } from '@/lib/job-status-events'
 import { createServiceClient } from '@/lib/supabase/service'
 import { sendOrderToSupplier } from '@/lib/suppliers/send-order'
 import {
@@ -67,6 +67,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
         transmit: sendOrderToSupplier,
         markMaterialsOrdered: ({ orgId, jobId }) =>
           markMaterialsOrdered(auth.admin, { orgId, jobId, source: 'one_tap' }),
+        unmarkMaterialsOrdered: ({ orgId, jobId }) => unmarkMaterialsOrdered(auth.admin, { orgId, jobId }),
       }
     )
     if (!result.ok) {
