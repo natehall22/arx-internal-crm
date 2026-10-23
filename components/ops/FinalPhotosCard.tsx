@@ -7,6 +7,7 @@ import { createClientBrowser } from '@/lib/supabase/client'
 import { multipartFilenameForUpload } from '@/lib/files/storage'
 import { FINAL_PHOTO_TAGS, REQUIRED_FINAL_PHOTO_TAGS, finalPhotoTagLabel } from '@/lib/final-photo-tags'
 import { TRADE_LABELS, type Trade } from '@/lib/job-trades'
+import { toast } from '@/components/ui/toast'
 
 interface FinalPhoto {
   id: string
@@ -133,7 +134,7 @@ export default function FinalPhotosCard({ jobId, trades }: FinalPhotosCardProps)
       await loadPhotos()
     } catch (err) {
       console.error('Upload error:', err)
-      alert(err instanceof Error ? err.message : 'Failed to upload photo')
+      toast.error(err instanceof Error ? err.message : 'Failed to upload photo')
     } finally {
       setUploading(false)
       if (fileInputRef.current) fileInputRef.current.value = ''

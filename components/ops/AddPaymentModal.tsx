@@ -9,6 +9,7 @@ import {
   PAYMENT_METHOD_LABELS,
   PAYMENT_PAYER_LABELS,
 } from '@/lib/types/job-payments'
+import { toast } from '@/components/ui/toast'
 
 interface AddPaymentModalProps {
   jobId: string
@@ -58,7 +59,7 @@ export default function AddPaymentModal({ jobId, onClose, onSave }: AddPaymentMo
     
     const amountDollars = parseFloat(formData.amount)
     if (isNaN(amountDollars) || amountDollars <= 0) {
-      alert('Please enter a valid amount')
+      toast.error('Please enter a valid amount')
       return
     }
 
@@ -82,11 +83,11 @@ export default function AddPaymentModal({ jobId, onClose, onSave }: AddPaymentMo
         onSave()
       } else {
         const error = await response.json()
-        alert(error.error || 'Failed to add payment')
+        toast.error(error.error || 'Failed to add payment')
       }
     } catch (error) {
       console.error('Error adding payment:', error)
-      alert('Failed to add payment')
+      toast.error('Failed to add payment')
     } finally {
       setSaving(false)
     }

@@ -7,6 +7,8 @@ import { AIAssistantProvider } from '@/components/AIAssistantProvider'
 import AIAssistantWrapper from '@/components/AIAssistantWrapper'
 import SessionKeepalive from '@/components/SessionKeepalive'
 import SessionOnly from '@/components/SessionOnly'
+import { Toaster } from '@/components/ui/toast'
+import { ConfirmHost } from '@/components/ui/confirm-dialog'
 
 export const metadata: Metadata = {
   title: 'ARX Internal CRM',
@@ -51,6 +53,8 @@ export default function RootLayout({
         <AIAssistantProvider>
           {children}
           <ServiceWorkerRegistration />
+          <Toaster />
+          <ConfirmHost />
           <SessionOnly>
             <SessionKeepalive />
             <AppointmentFeedbackPrompt />

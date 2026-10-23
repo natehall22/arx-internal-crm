@@ -5,6 +5,7 @@ import Nav from '@/components/Nav'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import type { Region, Team } from '@/lib/types/database'
+import { confirmDialog } from '@/components/ui/confirm-dialog'
 
 type RegionWithTeams = Region & { teams: Team[] }
 
@@ -118,7 +119,7 @@ export default function RegionsPage() {
   }
 
   const handleDelete = async (region: Region) => {
-    if (!confirm(`Delete region "${region.name}"? Teams in this region will be unassigned.`)) {
+    if (!(await confirmDialog({ title: `Delete region "${region.name}"? Teams in this region will be unassigned.`, destructive: true }))) {
       return
     }
 
@@ -158,7 +159,7 @@ export default function RegionsPage() {
         <div className="flex items-center justify-between mb-8">
           <div>
             <div className="flex items-center gap-2 text-sm text-gray-500 mb-2">
-              <Link href="/admin" className="hover:text-indigo-600">Admin</Link>
+              <Link href="/admin" className="hover:text-indigo-600">Settings</Link>
               <span>/</span>
               <span>Regions</span>
             </div>

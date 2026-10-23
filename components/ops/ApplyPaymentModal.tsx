@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { formatCurrency } from '@/lib/job-payments'
 import { PAYMENT_TYPE_LABELS, PAYMENT_METHOD_LABELS } from '@/lib/types/job-payments'
+import { toast } from '@/components/ui/toast'
 
 interface AvailablePayment {
   id: string
@@ -55,25 +56,25 @@ export default function ApplyPaymentModal({
     e.preventDefault()
 
     if (!selectedPayment) {
-      alert('Please select a payment')
+      toast.error('Please select a payment')
       return
     }
 
     const amountDollars = parseFloat(applyAmount)
     if (isNaN(amountDollars) || amountDollars <= 0) {
-      alert('Please enter a valid amount')
+      toast.error('Please enter a valid amount')
       return
     }
 
     const appliedCents = Math.round(amountDollars * 100)
 
     if (selectedPaymentData && appliedCents > selectedPaymentData.remaining_cents) {
-      alert(`Cannot apply more than ${formatCurrency(selectedPaymentData.remaining_cents)} from this payment`)
+      toast.error(`Cannot apply more than ${formatCurrency(selectedPaymentData.remaining_cents)} from this payment`)
       return
     }
 
     if (appliedCents > balance.balance_cents) {
-      alert(`Cannot apply more than the invoice balance of ${formatCurrency(balance.balance_cents)}`)
+      toast.error(`Cannot apply more than the invoice balance of ${formatCurrency(balance.balance_cents)}`)
       return
     }
 
@@ -92,11 +93,11 @@ export default function ApplyPaymentModal({
         onApplied()
       } else {
         const error = await response.json()
-        alert(error.error || 'Failed to apply payment')
+        toast.error(error.error || 'Failed to apply payment')
       }
     } catch (error) {
       console.error('Error applying payment:', error)
-      alert('Failed to apply payment')
+      toast.error('Failed to apply payment')
     } finally {
       setApplying(false)
     }

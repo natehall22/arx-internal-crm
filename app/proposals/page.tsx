@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
 import { userCanDeleteProposal } from '@/lib/proposal-delete-access'
+import { toast } from '@/components/ui/toast'
+import { confirmDialog } from '@/components/ui/confirm-dialog'
 
 interface Proposal {
   id: string
@@ -94,7 +96,7 @@ export default function ProposalsPage() {
     e.preventDefault()
     e.stopPropagation()
 
-    if (!confirm(`Delete proposal ${proposalNumber}? This cannot be undone.`)) {
+    if (!(await confirmDialog({ title: `Delete proposal ${proposalNumber}? This cannot be undone.`, destructive: true }))) {
       return
     }
 
@@ -106,14 +108,14 @@ export default function ProposalsPage() {
 
       if (!response.ok) {
         const data = await response.json()
-        alert(data.error || 'Failed to delete proposal')
+        toast.error(data.error || 'Failed to delete proposal')
         return
       }
 
       setProposals(prev => prev.filter(p => p.id !== proposalId))
     } catch (err) {
       console.error('Error deleting proposal:', err)
-      alert('Failed to delete proposal')
+      toast.error('Failed to delete proposal')
     } finally {
       setDeletingId(null)
     }

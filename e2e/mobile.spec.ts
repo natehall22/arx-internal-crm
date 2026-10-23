@@ -6,6 +6,7 @@ import { ANNOUNCEMENTS, BANNER, DEFAULT_PLANS, COST_LINES, SUPPLIERS, PAYROLL_PE
 const json = (body: unknown, status = 200) => ({ status, contentType: 'application/json', body: JSON.stringify(body) })
 
 async function mockApi(page: Page) {
+  await page.route('**/api/me/effective-permissions', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ role: 'owner', fullAccess: true, permissions: [] }) }))
   // Any direct Supabase call from a component (browser client) gets an empty answer.
   await page.route('http://127.0.0.1:9/**', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }))
   await page.route('**/api/**', async (route) => {
@@ -88,6 +89,14 @@ const SCREENS: Screen[] = [
   { name: 'job-sheets-editor', path: '/dev-harness/job-sheets', ready: 'text=Scope of work',
     states: [{ name: 'editing', run: async (p) => { await p.locator('textarea').first().click(); await p.locator('textarea').first().fill('Edited scope for the crew.'); await p.waitForTimeout(200) } }] },
   { name: 'dashboard-tiles', path: '/dev-harness/dashboard', ready: 'text=Doors' },
+  { name: 'nav-shell', path: '/dev-harness/nav', ready: 'text=Page content',
+    states: [{ name: 'search-open', run: async (p) => { await p.route('**/api/search**', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ results: [{ kind: 'customer', id: 'c1', title: 'ASHLEY GAINES', subtitle: '1001 LYERLY RIDGE RD NW, CONCORD NC 28027 · (704)707-6274', href: '#' }, { kind: 'proposal', id: 'p1', title: 'ASHLEY P GAINES · #P-00118', subtitle: '(704)707-6274 · accepted', href: '#' }, { kind: 'job', id: 'j1', title: 'Job 26-0026', subtitle: '1001 LYERLY RIDGE RD NW · complete', href: '#' }] }) }));
+      await p.getByRole('button', { name: 'Search' }).first().click(); await p.getByRole('combobox', { name: 'Search' }).fill('gaienes'); await p.waitForSelector('text=ASHLEY GAINES') } }, { name: 'more-open', run: async (p) => { await p.getByRole('button', { name: 'More' }).click(); await p.waitForSelector('[role=dialog] >> text=Logout') } }] },
+  { name: 'settings-hub', path: '/dev-harness/settings-hub', ready: 'text=People & access',
+    states: [{ name: 'searching', run: async (p) => { await p.getByRole('searchbox').fill('commission'); await p.waitForTimeout(200) } }] },
+  { name: 'today-queues', path: '/dev-harness/today', ready: 'text=Proposals waiting for a signature' },
+  { name: 'ui-kit', path: '/dev-harness/ui-kit', ready: 'text=Pay this week',
+    states: [{ name: 'sheet-open', run: async (p) => { await p.getByRole('button', { name: 'Open sheet' }).click(); await p.waitForSelector('text=Save this view') } }] },
   { name: 'default-plans-card', path: '/dev-harness/default-plans', ready: 'text=Default pay plan by role' },
   { name: 'payroll-periods', path: '/dev-harness/payroll-periods', ready: 'text=2026-W42' },
 ]

@@ -15,6 +15,7 @@ import SendInvoiceModal from './SendInvoiceModal'
 import ApplyPaymentModal from './ApplyPaymentModal'
 import InvoiceDetailModal from './InvoiceDetailModal'
 import CreateInvoiceModal from './CreateInvoiceModal'
+import { toast } from '@/components/ui/toast'
 
 interface JobInvoicesCardProps {
   jobId: string
@@ -120,11 +121,11 @@ export default function JobInvoicesCard({
         onInvoiceChange?.()
       } else {
         const error = await response.json()
-        alert(error.error || 'Failed to void invoice')
+        toast.error(error.error || 'Failed to void invoice')
       }
     } catch (error) {
       console.error('Error voiding invoice:', error)
-      alert('Failed to void invoice')
+      toast.error('Failed to void invoice')
     }
   }
 
@@ -136,11 +137,11 @@ export default function JobInvoicesCard({
       if (response.ok && data.pdf_url) {
         window.open(data.pdf_url, '_blank')
       } else {
-        alert(data.error || 'Failed to get PDF')
+        toast.error(data.error || 'Failed to get PDF')
       }
     } catch (error) {
       console.error('Error getting PDF:', error)
-      alert('Failed to get PDF')
+      toast.error('Failed to get PDF')
     }
   }
 

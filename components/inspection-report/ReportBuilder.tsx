@@ -1,4 +1,5 @@
 'use client'
+import { toast as notify } from '@/components/ui/toast'
 
 /**
  * Phone-first roof report builder. Ported from the standalone ARX Roof Report Builder,
@@ -25,6 +26,7 @@ import {
   removePendingPhoto,
   stashPendingPhoto,
 } from '@/lib/inspection-report/pending-store'
+import { confirmDialog } from '@/components/ui/confirm-dialog'
 
 const GOLD = '#B0904E'
 const CHARCOAL = '#2B2A28'
@@ -141,7 +143,7 @@ export default function ReportBuilder(props: Props) {
       })
       if (res.status === 409) {
         // another device changed this report — reload rather than silently overwrite
-        alert('This report was changed on another device. Reloading to pick up the latest version.')
+        notify('This report was changed on another device. Reloading to pick up the latest version.')
         window.location.reload()
         return
       }
@@ -407,8 +409,8 @@ export default function ReportBuilder(props: Props) {
   const viewerIndex = viewerPid ? viewerEntries.findIndex((e) => e.id === viewerPid) : -1
 
   const deletePhoto = useCallback(
-    (pid: string) => {
-      if (!confirm('Delete this photo?')) return
+    async (pid: string) => {
+      if (!(await confirmDialog({ title: 'Delete this photo?', destructive: true }))) return
       const p = photosRef.current[pid]
       updateDoc((d) => {
         const captions = { ...d.captions }
@@ -535,12 +537,12 @@ export default function ReportBuilder(props: Props) {
     // Rebuilding then would silently replace a full PDF with an empty one — stop that.
     const docReferencesPhotos = d.sections.some((s) => s.photoIds.length > 0)
     if (!allIds.length && docReferencesPhotos && pdfInfo) {
-      alert(
+      notify(
         'The source photos for this report have been archived — the saved PDF is the permanent record. Rebuilding now would produce a PDF without photos, so it is disabled. Use View / Share / Email instead.'
       )
       return
     }
-    if (!allIds.length && !confirm('No photos added. Generate a cover-only PDF?')) return
+    if (!allIds.length && !(await confirmDialog({ title: 'No photos added. Generate a cover-only PDF?' }))) return
     const stillUploading = Object.values(photosRef.current).filter((p) => !p.uploaded)
     if (stillUploading.length) {
       // not blocking — local bytes are used for the PDF; uploads continue in the background
@@ -591,9 +593,7 @@ export default function ReportBuilder(props: Props) {
       embeddedCount = orderedPhotoIds(d, (id) => !!photosRef.current[id] && !failedPhotoIds.has(id)).length
       if (failedPhotoIds.size > 0) {
         setBusy(null)
-        const proceed = confirm(
-          `${failedPhotoIds.size} photo${failedPhotoIds.size > 1 ? 's' : ''} couldn't be loaded and would be MISSING from this PDF.\n\nBuild it anyway? (Cancel keeps the previously saved PDF.)`
-        )
+        const proceed = (await confirmDialog({ title: `${failedPhotoIds.size} photo${failedPhotoIds.size > 1 ? 's' : ''} couldn't be loaded and would be MISSING from this PDF.\n\nBuild it anyway? (Cancel keeps the previously saved PDF.)`, destructive: true }))
         if (!proceed) return
         setBusy('Saving PDF to the CRM…')
       }
@@ -648,7 +648,7 @@ export default function ReportBuilder(props: Props) {
 
       const mb = bytes.length / 1048576
       if (bytes.length > 25 * 1048576) {
-        alert(
+        notify(
           `This report is ${mb.toFixed(1)} MB — over Gmail's 25 MB limit even at maximum compression.\n\nIt saved to the CRM fine; send it with the share link instead of an attachment, or split the report.`
         )
       } else {
@@ -657,7 +657,7 @@ export default function ReportBuilder(props: Props) {
     } catch (e) {
       setBusy(null)
       console.error(e)
-      alert('PDF generation failed: ' + (e instanceof Error ? e.message : 'unknown error'))
+      notify('PDF generation failed: ' + (e instanceof Error ? e.message : 'unknown error'))
     }
   }, [getOriginalBytes, props.reportId, pumpUploads, showToast, supabase])
 
@@ -855,8 +855,8 @@ export default function ReportBuilder(props: Props) {
                 return { ...d, sections: arr }
               })
             }
-            onDeleteSection={() => {
-              if (!confirm('Delete section? Its photos move to Unsorted.')) return
+            onDeleteSection={async () => {
+              if (!(await confirmDialog({ title: 'Delete section? Its photos move to Unsorted.', destructive: true }))) return
               updateDoc((d) => ({
                 ...d,
                 unsorted: [...d.unsorted, ...s.photoIds],

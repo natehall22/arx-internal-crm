@@ -4,6 +4,7 @@ import { useState } from 'react'
 import type { JobPaymentSummary } from '@/lib/types/job-payments'
 import type { JobStatus } from '@/lib/job-status'
 import { evaluateJobCollection } from '@/lib/job-collection'
+import { toast } from '@/components/ui/toast'
 
 interface JobPayrollSentBannerProps {
   jobId: string
@@ -73,7 +74,7 @@ export default function JobPayrollSentBanner({
       })
       const errBody = await res.json().catch(() => ({}))
       if (!res.ok) {
-        alert(typeof errBody.error === 'string' ? errBody.error : 'Could not update payroll status')
+        toast.error(typeof errBody.error === 'string' ? errBody.error : 'Could not update payroll status')
         return
       }
       await onUpdated()

@@ -7,6 +7,8 @@ import {
   hasInsideSalesQueuePermissionGrant,
   INSIDE_SALES_PRESET_DISPLAY_PRIORITY,
 } from '@/lib/inside-sales-follow-up'
+import { toast } from '@/components/ui/toast'
+import { confirmDialog } from '@/components/ui/confirm-dialog'
 
 type Permission = {
   id: string
@@ -233,11 +235,11 @@ export default function PresetsPage() {
 
   const handleDelete = async (preset: PermissionPreset) => {
     if (preset.is_system) {
-      alert('System presets cannot be deleted')
+      toast.error('System presets cannot be deleted')
       return
     }
 
-    if (!confirm(`Delete "${preset.name}"? This cannot be undone.`)) {
+    if (!(await confirmDialog({ title: `Delete "${preset.name}"? This cannot be undone.`, destructive: true }))) {
       return
     }
 
@@ -249,7 +251,7 @@ export default function PresetsPage() {
       await loadData()
     } else {
       const result = await response.json()
-      alert(result.error || 'Failed to delete preset')
+      toast.error(result.error || 'Failed to delete preset')
     }
   }
 
@@ -276,7 +278,7 @@ export default function PresetsPage() {
         <div className="flex items-center justify-between mb-8">
           <div>
             <div className="flex items-center gap-2 text-sm text-gray-500 mb-2">
-              <Link href="/admin" className="hover:text-indigo-600">Admin</Link>
+              <Link href="/admin" className="hover:text-indigo-600">Settings</Link>
               <span>/</span>
               <span>Permission Presets</span>
             </div>

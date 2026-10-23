@@ -11,6 +11,7 @@ import {
   type JobMaterialOrderOverrideRow,
 } from '@/lib/materials-order-overrides'
 import type { JobSoldScope } from '@/components/ops/JobSoldScopeSummary'
+import { toast } from '@/components/ui/toast'
 
 type Props = {
   scope: JobSoldScope
@@ -98,7 +99,7 @@ export default function MaterialsOrderCard({
       })
       dispatchMaterialOrderUpdated(jobId)
     } catch (error) {
-      alert(error instanceof Error ? error.message : 'Failed to save override')
+      toast.error(error instanceof Error ? error.message : 'Failed to save override')
     } finally {
       setSavingKey(null)
     }

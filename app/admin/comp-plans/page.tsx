@@ -29,6 +29,8 @@ import {
   type CompPlanWarning,
 } from '@/lib/comp-plan-payability'
 import { primaryCompPlanRowActions } from '@/lib/comp-plan-assignment-admin'
+import { toast } from '@/components/ui/toast'
+import { confirmDialog } from '@/components/ui/confirm-dialog'
 
 interface VolumeTier {
   min_volume: number
@@ -351,12 +353,12 @@ export default function CompPlansPage() {
   const savePlan = async () => {
     const requiredDraft = (value: string, label: string) => {
       if (parseDraftFloat(value) !== null) return true
-      alert(`${label} is required`)
+      toast.error(`${label} is required`)
       return false
     }
     const optionalDraft = (value: string, label: string) => {
       if (value.trim() === '' || parseDraftFloat(value) !== null) return true
-      alert(`${label} must be a valid number`)
+      toast.error(`${label} must be a valid number`)
       return false
     }
 
@@ -397,7 +399,7 @@ export default function CompPlansPage() {
     if (planForm.plan_purpose === 'management_overlay') {
       const rate = parseDraftFloat(planForm.base_percentage, { required: true })
       if (rate === null || rate < 0 || rate > 100) {
-        alert('Management overlay rate must be between 0 and 100%.')
+        toast.error('Management overlay rate must be between 0 and 100%.')
         return
       }
     }
@@ -408,11 +410,9 @@ export default function CompPlansPage() {
         .filter((w) => w.level === 'blocking')
         .map((w) => `• ${w.title}`)
         .join('\n')
-      const proceed = confirm(
-        `This plan will not produce paid commission lines:\n\n${reasons}\n\n` +
+      const proceed = (await confirmDialog({ title: `This plan will not produce paid commission lines:\n\n${reasons}\n\n` +
           'Anyone assigned to it shows $0 on the payroll export until their pay is entered by hand.\n\n' +
-          'Save it anyway?'
-      )
+          'Save it anyway?' }))
       if (!proceed) return
     }
 
@@ -501,10 +501,10 @@ export default function CompPlansPage() {
 
       const data = await response.json().catch(() => ({}))
       if (data.code === 'confirm_backdate_required') {
-        if (confirm(`${data.error}\n\nContinue?`)) return submit({ ...extra, confirm_backdate: true })
+        if ((await confirmDialog({ title: `${data.error}\n\nContinue?` }))) return submit({ ...extra, confirm_backdate: true })
         return false
       }
-      alert(data.error || 'Failed to save comp plan')
+      toast.error(data.error || 'Failed to save comp plan')
       return false
     }
 
@@ -518,7 +518,7 @@ export default function CompPlansPage() {
       loadData()
     } catch (error) {
       console.error('Error saving comp plan:', error)
-      alert('Failed to save comp plan')
+      toast.error('Failed to save comp plan')
     }
   }
 
@@ -539,7 +539,7 @@ export default function CompPlansPage() {
 
       if (!response.ok) {
         const data = await response.json()
-        alert(data.error || 'Failed to assign comp plan')
+        toast.error(data.error || 'Failed to assign comp plan')
         return
       }
 
@@ -554,7 +554,7 @@ export default function CompPlansPage() {
       loadData()
     } catch (error) {
       console.error('Error assigning comp plan:', error)
-      alert('Failed to assign comp plan')
+      toast.error('Failed to assign comp plan')
     }
   }
 
@@ -572,7 +572,7 @@ export default function CompPlansPage() {
       })
       if (!response.ok) {
         const data = await response.json()
-        alert(data.error || 'Failed to assign management overlay')
+        toast.error(data.error || 'Failed to assign management overlay')
         return
       }
       setShowOverlayModal(false)
@@ -587,7 +587,7 @@ export default function CompPlansPage() {
       loadData()
     } catch (error) {
       console.error('Error assigning management overlay:', error)
-      alert('Failed to assign management overlay')
+      toast.error('Failed to assign management overlay')
     }
   }
 
@@ -601,7 +601,7 @@ export default function CompPlansPage() {
     })
     const data = await response.json().catch(() => ({}))
     if (!response.ok) {
-      alert(data.error || 'Failed to cancel management overlay')
+      toast.error(data.error || 'Failed to cancel management overlay')
       return
     }
     loadData()
@@ -626,21 +626,21 @@ export default function CompPlansPage() {
     })
     const data = await response.json().catch(() => ({}))
     if (!response.ok) {
-      alert(data.error || 'Failed to end management overlay')
+      toast.error(data.error || 'Failed to end management overlay')
       return
     }
     loadData()
   }
 
   const deletePlan = async (id: string) => {
-    if (!confirm('Deactivate this comp plan? Historical assignments will remain unchanged.')) return
+    if (!(await confirmDialog({ title: 'Deactivate this comp plan? Historical assignments will remain unchanged.' , destructive: true }))) return
     try {
       const response = await fetch(`/api/admin/data?resource=comp_plan&id=${id}`, {
         method: 'DELETE',
       })
       if (!response.ok) {
         const data = await response.json()
-        alert(data.error || 'Failed to deactivate comp plan')
+        toast.error(data.error || 'Failed to deactivate comp plan')
         return
       }
       loadData()
@@ -654,7 +654,7 @@ export default function CompPlansPage() {
       ? prompt('Why is this scheduled primary plan being cancelled?')?.trim()
       : null
     if (scheduled && !cancellationReason) return
-    if (!scheduled && !confirm('End this assignment after today? Historical pay will remain unchanged.')) return
+    if (!scheduled && !(await confirmDialog({ title: 'End this assignment after today? Historical pay will remain unchanged.' }))) return
     try {
       const response = await fetch(`/api/admin/data?resource=user_comp_plan&id=${id}`, {
         method: 'DELETE',
@@ -663,7 +663,7 @@ export default function CompPlansPage() {
       })
       if (!response.ok) {
         const data = await response.json()
-        alert(data.error || 'Failed to end assignment')
+        toast.error(data.error || 'Failed to end assignment')
         return
       }
       loadData()
@@ -981,7 +981,7 @@ export default function CompPlansPage() {
       <div className="max-w-7xl mx-auto px-4 py-8">
         <div className="mb-6">
           <Link href="/admin" className="text-indigo-600 hover:text-indigo-800 text-sm font-medium">
-            ← Back to Admin
+            ← Back to Settings
           </Link>
         </div>
 

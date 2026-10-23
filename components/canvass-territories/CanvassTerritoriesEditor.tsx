@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { isCanvassTerritoryAssigneeEligible } from '@/lib/canvass-territory-assignee-filter'
 import { exteriorRingsFromGeoJSON } from '@/lib/canvass-territory-geometry'
 import type { ViewportPin } from '@/app/(canvass-app)/canvass/lib/useViewportLeads'
+import { confirmDialog } from '@/components/ui/confirm-dialog'
 
 declare const google: any
 
@@ -702,7 +703,7 @@ export function CanvassTerritoriesEditor({
   }
 
   const deleteTerritory = async (id: string) => {
-    if (!confirm('Delete this work area?')) return
+    if (!(await confirmDialog({ title: 'Delete this work area?', destructive: true }))) return
     setError(null)
     const res = await fetch(`/api/admin/canvass-territories/${id}`, { method: 'DELETE' })
     if (!res.ok) {

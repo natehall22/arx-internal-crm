@@ -5,6 +5,8 @@ import Nav from '@/components/Nav'
 import Link from 'next/link'
 import { DEFAULT_TIMEZONE } from '@/lib/timezone'
 import { isPromptEscalated } from '@/lib/inspection-feedback-prompt'
+import { toast } from '@/components/ui/toast'
+import { confirmDialog } from '@/components/ui/confirm-dialog'
 
 /** YYYY-MM-DD in org default timezone (ET) for calendar comparisons */
 function dateKeyEt(iso: string): string {
@@ -116,22 +118,22 @@ export default function InspectionFeedbackAdmin() {
       })
 
       if (response.ok) {
-        alert('Feedback request resent successfully')
+        toast.error('Feedback request resent successfully')
         loadFeedback()
       } else {
         const error = await response.json()
-        alert(error.error || 'Failed to resend')
+        toast.error(error.error || 'Failed to resend')
       }
     } catch (error) {
       console.error('Error resending:', error)
-      alert('Failed to resend')
+      toast.error('Failed to resend')
     } finally {
       setSending(null)
     }
   }
 
   const resendAll = async () => {
-    if (!confirm(`Resend feedback requests to ${sortedPending.length} closers?`)) return
+    if (!(await confirmDialog({ title: `Resend feedback requests to ${sortedPending.length} closers?` }))) return
     
     setSending('all')
     try {
@@ -141,15 +143,15 @@ export default function InspectionFeedbackAdmin() {
 
       if (response.ok) {
         const data = await response.json()
-        alert(`Resent ${data.count} feedback requests`)
+        toast.error(`Resent ${data.count} feedback requests`)
         loadFeedback()
       } else {
         const error = await response.json()
-        alert(error.error || 'Failed to resend')
+        toast.error(error.error || 'Failed to resend')
       }
     } catch (error) {
       console.error('Error resending all:', error)
-      alert('Failed to resend')
+      toast.error('Failed to resend')
     } finally {
       setSending(null)
     }

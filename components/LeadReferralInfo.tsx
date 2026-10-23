@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
+import { toast } from '@/components/ui/toast'
+import { confirmDialog } from '@/components/ui/confirm-dialog'
 
 interface ReferrerResult {
   id: string
@@ -126,13 +128,13 @@ export default function LeadReferralInfo({
 
       if (!response.ok) {
         const data = await response.json()
-        alert(`Failed to link referral: ${data.error}`)
+        toast.error(`Failed to link referral: ${data.error}`)
       } else {
         await loadReferral()
       }
     } catch (err) {
       console.error('Error creating referral:', err)
-      alert('Failed to link referral')
+      toast.error('Failed to link referral')
     }
 
     setShowSearch(false)
@@ -143,7 +145,7 @@ export default function LeadReferralInfo({
 
   const removeReferral = async () => {
     if (!referral) return
-    if (!confirm('Remove this referral link? The referral record will be deleted.')) return
+    if (!(await confirmDialog({ title: 'Remove this referral link? The referral record will be deleted.', destructive: true }))) return
 
     try {
       const response = await fetch(`/api/referrals?id=${referral.id}`, {

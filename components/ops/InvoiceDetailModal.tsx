@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react'
 import { InvoiceWithItems, INVOICE_STATUS_LABELS, INVOICE_STATUS_COLORS, INVOICE_NOTE_TEMPLATES } from '@/lib/types/invoices'
 import { formatCurrency } from '@/lib/job-payments'
+import { toast } from '@/components/ui/toast'
+import { confirmDialog } from '@/components/ui/confirm-dialog'
 
 interface InvoiceDetailModalProps {
   invoiceId: string
@@ -54,10 +56,10 @@ export default function InvoiceDetailModal({
     }
   }, [invoice?.invoice_kind, invoice?.status])
 
-  const handleInsertTemplate = (templateKey: keyof typeof INVOICE_NOTE_TEMPLATES) => {
+  const handleInsertTemplate = async (templateKey: keyof typeof INVOICE_NOTE_TEMPLATES) => {
     const template = INVOICE_NOTE_TEMPLATES[templateKey]
     if (publicNote && publicNote !== template) {
-      if (!confirm('Replace existing note with template?')) return
+      if (!(await confirmDialog({ title: 'Replace existing note with template?' }))) return
     }
     setPublicNote(template)
     setNotesChanged(true)
@@ -82,7 +84,7 @@ export default function InvoiceDetailModal({
         setNotesChanged(false)
       } else {
         const error = await response.json()
-        alert(error.error || 'Failed to save notes')
+        toast.error(error.error || 'Failed to save notes')
       }
     } catch (error) {
       console.error('Error saving notes:', error)
@@ -115,7 +117,7 @@ export default function InvoiceDetailModal({
         setShowAddItem(false)
       } else {
         const error = await response.json()
-        alert(error.error || 'Failed to add item')
+        toast.error(error.error || 'Failed to add item')
       }
     } catch (error) {
       console.error('Error adding item:', error)
@@ -125,7 +127,7 @@ export default function InvoiceDetailModal({
   }
 
   const handleDeleteItem = async (itemId: string) => {
-    if (!confirm('Delete this line item?')) return
+    if (!(await confirmDialog({ title: 'Delete this line item?', destructive: true }))) return
 
     setSaving(true)
     try {
@@ -140,7 +142,7 @@ export default function InvoiceDetailModal({
         setInvoice(data.invoice)
       } else {
         const error = await response.json()
-        alert(error.error || 'Failed to delete item')
+        toast.error(error.error || 'Failed to delete item')
       }
     } catch (error) {
       console.error('Error deleting item:', error)
@@ -159,11 +161,11 @@ export default function InvoiceDetailModal({
       })
 
       if (response.ok) {
-        alert('Invoice duplicated as new draft')
+        toast.error('Invoice duplicated as new draft')
         onClose()
       } else {
         const error = await response.json()
-        alert(error.error || 'Failed to duplicate invoice')
+        toast.error(error.error || 'Failed to duplicate invoice')
       }
     } catch (error) {
       console.error('Error duplicating invoice:', error)

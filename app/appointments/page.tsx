@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
+import { toast } from '@/components/ui/toast'
 
 interface Appointment {
   id: string
@@ -129,7 +130,7 @@ export default function AppointmentsPage() {
       setNewCloserId('')
       await loadData()
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to reassign')
+      toast.error(err instanceof Error ? err.message : 'Failed to reassign')
     } finally {
       setReassigning(false)
     }

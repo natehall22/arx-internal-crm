@@ -24,6 +24,7 @@ import {
   opsJobCompletionCertificateHref,
 } from '@/lib/ops-completion-cert-link'
 import type { JobStatus, OpsBoardJob } from '@/lib/ops-board-types'
+import { toast } from '@/components/ui/toast'
 
 /** Paused jobs render in a strip above the board; cancelled ones in a list below it. */
 type BoardColumnStatus = Exclude<JobStatus, 'collected' | 'on_hold' | 'cancelled'>
@@ -112,7 +113,7 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability }: 
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
-        alert(typeof data.error === 'string' ? data.error : 'Could not update payroll status')
+        toast.error(typeof data.error === 'string' ? data.error : 'Could not update payroll status')
         return
       }
       if (data.job) {
@@ -122,7 +123,7 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability }: 
       }
     } catch (e) {
       console.error(e)
-      alert('Could not update payroll status')
+      toast.error('Could not update payroll status')
     }
   }, [])
 
@@ -308,7 +309,7 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability }: 
       } catch {
         /* ignore */
       }
-      alert(message)
+      toast(message)
     }
 
     await loadData()
@@ -326,7 +327,7 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability }: 
       })
       if (!response.ok) {
         const err = await response.json().catch(() => null)
-        alert(err?.error || 'Could not save. Try again.')
+        toast.error(err?.error || 'Could not save. Try again.')
       }
       await loadData()
     },

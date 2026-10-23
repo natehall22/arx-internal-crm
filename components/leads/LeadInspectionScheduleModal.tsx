@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import CloseScheduleModal, { type CloseScheduleConfirm } from '@/components/appointments/CloseScheduleModal'
+import { toast } from '@/components/ui/toast'
 
 type SchedulingResources = {
   allowed: boolean
@@ -70,7 +71,7 @@ export default function LeadInspectionScheduleModal({
       const data = await res.json().catch(() => ({}))
 
       if (!res.ok) {
-        alert(
+        toast.error(
           typeof (data as { error?: string }).error === 'string'
             ? (data as { error: string }).error
             : 'Scheduling failed. Try another slot or contact an admin.'

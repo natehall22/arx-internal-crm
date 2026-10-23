@@ -3,6 +3,8 @@
 import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import type { ReferralLinkTarget, ReferralLinkTargetType } from '@/lib/referral-links'
+import { toast } from '@/components/ui/toast'
+import { confirmDialog } from '@/components/ui/confirm-dialog'
 
 interface Referral {
   id: string
@@ -149,14 +151,14 @@ export default function ReferralsSection({
       if (!res.ok) throw new Error(data.error || 'Failed to link referral')
       await loadReferrals()
     } catch (error) {
-      alert(error instanceof Error ? error.message : 'Failed to link referral')
+      toast.error(error instanceof Error ? error.message : 'Failed to link referral')
     } finally {
       setLinkingReferralId(null)
     }
   }
 
   const unlinkReferral = async (referral: Referral) => {
-    if (!confirm('Detach this referral from the linked record? The typed details stay.')) return
+    if (!(await confirmDialog({ title: 'Detach this referral from the linked record? The typed details stay.' }))) return
     setLinkingReferralId(referral.id)
     try {
       const res = await fetch(`/api/referrals/${referral.id}/link`, { method: 'DELETE' })
@@ -164,7 +166,7 @@ export default function ReferralsSection({
       if (!res.ok) throw new Error(data.error || 'Failed to unlink referral')
       await loadReferrals()
     } catch (error) {
-      alert(error instanceof Error ? error.message : 'Failed to unlink referral')
+      toast.error(error instanceof Error ? error.message : 'Failed to unlink referral')
     } finally {
       setLinkingReferralId(null)
     }
@@ -182,7 +184,7 @@ export default function ReferralsSection({
       if (!res.ok) throw new Error(data.error || 'Failed to create lead')
       await loadReferrals()
     } catch (error) {
-      alert(error instanceof Error ? error.message : 'Failed to create lead')
+      toast.error(error instanceof Error ? error.message : 'Failed to create lead')
     } finally {
       setConvertingReferralId(null)
     }
@@ -247,12 +249,12 @@ export default function ReferralsSection({
 
   const saveReferral = async () => {
     if (!form.referred_name.trim()) {
-      alert('Referred person name is required')
+      toast.error('Referred person name is required')
       return
     }
 
     if (!customerId) {
-      alert('Customer ID is required to create a referral')
+      toast.error('Customer ID is required to create a referral')
       return
     }
 
@@ -286,7 +288,7 @@ export default function ReferralsSection({
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data.error || 'Failed to save referral')
     } catch (error) {
-      alert(error instanceof Error ? error.message : 'Failed to save referral')
+      toast.error(error instanceof Error ? error.message : 'Failed to save referral')
       setSaving(false)
       return
     }
@@ -310,7 +312,7 @@ export default function ReferralsSection({
       if (!res.ok) throw new Error(data.error || 'Failed to update status')
       await loadReferrals()
     } catch (error) {
-      alert(error instanceof Error ? error.message : 'Failed to update status')
+      toast.error(error instanceof Error ? error.message : 'Failed to update status')
     }
   }
 
@@ -328,7 +330,7 @@ export default function ReferralsSection({
       if (!res.ok) throw new Error(data.error || 'Failed to mark as paid')
       await loadReferrals()
     } catch (error) {
-      alert(error instanceof Error ? error.message : 'Failed to mark as paid')
+      toast.error(error instanceof Error ? error.message : 'Failed to mark as paid')
     }
   }
 

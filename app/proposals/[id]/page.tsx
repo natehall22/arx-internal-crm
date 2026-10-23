@@ -11,6 +11,8 @@ import { userCanDeleteProposal } from '@/lib/proposal-delete-access'
 import CreateContractButton from '@/components/contracts/CreateContractButton'
 import { getProposalCustomerPricing, formatSelectedFinancingTerms } from '@/lib/proposal-pricing-visibility'
 import { resolveContractTotalSquares } from '@/lib/sold-roof-squares'
+import { toast } from '@/components/ui/toast'
+import { confirmDialog } from '@/components/ui/confirm-dialog'
 
 interface Proposal {
   id: string
@@ -192,18 +194,18 @@ export default function ProposalDetailPage() {
 
       if (!response.ok) {
         const data = await response.json()
-        alert(`Failed to send proposal: ${data.error}`)
+        toast.error(`Failed to send proposal: ${data.error}`)
         setSending(false)
         return
       }
 
       // In a real app, this would send an email with the proposal link
-      alert(`Proposal would be sent to ${proposal.customer_email || 'customer'}`)
+      toast.error(`Proposal would be sent to ${proposal.customer_email || 'customer'}`)
       
       await loadProposal()
     } catch (err) {
       console.error('Error sending proposal:', err)
-      alert('Failed to send proposal')
+      toast.error('Failed to send proposal')
     }
     setSending(false)
   }
@@ -333,7 +335,7 @@ export default function ProposalDetailPage() {
       
     } catch (error) {
       console.error('Error generating PDF:', error)
-      alert('Failed to generate PDF. Please try again.')
+      toast.error('Failed to generate PDF. Please try again.')
     }
 
     setGenerating(false)
@@ -354,7 +356,7 @@ export default function ProposalDetailPage() {
 
       if (!response.ok) {
         const data = await response.json()
-        alert(`Failed to upload image: ${data.error}`)
+        toast.error(`Failed to upload image: ${data.error}`)
         return
       }
 
@@ -365,7 +367,7 @@ export default function ProposalDetailPage() {
       setShowImageModal(false)
     } catch (err) {
       console.error('Error uploading image:', err)
-      alert('Failed to upload image')
+      toast.error('Failed to upload image')
     } finally {
       setUploadingImage(false)
     }
@@ -384,7 +386,7 @@ export default function ProposalDetailPage() {
 
       if (!response.ok) {
         const data = await response.json()
-        alert(`Failed to save image URL: ${data.error}`)
+        toast.error(`Failed to save image URL: ${data.error}`)
         return
       }
 
@@ -393,7 +395,7 @@ export default function ProposalDetailPage() {
       setImageUrlInput('')
     } catch (err) {
       console.error('Error saving image URL:', err)
-      alert('Failed to save image URL')
+      toast.error('Failed to save image URL')
     } finally {
       setUploadingImage(false)
     }
@@ -414,7 +416,7 @@ export default function ProposalDetailPage() {
 
       if (!response.ok) {
         const data = await response.json()
-        alert(`Failed to save image: ${data.error}`)
+        toast.error(`Failed to save image: ${data.error}`)
         return
       }
 
@@ -424,7 +426,7 @@ export default function ProposalDetailPage() {
       setShowImageModal(false)
     } catch (err) {
       console.error('Error saving satellite image:', err)
-      alert('Failed to save image')
+      toast.error('Failed to save image')
     } finally {
       setUploadingImage(false)
     }
@@ -432,7 +434,7 @@ export default function ProposalDetailPage() {
 
   const handleRemoveImage = async () => {
     if (!proposal) return
-    if (!confirm('Remove the property image?')) return
+    if (!(await confirmDialog({ title: 'Remove the property image?', destructive: true }))) return
     setUploadingImage(true)
 
     try {
@@ -442,14 +444,14 @@ export default function ProposalDetailPage() {
 
       if (!response.ok) {
         const data = await response.json()
-        alert(`Failed to remove image: ${data.error}`)
+        toast.error(`Failed to remove image: ${data.error}`)
         return
       }
 
       setProposal(prev => prev ? { ...prev, cover_image_url: null } : null)
     } catch (err) {
       console.error('Error removing image:', err)
-      alert('Failed to remove image')
+      toast.error('Failed to remove image')
     } finally {
       setUploadingImage(false)
     }
@@ -457,18 +459,18 @@ export default function ProposalDetailPage() {
 
   const handleDeleteProposal = async () => {
     if (!proposal) return
-    if (!confirm(`Delete ${proposal.proposal_number}? This cannot be undone.`)) return
+    if (!(await confirmDialog({ title: `Delete ${proposal.proposal_number}? This cannot be undone.`, destructive: true }))) return
     setDeletingProposal(true)
     try {
       const response = await fetch(`/api/proposals/${proposalId}`, { method: 'DELETE' })
       if (!response.ok) {
         const data = await response.json()
-        alert(data.error || 'Failed to delete proposal')
+        toast.error(data.error || 'Failed to delete proposal')
         return
       }
       router.push('/proposals')
     } catch {
-      alert('Failed to delete proposal')
+      toast.error('Failed to delete proposal')
     } finally {
       setDeletingProposal(false)
     }
@@ -1150,11 +1152,11 @@ export default function ProposalDetailPage() {
                         if (response.ok) {
                           await loadProposal()
                         } else {
-                          alert('Failed to decline proposal')
+                          toast.error('Failed to decline proposal')
                         }
                       } catch (err) {
                         console.error('Error declining proposal:', err)
-                        alert('Failed to decline proposal')
+                        toast.error('Failed to decline proposal')
                       }
                     }}
                     className="px-4 py-2 border border-red-200 text-red-600 rounded-lg text-sm font-medium hover:bg-red-50"
@@ -1193,22 +1195,22 @@ export default function ProposalDetailPage() {
                   ) : (
                     <button
                       onClick={async () => {
-                        if (!confirm('Create a project from this accepted proposal?')) return
+                        if (!(await confirmDialog({ title: 'Create a project from this accepted proposal?' }))) return
                         try {
                           const response = await fetch(`/api/proposals/${proposalId}/create-project`, {
                             method: 'POST',
                           })
                           if (response.ok) {
                             const data = await response.json()
-                            alert('Project created successfully!')
+                            toast.error('Project created successfully!')
                             await loadProposal()
                           } else {
                             const error = await response.json()
-                            alert(error.error || 'Failed to create project')
+                            toast.error(error.error || 'Failed to create project')
                           }
                         } catch (err) {
                           console.error('Error creating project:', err)
-                          alert('Failed to create project')
+                          toast.error('Failed to create project')
                         }
                       }}
                       className="px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 flex items-center gap-2"

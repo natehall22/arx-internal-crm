@@ -14,6 +14,8 @@ import type {
   IncentiveCycleCadence,
   BadgeCriteriaType,
 } from '@/lib/types/incentive'
+import { toast } from '@/components/ui/toast'
+import { confirmDialog } from '@/components/ui/confirm-dialog'
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -602,7 +604,7 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'hea
   const saveHeat = async (publishNow: boolean) => {
     const err = validateHeat()
     if (err) {
-      alert(err)
+      toast(err)
       return
     }
     setHeatSaving(true)
@@ -631,7 +633,7 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'hea
       editingHeat &&
       (editingHeat.status === 'cancelled' || editingHeat.status === 'completed')
     ) {
-      alert('Cannot publish a cancelled or completed heat.')
+      toast.error('Cannot publish a cancelled or completed heat.')
       setHeatSaving(false)
       return
     }
@@ -644,7 +646,7 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'hea
       })
       if (!res.ok) {
         const d = await res.json()
-        alert(d.error || 'Failed to save Heat')
+        toast.error(d.error || 'Failed to save Heat')
         setHeatSaving(false)
         return
       }
@@ -653,13 +655,13 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'hea
       setHeatForm(defaultHeatForm())
       loadAll()
     } catch {
-      alert('Failed to save Heat')
+      toast.error('Failed to save Heat')
     }
     setHeatSaving(false)
   }
 
   const cancelHeat = async (id: string) => {
-    if (!confirm('Cancel this Heat? This cannot be undone.')) return
+    if (!(await confirmDialog({ title: 'Cancel this Heat? This cannot be undone.', destructive: true }))) return
     try {
       const res = await fetch('/api/admin/incentives', {
         method: 'PATCH',
@@ -668,12 +670,12 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'hea
       })
       if (!res.ok) {
         const d = await res.json()
-        alert(d.error || 'Failed to cancel Heat')
+        toast.error(d.error || 'Failed to cancel Heat')
         return
       }
       loadAll()
     } catch {
-      alert('Failed to cancel Heat')
+      toast.error('Failed to cancel Heat')
     }
   }
 
@@ -686,11 +688,11 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'hea
 
   const saveCycle = async () => {
     if (!cycleForm.label.trim()) {
-      alert('Label is required')
+      toast.error('Label is required')
       return
     }
     if (!cycleForm.starts_at || !cycleForm.ends_at) {
-      alert('Dates are required')
+      toast.error('Dates are required')
       return
     }
     setCycleSaving(true)
@@ -702,7 +704,7 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'hea
       })
       if (!res.ok) {
         const d = await res.json()
-        alert(d.error || 'Failed to save cycle')
+        toast.error(d.error || 'Failed to save cycle')
         setCycleSaving(false)
         return
       }
@@ -710,7 +712,7 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'hea
       setCycleForm(defaultCycleForm())
       loadAll()
     } catch {
-      alert('Failed to save cycle')
+      toast.error('Failed to save cycle')
     }
     setCycleSaving(false)
   }
@@ -734,7 +736,7 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'hea
   }
 
   const lockCycle = async (cycle: IncentiveCycle) => {
-    if (!confirm(`Lock cycle "${cycle.label}"? This will finalize the payout queue.`)) return
+    if (!(await confirmDialog({ title: `Lock cycle "${cycle.label}"? This will finalize the payout queue.` }))) return
     try {
       const res = await fetch('/api/admin/incentives', {
         method: 'PATCH',
@@ -743,20 +745,20 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'hea
       })
       if (!res.ok) {
         const d = await res.json()
-        alert(d.error || 'Failed to lock cycle')
+        toast.error(d.error || 'Failed to lock cycle')
         return
       }
       loadAll()
       if (payoutCycle?.id === cycle.id) openPayout({ ...cycle, locked_at: new Date().toISOString() })
     } catch {
-      alert('Failed to lock cycle')
+      toast.error('Failed to lock cycle')
     }
   }
 
   const exportCycleCSV = (cycle: IncentiveCycle) => {
     const rows = payoutAchievements.filter((a) => a.qualified)
     if (rows.length === 0) {
-      alert('No qualified winners to export')
+      toast('No qualified winners to export')
       return
     }
     // Escape a CSV field: wrap in quotes, double any internal quotes, strip leading
@@ -812,7 +814,7 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'hea
 
   const saveBadge = async () => {
     if (!badgeForm.name.trim()) {
-      alert('Name is required')
+      toast.error('Name is required')
       return
     }
     setBadgeSaving(true)
@@ -838,7 +840,7 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'hea
       })
       if (!res.ok) {
         const d = await res.json()
-        alert(d.error || 'Failed to save badge')
+        toast.error(d.error || 'Failed to save badge')
         setBadgeSaving(false)
         return
       }
@@ -847,7 +849,7 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'hea
       setBadgeForm(defaultBadgeForm())
       loadAll()
     } catch {
-      alert('Failed to save badge')
+      toast.error('Failed to save badge')
     }
     setBadgeSaving(false)
   }
@@ -863,33 +865,33 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'hea
       })
       if (!res.ok) {
         const d = await res.json()
-        alert(d.error || 'Image upload failed')
+        toast.error(d.error || 'Image upload failed')
         return
       }
       const d = await res.json()
       setBadgeImagePreview(d.image_url as string)
       loadAll()
     } catch {
-      alert('Image upload failed')
+      toast.error('Image upload failed')
     } finally {
       setBadgeImageUploading(false)
     }
   }
 
   const removeBadgeImage = async (badgeId: string) => {
-    if (!confirm('Remove this badge image?')) return
+    if (!(await confirmDialog({ title: 'Remove this badge image?', destructive: true }))) return
     setBadgeImageUploading(true)
     try {
       const res = await fetch(`/api/admin/incentives/badges/${badgeId}/image`, { method: 'DELETE' })
       if (!res.ok) {
         const d = await res.json().catch(() => ({}))
-        alert((d as { error?: string }).error || 'Failed to remove image')
+        toast.error((d as { error?: string }).error || 'Failed to remove image')
         return
       }
       setBadgeImagePreview(null)
       loadAll()
     } catch {
-      alert('Failed to remove image')
+      toast.error('Failed to remove image')
     } finally {
       setBadgeImageUploading(false)
     }
@@ -908,7 +910,7 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'hea
       })
       loadAll()
     } catch {
-      alert('Failed to update badge')
+      toast.error('Failed to update badge')
     }
   }
 
@@ -918,13 +920,13 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'hea
       const res = await fetch('/api/admin/sisu/seed-badges', { method: 'POST' })
       if (!res.ok) {
         const d = (await res.json().catch(() => ({}))) as { error?: unknown }
-        alert(typeof d.error === 'string' ? d.error : 'Failed to seed default badges')
+        toast.error(typeof d.error === 'string' ? d.error : 'Failed to seed default badges')
         setSeedBadgesSaving(false)
         return
       }
       loadAll()
     } catch {
-      alert('Failed to seed default badges')
+      toast.error('Failed to seed default badges')
     }
     setSeedBadgesSaving(false)
   }
@@ -938,7 +940,7 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'hea
 
   const awardBadgeToUser = async () => {
     if (!awardBadge || !awardUserId) {
-      alert('Please select a user')
+      toast.error('Please select a user')
       return
     }
     setAwardSaving(true)
@@ -956,7 +958,7 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'hea
       })
       if (!res.ok) {
         const d = await res.json()
-        alert(d.error || 'Failed to award badge')
+        toast.error(d.error || 'Failed to award badge')
         setAwardSaving(false)
         return
       }
@@ -964,7 +966,7 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'hea
       setAwardBadge(null)
       loadAll()
     } catch {
-      alert('Failed to award badge')
+      toast.error('Failed to award badge')
     }
     setAwardSaving(false)
   }
@@ -1368,7 +1370,7 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'hea
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
           <div className="bg-slate-900 rounded-xl shadow-2xl shadow-black/50 border border-slate-700 max-w-md w-full">
             <div className="p-6 border-b border-slate-800">
-              <h2 className="text-xl font-bold text-white">New Sisu Cycle</h2>
+              <h2 className="text-xl font-bold text-white">New Incentive Cycle</h2>
             </div>
             <div className="p-6 space-y-4">
               <div>

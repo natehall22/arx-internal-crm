@@ -219,7 +219,7 @@ export default function DashboardSettingsPage() {
         <div className="flex items-center justify-between mb-8">
           <div>
             <Link href="/admin" className="text-sm text-indigo-600 hover:text-indigo-700 mb-2 inline-block">
-              ← Back to Admin
+              ← Back to Settings
             </Link>
             <h1 className="text-2xl font-bold text-gray-900">Dashboard Settings</h1>
             <p className="text-gray-500 mt-1">

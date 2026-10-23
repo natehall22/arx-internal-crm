@@ -77,6 +77,8 @@ import {
   overlapValidationNote,
   solarCoverageNote,
 } from '@/lib/roof-measure-solar-overlap'
+import { toast } from '@/components/ui/toast'
+import { confirmDialog } from '@/components/ui/confirm-dialog'
 
 declare const google: any
 
@@ -1232,7 +1234,7 @@ export default function RoofMeasurePage() {
   const searchAddress = async (searchAddr?: string) => {
     const addrToSearch = searchAddr || address
     if (!addrToSearch) {
-      alert('Please enter an address')
+      toast.error('Please enter an address')
       return
     }
     
@@ -1266,15 +1268,15 @@ export default function RoofMeasurePage() {
           focusMapOnProperty(googleMapRef.current, lat, lng)
         }
       } else if (status === google.maps.GeocoderStatus.ZERO_RESULTS) {
-        alert('Address not found. Please try a more specific address.')
+        toast.error('Address not found. Please try a more specific address.')
       } else if (status === google.maps.GeocoderStatus.REQUEST_DENIED) {
         console.error('Geocoding request denied')
         setMapError('Geocoding API access denied. Please ensure the Geocoding API is enabled in your Google Cloud Console and billing is set up.')
       } else if (status === google.maps.GeocoderStatus.OVER_QUERY_LIMIT) {
-        alert('Too many requests. Please wait a moment and try again.')
+        toast.error('Too many requests. Please wait a moment and try again.')
       } else {
         console.error('Geocoding failed with status:', status)
-        alert('Could not find address. Status: ' + status)
+        toast.error('Could not find address. Status: ' + status)
       }
     })
   }
@@ -1703,7 +1705,7 @@ export default function RoofMeasurePage() {
     if (fineTuneFacetId) return
 
     if (detectionMode === 'vision' && !ROOF_MEASURE_VISION_TRACE_ENABLED) {
-      alert(
+      toast(
         'Photo trace is turned off for now. Use “Reload outline from satellite” or draw a section on the map.'
       )
       return
@@ -1929,7 +1931,7 @@ export default function RoofMeasurePage() {
       autoDetectRequestKeyRef.current = null
       skipAutoDetectAfterFailureRef.current = true
       const message = error instanceof Error ? error.message : 'AI roof detection failed. Please try again.'
-      alert(message)
+      toast(message)
     } finally {
       setIsDetecting(false)
     }
@@ -2171,11 +2173,11 @@ export default function RoofMeasurePage() {
 
   const generateSmartEstimate = async () => {
     if (!opportunityId) {
-      alert('Opportunity is required to generate an estimate.')
+      toast.error('Opportunity is required to generate an estimate.')
       return
     }
     if (unresolvedPitchCount > 0) {
-      alert(`Set roof pitch on all roof sections before generating an estimate. ${unresolvedPitchCount} section${unresolvedPitchCount === 1 ? '' : 's'} still need a pitch.`)
+      toast(`Set roof pitch on all roof sections before generating an estimate. ${unresolvedPitchCount} section${unresolvedPitchCount === 1 ? '' : 's'} still need a pitch.`)
       return
     }
 
@@ -2203,7 +2205,7 @@ export default function RoofMeasurePage() {
     ]
 
     if (roofSections.length === 0) {
-      alert('Add roof sections first.')
+      toast('Add roof sections first.')
       return
     }
 
@@ -2227,7 +2229,7 @@ export default function RoofMeasurePage() {
       setGeneratedEstimate(data)
       setShowEstimateConfigModal(false)
     } catch (error: any) {
-      alert(error?.message || 'Failed to generate estimate')
+      toast.error(error?.message || 'Failed to generate estimate')
     } finally {
       setIsGeneratingEstimate(false)
     }
@@ -2346,7 +2348,7 @@ export default function RoofMeasurePage() {
     
     // Validate polygon has at least 3 points
     if (points.length < 3) {
-      alert('Please draw a shape with at least 3 points')
+      toast.error('Please draw a shape with at least 3 points')
       polygon.setMap(null)
       return
     }
@@ -2358,12 +2360,12 @@ export default function RoofMeasurePage() {
     
     // Validate area is reasonable (minimum 10 sqft, maximum 50,000 sqft per facet)
     if (flatAreaSqft < 10) {
-      alert('Area too small. Please draw a larger section.')
+      toast.error('Area too small. Please draw a larger section.')
       polygon.setMap(null)
       return
     }
     if (flatAreaSqft > 50000) {
-      alert('Area too large for a single section. Please break into smaller sections.')
+      toast.error('Area too large for a single section. Please break into smaller sections.')
       polygon.setMap(null)
       return
     }
@@ -3380,21 +3382,21 @@ export default function RoofMeasurePage() {
     if (!measurements) return
     const unresolvedPitchCount = facets.filter((facet) => !facet.pitch || facet.pitch === 'Unset').length
     if (unresolvedPitchCount > 0) {
-      alert(`Assign pitch to all roof sections before saving. ${unresolvedPitchCount} section${unresolvedPitchCount === 1 ? '' : 's'} still need slope confirmation.`)
+      toast(`Assign pitch to all roof sections before saving. ${unresolvedPitchCount} section${unresolvedPitchCount === 1 ? '' : 's'} still need slope confirmation.`)
       return
     }
     if (facets.some((facet) => !isConfirmedPitchSource(facet.pitch_source))) {
-      alert(
+      toast(
         'Confirm roof pitch on every section before saving. Choose a pitch from the dropdown, or keep the Solar suggestion applied on load.'
       )
       return
     }
     if (facets.some((facet) => facet.geometry_reviewed !== true)) {
-      alert('Before saving, tap “Looks good ✓” on every section once the outline matches the roof.')
+      toast('Before saving, tap “Looks good ✓” on every section once the outline matches the roof.')
       return
     }
     if (facets.some((facet) => facet.geometry_source === 'solar_bbox' || facet.geometry_source === 'solar_mask_whole')) {
-      alert(
+      toast(
         'These satellite boxes are only a starting shape—finish aligning corners to the roof, or redraw sections by hand, before saving.'
       )
       return
@@ -3409,7 +3411,7 @@ export default function RoofMeasurePage() {
       manualDrawFacetCount,
     })
     if (solarOverlap.blocksSave && !options?.overlapOverride) {
-      alert('Fix overlapping roof sections before saving. Check the validation notes panel for details.')
+      toast('Fix overlapping roof sections before saving. Check the validation notes panel for details.')
       return
     }
 
@@ -3466,7 +3468,7 @@ export default function RoofMeasurePage() {
     } catch (error: any) {
       console.error('Error saving measurement:', error)
       const errorMessage = error?.message || 'Unknown error'
-      alert(`Failed to save measurement: ${errorMessage}`)
+      toast.error(`Failed to save measurement: ${errorMessage}`)
     } finally {
       setSaving(false)
     }
@@ -3478,8 +3480,8 @@ export default function RoofMeasurePage() {
     setOverlapOverrideReason('')
   }
 
-  const clearAll = () => {
-    if (!confirm('Clear all measurements?')) return
+  const clearAll = async () => {
+    if (!(await confirmDialog({ title: 'Clear all measurements?' }))) return
     
     // Clear polygons (facets)
     polygonsRef.current.forEach(polygon => polygon.setMap(null))

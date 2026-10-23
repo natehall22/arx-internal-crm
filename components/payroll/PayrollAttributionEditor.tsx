@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { toast } from '@/components/ui/toast'
 
 type OrgUser = { id: string; full_name: string }
 
@@ -87,7 +88,7 @@ export default function PayrollAttributionEditor({
       })
       if (!res.ok) {
         const j = await res.json().catch(() => ({}))
-        alert((j as { error?: string }).error || 'Could not save attribution')
+        toast.error((j as { error?: string }).error || 'Could not save attribution')
         return
       }
       const setterName = setterEditId

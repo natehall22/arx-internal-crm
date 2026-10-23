@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { toast } from '@/components/ui/toast'
 
 interface ProjectFileUploadProps {
   projectId: string
@@ -29,14 +30,14 @@ export default function ProjectFileUpload({ projectId }: ProjectFileUploadProps)
 
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
-        alert(data.error || 'Failed to upload file')
+        toast.error(data.error || 'Failed to upload file')
         return
       }
 
       router.refresh()
     } catch (err) {
       console.error('Upload error:', err)
-      alert('Failed to upload file')
+      toast.error('Failed to upload file')
     } finally {
       setUploading(false)
       e.target.value = ''
