@@ -122,6 +122,7 @@ export async function saveHoursEntries(
       .select('id, regular_hours, overtime_hours, notes, hourly_rate_snapshot, hourly_earnings')
       .eq('payroll_period_id', periodId)
       .eq('user_id', userId)
+      .eq('org_id', orgId)
       .maybeSingle()
 
     const { data: saved, error: saveErr } = await supabase

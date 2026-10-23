@@ -1,6 +1,6 @@
 jest.mock('@/lib/payroll-statement-email', () => ({ sendPayrollStatementEmail: jest.fn() }))
 
-import { createFakeDb } from '@/lib/__tests__/helpers/fake-db'
+import { createFakeDb } from '@/lib/test-helpers/fake-db'
 import { addAdjustment, voidAdjustment } from '@/lib/payroll-adjustments'
 import { approvePayWeek } from '@/lib/payroll-approve'
 import { loadPayWeek } from '@/lib/payroll-pay-week'
@@ -62,7 +62,7 @@ describe('adjustments', () => {
   it('a fix on an APPROVED week never touches it: it lands on next week (created) and shows there', async () => {
     const db = build()
     const week = await loadPayWeek(db.client, ORG, NOW)
-    await approvePayWeek(db.client, { orgId: ORG, actorUserId: 'a', periodId: week.period.id, expectedTotal: week.totals.amount, emailStatements: false, now: NOW })
+    await approvePayWeek(db.client, { orgId: ORG, actorUserId: 'a', periodId: week.period.id, expectedTotal: week.totals.amount, now: NOW })
     const res = await addAdjustment(db.client, { orgId: ORG, actorUserId: 'a', viewedPeriodId: week.period.id, userId: 'c1', amount: -150, reason: 'Paid twice on 26-0129' })
     expect(res).toMatchObject({ ok: true, nextWeek: true })
     if (!res.ok) return
@@ -85,7 +85,7 @@ describe('adjustments', () => {
     expect(draft.people.find((p) => p.name === 'Riley Moss')).toMatchObject({ raw: -300, total: 0 })
     expect(draft.warnings.some((w) => w.code === 'negative')).toBe(true)
 
-    const ok = await approvePayWeek(db.client, { orgId: ORG, actorUserId: 'a', periodId: week.period.id, expectedTotal: draft.totals.amount, emailStatements: false, now: NOW })
+    const ok = await approvePayWeek(db.client, { orgId: ORG, actorUserId: 'a', periodId: week.period.id, expectedTotal: draft.totals.amount, now: NOW })
     expect(ok.ok).toBe(true)
     const carried = (db.tables.payroll_adjustments ?? []).filter((r) => r.kind === 'balance')
     expect(carried).toHaveLength(1)
@@ -104,7 +104,7 @@ describe('adjustments', () => {
     const add2 = await addAdjustment(db.client, { orgId: ORG, actorUserId: 'a', viewedPeriodId: week.period.id, userId: 's1', amount: 50, reason: 'y' })
     if (!add2.ok) throw new Error('setup')
     const w2 = await loadPayWeek(db.client, ORG, NOW)
-    await approvePayWeek(db.client, { orgId: ORG, actorUserId: 'a', periodId: week.period.id, expectedTotal: w2.totals.amount, emailStatements: false, now: NOW })
+    await approvePayWeek(db.client, { orgId: ORG, actorUserId: 'a', periodId: week.period.id, expectedTotal: w2.totals.amount, now: NOW })
     expect(await voidAdjustment(db.client, ORG, add2.id)).toMatchObject({ ok: false, status: 409 })
   })
 

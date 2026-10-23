@@ -76,7 +76,7 @@ export type PayWeekWaiting = {
 
 export type PayWeekNeed =
   | { kind: 'hours'; userId: string; name: string; rate: number }
-  | { kind: 'bonus'; id: string; userId: string; name: string; amount: number; what: string }
+  | { kind: 'bonus'; id: string; userId: string; name: string; amount: number; what: string; /** Set when the bonus is stuck on an earlier, already-approved week. */ fromWeek?: string }
   | { kind: 'plans'; text: string; names: string[]; href: string }
   | { kind: 'conflict'; text: string; jobNumbers: string[] }
 
@@ -88,6 +88,8 @@ export type PayWeek = {
   totals: { amount: number; people: number }
   needs: PayWeekNeed[]
   warnings: PayWeekWarning[]
+  /** Jobs that finished before this week and are paid for the first time here (shown in the Approve confirmation). */
+  backlog: { jobs: number; amount: number; since: string }
   people: PayWeekPerson[]
   jobs: PayWeekJobView[]
   waiting: PayWeekWaiting[]
@@ -112,6 +114,9 @@ const ROLE_WORDS: Record<string, string> = {
   custom: 'custom line',
 }
 export const payoutRoleWord = (role: string) => ROLE_WORDS[role] ?? role.replace(/_/g, ' ')
+
+/** A real UUID (8-4-4-4-12 hex), not just 36 hex-or-dash characters. */
+export const isUuid = (v: unknown): v is string => typeof v === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v)
 
 const fmtMoney = (n: number) => `${n < 0 ? '-' : ''}$${Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: n % 1 === 0 ? 0 : 2, maximumFractionDigits: 2 })}`
 
@@ -244,7 +249,7 @@ export async function resolvePayWeekPeriod(admin: SupabaseClient, orgId: string,
   if (periodId) {
     const { data, error } = await admin.from('payroll_periods').select(cols).eq('id', periodId).eq('org_id', orgId).maybeSingle()
     if (error) throw error
-    if (!data) throw new Error('Pay period not found')
+    if (!data || (data as { status?: string }).status === 'cancelled') throw new Error('Pay period not found')
     return toPeriod(data as never)
   }
   const target = getLastWeeklyPayrollCutoffEtAtOrBefore(now)
@@ -274,7 +279,8 @@ export async function resolvePayWeekPeriod(admin: SupabaseClient, orgId: string,
       scheduled_pay_date: payDate,
       status: 'open',
     })
-    if (error) throw error
+    // Two people opening Payroll at once: the loser's insert hits the unique label — that is fine, just read the winner's row.
+    if (error && (error as { code?: string }).code !== '23505') throw error
     row = await find() // re-read: if two admins raced, both settle on the earliest-created row
   }
   return toPeriod(row)
@@ -339,6 +345,25 @@ function waitingView(w: WaitingJob, jobs: Map<string, JobInfo>, names: Map<strin
   }
 }
 
+/** Hours exactly as saved for an approved week (whoever is active today), so an approved week never changes on re-read. */
+async function loadStoredHours(admin: SupabaseClient, orgId: string, periodId: string): Promise<HourlyRosterRow[]> {
+  const { data, error } = await admin.from('payroll_rep_hours').select('user_id, regular_hours, overtime_hours, hourly_rate_snapshot, hourly_earnings, notes').eq('org_id', orgId).eq('payroll_period_id', periodId)
+  if (error) throw error
+  return (data ?? []).map((r) => ({
+    user_id: r.user_id as string,
+    full_name: '',
+    role: '',
+    plan_name: null,
+    plan_type: null,
+    hourly_rate: Number(r.hourly_rate_snapshot) || 0,
+    regular_hours: Number(r.regular_hours) || 0,
+    overtime_hours: Number(r.overtime_hours) || 0,
+    hourly_earnings: Number(r.hourly_earnings) || 0,
+    notes: (r.notes as string) ?? null,
+    has_entry: true,
+  }))
+}
+
 export async function loadPayWeek(admin: SupabaseClient, orgId: string, now: Date, periodId?: string | null): Promise<PayWeek> {
   const period = await resolvePayWeekPeriod(admin, orgId, now, periodId)
   const draft = period.status === 'open'
@@ -346,16 +371,15 @@ export async function loadPayWeek(admin: SupabaseClient, orgId: string, now: Dat
   let rows: WeekInputs['rows'] = []
   let waiting: WaitingJob[] = []
   let conflictJobIds: string[] = []
-  let backlogJobs = 0
-  let eligibleAtByJob = new Map<string, string>()
+  let backlog = { jobs: 0, amount: 0, since: period.weekStart }
 
   if (draft) {
     const plan = await planPayrollPeriod(admin, { orgId, periodId: period.id, includeWaiting: true })
     rows = plan.jobs.flatMap((j) => j.rows)
     waiting = plan.waiting
     conflictJobIds = plan.selfGenSetterConflictJobIds
-    eligibleAtByJob = new Map(plan.jobs.map((j) => [j.job.id, j.eligibleAt]))
-    backlogJobs = plan.jobs.filter((j) => ymdEt(new Date(j.eligibleAt)) < period.weekStart).length
+    const old = plan.jobs.filter((j) => ymdEt(new Date(j.eligibleAt)) < period.weekStart)
+    backlog = { jobs: old.length, amount: roundMoney(old.reduce((sum, j) => sum + j.rows.reduce((a, r) => a + (Number(r.net_amount) || 0), 0), 0)), since: period.weekStart }
   } else {
     const { data, error } = await admin
       .from('payroll_payout_lines')
@@ -369,19 +393,42 @@ export async function loadPayWeek(admin: SupabaseClient, orgId: string, now: Dat
   const jobIds = Array.from(new Set([...rows.map((r) => r.job_id), ...waiting.map((w) => w.job.id)]))
   const [jobs, hours, bonusRes, adjustments] = await Promise.all([
     loadJobs(admin, orgId, jobIds),
-    loadHourlyRoster(admin, orgId, { id: period.id, cutoff_at: period.cutoffAt }),
+    draft ? loadHourlyRoster(admin, orgId, { id: period.id, cutoff_at: period.cutoffAt }) : loadStoredHours(admin, orgId, period.id),
     admin.from('payroll_bonus_lines').select('id, user_id, bonus_type, amount, description, status').eq('org_id', orgId).eq('payroll_period_id', period.id),
     loadPeriodAdjustments(admin, orgId, period.id),
   ])
   if (bonusRes.error) throw bonusRes.error
   const bonusAll = (bonusRes.data ?? []) as Array<{ id: string; user_id: string; bonus_type: string; amount: number; description: string | null; status: string }>
   const approvedBonuses = bonusAll.filter((b) => b.status === 'approved' || b.status === 'paid').map((b) => ({ id: b.id, userId: b.user_id, amount: Number(b.amount) || 0, description: b.description, bonusType: b.bonus_type }))
-  const pendingBonuses = bonusAll.filter((b) => b.status === 'pending_approval')
+  const pendingBonuses: Array<(typeof bonusAll)[number] & { fromWeek?: string }> = bonusAll.filter((b) => b.status === 'pending_approval')
+  if (draft) {
+    // Bonuses the setter-ramp sync dropped into an already-approved week can never be paid there: show them here instead.
+    const { data: stuck } = await admin.from('payroll_bonus_lines').select('id, user_id, bonus_type, amount, description, status, payroll_period_id').eq('org_id', orgId).eq('status', 'pending_approval').neq('payroll_period_id', period.id).limit(200)
+    const pids = Array.from(new Set((stuck ?? []).map((b) => b.payroll_period_id as string)))
+    const pstat = new Map<string, { status: string; cutoff: string }>()
+    if (pids.length) {
+      const { data: ps } = await admin.from('payroll_periods').select('id, status, cutoff_at').eq('org_id', orgId).in('id', pids)
+      for (const x of ps ?? []) pstat.set(x.id as string, { status: x.status as string, cutoff: x.cutoff_at as string })
+    }
+    for (const b of stuck ?? []) {
+      const ps = pstat.get(b.payroll_period_id as string)
+      if (ps && (ps.status === 'locked' || ps.status === 'paid')) pendingBonuses.push({ ...(b as unknown as (typeof bonusAll)[number]), fromWeek: ymdEt(new Date(ps.cutoff)) })
+    }
+  }
 
   const peopleIds = Array.from(new Set([...rows.map((r) => r.user_id), ...hours.map((h) => h.user_id), ...approvedBonuses.map((b) => b.userId), ...pendingBonuses.map((b) => b.user_id), ...adjustments.map((a) => a.userId), ...waiting.flatMap((w) => w.rows.map((r) => r.user_id))]))
   const names = await loadNames(admin, orgId, peopleIds)
-  for (const h of hours) if (!names.has(h.user_id)) names.set(h.user_id, { name: h.full_name, role: h.role })
-  const units = await loadUnits(admin, orgId, period, Array.from(new Set([...rows.map((r) => r.user_id), ...hours.map((h) => h.user_id)])))
+  for (const h of hours) {
+    if (!h.full_name) {
+      const n = (await loadNames(admin, orgId, [h.user_id])).get(h.user_id)
+      h.full_name = n?.name ?? 'Unknown'
+      h.role = n?.role ?? ''
+    }
+    if (!names.has(h.user_id)) names.set(h.user_id, { name: h.full_name, role: h.role })
+  }
+  // Per-unit pay: everyone active is checked (a unit-plan person with no commission rows and no hours still earns it).
+  const { data: activeUsers } = await admin.from('users').select('id').eq('org_id', orgId).eq('active', true)
+  const units = await loadUnits(admin, orgId, period, Array.from(new Set([...(activeUsers ?? []).map((u) => u.id as string), ...rows.map((r) => r.user_id), ...hours.map((h) => h.user_id)])))
 
   const { people, jobs: jobViews } = composeWeek({ rows, jobs, names, hours, units, bonuses: approvedBonuses, adjustments })
 
@@ -390,7 +437,7 @@ export async function loadPayWeek(admin: SupabaseClient, orgId: string, now: Dat
   if (draft) {
     for (const h of hours) if (!h.has_entry) needs.push({ kind: 'hours', userId: h.user_id, name: h.full_name, rate: h.hourly_rate ?? 0 })
     for (const b of pendingBonuses) {
-      needs.push({ kind: 'bonus', id: b.id, userId: b.user_id, name: names.get(b.user_id)?.name ?? 'Unknown', amount: Number(b.amount) || 0, what: b.description || b.bonus_type.replace(/_/g, ' ') })
+      needs.push({ kind: 'bonus', id: b.id, userId: b.user_id, name: names.get(b.user_id)?.name ?? 'Unknown', amount: Number(b.amount) || 0, what: b.description || b.bonus_type.replace(/_/g, ' '), fromWeek: b.fromWeek })
     }
     const [gaps, ended] = await Promise.all([loadPayPlanGaps(admin, orgId, now), loadEndedPlanPeople(admin, orgId, now)])
     const noPlan = gaps.flatMap((g) => g.people.map((p) => p.name))
@@ -405,11 +452,10 @@ export async function loadPayWeek(admin: SupabaseClient, orgId: string, now: Dat
     const { data: prior } = await admin.from('payroll_payout_lines').select('user_id').eq('org_id', orgId).neq('payroll_period_id', period.id).in('user_id', people.map((p) => p.userId)).limit(5000)
     const paidBefore = new Set((prior ?? []).map((r) => r.user_id as string))
     const firstTime = new Set(people.filter((p) => !paidBefore.has(p.userId)).map((p) => p.userId))
-    warnings.push(...buildWarnings({ people, firstTimePayees: firstTime, backlogJobs, weekStart: period.weekStart }))
-    void eligibleAtByJob
+    warnings.push(...buildWarnings({ people, firstTimePayees: firstTime, backlogJobs: backlog.jobs, weekStart: period.weekStart }))
   }
 
-  const { data: others } = await admin.from('payroll_periods').select('id, cutoff_at, scheduled_pay_date, status').eq('org_id', orgId).neq('id', period.id).neq('status', 'cancelled').order('cutoff_at', { ascending: false }).limit(12)
+  const { data: others } = await admin.from('payroll_periods').select('id, cutoff_at, scheduled_pay_date, status').eq('org_id', orgId).neq('id', period.id).neq('status', 'cancelled').lte('cutoff_at', now.toISOString()).order('cutoff_at', { ascending: false }).limit(12)
   const earlier = (others ?? []).map((o) => ({ id: o.id as string, weekEnding: ymdEt(new Date(o.cutoff_at as string)), payDate: o.scheduled_pay_date as string, status: o.status as string }))
 
   const { data: dirRows } = await admin.from('users').select('id, full_name').eq('org_id', orgId).eq('active', true).order('full_name')
@@ -434,6 +480,7 @@ export async function loadPayWeek(admin: SupabaseClient, orgId: string, now: Dat
     totals: { amount: roundMoney(payable.reduce((s, p) => s + p.total, 0)), people: payable.length },
     needs,
     warnings,
+    backlog,
     people,
     jobs: jobViews,
     waiting: waiting.map((w) => waitingView(w, jobs, names)),

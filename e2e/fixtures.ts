@@ -216,6 +216,7 @@ export const PAY_WEEK = {
     { kind: 'plans', text: '2 people have no pay plan, so they are paid nothing', names: ['Cam Hill', 'Tim Joyce'], href: '/admin/comp-plans' },
   ],
   warnings: [{ code: 'first_time', text: 'Taylor Finch is being paid for the first time.' }, { code: 'backlog', text: '2 jobs that finished before 2026-10-15 are included — nothing has paid them yet.' }],
+  backlog: { jobs: 2, amount: 2170, since: '2026-10-15' },
   people: [
     { userId: 'u-jordan', name: 'Jordan Vale', roleLabel: 'Closer', total: 2394, raw: 2394, hoursMissing: false, lines: [
       { kind: 'Commission', what: '26-0141 · 12 Example Maple Ln', math: '$18,400 × 7% closer = $1,288', amount: 1288, jobId: 'j1', jobNumber: '26-0141', participantRole: 'sales_rep' },
