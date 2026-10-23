@@ -344,6 +344,8 @@ interface FinancialSourceProposalOption {
 }
 
 interface JobDetailClientProps {
+  /** Rendered inside the Customer File: no Nav, back link, or legacy notes card (the file's thread replaces it). */
+  embedded?: boolean
   initialJob: Job
   /** Resolved server-side (project → contract → financing); null when genuinely unknown. */
   paymentMethod: string | null
@@ -568,6 +570,7 @@ export default function JobDetailClient({
   isSuperAdmin = false,
   financialSourceProposalOptions,
   changeOrdersSection,
+  embedded = false,
 }: JobDetailClientProps) {
   const router = useRouter()
   const [job, setJob] = useState<Job>(initialJob)
@@ -730,6 +733,10 @@ export default function JobDetailClient({
   // Load job notes
   useEffect(() => {
     const loadNotes = async () => {
+      if (embedded) {
+        setLoadingNotes(false)
+        return
+      }
       setLoadingNotes(true)
       try {
         const response = await fetch(`/api/ops/jobs/${job.id}/notes`)
@@ -744,7 +751,7 @@ export default function JobDetailClient({
       }
     }
     loadNotes()
-  }, [job.id])
+  }, [job.id, embedded])
 
   // Load org users for @mentions
   useEffect(() => {
@@ -1319,17 +1326,19 @@ export default function JobDetailClient({
 
   return (
     <div className="min-h-screen bg-gray-50 max-sm:[&_button]:min-h-[44px] max-sm:[&_select]:min-h-[44px] max-sm:[&_select]:text-base max-sm:[&_input:not([type=checkbox]):not([type=radio]):not([type=file])]:min-h-[44px] max-sm:[&_input]:text-base max-sm:[&_textarea]:text-base">
-      <Nav />
+      {!embedded && <Nav />}
 
       {/* Full-bleed, outside the container, so the stripe really does run all the way across. */}
       <JobPaymentMethodBanner paymentMethod={paymentMethod} />
 
       <div className="max-w-6xl mx-auto px-3 sm:px-4 py-4 sm:py-6">
-        <div className="mb-4 sm:mb-6">
-          <Link href="/ops" className="text-indigo-600 hover:text-indigo-800 text-sm font-medium min-h-[44px] inline-flex items-center">
-            ← Back to Production Board
-          </Link>
-        </div>
+        {!embedded && (
+          <div className="mb-4 sm:mb-6">
+            <Link href="/ops" className="text-indigo-600 hover:text-indigo-800 text-sm font-medium min-h-[44px] inline-flex items-center">
+              ← Back to Production Board
+            </Link>
+          </div>
+        )}
 
         {/* IDENTITY BLOCK — job #, status, customer, address, badges, pipeline, primary action.
             Above every banner: who/where and what state the job is in are needed on every visit;
@@ -1884,7 +1893,7 @@ export default function JobDetailClient({
               { key: 'materials', label: 'Materials' },
               ...(canViewFinancialTab ? [{ key: 'financials' as const, label: 'Financials' }] : []),
               { key: 'photos',   label: 'Photos & files' },
-              { key: 'notes',    label: 'Notes' },
+              ...(embedded ? [] : [{ key: 'notes' as const, label: 'Notes' }]),
             ] as const).map((tab) => (
               <button
                 key={tab.key}
@@ -1989,7 +1998,8 @@ export default function JobDetailClient({
               />
             </div>
 
-            {/* NOTES TAB */}
+            {/* NOTES TAB — replaced by the Customer File thread when embedded */}
+            {!embedded && (
             <div className={`bg-white rounded-xl shadow-sm border p-4 sm:p-6 ${mobileTab !== 'notes' ? 'hidden lg:block' : ''}`}>
               <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-4">Internal Notes</h2>
               
@@ -2057,6 +2067,7 @@ export default function JobDetailClient({
                 )}
               </div>
             </div>
+            )}
           </div>
 
           <div className="space-y-4 sm:space-y-6">

@@ -27,6 +27,8 @@ export type ThreadViewer = {
   jobBoard: boolean
   /** jobs:edit — ops who may write Production + Crew. */
   jobEdit: boolean
+  /** jobs:financials:view — may open the Money tab. */
+  jobFinancials: boolean
   /** manager / sales manager / regional manager / operations role. */
   managerLike: boolean
   /** rep / sales_rep / closer. */

@@ -3,9 +3,9 @@ import { NextResponse } from 'next/server'
 import { getTimeline } from '@/lib/threads/get-thread'
 import { threadAuth, threadDeal, type ThreadCtx } from '@/lib/threads/api'
 import { notifyMessage } from '@/lib/threads/notify'
-import { postMessage } from '@/lib/threads/post-message'
+import { loadMessage, postMessage } from '@/lib/threads/post-message'
 import { resolveByReply } from '@/lib/threads/waiting'
-import { AUDIENCES, writableAudiences, type Audience } from '@/lib/threads/visibility'
+import { AUDIENCES, canReadMessage, defaultAudience, writableAudiences, type Audience } from '@/lib/threads/visibility'
 
 export async function GET(request: Request, { params }: { params: { dealId: string } }) {
   const ctx = await threadAuth()
@@ -17,15 +17,34 @@ export async function GET(request: Request, { params }: { params: { dealId: stri
   const audiences = (url.searchParams.get('audience') ?? '')
     .split(',')
     .filter((a): a is Audience => (AUDIENCES as readonly string[]).includes(a))
+  const dealRef = { owner_user_id: deal.owner_user_id, setter_user_id: deal.setter_user_id }
+
+  // Jump to a message (search result / notification deep link): page so that it is the newest row.
+  let before = url.searchParams.get('before')
+  const around = url.searchParams.get('around')
+  if (around) {
+    const target = await loadMessage(ctx.admin, ctx.viewer.orgId, around)
+    if (target && canReadMessage(ctx.viewer, dealRef, target)) before = new Date(Date.parse(target.created_at) + 1).toISOString()
+  }
   const timeline = await getTimeline(ctx.admin, ctx.viewer, deal, {
     scope: url.searchParams.get('scope') === 'customer' ? 'customer' : 'deal',
     audiences,
     humanOnly: url.searchParams.get('humanOnly') === '1',
-    before: url.searchParams.get('before'),
+    before,
     limit: Number(url.searchParams.get('limit')) || undefined,
   })
-  const dealRef = { owner_user_id: deal.owner_user_id, setter_user_id: deal.setter_user_id }
-  return NextResponse.json({ ...timeline, writable: writableAudiences(ctx.viewer, dealRef) })
+  const surfaceParam = url.searchParams.get('surface')
+  const surface = surfaceParam === 'sales' || surfaceParam === 'job' || surfaceParam === 'overview' ? surfaceParam : 'other'
+  return NextResponse.json({
+    ...timeline,
+    writable: writableAudiences(ctx.viewer, dealRef),
+    defaultAudience: defaultAudience(ctx.viewer, { surface }, dealRef),
+    canAllowSetters: !ctx.viewer.pricingBarred,
+    canPin: ctx.viewer.ownerLike || ctx.viewer.jobEdit || ctx.viewer.managerLike || ctx.viewer.closerLike,
+    viewerId: ctx.viewer.userId,
+    isOwner: ctx.viewer.ownerLike,
+    seesSalesHistoryChip: ctx.viewer.jobBoard && !ctx.viewer.ownerLike,
+  })
 }
 
 export async function POST(request: Request, { params }: { params: { dealId: string } }) {

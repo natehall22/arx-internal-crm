@@ -4,7 +4,7 @@ import {
 } from '@/lib/threads/visibility'
 
 const base: ThreadViewer = {
-  userId: 'u', orgId: 'o', ownerLike: false, jobBoard: false, jobEdit: false, managerLike: false,
+  userId: 'u', orgId: 'o', ownerLike: false, jobBoard: false, jobEdit: false, jobFinancials: false, managerLike: false,
   closerLike: false, setterLike: false, pricingBarred: false,
 }
 const viewers = {

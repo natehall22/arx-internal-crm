@@ -5,7 +5,7 @@ import type { ThreadViewer } from '@/lib/threads/visibility'
 
 const ORG = 'org1'
 const mk = (o: Partial<ThreadViewer> & { userId: string }): ThreadViewer => ({
-  orgId: ORG, ownerLike: false, jobBoard: false, jobEdit: false, managerLike: false, closerLike: false, setterLike: false, pricingBarred: false, ...o,
+  orgId: ORG, ownerLike: false, jobBoard: false, jobEdit: false, jobFinancials: false, managerLike: false, closerLike: false, setterLike: false, pricingBarred: false, ...o,
 })
 const V = {
   owner: mk({ userId: 'owner', ownerLike: true, jobBoard: true, jobEdit: true }),

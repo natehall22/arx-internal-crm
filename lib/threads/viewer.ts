@@ -41,6 +41,7 @@ export async function resolveThreadViewer(admin: SupabaseClient, profile: Viewer
     ownerLike,
     jobBoard: ops.canJobBoard,
     jobEdit: ops.canEditJobs,
+    jobFinancials: ops.canViewJobFinancials,
     managerLike: MANAGER_LIKE.has(role),
     closerLike: CLOSER_LIKE.has(role),
     // Setters/canvassers see only deals they set or own; inside sales work the whole queue (but never pricing/production).

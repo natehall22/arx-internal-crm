@@ -262,3 +262,47 @@ export const MY_PAY = {
   disputes: [{ id: 'd1', label: '26-0120 · 731 Pretend Spruce Ln', message: 'I closed this alone', status: 'open', reply: null, createdAt: '2026-10-20T12:00:00Z' }],
   nextWeekFixes: [],
 }
+
+const msg = (o: Record<string, unknown>) => ({ user_id: 'u2', author_name: 'Sam (closer)', type: 'note', body: '', created_at: '2026-10-21T16:12:00Z', audience: 'team', priority: null, restricted_pricing: false, origin: 'human', reply_to_id: null, mentioned_user_ids: [], pinned_at: null, pin_scope: null, pin_expires_at: null, edited_at: null, deleted: false, legacy: false, ...o })
+export const HARNESS_THREAD = {
+  messages: [
+    msg({ id: 'm5', author_name: 'Riley (ops)', audience: 'production', body: 'Materials ordered, delivery Wed AM. Dumpster goes on the street, not the driveway.', created_at: '2026-10-22T13:02:00Z' }),
+    msg({ id: 's1', origin: 'system', type: 'status_change', user_id: null, author_name: null, body: 'Status → Scheduled', created_at: '2026-10-22T12:00:00Z' }),
+    msg({ id: 'm4', body: '@Riley Ops can you confirm the dumpster drop? She asked twice.', priority: 'needs_reply', mentioned_user_ids: ['u3'], created_at: '2026-10-21T21:40:00Z' }),
+    msg({ id: 'm3', author_name: 'Sam (closer)', audience: 'sales', restricted_pricing: true, body: 'Signed at $18,400, gave $500 off for cash. Wife picked Onyx.', created_at: '2026-10-21T19:48:00Z' }),
+    msg({ id: 'm1', user_id: 'u1', author_name: 'Jordan (setter)', body: 'Homeowner works nights, best time is after 2pm. Big dog, friendly.', created_at: '2026-10-21T16:12:00Z' }),
+  ],
+  pinned: [msg({ id: 'p1', body: 'Dog in back yard. Gate code 4471. Call before arrival.', pinned_at: '2026-10-21T16:20:00Z', pin_scope: 'customer' })],
+  nextBefore: '2026-10-21T16:12:00Z',
+  hiddenSalesCount: 0,
+  writable: ['team', 'sales', 'production', 'crew'],
+  defaultAudience: 'team',
+  canAllowSetters: true,
+  canPin: true,
+  viewerId: 'u2',
+  isOwner: true,
+  seesSalesHistoryChip: false,
+}
+
+export const HARNESS_FILE_CTX = {
+  customer: { id: 'c1', name: 'Ashley Gaines', phone: '(704) 555-0142', email: 'ashley@example.com', address_text: '1423 Maple Ridge Dr, Concord NC' },
+  deal: { id: 'd2', owner_user_id: 'u2', setter_user_id: 'u1', customer_id: 'c1', lead_id: null, address_text: '1423 Maple Ridge Dr, Concord NC', status: 'won' },
+  deals: [
+    { id: 'd2', address_text: '1423 Maple Ridge Dr, Concord NC', status: 'won', created_at: '2026-10-01T12:00:00Z' },
+    { id: 'd1', address_text: '1423 Maple Ridge Dr, Concord NC', status: 'won', created_at: '2016-04-01T12:00:00Z' },
+  ],
+  job: { id: 'j1', job_number: '26-0026', status: 'in_progress', project_id: 'p1', sale_amount: 18400, scheduled_date: '2026-10-29', completed_at: null, payroll_sent_at: null, materials_status: 'ordered', materials_eta: '2026-10-28' },
+  stages: [
+    { key: 'lead', label: 'Lead', tab: 'sales', state: 'done' },
+    { key: 'inspection', label: 'Inspection', tab: 'sales', state: 'done' },
+    { key: 'proposal', label: 'Proposal', tab: 'sales', state: 'done' },
+    { key: 'signed', label: 'Signed', tab: 'sales', state: 'done' },
+    { key: 'scheduled', label: 'Scheduled', tab: 'job', state: 'done' },
+    { key: 'installed', label: 'Installed', tab: 'job', state: 'current' },
+    { key: 'paid', label: 'Paid', tab: 'money', state: 'todo' },
+    { key: 'payroll', label: 'Payroll', tab: 'money', state: 'todo' },
+  ],
+  next: { label: 'Mark installed', tab: 'job' },
+  tabs: ['overview', 'sales', 'job', 'money', 'files', 'notes'],
+  pinned: [{ id: 'p1', body: 'Dog in back yard. Gate code 4471. Call before arrival.' }],
+}

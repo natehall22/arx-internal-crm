@@ -168,7 +168,19 @@ export async function getTimeline(
   const exhausted = (data ?? []).length <= limit * 3 && visible.length < limit
   const nextBefore = exhausted ? null : visible.length ? visible[visible.length - 1].created_at : lastSeen
 
-  // Pins: customer-level alerts (max 3, every deal) + deal-level pins, audience still applies.
+  const pinned = await getPinned(admin, viewer, deal, now)
+
+  return { messages: visible, pinned, nextBefore, hiddenSalesCount }
+}
+
+/** Pins for the file header: customer-level alerts (every deal) + this deal's pins. The audience still applies. */
+export async function getPinned(
+  admin: SupabaseClient,
+  viewer: ThreadViewer,
+  deal: NonNullable<Awaited<ReturnType<typeof loadDeal>>>,
+  now = Date.now()
+): Promise<ThreadMessage[]> {
+  const dealRef: DealRef = { owner_user_id: deal.owner_user_id, setter_user_id: deal.setter_user_id }
   const { data: pinRows } = await admin
     .from('activities')
     .select(COLS)
@@ -182,10 +194,8 @@ export async function getTimeline(
     )
     .order('pinned_at', { ascending: false })
     .limit(20)
-  const pinned = ((pinRows ?? []) as unknown as Row[])
+  return ((pinRows ?? []) as unknown as Row[])
     .map(toMessage)
     .filter((m) => stillPinned(m, now) && canReadMessage(viewer, dealRef, m))
     .slice(0, 6)
-
-  return { messages: visible, pinned, nextBefore, hiddenSalesCount }
 }
