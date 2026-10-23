@@ -50,7 +50,7 @@ const COLUMNS: ColumnDef<ProfitRow, any>[] = [
       const r = c.row.original
       return (
         <span>
-          <Link href={`/ops/jobs/${r.id}`} className="font-semibold underline-offset-2 hover:underline">{r.lastName}</Link>
+          <Link href={`/ops/jobs/${r.id}`} className="inline-flex min-h-tap items-center font-semibold underline-offset-2 hover:underline">{r.lastName}</Link>
           <span className="block text-ui-sm text-ink-muted">{r.jobNumber}</span>
         </span>
       )

@@ -306,3 +306,33 @@ export const HARNESS_FILE_CTX = {
   tabs: ['overview', 'sales', 'job', 'money', 'files', 'notes'],
   pinned: [{ id: 'p1', body: 'Dog in back yard. Gate code 4471. Call before arrival.' }],
 }
+
+export const HARNESS_WORK_ORDERS = [
+  { id: 'w1', work_order_number: 'WO-0015', title: 'Go-back: ridge cap lifting at rear slope', work_order_type: 'go_back', status: 'pending', priority: 'high', address: '12 Elm St', city: 'Concord', state: 'NC', scheduled_date: null, created_at: '2026-10-20T12:00:00Z', customers: { id: 'c1', name: 'Ashley Gaines' }, assigned_user: null, assigned_sub: { id: 's1', company_name: 'Carolina Roofing' } },
+  { id: 'w2', work_order_number: 'WO-0014', title: 'Warranty: skylight leak', work_order_type: 'warranty', status: 'scheduled', priority: 'normal', address: '88 Oak Ave', city: 'Kannapolis', state: 'NC', scheduled_date: '2026-10-29', created_at: '2026-10-18T12:00:00Z', customers: { id: 'c2', name: 'Bill Cox' }, assigned_user: { id: 'u1', full_name: 'Steve Potts' }, assigned_sub: null },
+  { id: 'w3', work_order_number: 'WO-0012', title: 'Punch list', work_order_type: 'punch_list', status: 'completed', priority: 'low', address: '4 Pine Rd', city: 'Concord', state: 'NC', scheduled_date: '2026-10-02', created_at: '2026-09-30T12:00:00Z', customers: null, assigned_user: null, assigned_sub: null },
+]
+export const HARNESS_CUSTOMERS = [
+  { id: 'c1', name: 'Ashley Gaines', phone: '(704) 555-0142', email: 'ashley@example.com', address_text: '1423 Maple Ridge Dr, Concord NC', bought: true },
+  { id: 'c2', name: 'Bill Cox', phone: '(704) 555-0199', email: 'bill@example.com', address_text: '88 Oak Ave, Kannapolis NC', bought: true },
+  { id: 'c3', name: 'Dana Whitfield', phone: null, email: null, address_text: '9 Birch Ln, Concord NC', bought: false },
+]
+export const HARNESS_PROPOSALS = {
+  role: 'admin', current_user_id: 'u1',
+  proposals: [
+    { id: 'p1', proposal_number: 'P-00118', customer_name: 'Ashley Gaines', customer_address: '1423 Maple Ridge Dr, Concord NC', title: 'Roof replacement', status: 'accepted', total: 18400, created_at: '2026-10-01T12:00:00Z', sent_at: null, created_by: 'u1', users: { full_name: 'Nathan Hall' } },
+    { id: 'p2', proposal_number: 'P-00121', customer_name: 'Dana Whitfield', customer_address: '9 Birch Ln, Concord NC', title: 'Roof + gutters', status: 'sent', total: 24310, created_at: '2026-10-19T12:00:00Z', sent_at: '2026-10-19T14:00:00Z', created_by: 'u1', users: { full_name: 'Nathan Hall' } },
+    { id: 'p3', proposal_number: 'P-00122', customer_name: 'Lee Park', customer_address: '3 Cedar Ct, Concord NC', title: 'Repair', status: 'draft', total: 2300, created_at: '2026-10-21T12:00:00Z', sent_at: null, created_by: 'u2', users: { full_name: 'Sam Closer' } },
+  ],
+}
+export const HARNESS_LEADS = {
+  leads: [
+    { id: 'l1', homeowner_name: 'Ashley Gaines', email: 'a@example.com', phone: '(704) 555-0142', address_text: '1423 Maple Ridge Dr', status: 'new', source: 'door', source_type: null, channel: 'outbound', campaign_id: null, lead_source_id: null, owner_user_id: 'u1', owner_display_name: 'Jordan Setter', created_at: '2026-10-20T12:00:00Z', users: { full_name: 'Jordan Setter' }, campaigns: null, lead_sources: null, opportunity_id: null },
+    { id: 'l2', homeowner_name: 'Bill Cox', email: null, phone: '(704) 555-0199', address_text: '88 Oak Ave', status: 'appointment', source: 'web', source_type: null, channel: 'inbound', campaign_id: null, lead_source_id: null, owner_user_id: null, owner_display_name: null, created_at: '2026-10-19T12:00:00Z', users: null, campaigns: { name: 'Fall storm' }, lead_sources: { name: 'Website' }, opportunity_id: 'o1' },
+  ],
+  pagination: { page: 1, limit: 50, total: 2, totalPages: 1, hasMore: false },
+}
+export const HARNESS_PROFIT_ROWS = [
+  { id: 'j1', jobNumber: '26-0041', lastName: 'Gaines', customerName: 'Ashley Gaines', address: '1423 Maple Ridge Dr, Concord NC', saleDate: '2026-10-01', saleAmount: 18400, financeCost: 0, commissionable: 18400, materials: 6100, labor: 4060, misc: 0, totalExpenses: 10160, setter: 920, closer: 1288, sales: 1104, opp: 1656, grossProfit: 5480, grossPercent: 29.78, ownerDraw: 1096, perOwner: 274, netProfit: 4384, netPercent: 23.8, notes: 'Dumpster on the street', status: 'Deposit Received', unreviewed: true },
+  { id: 'j2', jobNumber: '26-0038', lastName: 'Cox', customerName: 'Bill Cox', address: '88 Oak Ave, Kannapolis NC', saleDate: '2026-09-12', saleAmount: 16325, financeCost: 900, commissionable: 15425, materials: 5200, labor: 4060, misc: 200, totalExpenses: 9460, setter: 771, closer: 1080, sales: 925, opp: 1469, grossProfit: 2410, grossPercent: 14.8, ownerDraw: 482, perOwner: 120, netProfit: 1928, netPercent: 11.8, notes: null, status: 'Reconciled & Closed', unreviewed: false },
+]

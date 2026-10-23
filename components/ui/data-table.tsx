@@ -117,12 +117,20 @@ type Props<T> = {
   initialSearch?: string
   /** Buttons at the end of each row (outside the row link; on a phone, under the card). */
   rowActions?: (row: T) => React.ReactNode
+  /** Start with these filter values (e.g. from URL params). */
+  initialFilters?: Record<string, string>
+  /** Reports search / filters / sorting whenever they change (lists that build deep links carrying the list context use this). */
+  onStateChange?: (s: ViewState) => void
 }
 
-export function DataTable<T>({ columns, data, tableKey, viewStore, loading, getRowId, getRowHref, searchPlaceholder = 'Search', empty, toolbar, initialSorting = [], filters, systemViews, defaultViewId, server, onViewChange, initialSearch = '', rowActions }: Props<T>) {
+export function DataTable<T>({ columns, data, tableKey, viewStore, loading, getRowId, getRowHref, searchPlaceholder = 'Search', empty, toolbar, initialSorting = [], filters, systemViews, defaultViewId, server, onViewChange, initialSearch = '', rowActions, initialFilters, onStateChange }: Props<T>) {
   const [sorting, setSorting] = React.useState<SortingState>(initialSorting)
   const [search, setSearch] = React.useState(initialSearch)
-  const [chosen, setChosen] = React.useState<Record<string, string>>({})
+  const [chosen, setChosen] = React.useState<Record<string, string>>(initialFilters ?? {})
+  React.useEffect(() => {
+    onStateChange?.({ sorting, search, filters: chosen })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sorting, search, chosen])
   const [page, setPage] = React.useState(server?.page ?? 1)
   const filtered = React.useMemo(() => (server ? data : applyTableFilters(data, filters, chosen)), [server, data, filters, chosen])
   const table = useReactTable({
@@ -191,7 +199,7 @@ export function DataTable<T>({ columns, data, tableKey, viewStore, loading, getR
   // Open on the requested view once (system views are known immediately; a saved one after the list loads).
   const opened = React.useRef(false)
   React.useEffect(() => {
-    if (opened.current || !defaultViewId) return
+    if (opened.current || !defaultViewId || (initialFilters && Object.values(initialFilters).some(Boolean)) || initialSearch) return
     if (allViews.some((v) => v.id === defaultViewId)) {
       opened.current = true
       applyView(defaultViewId, allViews)

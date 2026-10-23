@@ -1,9 +1,10 @@
 'use client'
 
-import { memo, useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react'
+import { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
+import OpportunitiesTable from '@/components/opportunities/OpportunitiesTable'
 import InsideSalesFollowUpDrawer from '@/components/opportunities/InsideSalesFollowUpDrawer'
 import {
   DEFAULT_INSPECTION_OUTCOMES,
@@ -11,17 +12,12 @@ import {
   type InspectionOutcomeConfigRow,
 } from '@/lib/inspection-outcomes'
 import {
-  applyOpportunityListFilters,
   buildOpportunityListQuery,
   EMPTY_OPPORTUNITY_LIST_FILTERS,
   filtersFromSearchParams,
   type OpportunityListFilters,
 } from '@/lib/opportunity-list-filters'
-import {
-  getInspectionOutcomeDisplay,
-  opportunityStatusColors as statusColors,
-  type OpportunityListRow as Opportunity,
-} from '@/components/opportunities/opportunity-list-shared'
+import { type OpportunityListRow as Opportunity } from '@/components/opportunities/opportunity-list-shared'
 
 type InsideSalesActivity = {
   id: string
@@ -57,124 +53,6 @@ type InsideSalesItem = {
   daysInQueue?: number | null
   overdueDays?: number | null
 }
-
-type OpportunityRowProps = {
-  opportunity: Opportunity
-  outcomeLookup: Map<string, InspectionOutcomeConfigRow>
-  detailQueryString: string
-}
-
-/**
- * Both list renderers are memoized: the mobile card list and the desktop table are
- * mounted at the same time (one hidden by CSS), so an unmemoized keystroke re-render
- * reconciles the whole result set twice. With stable props these bail out entirely,
- * which is what makes the search box feel instant while `useDeferredValue` catches up.
- */
-const OpportunityCard = memo(function OpportunityCard({
-  opportunity,
-  outcomeLookup,
-  detailQueryString,
-}: OpportunityRowProps) {
-  const outcomeInfo = getInspectionOutcomeDisplay(opportunity.inspection_outcome, outcomeLookup)
-  const customerName = opportunity.leads?.homeowner_name || opportunity.customers?.name || 'Unknown'
-  return (
-    <Link
-      href={`/opportunities/${opportunity.id}${detailQueryString ? `?${detailQueryString}` : ''}`}
-      className="block px-4 py-4 hover:bg-gray-50 active:bg-gray-100 transition"
-    >
-      <div className="flex items-start justify-between gap-3 mb-1">
-        <p className="font-semibold text-gray-900 text-base leading-snug">{customerName}</p>
-        <span
-          className={`shrink-0 px-2.5 py-0.5 text-xs font-semibold rounded-full capitalize ${
-            statusColors[opportunity.status] || 'bg-gray-100 text-gray-800'
-          }`}
-        >
-          {(opportunity.status || '—').replace(/_/g, ' ')}
-        </span>
-      </div>
-      <p className="text-sm text-gray-500 mb-2 truncate">{opportunity.address_text || 'No address'}</p>
-      <div className="flex flex-wrap items-center gap-1.5">
-        <span className="px-2 py-0.5 text-xs rounded-full bg-gray-100 text-gray-600 capitalize">
-          {opportunity.project_type}
-        </span>
-        {outcomeInfo ? (
-          <span
-            className={`px-2 py-0.5 text-xs font-medium rounded-full ${outcomeInfo.style ? '' : outcomeInfo.color}`}
-            style={outcomeInfo.style}
-          >
-            {outcomeInfo.label}
-          </span>
-        ) : (
-          <span className="px-2 py-0.5 text-xs rounded-full bg-yellow-50 text-yellow-700 font-medium">
-            No inspection yet
-          </span>
-        )}
-      </div>
-      {opportunity.users?.full_name && (
-        <p className="text-xs text-gray-400 mt-2">{opportunity.users.full_name}</p>
-      )}
-    </Link>
-  )
-})
-
-const OpportunityRow = memo(function OpportunityRow({
-  opportunity,
-  outcomeLookup,
-  detailQueryString,
-}: OpportunityRowProps) {
-  const outcomeInfo = getInspectionOutcomeDisplay(opportunity.inspection_outcome, outcomeLookup)
-  return (
-    <tr className="hover:bg-gray-50">
-      <td className="px-6 py-4 whitespace-nowrap">
-        <div className="text-sm font-medium text-gray-900">
-          {opportunity.leads?.homeowner_name || opportunity.customers?.name || 'N/A'}
-        </div>
-      </td>
-      <td className="px-6 py-4">
-        <div className="text-sm text-gray-900 max-w-xs truncate">{opportunity.address_text || 'N/A'}</div>
-      </td>
-      <td className="px-6 py-4 whitespace-nowrap">
-        <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800 capitalize">
-          {opportunity.project_type}
-        </span>
-      </td>
-      <td className="px-6 py-4 whitespace-nowrap">
-        <span
-          className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full capitalize ${
-            statusColors[opportunity.status] || 'bg-gray-100 text-gray-800'
-          }`}
-        >
-          {(opportunity.status || '—').replace(/_/g, ' ')}
-        </span>
-      </td>
-      <td className="px-6 py-4 whitespace-nowrap">
-        {outcomeInfo ? (
-          <span
-            className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-              outcomeInfo.style ? '' : outcomeInfo.color
-            }`}
-            style={outcomeInfo.style}
-          >
-            {outcomeInfo.label}
-          </span>
-        ) : (
-          <span className="text-sm text-gray-400">—</span>
-        )}
-      </td>
-      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-        {opportunity.users?.full_name || 'Unassigned'}
-      </td>
-      <td className="sticky right-0 bg-white px-6 py-4 whitespace-nowrap text-sm font-medium">
-        <Link
-          href={`/opportunities/${opportunity.id}${detailQueryString ? `?${detailQueryString}` : ''}`}
-          className="inline-flex min-h-[36px] items-center px-2 py-1 rounded-md text-indigo-600 hover:bg-indigo-50 hover:text-indigo-900"
-        >
-          View
-        </Link>
-      </td>
-    </tr>
-  )
-})
 
 export default function OpportunitiesPage() {
   const router = useRouter()
@@ -347,11 +225,6 @@ export default function OpportunitiesPage() {
     return () => clearTimeout(timer)
   }, [searchInput, filters, pushFiltersToUrl])
 
-  const filteredOpportunities = useMemo(
-    () => applyOpportunityListFilters(opportunities, deferredFilters),
-    [opportunities, deferredFilters]
-  )
-
   const filteredInsideSalesItems = useMemo(() => {
     const query = deferredFilters.q.trim().toLowerCase()
     const status = deferredFilters.status.trim().toLowerCase()
@@ -412,7 +285,6 @@ export default function OpportunitiesPage() {
   // Built from the deferred filters, not the live input: these strings go into every
   // row's href, and a new href on each keystroke re-fires next/link prefetch for every
   // visible row. Deferred also keeps them in sync with the list actually on screen.
-  const detailQueryString = buildOpportunityListQuery(deferredFilters, { queue: '1' })
   const insideSalesDetailQueryString = useMemo(() => {
     const next = new URLSearchParams()
     next.set('view', 'inside_sales')
@@ -423,31 +295,6 @@ export default function OpportunitiesPage() {
     return next.toString()
   }, [deferredFilters])
 
-  const opportunityCards = useMemo(
-    () =>
-      filteredOpportunities.map((opportunity) => (
-        <OpportunityCard
-          key={opportunity.id}
-          opportunity={opportunity}
-          outcomeLookup={outcomeLookup}
-          detailQueryString={detailQueryString}
-        />
-      )),
-    [filteredOpportunities, outcomeLookup, detailQueryString]
-  )
-
-  const opportunityRows = useMemo(
-    () =>
-      filteredOpportunities.map((opportunity) => (
-        <OpportunityRow
-          key={opportunity.id}
-          opportunity={opportunity}
-          outcomeLookup={outcomeLookup}
-          detailQueryString={detailQueryString}
-        />
-      )),
-    [filteredOpportunities, outcomeLookup, detailQueryString]
-  )
   const insideSalesCounts = useMemo(() => {
     const counts = {
       total: insideSalesItems.length,
@@ -481,14 +328,14 @@ export default function OpportunitiesPage() {
                   leads after that (already sorted)
                 </>
               ) : (
-                `${filteredOpportunities.length} opportunities`
+                `${opportunities.length} opportunities`
               )}
             </p>
             <div className="mt-3 flex flex-wrap gap-2">
               <button
                 type="button"
                 onClick={() => setView('all')}
-                className={`rounded-full px-3 py-2 text-sm font-medium ${
+                className={`min-h-[44px] rounded-full px-4 py-2 text-sm font-medium ${
                   activeView === 'all' ? 'bg-gray-900 text-white' : 'border border-gray-200 bg-white text-gray-700'
                 }`}
               >
@@ -498,7 +345,7 @@ export default function OpportunitiesPage() {
                 <button
                   type="button"
                   onClick={() => setView('inside_sales')}
-                  className={`rounded-full px-3 py-2 text-sm font-medium ${
+                  className={`min-h-[44px] rounded-full px-4 py-2 text-sm font-medium ${
                     activeView === 'inside_sales'
                       ? 'bg-amber-500 text-white'
                       : 'border border-gray-200 bg-white text-gray-700'
@@ -511,7 +358,7 @@ export default function OpportunitiesPage() {
           </div>
           <button
             onClick={() => setShowFilters(!showFilters)}
-            className="md:hidden flex items-center gap-1.5 px-3 py-2 bg-white border rounded-lg text-sm text-gray-700 shadow-sm"
+            className={`min-h-[44px] md:hidden items-center ${activeView === 'inside_sales' ? 'flex' : 'hidden'} gap-1.5 px-3 py-2 bg-white border rounded-lg text-sm text-gray-700 shadow-sm`}
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2a1 1 0 01-.293.707L13 13.414V19a1 1 0 01-.553.894l-4 2A1 1 0 017 21v-7.586L3.293 6.707A1 1 0 013 6V4z" />
@@ -521,7 +368,7 @@ export default function OpportunitiesPage() {
           </button>
         </div>
 
-        <div className={`bg-white shadow rounded-lg p-4 mb-4 sm:mb-6 ${showFilters ? 'block' : 'hidden'} md:block`}>
+        <div className={`bg-white shadow rounded-lg p-4 mb-4 sm:mb-6 ${showFilters ? 'block' : 'hidden'} md:block ${activeView === 'inside_sales' ? '' : '!hidden'}`}>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
             <div className="sm:col-span-2 lg:col-span-1">
               <label className="block text-xs font-medium text-gray-500 mb-1">Search</label>
@@ -832,66 +679,16 @@ export default function OpportunitiesPage() {
                 {hasActiveFilters ? 'No inside sales follow-ups match your filters.' : 'No active inside sales follow-ups.'}
               </div>
             )
-          ) : loading ? (
-            <div className="p-8 text-center text-gray-500">Loading opportunities...</div>
           ) : (
-            <>
-              <div className="md:hidden divide-y divide-gray-100">
-                {filteredOpportunities.length > 0 ? (
-                  opportunityCards
-                ) : (
-                  <div className="px-6 py-10 text-center text-gray-500">
-                    <p className="text-sm">{hasActiveFilters ? 'No opportunities match your filters' : 'No opportunities found'}</p>
-                    {hasActiveFilters && (
-                      <button onClick={clearFilters} className="mt-2 text-indigo-600 text-sm hover:underline">
-                        Clear filters
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              <div className="hidden md:block overflow-x-auto">
-                <table className="w-full min-w-[980px] divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Lead / Customer
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Address
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Type
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Status
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Inspection Result
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Assigned
-                      </th>
-                      <th className="sticky right-0 z-10 bg-gray-50 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Actions
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {filteredOpportunities.length > 0 ? (
-                      opportunityRows
-                    ) : (
-                      <tr>
-                        <td colSpan={7} className="px-6 py-8 text-center text-gray-500">
-                          {hasActiveFilters ? 'No opportunities match your filters' : 'No opportunities found'}
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </>
+            <div className="p-3 sm:p-4">
+              <OpportunitiesTable
+                opportunities={opportunities}
+                loading={loading}
+                outcomeRows={inspectionOutcomeRows}
+                outcomeLookup={outcomeLookup}
+                initial={filters}
+              />
+            </div>
           )}
         </div>
       </div>

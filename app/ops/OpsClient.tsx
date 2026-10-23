@@ -25,6 +25,11 @@ import {
 } from '@/lib/ops-completion-cert-link'
 import type { JobStatus, OpsBoardJob } from '@/lib/ops-board-types'
 import { toast } from '@/components/ui/toast'
+import type { ColumnDef } from '@tanstack/react-table'
+import { Button } from '@/components/ui/button'
+import { StatusPill } from '@/components/ui/badge'
+import { formatDate, formatMoney } from '@/lib/format'
+import { DataTable, type TableFilter, type TableView } from '@/components/ui/data-table'
 
 /** Paused jobs render in a strip above the board; cancelled ones in a list below it. */
 type BoardColumnStatus = Exclude<JobStatus, 'collected' | 'on_hold' | 'cancelled'>
@@ -47,6 +52,14 @@ const materialsConfig: Record<string, { label: string; color: string }> = {
   partial: { label: 'Partially Delivered', color: 'text-amber-600' },
   received: { label: 'Fully Delivered', color: 'text-green-600' },
 }
+
+const LIST_VIEWS: TableView[] = [
+  { id: 'sys:all', name: 'All active jobs', state: { sorting: [{ id: 'scheduled', desc: false }], search: '', filters: {} } },
+  { id: 'sys:unscheduled', name: 'Needs scheduling', state: { sorting: [{ id: 'job', desc: false }], search: '', filters: { scheduled: 'no' } } },
+  { id: 'sys:materials', name: 'Materials not ordered', state: { sorting: [{ id: 'scheduled', desc: false }], search: '', filters: { materials: 'not_ordered' } } },
+  { id: 'sys:late', name: 'Past due', state: { sorting: [{ id: 'scheduled', desc: false }], search: '', filters: { scheduled: 'late' } } },
+  { id: 'sys:hold', name: 'On hold', state: { sorting: [{ id: 'job', desc: false }], search: '', filters: { status: 'on_hold' } } },
+]
 
 function matchesActiveSearch(job: OpsBoardJob, query: string): boolean {
   if (!query) return true
@@ -186,6 +199,68 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability }: 
     }
   }
 
+  const listColumns = useMemo<ColumnDef<OpsBoardJob, any>[]>(() => {
+    const cols: ColumnDef<OpsBoardJob, any>[] = [
+      {
+        id: 'job',
+        header: 'Job',
+        accessorFn: (j) => `${j.job_number} ${j.address_text ?? ''} ${j.customer?.name ?? ''} ${handoffPreviewForJobBoard(j.project ?? null) ?? ''}`,
+        cell: (c) => {
+          const j = c.row.original
+          const handoff = handoffPreviewForJobBoard(j.project ?? null)
+          const priority = priorityConfig[j.priority] || priorityConfig.normal
+          return (
+            <span>
+              <span className="font-mono">{priority.icon} {j.job_number}</span>
+              <span className="block max-w-[14rem] truncate text-ui-sm text-ink-muted">{j.address_text}</span>
+              {handoff ? <span className="block max-w-[18rem] text-ui-sm text-ink-muted line-clamp-2" title={handoff}><span className="font-semibold">Handoff: </span>{handoff}</span> : null}
+            </span>
+          )
+        },
+        meta: { mobile: 'title' },
+      },
+      { id: 'customer', header: 'Customer', accessorFn: (j) => j.customer?.name ?? '' , cell: (c) => c.getValue() || '—' },
+      { id: 'type', header: 'Type', accessorFn: (j) => j.job_type, cell: (c) => <span className="capitalize">{formatJobTypeLabel(String(c.getValue() ?? ''))}</span>, meta: { mobile: 'hide' } },
+      { id: 'status', header: 'Status', accessorFn: (j) => j.status, cell: (c) => <StatusPill domain="job" value={c.getValue()} /> },
+      {
+        id: 'payment',
+        header: 'Payment',
+        accessorFn: (j) => paymentStatusChip(j)?.label ?? '',
+        cell: (c) => c.getValue() || '—',
+      },
+      { id: 'materials', header: 'Materials', accessorFn: (j) => (materialsConfig[j.materials_status] || materialsConfig.not_ordered).label },
+      { id: 'assigned', header: 'Assigned', accessorFn: (j) => j.assigned_crew?.name ?? j.assigned_sub?.company_name ?? 'Unassigned' },
+      {
+        id: 'scheduled',
+        header: 'Scheduled',
+        accessorFn: (j) => j.scheduled_date ?? '9999-12-31',
+        cell: (c) => (c.row.original.scheduled_date ? <span className={isJobPastDue(c.row.original) ? 'font-semibold text-danger' : ''}>{formatDate(`${c.row.original.scheduled_date}T12:00:00`)}</span> : 'Not scheduled'),
+      },
+      { id: 'value', header: 'Value', accessorFn: (j) => j.sale_amount ?? 0, cell: (c) => (c.getValue() ? formatMoney(Number(c.getValue())) : '—'), meta: { align: 'right' as const } },
+    ]
+    if (canViewProfitability) {
+      cols.push({
+        id: 'profit',
+        header: 'Profit',
+        accessorFn: (j) => (getProfitability(j).hasCompleteCosts ? getProfitability(j).profit : null),
+        cell: (c) => {
+          const p = getProfitability(c.row.original)
+          return p.hasCompleteCosts ? (
+            <span>
+              {formatMoney(p.profit)}
+              <span className="block text-ui-sm text-ink-muted">Costs {formatMoney(p.directCosts)} · {p.marginPercent.toFixed(1)}%</span>
+            </span>
+          ) : (
+            <span className="font-semibold">Costs incomplete</span>
+          )
+        },
+        meta: { align: 'right' as const },
+      })
+    }
+    return cols
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canViewProfitability])
+
   const activeJobs = useMemo(
     () => jobs.filter((job) => job.status !== 'collected' && job.status !== CANCELLED_JOB_STATUS),
     [jobs]
@@ -225,6 +300,16 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability }: 
       return a.localeCompare(b)
     })
   }, [jobs])
+
+  const listFilters = useMemo<TableFilter<OpsBoardJob>[]>(
+    () => [
+      { key: 'status', label: 'Status', options: Object.keys(JOB_STATUS_CONFIG).filter((k) => k !== 'collected' && k !== CANCELLED_JOB_STATUS).map((k) => ({ value: k, label: JOB_STATUS_CONFIG[k as JobStatus].label })), accessor: (j) => j.status },
+      { key: 'type', label: 'Type', options: jobTypeOptions.map((t) => ({ value: t, label: formatJobTypeLabel(t) })), accessor: (j) => j.job_type },
+      { key: 'materials', label: 'Materials', options: Object.entries(materialsConfig).map(([value, m]) => ({ value, label: m.label })), accessor: (j) => j.materials_status },
+      { key: 'scheduled', label: 'Scheduled', options: [{ value: 'no', label: 'Not scheduled' }, { value: 'yes', label: 'Scheduled' }, { value: 'late', label: 'Past due' }], accessor: (j) => (isJobPastDue(j) ? 'late' : j.scheduled_date ? 'yes' : 'no') },
+    ],
+    [jobTypeOptions]
+  )
 
   const jobsByBoardStatus = useMemo(() => {
     const base: Record<BoardColumnStatus, OpsBoardJob[]> = {
@@ -428,7 +513,7 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability }: 
 
         <div className="bg-white rounded-lg border p-4 mb-6">
           <div className="flex flex-col sm:flex-row gap-4">
-            <div className="flex-1">
+            <div className={`flex-1 ${viewMode === 'list' ? 'hidden' : ''}`}>
               <input
                 id="ops-job-search"
                 name="ops-job-search"
@@ -441,6 +526,7 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability }: 
             </div>
             <div className="flex flex-wrap gap-3">
               <select
+                hidden={viewMode === 'list'}
                 id="ops-job-type-filter"
                 name="ops-job-type-filter"
                 value={filterType}
@@ -541,270 +627,33 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability }: 
         )}
 
         {viewMode === 'list' && (
-          <>
-            <div className="md:hidden space-y-3">
-              {filteredActiveJobs.map((job) => {
-                const config = jobStatusConfig(job.status)
-                const isPastDue = isJobPastDue(job)
-                const needsMaterials = job.materials_status === 'not_ordered'
-                const payChip = paymentStatusChip(job)
-                return (
-                  <div key={job.id} className="bg-white rounded-xl border shadow-sm p-4">
-                    {/* Customer + status */}
-                    <div className="flex items-start justify-between gap-2 mb-1">
-                      <div className="min-w-0">
-                        <p className="font-semibold text-gray-900 truncate text-base">
-                          {job.customer?.name || 'Unknown customer'}
-                        </p>
-                        <p className="text-sm text-gray-500 truncate">{job.address_text}</p>
-                      </div>
-                      <span className={`shrink-0 text-xs px-2 py-1 rounded-full ${config.pillClass} ${config.color}`}>
-                        {config.label}
-                      </span>
-                    </div>
-
-                    {/* Job number + type */}
-                    <div className="flex items-center gap-2 mb-3 flex-wrap">
-                      <span className="text-xs font-mono text-gray-400">{job.job_number}</span>
-                      <span className={`text-xs px-1.5 py-0.5 rounded-full ${
-                        job.job_type === 'roofing' ? 'bg-blue-100 text-blue-700' :
-                        job.job_type === 'siding' ? 'bg-green-100 text-green-700' :
-                        job.job_type === 'windows' ? 'bg-purple-100 text-purple-700' :
-                        'bg-gray-100 text-gray-700'
-                      }`}>{job.job_type}</span>
-                      {payChip && (
-                        <span className={`text-[11px] px-1.5 py-0.5 rounded font-medium ${payChip.className}`}>
-                          {payChip.label}
-                        </span>
-                      )}
-                    </div>
-
-                    {/* Alerts */}
-                    {(isPastDue || needsMaterials) && (
-                      <div className="flex flex-wrap gap-1 mb-3">
-                        {isPastDue && <span className="text-[11px] px-1.5 py-0.5 rounded bg-orange-50 text-orange-700 font-medium">Overdue</span>}
-                        {needsMaterials && <span className="text-[11px] px-1.5 py-0.5 rounded bg-red-50 text-red-600 font-medium">Materials needed</span>}
-                      </div>
-                    )}
-
-                    {/* Crew + date */}
-                    <div className="flex items-center justify-between text-xs text-gray-500 mb-3">
-                      <span className="truncate">
-                        {job.assigned_crew?.name || job.assigned_sub?.company_name || 'Not assigned'}
-                      </span>
-                      <span className={`shrink-0 ml-2 font-medium ${isPastDue ? 'text-orange-600' : 'text-gray-700'}`}>
-                        {job.scheduled_date
-                          ? new Date(job.scheduled_date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'America/New_York' })
-                          : 'Not scheduled'}
-                      </span>
-                    </div>
-
-                    {/* Actions */}
-                    <div className="flex flex-wrap gap-2 pt-3 border-t">
-                      {job.status === 'on_hold' ? (
-                        <button
-                          onClick={() => updateJobStatus(job.id, resumeStatusForJob(job))}
-                          className="flex-1 min-w-[120px] min-h-[44px] text-sm py-2 px-3 bg-orange-50 text-orange-800 rounded-lg font-medium border border-orange-200 hover:bg-orange-100"
-                        >
-                          Resume → {JOB_STATUS_CONFIG[resumeStatusForJob(job)].label}
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => openJobCrews(job)}
-                          className="flex-1 min-w-[120px] min-h-[44px] text-sm py-2 px-3 bg-indigo-50 text-indigo-700 rounded-lg font-medium border border-indigo-200 hover:bg-indigo-100"
-                        >
-                          {job.scheduled_date ? 'Crews' : 'Schedule'}
-                        </button>
-                      )}
-                      <Link
-                        href={`/ops/jobs/${job.id}`}
-                        className="flex-1 min-w-[120px] min-h-[44px] flex items-center justify-center text-sm text-indigo-600 font-medium border border-indigo-200 rounded-lg hover:bg-indigo-50"
-                      >
-                        View Job →
-                      </Link>
-                    </div>
-                    {canShowCompletionCertificateBoardLink(job.status) && (
-                      <div className="mt-2 pt-2 border-t border-gray-100">
-                        <Link
-                          href={opsJobCompletionCertificateHref(job.id)}
-                          prefetch={false}
-                          className="block w-full min-h-[44px] flex items-center justify-center text-sm font-medium text-emerald-900 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg py-2 px-3 text-center"
-                        >
-                          Completion certificate — email customer
-                        </Link>
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-
-            <div className="hidden md:block bg-white rounded-lg border overflow-hidden">
-            <table className="w-full">
-              <thead className="bg-gray-50 border-b">
-                <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Job</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Customer</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Payment</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Material Delivery</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Assigned</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Scheduled</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Value</th>
-                  {canViewProfitability && (
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Profitability</th>
-                  )}
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {filteredActiveJobs.map(job => {
-                  const config = jobStatusConfig(job.status)
-                  const materials = materialsConfig[job.materials_status] || materialsConfig.not_ordered
-                  const priority = priorityConfig[job.priority] || priorityConfig.normal
-                  const profitability = getProfitability(job)
-                  const handoffPreview = handoffPreviewForJobBoard(job.project ?? null)
-                  const payChip = paymentStatusChip(job)
-
-                  return (
-                    <tr key={job.id} className="hover:bg-gray-50">
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          {priority.icon && <span>{priority.icon}</span>}
-                          <div>
-                            <div className="font-mono text-sm text-gray-900">{job.job_number}</div>
-                            <div className="text-xs text-gray-500 truncate max-w-[200px]">{job.address_text}</div>
-                            {handoffPreview && (
-                              <div className="text-[11px] text-gray-600 mt-1 max-w-[280px] line-clamp-2" title={handoffPreview}>
-                                <span className="font-semibold text-indigo-700">Handoff: </span>
-                                {handoffPreview}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="text-sm text-gray-900">{job.customer?.name || '-'}</div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className={`text-xs px-2 py-0.5 rounded-full ${
-                          job.job_type === 'roofing' ? 'bg-blue-100 text-blue-700' :
-                          job.job_type === 'siding' ? 'bg-green-100 text-green-700' :
-                          job.job_type === 'windows' ? 'bg-purple-100 text-purple-700' :
-                          'bg-gray-100 text-gray-700'
-                        }`}>
-                          {job.job_type}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className={`text-xs px-2 py-1 rounded-full ${config.pillClass} ${config.color}`}>
-                          {config.label}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        {payChip ? (
-                          <span className={`text-xs px-2 py-1 rounded font-medium ${payChip.className}`}>
-                            {payChip.label}
-                          </span>
-                        ) : (
-                          <span className="text-xs text-gray-400">—</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className={`text-xs ${materials.color}`}>{materials.label}</span>
-                      </td>
-                      <td className="px-4 py-3">
-                        {job.assigned_crew ? (
-                          <div 
-                            className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs"
-                            style={{ backgroundColor: `${job.assigned_crew.color}20`, color: job.assigned_crew.color }}
-                          >
-                            <div className="w-2 h-2 rounded-full" style={{ backgroundColor: job.assigned_crew.color }} />
-                            {job.assigned_crew.name}
-                          </div>
-                        ) : job.assigned_sub ? (
-                          <span className="text-xs text-orange-600">{job.assigned_sub.company_name}</span>
-                        ) : (
-                          <span className="text-xs text-gray-400">Unassigned</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-gray-600">
-                        {job.scheduled_date 
-                          ? new Date(job.scheduled_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/New_York' })
-                          : <span className="text-gray-400">-</span>
-                        }
-                      </td>
-                      <td className="px-4 py-3 text-sm font-medium text-gray-900">
-                        {job.sale_amount ? `$${job.sale_amount.toLocaleString()}` : '-'}
-                      </td>
-                      {canViewProfitability && (
-                        <td className="px-4 py-3 text-xs">
-                          {profitability.hasCompleteCosts ? (
-                            <div>
-                              <div className={`font-semibold ${profitability.profit >= 0 ? 'text-green-700' : 'text-red-700'}`}>
-                                ${profitability.profit.toLocaleString()}
-                              </div>
-                              <div className="text-gray-500">
-                                Costs ${profitability.directCosts.toLocaleString()}
-                                {profitability.dealerFee > 0 && (
-                                  <span className="text-amber-800" title="Lender dealer fee on financed sale">
-                                    {' '}
-                                    (dealer fee ${profitability.dealerFee.toLocaleString()})
-                                  </span>
-                                )}{' '}
-                                · {profitability.marginPercent.toFixed(1)}%
-                              </div>
-                            </div>
-                          ) : (
-                            <span className="text-amber-700 font-medium">Costs incomplete</span>
-                          )}
-                        </td>
-                      )}
-                      <td className="px-4 py-3 text-right">
-                        <div className="flex justify-end flex-wrap gap-x-3 gap-y-1">
-                          {job.status === 'on_hold' ? (
-                            <button
-                              type="button"
-                              onClick={() => updateJobStatus(job.id, resumeStatusForJob(job))}
-                              className="text-xs font-medium text-orange-800 hover:text-orange-900"
-                            >
-                              Resume → {JOB_STATUS_CONFIG[resumeStatusForJob(job)].label}
-                            </button>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => openJobCrews(job)}
-                              className="text-xs text-indigo-600 hover:text-indigo-800"
-                            >
-                              {job.scheduled_date ? 'Crews' : 'Schedule'}
-                            </button>
-                          )}
-                          <Link
-                            href={`/ops/jobs/${job.id}`}
-                            className="text-xs text-gray-600 hover:text-gray-800"
-                          >
-                            View
-                          </Link>
-                          {canShowCompletionCertificateBoardLink(job.status) && (
-                            <Link
-                              href={opsJobCompletionCertificateHref(job.id)}
-                              prefetch={false}
-                              className="text-xs text-emerald-800 hover:text-emerald-950 font-medium"
-                              title="Generate or email completion certificate"
-                            >
-                              Email certificate
-                            </Link>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-          </>
+          <DataTable
+            columns={listColumns}
+            data={activeJobs}
+            tableKey="job_board"
+            getRowId={(j) => j.id}
+            getRowHref={(j) => `/ops/jobs/${j.id}`}
+            searchPlaceholder="Search job number, address, customer or handoff"
+            filters={listFilters}
+            systemViews={LIST_VIEWS}
+            defaultViewId="sys:all"
+            initialSorting={[{ id: 'scheduled', desc: false }]}
+            rowActions={(job) => (
+              <div className="flex flex-wrap justify-end gap-1">
+                {job.status === 'on_hold' ? (
+                  <Button variant="ghost" size="sm" onClick={() => updateJobStatus(job.id, resumeStatusForJob(job))}>
+                    Resume → {JOB_STATUS_CONFIG[resumeStatusForJob(job)].label}
+                  </Button>
+                ) : (
+                  <Button variant="ghost" size="sm" onClick={() => openJobCrews(job)}>{job.scheduled_date ? 'Crews' : 'Schedule'}</Button>
+                )}
+                {canShowCompletionCertificateBoardLink(job.status) && (
+                  <Button asChild variant="ghost" size="sm"><Link href={opsJobCompletionCertificateHref(job.id)} prefetch={false}>Email certificate</Link></Button>
+                )}
+              </div>
+            )}
+            empty={{ title: 'No jobs match', body: 'Try another view or clear a filter.' }}
+          />
         )}
 
         <div className="mt-8 bg-white rounded-lg border p-4">
