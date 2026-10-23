@@ -15,6 +15,12 @@ export async function carryNegativeBalances(admin: SupabaseClient, orgId: string
   const next = await ensureNextOpenPeriod(admin, orgId, week.period.cutoffAt)
   const ids: string[] = []
   for (const p of owing) {
+    // A retried approve must not carry the same debt twice: reuse a live balance line for this person and source week.
+    const { data: existing } = await admin.from('payroll_adjustments').select('id').eq('org_id', orgId).eq('source_period_id', week.period.id).eq('user_id', p.userId).eq('kind', 'balance').neq('status', 'void').maybeSingle()
+    if (existing) {
+      ids.push(existing.id as string)
+      continue
+    }
     const { data, error } = await admin
       .from('payroll_adjustments')
       .insert({ org_id: orgId, payroll_period_id: next.id, user_id: p.userId, amount: p.raw, reason: `Carried over from the week ending ${week.period.weekEnding}`, kind: 'balance', status: 'pending', source_period_id: week.period.id, created_by: actorUserId })
@@ -63,6 +69,9 @@ export async function approvePayWeek(
     await Promise.all(carried.map((id) => admin.from('payroll_adjustments').update({ status: 'void' }).eq('id', id)))
     return { ok: false, status: lock.status, body: lock.body }
   }
+
+  // The week's fixes are now part of an approved check.
+  await admin.from('payroll_adjustments').update({ status: 'applied', applied_at: new Date().toISOString() }).eq('org_id', orgId).eq('payroll_period_id', periodId).eq('status', 'pending')
 
   // Safety net: what was written must equal what was approved. The lines are already frozen, so report it, loudly.
   const after = await loadPayWeek(admin, orgId, now, periodId)

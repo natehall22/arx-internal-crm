@@ -18,6 +18,8 @@ CREATE TABLE IF NOT EXISTS payroll_adjustments (
 );
 CREATE INDEX IF NOT EXISTS idx_payroll_adjustments_period ON payroll_adjustments(payroll_period_id, user_id) WHERE status <> 'void';
 CREATE INDEX IF NOT EXISTS idx_payroll_adjustments_user ON payroll_adjustments(org_id, user_id, created_at DESC);
+-- A negative check is carried forward at most once per person per source week (a retried approve can't carry it twice).
+CREATE UNIQUE INDEX IF NOT EXISTS uq_payroll_adjustments_one_balance ON payroll_adjustments(source_period_id, user_id) WHERE kind = 'balance' AND status <> 'void';
 ALTER TABLE payroll_adjustments ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON payroll_adjustments FROM anon, authenticated;
 COMMENT ON TABLE payroll_adjustments IS 'Signed lines added to a payroll period (fixes after a paid week, carried-forward negative balances). Counted in the period total while status <> void.';
