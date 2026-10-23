@@ -53,7 +53,7 @@ Six sections: **Today** (your work queue), **Pipeline** (Leads, Opportunities, I
 - Production job file is \`/ops/jobs/[id]\` (Jobs → Job Board). Sold-project handoff is **Projects** (\`/projects\`).
 
 ### Operations (Steve / ops team)
-- **Job Board**: **Job Board** (\`/ops\`) — all production jobs, status columns, materials, scheduling. Ops dashboard: \`/ops/dashboard\`; production calendar: \`/ops/calendar\`.
+- **Job Board**: **Job Board** (\`/ops\`) — all production jobs, status columns, materials, scheduling. Ops dashboard: \`/ops/dashboard\`; production calendar: \`/ops/schedule?view=calendar\`.
 - **Single job file**: Job Board → open job (\`/ops/jobs/[id]\`) — tabs: **Overview**, **Materials**, **Financials** (permissioned), **Photos & files**, **Notes**.
 - **Photo types on a job**: \`/ops/jobs/[id]\` → **Photos & files** — production / final install photos, Job Files Workspace, cost lines. **Not** for the customer Roof Report built during inspection.
 - **Materials Order List (computed takeoff)**: **Materials** tab → **Materials Order List** card; edit + print both the crew run sheet and the supplier order sheet at \`/ops/jobs/[id]/sheets\` (one page, same numbers on both). Supplier sheet from measurements — separate from **+ Job Cost** rows (what was actually spent).

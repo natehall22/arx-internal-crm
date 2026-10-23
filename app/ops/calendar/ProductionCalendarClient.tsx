@@ -47,9 +47,11 @@ type Props = {
   jobs: ProductionCalendarJob[]
   crews: ProductionCalendarCrew[]
   canJobBoard: boolean
+  /** Inside Jobs → Schedule: no Nav (the page provides it). */
+  embedded?: boolean
 }
 
-export default function ProductionCalendarClient({ jobs, crews, canJobBoard }: Props) {
+export default function ProductionCalendarClient({ jobs, crews, canJobBoard, embedded = false }: Props) {
   const router = useRouter()
   const [currentDate, setCurrentDate] = useState(new Date())
   const [viewMode, setViewMode] = useState<'month' | 'week'>('week')
@@ -162,8 +164,8 @@ export default function ProductionCalendarClient({ jobs, crews, canJobBoard }: P
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <Nav />
+    <div className={embedded ? '' : 'min-h-screen bg-gray-50'}>
+      {!embedded && <Nav />}
 
       <div className="max-w-[1800px] mx-auto px-4 py-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">

@@ -24,6 +24,7 @@ import CrewPhotoCapture from '@/app/crew/[token]/CrewPhotoCapture'
 import { HARNESS_CONTRACT } from '@/e2e/fixtures'
 import PayrollAttributionEditor from '@/components/payroll/PayrollAttributionEditor'
 import OpsClient from '@/app/ops/OpsClient'
+import AppointmentsList from '@/components/appointments/AppointmentsList'
 import { HARNESS_OPS_JOBS, HARNESS_WORK_ORDERS, HARNESS_CUSTOMERS, HARNESS_PROFIT_ROWS } from '@/e2e/fixtures'
 import WorkOrdersClient from '@/app/work-orders/WorkOrdersClient'
 import CustomersPageClient from '@/components/customers/CustomersPageClient'
@@ -197,6 +198,8 @@ export default function Harness({ params }: { params: { screen: string } }) {
       return <div className="p-4"><JobProfitTable rows={HARNESS_PROFIT_ROWS} /></div>
     case 'opportunities':
       return <OpportunitiesPage />
+    case 'appointments':
+      return <div className="mx-auto max-w-7xl p-4"><AppointmentsList /></div>
     case 'ui-kit':
       return <UiKitHarness />
     case 'default-plans':

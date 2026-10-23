@@ -56,7 +56,7 @@ export const NAV_SECTIONS: NavSection[] = [
         show: (c) => gated('opportunities:view', 'opportunities:edit')(c) && c.role !== 'setter' && c.role !== 'canvasser',
       },
       { href: '/inside-sales', label: 'Inside Sales', show: (c) => c.flags.canSeeInsideSales },
-      { href: '/calendar', label: 'Calendar', show: gated(...SCHEDULING) },
+      { href: '/appointments', label: 'Appointments', show: gated(...SCHEDULING) },
       { href: '/referral-partners', label: 'Referral Partners', show: gated('referral_partners:view') },
     ],
   },
@@ -65,6 +65,7 @@ export const NAV_SECTIONS: NavSection[] = [
     label: 'Jobs',
     children: [
       { href: '/ops', label: 'Job Board', show: (c) => c.flags.canSeeJobBoard && gated('jobs:view', 'jobs:edit')(c) },
+      { href: '/ops/schedule', label: 'Schedule', show: (c) => c.flags.canSeeJobBoard && gated('jobs:view', 'jobs:edit')(c) },
       { href: '/ops/dashboard', label: 'Needs you', show: (c) => c.flags.canSeeOpsDashboard && gated('ops:dashboard:view', 'jobs:view', 'jobs:edit')(c) },
       { href: '/projects', label: 'Projects', show: (c) => !c.flags.projectsBarred && gated('projects:view', 'projects:edit')(c) },
     ],

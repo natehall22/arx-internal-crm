@@ -336,3 +336,13 @@ export const HARNESS_PROFIT_ROWS = [
   { id: 'j1', jobNumber: '26-0041', lastName: 'Gaines', customerName: 'Ashley Gaines', address: '1423 Maple Ridge Dr, Concord NC', saleDate: '2026-10-01', saleAmount: 18400, financeCost: 0, commissionable: 18400, materials: 6100, labor: 4060, misc: 0, totalExpenses: 10160, setter: 920, closer: 1288, sales: 1104, opp: 1656, grossProfit: 5480, grossPercent: 29.78, ownerDraw: 1096, perOwner: 274, netProfit: 4384, netPercent: 23.8, notes: 'Dumpster on the street', status: 'Deposit Received', unreviewed: true },
   { id: 'j2', jobNumber: '26-0038', lastName: 'Cox', customerName: 'Bill Cox', address: '88 Oak Ave, Kannapolis NC', saleDate: '2026-09-12', saleAmount: 16325, financeCost: 900, commissionable: 15425, materials: 5200, labor: 4060, misc: 200, totalExpenses: 9460, setter: 771, closer: 1080, sales: 925, opp: 1469, grossProfit: 2410, grossPercent: 14.8, ownerDraw: 482, perOwner: 120, netProfit: 1928, netPercent: 11.8, notes: null, status: 'Reconciled & Closed', unreviewed: false },
 ]
+
+export const HARNESS_APPOINTMENTS = {
+  canReassign: true,
+  users: [{ id: 'u1', full_name: 'Sam Closer', role: 'sales_rep' }, { id: 'u2', full_name: 'Nathan Hall', role: 'admin' }],
+  appointments: [
+    { id: 'a1', lead_id: 'l1', opportunity_id: 'o1', scheduled_for: '2099-01-10T15:00:00Z', duration_minutes: 60, address_text: '1423 Maple Ridge Dr, Concord NC', notes: null, status: 'scheduled', closer_user_id: 'u1', canvasser_user_id: 'u2', leads: { homeowner_name: 'Ashley Gaines', phone: '(704) 555-0142' }, closer: { id: 'u1', full_name: 'Sam Closer' }, setter: { id: 'u2', full_name: 'Jordan Setter' }, feedback: null },
+    { id: 'a2', lead_id: 'l2', opportunity_id: null, scheduled_for: '2026-10-01T15:00:00Z', duration_minutes: 45, address_text: '88 Oak Ave, Kannapolis NC', notes: null, status: 'scheduled', closer_user_id: 'u1', canvasser_user_id: null, leads: { homeowner_name: 'Bill Cox', phone: null }, closer: { id: 'u1', full_name: 'Sam Closer' }, setter: null, feedback: null },
+    { id: 'a3', lead_id: 'l3', opportunity_id: 'o3', scheduled_for: '2026-09-20T15:00:00Z', duration_minutes: 60, address_text: '9 Birch Ln', notes: null, status: 'completed', closer_user_id: 'u1', canvasser_user_id: null, leads: { homeowner_name: 'Dana Whitfield', phone: null }, closer: { id: 'u1', full_name: 'Sam Closer' }, setter: null, feedback: { outcome: 'sale', notes: 'Moving forward', setter_feedback: null, completed_at: '2026-09-20T17:00:00Z' } },
+  ],
+}

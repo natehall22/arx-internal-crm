@@ -27,7 +27,7 @@ describe('nav config', () => {
   })
   it('an ops-only user lands on the job pages and has no sales dashboard', () => {
     const c = ctx({ role: 'operations', permissionNames: new Set(['jobs:view', 'jobs:edit', 'ops:dashboard:view']), flags: { isOpsOnly: true, canSeeOpsDashboard: true, canSeeJobBoard: true } })
-    expect(leaves(c)).toEqual(['/ops', '/ops/dashboard'])
+    expect(leaves(c)).toEqual(['/ops', '/ops/schedule', '/ops/dashboard'])
   })
   it('a section with no visible page disappears; Money needs a payroll admin or pricebook access', () => {
     expect(ids(ctx())).not.toContain('money')

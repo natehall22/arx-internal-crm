@@ -183,7 +183,7 @@ export default async function OpsDashboardPage() {
               Reviews
             </Link>
             <Link
-              href="/ops/calendar"
+              href="/ops/schedule?view=calendar"
               className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-medium"
             >
               Calendar
@@ -384,7 +384,7 @@ export default async function OpsDashboardPage() {
           <div className="bg-white rounded-xl shadow-sm border p-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold text-gray-900">Upcoming This Week</h2>
-              <Link href="/ops/calendar" className="text-sm text-indigo-600 hover:text-indigo-700">
+              <Link href="/ops/schedule?view=calendar" className="text-sm text-indigo-600 hover:text-indigo-700">
                 View Calendar
               </Link>
             </div>

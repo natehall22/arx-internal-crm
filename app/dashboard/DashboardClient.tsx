@@ -878,7 +878,7 @@ export default function DashboardClient({
 
   const handleReschedule = (appointmentId: string) => {
     // Redirect to scheduling page with appointment context
-    window.location.href = `/schedule?reschedule=${appointmentId}`
+    window.location.href = `/appointments?reschedule=${appointmentId}`
   }
 
   const handleFillLater = async () => {

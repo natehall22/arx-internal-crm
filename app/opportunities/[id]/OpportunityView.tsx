@@ -662,8 +662,8 @@ export default async function OpportunityView({
   } else if (opportunityForInspectionUi.inspection_outcome === 'rescheduled' || opportunityForInspectionUi.inspection_outcome === 'not_home') {
     // Inspection couldn't happen — needs reschedule
     const rescheduleHref = inspectionAppointment?.id
-      ? `/schedule?reschedule=${inspectionAppointment.id}`
-      : '/calendar'
+      ? `/appointments?reschedule=${inspectionAppointment.id}`
+      : '/appointments?view=calendar'
     nextStep = {
       icon: '📞',
       title: 'Reschedule the Inspection',
@@ -672,7 +672,7 @@ export default async function OpportunityView({
       titleColor: 'text-yellow-800',
       link: rescheduleHref,
       linkLabel: inspectionAppointment?.id ? 'Reschedule inspection' : 'Open calendar',
-      secondaryLink: '/calendar',
+      secondaryLink: '/appointments?view=calendar',
       secondaryLabel: 'Team calendar',
     }
   } else if (['said_no', 'insurance_follow_up', 'failed_credit'].includes(opportunityForInspectionUi.inspection_outcome || '')) {
@@ -685,7 +685,7 @@ export default async function OpportunityView({
       titleColor: 'text-red-800',
       link: '#close-section',
       linkLabel: 'Schedule follow-up (close)',
-      secondaryLink: '/calendar',
+      secondaryLink: '/appointments?view=calendar',
       secondaryLabel: 'Open calendar',
       showMarkLost: true,
     }

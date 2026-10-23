@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import { REPORT_TEMPLATES } from '../lib/reporting/templates'
-import { HARNESS_THREAD, HARNESS_PROPOSALS, HARNESS_LEADS, ANNOUNCEMENTS, BANNER, DEFAULT_PLANS, COST_LINES, SUPPLIERS, PAY_WEEK, MY_PAY, REPORT_RESULT, SALE_CREDIT, SUPPLIER_PREVIEW, SUPPLIER_VIEW, TEMPLATE_META, USERS } from './fixtures'
+import { HARNESS_APPOINTMENTS, HARNESS_THREAD, HARNESS_PROPOSALS, HARNESS_LEADS, ANNOUNCEMENTS, BANNER, DEFAULT_PLANS, COST_LINES, SUPPLIERS, PAY_WEEK, MY_PAY, REPORT_RESULT, SALE_CREDIT, SUPPLIER_PREVIEW, SUPPLIER_VIEW, TEMPLATE_META, USERS } from './fixtures'
 
 const json = (body: unknown, status = 200) => ({ status, contentType: 'application/json', body: JSON.stringify(body) })
 
@@ -26,6 +26,7 @@ async function mockApi(page: Page) {
     if (p === '/api/admin/suppliers') return route.fulfill(json(SUPPLIERS))
     if (p === '/api/admin/payroll/pay-week') return route.fulfill(json(PAY_WEEK))
     if (p === '/api/me/pay') return route.fulfill(json(MY_PAY))
+    if (p === '/api/appointments') return route.fulfill(json(HARNESS_APPOINTMENTS))
     if (p === '/api/proposals') return route.fulfill(json(HARNESS_PROPOSALS))
     if (p === '/api/leads') return route.fulfill(json(HARNESS_LEADS))
     if (p === '/api/opportunities') return route.fulfill(json({ opportunities: [{ id: 'o1', lead_id: 'l2', customer_id: 'c2', owner_user_id: 'u1', address_text: '88 Oak Ave, Kannapolis NC', project_type: 'roofing', status: 'open', created_at: '2026-10-19T12:00:00Z', customers: { name: 'Bill Cox' }, leads: { homeowner_name: 'Bill Cox' }, users: { full_name: 'Sam Closer' }, inspection_outcome: null, inspection_notes: null, inspection_date: null }, { id: 'o2', lead_id: null, customer_id: 'c1', owner_user_id: 'u1', address_text: '1423 Maple Ridge Dr, Concord NC', project_type: 'roofing', status: 'won', created_at: '2026-10-01T12:00:00Z', customers: { name: 'Ashley Gaines' }, leads: null, users: { full_name: 'Nathan Hall' }, inspection_outcome: 'sale', inspection_notes: null, inspection_date: null }] }))
@@ -127,6 +128,8 @@ const SCREENS: Screen[] = [
   { name: 'list-leads', path: '/dev-harness/leads', ready: 'text=Ashley Gaines >> visible=true' },
   { name: 'list-job-profit', path: '/dev-harness/job-profit', ready: 'text=Gaines >> visible=true',
     states: [{ name: 'low-margin', run: async (p) => { await p.getByLabel('Saved views').selectOption({ label: 'Low margin (under 20%)' }); await p.waitForSelector('text=Cox >> visible=true') } }] },
+  { name: 'list-appointments', path: '/dev-harness/appointments', ready: 'text=Ashley Gaines >> visible=true',
+    states: [{ name: 'needs-feedback', run: async (p) => { await p.getByLabel('Saved views').selectOption({ label: 'Needs feedback' }); await p.waitForSelector('text=Bill Cox >> visible=true') } }, { name: 'reassign', run: async (p) => { await p.getByRole('button', { name: 'Reassign' }).first().click(); await p.waitForSelector('text=Reassign appointment') } }] },
   { name: 'list-opportunities', path: '/dev-harness/opportunities', ready: 'text=Bill Cox >> visible=true' },
   { name: 'pay-week', path: '/dev-harness/pay-week', ready: 'text=Needs you (3)',
     states: [

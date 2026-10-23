@@ -326,7 +326,7 @@ interface PendingAssignConfirm {
   busyDates: string[]
 }
 
-export default function InstallScheduleClient() {
+export default function InstallScheduleClient({ embedded = false }: { /** Inside Jobs → Schedule: no Nav (the page provides it). */ embedded?: boolean } = {}) {
   const [windowStart, setWindowStart] = useState<string>(() => startOfWeekISO(todayISO()))
   const [subs, setSubs] = useState<ScheduleSub[]>([])
   const [scheduled, setScheduled] = useState<ScheduledJob[]>([])
@@ -700,8 +700,8 @@ export default function InstallScheduleClient() {
   }
 
   return (
-    <div className="min-h-screen bg-[#f7f6f2]">
-      <Nav />
+    <div className={embedded ? '' : 'min-h-screen bg-[#f7f6f2]'}>
+      {!embedded && <Nav />}
 
       <div className="mx-auto max-w-[1800px] px-4 py-6">
         <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
