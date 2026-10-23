@@ -14,7 +14,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { toast } from '@/components/ui/toast'
 import { cn } from '@/lib/cn'
 import { formatDateWeekday, formatMoney } from '@/lib/format'
-import type { PayWeek, PayWeekNeed, PayWeekPerson } from '@/lib/payroll-pay-week'
+import type { PayWeek, PayWeekLine, PayWeekNeed, PayWeekPerson } from '@/lib/payroll-pay-week'
 
 const API = '/api/admin/payroll/pay-week'
 
@@ -30,6 +30,9 @@ export default function PayWeekClient() {
   const [emailIt, setEmailIt] = React.useState(true)
   const [busy, setBusy] = React.useState(false)
   const [help, setHelp] = React.useState(false)
+  const [change, setChange] = React.useState<{ p: PayWeekPerson; l: PayWeekLine } | null>(null)
+  const [changeAmount, setChangeAmount] = React.useState('')
+  const [changeReason, setChangeReason] = React.useState('')
   const [done, setDone] = React.useState<{ total: number; people: number; emailed: { sent: number; skipped: number; failed: number } | null } | null>(null)
 
   const load = React.useCallback(async () => {
@@ -69,6 +72,27 @@ export default function PayWeekClient() {
         setConfirming(false)
         await load()
       }
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const saveChange = async () => {
+    if (!change || !change.l.jobId || !change.l.participantRole) return
+    setBusy(true)
+    try {
+      const r = await fetch('/api/admin/payroll/deal-commission-roles', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ job_id: change.l.jobId, user_id: change.p.userId, role: change.l.participantRole, override_amount: Number(changeAmount), reason: changeReason.trim() }),
+      })
+      const body = await r.json().catch(() => ({}))
+      if (!r.ok) throw new Error(body?.error || 'Could not save the change')
+      setChange(null)
+      toast.success('Saved')
+      await load()
+    } catch (e) {
+      toast.error((e as Error).message)
     } finally {
       setBusy(false)
     }
@@ -127,7 +151,7 @@ export default function PayWeekClient() {
         <TabsContent value="people" className="pt-3">
           {week.people.length === 0 ? <EmptyState title="Nothing to pay this week" body="No job is ready to pay and no hours or bonuses are in." /> : (
             <div className="rounded-ui border border-surface-line bg-surface">
-              {week.people.map((p) => <Person key={p.userId} p={p} open={!!open[p.userId]} toggle={() => setOpen((o) => ({ ...o, [p.userId]: !o[p.userId] }))} />)}
+              {week.people.map((p) => <Person key={p.userId} p={p} open={!!open[p.userId]} toggle={() => setOpen((o) => ({ ...o, [p.userId]: !o[p.userId] }))} onChange={draft ? (pp, l) => { setChange({ p: pp, l }); setChangeAmount(String(l.amount)); setChangeReason('') } : undefined} />)}
             </div>
           )}
         </TabsContent>
@@ -137,7 +161,7 @@ export default function PayWeekClient() {
               {week.jobs.map((j) => (
                 <div key={j.jobId} className="border-b border-surface-line p-4 last:border-b-0">
                   <div className="flex items-baseline justify-between gap-3">
-                    <Link href={`/ops/jobs/${j.jobId}`} className="font-semibold text-ink underline underline-offset-2">Job {j.jobNumber}</Link>
+                    <Link href={`/ops/jobs/${j.jobId}`} className="inline-flex min-h-tap items-center font-semibold text-ink underline underline-offset-2">Job {j.jobNumber}</Link>
                     <span className="tabular-nums font-semibold text-ink">{formatMoney(j.total)}</span>
                   </div>
                   <p className="text-ui-sm text-ink-muted">{j.address} · commission base {formatMoney(j.commissionBase)}</p>
@@ -163,7 +187,7 @@ export default function PayWeekClient() {
             {week.waiting.map((w) => (
               <div key={w.jobId} className="flex items-start justify-between gap-3 border-b border-surface-line p-4 last:border-b-0">
                 <div className="min-w-0">
-                  <Link href={`/ops/jobs/${w.jobId}`} className="font-semibold text-ink underline underline-offset-2">Job {w.jobNumber}</Link>
+                  <Link href={`/ops/jobs/${w.jobId}`} className="inline-flex min-h-tap items-center font-semibold text-ink underline underline-offset-2">Job {w.jobNumber}</Link>
                   <span className="text-ink-muted"> · {w.address}</span>
                   <p className="text-ui-base text-ink">{w.reason}</p>
                   {w.who.length ? <p className="text-ui-sm text-ink-muted">{w.who.map((x) => `${x.name} ${formatMoney(x.estimate)}`).join(' · ')}</p> : null}
@@ -208,6 +232,21 @@ export default function PayWeekClient() {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={!!change} onOpenChange={(o) => !o && setChange(null)}>
+        <DialogContent title={change ? `Change ${change.p.name}'s line` : 'Change'} description={change ? `${change.l.what}. This replaces what the plan would pay on this job; the reason goes in the audit trail.` : undefined}>
+          <label className="flex flex-col gap-1.5 text-ui-sm font-semibold text-ink">New amount
+            <Input type="number" inputMode="decimal" step="0.01" min={0} value={changeAmount} onChange={(e) => setChangeAmount(e.target.value)} />
+          </label>
+          <label className="flex flex-col gap-1.5 text-ui-sm font-semibold text-ink">Why
+            <Input value={changeReason} onChange={(e) => setChangeReason(e.target.value)} placeholder="e.g. Closed alone — no split" />
+          </label>
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setChange(null)}>Cancel</Button>
+            <Button loading={busy} disabled={!changeReason.trim() || changeAmount === '' || !Number.isFinite(Number(changeAmount)) || Number(changeAmount) < 0} onClick={saveChange}>Save change</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={help} onOpenChange={setHelp}>
         <DialogContent title="How this is calculated">
           <div className="flex flex-col gap-2 text-ui-base text-ink">
@@ -223,7 +262,7 @@ export default function PayWeekClient() {
   )
 }
 
-function Person({ p, open, toggle }: { p: PayWeekPerson; open: boolean; toggle: () => void }) {
+function Person({ p, open, toggle, onChange }: { p: PayWeekPerson; open: boolean; toggle: () => void; onChange?: (p: PayWeekPerson, l: PayWeekLine) => void }) {
   return (
     <div className="border-b border-surface-line last:border-b-0">
       <button type="button" onClick={toggle} aria-expanded={open} className="flex min-h-[4rem] w-full items-center gap-3 px-4 py-3 text-left">
@@ -244,7 +283,10 @@ function Person({ p, open, toggle }: { p: PayWeekPerson; open: boolean; toggle: 
                 <span className="text-ui-base text-ink">{l.what}</span>
                 <span className="block text-ui-sm text-ink-muted">{l.math}</span>
               </span>
-              <span className={cn('shrink-0 text-right tabular-nums text-ui-base font-semibold text-ink', l.amount < 0 && 'text-danger')}>{formatMoney(l.amount)}</span>
+              <span className="shrink-0 text-right">
+                <span className={cn('block tabular-nums text-ui-base font-semibold text-ink', l.amount < 0 && 'text-danger')}>{formatMoney(l.amount)}</span>
+                {onChange && l.kind === 'Commission' && l.jobId && l.participantRole ? <button type="button" onClick={() => onChange(p, l)} className="min-h-tap text-ui-sm font-semibold text-brand-700 underline underline-offset-2">Change</button> : null}
+              </span>
             </li>
           ))}
           {p.raw < 0 ? <li className="py-2 text-ui-sm text-ink-muted">The check can&apos;t go below $0. {formatMoney(-p.raw)} carries forward as a balance.</li> : null}

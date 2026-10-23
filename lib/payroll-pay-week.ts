@@ -37,6 +37,8 @@ export type PayWeekLine = {
   amount: number
   jobId?: string
   jobNumber?: string
+  /** Payout role of a commission line (for "Change"): setter, sales_rep, inspector… */
+  participantRole?: string
 }
 
 export type PayWeekPerson = {
@@ -152,7 +154,7 @@ export function composeWeek(inp: WeekInputs): { people: PayWeekPerson[]; jobs: P
     const amount = roundMoney(Number(r.net_amount) || 0)
     const math = describeCommission(r, base)
     const p = person(r.user_id)
-    p.lines.push({ kind: 'Commission', what: `${job?.job_number ?? ''}${job?.address_text ? ` · ${job.address_text}` : ''}`.trim(), math, amount, jobId: r.job_id, jobNumber: job?.job_number })
+    p.lines.push({ kind: 'Commission', what: `${job?.job_number ?? ''}${job?.address_text ? ` · ${job.address_text}` : ''}`.trim(), math, amount, jobId: r.job_id, jobNumber: job?.job_number, participantRole: r.participant_role })
     let jv = byJob.get(r.job_id)
     if (!jv) {
       jv = { jobId: r.job_id, jobNumber: job?.job_number ?? '', address: job?.address_text ?? '', commissionBase: base ?? 0, total: 0, paid: [] }

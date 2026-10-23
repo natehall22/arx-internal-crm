@@ -29,7 +29,7 @@ import AnnouncementsClient from '@/app/admin/announcements/AnnouncementsClient'
 import ContractModal from '@/components/contracts/ContractModal'
 import ExploreClient from '@/app/reports/explore/ExploreClient'
 import ReportsPage from '@/app/reports/page'
-import PayrollPeriodsPage from '@/app/admin/payroll/periods/page'
+import PayWeekClient from '@/components/payroll/PayWeekClient'
 import DefaultPlansCard from '@/components/admin/DefaultPlansCard'
 import { HARNESS_NEEDS_YOU, HARNESS_RUN_SHEET, HARNESS_DASHBOARD } from '@/e2e/fixtures'
 import JobSheetsEditor from '@/app/ops/jobs/[id]/sheets/JobSheetsEditor'
@@ -155,8 +155,8 @@ export default function Harness({ params }: { params: { screen: string } }) {
       return <UiKitHarness />
     case 'default-plans':
       return <div className="p-3"><DefaultPlansCard /></div>
-    case 'payroll-periods':
-      return <PayrollPeriodsPage />
+    case 'pay-week':
+      return <div className="mx-auto max-w-3xl p-4"><PayWeekClient /></div>
     default:
       notFound()
   }
