@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useState } from 'react'
 
+import AbcItemMapEditor from '@/components/admin/AbcItemMapEditor'
+
 type LogEntry = { at: string; by: string | null; action: string; lines: string[] }
 type Supplier = {
   id?: string
@@ -40,6 +42,7 @@ export default function SuppliersClient() {
   const [message, setMessage] = useState<string | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [mapFor, setMapFor] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     const res = await fetch('/api/admin/suppliers')
@@ -127,6 +130,9 @@ export default function SuppliersClient() {
             )}
             <div className="mt-3">
               <button type="button" className={`${btn} w-full sm:w-auto`} onClick={() => openEditor(s)}>Edit {s.name}</button>
+              {s.connection_type === 'api' && s.id && (
+                <button type="button" className={`${btn} mt-2 w-full sm:ml-2 sm:mt-0 sm:w-auto`} onClick={() => setMapFor(s.id!)}>Item numbers for {s.name}</button>
+              )}
             </div>
           </li>
         ))}
@@ -137,6 +143,8 @@ export default function SuppliersClient() {
           Add supplier
         </button>
       </div>
+
+      {mapFor && <AbcItemMapEditor vendorId={mapFor} onClose={() => setMapFor(null)} />}
 
       {draft && (
         <div className="fixed inset-0 z-[100] flex items-end bg-black/50 sm:items-center sm:justify-center sm:p-4" role="dialog" aria-modal="true" aria-label={draft.id ? 'Edit supplier' : 'Add supplier'}>

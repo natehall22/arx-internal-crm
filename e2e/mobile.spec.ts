@@ -23,6 +23,7 @@ async function mockApi(page: Page) {
     if (p === '/api/reports/saved') return route.fulfill(json({ reports: [{ id: 's1', name: 'Inspections Scheduled', spec: REPORT_TEMPLATES[0].spec, schedule: 'daily', created_by: 'u1' }], me: 'u1' }))
     if (p === '/api/announcements/active') return route.fulfill(json(BANNER))
     if (p === '/api/admin/announcements') return route.fulfill(json(ANNOUNCEMENTS))
+    if (/\/api\/admin\/suppliers\/[^/]+\/api$/.test(p)) return route.fulfill(json({ settings: null, itemMap: [{ line_key: 'field_shingles', item_number: 'OCDURBND', uom: 'BD', qty_unit_word: 'bundles', est_unit_price_cents: 3800 }, { line_key: 'starter', item_number: 'STRT-1', uom: 'BD', qty_unit_word: 'bundles', est_unit_price_cents: null }], org: null }))
     if (p === '/api/admin/suppliers') return route.fulfill(json(SUPPLIERS))
     if (p === '/api/admin/payroll/pay-week') return route.fulfill(json(PAY_WEEK))
     if (p === '/api/me/pay') return route.fulfill(json(MY_PAY))
@@ -53,6 +54,8 @@ const SCREENS: Screen[] = [
   { name: 'pay-banners', path: '/dev-harness/pay-banners', ready: 'text=Mark' },
   { name: 'suppliers-admin', path: '/dev-harness/suppliers-admin', ready: 'text=Suppliers',
     states: [{ name: 'edit', run: async (p) => { await p.getByRole('button', { name: /Edit ABC Supply/ }).click(); await p.waitForSelector('text=Edit supplier') } }] },
+  { name: 'abc-item-map', path: '/dev-harness/abc-item-map', ready: 'text=ABC item numbers',
+    states: [{ name: 'partial-row-error', run: async (p) => { await p.getByLabel('ABC item number').nth(2).fill('RIDGE-1'); await p.getByRole('button', { name: 'Save' }).click(); await p.getByRole('alert').waitFor() } }] },
   { name: 'announcement-banner', path: '/dev-harness/announcement-banner', ready: 'text=See what',
     states: [{ name: 'size', run: async (p) => {
       const box = await p.getByRole('region', { name: "What's new" }).boundingBox()

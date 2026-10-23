@@ -86,6 +86,15 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
     await logApiEvent(a.admin, { orgId: org, vendorId: params.id, jobId: null, actorUserId: a.profile.id, event: 'map_changed', detail: { items: rows.map((r) => ({ line_key: r.line_key, item_number: r.item_number, uom: r.uom })) } })
   }
 
+  if (Array.isArray(body.itemMapRemove)) {
+    const keys = body.itemMapRemove.map((k: unknown) => text(k, 120)).filter((k: string | null): k is string => !!k).slice(0, 500)
+    if (keys.length > 0) {
+      const { error } = await a.admin.from('supplier_item_map').delete().eq('org_id', org).eq('vendor_id', params.id).in('line_key', keys)
+      if (error) return NextResponse.json({ error: 'Could not remove those items' }, { status: 500 })
+      await logApiEvent(a.admin, { orgId: org, vendorId: params.id, jobId: null, actorUserId: a.profile.id, event: 'map_changed', detail: { removed: keys } })
+    }
+  }
+
   if (body.org) {
     const patch: Record<string, unknown> = {}
     if (typeof body.org.orderingEnabled === 'boolean') patch.supplier_api_ordering_enabled = body.org.orderingEnabled

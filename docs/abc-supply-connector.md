@@ -46,6 +46,6 @@ can place an order (test-enforced), so no status change, cron or automation can.
 6. Watch `supplier_api_events` and the webhook updating `supplier_order_sends.supplier_status`.
 
 ## Known gaps (decide before production)
-- **Item mapping has no screen yet**; it is an owner-only API. Every order line needs an ABC item number and a readable quantity or the order stays on email. Dimensional items (needing `dimensions`) are not supported.
+- **Item mapping now has a screen**: Settings → Suppliers → (ABC, sent by API) → "Item numbers". Owner-only; every change is in the audit log. Every order line still needs an ABC item number and a readable quantity or the order stays on email; lines printed "if needed", approximate (~) or with a trailing note are not read automatically (the screen says so per line). Dimensional items (needing `dimensions`) are not supported.
 - Verify in sandbox: success status code (201 vs 202), the sandbox token URL (`/v1/token` suffix), whether ABC overrides `shipTo.address` with the ship-to on file.
 - ABC says order details are unavailable until the branch accepts ("Requested"); the CRM records the confirmation number at once and the status when the webhook arrives.
