@@ -27,7 +27,8 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { addDaysToDateOnly } from '@/lib/install-calendar'
 import { ymdInBusinessTz } from '@/lib/calendar-business-tz'
 import { SALE_AGREEMENT_TYPES } from '@/lib/sales-metrics'
-import { loadPayPlanGaps, type PayPlanGap } from '@/lib/comp-plan-defaults-db'
+import { isOwnerProfile } from '@/lib/super-admin'
+import { loadEndedPlanPeople, loadPayPlanGaps, type EndedPlanPerson, type PayPlanGap } from '@/lib/comp-plan-defaults-db'
 
 /** Paid-in-full tolerance (owner decision #2). */
 export const PAID_TOLERANCE_CENTS = 5
@@ -37,6 +38,9 @@ export const MONEY_TOLERANCE = 0.05
 export const MATERIALS_LEAD_DAYS = 3
 /** An appointment needs an outcome this long after it was due to end. */
 export const APPOINTMENT_OUTCOME_GRACE_HOURS = 2
+
+/** Past appointments older than this drop off Needs you (they are owner clean-up: "Close out old appointments"). */
+export const APPOINTMENT_NEEDS_YOU_MAX_AGE_DAYS = 14
 
 export type HealthArea = 'money' | 'credit' | 'ops' | 'sales'
 
@@ -96,6 +100,10 @@ export type DataHealthReport = {
    * Optional so older report builders stay valid.
    */
   payPlans?: PayPlanGap[]
+  /** Past appointments with no outcome that are older than the Needs-you window (hidden; owners can close them out). */
+  hiddenOldAppointments?: number
+  /** Active people whose pay plan was ended and not replaced (paid nothing until someone assigns one). */
+  endedPlans?: EndedPlanPerson[]
   /** Total problem rows (jobs with ≥1 problem + appointments + pay-plan gaps). */
   count: number
 }
@@ -136,6 +144,8 @@ export type JobHealthInput = {
   changeOrderDelta: number
   /** Same, commissionable change orders only. */
   commissionableChangeOrderDelta: number
+  /** Sales tax inside the signed total (the job's proposal `tax_amount`): excluded from the commission base. 0 when unknown. */
+  salesTax?: number
   /** Cleared payments, cents (refunds negative). */
   paidCents: number
   costLineCount: number
@@ -192,16 +202,24 @@ export function expectedSaleAmount(input: Pick<JobHealthInput, 'contractTotal' |
   return num(input.job.sale_amount)
 }
 
-/** Owner decision #1: base = signed agreement + signed commissionable change orders. */
+/** Owner decision: base = signed agreement + signed commissionable change orders − sales tax. */
 export function expectedCommissionBase(
-  input: Pick<JobHealthInput, 'contractTotal' | 'commissionableChangeOrderDelta'>
+  input: Pick<JobHealthInput, 'contractTotal' | 'commissionableChangeOrderDelta' | 'salesTax'>
 ): number | null {
   if (input.contractTotal == null) return null
-  return round2(input.contractTotal + input.commissionableChangeOrderDelta)
+  // Same rule as lib/job-commission-base.ts (Nathan, 2026-10-22): signed contract + commissionable change orders, minus sales
+  // tax ONLY. Dealer fees are never deducted. (Before this the check ignored tax and flagged nearly every job.)
+  return Math.max(0, round2(input.contractTotal + input.commissionableChangeOrderDelta - (input.salesTax ?? 0)))
 }
 
 const INSTALLED_STATUSES = new Set(['complete', 'collected'])
 const PRE_INSTALL_STATUSES = new Set(['sold', 'materials', 'scheduled'])
+
+/** Paid outside the CRM before the payroll cutover (production_jobs.payroll_settled_externally_at). */
+export function isSettledExternally(job: object): boolean {
+  const at = (job as { payroll_settled_externally_at?: unknown }).payroll_settled_externally_at
+  return typeof at === 'string' && at.length > 0
+}
 
 export function jobHref(jobId: string, hash?: string): string {
   return `/ops/jobs/${jobId}${hash ? `#${hash}` : ''}`
@@ -514,11 +532,13 @@ export function contractTotalForJob(
   byProposal: Map<string, ContractRow[]>,
   byOpportunity: Map<string, ContractRow[]>
 ): number | null {
-  const rows =
-    (ids.proposalId ? byProposal.get(ids.proposalId) : undefined) ??
-    (ids.opportunityId ? byOpportunity.get(ids.opportunityId) : undefined)
-  if (!rows || rows.length === 0) return null
-  return round2(rows.reduce((sum, r) => sum + (num(r.project_cost) ?? 0), 0))
+  // ALL of the job's completed sale agreements count, whichever way they link: split cash/finance deals sign two agreements,
+  // one possibly on the proposal and one on the opportunity. Union (each agreement once), never "proposal else opportunity".
+  const seen = new Set<ContractRow>()
+  for (const r of (ids.proposalId ? byProposal.get(ids.proposalId) : undefined) ?? []) seen.add(r)
+  for (const r of (ids.opportunityId ? byOpportunity.get(ids.opportunityId) : undefined) ?? []) seen.add(r)
+  if (seen.size === 0) return null
+  return round2(Array.from(seen).reduce((sum, r) => sum + (num(r.project_cost) ?? 0), 0))
 }
 
 function groupBy<T>(rows: T[], key: (row: T) => string | null | undefined): Map<string, T[]> {
@@ -543,7 +563,7 @@ export async function loadDataHealth(
   const includeAppointments = opts.includeAppointments ?? !opts.jobIds
 
   // `*` on purpose: force columns from the money-inputs work may or may not exist yet.
-  const jobs = opts.jobIds
+  const allJobs = opts.jobIds
     ? await selectIn<HealthJobRow>(opts.jobIds, (chunk) =>
         admin.from('production_jobs').select('*').eq('org_id', orgId).in('id', chunk)
       )
@@ -557,10 +577,13 @@ export async function loadDataHealth(
           .range(from, to)
       )
 
+  // Jobs settled outside the CRM before cutover are not Needs-you material at all (and never payroll's).
+  const jobs = allJobs.filter((j) => !isSettledExternally(j))
   const jobIds = jobs.map((j) => j.id)
   const projectIds = Array.from(new Set(jobs.map((j) => j.project_id).filter((v): v is string => typeof v === 'string')))
 
-  const [projects, contracts, changeOrders, payments, costLines, trades] = await Promise.all([
+  const proposalIds = Array.from(new Set(jobs.flatMap((j) => [j.linked_proposal_id, j.accepted_proposal_id]).filter((v): v is string => typeof v === 'string' && v.length > 0)))
+  const [projects, contracts, changeOrders, payments, costLines, trades, proposals] = await Promise.all([
     selectIn<{ id: string; opportunity_id: string | null }>(projectIds, (chunk) =>
       admin.from('projects').select('id, opportunity_id').eq('org_id', orgId).in('id', chunk)
     ),
@@ -597,7 +620,11 @@ export async function loadDataHealth(
         .not('trade', 'is', null)
         .in('job_id', chunk)
     ),
+    selectIn<{ id: string; tax_amount: number | string | null }>(proposalIds, (chunk) =>
+      admin.from('proposals').select('id, tax_amount').eq('org_id', orgId).in('id', chunk)
+    ),
   ])
+  const taxByProposal = new Map(proposals.map((p) => [p.id, num(p.tax_amount) ?? 0]))
 
   const oppByProject = new Map(projects.map((p) => [p.id, p.opportunity_id]))
   const opportunityIds = Array.from(
@@ -633,6 +660,7 @@ export async function loadDataHealth(
     const problems = evaluateJobHealth({
       job,
       contractTotal: contractTotalForJob({ proposalId, opportunityId }, contractsByProposal, contractsByOpportunity),
+      salesTax: proposalId ? taxByProposal.get(proposalId) ?? 0 : 0,
       changeOrderDelta: round2(cos.reduce((s, c) => s + delta(c), 0)),
       commissionableChangeOrderDelta: round2(cos.filter((c) => c.is_commissionable !== false).reduce((s, c) => s + delta(c), 0)),
       paidCents: (paymentsByJob.get(job.id) ?? [])
@@ -657,6 +685,7 @@ export async function loadDataHealth(
   let appointmentHealth: AppointmentHealth[] = []
   if (includeAppointments) {
     const cutoffIso = new Date(now.getTime() - APPOINTMENT_OUTCOME_GRACE_HOURS * 3_600_000).toISOString()
+    const windowStartIso = new Date(now.getTime() - APPOINTMENT_NEEDS_YOU_MAX_AGE_DAYS * 86_400_000).toISOString()
     const appts = await selectAll<HealthAppointmentRow>((from, to) =>
       admin
         .from('scheduled_appointments')
@@ -664,6 +693,9 @@ export async function loadDataHealth(
         .eq('org_id', orgId)
         .eq('status', 'scheduled')
         .lt('scheduled_for', cutoffIso)
+        // Only the recent past is Needs-you material; older ones are counted below and closed out by an owner.
+        .gte('scheduled_for', windowStartIso)
+        .is('outcome_not_recorded_at', null)
         .order('scheduled_for', { ascending: false })
         .range(from, to)
     )
@@ -679,15 +711,30 @@ export async function loadDataHealth(
       .filter((a) => a.problems.length > 0)
   }
 
+  let hiddenOldAppointments = 0
+  if (includeAppointments) {
+    const { count } = await admin
+      .from('scheduled_appointments')
+      .select('id', { count: 'exact', head: true })
+      .eq('org_id', orgId)
+      .eq('status', 'scheduled')
+      .lt('scheduled_for', new Date(now.getTime() - APPOINTMENT_NEEDS_YOU_MAX_AGE_DAYS * 86_400_000).toISOString())
+      .is('outcome_not_recorded_at', null)
+    hiddenOldAppointments = count ?? 0
+  }
+
   const flaggedJobs = jobHealth.filter((j) => j.problems.length > 0)
   // Org-level check, only on the full report (not the single-job payability gate).
   const payPlans = opts.jobIds ? [] : await loadPayPlanGaps(admin, orgId, now)
+  const endedPlans = opts.jobIds ? [] : await loadEndedPlanPeople(admin, orgId, now)
   return {
     generatedAt: now.toISOString(),
     jobs: flaggedJobs,
     appointments: appointmentHealth,
+    hiddenOldAppointments,
     payPlans,
-    count: flaggedJobs.length + appointmentHealth.length + payPlans.length,
+    endedPlans,
+    count: flaggedJobs.length + appointmentHealth.length + payPlans.length + (endedPlans.length > 0 ? 1 : 0),
   }
 }
 
@@ -718,11 +765,80 @@ export async function isJobPayable(
  * Display helpers (shared by the dashboard list and the email)
  * ------------------------------------------------------------------------ */
 
-/** Areas a viewer may see. Money/credit rows are for payroll admins only. */
-export function filterReportForViewer(report: DataHealthReport, canSeeMoney: boolean): DataHealthReport {
-  if (canSeeMoney) return report
-  const jobs = report.jobs
-    .map((j) => ({ ...j, problems: j.problems.filter((p) => p.area === 'ops' || p.area === 'sales') }))
-    .filter((j) => j.problems.length > 0)
-  return { ...report, jobs, payPlans: [], count: jobs.length + report.appointments.length }
+/* ------------------------------------------------------------------------ *
+ * Who sees "Needs you" — ONE rule, used by every surface
+ * (ops dashboard, morning email, Today home, GET /api/needs-you).
+ * ------------------------------------------------------------------------ */
+
+/** owner = money, sale credit, pay plans and ops rows; ops = operational rows only (no dollars); none = nothing at all. */
+export type NeedsYouAudience = 'owner' | 'ops' | 'none'
+
+/** Field roles never get "Needs you", whatever else they have been granted. */
+const NO_NEEDS_YOU_ROLES = new Set(['setter', 'canvasser', 'setter_manager', 'sales_rep', 'closer', 'rep', 'inside_sales', 'call_center', 'call_center_rep'])
+
+/** Roles that may see the operational view when they also have job-board access. */
+const OPS_ROLES = new Set(['operations', 'admin', 'manager', 'sales_manager', 'regional_manager', 'custom'])
+
+/** Operational rows an ops person may see — none of them carries a dollar amount. */
+const OPS_VISIBLE_CODES: ReadonlySet<HealthProblemCode> = new Set<HealthProblemCode>([
+  'materials_not_ordered',
+  'permit_pending',
+  'crews_done_job_open',
+  'completed_no_costs', // "missing cost lines" (the row says so without amounts)
+  'appointment_no_outcome',
+])
+
+export function needsYouAudience(
+  viewer: { role?: string | null; is_super_admin?: boolean | null; active?: boolean | null } | null | undefined,
+  canJobBoard: boolean
+): NeedsYouAudience {
+  if (!viewer || viewer.active === false) return 'none'
+  if (isOwnerProfile(viewer)) return 'owner'
+  const role = String(viewer.role || '').toLowerCase().trim()
+  if (NO_NEEDS_YOU_ROLES.has(role)) return 'none'
+  // Allow-list, not just a block-list: only roles that run operations can ever get the ops view (a custom role is
+  // `custom` and counts only because it was explicitly granted the job board). Any other role string is nothing.
+  return canJobBoard && OPS_ROLES.has(role) ? 'ops' : 'none'
+}
+
+/**
+ * Shapes a full report for who is looking. Pure. 'none' yields null: the caller must not render the box or send the section.
+ * 'ops' keeps only OPS_VISIBLE_CODES, drops "holds pay" (a money fact) and pay plans.
+ */
+export function shapeNeedsYou(report: DataHealthReport, audience: NeedsYouAudience): DataHealthReport | null {
+  if (audience === 'none') return null
+  if (audience === 'owner') return report
+  const keep = (problems: HealthProblem[]) => problems.filter((p) => OPS_VISIBLE_CODES.has(p.code)).map((p) => ({ ...p, blocksPay: false }))
+  const jobs = report.jobs.map((j) => ({ ...j, problems: keep(j.problems) })).filter((j) => j.problems.length > 0)
+  const appointments = report.appointments.map((a) => ({ ...a, problems: keep(a.problems) })).filter((a) => a.problems.length > 0)
+  return { generatedAt: report.generatedAt, jobs, appointments, count: jobs.length + appointments.length }
+}
+
+/**
+ * "Needs you" for one morning-email recipient. An email has no permission context, so only the `operations` role counts
+ * as job-board access here (custom roles fail closed); an address with no matching user gets nothing.
+ */
+export function needsYouForEmailRecipient(
+  report: DataHealthReport,
+  viewer: { role?: string | null; is_super_admin?: boolean | null; active?: boolean | null } | null | undefined
+): DataHealthReport | null {
+  return shapeNeedsYou(report, needsYouAudience(viewer, viewer?.role === 'operations'))
+}
+
+/** Seam so the role matrix can be tested through the real API route without a database. */
+export const dataHealthDeps = { load: (admin: SupabaseClient, orgId: string): Promise<DataHealthReport> => loadDataHealth(admin, orgId) }
+
+/**
+ * The only way to LOAD "Needs you" for a person: decides the audience first and does not even run the check for 'none'
+ * (so nothing is computed, logged or returned for a setter or closer).
+ */
+export async function loadNeedsYouForViewer(
+  admin: SupabaseClient,
+  orgId: string,
+  viewer: { role?: string | null; is_super_admin?: boolean | null; active?: boolean | null } | null | undefined,
+  canJobBoard: boolean
+): Promise<{ audience: NeedsYouAudience; report: DataHealthReport | null }> {
+  const audience = needsYouAudience(viewer, canJobBoard)
+  if (audience === 'none') return { audience, report: null }
+  return { audience, report: shapeNeedsYou(await dataHealthDeps.load(admin, orgId), audience) }
 }

@@ -85,6 +85,8 @@ export async function GET(request: NextRequest) {
       )
       .eq('org_id', orgId)
       .neq('status', CANCELLED_JOB_STATUS)
+      // Settled outside the CRM before cutover: the preview must match what the lock pays, and the lock never pays these.
+      .is('payroll_settled_externally_at', null)
       .gte('sale_date', from)
       .lte('sale_date', to)
       .not('sale_date', 'is', null)
