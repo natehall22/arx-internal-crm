@@ -48,6 +48,7 @@ function build() {
 describe('My pay', () => {
   it('shows only my lines, with the math, and my Coming estimates with the reason', async () => {
     const db = build()
+    await loadPayWeek(db.client, ORG, NOW) // the payroll admin's screen creates the week; reps only read it
     const mine = await loadMyPay(db.client, ORG, 's1', NOW)
     expect(mine.name).toBe('Riley Moss')
     expect(mine.headline).toMatchObject({ amount: 1000, state: 'draft' })
@@ -78,6 +79,7 @@ describe('Something\'s wrong?', () => {
     expect(await fileDispute(db.client, { orgId: ORG, userId: 'c1', label: 'x', message: '  ' })).toMatchObject({ ok: false, status: 400 })
     expect(await fileDispute(db.client, { orgId: ORG, userId: 'c1', label: 'x', message: 'm', jobId: '00000000-0000-4000-8000-000000000009' })).toMatchObject({ ok: false, status: 404 })
     expect(db.tables.payroll_disputes).toHaveLength(1)
+    await loadPayWeek(db.client, ORG, NOW)
     const mine = await loadMyPay(db.client, ORG, 'c1', NOW)
     expect(mine.disputes[0]).toMatchObject({ label: '26-0141 · 12 Elm St', status: 'open' })
   })
@@ -107,5 +109,32 @@ describe('Something\'s wrong?', () => {
     expect(db.tables.payroll_disputes[0]).toMatchObject({ status: 'fixed' })
     // answered once only
     expect(await resolveDispute(db.client, { orgId: ORG, actorUserId: 'a', id: need.id, action: 'reply', reply: 'x' })).toMatchObject({ ok: false, status: 409 })
+  })
+
+  it('spam guard: at most 10 open questions per person', async () => {
+    const db = build()
+    for (let i = 0; i < 10; i++) expect(await fileDispute(db.client, { orgId: ORG, userId: 'c1', label: `line ${i}`, message: 'm' })).toMatchObject({ ok: true })
+    expect(await fileDispute(db.client, { orgId: ORG, userId: 'c1', label: 'one more', message: 'm' })).toMatchObject({ ok: false, status: 429 })
+  })
+
+  it('two admins cannot both add a fix: the first claim wins, the second is refused with no second adjustment', async () => {
+    const db = build()
+    await fileDispute(db.client, { orgId: ORG, userId: 'c1', label: '26-0141', message: 'short' })
+    const week = await loadPayWeek(db.client, ORG, NOW)
+    const need = week.needs.find((n) => n.kind === 'dispute')
+    if (!need || need.kind !== 'dispute') throw new Error('setup')
+    const args = { orgId: ORG, actorUserId: 'a', id: need.id, action: 'fix' as const, viewedPeriodId: week.period.id, amount: 50, reply: 'ok' }
+    expect(await resolveDispute(db.client, args)).toEqual({ ok: true })
+    expect(await resolveDispute(db.client, args)).toMatchObject({ ok: false, status: 409 })
+    expect((db.tables.payroll_adjustments ?? []).filter((r) => r.status !== 'void')).toHaveLength(1)
+  })
+})
+
+describe('My pay: reads never write, per-unit pay is included', () => {
+  it('opening My pay when no week exists creates nothing and shows $0', async () => {
+    const db = build()
+    const mine = await loadMyPay(db.client, ORG, 'c1', NOW)
+    expect(db.tables.payroll_periods).toHaveLength(0)
+    expect(mine.headline.amount).toBe(0)
   })
 })

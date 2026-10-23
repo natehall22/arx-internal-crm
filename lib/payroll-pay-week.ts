@@ -288,6 +288,23 @@ export async function resolvePayWeekPeriod(admin: SupabaseClient, orgId: string,
   return toPeriod(row)
 }
 
+/** The current pay week if it already exists — never creates one (a rep opening My pay is a read). */
+export async function findCurrentPayWeekPeriod(admin: SupabaseClient, orgId: string, now: Date): Promise<PayWeekPeriod | null> {
+  const target = getLastWeeklyPayrollCutoffEtAtOrBefore(now)
+  const { data, error } = await admin
+    .from('payroll_periods')
+    .select('id, period_label, cutoff_at, scheduled_pay_date, status, created_at')
+    .eq('org_id', orgId)
+    .neq('status', 'cancelled')
+    .gte('cutoff_at', new Date(target.getTime() - 36 * 3_600_000).toISOString())
+    .lte('cutoff_at', new Date(target.getTime() + 36 * 3_600_000).toISOString())
+    .order('created_at', { ascending: true })
+    .limit(1)
+  if (error) throw error
+  const row = (data ?? [])[0]
+  return row ? toPeriod(row as never) : null
+}
+
 async function loadNames(admin: SupabaseClient, orgId: string, ids: string[]) {
   const names = new Map<string, { name: string; role: string }>()
   if (ids.length === 0) return names
@@ -297,7 +314,7 @@ async function loadNames(admin: SupabaseClient, orgId: string, ids: string[]) {
   return names
 }
 
-async function loadUnits(admin: SupabaseClient, orgId: string, period: PayWeekPeriod, userIds: string[]): Promise<Map<string, number>> {
+export async function loadUnits(admin: SupabaseClient, orgId: string, period: PayWeekPeriod, userIds: string[]): Promise<Map<string, number>> {
   const out = new Map<string, number>()
   if (userIds.length === 0) return out
   const window = await resolvePayrollPeriodWindow(admin, orgId, period.id, period.cutoffAt)

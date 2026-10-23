@@ -11,7 +11,8 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { roundMoney } from '@/lib/money'
 import { loadPeriodAdjustments } from '@/lib/payroll-adjustments'
 import { planPayrollPeriod } from '@/lib/payroll-period-materialization'
-import { composeWeek, payoutRoleWord, resolvePayWeekPeriod, type PayWeekLine, type PayWeekPeriod } from '@/lib/payroll-pay-week'
+import { COMMISSION_ROLES } from '@/lib/comp-plan-defaults'
+import { composeWeek, findCurrentPayWeekPeriod, loadUnits, payoutRoleWord, type PayWeekLine, type PayWeekPeriod } from '@/lib/payroll-pay-week'
 
 export type MyPayJob = { key: string; title: string; why: string; amount: number; math: string; jobId?: string; lineKind: string }
 
@@ -60,23 +61,50 @@ async function myWeekLines(admin: SupabaseClient, orgId: string, userId: string,
     jobs,
     names: new Map([[userId, { name, role: '' }]]),
     hours,
-    units: new Map(),
+    units: await loadUnits(admin, orgId, period, [userId]),
     bonuses: (bonusRows ?? []).map((b) => ({ id: b.id as string, userId, amount: Number(b.amount) || 0, description: (b.description as string) ?? null, bonusType: b.bonus_type as string })),
     adjustments: adjustments.filter((a) => a.userId === userId),
   })
   return people.find((p) => p.userId === userId) ?? null
 }
 
+/** The org-wide plan is the expensive part and identical for every rep: share it for a short while. */
+const PLAN_TTL_MS = 30_000
+const planCache = new Map<string, { at: number; plan: Promise<Awaited<ReturnType<typeof planPayrollPeriod>>> }>()
+function cachedPlan(admin: SupabaseClient, orgId: string, periodId: string) {
+  const key = `${orgId}:${periodId}`
+  const hit = planCache.get(key)
+  if (hit && Date.now() - hit.at < PLAN_TTL_MS) return hit.plan
+  const plan = planPayrollPeriod(admin, { orgId, periodId, includeWaiting: true })
+  planCache.set(key, { at: Date.now(), plan })
+  plan.catch(() => planCache.delete(key))
+  return plan
+}
+
+/** Who has "My pay": a commission/hourly role, or anyone who already has a pay plan or pay history. */
+export async function canSeeMyPay(admin: SupabaseClient, orgId: string, userId: string, role: string | null | undefined): Promise<boolean> {
+  if (COMMISSION_ROLES.has(String(role || '').toLowerCase().trim())) return true
+  const [{ count: plans }, { count: lines }] = await Promise.all([
+    admin.from('user_comp_plans').select('id', { count: 'exact', head: true }).eq('org_id', orgId).eq('user_id', userId),
+    admin.from('payroll_payout_lines').select('id', { count: 'exact', head: true }).eq('org_id', orgId).eq('user_id', userId),
+  ])
+  return (plans ?? 0) > 0 || (lines ?? 0) > 0
+}
+
 export async function loadMyPay(admin: SupabaseClient, orgId: string, userId: string, now: Date): Promise<MyPay> {
   const { data: me } = await admin.from('users').select('full_name').eq('id', userId).eq('org_id', orgId).maybeSingle()
   const name = (me?.full_name as string) || 'You'
-  const period = await resolvePayWeekPeriod(admin, orgId, now)
+  const period = await findCurrentPayWeekPeriod(admin, orgId, now)
+  if (!period) {
+    // No week exists yet (nobody has opened Payroll): nothing is on a check.
+    return { name, headline: { amount: 0, state: 'draft', payDate: '' }, thisWeek: [], coming: [], comingTotal: 0, paid: [], disputes: [], nextWeekFixes: [] }
+  }
   const draft = period.status === 'open'
 
   let rows: Parameters<typeof composeWeek>[0]['rows'] = []
   const coming: MyPayJob[] = []
   if (draft) {
-    const plan = await planPayrollPeriod(admin, { orgId, periodId: period.id, includeWaiting: true })
+    const plan = await cachedPlan(admin, orgId, period.id)
     rows = plan.jobs.flatMap((j) => j.rows).filter((r) => r.user_id === userId)
     const waitingIds = plan.waiting.filter((w) => w.rows.some((r) => r.user_id === userId)).map((w) => w.job.id)
     const info = new Map<string, { job_number: string; address_text: string | null }>()
@@ -153,6 +181,9 @@ export async function fileDispute(
     const { data } = await admin.from('payroll_periods').select('id').eq('id', input.periodId).eq('org_id', input.orgId).maybeSingle()
     if (!data) return { ok: false, status: 404, error: 'Week not found' }
   }
+  // A rep can have a handful of open questions, not a flood (they would bury everyone else's in the office's list).
+  const { count: openCount } = await admin.from('payroll_disputes').select('id', { count: 'exact', head: true }).eq('org_id', input.orgId).eq('user_id', input.userId).eq('status', 'open')
+  if ((openCount ?? 0) >= 10) return { ok: false, status: 429, error: 'You have 10 open questions already. The office will answer those first.' }
   // One open question per line at a time.
   const { data: open } = await admin.from('payroll_disputes').select('id').eq('org_id', input.orgId).eq('user_id', input.userId).eq('line_label', label).eq('status', 'open').limit(1)
   if (open?.length) return { ok: false, status: 409, error: 'You already asked about this line. The office will reply.' }

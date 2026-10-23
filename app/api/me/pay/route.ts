@@ -2,7 +2,7 @@
 import { NextResponse } from 'next/server'
 
 import { requireAuthApi } from '@/lib/auth'
-import { loadMyPay } from '@/lib/my-pay'
+import { canSeeMyPay, loadMyPay } from '@/lib/my-pay'
 import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
@@ -15,7 +15,9 @@ export async function GET() {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
   try {
-    return NextResponse.json(await loadMyPay(createServiceClient(), ctx.profile.org_id, ctx.profile.id, new Date()))
+    const admin = createServiceClient()
+    if (!(await canSeeMyPay(admin, ctx.profile.org_id, ctx.profile.id, ctx.profile.role))) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    return NextResponse.json(await loadMyPay(admin, ctx.profile.org_id, ctx.profile.id, new Date()))
   } catch (e) {
     console.error('GET /api/me/pay', e)
     return NextResponse.json({ error: 'Could not load your pay' }, { status: 500 })
