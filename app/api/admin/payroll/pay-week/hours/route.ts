@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 
 import { requirePayrollAdminApi } from '@/lib/payroll-admin-api'
 import { saveHoursEntries } from '@/lib/payroll-hours'
+import { isUuid } from '@/lib/payroll-pay-week'
 
 export const dynamic = 'force-dynamic'
 
@@ -14,12 +15,15 @@ export async function POST(request: NextRequest) {
   const userId = typeof body?.userId === 'string' ? body.userId : ''
   const reg = Number(body?.regularHours)
   const ot = Number(body?.overtimeHours ?? 0)
-  if (!/^[0-9a-f-]{36}$/i.test(periodId) || !/^[0-9a-f-]{36}$/i.test(userId)) return NextResponse.json({ error: 'Bad request' }, { status: 400 })
+  if (!isUuid(periodId) || !isUuid(userId)) return NextResponse.json({ error: 'Bad request' }, { status: 400 })
   if (!Number.isFinite(reg) || reg < 0 || reg > 120 || !Number.isFinite(ot) || ot < 0 || ot > 60) return NextResponse.json({ error: 'Hours must be between 0 and 120' }, { status: 400 })
 
   const { data: period } = await a.admin.from('payroll_periods').select('id, status, locked_at, cutoff_at').eq('id', periodId).eq('org_id', a.profile.org_id).maybeSingle()
   if (!period) return NextResponse.json({ error: 'Period not found' }, { status: 404 })
   if (period.status !== 'open' || period.locked_at) return NextResponse.json({ error: 'This week is already approved' }, { status: 409 })
+
+  const { data: person } = await a.admin.from('users').select('id').eq('id', userId).eq('org_id', a.profile.org_id).maybeSingle()
+  if (!person) return NextResponse.json({ error: 'Person not found' }, { status: 404 })
 
   const res = await saveHoursEntries(a.admin, {
     orgId: a.profile.org_id,
