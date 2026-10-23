@@ -24,6 +24,7 @@ import JobPaymentMethodBanner from '@/components/ops/JobPaymentMethodBanner'
 import JobDocumentsBanner from '@/components/ops/JobDocumentsBanner'
 import JobReadyToPayBanner from '@/components/ops/JobReadyToPayBanner'
 import JobPayrollSentBanner from '@/components/ops/JobPayrollSentBanner'
+import SettledExternallyCard from '@/components/ops/SettledExternallyCard'
 import AINoteSummary from '@/components/jobs/AINoteSummary'
 import LinkCustomerButton from '@/components/customers/LinkCustomerButton'
 import CopyableContact from '@/components/CopyableContact'
@@ -68,6 +69,8 @@ interface Job {
   cancellation_notes?: string | null
   finance_submitted_at: string | null
   payroll_sent_at?: string | null
+  payroll_settled_externally_at?: string | null
+  settled_externally_reason?: string | null
   sale_date: string | null
   materials_status: string
   materials_ordered_at: string | null
@@ -1820,6 +1823,9 @@ export default function JobDetailClient({
           markingMaterials={saving}
         />
 
+        {job.payroll_settled_externally_at ? (
+          <SettledExternallyCard jobId={job.id} settledAt={job.payroll_settled_externally_at} reason={job.settled_externally_reason ?? null} canUnsettle={isSuperAdmin} />
+        ) : null}
         <JobReadyToPayBanner
           status={job.status}
           paymentSummary={paymentSummary}
