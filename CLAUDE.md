@@ -122,6 +122,20 @@ listed file, migrate it.
 Fix opportunistically — when a task already touches one of these files, migrate
 that file rather than extending the pattern.
 
+## Customer File + Job Threads (Phase C, 2026-10) — rules
+- Deal conversations are rows in `activities` with an `audience` (team | sales | production | crew) and `restricted_pricing`.
+  **ONE read path** (`lib/threads/get-thread.ts`, rules in `lib/threads/visibility.ts`) and **ONE write path** (`lib/threads/post-message.ts`);
+  RLS (`message_visible_to`, migration 202610270010) mirrors the read rule for browser clients. Any page that reads `activities` with the
+  service client must pass rows through `visibleActivities` (`lib/threads/legacy-feed.ts`) — the service client skips RLS.
+  Unknown roles (sub, custom-only) read nothing; setters/closers see team/sales only on deals they set/own/are the appointment closer for.
+- Job notes (`production_job_notes`) are no longer written: use `writeJobNote` / `loadJobNotes` (`lib/threads/job-notes.ts`).
+- The customer row is created when a deal is created (`customerIdForLead`), not at signing; signing only enriches it
+  (`enrichCustomerFromContract`) and is the one moment QuickBooks hears about a customer.
+- Customer File lives at `/c/[customer]/d/[deal]/[tab]`; old record URLs redirect only when env `CUSTOMER_FILE_REDIRECTS` is `all` or a role list.
+- Lists use the shared DataTable (`components/ui/data-table.tsx`): filters + built-in views + saved views; big lists use server mode.
+
+**Known Redundancy additions (2026-10-23):** (15) four routes create opportunities (`leads/[id]/opportunity`, `inspections/status`, `canvass/lead` ×2) and each must call `customerIdForLead` — one creator would be safer. (16) The inside-sales queue is still two screens (`/inside-sales` conveyor and the Opportunities tab). (17) `/api/threads/[dealId]/mentionable` resolves a viewer per user (N+1).
+
 ## UI Conventions
 - **Text contrast is an ongoing, recurring problem in this build — always verify text stands out.** Use explicit dark text (`#2c2c2a`, not generic gray) on light surfaces; never place text directly on the satellite/photo map — use a solid or opaque-scrim background; aim for WCAG AA. Validate legibility on a cheap Android in direct sun for any field-facing UI.
 
