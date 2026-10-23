@@ -52,7 +52,8 @@ export async function fetchPeriodMetricRows(
     page('rpt_inspection_sets', 'appointment_id, setter_user_id, closer_user_id, set_at', 'set_at', 'appointment_id'),
     page('rpt_sits', 'opportunity_id, setter_user_id, closer_user_id, sat_at', 'sat_at', 'opportunity_id'),
     page('rpt_sales', 'opportunity_id, contract_id, setter_user_id, closer_user_id, signed_at', 'signed_at', 'contract_id'),
-    page('rpt_appointments', 'appointment_id, closer_user_id, scheduled_for', 'scheduled_for', 'appointment_id'),
+    // Appointments an owner closed out as "outcome not recorded" are not part of the efficiency denominator.
+    page('rpt_appointments', 'appointment_id, closer_user_id, scheduled_for, outcome_not_recorded_at', 'scheduled_for', 'appointment_id'),
   ])
 
   // One sale per opportunity (a split cash/finance deal has two signed agreements).
@@ -78,7 +79,7 @@ export async function fetchPeriodMetricRows(
     sets: sets.map((r) => ({ setter_user_id: s(r.setter_user_id), closer_user_id: s(r.closer_user_id) })),
     sits: sitRows,
     sales: saleRows,
-    calendar: calendar.flatMap((r) => (s(r.closer_user_id) ? [{ closer_user_id: s(r.closer_user_id)! }] : [])),
+    calendar: calendar.filter((r) => !s(r.outcome_not_recorded_at)).flatMap((r) => (s(r.closer_user_id) ? [{ closer_user_id: s(r.closer_user_id)! }] : [])),
   }
 }
 

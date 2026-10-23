@@ -39,6 +39,9 @@ export const MATERIALS_LEAD_DAYS = 3
 /** An appointment needs an outcome this long after it was due to end. */
 export const APPOINTMENT_OUTCOME_GRACE_HOURS = 2
 
+/** Past appointments older than this drop off Needs you (they are owner clean-up: "Close out old appointments"). */
+export const APPOINTMENT_NEEDS_YOU_MAX_AGE_DAYS = 14
+
 export type HealthArea = 'money' | 'credit' | 'ops' | 'sales'
 
 export type HealthProblemCode =
@@ -97,6 +100,8 @@ export type DataHealthReport = {
    * Optional so older report builders stay valid.
    */
   payPlans?: PayPlanGap[]
+  /** Past appointments with no outcome that are older than the Needs-you window (hidden; owners can close them out). */
+  hiddenOldAppointments?: number
   /** Total problem rows (jobs with ≥1 problem + appointments + pay-plan gaps). */
   count: number
 }
@@ -678,6 +683,7 @@ export async function loadDataHealth(
   let appointmentHealth: AppointmentHealth[] = []
   if (includeAppointments) {
     const cutoffIso = new Date(now.getTime() - APPOINTMENT_OUTCOME_GRACE_HOURS * 3_600_000).toISOString()
+    const windowStartIso = new Date(now.getTime() - APPOINTMENT_NEEDS_YOU_MAX_AGE_DAYS * 86_400_000).toISOString()
     const appts = await selectAll<HealthAppointmentRow>((from, to) =>
       admin
         .from('scheduled_appointments')
@@ -685,6 +691,9 @@ export async function loadDataHealth(
         .eq('org_id', orgId)
         .eq('status', 'scheduled')
         .lt('scheduled_for', cutoffIso)
+        // Only the recent past is Needs-you material; older ones are counted below and closed out by an owner.
+        .gte('scheduled_for', windowStartIso)
+        .is('outcome_not_recorded_at', null)
         .order('scheduled_for', { ascending: false })
         .range(from, to)
     )
@@ -700,6 +709,18 @@ export async function loadDataHealth(
       .filter((a) => a.problems.length > 0)
   }
 
+  let hiddenOldAppointments = 0
+  if (includeAppointments) {
+    const { count } = await admin
+      .from('scheduled_appointments')
+      .select('id', { count: 'exact', head: true })
+      .eq('org_id', orgId)
+      .eq('status', 'scheduled')
+      .lt('scheduled_for', new Date(now.getTime() - APPOINTMENT_NEEDS_YOU_MAX_AGE_DAYS * 86_400_000).toISOString())
+      .is('outcome_not_recorded_at', null)
+    hiddenOldAppointments = count ?? 0
+  }
+
   const flaggedJobs = jobHealth.filter((j) => j.problems.length > 0)
   // Org-level check, only on the full report (not the single-job payability gate).
   const payPlans = opts.jobIds ? [] : await loadPayPlanGaps(admin, orgId, now)
@@ -707,6 +728,7 @@ export async function loadDataHealth(
     generatedAt: now.toISOString(),
     jobs: flaggedJobs,
     appointments: appointmentHealth,
+    hiddenOldAppointments,
     payPlans,
     count: flaggedJobs.length + appointmentHealth.length + payPlans.length,
   }
