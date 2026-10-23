@@ -282,7 +282,7 @@ export default function Nav() {
   return (
     <>
       {/* Desktop sidebar */}
-      <aside aria-label="Main" className="fixed inset-y-0 left-0 z-40 hidden w-60 flex-col overflow-y-auto bg-gray-900 text-white md:flex">
+      <aside aria-label="Main" className="print:hidden fixed inset-y-0 left-0 z-40 hidden w-60 flex-col overflow-y-auto bg-gray-900 text-white md:flex">
         <Link href={homeHref} className="flex min-h-[64px] items-center gap-2 px-4 text-lg font-bold">
           {logo}
           <span className="truncate">{companyName}</span>
@@ -324,7 +324,7 @@ export default function Nav() {
       </aside>
 
       {/* Top bar: search, quick actions, bell (all sizes) */}
-      <header className="bg-gray-800 text-white">
+      <header className="bg-gray-800 text-white print:hidden">
         <div className="flex h-14 items-center justify-between gap-2 px-3 sm:px-6">
           <Link href={homeHref} className="flex min-h-[44px] items-center gap-2 md:hidden">
             {logo}
@@ -364,7 +364,7 @@ export default function Nav() {
       </header>
 
       {/* Phone bottom bar */}
-      <nav aria-label="Main" className="fixed inset-x-0 bottom-0 z-40 flex border-t border-gray-700 bg-gray-900 pb-[env(safe-area-inset-bottom)] text-white md:hidden">
+      <nav aria-label="Main" className="print:hidden fixed inset-x-0 bottom-0 z-40 flex border-t border-gray-700 bg-gray-900 pb-[env(safe-area-inset-bottom)] text-white md:hidden">
         {bottomSections.map((s) => {
           const Icon = sectionIcon[s.id]
           const active = s.id === activeId

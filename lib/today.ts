@@ -23,6 +23,12 @@ export function todayKindFor(args: { role: string | null | undefined; isSuperuse
 }
 
 const LIST_CAP = 8
+
+/** A failed query must never look like an empty queue ("All clear"): throw so the page shows an error. */
+function ok<T extends { error: unknown }>(r: T): T {
+  if (r.error) throw r.error
+  return r
+}
 const NY = 'America/New_York'
 
 type ApptRow = { id: string; address_text: string | null; scheduled_for: string; opportunity_id: string | null; lead_id: string | null }
@@ -84,6 +90,7 @@ export async function loadCloserQueues(admin: SupabaseClient, orgId: string, use
     admin.from('scheduled_appointments').select(apptCols, { count: 'exact' }).eq('org_id', orgId).eq('closer_user_id', userId).eq('status', 'scheduled').lt('scheduled_for', now.toISOString()).gte('scheduled_for', since).order('scheduled_for', { ascending: false }).limit(LIST_CAP),
     admin.from('proposals').select('id, customer_name, proposal_number, total', { count: 'exact' }).eq('org_id', orgId).eq('created_by', userId).eq('status', 'sent').order('sent_at', { ascending: true }).limit(LIST_CAP),
   ])
+  ;[todayAppts, pastAppts, proposals].forEach(ok)
   return [
     apptQueue('today-appointments', "Today's appointments", (todayAppts.data ?? []) as ApptRow[], todayAppts.count ?? 0, 'No more appointments today.'),
     apptQueue('outcomes-to-log', 'Outcomes to log', (pastAppts.data ?? []) as ApptRow[], pastAppts.count ?? 0, 'Every past appointment has an outcome.', true),
@@ -96,9 +103,10 @@ export async function loadOpsQueues(admin: SupabaseClient, orgId: string): Promi
   const base = () => admin.from('production_jobs').select(cols, { count: 'exact' }).eq('org_id', orgId).neq('status', 'cancelled')
   const [toSchedule, toOrder, awaiting] = await Promise.all([
     base().in('status', ['sold', 'materials']).is('scheduled_date', null).order('sale_date', { ascending: true }).limit(LIST_CAP),
-    base().in('status', ['sold', 'materials', 'scheduled']).eq('materials_status', 'not_ordered').order('scheduled_date', { ascending: true, nullsFirst: false }).limit(LIST_CAP),
+    base().in('status', ['sold', 'materials', 'scheduled', 'in_progress']).eq('materials_status', 'not_ordered').order('scheduled_date', { ascending: true, nullsFirst: false }).limit(LIST_CAP),
     base().eq('status', 'complete').order('sale_date', { ascending: true }).limit(LIST_CAP),
   ])
+  ;[toSchedule, toOrder, awaiting].forEach(ok)
   return [
     jobQueue('jobs-to-schedule', 'Jobs to schedule', (toSchedule.data ?? []) as JobRow[], toSchedule.count ?? 0, 'Every sold job has an install date.'),
     jobQueue('orders-to-send', 'Orders to send', (toOrder.data ?? []) as JobRow[], toOrder.count ?? 0, 'Materials are ordered on every open job.'),
@@ -117,6 +125,7 @@ export async function loadOwnerExceptions(admin: SupabaseClient, orgId: string, 
     admin.from('production_jobs').select('id, job_number, address_text, scheduled_date', { count: 'exact' }).eq('org_id', orgId).eq('status', 'scheduled').lt('scheduled_date', todayYmd).order('scheduled_date').limit(LIST_CAP),
     admin.from('production_jobs').select('id, job_number, address_text, scheduled_date', { count: 'exact' }).eq('org_id', orgId).in('status', ['sold', 'materials']).is('scheduled_date', null).order('sale_date').limit(LIST_CAP),
   ])
+  ;[noOutcome, stale, overdue, unscheduled].forEach(ok)
   const queues = [
     apptQueue('no-outcome', 'Appointments with no outcome logged', (noOutcome.data ?? []) as ApptRow[], noOutcome.count ?? 0, '', true),
     { ...proposalQueue((stale.data ?? []) as ProposalRow[], stale.count ?? 0), title: 'Proposals sent over a week ago, still unsigned' },

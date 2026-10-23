@@ -29,7 +29,7 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
       { title: 'Appointment scheduling', description: 'Round-robin and appointment settings', href: '/admin/scheduling', access: 'leadership', keywords: 'calendar google' },
       { title: 'Campaigns & lead sources', description: 'Marketing campaigns and inbound lead webhooks', href: '/admin/campaigns', access: 'leadership' },
       { title: 'Work areas', description: 'Draw canvass areas and assign reps or teams', href: '/canvass?areas=1', access: 'workAreas', keywords: 'territories' },
-      { title: 'Print Kit', description: 'Door-drop kit, appointment cards and print tools', href: '/admin/print-kit', access: 'cost' },
+      { title: 'Print Kit', description: 'Door-drop kit, appointment cards and print tools', href: '/admin/print-kit', access: 'leadership' },
       { title: 'Door drops', description: 'Door-drop campaigns', href: '/admin/door-drop', access: 'leadership' },
       { title: 'Inspection feedback', description: 'Pending feedback and reminders to closers', href: '/admin/inspection-feedback', access: 'leadership' },
       { title: 'Roof measure tool', description: 'In-house satellite roof measurement', href: '/tools/roof-measure', access: 'leadership' },
@@ -42,7 +42,7 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
     items: [
       { title: 'Compensation plans', description: 'Commission structures and who is on which plan', href: '/admin/comp-plans', access: 'leadership', keywords: 'commission pay plan default' },
       { title: 'Payroll & commissions', description: 'Pay periods, hourly entry, statements and exports', href: '/admin/payroll', access: 'payroll' },
-      { title: 'Job profit tracker', description: 'Contract, costs, profit and owner draw by job', href: '/admin/job-profit-tracker', access: 'cost' },
+      { title: 'Job profit tracker', description: 'Contract, costs, profit and owner draw by job', href: '/admin/job-profit-tracker', access: 'payroll' },
       { title: 'Goals & forecast', description: 'Monthly targets, scorecard and revenue forecast', href: '/admin/goals', access: 'superuser' },
     ],
   },
