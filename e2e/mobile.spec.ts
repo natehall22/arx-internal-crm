@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import { REPORT_TEMPLATES } from '../lib/reporting/templates'
-import { ANNOUNCEMENTS, BANNER, DEFAULT_PLANS, COST_LINES, SUPPLIERS, PAY_WEEK, MY_PAY, REPORT_RESULT, SALE_CREDIT, SUPPLIER_PREVIEW, SUPPLIER_VIEW, TEMPLATE_META, USERS } from './fixtures'
+import { HARNESS_THREAD, ANNOUNCEMENTS, BANNER, DEFAULT_PLANS, COST_LINES, SUPPLIERS, PAY_WEEK, MY_PAY, REPORT_RESULT, SALE_CREDIT, SUPPLIER_PREVIEW, SUPPLIER_VIEW, TEMPLATE_META, USERS } from './fixtures'
 
 const json = (body: unknown, status = 200) => ({ status, contentType: 'application/json', body: JSON.stringify(body) })
 
@@ -27,6 +27,10 @@ async function mockApi(page: Page) {
     if (p === '/api/admin/suppliers') return route.fulfill(json(SUPPLIERS))
     if (p === '/api/admin/payroll/pay-week') return route.fulfill(json(PAY_WEEK))
     if (p === '/api/me/pay') return route.fulfill(json(MY_PAY))
+    if (/\/api\/threads\/[^/]+\/messages$/.test(p)) return route.fulfill(json(m === 'POST' ? { message: HARNESS_THREAD.messages[0] } : HARNESS_THREAD))
+    if (/\/api\/threads\/[^/]+\/mentionable$/.test(p)) return route.fulfill(json({ users: [{ id: 'u3', full_name: 'Riley Ops' }, { id: 'u1', full_name: 'Jordan Setter' }] }))
+    if (/\/api\/threads\/[^/]+\/read$/.test(p)) return route.fulfill(json({ ok: true }))
+    if (p === '/api/file-prefs') return route.fulfill(json({ ok: true }))
     if (p.endsWith('/sale-credit')) return route.fulfill(json(SALE_CREDIT))
     if (p === '/api/referral-partners/summary') return route.fulfill(json({ assigned_count: 9, opening_soon: [{ id: 'rp1', name: 'Concord Realty Group', days_until_open: 3 }], opening_soon_count: 1, jobs_this_month: 2 }))
     if (p === '/api/admin/comp-plans/defaults') return route.fulfill(json(DEFAULT_PLANS))
@@ -106,6 +110,12 @@ const SCREENS: Screen[] = [
     states: [
       { name: 'line-open', run: async (p) => { await p.getByRole('button', { name: /26-0141/ }).click(); await p.waitForSelector("text=Something's wrong?") } },
       { name: 'ask', run: async (p) => { await p.getByRole('button', { name: /26-0141/ }).click(); await p.getByRole('button', { name: "Something's wrong?" }).click(); await p.waitForSelector('text=Send to the office') } },
+    ] },
+  { name: 'customer-file', path: '/dev-harness/customer-file', ready: 'text=Ashley Gaines',
+    states: [
+      { name: 'notes-loaded', run: async (p) => { await p.waitForSelector('text=Materials ordered') } },
+      { name: 'pricing-guard', run: async (p) => { await p.getByLabel('Message').fill('Signed at $18,400 today'); await p.waitForSelector("text=Looks like pricing") } },
+      { name: 'mention-picker', run: async (p) => { await p.getByLabel('Message').fill('@Ril'); await p.waitForSelector('text=Riley Ops') } },
     ] },
   { name: 'pay-week', path: '/dev-harness/pay-week', ready: 'text=Needs you (3)',
     states: [

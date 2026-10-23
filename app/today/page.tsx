@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { redirect } from 'next/navigation'
 
 import Nav from '@/components/Nav'
+import WaitingOnYou from '@/components/threads/WaitingOnYou'
 import NeedsYouList from '@/components/ops/NeedsYouList'
 import { KpiTiles, QueueCard } from '@/components/today/QueueCard'
 import { Button } from '@/components/ui/button'
@@ -18,6 +19,7 @@ import { canAccessJobBoardFromPermissionNames, isOrgSuperuserRoleSlug } from '@/
 import { fetchPeriodMetricRows, getContactDispositionIdSet, summarizePeriodRows } from '@/lib/reporting/period-metrics'
 import { isOwnerProfile } from '@/lib/super-admin'
 import { createServiceClient } from '@/lib/supabase/service'
+import { listWaiting } from '@/lib/threads/waiting'
 import { loadCloserQueues, loadOpsQueues, loadOwnerExceptions, todayKindFor, type TodayKind } from '@/lib/today'
 
 const TITLE: Record<TodayKind, string> = {
@@ -62,6 +64,7 @@ export default async function TodayPage() {
             { label: 'Inspections set', value: mine.inspectionsSet },
             { label: 'Appointments', value: mine.calendar },
           ]
+  const waiting = await listWaiting(admin, profile.id).catch(() => [])
   const queues = [...closerQueues, ...opsQueues, ...ownerQueues]
 
   return (
@@ -73,6 +76,7 @@ export default async function TodayPage() {
           subtitle={`Hi ${profile.full_name?.split(' ')[0] ?? 'there'} — here's what needs you.`}
           actions={kind === 'setter' ? <Button asChild><Link href="/canvass">Open Canvass</Link></Button> : undefined}
         />
+        <WaitingOnYou items={waiting} />
         {needsYou && needsYou.count > 0 ? <NeedsYouList report={needsYou} canFixPayPlans={isOwnerProfile(profile)} audience={needsYouAudience} /> : null}
         {kind === 'owner' && queues.length === 0 && (!needsYou || needsYou.count === 0) ? (
           <EmptyState title="All clear" body="No exceptions: every appointment has an outcome, every sold job has a date, nothing is stuck." />

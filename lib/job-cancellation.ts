@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { CANCELLED_JOB_STATUS, jobCancellationReasonLabel } from '@/lib/job-status'
+import { writeJobNote } from '@/lib/threads/job-notes'
 
 /**
  * Bring a cancelled job back when the customer signs a new sale agreement
@@ -67,11 +68,12 @@ export async function reinstateCancelledJob(
 
   // The reason was cleared from the job row; keep it in the job's history.
   if (args.userId) {
-    await supabase.from('production_job_notes').insert({
-      job_id: args.jobId,
-      user_id: args.userId,
-      note: `Job reinstated by a new signed agreement (was cancelled: ${jobCancellationReasonLabel(job.cancellation_reason)}${job.cancellation_notes ? ` — ${job.cancellation_notes}` : ''})`,
-      is_internal: true,
+    await writeJobNote(supabase, {
+      orgId: args.orgId,
+      jobId: args.jobId,
+      userId: args.userId,
+      body: `Job reinstated by a new signed agreement (was cancelled: ${jobCancellationReasonLabel(job.cancellation_reason)}${job.cancellation_notes ? ` — ${job.cancellation_notes}` : ''})`,
+      kind: 'system',
     })
   }
 

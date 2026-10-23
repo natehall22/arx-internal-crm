@@ -1,3 +1,4 @@
+import { writeJobNote } from '@/lib/threads/job-notes'
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -117,14 +118,9 @@ export async function POST(
 
     let jobNoteCreated = false
     if (jobRow?.id) {
-      const { error: noteErr } = await admin.from('production_job_notes').insert({
-        job_id: jobRow.id,
-        user_id: profile.id,
-        note: noteBody,
-        is_internal: true,
-      })
-      if (noteErr) {
-        console.error('project review job note:', noteErr)
+      const noteRes = await writeJobNote(admin, { orgId: profile.org_id, jobId: jobRow.id, userId: profile.id, body: noteBody, kind: 'handoff' })
+      if (!noteRes.ok) {
+        console.error('project review job note:', noteRes.error)
       } else {
         jobNoteCreated = true
       }

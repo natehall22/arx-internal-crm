@@ -44,6 +44,10 @@ import Nav from '@/components/Nav'
 import SettingsHub from '@/app/admin/SettingsHub'
 import { visibleSettingsGroups } from '@/lib/settings-registry'
 import { QueueCard, KpiTiles } from '@/components/today/QueueCard'
+import FileHeader from '@/components/customer-file/FileHeader'
+import FileTabs from '@/components/customer-file/FileTabs'
+import ThreadPanel from '@/components/customer-file/ThreadPanel'
+import { HARNESS_FILE_CTX } from '@/e2e/fixtures'
 import { HARNESS_QUEUES } from '@/e2e/fixtures'
 
 export default function Harness({ params }: { params: { screen: string } }) {
@@ -170,6 +174,14 @@ export default function Harness({ params }: { params: { screen: string } }) {
       )
     case 'abc-item-map':
       return <AbcItemMapEditor vendorId="v-abc" onClose={() => undefined} />
+    case 'customer-file':
+      return (
+        <div className="min-h-screen bg-surface-subtle">
+          <FileHeader ctx={HARNESS_FILE_CTX as never} />
+          <FileTabs base="/c/c1/d/d2" tabs={HARNESS_FILE_CTX.tabs as never} />
+          <main className="mx-auto max-w-7xl p-4"><ThreadPanel customerId="c1" dealId="d2" variant="page" /></main>
+        </div>
+      )
     case 'ui-kit':
       return <UiKitHarness />
     case 'default-plans':

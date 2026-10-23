@@ -16,6 +16,7 @@
 import { createHash } from 'crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
+import { writeJobNote } from '@/lib/threads/job-notes'
 import { materialOrderFromRunSheet, type JobMaterialOrderData } from '@/lib/job-material-order'
 import { buildJobRunSheet } from '@/lib/job-run-sheet'
 import { isTradeActive, primaryTradeForJobType } from '@/lib/job-trades'
@@ -1134,10 +1135,11 @@ export function supabaseSupplierOrderStore(admin: SupabaseClient): SupplierOrder
       return error ? { error: error.message } : {}
     },
     async insertJobNote(jobId, userId, note) {
-      const { error } = await admin
-        .from('production_job_notes')
-        .insert({ job_id: jobId, user_id: userId, note, is_internal: true, share_with_sub: false })
-      if (error) console.error('[supplier-orders] job note failed', error)
+      const { data: job } = await admin.from('production_jobs').select('org_id').eq('id', jobId).maybeSingle()
+      const orgId = (job as { org_id: string } | null)?.org_id
+      if (!orgId) return
+      const res = await writeJobNote(admin, { orgId, jobId, userId, body: note, kind: 'system' })
+      if (!res.ok) console.error('[supplier-orders] job note failed', res.error)
     },
   }
 }
