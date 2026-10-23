@@ -7,6 +7,7 @@ import {
 } from '@/lib/comp-plan-period-unit-earnings'
 import { computeHourlyEarnings } from '@/lib/weekly-payroll/hourly-earnings'
 import { loadActiveCompPlanForUser, producerStorageRoleForParticipant } from '@/lib/payroll-export'
+import { roundMoney } from '@/lib/money'
 import { loadPeriodAdjustments } from '@/lib/payroll-adjustments'
 
 /**
@@ -309,17 +310,17 @@ export async function buildPayrollStatement(
   const periodUnitEarnings = periodUnits?.total ?? 0
   const adjustmentRows = (await loadPeriodAdjustments(supabase, orgId, periodId)).filter((a) => a.userId === userId)
   const adjustments: PayrollStatementAdjustment[] = adjustmentRows.map((a) => ({ id: a.id, kind: a.kind, reason: a.reason, amount: a.amount }))
-  const adjustmentTotal = adjustments.reduce((s, a) => s + a.amount, 0)
+  const adjustmentTotal = roundMoney(adjustments.reduce((s, a) => s + a.amount, 0))
   const bonusEarnings = bonuses.reduce((s, b) => s + b.amount, 0)
   const chargebacksApplied = chargebacks.reduce((s, c) => s + c.appliedAmount, 0)
-  const netPayout = computeNetPayout({
+  const netPayout = roundMoney(computeNetPayout({
     commission: grossCommission,
     hourly: hourlyEarnings,
     units: periodUnitEarnings,
     bonus: bonusEarnings,
     adjustments: adjustmentTotal,
     chargebacks: chargebacksApplied,
-  })
+  }))
 
   return {
     period: {

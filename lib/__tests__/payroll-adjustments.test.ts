@@ -118,4 +118,47 @@ describe('adjustments', () => {
     expect(await addAdjustment(db.client, { ...base, userId: UUIDISH(9), amount: 5, reason: 'x' })).toMatchObject({ ok: false, status: 404 })
     expect(await addAdjustment(db.client, { ...base, viewedPeriodId: UUIDISH(8), amount: 5, reason: 'x' })).toMatchObject({ ok: false, status: 404 })
   })
+
+  it('a fix for an old week skips weeks that are already approved and lands on the first OPEN one', async () => {
+    const db = build()
+    const week = await loadPayWeek(db.client, ORG, NOW)
+    const c = new Date(week.period.cutoffAt).getTime()
+    const mk = (id: string, k: number, status: string) => db.tables.payroll_periods.push({ id, org_id: ORG, status, cutoff_at: new Date(c + k * 7 * 86_400_000).toISOString(), scheduled_pay_date: 'x', period_label: id, created_at: `2026-10-0${k}` })
+    mk('w1', 1, 'locked')
+    mk('w2', 2, 'open')
+    await (db.client as never as { from: (t: string) => { update: (v: unknown) => { eq: (c: string, v: unknown) => Promise<unknown> } } }).from('payroll_periods').update({ status: 'locked' }).eq('id', week.period.id)
+    const res = await addAdjustment(db.client, { orgId: ORG, actorUserId: 'a', viewedPeriodId: week.period.id, userId: 'c1', amount: 10, reason: 'x' })
+    expect(res).toMatchObject({ ok: true, nextWeek: true, periodId: 'w2' })
+  })
+
+  it('no fixes are added or removed while an approval is in flight (live lock claim)', async () => {
+    const db = build()
+    const week = await loadPayWeek(db.client, ORG, NOW)
+    db.tables.payroll_periods[0].lock_claimed_at = new Date().toISOString()
+    expect(await addAdjustment(db.client, { orgId: ORG, actorUserId: 'a', viewedPeriodId: week.period.id, userId: 's1', amount: 5, reason: 'x' })).toMatchObject({ ok: false, status: 409 })
+    delete db.tables.payroll_periods[0].lock_claimed_at
+    const add = await addAdjustment(db.client, { orgId: ORG, actorUserId: 'a', viewedPeriodId: week.period.id, userId: 's1', amount: 5, reason: 'x' })
+    if (!add.ok) throw new Error('setup')
+    db.tables.payroll_periods[0].lock_claimed_at = new Date().toISOString()
+    expect(await voidAdjustment(db.client, ORG, add.id)).toMatchObject({ ok: false, status: 409 })
+  })
+
+  it('a retried approve carries the debt once, not twice', async () => {
+    const db = build()
+    const week = await loadPayWeek(db.client, ORG, NOW)
+    await addAdjustment(db.client, { orgId: ORG, actorUserId: 'a', viewedPeriodId: week.period.id, userId: 's1', amount: -1300, reason: 'clawback' })
+    const draft = await loadPayWeek(db.client, ORG, NOW)
+    const { carryNegativeBalances } = await import('@/lib/payroll-approve')
+    const first = await carryNegativeBalances(db.client, ORG, 'a', draft)
+    const again = await carryNegativeBalances(db.client, ORG, 'a', draft)
+    expect(again).toEqual(first)
+    expect((db.tables.payroll_adjustments ?? []).filter((r) => r.kind === 'balance')).toHaveLength(1)
+  })
+
+  it('a long reply still saves as the fix reason (trimmed to 300)', async () => {
+    const db = build()
+    const week = await loadPayWeek(db.client, ORG, NOW)
+    expect(await addAdjustment(db.client, { orgId: ORG, actorUserId: 'a', viewedPeriodId: week.period.id, userId: 's1', amount: 5, reason: 'y'.repeat(450) })).toMatchObject({ ok: true })
+    expect(String((db.tables.payroll_adjustments ?? [])[0].reason)).toHaveLength(300)
+  })
 })

@@ -3,6 +3,15 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { roundMoney } from '@/lib/money'
 import { ensureNextOpenPeriod } from '@/lib/payroll-periods'
 
+const LOCK_CLAIM_STALE_MS = 15 * 60 * 1000
+
+/** A week can take or lose a fix only while it is open AND no approval is mid-flight (a live lock claim). */
+function periodIsEditable(p: { status?: unknown; lock_claimed_at?: unknown }): boolean {
+  if (p.status !== 'open') return false
+  const claimed = p.lock_claimed_at ? new Date(String(p.lock_claimed_at)).getTime() : 0
+  return !(claimed && Date.now() - claimed < LOCK_CLAIM_STALE_MS)
+}
+
 export type PayrollAdjustment = {
   id: string
   userId: string
@@ -50,16 +59,18 @@ export async function addAdjustment(
 ): Promise<AddAdjustmentResult> {
   const { orgId } = input
   const amount = roundMoney(input.amount)
-  const reason = input.reason.trim()
+  const reason = input.reason.trim().slice(0, 300)
   if (!Number.isFinite(amount) || amount === 0 || Math.abs(amount) > 100_000) return { ok: false, status: 400, error: 'Enter an amount (not zero)' }
-  if (!reason || reason.length > 300) return { ok: false, status: 400, error: 'Say why, in a few words' }
+  if (!reason) return { ok: false, status: 400, error: 'Say why, in a few words' }
 
-  const { data: period } = await admin.from('payroll_periods').select('id, status, cutoff_at').eq('id', input.viewedPeriodId).eq('org_id', orgId).maybeSingle()
+  const { data: period } = await admin.from('payroll_periods').select('id, status, cutoff_at, lock_claimed_at').eq('id', input.viewedPeriodId).eq('org_id', orgId).maybeSingle()
   if (!period) return { ok: false, status: 404, error: 'Week not found' }
   if (period.status === 'cancelled') return { ok: false, status: 409, error: 'That week was cancelled' }
   const { data: user } = await admin.from('users').select('id').eq('id', input.userId).eq('org_id', orgId).maybeSingle()
   if (!user) return { ok: false, status: 404, error: 'Person not found' }
 
+  // Mid-approval (a live lock claim) the week is frozen: wait a moment rather than slip a line in under the lock.
+  if (period.status === 'open' && !periodIsEditable(period)) return { ok: false, status: 409, error: 'This week is being approved right now. Try again in a minute.' }
   const open = period.status === 'open'
   const target = open ? { id: period.id as string } : await ensureNextOpenPeriod(admin, orgId, period.cutoff_at as string)
   const { data, error } = await admin
@@ -89,9 +100,15 @@ export async function addAdjustment(
 export async function voidAdjustment(admin: SupabaseClient, orgId: string, id: string): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
   const { data: adj } = await admin.from('payroll_adjustments').select('id, payroll_period_id, status').eq('id', id).eq('org_id', orgId).maybeSingle()
   if (!adj || adj.status === 'void') return { ok: false, status: 404, error: 'Fix not found' }
-  const { data: period } = await admin.from('payroll_periods').select('status').eq('id', adj.payroll_period_id as string).eq('org_id', orgId).maybeSingle()
-  if (!period || period.status !== 'open') return { ok: false, status: 409, error: 'That week is already approved' }
+  const { data: period } = await admin.from('payroll_periods').select('status, lock_claimed_at').eq('id', adj.payroll_period_id as string).eq('org_id', orgId).maybeSingle()
+  if (!period || !periodIsEditable(period)) return { ok: false, status: 409, error: 'That week is already approved (or being approved)' }
   const { error } = await admin.from('payroll_adjustments').update({ status: 'void' }).eq('id', id).eq('org_id', orgId).eq('status', 'pending')
   if (error) return { ok: false, status: 500, error: 'Could not remove the fix' }
+  // Re-check: if an approval claimed the week between the read and the write, put the line back (the check was frozen).
+  const { data: after } = await admin.from('payroll_periods').select('status, lock_claimed_at').eq('id', adj.payroll_period_id as string).eq('org_id', orgId).maybeSingle()
+  if (!after || !periodIsEditable(after)) {
+    await admin.from('payroll_adjustments').update({ status: 'pending' }).eq('id', id).eq('org_id', orgId).eq('status', 'void')
+    return { ok: false, status: 409, error: 'That week is already approved (or being approved)' }
+  }
   return { ok: true }
 }
