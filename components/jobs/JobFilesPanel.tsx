@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { createClientBrowser } from '@/lib/supabase/client'
+import { toast } from '@/components/ui/toast'
+import { confirmDialog } from '@/components/ui/confirm-dialog'
 
 interface JobFile {
   id: string
@@ -132,7 +134,7 @@ export default function JobFilesPanel({ jobId, estimateId, onFileGenerated }: Pr
       }
     } catch (error) {
       console.error('Error generating PDF:', error)
-      alert('Failed to generate PDF')
+      toast.error('Failed to generate PDF')
     } finally {
       setGenerating(null)
     }
@@ -163,7 +165,7 @@ export default function JobFilesPanel({ jobId, estimateId, onFileGenerated }: Pr
       setUploadType('other')
     } catch (error) {
       console.error('Error uploading file:', error)
-      alert('Failed to upload file')
+      toast.error('Failed to upload file')
     } finally {
       setUploading(false)
       if (fileInputRef.current) {
@@ -179,7 +181,7 @@ export default function JobFilesPanel({ jobId, estimateId, onFileGenerated }: Pr
   }
 
   const deleteFile = async (fileId: string) => {
-    if (!confirm('Are you sure you want to delete this file?')) return
+    if (!(await confirmDialog({ title: 'Are you sure you want to delete this file?', destructive: true }))) return
 
     try {
       const response = await fetch(`/api/jobs/${jobId}/files/${fileId}`, {
@@ -190,7 +192,7 @@ export default function JobFilesPanel({ jobId, estimateId, onFileGenerated }: Pr
         setFiles(files.filter(f => f.id !== fileId))
       } else {
         const data = await response.json()
-        alert(data.error || 'Failed to delete file')
+        toast.error(data.error || 'Failed to delete file')
       }
     } catch (error) {
       console.error('Error deleting file:', error)

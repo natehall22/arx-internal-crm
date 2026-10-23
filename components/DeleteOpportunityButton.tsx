@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { toast } from '@/components/ui/toast'
 
 interface DeleteOpportunityButtonProps {
   opportunityId: string
@@ -22,7 +23,7 @@ export default function DeleteOpportunityButton({ opportunityId, customerName }:
 
       if (!response.ok) {
         const data = await response.json()
-        alert(`Failed to delete: ${data.error}`)
+        toast.error(`Failed to delete: ${data.error}`)
         setDeleting(false)
         return
       }
@@ -32,7 +33,7 @@ export default function DeleteOpportunityButton({ opportunityId, customerName }:
       router.refresh()
     } catch (error) {
       console.error('Delete error:', error)
-      alert('Failed to delete opportunity')
+      toast.error('Failed to delete opportunity')
       setDeleting(false)
     }
   }

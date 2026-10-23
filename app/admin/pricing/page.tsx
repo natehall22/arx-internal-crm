@@ -4,6 +4,8 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
+import { toast } from '@/components/ui/toast'
+import { confirmDialog } from '@/components/ui/confirm-dialog'
 
 interface RoofingType {
   id: string
@@ -79,7 +81,7 @@ export default function AdminPricingPage() {
         return
       }
       if (rtResponse.status === 403) {
-        alert('Access denied. Only admins and operations managers can access pricing.')
+        toast.error('Access denied. Only admins and operations managers can access pricing.')
         router.push('/dashboard')
         return
       }
@@ -118,7 +120,7 @@ export default function AdminPricingPage() {
     }
 
     if (!typeForm.name || finalUnitPrice <= 0) {
-      alert('Please enter a name and either set costs + profit margin, or enter a price directly')
+      toast.error('Please enter a name and either set costs + profit margin, or enter a price directly')
       return
     }
 
@@ -155,7 +157,7 @@ export default function AdminPricingPage() {
   }
 
   const deleteRoofingType = async (id: string, name: string) => {
-    if (!confirm(`Delete "${name}"? This cannot be undone.`)) return
+    if (!(await confirmDialog({ title: `Delete "${name}"? This cannot be undone.`, destructive: true }))) return
     
     try {
       await fetch(`/api/admin/roofing-types?id=${id}`, { method: 'DELETE' })

@@ -7,6 +7,7 @@ import GenerateJobPacketButton from './GenerateJobPacketButton'
 import AIJobPacketModal from '@/components/jobs/AIJobPacketModal'
 import type { JobNoteWithAuthor } from '@/lib/types/job-notes'
 import type { JobSoldScope } from '@/lib/job-sold-scope'
+import { toast } from '@/components/ui/toast'
 
 /** Display shape shared by proposal line items (from `scope`) and estimate lines (fetched here). */
 type DisplayLineItem = {
@@ -345,7 +346,7 @@ export default function SoldScopeCard({
       setShowAddForm(false)
     } catch (err: any) {
       console.error('[AddScopeItem] Error:', err)
-      alert(`Failed to add item: ${err?.message || 'Unknown error'}`)
+      toast.error(`Failed to add item: ${err?.message || 'Unknown error'}`)
     } finally {
       setSavingItem(false)
     }

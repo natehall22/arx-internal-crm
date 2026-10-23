@@ -5,6 +5,7 @@ import Nav from '@/components/Nav'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import type { User, Team, UserGoogleToken } from '@/lib/types/database'
+import { confirmDialog } from '@/components/ui/confirm-dialog'
 
 type UserWithCalendar = User & {
   google_token?: UserGoogleToken | null
@@ -127,7 +128,7 @@ export default function SchedulingPage() {
   }
 
   const handleDeleteType = async (id: string) => {
-    if (!confirm('Delete this appointment type?')) return
+    if (!(await confirmDialog({ title: 'Delete this appointment type?', destructive: true }))) return
 
     try {
       const res = await fetch(`/api/admin/appointment-types?id=${id}`, { method: 'DELETE' })
@@ -174,7 +175,7 @@ export default function SchedulingPage() {
 
   const handleDisconnectCalendar = async () => {
     if (!currentUser) return
-    if (!confirm('Disconnect your Google Calendar? You will need to reconnect to use scheduling features.')) return
+    if (!(await confirmDialog({ title: 'Disconnect your Google Calendar? You will need to reconnect to use scheduling features.' }))) return
 
     try {
       const res = await fetch('/api/admin/scheduling', { method: 'DELETE' })

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { toast } from '@/components/ui/toast'
 
 interface GenerateJobPacketButtonProps {
   jobId: string
@@ -75,7 +76,7 @@ export default function GenerateJobPacketButton({ jobId }: GenerateJobPacketButt
       }
     } catch (err: any) {
       console.error('Error generating packet:', err)
-      alert(err.message || 'Failed to generate job packet')
+      toast.error(err.message || 'Failed to generate job packet')
     } finally {
       setGenerating(false)
     }

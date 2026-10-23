@@ -4,6 +4,8 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
+import { toast } from '@/components/ui/toast'
+import { confirmDialog } from '@/components/ui/confirm-dialog'
 
 interface Crew {
   id: string
@@ -143,7 +145,7 @@ export default function CrewsPage() {
 
   const saveCrew = async () => {
     if (!formData.name) {
-      alert('Crew name is required')
+      toast.error('Crew name is required')
       return
     }
 
@@ -188,7 +190,7 @@ export default function CrewsPage() {
       await loadData()
     } catch (error: any) {
       console.error('Error saving crew:', error)
-      alert(error.message || 'Failed to save crew')
+      toast.error(error.message || 'Failed to save crew')
     } finally {
       setSaving(false)
     }
@@ -211,7 +213,7 @@ export default function CrewsPage() {
   }
 
   const deleteCrew = async (crew: Crew) => {
-    if (!confirm(`Are you sure you want to delete "${crew.name}"? This cannot be undone.`)) {
+    if (!(await confirmDialog({ title: `Are you sure you want to delete "${crew.name}"? This cannot be undone.`, destructive: true }))) {
       return
     }
 
@@ -222,14 +224,14 @@ export default function CrewsPage() {
       
       if (!response.ok) {
         const data = await response.json()
-        alert(data.error || 'Failed to delete crew')
+        toast.error(data.error || 'Failed to delete crew')
         return
       }
       
       await loadData()
     } catch (error) {
       console.error('Error deleting crew:', error)
-      alert('Failed to delete crew')
+      toast.error('Failed to delete crew')
     }
   }
 

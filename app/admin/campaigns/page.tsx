@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
 import { createClientBrowser } from '@/lib/supabase/client'
+import { toast } from '@/components/ui/toast'
+import { confirmDialog } from '@/components/ui/confirm-dialog'
 
 type Campaign = {
   id: string
@@ -241,7 +243,7 @@ export default function CampaignsPage() {
   }
 
   const deleteCampaign = async (campaign: Campaign) => {
-    if (!confirm(`Delete "${campaign.name}"? This cannot be undone.`)) return
+    if (!(await confirmDialog({ title: `Delete "${campaign.name}"? This cannot be undone.`, destructive: true }))) return
 
     const response = await fetch(`/api/campaigns?id=${campaign.id}`, {
       method: 'DELETE',
@@ -251,7 +253,7 @@ export default function CampaignsPage() {
       await loadData()
     } else {
       const result = await response.json()
-      alert(result.error || 'Failed to delete campaign')
+      toast.error(result.error || 'Failed to delete campaign')
     }
   }
 
@@ -327,7 +329,7 @@ export default function CampaignsPage() {
   }
 
   const deleteSource = async (source: LeadSource) => {
-    if (!confirm(`Delete "${source.name}"? This cannot be undone.`)) return
+    if (!(await confirmDialog({ title: `Delete "${source.name}"? This cannot be undone.`, destructive: true }))) return
 
     const response = await fetch(`/api/lead-sources?id=${source.id}`, {
       method: 'DELETE',
@@ -337,7 +339,7 @@ export default function CampaignsPage() {
       await loadData()
     } else {
       const result = await response.json()
-      alert(result.error || 'Failed to delete lead source')
+      toast.error(result.error || 'Failed to delete lead source')
     }
   }
 
@@ -354,7 +356,7 @@ export default function CampaignsPage() {
   }
 
   const regenerateToken = async (source: LeadSource) => {
-    if (!confirm('Regenerate webhook token? The old token will stop working immediately.')) return
+    if (!(await confirmDialog({ title: 'Regenerate webhook token? The old token will stop working immediately.' }))) return
 
     const supabase = createClientBrowser()
     
@@ -376,7 +378,7 @@ export default function CampaignsPage() {
   const copyWebhookUrl = (source: LeadSource) => {
     const url = `${window.location.origin}/api/webhooks/leads?token=${source.webhook_token}`
     navigator.clipboard.writeText(url)
-    alert('Webhook URL copied to clipboard!')
+    toast.success('Webhook URL copied to clipboard!')
   }
 
   const formatCurrency = (value: number | null) => {

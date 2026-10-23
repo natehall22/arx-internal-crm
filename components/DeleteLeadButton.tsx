@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { confirmDialog } from '@/components/ui/confirm-dialog'
 
 interface DeleteLeadButtonProps {
   leadId: string
@@ -13,7 +14,7 @@ export default function DeleteLeadButton({ leadId }: DeleteLeadButtonProps) {
   const router = useRouter()
 
   const handleDelete = async () => {
-    if (!confirm('Are you sure you want to delete this lead? This action cannot be undone.')) {
+    if (!(await confirmDialog({ title: 'Are you sure you want to delete this lead? This action cannot be undone.', destructive: true }))) {
       return
     }
 

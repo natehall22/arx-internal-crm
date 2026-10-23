@@ -6,6 +6,8 @@ import Link from 'next/link'
 import { getRoleDisplayName, isOrgSuperuserRoleSlug, permissionCategories } from '@/lib/permissions'
 import type { User, Team, Region, UserRole, CustomRole } from '@/lib/types/database'
 import EmployeeAgreementPanel from '@/components/employee-agreements/EmployeeAgreementPanel'
+import { toast } from '@/components/ui/toast'
+import { confirmDialog } from '@/components/ui/confirm-dialog'
 
 type Permission = {
   id: string
@@ -370,7 +372,7 @@ export default function UsersPage() {
 
   const handleToggleActive = async (user: UserWithDetails) => {
     const action = user.active ? 'deactivate' : 'activate'
-    if (!confirm(`${action.charAt(0).toUpperCase() + action.slice(1)} ${user.full_name || 'this user'}?`)) return
+    if (!(await confirmDialog({ title: `${action.charAt(0).toUpperCase() + action.slice(1)} ${user.full_name || 'this user'}?` }))) return
 
     try {
       const response = await fetch('/api/admin/users', {
@@ -400,11 +402,11 @@ export default function UsersPage() {
       `💡 TIP: Consider DEACTIVATING instead to preserve all history.\n\n` +
       `Type "DELETE" in the next prompt to confirm permanent deletion.`
     
-    if (!confirm(confirmMsg)) return
+    if (!(await confirmDialog({ title: confirmMsg }))) return
     
     const typed = prompt('Type DELETE to confirm permanent deletion:')
     if (typed !== 'DELETE') {
-      alert('Deletion cancelled - text did not match.')
+      toast('Deletion cancelled - text did not match.')
       return
     }
 
@@ -418,15 +420,15 @@ export default function UsersPage() {
       if (response.ok) {
         await loadData()
       } else {
-        alert(data.error || 'Failed to delete user')
+        toast.error(data.error || 'Failed to delete user')
       }
     } catch {
-      alert('Failed to delete user')
+      toast.error('Failed to delete user')
     }
   }
 
   const handleSendPasswordReset = async (user: UserWithDetails) => {
-    if (!confirm(`Send a password reset email to ${user.email}?`)) return
+    if (!(await confirmDialog({ title: `Send a password reset email to ${user.email}?`, destructive: true }))) return
 
     try {
       const response = await fetch('/api/admin/users', {
@@ -441,12 +443,12 @@ export default function UsersPage() {
       const data = await response.json()
 
       if (response.ok) {
-        alert(`Password reset email sent to ${user.email}`)
+        toast.error(`Password reset email sent to ${user.email}`)
       } else {
-        alert(data.error || 'Failed to send reset email')
+        toast.error(data.error || 'Failed to send reset email')
       }
     } catch {
-      alert('Failed to send reset email')
+      toast.error('Failed to send reset email')
     }
   }
 
@@ -1414,7 +1416,7 @@ export default function UsersPage() {
                     </div>
                     <button
                       onClick={async () => {
-                        if (!confirm(`Send a password reset email to ${formEmail}?`)) return
+                        if (!(await confirmDialog({ title: `Send a password reset email to ${formEmail}?`, destructive: true }))) return
                         setSendingReset(true)
                         try {
                           const response = await fetch('/api/admin/users', {
@@ -1427,12 +1429,12 @@ export default function UsersPage() {
                           })
                           const data = await response.json()
                           if (response.ok) {
-                            alert(`Password reset email sent to ${formEmail}`)
+                            toast.error(`Password reset email sent to ${formEmail}`)
                           } else {
-                            alert(data.error || 'Failed to send reset email')
+                            toast.error(data.error || 'Failed to send reset email')
                           }
                         } catch {
-                          alert('Failed to send reset email')
+                          toast.error('Failed to send reset email')
                         }
                         setSendingReset(false)
                       }}

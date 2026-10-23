@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Nav from '@/components/Nav'
+import { toast } from '@/components/ui/toast'
+import { confirmDialog } from '@/components/ui/confirm-dialog'
 
 interface UserSettings {
   notifications_enabled: boolean
@@ -171,13 +173,13 @@ export default function SettingsPage() {
 
       if (!response.ok) {
         const data = await response.json()
-        alert(data.error || 'Failed to save settings')
+        toast.error(data.error || 'Failed to save settings')
       } else {
-        alert('Settings saved!')
+        toast.error('Settings saved!')
       }
     } catch (error) {
       console.error('Failed to save settings:', error)
-      alert('Failed to save settings')
+      toast.error('Failed to save settings')
     }
     
     setSaving(false)
@@ -188,7 +190,7 @@ export default function SettingsPage() {
   }
 
   const disconnectGoogleCalendar = async () => {
-    if (!confirm('Disconnect Google Calendar?')) return
+    if (!(await confirmDialog({ title: 'Disconnect Google Calendar?' }))) return
 
     try {
       const response = await fetch('/api/settings', {
@@ -203,7 +205,7 @@ export default function SettingsPage() {
         setSettings((prev) => ({ ...prev, google_calendar_connected: false }))
         setCalendarMessage({ type: 'success', text: 'Google Calendar disconnected.' })
       } else {
-        alert(
+        toast.error(
           typeof data.error === 'string'
             ? data.error
             : 'Failed to disconnect Google Calendar. Try again or sign out and back in.'
@@ -211,7 +213,7 @@ export default function SettingsPage() {
       }
     } catch (error) {
       console.error('Error disconnecting:', error)
-      alert('Failed to disconnect Google Calendar')
+      toast.error('Failed to disconnect Google Calendar')
     }
   }
 

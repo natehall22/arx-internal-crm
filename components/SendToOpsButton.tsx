@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { toast } from '@/components/ui/toast'
 
 interface Props {
   projectId: string
@@ -61,7 +62,7 @@ export default function SendToOpsButton({
       if (!response.ok) {
         if (response.status === 409) {
           // Job already exists
-          alert(`Production job already exists: ${data.job_number}`)
+          toast(`Production job already exists: ${data.job_number}`)
           if (canOpenOpsJobDetail) {
             router.push(`/ops/jobs/${data.job_id}`)
           } else {
@@ -72,7 +73,7 @@ export default function SendToOpsButton({
         throw new Error(data.error || 'Failed to create production job')
       }
 
-      alert(`Production job ${data.job.job_number} created!`)
+      toast.success(`Production job ${data.job.job_number} created!`)
       setShowModal(false)
       if (canOpenOpsJobDetail) {
         router.push(`/ops/jobs/${data.job.id}`)
@@ -81,7 +82,7 @@ export default function SendToOpsButton({
       }
     } catch (error: any) {
       console.error('Error sending to ops:', error)
-      alert(error.message || 'Failed to send to operations')
+      toast.error(error.message || 'Failed to send to operations')
     } finally {
       setLoading(false)
     }

@@ -5,6 +5,7 @@ import Nav from '@/components/Nav'
 import Link from 'next/link'
 import { permissionCategories, type PermissionCategory } from '@/lib/permissions'
 import type { CustomRole, Permission, User } from '@/lib/types/database'
+import { confirmDialog } from '@/components/ui/confirm-dialog'
 
 type RoleWithPermissions = CustomRole & {
   permissions: Permission[]
@@ -250,10 +251,10 @@ export default function RolesPage() {
     }
 
     if (role.user_count && role.user_count > 0) {
-      if (!confirm(`This role is assigned to ${role.user_count} user(s). They will be unassigned. Continue?`)) {
+      if (!(await confirmDialog({ title: `This role is assigned to ${role.user_count} user(s). They will be unassigned. Continue?` }))) {
         return
       }
-    } else if (!confirm(`Delete role "${role.display_name}"?`)) {
+    } else if (!(await confirmDialog({ title: `Delete role "${role.display_name}"?`, destructive: true }))) {
       return
     }
 

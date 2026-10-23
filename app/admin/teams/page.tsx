@@ -5,6 +5,7 @@ import Nav from '@/components/Nav'
 import Link from 'next/link'
 import { useSearchParams, useRouter } from 'next/navigation'
 import type { Region, Team, User } from '@/lib/types/database'
+import { confirmDialog } from '@/components/ui/confirm-dialog'
 
 type TeamWithDetails = Team & { 
   regions: Region | null
@@ -151,10 +152,10 @@ export default function TeamsPage() {
 
   const handleDelete = async (team: TeamWithDetails) => {
     if (team.members.length > 0) {
-      if (!confirm(`Delete team "${team.name}"? ${team.members.length} member(s) will be unassigned from this team.`)) {
+      if (!(await confirmDialog({ title: `Delete team "${team.name}"? ${team.members.length} member(s) will be unassigned from this team.`, destructive: true }))) {
         return
       }
-    } else if (!confirm(`Delete team "${team.name}"?`)) {
+    } else if (!(await confirmDialog({ title: `Delete team "${team.name}"?`, destructive: true }))) {
       return
     }
 

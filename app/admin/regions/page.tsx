@@ -5,6 +5,7 @@ import Nav from '@/components/Nav'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import type { Region, Team } from '@/lib/types/database'
+import { confirmDialog } from '@/components/ui/confirm-dialog'
 
 type RegionWithTeams = Region & { teams: Team[] }
 
@@ -118,7 +119,7 @@ export default function RegionsPage() {
   }
 
   const handleDelete = async (region: Region) => {
-    if (!confirm(`Delete region "${region.name}"? Teams in this region will be unassigned.`)) {
+    if (!(await confirmDialog({ title: `Delete region "${region.name}"? Teams in this region will be unassigned.`, destructive: true }))) {
       return
     }
 

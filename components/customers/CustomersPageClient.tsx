@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import LinkCreateCustomerModal from './LinkCreateCustomerModal'
+import { confirmDialog } from '@/components/ui/confirm-dialog'
 
 interface Customer {
   id: string
@@ -26,7 +27,7 @@ export default function CustomersPageClient({ customers, query, isAdmin = false 
   const [backfillResult, setBackfillResult] = useState<string | null>(null)
 
   const handleBackfill = async () => {
-    if (!confirm('This will scan all projects and jobs without a linked customer and attempt to link them. Continue?')) {
+    if (!(await confirmDialog({ title: 'This will scan all projects and jobs without a linked customer and attempt to link them. Continue?' }))) {
       return
     }
     

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { confirmDialog } from '@/components/ui/confirm-dialog'
 
 type ProjectSource = {
   id: string
@@ -70,9 +71,7 @@ export default function LinkProjectToCustomerButton({ customerId, customerName }
     if (selected.customer_id) {
       const other =
         selected.linked_customer_name || 'another account'
-      const ok = confirm(
-        `This project is currently linked to ${other}. Link it to ${customerName || 'this customer'} instead?`
-      )
+      const ok = (await confirmDialog({ title: `This project is currently linked to ${other}. Link it to ${customerName || 'this customer'} instead?` }))
       if (!ok) return
     }
     setSubmitting(true)

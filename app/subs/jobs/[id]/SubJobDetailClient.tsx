@@ -4,6 +4,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useSubPortalLanguage, LanguageToggle } from '@/lib/i18n/SubPortalLanguageContext'
+import { toast } from '@/components/ui/toast'
 
 interface LineItem {
   id: string
@@ -90,7 +91,7 @@ export default function SubJobDetailClient({ job, companyName }: SubJobDetailCli
 
       router.refresh()
     } catch (err: any) {
-      alert(err.message)
+      toast.success(err.message)
     } finally {
       setUpdating(false)
     }
@@ -116,7 +117,7 @@ export default function SubJobDetailClient({ job, companyName }: SubJobDetailCli
       setShowCompleteModal(false)
       router.refresh()
     } catch (err: any) {
-      alert(err.message)
+      toast(err.message)
     } finally {
       setUpdating(false)
     }

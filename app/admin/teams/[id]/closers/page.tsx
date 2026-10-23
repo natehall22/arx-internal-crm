@@ -5,6 +5,7 @@ import Nav from '@/components/Nav'
 import Link from 'next/link'
 import { createClientBrowser } from '@/lib/supabase/client'
 import type { Team, User, TeamCloserQueue } from '@/lib/types/database'
+import { confirmDialog } from '@/components/ui/confirm-dialog'
 
 type CloserWithQueue = User & {
   queue?: TeamCloserQueue
@@ -215,7 +216,7 @@ export default function CloserQueuePage({ params }: { params: { id: string } }) 
 
   const handleRemoveCloser = async (closer: CloserWithQueue) => {
     if (!closer.queue) return
-    if (!confirm(`Remove ${closer.full_name || 'this user'} from the closer queue?`)) return
+    if (!(await confirmDialog({ title: `Remove ${closer.full_name || 'this user'} from the closer queue?`, destructive: true }))) return
 
     try {
       const response = await fetch(`/api/admin/team-closer-queue?id=${closer.queue.id}`, {

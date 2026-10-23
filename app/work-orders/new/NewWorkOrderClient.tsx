@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
 import { createClientBrowser } from '@/lib/supabase/client'
+import { toast } from '@/components/ui/toast'
 
 interface Customer {
   id: string
@@ -190,7 +191,7 @@ export default function NewWorkOrderClient({
     e.preventDefault()
     
     if (!formData.title) {
-      alert('Please enter a title')
+      toast.error('Please enter a title')
       return
     }
 
@@ -274,7 +275,7 @@ export default function NewWorkOrderClient({
       router.push(`/work-orders/${workOrder.id}`)
     } catch (error) {
       console.error('Error creating work order:', error)
-      alert('Failed to create work order')
+      toast.error('Failed to create work order')
     } finally {
       setSaving(false)
     }
