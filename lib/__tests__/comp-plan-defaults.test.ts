@@ -94,30 +94,34 @@ describe('loadActiveCompPlanForUser with a role default', () => {
   })
 })
 
-import { buildDefaultCoverageRows, defaultWindowForUser, usersWithEndedPlan } from '@/lib/comp-plan-defaults'
+import { buildDefaultCoverageRows, defaultWindowsForUser, usersWithEndedPlan } from '@/lib/comp-plan-defaults'
 import { buildAdditiveParticipantsForJob, type DerivedCommissionContext } from '@/lib/job-derived-commission-lines'
 
 describe('when a default applies (one rule)', () => {
   const D = '2026-10-24'
-  const win = (o: Partial<Parameters<typeof defaultWindowForUser>[0]> = {}) =>
-    defaultWindowForUser({ defaultFrom: D, activeHistory: [], assignmentFromDates: [], activeNow: true, ...o })
+  const win = (o: Partial<Parameters<typeof defaultWindowsForUser>[0]> = {}) =>
+    defaultWindowsForUser({ defaultFrom: D, activeHistory: [], assignmentFromDates: [], activeNow: true, ...o })
   it('open-ended for an active, never-assigned, non-test user', () => {
-    expect(win()).toEqual({ from: D, to: null })
+    expect(win()).toEqual([{ from: D, to: null }])
   })
   it('never for a test account or someone inactive with no history', () => {
-    expect(win({ isTestAccount: true })).toBeNull()
-    expect(win({ activeNow: false })).toBeNull()
+    expect(win({ isTestAccount: true })).toEqual([])
+    expect(win({ activeNow: false })).toEqual([])
   })
   it('a departed rep is still covered for sales BEFORE they left (pre-departure sale pays)', () => {
     const w = win({ activeNow: false, activeHistory: [{ effectiveFrom: '2026-08-07', isActive: true }, { effectiveFrom: '2026-11-10', isActive: false }] })
-    expect(w).toEqual({ from: D, to: '2026-11-09' })
+    expect(w).toEqual([{ from: D, to: '2026-11-09' }])
   })
   it('left before the default began → never', () => {
-    expect(win({ activeNow: false, activeHistory: [{ effectiveFrom: '2026-09-02', isActive: false }] })).toBeNull()
+    expect(win({ activeNow: false, activeHistory: [{ effectiveFrom: '2026-09-02', isActive: false }] })).toEqual([])
+  })
+  it('a leave-and-return gives two windows; the gap is not covered', () => {
+    const w = win({ activeHistory: [{ effectiveFrom: '2026-08-07', isActive: true }, { effectiveFrom: '2026-11-01', isActive: false }, { effectiveFrom: '2026-12-01', isActive: true }] })
+    expect(w).toEqual([{ from: D, to: '2026-10-31' }, { from: '2026-12-01', to: null }])
   })
   it('covered only BEFORE their first assignment (ended on purpose afterwards)', () => {
-    expect(win({ assignmentFromDates: ['2026-12-01'] })).toEqual({ from: D, to: '2026-11-30' })
-    expect(win({ assignmentFromDates: ['2026-09-01'] })).toBeNull() // assigned before the default existed
+    expect(win({ assignmentFromDates: ['2026-12-01'] })).toEqual([{ from: D, to: '2026-11-30' }])
+    expect(win({ assignmentFromDates: ['2026-09-01'] })).toEqual([]) // assigned before the default existed
   })
 })
 

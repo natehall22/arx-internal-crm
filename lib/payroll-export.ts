@@ -284,7 +284,7 @@ export type PayrollExportRow = {
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { compPlanAsOf, type CompPlanVersionRow } from '@/lib/comp-plan-version'
-import { defaultWindowForUser, selectDefaultForRole, type ActiveHistoryRow, type OrgDefaultCompPlanRow } from '@/lib/comp-plan-defaults'
+import { defaultWindowsForUser, selectDefaultForRole, type ActiveHistoryRow, type OrgDefaultCompPlanRow } from '@/lib/comp-plan-defaults'
 
 type UserCompRow = {
   user_id: string
@@ -430,18 +430,19 @@ async function loadOrgDefaultPlanForUser(
   // When does the default apply to THIS person (active on the sale date, before their first assignment, not a test account)?
   const [{ data: assigns, error: aErr }, { data: hist, error: hErr }] = await Promise.all([
     supabase.from('user_comp_plans').select('effective_from').eq('user_id', userId).eq('org_id', orgId),
-    supabase.from('user_payroll_active_history').select('effective_from, is_active').eq('user_id', userId).eq('org_id', orgId).lte('effective_from', saleDate),
+    supabase.from('user_payroll_active_history').select('effective_from, is_active').eq('user_id', userId).eq('org_id', orgId),
   ])
   if (aErr) throw aErr
   if (hErr) throw hErr
-  const win = defaultWindowForUser({
+  const day = saleDate.slice(0, 10)
+  const wins = defaultWindowsForUser({
     defaultFrom: rows.filter((r) => r.role === chosen.role).map((r) => r.effective_from).sort()[0],
     isTestAccount: flags.isTestAccount,
     activeNow: flags.active,
     activeHistory: ((hist ?? []) as Array<{ effective_from: string; is_active: boolean }>).map((h): ActiveHistoryRow => ({ effectiveFrom: h.effective_from, isActive: h.is_active })),
     assignmentFromDates: ((assigns ?? []) as Array<{ effective_from: string }>).map((r) => r.effective_from),
   })
-  if (!win || saleDate < win.from || (win.to !== null && saleDate > win.to)) return null
+  if (!wins.some((w) => day >= w.from && (w.to === null || day <= w.to))) return null
 
   const { data: plan, error: planErr } = await supabase.from('comp_plans').select('*').eq('id', chosen.comp_plan_id).eq('org_id', orgId).maybeSingle()
   if (planErr) throw planErr

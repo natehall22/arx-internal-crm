@@ -116,28 +116,46 @@ const dayBefore = (ymd: string): string => {
  *  - only BEFORE their first assignment: from then on their pay is assignment-driven, and an ended assignment means
  *    "ended on purpose", not "never set up" (see usersWithEndedPlan).
  */
-export function defaultWindowForUser(a: {
+export function defaultWindowsForUser(a: {
   defaultFrom: string | null
   isTestAccount?: boolean | null
   activeNow?: boolean | null
   activeHistory: readonly ActiveHistoryRow[]
   assignmentFromDates: readonly string[]
-}): { from: string; to: string | null } | null {
-  if (!a.defaultFrom || a.isTestAccount === true) return null
-  let to: string | null = null
+}): Array<{ from: string; to: string | null }> {
+  if (!a.defaultFrom || a.isTestAccount === true) return []
+  // Active segments from the payroll active history (a leave-and-return gives several). Before the first history row the
+  // person is presumed active; with no history at all, today's flag decides.
   const hist = [...a.activeHistory].sort((x, y) => x.effectiveFrom.localeCompare(y.effectiveFrom))
-  if (hist.length) {
-    const last = hist[hist.length - 1]
-    if (!last.isActive) to = dayBefore(last.effectiveFrom)
-  } else if (a.activeNow === false) {
-    return null
+  let segs: Array<{ from: string; to: string | null }>
+  if (hist.length === 0) {
+    if (a.activeNow === false) return []
+    segs = [{ from: '0000-01-01', to: null }]
+  } else {
+    segs = []
+    let open: string | null = '0000-01-01'
+    for (const h of hist) {
+      if (h.isActive && open === null) open = h.effectiveFrom
+      else if (!h.isActive && open !== null) {
+        segs.push({ from: open, to: dayBefore(h.effectiveFrom) })
+        open = null
+      }
+    }
+    if (open !== null) segs.push({ from: open, to: null })
   }
-  if (a.assignmentFromDates.length) {
-    const before = dayBefore([...a.assignmentFromDates].sort()[0])
-    if (to === null || before < to) to = before
+  const firstAssignment = a.assignmentFromDates.length ? [...a.assignmentFromDates].sort()[0] : null
+  const out: Array<{ from: string; to: string | null }> = []
+  for (const sg of segs) {
+    const from = sg.from > a.defaultFrom ? sg.from : a.defaultFrom
+    let to = sg.to
+    if (firstAssignment) {
+      const before = dayBefore(firstAssignment)
+      if (to === null || before < to) to = before
+    }
+    if (to !== null && to < from) continue
+    out.push({ from, to })
   }
-  if (to !== null && to < a.defaultFrom) return null
-  return { from: a.defaultFrom, to }
+  return out
 }
 
 /** Active, non-test people whose pay plan was ended and not replaced: they earn nothing until a plan is assigned. */
@@ -178,21 +196,22 @@ export function buildDefaultCoverageRows(args: {
   for (const u of args.users) {
     const mine = args.defaults.filter((d) => d.role === u.role).sort((a, b) => a.effective_from.localeCompare(b.effective_from))
     if (!mine.length) continue
-    const win = defaultWindowForUser({
+    const wins = defaultWindowsForUser({
       defaultFrom: mine[0].effective_from,
       isTestAccount: u.isTestAccount,
       activeNow: u.active,
       activeHistory: args.activeHistoryByUser.get(u.id) ?? [],
       assignmentFromDates: args.assignmentFromDatesByUser.get(u.id) ?? [],
     })
-    if (!win) continue
-    mine.forEach((d, i) => {
-      const segTo = i + 1 < mine.length ? dayBefore(mine[i + 1].effective_from) : null
-      const from = d.effective_from > win.from ? d.effective_from : win.from
-      const to = segTo === null ? win.to : win.to === null || segTo < win.to ? segTo : win.to
-      if (to !== null && to < from) return
-      rows.push({ userId: u.id, effectiveFrom: from, effectiveTo: to, isManagerPlan: d.isManagerPlan === true })
-    })
+    for (const win of wins) {
+      mine.forEach((d, i) => {
+        const segTo = i + 1 < mine.length ? dayBefore(mine[i + 1].effective_from) : null
+        const from = d.effective_from > win.from ? d.effective_from : win.from
+        const to = segTo === null ? win.to : win.to === null || segTo < win.to ? segTo : win.to
+        if (to !== null && to < from) return
+        rows.push({ userId: u.id, effectiveFrom: from, effectiveTo: to, isManagerPlan: d.isManagerPlan === true })
+      })
+    }
   }
   return rows
 }
