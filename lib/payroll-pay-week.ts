@@ -86,6 +86,8 @@ export type PayWeek = {
   people: PayWeekPerson[]
   jobs: PayWeekJobView[]
   waiting: PayWeekWaiting[]
+  /** Other weeks, newest first, for the "Earlier weeks" picker. */
+  earlier: Array<{ id: string; weekEnding: string; payDate: string; status: string }>
 }
 
 const ROLE_WORDS: Record<string, string> = {
@@ -294,7 +296,7 @@ async function loadUnits(admin: SupabaseClient, orgId: string, period: PayWeekPe
       startIso: window.startIso,
       endIso: window.endIso,
     })
-    if (res.total > 0) out.set(userId, res.total)
+    if (res && res.total > 0) out.set(userId, res.total)
   }
   return out
 }
@@ -392,6 +394,9 @@ export async function loadPayWeek(admin: SupabaseClient, orgId: string, now: Dat
     void eligibleAtByJob
   }
 
+  const { data: others } = await admin.from('payroll_periods').select('id, cutoff_at, scheduled_pay_date, status').eq('org_id', orgId).neq('id', period.id).neq('status', 'cancelled').order('cutoff_at', { ascending: false }).limit(12)
+  const earlier = (others ?? []).map((o) => ({ id: o.id as string, weekEnding: ymdEt(new Date(o.cutoff_at as string)), payDate: o.scheduled_pay_date as string, status: o.status as string }))
+
   const payable = people.filter((p) => p.total > 0)
   return {
     period,
@@ -402,6 +407,7 @@ export async function loadPayWeek(admin: SupabaseClient, orgId: string, now: Dat
     people,
     jobs: jobViews,
     waiting: waiting.map((w) => waitingView(w, jobs, names)),
+    earlier,
   }
 }
 
