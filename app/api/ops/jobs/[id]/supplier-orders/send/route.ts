@@ -11,7 +11,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { markMaterialsOrdered, unmarkMaterialsOrdered } from '@/lib/job-status-events'
 import { createServiceClient } from '@/lib/supabase/service'
-import { sendOrderToSupplier } from '@/lib/suppliers/send-order'
+import { makeAuditedTransmit } from '@/lib/suppliers/abc/audited-transmit'
+import { makeApiBeforeTransmit } from '@/lib/suppliers/abc/send-gate'
 import {
   executeSupplierOrderSend,
   loadSupplierOrderContext,
@@ -66,7 +67,8 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       },
       {
         store: supabaseSupplierOrderStore(auth.admin),
-        transmit: sendOrderToSupplier,
+        transmit: makeAuditedTransmit(auth.admin, { orgId: auth.profile.org_id, jobId: params.id, userId: auth.authUser.id }),
+        beforeTransmit: makeApiBeforeTransmit(auth.admin, auth.profile),
         markMaterialsOrdered: ({ orgId, jobId }) =>
           markMaterialsOrdered(auth.admin, { orgId, jobId, source: 'one_tap' }),
         unmarkMaterialsOrdered: ({ orgId, jobId }) => unmarkMaterialsOrdered(auth.admin, { orgId, jobId }),

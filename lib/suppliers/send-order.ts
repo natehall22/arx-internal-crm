@@ -9,6 +9,7 @@
  * Only POST /api/ops/jobs/[id]/supplier-orders/send reaches this (enforced by a test), so no
  * status change, cron or background job can ever place an order.
  */
+import { abcSupplyConnector } from '@/lib/suppliers/abc/connector'
 import type { LineSnapshot, SendKind, SupplierRecord } from '@/lib/material-sourcing'
 import { deliverSupplierOrderEmail, type ComposedSupplierEmail } from '@/lib/supplier-order-email'
 
@@ -38,6 +39,10 @@ export type SupplierOrderConnector = {
   /** Shown in the preview instead of an email address, e.g. "ABC Supply ordering API". */
   label: string
   canHandle: (supplier: SupplierRecord) => boolean
+  /** Why this connector can't send right now (switches, credentials, unmapped lines), or null. Checked in the preview and again at transmit. */
+  problem?: (supplier: SupplierRecord, lines?: LineSnapshot[]) => string | null
+  /** Which kinds of send it can carry; others are blocked in the preview. */
+  kindProblem?: (kind: SendKind) => string | null
   transmit: (order: SupplierOrderTransmission) => Promise<{ reference: string | null }>
 }
 
@@ -58,10 +63,11 @@ export function connectorFor(supplier: SupplierRecord): SupplierOrderConnector |
 }
 
 /** Why this supplier can't be sent to right now, or null. Used by the preview to block the button. */
-export function supplierChannelProblem(supplier: SupplierRecord): string | null {
+export function supplierChannelProblem(supplier: SupplierRecord, lines?: LineSnapshot[]): string | null {
   if (supplier.connectionType === 'api') {
-    return connectorFor(supplier)
-      ? null
+    const connector = connectorFor(supplier)
+    return connector
+      ? connector.problem?.(supplier, lines) ?? null
       : `${supplier.name} is set to order by API, but no API connection is installed yet. Ask an owner to switch it to email in Settings → Suppliers.`
   }
   if (!supplier.orderEmail) return `${supplier.name} has no order email — ask an owner to add one in Settings → Suppliers (or use "I sent this myself")`
@@ -79,3 +85,5 @@ export async function sendOrderToSupplier(order: SupplierOrderTransmission): Pro
   const { messageId } = await deliverSupplierOrderEmail(order.email, order.pdf)
   return { channel: 'email', reference: messageId }
 }
+
+registerSupplierOrderConnector(abcSupplyConnector)
