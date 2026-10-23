@@ -244,3 +244,21 @@ export const PAY_WEEK = {
   nextWeek: null,
   directory: [{ id: 'u-jordan', name: 'Jordan Vale' }, { id: 'u-riley', name: 'Riley Moss' }, { id: 'u-casey', name: 'Casey Park' }],
 }
+
+export const MY_PAY = {
+  name: 'Jordan Vale',
+  headline: { amount: 2394, state: 'draft', payDate: '2026-10-23' },
+  thisWeek: [
+    { key: 't1', title: '26-0141 · 12 Example Maple Ln', why: "On Friday's check (2026-10-23).", amount: 1288, math: '$18,400 × 7% closer = $1,288', jobId: 'j1', lineKind: 'Commission' },
+    { key: 't2', title: '26-0144 · 408 Sample Birch Ct, a very long address that has to wrap on a phone', why: "On Friday's check (2026-10-23).", amount: 882, math: '$12,600 × 7% closer = $882', jobId: 'j2', lineKind: 'Commission' },
+    { key: 't3', title: '26-0129 · 19 Imaginary Elm Ave', why: "On Friday's check (2026-10-23).", amount: 224, math: '$9,200 × 7% closer = $644, reduced to $224 to stay inside the 18% pool', jobId: 'j3', lineKind: 'Commission' },
+  ],
+  coming: [
+    { key: 'c1', title: '26-0150 · 5 Fictional Oak Dr', why: 'Customer still owes $4,200 of $21,000', amount: 1470, math: 'Estimate: closer line on this job', jobId: 'j4', lineKind: 'Commission' },
+    { key: 'c2', title: '26-0152 · 290 Mock Cedar Way', why: 'Install not marked complete', amount: 1106, math: 'Estimate: closer line on this job', jobId: 'j5', lineKind: 'Commission' },
+  ],
+  comingTotal: 2576,
+  paid: [{ periodId: 'p-old', payDate: '2026-10-16', total: 980, lines: [{ key: 'p1', title: '26-0120 · 731 Pretend Spruce Ln', why: 'Paid 2026-10-16.', amount: 980, math: '$14,000 × 7% closer = $980', jobId: 'j6', lineKind: 'Commission' }] }],
+  disputes: [{ id: 'd1', label: '26-0120 · 731 Pretend Spruce Ln', message: 'I closed this alone', status: 'open', reply: null, createdAt: '2026-10-20T12:00:00Z' }],
+  nextWeekFixes: [],
+}
