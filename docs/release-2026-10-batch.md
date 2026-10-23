@@ -4,6 +4,12 @@ Rules: every PR targets this branch (not `main`), has its own branch, tests, bug
 
 **Apply order when the batch is approved:** migrations in filename order, then data fixes. Nothing below is applied to prod yet unless it says so.
 
+## Shipped to main already (exceptions to the batch)
+| PR | What | Applied |
+|---|---|---|
+| #70, #72, #73 | Default pay plans per role; defaults never pay inactive users; test-account flag + plan-ends-on-deactivation | migrations 202610240030, 202610240040 + data fixes (flag n8rhall; end plans for inactive users, backed up in `data_fix_backups`) applied 2026-10-23 |
+| #81–#84 | Needs-you by role (server-side), removed from /whats-new; settled-externally jobs (38 pre-cutover jobs settled, 0 job rows left in Needs you); appointments >14 days hidden + owner-only "Close out old appointments" (100 pending, **not run**); owner-only Unsettle | migrations 202610250030, 202610260010, 202610260020, 202610260030 applied; rollback: clear `payroll_settled_externally_at` (Unsettle) / `outcome_not_recorded_at` |
+
 ## Pay plans (this batch)
 | PR | What | Migration / data fix |
 |---|---|---|
@@ -17,7 +23,7 @@ Rules: every PR targets this branch (not `main`), has its own branch, tests, bug
 |---|---|---|
 | #71 `feat/ui-foundation` | `components/ui` kit, tokens, `lib/format.ts`, `lib/status.ts`, alert→toast / confirm→dialog, lint ratchet, saved views | `202610240020_table_views.sql` |
 
-### Phase B — navigation, home, search — in progress
+### Phase B — navigation, home, search — built on release (#74 nav, #75 search, #76 settings hub); migration `202610240050_global_search.sql` (additive, **not applied**; rollback `DROP FUNCTION search_all`)
 ### Phase C — Customer File + Job Threads — not started (**screenshots for approval before any Phase C code**)
 ### Phase D — lists and queues — not started
 
@@ -28,3 +34,8 @@ Rules: every PR targets this branch (not `main`), has its own branch, tests, bug
 | `feat/pay-this-week` | PR 2b: "Pay this week" replaces /admin/payroll; folds Pay periods & lock, Consultant statements, Weekly worksheet (hours + bonuses in Needs you); Approve = `lockPayrollPeriod` guarded by the shown total; CSV; old pages/routes deleted, old URLs redirect | none |
 | `feat/pay-adjustments` | PR 2c: "Fix a mistake" — signed lines on the next open week (a paid week never changes) + negative checks carried forward as balances; counted in the screen, statements, emails, PDF and CSV | `202610250010_payroll_adjustments.sql` (additive; **not applied**) |
 | `feat/my-pay` | PR 3: rep "My pay" (/my-pay; This week / Coming with the reason / Paid, each line with its math) + "Something's wrong?" per line → admin's Needs you (reply or Add a fix); Money → My pay in the nav for commission roles | `202610250020_payroll_disputes.sql` (additive; **not applied**) |
+
+## State 2026-10-22
+`release/2026-10-batch` = main + UI stack (A, B) + payroll stack (#77–#80). tsc clean, jest 2035 pass. Settled-externally jobs are excluded from plan, preview, Approve and My pay (`payroll-settled-externally.test.ts`, `settled-externally-guards.test.ts`); preview == Approve covered by the pay-week approve tests.
+**Pending batch migrations, apply order:** 202610240020_table_views, 202610240050_global_search, 202610250010_payroll_adjustments, 202610250020_payroll_disputes. Rollbacks: drop the new tables/function (all additive, no existing data touched).
+**Next:** Customer File + Job Threads screenshots for approval (Phase C blocked on it), then Phase D, ABC item mapping, 2-week pay reconciliation (needs the external-pay figures).
