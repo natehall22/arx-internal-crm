@@ -101,10 +101,13 @@ describe('warnings + csv', () => {
   it('csv has one total per person who is paid, and a grand total', () => {
     const week = { people: [person({ name: 'Jordan, Jr', total: 1400.5, lines: [{ kind: 'Commission', what: '', math: '', amount: 1400.5 }] }), person({ name: 'Zero', total: 0, raw: -5 })], totals: { amount: 1400.5, people: 1 } } as unknown as PayWeek
     const csv = payWeekCsv(week).trim().split('\n')
-    expect(csv[0]).toBe('Name,Role,Commission,Hourly,Per-unit,Bonus,Total to pay')
-    expect(csv[1]).toBe('"Jordan, Jr",Closer,1400.5,0,0,0,1400.50')
+    expect(csv[0]).toBe('Name,Role,Commission,Hourly,Per-unit,Bonus,Fixes,Total to pay')
+    expect(csv[1]).toBe('"Jordan, Jr",Closer,1400.5,0,0,0,0,1400.50')
     expect(csv).toHaveLength(3)
-    expect(csv[2]).toBe('TOTAL,,,,,,1400.50')
+    expect(csv[2]).toBe('TOTAL,,,,,,,1400.50')
+    // a name that would run as a spreadsheet formula is neutralised
+    const evil = payWeekCsv({ people: [person({ name: '=HYPERLINK("x")', total: 5 })], totals: { amount: 5, people: 1 } } as unknown as PayWeek).split('\n')[1]
+    expect(evil.startsWith("\"'=HYPERLINK")).toBe(true)
   })
   it('composeWeek floors a person at $0 and carries the raw amount', () => {
     const { people } = composeWeek({

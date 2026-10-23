@@ -26,4 +26,5 @@ Rules: every PR targets this branch (not `main`), has its own branch, tests, bug
 |---|---|---|
 | #77 `feat/payroll-engine-plan` | PR 2a: one calculation — `planPayrollPeriod` (no writes) + persist; preview-equals-approve tests | — |
 | `feat/pay-this-week` | PR 2b: "Pay this week" replaces /admin/payroll; folds Pay periods & lock, Consultant statements, Weekly worksheet (hours + bonuses in Needs you); Approve = `lockPayrollPeriod` guarded by the shown total; CSV; old pages/routes deleted, old URLs redirect | none |
-| next | PR 2c: "Fix a mistake" adjustment lines on next week (+ `payroll_adjustments`), chargebacks/balances; PR 3: rep "My pay" + "Something's wrong" | `payroll_adjustments`, `payroll_disputes` (additive) |
+| `feat/pay-adjustments` | PR 2c: "Fix a mistake" — signed lines on the next open week (a paid week never changes) + negative checks carried forward as balances; counted in the screen, statements, emails, PDF and CSV | `202610250010_payroll_adjustments.sql` (additive; **not applied**) |
+| next | PR 3: rep "My pay" + "Something's wrong" (`payroll_disputes`) | additive |

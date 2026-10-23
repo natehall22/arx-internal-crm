@@ -102,6 +102,7 @@ const SCREENS: Screen[] = [
     states: [
       { name: 'person-open', run: async (p) => { await p.getByRole('button', { name: /Jordan Vale/ }).click(); await p.waitForSelector('text=Change') } },
       { name: 'by-job', run: async (p) => { await p.getByRole('tab', { name: /By job/ }).click(); await p.waitForSelector('text=Job 26-0141') } },
+      { name: 'fix-sheet', run: async (p) => { await p.getByRole('button', { name: 'Fix a mistake' }).click(); await p.waitForSelector('text=Amount (+ pays them') } },
       { name: 'approve-sheet', run: async (p) => { await p.getByRole('button', { name: /^Approve/ }).click(); await p.waitForSelector('text=Email each person their statement') } },
     ] },
 ]

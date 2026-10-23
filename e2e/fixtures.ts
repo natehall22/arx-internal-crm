@@ -241,4 +241,6 @@ export const PAY_WEEK = {
     { jobId: 'j5', jobNumber: '26-0152', address: '290 Mock Cedar Way', reason: 'Install not marked complete', who: [{ name: 'Jordan Vale', roleLabel: 'closer', estimate: 1106 }] },
   ],
   earlier: [{ id: 'e1', weekEnding: '2026-10-14', payDate: '2026-10-16', status: 'locked' }],
+  nextWeek: null,
+  directory: [{ id: 'u-jordan', name: 'Jordan Vale' }, { id: 'u-riley', name: 'Riley Moss' }, { id: 'u-casey', name: 'Casey Park' }],
 }

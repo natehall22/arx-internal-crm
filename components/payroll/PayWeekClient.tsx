@@ -30,6 +30,10 @@ export default function PayWeekClient() {
   const [emailIt, setEmailIt] = React.useState(true)
   const [busy, setBusy] = React.useState(false)
   const [help, setHelp] = React.useState(false)
+  const [fixing, setFixing] = React.useState(false)
+  const [fixUser, setFixUser] = React.useState('')
+  const [fixAmount, setFixAmount] = React.useState('')
+  const [fixReason, setFixReason] = React.useState('')
   const [change, setChange] = React.useState<{ p: PayWeekPerson; l: PayWeekLine } | null>(null)
   const [changeAmount, setChangeAmount] = React.useState('')
   const [changeReason, setChangeReason] = React.useState('')
@@ -115,6 +119,33 @@ export default function PayWeekClient() {
     }
   }
 
+  const saveFix = async () => {
+    if (!week) return
+    setBusy(true)
+    try {
+      const res = await post('adjustment', { periodId: week.period.id, userId: fixUser, amount: Number(fixAmount), reason: fixReason })
+      setFixing(false)
+      setFixUser('')
+      setFixAmount('')
+      setFixReason('')
+      toast.success(res.nextWeek ? "Added to next week's check" : 'Added to this week')
+      await load()
+    } catch (e) {
+      toast.error((e as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+  const removeFix = async (id: string) => {
+    try {
+      const r = await fetch(`${API}/adjustment?id=${encodeURIComponent(id)}`, { method: 'DELETE' })
+      if (!r.ok) throw new Error((await r.json().catch(() => null))?.error || 'Could not remove it')
+      await load()
+    } catch (e) {
+      toast.error((e as Error).message)
+    }
+  }
+
   if (error) return <div className="rounded-ui border border-danger p-4 text-ink">{error} <Button variant="secondary" size="sm" onClick={load}>Try again</Button></div>
   if (!week) return <div className="flex flex-col gap-3"><Skeleton className="h-10 w-2/3" /><Skeleton className="h-40" /><Skeleton className="h-64" /></div>
 
@@ -176,7 +207,7 @@ export default function PayWeekClient() {
         <TabsContent value="people" className="pt-3">
           {week.people.length === 0 ? <EmptyState title="Nothing to pay this week" body="No job is ready to pay and no hours or bonuses are in." /> : (
             <div className="rounded-ui border border-surface-line bg-surface">
-              {week.people.map((p) => <Person key={p.userId} p={p} open={!!open[p.userId]} toggle={() => setOpen((o) => ({ ...o, [p.userId]: !o[p.userId] }))} onChange={draft ? (pp, l) => { setChange({ p: pp, l }); setChangeAmount(String(l.amount)); setChangeReason('') } : undefined} />)}
+              {week.people.map((p) => <Person key={p.userId} p={p} open={!!open[p.userId]} toggle={() => setOpen((o) => ({ ...o, [p.userId]: !o[p.userId] }))} onRemove={draft ? removeFix : undefined} onChange={draft ? (pp, l) => { setChange({ p: pp, l }); setChangeAmount(String(l.amount)); setChangeReason('') } : undefined} />)}
             </div>
           )}
         </TabsContent>
@@ -223,6 +254,25 @@ export default function PayWeekClient() {
         </section>
       ) : null}
 
+      {week.nextWeek && week.nextWeek.fixes.length > 0 ? (
+        <section aria-labelledby="nextfix-h">
+          <h2 id="nextfix-h" className="mb-2 text-ui-lg font-semibold text-ink">Fixes on next week&apos;s check ({formatDateWeekday(week.nextWeek.payDate)})</h2>
+          <div className="rounded-ui border border-surface-line bg-surface">
+            {week.nextWeek.fixes.map((f) => (
+              <div key={f.id} className="flex items-start justify-between gap-3 border-b border-surface-line p-4 last:border-b-0">
+                <div className="min-w-0"><p className="font-semibold text-ink">{f.name}</p><p className="text-ui-base text-ink-muted">{f.reason}</p></div>
+                <span className={cn('shrink-0 tabular-nums font-semibold text-ink', f.amount < 0 && 'text-danger')}>{f.amount > 0 ? '+' : ''}{formatMoney(f.amount)}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      <div>
+        <Button variant="secondary" onClick={() => setFixing(true)}>Fix a mistake</Button>
+        {!draft ? <p className="mt-1 text-ui-sm text-ink-muted">This week is paid and stays as it is. A fix goes on next week&apos;s check.</p> : null}
+      </div>
+
       {week.earlier.length > 0 ? (
         <section aria-labelledby="earlier-h">
           <h2 id="earlier-h" className="mb-2 text-ui-lg font-semibold text-ink">Earlier weeks</h2>
@@ -263,6 +313,27 @@ export default function PayWeekClient() {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={fixing} onOpenChange={setFixing}>
+        <DialogContent title="Fix a mistake" description={draft ? "This adds a line to this week's check." : "This week is paid and never changes, so the fix goes on next week's check."}>
+          <label className="flex flex-col gap-1.5 text-ui-sm font-semibold text-ink">Who
+            <select value={fixUser} onChange={(e) => setFixUser(e.target.value)} className="min-h-tap w-full rounded-ui border border-surface-line bg-surface px-3 text-ui-base text-ink">
+              <option value="">Choose a person</option>
+              {week.directory.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1.5 text-ui-sm font-semibold text-ink">Amount (+ pays them, − takes back)
+            <Input type="number" inputMode="decimal" step="0.01" value={fixAmount} onChange={(e) => setFixAmount(e.target.value)} placeholder="e.g. 322 or -150" />
+          </label>
+          <label className="flex flex-col gap-1.5 text-ui-sm font-semibold text-ink">Why
+            <Input value={fixReason} onChange={(e) => setFixReason(e.target.value)} placeholder="e.g. Closed 26-0129 alone — no split" maxLength={300} />
+          </label>
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setFixing(false)}>Cancel</Button>
+            <Button loading={busy} disabled={!fixUser || !fixReason.trim() || !Number.isFinite(Number(fixAmount)) || Number(fixAmount) === 0 || fixAmount === ''} onClick={saveFix}>Add the fix</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={!!change} onOpenChange={(o) => !o && setChange(null)}>
         <DialogContent title={change ? `Change ${change.p.name}'s line` : 'Change'} description={change ? `${change.l.what}. This replaces what the plan would pay on this job; the reason goes in the audit trail.` : undefined}>
           <label className="flex flex-col gap-1.5 text-ui-sm font-semibold text-ink">New amount
@@ -293,7 +364,7 @@ export default function PayWeekClient() {
   )
 }
 
-function Person({ p, open, toggle, onChange }: { p: PayWeekPerson; open: boolean; toggle: () => void; onChange?: (p: PayWeekPerson, l: PayWeekLine) => void }) {
+function Person({ p, open, toggle, onChange, onRemove }: { p: PayWeekPerson; open: boolean; toggle: () => void; onChange?: (p: PayWeekPerson, l: PayWeekLine) => void; onRemove?: (id: string) => void }) {
   return (
     <div className="border-b border-surface-line last:border-b-0">
       <button type="button" onClick={toggle} aria-expanded={open} className="flex min-h-[4rem] w-full items-center gap-3 px-4 py-3 text-left">
@@ -316,11 +387,12 @@ function Person({ p, open, toggle, onChange }: { p: PayWeekPerson; open: boolean
               </span>
               <span className="shrink-0 text-right">
                 <span className={cn('block tabular-nums text-ui-base font-semibold text-ink', l.amount < 0 && 'text-danger')}>{formatMoney(l.amount)}</span>
+                {onRemove && l.kind === 'Adjustment' && l.adjustmentId ? <button type="button" onClick={() => onRemove(l.adjustmentId!)} className="min-h-tap text-ui-sm font-semibold text-brand-700 underline underline-offset-2">Remove</button> : null}
                 {onChange && l.kind === 'Commission' && l.jobId && l.participantRole ? <button type="button" onClick={() => onChange(p, l)} className="min-h-tap text-ui-sm font-semibold text-brand-700 underline underline-offset-2">Change</button> : null}
               </span>
             </li>
           ))}
-          {p.raw < 0 ? <li className="py-2 text-ui-sm text-ink-muted">The check can&apos;t go below $0. {formatMoney(-p.raw)} carries forward as a balance.</li> : null}
+          {p.raw < 0 ? <li className="py-2 text-ui-sm text-ink-muted">The check can&apos;t go below $0. {formatMoney(-p.raw)} is carried to next week as a balance when you approve.</li> : null}
         </ul>
       ) : null}
     </div>

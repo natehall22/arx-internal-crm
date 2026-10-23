@@ -76,12 +76,14 @@ const sampleStatement: PayrollStatementPayload = {
     hourlyEarnings: 200,
     periodUnitEarnings: 30,
     bonusEarnings: 0,
+    adjustments: 0,
     chargebacksApplied: 0,
     netPayout: 230,
     hasDeficit: false,
   },
   chargebacks: [],
   bonuses: [],
+  adjustments: [],
 }
 
 const sampleStatementWithBonuses: PayrollStatementPayload = {

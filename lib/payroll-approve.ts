@@ -1,11 +1,39 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { lockPayrollPeriod } from '@/lib/payroll-period-lock'
-import { loadPayWeek } from '@/lib/payroll-pay-week'
+import { ensureNextOpenPeriod } from '@/lib/payroll-periods'
+import { loadPayWeek, type PayWeek } from '@/lib/payroll-pay-week'
 import { buildPayrollStatement } from '@/lib/payroll-statement'
 import { sendPayrollStatementEmail } from '@/lib/payroll-statement-email'
 import { pickValidEmail } from '@/lib/setter-email'
 import { isUserActiveForTransactionalEmail } from '@/lib/user-email-eligibility'
+
+/** One pending 'balance' line on next week for every person whose raw total is negative. Returns the new row ids. */
+export async function carryNegativeBalances(admin: SupabaseClient, orgId: string, actorUserId: string, week: PayWeek): Promise<string[]> {
+  const owing = week.people.filter((p) => p.raw < 0)
+  if (owing.length === 0) return []
+  const next = await ensureNextOpenPeriod(admin, orgId, week.period.cutoffAt)
+  const ids: string[] = []
+  for (const p of owing) {
+    // A retried approve must not carry the same debt twice: reuse a live balance line for this person and source week.
+    const { data: existing } = await admin.from('payroll_adjustments').select('id').eq('org_id', orgId).eq('source_period_id', week.period.id).eq('user_id', p.userId).eq('kind', 'balance').neq('status', 'void').maybeSingle()
+    if (existing) {
+      ids.push(existing.id as string)
+      continue
+    }
+    const { data, error } = await admin
+      .from('payroll_adjustments')
+      .insert({ org_id: orgId, payroll_period_id: next.id, user_id: p.userId, amount: p.raw, reason: `Carried over from the week ending ${week.period.weekEnding}`, kind: 'balance', status: 'pending', source_period_id: week.period.id, created_by: actorUserId })
+      .select('id')
+      .single()
+    if (error || !data) {
+      await Promise.all(ids.map((id) => admin.from('payroll_adjustments').update({ status: 'void' }).eq('id', id)))
+      throw error ?? new Error('Could not carry the balance forward')
+    }
+    ids.push(data.id as string)
+  }
+  return ids
+}
 
 export type ApproveResult =
   | { ok: true; total: number; people: number; /** The written total differs from the approved one (a read raced a write): the screen must say so. */ mismatch: boolean; writtenTotal: number; message: string }
@@ -34,8 +62,16 @@ export async function approvePayWeek(
   }
   if (week.totals.amount <= 0) return { ok: false, status: 409, body: { error: 'Nothing to pay this week' } }
 
+  // A check can't go below $0: what is owed back is carried to next week as a balance line (written before the lock, undone if it fails).
+  const carried = await carryNegativeBalances(admin, orgId, input.actorUserId, week)
   const lock = await lockPayrollPeriod(admin, { orgId, periodId, actorUserId: input.actorUserId, status: 'open', requireNoPendingBonuses: false })
-  if (!lock.ok) return { ok: false, status: lock.status, body: lock.body }
+  if (!lock.ok) {
+    await Promise.all(carried.map((id) => admin.from('payroll_adjustments').update({ status: 'void' }).eq('id', id)))
+    return { ok: false, status: lock.status, body: lock.body }
+  }
+
+  // The week's fixes are now part of an approved check.
+  await admin.from('payroll_adjustments').update({ status: 'applied', applied_at: new Date().toISOString() }).eq('org_id', orgId).eq('payroll_period_id', periodId).eq('status', 'pending')
 
   // Safety net: what was written must equal what was approved. The lines are already frozen, so report it, loudly.
   const after = await loadPayWeek(admin, orgId, now, periodId)
