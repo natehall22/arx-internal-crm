@@ -59,3 +59,21 @@ describe('reports', () => {
     expect(rows.calendar).toEqual([{ closer_user_id: 'c1' }])
   })
 })
+
+describe('big backlogs and races', () => {
+  it('closes a backlog bigger than one chunk in one batch', async () => {
+    const many = Array.from({ length: 450 }, (_, i) => appt(`a${i}`, 30 + (i % 20)))
+    const db = createFakeDb({ scheduled_appointments: many, production_jobs: [] })
+    const res = await closeOutOldAppointments(db.client, { orgId: ORG, actorUserId: 'owner', now: NOW })
+    expect(res.closed).toBe(450)
+    expect(db.tables.appointment_closeouts).toHaveLength(450)
+    expect((await previewCloseout(db.client, ORG, NOW)).count).toBe(0)
+  })
+  it('a second close-out right after finds nothing and adds no phantom audit rows', async () => {
+    const db = createFakeDb(seed())
+    await closeOutOldAppointments(db.client, { orgId: ORG, actorUserId: 'owner', now: NOW })
+    const again = await closeOutOldAppointments(db.client, { orgId: ORG, actorUserId: 'owner', now: NOW })
+    expect(again.closed).toBe(0)
+    expect(db.tables.appointment_closeouts).toHaveLength(2)
+  })
+})

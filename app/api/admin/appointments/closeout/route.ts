@@ -38,6 +38,7 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   const a = await owner()
   if ('error' in a) return a.error
+  if (!(request.headers.get('content-type') ?? '').includes('application/json')) return NextResponse.json({ error: 'Bad request' }, { status: 415 })
   const body = (await request.json().catch(() => null)) as { confirm?: unknown; undoBatch?: unknown } | null
   try {
     if (typeof body?.undoBatch === 'string' && /^[0-9a-f-]{36}$/i.test(body.undoBatch)) {

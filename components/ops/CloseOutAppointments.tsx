@@ -45,11 +45,15 @@ export default function CloseOutAppointments({ hidden }: { hidden: number }) {
   return (
     <div className="mt-3 rounded-lg border border-gray-200 p-3" data-card="closeout">
       <p className="text-sm text-[#2c2c2a]">
-        <b>{hidden} older appointment{hidden === 1 ? '' : 's'}</b> with no outcome are hidden from this list (more than 14 days old).
+        {hidden > 0 ? (
+          <><b>{hidden} older appointment{hidden === 1 ? '' : 's'}</b> with no outcome are hidden from this list (more than 14 days old).</>
+        ) : (
+          <>No older appointments are waiting for an outcome.</>
+        )}
       </p>
       {!preview ? (
         <button type="button" onClick={load} disabled={busy} className="mt-1 inline-flex min-h-[44px] items-center text-sm font-semibold text-[#2b0a3d] underline underline-offset-2">
-          Close out old appointments…
+          {hidden > 0 ? 'Close out old appointments…' : 'Close-out history / undo…'}
         </button>
       ) : (
         <div className="mt-2 flex flex-col gap-2 text-sm text-[#2c2c2a]">

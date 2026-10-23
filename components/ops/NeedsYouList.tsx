@@ -167,7 +167,7 @@ export default function NeedsYouList({ report, canFixPayPlans = false, audience 
           )}
         </>
       )}
-      {audience === 'owner' && (report.hiddenOldAppointments ?? 0) > 0 && <CloseOutAppointments hidden={report.hiddenOldAppointments ?? 0} />}
+      {audience === 'owner' && report.hiddenOldAppointments !== undefined && <CloseOutAppointments hidden={report.hiddenOldAppointments} />}
     </section>
   )
 }
