@@ -1,4 +1,4 @@
-import { createFakeDb } from '@/lib/__tests__/helpers/fake-db'
+import { createFakeDb } from '@/lib/test-helpers/fake-db'
 import { materializePayrollPeriod, planPayrollPeriod } from '@/lib/payroll-period-materialization'
 
 const ORG = 'org1'
@@ -70,5 +70,19 @@ describe('planPayrollPeriod is the one calculation', () => {
   it('a paid period is never planned', async () => {
     const db = createFakeDb({ ...seed(), payroll_periods: [{ id: PERIOD, org_id: ORG, status: 'paid', cutoff_at: '2026-10-22T03:59:59.999Z', scheduled_pay_date: '2026-10-23' }] }, { relations })
     await expect(planPayrollPeriod(db.client, { orgId: ORG, periodId: PERIOD })).rejects.toThrow('paid')
+  })
+})
+
+describe('only finished jobs are ever payable', () => {
+  it('a reopened job (in_progress with an install date and full payment) is in Waiting, never in the previewed payable set', async () => {
+    const s = seed()
+    s.production_jobs[0] = { ...s.production_jobs[0], status: 'in_progress' } as never
+    const db = createFakeDb(s, { relations })
+    const plan = await planPayrollPeriod(db.client, { orgId: ORG, periodId: PERIOD, includeWaiting: true })
+    expect(plan.jobs).toHaveLength(0)
+    expect(plan.waiting.find((w) => w.job.job_number === '26-0141')?.reasonText).toBe('Install not marked complete')
+    const run = createFakeDb(s, { relations })
+    const res = await materializePayrollPeriod(run.client, { orgId: ORG, periodId: PERIOD, actorUserId: 'a' })
+    expect(res.payoutLinesCreated).toBe(0)
   })
 })
