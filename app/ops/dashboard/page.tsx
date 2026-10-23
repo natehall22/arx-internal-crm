@@ -12,8 +12,7 @@ import {
 import { createServiceClient } from '@/lib/supabase/service'
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 import { CANCELLED_JOB_STATUS, type JobStatus, JOB_STATUS_CONFIG, jobStatusConfig } from '@/lib/job-status'
-import { filterReportForViewer, loadDataHealth, type DataHealthReport } from '@/lib/data-health'
-import { isPayrollAdminRole } from '@/lib/payroll-admin-access'
+import { loadNeedsYouForViewer, type DataHealthReport } from '@/lib/data-health'
 import NeedsYouList from '@/components/ops/NeedsYouList'
 import { isOwnerProfile } from '@/lib/super-admin'
 
@@ -105,12 +104,14 @@ export default async function OpsDashboardPage() {
       .limit(5),
   ])
 
-  // "Needs you" — the daily data-health check. Money and sale-credit rows are for
-  // payroll admins; everyone on this page sees the ops and appointment rows.
+  // "Needs you" — the daily data-health check, shaped for who is looking by the one rule in lib/data-health.ts
+  // (owners: everything; ops: operational rows only, no dollars; field roles: nothing).
   let needsYou: DataHealthReport | null = null
+  let needsYouAudience: 'owner' | 'ops' = 'ops'
   try {
-    const report = await loadDataHealth(admin, profile.org_id)
-    needsYou = filterReportForViewer(report, isPayrollAdminRole(profile.role))
+    const loaded = await loadNeedsYouForViewer(admin, profile.org_id, profile, canJobBoard)
+    needsYou = loaded.report
+    needsYouAudience = loaded.audience === 'owner' ? 'owner' : 'ops'
   } catch (error) {
     console.error('[ops dashboard] data health failed', error)
   }
@@ -184,7 +185,7 @@ export default async function OpsDashboardPage() {
           </div>
         </div>
 
-        {needsYou && <NeedsYouList report={needsYou} canFixPayPlans={isOwnerProfile(profile)} />}
+        {needsYou && <NeedsYouList report={needsYou} canFixPayPlans={isOwnerProfile(profile)} audience={needsYouAudience} />}
 
         {/* Pipeline Overview */}
         <div className="bg-white rounded-xl shadow-sm border p-6 mb-6">

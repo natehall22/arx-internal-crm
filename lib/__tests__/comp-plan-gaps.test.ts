@@ -1,6 +1,6 @@
 /** @jest-environment node */
 import { loadPayPlanGaps } from '@/lib/comp-plan-defaults-db'
-import { filterReportForViewer, type DataHealthReport } from '@/lib/data-health'
+import { shapeNeedsYou, type DataHealthReport } from '@/lib/data-health'
 
 function fakeAdmin(tables: Record<string, Array<Record<string, unknown>>>) {
   return {
@@ -47,10 +47,11 @@ describe('loadPayPlanGaps', () => {
 
 describe('pay-plan rows in Needs you', () => {
   const report: DataHealthReport = { generatedAt: 'x', jobs: [], appointments: [], payPlans: [{ role: 'sales_rep', roleLabel: 'Closer', people: [{ id: 'a', name: 'A' }], suggestion: null }], count: 1 }
-  it('is money: payroll admins see it, others do not', () => {
-    expect(filterReportForViewer(report, true).payPlans).toHaveLength(1)
-    const hidden = filterReportForViewer(report, false)
-    expect(hidden.payPlans).toEqual([])
+  it('is money: owners see it, ops and field roles do not', () => {
+    expect(shapeNeedsYou(report, 'owner')!.payPlans).toHaveLength(1)
+    const hidden = shapeNeedsYou(report, 'ops')!
+    expect(hidden.payPlans).toBeUndefined()
     expect(hidden.count).toBe(0)
+    expect(shapeNeedsYou(report, 'none')).toBeNull()
   })
 })

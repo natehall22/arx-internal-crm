@@ -228,6 +228,8 @@ export async function materializePayrollPeriod(
     .not('sale_date', 'is', null)
     .lte('sale_date', period.cutoff_at.slice(0, 10))
     .in('status', ['complete', 'collected'])
+    // Settled outside the CRM before cutover: the CRM never pays these (and the double-pay checks never see them).
+    .is('payroll_settled_externally_at', null)
   if (input.onlyJobIds?.length) jobsQuery = jobsQuery.in('id', input.onlyJobIds)
   const { data: jobData, error: jobError } = await jobsQuery
   if (jobError) throw jobError
