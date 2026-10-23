@@ -24,7 +24,20 @@ Rules: every PR targets this branch (not `main`), has its own branch, tests, bug
 | #71 `feat/ui-foundation` | `components/ui` kit, tokens, `lib/format.ts`, `lib/status.ts`, alert→toast / confirm→dialog, lint ratchet, saved views | `202610240020_table_views.sql` |
 
 ### Phase B — navigation, home, search — built on release (#74 nav, #75 search, #76 settings hub); migration `202610240050_global_search.sql` (additive, **not applied**; rollback `DROP FUNCTION search_all`)
-### Phase C — Customer File + Job Threads — not started (**screenshots for approval before any Phase C code**)
+### Phase C — Customer File + Job Threads — built (`feat/phase-c-core`), designs approved 2026-10-22
+| Piece | What |
+|---|---|
+| Migration `202610270010_threads_audiences.sql` (additive; **not applied**) | `activities` gains audience / origin / restricted_pricing / priority / reply / pins / soft-delete / mentions columns; `threads`, `thread_members`; `notifications` gains thread/priority/resolved columns; `users.ui_prefs`; SQL `message_visible_to` (mirrors `lib/threads/visibility.ts`), RLS on `activities` (rows with NULL audience behave exactly as today), `search_messages`. Rollback: restore the old `activities` SELECT policy (`org_id = get_user_org_id(auth.uid()) AND referral_partner_id IS NULL`), drop the two functions and two tables; columns can stay. Dry-run in a rolled-back transaction on prod 2026-10-22 (role × audience matrix verified). |
+| Customer File `/c/[customer]/d/[deal]/[tab]` | Header (stepper, next action, pinned alerts, deal switcher), lazy tabs Overview / Sales / Job / Money / Files (+ Notes on phones), role-default tab (remembered per user), thread rail. Sales and Job tabs are the existing opportunity and job pages re-shelled (`embedded`), so every existing action and permission check is kept. Prospect File `/c/lead/[lead]`. |
+| Job Threads | Audiences Team / Sales / Production / Crew chosen automatically (chip is only a request), pricing guard, exact @mentions (picker offers only people who can read the audience), needs-reply / urgent (3 a day), Waiting-on-you on Today, pins (3 customer alerts), edit / 15-min delete / tombstone, reclassify, typo-tolerant search in Cmd-K that opens at the message, crew link shows Crew notes only. |
+| Old note paths | `/api/ops/jobs/[id]/notes` is an adapter; packets, run sheet, dashboard, cancellation, supplier-order and project-handoff notes all read/write the thread (`lib/threads/job-notes.ts`). `production_job_notes` is no longer written. Subs portal still reads it (shared-with-sub notes only). |
+| Customer at inspection booking | `customerIdForLead` links/creates the customer when a deal is created (4 routes). No QuickBooks event, `leads.customer_id` untouched. |
+| Redirects | Old `/opportunities/[id]` (not queue mode), `/leads/[id]`, `/projects/[id]`, `/ops/jobs/[id]` → file, **off** until Vercel env `CUSTOMER_FILE_REDIRECTS` = `all` or a role list (`operations,admin`). Each hit is logged. |
+
+**Data fixes, apply after the migration, in this order (previews dry-run on prod 2026-10-22, nothing written):**
+1. `2026-10-27_link_orphan_opportunities.sql` — 363 opportunities have no customer. Preview: 2 join an existing customer by email, 35 by phone, 326 need a new customer = **314 new customers** (49 → 363 customers), 2 have no lead. After: 0 without a customer. Backup in `data_fix_backups`; rollback SQL in the file.
+2. `2026-10-27_merge_notes_into_threads.sql` — classifies the 4,337 existing activities (human vs system; only 1 existing note is human-written, 4,135 are system rows) and copies **478** old notes into the timeline (104 job notes with 54 exact-name mentions parsed, 158 + 94 old opportunity notes, 17 lead notes that have a deal, 42 + 29 project notes, 31 job internal notes, 3 pinned special instructions). Idempotent (legacy_ref); 14 lead notes with no deal stay on the lead; canvass door notes are shown live. Rollback in the file.
+
 ### Phase D — lists and queues — not started
 
 ## Payroll redesign (`docs/design/payroll-spec.md`, prototype `payroll-prototype.html`)
