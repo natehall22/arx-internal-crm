@@ -35,6 +35,17 @@ describe('unsettleJob', () => {
   })
 })
 
+describe('a job the CRM already paid', () => {
+  it('cannot be unsettled (snapshot in a locked week); a snapshot in an open week does not block', async () => {
+    const db = createFakeDb({ ...seed(), payroll_job_snapshots: [{ job_id: 'j1', payroll_period_id: 'p1' }], payroll_periods: [{ id: 'p1', status: 'locked' }] })
+    expect(await unsettleJob(db.client, { orgId: ORG, actorUserId: 'o', jobId: 'j1', reason: 'x' })).toMatchObject({ ok: false, status: 409 })
+    expect(db.tables.production_jobs[0].payroll_settled_externally_at).toBeTruthy()
+    expect(db.tables.payroll_override_audit ?? []).toHaveLength(0)
+    const open = createFakeDb({ ...seed(), payroll_job_snapshots: [{ job_id: 'j1', payroll_period_id: 'p2' }], payroll_periods: [{ id: 'p2', status: 'open' }] })
+    expect(await unsettleJob(open.client, { orgId: ORG, actorUserId: 'o', jobId: 'j1', reason: 'x' })).toEqual({ ok: true })
+  })
+})
+
 describe('DELETE /api/ops/jobs/[id]/settled-externally', () => {
   const mockAuth = jest.fn()
   jest.mock('@/lib/auth', () => ({ requireAuthApi: () => mockAuth() }))

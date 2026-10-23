@@ -22,6 +22,7 @@ export async function DELETE(request: Request, { params }: { params: { id: strin
     return NextResponse.json({ error: 'Only an owner can do this.' }, { status: 403 })
   }
   if (!/^[0-9a-f-]{36}$/i.test(params.id)) return NextResponse.json({ error: 'Bad request' }, { status: 400 })
+  if (!(request.headers.get('content-type') ?? '').includes('application/json')) return NextResponse.json({ error: 'Bad request' }, { status: 415 })
   const body = (await request.json().catch(() => ({}))) as { reason?: unknown }
   const res = await unsettleJob(createServiceClient(), { orgId: profile.org_id, actorUserId: profile.id, jobId: params.id, reason: typeof body.reason === 'string' ? body.reason : '' })
   if (!res.ok) return NextResponse.json({ error: res.error }, { status: res.status })

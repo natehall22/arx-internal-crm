@@ -30,7 +30,7 @@ export default function SettledExternallyCard({ jobId, settledAt, reason, canUns
     <div className="mb-4 rounded-xl border border-gray-300 bg-gray-50 p-4 text-[#2c2c2a]" role="note">
       <p className="text-sm font-semibold">Settled outside the CRM</p>
       <p className="text-sm">
-        {reason || 'Commission was paid outside the CRM.'} <span className="text-[#57574f]">(marked {settledAt.slice(0, 10)})</span> The CRM will not pay this job again and Needs you skips it. It still counts in sales and profit reports.
+        {canUnsettle ? (reason || 'Commission was paid outside the CRM.') : 'Commission was paid outside the CRM.'} <span className="text-[#57574f]">(marked {settledAt.slice(0, 10)})</span> The CRM will not pay this job again and Needs you skips it. It still counts in sales and profit reports.
       </p>
       {canUnsettle ? (
         open ? (
