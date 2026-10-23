@@ -80,6 +80,14 @@ describe('loadActiveCompPlanForUser with a role default', () => {
     const client = fakeClient({ ...base, user_comp_plans: null, org_default_comp_plans: [] })
     expect(await loadActiveCompPlanForUser(client, 'u', 'o', '2026-10-01')).toBeNull()
   })
+  it('a departed (inactive) user is never paid by a default', async () => {
+    const r = await loadActiveCompPlanForUser(fakeClient({ ...base, users: { role: 'sales_rep', active: false }, user_comp_plans: null }), 'u', 'o', '2026-11-01')
+    expect(r).toBeNull()
+  })
+  it('an active user still gets the default', async () => {
+    const r = await loadActiveCompPlanForUser(fakeClient({ ...base, users: { role: 'sales_rep', active: true }, user_comp_plans: null }), 'u', 'o', '2026-11-01')
+    expect(r?.source).toBe('org_default')
+  })
   it('a role with no default stays blank', async () => {
     const r = await loadActiveCompPlanForUser(fakeClient({ ...base, users: { role: 'admin' }, user_comp_plans: null }), 'u', 'o', '2026-11-01')
     expect(r).toBeNull()
