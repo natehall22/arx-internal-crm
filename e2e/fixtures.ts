@@ -199,3 +199,14 @@ export const DEFAULT_PLANS = {
   ],
   gaps: [{ role: 'sales_rep', roleLabel: 'Closer', people: [{ id: 'r1', name: 'Cam Hill' }, { id: 'r2', name: 'Tim Joyce' }] }],
 }
+
+export const HARNESS_QUEUES = [
+  { id: 'today-appointments', title: "Today's appointments", count: 2, empty: 'No more appointments today.', items: [
+    { id: 'a1', title: '12 Elm Street, Concord NC 28025', detail: '3:30 PM', href: '#' },
+    { id: 'a2', title: '4400 Very Long Boulevard Name Suite 200, Mooresville NC 28117', detail: '5:00 PM', href: '#' },
+  ] },
+  { id: 'outcomes-to-log', title: 'Outcomes to log', count: 0, empty: 'Every past appointment has an outcome.', items: [] },
+  { id: 'unsigned-proposals', title: 'Proposals waiting for a signature', count: 9, empty: 'Nothing waiting on a customer.', items: [
+    { id: 'p1', title: 'Ashley Gaines', detail: '#P-00118 · $18,430.50', href: '#' },
+  ] },
+]

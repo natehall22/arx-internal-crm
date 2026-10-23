@@ -258,3 +258,12 @@ select.bg-slate-950:-webkit-autofill {
     background: #ffffff !important;
   }
 }
+
+/* App shell (components/Nav.tsx): fixed sidebar on desktop, fixed bottom bar on phones. Pages render <Nav /> themselves,
+   so the room for it is made here. */
+@media (min-width: 768px) {
+  body.has-app-shell { padding-left: 15rem; }
+}
+@media (max-width: 767px) {
+  body.has-app-shell { padding-bottom: calc(4.5rem + env(safe-area-inset-bottom)); }
+}
