@@ -137,6 +137,8 @@ export type JobHealthInput = {
   changeOrderDelta: number
   /** Same, commissionable change orders only. */
   commissionableChangeOrderDelta: number
+  /** Sales tax inside the signed total (the job's proposal `tax_amount`): excluded from the commission base. 0 when unknown. */
+  salesTax?: number
   /** Cleared payments, cents (refunds negative). */
   paidCents: number
   costLineCount: number
@@ -193,16 +195,24 @@ export function expectedSaleAmount(input: Pick<JobHealthInput, 'contractTotal' |
   return num(input.job.sale_amount)
 }
 
-/** Owner decision #1: base = signed agreement + signed commissionable change orders. */
+/** Owner decision: base = signed agreement + signed commissionable change orders − sales tax. */
 export function expectedCommissionBase(
-  input: Pick<JobHealthInput, 'contractTotal' | 'commissionableChangeOrderDelta'>
+  input: Pick<JobHealthInput, 'contractTotal' | 'commissionableChangeOrderDelta' | 'salesTax'>
 ): number | null {
   if (input.contractTotal == null) return null
-  return round2(input.contractTotal + input.commissionableChangeOrderDelta)
+  // Same rule as lib/job-commission-base.ts (Nathan, 2026-10-22): signed contract + commissionable change orders, minus sales
+  // tax ONLY. Dealer fees are never deducted. (Before this the check ignored tax and flagged nearly every job.)
+  return Math.max(0, round2(input.contractTotal + input.commissionableChangeOrderDelta - (input.salesTax ?? 0)))
 }
 
 const INSTALLED_STATUSES = new Set(['complete', 'collected'])
 const PRE_INSTALL_STATUSES = new Set(['sold', 'materials', 'scheduled'])
+
+/** Paid outside the CRM before the payroll cutover (production_jobs.payroll_settled_externally_at). */
+export function isSettledExternally(job: object): boolean {
+  const at = (job as { payroll_settled_externally_at?: unknown }).payroll_settled_externally_at
+  return typeof at === 'string' && at.length > 0
+}
 
 export function jobHref(jobId: string, hash?: string): string {
   return `/ops/jobs/${jobId}${hash ? `#${hash}` : ''}`
@@ -515,11 +525,13 @@ export function contractTotalForJob(
   byProposal: Map<string, ContractRow[]>,
   byOpportunity: Map<string, ContractRow[]>
 ): number | null {
-  const rows =
-    (ids.proposalId ? byProposal.get(ids.proposalId) : undefined) ??
-    (ids.opportunityId ? byOpportunity.get(ids.opportunityId) : undefined)
-  if (!rows || rows.length === 0) return null
-  return round2(rows.reduce((sum, r) => sum + (num(r.project_cost) ?? 0), 0))
+  // ALL of the job's completed sale agreements count, whichever way they link: split cash/finance deals sign two agreements,
+  // one possibly on the proposal and one on the opportunity. Union (each agreement once), never "proposal else opportunity".
+  const seen = new Set<ContractRow>()
+  for (const r of (ids.proposalId ? byProposal.get(ids.proposalId) : undefined) ?? []) seen.add(r)
+  for (const r of (ids.opportunityId ? byOpportunity.get(ids.opportunityId) : undefined) ?? []) seen.add(r)
+  if (seen.size === 0) return null
+  return round2(Array.from(seen).reduce((sum, r) => sum + (num(r.project_cost) ?? 0), 0))
 }
 
 function groupBy<T>(rows: T[], key: (row: T) => string | null | undefined): Map<string, T[]> {
@@ -544,7 +556,7 @@ export async function loadDataHealth(
   const includeAppointments = opts.includeAppointments ?? !opts.jobIds
 
   // `*` on purpose: force columns from the money-inputs work may or may not exist yet.
-  const jobs = opts.jobIds
+  const allJobs = opts.jobIds
     ? await selectIn<HealthJobRow>(opts.jobIds, (chunk) =>
         admin.from('production_jobs').select('*').eq('org_id', orgId).in('id', chunk)
       )
@@ -558,10 +570,13 @@ export async function loadDataHealth(
           .range(from, to)
       )
 
+  // Jobs settled outside the CRM before cutover are not Needs-you material at all (and never payroll's).
+  const jobs = allJobs.filter((j) => !isSettledExternally(j))
   const jobIds = jobs.map((j) => j.id)
   const projectIds = Array.from(new Set(jobs.map((j) => j.project_id).filter((v): v is string => typeof v === 'string')))
 
-  const [projects, contracts, changeOrders, payments, costLines, trades] = await Promise.all([
+  const proposalIds = Array.from(new Set(jobs.flatMap((j) => [j.linked_proposal_id, j.accepted_proposal_id]).filter((v): v is string => typeof v === 'string' && v.length > 0)))
+  const [projects, contracts, changeOrders, payments, costLines, trades, proposals] = await Promise.all([
     selectIn<{ id: string; opportunity_id: string | null }>(projectIds, (chunk) =>
       admin.from('projects').select('id, opportunity_id').eq('org_id', orgId).in('id', chunk)
     ),
@@ -598,7 +613,11 @@ export async function loadDataHealth(
         .not('trade', 'is', null)
         .in('job_id', chunk)
     ),
+    selectIn<{ id: string; tax_amount: number | string | null }>(proposalIds, (chunk) =>
+      admin.from('proposals').select('id, tax_amount').eq('org_id', orgId).in('id', chunk)
+    ),
   ])
+  const taxByProposal = new Map(proposals.map((p) => [p.id, num(p.tax_amount) ?? 0]))
 
   const oppByProject = new Map(projects.map((p) => [p.id, p.opportunity_id]))
   const opportunityIds = Array.from(
@@ -634,6 +653,7 @@ export async function loadDataHealth(
     const problems = evaluateJobHealth({
       job,
       contractTotal: contractTotalForJob({ proposalId, opportunityId }, contractsByProposal, contractsByOpportunity),
+      salesTax: proposalId ? taxByProposal.get(proposalId) ?? 0 : 0,
       changeOrderDelta: round2(cos.reduce((s, c) => s + delta(c), 0)),
       commissionableChangeOrderDelta: round2(cos.filter((c) => c.is_commissionable !== false).reduce((s, c) => s + delta(c), 0)),
       paidCents: (paymentsByJob.get(job.id) ?? [])

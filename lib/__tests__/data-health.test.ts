@@ -2,6 +2,7 @@ import {
   appointmentNeedsOutcome,
   appointmentOutcomeHref,
   contractTotalForJob,
+  expectedCommissionBase,
   evaluateAppointmentHealth,
   evaluateJobHealth,
   shapeNeedsYou,
@@ -214,20 +215,43 @@ describe('payability', () => {
 })
 
 describe('contractTotalForJob', () => {
-  it('proposal first, then deal, summing split agreements', () => {
-    const byProposal = new Map([['p1', [{ opportunity_id: 'o1', proposal_id: 'p1', project_cost: '5000.10' }]]])
-    const byOpp = new Map([
-      [
-        'o1',
-        [
-          { opportunity_id: 'o1', proposal_id: null, project_cost: 3000 },
-          { opportunity_id: 'o1', proposal_id: 'p1', project_cost: '5000.10' },
-        ],
-      ],
-    ])
-    expect(contractTotalForJob({ proposalId: 'p1', opportunityId: 'o1' }, byProposal, byOpp)).toBe(5000.1)
+  // One agreement on the proposal, a second (finance) on the deal only: both count, each once.
+  const onProposal = { opportunity_id: 'o1', proposal_id: 'p1', project_cost: '5000.10' }
+  const onDealOnly = { opportunity_id: 'o1', proposal_id: null, project_cost: 3000 }
+  const byProposal = new Map([['p1', [onProposal]]])
+  const byOpp = new Map([['o1', [onDealOnly, onProposal]]])
+
+  it('SUMS every completed agreement however it links (split cash/finance deals), each once', () => {
+    expect(contractTotalForJob({ proposalId: 'p1', opportunityId: 'o1' }, byProposal, byOpp)).toBe(8000.1)
     expect(contractTotalForJob({ proposalId: null, opportunityId: 'o1' }, byProposal, byOpp)).toBe(8000.1)
+    expect(contractTotalForJob({ proposalId: 'p1', opportunityId: null }, byProposal, byOpp)).toBe(5000.1)
     expect(contractTotalForJob({ proposalId: 'px', opportunityId: null }, byProposal, byOpp)).toBeNull()
+  })
+})
+
+describe('expected commission base excludes sales tax (same rule as lib/job-commission-base.ts)', () => {
+  it('contract + commissionable change orders − sales tax; dealer fees never matter', () => {
+    expect(expectedCommissionBase({ contractTotal: 11280, commissionableChangeOrderDelta: 0, salesTax: 615.04 })).toBe(10664.96)
+    expect(expectedCommissionBase({ contractTotal: 10000, commissionableChangeOrderDelta: 500, salesTax: 0 })).toBe(10500)
+    expect(expectedCommissionBase({ contractTotal: 10000, commissionableChangeOrderDelta: 500 })).toBe(10500)
+    expect(expectedCommissionBase({ contractTotal: null, commissionableChangeOrderDelta: 0, salesTax: 5 })).toBeNull()
+    expect(expectedCommissionBase({ contractTotal: 100, commissionableChangeOrderDelta: 0, salesTax: 150 })).toBe(0) // never negative
+  })
+  it('a base that already excludes the tax is NOT a mismatch', () => {
+    const problems = evaluateJobHealth({
+      job: { id: 'j', job_number: '26-1', status: 'collected', sale_amount: 11280, commission_comp_base: 10664.96 } as never,
+      contractTotal: 11280, changeOrderDelta: 0, commissionableChangeOrderDelta: 0, salesTax: 615.04,
+      paidCents: 1_128_000, costLineCount: 1, deal: { owner_user_id: 'c', setter_user_id: 's' }, trades: [], todayYmd: '2026-10-21',
+    })
+    expect(problems.map((p) => p.code)).not.toContain('commission_base_mismatch')
+  })
+})
+
+describe('jobs settled outside the CRM', () => {
+  it('are never in Needs you', async () => {
+    const t = { ...tables, production_jobs: tables.production_jobs.map((j) => (j.id === 'j2' ? { ...j, payroll_settled_externally_at: '2026-10-25T12:00:00Z', settled_externally_reason: 'paid outside CRM before cutover' } : j)) }
+    const report = await loadDataHealth(fakeSupabase(t), 'org-1', { now: new Date('2026-10-21T12:00:00Z') })
+    expect(report.jobs.map((j) => j.jobNumber)).toEqual([])
   })
 })
 

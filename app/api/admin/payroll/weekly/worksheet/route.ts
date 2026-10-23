@@ -62,6 +62,8 @@ export async function GET(request: NextRequest) {
       )
       .eq('org_id', orgId)
       .neq('status', CANCELLED_JOB_STATUS)
+      // Settled outside the CRM before cutover: not payroll's to list.
+      .is('payroll_settled_externally_at', null)
       .order('updated_at', { ascending: false })
       .limit(limit)
 
