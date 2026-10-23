@@ -4,6 +4,7 @@
 CREATE OR REPLACE FUNCTION record_user_payroll_active_history()
 RETURNS TRIGGER
 LANGUAGE plpgsql
+SECURITY DEFINER -- the plan must end even when the deactivation came through a user-token client (RLS would otherwise make the UPDATE a silent no-op)
 SET search_path = public
 AS $$
 DECLARE

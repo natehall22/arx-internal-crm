@@ -33,6 +33,7 @@ const FULL: DataHealthReport = {
   ],
   appointments: [{ kind: 'appointment', appointmentId: 'a1', scheduledFor: '2026-10-20T14:00:00Z', appointmentType: 'inspection', addressText: '4 Ash', problems: [p('appointment_no_outcome', 'sales', 'Inspection on 2026-10-20 has no outcome.')] }],
   payPlans: [{ role: 'sales_rep', roleLabel: 'Closer', people: [{ id: 'u', name: 'Cam Hill' }], suggestion: null }],
+  endedPlans: [{ id: 'e', name: 'Nathan Hall', role: 'admin', roleLabel: 'Admin', endedOn: '2026-08-19' }],
   count: 5,
 }
 
@@ -55,6 +56,7 @@ describe('who gets what from Needs you (pure rule)', () => {
     expect(JSON.stringify(r)).not.toContain('$')
     expect(r.jobs.flatMap((j) => j.problems).every((x) => x.blocksPay === false)).toBe(true)
     expect(r.payPlans).toBeUndefined()
+    expect(r.endedPlans).toBeUndefined()
     expect(r.jobs.map((j) => j.jobNumber)).toEqual(['26-0001', '26-0003']) // j2 had only a money row
     expect(r.count).toBe(3)
   })
