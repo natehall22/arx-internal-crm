@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic'
 
 import { sumCollectedCents } from '@/lib/job-collection'
 import { requireAuth } from '@/lib/auth'
+import { visibleActivities } from '@/lib/threads/legacy-feed'
 import { createServiceClient } from '@/lib/supabase/service'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
@@ -130,11 +131,13 @@ export default async function ProjectDetailPage({
     notFound()
   }
 
-  const { data: activities } = await supabase
+  const { data: activitiesRaw } = await supabase
     .from('activities')
     .select('*, users(full_name)')
     .eq('project_id', params.id)
     .order('created_at', { ascending: false })
+  // Same audience rules as the thread (this client skips RLS).
+  const activities = await visibleActivities(supabase, profile, activitiesRaw)
 
   const { data: files } = await supabase
     .from('files')

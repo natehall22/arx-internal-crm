@@ -182,7 +182,7 @@ export default function NotificationsPage() {
                     key={notification.id}
                     onClick={() => {
                       if (!notification.read_at) markAsRead([notification.id])
-                      if (notification.link_url?.startsWith('/') && /^(referral_partner|partner_owner)/.test(notification.type)) {
+                      if (notification.link_url?.startsWith('/') && /^(referral_partner|partner_owner|thread_)/.test(notification.type)) {
                         window.location.assign(notification.link_url)
                       }
                     }}

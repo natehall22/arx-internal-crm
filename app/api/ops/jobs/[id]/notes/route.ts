@@ -1,4 +1,6 @@
 import { NextResponse } from 'next/server'
+
+import { dealRefOf } from '@/lib/threads/get-thread'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import { canReadJobNotes, resolveOpsAccess } from '@/lib/ops-access'
@@ -6,8 +8,7 @@ import { postMessage } from '@/lib/threads/post-message'
 import { notifyMessage } from '@/lib/threads/notify'
 import { loadDeal } from '@/lib/threads/get-thread'
 import { resolveByReply } from '@/lib/threads/waiting'
-import { resolveThreadViewer } from '@/lib/threads/viewer'
-import { canReadMessage } from '@/lib/threads/visibility'
+import { loadJobNotes } from '@/lib/threads/job-notes'
 
 /**
  * Legacy job-notes endpoint, kept for the old job page and any stale client. Notes now live in the deal's thread
@@ -45,22 +46,11 @@ export async function GET(_request: Request, { params }: { params: { id: string 
     }
     const { job, deal } = await dealForJob(admin, profile.org_id, params.id)
     if (!job) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
-    if (!deal) return NextResponse.json({ notes: [] })
 
-    const viewer = await resolveThreadViewer(admin, profile)
-    const { data } = await admin
-      .from('activities')
-      .select('id, body, created_at, audience, restricted_pricing, deleted_at, users(full_name)')
-      .eq('org_id', profile.org_id)
-      .eq('opportunity_id', deal.id)
-      .in('audience', ['production', 'crew'])
-      .is('deleted_at', null)
-      .order('created_at', { ascending: false })
-      .limit(200)
-    const dealRef = { owner_user_id: deal.owner_user_id, setter_user_id: deal.setter_user_id }
-    const notes: LegacyNote[] = ((data ?? []) as unknown as Array<{ id: string; body: string; created_at: string; audience: 'production' | 'crew'; restricted_pricing: boolean | null; users: { full_name: string | null } | { full_name: string | null }[] | null }>)
-      .filter((r) => canReadMessage(viewer, dealRef, r))
-      .map((r) => ({ id: r.id, note: r.body, created_at: r.created_at, user: (Array.isArray(r.users) ? r.users[0] : r.users) ?? null }))
+    // Thread messages (Production + Crew) plus any legacy production_job_notes not yet copied into the thread
+    // (and the notes the cancel/uncancel functions still write there). Job-board access was checked above.
+    const rows = await loadJobNotes(admin, profile.org_id, params.id, { limit: 200 })
+    const notes: LegacyNote[] = rows.map((r) => ({ id: r.id, note: r.note, created_at: r.created_at, user: { full_name: r.author_name } }))
     return NextResponse.json({ notes })
   } catch (error) {
     console.error('Error in GET /api/ops/jobs/[id]/notes:', error)

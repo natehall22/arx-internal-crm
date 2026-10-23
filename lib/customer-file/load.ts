@@ -6,7 +6,7 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { canAccessJobBilling } from '@/lib/finance-access'
 import { defaultTab, tabsFor, type FileTab } from '@/lib/customer-file/access'
 import { buildStages, nextAction, type StageStep } from '@/lib/customer-file/stage'
-import { getPinned, loadDeal, type ThreadMessage } from '@/lib/threads/get-thread'
+import { dealRefsFor, getPinned, loadDeal, type ThreadMessage } from '@/lib/threads/get-thread'
 import { canOpenDeal } from '@/lib/threads/api'
 import { resolveThreadViewer } from '@/lib/threads/viewer'
 import type { ThreadViewer } from '@/lib/threads/visibility'
@@ -63,8 +63,9 @@ export const loadFile = cache(async (customerId: string, dealId: string): Promis
   ])
   if (!customerRes.data) notFound()
 
+  const dealRefs = await dealRefsFor(admin, viewer.orgId, ((dealsRes.data ?? []) as Array<{ id: string }>).map((d) => d.id))
   const deals = ((dealsRes.data ?? []) as Array<FileDealSummary & { owner_user_id: string | null; setter_user_id: string | null }>)
-    .filter((d) => canOpenDeal(viewer, d))
+    .filter((d) => canOpenDeal(viewer, dealRefs.get(d.id) ?? d))
     .map(({ id, address_text, status, created_at }) => ({ id, address_text, status, created_at }))
 
   const projectId = (projectRes.data as { id: string } | null)?.id ?? null
@@ -140,7 +141,8 @@ export async function pickDefaultDeal(customerId: string): Promise<string | null
     .eq('customer_id', customerId)
     .eq('org_id', viewer.orgId)
     .order('created_at', { ascending: false })
-  const readable = (data ?? []).filter((d) => canOpenDeal(viewer, d as never)) as Array<{ id: string; status: string }>
+  const refs = await dealRefsFor(admin, viewer.orgId, (data ?? []).map((d) => (d as { id: string }).id))
+  const readable = (data ?? []).filter((d) => canOpenDeal(viewer, refs.get((d as { id: string }).id) ?? (d as never))) as Array<{ id: string; status: string }>
   if (readable.length === 0) return null
   const active = readable.find((d) => d.status === 'won' || d.status === 'in_progress')
   return (active ?? readable[0]).id

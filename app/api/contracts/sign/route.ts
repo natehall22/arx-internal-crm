@@ -3,7 +3,7 @@ import nodemailer from 'nodemailer'
 import { getCrmEmailFrom } from '@/lib/crm-email-from'
 import { buildOrderFormContractSaleDescription, notifyOrgAdminsOfSale } from '@/lib/admin-sale-email'
 import { syncJobSaleForProjectOrJob } from '@/lib/job-commission-base'
-import { resolveCustomerDisplayName, upsertCustomer } from '@/lib/customers'
+import { enrichCustomerFromContract, resolveCustomerDisplayName, upsertCustomer } from '@/lib/customers'
 import { resolveProposalSoldRoofSquares } from '@/lib/sold-roof-squares'
 import { createServiceClient } from '@/lib/supabase/service'
 import { reinstateCancelledJob } from '@/lib/job-cancellation'
@@ -508,6 +508,9 @@ export async function POST(request: NextRequest) {
           }
         }
 
+        // The customer exists from inspection booking: fill in what the signed contract adds, and tell QuickBooks now.
+        if (customerId) await enrichCustomerFromContract(supabase, contract.org_id, customerId, contract)
+
         const soldRoofSquares = (await getProposalSoldRoofSquares(supabase, contract.proposal_id)) ?? contract.total_squares
 
         const { data: project, error: projectInsertError } = await supabase
@@ -766,6 +769,8 @@ export async function POST(request: NextRequest) {
             if (leadId) {
               await supabase.from('leads').update({ customer_id: ensuredId }).eq('id', leadId)
             }
+          } else {
+            await enrichCustomerFromContract(supabase, contract.org_id, ensuredId, contract)
           }
         } catch (e) {
           console.error('[Contract Sign] ensure customer (existing project)', e)

@@ -9,6 +9,7 @@
 --
 -- Rollback: drop the policy "Users can read activities" and recreate it as
 --   (org_id = get_user_org_id(auth.uid()) AND referral_partner_id IS NULL);
+--   and recreate the three old write policies (org_id = get_user_org_id(auth.uid()) AND user_id = auth.uid());
 --   DROP FUNCTION message_visible_to, search_messages; DROP TABLE thread_members, threads;
 --   ALTER TABLE activities DROP COLUMN <added columns>; (no data outside the new columns is touched)
 
@@ -19,12 +20,12 @@ ALTER TABLE public.activities
   ADD COLUMN IF NOT EXISTS origin text NULL CHECK (origin IN ('human','system')),
   ADD COLUMN IF NOT EXISTS restricted_pricing boolean NULL,
   ADD COLUMN IF NOT EXISTS priority text NULL CHECK (priority IN ('fyi','needs_reply','urgent')),
-  ADD COLUMN IF NOT EXISTS reply_to_id uuid NULL REFERENCES public.activities(id),
+  ADD COLUMN IF NOT EXISTS reply_to_id uuid NULL REFERENCES public.activities(id) ON DELETE SET NULL,
   ADD COLUMN IF NOT EXISTS client_id uuid NULL,
   ADD COLUMN IF NOT EXISTS source text NULL,
   ADD COLUMN IF NOT EXISTS mentioned_user_ids uuid[] NULL,
-  ADD COLUMN IF NOT EXISTS production_job_id uuid NULL REFERENCES public.production_jobs(id),
-  ADD COLUMN IF NOT EXISTS work_order_id uuid NULL REFERENCES public.work_orders(id),
+  ADD COLUMN IF NOT EXISTS production_job_id uuid NULL REFERENCES public.production_jobs(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS work_order_id uuid NULL REFERENCES public.work_orders(id) ON DELETE SET NULL,
   ADD COLUMN IF NOT EXISTS thread_id uuid NULL,
   ADD COLUMN IF NOT EXISTS edited_at timestamptz NULL,
   ADD COLUMN IF NOT EXISTS deleted_at timestamptz NULL,
@@ -45,9 +46,10 @@ CREATE TABLE IF NOT EXISTS public.threads (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id uuid NOT NULL REFERENCES public.orgs(id),
   kind text NOT NULL CHECK (kind IN ('deal','prospect')),
-  opportunity_id uuid NULL REFERENCES public.opportunities(id),
-  lead_id uuid NULL REFERENCES public.leads(id),
-  customer_id uuid NULL REFERENCES public.customers(id),
+  -- Deleting a deal/lead removes its thread (the old delete routes already remove the deal's activities).
+  opportunity_id uuid NULL REFERENCES public.opportunities(id) ON DELETE CASCADE,
+  lead_id uuid NULL REFERENCES public.leads(id) ON DELETE CASCADE,
+  customer_id uuid NULL REFERENCES public.customers(id) ON DELETE SET NULL,
   last_message_at timestamptz NULL,
   created_at timestamptz NOT NULL DEFAULT now()
 );
@@ -71,8 +73,8 @@ ALTER TABLE public.threads ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.thread_members ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE public.notifications
-  ADD COLUMN IF NOT EXISTS thread_id uuid NULL REFERENCES public.threads(id),
-  ADD COLUMN IF NOT EXISTS activity_id uuid NULL REFERENCES public.activities(id),
+  ADD COLUMN IF NOT EXISTS thread_id uuid NULL REFERENCES public.threads(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS activity_id uuid NULL REFERENCES public.activities(id) ON DELETE CASCADE,
   ADD COLUMN IF NOT EXISTS priority text NULL CHECK (priority IN ('fyi','needs_reply','urgent')),
   ADD COLUMN IF NOT EXISTS resolved_at timestamptz NULL,
   ADD COLUMN IF NOT EXISTS resolution text NULL,
@@ -83,7 +85,8 @@ ALTER TABLE public.users ADD COLUMN IF NOT EXISTS ui_prefs jsonb NULL;
 
 -- Who may read a message. Mirrors lib/threads/visibility.ts (canReadMessage); the TS side is the
 -- one the app uses (service client), this one backs browser-client reads (RLS) and search.
--- Fails CLOSED: roles it does not positively recognise get team/sales on their own deals only.
+-- Fails CLOSED: a role it does not positively recognise (sub, custom-only) reads nothing with an audience. Mirrors `recognized`
+-- in lib/threads/viewer.ts.
 CREATE OR REPLACE FUNCTION public.message_visible_to(
   p_viewer uuid, p_audience text, p_restricted boolean, p_org uuid, p_opportunity uuid
 ) RETURNS boolean
@@ -104,18 +107,22 @@ AS $$
       v.role IN ('manager','sales_manager','regional_manager','operations') AS manager_like,
       (v.role IN ('setter','canvasser')) AS base_setter,
       (v.role IN ('rep','sales_rep','closer')) AS closer_role,
-      (v.role IN ('rep','sales_rep','closer') AND EXISTS (SELECT 1 FROM d WHERE d.owner_user_id = v.id)) AS own_closer,
+      (v.role IN ('rep','sales_rep','closer') AND (EXISTS (SELECT 1 FROM d WHERE d.owner_user_id = v.id)
+        OR EXISTS (SELECT 1 FROM scheduled_appointments sa WHERE sa.opportunity_id = p_opportunity AND sa.closer_user_id = v.id))) AS own_closer,
       (v.role IN ('inside_sales','inside sales','call_center')
         OR v.crname LIKE '%inside sales%' OR v.crname LIKE '%inside_sales%' OR v.crname LIKE '%call center%' OR v.crname LIKE '%call_center%') AS inside_like,
       v.role IN ('admin','owner','operations','manager','sales_manager','regional_manager','rep','sales_rep','closer') OR v.sa AS pricing_role,
-      EXISTS (SELECT 1 FROM d WHERE d.owner_user_id = v.id OR d.setter_user_id = v.id) AS own_deal
+      (EXISTS (SELECT 1 FROM d WHERE d.owner_user_id = v.id OR d.setter_user_id = v.id)
+        OR EXISTS (SELECT 1 FROM scheduled_appointments sa WHERE sa.opportunity_id = p_opportunity AND (sa.closer_user_id = v.id OR sa.canvasser_user_id = v.id))) AS own_deal
     FROM v
   ),
-  g AS (SELECT f.*, (f.base_setter AND NOT f.inside_like) AS setter_like, (f.pricing_role AND NOT f.base_setter AND NOT f.inside_like) AS pricing_ok FROM f)
+  g AS (SELECT f.*, (f.owner_like OR f.job_board OR f.manager_like OR f.closer_role OR f.base_setter OR f.inside_like) AS recognized,
+        (f.base_setter AND NOT f.inside_like) AS setter_like, (f.pricing_role AND NOT f.base_setter AND NOT f.inside_like) AS pricing_ok FROM f)
   SELECT CASE
     WHEN p_audience IS NULL THEN true                       -- legacy rows: unchanged behaviour
     WHEN NOT coalesce((SELECT in_org FROM g), false) THEN false
     WHEN coalesce((SELECT owner_like FROM g), false) THEN true
+    WHEN NOT coalesce((SELECT recognized FROM g), false) THEN false     -- unknown roles (sub, custom-only) see nothing
     WHEN p_restricted IS TRUE AND NOT coalesce((SELECT pricing_ok FROM g), false) THEN false
     WHEN p_audience IN ('production','crew') THEN
       coalesce((SELECT job_board OR manager_like OR own_closer FROM g), false)
@@ -136,6 +143,30 @@ CREATE POLICY "Users can read activities" ON public.activities
     AND (audience IS NULL OR public.message_visible_to((SELECT auth.uid()), audience, restricted_pricing, org_id, opportunity_id))
   );
 
+-- Browser (PostgREST) writes must not be able to forge audiences, pin, flag or soft-delete: those only go through
+-- lib/threads (service role). A user's own legacy-style rows (audience NULL) still work exactly as before.
+DROP POLICY IF EXISTS "Users can insert activities" ON public.activities;
+CREATE POLICY "Users can insert activities" ON public.activities
+  FOR INSERT
+  WITH CHECK (
+    org_id = get_user_org_id(auth.uid()) AND user_id = auth.uid()
+    AND audience IS NULL AND restricted_pricing IS NULL AND priority IS NULL AND origin IS NULL
+    AND pinned_at IS NULL AND deleted_at IS NULL AND mentioned_user_ids IS NULL AND legacy_ref IS NULL
+  );
+DROP POLICY IF EXISTS "Users can update own activities" ON public.activities;
+CREATE POLICY "Users can update own activities" ON public.activities
+  FOR UPDATE
+  USING (org_id = get_user_org_id(auth.uid()) AND user_id = auth.uid() AND audience IS NULL)
+  WITH CHECK (
+    org_id = get_user_org_id(auth.uid()) AND user_id = auth.uid()
+    AND audience IS NULL AND restricted_pricing IS NULL AND priority IS NULL AND origin IS NULL
+    AND pinned_at IS NULL AND deleted_at IS NULL AND mentioned_user_ids IS NULL AND legacy_ref IS NULL
+  );
+DROP POLICY IF EXISTS "Users can delete own activities" ON public.activities;
+CREATE POLICY "Users can delete own activities" ON public.activities
+  FOR DELETE
+  USING (org_id = get_user_org_id(auth.uid()) AND user_id = auth.uid() AND audience IS NULL);
+
 -- Typo-tolerant message search that applies the SAME visibility function. Service role only:
 -- the caller passes the viewer, so a leaked key cannot search as someone else from the browser.
 CREATE OR REPLACE FUNCTION public.search_messages(p_org uuid, p_viewer uuid, p_q text, p_limit int DEFAULT 20)
@@ -153,6 +184,7 @@ AS $$
     AND a.deleted_at IS NULL
     AND a.referral_partner_id IS NULL
     AND a.audience IS NOT NULL
+    AND a.opportunity_id IS NOT NULL            -- lead/customer-only notes have no deal to check ownership against
     AND coalesce(a.origin, 'human') = 'human'
     AND length(q.t) >= 2
     AND (lower(a.body) LIKE q.pat OR q.t <% lower(a.body))

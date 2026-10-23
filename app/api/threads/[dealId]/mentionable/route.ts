@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server'
 
+import { dealRefOf } from '@/lib/threads/get-thread'
+
 import { mentionCandidates } from '@/lib/note-mentions'
 import { threadAuth, threadDeal } from '@/lib/threads/api'
 import { resolveThreadViewer } from '@/lib/threads/viewer'
@@ -19,7 +21,7 @@ export async function GET(request: Request, { params }: { params: { dealId: stri
     .select('id, full_name, email, active, role, custom_role_id, is_super_admin, org_id')
     .eq('org_id', ctx.viewer.orgId)
     .eq('active', true)
-  const dealRef = { owner_user_id: deal.owner_user_id, setter_user_id: deal.setter_user_id }
+  const dealRef = dealRefOf(deal)
   const out: { id: string; full_name: string }[] = []
   for (const u of mentionCandidates(data ?? [])) {
     if (u.id === ctx.viewer.userId) continue

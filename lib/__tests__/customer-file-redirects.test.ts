@@ -1,3 +1,4 @@
+/** @jest-environment node */
 import { fileRedirectsEnabledFor } from '@/lib/customer-file/redirects'
 
 describe('customer file redirect switch', () => {

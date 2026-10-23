@@ -7,7 +7,7 @@ const owner = { ...base, ownerLike: true, jobBoard: true, jobEdit: true, jobFina
 const ops = { ...base, jobBoard: true, jobEdit: true }
 const closer = { ...base, closerLike: true }
 const setter = { ...base, setterLike: true, pricingBarred: true }
-const inside = { ...base, pricingBarred: true }
+const inside = { ...base, pricingBarred: true, insideSales: true }
 const salesMgr = { ...base, managerLike: true }
 
 describe('customer file tabs', () => {

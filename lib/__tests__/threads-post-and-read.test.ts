@@ -94,12 +94,33 @@ describe('postMessage', () => {
     const db = fresh()
     const fyi = await post(db, 'closer', { body: '@Steve Potts fyi gate code 4471', audience: 'team' })
     expect(fyi.ok && fyi.message.priority).toBe('fyi')
-    expect((await post(db, 'ops', { body: 'urgent 0', priority: 'urgent', audience: 'production' })).ok).toBe(true)
+    expect((await post(db, 'ops', { body: '@Sam Closer urgent 0', priority: 'urgent', audience: 'production' })).ok).toBe(true)
     // the fake db has no column defaults, so stamp created_at like Postgres would
     for (const r of db.tables.activities) r.created_at ??= new Date().toISOString()
     for (let i = 1; i < 3; i++) db.tables.activities.push({ id: `u${i}`, org_id: ORG, user_id: 'ops', priority: 'urgent', created_at: new Date().toISOString() })
-    const fourth = await post(db, 'ops', { body: 'urgent 4', priority: 'urgent', audience: 'production' })
+    const fourth = await post(db, 'ops', { body: '@Sam Closer urgent 4', priority: 'urgent', audience: 'production' })
     expect(!fourth.ok && fourth.status).toBe(429)
+  })
+
+  it('urgent / needs-reply with nobody to wait on is just FYI (and burns no urgent slot)', async () => {
+    const db = fresh()
+    const r = await post(db, 'ops', { body: 'heads up', priority: 'urgent', audience: 'production' })
+    expect(r.ok && r.message.priority).toBe('fyi')
+  })
+
+  it('a needs-reply reply with no @ still waits on the author of the message replied to', async () => {
+    const db = fresh()
+    const parent = await post(db, 'closer', { body: 'Wife picked Onyx', audience: 'team' })
+    if (!parent.ok) throw new Error('x')
+    const r = await post(db, 'ops', { body: 'confirming the color', audience: 'team', replyToId: parent.message.id, priority: 'needs_reply' })
+    expect(r.ok && r.recipients).toEqual([{ userId: 'closer', priority: 'needs_reply', reason: 'reply' }])
+  })
+
+  it('a reply must stay on the same deal', async () => {
+    const db = fresh()
+    db.tables.activities.push({ id: 'other', org_id: ORG, opportunity_id: 'd9', user_id: 'closer', body: 'elsewhere', audience: 'team', created_at: new Date().toISOString() })
+    const r = await post(db, 'closer', { body: 'hi', audience: 'team', replyToId: 'other' })
+    expect(!r.ok && r.status).toBe(404)
   })
 
   it('retrying the same client_id never doubles a message', async () => {
@@ -108,6 +129,28 @@ describe('postMessage', () => {
     const b = await post(db, 'closer', { body: 'hello', audience: 'team', clientId: 'c-1' })
     expect(a.ok && b.ok && a.message.id === b.message.id).toBe(true)
     expect(db.tables.activities).toHaveLength(1)
+  })
+})
+
+describe('getTimeline — all deals scope', () => {
+  it('checks each message against ITS OWN deal: a setter on deal A never reads deal B of the same customer', async () => {
+    const db = createFakeDb({
+      opportunities: [
+        { id: 'dA', org_id: ORG, owner_user_id: 'closer', setter_user_id: 'setter', customer_id: 'c1', lead_id: null },
+        { id: 'dB', org_id: ORG, owner_user_id: 'closer2', setter_user_id: 'setter2', customer_id: 'c1', lead_id: null },
+      ],
+      scheduled_appointments: [],
+      activities: [
+        { id: 'a1', org_id: ORG, opportunity_id: 'dA', customer_id: 'c1', user_id: 'closer', type: 'note', body: 'mine', audience: 'team', origin: 'human', created_at: '2026-10-01T00:00:00Z' },
+        { id: 'b1', org_id: ORG, opportunity_id: 'dB', customer_id: 'c1', user_id: 'closer2', type: 'note', body: 'theirs', audience: 'team', origin: 'human', created_at: '2026-10-02T00:00:00Z' },
+        { id: 'n1', org_id: ORG, opportunity_id: null, customer_id: 'c1', user_id: 'closer2', type: 'note', body: 'customer-level', audience: 'team', origin: 'human', created_at: '2026-10-03T00:00:00Z' },
+      ],
+    })
+    const dealA = { id: 'dA', owner_user_id: 'closer', setter_user_id: 'setter', customer_id: 'c1', lead_id: null, address_text: null, status: null }
+    const t = await getTimeline(db.client as never, V.setter, dealA as never, { scope: 'customer' })
+    expect(t.messages.map((m) => m.body)).toEqual(['mine'])
+    const o = await getTimeline(db.client as never, V.owner, dealA as never, { scope: 'customer' })
+    expect(o.messages.map((m) => m.body).sort()).toEqual(['customer-level', 'mine', 'theirs'])
   })
 })
 

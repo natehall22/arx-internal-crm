@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
-import { canReadMessage, type Audience, type DealRef, type ThreadViewer } from '@/lib/threads/visibility'
+import { canReadMessage, canReadRowOnDeal, type Audience, type DealRef, type ThreadViewer } from '@/lib/threads/visibility'
 
 /**
  * THE read path for deal conversations (Customer File Activity tab, API, search results).
@@ -62,6 +62,7 @@ export function effectiveOrigin(row: { origin: string | null; type: string; user
 
 type Row = {
   id: string
+  opportunity_id: string | null
   user_id: string | null
   type: string
   body: string | null
@@ -82,7 +83,7 @@ type Row = {
 }
 
 const COLS =
-  'id, user_id, type, body, created_at, audience, origin, priority, restricted_pricing, reply_to_id, mentioned_user_ids, pinned_at, pin_scope, pin_expires_at, edited_at, deleted_at, deleted_user_name, users(full_name)'
+  'id, opportunity_id, user_id, type, body, created_at, audience, origin, priority, restricted_pricing, reply_to_id, mentioned_user_ids, pinned_at, pin_scope, pin_expires_at, edited_at, deleted_at, deleted_user_name, users(full_name)'
 
 export function toMessage(row: Row): ThreadMessage {
   const u = Array.isArray(row.users) ? row.users[0] : row.users
@@ -110,18 +111,45 @@ export function toMessage(row: Row): ThreadMessage {
   }
 }
 
-export async function loadDeal(
-  admin: SupabaseClient,
-  orgId: string,
-  opportunityId: string
-): Promise<(NonNullable<DealRef> & { id: string; customer_id: string | null; lead_id: string | null; address_text: string | null; status: string | null }) | null> {
+type DealFull = NonNullable<DealRef> & { id: string; customer_id: string | null; lead_id: string | null; address_text: string | null; status: string | null }
+
+/** Deal refs (owner/setter + appointment closers/canvassers) for a set of opportunities, org-scoped. */
+export async function dealRefsFor(admin: SupabaseClient, orgId: string, oppIds: string[]): Promise<Map<string, NonNullable<DealRef>>> {
+  const out = new Map<string, NonNullable<DealRef>>()
+  const ids = Array.from(new Set(oppIds)).filter(Boolean)
+  if (ids.length === 0) return out
+  const [opps, appts] = await Promise.all([
+    admin.from('opportunities').select('id, owner_user_id, setter_user_id').eq('org_id', orgId).in('id', ids),
+    admin.from('scheduled_appointments').select('opportunity_id, closer_user_id, canvasser_user_id').eq('org_id', orgId).in('opportunity_id', ids),
+  ])
+  for (const o of (opps.data ?? []) as Array<{ id: string; owner_user_id: string | null; setter_user_id: string | null }>) {
+    out.set(o.id, { owner_user_id: o.owner_user_id, setter_user_id: o.setter_user_id, closer_user_ids: [], extra_user_ids: [] })
+  }
+  for (const a of (appts.data ?? []) as Array<{ opportunity_id: string; closer_user_id: string | null; canvasser_user_id: string | null }>) {
+    const d = out.get(a.opportunity_id)
+    if (!d) continue
+    if (a.closer_user_id) d.closer_user_ids!.push(a.closer_user_id)
+    if (a.canvasser_user_id) d.extra_user_ids!.push(a.canvasser_user_id)
+  }
+  return out
+}
+
+export async function loadDeal(admin: SupabaseClient, orgId: string, opportunityId: string): Promise<DealFull | null> {
   const { data } = await admin
     .from('opportunities')
     .select('id, owner_user_id, setter_user_id, customer_id, lead_id, address_text, status')
     .eq('id', opportunityId)
     .eq('org_id', orgId)
     .maybeSingle()
-  return (data as never) ?? null
+  if (!data) return null
+  const refs = await dealRefsFor(admin, orgId, [opportunityId])
+  const ref = refs.get(opportunityId)
+  return { ...(data as Omit<DealFull, 'closer_user_ids' | 'extra_user_ids'>), closer_user_ids: ref?.closer_user_ids ?? [], extra_user_ids: ref?.extra_user_ids ?? [] }
+}
+
+/** Owner/setter/appointment people of a loaded deal, as a DealRef. */
+export function dealRefOf(d: { owner_user_id: string | null; setter_user_id: string | null; closer_user_ids?: string[]; extra_user_ids?: string[] }): NonNullable<DealRef> {
+  return { owner_user_id: d.owner_user_id, setter_user_id: d.setter_user_id, closer_user_ids: d.closer_user_ids ?? [], extra_user_ids: d.extra_user_ids ?? [] }
 }
 
 function stillPinned(m: ThreadMessage, now: number): boolean {
@@ -147,7 +175,14 @@ export async function getTimeline(
   const { data, error } = await q.order('created_at', { ascending: false }).limit(limit * 3 + 1)
   if (error) throw new Error(`timeline: ${error.message}`)
 
-  const dealRef: DealRef = { owner_user_id: deal.owner_user_id, setter_user_id: deal.setter_user_id }
+  const dealRef: DealRef = dealRefOf(deal)
+  // "All deals" mixes deals: each row is checked against ITS OWN deal, never the one that happens to be open.
+  const rowDeals = scope === 'customer' ? await dealRefsFor(admin, viewer.orgId, ((data ?? []) as unknown as Row[]).map((r) => r.opportunity_id).filter((x): x is string => !!x)) : null
+  const refFor = (row: Row): DealRef | 'none' => {
+    if (!rowDeals) return dealRef
+    if (!row.opportunity_id) return 'none'
+    return rowDeals.get(row.opportunity_id) ?? 'none'
+  }
   const wanted = filters.audiences?.length ? new Set(filters.audiences) : null
   const visible: ThreadMessage[] = []
   let hiddenSalesCount = 0
@@ -155,7 +190,9 @@ export async function getTimeline(
   for (const row of (data ?? []) as unknown as Row[]) {
     lastSeen = row.created_at
     const msg = toMessage(row)
-    if (!canReadMessage(viewer, dealRef, msg)) continue
+    const ref = refFor(row)
+    // A row with no deal of its own (customer-level note) is only for people who are not scoped to their own deals.
+    if (!canReadRowOnDeal(viewer, ref, msg)) continue
     if (filters.humanOnly && msg.origin === 'system') continue
     if (wanted && msg.audience && !wanted.has(msg.audience)) continue
     // Ops sees Sales talk only behind the "Sales history" chip (the UI asks for it with audiences=sales).
@@ -175,7 +212,7 @@ export async function getTimeline(
   if (scope === 'deal' && nextBefore === null && deal.lead_id && (!wanted || wanted.has('team'))) {
     const { data: lead } = await admin.from('leads').select('canvass_notes, created_at').eq('id', deal.lead_id).eq('org_id', viewer.orgId).maybeSingle()
     const note = (lead as { canvass_notes?: string | null; created_at?: string } | null)?.canvass_notes?.trim()
-    if (note && !filters.before) {
+    if (note && !visible.some((m) => m.id === `canvass-${deal.lead_id}`)) {
       const m: ThreadMessage = {
         id: `canvass-${deal.lead_id}`, user_id: null, author_name: 'Door note (canvass)', type: 'note', body: note,
         created_at: (lead as { created_at: string }).created_at, audience: 'team', priority: null, restricted_pricing: false, origin: 'human',
@@ -197,7 +234,6 @@ export async function getPinned(
   deal: NonNullable<Awaited<ReturnType<typeof loadDeal>>>,
   now = Date.now()
 ): Promise<ThreadMessage[]> {
-  const dealRef: DealRef = { owner_user_id: deal.owner_user_id, setter_user_id: deal.setter_user_id }
   const { data: pinRows } = await admin
     .from('activities')
     .select(COLS)
@@ -211,8 +247,14 @@ export async function getPinned(
     )
     .order('pinned_at', { ascending: false })
     .limit(20)
-  return ((pinRows ?? []) as unknown as Row[])
+  const rows = (pinRows ?? []) as unknown as Row[]
+  const refs = await dealRefsFor(admin, viewer.orgId, rows.map((r) => r.opportunity_id).filter((x): x is string => !!x))
+  return rows
+    .filter((r) => {
+      const ref = r.opportunity_id ? refs.get(r.opportunity_id) : undefined
+      if (!ref) return false
+      return stillPinned(toMessage(r), now) && canReadMessage(viewer, ref, toMessage(r))
+    })
     .map(toMessage)
-    .filter((m) => stillPinned(m, now) && canReadMessage(viewer, dealRef, m))
     .slice(0, 6)
 }

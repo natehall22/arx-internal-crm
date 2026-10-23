@@ -17,6 +17,7 @@ import InspectionResultReadOnlyCard from '@/components/inspection/InspectionResu
 import CopyShareLinkButton from '@/components/inspection-report/CopyShareLinkButton'
 import { resolveCloseOutcomeLabel, type CloseOutcomeConfigRow } from '@/lib/close-outcomes'
 import { resolveOpsAccess } from '@/lib/ops-access'
+import { visibleActivities } from '@/lib/threads/legacy-feed'
 import {
   getInspectionOutcomeConfig,
   normalizeInspectionOutcomeRows,
@@ -274,11 +275,13 @@ export default async function OpportunityView({
     ? getInsideSalesFollowUpStatus(opportunityForInspectionUi as any, inspectionOutcomeSettings)
     : null
 
-  const { data: activities } = await supabase
+  const { data: activitiesRaw } = await supabase
     .from('activities')
     .select('*, users(full_name)')
     .eq('opportunity_id', params.id)
     .order('created_at', { ascending: false })
+  // Same audience rules as the thread (this client skips RLS).
+  const activities = await visibleActivities(supabase, profile, activitiesRaw)
 
   const { data: files } = await supabase
     .from('files')
@@ -826,9 +829,13 @@ export default async function OpportunityView({
                 <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">Customer</p>
                 {opportunity.customer_id ? (
                   <>
-                    <Link href={`/customers/${opportunity.customer_id}`} className="text-indigo-600 hover:text-indigo-800 mt-0.5 inline-block">
-                      {opportunity.customers?.name || 'View'}
-                    </Link>
+                    {viewerPermissionNames.has('customers:view') || isOrgSuperuserRoleSlug(profile.role) ? (
+                      <Link href={`/customers/${opportunity.customer_id}`} className="text-indigo-600 hover:text-indigo-800 mt-0.5 inline-block">
+                        {opportunity.customers?.name || 'View'}
+                      </Link>
+                    ) : (
+                      <p className="text-gray-900 mt-0.5">{opportunity.customers?.name || '—'}</p>
+                    )}
                     <p className="text-gray-900 mt-0.5">
                       {leadRow?.phone || opportunity.customers?.phone || opportunity.contact_phone || '—'}
                     </p>

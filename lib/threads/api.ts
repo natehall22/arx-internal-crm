@@ -4,7 +4,7 @@ import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import { loadDeal } from '@/lib/threads/get-thread'
 import { resolveThreadViewer } from '@/lib/threads/viewer'
-import type { DealRef, ThreadViewer } from '@/lib/threads/visibility'
+import { isRecognizedViewer, ownsDeal, type DealRef, type ThreadViewer } from '@/lib/threads/visibility'
 
 type Profile = Awaited<ReturnType<typeof requireAuthApi>>['profile']
 
@@ -28,8 +28,9 @@ export async function threadAuth(): Promise<ThreadCtx | NextResponse> {
 /** Who may open a deal at all: owners/ops/managers any; the rest only deals they set or own (inside sales work the whole queue). */
 export function canOpenDeal(v: ThreadViewer, deal: NonNullable<DealRef>): boolean {
   if (v.ownerLike || v.jobBoard || v.managerLike) return true
-  if (!v.setterLike && !v.closerLike) return true // inside sales / custom sales roles: queue-wide
-  return deal.owner_user_id === v.userId || deal.setter_user_id === v.userId
+  if (!isRecognizedViewer(v)) return false // sub, custom-only roles: nothing
+  if (!v.setterLike && !v.closerLike) return true // inside sales: queue-wide
+  return ownsDeal(v, deal)
 }
 
 export async function threadDeal(ctx: ThreadCtx, dealId: string) {

@@ -34,12 +34,17 @@ FROM activities a LEFT JOIN users u ON u.id = a.user_id
 WHERE a.origin IS NULL AND a.referral_partner_id IS NULL AND a.legacy_ref IS NULL;
 
 INSERT INTO data_fix_backups (fix, table_name, row_data)
-SELECT '2026-10-27_merge_notes_into_threads', 'activities', jsonb_build_object('id', a.id, 'origin', a.origin, 'audience', a.audience)
+SELECT '2026-10-27_merge_notes_into_threads', 'activities', jsonb_build_object('id', a.id, 'origin', a.origin, 'audience', a.audience, 'restricted_pricing', a.restricted_pricing)
 FROM activities a JOIN _classify c ON c.id = a.id;
 
+-- Pricing screen: anything that reads like pricing is flagged (hidden from setters / inside sales and the crew link), as
+-- postMessage does for new messages. System rows that carry money or commission info are Production-only; other system rows
+-- (status, calls) stay audience-less = visible to everyone on the deal, as today.
 UPDATE activities a
    SET origin = c.origin,
-       audience = CASE WHEN c.origin = 'human' THEN CASE WHEN c.author_role IN ('setter','canvasser') THEN 'sales' ELSE 'team' END END
+       audience = CASE WHEN c.origin = 'human' THEN CASE WHEN c.author_role IN ('setter','canvasser') THEN 'sales' ELSE 'team' END
+                       WHEN a.body ~* '^(payroll attribution|installation agreement|contract created|repair agreement|insurance contingency|instant website estimate)' THEN 'production' END,
+       restricted_pricing = CASE WHEN c.origin = 'human' AND (a.body ~* '[$]\s?[0-9]|\m(price|pricing|priced|quotes?|quoted|bid|discount|commission|override|payout|margin|profit|deposit|financ(e|ing|ed))\M|[0-9]+\s?%\s?off|dealer fee|per square') THEN true END
   FROM _classify c WHERE c.id = a.id;
 
 -- ---- B-E: sources as one set of rows to copy ----
@@ -93,16 +98,18 @@ JOIN LATERAL (
 ) m ON true
 GROUP BY s.ref_id;
 
-INSERT INTO activities (org_id, opportunity_id, customer_id, lead_id, production_job_id, user_id, type, body, created_at, updated_at, origin, audience, source, mentioned_user_ids, legacy_ref, pinned_at, pin_scope)
+INSERT INTO activities (org_id, opportunity_id, customer_id, lead_id, production_job_id, user_id, type, body, created_at, updated_at, origin, audience, source, mentioned_user_ids, legacy_ref, pinned_at, pin_scope, restricted_pricing)
 SELECT s.org_id, s.opportunity_id, s.customer_id, s.lead_id, s.production_job_id, s.user_id, 'note', s.body, s.created_at, s.created_at, 'human', s.audience, 'import',
        m.ids, jsonb_build_object('table', s.ref_table, 'col', s.ref_col, 'id', s.ref_id),
-       CASE WHEN s.pin THEN now() END, CASE WHEN s.pin THEN 'deal' END
+       CASE WHEN s.pin THEN now() END, CASE WHEN s.pin THEN 'deal' END,
+       CASE WHEN (s.body ~* '[$]\s?[0-9]|\m(price|pricing|priced|quotes?|quoted|bid|discount|commission|override|payout|margin|profit|deposit|financ(e|ing|ed))\M|[0-9]+\s?%\s?off|dealer fee|per square') THEN true END
 FROM _src s LEFT JOIN _mentions m ON m.ref_id = s.ref_id;
 
 COMMIT;
 
 -- Verify: SELECT origin, count(*) FROM activities GROUP BY 1;   SELECT count(*) FROM activities WHERE source = 'import';
 -- Rollback (exact):
+--   (first clear anything pointing at imported rows: DELETE FROM notifications WHERE activity_id IN (SELECT id FROM activities WHERE source = 'import'); UPDATE activities SET reply_to_id = NULL WHERE reply_to_id IN (SELECT id FROM activities WHERE source = 'import');)
 --   DELETE FROM activities WHERE source = 'import' AND legacy_ref IS NOT NULL;
---   UPDATE activities a SET origin = NULL, audience = NULL FROM data_fix_backups b
+--   UPDATE activities a SET origin = NULL, audience = NULL, restricted_pricing = NULL FROM data_fix_backups b
 --    WHERE b.fix = '2026-10-27_merge_notes_into_threads' AND b.table_name = 'activities' AND a.id = (b.row_data->>'id')::uuid;

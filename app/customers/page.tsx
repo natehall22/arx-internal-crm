@@ -58,6 +58,16 @@ export default async function CustomersPage({
       customerQuery = customerQuery.or(`name.ilike.%${query}%,email.ilike.%${query}%,phone.ilike.%${query}%`)
     }
     
+    // Customers now exist from inspection booking, so most rows are prospects. Without a search, list the people who
+    // bought (a project or a won deal) first; searching still finds everyone.
+    if (!query) {
+      const [proj, won] = await Promise.all([
+        supabase.from('projects').select('customer_id').eq('org_id', profile.org_id).not('customer_id', 'is', null).limit(2000),
+        supabase.from('opportunities').select('customer_id').eq('org_id', profile.org_id).eq('status', 'won').not('customer_id', 'is', null).limit(2000),
+      ])
+      const buyerIds = Array.from(new Set([...(proj.data ?? []), ...(won.data ?? [])].map((r: { customer_id: string | null }) => r.customer_id as string)))
+      customerQuery = buyerIds.length > 0 ? customerQuery.in('id', buyerIds) : customerQuery
+    }
     const { data } = await customerQuery
       .order('created_at', { ascending: false })
       .limit(50)

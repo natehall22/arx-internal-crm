@@ -23,7 +23,7 @@ export async function listWaiting(admin: SupabaseClient, userId: string, now = n
     .is('resolved_at', null)
     .in('priority', ['urgent', 'needs_reply', 'fyi'])
     .not('activity_id', 'is', null)
-    .order('created_at', { ascending: true })
+    .order('created_at', { ascending: false })
     .limit(200)
   return ((data ?? []) as Array<WaitingItem & { type: string; snoozed_until: string | null }>)
     .filter((n) => !n.snoozed_until || new Date(n.snoozed_until) <= now)

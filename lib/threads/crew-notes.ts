@@ -25,9 +25,10 @@ export async function loadCrewNotes(
     .eq('opportunity_id', oppId)
     .eq('audience', 'crew')
     .is('deleted_at', null)
-    .order('created_at', { ascending: true })
+    .order('created_at', { ascending: false })
     .limit(50)
   return ((data ?? []) as Array<CrewNote & { work_order_id: string | null; restricted_pricing: boolean | null }>)
     .filter((r) => r.restricted_pricing !== true && (r.work_order_id == null || r.work_order_id === ctx.workOrderId))
     .map(({ id, body, created_at }) => ({ id, body, created_at }))
+    .reverse() // newest 50, shown oldest first
 }

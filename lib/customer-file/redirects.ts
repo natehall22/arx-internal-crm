@@ -2,6 +2,9 @@ import { redirect } from 'next/navigation'
 
 import { requireAuth } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
+import { canOpenDeal } from '@/lib/threads/api'
+import { dealRefsFor } from '@/lib/threads/get-thread'
+import { resolveThreadViewer } from '@/lib/threads/viewer'
 
 /**
  * Old record URLs → the Customer File. Server-side lookups (next.config redirects can't hit the DB).
@@ -19,6 +22,14 @@ export function fileRedirectsEnabledFor(role: string, env = process.env.CUSTOMER
 
 type Target = { customerId: string; dealId: string; tab: 'sales' | 'job' | 'overview' }
 
+/** Only redirect into a file the person can actually open; otherwise the old page stays (no 404 for the closer assigned by appointment). */
+async function canOpen(admin: ReturnType<typeof createServiceClient>, profile: Parameters<typeof resolveThreadViewer>[1], dealId: string): Promise<boolean> {
+  const viewer = await resolveThreadViewer(admin, profile)
+  const refs = await dealRefsFor(admin, profile.org_id, [dealId])
+  const ref = refs.get(dealId)
+  return !!ref && canOpenDeal(viewer, ref)
+}
+
 function go(route: string, role: string, t: Target): never {
   console.info('[customer-file] redirect', JSON.stringify({ route, role }))
   redirect(`/c/${t.customerId}/d/${t.dealId}/${t.tab}`)
@@ -31,7 +42,7 @@ export async function redirectOpportunityToFile(id: string, searchParams?: Recor
   if (!fileRedirectsEnabledFor(profile.role)) return
   const admin = createServiceClient()
   const { data } = await admin.from('opportunities').select('id, customer_id').eq('id', id).eq('org_id', profile.org_id).maybeSingle()
-  if (data?.customer_id) go('/opportunities/[id]', profile.role, { customerId: data.customer_id, dealId: data.id, tab: 'sales' })
+  if (data?.customer_id && (await canOpen(admin, profile, data.id))) go('/opportunities/[id]', profile.role, { customerId: data.customer_id, dealId: data.id, tab: 'sales' })
 }
 
 /** /leads/[id] → the deal's Sales tab, else the Prospect File. */
@@ -48,7 +59,10 @@ export async function redirectLeadToFile(id: string) {
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle()
-  if (data?.customer_id) go('/leads/[id]', profile.role, { customerId: data.customer_id, dealId: data.id, tab: 'sales' })
+  if (data?.customer_id && (await canOpen(admin, profile, data.id))) go('/leads/[id]', profile.role, { customerId: data.customer_id, dealId: data.id, tab: 'sales' })
+  // A lead whose deal exists but is not theirs, or that has no deal yet: the Prospect File only for the latter.
+  const { count } = await admin.from('opportunities').select('id', { count: 'exact', head: true }).eq('lead_id', id).eq('org_id', profile.org_id)
+  if ((count ?? 0) > 0) return
   console.info('[customer-file] redirect', JSON.stringify({ route: '/leads/[id] (prospect)', role: profile.role }))
   redirect(`/c/lead/${id}`)
 }
@@ -61,7 +75,7 @@ export async function redirectProjectToFile(id: string) {
   const { data: project } = await admin.from('projects').select('id, opportunity_id').eq('id', id).eq('org_id', profile.org_id).maybeSingle()
   if (!project?.opportunity_id) return
   const { data: opp } = await admin.from('opportunities').select('id, customer_id').eq('id', project.opportunity_id).eq('org_id', profile.org_id).maybeSingle()
-  if (!opp?.customer_id) return
+  if (!opp?.customer_id || !(await canOpen(admin, profile, opp.id))) return
   const { count } = await admin.from('production_jobs').select('id', { count: 'exact', head: true }).eq('project_id', id).eq('org_id', profile.org_id)
   go('/projects/[id]', profile.role, { customerId: opp.customer_id, dealId: opp.id, tab: (count ?? 0) > 0 ? 'job' : 'sales' })
 }
@@ -76,6 +90,6 @@ export async function redirectJobToFile(id: string) {
   const { data: project } = await admin.from('projects').select('opportunity_id').eq('id', job.project_id).eq('org_id', profile.org_id).maybeSingle()
   if (!project?.opportunity_id) return
   const { data: opp } = await admin.from('opportunities').select('id, customer_id').eq('id', project.opportunity_id).eq('org_id', profile.org_id).maybeSingle()
-  if (!opp?.customer_id) return
+  if (!opp?.customer_id || !(await canOpen(admin, profile, opp.id))) return
   go('/ops/jobs/[id]', profile.role, { customerId: opp.customer_id, dealId: opp.id, tab: 'job' })
 }

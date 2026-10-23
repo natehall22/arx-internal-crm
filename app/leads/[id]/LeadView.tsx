@@ -1,4 +1,5 @@
 import { requireAuth } from '@/lib/auth'
+import { visibleActivities } from '@/lib/threads/legacy-feed'
 import { saleCreditLockBlock } from '@/lib/deal-sale-credit'
 import { createServiceClient } from '@/lib/supabase/service'
 import Nav from '@/components/Nav'
@@ -107,11 +108,13 @@ export default async function LeadView({
     notFound()
   }
 
-  const { data: activities } = await supabase
+  const { data: activitiesRaw } = await supabase
     .from('activities')
     .select('*, users:users!activities_user_id_fkey(full_name)')
     .eq('lead_id', params.id)
     .order('created_at', { ascending: false })
+  // Same audience rules as the thread (this client skips RLS).
+  const activities = await visibleActivities(supabase, profile, activitiesRaw)
 
   const { data: files } = await supabase
     .from('files')

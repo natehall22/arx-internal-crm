@@ -17,6 +17,7 @@ type Payload = {
   defaultAudience: Audience
   canAllowSetters: boolean
   canPin: boolean
+  canPinOwn?: boolean
   viewerId: string
   isOwner: boolean
   seesSalesHistoryChip: boolean
@@ -31,6 +32,14 @@ const AUDIENCE_HINT: Record<Audience, string> = {
   crew: 'Crew will see this on their link',
 }
 const AUDIENCE_TONE: Record<Audience, 'neutral' | 'info' | 'warning' | 'accent'> = { team: 'neutral', sales: 'accent', production: 'info', crew: 'warning' }
+
+/** Newest-first union by id (a poll refreshes the head; older pages stay). */
+function mergeMessages(head: ThreadMessage[], rest: ThreadMessage[]): ThreadMessage[] {
+  const seen = new Set<string>()
+  const out: ThreadMessage[] = []
+  for (const m of [...head, ...rest]) if (!seen.has(m.id)) { seen.add(m.id); out.push(m) }
+  return out.sort((a, b) => b.created_at.localeCompare(a.created_at))
+}
 
 function surfaceFor(pathname: string): 'sales' | 'job' | 'overview' | 'other' {
   if (/\/sales(\/|$)/.test(pathname)) return 'sales'
@@ -75,20 +84,26 @@ export default function ThreadPanel({ customerId, dealId, variant = 'rail' }: { 
   const [loadingMore, setLoadingMore] = useState(false)
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
   const scrolled = useRef<string | null>(null)
+  const jumped = useRef(false)
+  const extraPages = useRef(0)
 
   const qs = useMemo(() => {
     const q = new URLSearchParams({ scope, surface })
     if (humanOnly) q.set('humanOnly', '1')
     if (salesHistory) q.set('audience', 'sales,team,production,crew')
-    if (highlightId) q.set('around', highlightId)
     return q.toString()
-  }, [scope, surface, humanOnly, salesHistory, highlightId])
+  }, [scope, surface, humanOnly, salesHistory])
 
   const load = useCallback(async () => {
     try {
-      const res = await fetch(`/api/threads/${dealId}/messages?${qs}`, { cache: 'no-store' })
+      // `around` (deep link) only positions the FIRST page; polls and reloads after that use the normal newest-first page.
+      const around = !jumped.current && highlightId ? `&around=${encodeURIComponent(highlightId)}` : ''
+      const res = await fetch(`/api/threads/${dealId}/messages?${qs}${around}`, { cache: 'no-store' })
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Could not load notes')
-      setData(await res.json())
+      const payload: Payload = await res.json()
+      if (around) jumped.current = true
+      // Don't throw away pages the user loaded with "Earlier notes" on every poll.
+      setData((prev) => (prev && extraPages.current > 0 && !around ? { ...payload, messages: mergeMessages(payload.messages, prev.messages), nextBefore: prev.nextBefore } : payload))
       setError(null)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not load notes')
@@ -96,6 +111,7 @@ export default function ThreadPanel({ customerId, dealId, variant = 'rail' }: { 
   }, [dealId, qs])
 
   useEffect(() => {
+    extraPages.current = 0
     load()
     void fetch(`/api/threads/${dealId}/read`, { method: 'POST' })
     const t = setInterval(() => { if (document.visibilityState === 'visible') load() }, 20000)
@@ -119,7 +135,8 @@ export default function ThreadPanel({ customerId, dealId, variant = 'rail' }: { 
       const res = await fetch(`/api/threads/${dealId}/messages?${qs}&before=${encodeURIComponent(data.nextBefore)}`, { cache: 'no-store' })
       if (res.ok) {
         const more: Payload = await res.json()
-        setData({ ...data, messages: [...data.messages, ...more.messages], nextBefore: more.nextBefore })
+        extraPages.current += 1
+        setData({ ...data, messages: mergeMessages(data.messages, more.messages), nextBefore: more.nextBefore })
       }
     } finally {
       setLoadingMore(false)
@@ -146,6 +163,9 @@ export default function ThreadPanel({ customerId, dealId, variant = 'rail' }: { 
   }, [data])
 
   const [replyTo, setReplyTo] = useState<ThreadMessage | null>(null)
+
+  // On the phone's Notes tab at desktop width, the page panel is the one shown: don't mount a second poller + duplicate ids.
+  if (variant === 'rail' && /\/notes(\/|$)/.test(pathname)) return null
 
   return (
     <section aria-label="Notes" className={variant === 'rail' ? 'flex max-h-[calc(100vh-9rem)] flex-col rounded-ui border border-surface-line bg-surface' : 'rounded-ui border border-surface-line bg-surface'}>
@@ -246,8 +266,8 @@ function MessageBubble({ m, data, highlighted, onAct, onReply, parent }: { m: Th
       {menu && (
         <div className="flex flex-wrap gap-1 text-ui-sm">
           {mine && <button type="button" className="min-h-tap px-2 text-ink" onClick={() => { setEditing(true); setMenu(false) }}>Edit</button>}
-          {data.canPin && <button type="button" className="min-h-tap px-2 text-ink" onClick={() => onAct(m.id, { action: 'pin', scope: 'customer' })}>Pin to customer</button>}
-          {data.canPin && <button type="button" className="min-h-tap px-2 text-ink" onClick={() => onAct(m.id, { action: 'pin', scope: 'deal' })}>Pin to deal</button>}
+          {(data.canPin || (data.canPinOwn && mine)) && <button type="button" className="min-h-tap px-2 text-ink" onClick={() => onAct(m.id, { action: 'pin', scope: 'customer' })}>Pin to customer</button>}
+          {(data.canPin || (data.canPinOwn && mine)) && <button type="button" className="min-h-tap px-2 text-ink" onClick={() => onAct(m.id, { action: 'pin', scope: 'deal' })}>Pin to deal</button>}
           {data.writable.includes('production') && m.audience && m.audience !== 'production' && data.isOwner && <button type="button" className="min-h-tap px-2 text-ink" onClick={() => onAct(m.id, { action: 'reclassify', audience: 'production' })}>Make Production</button>}
           {(mine || data.isOwner) && <button type="button" className="min-h-tap px-2 text-danger" onClick={() => { if (confirm('Remove this message?')) onAct(m.id, { action: 'delete' }) }}>Remove</button>}
         </div>
@@ -268,7 +288,7 @@ function Composer({ dealId, data, replyTo, onClearReply, onSent }: { dealId: str
   const [picked, setPicked] = useState<string[]>([])
   const clientId = useRef<string>(crypto.randomUUID())
 
-  useEffect(() => { if (data.writable.includes(data.defaultAudience)) setAudience(data.defaultAudience) }, [data.defaultAudience, data.writable])
+  useEffect(() => { if (data.writable.includes(data.defaultAudience)) setAudience(data.defaultAudience) }, [data.defaultAudience]) // eslint-disable-line react-hooks/exhaustive-deps -- only when the server's default changes, never on a poll
   const effective = replyTo?.audience && data.writable.includes(replyTo.audience) ? replyTo.audience : audience
   useEffect(() => {
     fetch(`/api/threads/${dealId}/mentionable?audience=${effective}`).then((r) => (r.ok ? r.json() : { users: [] })).then((j) => setPeople(j.users ?? [])).catch(() => setPeople([]))

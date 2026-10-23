@@ -57,6 +57,8 @@ export type DealForPost = {
   setter_user_id: string | null
   customer_id: string | null
   lead_id: string | null
+  closer_user_ids?: string[]
+  extra_user_ids?: string[]
 }
 
 type OrgUser = { id: string; full_name: string | null; email: string | null; active: boolean | null; role: string; custom_role_id: string | null; is_super_admin: boolean | null; org_id: string }
@@ -80,7 +82,7 @@ export async function postMessage(
   if (body.length > MAX_MESSAGE_LENGTH) return { ok: false, status: 400, error: `Message is too long (max ${MAX_MESSAGE_LENGTH} characters)` }
 
   const viewer = opts.viewer ?? (await resolveThreadViewer(admin, profile))
-  const dealRef: DealRef = { owner_user_id: deal.owner_user_id, setter_user_id: deal.setter_user_id }
+  const dealRef: DealRef = { owner_user_id: deal.owner_user_id, setter_user_id: deal.setter_user_id, closer_user_ids: deal.closer_user_ids ?? [], extra_user_ids: deal.extra_user_ids ?? [] }
   const allowed = writableAudiences(viewer, dealRef)
   if (allowed.length === 0) return { ok: false, status: 403, error: 'You cannot post on this deal' }
 
@@ -103,7 +105,10 @@ export async function postMessage(
   let parent: ThreadMessage | null = null
   if (draft.replyToId) {
     parent = await loadMessage(admin, viewer.orgId, draft.replyToId)
-    if (!parent || !canReadMessage(viewer, dealRef, parent)) return { ok: false, status: 404, error: 'Reply target not found' }
+    const { data: parentRow } = await admin.from('activities').select('opportunity_id').eq('id', draft.replyToId).eq('org_id', viewer.orgId).maybeSingle()
+    if (!parent || (parentRow as { opportunity_id: string | null } | null)?.opportunity_id !== deal.id || !canReadMessage(viewer, dealRef, parent)) {
+      return { ok: false, status: 404, error: 'Reply target not found' }
+    }
   }
 
   let audience: Audience
@@ -128,8 +133,8 @@ export async function postMessage(
     (pricing && audience === 'crew') ||
     (pricing && !viewer.pricingBarred && draft.allowSetters !== true)
 
+  // Someone has to be waiting for a needs-reply / urgent to mean anything: the people @mentioned, or the author of the message replied to.
   let priority: Priority = 'fyi'
-  if (draft.priority === 'urgent') priority = 'urgent'
 
   // Mentions: exact "@Full Name" only. The picker's ids just disambiguate duplicates.
   const { data: orgUsers } = await admin
@@ -141,8 +146,11 @@ export async function postMessage(
   const mentioned = resolveNoteMentions(body, candidates, draft.selectedMentionIds ?? [])
     .filter((u) => u.id !== viewer.userId)
 
-  if (priority !== 'urgent' && mentioned.length > 0 && (draft.priority === 'needs_reply' || looksLikeQuestion(body))) {
-    priority = 'needs_reply'
+  const parentAuthor = parent?.user_id && parent.user_id !== viewer.userId ? parent.user_id : null
+  const hasAudience = mentioned.length > 0 || !!parentAuthor
+  if (hasAudience) {
+    if (draft.priority === 'urgent') priority = 'urgent'
+    else if (draft.priority === 'needs_reply' || (mentioned.length > 0 && looksLikeQuestion(body))) priority = 'needs_reply'
   }
 
   if (priority === 'urgent') {
@@ -184,7 +192,15 @@ export async function postMessage(
     })
     .select('id')
     .single()
-  if (error || !inserted) return { ok: false, status: 409, error: 'Failed to post message' }
+  if (error || !inserted) {
+    // A retry racing its own first attempt hits the unique client_id index: the message DID post — return it.
+    if (draft.clientId) {
+      const { data: again } = await admin.from('activities').select('id').eq('client_id', draft.clientId).eq('org_id', viewer.orgId).eq('user_id', viewer.userId).maybeSingle()
+      const prior = again ? await loadMessage(admin, viewer.orgId, (again as { id: string }).id) : null
+      if (prior) return { ok: true, message: prior, recipients: [], blindMentions: [], pricingNotice: false }
+    }
+    return { ok: false, status: 409, error: 'Failed to post message' }
+  }
 
   const message = (await loadMessage(admin, viewer.orgId, (inserted as { id: string }).id)) as ThreadMessage
   if (thread) {
@@ -212,7 +228,7 @@ export async function postMessage(
     const pu = ((orgUsers ?? []) as OrgUser[]).find((u) => u.id === parent!.user_id)
     if (pu) {
       const rv = await (opts.resolveViewer ?? ((x) => resolveThreadViewer(admin, x)))(pu)
-      if (canReadMessage(rv, dealRef, message)) recipients.push({ userId: pu.id, priority: 'fyi', reason: 'reply' })
+      if (canReadMessage(rv, dealRef, message)) recipients.push({ userId: pu.id, priority: priority === 'fyi' ? 'fyi' : priority, reason: priority === 'urgent' ? 'urgent' : 'reply' })
     }
   }
 

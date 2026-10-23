@@ -35,7 +35,10 @@ interface UpsertResult {
 
 function normalizePhone(phone: string | null | undefined): string | null {
   if (!phone) return null
-  return phone.replace(/\D/g, '').slice(-10)
+  const last10 = phone.replace(/\D/g, '').slice(-10)
+  // Filler numbers (0000000000, 5555555555, 1234567890) are not an identity: never merge two people on them.
+  if (last10.length === 10 && (/^(\d)\1{9}$/.test(last10) || last10 === '1234567890' || last10 === '0123456789')) return null
+  return last10
 }
 
 function normalizeString(str: string | null | undefined): string {
@@ -198,4 +201,33 @@ export async function upsertCustomer(
   }).catch(err => console.error('Failed to enqueue customer event:', err))
 
   return { customer_id: newCustomer.id, created: true }
+}
+
+/**
+ * At contract signing the customer row already exists (it is created when the inspection is booked): fill whatever the
+ * signed contract knows and the row lacks (email, phone, address), then tell QuickBooks — the one moment it hears about a
+ * customer. Never overwrites a value that is already there. Best-effort: a failure here must not block signing.
+ */
+export async function enrichCustomerFromContract(
+  supabase: SupabaseClient,
+  orgId: string,
+  customerId: string,
+  contract: { customer_name?: string | null; customer_email?: string | null; customer_phone?: string | null; project_address?: string | null }
+): Promise<void> {
+  try {
+    const { data: existing } = await supabase.from('customers').select('*').eq('id', customerId).eq('org_id', orgId).maybeSingle()
+    if (!existing) return
+    const updates: Record<string, string> = {}
+    const email = normalizeIdentityEmail(contract.customer_email)
+    if (!existing.email && email) updates.email = email
+    if (!existing.phone && contract.customer_phone?.trim()) updates.phone = contract.customer_phone.trim()
+    if (!existing.address_text && contract.project_address?.trim()) updates.address_text = contract.project_address.trim()
+    if (Object.keys(updates).length > 0) {
+      updates.updated_at = new Date().toISOString()
+      await supabase.from('customers').update(updates).eq('id', customerId)
+    }
+    await enqueueCustomerUpserted(supabase, orgId, customerId, { ...existing, ...updates })
+  } catch (e) {
+    console.error('enrichCustomerFromContract failed:', e)
+  }
 }

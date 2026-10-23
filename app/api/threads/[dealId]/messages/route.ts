@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server'
 
+import { dealRefOf } from '@/lib/threads/get-thread'
+
 import { getTimeline } from '@/lib/threads/get-thread'
 import { threadAuth, threadDeal, type ThreadCtx } from '@/lib/threads/api'
 import { notifyMessage } from '@/lib/threads/notify'
@@ -17,12 +19,12 @@ export async function GET(request: Request, { params }: { params: { dealId: stri
   const audiences = (url.searchParams.get('audience') ?? '')
     .split(',')
     .filter((a): a is Audience => (AUDIENCES as readonly string[]).includes(a))
-  const dealRef = { owner_user_id: deal.owner_user_id, setter_user_id: deal.setter_user_id }
+  const dealRef = dealRefOf(deal)
 
   // Jump to a message (search result / notification deep link): page so that it is the newest row.
   let before = url.searchParams.get('before')
   const around = url.searchParams.get('around')
-  if (around) {
+  if (around && !before) {
     const target = await loadMessage(ctx.admin, ctx.viewer.orgId, around)
     if (target && canReadMessage(ctx.viewer, dealRef, target)) before = new Date(Date.parse(target.created_at) + 1).toISOString()
   }
@@ -40,7 +42,8 @@ export async function GET(request: Request, { params }: { params: { dealId: stri
     writable: writableAudiences(ctx.viewer, dealRef),
     defaultAudience: defaultAudience(ctx.viewer, { surface }, dealRef),
     canAllowSetters: !ctx.viewer.pricingBarred,
-    canPin: ctx.viewer.ownerLike || ctx.viewer.jobEdit || ctx.viewer.managerLike || ctx.viewer.closerLike,
+    canPin: ctx.viewer.ownerLike || ctx.viewer.jobEdit || ctx.viewer.managerLike,
+    canPinOwn: ctx.viewer.closerLike,
     viewerId: ctx.viewer.userId,
     isOwner: ctx.viewer.ownerLike,
     seesSalesHistoryChip: ctx.viewer.jobBoard && !ctx.viewer.ownerLike,

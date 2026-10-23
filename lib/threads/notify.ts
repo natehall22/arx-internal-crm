@@ -49,7 +49,7 @@ export async function notifyMessage(admin: SupabaseClient, input: NotifyInput): 
       recipient_user_id: r.userId,
       actor_user_id: input.senderId,
       type: r.blind ? 'thread_mention_blind' : `thread_${r.priority}`,
-      title: `${input.senderName} · ${input.deal.label}`,
+      title: r.blind ? `${input.senderName} mentioned you` : `${input.senderName} · ${input.deal.label}`,
       body: r.blind ? 'Mentioned you in a message you do not have access to' : input.message.body.slice(0, 200),
       link_url: path,
       activity_id: input.message.id,
@@ -62,7 +62,7 @@ export async function notifyMessage(admin: SupabaseClient, input: NotifyInput): 
     if (r.priority === 'fyi' && r.reason === 'reply') continue
     sendPushToUserBackground(
       r.userId,
-      r.priority === 'urgent' ? `URGENT · ${input.deal.label}` : input.deal.label,
+      r.blind ? 'ARX CRM' : r.priority === 'urgent' ? `URGENT · ${input.deal.label}` : input.deal.label,
       r.blind ? `${input.senderName} mentioned you` : `${input.senderName}: ${input.message.body.slice(0, 140)}`,
       { type: 'thread_message', url: path, activity_id: input.message.id }
     )
@@ -83,10 +83,11 @@ export async function notifyMessage(admin: SupabaseClient, input: NotifyInput): 
         const u = (users ?? []).find((x) => x.id === r.userId)
         if (!u?.email) return Promise.resolve()
         const text = r.blind
-          ? `${input.senderName} mentioned you on ${input.deal.label}.`
+          ? `${input.senderName} mentioned you in a job conversation.`
           : `${input.senderName} on ${input.deal.label}:\n\n${input.message.body}`
-        const subject =
-          r.priority === 'urgent'
+        const subject = r.blind
+          ? `${input.senderName} mentioned you`
+          : r.priority === 'urgent'
             ? `URGENT from ${input.senderName} · ${input.deal.label}`
             : r.priority === 'needs_reply'
               ? `${input.senderName} needs a reply · ${input.deal.label}`
@@ -103,4 +104,17 @@ export async function notifyMessage(admin: SupabaseClient, input: NotifyInput): 
   } catch (e) {
     console.error('thread email failed', e)
   }
+}
+
+/**
+ * Notifications copy the first 200 chars at send time. When the message is removed, narrowed or newly price-flagged, that
+ * copy must not outlive it. System-side (service role) across all recipients of ONE activity — not a read, so it is the
+ * one place besides the recipient-scoped routes that touches `notifications` by activity_id (allow-listed in
+ * lib/__tests__/notifications-recipient-only.test.ts).
+ */
+export async function scrubNotificationsForActivity(admin: SupabaseClient, activityId: string, resolve = false): Promise<void> {
+  await admin
+    .from('notifications')
+    .update({ body: 'This message was changed. Open the job to read it.', ...(resolve ? { resolved_at: new Date().toISOString(), resolution: 'removed' } : {}) })
+    .eq('activity_id', activityId)
 }

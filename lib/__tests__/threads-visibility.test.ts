@@ -15,7 +15,8 @@ const viewers = {
   otherCloser: { ...base, userId: 'closer2', closerLike: true },
   setter: { ...base, userId: 'setter', setterLike: true, pricingBarred: true },
   otherSetter: { ...base, userId: 'setter2', setterLike: true, pricingBarred: true },
-  insideSales: { ...base, userId: 'inside', pricingBarred: true },
+  insideSales: { ...base, userId: 'inside', pricingBarred: true, insideSales: true },
+  stranger: { ...base, userId: 'sub1' },
 }
 const deal = { owner_user_id: 'closer', setter_user_id: 'setter' }
 const read = (v: ThreadViewer, audience: Audience | null, restricted = false) => canReadMessage(v, deal, { audience, restricted_pricing: restricted })
@@ -31,6 +32,8 @@ describe('thread visibility — role × audience', () => {
     ['setter', true, true, false, false], // setters NEVER see production or crew
     ['otherSetter', false, false, false, false],
     ['insideSales', true, true, false, false],
+    ['stranger', false, false, false, false], // unknown role (sub, custom-only): nothing
+
   ] as const)('%s', (name, team, sales, production, crew) => {
     const v = viewers[name]
     expect([read(v, 'team'), read(v, 'sales'), read(v, 'production'), read(v, 'crew')]).toEqual([team, sales, production, crew])

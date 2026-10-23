@@ -1,8 +1,11 @@
 import { NextResponse } from 'next/server'
 
+import { dealRefOf } from '@/lib/threads/get-thread'
+
 import { threadAuth, threadDeal } from '@/lib/threads/api'
+import { scrubNotificationsForActivity } from '@/lib/threads/notify'
 import { loadMessage } from '@/lib/threads/post-message'
-import { AUDIENCES, canDeleteMessage, canPin, canReadMessage, canReclassify, type Audience } from '@/lib/threads/visibility'
+import { AUDIENCES, canDeleteMessage, canPin, canReadMessage, canReclassify, looksLikePricing, type Audience } from '@/lib/threads/visibility'
 
 const MAX_CUSTOMER_PINS = 3
 
@@ -25,7 +28,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
   if (!r?.opportunity_id) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   const deal = await threadDeal(ctx, r.opportunity_id)
   if (!deal) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  const dealRef = { owner_user_id: deal.owner_user_id, setter_user_id: deal.setter_user_id }
+  const dealRef = dealRefOf(deal)
   if (!canReadMessage(viewer, dealRef, { audience: r.audience, restricted_pricing: r.restricted_pricing })) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
   }
@@ -65,18 +68,25 @@ export async function PATCH(request: Request, { params }: { params: { id: string
       if (r.user_id !== viewer.userId) return NextResponse.json({ error: 'Only the author can edit' }, { status: 403 })
       const text = typeof body.body === 'string' ? body.body.trim() : ''
       if (!text || text.length > 5000) return NextResponse.json({ error: 'Invalid message' }, { status: 400 })
-      await admin.from('activities').update({ body: text, edited_at: now }).eq('id', r.id)
+      // An edit can turn a harmless note into a priced one: re-screen, and never clear an existing flag.
+      const flag = r.restricted_pricing === true || looksLikePricing(text) || (r.audience === 'crew' && looksLikePricing(text))
+      await admin.from('activities').update({ body: text, edited_at: now, restricted_pricing: flag ? true : r.restricted_pricing }).eq('id', r.id)
+      if (flag && r.restricted_pricing !== true) await scrubNotificationsForActivity(admin, r.id)
       break
     }
     case 'delete': {
       if (!canDeleteMessage(viewer, r)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
       await admin.from('activities').update({ deleted_at: now, deleted_by: viewer.userId, pinned_at: null }).eq('id', r.id)
+      await scrubNotificationsForActivity(admin, r.id, true)
       break
     }
     case 'reclassify': {
       const to = body.audience as Audience
       if (!(AUDIENCES as readonly string[]).includes(to) || !canReclassify(viewer, to)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-      await admin.from('activities').update({ audience: to }).eq('id', r.id)
+      // Moving a priced message onto a wider audience (crew leaves the building) flags it; text is re-screened, never un-flagged.
+      const flag = r.restricted_pricing === true || looksLikePricing(r.body ?? '')
+      await admin.from('activities').update({ audience: to, restricted_pricing: flag ? true : r.restricted_pricing }).eq('id', r.id)
+      await scrubNotificationsForActivity(admin, r.id)
       break
     }
     default:
@@ -84,3 +94,4 @@ export async function PATCH(request: Request, { params }: { params: { id: string
   }
   return NextResponse.json({ message: await loadMessage(admin, viewer.orgId, r.id) })
 }
+

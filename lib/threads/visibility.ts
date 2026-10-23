@@ -37,11 +37,22 @@ export type ThreadViewer = {
   setterLike: boolean
   /** isBarredFromSalesDocAccess — no pricing-flagged messages. */
   pricingBarred: boolean
+  /** Inside-sales / call-center worker: works the whole queue, never production or pricing. */
+  insideSales?: boolean
+}
+
+/** A role the thread rules positively know. Anyone else (sub, custom-only roles) reads nothing: fail closed. */
+export function isRecognizedViewer(v: ThreadViewer): boolean {
+  return v.ownerLike || v.jobBoard || v.managerLike || v.closerLike || v.setterLike || v.insideSales === true
 }
 
 export type DealRef = {
   owner_user_id: string | null
   setter_user_id: string | null
+  /** Appointment closer(s) on the deal: the person who runs the inspection may differ from opportunities.owner_user_id. */
+  closer_user_ids?: string[]
+  /** Appointment canvasser(s) / other people who set the deal. */
+  extra_user_ids?: string[]
 } | null
 
 export type MessageGate = {
@@ -49,12 +60,18 @@ export type MessageGate = {
   restricted_pricing?: boolean | null
 }
 
-function ownsDeal(v: ThreadViewer, deal: DealRef): boolean {
-  return !!deal && (deal.owner_user_id === v.userId || deal.setter_user_id === v.userId)
+export function ownsDeal(v: ThreadViewer, deal: DealRef): boolean {
+  return (
+    !!deal &&
+    (deal.owner_user_id === v.userId ||
+      deal.setter_user_id === v.userId ||
+      (deal.closer_user_ids ?? []).includes(v.userId) ||
+      (deal.extra_user_ids ?? []).includes(v.userId))
+  )
 }
 
 function ownsDealAsCloser(v: ThreadViewer, deal: DealRef): boolean {
-  return v.closerLike && !!deal && deal.owner_user_id === v.userId
+  return v.closerLike && !!deal && (deal.owner_user_id === v.userId || (deal.closer_user_ids ?? []).includes(v.userId))
 }
 
 /** True when the viewer may see the Production/Crew sides of this deal. */
@@ -66,6 +83,7 @@ export function canSeeProduction(v: ThreadViewer, deal: DealRef): boolean {
 export function canReadMessage(v: ThreadViewer, deal: DealRef, m: MessageGate): boolean {
   if (m.audience === null) return true // legacy
   if (v.ownerLike) return true
+  if (!isRecognizedViewer(v)) return false
   if (m.restricted_pricing && v.pricingBarred) return false
   if (m.audience === 'production' || m.audience === 'crew') return canSeeProduction(v, deal)
   // team | sales
@@ -74,13 +92,20 @@ export function canReadMessage(v: ThreadViewer, deal: DealRef, m: MessageGate): 
   return true
 }
 
+/** A row on a known deal is checked against that deal; a row with no deal ('none') is only for people not scoped to their own deals. */
+export function canReadRowOnDeal(v: ThreadViewer, ref: DealRef | 'none', m: MessageGate): boolean {
+  if (ref === 'none') return !(v.setterLike || v.closerLike) && canReadMessage(v, null, m)
+  return canReadMessage(v, ref, m)
+}
+
 /** Audiences the viewer may WRITE on this deal, in composer order. Crew is never a default. */
 export function writableAudiences(v: ThreadViewer, deal: DealRef): Audience[] {
   const out: Audience[] = []
+  if (!v.ownerLike && !isRecognizedViewer(v)) return out
   if ((v.setterLike || v.closerLike) && deal && !ownsDeal(v, deal)) return out
   out.push('team')
   out.push('sales')
-  if (v.ownerLike || v.jobEdit || ownsDealAsCloser(v, deal)) out.push('production')
+  if (v.ownerLike || v.jobEdit || v.jobBoard || ownsDealAsCloser(v, deal)) out.push('production')
   if (v.ownerLike || v.jobEdit) out.push('crew')
   return out
 }
@@ -107,10 +132,10 @@ export function defaultAudience(
 const PRICING_PATTERNS: RegExp[] = [
   /\$\s?\d[\d,]*(\.\d+)?/,
   /\b\d[\d,]*(\.\d+)?\s?(k|grand|bucks)\b/i,
-  /\bprice|pricing|priced|quote[sd]?|bid\b/i,
-  /\bdiscount|\d+\s?%\s?off|off the (price|total)\b/i,
-  /\bcommission|override|payout|margin|profit\b/i,
-  /\bfinanc(e|ing|ed)|dealer fee|deposit\b/i,
+  /\b(price|pricing|priced|quotes?|quoted|bid)\b/i,
+  /\b(discount|discounted)\b|\d+\s?%\s?off|off the (price|total)\b/i,
+  /\b(commission|override|payout|margin|profit)\b/i,
+  /\b(financ(e|ing|ed)|dealer fee|deposit)\b/i,
   /\bper square\b|\bsq\s?@/i,
 ]
 

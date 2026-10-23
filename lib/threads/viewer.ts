@@ -47,5 +47,6 @@ export async function resolveThreadViewer(admin: SupabaseClient, profile: Viewer
     // Setters/canvassers see only deals they set or own; inside sales work the whole queue (but never pricing/production).
     setterLike: (role === 'setter' || role === 'canvasser') && !insideSales,
     pricingBarred,
+    insideSales,
   }
 }
