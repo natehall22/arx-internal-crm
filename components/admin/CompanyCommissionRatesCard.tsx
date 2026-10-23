@@ -12,8 +12,7 @@
  * on /admin/comp-plans instead.
  *
  * Canonical place to edit these (Phase 1 of docs/prompts/comp-plan-admin-editing.md).
- * `InspectionCommissionRateCard` on /admin/payroll still works as a quick-edit
- * shortcut for inspection only, and links back here.
+ * (The inspection-only card that used to sit on the payroll page was removed; this is the one place.)
  *
  * Three confirmation flows, each keyed off a `code` the API returns instead of a
  * generic 400:

@@ -279,7 +279,7 @@ function Person({ p, open, toggle, onChange }: { p: PayWeekPerson; open: boolean
           {p.lines.map((l, i) => (
             <li key={i} className="flex items-start justify-between gap-3 border-t border-dashed border-surface-line py-2">
               <span className="min-w-0">
-                <Badge tone="neutral" className="mr-1.5 uppercase">{l.kind}</Badge>
+                <Badge tone="neutral" className="mr-1.5">{l.kind}</Badge>
                 <span className="text-ui-base text-ink">{l.what}</span>
                 <span className="block text-ui-sm text-ink-muted">{l.math}</span>
               </span>

@@ -1,5 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
+import { lockPayrollPeriod } from '@/lib/payroll-period-lock'
+import { loadPayWeek } from '@/lib/payroll-pay-week'
 import { buildPayrollStatement } from '@/lib/payroll-statement'
 import { sendPayrollStatementEmail } from '@/lib/payroll-statement-email'
 import { pickValidEmail } from '@/lib/setter-email'
@@ -75,4 +77,38 @@ export async function emailStatements(admin: SupabaseClient, orgId: string, peri
     }
   }
   return out
+}
+
+export type ApproveResult =
+  | { ok: true; total: number; people: number; mismatch: boolean; emailed: EmailSummary | null; message: string }
+  | { ok: false; status: number; body: { error: string; code?: string; total?: number } }
+
+/**
+ * Approve a week. The caller passes the total it was SHOWN; if the live calculation no longer equals it, nothing is
+ * paid ("changed"). Otherwise unapproved bonuses roll to next week and the period is locked by `lockPayrollPeriod`
+ * (which runs the same calculation the preview did). One function so the route and its tests exercise the same path.
+ */
+export async function approvePayWeek(
+  admin: SupabaseClient,
+  input: { orgId: string; actorUserId: string; periodId: string; expectedTotal: number; emailStatements: boolean; now?: Date }
+): Promise<ApproveResult> {
+  const { orgId, periodId } = input
+  const now = input.now ?? new Date()
+  const week = await loadPayWeek(admin, orgId, now, periodId)
+  if (week.state !== 'draft') return { ok: false, status: 409, body: { error: 'This week is already approved' } }
+  if (Math.round(week.totals.amount * 100) !== Math.round(input.expectedTotal * 100)) {
+    return { ok: false, status: 409, body: { error: 'The numbers changed while you were looking. Review them again.', code: 'changed', total: week.totals.amount } }
+  }
+  if (week.totals.amount <= 0) return { ok: false, status: 409, body: { error: 'Nothing to pay this week' } }
+
+  await rollPendingBonusesForward(admin, orgId, week.period)
+  const lock = await lockPayrollPeriod(admin, { orgId, periodId, actorUserId: input.actorUserId, status: 'open', requireNoPendingBonuses: false })
+  if (!lock.ok) return { ok: false, status: lock.status, body: lock.body }
+
+  // Safety net: what was written must equal what was approved. The lines are already frozen, so just say so loudly.
+  const after = await loadPayWeek(admin, orgId, now, periodId)
+  const mismatch = Math.round(after.totals.amount * 100) !== Math.round(week.totals.amount * 100)
+  if (mismatch) console.error('pay-week approve: written total differs from approved total', { periodId, approved: week.totals.amount, written: after.totals.amount })
+  const emailed = input.emailStatements ? await emailStatements(admin, orgId, periodId, after.people.filter((p) => p.total > 0).map((p) => p.userId)) : null
+  return { ok: true, total: after.totals.amount, people: after.totals.people, mismatch, emailed, message: lock.message }
 }

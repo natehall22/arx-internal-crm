@@ -21,5 +21,9 @@ Rules: every PR targets this branch (not `main`), has its own branch, tests, bug
 ### Phase C — Customer File + Job Threads — not started (**screenshots for approval before any Phase C code**)
 ### Phase D — lists and queues — not started
 
-## Payroll redesign
-PR 2 "Pay this week" and PR 3 "My pay" — specs in `docs/design/payroll-spec.md`; queued after Phase B.
+## Payroll redesign (`docs/design/payroll-spec.md`, prototype `payroll-prototype.html`)
+| PR | What | Migration |
+|---|---|---|
+| #77 `feat/payroll-engine-plan` | PR 2a: one calculation — `planPayrollPeriod` (no writes) + persist; preview-equals-approve tests | — |
+| `feat/pay-this-week` | PR 2b: "Pay this week" replaces /admin/payroll; folds Pay periods & lock, Consultant statements, Weekly worksheet (hours + bonuses in Needs you); Approve = `lockPayrollPeriod` guarded by the shown total; CSV; old pages/routes deleted, old URLs redirect | none |
+| next | PR 2c: "Fix a mistake" adjustment lines on next week (+ `payroll_adjustments`), chargebacks/balances; PR 3: rep "My pay" + "Something's wrong" | `payroll_adjustments`, `payroll_disputes` (additive) |
