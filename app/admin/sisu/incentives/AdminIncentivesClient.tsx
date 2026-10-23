@@ -1370,7 +1370,7 @@ export default function AdminIncentivesClient({ currentUserId, initialTab = 'hea
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
           <div className="bg-slate-900 rounded-xl shadow-2xl shadow-black/50 border border-slate-700 max-w-md w-full">
             <div className="p-6 border-b border-slate-800">
-              <h2 className="text-xl font-bold text-white">New Sisu Cycle</h2>
+              <h2 className="text-xl font-bold text-white">New Incentive Cycle</h2>
             </div>
             <div className="p-6 space-y-4">
               <div>

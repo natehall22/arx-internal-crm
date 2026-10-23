@@ -142,7 +142,7 @@ export default function AdminFinancingProgramsPage() {
         <div className="flex items-center justify-between mb-8">
           <div>
             <Link href="/admin" className="text-sm text-indigo-600 hover:text-indigo-800 mb-2 inline-block">
-              ← Admin
+              ← Settings
             </Link>
             <h1 className="text-2xl font-bold text-gray-900">Financing programs</h1>
             <p className="text-gray-600 mt-1">

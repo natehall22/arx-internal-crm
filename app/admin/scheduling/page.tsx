@@ -204,7 +204,7 @@ export default function SchedulingPage() {
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="mb-8">
           <div className="flex items-center gap-2 text-sm text-gray-500 mb-2">
-            <Link href="/admin" className="hover:text-indigo-600">Admin</Link>
+            <Link href="/admin" className="hover:text-indigo-600">Settings</Link>
             <span>/</span>
             <span>Scheduling</span>
           </div>

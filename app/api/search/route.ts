@@ -46,7 +46,8 @@ export async function GET(request: NextRequest) {
   try {
     const hits = await runSearch(admin, profile.org_id, q, groups)
     return NextResponse.json({ results: hits.map((h) => ({ ...h, href: hrefForHit(h) })) })
-  } catch {
+  } catch (e) {
+    console.error('global search failed', e)
     return NextResponse.json({ error: 'Search failed' }, { status: 500 })
   }
 }

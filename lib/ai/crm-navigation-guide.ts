@@ -28,6 +28,9 @@ function paveRecordPath(text: string, context?: AiChatFallbackContext): string {
 }
 
 const COMMON_GUIDE = `
+## Main menu
+Six sections: **Today** (your work queue), **Pipeline** (Leads, Opportunities, Inside Sales, Calendar, Referral Partners), **Jobs** (Job Board, Needs you, Projects), **Customers**, **Money** (Payroll, Job profit, Pricebook), **Insights** (Dashboard, Reports, Incentives). Plus **Canvass**, **Settings**, and Search (Cmd/Ctrl-K).
+
 ## ARX CRM — where things go
 
 ### Sales pipeline
@@ -47,7 +50,7 @@ const COMMON_GUIDE = `
 - **Inside Sales**: **Inside Sales** (\`/inside-sales\`) — didn’t-sit, handoff, knockback, storm, and **insurance** follow-up calling (call-center workflow).
 - **Insurance follow-up (closer outcome)**: After close feedback marks **Insurance Follow Up**, scheduling uses the insurance follow-up appointment type; ongoing dials surface on **Inside Sales** (\`/inside-sales\`) — there is no separate insurance page.
 - **Close feedback**: \`/appointments/close-feedback\` (post-appointment closer outcome form).
-- Do **not** send users to \`/jobs\` for production — that redirects to **Projects**; production job file is \`/ops/jobs/[id]\`.
+- Production job file is \`/ops/jobs/[id]\` (Jobs → Job Board). Sold-project handoff is **Projects** (\`/projects\`).
 
 ### Operations (Steve / ops team)
 - **Job Board**: **Job Board** (\`/ops\`) — all production jobs, status columns, materials, scheduling. Ops dashboard: \`/ops/dashboard\`; production calendar: \`/ops/calendar\`.
@@ -72,17 +75,17 @@ const COMMON_GUIDE = `
 
 ### Canvassing (setters)
 - **Door knocking map**: **Canvass** (\`/canvass\`) — pins, dispositions, offline queue, territories.
-- **Territories**: \`/canvass/territories\` or Admin → Canvass Territories (\`/admin/canvass-territories\`).
+- **Work areas** (canvass boundaries): Settings → **Work areas** (\`/canvass?areas=1\`).
 - **Canvass stats / settings**: \`/canvass/stats\`, \`/canvass/settings\`.
-- **Incentives / leaderboard**: **Sisu** (\`/sisu\`) — door/inspection counts, Heats, and leaderboard; admin config at **Admin → Sisu → Incentives** (\`/admin/sisu/incentives\`).
-- **Setter ramp**: **Admin → Sisu → Setter Ramp** (\`/admin/sisu/setter-ramp\`) — new setter onboarding and ramp targets.
+- **Incentives / leaderboard**: **Incentives** (\`/sisu\`) — door/inspection counts, Heats, and leaderboard; admin config at **Settings → Incentives** (\`/admin/sisu/incentives\`).
+- **Setter ramp**: **Settings → Incentives → Setter Ramp** (\`/admin/sisu/setter-ramp\`) — new setter onboarding and ramp targets.
 
 ### Tools & admin
 - **Roof measure (aerial)**: **Tools → Roof Measure** (\`/tools/roof-measure\`).
 - **Reports**: **Reports** (\`/reports\`), custom builder (\`/reports/explore\`), coaching (\`/reports/coaching\`).
 - **Notifications**: \`/notifications\`.
 - **Settings (personal)**: **Settings** (\`/settings\`) — calendar, **AI Assistant toggle**.
-- **Admin hub**: \`/admin\` — users, teams, integrations.
+- **Settings**: \`/admin\` (Settings in the menu) — one searchable list: users, teams, pricing, pay plans, integrations.
 - **Admin pricing** (\`/admin/pricing\`) vs staff **Pricebook** (\`/pricebook\`) — pricebook for day-to-day proposal pricing; admin pricing for org config.
 
 ### Photos — which upload goes where
@@ -104,7 +107,7 @@ Canvass pin → Lead → Schedule inspection → Opportunity → Proposal → Co
 const NAVIGATION_PROMPT_RULES = `
 Navigation answer rules (always follow):
 - Never emit empty markdown links or markdown links with blank labels/URLs. Prefer plain backtick paths like \`/ops/jobs/...\`. If you lack a concrete id, keep the \`[id]\` placeholder inside backticks — do not invent a link.
-- Only cite App Router paths that appear in the navigation guide above (or the Current record URL appendix). Never invent routes (no separate insurance page, no \`/jobs\` for production).
+- Only cite App Router paths that appear in the navigation guide above (or the Current record URL appendix). Never invent routes (no separate insurance page; production jobs are only under /ops/jobs/[id]).
 - If the user asks about photos/uploads without specifying type, disambiguate among (a) Roof Report Builder on the opportunity (\`/opportunities/[id]/report\`), (b) Proposal Inspection Photos max 6 on \`/proposals/[id]\`, (c) Job **Photos & files** on \`/ops/jobs/[id]\`. Do not send roof-report work to Job Board.
 `.trim()
 
@@ -295,7 +298,7 @@ If I have your counts in context I will cite them directly; otherwise open those
     return `Canvassing lives at **Canvass** (\`/canvass\`):
 - Drop pins on the map and pick a disposition (not home, hot lead, go back, etc.)
 - Works offline — pins sync when you are back online
-- Territories: \`/canvass/territories\` or Admin → Canvass Territories (\`/admin/canvass-territories\`)`
+- Work areas: Settings → Work areas (\`/canvass?areas=1\`)`
   }
 
   const matchesRoofReport =

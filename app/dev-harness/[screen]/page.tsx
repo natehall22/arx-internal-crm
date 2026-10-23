@@ -36,6 +36,8 @@ import JobSheetsEditor from '@/app/ops/jobs/[id]/sheets/JobSheetsEditor'
 import DashboardClient from '@/app/dashboard/DashboardClient'
 import UiKitHarness from '@/components/ui/UiKitHarness'
 import Nav from '@/components/Nav'
+import SettingsHub from '@/app/admin/SettingsHub'
+import { visibleSettingsGroups } from '@/lib/settings-registry'
 import { QueueCard, KpiTiles } from '@/components/today/QueueCard'
 import { HARNESS_QUEUES } from '@/e2e/fixtures'
 
@@ -139,6 +141,8 @@ export default function Harness({ params }: { params: { screen: string } }) {
           <main className="p-4"><h1 className="text-ui-xl font-bold text-ink">Page content</h1></main>
         </div>
       )
+    case 'settings-hub':
+      return <div className="mx-auto max-w-6xl p-4"><h1 className="text-ui-xl font-bold text-ink">Settings</h1><SettingsHub groups={visibleSettingsGroups({ canCost: true, canPayroll: true, canSuperuser: true, canWorkAreas: true })} /></div>
     case 'today':
       return (
         <div className="mx-auto flex max-w-5xl flex-col gap-4 p-4">

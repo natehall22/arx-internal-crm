@@ -404,7 +404,7 @@ export default function AdminProposalsPage() {
       <div className="max-w-7xl mx-auto px-4 py-8">
         <div className="mb-6">
           <Link href="/admin" className="text-indigo-600 hover:text-indigo-800 text-sm font-medium">
-            ← Back to Admin
+            ← Back to Settings
           </Link>
         </div>
 

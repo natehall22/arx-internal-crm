@@ -355,7 +355,7 @@ export default function RolesPage() {
         <div className="flex items-center justify-between mb-6">
           <div>
             <div className="flex items-center gap-2 text-sm text-gray-500 mb-2">
-              <Link href="/admin" className="hover:text-indigo-600">Admin</Link>
+              <Link href="/admin" className="hover:text-indigo-600">Settings</Link>
               <span>/</span>
               <span>Roles & Permissions</span>
             </div>

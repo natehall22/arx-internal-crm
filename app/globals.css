@@ -267,3 +267,8 @@ select.bg-slate-950:-webkit-autofill {
 @media (max-width: 767px) {
   body.has-app-shell { padding-bottom: calc(4.5rem + env(safe-area-inset-bottom)); }
 }
+
+/* Printing a page that renders <Nav />: no sidebar, no room reserved for it. */
+@media print {
+  body.has-app-shell { padding: 0; }
+}

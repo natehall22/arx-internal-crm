@@ -7,7 +7,7 @@ export default async function BonusApprovalPage() {
   const { profile } = await requireAuth()
   const canAccess =
     isPayrollAdminRole(profile.role) || isRegionalBonusApproverRole(profile.role)
-  if (!canAccess) redirect('/admin/sisu')
+  if (!canAccess) redirect('/admin/sisu/incentives')
 
   return <BonusApprovalClient isFullAdmin={isPayrollAdminRole(profile.role)} />
 }
