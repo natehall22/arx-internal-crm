@@ -38,7 +38,10 @@ export default function PayWeekClient() {
   const [change, setChange] = React.useState<{ p: PayWeekPerson; l: PayWeekLine } | null>(null)
   const [changeAmount, setChangeAmount] = React.useState('')
   const [changeReason, setChangeReason] = React.useState('')
-  const [done, setDone] = React.useState<{ total: number; people: number; emailed: { sent: number; skipped: number; failed: number } | null } | null>(null)
+  const [done, setDone] = React.useState<{ total: number; people: number; mismatch: boolean; writtenTotal: number } | null>(null)
+  const [emailing, setEmailing] = React.useState(false)
+  const [emailed, setEmailed] = React.useState<{ sent: number; skipped: number; failed: number } | null>(null)
+  const [bonusBusy, setBonusBusy] = React.useState(false)
 
   const load = React.useCallback(async () => {
     setError(null)
@@ -63,20 +66,34 @@ export default function PayWeekClient() {
     return body
   }
 
-  const approve = async () => {
-    if (!week) return
-    setBusy(true)
+  const sendEmails = async (periodId: string) => {
+    setEmailing(true)
     try {
-      const res = await post('approve', { periodId: week.period.id, expectedTotal: week.totals.amount, emailStatements: emailIt })
-      setConfirming(false)
-      setDone({ total: res.total, people: res.people, emailed: res.emailed })
-      await load()
+      const r = await fetch(`${API}/email`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ periodId }) })
+      const body = await r.json().catch(() => ({}))
+      if (!r.ok) throw new Error(body?.error || 'Could not send the statements')
+      setEmailed({ sent: body.sent, skipped: body.skipped, failed: body.failed })
     } catch (e) {
       toast.error((e as Error).message)
-      if ((e as { code?: string }).code === 'changed') {
-        setConfirming(false)
-        await load()
-      }
+    } finally {
+      setEmailing(false)
+    }
+  }
+
+  const approve = async () => {
+    if (!week || busy) return
+    setBusy(true)
+    try {
+      const res = await post('approve', { periodId: week.period.id, expectedTotal: week.totals.amount })
+      setConfirming(false)
+      setDone({ total: res.total, people: res.people, mismatch: !!res.mismatch, writtenTotal: res.writtenTotal })
+      await load()
+      if (emailIt) void sendEmails(week.period.id)
+    } catch (e) {
+      toast.error((e as Error).message)
+      // Whatever went wrong, the screen may be stale (changed numbers, already approved by someone else): show the truth.
+      setConfirming(false)
+      await load()
     } finally {
       setBusy(false)
     }
@@ -138,6 +155,7 @@ export default function PayWeekClient() {
 
   const draft = week.state === 'draft'
   const openNeeds = week.needs.filter((n) => !(n.kind === 'bonus' && later[n.id]))
+  const missingHours = week.needs.filter((n): n is Extract<PayWeekNeed, { kind: 'hours' }> => n.kind === 'hours')
   const csvHref = `${API}/csv?period=${week.period.id}`
 
   return (
@@ -157,9 +175,16 @@ export default function PayWeekClient() {
       </header>
 
       {done ? (
-        <div className="rounded-ui border border-emerald-300 bg-emerald-50 p-4 text-ink" role="status">
+        <div className={cn('rounded-ui border p-4 text-ink', done.mismatch ? 'border-danger bg-red-50' : 'border-emerald-300 bg-emerald-50')} role="status">
           <p className="text-ui-lg font-semibold">Approved: {formatMoney(done.total)} to {done.people} {done.people === 1 ? 'person' : 'people'}.</p>
-          {done.emailed ? <p className="text-ui-base">Statements emailed: {done.emailed.sent}{done.emailed.skipped ? ` · not emailed (no address or email off): ${done.emailed.skipped}` : ''}{done.emailed.failed ? ` · failed: ${done.emailed.failed}` : ''}.</p> : null}
+          {done.mismatch ? <p className="text-ui-base">Heads up: what was written ({formatMoney(done.writtenTotal)}) differs from the {formatMoney(done.total)} you approved, because something changed while it was saving. Check the people below before paying anyone.</p> : null}
+          {emailing ? <p className="text-ui-base">Emailing statements…</p> : emailed ? <p className="text-ui-base">Statements emailed: {emailed.sent}{emailed.skipped ? ` · not emailed (no address or inactive): ${emailed.skipped}` : ''}{emailed.failed ? ` · failed: ${emailed.failed}` : ''}.</p> : null}
+        </div>
+      ) : null}
+
+      {!draft ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="secondary" size="sm" loading={emailing} onClick={() => sendEmails(week.period.id)}>Email statements{emailed ? ' again' : ''}</Button>
         </div>
       ) : null}
 
@@ -168,7 +193,7 @@ export default function PayWeekClient() {
           <h2 id="needs-h" className="px-4 pt-3 text-ui-lg font-semibold text-ink">{openNeeds.length ? `Needs you (${openNeeds.length})` : 'Check these'}</h2>
           <ul className="divide-y divide-amber-200">
             {openNeeds.map((n, i) => (
-              <li key={i} className="px-4 py-3"><Need n={n} onHours={async (userId, hrs) => { try { await post('hours', { periodId: week.period.id, userId, regularHours: hrs }); toast.success('Hours added'); await load() } catch (e) { toast.error((e as Error).message) } }} onBonus={async (id) => { try { await post('bonus', { id, action: 'approve' }); await load() } catch (e) { toast.error((e as Error).message) } }} onLater={(id) => setLater((l) => ({ ...l, [id]: true }))} onReply={async (id, reply) => { try { await post('dispute', { id, action: 'reply', reply }); toast.success('Sent'); await load() } catch (e) { toast.error((e as Error).message) } }} onDisputeFix={(d) => { setFixDispute(d.id); setFixUser(d.userId); setFixAmount(''); setFixReason(''); setFixing(true) }} /></li>
+              <li key={i} className="px-4 py-3"><Need n={n} onHours={async (userId, hrs) => { try { await post('hours', { periodId: week.period.id, userId, regularHours: hrs }); toast.success('Hours added'); await load() } catch (e) { toast.error((e as Error).message) } }} onBonus={async (id) => { if (bonusBusy) return; setBonusBusy(true); try { await post('bonus', { id, periodId: week.period.id, action: 'approve' }); await load() } catch (e) { toast.error((e as Error).message) } finally { setBonusBusy(false) } }} onLater={(id) => setLater((l) => ({ ...l, [id]: true }))} onReply={async (id, reply) => { try { await post('dispute', { id, action: 'reply', reply }); toast.success('Sent'); await load() } catch (e) { toast.error((e as Error).message) } }} onDisputeFix={(d) => { setFixDispute(d.id); setFixUser(d.userId); setFixAmount(''); setFixReason(''); setFixing(true) }} /></li>
             ))}
             {week.warnings.map((w, i) => (
               <li key={`w${i}`} className="px-4 py-3 text-ui-base text-ink">{w.text}</li>
@@ -272,16 +297,22 @@ export default function PayWeekClient() {
         </div>
       ) : null}
 
-      <Dialog open={confirming} onOpenChange={setConfirming}>
+      <Dialog open={confirming} onOpenChange={(o) => { if (!busy) setConfirming(o) }}>
         <DialogContent title={`Approve ${formatMoney(week.totals.amount)}?`} description={`This pays ${week.totals.people} ${week.totals.people === 1 ? 'person' : 'people'} on ${formatDateWeekday(week.period.payDate)}. An approved week never reopens: a mistake is fixed on next week's check.`}>
+          {week.backlog.jobs > 0 ? (
+            <p className="rounded-ui border border-amber-400 bg-amber-50 p-3 text-ui-base text-ink"><b>Includes {formatMoney(week.backlog.amount)} for {week.backlog.jobs} job{week.backlog.jobs > 1 ? 's' : ''} that finished before {formatDateWeekday(week.backlog.since)}</b> — nothing has paid {week.backlog.jobs > 1 ? 'them' : 'it'} yet. Make sure that is right.</p>
+          ) : null}
+          {missingHours.length ? (
+            <p className="rounded-ui border border-danger bg-red-50 p-3 text-ui-base text-ink"><b>No hours entered for {missingHours.map((n) => n.name).join(', ')}.</b> They are paid nothing for hours this week. Hours added later go on next week&apos;s check as a fix.</p>
+          ) : null}
           <label className="flex min-h-tap items-center gap-3 text-ui-base text-ink">
             <input type="checkbox" checked={emailIt} onChange={(e) => setEmailIt(e.target.checked)} className="h-5 w-5" />
             Email each person their statement
           </label>
           {week.waiting.length ? <p className="text-ui-sm text-ink-muted">{week.waiting.length} job{week.waiting.length > 1 ? 's' : ''} wait for next week.</p> : null}
           <DialogFooter>
-            <Button variant="secondary" onClick={() => setConfirming(false)}>Not yet</Button>
-            <Button loading={busy} onClick={approve}>Approve {formatMoney(week.totals.amount)}</Button>
+            <Button variant="secondary" disabled={busy} onClick={() => setConfirming(false)}>Not yet</Button>
+            <Button loading={busy} onClick={approve}>{missingHours.length ? 'Approve without those hours' : `Approve ${formatMoney(week.totals.amount)}`}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -346,7 +377,7 @@ function Person({ p, open, toggle, onChange, onRemove }: { p: PayWeekPerson; ope
           <span className="block font-semibold text-ink">{p.name}</span>
           <span className="block text-ui-sm text-ink-muted">{p.roleLabel}</span>
         </span>
-        <span className="shrink-0 text-right text-ui-lg font-bold tabular-nums text-ink">{p.hoursMissing && p.total === 0 ? <Badge tone="warning">Hours missing</Badge> : formatMoney(p.total)}</span>
+        <span className="shrink-0 text-right text-ui-lg font-bold tabular-nums text-ink">{p.hoursMissing ? <><Badge tone="warning" className="mr-2">Hours missing</Badge>{p.total > 0 ? formatMoney(p.total) : null}</> : formatMoney(p.total)}</span>
       </button>
       {open ? (
         <ul className="px-4 pb-3 pl-10">
@@ -392,7 +423,7 @@ function Need({ n, onHours, onBonus, onLater, onReply, onDisputeFix }: { n: PayW
     return (
       <div>
         <p className="font-semibold text-ink">Bonus for {n.name}: {formatMoney(n.amount)}</p>
-        <p className="text-ui-base text-ink-muted">{n.what}</p>
+        <p className="text-ui-base text-ink-muted">{n.what}{n.fromWeek ? ` (earned the week ending ${formatDateWeekday(n.fromWeek)}; it can't be paid there, so it goes on this check)` : ''}</p>
         <div className="mt-2 flex flex-wrap gap-2">
           <Button onClick={() => onBonus(n.id)}>Yes, pay it</Button>
           <Button variant="secondary" onClick={() => onLater(n.id)}>Not now</Button>

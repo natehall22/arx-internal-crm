@@ -27,7 +27,8 @@ export async function ensureNextOpenPeriod(admin: SupabaseClient, orgId: string,
       scheduled_pay_date: weeklyPayrollPayDateForCutoff(nextCutoff),
       status: 'open',
     })
-    if (error) throw error
+    // Two people at once: the loser hits the unique label — just read the winner's row.
+    if (error && (error as { code?: string }).code !== '23505') throw error
     next = await find()
   }
   if (!next) throw new Error('Could not create next week')

@@ -1,4 +1,4 @@
-import { createFakeDb } from '@/lib/__tests__/helpers/fake-db'
+import { createFakeDb } from '@/lib/test-helpers/fake-db'
 import { materializePayrollPeriod } from '@/lib/payroll-period-materialization'
 import { buildWarnings, composeWeek, describeCommission, loadPayWeek, payWeekCsv, resolvePayWeekPeriod, type PayWeek } from '@/lib/payroll-pay-week'
 

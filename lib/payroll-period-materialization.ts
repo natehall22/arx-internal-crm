@@ -311,6 +311,9 @@ export async function planPayrollPeriod(
     .not('sale_date', 'is', null)
     .lte('sale_date', period.cutoff_at.slice(0, 10))
     .in('status', statuses)
+    // Deterministic: the once-per-month flat bonus lands on the same job in the preview and in Approve.
+    .order('sale_date', { ascending: true })
+    .order('id', { ascending: true })
   if (input.onlyJobIds?.length) jobsQuery = jobsQuery.in('id', input.onlyJobIds)
   const { data: jobData, error: jobError } = await jobsQuery
   if (jobError) throw jobError
@@ -376,6 +379,12 @@ export async function planPayrollPeriod(
   const skippedJobs: PayrollPlan['skippedJobs'] = []
   const waitingItems: Array<{ job: JobRow; reason: string }> = []
   const eligible = candidateJobs.flatMap((job) => {
+    // Only a finished job (complete / collected) can ever be paid. Open jobs are loaded for the preview's Waiting list
+    // only; a reopened job that still has an install date must not count as payable here.
+    if (job.status !== 'complete' && job.status !== 'collected') {
+      waitingItems.push({ job, reason: 'not_installed' })
+      return []
+    }
     if (alreadySnapshotted.has(job.id)) {
       skippedJobs.push({ jobId: job.id, reason: 'already_snapshotted' })
       return []
