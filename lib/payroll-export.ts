@@ -391,8 +391,10 @@ async function loadOrgDefaultPlanForUser(
   const rows = (defaults ?? []) as OrgDefaultCompPlanRow[]
   if (rows.length === 0) return null
 
-  const { data: user, error: userErr } = await supabase.from('users').select('role').eq('id', userId).eq('org_id', orgId).maybeSingle()
+  const { data: user, error: userErr } = await supabase.from('users').select('role, active').eq('id', userId).eq('org_id', orgId).maybeSingle()
   if (userErr) throw userErr
+  // A default never pays someone who has left (active=false): an old pin or opportunity can still credit them.
+  if ((user as { active?: boolean | null } | null)?.active === false) return null
   const chosen = selectDefaultForRole(rows, (user as { role?: string } | null)?.role, saleDate)
   if (!chosen) return null
 
