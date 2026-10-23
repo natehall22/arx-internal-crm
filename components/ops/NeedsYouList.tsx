@@ -19,7 +19,7 @@ const APPOINTMENT_ROWS_SHOWN = 15
  * has to do something. Built from lib/data-health.ts (the same check the
  * morning email and payroll use).
  */
-export default function NeedsYouList({ report, canFixPayPlans = false }: { report: DataHealthReport; canFixPayPlans?: boolean }) {
+export default function NeedsYouList({ report, canFixPayPlans = false, audience = 'owner' }: { report: DataHealthReport; canFixPayPlans?: boolean; audience?: 'owner' | 'ops' }) {
   const payPlans = report.payPlans ?? []
   const extraAppointments = Math.max(0, report.appointments.length - APPOINTMENT_ROWS_SHOWN)
   return (
@@ -33,7 +33,7 @@ export default function NeedsYouList({ report, canFixPayPlans = false }: { repor
         </span>
       </div>
       <p className="text-sm text-[#57574f] mb-4">
-        Jobs with missing or conflicting info. Payroll won&apos;t pay a job marked &quot;Holds pay&quot; until it&apos;s fixed.
+        {audience === 'owner' ? 'Jobs with missing or conflicting info. Payroll won\u2019t pay a job marked \u201CHolds pay\u201D until it\u2019s fixed.' : 'Jobs and appointments with missing info.'}
       </p>
 
       {report.count === 0 ? (

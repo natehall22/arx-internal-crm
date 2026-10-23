@@ -11,6 +11,9 @@ import CompleteJobModal from '@/components/ops/CompleteJobModal'
 import JobDocumentsBanner from '@/components/ops/JobDocumentsBanner'
 import JobMaterialsCard from '@/components/ops/JobMaterialsCard'
 import NeedsYouList from '@/components/ops/NeedsYouList'
+import WhatsNewView from '@/components/WhatsNewView'
+import { ROLE_GROUPS } from '@/lib/announcements'
+import { WHATS_NEW_SHOTS } from '@/lib/whats-new-shots'
 import SupplierOrdersCard from '@/components/ops/SupplierOrdersCard'
 import JobReadyToPayBanner from '@/components/ops/JobReadyToPayBanner'
 import JobPayrollSentBanner from '@/components/ops/JobPayrollSentBanner'
@@ -128,6 +131,18 @@ export default function Harness({ params }: { params: { screen: string } }) {
       return <JobSheetsEditor initialSheet={HARNESS_RUN_SHEET as never} canEdit scope={null} coverage={{} as never} showOrder={false} />
     case 'dashboard':
       return <DashboardClient profile={HARNESS_DASHBOARD.profile} stats={HARNESS_DASHBOARD.stats} progress={HARNESS_DASHBOARD.progress} pendingPrompts={[]} upcomingAppointments={[]} recentActivities={[]} settings={{}} />
+    case 'whats-new': {
+      // Every role group, as the real page renders it (same component + same screenshot table).
+      return (
+        <div>
+          {ROLE_GROUPS.map((g) => (
+            <section key={g} data-group={g}>
+              <WhatsNewView title="What's new" group={g} lines={['An example announcement line.']} shots={WHATS_NEW_SHOTS[g] ?? []} />
+            </section>
+          ))}
+        </div>
+      )
+    }
     case 'default-plans':
       return <div className="p-3"><DefaultPlansCard /></div>
     case 'payroll-periods':
