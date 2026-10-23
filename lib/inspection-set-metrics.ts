@@ -43,7 +43,7 @@ const DEFAULT_PAGE_SIZE = 1000
 
 /**
  * Count distinct initial inspection appointments created in [startIso, endIso).
- * Uses created_at (same as dashboard_inspections_set_by_canvasser / team-stats).
+ * Uses created_at (same as rpt_inspection_sets.set_at / team-stats).
  * Includes manager/admin/closer-scheduled rows, not only setter canvasser credit.
  */
 export async function countOrgInspectionSetsInPeriod(

@@ -1,22 +1,12 @@
 import { startOfWeek, subWeeks } from 'date-fns'
 import { fromZonedTime, toZonedTime } from 'date-fns-tz'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { getDateRangeForTimeFrame, type DateRange } from '@/lib/date-ranges'
+import { countUserDoors } from '@/lib/reporting/period-metrics'
 
 export const SISU_WEEKLY_TIMEZONE = 'America/New_York'
 
-type DoorCountRow = {
-  owner_id: string
-  cnt: number | string
-}
-
-type RpcResult = {
-  data: unknown
-  error: { message: string } | null
-}
-
-type SisuDoorsAdmin = {
-  rpc: (fn: string, args: Record<string, unknown>) => PromiseLike<RpcResult>
-}
+type SisuDoorsAdmin = SupabaseClient
 
 /** Previous full calendar week (Sun 00:00 ET → this Sun 00:00 ET, exclusive end). */
 export function getPreviousFullWeekRange(timezone: string = SISU_WEEKLY_TIMEZONE): DateRange {
@@ -29,25 +19,8 @@ export function getPreviousFullWeekRange(timezone: string = SISU_WEEKLY_TIMEZONE
   }
 }
 
-async function countDoorsKnockedInRange(
-  admin: SisuDoorsAdmin,
-  orgId: string,
-  userId: string,
-  range: DateRange,
-): Promise<number> {
-  const { data, error } = await admin.rpc('dashboard_door_leads_by_owner', {
-    p_org_id: orgId,
-    p_start: range.start.toISOString(),
-    p_end: range.end.toISOString(),
-    p_member_ids: [userId],
-  })
-
-  if (error) throw new Error(error.message)
-
-  const rows = (data ?? []) as DoorCountRow[]
-  const row = rows.find((r) => r.owner_id === userId)
-  const count = Number(row?.cnt ?? 0)
-  return Number.isFinite(count) ? count : 0
+async function countDoorsKnockedInRange(admin: SisuDoorsAdmin, orgId: string, userId: string, range: DateRange): Promise<number> {
+  return countUserDoors(admin, orgId, userId, range)
 }
 
 /**
