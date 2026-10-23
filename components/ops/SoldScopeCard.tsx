@@ -259,13 +259,14 @@ export default function SoldScopeCard({
     const supabase = createClientBrowser()
 
     try {
-      const { data: notesData } = await supabase
-        .from('production_job_notes')
-        .select('id, note, is_internal, created_at, user:users(full_name)')
-        .eq('job_id', jobId)
-        .order('created_at', { ascending: true })
-        .limit(20)
-      setNotes((notesData as JobNoteWithAuthor[]) || [])
+      // Notes live in the deal thread now; the server adapter applies the audience rules.
+      const res = await fetch(`/api/ops/jobs/${jobId}/notes`, { cache: 'no-store' })
+      const body = res.ok ? await res.json() : { notes: [] }
+      const rows = ((body.notes ?? []) as Array<{ id: string; note: string; created_at: string; user: { full_name: string | null } | null }>)
+        .slice(0, 20)
+        .reverse()
+        .map((n) => ({ id: n.id, note: n.note, is_internal: true, created_at: n.created_at, user: n.user }))
+      setNotes(rows as JobNoteWithAuthor[])
     } catch {
       setNotes([])
     }

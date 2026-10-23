@@ -35,7 +35,10 @@ interface UpsertResult {
 
 function normalizePhone(phone: string | null | undefined): string | null {
   if (!phone) return null
-  return phone.replace(/\D/g, '').slice(-10)
+  const last10 = phone.replace(/\D/g, '').slice(-10)
+  // Filler numbers (0000000000, 5555555555, 1234567890) are not an identity: never merge two people on them.
+  if (last10.length === 10 && (/^(\d)\1{9}$/.test(last10) || last10 === '1234567890' || last10 === '0123456789')) return null
+  return last10
 }
 
 function normalizeString(str: string | null | undefined): string {
@@ -57,25 +60,18 @@ export function normalizeIdentityEmail(email: string | null | undefined): string
 }
 
 /**
- * Find or create a customer record.
- * 
- * Matching priority:
- * 1. org_id + email (if a real email is provided)
- * 2. org_id + phone (if phone provided, normalized to last 10 digits)
- * 3. org_id + normalized(name + address) for fuzzy match
- * 
- * If found: update any missing fields (address/phone/email)
- * If not found: create new customer
+ * Read-only: the existing customer a person/address maps to (real email, then last-10 phone, then exact
+ * name+address). The one matching rule — `upsertCustomer`, the opportunity auto-link and the orphan backfill
+ * all use it, so a dry run shows exactly what a real run would do.
  */
-export async function upsertCustomer(
+export async function findExistingCustomer(
   supabase: SupabaseClient,
   orgId: string,
   data: CustomerData
-): Promise<UpsertResult> {
+): Promise<any | null> {
   const { name, email, phone, address_text } = data
   const identityEmail = normalizeIdentityEmail(email)
   const normalizedPhone = normalizePhone(phone)
-  
   let existingCustomer: any = null
 
   // Try to find by real email first. Placeholder emails like none@none.com are common
@@ -130,6 +126,29 @@ export async function upsertCustomer(
     }
   }
 
+  return existingCustomer
+}
+
+/**
+ * Find or create a customer record.
+ * 
+ * Matching priority:
+ * 1. org_id + email (if a real email is provided)
+ * 2. org_id + phone (if phone provided, normalized to last 10 digits)
+ * 3. org_id + normalized(name + address) for fuzzy match
+ * 
+ * If found: update any missing fields (address/phone/email)
+ * If not found: create new customer
+ */
+export async function upsertCustomer(
+  supabase: SupabaseClient,
+  orgId: string,
+  data: CustomerData,
+  opts: { skipIntegrations?: boolean } = {}
+): Promise<UpsertResult> {
+  const { name, email, phone, address_text } = data
+  const existingCustomer = await findExistingCustomer(supabase, orgId, data)
+
   // If found, update missing fields
   if (existingCustomer) {
     const updates: Record<string, any> = {}
@@ -147,7 +166,7 @@ export async function upsertCustomer(
         .eq('id', existingCustomer.id)
       
       // Enqueue integration event for customer update
-      enqueueCustomerUpserted(supabase, orgId, existingCustomer.id, {
+      if (!opts.skipIntegrations) enqueueCustomerUpserted(supabase, orgId, existingCustomer.id, {
         ...existingCustomer,
         ...updates,
       }).catch(err => console.error('Failed to enqueue customer event:', err))
@@ -174,7 +193,7 @@ export async function upsertCustomer(
   }
 
   // Enqueue integration event for new customer
-  enqueueCustomerUpserted(supabase, orgId, newCustomer.id, {
+  if (!opts.skipIntegrations) enqueueCustomerUpserted(supabase, orgId, newCustomer.id, {
     name,
     email,
     phone,
@@ -182,4 +201,33 @@ export async function upsertCustomer(
   }).catch(err => console.error('Failed to enqueue customer event:', err))
 
   return { customer_id: newCustomer.id, created: true }
+}
+
+/**
+ * At contract signing the customer row already exists (it is created when the inspection is booked): fill whatever the
+ * signed contract knows and the row lacks (email, phone, address), then tell QuickBooks — the one moment it hears about a
+ * customer. Never overwrites a value that is already there. Best-effort: a failure here must not block signing.
+ */
+export async function enrichCustomerFromContract(
+  supabase: SupabaseClient,
+  orgId: string,
+  customerId: string,
+  contract: { customer_name?: string | null; customer_email?: string | null; customer_phone?: string | null; project_address?: string | null }
+): Promise<void> {
+  try {
+    const { data: existing } = await supabase.from('customers').select('*').eq('id', customerId).eq('org_id', orgId).maybeSingle()
+    if (!existing) return
+    const updates: Record<string, string> = {}
+    const email = normalizeIdentityEmail(contract.customer_email)
+    if (!existing.email && email) updates.email = email
+    if (!existing.phone && contract.customer_phone?.trim()) updates.phone = contract.customer_phone.trim()
+    if (!existing.address_text && contract.project_address?.trim()) updates.address_text = contract.project_address.trim()
+    if (Object.keys(updates).length > 0) {
+      updates.updated_at = new Date().toISOString()
+      await supabase.from('customers').update(updates).eq('id', customerId)
+    }
+    await enqueueCustomerUpserted(supabase, orgId, customerId, { ...existing, ...updates })
+  } catch (e) {
+    console.error('enrichCustomerFromContract failed:', e)
+  }
 }

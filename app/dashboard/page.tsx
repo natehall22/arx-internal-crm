@@ -262,6 +262,7 @@ export default async function DashboardPage() {
     .select('*, users(full_name)')
     .eq('org_id', profile.org_id)
     .is('referral_partner_id', null)
+    .is('deleted_at', null)
     .order('created_at', { ascending: false })
     .limit(10)
   

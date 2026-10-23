@@ -1,6 +1,7 @@
 /**
  * Project review questionnaire: sales/ops handoff so install crews know what was sold.
  */
+import { loadJobNotes, writeJobNote } from '@/lib/threads/job-notes'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 export type ProjectReviewAnswers = {
@@ -186,7 +187,7 @@ export async function importProjectReviewNoteToJob(
 ): Promise<ImportProjectReviewResult> {
   const { data: project, error: pErr } = await admin
     .from('projects')
-    .select('project_review')
+    .select('project_review, org_id')
     .eq('id', opts.projectId)
     .single()
 
@@ -199,14 +200,8 @@ export async function importProjectReviewNoteToJob(
     return { ok: true, created: false, skipped: 'no_project_review' }
   }
 
-  const { data: dup } = await admin
-    .from('production_job_notes')
-    .select('id')
-    .eq('job_id', opts.jobId)
-    .like('note', `%${stored.submittedAt}%`)
-    .maybeSingle()
-
-  if (dup?.id) {
+  const existing = await loadJobNotes(admin, project.org_id, opts.jobId, { limit: 200 })
+  if (existing.some((n) => n.note.includes(stored.submittedAt))) {
     return { ok: true, created: false, skipped: 'already_on_job' }
   }
 
@@ -224,16 +219,10 @@ export async function importProjectReviewNoteToJob(
   })
   const note = `IMPORTED FROM PROJECT (when job was created)\n\n${body}`
 
-  const { error: insErr } = await admin.from('production_job_notes').insert({
-    job_id: opts.jobId,
-    user_id: opts.actorUserId,
-    note,
-    is_internal: true,
-  })
-
-  if (insErr) {
-    console.error('importProjectReviewNoteToJob:', insErr)
-    return { ok: false, error: insErr.message }
+  const written = await writeJobNote(admin, { orgId: project.org_id, jobId: opts.jobId, userId: opts.actorUserId, body: note, kind: 'handoff' })
+  if (!written.ok) {
+    console.error('importProjectReviewNoteToJob:', written.error)
+    return { ok: false, error: written.error ?? 'note_failed' }
   }
 
   return { ok: true, created: true }

@@ -74,6 +74,8 @@ describe('every app read/update of notifications filters by recipient', () => {
     for (const chain of notificationChains(src)) {
       if (/^\.from\(\s*['"]notifications['"]\s*\)\s*\.insert\(/.test(chain.replace(/\s+/g, ' ').replace(/^\s+/, ''))) continue
       if (!/\.(select|update|delete|upsert)\(/.test(chain)) continue
+      // lib/threads/notify.ts scrubNotificationsForActivity: a system-side update of ONE activity's copies (no rows are returned).
+      if (/notify\.ts$/.test(file) && /\.eq\(\s*['"]activity_id['"]/.test(chain) && !/\.select\(/.test(chain)) continue
       readers += 1
       if (!/recipient_user_id['"],/.test(chain)) offenders.push(`${path.relative(ROOT, file)}: ${chain.slice(0, 120)}`)
     }
@@ -87,8 +89,8 @@ describe('every app read/update of notifications filters by recipient', () => {
   })
 
   it('finds the known readers (scanner sanity check)', () => {
-    // /api/notifications GET x2 + PATCH x2, stream x3, setter x2
-    expect(readers).toBe(9)
+    // /api/notifications GET x2 + PATCH x2, stream x3, setter x2, lib/threads/waiting.ts x3
+    expect(readers).toBe(12)
   })
 
   it('has no reader without a recipient_user_id filter', () => {

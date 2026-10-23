@@ -159,6 +159,7 @@ export default async function CustomerDetailPage({
     .from('activities')
     .select('*, users(full_name)')
     .eq('org_id', profile.org_id)
+    .is('deleted_at', null)
     .order('created_at', { ascending: false })
 
   const activityFilters = [

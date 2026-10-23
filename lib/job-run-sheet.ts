@@ -1,3 +1,4 @@
+import { loadJobNotes } from '@/lib/threads/job-notes'
 /**
  * Job Run Sheet — the one-page "everything you need to run this job" hand-off.
  *
@@ -377,13 +378,7 @@ export async function buildJobRunSheet(
       .from('job_material_order_overrides')
       .select('id, job_id, item_key, qty_text, excluded, note, updated_by, updated_at')
       .eq('job_id', jobId),
-    admin
-      .from('production_job_notes')
-      .select('note')
-      .eq('job_id', jobId)
-      .eq('share_with_sub', true)
-      .order('created_at', { ascending: false })
-      .limit(5),
+    loadJobNotes(admin, orgId, jobId, { crewOnly: true, limit: 5 }),
     admin
       .from('job_change_orders')
       .select('co_number, description, customer_signed_at, signed_at')
@@ -427,7 +422,7 @@ export async function buildJobRunSheet(
   pushHeadsUp(computedHeadsUp, 'Materials notes', clean(job.materials_notes))
   pushHeadsUp(computedHeadsUp, 'Open items', clean(review?.openItems))
   pushHeadsUp(computedHeadsUp, 'Customer was told', clean(review?.customerExpectations))
-  for (const row of notesRes.data ?? []) {
+  for (const row of notesRes) {
     pushHeadsUp(computedHeadsUp, 'Note for crew', clean(row.note))
   }
   const changeOrders = toRunSheetChangeOrders(changeOrdersRes.data ?? [])
