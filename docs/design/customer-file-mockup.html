@@ -1,0 +1,41 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Customer File mockup</title>
+<style>
+:root{--ink:#2c2c2a;--mut:#5a5a55;--line:#dcd9d0;--bg:#f6f4ee;--card:#fff;--brand:#6b6a2a;--warn:#a4400f}
+*{box-sizing:border-box}body{margin:0;font:16px/1.4 system-ui,sans-serif;color:var(--ink);background:var(--bg)}
+.hdr{position:sticky;top:0;background:var(--card);border-bottom:1px solid var(--line);padding:12px 16px;z-index:2}
+.hdr h1{font-size:20px;margin:0}.sub{color:var(--mut);font-size:14px}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.btn{min-height:44px;padding:0 14px;border:1px solid var(--line);border-radius:8px;background:#fff;font-size:14px;display:inline-flex;align-items:center;color:var(--ink)}
+.btn.p{background:var(--brand);color:#fff;border-color:var(--brand)}
+.pill{font-size:14px;padding:2px 10px;border-radius:99px;background:#ece9dc}
+.tabs{display:flex;overflow-x:auto;border-bottom:1px solid var(--line);background:var(--card)}
+.tabs a{padding:12px 16px;min-height:44px;font-size:15px;white-space:nowrap;color:var(--mut)}
+.tabs a.on{color:var(--ink);border-bottom:3px solid var(--brand);font-weight:600}
+.wrap{display:grid;grid-template-columns:1fr;gap:12px;padding:12px 16px}
+@media(min-width:900px){.wrap{grid-template-columns:1fr 380px;max-width:1200px;margin:0 auto}.mobonly{display:none}}
+@media(max-width:899px){.rail{display:none}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px}
+.card h2{font-size:16px;margin:0 0 8px}
+.kv{display:flex;justify-content:space-between;padding:6px 0;border-top:1px solid #eee;font-size:15px}
+.alert{border-left:4px solid var(--warn);background:#fbefe6;padding:10px 12px;border-radius:6px;font-size:15px;margin-bottom:12px}
+.msg{padding:10px 0;border-top:1px solid #eee;font-size:15px}.msg b{font-size:14px}.aud{font-size:13px;color:#fff;background:var(--brand);border-radius:4px;padding:1px 6px;margin-left:6px}
+.aud.t{background:#3b5b7a}.aud.pr{background:#7a4b3b}
+.note{padding:6px 16px;font-size:14px;color:var(--mut)}
+</style></head><body>
+<div class="hdr"><h1>Ashley Gaines</h1><div class="sub">1423 Maple Ridge Dr, Concord NC · (704) 555-0142</div>
+<div class="row"><span class="pill">Deal: Roof replacement ▾</span><span class="pill">Job 26-0026 · In production</span></div>
+<div class="row"><a class="btn p">Call</a><a class="btn">Text</a><a class="btn">Directions</a><a class="btn">+ Note</a></div></div>
+<div class="tabs"><a>Overview</a><a>Sales</a><a class="on">Job</a><a>Money</a><a>Files</a><a class="mobonly">Notes (3)</a></div>
+<div class="note">Opens on <b>Job</b> for ops. Closers open on Sales; owner on Overview. Setters see Overview, Sales, Files only. Tabs load on tap.</div>
+<div class="wrap"><div>
+<div class="alert"><b>Pinned:</b> Dog in backyard, gate code 4471. Call before arrival.</div>
+<div class="card"><h2>Install</h2><div class="kv"><span>Roofing crew</span><span>Carolina Roofing · Thu Oct 29</span></div><div class="kv"><span>Gutters crew</span><span>Not scheduled</span></div><div class="kv"><span>Crew photos</span><span>2 of 4</span></div></div>
+<div class="card" style="margin-top:12px"><h2>Sold scope</h2><div class="kv"><span>Squares</span><span>28.5</span></div><div class="kv"><span>Shingle</span><span>Landmark Pro, Weathered Wood</span></div><div class="kv"><span>Add-ons</span><span>306 LF gutters, decking</span></div></div>
+<div class="card" style="margin-top:12px"><h2>Materials order</h2><div class="kv"><span>ABC Supply</span><span>Ordered · delivers Tue</span></div></div>
+</div>
+<div class="rail card"><h2>Notes <span class="sub">· this deal ▾ · filter ▾ · search</span></h2>
+<div class="msg"><b>Steve</b> <span class="aud pr">Production</span><br>Delivery Tuesday 7am, drop on driveway.</div>
+<div class="msg"><b>Evan</b> <span class="aud t">Team</span><br>Customer prefers texts after 5pm. @Nathan she asked about gutters.</div>
+<div class="msg"><b>Nathan</b> <span class="aud">Sales</span><br>Signed today, change order for decking.</div>
+<div class="sub" style="margin-top:8px">14 earlier system events collapsed ▸</div></div></div>
+</body></html>
