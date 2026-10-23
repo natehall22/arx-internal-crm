@@ -21,12 +21,18 @@ async function who() {
 }
 
 function cleanState(raw: unknown) {
-  const s = (raw ?? {}) as { sorting?: unknown; search?: unknown }
+  const s = (raw ?? {}) as { sorting?: unknown; search?: unknown; filters?: unknown }
   const sorting = Array.isArray(s.sorting)
     ? s.sorting.slice(0, 5).filter((x): x is { id: string; desc: boolean } => !!x && typeof (x as any).id === 'string' && (x as any).id.length <= 60).map((x) => ({ id: x.id, desc: !!x.desc }))
     : []
   const search = typeof s.search === 'string' ? s.search.slice(0, 200) : ''
-  return { sorting, search }
+  const filters: Record<string, string> = {}
+  if (s.filters && typeof s.filters === 'object' && !Array.isArray(s.filters)) {
+    for (const [k, v] of Object.entries(s.filters as Record<string, unknown>).slice(0, 12)) {
+      if (/^[a-z0-9_.-]{1,40}$/i.test(k) && typeof v === 'string' && v.length <= 100) filters[k] = v
+    }
+  }
+  return { sorting, search, filters }
 }
 
 export async function GET(request: NextRequest) {

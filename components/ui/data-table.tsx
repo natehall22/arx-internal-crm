@@ -32,7 +32,30 @@ export type DataTableColumnMeta = {
 }
 
 export type TableView = { id: string; name: string; state: ViewState }
-export type ViewState = { sorting: SortingState; search: string }
+export type ViewState = { sorting: SortingState; search: string; filters?: Record<string, string> }
+
+/** A dropdown filter. Client mode: `accessor` reads the row's value for this filter ('' / null never matches a chosen option). */
+export type TableFilter<T = any> = {
+  key: string
+  label: string
+  options: Array<{ value: string; label: string }>
+  accessor?: (row: T) => string | null | undefined
+}
+
+/** Pure: the rows that pass every chosen filter (an empty value means "all"). Exported so lists and tests share one rule. */
+export function applyTableFilters<T>(rows: T[], filters: TableFilter<T>[] | undefined, chosen: Record<string, string>): T[] {
+  const active = (filters ?? []).filter((f) => f.accessor && chosen[f.key])
+  if (active.length === 0) return rows
+  return rows.filter((r) => active.every((f) => (f.accessor!(r) ?? '') === chosen[f.key]))
+}
+
+/** Server-controlled lists (e.g. 18k leads): the page owns fetching; the table owns the controls. */
+export type ServerMode = {
+  total: number
+  page: number
+  pageSize: number
+  onQuery: (q: { page: number; search: string; sorting: SortingState; filters: Record<string, string> }) => void
+}
 
 export type ViewStore = {
   list: () => Promise<TableView[]>
@@ -80,13 +103,30 @@ type Props<T> = {
   empty?: { title: string; body?: string; action?: React.ReactNode }
   toolbar?: React.ReactNode
   initialSorting?: SortingState
+  /** Dropdown filters; their values are part of every saved view. */
+  filters?: TableFilter<T>[]
+  /** Built-in views (e.g. "Inside sales queue"): always listed first, cannot be deleted or edited. */
+  systemViews?: TableView[]
+  /** Open on this view id (a system view or a saved one). */
+  defaultViewId?: string
+  /** Delegate paging/search/sort/filter to the page (the page re-fetches in onQuery). */
+  server?: ServerMode
+  /** Called when the chosen view changes (lists that swap their data source per view use this). */
+  onViewChange?: (viewId: string) => void
+  /** Start with this text in the search box (e.g. from a ?q= link). */
+  initialSearch?: string
+  /** Buttons at the end of each row (outside the row link; on a phone, under the card). */
+  rowActions?: (row: T) => React.ReactNode
 }
 
-export function DataTable<T>({ columns, data, tableKey, viewStore, loading, getRowId, getRowHref, searchPlaceholder = 'Search', empty, toolbar, initialSorting = [] }: Props<T>) {
+export function DataTable<T>({ columns, data, tableKey, viewStore, loading, getRowId, getRowHref, searchPlaceholder = 'Search', empty, toolbar, initialSorting = [], filters, systemViews, defaultViewId, server, onViewChange, initialSearch = '', rowActions }: Props<T>) {
   const [sorting, setSorting] = React.useState<SortingState>(initialSorting)
-  const [search, setSearch] = React.useState('')
+  const [search, setSearch] = React.useState(initialSearch)
+  const [chosen, setChosen] = React.useState<Record<string, string>>({})
+  const [page, setPage] = React.useState(server?.page ?? 1)
+  const filtered = React.useMemo(() => (server ? data : applyTableFilters(data, filters, chosen)), [server, data, filters, chosen])
   const table = useReactTable({
-    data,
+    data: filtered,
     columns,
     getRowId: getRowId ? (r) => getRowId(r) : undefined,
     state: { sorting, globalFilter: search },
@@ -96,32 +136,71 @@ export function DataTable<T>({ columns, data, tableKey, viewStore, loading, getR
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     globalFilterFn: 'includesString',
+    manualSorting: !!server,
+    manualFiltering: !!server,
   })
 
   const store = React.useMemo(() => viewStore ?? (tableKey ? apiViewStore(tableKey) : null), [viewStore, tableKey])
   const [views, setViews] = React.useState<TableView[]>([])
   const [activeView, setActiveView] = React.useState('')
+  const firstApplied = React.useRef(false)
+  const allViews = React.useMemo(() => [...(systemViews ?? []), ...views], [systemViews, views])
+  const isSystem = (id: string) => (systemViews ?? []).some((v) => v.id === id)
+
+  // Server mode: tell the page whenever the query changes (page resets to 1 when anything but the page changes).
+  const firstQuery = React.useRef(true)
+  const lastKey = React.useRef('')
+  React.useEffect(() => {
+    if (!server) return
+    const key = JSON.stringify([search, sorting, chosen])
+    const pageNow = key === lastKey.current ? page : 1
+    if (key !== lastKey.current) {
+      lastKey.current = key
+      if (page !== 1) setPage(1)
+    }
+    if (firstQuery.current) {
+      firstQuery.current = false
+      return
+    }
+    server.onQuery({ page: pageNow, search, sorting, filters: chosen })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search, sorting, chosen, page])
   const [naming, setNaming] = React.useState(false)
   const [viewName, setViewName] = React.useState('')
   React.useEffect(() => {
     store?.list().then(setViews).catch(() => setViews([]))
   }, [store])
 
-  const applyView = (id: string) => {
+  const applyView = React.useCallback((id: string, list: TableView[] = allViews) => {
     setActiveView(id)
-    const v = views.find((x) => x.id === id)
+    const v = list.find((x) => x.id === id)
     if (!v) {
       setSorting(initialSorting)
       setSearch('')
+      setChosen({})
     } else {
       setSorting(v.state.sorting ?? [])
-      setSearch(v.state.search ?? '')
+      setSearch(v.state.search || (opened.current && id === defaultViewId && !firstApplied.current ? initialSearch : '') )
+      firstApplied.current = true
+      setChosen(v.state.filters ?? {})
     }
-  }
+    onViewChange?.(id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allViews, onViewChange])
+
+  // Open on the requested view once (system views are known immediately; a saved one after the list loads).
+  const opened = React.useRef(false)
+  React.useEffect(() => {
+    if (opened.current || !defaultViewId) return
+    if (allViews.some((v) => v.id === defaultViewId)) {
+      opened.current = true
+      applyView(defaultViewId, allViews)
+    }
+  }, [defaultViewId, allViews, applyView])
   const saveView = async () => {
     if (!store || !viewName.trim()) return
     try {
-      const v = await store.save(viewName.trim(), { sorting, search })
+      const v = await store.save(viewName.trim(), { sorting, search, filters: chosen })
       setViews((prev) => [...prev.filter((x) => x.id !== v.id), v])
       setActiveView(v.id)
       setNaming(false)
@@ -131,7 +210,7 @@ export function DataTable<T>({ columns, data, tableKey, viewStore, loading, getR
     }
   }
   const removeView = async () => {
-    if (!store || !activeView) return
+    if (!store || !activeView || isSystem(activeView)) return
     try {
       await store.remove(activeView)
       setViews((prev) => prev.filter((x) => x.id !== activeView))
@@ -153,14 +232,23 @@ export function DataTable<T>({ columns, data, tableKey, viewStore, loading, getR
           <>
             <Select value={activeView} onChange={(e) => applyView(e.target.value)} aria-label="Saved views" className="w-full sm:w-auto">
               <option value="">All (default view)</option>
+              {(systemViews ?? []).map((v) => (
+                <option key={v.id} value={v.id}>{v.name}</option>
+              ))}
               {views.map((v) => (
                 <option key={v.id} value={v.id}>{v.name}</option>
               ))}
             </Select>
             <Button variant="secondary" size="sm" onClick={() => setNaming(true)}>Save view</Button>
-            {activeView ? <Button variant="ghost" size="sm" onClick={removeView}>Delete view</Button> : null}
+            {activeView && !isSystem(activeView) ? <Button variant="ghost" size="sm" onClick={removeView}>Delete view</Button> : null}
           </>
         ) : null}
+        {(filters ?? []).map((f) => (
+          <Select key={f.key} value={chosen[f.key] ?? ''} onChange={(e) => setChosen((c) => ({ ...c, [f.key]: e.target.value }))} aria-label={f.label} className="w-full sm:w-auto">
+            <option value="">{f.label}: all</option>
+            {f.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </Select>
+        ))}
         {toolbar}
       </FilterBar>
 
@@ -191,6 +279,7 @@ export function DataTable<T>({ columns, data, tableKey, viewStore, loading, getR
                       </th>
                     )
                   })}
+                  {rowActions ? <th scope="col" className="px-3 py-2"><span className="sr-only">Actions</span></th> : null}
                 </tr>
               </thead>
               <tbody>
@@ -205,6 +294,7 @@ export function DataTable<T>({ columns, data, tableKey, viewStore, loading, getR
                         </td>
                       )
                     })}
+                    {rowActions ? <td className="whitespace-nowrap px-3 py-2 text-right align-middle">{rowActions(row.original)}</td> : null}
                   </tr>
                 ))}
               </tbody>
@@ -233,12 +323,25 @@ export function DataTable<T>({ columns, data, tableKey, viewStore, loading, getR
                 </div>
               )
               return (
-                <li key={row.id}>{getRowHref ? <Link href={getRowHref(row.original)} className="block">{body}</Link> : body}</li>
+                <li key={row.id}>
+                  {getRowHref ? <Link href={getRowHref(row.original)} className="block">{body}</Link> : body}
+                  {rowActions ? <div className="mt-1 flex justify-end">{rowActions(row.original)}</div> : null}
+                </li>
               )
             })}
           </ul>
         </>
       )}
+
+      {server ? (
+        <nav aria-label="Pages" className="flex items-center justify-between gap-2 text-ui-sm text-ink">
+          <span>{server.total === 0 ? 'No results' : `Page ${page} of ${Math.max(1, Math.ceil(server.total / server.pageSize))} · ${server.total} total`}</span>
+          <span className="flex gap-2">
+            <Button variant="secondary" size="sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>Previous</Button>
+            <Button variant="secondary" size="sm" disabled={page >= Math.ceil(server.total / server.pageSize)} onClick={() => setPage((p) => p + 1)}>Next</Button>
+          </span>
+        </nav>
+      ) : null}
 
       <Dialog open={naming} onOpenChange={setNaming}>
         <DialogContent title="Save this view" description="Keeps the current search and sort under a name you can pick again.">

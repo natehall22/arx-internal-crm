@@ -1,8 +1,14 @@
 'use client'
 
-import { useState } from 'react'
-import Nav from '@/components/Nav'
 import Link from 'next/link'
+import type { ColumnDef } from '@tanstack/react-table'
+
+import Nav from '@/components/Nav'
+import { Button } from '@/components/ui/button'
+import { PageHeader } from '@/components/ui/page-header'
+import { StatusPill } from '@/components/ui/badge'
+import { DataTable, type TableFilter, type TableView } from '@/components/ui/data-table'
+import { formatDate } from '@/lib/format'
 
 interface WorkOrder {
   id: string
@@ -22,23 +28,7 @@ interface WorkOrder {
   assigned_sub?: { id: string; company_name: string } | null
 }
 
-const statusColors: Record<string, string> = {
-  pending: 'bg-yellow-100 text-yellow-800',
-  assigned: 'bg-blue-100 text-blue-800',
-  scheduled: 'bg-purple-100 text-purple-800',
-  in_progress: 'bg-indigo-100 text-indigo-800',
-  completed: 'bg-green-100 text-green-800',
-  cancelled: 'bg-gray-100 text-gray-800',
-  on_hold: 'bg-orange-100 text-orange-800',
-}
-
-const priorityColors: Record<string, string> = {
-  low: 'text-gray-500',
-  normal: 'text-blue-500',
-  high: 'text-orange-500',
-  urgent: 'text-red-500',
-}
-
+const PRIORITY_LABEL: Record<string, string> = { urgent: 'Urgent', high: 'High', normal: 'Normal', low: 'Low' }
 const typeLabels: Record<string, string> = {
   go_back: 'Go Back',
   repair: 'Repair',
@@ -49,229 +39,86 @@ const typeLabels: Record<string, string> = {
   service_call: 'Service Call',
 }
 
+
+const DONE = new Set(['completed', 'cancelled'])
+const groupOf = (w: WorkOrder) => (DONE.has(w.status) ? 'done' : 'open')
+const assignee = (w: WorkOrder) => w.assigned_user?.full_name ?? w.assigned_sub?.company_name ?? ''
+
+const COLUMNS: ColumnDef<WorkOrder, any>[] = [
+  {
+    id: 'number',
+    header: 'Work order',
+    accessorFn: (w) => `${w.work_order_number} ${w.title}`,
+    cell: (c) => (
+      <span>
+        <span className="font-semibold">{c.row.original.work_order_number}</span>
+        <span className="block max-w-xs truncate text-ui-sm text-ink-muted">{c.row.original.title}</span>
+      </span>
+    ),
+    meta: { mobile: 'title' },
+  },
+  { id: 'type', header: 'Type', accessorFn: (w) => typeLabels[w.work_order_type] ?? w.work_order_type },
+  {
+    id: 'where',
+    header: 'Customer / location',
+    accessorFn: (w) => `${w.customers?.name ?? ''} ${w.address ?? ''} ${w.city ?? ''} ${w.state ?? ''}`,
+    cell: (c) => {
+      const w = c.row.original
+      return (
+        <span>
+          {w.customers?.name ? <span className="block font-semibold">{w.customers.name}</span> : null}
+          <span className="text-ui-sm text-ink-muted">{[w.address, [w.city, w.state].filter(Boolean).join(' ')].filter(Boolean).join(', ')}</span>
+        </span>
+      )
+    },
+  },
+  { id: 'assigned', header: 'Assigned to', accessorFn: (w) => assignee(w) || 'Unassigned' },
+  { id: 'scheduled', header: 'Scheduled', accessorFn: (w) => w.scheduled_date ?? '', cell: (c) => (c.getValue() ? formatDate(`${c.getValue()}T12:00:00`) : 'Not scheduled') },
+  { accessorKey: 'priority', header: 'Priority', cell: (c) => PRIORITY_LABEL[c.getValue()] ?? c.getValue(), meta: { mobile: 'hide' } },
+  { accessorKey: 'status', header: 'Status', cell: (c) => <StatusPill domain="work_order" value={c.getValue()} /> },
+]
+
+const FILTERS: TableFilter<WorkOrder>[] = [
+  { key: 'group', label: 'Open / done', options: [{ value: 'open', label: 'Open' }, { value: 'done', label: 'Done' }], accessor: groupOf },
+  { key: 'status', label: 'Status', options: ['pending', 'assigned', 'scheduled', 'in_progress', 'on_hold', 'completed', 'cancelled'].map((v) => ({ value: v, label: v.replace(/_/g, ' ') })), accessor: (w) => w.status },
+  { key: 'type', label: 'Type', options: Object.entries(typeLabels).map(([value, label]) => ({ value, label })), accessor: (w) => w.work_order_type },
+  { key: 'scheduled', label: 'Scheduled', options: [{ value: 'no', label: 'Not scheduled' }, { value: 'yes', label: 'Scheduled' }], accessor: (w) => (w.scheduled_date ? 'yes' : 'no') },
+]
+
+const SORT_NEWEST = [{ id: 'number', desc: true }]
+const SYSTEM_VIEWS: TableView[] = [
+  { id: 'sys:open', name: 'Open', state: { sorting: SORT_NEWEST, search: '', filters: { group: 'open' } } },
+  { id: 'sys:unscheduled', name: 'Needs scheduling', state: { sorting: SORT_NEWEST, search: '', filters: { group: 'open', scheduled: 'no' } } },
+  { id: 'sys:done', name: 'Done', state: { sorting: SORT_NEWEST, search: '', filters: { group: 'done' } } },
+]
+
 interface WorkOrdersClientProps {
   initialWorkOrders: WorkOrder[]
 }
 
 export default function WorkOrdersClient({ initialWorkOrders }: WorkOrdersClientProps) {
-  const [workOrders] = useState<WorkOrder[]>(initialWorkOrders)
-  const [statusFilter, setStatusFilter] = useState<string>('all')
-  const [typeFilter, setTypeFilter] = useState<string>('all')
-  const [searchQuery, setSearchQuery] = useState('')
-
-  const filteredWorkOrders = workOrders.filter(wo => {
-    if (statusFilter !== 'all' && wo.status !== statusFilter) return false
-    if (typeFilter !== 'all' && wo.work_order_type !== typeFilter) return false
-    if (!searchQuery) return true
-    const search = searchQuery.toLowerCase()
-    return (
-      wo.work_order_number.toLowerCase().includes(search) ||
-      wo.title.toLowerCase().includes(search) ||
-      wo.address?.toLowerCase().includes(search) ||
-      wo.customers?.name?.toLowerCase().includes(search)
-    )
-  })
-
-  const stats = {
-    total: workOrders.length,
-    pending: workOrders.filter(wo => wo.status === 'pending').length,
-    inProgress: workOrders.filter(wo => wo.status === 'in_progress').length,
-    completed: workOrders.filter(wo => wo.status === 'completed').length,
-  }
-
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-surface-subtle">
       <Nav />
-      
-      <div className="max-w-7xl mx-auto px-4 py-8">
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900">Work Orders</h1>
-            <p className="text-gray-500 mt-1">Manage go-backs, repairs, and service calls</p>
-          </div>
-          <Link
-            href="/work-orders/new"
-            className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-            </svg>
-            New Work Order
-          </Link>
-        </div>
-
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-          <div className="bg-white rounded-xl shadow-sm border p-4">
-            <div className="text-2xl font-bold text-gray-900">{stats.total}</div>
-            <div className="text-sm text-gray-500">Total</div>
-          </div>
-          <div className="bg-white rounded-xl shadow-sm border p-4">
-            <div className="text-2xl font-bold text-yellow-600">{stats.pending}</div>
-            <div className="text-sm text-gray-500">Pending</div>
-          </div>
-          <div className="bg-white rounded-xl shadow-sm border p-4">
-            <div className="text-2xl font-bold text-indigo-600">{stats.inProgress}</div>
-            <div className="text-sm text-gray-500">In Progress</div>
-          </div>
-          <div className="bg-white rounded-xl shadow-sm border p-4">
-            <div className="text-2xl font-bold text-green-600">{stats.completed}</div>
-            <div className="text-sm text-gray-500">Completed</div>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-xl shadow-sm border p-4 mb-6">
-          <div className="flex flex-col md:flex-row gap-4">
-            <div className="flex-1">
-              <input
-                type="text"
-                placeholder="Search work orders..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-              />
-            </div>
-            <div className="flex gap-4">
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                className="px-4 py-2 border border-gray-300 rounded-lg"
-              >
-                <option value="all">All Status</option>
-                <option value="pending">Pending</option>
-                <option value="assigned">Assigned</option>
-                <option value="scheduled">Scheduled</option>
-                <option value="in_progress">In Progress</option>
-                <option value="completed">Completed</option>
-                <option value="on_hold">On Hold</option>
-                <option value="cancelled">Cancelled</option>
-              </select>
-              <select
-                value={typeFilter}
-                onChange={(e) => setTypeFilter(e.target.value)}
-                className="px-4 py-2 border border-gray-300 rounded-lg"
-              >
-                <option value="all">All Types</option>
-                <option value="go_back">Go Back</option>
-                <option value="repair">Repair</option>
-                <option value="warranty">Warranty</option>
-                <option value="punch_list">Punch List</option>
-                <option value="inspection">Inspection</option>
-                <option value="install">Install</option>
-                <option value="service_call">Service Call</option>
-              </select>
-            </div>
-          </div>
-        </div>
-
-        {filteredWorkOrders.length === 0 ? (
-          <div className="bg-white rounded-xl shadow-sm border p-12 text-center">
-            <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-              </svg>
-            </div>
-            <h3 className="text-lg font-medium text-gray-900 mb-2">No work orders yet</h3>
-            <p className="text-gray-500 mb-4">Create your first work order to get started</p>
-            <Link
-              href="/work-orders/new"
-              className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
-            >
-              Create Work Order
-            </Link>
-          </div>
-        ) : (
-          <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
-            <table className="w-full">
-              <thead className="bg-gray-50 border-b">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Work Order</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Customer/Location</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Assigned To</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Scheduled</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {filteredWorkOrders.map((wo) => (
-                  <tr key={wo.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-2">
-                        <span className={`${priorityColors[wo.priority]}`}>
-                          {wo.priority === 'urgent' && '🔴'}
-                          {wo.priority === 'high' && '🟠'}
-                          {wo.priority === 'normal' && '🔵'}
-                          {wo.priority === 'low' && '⚪'}
-                        </span>
-                        <div>
-                          <div className="font-medium text-gray-900">{wo.work_order_number}</div>
-                          <div className="text-sm text-gray-500 max-w-xs truncate">{wo.title}</div>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className="text-sm text-gray-600">
-                        {typeLabels[wo.work_order_type] || wo.work_order_type}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="text-sm">
-                        {wo.customers?.name && (
-                          <div className="font-medium text-gray-900">{wo.customers.name}</div>
-                        )}
-                        <div className="text-gray-500">
-                          {wo.address && `${wo.address}, `}{wo.city} {wo.state}
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      {wo.assigned_user ? (
-                        <div className="flex items-center gap-2">
-                          <div className="w-6 h-6 bg-indigo-100 rounded-full flex items-center justify-center">
-                            <span className="text-xs text-indigo-600">
-                              {wo.assigned_user.full_name?.charAt(0) || '?'}
-                            </span>
-                          </div>
-                          <span className="text-sm text-gray-900">{wo.assigned_user.full_name}</span>
-                        </div>
-                      ) : wo.assigned_sub ? (
-                        <div className="flex items-center gap-2">
-                          <div className="w-6 h-6 bg-orange-100 rounded-full flex items-center justify-center">
-                            <span className="text-xs text-orange-600">S</span>
-                          </div>
-                          <span className="text-sm text-gray-900">{wo.assigned_sub.company_name}</span>
-                        </div>
-                      ) : (
-                        <span className="text-sm text-gray-400">Unassigned</span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-600">
-                      {wo.scheduled_date 
-                        ? new Date(wo.scheduled_date + 'T12:00:00').toLocaleDateString('en-US', { timeZone: 'America/New_York' })
-                        : <span className="text-gray-400">Not scheduled</span>
-                      }
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className={`px-2 py-1 text-xs font-medium rounded-full ${statusColors[wo.status]}`}>
-                        {wo.status.replace('_', ' ')}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      <Link
-                        href={`/work-orders/${wo.id}`}
-                        className="text-indigo-600 hover:text-indigo-800 text-sm font-medium"
-                      >
-                        View
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+      <main className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-6">
+        <PageHeader
+          title="Work orders"
+          subtitle="Go-backs, repairs and service calls"
+          actions={<Button asChild><Link href="/work-orders/new">New work order</Link></Button>}
+        />
+        <DataTable
+          columns={COLUMNS}
+          data={initialWorkOrders}
+          tableKey="work_orders"
+          getRowId={(w) => w.id}
+          getRowHref={(w) => `/work-orders/${w.id}`}
+          searchPlaceholder="Search number, title, customer or address"
+          filters={FILTERS}
+          systemViews={SYSTEM_VIEWS}
+          defaultViewId="sys:open"
+          empty={{ title: 'No work orders match', body: 'Try another view, or create one.', action: <Button asChild><Link href="/work-orders/new">New work order</Link></Button> }}
+        />
+      </main>
     </div>
   )
 }

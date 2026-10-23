@@ -2,7 +2,8 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import Link from 'next/link'
+import type { ColumnDef } from '@tanstack/react-table'
+import { DataTable, type TableFilter, type TableView } from '@/components/ui/data-table'
 import LinkCreateCustomerModal from './LinkCreateCustomerModal'
 import { confirmDialog } from '@/components/ui/confirm-dialog'
 
@@ -12,7 +13,26 @@ interface Customer {
   phone: string | null
   email: string | null
   address_text: string | null
+  /** Has a project or a won deal. Everyone else is a prospect (a deal exists, nothing sold yet). */
+  bought?: boolean
 }
+
+const kindOf = (c: Customer) => (c.bought ? 'customer' : 'prospect')
+const COLUMNS: ColumnDef<Customer, any>[] = [
+  { accessorKey: 'name', header: 'Name', cell: (c) => c.getValue() || 'N/A', meta: { mobile: 'title' } },
+  { accessorKey: 'phone', header: 'Phone', cell: (c) => c.getValue() || '—' },
+  { accessorKey: 'email', header: 'Email', cell: (c) => c.getValue() || '—', meta: { mobile: 'hide' } },
+  { accessorKey: 'address_text', header: 'Address', cell: (c) => c.getValue() || '—' },
+  { id: 'kind', header: 'Type', accessorFn: kindOf, cell: (c) => (c.getValue() === 'customer' ? 'Customer' : 'Prospect') },
+]
+const FILTERS: TableFilter<Customer>[] = [
+  { key: 'kind', label: 'Type', options: [{ value: 'customer', label: 'Customers' }, { value: 'prospect', label: 'Prospects' }], accessor: kindOf },
+]
+const SYSTEM_VIEWS: TableView[] = [
+  { id: 'sys:customers', name: 'Customers (bought)', state: { sorting: [{ id: 'name', desc: false }], search: '', filters: { kind: 'customer' } } },
+  { id: 'sys:prospects', name: 'Prospects (not sold yet)', state: { sorting: [{ id: 'name', desc: false }], search: '', filters: { kind: 'prospect' } } },
+  { id: 'sys:everyone', name: 'Everyone', state: { sorting: [{ id: 'name', desc: false }], search: '', filters: {} } },
+]
 
 interface Props {
   customers: Customer[]
@@ -80,81 +100,20 @@ export default function CustomersPageClient({ customers, query, isAdmin = false 
         </div>
       )}
 
-      <form className="mb-6 flex flex-wrap items-center gap-3" action="/customers" method="GET">
-        <input
-          type="text"
-          name="q"
-          defaultValue={query}
-          placeholder="Search by customer name, phone, or email"
-          className="w-full md:w-96 rounded-md border border-gray-300 px-3 py-2 text-sm"
-        />
-        <button
-          type="submit"
-          className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
-        >
-          Search
-        </button>
-      </form>
-
-      <div className="bg-white shadow rounded-lg overflow-hidden">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Name
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Phone
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Email
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Address
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Actions
-              </th>
-            </tr>
-          </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
-            {customers && customers.length > 0 ? (
-              customers.map((customer) => (
-                <tr key={customer.id}>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-gray-900">
-                      {customer.name || 'N/A'}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {customer.phone || 'N/A'}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {customer.email || 'N/A'}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-500">
-                    {customer.address_text || 'N/A'}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                    <Link
-                      href={`/customers/${customer.id}`}
-                      className="text-indigo-600 hover:text-indigo-900"
-                    >
-                      View
-                    </Link>
-                  </td>
-                </tr>
-              ))
-            ) : (
-              <tr>
-                <td colSpan={5} className="px-6 py-4 text-center text-gray-500">
-                  {query ? 'No customers found matching your search.' : 'No customers yet. Customers are created when proposals are accepted.'}
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      <DataTable
+        columns={COLUMNS}
+        data={customers}
+        tableKey="customers"
+        getRowId={(c) => c.id}
+        getRowHref={(c) => `/customers/${c.id}`}
+        searchPlaceholder="Search name, phone, email or address"
+        filters={FILTERS}
+        systemViews={SYSTEM_VIEWS}
+        defaultViewId={query ? 'sys:everyone' : 'sys:customers'}
+        initialSearch={query}
+        initialSorting={[{ id: 'name', desc: false }]}
+        empty={{ title: 'No customers match', body: 'Customers appear when an inspection is booked; the Customers view shows people who have bought.' }}
+      />
 
       <LinkCreateCustomerModal
         isOpen={isModalOpen}
