@@ -38,7 +38,14 @@ Rules: every PR targets this branch (not `main`), has its own branch, tests, bug
 1. `2026-10-27_link_orphan_opportunities.sql` — 363 opportunities have no customer. Preview: 2 join an existing customer by email, 35 by phone, 326 need a new customer = **314 new customers** (49 → 363 customers), 2 have no lead. After: 0 without a customer. Backup in `data_fix_backups`; rollback SQL in the file.
 2. `2026-10-27_merge_notes_into_threads.sql` — classifies the 4,337 existing activities (human vs system; only 1 existing note is human-written, 4,135 are system rows) and copies **478** old notes into the timeline (104 job notes with 54 exact-name mentions parsed, 158 + 94 old opportunity notes, 17 lead notes that have a deal, 42 + 29 project notes, 31 job internal notes, 3 pinned special instructions). Idempotent (legacy_ref); 14 lead notes with no deal stay on the lead; canvass door notes are shown live. Rollback in the file.
 
-### Phase D — lists and queues — not started
+### Phase D — lists and queues — built (`feat/phase-d-lists`)
+| Piece | What |
+|---|---|
+| Shared DataTable | dropdown filters, built-in views (cannot be deleted), saved views that carry filters (`table_views.state.filters`, no schema change), server mode for big lists, per-row actions, phone cards |
+| Lists on it | Customers (Customers / Prospects / Everyone views — customers now exist from inspection booking), Leads (server mode), Opportunities (record-page queue navigation keeps working: same `?queue=1&status=…` keys), Job Board list view, Work orders, Proposals, Subs, Job profit (money math stays on the server) |
+| Appointments | one hub: `/appointments` (List) · `?view=calendar` · `?reschedule=ID`. `/calendar` and `/schedule` now redirect. Scheduling *setup* stays in Settings → Appointment scheduling |
+| Jobs → Schedule | `/ops/schedule` = Board (sub dispatch) · `?view=calendar` (production calendar). `/ops/calendar` redirects. New nav item Jobs → Schedule |
+| **Not merged (decision for Nathan)** | The Inside Sales queue is still two screens: the working conveyor `/inside-sales` (priority tiers, handoff context, booking modal) and the Inside Sales list on Opportunities (follow-up drawer). They overlap, but the conveyor is what Roda works from daily, so I did not fold or retire either without your OK. Recommendation: make the Opportunities tab link to the conveyor ("Start calling") and delete the duplicate cards after a week of use. |
 
 ## Payroll redesign (`docs/design/payroll-spec.md`, prototype `payroll-prototype.html`)
 | PR | What | Migration |
@@ -51,4 +58,8 @@ Rules: every PR targets this branch (not `main`), has its own branch, tests, bug
 ## State 2026-10-22
 `release/2026-10-batch` = main + UI stack (A, B) + payroll stack (#77–#80). tsc clean, jest 2035 pass. Settled-externally jobs are excluded from plan, preview, Approve and My pay (`payroll-settled-externally.test.ts`, `settled-externally-guards.test.ts`); preview == Approve covered by the pay-week approve tests.
 **Pending batch migrations, apply order:** 202610240020_table_views, 202610240050_global_search, 202610250010_payroll_adjustments, 202610250020_payroll_disputes. Rollbacks: drop the new tables/function (all additive, no existing data touched).
-**Next:** Customer File + Job Threads screenshots for approval (Phase C blocked on it), then Phase D, ABC item mapping, 2-week pay reconciliation (needs the external-pay figures).
+**Next:** 2-week pay reconciliation. The tool is built and tested (`npm run payroll:side-by-side -- --weeks 2 --template out.csv`, then fill `paid` and rerun with `--paid paid.csv --out report.md`: CRM vs paid per person per week, every difference to the cent, people on only one side listed). It needs the payroll migrations applied, so it runs at ship time against the first two Pay-this-week previews; I need the paid-outside figures from Andrew for those weeks.
+
+**Phase C items from your original spec NOT built yet** (not in the BATCH list; say if you want them): make-a-task from a message, quiet hours + morning digest, iOS push with inline reply / web push, voice and photo messages, offline outbox, Share-to-ARX extension, @role mentions, measure tool / proposal builder as overlays (they still open their own pages), `/api/v1` read API + webhooks. Also open: Phase C data fixes touch only `opportunities.customer_id` — `projects.customer_id` / `production_jobs.customer_id` / `leads.customer_id` for those deals are untouched.
+
+**No pushes yet:** per Nathan 2026-10-22 nothing is pushed or PR'd until the end (Vercel compute). Everything above is committed locally in worktrees under ~/arx-wt/ and merges locally into `release/2026-10-batch`.
