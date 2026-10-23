@@ -17,6 +17,7 @@ import {
 } from '@/lib/permissions'
 import { canViewInsideSalesFollowUp } from '@/lib/inside-sales-follow-up'
 import { isPayrollAdminRole } from '@/lib/payroll-admin-access'
+import { COMMISSION_ROLES } from '@/lib/comp-plan-defaults'
 import { activeSectionId, visibleNav } from '@/lib/nav-config'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import GlobalSearch from '@/components/search/GlobalSearch'
@@ -249,6 +250,7 @@ export default function Nav() {
       customerRecords: canAccessCustomerRecordsFromPermissionNames(navPermInput) || canAccessCustomerRecords(userRole),
       reports: canAccessReportsFromPermissionNames(navPermInput) || canAccessReports(userRole || undefined),
       isPayrollAdmin: isPayrollAdminRole(userRole),
+      earnsPay: COMMISSION_ROLES.has(userRole ?? ''),
     },
   })
   const activeId = activeSectionId(pathname, nav)

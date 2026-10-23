@@ -31,6 +31,7 @@ export default function PayWeekClient() {
   const [busy, setBusy] = React.useState(false)
   const [help, setHelp] = React.useState(false)
   const [fixing, setFixing] = React.useState(false)
+  const [fixDispute, setFixDispute] = React.useState<string | null>(null)
   const [fixUser, setFixUser] = React.useState('')
   const [fixAmount, setFixAmount] = React.useState('')
   const [fixReason, setFixReason] = React.useState('')
@@ -106,12 +107,15 @@ export default function PayWeekClient() {
     if (!week) return
     setBusy(true)
     try {
-      const res = await post('adjustment', { periodId: week.period.id, userId: fixUser, amount: Number(fixAmount), reason: fixReason })
+      const res = fixDispute
+        ? await post('dispute', { id: fixDispute, action: 'fix', periodId: week.period.id, amount: Number(fixAmount), reply: fixReason })
+        : await post('adjustment', { periodId: week.period.id, userId: fixUser, amount: Number(fixAmount), reason: fixReason })
       setFixing(false)
+      setFixDispute(null)
       setFixUser('')
       setFixAmount('')
       setFixReason('')
-      toast.success(res.nextWeek ? "Added to next week's check" : 'Added to this week')
+      toast.success(fixDispute ? 'Fixed — the rep can see it' : res.nextWeek ? "Added to next week's check" : 'Added to this week')
       await load()
     } catch (e) {
       toast.error((e as Error).message)
@@ -164,7 +168,7 @@ export default function PayWeekClient() {
           <h2 id="needs-h" className="px-4 pt-3 text-ui-lg font-semibold text-ink">{openNeeds.length ? `Needs you (${openNeeds.length})` : 'Check these'}</h2>
           <ul className="divide-y divide-amber-200">
             {openNeeds.map((n, i) => (
-              <li key={i} className="px-4 py-3"><Need n={n} onHours={async (userId, hrs) => { try { await post('hours', { periodId: week.period.id, userId, regularHours: hrs }); toast.success('Hours added'); await load() } catch (e) { toast.error((e as Error).message) } }} onBonus={async (id) => { try { await post('bonus', { id, action: 'approve' }); await load() } catch (e) { toast.error((e as Error).message) } }} onLater={(id) => setLater((l) => ({ ...l, [id]: true }))} /></li>
+              <li key={i} className="px-4 py-3"><Need n={n} onHours={async (userId, hrs) => { try { await post('hours', { periodId: week.period.id, userId, regularHours: hrs }); toast.success('Hours added'); await load() } catch (e) { toast.error((e as Error).message) } }} onBonus={async (id) => { try { await post('bonus', { id, action: 'approve' }); await load() } catch (e) { toast.error((e as Error).message) } }} onLater={(id) => setLater((l) => ({ ...l, [id]: true }))} onReply={async (id, reply) => { try { await post('dispute', { id, action: 'reply', reply }); toast.success('Sent'); await load() } catch (e) { toast.error((e as Error).message) } }} onDisputeFix={(d) => { setFixDispute(d.id); setFixUser(d.userId); setFixAmount(''); setFixReason(''); setFixing(true) }} /></li>
             ))}
             {week.warnings.map((w, i) => (
               <li key={`w${i}`} className="px-4 py-3 text-ui-base text-ink">{w.text}</li>
@@ -282,10 +286,10 @@ export default function PayWeekClient() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={fixing} onOpenChange={setFixing}>
+      <Dialog open={fixing} onOpenChange={(o) => { setFixing(o); if (!o) setFixDispute(null) }}>
         <DialogContent title="Fix a mistake" description={draft ? "This adds a line to this week's check." : "This week is paid and never changes, so the fix goes on next week's check."}>
           <label className="flex flex-col gap-1.5 text-ui-sm font-semibold text-ink">Who
-            <select value={fixUser} onChange={(e) => setFixUser(e.target.value)} className="min-h-tap w-full rounded-ui border border-surface-line bg-surface px-3 text-ui-base text-ink">
+            <select value={fixUser} disabled={!!fixDispute} onChange={(e) => setFixUser(e.target.value)} className="min-h-tap w-full rounded-ui border border-surface-line bg-surface px-3 text-ui-base text-ink">
               <option value="">Choose a person</option>
               {week.directory.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
             </select>
@@ -368,7 +372,9 @@ function Person({ p, open, toggle, onChange, onRemove }: { p: PayWeekPerson; ope
   )
 }
 
-function Need({ n, onHours, onBonus, onLater }: { n: PayWeekNeed; onHours: (userId: string, hours: number) => void; onBonus: (id: string) => void; onLater: (id: string) => void }) {
+function Need({ n, onHours, onBonus, onLater, onReply, onDisputeFix }: { n: PayWeekNeed; onHours: (userId: string, hours: number) => void; onBonus: (id: string) => void; onLater: (id: string) => void; onReply: (id: string, reply: string) => void; onDisputeFix: (d: Extract<PayWeekNeed, { kind: 'dispute' }>) => void }) {
+  const [reply, setReply] = React.useState('')
+  const [replying, setReplying] = React.useState(false)
   const [hrs, setHrs] = React.useState('')
   if (n.kind === 'hours') {
     return (
@@ -400,6 +406,25 @@ function Need({ n, onHours, onBonus, onLater }: { n: PayWeekNeed; onHours: (user
         <p className="font-semibold text-ink">{n.text}</p>
         <p className="text-ui-base text-ink-muted">{n.names.join(', ')}</p>
         <Button asChild variant="secondary" size="sm" className="mt-2"><Link href={n.href}>Choose a plan</Link></Button>
+      </div>
+    )
+  }
+  if (n.kind === 'dispute') {
+    return (
+      <div>
+        <p className="font-semibold text-ink">{n.name} says something&apos;s wrong</p>
+        <p className="text-ui-base text-ink-muted">{n.label}: “{n.message}”</p>
+        {replying ? (
+          <div className="mt-2 flex flex-col gap-2">
+            <Input value={reply} onChange={(e) => setReply(e.target.value)} placeholder="Your reply" aria-label="Your reply" maxLength={500} />
+            <div className="flex gap-2"><Button disabled={!reply.trim()} onClick={() => onReply(n.id, reply)}>Send reply</Button><Button variant="secondary" onClick={() => setReplying(false)}>Cancel</Button></div>
+          </div>
+        ) : (
+          <div className="mt-2 flex flex-wrap gap-2">
+            <Button onClick={() => onDisputeFix(n)}>Add a fix</Button>
+            <Button variant="secondary" onClick={() => setReplying(true)}>Reply</Button>
+          </div>
+        )}
       </div>
     )
   }

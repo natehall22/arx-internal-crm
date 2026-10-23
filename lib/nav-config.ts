@@ -21,6 +21,8 @@ export type NavContext = {
     customerRecords: boolean
     reports: boolean
     isPayrollAdmin: boolean
+    /** A commission/hourly role: sees "My pay". */
+    earnsPay: boolean
   }
 }
 
@@ -78,6 +80,7 @@ export const NAV_SECTIONS: NavSection[] = [
     id: 'money',
     label: 'Money',
     children: [
+      { href: '/my-pay', label: 'My pay', show: (c) => c.permsReady && c.flags.earnsPay },
       { href: '/admin/payroll', label: 'Payroll', show: (c) => c.permsReady && c.flags.isPayrollAdmin },
       { href: '/admin/job-profit-tracker', label: 'Job profit', show: (c) => c.permsReady && c.flags.isPayrollAdmin },
       { href: '/pricebook', label: 'Pricebook', show: (c) => !c.flags.salesDocBarred && gated('pricebook:view', 'pricebook:edit')(c) },

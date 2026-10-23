@@ -11,6 +11,7 @@ import { compPlanRoleLabel } from '@/lib/comp-plan-roles'
 import { loadEndedPlanPeople, loadPayPlanGaps } from '@/lib/comp-plan-defaults-db'
 import { roundMoney } from '@/lib/money'
 import { loadPeriodAdjustments, type PayrollAdjustment } from '@/lib/payroll-adjustments'
+import { loadOpenDisputes } from '@/lib/payroll-disputes'
 import { loadHourlyRoster, type HourlyRosterRow } from '@/lib/payroll-hours'
 import { loadActiveCompPlanForUser } from '@/lib/payroll-export'
 import { planPayrollPeriod, type PlannedPayoutRow, type WaitingJob } from '@/lib/payroll-period-materialization'
@@ -79,6 +80,7 @@ export type PayWeekNeed =
   | { kind: 'bonus'; id: string; userId: string; name: string; amount: number; what: string }
   | { kind: 'plans'; text: string; names: string[]; href: string }
   | { kind: 'conflict'; text: string; jobNumbers: string[] }
+  | { kind: 'dispute'; id: string; userId: string; name: string; label: string; message: string }
 
 export type PayWeekWarning = { code: string; text: string }
 
@@ -396,6 +398,7 @@ export async function loadPayWeek(admin: SupabaseClient, orgId: string, now: Dat
     const noPlan = gaps.flatMap((g) => g.people.map((p) => p.name))
     if (noPlan.length) needs.push({ kind: 'plans', text: `${noPlan.length} ${noPlan.length === 1 ? 'person has' : 'people have'} no pay plan, so they are paid nothing`, names: noPlan, href: '/admin/comp-plans' })
     if (ended.length) needs.push({ kind: 'plans', text: `${ended.length} ${ended.length === 1 ? 'person has' : 'people have'} no pay plan because theirs was ended`, names: ended.map((p) => p.name), href: '/admin/comp-plans' })
+    for (const d of await loadOpenDisputes(admin, orgId)) needs.push({ kind: 'dispute', id: d.id, userId: d.userId, name: d.name, label: d.label, message: d.message })
     if (conflictJobIds.length) {
       const nums = conflictJobIds.map((id) => jobs.get(id)?.job_number).filter(Boolean) as string[]
       needs.push({ kind: 'conflict', text: 'A self-generated job also has a setter, so the 6% self-generated line was left off', jobNumbers: nums })
