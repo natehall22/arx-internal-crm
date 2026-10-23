@@ -3,6 +3,7 @@ import type { Metadata } from 'next'
 import { createServiceClient } from '@/lib/supabase/service'
 import { crewLinkPhotoCounts, resolveCrewLink } from '@/lib/crew-link'
 import { TRADE_LABELS } from '@/lib/job-trades'
+import { loadCrewNotes } from '@/lib/threads/crew-notes'
 import CrewPhotoCapture from './CrewPhotoCapture'
 
 export const dynamic = 'force-dynamic'
@@ -35,6 +36,7 @@ export default async function CrewPhotoPage({ params }: { params: { token: strin
   }
 
   const counts = await crewLinkPhotoCounts(admin, link.ctx)
+  const notes = await loadCrewNotes(admin, link.ctx).catch(() => [])
 
   return (
     <CrewPhotoCapture
@@ -43,6 +45,7 @@ export default async function CrewPhotoPage({ params }: { params: { token: strin
       addressText={link.ctx.addressText}
       jobNumber={link.ctx.jobNumber}
       initialCounts={counts}
+      crewNotes={notes}
     />
   )
 }

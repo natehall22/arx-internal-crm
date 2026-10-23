@@ -7,8 +7,8 @@ import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/field'
 import { cn } from '@/lib/cn'
 
-type Hit = { kind: 'customer' | 'job' | 'proposal' | 'opportunity'; id: string; title: string; subtitle: string; href: string }
-const KIND_LABEL: Record<Hit['kind'], string> = { customer: 'Customer', job: 'Job', proposal: 'Proposal', opportunity: 'Opportunity' }
+type Hit = { kind: 'customer' | 'job' | 'proposal' | 'opportunity' | 'message'; id: string; title: string; subtitle: string; href: string }
+const KIND_LABEL: Record<Hit['kind'], string> = { customer: 'Customer', job: 'Job', proposal: 'Proposal', opportunity: 'Opportunity', message: 'Note' }
 
 /** Cmd/Ctrl-K (or the search button) opens it; type to search, ↑/↓ to move, Enter to open. */
 export default function GlobalSearch() {

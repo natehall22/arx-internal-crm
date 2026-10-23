@@ -120,8 +120,11 @@ export async function postMessage(
   const pricing = looksLikePricing(body)
   // A pricing-barred author (setter) has no prices to protect and could not read their own
   // flagged message, so only authors who may see pricing set the flag.
+  // Crew messages leave the building on the crew link: a price-looking one is ALWAYS flagged, and the
+  // crew link never shows flagged messages.
   const restricted =
     parent?.restricted_pricing === true ||
+    (pricing && audience === 'crew') ||
     (pricing && !viewer.pricingBarred && draft.allowSetters !== true)
 
   let priority: Priority = 'fyi'

@@ -177,3 +177,26 @@ describe('getTimeline', () => {
     expect(forSetter.pinned).toEqual([])
   })
 })
+
+describe('crew notes', () => {
+  it('a price-looking crew note is always flagged, and the crew reader only returns unflagged crew-audience text', async () => {
+    const { loadCrewNotes } = await import('@/lib/threads/crew-notes')
+    const db = createFakeDb({
+      production_jobs: [{ id: 'j1', org_id: ORG, project_id: 'p1' }],
+      projects: [{ id: 'p1', org_id: ORG, opportunity_id: 'd1' }],
+      opportunities: [{ org_id: ORG, ...deal }],
+      users, activities: [], threads: [], thread_members: [],
+    })
+    const post2 = (who: keyof typeof V, draft: Record<string, unknown>) =>
+      postMessage(db.client as never, profile(who), deal, { body: 'x', ...draft } as never, { viewer: V[who], resolveViewer: resolveViewer as never })
+    const ok = await post2('ops', { body: 'Tarp the AC unit. Park on the street.', audience: 'crew' })
+    const priced = await post2('ops', { body: 'Customer paid $4,000 so be nice', audience: 'crew', allowSetters: true })
+    await post2('ops', { body: 'Sales secret', audience: 'sales' })
+    await post2('ops', { body: 'Production only', audience: 'production' })
+    expect(priced.ok && priced.message.restricted_pricing).toBe(true)
+    const notes = await loadCrewNotes(db.client as never, { orgId: ORG, jobId: 'j1', workOrderId: 'wo1' })
+    expect(notes.map((n) => n.body)).toEqual(['Tarp the AC unit. Park on the street.'])
+    expect(Object.keys(notes[0]).sort()).toEqual(['body', 'created_at', 'id'])
+    expect(ok.ok).toBe(true)
+  })
+})

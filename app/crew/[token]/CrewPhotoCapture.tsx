@@ -28,6 +28,8 @@ type Props = {
   addressText: string | null
   jobNumber: string
   initialCounts: Record<string, number>
+  /** Crew-audience notes from ARX (text only; never pricing). */
+  crewNotes?: { id: string; body: string; created_at: string }[]
 }
 
 type UploadState = { status: 'idle' } | { status: 'uploading'; label: string } | { status: 'failed'; message: string; retry: () => void }
@@ -61,7 +63,7 @@ async function postJson(url: string, body: unknown): Promise<Record<string, unkn
   return data
 }
 
-export default function CrewPhotoCapture({ token, tradeLabel, addressText, jobNumber, initialCounts }: Props) {
+export default function CrewPhotoCapture({ token, tradeLabel, addressText, jobNumber, initialCounts, crewNotes }: Props) {
   const [counts, setCounts] = useState<Record<string, number>>(initialCounts)
   const [started, setStarted] = useState(false)
   const [upload, setUpload] = useState<UploadState>({ status: 'idle' })
@@ -128,6 +130,15 @@ export default function CrewPhotoCapture({ token, tradeLabel, addressText, jobNu
         <p className="text-sm font-semibold uppercase tracking-wide text-[#57574f]">ARX Roofing · Job #{jobNumber}</p>
         <h1 className="mt-1 text-2xl font-bold">{tradeLabel} photos</h1>
         {addressText && <p className="mt-1 text-lg">{addressText}</p>}
+
+        {crewNotes && crewNotes.length > 0 && (
+          <section aria-label="Notes from ARX" className="mt-4 rounded-lg border-2 border-amber-500 bg-amber-50 p-4">
+            <h2 className="text-lg font-bold">Notes from ARX</h2>
+            <ul className="mt-2 space-y-2">
+              {crewNotes.map((n) => <li key={n.id} className="whitespace-pre-wrap break-words text-lg">{n.body}</li>)}
+            </ul>
+          </section>
+        )}
 
         <ol className="mt-5 space-y-2">
           {REQUIRED_FINAL_PHOTO_TAGS.map((tag) => {
