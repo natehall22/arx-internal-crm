@@ -55,12 +55,12 @@ export default function AbcItemMapEditor({ vendorId, onClose }: { vendorId: stri
     const itemMap: Array<Record<string, unknown>> = []
     const remove: string[] = []
     for (const r of rows) {
-      const started = r.itemNumber.trim() || r.uom.trim()
-      if (!started) {
+      // An empty item number means "no mapping for this line": remove a saved one, skip an unsaved one.
+      if (!r.itemNumber.trim()) {
         if (r.saved) remove.push(r.lineKey)
         continue
       }
-      if (!r.itemNumber.trim() || !r.uom.trim() || !r.qtyUnitWord.trim()) return setError(`"${r.label}" needs an item number, a unit and a quantity word (or clear the item number to remove it).`)
+      if (!r.uom.trim() || !r.qtyUnitWord.trim()) return setError(`"${r.label}" needs a unit code and a quantity word (or clear the item number to remove the line).`)
       const price = dollarsToCents(r.price)
       if (price === 'bad') return setError(`"${r.label}": the price must be dollars and cents, like 38.00.`)
       itemMap.push({ lineKey: r.lineKey, itemNumber: r.itemNumber.trim(), uom: r.uom.trim(), qtyUnitWord: r.qtyUnitWord.trim(), estUnitPriceCents: price })

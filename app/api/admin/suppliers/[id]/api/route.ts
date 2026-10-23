@@ -83,15 +83,19 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
       const { error } = await a.admin.from('supplier_item_map').upsert(rows, { onConflict: 'vendor_id,line_key' })
       if (error) return NextResponse.json({ error: 'Could not save the item map' }, { status: 500 })
     }
-    await logApiEvent(a.admin, { orgId: org, vendorId: params.id, jobId: null, actorUserId: a.profile.id, event: 'map_changed', detail: { items: rows.map((r) => ({ line_key: r.line_key, item_number: r.item_number, uom: r.uom })) } })
+    if (rows.length > 0) {
+      await logApiEvent(a.admin, { orgId: org, vendorId: params.id, jobId: null, actorUserId: a.profile.id, event: 'map_changed', detail: { items: rows.map((r) => ({ line_key: r.line_key, item_number: r.item_number, uom: r.uom })) } })
+    }
   }
 
   if (Array.isArray(body.itemMapRemove)) {
     const keys = body.itemMapRemove.map((k: unknown) => text(k, 120)).filter((k: string | null): k is string => !!k).slice(0, 500)
     if (keys.length > 0) {
+      // Record what is being removed (old values), so the log answers "what was it before".
+      const { data: gone } = await a.admin.from('supplier_item_map').select('line_key, item_number, uom, qty_unit_word').eq('org_id', org).eq('vendor_id', params.id).in('line_key', keys)
       const { error } = await a.admin.from('supplier_item_map').delete().eq('org_id', org).eq('vendor_id', params.id).in('line_key', keys)
       if (error) return NextResponse.json({ error: 'Could not remove those items' }, { status: 500 })
-      await logApiEvent(a.admin, { orgId: org, vendorId: params.id, jobId: null, actorUserId: a.profile.id, event: 'map_changed', detail: { removed: keys } })
+      await logApiEvent(a.admin, { orgId: org, vendorId: params.id, jobId: null, actorUserId: a.profile.id, event: 'map_changed', detail: { removed: gone ?? keys } })
     }
   }
 
