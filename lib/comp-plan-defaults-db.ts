@@ -29,7 +29,7 @@ export async function loadPayPlanGaps(admin: SupabaseClient, orgId: string, now:
   const since = new Date(now.getTime() - CREDIT_LOOKBACK_DAYS * 86_400_000).toISOString()
 
   const [usersRes, assignRes, defaultsRes, plansRes, ownersRes, settersRes, jobsRes] = await Promise.all([
-    admin.from('users').select('id, full_name, role, active').eq('org_id', orgId),
+    loadUsers(admin, orgId),
     admin.from('user_comp_plans').select('user_id, effective_from, effective_to').eq('org_id', orgId).lte('effective_from', today),
     admin.from('org_default_comp_plans').select('role, effective_from').eq('org_id', orgId).lte('effective_from', today),
     admin.from('comp_plans').select('id, name, is_active, base_percentage, applicable_roles, plan_purpose, is_manager_plan, plan_type').eq('org_id', orgId),
@@ -50,7 +50,7 @@ export async function loadPayPlanGaps(admin: SupabaseClient, orgId: string, now:
     ...((settersRes.data ?? []) as Array<{ setter_user_id: string }>).map((r) => r.setter_user_id),
     ...((jobsRes.data ?? []) as Array<{ salesperson_id: string }>).map((r) => r.salesperson_id),
   ])
-  const users = ((usersRes.data ?? []) as Array<PayPlanCandidate & { active: boolean | null }>).filter((u) => u.active !== false)
+  const users = ((usersRes.data ?? []) as Array<PayPlanCandidate & { active: boolean | null; is_test_account?: boolean | null }>).filter((u) => u.active !== false && u.is_test_account !== true)
   const missing = usersMissingPayPlan({
     users,
     assignedUserIds: assigned,
@@ -77,4 +77,12 @@ export async function loadPayPlanGaps(admin: SupabaseClient, orgId: string, now:
     gap.people.push({ id: u.id, name: u.full_name || 'Unnamed' })
   }
   return Array.from(byRole.values()).sort((a, b) => b.people.length - a.people.length)
+}
+
+
+async function loadUsers(admin: SupabaseClient, orgId: string) {
+  // `is_test_account` is an additive column: fall back to the old shape if it isn't there yet.
+  const r = await admin.from('users').select('id, full_name, role, active, is_test_account').eq('org_id', orgId)
+  if (r.error && (r.error as { code?: string }).code === '42703') return admin.from('users').select('id, full_name, role, active').eq('org_id', orgId)
+  return r
 }
