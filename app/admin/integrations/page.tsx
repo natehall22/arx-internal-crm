@@ -223,7 +223,7 @@ export default function AdminIntegrationsPage() {
   }
 
   const disconnectIntegration = async (providerId: string) => {
-    if (!(await confirmDialog({ title: 'Disconnect this integration?' }))) return
+    if (!(await confirmDialog({ title: 'Disconnect this integration?' , destructive: true }))) return
 
     try {
       const response = await fetch(`/api/admin/integrations?provider=${providerId}`, {

@@ -117,7 +117,7 @@ export default function AdminFinancingProgramsPage() {
   }
 
   const deactivate = async (id: string) => {
-    if (!(await confirmDialog({ title: 'Deactivate this program?' }))) return
+    if (!(await confirmDialog({ title: 'Deactivate this program?' , destructive: true }))) return
     const res = await fetch(`/api/admin/financing-programs?id=${encodeURIComponent(id)}`, {
       method: 'DELETE',
     })

@@ -3038,7 +3038,7 @@ export default function AdminSettingsPage() {
                                         </button>
                                         <button
                                           onClick={async () => {
-                                            if ((await confirmDialog({ title: `Disconnect ${integration.name}? This will disable all features that use this integration.` }))) {
+                                            if ((await confirmDialog({ title: `Disconnect ${integration.name}? This will disable all features that use this integration.` , destructive: true }))) {
                                               setExternalIntegrations(prev => prev.map(i => 
                                                 i.id === integration.id ? { ...i, connected: false, config: undefined } : i
                                               ))

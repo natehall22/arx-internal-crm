@@ -428,7 +428,7 @@ export default function UsersPage() {
   }
 
   const handleSendPasswordReset = async (user: UserWithDetails) => {
-    if (!(await confirmDialog({ title: `Send a password reset email to ${user.email}?`, destructive: true }))) return
+    if (!(await confirmDialog({ title: `Send a password reset email to ${user.email}?` }))) return
 
     try {
       const response = await fetch('/api/admin/users', {
@@ -1416,7 +1416,7 @@ export default function UsersPage() {
                     </div>
                     <button
                       onClick={async () => {
-                        if (!(await confirmDialog({ title: `Send a password reset email to ${formEmail}?`, destructive: true }))) return
+                        if (!(await confirmDialog({ title: `Send a password reset email to ${formEmail}?` }))) return
                         setSendingReset(true)
                         try {
                           const response = await fetch('/api/admin/users', {

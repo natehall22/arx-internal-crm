@@ -633,7 +633,7 @@ export default function CompPlansPage() {
   }
 
   const deletePlan = async (id: string) => {
-    if (!(await confirmDialog({ title: 'Deactivate this comp plan? Historical assignments will remain unchanged.' }))) return
+    if (!(await confirmDialog({ title: 'Deactivate this comp plan? Historical assignments will remain unchanged.' , destructive: true }))) return
     try {
       const response = await fetch(`/api/admin/data?resource=comp_plan&id=${id}`, {
         method: 'DELETE',

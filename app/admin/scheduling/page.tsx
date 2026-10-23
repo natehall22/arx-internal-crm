@@ -175,7 +175,7 @@ export default function SchedulingPage() {
 
   const handleDisconnectCalendar = async () => {
     if (!currentUser) return
-    if (!(await confirmDialog({ title: 'Disconnect your Google Calendar? You will need to reconnect to use scheduling features.' }))) return
+    if (!(await confirmDialog({ title: 'Disconnect your Google Calendar? You will need to reconnect to use scheduling features.' , destructive: true }))) return
 
     try {
       const res = await fetch('/api/admin/scheduling', { method: 'DELETE' })

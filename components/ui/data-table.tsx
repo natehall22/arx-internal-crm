@@ -110,7 +110,10 @@ export function DataTable<T>({ columns, data, tableKey, viewStore, loading, getR
   const applyView = (id: string) => {
     setActiveView(id)
     const v = views.find((x) => x.id === id)
-    if (v) {
+    if (!v) {
+      setSorting(initialSorting)
+      setSearch('')
+    } else {
       setSorting(v.state.sorting ?? [])
       setSearch(v.state.search ?? '')
     }

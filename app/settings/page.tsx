@@ -190,7 +190,7 @@ export default function SettingsPage() {
   }
 
   const disconnectGoogleCalendar = async () => {
-    if (!(await confirmDialog({ title: 'Disconnect Google Calendar?' }))) return
+    if (!(await confirmDialog({ title: 'Disconnect Google Calendar?' , destructive: true }))) return
 
     try {
       const response = await fetch('/api/settings', {
