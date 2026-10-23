@@ -57,7 +57,13 @@ Rules: every PR targets this branch (not `main`), has its own branch, tests, bug
 
 ## State 2026-10-22
 `release/2026-10-batch` = main + UI stack (A, B) + payroll stack (#77–#80). tsc clean, jest 2035 pass. Settled-externally jobs are excluded from plan, preview, Approve and My pay (`payroll-settled-externally.test.ts`, `settled-externally-guards.test.ts`); preview == Approve covered by the pay-week approve tests.
-**Pending batch migrations, apply order:** 202610240020_table_views, 202610240050_global_search, 202610250010_payroll_adjustments, 202610250020_payroll_disputes. Rollbacks: drop the new tables/function (all additive, no existing data touched).
+**READY TO SHIP — apply order (all migrations additive; data fixes after them):**
+1. `202610240020_table_views` · 2. `202610240050_global_search` · 3. `202610250010_payroll_adjustments` · 4. `202610250020_payroll_disputes` · 5. `202610270010_threads_audiences` (also tightens the browser write policies on `activities`)
+6. Data fix `2026-10-27_link_orphan_opportunities.sql` (363 opportunities → customers; +314 customers)
+7. Data fix `2026-10-27_merge_notes_into_threads.sql` (classify 4,337 activities; copy 478 old notes; price-looking notes flagged)
+8. Merge `release/2026-10-batch` to main, confirm the Vercel deploy, then smoke-test payroll, job page, order sheets, Needs you, reports, a thread post as setter and ops.
+9. Optional switches after deploy: `CUSTOMER_FILE_REDIRECTS` (off), ABC connector (off), then run `npm run payroll:side-by-side` for the first two Pay-this-week previews.
+Rollbacks: each migration/data fix lists its own (additive tables/columns can stay; policies and data fixes have exact SQL).
 **Next:** 2-week pay reconciliation. The tool is built and tested (`npm run payroll:side-by-side -- --weeks 2 --template out.csv`, then fill `paid` and rerun with `--paid paid.csv --out report.md`: CRM vs paid per person per week, every difference to the cent, people on only one side listed). It needs the payroll migrations applied, so it runs at ship time against the first two Pay-this-week previews; I need the paid-outside figures from Andrew for those weeks.
 
 **Phase C items from your original spec NOT built yet** (not in the BATCH list; say if you want them): make-a-task from a message, quiet hours + morning digest, iOS push with inline reply / web push, voice and photo messages, offline outbox, Share-to-ARX extension, @role mentions, measure tool / proposal builder as overlays (they still open their own pages), `/api/v1` read API + webhooks. Also open: Phase C data fixes touch only `opportunities.customer_id` — `projects.customer_id` / `production_jobs.customer_id` / `leads.customer_id` for those deals are untouched.
