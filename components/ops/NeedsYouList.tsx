@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useState } from 'react'
 
+import CloseOutAppointments from '@/components/ops/CloseOutAppointments'
 import FixPayPlanButton from '@/components/ops/FixPayPlanButton'
 import type { DataHealthReport } from '@/lib/data-health'
 import { buildNeedsView, TOP_N, type NeedsFilter } from '@/lib/needs-you-view'
@@ -166,6 +167,7 @@ export default function NeedsYouList({ report, canFixPayPlans = false, audience 
           )}
         </>
       )}
+      {audience === 'owner' && report.hiddenOldAppointments !== undefined && <CloseOutAppointments hidden={report.hiddenOldAppointments} />}
     </section>
   )
 }
