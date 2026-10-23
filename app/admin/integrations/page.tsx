@@ -4,6 +4,8 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
+import { toast } from '@/components/ui/toast'
+import { confirmDialog } from '@/components/ui/confirm-dialog'
 
 interface Integration {
   id: string
@@ -206,7 +208,7 @@ export default function AdminIntegrationsPage() {
 
       if (!response.ok) {
         const data = await response.json()
-        alert(data.error || 'Failed to save integration')
+        toast.error(data.error || 'Failed to save integration')
         setSaving(false)
         return
       }
@@ -215,13 +217,13 @@ export default function AdminIntegrationsPage() {
       setSelectedProvider(null)
     } catch (error) {
       console.error('Error saving integration:', error)
-      alert('Failed to save integration')
+      toast.error('Failed to save integration')
     }
     setSaving(false)
   }
 
   const disconnectIntegration = async (providerId: string) => {
-    if (!confirm('Disconnect this integration?')) return
+    if (!(await confirmDialog({ title: 'Disconnect this integration?' , destructive: true }))) return
 
     try {
       const response = await fetch(`/api/admin/integrations?provider=${providerId}`, {
@@ -230,14 +232,14 @@ export default function AdminIntegrationsPage() {
 
       if (!response.ok) {
         const data = await response.json()
-        alert(data.error || 'Failed to disconnect integration')
+        toast.error(data.error || 'Failed to disconnect integration')
         return
       }
 
       await loadIntegrations()
     } catch (error) {
       console.error('Error disconnecting integration:', error)
-      alert('Failed to disconnect integration')
+      toast.error('Failed to disconnect integration')
     }
   }
 
@@ -263,7 +265,7 @@ export default function AdminIntegrationsPage() {
       <div className="max-w-7xl mx-auto px-4 py-8">
         <div className="mb-6">
           <Link href="/admin" className="text-indigo-600 hover:text-indigo-800 text-sm font-medium">
-            ← Back to Admin
+            ← Back to Settings
           </Link>
         </div>
 

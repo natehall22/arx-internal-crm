@@ -18,6 +18,8 @@ import {
   STARTER_LF_PER_BUNDLE,
   UNDERLAYMENT_SQ_PER_ROLL,
 } from '@/lib/roof-shingle-constants'
+import { toast } from '@/components/ui/toast'
+import { confirmDialog } from '@/components/ui/confirm-dialog'
 
 type SettingsSection = 
   | 'contact-fields' 
@@ -666,14 +668,14 @@ export default function AdminSettingsPage() {
       
       if (!response.ok) {
         const data = await response.json()
-        alert(data.error || 'Failed to save settings')
+        toast.error(data.error || 'Failed to save settings')
         return
       }
       
-      alert('Settings saved!')
+      toast.error('Settings saved!')
     } catch (error) {
       console.error('Error saving settings:', error)
-      alert('Failed to save settings')
+      toast.error('Failed to save settings')
     } finally {
       setSaving(false)
     }
@@ -693,14 +695,14 @@ export default function AdminSettingsPage() {
       
       if (!response.ok) {
         const data = await response.json()
-        alert(data.error || 'Failed to save report settings')
+        toast.error(data.error || 'Failed to save report settings')
         return
       }
       
-      alert('Report settings saved!')
+      toast.error('Report settings saved!')
     } catch (error) {
       console.error('Error saving report settings:', error)
-      alert('Failed to save report settings')
+      toast.error('Failed to save report settings')
     } finally {
       setSaving(false)
     }
@@ -713,13 +715,13 @@ export default function AdminSettingsPage() {
     // Validate file type
     const allowedTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/svg+xml']
     if (!allowedTypes.includes(file.type)) {
-      alert('Invalid file type. Please upload a PNG, JPG, WEBP, or SVG image.')
+      toast.error('Invalid file type. Please upload a PNG, JPG, WEBP, or SVG image.')
       return
     }
 
     // Validate file size (max 2MB)
     if (file.size > 2 * 1024 * 1024) {
-      alert('File too large. Maximum size is 2MB.')
+      toast('File too large. Maximum size is 2MB.')
       return
     }
 
@@ -735,16 +737,16 @@ export default function AdminSettingsPage() {
 
       if (!response.ok) {
         const data = await response.json()
-        alert(data.error || 'Failed to upload logo')
+        toast.error(data.error || 'Failed to upload logo')
         return
       }
 
       const data = await response.json()
       setLogoUrl(data.logo_url)
-      alert('Logo uploaded successfully!')
+      toast.error('Logo uploaded successfully!')
     } catch (error) {
       console.error('Error uploading logo:', error)
-      alert('Failed to upload logo')
+      toast.error('Failed to upload logo')
     } finally {
       setUploadingLogo(false)
       // Reset the input
@@ -755,7 +757,7 @@ export default function AdminSettingsPage() {
   }
 
   const handleLogoRemove = async () => {
-    if (!confirm('Are you sure you want to remove the company logo?')) return
+    if (!(await confirmDialog({ title: 'Are you sure you want to remove the company logo?', destructive: true }))) return
 
     setUploadingLogo(true)
     try {
@@ -765,15 +767,15 @@ export default function AdminSettingsPage() {
 
       if (!response.ok) {
         const data = await response.json()
-        alert(data.error || 'Failed to remove logo')
+        toast.error(data.error || 'Failed to remove logo')
         return
       }
 
       setLogoUrl(null)
-      alert('Logo removed successfully!')
+      toast.error('Logo removed successfully!')
     } catch (error) {
       console.error('Error removing logo:', error)
-      alert('Failed to remove logo')
+      toast.error('Failed to remove logo')
     } finally {
       setUploadingLogo(false)
     }
@@ -1157,13 +1159,13 @@ export default function AdminSettingsPage() {
                       })
                       if (!response.ok) {
                         const data = await response.json()
-                        alert(data.error || 'Failed to save scheduling settings')
+                        toast.error(data.error || 'Failed to save scheduling settings')
                         return
                       }
-                      alert('Scheduling settings saved!')
+                      toast.error('Scheduling settings saved!')
                     } catch (err) {
                       console.error(err)
-                      alert('Failed to save scheduling settings')
+                      toast.error('Failed to save scheduling settings')
                     } finally {
                       setSaving(false)
                     }
@@ -1288,14 +1290,14 @@ export default function AdminSettingsPage() {
                       
                       if (!response.ok) {
                         const data = await response.json()
-                        alert(data.error || 'Failed to save appointment types')
+                        toast.error(data.error || 'Failed to save appointment types')
                         return
                       }
                       
-                      alert('Appointment types saved!')
+                      toast.error('Appointment types saved!')
                     } catch (error) {
                       console.error('Error saving appointment types:', error)
-                      alert('Failed to save appointment types')
+                      toast.error('Failed to save appointment types')
                     } finally {
                       setSaving(false)
                     }
@@ -1423,8 +1425,8 @@ export default function AdminSettingsPage() {
                     <div className="p-6 border-t flex justify-between flex-shrink-0 bg-white">
                       {appointmentTypes.find(a => a.id === editingAppointmentType.id) && (
                         <button
-                          onClick={() => {
-                            if (confirm('Delete this appointment type?')) {
+                          onClick={async () => {
+                            if ((await confirmDialog({ title: 'Delete this appointment type?', destructive: true }))) {
                               setAppointmentTypes(prev => prev.filter(a => a.id !== editingAppointmentType.id))
                               setShowAddAppointmentType(false)
                               setEditingAppointmentType(null)
@@ -1448,7 +1450,7 @@ export default function AdminSettingsPage() {
                         <button
                           onClick={() => {
                             if (!editingAppointmentType.name) {
-                              alert('Please enter a name')
+                              toast.error('Please enter a name')
                               return
                             }
                             const exists = appointmentTypes.find(a => a.id === editingAppointmentType.id)
@@ -1499,7 +1501,7 @@ export default function AdminSettingsPage() {
                   <button
                     onClick={() => {
                       // QuickBooks OAuth flow would go here
-                      alert('QuickBooks OAuth integration - would redirect to Intuit')
+                      toast('QuickBooks OAuth integration - would redirect to Intuit')
                     }}
                     className={`px-4 py-2 rounded-lg font-medium ${
                       integrationSettings.quickbooks_connected
@@ -1768,7 +1770,7 @@ export default function AdminSettingsPage() {
                       
                       if (!response.ok) {
                         const data = await response.json()
-                        alert(data.error || 'Failed to save settings')
+                        toast.error(data.error || 'Failed to save settings')
                         return
                       }
 
@@ -1782,14 +1784,14 @@ export default function AdminSettingsPage() {
                       })
                       if (!coverageResponse.ok) {
                         const data = await coverageResponse.json()
-                        alert(data.error || 'Failed to save materials coverage settings')
+                        toast.error(data.error || 'Failed to save materials coverage settings')
                         return
                       }
                       
-                      alert('Settings saved!')
+                      toast.error('Settings saved!')
                     } catch (error) {
                       console.error('Error saving settings:', error)
-                      alert('Failed to save settings')
+                      toast.error('Failed to save settings')
                     } finally {
                       setSaving(false)
                     }
@@ -1925,14 +1927,14 @@ export default function AdminSettingsPage() {
                       
                       if (!response.ok) {
                         const data = await response.json()
-                        alert(data.error || 'Failed to save dispositions')
+                        toast.error(data.error || 'Failed to save dispositions')
                         return
                       }
                       
-                      alert('Dispositions saved!')
+                      toast.error('Dispositions saved!')
                     } catch (error) {
                       console.error('Error saving dispositions:', error)
-                      alert('Failed to save dispositions')
+                      toast.error('Failed to save dispositions')
                     } finally {
                       setSaving(false)
                     }
@@ -2022,8 +2024,8 @@ export default function AdminSettingsPage() {
                     <div className="p-6 border-t flex justify-between">
                       {dispositions.find(d => d.id === editingDisposition.id) && (
                         <button
-                          onClick={() => {
-                            if (confirm('Delete this disposition?')) {
+                          onClick={async () => {
+                            if ((await confirmDialog({ title: 'Delete this disposition?', destructive: true }))) {
                               setDispositions(prev => prev.filter(d => d.id !== editingDisposition.id))
                               setShowAddDisposition(false)
                               setEditingDisposition(null)
@@ -2047,7 +2049,7 @@ export default function AdminSettingsPage() {
                         <button
                           onClick={() => {
                             if (!editingDisposition.label) {
-                              alert('Please enter a label')
+                              toast.error('Please enter a label')
                               return
                             }
                             const exists = dispositions.find(d => d.id === editingDisposition.id)
@@ -2234,14 +2236,14 @@ export default function AdminSettingsPage() {
                       
                       if (!response.ok) {
                         const data = await response.json()
-                        alert(data.error || 'Failed to save inspection outcomes')
+                        toast.error(data.error || 'Failed to save inspection outcomes')
                         return
                       }
                       
-                      alert('Inspection outcomes saved!')
+                      toast.error('Inspection outcomes saved!')
                     } catch (error) {
                       console.error('Error saving inspection outcomes:', error)
-                      alert('Failed to save inspection outcomes')
+                      toast.error('Failed to save inspection outcomes')
                     } finally {
                       setSaving(false)
                     }
@@ -2440,8 +2442,8 @@ export default function AdminSettingsPage() {
                     <div className="p-6 border-t flex justify-between flex-shrink-0 bg-white gap-2">
                       {inspectionOutcomes.find(o => o.id === editingInspectionOutcome.id) && (
                         <button
-                          onClick={() => {
-                            if (confirm('Delete this outcome?')) {
+                          onClick={async () => {
+                            if ((await confirmDialog({ title: 'Delete this outcome?', destructive: true }))) {
                               setInspectionOutcomes(prev => prev.filter(o => o.id !== editingInspectionOutcome.id))
                               setShowAddInspectionOutcome(false)
                               setEditingInspectionOutcome(null)
@@ -2465,7 +2467,7 @@ export default function AdminSettingsPage() {
                         <button
                           onClick={() => {
                             if (!editingInspectionOutcome.label) {
-                              alert('Please enter a label')
+                              toast.error('Please enter a label')
                               return
                             }
                             const exists = inspectionOutcomes.find(o => o.id === editingInspectionOutcome.id)
@@ -2637,14 +2639,14 @@ export default function AdminSettingsPage() {
 
                       if (!response.ok) {
                         const data = await response.json()
-                        alert(data.error || 'Failed to save close outcomes')
+                        toast.error(data.error || 'Failed to save close outcomes')
                         return
                       }
 
-                      alert('Close outcomes saved!')
+                      toast.error('Close outcomes saved!')
                     } catch (error) {
                       console.error('Error saving close outcomes:', error)
-                      alert('Failed to save close outcomes')
+                      toast.error('Failed to save close outcomes')
                     } finally {
                       setSaving(false)
                     }
@@ -2833,8 +2835,8 @@ export default function AdminSettingsPage() {
                       {closeOutcomes.find(o => o.id === editingCloseOutcome.id) && (
                         <button
                           type="button"
-                          onClick={() => {
-                            if (confirm('Delete this outcome?')) {
+                          onClick={async () => {
+                            if ((await confirmDialog({ title: 'Delete this outcome?', destructive: true }))) {
                               setCloseOutcomes(prev => prev.filter(o => o.id !== editingCloseOutcome.id))
                               setShowAddCloseOutcome(false)
                               setEditingCloseOutcome(null)
@@ -2860,7 +2862,7 @@ export default function AdminSettingsPage() {
                           type="button"
                           onClick={() => {
                             if (!editingCloseOutcome.label) {
-                              alert('Please enter a label')
+                              toast.error('Please enter a label')
                               return
                             }
                             const exists = closeOutcomes.find(o => o.id === editingCloseOutcome.id)
@@ -3035,8 +3037,8 @@ export default function AdminSettingsPage() {
                                           Edit Settings
                                         </button>
                                         <button
-                                          onClick={() => {
-                                            if (confirm(`Disconnect ${integration.name}? This will disable all features that use this integration.`)) {
+                                          onClick={async () => {
+                                            if ((await confirmDialog({ title: `Disconnect ${integration.name}? This will disable all features that use this integration.` , destructive: true }))) {
                                               setExternalIntegrations(prev => prev.map(i => 
                                                 i.id === integration.id ? { ...i, connected: false, config: undefined } : i
                                               ))
@@ -3102,14 +3104,14 @@ export default function AdminSettingsPage() {
                       
                       if (!response.ok) {
                         const data = await response.json()
-                        alert(data.error || 'Failed to save integrations')
+                        toast.error(data.error || 'Failed to save integrations')
                         return
                       }
                       
-                      alert('All integration settings saved!')
+                      toast.error('All integration settings saved!')
                     } catch (error) {
                       console.error('Error saving integrations:', error)
-                      alert('Failed to save integrations')
+                      toast.error('Failed to save integrations')
                     } finally {
                       setSaving(false)
                     }
@@ -3237,7 +3239,7 @@ export default function AdminSettingsPage() {
                             .map(f => f.label)
                           
                           if (missingFields.length > 0) {
-                            alert(`Please fill in: ${missingFields.join(', ')}`)
+                            toast.error(`Please fill in: ${missingFields.join(', ')}`)
                             return
                           }
 
@@ -3403,14 +3405,14 @@ export default function AdminSettingsPage() {
                         
                         if (!response.ok) {
                           const data = await response.json()
-                          alert(data.error || 'Failed to save commission settings')
+                          toast.error(data.error || 'Failed to save commission settings')
                           return
                         }
                         
-                        alert('Commission settings saved!')
+                        toast.error('Commission settings saved!')
                       } catch (error) {
                         console.error('Error saving commission settings:', error)
-                        alert('Failed to save commission settings')
+                        toast.error('Failed to save commission settings')
                       } finally {
                         setSaving(false)
                       }
@@ -3651,8 +3653,8 @@ export default function AdminSettingsPage() {
                             {field.active ? 'Disable' : 'Enable'}
                           </button>
                           <button 
-                            onClick={() => {
-                              if (confirm(`Delete field "${field.name}"?`)) {
+                            onClick={async () => {
+                              if ((await confirmDialog({ title: `Delete field "${field.name}"?`, destructive: true }))) {
                                 setWorkOrderFields(prev => prev.filter(f => f.id !== field.id))
                               }
                             }}
@@ -3707,8 +3709,8 @@ export default function AdminSettingsPage() {
                             {field.active ? 'Disable' : 'Enable'}
                           </button>
                           <button 
-                            onClick={() => {
-                              if (confirm(`Delete field "${field.name}"?`)) {
+                            onClick={async () => {
+                              if ((await confirmDialog({ title: `Delete field "${field.name}"?`, destructive: true }))) {
                                 setWorkOrderFields(prev => prev.filter(f => f.id !== field.id))
                               }
                             }}
@@ -3952,8 +3954,8 @@ export default function AdminSettingsPage() {
                         </button>
                         {!stage.is_default && !stage.is_complete_stage && (
                           <button 
-                            onClick={() => {
-                              if (confirm(`Delete stage "${stage.name}"?`)) {
+                            onClick={async () => {
+                              if ((await confirmDialog({ title: `Delete stage "${stage.name}"?`, destructive: true }))) {
                                 setWorkOrderStages(prev => prev.filter(s => s.id !== stage.id))
                               }
                             }}

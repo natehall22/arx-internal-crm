@@ -47,6 +47,8 @@ import { buildCommissionPayrollSnapshot, SALES_COMMISSION_POOL_RATE } from '@/li
 import { computeFinancedContractTotal, netCommissionableFromJob } from '@/lib/financing'
 import { canShowCompletionCertificateBoardLink } from '@/lib/ops-completion-cert-link'
 import { jobDirectCost, type JobCostSummary } from '@/lib/job-cost-ledger'
+import { toast } from '@/components/ui/toast'
+import { confirmDialog } from '@/components/ui/confirm-dialog'
 
 
 interface Job {
@@ -850,11 +852,11 @@ export default function JobDetailClient({
         setNewNoteText('')
         setPickedMentionIds([])
       } else {
-        alert('Failed to add note')
+        toast.error('Failed to add note')
       }
     } catch (error) {
       console.error('Error adding note:', error)
-      alert('Failed to add note')
+      toast.error('Failed to add note')
     } finally {
       setSaving(false)
     }
@@ -951,11 +953,11 @@ export default function JobDetailClient({
         const error = await response.json().catch(() => null)
         if (error?.error && typeof error.error === 'string') message = error.error
         console.error('Failed to update status:', error)
-        alert(message)
+        toast.error(message)
       }
     } catch (error) {
       console.error('Error updating status:', error)
-      alert('Failed to update status')
+      toast.error('Failed to update status')
     }
 
     await reloadJob()
@@ -1024,7 +1026,7 @@ export default function JobDetailClient({
       })
       if (!res.ok) {
         const body = await res.json().catch(() => ({}))
-        alert(typeof body.error === 'string' ? body.error : 'Could not close this job')
+        toast.error(typeof body.error === 'string' ? body.error : 'Could not close this job')
       }
     } finally {
       await reloadJob()
@@ -1064,11 +1066,11 @@ export default function JobDetailClient({
       if (!response.ok) {
         const error = await response.json().catch(() => null)
         console.error('Failed to save materials ordered:', error)
-        alert(error?.error || 'Could not save. Try again.')
+        toast.error(error?.error || 'Could not save. Try again.')
       }
     } catch (error) {
       console.error('Error saving materials ordered:', error)
-      alert('Could not save. Try again.')
+      toast.error('Could not save. Try again.')
     }
     await reloadJob()
     setSaving(false)
@@ -1084,11 +1086,11 @@ export default function JobDetailClient({
       })
       if (!response.ok) {
         const error = await response.json().catch(() => null)
-        alert(error?.error || 'Could not save. Try again.')
+        toast.error(error?.error || 'Could not save. Try again.')
       }
     } catch (error) {
       console.error('Error saving permit:', error)
-      alert('Could not save. Try again.')
+      toast.error('Could not save. Try again.')
     }
     await reloadJob()
     setSaving(false)
@@ -1109,7 +1111,7 @@ export default function JobDetailClient({
 
       if (!response.ok) {
         const error = await response.json().catch(() => ({ error: 'Failed to update financial source' }))
-        alert(error.error || 'Failed to update financial source')
+        toast.error(error.error || 'Failed to update financial source')
         return
       }
 
@@ -1117,7 +1119,7 @@ export default function JobDetailClient({
       router.refresh()
     } catch (error) {
       console.error('Error updating financial source:', error)
-      alert('Failed to update financial source')
+      toast.error('Failed to update financial source')
     } finally {
       setSavingFinancialSource(false)
     }
@@ -1128,7 +1130,7 @@ export default function JobDetailClient({
   const canDeletePausedJob = canDeleteProductionJob && job.status === 'on_hold'
 
   const deleteJob = async () => {
-    if (!confirm(`Permanently delete job ${job.job_number}? This cannot be undone.\n\nIf the deal fell through, use Cancel Job instead — it keeps the record.`)) {
+    if (!(await confirmDialog({ title: `Permanently delete job ${job.job_number}? This cannot be undone.\n\nIf the deal fell through, use Cancel Job instead — it keeps the record.`, destructive: true }))) {
       return
     }
 
@@ -1140,7 +1142,7 @@ export default function JobDetailClient({
 
       if (!response.ok) {
         const error = await response.json()
-        alert(error.error || 'Failed to delete job')
+        toast.error(error.error || 'Failed to delete job')
         setDeleting(false)
         return
       }
@@ -1148,7 +1150,7 @@ export default function JobDetailClient({
       router.push('/ops')
     } catch (error) {
       console.error('Error deleting job:', error)
-      alert('Failed to delete job')
+      toast.error('Failed to delete job')
       setDeleting(false)
     }
   }
@@ -1172,19 +1174,19 @@ export default function JobDetailClient({
       })
       const data = await response.json().catch(() => null)
       if (!response.ok) {
-        alert(typeof data?.error === 'string' ? data.error : 'Failed to cancel job')
+        toast.error(typeof data?.error === 'string' ? data.error : 'Failed to cancel job')
         return
       }
       setCancelDialogOpen(false)
       setCancelReason('')
       setCancelNotes('')
       if (data?.calendarWarning) {
-        alert(`Job cancelled, but the crew's calendar invite may still be there: ${data.calendarWarning}`)
+        toast.error(`Job cancelled, but the crew's calendar invite may still be there: ${data.calendarWarning}`)
       }
       await reloadJob()
     } catch (error) {
       console.error('Error cancelling job:', error)
-      alert('Failed to cancel job')
+      toast.error('Failed to cancel job')
     } finally {
       setCancelling(false)
     }
@@ -1192,19 +1194,19 @@ export default function JobDetailClient({
 
   // Admin/owner only — the same gate as deleting a job; the API enforces it.
   const uncancelJob = async () => {
-    if (!confirm(`Undo the cancellation of ${job.job_number}? The signed agreement will count as a sale again.`)) return
+    if (!(await confirmDialog({ title: `Undo the cancellation of ${job.job_number}? The signed agreement will count as a sale again.`, destructive: true }))) return
     setUncancelling(true)
     try {
       const response = await fetch(`/api/ops/jobs/${job.id}/cancel`, { method: 'DELETE' })
       const data = await response.json().catch(() => null)
       if (!response.ok) {
-        alert(typeof data?.error === 'string' ? data.error : 'Failed to undo cancellation')
+        toast.error(typeof data?.error === 'string' ? data.error : 'Failed to undo cancellation')
         return
       }
       await reloadJob()
     } catch (error) {
       console.error('Error undoing cancellation:', error)
-      alert('Failed to undo cancellation')
+      toast.error('Failed to undo cancellation')
     } finally {
       setUncancelling(false)
     }

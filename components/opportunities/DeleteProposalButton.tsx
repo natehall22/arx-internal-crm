@@ -3,6 +3,8 @@
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { userCanDeleteProposal } from '@/lib/proposal-delete-access'
+import { toast } from '@/components/ui/toast'
+import { confirmDialog } from '@/components/ui/confirm-dialog'
 
 type Props = {
   proposalId: string
@@ -39,13 +41,13 @@ export default function DeleteProposalButton({
   const handleDelete = async (e: React.MouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
-    if (!confirm(`Delete proposal ${proposalNumber}? This cannot be undone.`)) return
+    if (!(await confirmDialog({ title: `Delete proposal ${proposalNumber}? This cannot be undone.`, destructive: true }))) return
     setDeleting(true)
     try {
       const res = await fetch(`/api/proposals/${proposalId}`, { method: 'DELETE', credentials: 'same-origin' })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
-        alert((data as { error?: string }).error || 'Failed to delete proposal')
+        toast.error((data as { error?: string }).error || 'Failed to delete proposal')
         return
       }
       router.refresh()

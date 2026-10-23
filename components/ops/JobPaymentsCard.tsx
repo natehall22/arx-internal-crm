@@ -13,6 +13,8 @@ import {
 } from '@/lib/types/job-payments'
 import { formatCurrency } from '@/lib/job-payments'
 import AddPaymentModal from './AddPaymentModal'
+import { toast } from '@/components/ui/toast'
+import { confirmDialog } from '@/components/ui/confirm-dialog'
 
 interface JobPaymentsCardProps {
   jobId: string
@@ -52,7 +54,7 @@ export default function JobPaymentsCard({ jobId, saleAmount, onPaymentChange }: 
   }
 
   const handleDeletePayment = async (paymentId: string) => {
-    if (!confirm('Delete this payment?')) return
+    if (!(await confirmDialog({ title: 'Delete this payment?', destructive: true }))) return
 
     try {
       const response = await fetch(`/api/ops/jobs/${jobId}/payments/${paymentId}`, {
@@ -62,11 +64,11 @@ export default function JobPaymentsCard({ jobId, saleAmount, onPaymentChange }: 
         loadPayments()
         onPaymentChange?.()
       } else {
-        alert('Failed to delete payment')
+        toast.error('Failed to delete payment')
       }
     } catch (error) {
       console.error('Error deleting payment:', error)
-      alert('Failed to delete payment')
+      toast.error('Failed to delete payment')
     }
   }
 

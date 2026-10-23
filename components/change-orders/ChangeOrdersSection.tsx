@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import ChangeOrderModal from './ChangeOrderModal'
+import { toast } from '@/components/ui/toast'
 
 interface ChangeOrder {
   id: string
@@ -66,7 +67,7 @@ export default function ChangeOrdersSection({
       }
       router.refresh()
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to generate PDF')
+      toast.error(e instanceof Error ? e.message : 'Failed to generate PDF')
     } finally {
       setPdfBusyId(null)
     }
@@ -157,7 +158,7 @@ export default function ChangeOrdersSection({
                   onClick={() => {
                     const url = `${window.location.origin}/change-orders/sign/${co.signing_token}`
                     navigator.clipboard.writeText(url)
-                    alert('Signing link copied to clipboard.')
+                    toast.success('Signing link copied to clipboard.')
                   }}
                   className="inline-flex items-center gap-2 px-4 py-2 bg-amber-600 text-white text-sm font-medium rounded-lg hover:bg-amber-700 min-h-[44px]"
                 >

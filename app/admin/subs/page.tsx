@@ -4,6 +4,8 @@ import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
+import { toast } from '@/components/ui/toast'
+import { confirmDialog } from '@/components/ui/confirm-dialog'
 
 interface SubContractor {
   id: string
@@ -202,19 +204,19 @@ export default function SubContractorsPage() {
 
   const saveSub = async () => {
     if (!formData.company_name) {
-      alert('Company name is required')
+      toast.error('Company name is required')
       return
     }
 
     const schedulingEmail = formData.scheduling_email.trim()
     if (schedulingEmail && !EMAIL_PATTERN.test(schedulingEmail)) {
-      alert('Scheduling email must be a valid email address (or left blank)')
+      toast.error('Scheduling email must be a valid email address (or left blank)')
       return
     }
 
     const schedulingCalendarId = formData.scheduling_calendar_id.trim()
     if (schedulingCalendarId && !EMAIL_PATTERN.test(schedulingCalendarId)) {
-      alert('Calendar address must be a valid email address (or left blank)')
+      toast.error('Calendar address must be a valid email address (or left blank)')
       return
     }
 
@@ -265,7 +267,7 @@ export default function SubContractorsPage() {
       await loadSubs()
     } catch (error: any) {
       console.error('Error saving sub:', error)
-      alert(error.message || 'Failed to save sub-contractor')
+      toast.error(error.message || 'Failed to save sub-contractor')
     } finally {
       setSaving(false)
     }
@@ -288,7 +290,7 @@ export default function SubContractorsPage() {
   }
 
   const deleteSub = async (sub: SubContractor) => {
-    if (!confirm(`Are you sure you want to delete "${sub.company_name}"? This cannot be undone.`)) {
+    if (!(await confirmDialog({ title: `Are you sure you want to delete "${sub.company_name}"? This cannot be undone.`, destructive: true }))) {
       return
     }
 
@@ -299,14 +301,14 @@ export default function SubContractorsPage() {
       
       if (!response.ok) {
         const data = await response.json()
-        alert(data.error || 'Failed to delete subcontractor')
+        toast.error(data.error || 'Failed to delete subcontractor')
         return
       }
       
       await loadSubs()
     } catch (error) {
       console.error('Error deleting sub:', error)
-      alert('Failed to delete subcontractor')
+      toast.error('Failed to delete subcontractor')
     }
   }
 
@@ -328,7 +330,7 @@ export default function SubContractorsPage() {
       <div className="max-w-7xl mx-auto px-4 py-8">
         <div className="mb-6">
           <Link href="/admin" className="text-indigo-600 hover:text-indigo-800 text-sm font-medium">
-            ← Back to Admin
+            ← Back to Settings
           </Link>
         </div>
 

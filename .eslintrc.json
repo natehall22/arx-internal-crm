@@ -1,6 +1,35 @@
 {
   "extends": "next/core-web-vitals",
   "rules": {
-    "react/no-unescaped-entities": "off"
-  }
+    "react/no-unescaped-entities": "off",
+    "no-restricted-globals": [
+      "error",
+      { "name": "alert", "message": "Use toast() from '@/components/ui/toast'." },
+      { "name": "confirm", "message": "Use `await confirmDialog()` from '@/components/ui/confirm-dialog'." }
+    ],
+    "no-restricted-properties": [
+      "warn",
+      { "object": "window", "property": "alert", "message": "Use toast() from '@/components/ui/toast'." },
+      { "object": "window", "property": "confirm", "message": "Use `await confirmDialog()` from '@/components/ui/confirm-dialog'." },
+      { "property": "toLocaleDateString", "message": "Use formatDate / formatDateTime from '@/lib/format' (org timezone)." },
+      { "property": "toLocaleTimeString", "message": "Use formatTime from '@/lib/format' (org timezone)." }
+    ],
+    "no-restricted-syntax": [
+      "warn",
+      {
+        "selector": "Literal[value=/(^|[\\s:])text-(xs|\\[(8|9|10|11|12|13)px\\])(\\s|$)/]",
+        "message": "Text is never smaller than 14px: use text-sm (or text-ui-sm) or larger."
+      },
+      {
+        "selector": "TemplateElement[value.raw=/(^|[\\s:])text-(xs|\\[(8|9|10|11|12|13)px\\])(\\s|$)/]",
+        "message": "Text is never smaller than 14px: use text-sm (or text-ui-sm) or larger."
+      }
+    ]
+  },
+  "overrides": [
+    {
+      "files": ["app/(canvass-app)/**/*", "lib/__tests__/**/*", "e2e/**/*"],
+      "rules": { "no-restricted-globals": "off", "no-restricted-properties": "off", "no-restricted-syntax": "off" }
+    }
+  ]
 }

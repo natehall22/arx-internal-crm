@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { toast } from '@/components/ui/toast'
 
 interface DeleteProjectButtonProps {
   projectId: string
@@ -22,7 +23,7 @@ export default function DeleteProjectButton({ projectId, address }: DeleteProjec
 
       if (!response.ok) {
         const data = await response.json()
-        alert(`Failed to delete: ${data.error}`)
+        toast.error(`Failed to delete: ${data.error}`)
         setDeleting(false)
         return
       }
@@ -31,7 +32,7 @@ export default function DeleteProjectButton({ projectId, address }: DeleteProjec
       router.refresh()
     } catch (error) {
       console.error('Delete error:', error)
-      alert('Failed to delete project')
+      toast.error('Failed to delete project')
       setDeleting(false)
     }
   }

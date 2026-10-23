@@ -1,6 +1,7 @@
 'use client'
 
 import { useRef, useState, useEffect } from 'react'
+import { toast } from '@/components/ui/toast'
 
 interface SignaturePadInlineProps {
   onSave: (data: { type: 'typed' | 'draw'; typed?: string; drawn?: string; name: string }) => void
@@ -89,15 +90,15 @@ export default function SignaturePadInline({
 
   const handleSave = () => {
     if (!signedName.trim()) {
-      alert('Please enter your name')
+      toast.error('Please enter your name')
       return
     }
     if (mode === 'typed' && !typedValue.trim()) {
-      alert('Please type your signature')
+      toast.error('Please type your signature')
       return
     }
     if (mode === 'draw' && !signatureData) {
-      alert('Please draw your signature')
+      toast.error('Please draw your signature')
       return
     }
 

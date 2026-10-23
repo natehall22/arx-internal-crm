@@ -7,6 +7,7 @@ import { createClientBrowser } from '@/lib/supabase/client'
 import CloseScheduleModal, { type CloseScheduleConfirm } from '@/components/appointments/CloseScheduleModal'
 import LeadInspectionScheduleModal from '@/components/leads/LeadInspectionScheduleModal'
 import { MANUAL_LEAD_SOURCES } from '@/lib/lead-sources'
+import { toast } from '@/components/ui/toast'
 
 interface ReferrerResult {
   id: string
@@ -228,7 +229,7 @@ export default function LeadFormWithReferral({
       ].filter(Boolean)
 
       if (missingScheduleFields.length > 0) {
-        alert(`Add ${missingScheduleFields.join(', ')} before saving the scheduled inspection.`)
+        toast(`Add ${missingScheduleFields.join(', ')} before saving the scheduled inspection.`)
         return
       }
     }
@@ -256,7 +257,7 @@ export default function LeadFormWithReferral({
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}))
       console.error('Lead creation error:', errorData)
-      alert(errorData.error || 'Failed to create lead. Please try again.')
+      toast.error(errorData.error || 'Failed to create lead. Please try again.')
       setSaving(false)
       return
     }
@@ -366,7 +367,7 @@ export default function LeadFormWithReferral({
       const scheduleData = await scheduleRes.json().catch(() => ({}))
 
       if (!scheduleRes.ok) {
-        alert(
+        toast.error(
           typeof (scheduleData as { error?: string }).error === 'string'
             ? (scheduleData as { error: string }).error
             : 'Lead was created, but scheduling failed. Open the lead to try another slot.'

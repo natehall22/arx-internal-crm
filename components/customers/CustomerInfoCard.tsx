@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { toast } from '@/components/ui/toast'
 
 interface Customer {
   id: string
@@ -40,11 +41,11 @@ export default function CustomerInfoCard({ customer }: CustomerInfoCardProps) {
         router.refresh()
       } else {
         const error = await response.json()
-        alert(error.error || 'Failed to save customer')
+        toast.error(error.error || 'Failed to save customer')
       }
     } catch (error) {
       console.error('Error saving customer:', error)
-      alert('Failed to save customer')
+      toast.error('Failed to save customer')
     } finally {
       setSaving(false)
     }

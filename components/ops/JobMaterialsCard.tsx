@@ -8,6 +8,8 @@ import {
   type JobCostSummary,
   type JobCostType,
 } from '@/lib/job-cost-ledger'
+import { toast } from '@/components/ui/toast'
+import { confirmDialog } from '@/components/ui/confirm-dialog'
 
 /**
  * Materials card. "+ Job Cost" writes to the job cost ledger (`job_cost_lines`, via
@@ -154,11 +156,11 @@ export default function JobMaterialsCard({
         afterMutation()
       } else {
         const error = await response.json().catch(() => ({}))
-        alert(error.error || 'Could not add this cost')
+        toast.error(error.error || 'Could not add this cost')
       }
     } catch (error) {
       console.error('Error adding job cost:', error)
-      alert('Could not add this cost')
+      toast.error('Could not add this cost')
     } finally {
       setSaving(false)
     }
@@ -200,29 +202,29 @@ export default function JobMaterialsCard({
         afterMutation()
       } else {
         const error = await response.json().catch(() => ({}))
-        alert(error.error || 'Could not save this cost')
+        toast.error(error.error || 'Could not save this cost')
       }
     } catch (error) {
       console.error('Error updating job cost:', error)
-      alert('Could not save this cost')
+      toast.error('Could not save this cost')
     } finally {
       setSavingEdit(false)
     }
   }
 
   const handleDelete = async (lineId: string) => {
-    if (!confirm('Delete this job cost?')) return
+    if (!(await confirmDialog({ title: 'Delete this job cost?', destructive: true }))) return
     try {
       const response = await fetch(`/api/ops/jobs/${jobId}/cost-lines/${lineId}`, { method: 'DELETE' })
       if (response.ok) {
         afterMutation()
       } else {
         const error = await response.json().catch(() => ({}))
-        alert(error.error || 'Could not delete this cost')
+        toast.error(error.error || 'Could not delete this cost')
       }
     } catch (error) {
       console.error('Error deleting job cost:', error)
-      alert('Could not delete this cost')
+      toast.error('Could not delete this cost')
     }
   }
 

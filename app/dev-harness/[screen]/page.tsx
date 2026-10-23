@@ -34,6 +34,12 @@ import DefaultPlansCard from '@/components/admin/DefaultPlansCard'
 import { HARNESS_NEEDS_YOU, HARNESS_RUN_SHEET, HARNESS_DASHBOARD } from '@/e2e/fixtures'
 import JobSheetsEditor from '@/app/ops/jobs/[id]/sheets/JobSheetsEditor'
 import DashboardClient from '@/app/dashboard/DashboardClient'
+import UiKitHarness from '@/components/ui/UiKitHarness'
+import Nav from '@/components/Nav'
+import SettingsHub from '@/app/admin/SettingsHub'
+import { visibleSettingsGroups } from '@/lib/settings-registry'
+import { QueueCard, KpiTiles } from '@/components/today/QueueCard'
+import { HARNESS_QUEUES } from '@/e2e/fixtures'
 
 export default function Harness({ params }: { params: { screen: string } }) {
   if (process.env.NODE_ENV === 'production') notFound()
@@ -128,6 +134,25 @@ export default function Harness({ params }: { params: { screen: string } }) {
       return <JobSheetsEditor initialSheet={HARNESS_RUN_SHEET as never} canEdit scope={null} coverage={{} as never} showOrder={false} />
     case 'dashboard':
       return <DashboardClient profile={HARNESS_DASHBOARD.profile} stats={HARNESS_DASHBOARD.stats} progress={HARNESS_DASHBOARD.progress} pendingPrompts={[]} upcomingAppointments={[]} recentActivities={[]} settings={{}} />
+    case 'nav':
+      return (
+        <div className="min-h-screen bg-surface-subtle">
+          <Nav />
+          <main className="p-4"><h1 className="text-ui-xl font-bold text-ink">Page content</h1></main>
+        </div>
+      )
+    case 'settings-hub':
+      return <div className="mx-auto max-w-6xl p-4"><h1 className="text-ui-xl font-bold text-ink">Settings</h1><SettingsHub groups={visibleSettingsGroups({ canCost: true, canPayroll: true, canSuperuser: true, canWorkAreas: true })} /></div>
+    case 'today':
+      return (
+        <div className="mx-auto flex max-w-5xl flex-col gap-4 p-4">
+          <h1 className="text-ui-xl font-bold text-ink">Today</h1>
+          <div className="grid gap-4 md:grid-cols-2">{HARNESS_QUEUES.map((q) => <QueueCard key={q.id} queue={q} />)}</div>
+          <KpiTiles tiles={[{ label: 'Sits this week', value: 4 }, { label: 'Sales this week', value: 2 }]} />
+        </div>
+      )
+    case 'ui-kit':
+      return <UiKitHarness />
     case 'default-plans':
       return <div className="p-3"><DefaultPlansCard /></div>
     case 'payroll-periods':

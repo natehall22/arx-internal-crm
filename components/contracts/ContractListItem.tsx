@@ -1,4 +1,5 @@
 'use client'
+import { toast } from '@/components/ui/toast'
 
 interface ContractListItemProps {
   contract: {
@@ -16,7 +17,7 @@ export default function ContractListItem({ contract }: ContractListItemProps) {
   const handleCopyLink = () => {
     const url = `${window.location.origin}/contracts/sign/${contract.signing_token}`
     navigator.clipboard.writeText(url)
-    alert('Signing link copied to clipboard!')
+    toast.success('Signing link copied to clipboard!')
   }
 
   const isCompleted = contract.status === 'completed'

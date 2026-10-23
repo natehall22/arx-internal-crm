@@ -16,19 +16,14 @@ import {
   isOrgSuperuserRoleSlug,
 } from '@/lib/permissions'
 import { canViewInsideSalesFollowUp } from '@/lib/inside-sales-follow-up'
+import { isPayrollAdminRole } from '@/lib/payroll-admin-access'
+import { activeSectionId, visibleNav } from '@/lib/nav-config'
+import { Dialog, DialogContent } from '@/components/ui/dialog'
+import GlobalSearch from '@/components/search/GlobalSearch'
+import { BarChart3, DollarSign, Filter, Hammer, Home, MapPin, MoreHorizontal, Search, Users, type LucideIcon } from 'lucide-react'
 import NotificationBell from './NotificationBell'
 import FeedbackButton from './FeedbackButton'
 import AnnouncementBanner from './AnnouncementBanner'
-
-type NavItem = {
-  href: string
-  label: string
-  permission?: string // If specified, check for this specific permission
-  /** Must have this permission name (from role matrix, custom role, or user grant) — used for Canvass vs lead-only workflows */
-  requiresAnyPermission?: string | string[]
-  /** Visible only to inside sales reps and managers who can view the IS queue */
-  insideSalesOnly?: boolean
-}
 
 export default function Nav() {
   const pathname = usePathname()
@@ -232,279 +227,187 @@ export default function Nav() {
     }
   }
 
-  // Determine which dashboard to show based on role
-  // Ops-only users go to ops dashboard, others go to sales dashboard
-  // Admin and managers see both
   const isOpsOnly = userRole === 'operations'
   const hasFullNavAccess = effectiveFullAccess || isOrgSuperuserRoleSlug(userRole ?? '')
   /** Same shape as SSR guards / centralized RBAC helpers */
   const navPermInput = { fullAccess: hasFullNavAccess, permissionNames: effectivePermissionNames }
-  const hasSalesDashboardInNav = userRole ? userRole !== 'operations' : true // Ops-only skips sales tab while loading defaults permissive like before
-  const canSeeOpsDashboard = canAccessOpsDashboardFromPermissionNames(navPermInput)
-  const canSeeJobBoardNav = canAccessJobBoardFromPermissionNames(navPermInput)
-  const isSalesDocBarredNav = isBarredFromSalesDocAccess({
+  const roleInput = { role: userRole, customRoleName, customRoleDisplayName, permissionNames: effectivePermissionNames }
+
+  // One config decides what shows (lib/nav-config.ts); the flags below are the same helpers the flat nav always used.
+  const nav = visibleNav({
+    permsReady: effectivePermsReady || hasFullNavAccess,
     role: userRole,
-    customRoleName,
-    customRoleDisplayName,
+    fullAccess: hasFullNavAccess,
     permissionNames: effectivePermissionNames,
-  })
-
-  // Define nav items with role restrictions
-  // Include legacy roles (manager, rep) for backwards compatibility
-  // Canvassers have limited access: Dashboard, Leads, Canvass only
-  const allNavItems: NavItem[] = [
-    // Sales dashboard - shown to everyone except ops-only users
-    ...(hasSalesDashboardInNav ? [{ href: '/dashboard', label: 'Dashboard' }] : []),
-    { href: '/sisu', label: 'Incentives', requiresAnyPermission: ['leads:view'] },
-    ...(canSeeOpsDashboard
-      ? [
-          {
-            href: '/ops/dashboard',
-            label: isOpsOnly ? 'Dashboard' : 'Ops Dashboard',
-            requiresAnyPermission: ['ops:dashboard:view', 'jobs:view', 'jobs:edit'],
-          },
-        ]
-      : []),
-    { href: '/calendar', label: 'Calendar', requiresAnyPermission: ['scheduling:view', 'scheduling:create', 'scheduling:edit', 'scheduling:manage_team', 'scheduling:manage_region', 'scheduling:manage_queue'] },
-    { href: '/leads', label: 'Leads', requiresAnyPermission: ['leads:view', 'leads:create', 'leads:edit', 'leads:delete', 'leads:assign', 'leads:view_inbound', 'leads:manage_inbound', 'leads:claim_inbound'] },
-    { href: '/opportunities', label: 'Opportunities', requiresAnyPermission: ['opportunities:view', 'opportunities:edit'] },
-    { href: '/referral-partners', label: 'Referral Partners', requiresAnyPermission: ['referral_partners:view'] },
-    { href: '/inside-sales', label: 'Inside Sales', insideSalesOnly: true },
-    {
-      href: '/projects',
-      label: 'Projects',
-      requiresAnyPermission: ['projects:view', 'projects:edit'],
+    flags: {
+      isOpsOnly,
+      canSeeOpsDashboard: canAccessOpsDashboardFromPermissionNames(navPermInput),
+      canSeeJobBoard: canAccessJobBoardFromPermissionNames(navPermInput),
+      canSeeInsideSales: canViewInsideSalesFollowUp(roleInput),
+      projectsBarred: isBarredFromProjectsUi(userRole),
+      salesDocBarred: isBarredFromSalesDocAccess(roleInput),
+      customerRecords: canAccessCustomerRecordsFromPermissionNames(navPermInput) || canAccessCustomerRecords(userRole),
+      reports: canAccessReportsFromPermissionNames(navPermInput) || canAccessReports(userRole || undefined),
+      isPayrollAdmin: isPayrollAdminRole(userRole),
     },
-    ...(canSeeJobBoardNav ? [{ href: '/ops', label: 'Job Board', requiresAnyPermission: ['jobs:view', 'jobs:edit'] }] : []),
-    {
-      href: '/canvass',
-      label: 'Canvass',
-      requiresAnyPermission: 'canvass:view',
-    },
-    { href: '/pricebook', label: 'Pricebook', requiresAnyPermission: ['pricebook:view', 'pricebook:edit'] },
-    { href: '/customers', label: 'Customers', requiresAnyPermission: ['customers:view', 'customers:edit'] },
-    { href: '/reports', label: 'Reports', requiresAnyPermission: ['reports:view_own', 'reports:view_team', 'reports:view_region', 'reports:view_all'] },
-    { href: '/admin', label: 'Admin', requiresAnyPermission: ['admin:full', 'admin:access', 'admin:roles', 'admin:permissions', 'admin:settings'] },
-  ]
-
-  // Filter nav items based on user role and permissions
-  const navItems = allNavItems.filter(item => {
-    if (item.insideSalesOnly) {
-      return canViewInsideSalesFollowUp({
-        role: userRole,
-        customRoleName,
-        customRoleDisplayName,
-        permissionNames: effectivePermissionNames,
-      })
-    }
-    if (item.href === '/projects') {
-      if (isBarredFromProjectsUi(userRole)) return false
-    }
-    if (item.href === '/opportunities' && (userRole === 'setter' || userRole === 'canvasser')) {
-      return false
-    }
-    if (item.href === '/pricebook' && isSalesDocBarredNav) {
-      return false
-    }
-
-    if (item.requiresAnyPermission) {
-      if (!hasFullNavAccess && !effectivePermsReady) return false
-      const required = Array.isArray(item.requiresAnyPermission) ? item.requiresAnyPermission : [item.requiresAnyPermission]
-
-      /** Align with lib/permissions for legacy matrices that grant access without explicit customers:* permission keys */
-      let allowedByExplicit =
-        hasFullNavAccess || required.some((permission) => effectivePermissionNames.has(permission))
-      if (!allowedByExplicit && item.href === '/customers') {
-        allowedByExplicit =
-          canAccessCustomerRecordsFromPermissionNames(navPermInput) ||
-          canAccessCustomerRecords(userRole)
-      }
-      if (!allowedByExplicit && item.href === '/reports') {
-        allowedByExplicit =
-          canAccessReportsFromPermissionNames(navPermInput) || canAccessReports(userRole || undefined)
-      }
-
-      if (!allowedByExplicit) return false
-      if (item.href === '/projects' && isBarredFromProjectsUi(userRole)) return false
-      return true
-    }
-
-    // If user has a specific permission grant, always show the item
-    if (
-      item.permission &&
-      (hasFullNavAccess || userPermissions.includes(item.permission) || effectivePermissionNames.has(item.permission))
-    ) {
-      return true
-    }
-
-    return true
   })
+  const activeId = activeSectionId(pathname, nav)
+  const activeSection = nav.sections.find((s) => s.id === activeId) ?? null
+  const [moreOpen, setMoreOpen] = useState(false)
+  const canAddPartner = hasFullNavAccess || effectivePermissionNames.has('referral_partners:view')
 
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  // The shell is fixed (sidebar / bottom bar), so pages — which each render <Nav /> themselves — get room via body classes.
+  useEffect(() => {
+    document.body.classList.add('has-app-shell')
+    return () => document.body.classList.remove('has-app-shell')
+  }, [])
+
+  const openSearch = () => window.dispatchEvent(new Event('arx:open-search'))
+  const isActive = (href: string) => pathname === href || pathname?.startsWith(href + '/')
+
+  const sectionIcon: Record<string, LucideIcon> = { today: Home, pipeline: Filter, jobs: Hammer, customers: Users, money: DollarSign, insights: BarChart3 }
+  const BOTTOM_SLOTS = 4 // the rest go in "More" so every label stays readable on a phone
+  const bottomSections = nav.sections.slice(0, BOTTOM_SLOTS)
+  const overflowSections = nav.sections.slice(BOTTOM_SLOTS)
+  const homeHref = nav.sections[0]?.href ?? '/today'
+
+  const logo = companyLogo ? (
+    <img src={companyLogo} alt={companyName} className="h-9 w-auto max-w-[160px] object-contain" onError={() => setCompanyLogo(null)} />
+  ) : (
+    <img src="/brand/arx-shield.png" alt="ARX" className="h-8 w-auto flex-shrink-0 object-contain" />
+  )
+
+  const linkBase = 'flex min-h-[44px] items-center gap-3 rounded-md px-3 text-sm font-medium'
 
   return (
     <>
-    <nav className="bg-gray-800 text-white">
-      <div className="max-w-full mx-auto px-3 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16">
-          {/* Company Logo/Name */}
-          <div className="flex-shrink-0">
-            <Link href={isOpsOnly ? '/ops/dashboard' : '/dashboard'} className="flex min-h-[44px] items-center gap-2 text-xl font-bold whitespace-nowrap">
-              {companyLogo ? (
-                <img
-                  src={companyLogo}
-                  alt={companyName}
-                  className="h-10 sm:h-11 w-auto max-w-[180px] object-contain"
-                  onError={(e) => {
-                    console.error('Logo failed to load:', companyLogo)
-                    setCompanyLogo(null)
-                  }}
-                />
-              ) : (
-                <img
-                  src="/brand/arx-shield.png"
-                  alt="ARX"
-                  className="h-8 w-auto flex-shrink-0 object-contain"
-                />
-              )}
-              <span className="hidden sm:inline">{companyName}</span>
-              {/* Show abbreviated name on very small screens if no logo */}
-              {!companyLogo && (
-                <span className="sm:hidden">
-                  {companyName.length > 10 ? companyName.substring(0, 10) + '...' : companyName}
-                </span>
-              )}
+      {/* Desktop sidebar */}
+      <aside aria-label="Main" className="print:hidden fixed inset-y-0 left-0 z-40 hidden w-60 flex-col overflow-y-auto bg-gray-900 text-white md:flex">
+        <Link href={homeHref} className="flex min-h-[64px] items-center gap-2 px-4 text-lg font-bold">
+          {logo}
+          <span className="truncate">{companyName}</span>
+        </Link>
+        <nav className="flex flex-1 flex-col gap-1 px-2 pb-4">
+          {nav.sections.map((s) => {
+            const Icon = sectionIcon[s.id]
+            const active = s.id === activeId
+            return (
+              <div key={s.id}>
+                <Link href={s.href} aria-current={active ? 'page' : undefined} className={`${linkBase} ${active ? 'bg-gray-700 text-white' : 'text-gray-200 hover:bg-gray-800'}`}>
+                  <Icon className="h-5 w-5 shrink-0" aria-hidden />
+                  {s.label}
+                </Link>
+                {active && s.children.length > 1 && (
+                  <div className="ml-8 mt-1 flex flex-col gap-0.5 border-l border-gray-700 pl-2">
+                    {s.children.map((c) => (
+                      <Link key={c.href} href={c.href} aria-current={isActive(c.href) ? 'page' : undefined} className={`flex min-h-[40px] items-center rounded-md px-2 text-sm ${isActive(c.href) ? 'font-semibold text-white' : 'text-gray-300 hover:text-white'}`}>
+                        {c.label}
+                      </Link>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+          {nav.canvass && (
+            <Link href="/canvass" className={`${linkBase} mt-2 text-gray-200 hover:bg-gray-800`}>
+              <MapPin className="h-5 w-5 shrink-0" aria-hidden />
+              Canvass
             </Link>
+          )}
+          <div className="mt-auto flex flex-col gap-1 border-t border-gray-700 pt-3">
+            <Link href={nav.admin ? '/admin' : '/settings'} className={`${linkBase} text-gray-200 hover:bg-gray-800`}>Settings</Link>
+            <Link href="/whats-new" className={`${linkBase} text-gray-200 hover:bg-gray-800`}>What&apos;s new</Link>
+            <button onClick={handleLogout} className={`${linkBase} text-left text-gray-200 hover:bg-gray-800`}>Logout</button>
           </div>
+        </nav>
+      </aside>
 
-          {/* Desktop nav - scrollable */}
-          <div className="hidden md:flex flex-1 items-center justify-center min-w-0 mx-4">
-            <div className="flex items-center space-x-1 overflow-x-auto scrollbar-hide max-w-full px-2">
-              {navItems.map((item) => (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={`px-3 py-2 rounded-md text-sm font-medium whitespace-nowrap flex-shrink-0 ${
-                    pathname === item.href || pathname?.startsWith(item.href + '/')
-                      ? 'bg-gray-900 text-white'
-                      : 'text-gray-300 hover:bg-gray-700 hover:text-white'
-                  }`}
-                >
-                  {item.label}
-                </Link>
-              ))}
-            </div>
-          </div>
-
-          {/* Right side icons */}
-          <div className="flex items-center gap-0.5 sm:gap-1 flex-shrink-0">
-            <Link
-              href="/settings"
-              className="hidden min-[420px]:inline-flex h-11 w-11 items-center justify-center text-gray-300 hover:text-white hover:bg-gray-700 rounded-full"
-              title="My Settings"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-              </svg>
-            </Link>
-            {/* Always visible (not buried in the mobile hamburger): reps log a touch or add a partner in the field. */}
-            {(hasFullNavAccess || effectivePermissionNames.has('referral_partners:view')) && (
-              <>
-                <Link
-                  href="/referral-partners"
-                  className="hidden min-[420px]:inline md:hidden px-2 py-1.5 text-xs font-semibold text-gray-200 hover:text-white hover:bg-gray-700 rounded-md whitespace-nowrap"
-                >
-                  Partners
-                </Link>
-                <Link
-                  href="/referral-partners?add=1"
-                  className="inline-flex min-h-[44px] items-center px-2 text-xs font-semibold text-gray-900 bg-amber-400 hover:bg-amber-300 rounded-md whitespace-nowrap"
-                  title="Add a Referral Partner"
-                >
-                  + Partner
-                </Link>
-              </>
+      {/* Top bar: search, quick actions, bell (all sizes) */}
+      <header className="bg-gray-800 text-white print:hidden">
+        <div className="flex h-14 items-center justify-between gap-2 px-3 sm:px-6">
+          <Link href={homeHref} className="flex min-h-[44px] items-center gap-2 md:hidden">
+            {logo}
+          </Link>
+          <button
+            onClick={openSearch}
+            className="hidden min-h-[44px] w-full max-w-md items-center gap-2 rounded-md bg-gray-700 px-3 text-sm text-gray-200 hover:bg-gray-600 md:flex"
+            aria-label="Search"
+          >
+            <Search className="h-4 w-4" aria-hidden />
+            <span className="flex-1 text-left">Search customers, jobs, phone numbers…</span>
+            <kbd className="rounded bg-gray-800 px-1.5 py-0.5 text-sm text-gray-200">⌘K</kbd>
+          </button>
+          <div className="flex flex-shrink-0 items-center gap-0.5 sm:gap-1">
+            <button onClick={openSearch} aria-label="Search" className="inline-flex h-11 w-11 items-center justify-center rounded-full text-gray-200 hover:bg-gray-700 md:hidden">
+              <Search className="h-5 w-5" aria-hidden />
+            </button>
+            {canAddPartner && (
+              <Link href="/referral-partners?add=1" className="inline-flex min-h-[44px] items-center rounded-md bg-amber-400 px-3 text-sm font-semibold text-gray-900 hover:bg-amber-300" title="Add a Referral Partner">
+                + Partner
+              </Link>
             )}
             <FeedbackButton />
             <NotificationBell />
-            <Link
-              href="/whats-new"
-              className="hidden lg:inline-flex px-3 py-2 text-sm font-medium text-gray-300 hover:text-white hover:bg-gray-700 rounded-md whitespace-nowrap"
-            >
-              What&apos;s new
-            </Link>
-            <button
-              onClick={handleLogout}
-              className="hidden sm:block px-3 py-2 text-sm font-medium text-gray-300 hover:text-white hover:bg-gray-700 rounded-md whitespace-nowrap"
-            >
-              Logout
-            </button>
-            
-            {/* Mobile menu button */}
-            <button
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              aria-label="Menu"
-              className="md:hidden inline-flex h-11 w-11 items-center justify-center text-gray-300 hover:text-white hover:bg-gray-700 rounded-md"
-            >
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                {mobileMenuOpen ? (
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                ) : (
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-                )}
-              </svg>
-            </button>
           </div>
         </div>
-      </div>
-
-      {/* Mobile menu dropdown */}
-      {mobileMenuOpen && (
-        <div className="md:hidden border-t border-gray-700">
-          <div className="px-2 pt-2 pb-3 space-y-1">
-            {navItems.map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                onClick={() => setMobileMenuOpen(false)}
-                className={`block px-3 py-3 rounded-md text-base font-medium ${
-                  pathname === item.href || pathname?.startsWith(item.href + '/')
-                    ? 'bg-gray-900 text-white'
-                    : 'text-gray-300 hover:bg-gray-700 hover:text-white'
-                }`}
-              >
-                {item.label}
+        {/* Phone / tablet: the active section's pages as a scrolling tab strip (desktop has them in the sidebar) */}
+        {activeSection && activeSection.children.length > 1 && (
+          <div className="flex gap-1 overflow-x-auto border-t border-gray-700 px-2 md:hidden" role="tablist" aria-label={activeSection.label}>
+            {activeSection.children.map((c) => (
+              <Link key={c.href} href={c.href} aria-current={isActive(c.href) ? 'page' : undefined} className={`flex min-h-[44px] shrink-0 items-center border-b-2 px-3 text-sm font-medium ${isActive(c.href) ? 'border-amber-400 text-white' : 'border-transparent text-gray-300'}`}>
+                {c.label}
               </Link>
             ))}
-            <Link
-              href="/settings"
-              onClick={() => setMobileMenuOpen(false)}
-              className="block px-3 py-3 rounded-md text-base font-medium text-gray-300 hover:bg-gray-700 hover:text-white min-[420px]:hidden"
-            >
-              Settings
+          </div>
+        )}
+      </header>
+
+      {/* Phone bottom bar */}
+      <nav aria-label="Main" className="print:hidden fixed inset-x-0 bottom-0 z-40 flex border-t border-gray-700 bg-gray-900 pb-[env(safe-area-inset-bottom)] text-white md:hidden">
+        {bottomSections.map((s) => {
+          const Icon = sectionIcon[s.id]
+          const active = s.id === activeId
+          return (
+            <Link key={s.id} href={s.href} aria-current={active ? 'page' : undefined} className={`flex min-h-[56px] flex-1 flex-col items-center justify-center gap-0.5 text-sm font-medium ${active ? 'text-amber-300' : 'text-gray-200'}`}>
+              <Icon className="h-5 w-5" aria-hidden />
+              {s.label}
             </Link>
-            <Link
-              href="/whats-new"
-              onClick={() => setMobileMenuOpen(false)}
-              className="block px-3 py-3 rounded-md text-base font-medium text-gray-300 hover:bg-gray-700 hover:text-white"
-            >
-              What&apos;s new
-            </Link>
+          )
+        })}
+        <button onClick={() => setMoreOpen(true)} className="flex min-h-[56px] flex-1 flex-col items-center justify-center gap-0.5 text-sm font-medium text-gray-200">
+          <MoreHorizontal className="h-5 w-5" aria-hidden />
+          More
+        </button>
+      </nav>
+
+      <Dialog open={moreOpen} onOpenChange={setMoreOpen}>
+        <DialogContent title="More">
+          <div className="flex flex-col">
+            {[
+              ...overflowSections.map((s) => ({ href: s.href, label: s.label })),
+              ...(nav.canvass ? [{ href: '/canvass', label: 'Canvass' }] : []),
+              { href: nav.admin ? '/admin' : '/settings', label: 'Settings' },
+              { href: '/whats-new', label: "What's new" },
+            ].map((l) => (
+              <Link key={l.href} href={l.href} onClick={() => setMoreOpen(false)} className="flex min-h-[48px] items-center border-b border-surface-line text-ui-base font-medium text-ink">
+                {l.label}
+              </Link>
+            ))}
             <button
               onClick={() => {
-                setMobileMenuOpen(false)
+                setMoreOpen(false)
                 handleLogout()
               }}
-              className="block w-full text-left px-3 py-3 rounded-md text-base font-medium text-gray-300 hover:bg-gray-700 hover:text-white sm:hidden"
+              className="flex min-h-[48px] items-center text-left text-ui-base font-medium text-ink"
             >
               Logout
             </button>
           </div>
-        </div>
-      )}
-    </nav>
-    <AnnouncementBanner />
+        </DialogContent>
+      </Dialog>
+      <GlobalSearch />
+      <AnnouncementBanner />
     </>
   )
 }

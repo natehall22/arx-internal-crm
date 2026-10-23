@@ -1,6 +1,7 @@
 'use client'
 
 import { useRef, useState } from 'react'
+import { confirmDialog } from '@/components/ui/confirm-dialog'
 
 interface Props {
   itemId: string
@@ -40,7 +41,7 @@ export default function PricebookItemPhotoCell({ itemId, itemName, initialImageU
   }
 
   async function handleRemove() {
-    if (!confirm(`Remove photo for "${itemName}"?`)) return
+    if (!(await confirmDialog({ title: `Remove photo for "${itemName}"?`, destructive: true }))) return
     setBusy(true)
     setError(null)
     try {

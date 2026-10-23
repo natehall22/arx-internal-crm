@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
 import { getManagerSpoRoleSummary } from '@/lib/manager-commission-roles'
+import { toast } from '@/components/ui/toast'
+import { confirmDialog } from '@/components/ui/confirm-dialog'
 
 interface PricebookItem {
   id: string
@@ -201,20 +203,20 @@ export default function AdminProposalsPage() {
     console.log('Validation check:', { name: adderForm.name, finalUnitPrice, materialCost, laborCost, profitMargin, totalCost, unit_price: adderForm.unit_price })
 
     if (!adderForm.name) {
-      alert('Please enter a name for the adder')
+      toast.error('Please enter a name for the adder')
       return
     }
 
     if (adderForm.manager_spo_enabled) {
       const m = parseFloat(adderForm.manager_spo_percent)
       if (!Number.isFinite(m) || m <= 0 || m > 100) {
-        alert('Enter a Manager SPO % between 0 and 100 when Manager SPO is enabled.')
+        toast.error('Enter a Manager SPO % between 0 and 100 when Manager SPO is enabled.')
         return
       }
     }
     
     if (finalUnitPrice <= 0) {
-      alert('Please enter a price directly, or set material/labor costs')
+      toast.error('Please enter a price directly, or set material/labor costs')
       return
     }
 
@@ -263,11 +265,11 @@ export default function AdminProposalsPage() {
         console.log('Data reloaded')
       } else {
         console.error('API error:', result)
-        alert(`Failed to save adder: ${result.error || 'Unknown error'}`)
+        toast.error(`Failed to save adder: ${result.error || 'Unknown error'}`)
       }
     } catch (err) {
       console.error('Error saving adder:', err)
-      alert('Failed to save adder. Please try again.')
+      toast.error('Failed to save adder. Please try again.')
     }
     setSaving(false)
   }
@@ -308,7 +310,7 @@ export default function AdminProposalsPage() {
   }
 
   const deleteAdder = async (id: string) => {
-    if (!confirm('Delete this adder?')) return
+    if (!(await confirmDialog({ title: 'Delete this adder?', destructive: true }))) return
     
     try {
       const response = await fetch(`/api/admin/proposals?type=adder&id=${id}`, {
@@ -355,7 +357,7 @@ export default function AdminProposalsPage() {
   }
 
   const deleteTemplate = async (id: string) => {
-    if (!confirm('Delete this template?')) return
+    if (!(await confirmDialog({ title: 'Delete this template?', destructive: true }))) return
     
     try {
       const response = await fetch(`/api/admin/proposals?type=template&id=${id}`, {
@@ -402,7 +404,7 @@ export default function AdminProposalsPage() {
       <div className="max-w-7xl mx-auto px-4 py-8">
         <div className="mb-6">
           <Link href="/admin" className="text-indigo-600 hover:text-indigo-800 text-sm font-medium">
-            ← Back to Admin
+            ← Back to Settings
           </Link>
         </div>
 

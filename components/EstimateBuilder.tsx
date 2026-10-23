@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import type { Estimate, EstimateLine, Project, PricebookItem } from '@/lib/types/database'
 import { calculateEstimateTotals } from '@/lib/calculations'
 import { validateRequiredAdders } from '@/lib/required-adders'
+import { toast } from '@/components/ui/toast'
 
 interface EstimateBuilderProps {
   estimate: Estimate & { projects: Project }
@@ -173,14 +174,14 @@ export default function EstimateBuilder({
     })
 
     if (res.ok) {
-      alert('Estimate saved!')
+      toast.error('Estimate saved!')
     }
     setLoading(false)
   }
 
   const generatePDF = async () => {
     if (requiredAdderIssues.length > 0) {
-      alert('Please fix required adders before generating PDF')
+      toast.error('Please fix required adders before generating PDF')
       return
     }
 
@@ -193,7 +194,7 @@ export default function EstimateBuilder({
       const data = await res.json()
       window.open(data.downloadUrl, '_blank')
     } else {
-      alert('Failed to generate PDF')
+      toast.error('Failed to generate PDF')
     }
     setLoading(false)
   }
@@ -203,7 +204,7 @@ export default function EstimateBuilder({
     const res = await fetch(`/api/ai/sanity-check?estimate_id=${estimate.id}`)
     if (res.ok) {
       const data = await res.json()
-      alert(JSON.stringify(data, null, 2))
+      toast(JSON.stringify(data, null, 2))
     }
     setLoading(false)
   }
@@ -218,7 +219,7 @@ export default function EstimateBuilder({
     if (res.ok) {
       const data = await res.json()
       setEstimate((prev) => ({ ...prev, scope_text: data.scope_text }))
-      alert('Scope generated!')
+      toast.error('Scope generated!')
     }
     setLoading(false)
   }

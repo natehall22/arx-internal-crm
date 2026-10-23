@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { toast } from '@/components/ui/toast'
 
 interface SendInvoiceModalProps {
   invoiceId: string
@@ -22,7 +23,7 @@ export default function SendInvoiceModal({
     e.preventDefault()
 
     if (!email.trim()) {
-      alert('Please enter an email address')
+      toast.error('Please enter an email address')
       return
     }
 
@@ -38,11 +39,11 @@ export default function SendInvoiceModal({
         onSent()
       } else {
         const error = await response.json()
-        alert(error.error || 'Failed to send invoice')
+        toast.error(error.error || 'Failed to send invoice')
       }
     } catch (error) {
       console.error('Error sending invoice:', error)
-      alert('Failed to send invoice')
+      toast.error('Failed to send invoice')
     } finally {
       setSending(false)
     }

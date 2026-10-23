@@ -6,6 +6,7 @@ import Nav from '@/components/Nav'
 import { ridgeHipCapOrderSummary } from '@/lib/hip-ridge-cap-squares'
 import { BUNDLES_PER_SQUARE, CAP_LF_PER_BUNDLE } from '@/lib/roof-shingle-constants'
 import { formatNumericDraft, parseDraftFloat, previewNumber } from '@/lib/numeric-input-draft'
+import { toast } from '@/components/ui/toast'
 
 interface PricebookItem {
   id: string
@@ -853,7 +854,7 @@ export default function ProposalBuilderPage() {
     if (!form.customer_email?.trim()) missingFields.push('Email')
     
     if (missingFields.length > 0) {
-      alert(`Please fill in required fields: ${missingFields.join(', ')}`)
+      toast.error(`Please fill in required fields: ${missingFields.join(', ')}`)
       setStep(1) // Go back to customer info step
       return
     }
@@ -935,7 +936,7 @@ export default function ProposalBuilderPage() {
       if (!response.ok) {
         const data = await response.json()
         console.error('Failed to save proposal:', data.error)
-        alert(`Failed to save proposal: ${data.error || 'Unknown error'}`)
+        toast.error(`Failed to save proposal: ${data.error || 'Unknown error'}`)
         setSaving(false)
         return
       }
@@ -944,7 +945,7 @@ export default function ProposalBuilderPage() {
       router.push(`/proposals/${proposal.id}`)
     } catch (error) {
       console.error('Error saving proposal:', error)
-      alert(`Failed to save proposal: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      toast.error(`Failed to save proposal: ${error instanceof Error ? error.message : 'Unknown error'}`)
     } finally {
       setSaving(false)
     }

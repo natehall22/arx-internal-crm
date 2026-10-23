@@ -5,6 +5,7 @@ import Nav from '@/components/Nav'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import type { User, Team, UserGoogleToken } from '@/lib/types/database'
+import { confirmDialog } from '@/components/ui/confirm-dialog'
 
 type UserWithCalendar = User & {
   google_token?: UserGoogleToken | null
@@ -127,7 +128,7 @@ export default function SchedulingPage() {
   }
 
   const handleDeleteType = async (id: string) => {
-    if (!confirm('Delete this appointment type?')) return
+    if (!(await confirmDialog({ title: 'Delete this appointment type?', destructive: true }))) return
 
     try {
       const res = await fetch(`/api/admin/appointment-types?id=${id}`, { method: 'DELETE' })
@@ -174,7 +175,7 @@ export default function SchedulingPage() {
 
   const handleDisconnectCalendar = async () => {
     if (!currentUser) return
-    if (!confirm('Disconnect your Google Calendar? You will need to reconnect to use scheduling features.')) return
+    if (!(await confirmDialog({ title: 'Disconnect your Google Calendar? You will need to reconnect to use scheduling features.' , destructive: true }))) return
 
     try {
       const res = await fetch('/api/admin/scheduling', { method: 'DELETE' })
@@ -203,7 +204,7 @@ export default function SchedulingPage() {
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="mb-8">
           <div className="flex items-center gap-2 text-sm text-gray-500 mb-2">
-            <Link href="/admin" className="hover:text-indigo-600">Admin</Link>
+            <Link href="/admin" className="hover:text-indigo-600">Settings</Link>
             <span>/</span>
             <span>Scheduling</span>
           </div>

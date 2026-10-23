@@ -3,6 +3,7 @@
 import { useState } from 'react'
 
 import { INSTALL_DAY_OPTIONS, TRADE_LABELS, formatInstallDays, type InstallDays, type Trade } from '@/lib/job-trades'
+import { toast } from '@/components/ui/toast'
 
 /** One trade (crew) of a job, as the modal needs it. */
 export interface ScheduleTrade {
@@ -105,11 +106,11 @@ export default function ScheduleJobModal({ trade, jobLabel, subs, onClose, onSav
       // calendar invite is best-effort, and claiming one was sent when it wasn't
       // is worse than saying nothing.
       if (result?.calendar === 'synced' && !result?.subNotified) {
-        alert('Scheduled, but the sub was not notified — add a scheduling email to their record to send invites.')
+        toast('Scheduled, but the sub was not notified — add a scheduling email to their record to send invites.')
       } else if (result?.calendar === 'no_token') {
-        alert('Scheduled. No calendar invite was sent — no Google account is connected for install scheduling.')
+        toast.error('Scheduled. No calendar invite was sent — no Google account is connected for install scheduling.')
       } else if (result?.calendar === 'failed') {
-        alert('Scheduled, but the Google Calendar invite failed to send. Notify the sub directly.')
+        toast.error('Scheduled, but the Google Calendar invite failed to send. Notify the sub directly.')
       }
       onSave()
     } catch (e) {
