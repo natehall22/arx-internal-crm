@@ -94,6 +94,11 @@ export type PayrollStatementPayload = {
   bonuses: PayrollStatementBonusLine[]
 }
 
+/** The one "what is this person paid" formula: statements, the Pay-this-week preview and the CSV all use it. */
+export function computeNetPayout(parts: { commission: number; hourly: number; units: number; bonus: number; chargebacks: number }): number {
+  return parts.commission + parts.hourly + parts.units + parts.bonus - parts.chargebacks
+}
+
 export async function buildPayrollStatement(
   supabase: SupabaseClient,
   orgId: string,
@@ -298,7 +303,13 @@ export async function buildPayrollStatement(
   const periodUnitEarnings = periodUnits?.total ?? 0
   const bonusEarnings = bonuses.reduce((s, b) => s + b.amount, 0)
   const chargebacksApplied = chargebacks.reduce((s, c) => s + c.appliedAmount, 0)
-  const netPayout = grossCommission + hourlyEarnings + periodUnitEarnings + bonusEarnings - chargebacksApplied
+  const netPayout = computeNetPayout({
+    commission: grossCommission,
+    hourly: hourlyEarnings,
+    units: periodUnitEarnings,
+    bonus: bonusEarnings,
+    chargebacks: chargebacksApplied,
+  })
 
   return {
     period: {

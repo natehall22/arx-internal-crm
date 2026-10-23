@@ -31,6 +31,32 @@ export function getNextWeeklyPayrollCutoffEtAfter(referenceUtc: Date): Date {
 }
 
 /**
+ * The most recent Wednesday 11:59:59.999 PM Eastern at or before `referenceUtc` — the cutoff of the week that is
+ * ready to be paid ("Pay this week" shows the week that just ended).
+ */
+export function getLastWeeklyPayrollCutoffEtAtOrBefore(referenceUtc: Date): Date {
+  const refLocal = toZonedTime(referenceUtc, WEEKLY_PAYROLL_TZ)
+  const start = startOfDay(refLocal)
+  for (let i = 0; i < 21; i++) {
+    const day = addDays(start, -i)
+    if (day.getDay() !== 3) continue
+    const cutoffUtc = fromZonedTime(set(day, { hours: 23, minutes: 59, seconds: 59, milliseconds: 999 }), WEEKLY_PAYROLL_TZ)
+    if (cutoffUtc.getTime() <= referenceUtc.getTime()) return cutoffUtc
+  }
+  throw new Error('Unable to compute last weekly payroll cutoff')
+}
+
+/** Payday for a weekly cutoff: the Friday after it (Eastern calendar date, YYYY-MM-DD). */
+export function weeklyPayrollPayDateForCutoff(cutoffUtc: Date): string {
+  const local = toZonedTime(cutoffUtc, WEEKLY_PAYROLL_TZ)
+  const friday = addDays(startOfDay(local), 2)
+  const y = friday.getFullYear()
+  const m = String(friday.getMonth() + 1).padStart(2, '0')
+  const d = String(friday.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}
+
+/**
  * `payroll_eligible_at = max(install_completed_at, fully_funded_at, costs_ready_at)` when all three exist.
  */
 export function computePayrollEligibleAt(

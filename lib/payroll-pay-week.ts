@@ -1,0 +1,422 @@
+/**
+ * "Pay this week": everything the screen shows, from the one payroll calculation.
+ *  - draft  : `planPayrollPeriod` (lib/payroll-period-materialization.ts) — the same function Approve runs
+ *  - approved: the stored payout lines of the locked period
+ * Both are composed by `composeWeek`, so the people list, the by-job view, the totals and the CSV cannot disagree.
+ */
+import type { SupabaseClient } from '@supabase/supabase-js'
+
+import { computePeriodUnitEarningsForUser, resolvePayrollPeriodWindow } from '@/lib/comp-plan-period-unit-earnings'
+import { compPlanRoleLabel } from '@/lib/comp-plan-roles'
+import { loadEndedPlanPeople, loadPayPlanGaps } from '@/lib/comp-plan-defaults-db'
+import { roundMoney } from '@/lib/money'
+import { loadHourlyRoster, type HourlyRosterRow } from '@/lib/payroll-hours'
+import { loadActiveCompPlanForUser } from '@/lib/payroll-export'
+import { planPayrollPeriod, type PlannedPayoutRow, type WaitingJob } from '@/lib/payroll-period-materialization'
+import { computeNetPayout } from '@/lib/payroll-statement'
+import { getLastWeeklyPayrollCutoffEtAtOrBefore, weeklyPayrollPayDateForCutoff } from '@/lib/weekly-payroll/cutoff'
+
+/** A single line over this amount is flagged above the Approve button. */
+export const BIG_LINE_THRESHOLD = 3000
+
+export type PayWeekPeriod = {
+  id: string
+  label: string
+  cutoffAt: string
+  payDate: string
+  status: string
+  /** First day of the week this run pays (Eastern, YYYY-MM-DD). */
+  weekStart: string
+  weekEnding: string
+}
+
+export type PayWeekLine = {
+  kind: 'Commission' | 'Hourly' | 'Units' | 'Bonus'
+  what: string
+  math: string
+  amount: number
+  jobId?: string
+  jobNumber?: string
+}
+
+export type PayWeekPerson = {
+  userId: string
+  name: string
+  roleLabel: string
+  /** What they are paid (never below $0). */
+  total: number
+  /** Sum of their lines before the $0 floor. */
+  raw: number
+  hoursMissing: boolean
+  lines: PayWeekLine[]
+}
+
+export type PayWeekJobView = {
+  jobId: string
+  jobNumber: string
+  address: string
+  commissionBase: number
+  total: number
+  paid: Array<{ userId: string; name: string; roleLabel: string; amount: number; math: string }>
+}
+
+export type PayWeekWaiting = {
+  jobId: string
+  jobNumber: string
+  address: string
+  reason: string
+  /** What each credited person will get once it clears (estimates from the same engine). */
+  who: Array<{ name: string; roleLabel: string; estimate: number }>
+}
+
+export type PayWeekNeed =
+  | { kind: 'hours'; userId: string; name: string; rate: number }
+  | { kind: 'bonus'; id: string; userId: string; name: string; amount: number; what: string }
+  | { kind: 'plans'; text: string; names: string[]; href: string }
+  | { kind: 'conflict'; text: string; jobNumbers: string[] }
+
+export type PayWeekWarning = { code: string; text: string }
+
+export type PayWeek = {
+  period: PayWeekPeriod
+  state: 'draft' | 'approved'
+  totals: { amount: number; people: number }
+  needs: PayWeekNeed[]
+  warnings: PayWeekWarning[]
+  people: PayWeekPerson[]
+  jobs: PayWeekJobView[]
+  waiting: PayWeekWaiting[]
+}
+
+const ROLE_WORDS: Record<string, string> = {
+  sales_rep: 'closer',
+  owner: 'closer',
+  setter: 'setter',
+  inspector: 'inspection',
+  self_gen: 'self-generated lead',
+  setter_manager_override: 'setter manager override',
+  closer_manager_override: 'sales manager override',
+  field_manager: 'manager override',
+  senior_manager: 'manager override',
+  custom: 'custom line',
+}
+export const payoutRoleWord = (role: string) => ROLE_WORDS[role] ?? role.replace(/_/g, ' ')
+
+const fmtMoney = (n: number) => `${n < 0 ? '-' : ''}$${Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: n % 1 === 0 ? 0 : 2, maximumFractionDigits: 2 })}`
+
+/** "$20,000 × 7% closer = $1,400", with the reason when the pool cap or an office override changed it. Pure. */
+export function describeCommission(row: Pick<PlannedPayoutRow, 'participant_role' | 'gross_amount' | 'net_amount' | 'comp_plan_snapshot'>, base: number | null): string {
+  const word = payoutRoleWord(row.participant_role)
+  const snap = (row.comp_plan_snapshot ?? {}) as { source?: string; note?: string; basis?: string; override_amount?: number | null }
+  const net = Number(row.net_amount) || 0
+  const gross = Number(row.gross_amount) || 0
+  if (snap.source === 'deal_commission_roles_producer_override') return `Set by the office on this job (${word}) = ${fmtMoney(net)}`
+  if (!base || base <= 0) return `${word} = ${fmtMoney(net)}`
+  const rate = Math.round((gross / base) * 10000) / 100
+  const capped = Math.abs(net - gross) >= 0.01
+  const flat = snap.basis === 'flat'
+  const head = flat ? `${fmtMoney(gross)} flat ${word}` : `${fmtMoney(base)} × ${rate}% ${word}`
+  return capped ? `${head} = ${fmtMoney(gross)}, reduced to ${fmtMoney(net)} to stay inside the 18% pool` : `${head} = ${fmtMoney(net)}`
+}
+
+type JobInfo = { id: string; job_number: string; address_text: string | null; commission_comp_base: number | null }
+
+export type WeekInputs = {
+  rows: Array<Pick<PlannedPayoutRow, 'job_id' | 'user_id' | 'participant_role' | 'gross_amount' | 'net_amount' | 'comp_plan_snapshot'>>
+  jobs: Map<string, JobInfo>
+  names: Map<string, { name: string; role: string }>
+  hours: HourlyRosterRow[]
+  units: Map<string, number>
+  bonuses: Array<{ id: string; userId: string; amount: number; description: string | null; bonusType: string }>
+}
+
+/** Turns rows + hours + units + bonuses into the people list and the by-job view. Pure. */
+export function composeWeek(inp: WeekInputs): { people: PayWeekPerson[]; jobs: PayWeekJobView[] } {
+  const person = (id: string): PayWeekPerson => {
+    let p = byUser.get(id)
+    if (!p) {
+      const n = inp.names.get(id)
+      p = { userId: id, name: n?.name ?? 'Unknown', roleLabel: n?.role ? compPlanRoleLabel(n.role) : '', total: 0, raw: 0, hoursMissing: false, lines: [] }
+      byUser.set(id, p)
+    }
+    return p
+  }
+  const byUser = new Map<string, PayWeekPerson>()
+  const byJob = new Map<string, PayWeekJobView>()
+
+  for (const r of inp.rows) {
+    const job = inp.jobs.get(r.job_id)
+    const base = job?.commission_comp_base != null ? Number(job.commission_comp_base) : null
+    const amount = roundMoney(Number(r.net_amount) || 0)
+    const math = describeCommission(r, base)
+    const p = person(r.user_id)
+    p.lines.push({ kind: 'Commission', what: `${job?.job_number ?? ''}${job?.address_text ? ` · ${job.address_text}` : ''}`.trim(), math, amount, jobId: r.job_id, jobNumber: job?.job_number })
+    let jv = byJob.get(r.job_id)
+    if (!jv) {
+      jv = { jobId: r.job_id, jobNumber: job?.job_number ?? '', address: job?.address_text ?? '', commissionBase: base ?? 0, total: 0, paid: [] }
+      byJob.set(r.job_id, jv)
+    }
+    jv.paid.push({ userId: r.user_id, name: p.name, roleLabel: payoutRoleWord(r.participant_role), amount, math })
+    jv.total = roundMoney(jv.total + amount)
+  }
+  for (const h of inp.hours) {
+    const p = person(h.user_id)
+    if (!h.has_entry) {
+      p.hoursMissing = true
+      continue
+    }
+    if (h.hourly_earnings > 0) {
+      const ot = h.overtime_hours > 0 ? ` + ${h.overtime_hours} overtime hrs` : ''
+      p.lines.push({ kind: 'Hourly', what: 'Hourly', math: `${h.regular_hours} hrs × ${fmtMoney(h.hourly_rate ?? 0)}${ot}`, amount: roundMoney(h.hourly_earnings) })
+    }
+  }
+  for (const [userId, total] of Array.from(inp.units.entries())) {
+    if (total > 0) person(userId).lines.push({ kind: 'Units', what: 'Per-unit pay', math: 'Per-unit pay from the comp plan', amount: roundMoney(total) })
+  }
+  for (const b of inp.bonuses) {
+    person(b.userId).lines.push({ kind: 'Bonus', what: b.description || (b.bonusType === 'manual' ? 'Bonus' : b.bonusType.replace(/_/g, ' ')), math: 'Approved bonus', amount: roundMoney(b.amount) })
+  }
+  for (const p of Array.from(byUser.values())) {
+    const parts = { commission: 0, hourly: 0, units: 0, bonus: 0, chargebacks: 0 }
+    for (const l of p.lines) {
+      if (l.kind === 'Commission') parts.commission += l.amount
+      else if (l.kind === 'Hourly') parts.hourly += l.amount
+      else if (l.kind === 'Units') parts.units += l.amount
+      else parts.bonus += l.amount
+    }
+    p.raw = roundMoney(computeNetPayout(parts))
+    p.total = Math.max(0, p.raw)
+  }
+  const people = Array.from(byUser.values()).sort((a, b) => b.total - a.total || a.name.localeCompare(b.name))
+  const jobs = Array.from(byJob.values()).sort((a, b) => a.jobNumber.localeCompare(b.jobNumber))
+  return { people, jobs }
+}
+
+/** Plain-English flags shown above Approve. Pure. */
+export function buildWarnings(args: { people: PayWeekPerson[]; firstTimePayees: Set<string>; backlogJobs: number; weekStart: string }): PayWeekWarning[] {
+  const out: PayWeekWarning[] = []
+  for (const p of args.people) {
+    if (p.raw < 0) out.push({ code: 'negative', text: `${p.name}'s check would be below $0 (${fmtMoney(p.raw)}); it is paid as $0.` })
+    const big = p.lines.filter((l) => l.amount > BIG_LINE_THRESHOLD)
+    for (const l of big) out.push({ code: 'big_line', text: `${p.name} has a single line of ${fmtMoney(l.amount)} (${l.what || l.kind}).` })
+    if (args.firstTimePayees.has(p.userId) && p.total > 0) out.push({ code: 'first_time', text: `${p.name} is being paid for the first time.` })
+  }
+  if (args.backlogJobs > 0) {
+    out.push({ code: 'backlog', text: `${args.backlogJobs} job${args.backlogJobs === 1 ? '' : 's'} that finished before ${args.weekStart} ${args.backlogJobs === 1 ? 'is' : 'are'} included — nothing has paid ${args.backlogJobs === 1 ? 'it' : 'them'} yet.` })
+  }
+  return out
+}
+
+function ymdEt(d: Date): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d)
+}
+
+function toPeriod(row: { id: string; period_label: string | null; cutoff_at: string; scheduled_pay_date: string; status: string }): PayWeekPeriod {
+  const cutoff = new Date(row.cutoff_at)
+  const end = ymdEt(cutoff)
+  const start = ymdEt(new Date(cutoff.getTime() - 6 * 86_400_000))
+  return { id: row.id, label: row.period_label ?? end, cutoffAt: row.cutoff_at, payDate: row.scheduled_pay_date, status: row.status, weekStart: start, weekEnding: end }
+}
+
+/**
+ * The period "Pay this week" works on. Explicit id wins; otherwise the week that just ended (last Wednesday cutoff),
+ * created on first use — there is nothing to set up. An existing period whose cutoff is within 36 hours counts as that
+ * week (legacy periods have hand-typed cutoffs).
+ */
+export async function resolvePayWeekPeriod(admin: SupabaseClient, orgId: string, now: Date, periodId?: string | null): Promise<PayWeekPeriod> {
+  const cols = 'id, period_label, cutoff_at, scheduled_pay_date, status, created_at'
+  if (periodId) {
+    const { data, error } = await admin.from('payroll_periods').select(cols).eq('id', periodId).eq('org_id', orgId).maybeSingle()
+    if (error) throw error
+    if (!data) throw new Error('Pay period not found')
+    return toPeriod(data as never)
+  }
+  const target = getLastWeeklyPayrollCutoffEtAtOrBefore(now)
+  const from = new Date(target.getTime() - 36 * 3_600_000).toISOString()
+  const to = new Date(target.getTime() + 36 * 3_600_000).toISOString()
+  const find = async () => {
+    const { data, error } = await admin
+      .from('payroll_periods')
+      .select(cols)
+      .eq('org_id', orgId)
+      .neq('status', 'cancelled')
+      .gte('cutoff_at', from)
+      .lte('cutoff_at', to)
+      .order('created_at', { ascending: true })
+      .limit(1)
+    if (error) throw error
+    return (data ?? [])[0] as never
+  }
+  let row = await find()
+  if (!row) {
+    const payDate = weeklyPayrollPayDateForCutoff(target)
+    const { error } = await admin.from('payroll_periods').insert({
+      org_id: orgId,
+      period_label: `Week ending ${ymdEt(target)}`,
+      cutoff_at: target.toISOString(),
+      lock_at: target.toISOString(),
+      scheduled_pay_date: payDate,
+      status: 'open',
+    })
+    if (error) throw error
+    row = await find() // re-read: if two admins raced, both settle on the earliest-created row
+  }
+  return toPeriod(row)
+}
+
+async function loadNames(admin: SupabaseClient, orgId: string, ids: string[]) {
+  const names = new Map<string, { name: string; role: string }>()
+  if (ids.length === 0) return names
+  const { data, error } = await admin.from('users').select('id, full_name, role').eq('org_id', orgId).in('id', ids)
+  if (error) throw error
+  for (const u of data ?? []) names.set(u.id as string, { name: (u.full_name as string) || 'Unnamed', role: (u.role as string) || '' })
+  return names
+}
+
+async function loadUnits(admin: SupabaseClient, orgId: string, period: PayWeekPeriod, userIds: string[]): Promise<Map<string, number>> {
+  const out = new Map<string, number>()
+  if (userIds.length === 0) return out
+  const window = await resolvePayrollPeriodWindow(admin, orgId, period.id, period.cutoffAt)
+  const saleDate = period.cutoffAt.slice(0, 10)
+  for (const userId of userIds) {
+    const assignment = await loadActiveCompPlanForUser(admin, userId, orgId, saleDate)
+    const plan = assignment?.comp_plans as Record<string, unknown> | null
+    if (!plan) continue
+    const res = await computePeriodUnitEarningsForUser(admin, {
+      orgId,
+      userId,
+      plan: {
+        plan_type: String(plan.plan_type || ''),
+        unit_type: (plan.unit_type as string | null) ?? null,
+        unit_rate: plan.unit_rate != null ? Number(plan.unit_rate) : null,
+        hybrid_components: (plan.hybrid_components as never) ?? null,
+      },
+      startIso: window.startIso,
+      endIso: window.endIso,
+    })
+    if (res.total > 0) out.set(userId, res.total)
+  }
+  return out
+}
+
+async function loadJobs(admin: SupabaseClient, orgId: string, ids: string[]): Promise<Map<string, JobInfo>> {
+  const out = new Map<string, JobInfo>()
+  if (ids.length === 0) return out
+  const { data, error } = await admin.from('production_jobs').select('id, job_number, address_text, commission_comp_base').eq('org_id', orgId).in('id', ids)
+  if (error) throw error
+  for (const j of data ?? []) out.set(j.id as string, j as unknown as JobInfo)
+  return out
+}
+
+function waitingView(w: WaitingJob, jobs: Map<string, JobInfo>, names: Map<string, { name: string; role: string }>): PayWeekWaiting {
+  const base = jobs.get(w.job.id)
+  return {
+    jobId: w.job.id,
+    jobNumber: w.job.job_number,
+    address: base?.address_text ?? '',
+    reason: w.reasonText,
+    who: w.rows.map((r) => ({
+      name: names.get(r.user_id)?.name ?? 'Unknown',
+      roleLabel: payoutRoleWord(r.participant_role),
+      estimate: roundMoney(Number(r.net_amount) || 0),
+    })),
+  }
+}
+
+export async function loadPayWeek(admin: SupabaseClient, orgId: string, now: Date, periodId?: string | null): Promise<PayWeek> {
+  const period = await resolvePayWeekPeriod(admin, orgId, now, periodId)
+  const draft = period.status === 'open'
+
+  let rows: WeekInputs['rows'] = []
+  let waiting: WaitingJob[] = []
+  let conflictJobIds: string[] = []
+  let backlogJobs = 0
+  let eligibleAtByJob = new Map<string, string>()
+
+  if (draft) {
+    const plan = await planPayrollPeriod(admin, { orgId, periodId: period.id, includeWaiting: true })
+    rows = plan.jobs.flatMap((j) => j.rows)
+    waiting = plan.waiting
+    conflictJobIds = plan.selfGenSetterConflictJobIds
+    eligibleAtByJob = new Map(plan.jobs.map((j) => [j.job.id, j.eligibleAt]))
+    backlogJobs = plan.jobs.filter((j) => ymdEt(new Date(j.eligibleAt)) < period.weekStart).length
+  } else {
+    const { data, error } = await admin
+      .from('payroll_payout_lines')
+      .select('job_id, user_id, participant_role, gross_amount, net_amount, comp_plan_snapshot')
+      .eq('org_id', orgId)
+      .eq('payroll_period_id', period.id)
+    if (error) throw error
+    rows = (data ?? []) as WeekInputs['rows']
+  }
+
+  const jobIds = Array.from(new Set([...rows.map((r) => r.job_id), ...waiting.map((w) => w.job.id)]))
+  const [jobs, hours, bonusRes] = await Promise.all([
+    loadJobs(admin, orgId, jobIds),
+    loadHourlyRoster(admin, orgId, { id: period.id, cutoff_at: period.cutoffAt }),
+    admin.from('payroll_bonus_lines').select('id, user_id, bonus_type, amount, description, status').eq('org_id', orgId).eq('payroll_period_id', period.id),
+  ])
+  if (bonusRes.error) throw bonusRes.error
+  const bonusAll = (bonusRes.data ?? []) as Array<{ id: string; user_id: string; bonus_type: string; amount: number; description: string | null; status: string }>
+  const approvedBonuses = bonusAll.filter((b) => b.status === 'approved' || b.status === 'paid').map((b) => ({ id: b.id, userId: b.user_id, amount: Number(b.amount) || 0, description: b.description, bonusType: b.bonus_type }))
+  const pendingBonuses = bonusAll.filter((b) => b.status === 'pending_approval')
+
+  const peopleIds = Array.from(new Set([...rows.map((r) => r.user_id), ...hours.map((h) => h.user_id), ...approvedBonuses.map((b) => b.userId), ...pendingBonuses.map((b) => b.user_id), ...waiting.flatMap((w) => w.rows.map((r) => r.user_id))]))
+  const names = await loadNames(admin, orgId, peopleIds)
+  for (const h of hours) if (!names.has(h.user_id)) names.set(h.user_id, { name: h.full_name, role: h.role })
+  const units = await loadUnits(admin, orgId, period, Array.from(new Set([...rows.map((r) => r.user_id), ...hours.map((h) => h.user_id)])))
+
+  const { people, jobs: jobViews } = composeWeek({ rows, jobs, names, hours, units, bonuses: approvedBonuses })
+
+  const needs: PayWeekNeed[] = []
+  const warnings: PayWeekWarning[] = []
+  if (draft) {
+    for (const h of hours) if (!h.has_entry) needs.push({ kind: 'hours', userId: h.user_id, name: h.full_name, rate: h.hourly_rate ?? 0 })
+    for (const b of pendingBonuses) {
+      needs.push({ kind: 'bonus', id: b.id, userId: b.user_id, name: names.get(b.user_id)?.name ?? 'Unknown', amount: Number(b.amount) || 0, what: b.description || b.bonus_type.replace(/_/g, ' ') })
+    }
+    const [gaps, ended] = await Promise.all([loadPayPlanGaps(admin, orgId, now), loadEndedPlanPeople(admin, orgId, now)])
+    const noPlan = gaps.flatMap((g) => g.people.map((p) => p.name))
+    if (noPlan.length) needs.push({ kind: 'plans', text: `${noPlan.length} ${noPlan.length === 1 ? 'person has' : 'people have'} no pay plan, so they are paid nothing`, names: noPlan, href: '/admin/comp-plans' })
+    if (ended.length) needs.push({ kind: 'plans', text: `${ended.length} ${ended.length === 1 ? 'person has' : 'people have'} no pay plan because theirs was ended`, names: ended.map((p) => p.name), href: '/admin/comp-plans' })
+    if (conflictJobIds.length) {
+      const nums = conflictJobIds.map((id) => jobs.get(id)?.job_number).filter(Boolean) as string[]
+      needs.push({ kind: 'conflict', text: 'A self-generated job also has a setter, so the 6% self-generated line was left off', jobNumbers: nums })
+    }
+
+    // First-time payees: nobody has ever been paid a commission line outside this period.
+    const { data: prior } = await admin.from('payroll_payout_lines').select('user_id').eq('org_id', orgId).neq('payroll_period_id', period.id).in('user_id', people.map((p) => p.userId)).limit(5000)
+    const paidBefore = new Set((prior ?? []).map((r) => r.user_id as string))
+    const firstTime = new Set(people.filter((p) => !paidBefore.has(p.userId)).map((p) => p.userId))
+    warnings.push(...buildWarnings({ people, firstTimePayees: firstTime, backlogJobs, weekStart: period.weekStart }))
+    void eligibleAtByJob
+  }
+
+  const payable = people.filter((p) => p.total > 0)
+  return {
+    period,
+    state: draft ? 'draft' : 'approved',
+    totals: { amount: roundMoney(payable.reduce((s, p) => s + p.total, 0)), people: payable.length },
+    needs,
+    warnings,
+    people,
+    jobs: jobViews,
+    waiting: waiting.map((w) => waitingView(w, jobs, names)),
+  }
+}
+
+/** One total per person, for the payroll processor. */
+export function payWeekCsv(week: PayWeek): string {
+  const esc = (v: string | number) => {
+    const s = String(v)
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+  }
+  const header = ['Name', 'Role', 'Commission', 'Hourly', 'Per-unit', 'Bonus', 'Total to pay']
+  const lines = week.people
+    .filter((p) => p.total > 0)
+    .map((p) => {
+      const sum = (k: PayWeekLine['kind']) => roundMoney(p.lines.filter((l) => l.kind === k).reduce((s, l) => s + l.amount, 0))
+      return [p.name, p.roleLabel, sum('Commission'), sum('Hourly'), sum('Units'), sum('Bonus'), p.total.toFixed(2)].map(esc).join(',')
+    })
+  return [header.join(','), ...lines, ['TOTAL', '', '', '', '', '', week.totals.amount.toFixed(2)].join(',')].join('\n') + '\n'
+}
