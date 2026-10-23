@@ -15,8 +15,8 @@ export default function LoginPage({
 }: {
   searchParams?: { next?: string; error?: string; inactive?: string }
 }) {
-  const nextParam = searchParams?.next || '/dashboard'
-  const nextPath = nextParam.startsWith('/') ? nextParam : '/dashboard'
+  const nextParam = searchParams?.next || '/today'
+  const nextPath = nextParam.startsWith('/') ? nextParam : '/today'
   const errorMessage = searchParams?.error || ''
   const inactiveSession =
     searchParams?.inactive === '1' || searchParams?.inactive === 'true'

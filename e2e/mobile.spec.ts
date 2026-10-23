@@ -6,6 +6,7 @@ import { ANNOUNCEMENTS, BANNER, DEFAULT_PLANS, COST_LINES, SUPPLIERS, PAYROLL_PE
 const json = (body: unknown, status = 200) => ({ status, contentType: 'application/json', body: JSON.stringify(body) })
 
 async function mockApi(page: Page) {
+  await page.route('**/api/me/effective-permissions', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ role: 'owner', fullAccess: true, permissions: [] }) }))
   // Any direct Supabase call from a component (browser client) gets an empty answer.
   await page.route('http://127.0.0.1:9/**', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }))
   await page.route('**/api/**', async (route) => {
@@ -88,6 +89,9 @@ const SCREENS: Screen[] = [
   { name: 'job-sheets-editor', path: '/dev-harness/job-sheets', ready: 'text=Scope of work',
     states: [{ name: 'editing', run: async (p) => { await p.locator('textarea').first().click(); await p.locator('textarea').first().fill('Edited scope for the crew.'); await p.waitForTimeout(200) } }] },
   { name: 'dashboard-tiles', path: '/dev-harness/dashboard', ready: 'text=Doors' },
+  { name: 'nav-shell', path: '/dev-harness/nav', ready: 'text=Page content',
+    states: [{ name: 'more-open', run: async (p) => { await p.getByRole('button', { name: 'More' }).click(); await p.waitForSelector('[role=dialog] >> text=Logout') } }] },
+  { name: 'today-queues', path: '/dev-harness/today', ready: 'text=Proposals waiting for a signature' },
   { name: 'ui-kit', path: '/dev-harness/ui-kit', ready: 'text=Pay this week',
     states: [{ name: 'sheet-open', run: async (p) => { await p.getByRole('button', { name: 'Open sheet' }).click(); await p.waitForSelector('text=Save this view') } }] },
   { name: 'default-plans-card', path: '/dev-harness/default-plans', ready: 'text=Default pay plan by role' },
