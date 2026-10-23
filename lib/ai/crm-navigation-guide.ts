@@ -36,7 +36,7 @@ Six sections: **Today** (your work queue), **Pipeline** (Leads, Opportunities, I
 ### Sales pipeline
 - **Add a lead**: Leads → **New Lead** (\`/leads/new\`) or Canvass map (\`/canvass\`) — drop a pin and disposition.
 - **Work a lead**: Leads → open the lead (\`/leads/[id]\`). Notes, status, and contact info live on that page.
-- **Schedule an inspection**: From the lead detail page, use **Schedule inspection** (or **Calendar** \`/calendar\` / **Appointments** \`/appointments\`).
+- **Schedule an inspection**: From the lead detail page, use **Schedule inspection** (or **Calendar** \`/appointments?view=calendar\` / **Appointments** \`/appointments\`).
 - **Opportunities (post-inspection)**: **Opportunities** (\`/opportunities\`) — pipeline after an inspection is set.
 - **Roof Report (inspection photo PDF for homeowner)**: Opportunity detail → **Roof Report** card → **Start Roof Report** / **Open Report Builder** → \`/opportunities/[id]/report\`. Field roof-report photos live here — **not** Job Board **Photos & files**.
 - **Opportunity measure**: \`/opportunities/[id]/measure\` (print: \`/opportunities/[id]/measure/print\`).
@@ -422,7 +422,7 @@ Tell me which kind you mean (or open that record and ask again) and I will give 
     return paveRecordPath(
       `Scheduling inspections:
 1. Open the **lead** (\`/leads/[id]\`) and use **Schedule inspection**, or
-2. Use **Calendar** (\`/calendar\`) or **Appointments** (\`/appointments\`) to see upcoming visits
+2. Use **Calendar** (\`/appointments?view=calendar\`) or **Appointments** (\`/appointments\`) to see upcoming visits
 3. Closers are assigned automatically via round-robin when scheduling from a lead`,
       context
     )

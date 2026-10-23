@@ -73,7 +73,7 @@ const COLUMNS: ColumnDef<WorkOrder, any>[] = [
     },
   },
   { id: 'assigned', header: 'Assigned to', accessorFn: (w) => assignee(w) || 'Unassigned' },
-  { id: 'scheduled', header: 'Scheduled', accessorFn: (w) => w.scheduled_date ?? '', cell: (c) => (c.getValue() ? formatDate(`${c.getValue()}T12:00:00`) : 'Not scheduled') },
+  { id: 'scheduled', header: 'Scheduled', accessorFn: (w) => w.scheduled_date ?? '', cell: (c) => (c.getValue() ? formatDate(c.getValue()) : 'Not scheduled') },
   { accessorKey: 'priority', header: 'Priority', cell: (c) => PRIORITY_LABEL[c.getValue()] ?? c.getValue(), meta: { mobile: 'hide' } },
   { accessorKey: 'status', header: 'Status', cell: (c) => <StatusPill domain="work_order" value={c.getValue()} /> },
 ]

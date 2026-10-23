@@ -22,14 +22,6 @@ export default async function CustomersPage({
   const query = String(searchParams?.q ?? '').trim()
   const rep = isRepLikeCustomerRecordRole(profile.role)
 
-  // Who has bought: a project or a won deal. (Customers exist from inspection booking, so most rows are prospects.)
-  const [proj, won] = await Promise.all([
-    supabase.from('projects').select('customer_id').eq('org_id', profile.org_id).not('customer_id', 'is', null).limit(5000),
-    supabase.from('opportunities').select('customer_id').eq('org_id', profile.org_id).eq('status', 'won').not('customer_id', 'is', null).limit(5000),
-  ])
-  const projectCustomerIds = (proj.data ?? []).map((r: { customer_id: string | null }) => r.customer_id as string)
-  const buyerIds = new Set([...projectCustomerIds, ...(won.data ?? []).map((r: { customer_id: string | null }) => r.customer_id as string)])
-
   let customers: any[] = []
   if (rep) {
     // Reps only see customers from their own projects
@@ -46,8 +38,22 @@ export default async function CustomersPage({
     }
   } else {
     // Non-reps: the org's customers, newest first. The table filters (Customers / Prospects) and searches the loaded rows.
-    const { data } = await supabase.from('customers').select('id, name, phone, email, address_text').eq('org_id', profile.org_id).order('created_at', { ascending: false }).limit(1500)
-    customers = (data ?? []).map((c) => ({ ...c, bought: buyerIds.has(c.id) }))
+    let customerQuery = supabase.from('customers').select('id, name, phone, email, address_text').eq('org_id', profile.org_id)
+    // A ?q= link searches the whole customer list on the server (the table's own search only covers what is loaded).
+    if (query) customerQuery = customerQuery.or(`name.ilike.%${query}%,email.ilike.%${query}%,phone.ilike.%${query}%,address_text.ilike.%${query}%`)
+    const { data } = await customerQuery.order('created_at', { ascending: false }).limit(3000)
+    const ids = (data ?? []).map((c) => c.id as string)
+    // Who has bought (a project or a won deal): asked only for the customers on screen, so no row cap can mislabel anyone.
+    const buyers = new Set<string>()
+    for (let i = 0; i < ids.length; i += 400) {
+      const chunk = ids.slice(i, i + 400)
+      const [proj, won] = await Promise.all([
+        supabase.from('projects').select('customer_id').eq('org_id', profile.org_id).in('customer_id', chunk),
+        supabase.from('opportunities').select('customer_id').eq('org_id', profile.org_id).eq('status', 'won').in('customer_id', chunk),
+      ])
+      for (const r of [...(proj.data ?? []), ...(won.data ?? [])]) if (r.customer_id) buyers.add(r.customer_id as string)
+    }
+    customers = (data ?? []).map((c) => ({ ...c, bought: buyers.has(c.id as string) }))
   }
 
   return (

@@ -23,7 +23,7 @@ const COLUMNS: ColumnDef<Customer, any>[] = [
   { accessorKey: 'phone', header: 'Phone', cell: (c) => c.getValue() || '—' },
   { accessorKey: 'email', header: 'Email', cell: (c) => c.getValue() || '—', meta: { mobile: 'hide' } },
   { accessorKey: 'address_text', header: 'Address', cell: (c) => c.getValue() || '—' },
-  { id: 'kind', header: 'Type', accessorFn: kindOf, cell: (c) => (c.getValue() === 'customer' ? 'Customer' : 'Prospect') },
+  { enableGlobalFilter: false, id: 'kind', header: 'Type', accessorFn: kindOf, cell: (c) => (c.getValue() === 'customer' ? 'Customer' : 'Prospect') },
 ]
 const FILTERS: TableFilter<Customer>[] = [
   { key: 'kind', label: 'Type', options: [{ value: 'customer', label: 'Customers' }, { value: 'prospect', label: 'Prospects' }], accessor: kindOf },

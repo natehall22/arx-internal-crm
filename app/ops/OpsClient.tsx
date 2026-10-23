@@ -234,7 +234,7 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability }: 
         id: 'scheduled',
         header: 'Scheduled',
         accessorFn: (j) => j.scheduled_date ?? '9999-12-31',
-        cell: (c) => (c.row.original.scheduled_date ? <span className={isJobPastDue(c.row.original) ? 'font-semibold text-danger' : ''}>{formatDate(`${c.row.original.scheduled_date}T12:00:00`)}</span> : 'Not scheduled'),
+        cell: (c) => (c.row.original.scheduled_date ? <span className={isJobPastDue(c.row.original) ? 'font-semibold text-danger' : ''}>{formatDate(c.row.original.scheduled_date)}</span> : 'Not scheduled'),
       },
       { id: 'value', header: 'Value', accessorFn: (j) => j.sale_amount ?? 0, cell: (c) => (c.getValue() ? formatMoney(Number(c.getValue())) : '—'), meta: { align: 'right' as const } },
     ]

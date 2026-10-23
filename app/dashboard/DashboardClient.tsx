@@ -1775,7 +1775,7 @@ export default function DashboardClient({
             <div className="bg-white rounded-xl shadow-sm p-4 sm:p-6 border border-gray-100">
               <div className="flex items-center justify-between mb-3 sm:mb-4">
                 <h2 className="text-base sm:text-lg font-semibold text-gray-900">Upcoming Appointments</h2>
-                <Link href="/schedule" className="inline-flex min-h-[44px] items-center text-sm text-indigo-600 hover:text-indigo-700">
+                <Link href="/appointments" className="inline-flex min-h-[44px] items-center text-sm text-indigo-600 hover:text-indigo-700">
                   View all
                 </Link>
               </div>

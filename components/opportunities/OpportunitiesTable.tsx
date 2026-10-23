@@ -10,7 +10,7 @@ import type { InspectionOutcomeConfigRow } from '@/lib/inspection-outcomes'
 import { getInspectionOutcomeDisplay, type OpportunityListRow } from '@/components/opportunities/opportunity-list-shared'
 
 const nameOf = (o: OpportunityListRow) => o.leads?.homeowner_name || o.customers?.name || 'N/A'
-const NEWEST = [{ id: 'created', desc: true }]
+const NEWEST = [{ enableGlobalFilter: false, id: 'created', desc: true }]
 
 const SYSTEM_VIEWS: TableView[] = [
   { id: 'sys:open', name: 'Open', state: { sorting: NEWEST, search: '', filters: { status: 'open' } } },
@@ -51,8 +51,8 @@ export default function OpportunitiesTable({
   const columns = useMemo<ColumnDef<OpportunityListRow, any>[]>(
     () => [
       { id: 'name', header: 'Lead / customer', accessorFn: (o) => `${nameOf(o)} ${o.address_text ?? ''}`, cell: (c) => <span>{nameOf(c.row.original)}<span className="block max-w-xs truncate text-ui-sm text-ink-muted">{c.row.original.address_text || 'No address'}</span></span>, meta: { mobile: 'title' } },
-      { id: 'type', header: 'Type', accessorFn: (o) => o.project_type ?? '', cell: (c) => <span className="capitalize">{c.getValue() || '—'}</span> },
-      { id: 'status', header: 'Status', accessorFn: (o) => o.status, cell: (c) => <StatusPill domain="opportunity" value={c.getValue()} /> },
+      { enableGlobalFilter: false, id: 'type', header: 'Type', accessorFn: (o) => o.project_type ?? '', cell: (c) => <span className="capitalize">{c.getValue() || '—'}</span> },
+      { enableGlobalFilter: false, id: 'status', header: 'Status', accessorFn: (o) => o.status, cell: (c) => <StatusPill domain="opportunity" value={c.getValue()} /> },
       {
         id: 'outcome',
         header: 'Inspection result',
@@ -62,7 +62,7 @@ export default function OpportunitiesTable({
           return info ? <span className={`inline-flex rounded-full px-2.5 py-0.5 text-ui-sm font-medium text-ink ${info.style ? '' : info.color}`} style={info.style}>{info.label}</span> : <span className="text-ink-muted">No inspection yet</span>
         },
       },
-      { id: 'assigned', header: 'Assigned', accessorFn: (o) => o.users?.full_name ?? 'Unassigned' },
+      { enableGlobalFilter: false, id: 'assigned', header: 'Assigned', accessorFn: (o) => o.users?.full_name ?? 'Unassigned' },
       { id: 'created', header: 'Created', accessorFn: (o) => o.created_at, meta: { mobile: 'hide' }, cell: (c) => (c.getValue() ? new Date(c.getValue()).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—') },
     ],
     [outcomeLookup]

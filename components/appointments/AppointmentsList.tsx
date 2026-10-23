@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog'
 import { Select } from '@/components/ui/field'
 import { toast } from '@/components/ui/toast'
 import { formatDateTime } from '@/lib/format'
+import { ADJUSTER_MEETING_APPOINTMENT_TYPE } from '@/lib/adjuster-meeting'
 
 interface Appointment {
   id: string
@@ -22,6 +23,7 @@ interface Appointment {
   address_text: string | null
   notes: string | null
   status: string
+  appointment_type?: string | null
   closer_user_id: string
   canvasser_user_id: string | null
   leads?: { homeowner_name: string | null; phone: string | null }
@@ -34,9 +36,12 @@ interface User { id: string; full_name: string | null; role: string }
 const OUTCOME_LABEL: Record<string, string> = { sale: 'Moving forward', not_home: 'No show', said_no: 'Said no', rescheduled: 'Rescheduled' }
 
 /** upcoming | needs_feedback | past — one value per row, the basis of the built-in views. */
+/** Insurance calls and adjuster meetings never take the inspection feedback form (it would write an inspection outcome). */
+const NO_FEEDBACK_TYPES = new Set(['insurance_call', ADJUSTER_MEETING_APPOINTMENT_TYPE])
+
 function stageOf(a: Appointment, now = Date.now()): 'upcoming' | 'needs_feedback' | 'past' {
   const past = new Date(a.scheduled_for).getTime() < now
-  if (a.status === 'scheduled') return past ? 'needs_feedback' : 'upcoming'
+  if (a.status === 'scheduled') return past ? (NO_FEEDBACK_TYPES.has(String(a.appointment_type)) ? 'past' : 'needs_feedback') : 'upcoming'
   return 'past'
 }
 
@@ -68,16 +73,20 @@ export default function AppointmentsList() {
 
   const load = useCallback(async () => {
     try {
-      const response = await fetch('/api/appointments?filter=all')
-      if (response.status === 401) {
+      // The API caps each filter at 100 rows, and "all" is newest-first, so ask for each view's own slice and merge:
+      // otherwise far-future rows push past (needs-feedback) and near-term rows off the end.
+      const responses = await Promise.all(['upcoming', 'needs_feedback', 'past'].map((f) => fetch(`/api/appointments?filter=${f}`)))
+      if (responses.some((r) => r.status === 401)) {
         router.push('/login')
         return
       }
-      if (!response.ok) throw new Error('Failed to load appointments')
-      const data = await response.json()
-      setAppointments(data.appointments || [])
-      setUsers(data.users || [])
-      setCanReassign(!!data.canReassign)
+      if (responses.some((r) => !r.ok)) throw new Error('Failed to load appointments')
+      const parts = await Promise.all(responses.map((r) => r.json()))
+      const byId = new Map<string, Appointment>()
+      for (const part of parts) for (const a of (part.appointments || []) as Appointment[]) byId.set(a.id, a)
+      setAppointments(Array.from(byId.values()))
+      setUsers(parts[0].users || [])
+      setCanReassign(!!parts[0].canReassign)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load appointments')
     } finally {
@@ -183,7 +192,7 @@ export default function AppointmentsList() {
         initialSorting={SOON_FIRST}
         rowActions={(a) => (
           <div className="flex flex-wrap justify-end gap-1">
-            {stageOf(a) === 'needs_feedback' ? <Button asChild size="sm"><Link href={`/appointments/feedback?id=${a.id}`}>Give feedback</Link></Button> : null}
+            {stageOf(a) === 'needs_feedback' && !NO_FEEDBACK_TYPES.has(String(a.appointment_type)) ? <Button asChild size="sm"><Link href={`/appointments/feedback?id=${a.id}`}>Give feedback</Link></Button> : null}
             {canReassign && a.status === 'scheduled' ? (
               <Button variant="ghost" size="sm" onClick={() => { setReassignModal(a); setNewCloserId(a.closer_user_id) }}>Reassign</Button>
             ) : null}

@@ -157,6 +157,7 @@ export function DataTable<T>({ columns, data, tableKey, viewStore, loading, getR
 
   // Server mode: tell the page whenever the query changes (page resets to 1 when anything but the page changes).
   const firstQuery = React.useRef(true)
+  const lastSent = React.useRef('')
   const lastKey = React.useRef('')
   React.useEffect(() => {
     if (!server) return
@@ -166,6 +167,10 @@ export function DataTable<T>({ columns, data, tableKey, viewStore, loading, getR
       lastKey.current = key
       if (page !== 1) setPage(1)
     }
+    // setPage(1) re-runs this effect with the same query: send each distinct (query, page) once.
+    const sent = JSON.stringify([key, pageNow])
+    if (sent === lastSent.current) return
+    lastSent.current = sent
     if (firstQuery.current) {
       firstQuery.current = false
       return
