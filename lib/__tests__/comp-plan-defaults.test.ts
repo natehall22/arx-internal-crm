@@ -94,24 +94,49 @@ describe('loadActiveCompPlanForUser with a role default', () => {
   })
 })
 
-import { buildDefaultCoverageRows, userGetsDefaultPlan, usersWithEndedPlan } from '@/lib/comp-plan-defaults'
+import { buildDefaultCoverageRows, defaultWindowForUser, usersWithEndedPlan } from '@/lib/comp-plan-defaults'
 import { buildAdditiveParticipantsForJob, type DerivedCommissionContext } from '@/lib/job-derived-commission-lines'
 
-describe('who gets a default (one rule)', () => {
-  const base = { users: { role: 'sales_rep' }, comp_plans: { id: 'closer', name: 'Closer', plan_type: 'percentage', base_percentage: 7 }, comp_plan_versions: [], org_default_comp_plans: [{ role: 'sales_rep', comp_plan_id: 'closer', effective_from: '2026-10-24' }] }
-  it('active, non-test, never assigned', () => {
-    expect(userGetsDefaultPlan({ active: true, hasAssignmentHistory: false })).toBe(true)
-    expect(userGetsDefaultPlan({ active: false, hasAssignmentHistory: false })).toBe(false)
-    expect(userGetsDefaultPlan({ active: true, isTestAccount: true, hasAssignmentHistory: false })).toBe(false)
-    expect(userGetsDefaultPlan({ active: true, hasAssignmentHistory: true })).toBe(false) // ended on purpose
+describe('when a default applies (one rule)', () => {
+  const D = '2026-10-24'
+  const win = (o: Partial<Parameters<typeof defaultWindowForUser>[0]> = {}) =>
+    defaultWindowForUser({ defaultFrom: D, activeHistory: [], assignmentFromDates: [], activeNow: true, ...o })
+  it('open-ended for an active, never-assigned, non-test user', () => {
+    expect(win()).toEqual({ from: D, to: null })
   })
-  it('resolver: an ended plan gets NO default; a never-assigned active user does', async () => {
-    const ended = fakeClient({ ...base, users: { role: 'sales_rep', active: true }, user_comp_plans: [{ id: 'h' }] })
-    expect(await loadActiveCompPlanForUser(ended, 'u', 'o', '2026-11-01')).toBeNull()
+  it('never for a test account or someone inactive with no history', () => {
+    expect(win({ isTestAccount: true })).toBeNull()
+    expect(win({ activeNow: false })).toBeNull()
   })
-  it('resolver: a test account gets nothing, even with an assignment', async () => {
-    const test = fakeClient({ ...base, users: { role: 'sales_rep', active: true, is_test_account: true }, user_comp_plans: null })
-    expect(await loadActiveCompPlanForUser(test, 'u', 'o', '2026-11-01')).toBeNull()
+  it('a departed rep is still covered for sales BEFORE they left (pre-departure sale pays)', () => {
+    const w = win({ activeNow: false, activeHistory: [{ effectiveFrom: '2026-08-07', isActive: true }, { effectiveFrom: '2026-11-10', isActive: false }] })
+    expect(w).toEqual({ from: D, to: '2026-11-09' })
+  })
+  it('left before the default began → never', () => {
+    expect(win({ activeNow: false, activeHistory: [{ effectiveFrom: '2026-09-02', isActive: false }] })).toBeNull()
+  })
+  it('covered only BEFORE their first assignment (ended on purpose afterwards)', () => {
+    expect(win({ assignmentFromDates: ['2026-12-01'] })).toEqual({ from: D, to: '2026-11-30' })
+    expect(win({ assignmentFromDates: ['2026-09-01'] })).toBeNull() // assigned before the default existed
+  })
+})
+
+describe('loadActiveCompPlanForUser default window', () => {
+  const base = { users: { role: 'sales_rep', active: true }, comp_plans: { id: 'closer', name: 'Closer', plan_type: 'percentage', base_percentage: 7 }, comp_plan_versions: [], org_default_comp_plans: [{ role: 'sales_rep', comp_plan_id: 'closer', effective_from: '2026-10-24' }], user_payroll_active_history: [] }
+  it('a rep assigned from 12-01 is still paid the default for a 11-01 sale (before their first assignment)', async () => {
+    const r = await loadActiveCompPlanForUser(fakeClient({ ...base, user_comp_plans: [{ effective_from: '2026-12-01' }] }), 'u', 'o', '2026-11-01')
+    expect(r?.source).toBe('org_default')
+  })
+  it('a sale AFTER an ended assignment gets no default', async () => {
+    expect(await loadActiveCompPlanForUser(fakeClient({ ...base, user_comp_plans: [{ effective_from: '2026-10-24' }] }), 'u', 'o', '2026-11-01')).toBeNull()
+  })
+  it('a pre-departure sale still pays; a post-departure sale does not', async () => {
+    const left = { ...base, users: { role: 'sales_rep', active: false }, user_comp_plans: null, user_payroll_active_history: [{ effective_from: '2026-08-07', is_active: true }, { effective_from: '2026-11-10', is_active: false }] }
+    expect((await loadActiveCompPlanForUser(fakeClient(left), 'u', 'o', '2026-11-05'))?.source).toBe('org_default')
+    expect(await loadActiveCompPlanForUser(fakeClient(left), 'u', 'o', '2026-11-20')).toBeNull()
+  })
+  it('a test account gets nothing', async () => {
+    expect(await loadActiveCompPlanForUser(fakeClient({ ...base, users: { role: 'sales_rep', active: true, is_test_account: true }, user_comp_plans: null }), 'u', 'o', '2026-11-01')).toBeNull()
   })
 })
 
@@ -141,7 +166,7 @@ describe('Needs you: ended plans', () => {
 describe('default-plan reps earn the derived lines like assigned reps (13% self-gen deal)', () => {
   const OPP = 'opp-1'
   const defaults = [{ role: 'sales_rep', comp_plan_id: 'closer', effective_from: '2026-10-24' }]
-  const users = [{ id: 'rep', role: 'sales_rep', active: true }]
+  const users: Array<{ id: string; role: string; active?: boolean | null; isTestAccount?: boolean | null }> = [{ id: 'rep', role: 'sales_rep', active: true }]
   const ctx = (compAssignments: DerivedCommissionContext['compAssignments']): DerivedCommissionContext => ({
     rateHistory: [{ inspectionRatePercent: 1.5, managerOverrideRatePercent: 0, selfGenRatePercent: 6, effectiveFrom: '2026-08-05' }],
     inspectorByOpportunity: new Map([[OPP, 'rep']]),
@@ -154,22 +179,35 @@ describe('default-plan reps earn the derived lines like assigned reps (13% self-
   })
   const input = { opportunityId: OPP, setterUserId: null, salespersonId: 'rep', opportunityOwnerUserId: 'rep', saleDate: '2026-10-26', explicit: [] }
 
+  const cov = (extra: Partial<Parameters<typeof buildDefaultCoverageRows>[0]> = {}, u = users) =>
+    buildDefaultCoverageRows({ users: u, activeHistoryByUser: new Map(), assignmentFromDatesByUser: new Map(), defaults, ...extra })
+
   it('same participants, so the same pay: 7% base + 6% self-gen = 13%', () => {
     const assigned = buildAdditiveParticipantsForJob({ ...input, context: ctx([{ userId: 'rep', effectiveFrom: '2026-08-05', effectiveTo: null, isManagerPlan: false }]) })
-    const covered = buildDefaultCoverageRows({ users, everAssignedUserIds: new Set(), defaults })
-    const viaDefault = buildAdditiveParticipantsForJob({ ...input, context: ctx(covered) })
+    const viaDefault = buildAdditiveParticipantsForJob({ ...input, context: ctx(cov()) })
     expect(viaDefault.participants).toEqual(assigned.participants)
     const selfGen = viaDefault.participants.find((p) => p.role === 'self_gen')
     expect(selfGen?.overridePercent).toBe(6)
     expect(7 + (selfGen?.overridePercent ?? 0)).toBe(13)
     expect(viaDefault.participants.length).toBeGreaterThan(1) // inspection line too
   })
-  it('no derived lines for an ended-plan, inactive or test rep', () => {
-    for (const u of [{ id: 'rep', role: 'sales_rep', active: false }, { id: 'rep', role: 'sales_rep', active: true, isTestAccount: true }]) {
-      expect(buildDefaultCoverageRows({ users: [u], everAssignedUserIds: new Set(), defaults })).toEqual([])
-    }
-    expect(buildDefaultCoverageRows({ users, everAssignedUserIds: new Set(['rep']), defaults })).toEqual([])
-    const none = buildAdditiveParticipantsForJob({ ...input, context: ctx([]) })
-    expect(none.participants).toEqual([])
+  it('no derived lines for a test rep, a rep gone before the default, or after their first assignment', () => {
+    expect(cov({}, [{ id: 'rep', role: 'sales_rep', active: true, isTestAccount: true }])).toEqual([])
+    expect(cov({}, [{ id: 'rep', role: 'sales_rep', active: false }])).toEqual([])
+    expect(cov({ assignmentFromDatesByUser: new Map([['rep', ['2026-09-01']]]) })).toEqual([])
+    expect(buildAdditiveParticipantsForJob({ ...input, context: ctx([]) }).participants).toEqual([])
+  })
+  it('a sale before the default began, or after the rep left, is not covered', () => {
+    const rows = cov({ activeHistoryByUser: new Map([['rep', [{ effectiveFrom: '2026-11-10', isActive: false }]]]) })
+    expect(rows).toEqual([{ userId: 'rep', effectiveFrom: '2026-10-24', effectiveTo: '2026-11-09', isManagerPlan: false }])
+    expect(buildAdditiveParticipantsForJob({ ...input, saleDate: '2026-10-20', context: ctx(rows) }).participants).toEqual([])
+    expect(buildAdditiveParticipantsForJob({ ...input, saleDate: '2026-11-12', context: ctx(rows) }).participants).toEqual([])
+  })
+  it('each default segment carries its own manager-plan flag', () => {
+    const rows = cov({ defaults: [{ role: 'sales_rep', comp_plan_id: 'a', effective_from: '2026-10-24', isManagerPlan: false }, { role: 'sales_rep', comp_plan_id: 'b', effective_from: '2027-01-01', isManagerPlan: true }] })
+    expect(rows).toEqual([
+      { userId: 'rep', effectiveFrom: '2026-10-24', effectiveTo: '2026-12-31', isManagerPlan: false },
+      { userId: 'rep', effectiveFrom: '2027-01-01', effectiveTo: null, isManagerPlan: true },
+    ])
   })
 })

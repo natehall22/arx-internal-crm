@@ -691,7 +691,7 @@ export async function loadDataHealth(
     appointments: appointmentHealth,
     payPlans,
     endedPlans,
-    count: flaggedJobs.length + appointmentHealth.length + payPlans.length + endedPlans.length,
+    count: flaggedJobs.length + appointmentHealth.length + payPlans.length + (endedPlans.length > 0 ? 1 : 0),
   }
 }
 
