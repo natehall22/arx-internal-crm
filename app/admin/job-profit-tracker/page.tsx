@@ -329,7 +329,7 @@ export default async function AdminJobProfitTrackerPage({
       <main className="mx-auto max-w-[1600px] px-4 py-8 sm:px-6 lg:px-8">
         <div className="mb-6">
           <Link href="/admin" className="text-sm font-medium text-indigo-600 hover:text-indigo-800">
-            ← Admin
+            ← Settings
           </Link>
         </div>
 

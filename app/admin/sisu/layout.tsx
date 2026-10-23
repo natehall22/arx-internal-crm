@@ -30,12 +30,12 @@ export default async function SisuAdminLayout({ children }: { children: ReactNod
             href="/admin"
             className="text-sm font-medium text-indigo-300 transition hover:text-indigo-100"
           >
-            ← Back to Admin
+            ← Back to Settings
           </Link>
         </div>
 
         <div className="mb-6">
-          <p className="text-xs font-bold uppercase tracking-widest text-indigo-400">Sisu Admin</p>
+          <p className="text-xs font-bold uppercase tracking-widest text-indigo-400">Incentives Admin</p>
           <h1 className="mt-1 text-3xl font-black tracking-tight">
             <span className="bg-gradient-to-r from-white via-indigo-100 to-indigo-300 bg-clip-text text-transparent">
               Sisu Hub

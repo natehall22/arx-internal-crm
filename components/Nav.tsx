@@ -316,8 +316,7 @@ export default function Nav() {
             </Link>
           )}
           <div className="mt-auto flex flex-col gap-1 border-t border-gray-700 pt-3">
-            <Link href="/settings" className={`${linkBase} text-gray-200 hover:bg-gray-800`}>Settings</Link>
-            {nav.admin && <Link href="/admin" className={`${linkBase} text-gray-200 hover:bg-gray-800`}>Admin</Link>}
+            <Link href={nav.admin ? '/admin' : '/settings'} className={`${linkBase} text-gray-200 hover:bg-gray-800`}>Settings</Link>
             <Link href="/whats-new" className={`${linkBase} text-gray-200 hover:bg-gray-800`}>What&apos;s new</Link>
             <button onClick={handleLogout} className={`${linkBase} text-left text-gray-200 hover:bg-gray-800`}>Logout</button>
           </div>
@@ -388,8 +387,7 @@ export default function Nav() {
             {[
               ...overflowSections.map((s) => ({ href: s.href, label: s.label })),
               ...(nav.canvass ? [{ href: '/canvass', label: 'Canvass' }] : []),
-              { href: '/settings', label: 'Settings' },
-              ...(nav.admin ? [{ href: '/admin', label: 'Admin' }] : []),
+              { href: nav.admin ? '/admin' : '/settings', label: 'Settings' },
               { href: '/whats-new', label: "What's new" },
             ].map((l) => (
               <Link key={l.href} href={l.href} onClick={() => setMoreOpen(false)} className="flex min-h-[48px] items-center border-b border-surface-line text-ui-base font-medium text-ink">
