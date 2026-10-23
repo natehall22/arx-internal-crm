@@ -19,6 +19,7 @@ import { canViewInsideSalesFollowUp } from '@/lib/inside-sales-follow-up'
 import { isPayrollAdminRole } from '@/lib/payroll-admin-access'
 import { activeSectionId, visibleNav } from '@/lib/nav-config'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
+import GlobalSearch from '@/components/search/GlobalSearch'
 import { BarChart3, DollarSign, Filter, Hammer, Home, MapPin, MoreHorizontal, Search, Users, type LucideIcon } from 'lucide-react'
 import NotificationBell from './NotificationBell'
 import FeedbackButton from './FeedbackButton'
@@ -407,6 +408,7 @@ export default function Nav() {
           </div>
         </DialogContent>
       </Dialog>
+      <GlobalSearch />
       <AnnouncementBanner />
     </>
   )
