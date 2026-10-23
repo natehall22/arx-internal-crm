@@ -4,7 +4,7 @@ import {
   contractTotalForJob,
   evaluateAppointmentHealth,
   evaluateJobHealth,
-  filterReportForViewer,
+  shapeNeedsYou,
   isCollectedForced,
   isJobPayable,
   loadDataHealth,
@@ -320,9 +320,9 @@ describe('loadDataHealth', () => {
     expect(report.count).toBe(2)
   })
 
-  it('hides money rows from viewers who are not payroll admins', async () => {
+  it('hides money rows from ops (see needs-you-roles.test.ts for the full role matrix)', async () => {
     const report = await loadDataHealth(fakeSupabase(tables), ORG, { now })
-    const filtered = filterReportForViewer(report, false)
+    const filtered = shapeNeedsYou(report, 'ops')!
     expect(filtered.jobs).toEqual([])
     expect(filtered.count).toBe(1)
   })

@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getOrgEmailBlastSettings, resolveEmailBlastRecipients } from '@/lib/admin-email-blasts'
 import { fetchMorningUpdateMetrics, type MorningUpdateMetrics } from '@/lib/morning-update-metrics'
-import { filterReportForViewer, loadDataHealth, type DataHealthReport } from '@/lib/data-health'
+import { loadDataHealth, needsYouForEmailRecipient, type DataHealthReport } from '@/lib/data-health'
 import { resolveAppUrl } from '@/lib/job-trades'
 import { getCrmEmailFrom, getMailTransport } from '@/lib/setter-email'
 
@@ -286,23 +286,25 @@ export async function sendMorningUpdateEmail(
   } catch (error) {
     console.error('sendMorningUpdateEmail: data health failed', error)
   }
-  // Money and credit rows in "Needs you" go to super admins (owners) only; everyone else gets the
-  // same email without them.
-  const { data: ownerRows, error: ownerError } = await supabase
+  // "Needs you" per recipient, by the one rule in lib/data-health.ts: owners get everything, operations people get the
+  // operational rows (no dollars), everyone else gets the email WITHOUT the section. Recipients are matched to their user
+  // row by email; an address with no user row is treated as having no role (no section).
+  const { data: recipientRows, error: recipientError } = await supabase
     .from('users')
-    .select('email')
+    .select('email, role, is_super_admin, active')
     .eq('org_id', params.orgId)
-    .eq('is_super_admin', true)
-    .eq('active', true)
-  if (ownerError) {
-    // Fail loudly in the logs: without the owner list nobody gets the money/credit rows.
-    console.error('sendMorningUpdateEmail: could not load owners (is migration 202610210010 applied?)', ownerError.message)
+  if (recipientError) {
+    // Fail closed: without the user list nobody gets the section.
+    console.error('sendMorningUpdateEmail: could not load recipients (is migration 202610210010 applied?)', recipientError.message)
   }
-  const ownerEmails = new Set((ownerRows || []).map((u: { email: string | null }) => String(u.email || '').trim().toLowerCase()))
-  const ownerHtml = buildMorningUpdateHtml(metrics, { test: isTest, needsYou })
-  const everyoneHtml = needsYou
-    ? buildMorningUpdateHtml(metrics, { test: isTest, needsYou: filterReportForViewer(needsYou, false) })
-    : ownerHtml
+  const viewerByEmail = new Map<string, { role: string | null; is_super_admin: boolean | null; active: boolean | null }>()
+  for (const u of (recipientRows || []) as Array<{ email: string | null; role: string | null; is_super_admin: boolean | null; active: boolean | null }>) {
+    viewerByEmail.set(String(u.email || '').trim().toLowerCase(), { role: u.role, is_super_admin: u.is_super_admin, active: u.active })
+  }
+  const htmlFor = (to: string): string => {
+    if (!needsYou) return buildMorningUpdateHtml(metrics, { test: isTest, needsYou: null })
+    return buildMorningUpdateHtml(metrics, { test: isTest, needsYou: needsYouForEmailRecipient(needsYou, viewerByEmail.get(to.trim().toLowerCase())) })
+  }
 
   let sent = 0
   let failed = 0
@@ -312,7 +314,7 @@ export async function sendMorningUpdateEmail(
         from: getCrmEmailFrom(),
         to,
         subject,
-        html: ownerEmails.has(to.trim().toLowerCase()) ? ownerHtml : everyoneHtml,
+        html: htmlFor(to),
       })
       sent += 1
     } catch (error) {

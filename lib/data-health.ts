@@ -27,6 +27,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { addDaysToDateOnly } from '@/lib/install-calendar'
 import { ymdInBusinessTz } from '@/lib/calendar-business-tz'
 import { SALE_AGREEMENT_TYPES } from '@/lib/sales-metrics'
+import { isOwnerProfile } from '@/lib/super-admin'
 import { loadPayPlanGaps, type PayPlanGap } from '@/lib/comp-plan-defaults-db'
 
 /** Paid-in-full tolerance (owner decision #2). */
@@ -718,11 +719,75 @@ export async function isJobPayable(
  * Display helpers (shared by the dashboard list and the email)
  * ------------------------------------------------------------------------ */
 
-/** Areas a viewer may see. Money/credit rows are for payroll admins only. */
-export function filterReportForViewer(report: DataHealthReport, canSeeMoney: boolean): DataHealthReport {
-  if (canSeeMoney) return report
-  const jobs = report.jobs
-    .map((j) => ({ ...j, problems: j.problems.filter((p) => p.area === 'ops' || p.area === 'sales') }))
-    .filter((j) => j.problems.length > 0)
-  return { ...report, jobs, payPlans: [], count: jobs.length + report.appointments.length }
+/* ------------------------------------------------------------------------ *
+ * Who sees "Needs you" — ONE rule, used by every surface
+ * (ops dashboard, morning email, Today home, GET /api/needs-you).
+ * ------------------------------------------------------------------------ */
+
+/** owner = money, sale credit, pay plans and ops rows; ops = operational rows only (no dollars); none = nothing at all. */
+export type NeedsYouAudience = 'owner' | 'ops' | 'none'
+
+/** Field roles never get "Needs you", whatever else they have been granted. */
+const NO_NEEDS_YOU_ROLES = new Set(['setter', 'canvasser', 'setter_manager', 'sales_rep', 'closer', 'rep', 'inside_sales', 'call_center', 'call_center_rep'])
+
+/** Operational rows an ops person may see — none of them carries a dollar amount. */
+const OPS_VISIBLE_CODES: ReadonlySet<HealthProblemCode> = new Set<HealthProblemCode>([
+  'materials_not_ordered',
+  'permit_pending',
+  'crews_done_job_open',
+  'completed_no_costs', // "missing cost lines" (the row says so without amounts)
+  'appointment_no_outcome',
+])
+
+export function needsYouAudience(
+  viewer: { role?: string | null; is_super_admin?: boolean | null; active?: boolean | null } | null | undefined,
+  canJobBoard: boolean
+): NeedsYouAudience {
+  if (!viewer || viewer.active === false) return 'none'
+  if (isOwnerProfile(viewer)) return 'owner'
+  const role = String(viewer.role || '').toLowerCase().trim()
+  if (NO_NEEDS_YOU_ROLES.has(role)) return 'none'
+  return canJobBoard ? 'ops' : 'none'
+}
+
+/**
+ * Shapes a full report for who is looking. Pure. 'none' yields null: the caller must not render the box or send the section.
+ * 'ops' keeps only OPS_VISIBLE_CODES, drops "holds pay" (a money fact) and pay plans.
+ */
+export function shapeNeedsYou(report: DataHealthReport, audience: NeedsYouAudience): DataHealthReport | null {
+  if (audience === 'none') return null
+  if (audience === 'owner') return report
+  const keep = (problems: HealthProblem[]) => problems.filter((p) => OPS_VISIBLE_CODES.has(p.code)).map((p) => ({ ...p, blocksPay: false }))
+  const jobs = report.jobs.map((j) => ({ ...j, problems: keep(j.problems) })).filter((j) => j.problems.length > 0)
+  const appointments = report.appointments.map((a) => ({ ...a, problems: keep(a.problems) })).filter((a) => a.problems.length > 0)
+  return { generatedAt: report.generatedAt, jobs, appointments, count: jobs.length + appointments.length }
+}
+
+/**
+ * "Needs you" for one morning-email recipient. An email has no permission context, so only the `operations` role counts
+ * as job-board access here (custom roles fail closed); an address with no matching user gets nothing.
+ */
+export function needsYouForEmailRecipient(
+  report: DataHealthReport,
+  viewer: { role?: string | null; is_super_admin?: boolean | null; active?: boolean | null } | null | undefined
+): DataHealthReport | null {
+  return shapeNeedsYou(report, needsYouAudience(viewer, viewer?.role === 'operations'))
+}
+
+/** Seam so the role matrix can be tested through the real API route without a database. */
+export const dataHealthDeps = { load: (admin: SupabaseClient, orgId: string): Promise<DataHealthReport> => loadDataHealth(admin, orgId) }
+
+/**
+ * The only way to LOAD "Needs you" for a person: decides the audience first and does not even run the check for 'none'
+ * (so nothing is computed, logged or returned for a setter or closer).
+ */
+export async function loadNeedsYouForViewer(
+  admin: SupabaseClient,
+  orgId: string,
+  viewer: { role?: string | null; is_super_admin?: boolean | null; active?: boolean | null } | null | undefined,
+  canJobBoard: boolean
+): Promise<{ audience: NeedsYouAudience; report: DataHealthReport | null }> {
+  const audience = needsYouAudience(viewer, canJobBoard)
+  if (audience === 'none') return { audience, report: null }
+  return { audience, report: shapeNeedsYou(await dataHealthDeps.load(admin, orgId), audience) }
 }
