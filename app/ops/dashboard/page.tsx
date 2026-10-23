@@ -15,6 +15,7 @@ import { CANCELLED_JOB_STATUS, type JobStatus, JOB_STATUS_CONFIG, jobStatusConfi
 import { filterReportForViewer, loadDataHealth, type DataHealthReport } from '@/lib/data-health'
 import { isPayrollAdminRole } from '@/lib/payroll-admin-access'
 import NeedsYouList from '@/components/ops/NeedsYouList'
+import { isOwnerProfile } from '@/lib/super-admin'
 
 export default async function OpsDashboardPage() {
   const { authUser, profile } = await requireAuth()
@@ -183,7 +184,7 @@ export default async function OpsDashboardPage() {
           </div>
         </div>
 
-        {needsYou && <NeedsYouList report={needsYou} />}
+        {needsYou && <NeedsYouList report={needsYou} canFixPayPlans={isOwnerProfile(profile)} />}
 
         {/* Pipeline Overview */}
         <div className="bg-white rounded-xl shadow-sm border p-6 mb-6">

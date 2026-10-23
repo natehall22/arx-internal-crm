@@ -284,6 +284,7 @@ export type PayrollExportRow = {
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { compPlanAsOf, type CompPlanVersionRow } from '@/lib/comp-plan-version'
+import { selectDefaultForRole, type OrgDefaultCompPlanRow } from '@/lib/comp-plan-defaults'
 
 type UserCompRow = {
   user_id: string
@@ -292,6 +293,8 @@ type UserCompRow = {
   override_percentage: number | null
   hourly_rate_override: number | null
   comp_plans: Record<string, unknown> | null
+  /** 'org_default' when no assignment existed and the role's default plan applied. */
+  source?: 'assignment' | 'org_default'
 }
 
 /**
@@ -364,10 +367,48 @@ export async function loadActiveCompPlanForUser(
     return row
   }
 
-  // Historical pay is assignment-driven. A default plan is useful as an admin UI
-  // suggestion, but it is not proof that this person held that plan on the sale
-  // date. Missing assignment history therefore stays blank.
-  return null
+  // No assignment. Historical pay stays assignment-driven: a default is used only for sale dates on/after the
+  // default's own effective_from (org_default_comp_plans), so adding one never restates earlier pay.
+  return loadOrgDefaultPlanForUser(supabase, userId, orgId, saleDate)
+}
+
+async function loadOrgDefaultPlanForUser(
+  supabase: SupabaseClient,
+  userId: string,
+  orgId: string,
+  saleDate: string
+): Promise<UserCompRow | null> {
+  const { data: defaults, error } = await supabase
+    .from('org_default_comp_plans')
+    .select('role, comp_plan_id, effective_from')
+    .eq('org_id', orgId)
+    .lte('effective_from', saleDate)
+  // Same fail-closed rule as the assignment read. (Before the migration the table is missing: treat as no defaults.)
+  if (error) {
+    if ((error as { code?: string }).code === '42P01' || /does not exist|schema cache/i.test(String(error.message))) return null
+    throw error
+  }
+  const rows = (defaults ?? []) as OrgDefaultCompPlanRow[]
+  if (rows.length === 0) return null
+
+  const { data: user, error: userErr } = await supabase.from('users').select('role').eq('id', userId).eq('org_id', orgId).maybeSingle()
+  if (userErr) throw userErr
+  const chosen = selectDefaultForRole(rows, (user as { role?: string } | null)?.role, saleDate)
+  if (!chosen) return null
+
+  const { data: plan, error: planErr } = await supabase.from('comp_plans').select('*').eq('id', chosen.comp_plan_id).eq('org_id', orgId).maybeSingle()
+  if (planErr) throw planErr
+  if (!plan) return null
+  const versions = await loadCompPlanVersions(supabase, orgId)
+  return {
+    user_id: userId,
+    effective_from: chosen.effective_from,
+    effective_to: null,
+    override_percentage: null,
+    hourly_rate_override: null,
+    comp_plans: compPlanAsOf(plan as Record<string, unknown> & { id: string }, versions, saleDate),
+    source: 'org_default',
+  }
 }
 
 /**
