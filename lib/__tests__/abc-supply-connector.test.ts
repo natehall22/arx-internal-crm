@@ -189,6 +189,8 @@ describe('no price comparison for ABC (their terms forbid it)', () => {
     walk(join(root, 'lib')); walk(join(root, 'app')); walk(join(root, 'components'))
     expect(hits.sort()).toEqual([
       'app/api/admin/suppliers/[id]/api/route.ts',
+      // the owner-only item-mapping screen EDITS the estimate; it shows it against nothing else
+      'components/admin/AbcItemMapEditor.tsx',
       'lib/suppliers/abc/payload.ts',
       'lib/suppliers/abc/settings-db.ts',
       'lib/suppliers/abc/types.ts',

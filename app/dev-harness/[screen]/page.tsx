@@ -18,6 +18,7 @@ import SupplierOrdersCard from '@/components/ops/SupplierOrdersCard'
 import JobReadyToPayBanner from '@/components/ops/JobReadyToPayBanner'
 import JobPayrollSentBanner from '@/components/ops/JobPayrollSentBanner'
 import SuppliersClient from '@/app/admin/suppliers/SuppliersClient'
+import AbcItemMapEditor from '@/components/admin/AbcItemMapEditor'
 import ContractSigningForm from '@/app/contracts/sign/[token]/CustomerSigningForm'
 import ChangeOrderSigningForm from '@/app/change-orders/sign/[token]/CustomerSigningForm'
 import CrewPhotoCapture from '@/app/crew/[token]/CrewPhotoCapture'
@@ -171,6 +172,8 @@ export default function Harness({ params }: { params: { screen: string } }) {
           <KpiTiles tiles={[{ label: 'Sits this week', value: 4 }, { label: 'Sales this week', value: 2 }]} />
         </div>
       )
+    case 'abc-item-map':
+      return <AbcItemMapEditor vendorId="v-abc" onClose={() => undefined} />
     case 'customer-file':
       return (
         <div className="min-h-screen bg-surface-subtle">

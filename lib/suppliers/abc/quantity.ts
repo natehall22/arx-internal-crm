@@ -11,9 +11,14 @@ export function parseOrderQuantity(qtyText: string | null | undefined, unitWord:
   const hits: number[] = []
   for (const part of qtyText.split(/[·•;|\n]/)) {
     const m = part.trim().toLowerCase().match(/^(\d+(?:\.\d+)?)\s*([a-z][a-z .\/-]*)$/)
-    if (m && m[2].trim() === word) hits.push(Number(m[1]))
+    if (m && sameUnitWord(m[2].trim(), word)) hits.push(Number(m[1]))
   }
   if (hits.length !== 1) return null
   const n = hits[0]
   return Number.isFinite(n) && n > 0 && n <= 100000 ? n : null
+}
+
+/** "bundle" and "bundles" are the same word ("1 bundle" vs "3 bundles"); anything else must match exactly. */
+function sameUnitWord(a: string, b: string): boolean {
+  return a === b || a + 's' === b || a === b + 's'
 }
