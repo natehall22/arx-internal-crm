@@ -284,7 +284,7 @@ export type PayrollExportRow = {
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { compPlanAsOf, type CompPlanVersionRow } from '@/lib/comp-plan-version'
-import { selectDefaultForRole, type OrgDefaultCompPlanRow } from '@/lib/comp-plan-defaults'
+import { defaultWindowsForUser, selectDefaultForRole, type ActiveHistoryRow, type OrgDefaultCompPlanRow } from '@/lib/comp-plan-defaults'
 
 type UserCompRow = {
   user_id: string
@@ -333,12 +333,45 @@ async function loadCompPlanVersions(
   return rows
 }
 
+type UserPayFlags = { role: string | null; active: boolean | null; isTestAccount: boolean }
+
+/** Role / active / test-account flag. `users.is_test_account` may not exist yet (additive migration): treat as false. */
+const payFlagsCache = new WeakMap<SupabaseClient, Map<string, Promise<UserPayFlags>>>()
+
+function loadUserPayFlags(supabase: SupabaseClient, userId: string, orgId: string): Promise<UserPayFlags> {
+  // Per client (≈ per request), like the plan-version cache: materializing N jobs reads each person once.
+  let m = payFlagsCache.get(supabase)
+  if (!m) payFlagsCache.set(supabase, (m = new Map()))
+  const key = `${orgId}:${userId}`
+  let p = m.get(key)
+  if (!p) {
+    p = readUserPayFlags(supabase, userId, orgId)
+    p.catch(() => m!.delete(key))
+    m.set(key, p)
+  }
+  return p
+}
+
+async function readUserPayFlags(supabase: SupabaseClient, userId: string, orgId: string): Promise<UserPayFlags> {
+  let res = await supabase.from('users').select('role, active, is_test_account').eq('id', userId).eq('org_id', orgId).maybeSingle()
+  if (res.error && (res.error as { code?: string }).code === '42703') {
+    res = (await supabase.from('users').select('role, active').eq('id', userId).eq('org_id', orgId).maybeSingle()) as typeof res
+  }
+  if (res.error) throw res.error
+  const u = res.data as { role?: string | null; active?: boolean | null; is_test_account?: boolean | null } | null
+  return { role: u?.role ?? null, active: u?.active ?? null, isTestAccount: u?.is_test_account === true }
+}
+
 export async function loadActiveCompPlanForUser(
   supabase: SupabaseClient,
   userId: string,
   orgId: string,
   saleDate: string
 ): Promise<UserCompRow | null> {
+  // Test accounts never earn pay lines, assigned plan or not.
+  const flags = await loadUserPayFlags(supabase, userId, orgId)
+  if (flags.isTestAccount) return null
+
   const { data, error } = await supabase
     .from('user_comp_plans')
     .select('user_id, effective_from, effective_to, override_percentage, hourly_rate_override, comp_plans(*)')
@@ -369,14 +402,15 @@ export async function loadActiveCompPlanForUser(
 
   // No assignment. Historical pay stays assignment-driven: a default is used only for sale dates on/after the
   // default's own effective_from (org_default_comp_plans), so adding one never restates earlier pay.
-  return loadOrgDefaultPlanForUser(supabase, userId, orgId, saleDate)
+  return loadOrgDefaultPlanForUser(supabase, userId, orgId, saleDate, flags)
 }
 
 async function loadOrgDefaultPlanForUser(
   supabase: SupabaseClient,
   userId: string,
   orgId: string,
-  saleDate: string
+  saleDate: string,
+  flags: UserPayFlags
 ): Promise<UserCompRow | null> {
   const { data: defaults, error } = await supabase
     .from('org_default_comp_plans')
@@ -391,12 +425,24 @@ async function loadOrgDefaultPlanForUser(
   const rows = (defaults ?? []) as OrgDefaultCompPlanRow[]
   if (rows.length === 0) return null
 
-  const { data: user, error: userErr } = await supabase.from('users').select('role, active').eq('id', userId).eq('org_id', orgId).maybeSingle()
-  if (userErr) throw userErr
-  // A default never pays someone who has left (active=false): an old pin or opportunity can still credit them.
-  if ((user as { active?: boolean | null } | null)?.active === false) return null
-  const chosen = selectDefaultForRole(rows, (user as { role?: string } | null)?.role, saleDate)
+  const chosen = selectDefaultForRole(rows, flags.role, saleDate)
   if (!chosen) return null
+  // When does the default apply to THIS person (active on the sale date, before their first assignment, not a test account)?
+  const [{ data: assigns, error: aErr }, { data: hist, error: hErr }] = await Promise.all([
+    supabase.from('user_comp_plans').select('effective_from').eq('user_id', userId).eq('org_id', orgId),
+    supabase.from('user_payroll_active_history').select('effective_from, is_active').eq('user_id', userId).eq('org_id', orgId),
+  ])
+  if (aErr) throw aErr
+  if (hErr) throw hErr
+  const day = saleDate.slice(0, 10)
+  const wins = defaultWindowsForUser({
+    defaultFrom: rows.filter((r) => r.role === chosen.role).map((r) => r.effective_from).sort()[0],
+    isTestAccount: flags.isTestAccount,
+    activeNow: flags.active,
+    activeHistory: ((hist ?? []) as Array<{ effective_from: string; is_active: boolean }>).map((h): ActiveHistoryRow => ({ effectiveFrom: h.effective_from, isActive: h.is_active })),
+    assignmentFromDates: ((assigns ?? []) as Array<{ effective_from: string }>).map((r) => r.effective_from),
+  })
+  if (!wins.some((w) => day >= w.from && (w.to === null || day <= w.to))) return null
 
   const { data: plan, error: planErr } = await supabase.from('comp_plans').select('*').eq('id', chosen.comp_plan_id).eq('org_id', orgId).maybeSingle()
   if (planErr) throw planErr

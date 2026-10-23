@@ -1,0 +1,753 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Job Threads Prototype</title>
+<style>
+:root{
+  --bg:#f3f1ec; --surface:#ffffff; --surface-2:#f7f6f2; --line:#e3e0d8;
+  --fg:#1f1e1b; --muted:#6b6861; --faint:#9a968c;
+  --accent:#c2410c; --accent-fg:#ffffff; --accent-soft:#fde8dc;
+  --mine:#1f4f8a; --mine-fg:#ffffff;
+  --other:#ffffff; --other-fg:#1f1e1b;
+  --prod:#2563eb; --prod-soft:#e3ecfd;
+  --sales:#6b6861; --sales-soft:#eeece7;
+  --team:#15803d; --team-soft:#e2f3e7;
+  --warn:#b45309; --warn-soft:#fdf1dc;
+  --danger:#b91c1c; --danger-soft:#fde4e4;
+  --ok:#15803d;
+  --sys:#8a867c;
+  --lock-bg:linear-gradient(160deg,#2b3a55 0%,#5b3b52 55%,#8a4b3a 100%);
+  --shadow:0 1px 2px rgba(0,0,0,.06),0 4px 16px rgba(0,0,0,.06);
+  --radius:16px;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#121212; --surface:#1c1c1e; --surface-2:#232325; --line:#33322f;
+    --fg:#f2f0ea; --muted:#a7a397; --faint:#77736a;
+    --accent:#f97316; --accent-fg:#1a0d04; --accent-soft:#3a2214;
+    --mine:#3b6fb0; --mine-fg:#ffffff;
+    --other:#262628; --other-fg:#f2f0ea;
+    --prod:#7aa7ff; --prod-soft:#1c2a45;
+    --sales:#b9b5aa; --sales-soft:#2b2a27;
+    --team:#5fd08a; --team-soft:#17301f;
+    --warn:#f5b04a; --warn-soft:#3a2a10;
+    --danger:#ff7b7b; --danger-soft:#3d1717;
+    --ok:#5fd08a; --sys:#8f8b80;
+    --shadow:0 1px 2px rgba(0,0,0,.4),0 4px 16px rgba(0,0,0,.3);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#121212; --surface:#1c1c1e; --surface-2:#232325; --line:#33322f;
+  --fg:#f2f0ea; --muted:#a7a397; --faint:#77736a;
+  --accent:#f97316; --accent-fg:#1a0d04; --accent-soft:#3a2214;
+  --mine:#3b6fb0; --mine-fg:#ffffff;
+  --other:#262628; --other-fg:#f2f0ea;
+  --prod:#7aa7ff; --prod-soft:#1c2a45;
+  --sales:#b9b5aa; --sales-soft:#2b2a27;
+  --team:#5fd08a; --team-soft:#17301f;
+  --warn:#f5b04a; --warn-soft:#3a2a10;
+  --danger:#ff7b7b; --danger-soft:#3d1717;
+  --ok:#5fd08a; --sys:#8f8b80;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 4px 16px rgba(0,0,0,.3);
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--bg);color:var(--fg);font:15px/1.4 -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,Helvetica,Arial,sans-serif;-webkit-text-size-adjust:100%}
+button{font:inherit;color:inherit;cursor:pointer}
+input,textarea{font:inherit;color:inherit}
+.app{max-width:440px;margin:0 auto;min-height:100vh;min-height:100dvh;display:flex;flex-direction:column;background:var(--bg);position:relative}
+@media (min-width:500px){.app{border-left:1px solid var(--line);border-right:1px solid var(--line)}}
+
+/* prototype controls */
+.proto{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:8px 16px;background:var(--surface-2);border-bottom:1px solid var(--line);font-size:12px;color:var(--muted)}
+.proto b{color:var(--fg);font-weight:600}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:999px;overflow:hidden;background:var(--surface)}
+.seg button{border:0;background:none;padding:4px 10px;font-size:12px}
+.seg button[aria-pressed="true"]{background:var(--fg);color:var(--bg)}
+.pill-btn{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:4px 10px;font-size:12px}
+.pill-btn[aria-pressed="true"]{background:var(--danger-soft);border-color:var(--danger);color:var(--danger)}
+.spacer{flex:1}
+
+/* screens */
+.screen{display:none;flex:1;flex-direction:column;min-height:0}
+.screen.active{display:flex}
+
+/* thread header */
+.th-head{position:sticky;top:0;z-index:5;background:var(--surface);border-bottom:1px solid var(--line);padding:10px 16px 8px}
+.th-row{display:flex;align-items:center;gap:10px}
+.back{border:0;background:none;font-size:22px;line-height:1;padding:0 4px 0 0;color:var(--accent)}
+.th-title{font-weight:700;font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.th-sub{font-size:12px;color:var(--muted);display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.stage{background:var(--accent-soft);color:var(--accent);border-radius:999px;padding:1px 8px;font-weight:600;font-size:11px}
+.avatars{display:flex;margin-left:auto}
+.av{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-size:11px;font-weight:700;color:#fff;border:2px solid var(--surface);margin-left:-6px;flex:none}
+.pins{margin-top:8px;display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;padding-bottom:2px}
+.pins::-webkit-scrollbar{display:none}
+.pin{flex:none;background:var(--warn-soft);color:var(--warn);border-radius:10px;padding:4px 9px;font-size:12px;font-weight:600;white-space:nowrap}
+.role-banner{margin:8px 16px 0;padding:8px 10px;border-radius:10px;background:var(--team-soft);color:var(--team);font-size:12px;display:none}
+.role-banner.show{display:block}
+
+/* messages */
+.msgs{flex:1;overflow-y:auto;padding:10px 12px 12px;display:flex;flex-direction:column;gap:6px}
+.day{align-self:center;font-size:11px;color:var(--faint);margin:6px 0 2px;font-weight:600;letter-spacing:.02em}
+.sys{align-self:center;max-width:92%;font-size:12px;color:var(--sys);background:var(--surface-2);border:1px dashed var(--line);border-radius:999px;padding:4px 10px;display:flex;gap:6px;align-items:center}
+.sys button{border:0;background:none;color:var(--sys);padding:0;font-size:12px;text-decoration:underline}
+.sys-list{align-self:center;max-width:92%;font-size:12px;color:var(--sys);margin:-2px 0 2px;padding:0 6px}
+.sys-list div{padding:1px 0}
+.m{display:flex;gap:8px;max-width:88%;align-items:flex-end}
+.m.mine{align-self:flex-end;flex-direction:row-reverse}
+.m .av{margin:0;border:0;width:28px;height:28px}
+.m.mine .av{display:none}
+.bub{background:var(--other);color:var(--other-fg);border-radius:18px 18px 18px 6px;padding:8px 12px;box-shadow:var(--shadow);min-width:0;overflow-wrap:anywhere;position:relative}
+.m.mine .bub{background:var(--mine);color:var(--mine-fg);border-radius:18px 18px 6px 18px}
+.bub .who{font-size:11px;font-weight:700;color:var(--muted);margin-bottom:2px;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.m.mine .bub .who{color:rgba(255,255,255,.8)}
+.tag{font-size:10px;font-weight:700;border-radius:6px;padding:1px 6px;text-transform:uppercase;letter-spacing:.03em}
+.tag.production{background:var(--prod-soft);color:var(--prod)}
+.tag.sales{background:var(--sales-soft);color:var(--sales)}
+.tag.team{background:var(--team-soft);color:var(--team)}
+.tag.price{background:var(--warn-soft);color:var(--warn)}
+.tag.nr{background:var(--accent-soft);color:var(--accent)}
+.tag.urgent{background:var(--danger-soft);color:var(--danger)}
+.m.mine .tag{background:rgba(255,255,255,.18);color:#fff}
+.bub .meta{font-size:11px;opacity:.7;margin-top:3px;display:flex;gap:6px;justify-content:flex-end}
+.quote{border-left:3px solid var(--line);padding:2px 8px;margin:2px 0 4px;font-size:12px;opacity:.85}
+.m.mine .quote{border-color:rgba(255,255,255,.4)}
+.photo{margin-top:6px;width:100%;max-width:220px;aspect-ratio:4/3;border-radius:12px;background:repeating-linear-gradient(135deg,#8b7d6b 0 10px,#9d8f7c 10px 20px);display:grid;place-items:center;color:#fff;font-size:12px;font-weight:600}
+.voice{margin-top:6px;display:flex;align-items:center;gap:8px;font-size:12px}
+.voice .wave{flex:1;height:18px;background:repeating-linear-gradient(90deg,currentColor 0 2px,transparent 2px 5px);opacity:.5;border-radius:4px;min-width:60px}
+.mention{font-weight:700;color:var(--accent)}
+.m.mine .mention{color:#ffd9c2}
+.seen{align-self:flex-end;font-size:11px;color:var(--faint);margin:-2px 6px 2px}
+.queued{color:var(--warn)!important;opacity:1!important;font-weight:600}
+.reacts{position:absolute;right:-6px;bottom:-10px;background:var(--surface);border:1px solid var(--line);border-radius:999px;font-size:11px;padding:0 6px;color:var(--fg)}
+
+/* composer */
+.composer{position:sticky;bottom:0;background:var(--surface);border-top:1px solid var(--line);padding:8px 12px calc(8px + env(safe-area-inset-bottom))}
+.c-top{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:6px}
+.chip{border:1px solid var(--line);background:var(--surface-2);border-radius:999px;padding:3px 10px;font-size:12px;font-weight:600;display:inline-flex;gap:4px;align-items:center}
+.chip.production{background:var(--prod-soft);color:var(--prod);border-color:transparent}
+.chip.team{background:var(--team-soft);color:var(--team);border-color:transparent}
+.chip.sales{background:var(--sales-soft);color:var(--sales);border-color:transparent}
+.chip.nr{background:var(--accent-soft);color:var(--accent);border-color:transparent}
+.chip.urgent{background:var(--danger-soft);color:var(--danger);border-color:transparent}
+.visible{font-size:11px;color:var(--muted);flex-basis:100%}
+.guard{display:none;background:var(--warn-soft);color:var(--warn);border-radius:10px;padding:8px 10px;font-size:12px;margin-bottom:6px}
+.guard.show{display:block}
+.guard .acts{display:flex;gap:8px;margin-top:6px;flex-wrap:wrap}
+.guard button{border:1px solid currentColor;background:none;border-radius:999px;padding:3px 10px;font-size:12px;color:inherit}
+.guard button.primary{background:var(--warn);color:var(--surface);border-color:var(--warn)}
+.c-row{display:flex;gap:6px;align-items:flex-end}
+.ibtn{flex:none;width:38px;height:38px;border-radius:50%;border:1px solid var(--line);background:var(--surface-2);display:grid;place-items:center;font-size:17px}
+.ibtn[aria-pressed="true"]{background:var(--danger-soft);border-color:var(--danger);color:var(--danger)}
+.ibtn.rec{background:var(--danger);color:#fff;border-color:var(--danger);animation:pulse 1s infinite}
+@keyframes pulse{50%{opacity:.6}}
+.c-row textarea{flex:1;min-width:0;resize:none;border:1px solid var(--line);background:var(--surface-2);border-radius:20px;padding:9px 14px;min-height:38px;max-height:120px;outline:none}
+.c-row textarea:focus{border-color:var(--accent)}
+.send{flex:none;width:38px;height:38px;border-radius:50%;border:0;background:var(--accent);color:var(--accent-fg);font-size:18px;font-weight:700}
+.send:disabled{opacity:.35}
+.attach{display:none;gap:6px;margin-bottom:6px;font-size:12px;align-items:center}
+.attach.show{display:flex}
+.attach .thumb{width:44px;height:34px;border-radius:6px;background:repeating-linear-gradient(135deg,#8b7d6b 0 6px,#9d8f7c 6px 12px)}
+.attach button{border:0;background:none;color:var(--muted);font-size:12px;text-decoration:underline}
+.mention-pop{display:none;position:absolute;left:12px;right:12px;bottom:100%;background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);overflow:hidden}
+.mention-pop.show{display:block}
+.mention-pop button{display:flex;width:100%;gap:8px;align-items:center;border:0;background:none;padding:8px 12px;text-align:left;font-size:14px}
+.mention-pop button:hover{background:var(--surface-2)}
+.mention-pop .hint{font-size:11px;color:var(--muted);padding:6px 12px;border-top:1px solid var(--line)}
+
+/* bottom nav */
+.nav{display:flex;border-top:1px solid var(--line);background:var(--surface);padding-bottom:env(safe-area-inset-bottom)}
+.nav button{flex:1;border:0;background:none;padding:8px 4px 10px;font-size:11px;color:var(--muted);display:flex;flex-direction:column;align-items:center;gap:2px;position:relative}
+.nav button .ic{font-size:19px;line-height:1}
+.nav button[aria-current="page"]{color:var(--accent);font-weight:700}
+.nav .plus .ic{width:34px;height:34px;border-radius:50%;background:var(--accent);color:var(--accent-fg);display:grid;place-items:center;font-size:22px;margin-top:-4px}
+.badge{position:absolute;top:4px;left:calc(50% + 6px);background:var(--danger);color:#fff;font-size:10px;font-weight:700;border-radius:999px;padding:0 5px;min-width:16px;line-height:16px}
+
+/* inbox */
+.page-h{padding:14px 16px 6px;background:var(--surface);border-bottom:1px solid var(--line)}
+.page-h h1{margin:0;font-size:22px}
+.page-h p{margin:2px 0 0;font-size:12px;color:var(--muted)}
+.list{flex:1;overflow-y:auto;padding:10px 12px 20px}
+.sec{font-size:11px;font-weight:700;color:var(--faint);text-transform:uppercase;letter-spacing:.05em;margin:12px 4px 6px}
+.item{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:10px 12px;margin-bottom:8px;box-shadow:var(--shadow)}
+.item.urgent{border-color:var(--danger);border-left-width:4px}
+.item .top{display:flex;gap:6px;align-items:center;font-size:12px;color:var(--muted);flex-wrap:wrap}
+.item .top b{color:var(--fg)}
+.item .age{margin-left:auto}
+.item .txt{margin:4px 0 8px;font-size:14px;overflow-wrap:anywhere}
+.item .acts{display:flex;gap:6px;flex-wrap:wrap}
+.item .acts button{border:1px solid var(--line);background:var(--surface-2);border-radius:999px;padding:4px 12px;font-size:12px;font-weight:600}
+.item .acts button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-fg)}
+.item .inline-reply{display:none;gap:6px;margin-top:8px}
+.item .inline-reply.show{display:flex}
+.item .inline-reply input{flex:1;min-width:0;border:1px solid var(--line);border-radius:999px;padding:6px 12px;background:var(--surface-2)}
+.done-fold{font-size:13px;color:var(--muted);padding:4px}
+.done-fold div{padding:3px 0;text-decoration:line-through}
+.empty{text-align:center;color:var(--muted);padding:30px 10px;font-size:14px}
+
+/* push mock */
+.lock{flex:1;background:var(--lock-bg);color:#fff;padding:28px 14px 20px;display:flex;flex-direction:column;align-items:center;gap:6px;min-height:0;overflow-y:auto}
+.lock .clock{font-size:64px;font-weight:300;line-height:1;letter-spacing:-.02em}
+.lock .date{font-size:15px;opacity:.85;margin-bottom:18px}
+.notif{width:100%;background:rgba(245,245,247,.82);color:#111;border-radius:18px;padding:10px 12px;backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);box-shadow:0 6px 24px rgba(0,0,0,.25);text-align:left;border:0}
+.notif .n-top{display:flex;gap:8px;align-items:center;font-size:12px;color:#555}
+.notif .app-ic{width:20px;height:20px;border-radius:5px;background:#c2410c;color:#fff;display:grid;place-items:center;font-size:10px;font-weight:800}
+.notif .n-title{font-weight:700;font-size:14px;margin-top:4px}
+.notif .n-body{font-size:14px;margin-top:1px;overflow-wrap:anywhere}
+.n-actions{width:100%;display:none;flex-direction:column;gap:1px;border-radius:14px;overflow:hidden;margin-top:6px}
+.n-actions.show{display:flex}
+.n-actions button,.n-actions .n-reply{background:rgba(245,245,247,.86);color:#111;border:0;padding:12px 14px;text-align:left;font-size:15px;backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px)}
+.n-reply{display:flex;gap:6px;align-items:center}
+.n-reply input{flex:1;min-width:0;border:1px solid #ccc;border-radius:999px;padding:7px 12px;background:#fff;color:#111}
+.n-reply button{background:#c2410c!important;color:#fff!important;border-radius:999px;padding:7px 12px!important;font-weight:700}
+.lock .hint{font-size:12px;opacity:.8;margin-top:10px;text-align:center;max-width:320px}
+.lock .stack{width:100%;font-size:12px;opacity:.75;text-align:center;margin-top:4px}
+.toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:8px 14px;border-radius:999px;font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:50;max-width:calc(100% - 32px);text-align:center}
+.toast.show{opacity:1}
+
+/* sheets */
+.scrim{position:fixed;inset:0;background:rgba(0,0,0,.35);display:none;z-index:30}
+.scrim.show{display:block}
+.sheet{position:fixed;left:50%;transform:translateX(-50%);bottom:0;width:100%;max-width:440px;background:var(--surface);border-radius:18px 18px 0 0;padding:10px 16px calc(16px + env(safe-area-inset-bottom));z-index:31;display:none;box-shadow:var(--shadow)}
+.sheet.show{display:block;max-height:85vh;overflow-y:auto}
+.grab{width:36px;height:5px;border-radius:3px;background:var(--line);margin:0 auto 10px}
+.sheet h3{margin:0 0 8px;font-size:16px}
+.sheet .opt{display:flex;width:100%;gap:10px;align-items:center;border:0;background:none;padding:11px 4px;border-bottom:1px solid var(--line);text-align:left;font-size:15px}
+.sheet .opt small{display:block;color:var(--muted);font-size:12px}
+.sheet .opt.sel{color:var(--accent);font-weight:700}
+.sheet textarea{width:100%;border:1px solid var(--line);border-radius:12px;padding:10px;background:var(--surface-2);min-height:70px;resize:none;margin-top:8px}
+.sheet .row{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.sheet .row button{border:1px solid var(--line);background:var(--surface-2);border-radius:999px;padding:6px 12px;font-size:13px}
+.sheet .row button.primary{background:var(--accent);color:var(--accent-fg);border-color:var(--accent);font-weight:700;margin-left:auto}
+.sheet .note{font-size:12px;color:var(--muted);margin-top:6px}
+.visually-hidden{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- Prototype controls -->
+  <div class="proto" role="region" aria-label="Prototype controls">
+    <b>View as</b>
+    <div class="seg" id="roleSeg">
+      <button data-role="owner" aria-pressed="true">Owner</button>
+      <button data-role="ops" aria-pressed="false">Ops</button>
+      <button data-role="setter" aria-pressed="false">Setter</button>
+    </div>
+    <span class="spacer"></span>
+    <button class="pill-btn" id="offlineBtn" aria-pressed="false">📶 Online</button>
+    <button class="pill-btn" id="themeBtn" aria-label="Toggle theme">◐</button>
+  </div>
+
+  <!-- THREAD -->
+  <section class="screen active" id="s-thread" aria-label="Job thread">
+    <header class="th-head">
+      <div class="th-row">
+        <button class="back" aria-label="Back">‹</button>
+        <div style="min-width:0;flex:1">
+          <div class="th-title">Sample · 123 Sample St</div>
+          <div class="th-sub"><span class="stage">Scheduled</span><span>Job #9001 · Exampleville</span></div>
+        </div>
+        <div class="avatars" id="memberAvs" aria-label="Thread members"></div>
+      </div>
+      <div class="pins" aria-label="Pinned">
+        <span class="pin">📌 Dog in back yard</span>
+        <span class="pin">📌 Gate code 0000</span>
+        <span class="pin">📌 Call tenant, not owner</span>
+      </div>
+    </header>
+    <div class="role-banner" id="roleBanner"></div>
+    <div class="msgs" id="msgs" aria-live="polite"></div>
+
+    <div class="composer" id="composer">
+      <div class="mention-pop" id="mentionPop"></div>
+      <div class="guard" id="guard" role="alert">
+        <b>Looks like pricing.</b> <span id="guardWho">Jordan (setter) won't see this.</span>
+        <div class="acts">
+          <button class="primary" id="guardOk">OK, hide from setters</button>
+          <button id="guardShow">Let setters see it</button>
+        </div>
+      </div>
+      <div class="attach" id="attach"><span class="thumb"></span><span>1 photo attached</span><button id="attachRm">Remove</button></div>
+      <div class="c-top">
+        <button class="chip" id="audChip" aria-label="Audience (set automatically)">Team ▾</button>
+        <span class="chip nr" id="nrChip" style="display:none">Needs reply</span>
+        <span class="chip urgent" id="urgChip" style="display:none">Urgent</span>
+        <span class="chip" id="priceChip" style="display:none">🔒 Hidden from setters</span>
+        <span class="visible" id="visibleTo"></span>
+      </div>
+      <div class="c-row">
+        <button class="ibtn" id="micBtn" aria-label="Voice to text">🎤</button>
+        <button class="ibtn" id="camBtn" aria-label="Add photo">📷</button>
+        <button class="ibtn" id="urgBtn" aria-label="Mark urgent" aria-pressed="false">!</button>
+        <label class="visually-hidden" for="input">Message</label>
+        <textarea id="input" rows="1" placeholder="Message"></textarea>
+        <button class="send" id="sendBtn" aria-label="Send" disabled>↑</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- WAITING ON YOU -->
+  <section class="screen" id="s-wait" aria-label="Waiting on you">
+    <div class="page-h"><h1>Waiting on you</h1><p>Empties as you answer. FYI messages wait for the 7am summary.</p></div>
+    <div class="list" id="waitList"></div>
+  </section>
+
+  <!-- PUSH MOCK -->
+  <section class="screen" id="s-push" aria-label="Push notification mock">
+    <div class="lock">
+      <div class="clock">9:41</div>
+      <div class="date">Wednesday, October 21</div>
+      <button class="notif" id="notif" aria-expanded="false">
+        <div class="n-top"><span class="app-ic">ARX</span><span>ARX SALES</span><span style="margin-left:auto">now</span></div>
+        <div class="n-title">Sam needs a reply · Sample · 123 Sample St</div>
+        <div class="n-body">@Riley can the crew start Thursday instead? Homeowner asked.</div>
+      </button>
+      <div class="n-actions" id="nActions">
+        <div class="n-reply"><input id="nReplyInput" placeholder="Reply…" aria-label="Reply from notification"><button id="nReplySend">Send</button></div>
+        <button id="nDone">✓ Done</button>
+        <button id="nSnooze">⏰ Snooze 1 hour</button>
+        <button id="nOpen">Open thread at this message</button>
+      </div>
+      <div class="stack">+2 more from Sample · 123 Sample St (grouped)</div>
+      <div class="hint">Tap the notification (long-press on a real iPhone) to reply from the lock screen. The reply goes into the job thread and clears it from "Waiting on you". This needs the ARX iPhone app: iPhone web-app push can only open the page.</div>
+    </div>
+  </section>
+
+  <nav class="nav" aria-label="Main">
+    <button data-go="s-thread" aria-current="page"><span class="ic">💬</span>Job thread</button>
+    <button data-go="s-wait"><span class="ic">⏳</span>Waiting<span class="badge" id="waitBadge">3</span></button>
+    <button class="plus" id="plusBtn" aria-label="New message from anywhere"><span class="ic">+</span>New</button>
+    <button data-go="s-push"><span class="ic">🔔</span>Push demo</button>
+  </nav>
+</div>
+
+<!-- Sheets -->
+<div class="scrim" id="scrim"></div>
+<div class="sheet" id="audSheet" role="dialog" aria-label="Choose audience">
+  <div class="grab"></div>
+  <h3>Who should see this?</h3>
+  <div id="audOpts"></div>
+  <p class="note">This was picked for you automatically. Most people never change it.</p>
+</div>
+<div class="sheet" id="msgSheet" role="dialog" aria-label="Message actions">
+  <div class="grab"></div>
+  <h3 id="msgSheetTitle">Message</h3>
+  <button class="opt" data-act="reply">↩︎ Reply <small>Inherits this message's audience</small></button>
+  <button class="opt" data-act="task">✅ Make task <small>Owner and due date, then it can't get lost</small></button>
+  <button class="opt" data-act="remind">⏰ Remind me tomorrow 8am</button>
+  <button class="opt" data-act="pin">📌 Pin to job</button>
+  <button class="opt" data-act="ack">✓ Acknowledge</button>
+</div>
+<div class="sheet" id="plusSheet" role="dialog" aria-label="New message">
+  <div class="grab"></div>
+  <h3>Message a job</h3>
+  <div id="jobOpts"></div>
+  <textarea id="plusInput" placeholder="Type, or tap the mic on your keyboard…"></textarea>
+  <div class="row"><button id="plusMic">🎤</button><button id="plusCam">📷</button><button class="primary" id="plusSend">Send</button></div>
+  <p class="note">Jobs are ranked: the one you just opened, your appointments in the next or last 3 hours, the nearest job, then recent ones.</p>
+</div>
+<div class="toast" id="toast" role="status"></div>
+
+<script>
+(function(){
+  // ---------- data (fictional) ----------
+  const PEOPLE = {
+    nora:  {name:'Nora',  role:'owner',  label:'Nora (owner)',  color:'#7c3aed'},
+    riley: {name:'Riley', role:'ops',    label:'Riley (ops)',   color:'#2563eb'},
+    sam:   {name:'Sam',   role:'closer', label:'Sam (closer)',  color:'#0f766e'},
+    jordan:{name:'Jordan',role:'setter', label:'Jordan (setter)',color:'#c2410c'}
+  };
+  const ME_BY_ROLE = {owner:'nora', ops:'riley', setter:'jordan'};
+  const CAN_READ = { // audience → roles
+    team:['owner','ops','closer','setter'],
+    sales:['owner','ops','closer','setter'],
+    production:['owner','ops','closer']
+  };
+  const PRICING_BARRED = ['setter'];
+
+  let msgs = [
+    {id:1, day:'Mon Oct 19'},
+    {id:2, kind:'sys', items:['Appointment set by Jordan','Status → Inspection','2 calls logged']},
+    {id:3, kind:'h', by:'jordan', aud:'team', t:'Homeowner works nights, best time is after 2pm. Big dog, friendly.', time:'4:12 PM'},
+    {id:4, kind:'h', by:'sam', aud:'sales', pricing:true, t:'Signed at $18,400, gave $500 off for cash. Wife picked Onyx.', time:'7:48 PM'},
+    {id:5, kind:'sys', items:['Contract signed','Status → Sold','Job #9001 created']},
+    {id:6, day:'Today'},
+    {id:7, kind:'h', by:'riley', aud:'production', t:'Materials ordered, delivery Wed AM. Dumpster goes on the street, not the driveway.', time:'8:02 AM', photo:true},
+    {id:8, kind:'h', by:'sam', aud:'production', t:'@Riley can the crew start Thursday instead? Homeowner asked.', time:'9:40 AM', nr:'riley', mentions:['Riley']},
+    {id:9, kind:'sys', items:['Status → Scheduled','Payment recorded (deposit)']},
+    {id:10, kind:'h', by:'nora', aud:'team', t:'Tenant moves out Friday. Call the tenant, not the owner, for access this week.', time:'10:05 AM', voice:'0:14'},
+    {id:11, kind:'h', by:'riley', aud:'production', pricing:true, t:'Sub quoted $145/sq labor, plus $30/sq dump. Fine with that.', time:'10:20 AM', reply:8}
+  ];
+  let nextId = 100;
+
+  let waiting = [
+    {id:'w1', type:'urgent', who:'Riley', job:'Oak · 9 Example Ave', txt:'Dumpster blocking the neighbor\'s drive, need OK to move it to the yard', age:'4m', roles:['owner']},
+    {id:'w2', type:'nr', who:'Sam', job:'Sample · 123 Sample St', txt:'@Riley can the crew start Thursday instead? Homeowner asked.', age:'1m', roles:['ops'], msg:8},
+    {id:'w3', type:'nr', who:'Jordan', job:'Birch · 42 Placeholder Rd', txt:'@Nora did the inspection get rescheduled? Homeowner texted me.', age:'38m', roles:['owner']},
+    {id:'w4', type:'task', who:'You', job:'Maple · 7 Demo Ct', txt:'Task: Send completion certificate (due today 5pm)', age:'due 5pm', roles:['owner','ops']},
+    {id:'w5', type:'mention', who:'Riley', job:'Sample · 123 Sample St', txt:'FYI @Jordan homeowner loved the inspection photos', age:'2h', roles:['setter']},
+    {id:'w6', type:'nr', who:'Sam', job:'Cedar · 5 Mock Blvd', txt:'@Jordan did they mention the hail claim at the door?', age:'12m', roles:['setter']}
+  ];
+  let doneToday = [];
+
+  // ---------- state ----------
+  let role = 'owner';
+  let offline = false;
+  let urgent = false;
+  let photoAttached = false;
+  let audOverride = null;
+  let pricingDecision = null; // 'hide' | 'show' | null
+  let replyTo = null;
+  let expandedSys = {};
+  let activeMsg = null;
+
+  const $ = s => document.querySelector(s);
+  const me = () => PEOPLE[ME_BY_ROLE[role]];
+  const canSee = m => {
+    if (m.kind !== 'h') return true;
+    if (!CAN_READ[m.aud].includes(role)) return false;
+    if (m.pricing && PRICING_BARRED.includes(role)) return false;
+    return true;
+  };
+  const esc = s => s.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const hl = s => esc(s).replace(/@(Riley|Sam|Nora|Jordan)\b/g,'<span class="mention">@$1</span>');
+
+  function toast(t){ const el=$('#toast'); el.textContent=t; el.classList.add('show'); clearTimeout(toast._t); toast._t=setTimeout(()=>el.classList.remove('show'),2200); }
+
+  // ---------- render thread ----------
+  function renderMembers(){
+    $('#memberAvs').innerHTML = Object.values(PEOPLE).map(p=>`<span class="av" style="background:${p.color}" title="${p.label}">${p.name[0]}</span>`).join('');
+  }
+  function defaultAud(){
+    if (role === 'setter') return 'team';
+    if (role === 'ops') return 'production';
+    return 'team';
+  }
+  function curAud(){
+    if (replyTo){ const p = msgs.find(m=>m.id===replyTo); if (p) return p.aud; }
+    return audOverride || defaultAud();
+  }
+  function renderThread(){
+    const box = $('#msgs');
+    const myKey = ME_BY_ROLE[role];
+    let html = '';
+    let visibleCount = 0, totalHuman = 0;
+    let lastHumanVisible = null;
+    // merge adjacent sys groups after filtering hidden human msgs
+    const shown = [];
+    msgs.forEach(m=>{
+      if (m.kind==='h'){ totalHuman++; if(!canSee(m)) return; visibleCount++; lastHumanVisible = m; }
+      const prev = shown[shown.length-1];
+      if (m.kind==='sys' && prev && prev.kind==='sys'){ prev.items = prev.items.concat(m.items); return; }
+      shown.push(m.kind==='sys' ? {...m, items:[...m.items]} : m);
+    });
+    shown.forEach(m=>{
+      if (m.day){ html += `<div class="day">${m.day}</div>`; return; }
+      if (m.kind==='sys'){
+        const open = expandedSys[m.id];
+        html += `<div class="sys">⟳ ${m.items.length} update${m.items.length>1?'s':''} · ${esc(m.items[0])}${m.items.length>1?'…':''} <button data-sys="${m.id}">${open?'hide':'show'}</button></div>`;
+        if (open) html += `<div class="sys-list">${m.items.map(i=>`<div>· ${esc(i)}</div>`).join('')}</div>`;
+        return;
+      }
+      const p = PEOPLE[m.by]; const mine = m.by===myKey;
+      const tags = [];
+      if (m.aud !== 'team') tags.push(`<span class="tag ${m.aud}">${m.aud}</span>`);
+      if (m.pricing) tags.push(`<span class="tag price">🔒 pricing</span>`);
+      if (m.nr) tags.push(`<span class="tag nr">needs reply · ${PEOPLE[m.nr].name}</span>`);
+      if (m.urgent) tags.push(`<span class="tag urgent">urgent</span>`);
+      let quote = '';
+      if (m.reply){ const q = msgs.find(x=>x.id===m.reply); if (q && canSee(q)) quote = `<div class="quote">${esc(PEOPLE[q.by].name)}: ${esc(q.t.slice(0,60))}${q.t.length>60?'…':''}</div>`; }
+      const status = m.queued ? `<span class="queued">Queued (no signal)</span>` : m.sending ? `<span>Sending…</span>` : '';
+      html += `<div class="m ${mine?'mine':''}" data-msg="${m.id}">
+        <span class="av" style="background:${p.color}">${p.name[0]}</span>
+        <div class="bub" tabindex="0" role="button" aria-label="Message from ${p.name}. Tap for actions.">
+          <div class="who">${mine?'You':esc(p.label)} ${tags.join(' ')}</div>
+          ${quote}
+          <div>${hl(m.t)}</div>
+          ${m.photo?'<div class="photo">📷 Photo</div>':''}
+          ${m.voice?`<div class="voice">▶︎ <span class="wave"></span> ${m.voice} · transcript above</div>`:''}
+          <div class="meta">${status}<span>${m.time}</span></div>
+          ${m.ack?`<span class="reacts">✓ ${m.ack}</span>`:''}
+        </div></div>`;
+    });
+    if (lastHumanVisible){
+      const seen = Object.keys(PEOPLE).filter(k=>k!==lastHumanVisible.by && k!==myKey && CAN_READ[lastHumanVisible.aud].includes(PEOPLE[k].role) && !(lastHumanVisible.pricing && PRICING_BARRED.includes(PEOPLE[k].role))).map(k=>PEOPLE[k].name);
+      if (!lastHumanVisible.queued && seen.length) html += `<div class="seen">Seen by ${seen.slice(0,2).join(', ')}</div>`;
+    }
+    box.innerHTML = html;
+    box.scrollTop = box.scrollHeight;
+
+    const banner = $('#roleBanner');
+    if (role==='setter'){
+      banner.innerHTML = `<b>Setter view (Jordan).</b> Production and pricing messages are never sent to this device. The server filters them out, so they aren't just hidden on screen. <span style="opacity:.8">Prototype check: the owner sees ${totalHuman} messages here, the setter sees ${visibleCount}.</span>`;
+      banner.classList.add('show');
+    } else if (role==='ops'){
+      banner.innerHTML = `<b>Ops view (Riley).</b> Your messages default to <b>Production</b> because you're on the job. Sales chatter is shown here; in the full File it sits behind a "Sales history" chip.`;
+      banner.classList.add('show');
+    } else banner.classList.remove('show');
+  }
+
+  // ---------- composer ----------
+  const PRICE_RE = /\$\s?\d|\bprice\b|\bpricing\b|\bdiscount\b|\d+\s?%\s?off|\bcommission\b|\bfinanc|\bper sq|\/sq\b/i;
+  function audienceIncludesSetter(a){ return CAN_READ[a].includes('setter'); }
+  function readersOf(a, pricing){
+    return Object.values(PEOPLE).filter(p=>p!==me()).filter(p=>CAN_READ[a].includes(p.role) && !(pricing && PRICING_BARRED.includes(p.role))).map(p=>p.name);
+  }
+  function updateComposer(){
+    const txt = $('#input').value;
+    const a = curAud();
+    const chip = $('#audChip');
+    chip.className = 'chip ' + a;
+    chip.textContent = (replyTo?'↩︎ ':'') + a[0].toUpperCase()+a.slice(1) + ' ▾';
+    const looksPricing = PRICE_RE.test(txt) && role!=='setter';
+    const guard = $('#guard');
+    if (looksPricing && audienceIncludesSetter(a) && pricingDecision===null){ guard.classList.add('show'); }
+    else guard.classList.remove('show');
+    const pricingFlag = looksPricing && audienceIncludesSetter(a) && pricingDecision!=='show';
+    $('#priceChip').style.display = (pricingFlag && pricingDecision==='hide') ? '' : 'none';
+    // needs reply auto-detect
+    const mention = (txt.match(/@(Riley|Sam|Nora|Jordan)\b/)||[])[1];
+    const isQ = /\?\s*$|\?\s/.test(txt) || /^(can|could|did|is|are|will|when|where|who|what|should)\b/i.test(txt.replace(/@\w+\s*/,''));
+    const nr = mention && isQ && !urgent;
+    $('#nrChip').style.display = nr ? '' : 'none';
+    if (nr) $('#nrChip').textContent = 'Needs reply from ' + mention;
+    $('#urgChip').style.display = urgent ? '' : 'none';
+    const readers = readersOf(a, pricingFlag || (looksPricing && a==='production'));
+    $('#visibleTo').textContent = 'Visible to: ' + (readers.length ? readers.join(', ') : 'only you') + (urgent ? ' · will buzz them even in quiet hours' : '');
+    $('#sendBtn').disabled = !txt.trim() && !photoAttached;
+  }
+
+  function showMentionPop(){
+    const ta = $('#input'); const v = ta.value.slice(0, ta.selectionStart);
+    const m = v.match(/@(\w*)$/);
+    const pop = $('#mentionPop');
+    if (!m){ pop.classList.remove('show'); return; }
+    const a = curAud();
+    const q = m[1].toLowerCase();
+    const opts = Object.entries(PEOPLE).filter(([k,p])=>k!==ME_BY_ROLE[role] && CAN_READ[a].includes(p.role) && p.name.toLowerCase().startsWith(q));
+    const hidden = Object.values(PEOPLE).filter(p=>!CAN_READ[a].includes(p.role));
+    pop.innerHTML = opts.map(([k,p])=>`<button data-mention="${p.name}"><span class="av" style="background:${p.color};margin:0;border:0">${p.name[0]}</span>${esc(p.label)}</button>`).join('') +
+      (hidden.length?`<div class="hint">${hidden.map(p=>p.name).join(', ')} can't read ${a} messages, so ${hidden.length>1?'they are':'they\'re'} not offered.</div>`:'');
+    pop.classList.toggle('show', opts.length>0 || hidden.length>0);
+  }
+
+  function send(){
+    const ta = $('#input'); const txt = ta.value.trim();
+    if (!txt && !photoAttached) return;
+    const a = curAud();
+    const looksPricing = PRICE_RE.test(txt) && role!=='setter';
+    const mention = (txt.match(/@(Riley|Sam|Nora|Jordan)\b/)||[])[1];
+    const nrShown = $('#nrChip').style.display !== 'none';
+    const m = {id:nextId++, kind:'h', by:ME_BY_ROLE[role], aud:a, t: txt || '(photo)', time: new Date().toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}),
+      pricing: looksPricing && pricingDecision!=='show', photo:photoAttached, urgent:urgent, reply:replyTo||undefined,
+      nr: nrShown ? Object.keys(PEOPLE).find(k=>PEOPLE[k].name===mention) : undefined};
+    if (offline){ m.queued = true; }
+    msgs.push(m);
+    // a reply from ops to msg 8 resolves the waiting item
+    if (replyTo===8 || (role==='ops' && /thursday|thu/i.test(txt))) resolveWaiting('w2','replied');
+    ta.value=''; urgent=false; $('#urgBtn').setAttribute('aria-pressed','false'); photoAttached=false; $('#attach').classList.remove('show');
+    pricingDecision=null; replyTo=null; audOverride=null;
+    renderThread(); updateComposer();
+    if (offline) toast('No signal. Saved on this phone, it will send automatically.');
+    else if (m.urgent) toast('Urgent sent. They get a text if it\'s unseen after 5 min.');
+    else if (m.nr) toast('Sent. Added to ' + PEOPLE[m.nr].name + '\'s "Waiting on you".');
+  }
+
+  // ---------- waiting ----------
+  function renderWaiting(){
+    const mine = waiting.filter(w=>w.roles.includes(role));
+    const order = {urgent:0, nr:1, task:2, mention:3};
+    mine.sort((a,b)=>order[a.type]-order[b.type]);
+    const label = {urgent:'Urgent', nr:'Needs your reply', task:'Tasks due', mention:'Mentions (FYI)'};
+    let html=''; let last='';
+    mine.forEach(w=>{
+      if (w.type!==last){ html += `<div class="sec">${label[w.type]}</div>`; last=w.type; }
+      html += `<div class="item ${w.type==='urgent'?'urgent':''}" data-w="${w.id}">
+        <div class="top">${w.type==='urgent'?'<span class="tag urgent">urgent</span>':''}<b>${esc(w.who)}</b> · ${esc(w.job)}<span class="age">${esc(w.age)}</span></div>
+        <div class="txt">${hl(w.txt)}</div>
+        <div class="acts">
+          ${w.type!=='task'?'<button class="primary" data-wact="reply">Reply</button>':''}
+          <button data-wact="done">${w.type==='task'?'✓ Complete':'✓ Done'}</button>
+          <button data-wact="snooze">Snooze 1h</button>
+          ${w.type!=='task'?'<button data-wact="task">Make task</button>':''}
+        </div>
+        <div class="inline-reply"><input placeholder="Reply to ${esc(w.who)}…" aria-label="Reply"><button class="primary" data-wact="send" style="border:0;background:var(--accent);color:var(--accent-fg);border-radius:999px;padding:4px 12px;font-weight:600">Send</button></div>
+      </div>`;
+    });
+    if (!mine.length) html = `<div class="empty">Nothing is waiting on you. 🎉<br><small>FYI updates come in the 7am summary.</small></div>`;
+    const doneMine = doneToday.filter(d=>d.roles.includes(role));
+    if (doneMine.length) html += `<div class="sec">Done today</div><div class="done-fold">${doneMine.map(d=>`<div>${esc(d.who)}: ${esc(d.txt.slice(0,50))}</div>`).join('')}</div>`;
+    $('#waitList').innerHTML = html;
+    const n = mine.length;
+    const b = $('#waitBadge'); b.textContent = n; b.style.display = n ? '' : 'none';
+  }
+  function resolveWaiting(id, how){
+    const i = waiting.findIndex(w=>w.id===id); if (i<0) return;
+    const [w] = waiting.splice(i,1); w.how = how; doneToday.unshift(w); renderWaiting();
+  }
+
+  // ---------- navigation ----------
+  function go(id){
+    document.querySelectorAll('.screen').forEach(s=>s.classList.toggle('active', s.id===id));
+    document.querySelectorAll('.nav button[data-go]').forEach(b=>{ if(b.dataset.go===id) b.setAttribute('aria-current','page'); else b.removeAttribute('aria-current'); });
+    if (id==='s-thread'){ const box=$('#msgs'); box.scrollTop=box.scrollHeight; }
+  }
+  function openSheet(el){ $('#scrim').classList.add('show'); el.classList.add('show'); }
+  function closeSheets(){ $('#scrim').classList.remove('show'); document.querySelectorAll('.sheet').forEach(s=>s.classList.remove('show')); }
+
+  // ---------- events ----------
+  $('#roleSeg').addEventListener('click', e=>{
+    const b = e.target.closest('button'); if(!b) return;
+    role = b.dataset.role;
+    document.querySelectorAll('#roleSeg button').forEach(x=>x.setAttribute('aria-pressed', x===b ? 'true':'false'));
+    audOverride=null; replyTo=null; pricingDecision=null;
+    renderThread(); updateComposer(); renderWaiting();
+  });
+  $('#offlineBtn').addEventListener('click', ()=>{
+    offline = !offline;
+    const b=$('#offlineBtn'); b.setAttribute('aria-pressed', offline); b.textContent = offline ? '✈︎ No signal' : '📶 Online';
+    if (!offline){
+      const q = msgs.filter(m=>m.queued);
+      if (q.length){
+        q.forEach(m=>{m.queued=false; m.sending=true;}); renderThread();
+        setTimeout(()=>{ q.forEach(m=>m.sending=false); renderThread(); toast(q.length + ' queued message' + (q.length>1?'s':'') + ' sent. No duplicates.'); }, 900);
+      }
+    } else toast('Offline. You can still read and write; messages queue on the phone.');
+  });
+  $('#themeBtn').addEventListener('click', ()=>{
+    const r = document.documentElement;
+    const isDark = r.getAttribute('data-theme') ? r.getAttribute('data-theme')==='dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+    r.setAttribute('data-theme', isDark ? 'light':'dark');
+  });
+
+  $('#msgs').addEventListener('click', e=>{
+    const s = e.target.closest('[data-sys]');
+    if (s){ const id=+s.dataset.sys; expandedSys[id]=!expandedSys[id]; renderThread(); return; }
+    const m = e.target.closest('[data-msg]');
+    if (m){ activeMsg = +m.dataset.msg; const mm = msgs.find(x=>x.id===activeMsg); $('#msgSheetTitle').textContent = PEOPLE[mm.by].name + ': ' + mm.t.slice(0,40) + (mm.t.length>40?'…':''); openSheet($('#msgSheet')); }
+  });
+  $('#msgSheet').addEventListener('click', e=>{
+    const b = e.target.closest('[data-act]'); if(!b) return;
+    const m = msgs.find(x=>x.id===activeMsg); closeSheets();
+    if (b.dataset.act==='reply'){ replyTo = activeMsg; updateComposer(); $('#input').focus(); toast('Replying. The audience is locked to the original: ' + m.aud + '.'); }
+    if (b.dataset.act==='task'){ waiting.push({id:'t'+nextId++, type:'task', who:'You', job:'Sample · 123 Sample St', txt:'Task: ' + m.t.slice(0,70) + ' (due tomorrow 9am)', age:'tomorrow', roles:[role]}); renderWaiting(); toast('Task created, due tomorrow 9am. It\'s in Waiting on you.'); }
+    if (b.dataset.act==='remind'){ toast('I\'ll remind you tomorrow at 8am.'); }
+    if (b.dataset.act==='pin'){ toast('Pinned to the top of this job.'); }
+    if (b.dataset.act==='ack'){ m.ack = me().name; if (activeMsg===8) resolveWaiting('w2','done'); renderThread(); }
+  });
+
+  const ta = $('#input');
+  ta.addEventListener('input', ()=>{ ta.style.height='auto'; ta.style.height=Math.min(ta.scrollHeight,120)+'px'; if(!PRICE_RE.test(ta.value)) pricingDecision=null; updateComposer(); showMentionPop(); });
+  ta.addEventListener('keydown', e=>{ if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); send(); } });
+  $('#mentionPop').addEventListener('click', e=>{
+    const b = e.target.closest('[data-mention]'); if(!b) return;
+    const pos = ta.selectionStart; const before = ta.value.slice(0,pos).replace(/@(\w*)$/, '@'+b.dataset.mention+' ');
+    ta.value = before + ta.value.slice(pos); $('#mentionPop').classList.remove('show'); ta.focus(); updateComposer();
+  });
+  $('#sendBtn').addEventListener('click', send);
+  $('#urgBtn').addEventListener('click', ()=>{ urgent=!urgent; $('#urgBtn').setAttribute('aria-pressed', urgent); updateComposer(); });
+  $('#camBtn').addEventListener('click', ()=>{ photoAttached=true; $('#attach').classList.add('show'); updateComposer(); });
+  $('#attachRm').addEventListener('click', ()=>{ photoAttached=false; $('#attach').classList.remove('show'); updateComposer(); });
+  $('#guardOk').addEventListener('click', ()=>{ pricingDecision='hide'; updateComposer(); });
+  $('#guardShow').addEventListener('click', ()=>{ pricingDecision='show'; updateComposer(); });
+
+  // fake dictation
+  function dictate(target, phrase, btn, done){
+    btn.classList.add('rec'); let i=0; const start=target.value ? target.value+' ' : '';
+    const iv=setInterval(()=>{ i+=2; target.value = start + phrase.slice(0,i); target.dispatchEvent(new Event('input')); if(i>=phrase.length){ clearInterval(iv); btn.classList.remove('rec'); done&&done(); } }, 40);
+  }
+  $('#micBtn').addEventListener('click', ()=>{
+    const phrases = {owner:'Heads up, homeowner says the side gate sticks, lift it to open.', ops:'Crew can do Thursday, swapping with the Oak job. Will confirm by noon.', setter:'Neighbor at 125 wants an inspection too, booked for Friday.'};
+    dictate(ta, phrases[role], $('#micBtn'));
+  });
+
+  // audience sheet
+  $('#audChip').addEventListener('click', ()=>{
+    if (replyTo){ toast('Replies keep the original message\'s audience.'); return; }
+    const allowed = role==='setter' ? ['team','sales'] : ['team','sales','production'];
+    const desc = {team:'Everyone on this job, including the setter', sales:'Sales side: setter, closer, owners', production:'Ops, closer, owners. Never setters.'};
+    $('#audOpts').innerHTML = allowed.map(a=>`<button class="opt ${a===curAud()?'sel':''}" data-aud="${a}">${a[0].toUpperCase()+a.slice(1)}<small>${desc[a]}</small></button>`).join('') +
+      (role==='setter' ? '<p class="note">Production isn\'t offered to setters.</p>' : '');
+    openSheet($('#audSheet'));
+  });
+  $('#audOpts').addEventListener('click', e=>{ const b=e.target.closest('[data-aud]'); if(!b) return; audOverride=b.dataset.aud; pricingDecision=null; closeSheets(); updateComposer(); });
+  $('#scrim').addEventListener('click', closeSheets);
+  document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeSheets(); });
+
+  // nav
+  document.querySelectorAll('.nav button[data-go]').forEach(b=>b.addEventListener('click', ()=>go(b.dataset.go)));
+
+  // waiting actions
+  $('#waitList').addEventListener('click', e=>{
+    const b = e.target.closest('[data-wact]'); if(!b) return;
+    const item = b.closest('[data-w]'); const id = item.dataset.w;
+    const act = b.dataset.wact;
+    if (act==='reply'){ item.querySelector('.inline-reply').classList.add('show'); item.querySelector('.inline-reply input').focus(); }
+    if (act==='send'){
+      const v = item.querySelector('.inline-reply input').value.trim(); if(!v) return;
+      const w = waiting.find(x=>x.id===id);
+      if (w && w.msg){ msgs.push({id:nextId++, kind:'h', by:ME_BY_ROLE[role], aud: msgs.find(m=>m.id===w.msg).aud, t:v, time:'now', reply:w.msg, queued:offline}); renderThread(); }
+      resolveWaiting(id,'replied'); toast('Reply posted in the job thread.');
+    }
+    if (act==='done'){ resolveWaiting(id,'done'); toast('Marked done. The sender sees your ✓.'); }
+    if (act==='snooze'){ resolveWaiting(id,'snoozed'); toast('Snoozed. It comes back in 1 hour.'); }
+    if (act==='task'){ const w=waiting.find(x=>x.id===id); w.type='task'; w.txt='Task: '+w.txt.replace(/^@\w+\s*/,'')+' (due tomorrow 9am)'; w.age='tomorrow'; renderWaiting(); toast('Turned into a task.'); }
+  });
+
+  // push mock
+  $('#notif').addEventListener('click', ()=>{
+    const a = $('#nActions'); const open = !a.classList.contains('show');
+    a.classList.toggle('show', open); $('#notif').setAttribute('aria-expanded', open);
+    if (open) setTimeout(()=>$('#nReplyInput').focus(), 50);
+  });
+  function pushReply(text){
+    msgs.push({id:nextId++, kind:'h', by:'riley', aud:'production', t:text, time:'9:41 AM', reply:8});
+    resolveWaiting('w2','replied');
+    $('#nActions').classList.remove('show');
+    $('#notif').style.opacity='.5';
+    renderThread();
+  }
+  $('#nReplySend').addEventListener('click', ()=>{
+    const v = $('#nReplyInput').value.trim() || 'Yes, Thursday works. Swapping with the Oak job.';
+    pushReply(v); toast('Sent from the lock screen as Riley. It\'s in the thread and cleared from Waiting.');
+  });
+  $('#nReplyInput').addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); $('#nReplySend').click(); } });
+  $('#nDone').addEventListener('click', ()=>{ const m=msgs.find(x=>x.id===8); m.ack='Riley'; resolveWaiting('w2','done'); $('#nActions').classList.remove('show'); renderThread(); toast('✓ Acknowledged. Sam sees it.'); });
+  $('#nSnooze').addEventListener('click', ()=>{ $('#nActions').classList.remove('show'); toast('Snoozed 1 hour.'); });
+  $('#nOpen').addEventListener('click', ()=>{
+    if (role==='setter'){ document.querySelector('#roleSeg [data-role="ops"]').click(); }
+    go('s-thread');
+    const el = document.querySelector('[data-msg="8"] .bub');
+    if (el){ el.scrollIntoView({block:'center'}); el.style.outline='3px solid var(--accent)'; setTimeout(()=>el.style.outline='',2000); }
+  });
+
+  // global +
+  const JOBS = [
+    {j:'Sample · 123 Sample St', why:'Opened 4 min ago'},
+    {j:'Birch · 42 Placeholder Rd', why:'Your appointment at 11:00'},
+    {j:'Oak · 9 Example Ave', why:'0.3 mi away'},
+    {j:'Maple · 7 Demo Ct', why:'Recent thread'}
+  ];
+  let plusJob = 0;
+  function renderJobs(){ $('#jobOpts').innerHTML = JOBS.map((x,i)=>`<button class="opt ${i===plusJob?'sel':''}" data-job="${i}">${i===plusJob?'●':'○'} ${esc(x.j)}<small>${esc(x.why)}</small></button>`).join(''); }
+  $('#plusBtn').addEventListener('click', ()=>{ plusJob=0; renderJobs(); $('#plusInput').value=''; openSheet($('#plusSheet')); setTimeout(()=>$('#plusInput').focus(),50); });
+  $('#jobOpts').addEventListener('click', e=>{ const b=e.target.closest('[data-job]'); if(!b) return; plusJob=+b.dataset.job; renderJobs(); });
+  $('#plusMic').addEventListener('click', ()=>dictate($('#plusInput'), 'Customer called, wants to add gutters to the job.', $('#plusMic')));
+  $('#plusCam').addEventListener('click', ()=>toast('Photo attached (prototype).'));
+  $('#plusSend').addEventListener('click', ()=>{
+    const v = $('#plusInput').value.trim(); if(!v){ toast('Type or dictate a message first.'); return; }
+    closeSheets();
+    if (plusJob===0){ msgs.push({id:nextId++, kind:'h', by:ME_BY_ROLE[role], aud:defaultAud(), t:v, time:'now', queued:offline}); renderThread(); go('s-thread'); }
+    toast('Posted to ' + JOBS[plusJob].j + (offline?' (queued)':''));
+  });
+
+  // init
+  renderMembers(); renderThread(); updateComposer(); renderWaiting();
+})();
+</script>
+</body>
+</html>

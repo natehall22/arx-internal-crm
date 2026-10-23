@@ -6,9 +6,10 @@ const problem = (code: string, area: string, message: string, fixLabel: string) 
 
 export const HARNESS_NEEDS_YOU = {
   generatedAt: '2026-10-22T12:00:00Z',
-  count: 4,
+  count: 5,
+  endedPlans: [{ id: 'e1', name: 'Nathan Hall', role: 'admin', roleLabel: 'Admin', endedOn: '2026-08-19' }],
   payPlans: [
-    { role: 'sales_rep', roleLabel: 'Closer', people: [{ id: 'r1', name: 'Cam Hill' }, { id: 'r2', name: 'Tim Joyce' }, { id: 'r3', name: 'Travis Nelson' }, { id: 'r4', name: 'ARX Measure Test Rep' }], suggestion: { id: 'plan-closer', name: 'Closer', ratePercent: 7 } },
+    { role: 'sales_rep', roleLabel: 'Closer', people: [{ id: 'r1', name: 'Cam Hill' }, { id: 'r2', name: 'Tim Joyce' }, { id: 'r3', name: 'Travis Nelson' }], suggestion: { id: 'plan-closer', name: 'Closer', ratePercent: 7 } },
   ],
   jobs: [
     {

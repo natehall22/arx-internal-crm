@@ -43,7 +43,7 @@ export default function NeedsYouList({ report, canFixPayPlans = false, audience 
       {label} ({n})
     </button>
   )
-  const nothing = view.plans.length === 0 && view.jobs.length === 0 && view.appointments.length === 0
+  const nothing = view.plans.length === 0 && view.ended.length === 0 && view.jobs.length === 0 && view.appointments.length === 0
 
   return (
     <section className="bg-white rounded-xl shadow-sm border p-4 sm:p-6 mb-6" aria-labelledby="needs-you-heading">
@@ -70,6 +70,18 @@ export default function NeedsYouList({ report, canFixPayPlans = false, audience 
           )}
 
           {nothing ? <p className="text-sm text-[#2c2c2a]">Nothing of that type.</p> : null}
+
+          {view.ended.length > 0 && (
+            <div className="mb-3 rounded-lg border border-gray-200 p-3" data-card="ended-plans">
+              <p className="text-sm font-semibold text-[#2c2c2a]">
+                <span className="mr-1.5 rounded bg-gray-100 px-1.5 py-0.5 text-xs font-semibold">Money</span>
+                {view.ended.length} {view.ended.length === 1 ? 'person has' : 'people have'} no pay plan because theirs was ended
+                <span className="ml-1.5 rounded bg-red-100 px-1.5 py-0.5 text-xs font-semibold text-red-800">Paid nothing</span>
+              </p>
+              <p className="mt-1 text-sm text-[#57574f] break-words">{view.ended.map((p) => `${p.name} (${p.roleLabel}, ended ${p.endedOn})`).join('; ')}</p>
+              <Link href="/admin/comp-plans" className={`${LINK} mt-2`}>Assign a plan</Link>
+            </div>
+          )}
 
           {view.plans.length > 0 && (
             <div className="mb-3 rounded-lg border border-gray-200 p-3" data-card="pay-plans">

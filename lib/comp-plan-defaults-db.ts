@@ -4,6 +4,7 @@ import { ymdInBusinessTz } from '@/lib/calendar-business-tz'
 import {
   suggestDefaultPlan,
   usersMissingPayPlan,
+  usersWithEndedPlan,
   type PayPlanCandidate,
   type PlanForSuggestion,
 } from '@/lib/comp-plan-defaults'
@@ -11,6 +12,8 @@ import { compPlanRoleLabel } from '@/lib/comp-plan-roles'
 
 /** A deal credited this recently makes someone "earning commission" even if their role isn't a commission role. */
 const CREDIT_LOOKBACK_DAYS = 120
+
+export type EndedPlanPerson = { id: string; name: string; role: string; roleLabel: string; endedOn: string }
 
 export type PayPlanGap = {
   role: string
@@ -30,7 +33,7 @@ export async function loadPayPlanGaps(admin: SupabaseClient, orgId: string, now:
 
   const [usersRes, assignRes, defaultsRes, plansRes, ownersRes, settersRes, jobsRes] = await Promise.all([
     loadUsers(admin, orgId),
-    admin.from('user_comp_plans').select('user_id, effective_from, effective_to').eq('org_id', orgId).lte('effective_from', today),
+    admin.from('user_comp_plans').select('user_id, effective_from, effective_to').eq('org_id', orgId),
     admin.from('org_default_comp_plans').select('role, effective_from').eq('org_id', orgId).lte('effective_from', today),
     admin.from('comp_plans').select('id, name, is_active, base_percentage, applicable_roles, plan_purpose, is_manager_plan, plan_type').eq('org_id', orgId),
     admin.from('opportunities').select('owner_user_id').eq('org_id', orgId).gte('created_at', since).not('owner_user_id', 'is', null).limit(5000),
@@ -40,11 +43,11 @@ export async function loadPayPlanGaps(admin: SupabaseClient, orgId: string, now:
   // Before the defaults table exists, or on any read problem, say nothing rather than raise a false alarm.
   if (usersRes.error || assignRes.error || defaultsRes.error || plansRes.error) return []
 
-  const assigned = new Set(
-    ((assignRes.data ?? []) as Array<{ user_id: string; effective_to: string | null }>)
-      .filter((a) => !a.effective_to || a.effective_to >= today)
-      .map((a) => a.user_id)
-  )
+  const allAssignments = (assignRes.data ?? []) as Array<{ user_id: string; effective_from: string; effective_to: string | null }>
+  // Covered today, or starting in the future (a replacement is already lined up).
+  const assigned = new Set(allAssignments.filter((a) => !a.effective_to || a.effective_to >= today).map((a) => a.user_id))
+  // Anyone who has EVER had a plan is not "never set up": an ended plan is its own Needs-you item.
+  const everAssigned = new Set(allAssignments.map((a) => a.user_id))
   const credited = new Set<string>([
     ...((ownersRes.data ?? []) as Array<{ owner_user_id: string }>).map((r) => r.owner_user_id),
     ...((settersRes.data ?? []) as Array<{ setter_user_id: string }>).map((r) => r.setter_user_id),
@@ -54,6 +57,7 @@ export async function loadPayPlanGaps(admin: SupabaseClient, orgId: string, now:
   const missing = usersMissingPayPlan({
     users,
     assignedUserIds: assigned,
+    everAssignedUserIds: everAssigned,
     defaultRoles: new Set(((defaultsRes.data ?? []) as Array<{ role: string }>).map((d) => d.role)),
     creditedUserIds: credited,
   })
@@ -85,4 +89,25 @@ async function loadUsers(admin: SupabaseClient, orgId: string) {
   const r = await admin.from('users').select('id, full_name, role, active, is_test_account').eq('org_id', orgId)
   if (r.error && (r.error as { code?: string }).code === '42703') return admin.from('users').select('id, full_name, role, active').eq('org_id', orgId)
   return r
+}
+
+/** Active people whose pay plan was ended and not replaced. They are paid nothing (a default never applies to them). */
+export async function loadEndedPlanPeople(admin: SupabaseClient, orgId: string, now: Date = new Date()): Promise<EndedPlanPerson[]> {
+  const today = ymdInBusinessTz(now)
+  const [usersRes, assignRes] = await Promise.all([
+    loadUsers(admin, orgId),
+    admin.from('user_comp_plans').select('user_id, effective_from, effective_to').eq('org_id', orgId),
+  ])
+  if (usersRes.error || assignRes.error) return []
+  const users = ((usersRes.data ?? []) as Array<PayPlanCandidate & { active: boolean | null; is_test_account?: boolean | null }>).map((u) => ({
+    ...u,
+    isTestAccount: u.is_test_account === true,
+  }))
+  return usersWithEndedPlan({ users, assignments: (assignRes.data ?? []) as Array<{ user_id: string; effective_from: string; effective_to: string | null }>, today }).map((u) => ({
+    id: u.id,
+    name: u.full_name || 'Unnamed',
+    role: u.role,
+    roleLabel: compPlanRoleLabel(u.role),
+    endedOn: u.endedOn,
+  }))
 }
