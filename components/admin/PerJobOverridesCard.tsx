@@ -6,7 +6,7 @@
  * row for actor/reason/when. Phase 2 of docs/prompts/comp-plan-admin-editing.md.
  *
  * This is a READ surface only. Editing an override stays on
- * `/admin/payroll/statements` (PATCH /api/admin/payroll/deal-commission-roles),
+ * the Pay this week screen (PATCH /api/admin/payroll/deal-commission-roles),
  * so there remains exactly one write path.
  */
 

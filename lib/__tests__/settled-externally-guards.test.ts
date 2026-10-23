@@ -10,9 +10,7 @@ const read = (p: string) => fs.readFileSync(path.join(root, p), 'utf8')
 
 describe('settled-externally jobs are excluded from payroll surfaces', () => {
   it.each([
-    ['lock / materialization', 'lib/payroll-period-materialization.ts', ".is('payroll_settled_externally_at', null)"],
-    ['weekly worksheet', 'app/api/admin/payroll/weekly/worksheet/route.ts', ".is('payroll_settled_externally_at', null)"],
-    ['payroll export preview', 'app/api/admin/payroll/export/route.ts', ".is('payroll_settled_externally_at', null)"],
+    ['lock + Pay-this-week plan (one calculation)', 'lib/payroll-period-materialization.ts', ".is('payroll_settled_externally_at', null)"],
     ['per-job overrides (409)', 'app/api/admin/payroll/deal-commission-roles/route.ts', 'payroll_settled_externally_at'],
     ['Needs you', 'lib/data-health.ts', 'isSettledExternally'],
   ])('%s', (_name, file, needle) => {

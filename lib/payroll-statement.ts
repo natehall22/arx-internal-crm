@@ -7,6 +7,8 @@ import {
 } from '@/lib/comp-plan-period-unit-earnings'
 import { computeHourlyEarnings } from '@/lib/weekly-payroll/hourly-earnings'
 import { loadActiveCompPlanForUser, producerStorageRoleForParticipant } from '@/lib/payroll-export'
+import { roundMoney } from '@/lib/money'
+import { loadPeriodAdjustments } from '@/lib/payroll-adjustments'
 
 /**
  * The `deal_commission_roles.role` that would override a given payout line.
@@ -59,6 +61,8 @@ export type PayrollStatementBonusLine = {
   amount: number
 }
 
+export type PayrollStatementAdjustment = { id: string; kind: string; reason: string; amount: number }
+
 export type PayrollStatementPayload = {
   period: {
     id: string
@@ -86,12 +90,20 @@ export type PayrollStatementPayload = {
     hourlyEarnings: number
     periodUnitEarnings: number
     bonusEarnings: number
+    /** Signed fixes / carried balances on this week's check (payroll_adjustments). */
+    adjustments: number
     chargebacksApplied: number
     netPayout: number
     hasDeficit: boolean
   }
   chargebacks: PayrollStatementChargebackRow[]
   bonuses: PayrollStatementBonusLine[]
+  adjustments: PayrollStatementAdjustment[]
+}
+
+/** The one "what is this person paid" formula: statements, the Pay-this-week preview and the CSV all use it. */
+export function computeNetPayout(parts: { commission: number; hourly: number; units: number; bonus: number; chargebacks: number; adjustments?: number }): number {
+  return parts.commission + parts.hourly + parts.units + parts.bonus + (parts.adjustments ?? 0) - parts.chargebacks
 }
 
 export async function buildPayrollStatement(
@@ -296,9 +308,19 @@ export async function buildPayrollStatement(
   const grossCommission = deals.reduce((s, d) => s + d.dealTotal, 0)
   const hourlyEarnings = hourly?.total ?? 0
   const periodUnitEarnings = periodUnits?.total ?? 0
+  const adjustmentRows = (await loadPeriodAdjustments(supabase, orgId, periodId)).filter((a) => a.userId === userId)
+  const adjustments: PayrollStatementAdjustment[] = adjustmentRows.map((a) => ({ id: a.id, kind: a.kind, reason: a.reason, amount: a.amount }))
+  const adjustmentTotal = roundMoney(adjustments.reduce((s, a) => s + a.amount, 0))
   const bonusEarnings = bonuses.reduce((s, b) => s + b.amount, 0)
   const chargebacksApplied = chargebacks.reduce((s, c) => s + c.appliedAmount, 0)
-  const netPayout = grossCommission + hourlyEarnings + periodUnitEarnings + bonusEarnings - chargebacksApplied
+  const netPayout = roundMoney(computeNetPayout({
+    commission: grossCommission,
+    hourly: hourlyEarnings,
+    units: periodUnitEarnings,
+    bonus: bonusEarnings,
+    adjustments: adjustmentTotal,
+    chargebacks: chargebacksApplied,
+  }))
 
   return {
     period: {
@@ -319,11 +341,13 @@ export async function buildPayrollStatement(
       hourlyEarnings,
       periodUnitEarnings,
       bonusEarnings,
+      adjustments: adjustmentTotal,
       chargebacksApplied,
       netPayout,
       hasDeficit: netPayout < 0,
     },
     chargebacks,
     bonuses,
+    adjustments,
   }
 }

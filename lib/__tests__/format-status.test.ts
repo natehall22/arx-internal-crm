@@ -47,3 +47,11 @@ describe('lib/status', () => {
     expect(statusMeta('lead', null).label).toBe('Unknown')
   })
 })
+
+import { cn } from '@/lib/cn'
+describe('cn', () => {
+  it('keeps a kit font size and a text color together', () => {
+    expect(cn('text-ui-sm text-white', 'text-ui-lg')).toBe('text-white text-ui-lg')
+    expect(cn('px-2 text-ink', 'text-brand-700')).toBe('px-2 text-brand-700')
+  })
+})

@@ -6,7 +6,10 @@
 type Row = Record<string, unknown>
 export type WriteLog = Array<{ table: string; op: 'insert' | 'upsert' | 'update' | 'delete'; rows: Row[] }>
 
-export function createFakeDb(seed: Record<string, Row[]>, opts: { relations?: Record<string, Record<string, { table: string; fk: string }>> } = {}) {
+export function createFakeDb(
+  seed: Record<string, Row[]>,
+  opts: { relations?: Record<string, Record<string, { table: string; fk: string }>>; rpc?: Record<string, (args: Record<string, unknown>, tables: Record<string, Row[]>) => unknown> } = {}
+) {
   const tables: Record<string, Row[]> = {}
   for (const [k, v] of Object.entries(seed)) tables[k] = v.map((r) => ({ ...r }))
   const writes: WriteLog = []
@@ -124,7 +127,7 @@ export function createFakeDb(seed: Record<string, Row[]>, opts: { relations?: Re
   }
 
   return {
-    client: { from: (t: string) => builder(t), rpc: async () => ({ data: null, error: null }) } as never,
+    client: { from: (t: string) => builder(t), rpc: async (name: string, args: Record<string, unknown>) => ({ data: opts.rpc?.[name]?.(args, tables) ?? null, error: null }) } as never,
     tables,
     writes,
   }

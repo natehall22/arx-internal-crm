@@ -17,3 +17,17 @@ test('desktop sidebar', async ({ page }, info) => {
   expect(widths.pad).toBe(240)
   await page.screenshot({ path: `e2e/screenshots/${info.project.name}-desktop-shell.png` })
 })
+
+test('pay this week on desktop', async ({ page }, info) => {
+  const { PAY_WEEK } = await import('./fixtures')
+  await page.route('http://127.0.0.1:9/**', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }))
+  await page.route('**/api/**', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{}' }))
+  await page.route('**/api/admin/payroll/pay-week', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(PAY_WEEK) }))
+  await page.goto('/dev-harness/pay-week')
+  await page.waitForSelector('text=Needs you (3)')
+  await page.getByRole('button', { name: /Jordan Vale/ }).click()
+  await page.getByRole('button', { name: /^Approve/ }).waitFor()
+  const widths = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, inner: window.innerWidth }))
+  expect(widths.scroll).toBeLessThanOrEqual(widths.inner)
+  await page.screenshot({ path: `e2e/screenshots/${info.project.name}-desktop-pay-week.png` })
+})

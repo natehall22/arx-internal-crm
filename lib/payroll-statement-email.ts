@@ -46,6 +46,9 @@ export function buildPayrollStatementEmailHtml(input: {
   if (totals.bonusEarnings > 0) {
     rows.push({ label: 'Bonuses', value: formatPayrollMoney(totals.bonusEarnings) })
   }
+  if ((totals.adjustments ?? 0) !== 0) {
+    rows.push({ label: 'Fixes', value: formatPayrollMoney(totals.adjustments) })
+  }
   rows.push({ label: 'Chargebacks', value: formatNegativePayrollMoney(totals.chargebacksApplied) })
   rows.push({ label: 'Period status', value: period.status })
 

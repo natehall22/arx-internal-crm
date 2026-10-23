@@ -319,6 +319,14 @@ export function buildPayrollStatementPdfBuffer(
     })
   }
 
+  if ((statement.totals.adjustments ?? 0) !== 0) {
+    summaryRows.push({
+      label: 'Fixes',
+      amount: formatPayrollMoney(statement.totals.adjustments),
+      subtitle: statement.adjustments?.map((a) => a.reason).join('; ') || undefined,
+    })
+  }
+
   summaryRows.push({
     label: 'Chargebacks',
     amount: formatNegativePayrollMoney(statement.totals.chargebacksApplied),

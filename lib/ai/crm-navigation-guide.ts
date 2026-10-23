@@ -71,7 +71,7 @@ Six sections: **Today** (your work queue), **Pipeline** (Leads, Opportunities, I
 - **My commissions**: **Commissions** (\`/commissions/statement\`) or Dashboard widgets.
 - **Team commissions**: \`/commissions/team\` (managers).
 - **Commission estimator**: \`/commissions/estimator\`.
-- **Payroll / bonuses (admin)**: **Admin → Payroll** (\`/admin/payroll\`) — subpages include \`/admin/payroll/periods\`, statements, weekly; start at the payroll hub unless the user asks for a specific subpage.
+- **Payroll / bonuses (admin)**: **Money → Payroll** (\`/admin/payroll\`) — one screen, "Pay this week": Needs you (hours, bonuses), who gets what, jobs waiting, and one Approve button. Earlier weeks are listed at the bottom.
 
 ### Canvassing (setters)
 - **Door knocking map**: **Canvass** (\`/canvass\`) — pins, dispositions, offline queue, territories.
@@ -288,7 +288,7 @@ If I have your counts in context I will cite them directly; otherwise open those
       return `Commissions & payroll:
 - Reps view statements at **Commissions** (\`/commissions/statement\`)
 - Managers: **Commissions → Team** (\`/commissions/team\`)
-- Admin payroll approval: **Admin → Payroll** (\`/admin/payroll\`)
+- Admin payroll approval: **Money → Payroll** (\`/admin/payroll\`)
 - Subcontractor pay stays in **job costs** on the ops job, not rep commission statements.`
     }
     return `Your commissions are under **Commissions** (\`/commissions/statement\`). You can also see summary widgets on the **Dashboard** (\`/dashboard\`). Ask an admin if your comp plan looks wrong.`

@@ -94,6 +94,9 @@ export default function PayrollStatementView({
         />
         <SummaryCard label="Pay date" value={period.payDate} />
         <SummaryCard label="Rep" value={rep.name} />
+        {(totals.adjustments ?? 0) !== 0 && (
+          <SummaryCard label="Fixes" value={formatPayrollMoney(totals.adjustments)} />
+        )}
         <SummaryCard
           label="Net payout"
           value={formatPayrollMoney(totals.netPayout)}
@@ -117,6 +120,9 @@ export default function PayrollStatementView({
               label="Bonuses"
               value={formatPayrollMoney(totals.bonusEarnings)}
             />
+          )}
+          {(totals.adjustments ?? 0) !== 0 && (
+            <BreakdownChip label="Fixes" value={formatPayrollMoney(totals.adjustments)} />
           )}
           <BreakdownChip
             label="Chargebacks"

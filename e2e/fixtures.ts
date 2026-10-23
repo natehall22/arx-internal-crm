@@ -89,13 +89,6 @@ export const REPORT_RESULT = {
   canExport: true, finance: true,
 }
 
-export const PAYROLL_PERIODS = {
-  periods: [
-    { id: 'p1', period_label: '2026-W42', cutoff_at: '2026-10-17T23:59:59Z', lock_at: '2026-10-19T12:00:00Z', scheduled_pay_date: '2026-10-23', status: 'open', locked_at: null, paid_at: null },
-    { id: 'p2', period_label: '2026-W41', cutoff_at: '2026-10-10T23:59:59Z', lock_at: '2026-10-12T12:00:00Z', scheduled_pay_date: '2026-10-16', status: 'locked', locked_at: '2026-10-12T12:00:00Z', paid_at: null },
-  ],
-}
-
 export const SALE_CREDIT = {
   credit: { closerUserId: 'u1', setterUserId: 'u2', isSelfGenerated: false },
   locked: false, canEdit: true, isSuperAdmin: false,
@@ -211,3 +204,61 @@ export const HARNESS_QUEUES = [
     { id: 'p1', title: 'Ashley Gaines', detail: '#P-00118 · $18,430.50', href: '#' },
   ] },
 ]
+
+/** Fictional week for the Pay-this-week screen (names, jobs and amounts are made up). */
+export const PAY_WEEK = {
+  period: { id: '00000000-0000-4000-8000-000000000001', label: 'Week ending 2026-10-21', cutoffAt: '2026-10-22T03:59:59.999Z', payDate: '2026-10-23', status: 'open', weekStart: '2026-10-15', weekEnding: '2026-10-21' },
+  state: 'draft',
+  totals: { amount: 5238.5, people: 5 },
+  needs: [
+    { kind: 'hours', userId: 'u-avery', name: 'Avery Lin', rate: 18 },
+    { kind: 'bonus', id: 'b1', userId: 'u-riley', name: 'Riley Moss', amount: 250, what: 'Setter ramp bonus — 4 appointments set in first 30 days' },
+    { kind: 'plans', text: '2 people have no pay plan, so they are paid nothing', names: ['Cam Hill', 'Tim Joyce'], href: '/admin/comp-plans' },
+  ],
+  warnings: [{ code: 'first_time', text: 'Taylor Finch is being paid for the first time.' }, { code: 'backlog', text: '2 jobs that finished before 2026-10-15 are included — nothing has paid them yet.' }],
+  backlog: { jobs: 2, amount: 2170, since: '2026-10-15' },
+  people: [
+    { userId: 'u-jordan', name: 'Jordan Vale', roleLabel: 'Closer', total: 2394, raw: 2394, hoursMissing: false, lines: [
+      { kind: 'Commission', what: '26-0141 · 12 Example Maple Ln', math: '$18,400 × 7% closer = $1,288', amount: 1288, jobId: 'j1', jobNumber: '26-0141', participantRole: 'sales_rep' },
+      { kind: 'Commission', what: '26-0144 · 408 Sample Birch Ct that has a very long address line to wrap', math: '$12,600 × 7% closer = $882', amount: 882, jobId: 'j2', jobNumber: '26-0144', participantRole: 'sales_rep' },
+      { kind: 'Commission', what: '26-0129 · 19 Imaginary Elm Ave', math: '$9,200 × 7% closer = $644, reduced to $224 to stay inside the 18% pool', amount: 224, jobId: 'j3', jobNumber: '26-0129', participantRole: 'sales_rep' },
+    ] },
+    { userId: 'u-riley', name: 'Riley Moss', roleLabel: 'Setter', total: 920, raw: 920, hoursMissing: false, lines: [{ kind: 'Commission', what: '26-0141 · 12 Example Maple Ln', math: '$18,400 × 5% setter = $920', amount: 920, jobId: 'j1', jobNumber: '26-0141', participantRole: 'setter' }] },
+    { userId: 'u-casey', name: 'Casey Park', roleLabel: 'Sales manager', total: 1104, raw: 1104, hoursMissing: false, lines: [{ kind: 'Commission', what: '26-0141 · 12 Example Maple Ln', math: '$18,400 × 6% sales manager override = $1,104', amount: 1104, jobId: 'j1', jobNumber: '26-0141', participantRole: 'closer_manager_override' }] },
+    { userId: 'u-taylor', name: 'Taylor Finch', roleLabel: 'Setter', total: 630, raw: 630, hoursMissing: false, lines: [{ kind: 'Commission', what: '26-0144 · 408 Sample Birch Ct', math: '$12,600 × 5% setter = $630', amount: 630, jobId: 'j2', jobNumber: '26-0144', participantRole: 'setter' }] },
+    { userId: 'u-mia', name: 'Mia Cruz', roleLabel: 'Canvasser', total: 190.5, raw: 190.5, hoursMissing: false, lines: [{ kind: 'Hourly', what: 'Hourly', math: '10.5 hrs × $18', amount: 189 }, { kind: 'Units', what: 'Per-unit pay', math: 'Per-unit pay from the comp plan', amount: 1.5 }] },
+    { userId: 'u-avery', name: 'Avery Lin', roleLabel: 'Canvasser', total: 0, raw: 0, hoursMissing: true, lines: [] },
+  ],
+  jobs: [
+    { jobId: 'j1', jobNumber: '26-0141', address: '12 Example Maple Ln', commissionBase: 18400, total: 3312, paid: [
+      { userId: 'u-jordan', name: 'Jordan Vale', roleLabel: 'closer', amount: 1288, math: '$18,400 × 7% closer = $1,288' },
+      { userId: 'u-riley', name: 'Riley Moss', roleLabel: 'setter', amount: 920, math: '$18,400 × 5% setter = $920' },
+      { userId: 'u-casey', name: 'Casey Park', roleLabel: 'sales manager override', amount: 1104, math: '$18,400 × 6% sales manager override = $1,104' },
+    ] },
+  ],
+  waiting: [
+    { jobId: 'j4', jobNumber: '26-0150', address: '5 Fictional Oak Dr', reason: 'Customer still owes $4,200 of $21,000', who: [{ name: 'Jordan Vale', roleLabel: 'closer', estimate: 1470 }, { name: 'Riley Moss', roleLabel: 'setter', estimate: 1050 }] },
+    { jobId: 'j5', jobNumber: '26-0152', address: '290 Mock Cedar Way', reason: 'Install not marked complete', who: [{ name: 'Jordan Vale', roleLabel: 'closer', estimate: 1106 }] },
+  ],
+  earlier: [{ id: 'e1', weekEnding: '2026-10-14', payDate: '2026-10-16', status: 'locked' }],
+  nextWeek: null,
+  directory: [{ id: 'u-jordan', name: 'Jordan Vale' }, { id: 'u-riley', name: 'Riley Moss' }, { id: 'u-casey', name: 'Casey Park' }],
+}
+
+export const MY_PAY = {
+  name: 'Jordan Vale',
+  headline: { amount: 2394, state: 'draft', payDate: '2026-10-23' },
+  thisWeek: [
+    { key: 't1', title: '26-0141 · 12 Example Maple Ln', why: "On Friday's check (2026-10-23).", amount: 1288, math: '$18,400 × 7% closer = $1,288', jobId: 'j1', lineKind: 'Commission' },
+    { key: 't2', title: '26-0144 · 408 Sample Birch Ct, a very long address that has to wrap on a phone', why: "On Friday's check (2026-10-23).", amount: 882, math: '$12,600 × 7% closer = $882', jobId: 'j2', lineKind: 'Commission' },
+    { key: 't3', title: '26-0129 · 19 Imaginary Elm Ave', why: "On Friday's check (2026-10-23).", amount: 224, math: '$9,200 × 7% closer = $644, reduced to $224 to stay inside the 18% pool', jobId: 'j3', lineKind: 'Commission' },
+  ],
+  coming: [
+    { key: 'c1', title: '26-0150 · 5 Fictional Oak Dr', why: 'Customer still owes $4,200 of $21,000', amount: 1470, math: 'Estimate: closer line on this job', jobId: 'j4', lineKind: 'Commission' },
+    { key: 'c2', title: '26-0152 · 290 Mock Cedar Way', why: 'Install not marked complete', amount: 1106, math: 'Estimate: closer line on this job', jobId: 'j5', lineKind: 'Commission' },
+  ],
+  comingTotal: 2576,
+  paid: [{ periodId: 'p-old', payDate: '2026-10-16', total: 980, lines: [{ key: 'p1', title: '26-0120 · 731 Pretend Spruce Ln', why: 'Paid 2026-10-16.', amount: 980, math: '$14,000 × 7% closer = $980', jobId: 'j6', lineKind: 'Commission' }] }],
+  disputes: [{ id: 'd1', label: '26-0120 · 731 Pretend Spruce Ln', message: 'I closed this alone', status: 'open', reply: null, createdAt: '2026-10-20T12:00:00Z' }],
+  nextWeekFixes: [],
+}
