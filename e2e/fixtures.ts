@@ -6,7 +6,10 @@ const problem = (code: string, area: string, message: string, fixLabel: string) 
 
 export const HARNESS_NEEDS_YOU = {
   generatedAt: '2026-10-22T12:00:00Z',
-  count: 3,
+  count: 4,
+  payPlans: [
+    { role: 'sales_rep', roleLabel: 'Closer', people: [{ id: 'r1', name: 'Cam Hill' }, { id: 'r2', name: 'Tim Joyce' }, { id: 'r3', name: 'Travis Nelson' }, { id: 'r4', name: 'ARX Measure Test Rep' }], suggestion: { id: 'plan-closer', name: 'Closer', ratePercent: 7 } },
+  ],
   jobs: [
     {
       kind: 'job', jobId: 'job-1', jobNumber: '26-0042', status: 'complete', addressText: '12 Elm Street, Concord NC 28025',
@@ -186,4 +189,13 @@ export const ANNOUNCEMENTS = {
     body: { owner: ['Payroll is now one screen.'], ops: ['Send material orders from the job’s order sheet.'] },
     dismissed: [{ name: 'Nathan Hall', at: '2026-10-23T12:00:00Z' }], not_dismissed: [{ name: 'Setter Sam' }],
   }],
+}
+
+export const DEFAULT_PLANS = {
+  defaults: [{ id: 'd1', role: 'setter', roleLabel: 'Senior Field Marketer', planId: 'p5', planName: 'Setter', ratePercent: 5, effectiveFrom: '2026-10-24' }],
+  plans: [
+    { id: 'plan-closer', name: 'Closer', is_active: true, base_percentage: 7, applicable_roles: ['sales_rep'] },
+    { id: 'p5', name: 'Setter', is_active: false, base_percentage: 5, applicable_roles: ['setter'] },
+  ],
+  gaps: [{ role: 'sales_rep', roleLabel: 'Closer', people: [{ id: 'r1', name: 'Cam Hill' }, { id: 'r2', name: 'Tim Joyce' }] }],
 }

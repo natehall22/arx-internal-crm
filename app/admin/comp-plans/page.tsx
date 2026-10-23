@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
 import CompanyCommissionRatesCard from '@/components/admin/CompanyCommissionRatesCard'
+import DefaultPlansCard from '@/components/admin/DefaultPlansCard'
 import ManagerOverrideCard from '@/components/admin/ManagerOverrideCard'
 import { eligibleOverrideManagerIds, resolveOverlayRatePercent } from '@/lib/management-override-admin'
 import PerJobOverridesCard from '@/components/admin/PerJobOverridesCard'
@@ -1008,6 +1009,7 @@ export default function CompPlansPage() {
           </button>
         </div>
 
+        <DefaultPlansCard />
         <CompanyCommissionRatesCard />
 
         {/* Tabs */}

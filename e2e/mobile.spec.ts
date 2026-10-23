@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import { REPORT_TEMPLATES } from '../lib/reporting/templates'
-import { ANNOUNCEMENTS, BANNER, COST_LINES, SUPPLIERS, PAYROLL_PERIODS, REPORT_RESULT, SALE_CREDIT, SUPPLIER_PREVIEW, SUPPLIER_VIEW, TEMPLATE_META, USERS } from './fixtures'
+import { ANNOUNCEMENTS, BANNER, DEFAULT_PLANS, COST_LINES, SUPPLIERS, PAYROLL_PERIODS, REPORT_RESULT, SALE_CREDIT, SUPPLIER_PREVIEW, SUPPLIER_VIEW, TEMPLATE_META, USERS } from './fixtures'
 
 const json = (body: unknown, status = 200) => ({ status, contentType: 'application/json', body: JSON.stringify(body) })
 
@@ -26,6 +26,7 @@ async function mockApi(page: Page) {
     if (p === '/api/admin/payroll/periods') return route.fulfill(json(PAYROLL_PERIODS))
     if (p.endsWith('/sale-credit')) return route.fulfill(json(SALE_CREDIT))
     if (p === '/api/referral-partners/summary') return route.fulfill(json({ assigned_count: 9, opening_soon: [{ id: 'rp1', name: 'Concord Realty Group', days_until_open: 3 }], opening_soon_count: 1, jobs_this_month: 2 }))
+    if (p === '/api/admin/comp-plans/defaults') return route.fulfill(json(DEFAULT_PLANS))
     if (p === '/api/users') return route.fulfill(json(USERS))
     if (p.includes('/effective-permissions')) return route.fulfill(json({ permissions: [], fullAccess: true }))
     return route.fulfill(json({}))
@@ -87,6 +88,7 @@ const SCREENS: Screen[] = [
   { name: 'job-sheets-editor', path: '/dev-harness/job-sheets', ready: 'text=Scope of work',
     states: [{ name: 'editing', run: async (p) => { await p.locator('textarea').first().click(); await p.locator('textarea').first().fill('Edited scope for the crew.'); await p.waitForTimeout(200) } }] },
   { name: 'dashboard-tiles', path: '/dev-harness/dashboard', ready: 'text=Doors' },
+  { name: 'default-plans-card', path: '/dev-harness/default-plans', ready: 'text=Default pay plan by role' },
   { name: 'payroll-periods', path: '/dev-harness/payroll-periods', ready: 'text=2026-W42' },
 ]
 

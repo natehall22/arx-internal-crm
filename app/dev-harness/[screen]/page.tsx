@@ -30,6 +30,7 @@ import ContractModal from '@/components/contracts/ContractModal'
 import ExploreClient from '@/app/reports/explore/ExploreClient'
 import ReportsPage from '@/app/reports/page'
 import PayrollPeriodsPage from '@/app/admin/payroll/periods/page'
+import DefaultPlansCard from '@/components/admin/DefaultPlansCard'
 import { HARNESS_NEEDS_YOU, HARNESS_RUN_SHEET, HARNESS_DASHBOARD } from '@/e2e/fixtures'
 import JobSheetsEditor from '@/app/ops/jobs/[id]/sheets/JobSheetsEditor'
 import DashboardClient from '@/app/dashboard/DashboardClient'
@@ -57,7 +58,7 @@ export default function Harness({ params }: { params: { screen: string } }) {
         />
       )
     case 'needs-you':
-      return <div className="p-3"><NeedsYouList report={HARNESS_NEEDS_YOU} /></div>
+      return <div className="p-3"><NeedsYouList report={HARNESS_NEEDS_YOU as never} canFixPayPlans /></div>
     case 'job-documents':
       return (
         <div className="p-3">
@@ -127,6 +128,8 @@ export default function Harness({ params }: { params: { screen: string } }) {
       return <JobSheetsEditor initialSheet={HARNESS_RUN_SHEET as never} canEdit scope={null} coverage={{} as never} showOrder={false} />
     case 'dashboard':
       return <DashboardClient profile={HARNESS_DASHBOARD.profile} stats={HARNESS_DASHBOARD.stats} progress={HARNESS_DASHBOARD.progress} pendingPrompts={[]} upcomingAppointments={[]} recentActivities={[]} settings={{}} />
+    case 'default-plans':
+      return <div className="p-3"><DefaultPlansCard /></div>
     case 'payroll-periods':
       return <PayrollPeriodsPage />
     default:

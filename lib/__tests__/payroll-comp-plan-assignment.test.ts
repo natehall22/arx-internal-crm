@@ -19,7 +19,7 @@ function clientReturning(result: { data: unknown; error: unknown }) {
 }
 
 describe('loadActiveCompPlanForUser', () => {
-  it('keeps an unassigned historical timeframe blank instead of using the org default', async () => {
+  it('keeps an unassigned historical timeframe blank when the org has no default plan', async () => {
     const { client, tables } = clientReturning({ data: null, error: null })
     const result = await loadActiveCompPlanForUser(
       client as never,
@@ -29,7 +29,7 @@ describe('loadActiveCompPlanForUser', () => {
     )
 
     expect(result).toBeNull()
-    expect(tables).toEqual(['user_comp_plans'])
+    expect(tables).toEqual(['user_comp_plans', 'org_default_comp_plans'])
   })
 
   it('fails closed when assignment history cannot be read', async () => {
