@@ -730,6 +730,9 @@ export type NeedsYouAudience = 'owner' | 'ops' | 'none'
 /** Field roles never get "Needs you", whatever else they have been granted. */
 const NO_NEEDS_YOU_ROLES = new Set(['setter', 'canvasser', 'setter_manager', 'sales_rep', 'closer', 'rep', 'inside_sales', 'call_center', 'call_center_rep'])
 
+/** Roles that may see the operational view when they also have job-board access. */
+const OPS_ROLES = new Set(['operations', 'admin', 'manager', 'sales_manager', 'regional_manager', 'custom'])
+
 /** Operational rows an ops person may see — none of them carries a dollar amount. */
 const OPS_VISIBLE_CODES: ReadonlySet<HealthProblemCode> = new Set<HealthProblemCode>([
   'materials_not_ordered',
@@ -747,7 +750,9 @@ export function needsYouAudience(
   if (isOwnerProfile(viewer)) return 'owner'
   const role = String(viewer.role || '').toLowerCase().trim()
   if (NO_NEEDS_YOU_ROLES.has(role)) return 'none'
-  return canJobBoard ? 'ops' : 'none'
+  // Allow-list, not just a block-list: only roles that run operations can ever get the ops view (a custom role is
+  // `custom` and counts only because it was explicitly granted the job board). Any other role string is nothing.
+  return canJobBoard && OPS_ROLES.has(role) ? 'ops' : 'none'
 }
 
 /**

@@ -122,7 +122,7 @@ export function buildNeedsYouHtml(report: DataHealthReport, appUrl?: string | nu
       : ''
   return `
         <h2 style="margin: 28px 0 6px; color: #111827; font-size: 17px;">Needs you (${report.count})</h2>
-        <p style="margin: 0 0 10px; color: #2c2c2a; font-size: 13px;">${holdsPay} job${holdsPay === 1 ? '' : 's'} can&apos;t be paid until fixed. <a href="${escapeHtml(dashboardUrl)}" style="color: #2b0a3d;">See the full list</a>.</p>
+        <p style="margin: 0 0 10px; color: #2c2c2a; font-size: 13px;">${holdsPay > 0 ? `${holdsPay} job${holdsPay === 1 ? '' : 's'} can&apos;t be paid until fixed. ` : ''}<a href="${escapeHtml(dashboardUrl)}" style="color: #2b0a3d;">See the full list</a>.</p>
         <table style="width: 100%; border-collapse: collapse; margin: 0 0 8px;">${rows}</table>
         ${moreLine}
         ${apptLine}
@@ -299,7 +299,9 @@ export async function sendMorningUpdateEmail(
   }
   const viewerByEmail = new Map<string, { role: string | null; is_super_admin: boolean | null; active: boolean | null }>()
   for (const u of (recipientRows || []) as Array<{ email: string | null; role: string | null; is_super_admin: boolean | null; active: boolean | null }>) {
-    viewerByEmail.set(String(u.email || '').trim().toLowerCase(), { role: u.role, is_super_admin: u.is_super_admin, active: u.active })
+    const key = String(u.email || '').trim().toLowerCase()
+    // Two user rows with one address: it is ambiguous who is reading, so fail closed (no section) — never the more privileged row.
+    viewerByEmail.set(key, viewerByEmail.has(key) ? { role: null, is_super_admin: false, active: false } : { role: u.role, is_super_admin: u.is_super_admin, active: u.active })
   }
   const htmlFor = (to: string): string => {
     if (!needsYou) return buildMorningUpdateHtml(metrics, { test: isTest, needsYou: null })

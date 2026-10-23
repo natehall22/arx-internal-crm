@@ -107,8 +107,11 @@ export default async function OpsDashboardPage() {
   // "Needs you" — the daily data-health check, shaped for who is looking by the one rule in lib/data-health.ts
   // (owners: everything; ops: operational rows only, no dollars; field roles: nothing).
   let needsYou: DataHealthReport | null = null
+  let needsYouAudience: 'owner' | 'ops' = 'ops'
   try {
-    needsYou = (await loadNeedsYouForViewer(admin, profile.org_id, profile, canJobBoard)).report
+    const loaded = await loadNeedsYouForViewer(admin, profile.org_id, profile, canJobBoard)
+    needsYou = loaded.report
+    needsYouAudience = loaded.audience === 'owner' ? 'owner' : 'ops'
   } catch (error) {
     console.error('[ops dashboard] data health failed', error)
   }
@@ -182,7 +185,7 @@ export default async function OpsDashboardPage() {
           </div>
         </div>
 
-        {needsYou && <NeedsYouList report={needsYou} canFixPayPlans={isOwnerProfile(profile)} />}
+        {needsYou && <NeedsYouList report={needsYou} canFixPayPlans={isOwnerProfile(profile)} audience={needsYouAudience} />}
 
         {/* Pipeline Overview */}
         <div className="bg-white rounded-xl shadow-sm border p-6 mb-6">

@@ -2,7 +2,8 @@
 import { NextResponse } from 'next/server'
 
 import type { DataHealthReport, HealthProblem } from '@/lib/data-health'
-import { dataHealthDeps, needsYouAudience, needsYouForEmailRecipient, shapeNeedsYou } from '@/lib/data-health'
+import { dataHealthDeps, needsYouAudience, needsYouForEmailRecipient, shapeNeedsYou, type HealthProblemCode } from '@/lib/data-health'
+import { buildNeedsYouHtml } from '@/lib/morning-update-email'
 
 const mockAuth = jest.fn()
 const mockOps = jest.fn()
@@ -66,6 +67,31 @@ describe('who gets what from Needs you (pure rule)', () => {
   it('an inactive user and a missing profile get nothing', () => {
     expect(needsYouAudience({ role: 'admin', is_super_admin: true, active: false }, true)).toBe('none')
     expect(needsYouAudience(null, true)).toBe('none')
+  })
+})
+
+describe('every problem code is deliberately classified', () => {
+  it('a new HealthProblemCode must be placed on purpose: ops-visible, or money/credit (owner only)', () => {
+    const ALL: HealthProblemCode[] = ['no_signed_contract', 'missing_commission_base', 'commission_base_mismatch', 'sale_amount_mismatch', 'collected_but_short', 'paid_not_marked_collected', 'no_deal_linked', 'no_closer', 'no_setter', 'self_gen_setter_conflict', 'completed_no_costs', 'not_installed', 'materials_not_ordered', 'permit_pending', 'crews_done_job_open', 'appointment_no_outcome']
+    const OPS = ['completed_no_costs', 'materials_not_ordered', 'permit_pending', 'crews_done_job_open', 'appointment_no_outcome']
+    // Build a report with one row per code and check exactly the ops codes survive for ops.
+    const report: DataHealthReport = { generatedAt: 'x', jobs: ALL.map((code, i) => ({ kind: 'job', jobId: `j${i}`, jobNumber: `26-${i}`, status: 'complete', addressText: null, problems: [p(code, 'money', 'row')] })), appointments: [], count: ALL.length }
+    expect(codes(shapeNeedsYou(report, 'ops')!).sort()).toEqual([...OPS].sort())
+  })
+  it('roles outside the allow-list get nothing even with job-board access', () => {
+    for (const role of ['regional_setter_manager', 'sub', 'accountant', 'customer', '']) expect(needsYouAudience({ role }, true)).toBe('none')
+    for (const role of ['operations', 'admin', 'custom', 'regional_manager']) expect(needsYouAudience({ role }, true)).toBe('ops')
+  })
+  it('ops output has no dollar amounts in any form', () => {
+    expect(JSON.stringify(shapeNeedsYou(FULL, 'ops'))).not.toMatch(/\$|\d{1,3}(,\d{3})+|\d+\.\d{2}/)
+  })
+})
+
+describe('morning email text for ops', () => {
+  it('does not claim jobs "can\'t be paid" (a money fact)', () => {
+    const html = buildNeedsYouHtml(shapeNeedsYou(FULL, 'ops')!, 'https://crm.example')
+    expect(html).not.toMatch(/can.t be paid|holds pay/i)
+    expect(html).toContain('Needs you (3)')
   })
 })
 
