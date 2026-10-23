@@ -1,12 +1,12 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { lockPayrollPeriod } from '@/lib/payroll-period-lock'
-import { loadPayWeek } from '@/lib/payroll-pay-week'
+import { loadPayWeek, type PayWeek } from '@/lib/payroll-pay-week'
 import { buildPayrollStatement } from '@/lib/payroll-statement'
 import { sendPayrollStatementEmail } from '@/lib/payroll-statement-email'
 import { pickValidEmail } from '@/lib/setter-email'
 import { isUserActiveForTransactionalEmail } from '@/lib/user-email-eligibility'
-import { weeklyPayrollPayDateForCutoff } from '@/lib/weekly-payroll/cutoff'
+import { ensureNextOpenPeriod } from '@/lib/payroll-periods'
 
 /**
  * Bonuses nobody approved this week wait: they move to NEXT week's period (created if needed) so they show up in its
@@ -20,27 +20,7 @@ export async function rollPendingBonusesForward(
   const { data: pending } = await admin.from('payroll_bonus_lines').select('id').eq('org_id', orgId).eq('payroll_period_id', period.id).eq('status', 'pending_approval')
   if (!pending?.length) return { moved: 0 }
 
-  const nextCutoff = new Date(new Date(period.cutoffAt).getTime() + 7 * 86_400_000)
-  const from = new Date(nextCutoff.getTime() - 36 * 3_600_000).toISOString()
-  const to = new Date(nextCutoff.getTime() + 36 * 3_600_000).toISOString()
-  const find = async () => {
-    const { data } = await admin.from('payroll_periods').select('id').eq('org_id', orgId).eq('status', 'open').gte('cutoff_at', from).lte('cutoff_at', to).order('created_at', { ascending: true }).limit(1)
-    return (data ?? [])[0] as { id: string } | undefined
-  }
-  let next = await find()
-  if (!next) {
-    const { error } = await admin.from('payroll_periods').insert({
-      org_id: orgId,
-      period_label: `Week ending ${new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(nextCutoff)}`,
-      cutoff_at: nextCutoff.toISOString(),
-      lock_at: nextCutoff.toISOString(),
-      scheduled_pay_date: weeklyPayrollPayDateForCutoff(nextCutoff),
-      status: 'open',
-    })
-    if (error) throw error
-    next = await find()
-  }
-  if (!next) return { moved: 0 }
+  const next = await ensureNextOpenPeriod(admin, orgId, period.cutoffAt)
 
   let moved = 0
   for (const line of pending) {
@@ -79,6 +59,27 @@ export async function emailStatements(admin: SupabaseClient, orgId: string, peri
   return out
 }
 
+/** One pending 'balance' line on next week for every person whose raw total is negative. Returns the new row ids. */
+export async function carryNegativeBalances(admin: SupabaseClient, orgId: string, actorUserId: string, week: PayWeek): Promise<string[]> {
+  const owing = week.people.filter((p) => p.raw < 0)
+  if (owing.length === 0) return []
+  const next = await ensureNextOpenPeriod(admin, orgId, week.period.cutoffAt)
+  const ids: string[] = []
+  for (const p of owing) {
+    const { data, error } = await admin
+      .from('payroll_adjustments')
+      .insert({ org_id: orgId, payroll_period_id: next.id, user_id: p.userId, amount: p.raw, reason: `Carried over from the week ending ${week.period.weekEnding}`, kind: 'balance', status: 'pending', source_period_id: week.period.id, created_by: actorUserId })
+      .select('id')
+      .single()
+    if (error || !data) {
+      await Promise.all(ids.map((id) => admin.from('payroll_adjustments').update({ status: 'void' }).eq('id', id)))
+      throw error ?? new Error('Could not carry the balance forward')
+    }
+    ids.push(data.id as string)
+  }
+  return ids
+}
+
 export type ApproveResult =
   | { ok: true; total: number; people: number; mismatch: boolean; emailed: EmailSummary | null; message: string }
   | { ok: false; status: number; body: { error: string; code?: string; total?: number } }
@@ -102,8 +103,13 @@ export async function approvePayWeek(
   if (week.totals.amount <= 0) return { ok: false, status: 409, body: { error: 'Nothing to pay this week' } }
 
   await rollPendingBonusesForward(admin, orgId, week.period)
+  // A check can't go below $0: what is owed back is carried to next week as a balance line (before the lock; undone if it fails).
+  const carried = await carryNegativeBalances(admin, orgId, input.actorUserId, week)
   const lock = await lockPayrollPeriod(admin, { orgId, periodId, actorUserId: input.actorUserId, status: 'open', requireNoPendingBonuses: false })
-  if (!lock.ok) return { ok: false, status: lock.status, body: lock.body }
+  if (!lock.ok) {
+    await Promise.all(carried.map((id) => admin.from('payroll_adjustments').update({ status: 'void' }).eq('id', id)))
+    return { ok: false, status: lock.status, body: lock.body }
+  }
 
   // Safety net: what was written must equal what was approved. The lines are already frozen, so just say so loudly.
   const after = await loadPayWeek(admin, orgId, now, periodId)

@@ -10,6 +10,7 @@ import { computePeriodUnitEarningsForUser, resolvePayrollPeriodWindow } from '@/
 import { compPlanRoleLabel } from '@/lib/comp-plan-roles'
 import { loadEndedPlanPeople, loadPayPlanGaps } from '@/lib/comp-plan-defaults-db'
 import { roundMoney } from '@/lib/money'
+import { loadPeriodAdjustments, type PayrollAdjustment } from '@/lib/payroll-adjustments'
 import { loadHourlyRoster, type HourlyRosterRow } from '@/lib/payroll-hours'
 import { loadActiveCompPlanForUser } from '@/lib/payroll-export'
 import { planPayrollPeriod, type PlannedPayoutRow, type WaitingJob } from '@/lib/payroll-period-materialization'
@@ -31,7 +32,7 @@ export type PayWeekPeriod = {
 }
 
 export type PayWeekLine = {
-  kind: 'Commission' | 'Hourly' | 'Units' | 'Bonus'
+  kind: 'Commission' | 'Hourly' | 'Units' | 'Bonus' | 'Adjustment'
   what: string
   math: string
   amount: number
@@ -39,6 +40,8 @@ export type PayWeekLine = {
   jobNumber?: string
   /** Payout role of a commission line (for "Change"): setter, sales_rep, inspector… */
   participantRole?: string
+  /** Set on 'Adjustment' lines so a fix on an open week can be removed. */
+  adjustmentId?: string
 }
 
 export type PayWeekPerson = {
@@ -90,6 +93,10 @@ export type PayWeek = {
   waiting: PayWeekWaiting[]
   /** Other weeks, newest first, for the "Earlier weeks" picker. */
   earlier: Array<{ id: string; weekEnding: string; payDate: string; status: string }>
+  /** Fixes already queued on the week after this one (shown when this week is approved). */
+  /** Everyone active, for the "Fix a mistake" picker. */
+  directory: Array<{ id: string; name: string }>
+  nextWeek: { periodId: string; weekEnding: string; payDate: string; fixes: Array<{ id: string; name: string; amount: number; reason: string }> } | null
 }
 
 const ROLE_WORDS: Record<string, string> = {
@@ -132,6 +139,7 @@ export type WeekInputs = {
   hours: HourlyRosterRow[]
   units: Map<string, number>
   bonuses: Array<{ id: string; userId: string; amount: number; description: string | null; bonusType: string }>
+  adjustments?: PayrollAdjustment[]
 }
 
 /** Turns rows + hours + units + bonuses into the people list and the by-job view. Pure. */
@@ -180,12 +188,16 @@ export function composeWeek(inp: WeekInputs): { people: PayWeekPerson[]; jobs: P
   for (const b of inp.bonuses) {
     person(b.userId).lines.push({ kind: 'Bonus', what: b.description || (b.bonusType === 'manual' ? 'Bonus' : b.bonusType.replace(/_/g, ' ')), math: 'Approved bonus', amount: roundMoney(b.amount) })
   }
+  for (const a of inp.adjustments ?? []) {
+    person(a.userId).lines.push({ kind: 'Adjustment', what: a.kind === 'balance' ? 'Balance carried over' : 'Fix', math: a.reason, amount: a.amount, adjustmentId: a.id, jobId: a.jobId ?? undefined })
+  }
   for (const p of Array.from(byUser.values())) {
-    const parts = { commission: 0, hourly: 0, units: 0, bonus: 0, chargebacks: 0 }
+    const parts = { commission: 0, hourly: 0, units: 0, bonus: 0, chargebacks: 0, adjustments: 0 }
     for (const l of p.lines) {
       if (l.kind === 'Commission') parts.commission += l.amount
       else if (l.kind === 'Hourly') parts.hourly += l.amount
       else if (l.kind === 'Units') parts.units += l.amount
+      else if (l.kind === 'Adjustment') parts.adjustments += l.amount
       else parts.bonus += l.amount
     }
     p.raw = roundMoney(computeNetPayout(parts))
@@ -355,22 +367,23 @@ export async function loadPayWeek(admin: SupabaseClient, orgId: string, now: Dat
   }
 
   const jobIds = Array.from(new Set([...rows.map((r) => r.job_id), ...waiting.map((w) => w.job.id)]))
-  const [jobs, hours, bonusRes] = await Promise.all([
+  const [jobs, hours, bonusRes, adjustments] = await Promise.all([
     loadJobs(admin, orgId, jobIds),
     loadHourlyRoster(admin, orgId, { id: period.id, cutoff_at: period.cutoffAt }),
     admin.from('payroll_bonus_lines').select('id, user_id, bonus_type, amount, description, status').eq('org_id', orgId).eq('payroll_period_id', period.id),
+    loadPeriodAdjustments(admin, orgId, period.id),
   ])
   if (bonusRes.error) throw bonusRes.error
   const bonusAll = (bonusRes.data ?? []) as Array<{ id: string; user_id: string; bonus_type: string; amount: number; description: string | null; status: string }>
   const approvedBonuses = bonusAll.filter((b) => b.status === 'approved' || b.status === 'paid').map((b) => ({ id: b.id, userId: b.user_id, amount: Number(b.amount) || 0, description: b.description, bonusType: b.bonus_type }))
   const pendingBonuses = bonusAll.filter((b) => b.status === 'pending_approval')
 
-  const peopleIds = Array.from(new Set([...rows.map((r) => r.user_id), ...hours.map((h) => h.user_id), ...approvedBonuses.map((b) => b.userId), ...pendingBonuses.map((b) => b.user_id), ...waiting.flatMap((w) => w.rows.map((r) => r.user_id))]))
+  const peopleIds = Array.from(new Set([...rows.map((r) => r.user_id), ...hours.map((h) => h.user_id), ...approvedBonuses.map((b) => b.userId), ...pendingBonuses.map((b) => b.user_id), ...adjustments.map((a) => a.userId), ...waiting.flatMap((w) => w.rows.map((r) => r.user_id))]))
   const names = await loadNames(admin, orgId, peopleIds)
   for (const h of hours) if (!names.has(h.user_id)) names.set(h.user_id, { name: h.full_name, role: h.role })
   const units = await loadUnits(admin, orgId, period, Array.from(new Set([...rows.map((r) => r.user_id), ...hours.map((h) => h.user_id)])))
 
-  const { people, jobs: jobViews } = composeWeek({ rows, jobs, names, hours, units, bonuses: approvedBonuses })
+  const { people, jobs: jobViews } = composeWeek({ rows, jobs, names, hours, units, bonuses: approvedBonuses, adjustments })
 
   const needs: PayWeekNeed[] = []
   const warnings: PayWeekWarning[] = []
@@ -399,6 +412,21 @@ export async function loadPayWeek(admin: SupabaseClient, orgId: string, now: Dat
   const { data: others } = await admin.from('payroll_periods').select('id, cutoff_at, scheduled_pay_date, status').eq('org_id', orgId).neq('id', period.id).neq('status', 'cancelled').order('cutoff_at', { ascending: false }).limit(12)
   const earlier = (others ?? []).map((o) => ({ id: o.id as string, weekEnding: ymdEt(new Date(o.cutoff_at as string)), payDate: o.scheduled_pay_date as string, status: o.status as string }))
 
+  const { data: dirRows } = await admin.from('users').select('id, full_name').eq('org_id', orgId).eq('active', true).order('full_name')
+  const directory = (dirRows ?? []).map((u) => ({ id: u.id as string, name: (u.full_name as string) || 'Unnamed' }))
+
+  let nextWeek: PayWeek['nextWeek'] = null
+  if (!draft) {
+    const nc = new Date(new Date(period.cutoffAt).getTime() + 7 * 86_400_000)
+    const { data: np } = await admin.from('payroll_periods').select('id, cutoff_at, scheduled_pay_date').eq('org_id', orgId).eq('status', 'open').gte('cutoff_at', new Date(nc.getTime() - 36 * 3_600_000).toISOString()).lte('cutoff_at', new Date(nc.getTime() + 36 * 3_600_000).toISOString()).order('created_at', { ascending: true }).limit(1)
+    const nrow = (np ?? [])[0]
+    if (nrow) {
+      const fixes = await loadPeriodAdjustments(admin, orgId, nrow.id as string)
+      const fnames = await loadNames(admin, orgId, Array.from(new Set(fixes.map((f) => f.userId))))
+      nextWeek = { periodId: nrow.id as string, weekEnding: ymdEt(new Date(nrow.cutoff_at as string)), payDate: nrow.scheduled_pay_date as string, fixes: fixes.map((f) => ({ id: f.id, name: fnames.get(f.userId)?.name ?? 'Unknown', amount: f.amount, reason: f.reason })) }
+    }
+  }
+
   const payable = people.filter((p) => p.total > 0)
   return {
     period,
@@ -410,21 +438,24 @@ export async function loadPayWeek(admin: SupabaseClient, orgId: string, now: Dat
     jobs: jobViews,
     waiting: waiting.map((w) => waitingView(w, jobs, names)),
     earlier,
+    nextWeek,
+    directory,
   }
 }
 
 /** One total per person, for the payroll processor. */
 export function payWeekCsv(week: PayWeek): string {
   const esc = (v: string | number) => {
-    const s = String(v)
+    // A name that starts with = + - @ would run as a formula when the file is opened in a spreadsheet.
+    const s = typeof v === 'string' && /^[=+\-@\t\r]/.test(v) ? `'${v}` : String(v)
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
   }
-  const header = ['Name', 'Role', 'Commission', 'Hourly', 'Per-unit', 'Bonus', 'Total to pay']
+  const header = ['Name', 'Role', 'Commission', 'Hourly', 'Per-unit', 'Bonus', 'Fixes', 'Total to pay']
   const lines = week.people
     .filter((p) => p.total > 0)
     .map((p) => {
       const sum = (k: PayWeekLine['kind']) => roundMoney(p.lines.filter((l) => l.kind === k).reduce((s, l) => s + l.amount, 0))
-      return [p.name, p.roleLabel, sum('Commission'), sum('Hourly'), sum('Units'), sum('Bonus'), p.total.toFixed(2)].map(esc).join(',')
+      return [p.name, p.roleLabel, sum('Commission'), sum('Hourly'), sum('Units'), sum('Bonus'), sum('Adjustment'), p.total.toFixed(2)].map(esc).join(',')
     })
-  return [header.join(','), ...lines, ['TOTAL', '', '', '', '', '', week.totals.amount.toFixed(2)].join(',')].join('\n') + '\n'
+  return [header.join(','), ...lines, ['TOTAL', '', '', '', '', '', '', week.totals.amount.toFixed(2)].join(',')].join('\n') + '\n'
 }
