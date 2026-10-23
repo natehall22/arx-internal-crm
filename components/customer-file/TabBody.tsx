@@ -54,6 +54,9 @@ async function Overview({ customerId, dealId }: { customerId: string; dealId: st
             <dt className="text-ink-muted">Proposals</dt><dd>{ctx.proposalCount}</dd>
             <dt className="text-ink-muted">Contract</dt><dd>{ctx.signedContract ? 'Signed' : 'Not signed'}</dd>
           </dl>
+          {(ctx.viewer.ownerLike || ctx.viewer.managerLike || ctx.viewer.jobBoard) && (
+            <Link href={`/customers/${customer.id}`} className="mt-3 mr-4 inline-flex min-h-tap items-center text-ui-sm font-semibold text-brand-800 underline">Customer account (referrals, add-on deals) ▸</Link>
+          )}
           {ctx.next && ctx.tabs.includes(ctx.next.tab) && (
             <Link href={`${base}/${ctx.next.tab}`} className="mt-3 inline-flex min-h-tap items-center rounded-ui bg-brand-700 px-4 text-ui-sm font-semibold text-white">{ctx.next.label} ▸</Link>
           )}

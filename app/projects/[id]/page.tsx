@@ -36,12 +36,14 @@ import PayrollAttributionEditor, {
 import ReviewRequestCard from '@/components/reviews/ReviewRequestCard'
 import { isReviewEligibleStatus } from '@/lib/review-requests'
 import { isSuperAdmin } from '@/lib/super-admin'
+import { redirectProjectToFile } from '@/lib/customer-file/redirects'
 
 export default async function ProjectDetailPage({
   params,
 }: {
   params: { id: string }
 }) {
+  await redirectProjectToFile(params.id)
   const { profile, authUser } = await requireAuth()
   const supabase = createServiceClient()
   const { canJobBoard: showOpsJobLinks } = await resolveOpsAccess(supabase, authUser.id, profile)
