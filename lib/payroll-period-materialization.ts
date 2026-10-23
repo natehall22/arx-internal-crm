@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { CompPlanForCalc } from '@/lib/calculate-commission-from-plan'
 import { buildCommissionPayrollSnapshot } from '@/lib/commission-payroll'
-import { evaluateJobCollection } from '@/lib/job-collection'
+import { evaluateJobCollection, sumCollectedCents } from '@/lib/job-collection'
 import { roundMoney } from '@/lib/money'
 import { loadJobCostLedger } from '@/lib/job-cost-ledger'
 import {
@@ -198,15 +198,86 @@ function monthBounds(jobs: JobRow[], fallbackDate: string): { from: string; to: 
   return { from: `${first}-01`, to: `${last}-${String(lastDay).padStart(2, '0')}` }
 }
 
+export type PlannedPayoutRow = {
+  org_id: string
+  payroll_period_id: string
+  job_id: string
+  user_id: string
+  participant_role: string
+  gross_amount: number
+  net_amount: number
+  chargeback_applied_amount: number
+  comp_plan_snapshot: Record<string, unknown>
+}
+
+export type PlannedJob = {
+  job: JobRow
+  eligibleAt: string
+  rows: PlannedPayoutRow[]
+  commissionBase: number
+  poolCap: number
+  grossTotal: number
+  netTotal: number
+  /** Everything the job snapshot upsert needs except `payroll_period_snapshot_id` (known only when persisting). */
+  snapshotRow: Record<string, unknown>
+  /** The job_payroll_state upsert for this job (without period-specific pointers). */
+  stateRow: Record<string, unknown>
+}
+
+/** A job that is not payable THIS period yet, with what it would pay (computed by the same engine) and why it waits. */
+export type WaitingJob = {
+  job: JobRow
+  reason: string
+  /** Plain-English reason shown to office and reps. */
+  reasonText: string
+  collectedCents: number
+  /** Estimated lines, same math as an approved run; empty when the engine could not price the job. */
+  rows: PlannedPayoutRow[]
+}
+
+export type PayrollPlan = {
+  period: PeriodRow
+  /** Jobs that WILL be paid if this period is approved now. */
+  jobs: PlannedJob[]
+  /** Jobs that wait (only filled with includeWaiting). */
+  waiting: WaitingJob[]
+  /** Count of jobs that passed eligibility (before any pricing skip) — what the legacy result called eligibleJobs. */
+  eligibleJobs: number
+  skippedJobs: Array<{ jobId: string; reason: string }>
+  selfGenSetterConflictJobIds: string[]
+}
+
+const WAITING_TEXT: Record<string, string> = {
+  not_installed: 'Install not marked complete',
+  missing_costs: 'Office is reviewing a cost on this job',
+  missing_commission_base: 'Price info missing — the office is fixing it',
+  after_cutoff: "Finished after this week's cutoff — pays next week",
+  missing_eligibility_timestamp: 'Waiting on a date the office has to fill in',
+  missing_participants: 'Nobody is credited on this job yet',
+  no_resolvable_participant_plans: 'The people on this job have no pay plan yet',
+}
+
+export function waitingReasonText(reason: string, collectedCents: number, saleAmount: number | null): string {
+  if (reason === 'not_funded') {
+    const sale = Math.round((Number(saleAmount) || 0) * 100)
+    const owed = Math.max(0, sale - collectedCents) / 100
+    const fmt = (n: number) => `$${n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`
+    return sale > 0 ? `Customer still owes ${fmt(owed)} of ${fmt(sale / 100)}` : 'No sale amount on file'
+  }
+  return WAITING_TEXT[reason] ?? 'Not payable yet'
+}
+
 /**
- * Builds immutable job snapshots and participant payout lines for all eligible,
- * previously-unpaid jobs through a payroll period cutoff. Safe to retry.
+ * THE payroll calculation, with no writes. Everything "what will this period pay" shows (the Pay-this-week preview) and
+ * everything Approve writes comes from this one function: `materializePayrollPeriod` below is plan + persist, so a
+ * preview cannot drift from what is paid. Eligible jobs → `jobs`; with `includeWaiting`, every other job sold on/before
+ * the cutoff is priced by the same code and returned in `waiting` with its reason.
  */
-export async function materializePayrollPeriod(
+export async function planPayrollPeriod(
   supabase: SupabaseClient,
-  input: { orgId: string; periodId: string; actorUserId: string; onlyJobIds?: string[] }
-): Promise<MaterializePayrollPeriodResult> {
-  const { orgId, periodId, actorUserId } = input
+  input: { orgId: string; periodId: string; onlyJobIds?: string[]; includeWaiting?: boolean }
+): Promise<PayrollPlan> {
+  const { orgId, periodId } = input
   const { data: periodData, error: periodError } = await supabase
     .from('payroll_periods')
     .select('id, cutoff_at, scheduled_pay_date, status')
@@ -219,6 +290,18 @@ export async function materializePayrollPeriod(
     throw new Error(`Cannot materialize a ${period.status} payroll period`)
   }
 
+  const emptyPlan = (skippedJobs: PayrollPlan['skippedJobs'] = [], eligibleJobs = 0): PayrollPlan => ({
+    period,
+    jobs: [],
+    waiting: [],
+    eligibleJobs,
+    skippedJobs,
+    selfGenSetterConflictJobIds: [],
+  })
+
+  const statuses = input.includeWaiting
+    ? ['sold', 'materials', 'scheduled', 'in_progress', 'complete', 'collected']
+    : ['complete', 'collected']
   let jobsQuery = supabase
     .from('production_jobs')
     .select(
@@ -227,23 +310,14 @@ export async function materializePayrollPeriod(
     .eq('org_id', orgId)
     .not('sale_date', 'is', null)
     .lte('sale_date', period.cutoff_at.slice(0, 10))
-    .in('status', ['complete', 'collected'])
+    .in('status', statuses)
   if (input.onlyJobIds?.length) jobsQuery = jobsQuery.in('id', input.onlyJobIds)
   const { data: jobData, error: jobError } = await jobsQuery
   if (jobError) throw jobError
   const candidateJobs = (jobData || []) as JobRow[]
   const jobIds = candidateJobs.map((j) => j.id)
 
-  if (jobIds.length === 0) {
-    return {
-      periodId,
-      eligibleJobs: 0,
-      snapshotsCreated: 0,
-      payoutLinesCreated: 0,
-      skippedJobs: [],
-      selfGenSetterConflictJobIds: [],
-    }
-  }
+  if (jobIds.length === 0) return emptyPlan()
 
   const [
     { data: existingSnapshots, error: existingError },
@@ -299,7 +373,8 @@ export async function materializePayrollPeriod(
     costsByJob.set(row.job_id, [...(costsByJob.get(row.job_id) || []), row])
   }
 
-  const skippedJobs: MaterializePayrollPeriodResult['skippedJobs'] = []
+  const skippedJobs: PayrollPlan['skippedJobs'] = []
+  const waitingItems: Array<{ job: JobRow; reason: string }> = []
   const eligible = candidateJobs.flatMap((job) => {
     if (alreadySnapshotted.has(job.id)) {
       skippedJobs.push({ jobId: job.id, reason: 'already_snapshotted' })
@@ -312,30 +387,25 @@ export async function materializePayrollPeriod(
       costs: costsByJob.get(job.id) || [],
     })
     if (result.reason || !result.eligibleAt) {
-      skippedJobs.push({ jobId: job.id, reason: result.reason || 'not_eligible' })
+      const reason = result.reason || 'not_eligible'
+      skippedJobs.push({ jobId: job.id, reason })
+      waitingItems.push({ job, reason })
       return []
     }
     if (new Date(result.eligibleAt).getTime() > new Date(period.cutoff_at).getTime()) {
       skippedJobs.push({ jobId: job.id, reason: 'after_cutoff' })
+      waitingItems.push({ job, reason: 'after_cutoff' })
       return []
     }
     return [{ job, eligibleAt: result.eligibleAt, deductibleCosts: result.deductibleCosts }]
   })
 
-  if (eligible.length === 0) {
-    return {
-      periodId,
-      eligibleJobs: 0,
-      snapshotsCreated: 0,
-      payoutLinesCreated: 0,
-      skippedJobs,
-      selfGenSetterConflictJobIds: [],
-    }
-  }
+  const waitingToPrice = input.includeWaiting ? waitingItems : []
+  if (eligible.length === 0 && waitingToPrice.length === 0) return emptyPlan(skippedJobs)
 
-  const eligibleJobs = eligible.map((e) => e.job)
+  const pricedJobs = [...eligible.map((e) => e.job), ...waitingToPrice.map((w) => w.job)]
   const projectIds = Array.from(
-    new Set(eligibleJobs.map((j) => j.project_id).filter((v): v is string => Boolean(v)))
+    new Set(pricedJobs.map((j) => j.project_id).filter((v): v is string => Boolean(v)))
   )
   const { data: projects, error: projectError } = projectIds.length
     ? await supabase
@@ -370,9 +440,8 @@ export async function materializePayrollPeriod(
   }
 
   // Everything the derived lines need (inspection, manager override, self-gen),
-  // loaded once for the whole period rather than per job. Shared with the payroll
-  // preview route so the two can never drift. Each rate defaults to 0 = off, and a
-  // rate of 0 skips its lookup entirely.
+  // loaded once for the whole period rather than per job. Each rate defaults to 0 = off,
+  // and a rate of 0 skips its lookup entirely.
   const derivedContext = await loadDerivedCommissionContext(supabase, { orgId, opportunityIds })
   const selfGenSetterConflictJobIds: string[] = []
 
@@ -382,42 +451,33 @@ export async function materializePayrollPeriod(
   const producerOverrides = await loadProducerCommissionOverrides(
     supabase,
     orgId,
-    eligibleJobs.map((j) => j.id)
+    pricedJobs.map((j) => j.id)
   )
 
-  const bounds = monthBounds(eligibleJobs, period.cutoff_at)
+  const bounds = monthBounds(pricedJobs, period.cutoff_at)
   const tierMetrics = await buildMonthlyTierMetricMaps(supabase, orgId, bounds.from, bounds.to)
 
-  const now = new Date().toISOString()
-  const { data: periodSnapshot, error: periodSnapshotError } = await supabase
-    .from('payroll_period_snapshots')
-    .upsert(
-      { org_id: orgId, payroll_period_id: periodId, locked_at: now, locked_by: actorUserId },
-      { onConflict: 'payroll_period_id' }
-    )
-    .select('id')
-    .single()
-  if (periodSnapshotError || !periodSnapshot) {
-    throw periodSnapshotError || new Error('Failed to create payroll period snapshot')
-  }
-
-  let snapshotsCreated = 0
-  let payoutLinesCreated = 0
   const flatBonusApplied = new Set<string>()
 
-  for (const item of eligible) {
-    const job = item.job
+  /** Prices one job: its payout rows (or why it can't be priced). The ONLY place a job's lines are computed. */
+  const priceJob = async (
+    job: JobRow
+  ): Promise<
+    | { skip: string; selfGenSetterConflict?: boolean }
+    | {
+        rows: PlannedPayoutRow[]
+        payrollSnapshot: ReturnType<typeof buildCommissionPayrollSnapshot>
+        meta: Map<string, { role: string; plan: CompPlanForCalc; calc: ReturnType<typeof computeRawCommissionForParticipant>; flatBonus: number }>
+        selfGenSetterConflict: boolean
+      }
+  > => {
     const payrollSnapshot = buildCommissionPayrollSnapshot(job)
     if (!payrollSnapshot.compBase || payrollSnapshot.compBase <= 0 || payrollSnapshot.poolCap == null) {
-      skippedJobs.push({ jobId: job.id, reason: 'missing_commission_base' })
-      continue
+      return { skip: 'missing_commission_base' }
     }
     const opportunity = job.project_id ? oppByProjectId.get(job.project_id) || null : null
     const participants = collectParticipants(job, opportunity)
-    if (participants.length === 0) {
-      skippedJobs.push({ jobId: job.id, reason: 'missing_participants' })
-      continue
-    }
+    if (participants.length === 0) return { skip: 'missing_participants' }
 
     const rawByUser = new Map<string, number>()
     const meta = new Map<
@@ -504,15 +564,6 @@ export async function materializePayrollPeriod(
       saleDate: job.sale_date ?? null,
     })
     const additiveParticipants = derived.participants
-    if (derived.selfGenSetterConflict) {
-      selfGenSetterConflictJobIds.push(job.id)
-      console.warn('materializePayrollPeriod: self-gen job also has a setter; 6% line suppressed', {
-        orgId,
-        periodId,
-        jobId: job.id,
-        jobNumber: job.job_number,
-      })
-    }
     // Captured as a local const: the guard above proves compBase is a positive
     // number, but TypeScript drops property narrowing inside the closures below.
     const additiveCommissionBase = payrollSnapshot.compBase
@@ -528,7 +579,7 @@ export async function materializePayrollPeriod(
     }
 
     const scaled = scaleCommissionsToPool(rawByUser, payrollSnapshot.poolCap)
-    const payoutRows = Array.from(meta.entries()).map(([userId, value]) => {
+    const payoutRows: PlannedPayoutRow[] = Array.from(meta.entries()).map(([userId, value]) => {
       const key = poolKey(userId, value.role)
       const gross = roundMoney((rawByUser.get(key) || 0) + value.flatBonus)
       const net = roundMoney((scaled.scaled.get(key) || 0) + value.flatBonus)
@@ -550,10 +601,10 @@ export async function materializePayrollPeriod(
     })
     // Overridden producers keep their ORIGINAL participant role (sales_rep / setter /
     // owner) on the payout line, so statements, pool keys and the retry-dedupe key
-    // below all read exactly as they would without an override — only the amount
-    // changes. A deliberate $0 still writes a line: "paid nothing on this deal" is an
-    // auditable fact, and silently dropping it would look identical to a bug.
-    const producerOverrideRows = overriddenProducers.map(({ participant, resolved }) => {
+    // read exactly as they would without an override — only the amount changes. A
+    // deliberate $0 still writes a line: "paid nothing on this deal" is an auditable
+    // fact, and silently dropping it would look identical to a bug.
+    const producerOverrideRows: PlannedPayoutRow[] = overriddenProducers.map(({ participant, resolved }) => {
       const key = poolKey(participant.userId, participant.role)
       return {
         org_id: orgId,
@@ -575,7 +626,7 @@ export async function materializePayrollPeriod(
       }
     })
 
-    const additiveRows = additivePayable.map(({ participant, resolved }) => {
+    const additiveRows: PlannedPayoutRow[] = additivePayable.map(({ participant, resolved }) => {
       const key = poolKey(participant.userId, participant.role)
       return {
         org_id: orgId,
@@ -598,49 +649,170 @@ export async function materializePayrollPeriod(
       }
     })
 
-    const allPayoutRows = [...payoutRows, ...producerOverrideRows, ...additiveRows]
-    if (allPayoutRows.length === 0) {
-      skippedJobs.push({ jobId: job.id, reason: 'no_resolvable_participant_plans' })
+    const rows = [...payoutRows, ...producerOverrideRows, ...additiveRows]
+    if (rows.length === 0) return { skip: 'no_resolvable_participant_plans', selfGenSetterConflict: derived.selfGenSetterConflict }
+    return { rows, payrollSnapshot, meta, selfGenSetterConflict: derived.selfGenSetterConflict }
+  }
+
+  const jobs: PlannedJob[] = []
+  const waiting: WaitingJob[] = []
+  for (const item of eligible) {
+    const job = item.job
+    const priced = await priceJob(job)
+    if ('skip' in priced) {
+      skippedJobs.push({ jobId: job.id, reason: priced.skip })
+      if (priced.selfGenSetterConflict) selfGenSetterConflictJobIds.push(job.id)
+      // An eligible job the engine cannot price still has to show up in the preview, with the reason.
+      if (input.includeWaiting) {
+        waiting.push({
+          job,
+          reason: priced.skip,
+          reasonText: waitingReasonText(priced.skip, sumCollectedCents(paymentsByJob.get(job.id) || []), job.sale_amount),
+          collectedCents: sumCollectedCents(paymentsByJob.get(job.id) || []),
+          rows: [],
+        })
+      }
       continue
     }
+    if (priced.selfGenSetterConflict) {
+      selfGenSetterConflictJobIds.push(job.id)
+      console.warn('materializePayrollPeriod: self-gen job also has a setter; 6% line suppressed', {
+        orgId,
+        periodId,
+        jobId: job.id,
+        jobNumber: job.job_number,
+      })
+    }
+    const { rows, payrollSnapshot, meta } = priced
+    const grossTotal = roundMoney(rows.reduce((sum, row) => sum + row.gross_amount, 0))
+    const netTotal = roundMoney(rows.reduce((sum, row) => sum + row.net_amount, 0))
+    jobs.push({
+      job,
+      eligibleAt: item.eligibleAt,
+      rows,
+      commissionBase: payrollSnapshot.compBase as number,
+      poolCap: payrollSnapshot.poolCap as number,
+      grossTotal,
+      netTotal,
+      snapshotRow: {
+        org_id: orgId,
+        payroll_period_id: periodId,
+        job_id: job.id,
+        contract_total: job.sale_amount,
+        signed_change_orders_total: 0,
+        commissionable_change_orders_total: 0,
+        dealer_fee: job.dealer_fee_amount || 0,
+        deductible_costs_total: item.deductibleCosts,
+        commission_base: payrollSnapshot.compBase,
+        comp_plan_version: Object.fromEntries(
+          Array.from(meta.entries()).map(([userId, value]) => [userId, value.plan])
+        ),
+        participants: rows.map((row) => ({ user_id: row.user_id, role: row.participant_role })),
+        gross_payout_total: grossTotal,
+        net_payout_total: netTotal,
+        pay_date: period.scheduled_pay_date,
+        payload: {
+          eligible_at: item.eligibleAt,
+          commission_source: payrollSnapshot.source,
+          pool_cap: payrollSnapshot.poolCap,
+          derived_commission_rates: resolveDerivedCommissionRatesForSaleDate(
+            derivedContext.rateHistory,
+            job.sale_date
+          ),
+          self_gen_setter_conflict: priced.selfGenSetterConflict,
+        },
+      },
+      stateRow: {
+        job_id: job.id,
+        org_id: orgId,
+        install_completed_at: stateByJob.get(job.id)?.install_completed_at || job.completed_at,
+        fully_funded_at:
+          stateByJob.get(job.id)?.fully_funded_at ||
+          latestIso((paymentsByJob.get(job.id) || []).filter((p) => p.funding_status === 'cleared').map(paidAtIso)),
+        costs_ready_at:
+          stateByJob.get(job.id)?.costs_ready_at ||
+          latestIso((costsByJob.get(job.id) || []).filter((c) => c.approved).map((c) => c.updated_at || c.created_at)) ||
+          job.completed_at,
+        payroll_eligible_at: item.eligibleAt,
+        payroll_cutoff_at: period.cutoff_at,
+        scheduled_pay_date: period.scheduled_pay_date,
+        current_payroll_period_id: periodId,
+      },
+    })
+  }
 
-    const grossTotal = roundMoney(allPayoutRows.reduce((sum, row) => sum + row.gross_amount, 0))
-    const netTotal = roundMoney(allPayoutRows.reduce((sum, row) => sum + row.net_amount, 0))
+  for (const item of waitingToPrice) {
+    const priced = await priceJob(item.job)
+    const collectedCents = sumCollectedCents(paymentsByJob.get(item.job.id) || [])
+    // A job that cannot be priced still waits — with the pricing reason if that is what blocks it.
+    const reason = 'skip' in priced && item.reason === 'not_installed' ? item.reason : 'skip' in priced ? priced.skip : item.reason
+    waiting.push({
+      job: item.job,
+      reason,
+      reasonText: waitingReasonText(reason, collectedCents, item.job.sale_amount),
+      collectedCents,
+      rows: 'skip' in priced ? [] : priced.rows,
+    })
+  }
+
+  return {
+    period,
+    jobs,
+    waiting,
+    eligibleJobs: eligible.length,
+    skippedJobs,
+    selfGenSetterConflictJobIds,
+  }
+}
+
+/**
+ * Builds immutable job snapshots and participant payout lines for all eligible,
+ * previously-unpaid jobs through a payroll period cutoff. Safe to retry.
+ *
+ * This is `planPayrollPeriod` (the one calculation) plus the writes — nothing here recomputes a line.
+ */
+export async function materializePayrollPeriod(
+  supabase: SupabaseClient,
+  input: { orgId: string; periodId: string; actorUserId: string; onlyJobIds?: string[] }
+): Promise<MaterializePayrollPeriodResult> {
+  const { orgId, periodId, actorUserId } = input
+  const plan = await planPayrollPeriod(supabase, { orgId, periodId, onlyJobIds: input.onlyJobIds })
+  const { period } = plan
+  const skippedJobs = plan.skippedJobs
+
+  if (plan.eligibleJobs === 0) {
+    return {
+      periodId,
+      eligibleJobs: 0,
+      snapshotsCreated: 0,
+      payoutLinesCreated: 0,
+      skippedJobs,
+      selfGenSetterConflictJobIds: [],
+    }
+  }
+
+  const now = new Date().toISOString()
+  const { data: periodSnapshot, error: periodSnapshotError } = await supabase
+    .from('payroll_period_snapshots')
+    .upsert(
+      { org_id: orgId, payroll_period_id: periodId, locked_at: now, locked_by: actorUserId },
+      { onConflict: 'payroll_period_id' }
+    )
+    .select('id')
+    .single()
+  if (periodSnapshotError || !periodSnapshot) {
+    throw periodSnapshotError || new Error('Failed to create payroll period snapshot')
+  }
+
+  let snapshotsCreated = 0
+  let payoutLinesCreated = 0
+
+  for (const planned of plan.jobs) {
+    const job = planned.job
     const { data: jobSnapshot, error: jobSnapshotError } = await supabase
       .from('payroll_job_snapshots')
       .upsert(
-        {
-          org_id: orgId,
-          payroll_period_snapshot_id: periodSnapshot.id,
-          payroll_period_id: periodId,
-          job_id: job.id,
-          contract_total: job.sale_amount,
-          signed_change_orders_total: 0,
-          commissionable_change_orders_total: 0,
-          dealer_fee: job.dealer_fee_amount || 0,
-          deductible_costs_total: item.deductibleCosts,
-          commission_base: payrollSnapshot.compBase,
-          comp_plan_version: Object.fromEntries(
-            Array.from(meta.entries()).map(([userId, value]) => [userId, value.plan])
-          ),
-          participants: allPayoutRows.map((row) => ({
-            user_id: row.user_id,
-            role: row.participant_role,
-          })),
-          gross_payout_total: grossTotal,
-          net_payout_total: netTotal,
-          pay_date: period.scheduled_pay_date,
-          payload: {
-            eligible_at: item.eligibleAt,
-            commission_source: payrollSnapshot.source,
-            pool_cap: payrollSnapshot.poolCap,
-            derived_commission_rates: resolveDerivedCommissionRatesForSaleDate(
-              derivedContext.rateHistory,
-              job.sale_date
-            ),
-            self_gen_setter_conflict: derived.selfGenSetterConflict,
-          },
-        },
+        { ...planned.snapshotRow, payroll_period_snapshot_id: periodSnapshot.id },
         { onConflict: 'payroll_period_id,job_id' }
       )
       .select('id')
@@ -655,7 +827,7 @@ export async function materializePayrollPeriod(
     if (jobSnapshotError || !jobSnapshot) {
       throw jobSnapshotError || new Error(`Failed to snapshot job ${job.job_number}`)
     }
-    const rowsWithSnapshot = allPayoutRows.map((row) => ({
+    const rowsWithSnapshot = planned.rows.map((row) => ({
       ...row,
       payroll_job_snapshot_id: jobSnapshot.id,
     }))
@@ -696,35 +868,18 @@ export async function materializePayrollPeriod(
     snapshotsCreated += 1
     payoutLinesCreated += missingRows.length
 
-    const { error: stateUpdateError } = await supabase.from('job_payroll_state').upsert(
-      {
-        job_id: job.id,
-        org_id: orgId,
-        install_completed_at: stateByJob.get(job.id)?.install_completed_at || job.completed_at,
-        fully_funded_at:
-          stateByJob.get(job.id)?.fully_funded_at ||
-          latestIso((paymentsByJob.get(job.id) || []).filter((p) => p.funding_status === 'cleared').map(paidAtIso)),
-        costs_ready_at:
-          stateByJob.get(job.id)?.costs_ready_at ||
-          latestIso((costsByJob.get(job.id) || []).filter((c) => c.approved).map((c) => c.updated_at || c.created_at)) ||
-          job.completed_at,
-        payroll_eligible_at: item.eligibleAt,
-        payroll_cutoff_at: period.cutoff_at,
-        scheduled_pay_date: period.scheduled_pay_date,
-        current_payroll_period_id: periodId,
-        updated_at: now,
-      },
-      { onConflict: 'job_id' }
-    )
+    const { error: stateUpdateError } = await supabase
+      .from('job_payroll_state')
+      .upsert({ ...planned.stateRow, updated_at: now }, { onConflict: 'job_id' })
     if (stateUpdateError) throw stateUpdateError
   }
 
   return {
     periodId,
-    eligibleJobs: eligible.length,
+    eligibleJobs: plan.eligibleJobs,
     snapshotsCreated,
     payoutLinesCreated,
     skippedJobs,
-    selfGenSetterConflictJobIds,
+    selfGenSetterConflictJobIds: plan.selfGenSetterConflictJobIds,
   }
 }
