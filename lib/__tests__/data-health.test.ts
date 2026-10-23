@@ -235,6 +235,7 @@ describe('expected commission base excludes sales tax (same rule as lib/job-comm
     expect(expectedCommissionBase({ contractTotal: 10000, commissionableChangeOrderDelta: 500, salesTax: 0 })).toBe(10500)
     expect(expectedCommissionBase({ contractTotal: 10000, commissionableChangeOrderDelta: 500 })).toBe(10500)
     expect(expectedCommissionBase({ contractTotal: null, commissionableChangeOrderDelta: 0, salesTax: 5 })).toBeNull()
+    expect(expectedCommissionBase({ contractTotal: 100, commissionableChangeOrderDelta: 0, salesTax: 150 })).toBe(0) // never negative
   })
   it('a base that already excludes the tax is NOT a mismatch', () => {
     const problems = evaluateJobHealth({

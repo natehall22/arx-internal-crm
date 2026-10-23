@@ -123,7 +123,7 @@ export default function NeedsYouList({ report, canFixPayPlans = false, audience 
             </ul>
           )}
           {view.jobs.length > TOP_N && (
-            <button type="button" onClick={() => setShowAllJobs((v) => !v)} className="mt-2 inline-flex min-h-[44px] items-center text-sm font-semibold text-[#2b0a3d] underline underline-offset-2">
+            <button type="button" aria-expanded={showAllJobs} onClick={() => setShowAllJobs((v) => !v)} className="mt-2 inline-flex min-h-[44px] items-center text-sm font-semibold text-[#2b0a3d] underline underline-offset-2">
               {showAllJobs ? 'Show fewer jobs' : `Show all (${view.jobs.length})`}
             </button>
           )}
@@ -146,7 +146,7 @@ export default function NeedsYouList({ report, canFixPayPlans = false, audience 
                 ))}
               </ul>
               {view.appointments.length > TOP_N && (
-                <button type="button" onClick={() => setShowAllAppts((v) => !v)} className="mt-1 inline-flex min-h-[44px] items-center text-sm font-semibold text-[#2b0a3d] underline underline-offset-2">
+                <button type="button" aria-expanded={showAllAppts} onClick={() => setShowAllAppts((v) => !v)} className="mt-1 inline-flex min-h-[44px] items-center text-sm font-semibold text-[#2b0a3d] underline underline-offset-2">
                   {showAllAppts ? 'Show fewer' : `Show all (${view.appointments.length})`}
                 </button>
               )}

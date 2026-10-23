@@ -136,10 +136,14 @@ export async function PATCH(request: NextRequest) {
 
     const { data: job } = await supabase
       .from('production_jobs')
-      .select('id, salesperson_id, project_id')
+      .select('id, salesperson_id, project_id, payroll_settled_externally_at')
       .eq('id', body.job_id)
       .eq('org_id', orgId)
       .maybeSingle()
+
+    if (job && (job as { payroll_settled_externally_at?: string | null }).payroll_settled_externally_at) {
+      return NextResponse.json({ error: 'This job was settled outside the CRM before cutover, so the CRM does not pay it. Nothing to change here.' }, { status: 409 })
+    }
 
     if (!job) {
       return NextResponse.json({ error: 'Job not found' }, { status: 404 })
