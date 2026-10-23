@@ -29,7 +29,7 @@ describe('loadActiveCompPlanForUser', () => {
     )
 
     expect(result).toBeNull()
-    expect(tables).toEqual(['user_comp_plans', 'org_default_comp_plans'])
+    expect(tables).toEqual(['users', 'user_comp_plans', 'org_default_comp_plans'])
   })
 
   it('fails closed when assignment history cannot be read', async () => {

@@ -1,0 +1,476 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Payroll Prototype</title>
+<style>
+:root{
+  --bg:#f4f3ef; --card:#ffffff; --ink:#1b1d1f; --muted:#5a5f66; --line:#e2e0da;
+  --accent:#1f5f46; --accent-ink:#ffffff; --accent-soft:#e3efe8;
+  --warn:#8a5a00; --warn-soft:#fbf1dc; --neg:#a3271d; --neg-soft:#f9e6e3;
+  --chip:#efede7; --shadow:0 1px 2px rgba(0,0,0,.06),0 4px 16px rgba(0,0,0,.05);
+  --scrim:rgba(20,22,24,.45);
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#141618; --card:#1e2124; --ink:#eceae5; --muted:#a6abb1; --line:#33373c;
+    --accent:#5fbf94; --accent-ink:#0f1a15; --accent-soft:#1f3229;
+    --warn:#e9b65a; --warn-soft:#3a2f1a; --neg:#f08a7e; --neg-soft:#3a2220;
+    --chip:#2a2e32; --shadow:0 1px 2px rgba(0,0,0,.4); --scrim:rgba(0,0,0,.6);
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#141618; --card:#1e2124; --ink:#eceae5; --muted:#a6abb1; --line:#33373c;
+  --accent:#5fbf94; --accent-ink:#0f1a15; --accent-soft:#1f3229;
+  --warn:#e9b65a; --warn-soft:#3a2f1a; --neg:#f08a7e; --neg-soft:#3a2220;
+  --chip:#2a2e32; --shadow:0 1px 2px rgba(0,0,0,.4); --scrim:rgba(0,0,0,.6);
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{margin:0;overflow-x:hidden}
+body{background:var(--bg);color:var(--ink);font:16px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased}
+button,input,textarea,select{font:inherit;color:inherit}
+button{cursor:pointer}
+.wrap{max-width:760px;margin:0 auto;padding:0 16px 120px}
+.tabs{position:sticky;top:0;z-index:5;background:var(--bg);border-bottom:1px solid var(--line)}
+.tabs .in{max-width:760px;margin:0 auto;padding:10px 16px;display:flex;gap:6px}
+.tab{flex:1;min-height:44px;border:1px solid var(--line);background:var(--card);border-radius:10px;font-size:15px;font-weight:600;color:var(--muted);padding:6px 4px}
+.tab[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.proto{font-size:14px;color:var(--muted);text-align:center;padding:6px 16px 0}
+h1{font-size:26px;margin:18px 0 2px;letter-spacing:-.01em}
+h2{font-size:17px;margin:26px 0 10px}
+.sub{color:var(--muted);margin:0}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow)}
+.needs{border-color:var(--warn);background:var(--warn-soft)}
+.needs h2{margin:0;padding:14px 16px 4px;color:var(--warn)}
+.item{padding:14px 16px;border-top:1px solid var(--line)}
+.item:first-of-type{border-top:0}
+.item .t{font-weight:600}
+.item .d{color:var(--muted);font-size:15px;margin-top:2px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px}
+.btn{min-height:48px;padding:10px 18px;border-radius:12px;border:1px solid var(--line);background:var(--card);font-weight:600;font-size:16px}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn.big{width:100%;min-height:58px;font-size:19px}
+.btn.link{border:0;background:none;color:var(--accent);padding:10px 4px;min-height:44px}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.done-chip{display:inline-flex;gap:6px;align-items:center;font-size:15px;font-weight:600;color:var(--accent);margin-top:8px}
+.hours{width:96px;min-height:48px;border:1px solid var(--line);border-radius:12px;padding:8px 12px;background:var(--card);font-size:17px}
+.person{border-top:1px solid var(--line)}
+.person:first-child{border-top:0}
+.prow{width:100%;display:flex;align-items:center;gap:12px;padding:14px 16px;background:none;border:0;text-align:left;min-height:64px}
+.prow .nm{font-weight:600}
+.prow .rl{color:var(--muted);font-size:14px}
+.prow .amt{margin-left:auto;font-weight:700;font-size:18px;white-space:nowrap}
+.chev{color:var(--muted);transition:transform .15s;flex:none}
+.open .chev{transform:rotate(90deg)}
+.lines{display:none;padding:0 16px 14px 16px}
+.open .lines{display:block}
+.ln{display:flex;gap:12px;padding:9px 0;border-top:1px dashed var(--line);font-size:15px}
+.ln .w{flex:1;min-width:0}
+.ln .k{display:inline-block;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;background:var(--chip);color:var(--muted);border-radius:6px;padding:1px 6px;margin-right:6px}
+.ln .m{color:var(--muted);font-size:14px;overflow-wrap:anywhere}
+.ln .a{font-weight:600;white-space:nowrap}
+.neg{color:var(--neg)}
+.wait .item .t{font-weight:600}
+.pill{display:inline-block;font-size:14px;font-weight:600;padding:2px 8px;border-radius:99px;background:var(--chip);color:var(--muted)}
+.foot{position:fixed;left:0;right:0;bottom:0;background:var(--bg);border-top:1px solid var(--line);z-index:4}
+.foot .in{max-width:760px;margin:0 auto;padding:12px 16px calc(12px + env(safe-area-inset-bottom))}
+.foot .note{font-size:14px;color:var(--muted);text-align:center;margin-top:6px}
+.hidden{display:none!important}
+/* sheet */
+.scrim{position:fixed;inset:0;background:var(--scrim);z-index:20;display:flex;align-items:flex-end;justify-content:center}
+.sheet{background:var(--card);width:100%;max-width:520px;border-radius:18px 18px 0 0;padding:20px 16px calc(20px + env(safe-area-inset-bottom));max-height:92vh;overflow:auto}
+@media (min-width:700px){.scrim{align-items:center}.sheet{border-radius:18px;padding:24px}}
+.sheet h3{font-size:22px;margin:0 0 4px}
+.sheet .big-n{font-size:40px;font-weight:800;letter-spacing:-.02em;margin:10px 0 0}
+.sheet ul{padding-left:20px;color:var(--muted);margin:10px 0 18px}
+.sheet label{display:block;font-weight:600;margin:16px 0 8px}
+.field{width:100%;min-height:52px;border:1px solid var(--line);border-radius:12px;padding:12px 14px;background:var(--bg);font-size:17px}
+textarea.field{min-height:110px;resize:vertical}
+.choices{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.choice{min-height:52px;border:1px solid var(--line);border-radius:12px;background:var(--bg);font-weight:600;text-align:left;padding:8px 12px;font-size:15px}
+.choice[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft);box-shadow:inset 0 0 0 1px var(--accent)}
+.seg{display:flex;gap:8px}
+.seg .choice{flex:1;text-align:center;font-size:17px}
+.sheet .acts{display:flex;flex-direction:column;gap:6px;margin-top:20px}
+.hero{padding:22px 16px;text-align:center;margin-top:18px}
+.hero .big-n{font-size:44px;font-weight:800;letter-spacing:-.02em}
+.check{width:56px;height:56px;border-radius:50%;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;margin:0 auto 10px}
+/* phone */
+.phone-stage{display:flex;justify-content:center;padding:18px 0 40px}
+.phone{width:375px;max-width:100%;background:var(--bg);border:1px solid var(--line);border-radius:28px;overflow:hidden;box-shadow:var(--shadow)}
+@media (max-width:520px){.phone-stage{padding:0}.phone{border:0;border-radius:0;box-shadow:none;width:100%}}
+.ph{padding:0 16px 32px}
+.ph .who{color:var(--muted);font-size:15px;margin-top:18px}
+.ph .total{font-size:48px;font-weight:800;letter-spacing:-.02em;margin:2px 0 0}
+.ph .when{color:var(--muted)}
+.bal{margin-top:14px;padding:12px 14px;border-radius:12px;background:var(--neg-soft);color:var(--ink);font-size:15px}
+.grp{margin-top:22px}
+.grp h2{margin:0 0 8px;display:flex;align-items:baseline;gap:8px}
+.grp h2 small{font-size:14px;color:var(--muted);font-weight:500}
+.job{border-top:1px solid var(--line)}
+.job:first-child{border-top:0}
+.jrow{width:100%;display:flex;gap:10px;align-items:center;padding:14px;background:none;border:0;text-align:left;min-height:64px}
+.jrow .w{flex:1;min-width:0}
+.jrow .nm{font-weight:600}
+.jrow .why{font-size:14px;color:var(--warn);margin-top:2px}
+.jrow .why.ok{color:var(--muted)}
+.jrow .amt{font-weight:700;font-size:17px;white-space:nowrap}
+.jdet{display:none;padding:0 14px 14px}
+.job.open .jdet{display:block}
+.math{background:var(--bg);border-radius:10px;padding:12px;font-size:16px;font-weight:600;overflow-wrap:anywhere}
+.reason{margin-top:10px;font-size:15px}
+.status{margin-top:10px;font-size:14px;padding:8px 10px;border-radius:10px;background:var(--accent-soft)}
+.wrong{margin-top:6px;color:var(--neg);border:0;background:none;padding:10px 0;min-height:44px;font-weight:600;font-size:15px}
+.empty{padding:14px 16px;color:var(--muted)}
+.toast{position:fixed;left:50%;bottom:110px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:12px 18px;border-radius:12px;z-index:30;font-weight:600;max-width:calc(100% - 32px)}
+</style>
+</head>
+<body>
+<div class="tabs"><div class="in" role="group" aria-label="Screen">
+  <button class="tab" data-view="admin" aria-pressed="true">Pay this week</button>
+  <button class="tab" data-view="rep" aria-pressed="false">Rep's phone</button>
+  <button class="tab" data-view="fix" aria-pressed="false">Fix a mistake</button>
+</div></div>
+<div class="proto">Prototype · fictional people and jobs · nothing is saved</div>
+
+<main id="admin" class="wrap"></main>
+<main id="rep" class="hidden"></main>
+<div id="foot" class="foot"><div class="in">
+  <button id="approveBtn" class="btn primary big">Approve</button>
+  <div id="footNote" class="note"></div>
+</div></div>
+<div id="sheetHost"></div>
+
+<script>
+/* ---------- data (all fictional) ---------- */
+const WEEK = {ending:'Wed Oct 21', payday:'Fri Oct 23', next:'Fri Oct 30'};
+const $ = n => (n<0?'−':'')+'$'+Math.abs(Math.round(n)).toLocaleString('en-US');
+const pct = (base,r) => Math.round(base*r);
+
+const JOBS = {
+  '26-0141':{addr:'12 Example Maple Ln', sale:18400},
+  '26-0144':{addr:'408 Sample Birch Ct', sale:12600},
+};
+function jobLines(id, setter, closer, override){
+  const j = JOBS[id], s=j.sale, L=[];
+  L.push({who:setter, kind:'Commission', what:`${id} · ${j.addr}`, math:`${$(s)} sale × 5% setter`, amt:pct(s,.05), job:id});
+  L.push({who:closer, kind:'Commission', what:`${id} · ${j.addr}`, math:`${$(s)} sale × 7% closer`, amt:pct(s,.07), job:id});
+  L.push({who:override, kind:'Commission', what:`${id} · ${j.addr}`, math:`${$(s)} sale × 6% sales override`, amt:pct(s,.06), job:id});
+  ['dana','lee'].forEach(o=>L.push({who:o, kind:'OPP', what:`${id} · ${j.addr}`, math:`${$(s)} sale × 9% ÷ 2 owners`, amt:pct(s,.045), job:id}));
+  return L;
+}
+
+let S; // state
+function fresh(){
+  return {
+    people:{
+      jordan:{name:'Jordan Vale', role:'Closer'},
+      riley:{name:'Riley Moss', role:'Setter'},
+      taylor:{name:'Taylor Finch', role:'Setter'},
+      casey:{name:'Casey Park', role:'Sales manager'},
+      dana:{name:'Dana Brook', role:'Owner'},
+      lee:{name:'Lee Hart', role:'Owner'},
+      mia:{name:'Mia Cruz', role:'Canvasser · $18/hr'},
+      avery:{name:'Avery Lin', role:'Canvasser · $18/hr'},
+      bo:{name:'Bo Kent', role:'Canvasser · $17/hr'},
+    },
+    lines:[
+      ...jobLines('26-0141','riley','jordan','casey'),
+      ...jobLines('26-0144','taylor','jordan','casey'),
+      {who:'mia', kind:'Hourly', what:'Canvassing', math:'32 hrs × $18', amt:576},
+      {who:'jordan', kind:'Balance', what:'Paying back cancelled job 26-0077', math:'$300 owed · $150 per week', amt:-150},
+    ],
+    needs:[
+      {id:'h1', type:'hours', who:'avery', rate:18, done:false},
+      {id:'h2', type:'hours', who:'bo', rate:17, done:false},
+      {id:'b1', type:'bonus', who:'riley', amt:250, what:'Setter ramp bonus — 4 appointments set in first 30 days', done:false},
+      {id:'d1', type:'dispute', who:'jordan', job:'26-0129', msg:'"I closed 26-0129 alone — it should be 100% mine, not split 50/50."', fixAmt:322, done:false},
+      {id:'c1', type:'chargeback', job:'26-0098', addr:'77 Placeholder Rd', sale:10800, done:false,
+        takes:[{who:'taylor', role:'setter', r:.05},{who:'jordan', role:'closer', r:.07}]},
+    ],
+    waiting:[
+      {who:'jordan', job:'26-0150', addr:'5 Fictional Oak Dr', sale:21000, why:'Customer still owes $4,200 of $21,000'},
+      {who:'jordan', job:'26-0152', addr:'290 Mock Cedar Way', sale:15800, why:'Install not marked complete'},
+      {who:'jordan', job:'26-0147', addr:'63 Demo Pine St', sale:11500, why:'Office is reviewing a cost on this job'},
+      {who:'riley',  job:'26-0150', addr:'5 Fictional Oak Dr', sale:21000, why:'Customer still owes $4,200 of $21,000', setter:true},
+    ],
+    nextWeek:[],
+    paid:[
+      {who:'jordan', job:'26-0129', addr:'19 Imaginary Elm Ave', math:'$9,200 sale × 7% closer × 50% split', amt:322, day:'Oct 16'},
+      {who:'jordan', job:'26-0120', addr:'731 Pretend Spruce Ln', math:'$14,000 sale × 7% closer', amt:980, day:'Oct 9'},
+    ],
+    repNotes:{},       // job -> {msg,status}
+    approved:false, approvedTotal:0, approvedCount:0,
+    openPeople:{}, openJobs:{},
+  };
+}
+S = fresh();
+S.repNotes['26-0129'] = {msg:'I closed 26-0129 alone — it should be 100% mine, not split 50/50.', status:'Open — the office will reply within 1 business day'};
+
+/* ---------- math ---------- */
+function linesFor(who){ return S.lines.filter(l=>l.who===who); }
+function totalFor(who){ return Math.max(0, linesFor(who).reduce((a,l)=>a+l.amt,0)); }
+function grand(){ return Object.keys(S.people).reduce((a,k)=>a+totalFor(k),0); }
+function paidCount(){ return Object.keys(S.people).filter(k=>totalFor(k)>0).length; }
+function openNeeds(){ return S.needs.filter(n=>!n.done); }
+
+/* ---------- admin ---------- */
+const chev = '<svg class="chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg>';
+const tick = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"/></svg>';
+
+function needHTML(n){
+  const P = S.people;
+  if(n.type==='hours') return `<div class="item"><div class="t">Hours for ${P[n.who].name}</div>
+    <div class="d">No hours entered this week. $${n.rate}/hr.</div>
+    ${n.done?`<div class="done-chip">${tick} ${n.hours} hrs = ${$(n.hours*n.rate)} added</div>`:
+    `<div class="row"><input class="hours" id="in-${n.id}" type="number" inputmode="decimal" min="0" max="80" placeholder="Hours" aria-label="Hours for ${P[n.who].name}">
+     <button class="btn primary" data-act="hours" data-id="${n.id}">Add</button></div>`}</div>`;
+  if(n.type==='bonus') return `<div class="item"><div class="t">Bonus for ${P[n.who].name}: ${$(n.amt)}</div>
+    <div class="d">${n.what}</div>
+    ${n.done?`<div class="done-chip">${n.ok?tick+' Approved — added to this week':'Skipped — waits for next week'}</div>`:
+    `<div class="row"><button class="btn primary" data-act="bonus-yes" data-id="${n.id}">Yes, pay it</button>
+     <button class="btn" data-act="bonus-no" data-id="${n.id}">Not now</button></div>`}</div>`;
+  if(n.type==='dispute') return `<div class="item"><div class="t">${P[n.who].name} says something's wrong</div>
+    <div class="d">Job ${n.job}: ${n.msg}</div>
+    ${n.done?`<div class="done-chip">${tick} ${n.res}</div>`:
+    `<div class="row"><button class="btn primary" data-act="dispute-fix" data-id="${n.id}">${n.fixAmt?`Add a fix (+${$(n.fixAmt)})`:'Add a fix'}</button>
+     <button class="btn" data-act="dispute-ok" data-id="${n.id}">It's correct — tell them</button></div>`}</div>`;
+  if(n.type==='chargeback'){
+    const parts = n.takes.map(t=>`${P[t.who].name} ${$(-pct(n.sale,t.r))}`).join(', ');
+    const sum = n.takes.reduce((a,t)=>a+pct(n.sale,t.r),0);
+    return `<div class="item"><div class="t">Cancelled job — take back ${$(sum)}</div>
+    <div class="d">Job ${n.job} · ${n.addr} (${$(n.sale)}) was cancelled after we paid. ${parts}.</div>
+    ${n.done?`<div class="done-chip">${tick} Taken back this week</div>`:
+    `<div class="row"><button class="btn primary" data-act="cb-yes" data-id="${n.id}">Confirm</button>
+     <button class="btn" data-act="cb-no" data-id="${n.id}">Wait a week</button></div>`}</div>`;
+  }
+}
+
+function renderAdmin(){
+  const el = document.getElementById('admin');
+  if(S.approved){
+    const rolled = openNeeds();
+    el.innerHTML = `<div class="card hero"><div class="check">${tick}</div>
+      <div class="sub">Approved · Payday ${WEEK.payday}</div>
+      <div class="big-n">${$(S.approvedTotal)}</div>
+      <div>to ${S.approvedCount} people. Statements emailed.</div>
+      <div class="row" style="justify-content:center"><button class="btn" data-act="download">Download file for payroll</button></div></div>
+      ${rolled.length?`<h2>Moved to next week</h2><div class="card">${rolled.map(n=>`<div class="item"><div class="t">${needTitle(n)}</div></div>`).join('')}</div>`:''}
+      ${nextWeekHTML()}
+      <h2>Found a mistake?</h2>
+      <p class="sub">This week is paid and stays as it is. A fix goes on next week's check.</p>
+      <div class="row"><button class="btn" data-act="open-fix">Fix a mistake</button>
+      <button class="btn link" data-act="reset">Start the demo over</button></div>`;
+    renderFoot(); return;
+  }
+  const needs = openNeeds();
+  const people = Object.keys(S.people).sort((a,b)=>totalFor(b)-totalFor(a));
+  el.innerHTML = `
+    <h1>Pay this week</h1>
+    <p class="sub">Week ending ${WEEK.ending} · Payday ${WEEK.payday}</p>
+    ${S.needs.length?`<div class="card needs" style="margin-top:18px">
+      <h2>${needs.length?`Needs you (${needs.length})`:'All done here'}</h2>
+      ${S.needs.map(needHTML).join('')}</div>`:''}
+    <h2>People (${paidCount()})</h2>
+    <div class="card">${people.map(k=>personHTML(k)).join('')}</div>
+    <h2>Waiting — rolls to next week</h2>
+    <div class="card wait">${waitingHTML()}</div>
+    ${nextWeekHTML()}
+    <div class="row" style="margin-top:18px"><button class="btn" data-act="open-fix">Fix a mistake</button></div>`;
+  renderFoot();
+}
+function needTitle(n){
+  const P=S.people;
+  return {hours:`Hours for ${P[n.who]?.name}`, bonus:`Bonus for ${P[n.who]?.name}`, dispute:`${P[n.who]?.name}'s question on job ${n.job}`, chargeback:`Take-back for cancelled job ${n.job}`}[n.type];
+}
+function personHTML(k){
+  const p=S.people[k], L=linesFor(k), t=totalFor(k), raw=L.reduce((a,l)=>a+l.amt,0);
+  const missing = S.needs.find(n=>n.type==='hours'&&n.who===k&&!n.done);
+  const open = S.openPeople[k]?' open':'';
+  return `<div class="person${open}"><button class="prow" data-act="toggle-person" data-k="${k}" aria-expanded="${!!S.openPeople[k]}">
+    ${chev}<div><div class="nm">${p.name}</div><div class="rl">${p.role}</div></div>
+    <div class="amt">${missing?'<span class="pill">Hours missing</span>':$(t)}</div></button>
+    <div class="lines">${L.length?L.map(lineHTML).join(''):'<div class="ln"><div class="w m">Nothing this week yet.</div></div>'}
+    ${raw<0?`<div class="ln"><div class="w m">Check can't go below $0. ${$(-raw)} carries forward as a balance.</div></div>`:''}</div></div>`;
+}
+function lineHTML(l){
+  return `<div class="ln"><div class="w"><span class="k">${l.kind}</span>${l.what}<div class="m">${l.math} = ${$(l.amt)}</div></div>
+    <div class="a ${l.amt<0?'neg':''}">${$(l.amt)}</div></div>`;
+}
+function waitingHTML(){
+  const items = [...S.waiting.map(w=>({t:`${S.people[w.who].name} · ${w.job} · ${w.addr}`, d:w.why, a:pct(w.sale, w.setter?.05:.07)})),
+    ...S.needs.filter(n=>n.type==='bonus'&&n.done&&!n.ok).map(n=>({t:`${S.people[n.who].name} · Bonus`, d:'You chose "Not now"', a:n.amt})),
+    ...S.needs.filter(n=>n.type==='chargeback'&&n.done&&!n.ok).map(n=>({t:`Take-back for job ${n.job}`, d:'You chose "Wait a week"', a:-n.takes.reduce((a,t)=>a+pct(n.sale,t.r),0)}))];
+  return items.map(i=>`<div class="item" style="display:flex;gap:12px"><div style="flex:1;min-width:0"><div class="t">${i.t}</div><div class="d">${i.d}</div></div><div class="a" style="font-weight:600;white-space:nowrap;color:var(--muted)">${$(i.a)}</div></div>`).join('');
+}
+function nextWeekHTML(){
+  if(!S.nextWeek.length) return '';
+  return `<h2>Fixes on next week's check (${WEEK.next})</h2><div class="card">${S.nextWeek.map(f=>
+    `<div class="item" style="display:flex;gap:12px"><div style="flex:1;min-width:0"><div class="t">${S.people[f.who].name}</div><div class="d">${f.reason}</div></div>
+     <div style="font-weight:700;white-space:nowrap" class="${f.amt<0?'neg':''}">${f.amt>0?'+':''}${$(f.amt)}</div></div>`).join('')}</div>`;
+}
+function renderFoot(){
+  const foot=document.getElementById('foot'), b=document.getElementById('approveBtn'), note=document.getElementById('footNote');
+  const show = view==='admin' && !S.approved;
+  foot.classList.toggle('hidden', !show);
+  if(!show) return;
+  const g=grand(), n=openNeeds().length;
+  b.textContent = `Approve ${$(g)}`;
+  b.disabled = g<=0;
+  note.textContent = n ? `${n} item${n>1?'s':''} above not done yet — they'll wait for next week.` : `${paidCount()} people · payday ${WEEK.payday}`;
+}
+
+/* ---------- actions ---------- */
+function need(id){ return S.needs.find(n=>n.id===id); }
+document.addEventListener('click', e=>{
+  const b=e.target.closest('[data-act]'); if(!b) return;
+  const a=b.dataset.act, n=b.dataset.id&&need(b.dataset.id);
+  if(a==='toggle-person'){ S.openPeople[b.dataset.k]=!S.openPeople[b.dataset.k]; renderAdmin(); return; }
+  if(a==='hours'){
+    const v=parseFloat(document.getElementById('in-'+n.id).value);
+    if(!(v>0&&v<=80)){ toast('Type the hours worked (1–80)'); return; }
+    n.done=true; n.hours=v;
+    S.lines.push({who:n.who, kind:'Hourly', what:'Canvassing', math:`${v} hrs × $${n.rate}`, amt:Math.round(v*n.rate)});
+  }
+  if(a==='bonus-yes'){ n.done=true; n.ok=true; S.lines.push({who:n.who, kind:'Bonus', what:'Setter ramp bonus', math:'Approved by office', amt:n.amt}); }
+  if(a==='bonus-no'){ n.done=true; n.ok=false; }
+  if(a==='dispute-ok'){ n.done=true; n.res='Told Jordan it\'s correct'; S.repNotes[n.job].status=n.custom?'Answered: "We checked — this one is right. Happy to talk." — Office':'Answered: "The split was set 50/50 with Riley at signing. Happy to talk." — Office'; }
+  if(a==='dispute-fix'){ openFix({who:n.who, sign:1, amt:n.fixAmt||'', reason:n.custom?`Job ${n.job}: `:`Job ${n.job} should be 100% Jordan, not a 50/50 split`, dispute:n.id}); return; }
+  if(a==='cb-yes'){ n.done=true; n.ok=true; n.takes.forEach(t=>S.lines.push({who:t.who, kind:'Take-back', what:`${n.job} · ${n.addr} cancelled`, math:`${$(n.sale)} sale × ${Math.round(t.r*100)}% ${t.role} taken back`, amt:-pct(n.sale,t.r)})); }
+  if(a==='cb-no'){ n.done=true; n.ok=false; }
+  if(a==='open-fix'){ openFix({}); return; }
+  if(a==='reset'){ S=fresh(); S.repNotes['26-0129']={msg:'I closed 26-0129 alone — it should be 100% mine, not split 50/50.', status:'Open — the office will reply within 1 business day'}; renderAll(); window.scrollTo(0,0); return; }
+  if(a==='download'){ toast('payroll-oct-23.csv downloaded (demo)'); return; }
+  if(a==='toggle-job'){ S.openJobs[b.dataset.k]=!S.openJobs[b.dataset.k]; renderRep(); return; }
+  if(a==='wrong'){ openWrong(b.dataset.k); return; }
+  renderAll();
+});
+document.getElementById('approveBtn').addEventListener('click', openConfirm);
+
+/* ---------- sheets ---------- */
+function sheet(html){
+  const host=document.getElementById('sheetHost');
+  host.innerHTML=`<div class="scrim" id="scrim"><div class="sheet" role="dialog" aria-modal="true">${html}</div></div>`;
+  document.getElementById('scrim').addEventListener('click',e=>{ if(e.target.id==='scrim') closeSheet(); });
+  const f=host.querySelector('[autofocus]'); if(f) setTimeout(()=>f.focus(),30);
+}
+function closeSheet(){ document.getElementById('sheetHost').innerHTML=''; if(view==='fix') setView('admin'); }
+document.addEventListener('keydown',e=>{ if(e.key==='Escape' && document.getElementById('scrim')) closeSheet(); });
+
+function openConfirm(){
+  const g=grand(), c=paidCount(), n=openNeeds();
+  sheet(`<h3>Approve this week?</h3>
+    <div class="big-n">${$(g)}</div>
+    <ul><li>${c} people get paid ${WEEK.payday}</li>
+    <li>Everyone's statement will be emailed</li>
+    ${n.length?`<li>${n.length} unfinished item${n.length>1?'s':''} will wait for next week</li>`:''}
+    <li>Once approved, this week is paid for good. Fixes go on next week.</li></ul>
+    <div class="acts"><button class="btn primary big" id="doApprove">Approve ${$(g)}</button>
+    <button class="btn link" id="cancelApprove">Go back</button></div>`);
+  document.getElementById('doApprove').onclick=()=>{
+    S.approved=true; S.approvedTotal=g; S.approvedCount=c; closeSheet(); renderAll(); window.scrollTo(0,0);
+  };
+  document.getElementById('cancelApprove').onclick=closeSheet;
+}
+
+function openFix(pre){
+  const f={who:pre.who||null, sign:pre.sign||1, amt:pre.amt||'', reason:pre.reason||'', dispute:pre.dispute};
+  const draw=()=>{
+    const P=S.people;
+    sheet(`<h3>Fix a mistake</h3><p class="sub">It goes on next week's check (${WEEK.next}). Paid weeks never change.</p>
+      <label>Who?</label><div class="choices">${Object.keys(P).map(k=>`<button class="choice" data-who="${k}" aria-pressed="${f.who===k}">${P[k].name}</button>`).join('')}</div>
+      <label>Pay them more, or take some back?</label>
+      <div class="seg"><button class="choice" data-sign="1" aria-pressed="${f.sign===1}">+ Add</button><button class="choice" data-sign="-1" aria-pressed="${f.sign===-1}">− Take back</button></div>
+      <label for="fxAmt">How much?</label><input id="fxAmt" class="field" type="number" inputmode="decimal" min="1" placeholder="$0" value="${f.amt}">
+      <label for="fxWhy">Why? (they'll see this)</label><input id="fxWhy" class="field" type="text" placeholder="e.g. Split on job 26-0129 was wrong" value="${f.reason.replace(/"/g,'&quot;')}">
+      <div class="acts"><button class="btn primary big" id="fxSave">Add to next week</button><button class="btn link" id="fxCancel">Cancel</button></div>`);
+    const host=document.getElementById('sheetHost');
+    const keep=()=>{ f.amt=host.querySelector('#fxAmt').value; f.reason=host.querySelector('#fxWhy').value; };
+    host.querySelectorAll('[data-who]').forEach(x=>x.onclick=()=>{keep(); f.who=x.dataset.who; draw();});
+    host.querySelectorAll('[data-sign]').forEach(x=>x.onclick=()=>{keep(); f.sign=+x.dataset.sign; draw();});
+    host.querySelector('#fxCancel').onclick=closeSheet;
+    host.querySelector('#fxSave').onclick=()=>{
+      keep(); const amt=parseFloat(f.amt);
+      if(!f.who) return toast('Pick who it\'s for');
+      if(!(amt>0)) return toast('Type an amount');
+      if(!f.reason.trim()) return toast('Add a short reason');
+      S.nextWeek.push({who:f.who, amt:f.sign*Math.round(amt), reason:f.reason.trim()});
+      if(f.dispute){ const n=need(f.dispute); n.done=true; n.res=`Fix of +${$(amt)} added to next week`; S.repNotes[n.job].status=`Fixed: +${$(amt)} on your ${WEEK.next} check`; }
+      closeSheet(); renderAll(); toast(`Added to next week: ${S.people[f.who].name} ${f.sign>0?'+':'−'}${$(amt)}`);
+    };
+  };
+  draw();
+}
+
+function openWrong(job){
+  sheet(`<h3>Something's wrong?</h3><p class="sub">Job ${job}. Tell the office in a sentence. They'll answer within 1 business day.</p>
+    <label for="wrongTxt">What looks wrong?</label><textarea id="wrongTxt" class="field" autofocus placeholder="e.g. I closed this one alone"></textarea>
+    <div class="acts"><button class="btn primary big" id="wrongSend">Send to office</button><button class="btn link" id="wrongCancel">Cancel</button></div>`);
+  document.getElementById('wrongCancel').onclick=closeSheet;
+  document.getElementById('wrongSend').onclick=()=>{
+    const v=document.getElementById('wrongTxt').value.trim();
+    if(!v) return toast('Type a short note first');
+    S.repNotes[job]={msg:v, status:'Open — the office will reply within 1 business day'};
+    S.needs.push({id:'d'+Date.now(), type:'dispute', who:'jordan', job, msg:`"${v}"`, fixAmt:0, done:false, custom:true});
+    closeSheet(); renderAll(); toast('Sent. It\'s in the office\'s "Needs you" box.');
+  };
+}
+
+/* ---------- rep phone ---------- */
+function renderRep(){
+  const me='jordan', p=S.people[me];
+  const now = linesFor(me);
+  const total = totalFor(me);
+  const cb = S.needs.find(n=>n.type==='chargeback'&&n.takes.some(t=>t.who===me));
+  const coming = [
+    ...S.waiting.filter(w=>w.who===me).map(w=>({k:'c-'+w.job, title:`${w.job} · ${w.addr}`, amt:pct(w.sale,.07), math:`${$(w.sale)} sale × 7% closer`, why:w.why, job:w.job})),
+    ...(cb && !(cb.done&&cb.ok) ? [{k:'c-cb', title:`${cb.job} · ${cb.addr} — cancelled`, amt:-pct(cb.sale,.07), math:`${$(cb.sale)} sale × 7% closer taken back`, why:'Customer cancelled after you were paid. Office is confirming the amount.', job:cb.job}] : []),
+    ...S.nextWeek.filter(f=>f.who===me).map((f,i)=>({k:'c-fx'+i, title:'Fix from the office', amt:f.amt, math:`${f.amt>0?'+':''}${$(f.amt)} correction`, why:`On your ${WEEK.next} check: ${f.reason}`, ok:true})),
+  ];
+  const week = now.map((l,i)=>({k:'w-'+i, title:l.job?`${l.what}`:l.what, amt:l.amt, math:`${l.math} = ${$(l.amt)}`, why: S.approved?`Approved. Paid ${WEEK.payday}.`:`On Friday's check (${WEEK.payday}).`, ok:true, job:l.job, kind:l.kind}));
+  const paid = S.paid.filter(x=>x.who===me).map(x=>({k:'p-'+x.job, title:`${x.job} · ${x.addr}`, amt:x.amt, math:`${x.math} = ${$(x.amt)}`, why:`Paid ${x.day}.`, ok:true, job:x.job}));
+  const comingSum = coming.reduce((a,c)=>a+c.amt,0);
+
+  const jobHTML = j => {
+    const note = j.job && S.repNotes[j.job];
+    return `<div class="job${S.openJobs[j.k]?' open':''}"><button class="jrow" data-act="toggle-job" data-k="${j.k}" aria-expanded="${!!S.openJobs[j.k]}">
+      <div class="w"><div class="nm">${j.title}</div><div class="why ${j.ok?'ok':''}">${j.kind&&j.kind!=='Commission'?j.kind+' · ':''}${j.why}</div></div>
+      <div class="amt ${j.amt<0?'neg':''}">${$(j.amt)}</div>${chev}</button>
+      <div class="jdet"><div class="math">${j.math.includes('=')?j.math:j.math+' = '+$(j.amt)}</div>
+      ${note?`<div class="status"><b>You asked:</b> ${note.msg}<br>${note.status}</div>`:''}
+      ${!note&&j.job?`<button class="wrong" data-act="wrong" data-k="${j.job}">Something's wrong?</button>`:''}</div></div>`;
+  };
+  const grp = (title, sub, arr) => `<div class="grp"><h2>${title} <small>${sub}</small></h2><div class="card">${arr.length?arr.map(jobHTML).join(''):'<div class="empty">Nothing here.</div>'}</div></div>`;
+
+  document.getElementById('rep').innerHTML = `<div class="phone-stage"><div class="phone"><div class="ph">
+    <div class="who">${p.name} · My pay</div>
+    <div class="total">${$(total)}</div>
+    <div class="when">${S.approved?`Approved · paid ${WEEK.payday}`:`This week so far · paid ${WEEK.payday}`}</div>
+    <div class="bal"><b>You owe $300</b> from cancelled job 26-0077. $150 comes out each week until it's $0.</div>
+    ${grp('This week', $(now.reduce((a,l)=>a+l.amt,0)), week)}
+    ${grp('Coming', comingSum?'about '+$(comingSum):'', coming)}
+    ${grp('Paid', 'last 2 checks', paid)}
+  </div></div></div>`;
+}
+
+/* ---------- view switching ---------- */
+let view='admin';
+function setView(v){
+  view=v;
+  document.querySelectorAll('.tab').forEach(t=>t.setAttribute('aria-pressed', t.dataset.view===v));
+  document.getElementById('admin').classList.toggle('hidden', v==='rep');
+  document.getElementById('rep').classList.toggle('hidden', v!=='rep');
+  renderAll();
+  if(v==='fix') openFix({});
+}
+document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click',()=>setView(t.dataset.view)));
+function renderAll(){ renderAdmin(); renderRep(); renderFoot(); }
+let tt; function toast(m){ clearTimeout(tt); document.querySelectorAll('.toast').forEach(x=>x.remove()); const d=document.createElement('div'); d.className='toast'; d.textContent=m; document.body.appendChild(d); tt=setTimeout(()=>d.remove(),2600); }
+renderAll();
+</script>
+</body>
+</html>

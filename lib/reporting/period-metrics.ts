@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { getContactDispositionIdSet, isContactDisposition } from '@/lib/sales-metrics'
 import { fetchSupabaseAllPages } from '@/lib/supabase-fetch-all-pages'
+import { loadTestAccountIds } from '@/lib/test-accounts'
 
 /**
  * The dashboard's weekly numbers (doors, contacts, inspections set, sits, sales, calendar appointments),
@@ -47,7 +48,8 @@ export async function fetchPeriodMetricRows(
         .range(from, to) as never
     )
 
-  const [doors, sets, sits, sales, calendar] = await Promise.all([
+  const [testIds, doors, sets, sits, sales, calendar] = await Promise.all([
+    loadTestAccountIds(admin, orgId),
     page('rpt_canvass_doors', 'knock_id, user_id, disposition, knocked_at', 'knocked_at', 'knock_id'),
     page('rpt_inspection_sets', 'appointment_id, setter_user_id, closer_user_id, set_at', 'set_at', 'appointment_id'),
     page('rpt_sits', 'opportunity_id, setter_user_id, closer_user_id, sat_at', 'sat_at', 'opportunity_id'),
@@ -56,6 +58,12 @@ export async function fetchPeriodMetricRows(
     page('rpt_appointments', 'appointment_id, closer_user_id, scheduled_for, outcome_not_recorded_at', 'scheduled_for', 'appointment_id'),
   ])
 
+  // Test accounts get no credit anywhere (their id is simply not credited).
+  const u = (v: unknown): string | null => {
+    const id = s(v)
+    return id && testIds.has(id) ? null : id
+  }
+
   // One sale per opportunity (a split cash/finance deal has two signed agreements).
   const saleSeen = new Set<string>()
   const saleRows: PeriodMetricRows['sales'] = []
@@ -63,7 +71,7 @@ export async function fetchPeriodMetricRows(
     const key = s(r.opportunity_id) ?? s(r.contract_id)
     if (!key || saleSeen.has(key)) continue
     saleSeen.add(key)
-    saleRows.push({ opportunity_id: key, setter_user_id: s(r.setter_user_id), closer_user_id: s(r.closer_user_id) })
+    saleRows.push({ opportunity_id: key, setter_user_id: u(r.setter_user_id), closer_user_id: u(r.closer_user_id) })
   }
   const sitSeen = new Set<string>()
   const sitRows: PeriodMetricRows['sits'] = []
@@ -71,15 +79,20 @@ export async function fetchPeriodMetricRows(
     const key = s(r.opportunity_id)
     if (!key || sitSeen.has(key)) continue
     sitSeen.add(key)
-    sitRows.push({ opportunity_id: key, setter_user_id: s(r.setter_user_id), closer_user_id: s(r.closer_user_id) })
+    sitRows.push({ opportunity_id: key, setter_user_id: u(r.setter_user_id), closer_user_id: u(r.closer_user_id) })
   }
 
   return {
-    doors: doors.map((r) => ({ user_id: s(r.user_id), disposition: s(r.disposition) })),
-    sets: sets.map((r) => ({ setter_user_id: s(r.setter_user_id), closer_user_id: s(r.closer_user_id) })),
+    doors: doors.map((r) => ({ user_id: u(r.user_id), disposition: s(r.disposition) })),
+    sets: sets.map((r) => ({ setter_user_id: u(r.setter_user_id), closer_user_id: u(r.closer_user_id) })),
     sits: sitRows,
     sales: saleRows,
-    calendar: calendar.filter((r) => !s(r.outcome_not_recorded_at)).flatMap((r) => (s(r.closer_user_id) ? [{ closer_user_id: s(r.closer_user_id)! }] : [])),
+    calendar: calendar
+      .filter((r) => !s(r.outcome_not_recorded_at))
+      .flatMap((r) => {
+        const id = u(r.closer_user_id)
+        return id ? [{ closer_user_id: id }] : []
+      }),
   }
 }
 

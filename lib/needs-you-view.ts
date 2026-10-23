@@ -15,6 +15,8 @@ export type JobCard = { job: JobHealth; holdsPay: boolean; openHolds: boolean }
 
 export type NeedsView = {
   plans: NonNullable<DataHealthReport['payPlans']>
+  /** People whose plan was ended and not replaced (paid nothing until someone assigns one). */
+  ended: NonNullable<DataHealthReport['endedPlans']>
   jobs: JobCard[]
   appointments: AppointmentHealth[]
   counts: { all: number; money: number; ops: number }
@@ -27,6 +29,7 @@ function visibleProblems(job: JobHealth, filter: NeedsFilter) {
 
 export function buildNeedsView(report: DataHealthReport, filter: NeedsFilter): NeedsView {
   const plans = report.payPlans ?? []
+  const ended = report.endedPlans ?? []
   const jobs: JobCard[] = report.jobs
     .map((j) => ({ ...j, problems: visibleProblems(j, filter) }))
     .filter((j) => j.problems.length > 0)
@@ -48,11 +51,12 @@ export function buildNeedsView(report: DataHealthReport, filter: NeedsFilter): N
   const planCount = plans.length
   return {
     plans: filter === 'ops' ? [] : plans,
+    ended: filter === 'ops' ? [] : ended,
     jobs,
     appointments,
     counts: {
       all: report.count,
-      money: moneyJobs + planCount,
+      money: moneyJobs + planCount + (ended.length > 0 ? 1 : 0),
       ops: opsJobs + report.appointments.length,
     },
   }

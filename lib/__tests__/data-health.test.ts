@@ -327,7 +327,7 @@ const tables = {
   ],
   work_orders: [],
   scheduled_appointments: [
-    { id: 'a1', org_id: ORG, status: 'scheduled', scheduled_for: '2026-10-01T14:00:00.000Z', duration_minutes: 60, appointment_type: 'inspection', lead_id: 'l1' },
+    { id: 'a1', org_id: ORG, status: 'scheduled', scheduled_for: '2026-10-15T14:00:00.000Z', duration_minutes: 60, appointment_type: 'inspection', lead_id: 'l1' },
     { id: 'a2', org_id: ORG, status: 'completed', scheduled_for: '2026-10-01T14:00:00.000Z', duration_minutes: 60 },
   ],
 }
