@@ -55,7 +55,7 @@ export function createFakeDb(seed: Record<string, Row[]>, opts: { relations?: Re
 
     const embed = (r: Row): Row => {
       const out = { ...r }
-      for (const m of selectCols.matchAll(/([a-z_]+)\(([^)]*)\)/g)) {
+      for (const m of Array.from(selectCols.matchAll(/([a-z_]+)\(([^)]*)\)/g))) {
         const name = m[1]
         const rl = rel[table]?.[name]
         if (rl) out[name] = (tables[rl.table] ?? []).find((x) => x.id === r[rl.fk]) ?? null
