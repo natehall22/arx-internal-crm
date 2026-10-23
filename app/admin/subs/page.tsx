@@ -4,6 +4,9 @@ import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
+import type { ColumnDef } from '@tanstack/react-table'
+import { Button } from '@/components/ui/button'
+import { DataTable, type TableFilter, type TableView } from '@/components/ui/data-table'
 import { toast } from '@/components/ui/toast'
 import { confirmDialog } from '@/components/ui/confirm-dialog'
 
@@ -22,6 +25,34 @@ interface SubContractor {
   rating: number | null
   created_at: string
 }
+
+const subColumns: ColumnDef<SubContractor, any>[] = [
+  { id: 'company', header: 'Company', accessorFn: (x) => x.company_name, meta: { mobile: 'title' } },
+  {
+    id: 'contact',
+    header: 'Contact',
+    accessorFn: (x) => [x.contact_name, x.phone, x.email].filter(Boolean).join(' '),
+    cell: (c) => {
+      const x = c.row.original
+      return (
+        <span>
+          {x.contact_name ? <span className="block">{x.contact_name}</span> : null}
+          {x.phone ? <span className="block text-ui-sm text-ink-muted">{x.phone}</span> : null}
+          {x.email ? <span className="block break-all text-ui-sm text-ink-muted">{x.email}</span> : null}
+        </span>
+      )
+    },
+  },
+  { id: 'services', header: 'Services', accessorFn: (x) => (x.services ?? []).join(', ') },
+  { id: 'status', header: 'Status', accessorFn: (x) => (x.active ? 'Active' : 'Inactive') },
+]
+const SUB_FILTERS: TableFilter<SubContractor>[] = [
+  { key: 'active', label: 'Status', options: [{ value: 'yes', label: 'Active' }, { value: 'no', label: 'Inactive' }], accessor: (x) => (x.active ? 'yes' : 'no') },
+]
+const SUB_VIEWS: TableView[] = [
+  { id: 'sys:active', name: 'Active', state: { sorting: [{ id: 'company', desc: false }], search: '', filters: { active: 'yes' } } },
+  { id: 'sys:inactive', name: 'Inactive', state: { sorting: [{ id: 'company', desc: false }], search: '', filters: { active: 'no' } } },
+]
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
@@ -388,77 +419,25 @@ export default function SubContractorsPage() {
             </button>
           </div>
         ) : (
-          <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
-            <table className="w-full">
-              <thead className="bg-gray-50 border-b">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Company</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Contact</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Services</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {subs.map((sub) => (
-                  <tr key={sub.id} className={`hover:bg-gray-50 ${!sub.active ? 'opacity-50' : ''}`}>
-                    <td className="px-6 py-4">
-                      <div className="font-medium text-gray-900">{sub.company_name}</div>
-                    </td>
-                    <td className="px-6 py-4">
-                      {sub.contact_name && <div className="text-sm text-gray-900">{sub.contact_name}</div>}
-                      {sub.phone && <div className="text-sm text-gray-500">{sub.phone}</div>}
-                      {sub.email && <div className="text-sm text-gray-500">{sub.email}</div>}
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="flex flex-wrap gap-1">
-                        {sub.services?.slice(0, 3).map(s => (
-                          <span key={s} className="px-2 py-0.5 bg-gray-100 text-gray-600 text-xs rounded">
-                            {s}
-                          </span>
-                        ))}
-                        {sub.services?.length > 3 && (
-                          <span className="text-xs text-gray-500">+{sub.services.length - 3}</span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className={`px-2 py-1 text-xs font-medium rounded-full ${
-                        sub.active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
-                      }`}>
-                        {sub.active ? 'Active' : 'Inactive'}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      <div className="flex justify-end gap-2">
-                        <button
-                          onClick={() => openModal(sub)}
-                          className="text-indigo-600 hover:text-indigo-800 text-sm font-medium"
-                        >
-                          Edit
-                        </button>
-                        <button
-                          onClick={() => toggleActive(sub)}
-                          className={`text-sm font-medium ${
-                            sub.active ? 'text-amber-600 hover:text-amber-800' : 'text-green-600 hover:text-green-800'
-                          }`}
-                        >
-                          {sub.active ? 'Deactivate' : 'Activate'}
-                        </button>
-                        <button
-                          onClick={() => deleteSub(sub)}
-                          className="text-red-600 hover:text-red-800 text-sm font-medium"
-                          title="Delete subcontractor"
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <DataTable
+            columns={subColumns}
+            data={subs}
+            tableKey="subs"
+            getRowId={(x) => x.id}
+            searchPlaceholder="Search company, contact, phone or service"
+            filters={SUB_FILTERS}
+            systemViews={SUB_VIEWS}
+            defaultViewId="sys:active"
+            initialSorting={[{ id: 'company', desc: false }]}
+            rowActions={(sub) => (
+              <div className="flex justify-end gap-1">
+                <Button variant="ghost" size="sm" onClick={() => openModal(sub)}>Edit</Button>
+                <Button variant="ghost" size="sm" onClick={() => toggleActive(sub)}>{sub.active ? 'Deactivate' : 'Activate'}</Button>
+                <Button variant="ghost" size="sm" onClick={() => deleteSub(sub)} aria-label={`Delete ${sub.company_name}`}>Delete</Button>
+              </div>
+            )}
+            empty={{ title: 'No sub-contractors match', body: 'Try another view.' }}
+          />
         )}
 
         {/* Modal */}

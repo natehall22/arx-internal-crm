@@ -2,6 +2,7 @@ import { sumCollectedCents } from '@/lib/job-collection'
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import Nav from '@/components/Nav'
+import JobProfitTable from '@/components/admin/JobProfitTable'
 import { requireAuth } from '@/lib/auth'
 import { isPayrollAdminRole } from '@/lib/payroll-admin-access'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -60,22 +61,6 @@ function formatMoney(value: number): string {
   }).format(value)
 }
 
-function formatPercent(value: number | null): string {
-  if (value == null || !Number.isFinite(value)) return '—'
-  return `${value.toFixed(2)}%`
-}
-
-function formatDate(value: string | null): string {
-  if (!value) return '—'
-  const date = new Date(`${value}T00:00:00`)
-  if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleDateString('en-US', {
-    month: '2-digit',
-    day: '2-digit',
-    year: 'numeric',
-  })
-}
-
 function humanStatus(status: string): string {
   return status
     .split('_')
@@ -97,47 +82,6 @@ function lastNameFor(name: string): string {
   const parts = name.split(/\s+/).filter(Boolean)
   return parts.length ? parts[parts.length - 1] : '—'
 }
-
-function rowToneClass(status: string): string {
-  if (status === 'Reconciled & Closed') {
-    return 'border-l-4 border-emerald-500 bg-emerald-50 hover:bg-emerald-100/80'
-  }
-  if (status === 'Deposit Received') {
-    return 'border-l-4 border-amber-400 bg-amber-50 hover:bg-amber-100/80'
-  }
-  return 'border-l-4 border-sky-400 bg-white hover:bg-sky-50'
-}
-
-function statusPillClass(status: string): string {
-  if (status === 'Reconciled & Closed') {
-    return 'bg-emerald-100 text-emerald-800 ring-1 ring-emerald-200'
-  }
-  if (status === 'Deposit Received') {
-    return 'bg-amber-100 text-amber-900 ring-1 ring-amber-200'
-  }
-  return 'bg-sky-100 text-sky-800 ring-1 ring-sky-200'
-}
-
-function profitToneClass(percent: number | null): string {
-  if (percent == null) return 'text-gray-700'
-  if (percent >= 35) return 'bg-emerald-100 text-emerald-900'
-  if (percent >= 20) return 'bg-amber-100 text-amber-900'
-  return 'bg-rose-100 text-rose-900'
-}
-
-function moneyToneClass(value: number): string {
-  return value < 0 ? 'text-rose-700' : 'text-gray-900'
-}
-
-/**
- * Header cells pin to the top of the scroll container so the 22 money columns stay
- * identifiable while scrolling rows.
- *
- * The background lives on each `th`, not on `thead`: a sticky cell paints its own
- * background, and a section-level one lets rows show through as they pass under.
- */
-const TRACKER_TH = 'sticky top-0 z-10 bg-[#4a6080] px-3 py-2 font-semibold'
-const TRACKER_TH_RIGHT = `${TRACKER_TH} text-right`
 
 export default async function AdminJobProfitTrackerPage({
   searchParams,
@@ -430,120 +374,36 @@ export default async function AdminJobProfitTrackerPage({
           ))}
         </div>
 
-        <div className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
-          {/*
-            Capped height makes this the vertical scroller, which is what the sticky
-            header pins against. With only `overflow-x-auto` the box grows to content
-            height and never scrolls vertically itself, so the header would scroll off
-            the top of the page with everything else.
-          */}
-          <div className="max-h-[70vh] overflow-auto">
-            <table className="min-w-[1500px] text-sm">
-              <thead className="text-left text-xs uppercase tracking-wide text-white">
-                <tr>
-                  <th className={TRACKER_TH}>#</th>
-                  <th className={TRACKER_TH}>Last name</th>
-                  <th className={TRACKER_TH}>Job address</th>
-                  <th className={TRACKER_TH_RIGHT}>Contract</th>
-                  <th className={TRACKER_TH_RIGHT}>Finance costs</th>
-                  <th className={TRACKER_TH_RIGHT}>Commissionable</th>
-                  <th className={TRACKER_TH_RIGHT}>Materials</th>
-                  <th className={TRACKER_TH_RIGHT}>Labor</th>
-                  <th className={TRACKER_TH_RIGHT}>Misc</th>
-                  <th className={TRACKER_TH_RIGHT}>Total expenses</th>
-                  <th className={TRACKER_TH_RIGHT}>Setter 5%</th>
-                  <th className={TRACKER_TH_RIGHT}>Closer 7%</th>
-                  <th className={TRACKER_TH_RIGHT}>Sales 6%</th>
-                  <th className={TRACKER_TH_RIGHT}>OPP 9%</th>
-                  <th className={TRACKER_TH_RIGHT}>Gross profit</th>
-                  <th className={TRACKER_TH_RIGHT}>GP %</th>
-                  <th className={TRACKER_TH_RIGHT}>Owner draw</th>
-                  <th className={TRACKER_TH_RIGHT}>Per owner</th>
-                  <th className={TRACKER_TH_RIGHT}>Net profit</th>
-                  <th className={TRACKER_TH_RIGHT}>Net %</th>
-                  <th className={TRACKER_TH}>Notes</th>
-                  <th className={TRACKER_TH}>Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100 text-gray-800">
-                {rows.length === 0 ? (
-                  <tr>
-                    <td colSpan={22} className="px-4 py-8 text-center text-gray-500">
-                      No jobs match the current filters.
-                    </td>
-                  </tr>
-                ) : (
-                  rows.map((row) => (
-                    <tr key={row.job.id} className={rowToneClass(row.trackerStatus)}>
-                      <td className="px-3 py-2 text-gray-500">{row.index}</td>
-                      <td className="px-3 py-2 font-medium text-gray-900">
-                        <Link href={`/ops/jobs/${row.job.id}`} className="hover:text-indigo-700">
-                          {row.lastName}
-                        </Link>
-                        <div className="mt-0.5 text-xs font-normal text-gray-500">{row.job.job_number}</div>
-                      </td>
-                      <td className="max-w-[260px] px-3 py-2 text-gray-700">
-                        <div className="truncate" title={row.job.address_text || undefined}>
-                          {row.job.address_text || '—'}
-                        </div>
-                        <div className="mt-0.5 text-xs text-gray-500">Sale {formatDate(row.job.sale_date)}</div>
-                      </td>
-                      <td className="px-3 py-2 text-right font-medium tabular-nums">{formatMoney(row.saleAmount)}</td>
-                      <td className="px-3 py-2 text-right font-medium tabular-nums">{formatMoney(row.financeCost)}</td>
-                      <td className="px-3 py-2 text-right font-medium tabular-nums">{formatMoney(row.commissionableAmount)}</td>
-                      <td className="px-3 py-2 text-right font-medium tabular-nums">{formatMoney(row.materials)}</td>
-                      <td className="px-3 py-2 text-right font-medium tabular-nums">{formatMoney(row.labor)}</td>
-                      <td className="px-3 py-2 text-right font-medium tabular-nums">{formatMoney(row.misc)}</td>
-                      <td className="px-3 py-2 text-right font-medium tabular-nums">
-                        {formatMoney(row.totalExpenses)}
-                        {row.hasUnreviewedCostLines && (
-                          <span
-                            className="ml-1 inline-block rounded-full bg-amber-100 px-1.5 py-0.5 align-middle text-[10px] font-semibold text-amber-900"
-                            title="Includes a cost line an admin hasn't reviewed yet — numbers below may change"
-                          >
-                            unreviewed
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-3 py-2 text-right font-medium tabular-nums">{formatMoney(row.setterCommission)}</td>
-                      <td className="px-3 py-2 text-right font-medium tabular-nums">{formatMoney(row.closerCommission)}</td>
-                      <td className="px-3 py-2 text-right font-medium tabular-nums">{formatMoney(row.salesCommission)}</td>
-                      <td className="px-3 py-2 text-right font-medium tabular-nums">{formatMoney(row.opp)}</td>
-                      <td className={`px-3 py-2 text-right font-semibold tabular-nums ${moneyToneClass(row.grossProfit)}`}>
-                        {formatMoney(row.grossProfit)}
-                      </td>
-                      <td className="px-3 py-2 text-right tabular-nums">
-                        <span className={`inline-block rounded px-2 py-1 font-medium ${profitToneClass(row.grossProfitPercent)}`}>
-                          {formatPercent(row.grossProfitPercent)}
-                        </span>
-                      </td>
-                      <td className="px-3 py-2 text-right font-medium tabular-nums">{formatMoney(row.ownerDraw)}</td>
-                      <td className="px-3 py-2 text-right font-medium tabular-nums">{formatMoney(row.ownerDrawPerOwner)}</td>
-                      <td className={`px-3 py-2 text-right font-semibold tabular-nums ${moneyToneClass(row.netProfit)}`}>
-                        {formatMoney(row.netProfit)}
-                      </td>
-                      <td className="px-3 py-2 text-right tabular-nums">
-                        <span className={`inline-block rounded px-2 py-1 font-medium ${profitToneClass(row.netPercent)}`}>
-                          {formatPercent(row.netPercent)}
-                        </span>
-                      </td>
-                      <td className="max-w-[220px] px-3 py-2 text-xs text-gray-600">
-                        <div className="truncate" title={row.job.internal_notes || undefined}>
-                          {row.job.internal_notes || '—'}
-                        </div>
-                      </td>
-                      <td className="px-3 py-2 text-gray-700">
-                        <span className={`whitespace-nowrap rounded-full px-2 py-1 text-xs font-medium ${statusPillClass(row.trackerStatus)}`}>
-                          {row.trackerStatus}
-                        </span>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <JobProfitTable
+          rows={rows.map((r) => ({
+            id: r.job.id,
+            jobNumber: r.job.job_number,
+            lastName: r.lastName,
+            customerName: r.customerName,
+            address: r.job.address_text,
+            saleDate: r.job.sale_date,
+            saleAmount: r.saleAmount,
+            financeCost: r.financeCost,
+            commissionable: r.commissionableAmount,
+            materials: r.materials,
+            labor: r.labor,
+            misc: r.misc,
+            totalExpenses: r.totalExpenses,
+            setter: r.setterCommission,
+            closer: r.closerCommission,
+            sales: r.salesCommission,
+            opp: r.opp,
+            grossProfit: r.grossProfit,
+            grossPercent: r.grossProfitPercent,
+            ownerDraw: r.ownerDraw,
+            perOwner: r.ownerDrawPerOwner,
+            netProfit: r.netProfit,
+            netPercent: r.netPercent,
+            notes: r.job.internal_notes ?? null,
+            status: r.trackerStatus,
+            unreviewed: r.hasUnreviewedCostLines,
+          }))}
+        />
       </main>
     </div>
   )
