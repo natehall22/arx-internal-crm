@@ -1,29 +1,34 @@
 import { NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
-import nodemailer from 'nodemailer'
-import { getCrmEmailFrom } from '@/lib/crm-email-from'
 import { canReadJobNotes, resolveOpsAccess } from '@/lib/ops-access'
-import { mentionCandidates, resolveNoteMentions } from '@/lib/note-mentions'
-import { resolveAppUrl } from '@/lib/job-trades'
-import { buildMentionEmail } from '@/lib/note-mention-email'
+import { postMessage } from '@/lib/threads/post-message'
+import { notifyMessage } from '@/lib/threads/notify'
+import { loadDeal } from '@/lib/threads/get-thread'
+import { resolveByReply } from '@/lib/threads/waiting'
+import { resolveThreadViewer } from '@/lib/threads/viewer'
+import { canReadMessage } from '@/lib/threads/visibility'
 
-function getMailTransport() {
-  return nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
-    port: parseInt(process.env.SMTP_PORT || '587', 10),
-    secure: process.env.SMTP_SECURE === 'true',
-    auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS,
-    },
-  })
+/**
+ * Legacy job-notes endpoint, kept for the old job page and any stale client. Notes now live in the deal's thread
+ * (`activities`, audience Production) — this route is a thin adapter over the ONE read path (`getTimeline` rules via
+ * canReadMessage) and the ONE write path (`postMessage`). It no longer writes `production_job_notes`.
+ */
+
+type LegacyNote = { id: string; note: string; created_at: string; user: { full_name: string | null } | null }
+
+/** The deal (opportunity) a job belongs to: job → project → opportunity. */
+async function dealForJob(admin: ReturnType<typeof createServiceClient>, orgId: string, jobId: string) {
+  const { data: job } = await admin.from('production_jobs').select('id, org_id, project_id').eq('id', jobId).maybeSingle()
+  const j = job as { id: string; org_id: string; project_id: string | null } | null
+  if (!j || j.org_id !== orgId) return { job: null, deal: null }
+  const { data: project } = j.project_id ? await admin.from('projects').select('opportunity_id').eq('id', j.project_id).eq('org_id', orgId).maybeSingle() : { data: null }
+  const oppId = (project as { opportunity_id: string | null } | null)?.opportunity_id
+  const deal = oppId ? await loadDeal(admin, orgId, oppId) : null
+  return { job: j, deal }
 }
 
-export async function GET(
-  request: Request,
-  { params }: { params: { id: string } }
-) {
+export async function GET(_request: Request, { params }: { params: { id: string } }) {
   try {
     let profile
     let authUser
@@ -32,61 +37,38 @@ export async function GET(
     } catch {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
-
-    const adminClient = createServiceClient()
+    const admin = createServiceClient()
 
     // Same people the job page lets in (it redirects anyone without job-board access).
-    if (!canReadJobNotes(await resolveOpsAccess(adminClient, authUser.id, profile))) {
+    if (!canReadJobNotes(await resolveOpsAccess(admin, authUser.id, profile))) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
+    const { job, deal } = await dealForJob(admin, profile.org_id, params.id)
+    if (!job) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
+    if (!deal) return NextResponse.json({ notes: [] })
 
-    // Verify job exists and belongs to user's org
-    const { data: job, error: jobError } = await adminClient
-      .from('production_jobs')
-      .select('id, org_id')
-      .eq('id', params.id)
-      .single()
-
-    if (jobError || !job) {
-      return NextResponse.json({ error: 'Job not found' }, { status: 404 })
-    }
-
-    // Verify org match
-    if (job.org_id !== profile.org_id) {
-      return NextResponse.json({ error: 'Job not found' }, { status: 404 })
-    }
-
-    // Fetch notes with user info, newest first
-    const { data: notes, error: notesError } = await adminClient
-      .from('production_job_notes')
-      .select(`
-        id,
-        note,
-        created_at,
-        user:users(full_name)
-      `)
-      .eq('job_id', params.id)
+    const viewer = await resolveThreadViewer(admin, profile)
+    const { data } = await admin
+      .from('activities')
+      .select('id, body, created_at, audience, restricted_pricing, deleted_at, users(full_name)')
+      .eq('org_id', profile.org_id)
+      .eq('opportunity_id', deal.id)
+      .in('audience', ['production', 'crew'])
+      .is('deleted_at', null)
       .order('created_at', { ascending: false })
-
-    if (notesError) {
-      console.error('Error fetching notes:', notesError)
-      return NextResponse.json({ error: 'Failed to fetch notes' }, { status: 500 })
-    }
-
-    return NextResponse.json({ notes: notes || [] })
-
+      .limit(200)
+    const dealRef = { owner_user_id: deal.owner_user_id, setter_user_id: deal.setter_user_id }
+    const notes: LegacyNote[] = ((data ?? []) as unknown as Array<{ id: string; body: string; created_at: string; audience: 'production' | 'crew'; restricted_pricing: boolean | null; users: { full_name: string | null } | { full_name: string | null }[] | null }>)
+      .filter((r) => canReadMessage(viewer, dealRef, r))
+      .map((r) => ({ id: r.id, note: r.body, created_at: r.created_at, user: (Array.isArray(r.users) ? r.users[0] : r.users) ?? null }))
+    return NextResponse.json({ notes })
   } catch (error) {
     console.error('Error in GET /api/ops/jobs/[id]/notes:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
 
-const MAX_NOTE_LENGTH = 5000
-
-export async function POST(
-  request: Request,
-  { params }: { params: { id: string } }
-) {
+export async function POST(request: Request, { params }: { params: { id: string } }) {
   try {
     let profile
     let authUser
@@ -95,141 +77,43 @@ export async function POST(
     } catch {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+    const admin = createServiceClient()
 
-    const adminClient = createServiceClient()
-
-    // Same people the job page lets in (it redirects anyone without job-board access).
-    if (!canReadJobNotes(await resolveOpsAccess(adminClient, authUser.id, profile))) {
+    if (!canReadJobNotes(await resolveOpsAccess(admin, authUser.id, profile))) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
+    const { job, deal } = await dealForJob(admin, profile.org_id, params.id)
+    if (!job) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
+    if (!deal) return NextResponse.json({ error: 'This job has no deal to attach the note to' }, { status: 409 })
 
-    // Verify job exists and belongs to user's org
-    const { data: job, error: jobError } = await adminClient
-      .from('production_jobs')
-      .select('id, org_id, job_number, address_text, customer_id')
-      .eq('id', params.id)
-      .single()
-
-    if (jobError || !job) {
-      return NextResponse.json({ error: 'Job not found' }, { status: 404 })
-    }
-
-    if (job.org_id !== profile.org_id) {
-      return NextResponse.json({ error: 'Job not found' }, { status: 404 })
-    }
-
-    const body = await request.json()
-    const { note, mentioned_user_ids } = body
-
-    if (!note || typeof note !== 'string' || !note.trim()) {
-      return NextResponse.json({ error: 'Note is required' }, { status: 400 })
-    }
-    if (note.length > MAX_NOTE_LENGTH) {
-      return NextResponse.json({ error: `Note is too long (max ${MAX_NOTE_LENGTH} characters)` }, { status: 400 })
-    }
-
-    // Insert the note
-    const { data: newNote, error: insertError } = await adminClient
-      .from('production_job_notes')
-      .insert({
-        job_id: params.id,
-        user_id: profile.id,
-        note: note.trim(),
-        is_internal: true,
-      })
-      .select(`
-        id,
-        note,
-        created_at
-      `)
-      .single()
-
-    if (insertError) {
-      console.error('Error inserting note:', insertError)
-      return NextResponse.json({ error: 'Failed to add note' }, { status: 500 })
-    }
-
-    // Send email notifications for @mentions without blocking note creation.
-    try {
-      const { data: orgUsers } = await adminClient
-        .from('users')
-        .select('id, full_name, email, active, role, custom_role_id')
-        .eq('org_id', profile.org_id)
-        .not('email', 'is', null)
-
-      // The one candidate list for mentions (active, named, has email). The composer
-      // sends only the ids picked from its dropdown; recipients are resolved here.
-      const allUsers = mentionCandidates(orgUsers || [])
-      const explicitMentionIds = Array.isArray(mentioned_user_ids)
-        ? mentioned_user_ids.filter((id: any) => typeof id === 'string')
-        : []
-
-      // Exact `@Full Name` matches only (longest name wins); a picked id disambiguates
-      // two users with the same name. Never a prefix match — "@Ste" pings nobody.
-      const mentionedUsers = resolveNoteMentions(note, allUsers, explicitMentionIds)
-
-      if (mentionedUsers.length > 0) {
-        // Customer name comes from the job's own customer row — never from the request body,
-        // which would let any caller put arbitrary text in a mention email subject.
-        let customerName: string | null = null
-        if (job.customer_id) {
-          const { data: customer } = await adminClient
-            .from('customers')
-            .select('name')
-            .eq('id', job.customer_id)
-            .eq('org_id', profile.org_id)
-            .maybeSingle()
-          customerName = (customer as { name?: string | null } | null)?.name ?? null
-        }
-        const transporter = getMailTransport()
-        // Links come only from the configured app URL — never the request's Origin
-        // header or a client-sent page URL, which a caller can point at any domain.
-        const appUrl = resolveAppUrl()
-
-        const emailResults = await Promise.allSettled(
-          mentionedUsers.map(async (mentionedUser: any) => {
-            // Everyone active can be mentioned, but the email only carries the note
-            // text if THIS recipient may read job notes (same rule as the job page).
-            const recipientCanReadNote = canReadJobNotes(
-              await resolveOpsAccess(adminClient, mentionedUser.id, {
-                role: mentionedUser.role,
-                custom_role_id: mentionedUser.custom_role_id ?? null,
-              })
-            )
-            const mail = buildMentionEmail({
-              appUrl,
-              jobId: params.id,
-              jobNumber: job.job_number ?? null,
-              jobAddress: job.address_text ?? null,
-              customerId: job.customer_id ?? null,
-              customerName,
-              senderName: profile.full_name || 'ARX Team',
-              recipientName: mentionedUser.full_name,
-              note: String(note),
-              recipientCanReadNote,
-            })
-            return transporter.sendMail({ from: getCrmEmailFrom(), to: mentionedUser.email, ...mail })
-          })
-        )
-
-        const failedCount = emailResults.filter((r) => r.status === 'rejected').length
-        if (failedCount > 0) {
-          console.error(`Failed sending ${failedCount} @mention email(s)`)
-        }
+    const body = await request.json().catch(() => ({}))
+    const note = typeof body?.note === 'string' ? body.note : ''
+    const res = await postMessage(
+      admin,
+      profile,
+      deal,
+      {
+        body: note,
+        audience: 'production',
+        surface: 'job',
+        selectedMentionIds: Array.isArray(body?.mentioned_user_ids) ? body.mentioned_user_ids.filter((x: unknown): x is string => typeof x === 'string') : [],
+        source: 'web',
       }
-    } catch (mentionEmailError) {
-      console.error('Failed sending @mention emails:', mentionEmailError)
-      // Keep note save successful even if email fails.
-    }
+    )
+    if (!res.ok) return NextResponse.json({ error: res.error }, { status: res.status })
 
-    // Return the note with user info
-    return NextResponse.json({ 
-      note: {
-        ...newNote,
-        user: { full_name: profile.full_name }
-      }
-    })
+    if (res.message.reply_to_id) await resolveByReply(admin, profile.id, [res.message.reply_to_id])
+    await notifyMessage(admin, {
+      orgId: profile.org_id,
+      senderId: profile.id,
+      senderName: profile.full_name || 'ARX Team',
+      message: res.message,
+      deal: { id: deal.id, customerId: deal.customer_id, leadId: deal.lead_id, label: deal.address_text || 'Job' },
+      recipients: res.recipients,
+      blindMentions: res.blindMentions,
+    }).catch((e) => console.error('notifyMessage', e))
 
+    return NextResponse.json({ note: { id: res.message.id, note: res.message.body, created_at: res.message.created_at, user: { full_name: profile.full_name } } })
   } catch (error) {
     console.error('Error in POST /api/ops/jobs/[id]/notes:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })

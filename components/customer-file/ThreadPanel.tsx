@@ -238,6 +238,7 @@ function MessageBubble({ m, data, highlighted, onAct, onReply, parent }: { m: Th
       ) : (
         <p className="mt-1 whitespace-pre-wrap break-words text-ui-base text-ink">{renderBody(m.body)}</p>
       )}
+      {!m.synthetic && (<>
       <div className="mt-1 flex flex-wrap gap-1 text-ui-sm">
         <button type="button" onClick={onReply} className="min-h-tap px-2 font-semibold text-brand-800">Reply</button>
         <button type="button" onClick={() => setMenu(!menu)} aria-expanded={menu} className="min-h-tap px-2 text-ink-muted">More</button>
@@ -251,6 +252,7 @@ function MessageBubble({ m, data, highlighted, onAct, onReply, parent }: { m: Th
           {(mine || data.isOwner) && <button type="button" className="min-h-tap px-2 text-danger" onClick={() => { if (confirm('Remove this message?')) onAct(m.id, { action: 'delete' }) }}>Remove</button>}
         </div>
       )}
+      </>)}
     </li>
   )
 }

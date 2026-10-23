@@ -1,3 +1,4 @@
+import { customerIdForLead } from '@/lib/customer-file/ensure-customer'
 import { mapScheduledAppointmentWriteError } from '@/lib/scheduled-appointment-errors'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
@@ -588,7 +589,7 @@ export async function POST(request: NextRequest) {
         .insert({
           org_id: profile.org_id,
           lead_id: leadId,
-          customer_id: lead?.customer_id || null,
+          customer_id: await customerIdForLead(supabase, profile.org_id, lead),
           owner_user_id: closerForOpp,
           setter_user_id: setterForOpp,
           status: newStatus,

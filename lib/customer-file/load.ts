@@ -56,10 +56,9 @@ export const loadFile = cache(async (customerId: string, dealId: string): Promis
   const dealRow = await loadDeal(admin, viewer.orgId, dealId)
   if (!dealRow || dealRow.customer_id !== customerId || !canOpenDeal(viewer, dealRow)) notFound()
 
-  const [customerRes, dealsRes, oppRes, projectRes] = await Promise.all([
+  const [customerRes, dealsRes, projectRes] = await Promise.all([
     admin.from('customers').select('id, name, phone, email, address_text').eq('id', customerId).eq('org_id', viewer.orgId).maybeSingle(),
     admin.from('opportunities').select('id, address_text, status, created_at, owner_user_id, setter_user_id').eq('customer_id', customerId).eq('org_id', viewer.orgId).order('created_at', { ascending: false }),
-    admin.from('opportunities').select('address_text, status').eq('id', dealId).maybeSingle(),
     admin.from('projects').select('id').eq('opportunity_id', dealId).eq('org_id', viewer.orgId).order('created_at', { ascending: false }).limit(1).maybeSingle(),
   ])
   if (!customerRes.data) notFound()
@@ -115,7 +114,7 @@ export const loadFile = cache(async (customerId: string, dealId: string): Promis
     viewer,
     profile: { id: profile.id, org_id: profile.org_id, role: profile.role, full_name: profile.full_name ?? null, ui_prefs: prefs },
     customer: customerRes.data as FileCustomer,
-    deal: { ...dealRow, address_text: (oppRes.data as { address_text: string | null } | null)?.address_text ?? null, status: (oppRes.data as { status: string | null } | null)?.status ?? null },
+    deal: dealRow,
     deals,
     job,
     projectId,

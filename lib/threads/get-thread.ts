@@ -27,6 +27,8 @@ export type ThreadMessage = {
   deleted: boolean
   /** Legacy row with no audience (team rules) — shown, never re-classified silently. */
   legacy: boolean
+  /** Read live from another table (canvass door note); no actions. */
+  synthetic?: boolean
 }
 
 export type TimelineScope = 'deal' | 'customer'
@@ -112,10 +114,10 @@ export async function loadDeal(
   admin: SupabaseClient,
   orgId: string,
   opportunityId: string
-): Promise<(NonNullable<DealRef> & { id: string; customer_id: string | null; lead_id: string | null }) | null> {
+): Promise<(NonNullable<DealRef> & { id: string; customer_id: string | null; lead_id: string | null; address_text: string | null; status: string | null }) | null> {
   const { data } = await admin
     .from('opportunities')
-    .select('id, owner_user_id, setter_user_id, customer_id, lead_id')
+    .select('id, owner_user_id, setter_user_id, customer_id, lead_id, address_text, status')
     .eq('id', opportunityId)
     .eq('org_id', orgId)
     .maybeSingle()
@@ -167,6 +169,21 @@ export async function getTimeline(
 
   const exhausted = (data ?? []).length <= limit * 3 && visible.length < limit
   const nextBefore = exhausted ? null : visible.length ? visible[visible.length - 1].created_at : lastSeen
+
+  // The canvass door note stays on the pin (it is a pin attribute, not a conversation); show it live as the
+  // oldest item once the last page is reached, so a deal's file starts with what the setter wrote at the door.
+  if (scope === 'deal' && nextBefore === null && deal.lead_id && (!wanted || wanted.has('team'))) {
+    const { data: lead } = await admin.from('leads').select('canvass_notes, created_at').eq('id', deal.lead_id).eq('org_id', viewer.orgId).maybeSingle()
+    const note = (lead as { canvass_notes?: string | null; created_at?: string } | null)?.canvass_notes?.trim()
+    if (note && !filters.before) {
+      const m: ThreadMessage = {
+        id: `canvass-${deal.lead_id}`, user_id: null, author_name: 'Door note (canvass)', type: 'note', body: note,
+        created_at: (lead as { created_at: string }).created_at, audience: 'team', priority: null, restricted_pricing: false, origin: 'human',
+        reply_to_id: null, mentioned_user_ids: [], pinned_at: null, pin_scope: null, pin_expires_at: null, edited_at: null, deleted: false, legacy: false, synthetic: true,
+      }
+      if (canReadMessage(viewer, dealRef, m)) visible.push(m)
+    }
+  }
 
   const pinned = await getPinned(admin, viewer, deal, now)
 

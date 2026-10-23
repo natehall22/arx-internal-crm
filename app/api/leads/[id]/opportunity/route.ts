@@ -1,3 +1,4 @@
+import { customerIdForLead } from '@/lib/customer-file/ensure-customer'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { revalidatePath } from 'next/cache'
@@ -154,7 +155,7 @@ export async function POST(
       .insert({
         org_id: profile.org_id,
         lead_id: leadId,
-        customer_id: (lead as { customer_id?: string | null }).customer_id || null,
+        customer_id: await customerIdForLead(adminClient, profile.org_id, lead as never),
         owner_user_id: ownerUserId,
         setter_user_id: setterUserId,
         status: 'open',

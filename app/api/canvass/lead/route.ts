@@ -1,5 +1,6 @@
 import { requireAuthApi } from '@/lib/auth'
 import { NextResponse } from 'next/server'
+import { customerIdForLead } from '@/lib/customer-file/ensure-customer'
 import { assignNextAvailableCloser, getDefaultTeam } from '@/lib/round-robin'
 import {
   fetchOrgAppointmentTypesFromTable,
@@ -978,7 +979,7 @@ export async function POST(request: Request) {
         const opportunityInsertPayload = {
           org_id: profile.org_id,
           lead_id: leadRow.id,
-          customer_id: leadRow.customer_id || null,
+          customer_id: await customerIdForLead(supabase, profile.org_id, leadRow),
           owner_user_id: closerUserId || leadRow.owner_user_id || profile.id,
           setter_user_id: profile.id,
           status: 'open',
@@ -1129,7 +1130,7 @@ export async function POST(request: Request) {
           const recoveryPayload = {
             org_id: profile.org_id,
             lead_id: leadRow.id,
-            customer_id: leadRow.customer_id || null,
+            customer_id: await customerIdForLead(supabase, profile.org_id, leadRow),
             owner_user_id: closerUserId || leadRow.owner_user_id || profile.id,
             setter_user_id: profile.id,
             status: 'open' as const,

@@ -57,25 +57,18 @@ export function normalizeIdentityEmail(email: string | null | undefined): string
 }
 
 /**
- * Find or create a customer record.
- * 
- * Matching priority:
- * 1. org_id + email (if a real email is provided)
- * 2. org_id + phone (if phone provided, normalized to last 10 digits)
- * 3. org_id + normalized(name + address) for fuzzy match
- * 
- * If found: update any missing fields (address/phone/email)
- * If not found: create new customer
+ * Read-only: the existing customer a person/address maps to (real email, then last-10 phone, then exact
+ * name+address). The one matching rule — `upsertCustomer`, the opportunity auto-link and the orphan backfill
+ * all use it, so a dry run shows exactly what a real run would do.
  */
-export async function upsertCustomer(
+export async function findExistingCustomer(
   supabase: SupabaseClient,
   orgId: string,
   data: CustomerData
-): Promise<UpsertResult> {
+): Promise<any | null> {
   const { name, email, phone, address_text } = data
   const identityEmail = normalizeIdentityEmail(email)
   const normalizedPhone = normalizePhone(phone)
-  
   let existingCustomer: any = null
 
   // Try to find by real email first. Placeholder emails like none@none.com are common
@@ -130,6 +123,29 @@ export async function upsertCustomer(
     }
   }
 
+  return existingCustomer
+}
+
+/**
+ * Find or create a customer record.
+ * 
+ * Matching priority:
+ * 1. org_id + email (if a real email is provided)
+ * 2. org_id + phone (if phone provided, normalized to last 10 digits)
+ * 3. org_id + normalized(name + address) for fuzzy match
+ * 
+ * If found: update any missing fields (address/phone/email)
+ * If not found: create new customer
+ */
+export async function upsertCustomer(
+  supabase: SupabaseClient,
+  orgId: string,
+  data: CustomerData,
+  opts: { skipIntegrations?: boolean } = {}
+): Promise<UpsertResult> {
+  const { name, email, phone, address_text } = data
+  const existingCustomer = await findExistingCustomer(supabase, orgId, data)
+
   // If found, update missing fields
   if (existingCustomer) {
     const updates: Record<string, any> = {}
@@ -147,7 +163,7 @@ export async function upsertCustomer(
         .eq('id', existingCustomer.id)
       
       // Enqueue integration event for customer update
-      enqueueCustomerUpserted(supabase, orgId, existingCustomer.id, {
+      if (!opts.skipIntegrations) enqueueCustomerUpserted(supabase, orgId, existingCustomer.id, {
         ...existingCustomer,
         ...updates,
       }).catch(err => console.error('Failed to enqueue customer event:', err))
@@ -174,7 +190,7 @@ export async function upsertCustomer(
   }
 
   // Enqueue integration event for new customer
-  enqueueCustomerUpserted(supabase, orgId, newCustomer.id, {
+  if (!opts.skipIntegrations) enqueueCustomerUpserted(supabase, orgId, newCustomer.id, {
     name,
     email,
     phone,

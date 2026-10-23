@@ -2,11 +2,14 @@ import nodemailer from 'nodemailer'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { getCrmEmailFrom } from '@/lib/crm-email-from'
-import { escapeHtml } from '@/lib/note-mention-email'
 import { resolveAppUrl } from '@/lib/job-trades'
 import { sendPushToUserBackground } from '@/lib/push-apns'
 import type { ThreadMessage } from '@/lib/threads/get-thread'
 import type { Priority } from '@/lib/threads/visibility'
+
+function escapeHtml(value: string): string {
+  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
+}
 
 /** Deep link to one message: IDs in the path so login keeps them (middleware keeps pathname only). */
 export function messageLink(appUrl: string, d: { customerId: string | null; dealId: string; leadId?: string | null }, messageId: string): string {
