@@ -61,9 +61,8 @@ jest.mock('@/lib/supabase/service', () => ({
   createServiceClient: () => ({
     from: (t: string) => {
       tablesRead.push(t)
-      return db.client.from(t)
+      return (db.client as any).from(t)
     },
-    rpc: (...a: unknown[]) => (db.client as never as { rpc: (...x: unknown[]) => unknown }).rpc(...a),
   }),
 }))
 

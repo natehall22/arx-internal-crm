@@ -1,3 +1,4 @@
+import { loadJobNotes } from '@/lib/threads/job-notes'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -112,13 +113,7 @@ export async function POST(
     }
 
     // Fetch notes marked as share_with_sub
-    const { data: sharedNotes } = await supabase
-      .from('production_job_notes')
-      .select('note, created_at')
-      .eq('job_id', params.id)
-      .eq('share_with_sub', true)
-      .order('created_at', { ascending: false })
-      .limit(5)
+    const sharedNotes = await loadJobNotes(supabase, job.org_id, params.id, { crewOnly: true, limit: 5 })
 
     // Fetch additional scope items
     let additionalScopeItems: { description: string; quantity: number; unit: string }[] = []

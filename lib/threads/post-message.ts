@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { mentionCandidates, resolveNoteMentions } from '@/lib/note-mentions'
+import { jobIdForDeal } from '@/lib/threads/job-notes'
 import { toMessage, type ThreadMessage } from '@/lib/threads/get-thread'
 import { resolveThreadViewer } from '@/lib/threads/viewer'
 import {
@@ -168,6 +169,7 @@ export async function postMessage(
       customer_id: deal.customer_id,
       lead_id: deal.lead_id,
       thread_id: thread?.id ?? null,
+      production_job_id: audience === 'production' || audience === 'crew' ? await jobIdForDeal(admin, viewer.orgId, deal.id) : null,
       user_id: viewer.userId,
       type: 'note',
       body,

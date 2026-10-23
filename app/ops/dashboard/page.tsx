@@ -92,16 +92,22 @@ export default async function OpsDashboardPage() {
       .order('created_at')
       .limit(5),
     // Recent job notes
+    // Messages in the deal threads (Production/Crew); the session client keeps RLS (message_visible_to) in force.
     supabase
-      .from('production_job_notes')
+      .from('activities')
       .select(`
-        id, note, created_at, note_type,
-        production_job:production_jobs(id, job_number, address_text),
+        id, body, created_at,
+        production_job:production_jobs!activities_production_job_id_fkey(id, job_number, address_text),
         user:users(full_name)
       `)
       .eq('org_id', profile.org_id)
+      .in('audience', ['production', 'crew'])
+      .eq('origin', 'human')
+      .not('production_job_id', 'is', null)
+      .is('deleted_at', null)
       .order('created_at', { ascending: false })
-      .limit(5),
+      .limit(5)
+      .then((r) => ({ ...r, data: (r.data ?? []).map((n: any) => ({ ...n, note: n.body })) })),
   ])
 
   // "Needs you" — the daily data-health check, shaped for who is looking by the one rule in lib/data-health.ts

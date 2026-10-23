@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { createClientBrowser } from '@/lib/supabase/client'
 
 interface JobNote {
   id: string
@@ -26,23 +25,12 @@ export default function JobNotesReadOnly({ jobId, limit = 5 }: JobNotesReadOnlyP
   }, [jobId])
 
   const loadNotes = async () => {
-    const supabase = createClientBrowser()
-
-    const { data } = await supabase
-      .from('production_job_notes')
-      .select('id, note, is_internal, share_with_sub, created_at, user:users(full_name)')
-      .eq('job_id', jobId)
-      .order('created_at', { ascending: false })
-      .limit(limit)
-
-    const transformedNotes: JobNote[] = (data || []).map((n: any) => ({
-      id: n.id,
-      note: n.note,
-      is_internal: n.is_internal,
-      share_with_sub: n.share_with_sub ?? false,
-      created_at: n.created_at,
-      user: Array.isArray(n.user) ? n.user[0] : n.user,
-    }))
+    // Notes live in the deal thread now; the server adapter applies the audience rules.
+    const res = await fetch(`/api/ops/jobs/${jobId}/notes`, { cache: 'no-store' }).catch(() => null)
+    const body = res && res.ok ? await res.json() : { notes: [] }
+    const transformedNotes: JobNote[] = ((body.notes ?? []) as Array<{ id: string; note: string; created_at: string; user: { full_name: string | null } | null }>)
+      .slice(0, limit)
+      .map((n) => ({ id: n.id, note: n.note, is_internal: true, share_with_sub: false, created_at: n.created_at, user: n.user as JobNote['user'] }))
 
     setNotes(transformedNotes)
     setLoading(false)
