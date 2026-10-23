@@ -21,6 +21,7 @@ const APPOINTMENT_ROWS_SHOWN = 15
  */
 export default function NeedsYouList({ report, canFixPayPlans = false }: { report: DataHealthReport; canFixPayPlans?: boolean }) {
   const payPlans = report.payPlans ?? []
+  const endedPlans = report.endedPlans ?? []
   const extraAppointments = Math.max(0, report.appointments.length - APPOINTMENT_ROWS_SHOWN)
   return (
     <section className="bg-white rounded-xl shadow-sm border p-4 sm:p-6 mb-6" aria-labelledby="needs-you-heading">
@@ -57,6 +58,21 @@ export default function NeedsYouList({ report, canFixPayPlans = false }: { repor
               )}
             </li>
           ))}
+          {endedPlans.length > 0 && (
+            <li key="ended-plans" className="py-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <span className="text-sm text-[#2c2c2a]">
+                <span className="mr-1.5 rounded bg-gray-100 px-1.5 py-0.5 text-xs font-semibold text-[#2c2c2a]">Money</span>
+                <span className="font-semibold">{endedPlans.length} {endedPlans.length === 1 ? 'person has' : 'people have'} no pay plan because theirs was ended</span>
+                <span className="ml-1.5 rounded bg-red-100 px-1.5 py-0.5 text-xs font-semibold text-red-800">Paid nothing</span>
+                <span className="block text-[#57574f] break-words">
+                  {endedPlans.map((p) => `${p.name} (${p.roleLabel}, ended ${p.endedOn})`).join('; ')}
+                </span>
+              </span>
+              <Link href="/admin/comp-plans" className="inline-flex min-h-[44px] w-full sm:w-auto items-center justify-center rounded-lg bg-[#2b0a3d] px-4 py-2 text-sm font-semibold text-white hover:bg-[#3d1257]">
+                Assign a plan
+              </Link>
+            </li>
+          )}
           {report.jobs.map((job) => (
             <li key={job.jobId} className="py-3">
               <div className="flex flex-wrap items-baseline gap-x-2">
