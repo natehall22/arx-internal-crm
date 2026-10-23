@@ -56,7 +56,7 @@ function fakeClient(tables: Record<string, unknown>) {
     const result = Array.isArray(answer) ? { data: answer, error: null } : { data: answer ?? null, error: null }
     const q: any = {}
     for (const m of ['select', 'eq', 'lte', 'or', 'order', 'limit']) q[m] = () => q
-    q.maybeSingle = async () => result
+    q.maybeSingle = async () => (Array.isArray(answer) ? { data: null, error: null } : result)
     q.then = (res: (v: unknown) => unknown) => Promise.resolve(result).then(res)
     return q
   }
@@ -91,5 +91,85 @@ describe('loadActiveCompPlanForUser with a role default', () => {
   it('a role with no default stays blank', async () => {
     const r = await loadActiveCompPlanForUser(fakeClient({ ...base, users: { role: 'admin' }, user_comp_plans: null }), 'u', 'o', '2026-11-01')
     expect(r).toBeNull()
+  })
+})
+
+import { buildDefaultCoverageRows, userGetsDefaultPlan, usersWithEndedPlan } from '@/lib/comp-plan-defaults'
+import { buildAdditiveParticipantsForJob, type DerivedCommissionContext } from '@/lib/job-derived-commission-lines'
+
+describe('who gets a default (one rule)', () => {
+  const base = { users: { role: 'sales_rep' }, comp_plans: { id: 'closer', name: 'Closer', plan_type: 'percentage', base_percentage: 7 }, comp_plan_versions: [], org_default_comp_plans: [{ role: 'sales_rep', comp_plan_id: 'closer', effective_from: '2026-10-24' }] }
+  it('active, non-test, never assigned', () => {
+    expect(userGetsDefaultPlan({ active: true, hasAssignmentHistory: false })).toBe(true)
+    expect(userGetsDefaultPlan({ active: false, hasAssignmentHistory: false })).toBe(false)
+    expect(userGetsDefaultPlan({ active: true, isTestAccount: true, hasAssignmentHistory: false })).toBe(false)
+    expect(userGetsDefaultPlan({ active: true, hasAssignmentHistory: true })).toBe(false) // ended on purpose
+  })
+  it('resolver: an ended plan gets NO default; a never-assigned active user does', async () => {
+    const ended = fakeClient({ ...base, users: { role: 'sales_rep', active: true }, user_comp_plans: [{ id: 'h' }] })
+    expect(await loadActiveCompPlanForUser(ended, 'u', 'o', '2026-11-01')).toBeNull()
+  })
+  it('resolver: a test account gets nothing, even with an assignment', async () => {
+    const test = fakeClient({ ...base, users: { role: 'sales_rep', active: true, is_test_account: true }, user_comp_plans: null })
+    expect(await loadActiveCompPlanForUser(test, 'u', 'o', '2026-11-01')).toBeNull()
+  })
+})
+
+describe('Needs you: ended plans', () => {
+  const users = [
+    { id: 'n', full_name: 'Nathan', role: 'admin', active: true },
+    { id: 'c', full_name: 'Current', role: 'sales_rep', active: true },
+    { id: 'g', full_name: 'Gone', role: 'sales_rep', active: false },
+    { id: 't', full_name: 'Test', role: 'setter', active: true, isTestAccount: true },
+    { id: 'f', full_name: 'Future', role: 'sales_rep', active: true },
+    { id: 'x', full_name: 'Never', role: 'sales_rep', active: true },
+  ]
+  const assignments = [
+    { user_id: 'n', effective_from: '2026-04-08', effective_to: '2026-08-19' },
+    { user_id: 'c', effective_from: '2026-07-01', effective_to: null },
+    { user_id: 'g', effective_from: '2026-01-01', effective_to: '2026-05-01' },
+    { user_id: 't', effective_from: '2026-01-01', effective_to: '2026-05-01' },
+    { user_id: 'f', effective_from: '2026-01-01', effective_to: '2026-09-01' },
+    { user_id: 'f', effective_from: '2026-12-01', effective_to: null },
+  ]
+  it('lists only active, non-test people with an ended plan and no replacement', () => {
+    const r = usersWithEndedPlan({ users, assignments, today: '2026-10-24' })
+    expect(r.map((u) => [u.id, u.endedOn])).toEqual([['n', '2026-08-19']])
+  })
+})
+
+describe('default-plan reps earn the derived lines like assigned reps (13% self-gen deal)', () => {
+  const OPP = 'opp-1'
+  const defaults = [{ role: 'sales_rep', comp_plan_id: 'closer', effective_from: '2026-10-24' }]
+  const users = [{ id: 'rep', role: 'sales_rep', active: true }]
+  const ctx = (compAssignments: DerivedCommissionContext['compAssignments']): DerivedCommissionContext => ({
+    rateHistory: [{ inspectionRatePercent: 1.5, managerOverrideRatePercent: 0, selfGenRatePercent: 6, effectiveFrom: '2026-08-05' }],
+    inspectorByOpportunity: new Map([[OPP, 'rep']]),
+    managerAssignments: [],
+    userActiveHistory: [],
+    managementOverlayAssignments: [],
+    managementOverlayPlanVersions: [],
+    compAssignments,
+    selfGenByOpportunity: new Map([[OPP, { isSelfGenerated: true, source: 'manual', ownerUserId: 'rep', setterUserId: null }]]),
+  })
+  const input = { opportunityId: OPP, setterUserId: null, salespersonId: 'rep', opportunityOwnerUserId: 'rep', saleDate: '2026-10-26', explicit: [] }
+
+  it('same participants, so the same pay: 7% base + 6% self-gen = 13%', () => {
+    const assigned = buildAdditiveParticipantsForJob({ ...input, context: ctx([{ userId: 'rep', effectiveFrom: '2026-08-05', effectiveTo: null, isManagerPlan: false }]) })
+    const covered = buildDefaultCoverageRows({ users, everAssignedUserIds: new Set(), defaults })
+    const viaDefault = buildAdditiveParticipantsForJob({ ...input, context: ctx(covered) })
+    expect(viaDefault.participants).toEqual(assigned.participants)
+    const selfGen = viaDefault.participants.find((p) => p.role === 'self_gen')
+    expect(selfGen?.overridePercent).toBe(6)
+    expect(7 + (selfGen?.overridePercent ?? 0)).toBe(13)
+    expect(viaDefault.participants.length).toBeGreaterThan(1) // inspection line too
+  })
+  it('no derived lines for an ended-plan, inactive or test rep', () => {
+    for (const u of [{ id: 'rep', role: 'sales_rep', active: false }, { id: 'rep', role: 'sales_rep', active: true, isTestAccount: true }]) {
+      expect(buildDefaultCoverageRows({ users: [u], everAssignedUserIds: new Set(), defaults })).toEqual([])
+    }
+    expect(buildDefaultCoverageRows({ users, everAssignedUserIds: new Set(['rep']), defaults })).toEqual([])
+    const none = buildAdditiveParticipantsForJob({ ...input, context: ctx([]) })
+    expect(none.participants).toEqual([])
   })
 })

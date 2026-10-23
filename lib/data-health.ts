@@ -27,7 +27,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { addDaysToDateOnly } from '@/lib/install-calendar'
 import { ymdInBusinessTz } from '@/lib/calendar-business-tz'
 import { SALE_AGREEMENT_TYPES } from '@/lib/sales-metrics'
-import { loadPayPlanGaps, type PayPlanGap } from '@/lib/comp-plan-defaults-db'
+import { loadEndedPlanPeople, loadPayPlanGaps, type EndedPlanPerson, type PayPlanGap } from '@/lib/comp-plan-defaults-db'
 
 /** Paid-in-full tolerance (owner decision #2). */
 export const PAID_TOLERANCE_CENTS = 5
@@ -96,6 +96,8 @@ export type DataHealthReport = {
    * Optional so older report builders stay valid.
    */
   payPlans?: PayPlanGap[]
+  /** Active people whose pay plan was ended and not replaced (paid nothing until someone assigns one). */
+  endedPlans?: EndedPlanPerson[]
   /** Total problem rows (jobs with ≥1 problem + appointments + pay-plan gaps). */
   count: number
 }
@@ -682,12 +684,14 @@ export async function loadDataHealth(
   const flaggedJobs = jobHealth.filter((j) => j.problems.length > 0)
   // Org-level check, only on the full report (not the single-job payability gate).
   const payPlans = opts.jobIds ? [] : await loadPayPlanGaps(admin, orgId, now)
+  const endedPlans = opts.jobIds ? [] : await loadEndedPlanPeople(admin, orgId, now)
   return {
     generatedAt: now.toISOString(),
     jobs: flaggedJobs,
     appointments: appointmentHealth,
     payPlans,
-    count: flaggedJobs.length + appointmentHealth.length + payPlans.length,
+    endedPlans,
+    count: flaggedJobs.length + appointmentHealth.length + payPlans.length + endedPlans.length,
   }
 }
 
@@ -724,5 +728,5 @@ export function filterReportForViewer(report: DataHealthReport, canSeeMoney: boo
   const jobs = report.jobs
     .map((j) => ({ ...j, problems: j.problems.filter((p) => p.area === 'ops' || p.area === 'sales') }))
     .filter((j) => j.problems.length > 0)
-  return { ...report, jobs, payPlans: [], count: jobs.length + report.appointments.length }
+  return { ...report, jobs, payPlans: [], endedPlans: [], count: jobs.length + report.appointments.length }
 }

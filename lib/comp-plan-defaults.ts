@@ -68,12 +68,15 @@ export type PayPlanCandidate = { id: string; full_name: string | null; role: str
 export function usersMissingPayPlan(args: {
   users: readonly PayPlanCandidate[]
   assignedUserIds: ReadonlySet<string>
+  /** Anyone who has EVER had an assignment: their plan was ended on purpose, so the default never applies (see usersWithEndedPlan). */
+  everAssignedUserIds?: ReadonlySet<string>
   defaultRoles: ReadonlySet<string>
   creditedUserIds: ReadonlySet<string>
 }): PayPlanCandidate[] {
   return args.users.filter(
     (u) =>
       !args.assignedUserIds.has(u.id) &&
+      !args.everAssignedUserIds?.has(u.id) &&
       !args.defaultRoles.has(u.role) &&
       (COMMISSION_ROLES.has(u.role) || args.creditedUserIds.has(u.id))
   )
@@ -93,3 +96,55 @@ export const COMMISSION_ROLES: ReadonlySet<string> = new Set([
   'call_center',
   'rep',
 ])
+
+
+/**
+ * The one rule for "does a role default apply to this person": they are still active, are not a test account, and have
+ * NEVER had a pay-plan assignment. An ended plan means "ended on purpose", not "never set up" — such a person is paid
+ * nothing until someone assigns a plan, and shows in Needs you (usersWithEndedPlan).
+ */
+export function userGetsDefaultPlan(u: { active?: boolean | null; isTestAccount?: boolean | null; hasAssignmentHistory: boolean }): boolean {
+  return u.active !== false && u.isTestAccount !== true && !u.hasAssignmentHistory
+}
+
+/** Active, non-test people whose pay plan was ended and not replaced: they earn nothing until a plan is assigned. */
+export function usersWithEndedPlan(args: {
+  users: ReadonlyArray<PayPlanCandidate & { active?: boolean | null; isTestAccount?: boolean | null }>
+  assignments: ReadonlyArray<{ user_id: string; effective_from: string; effective_to: string | null }>
+  today: string
+}): Array<PayPlanCandidate & { endedOn: string }> {
+  const byUser = new Map<string, Array<{ effective_from: string; effective_to: string | null }>>()
+  for (const a of args.assignments) byUser.set(a.user_id, [...(byUser.get(a.user_id) ?? []), a])
+  const out: Array<PayPlanCandidate & { endedOn: string }> = []
+  for (const u of args.users) {
+    if (u.active === false || u.isTestAccount === true) continue
+    const rows = byUser.get(u.id)
+    if (!rows?.length) continue
+    // Covered today, or about to be (a plan starting in the future is a replacement).
+    if (rows.some((r) => r.effective_to === null || r.effective_to >= args.today)) continue
+    const endedOn = rows.map((r) => r.effective_to as string).sort().slice(-1)[0]
+    out.push({ ...u, endedOn })
+  }
+  return out.sort((a, b) => b.endedOn.localeCompare(a.endedOn))
+}
+
+export type DefaultCoverageRow = { userId: string; effectiveFrom: string; effectiveTo: null; isManagerPlan: boolean }
+
+/**
+ * Pay-plan "assignments" a role default stands in for, so the derived-line builders (inspection 1.5%, self-gen 6%,
+ * manager override) treat a default-plan rep exactly like an assigned one. Same eligibility as the base-pay resolver.
+ */
+export function buildDefaultCoverageRows(args: {
+  users: ReadonlyArray<{ id: string; role: string; active?: boolean | null; isTestAccount?: boolean | null }>
+  everAssignedUserIds: ReadonlySet<string>
+  defaults: ReadonlyArray<OrgDefaultCompPlanRow & { isManagerPlan?: boolean }>
+}): DefaultCoverageRow[] {
+  const rows: DefaultCoverageRow[] = []
+  for (const u of args.users) {
+    if (!userGetsDefaultPlan({ active: u.active, isTestAccount: u.isTestAccount, hasAssignmentHistory: args.everAssignedUserIds.has(u.id) })) continue
+    const mine = args.defaults.filter((d) => d.role === u.role).sort((a, b) => a.effective_from.localeCompare(b.effective_from))
+    if (!mine.length) continue
+    rows.push({ userId: u.id, effectiveFrom: mine[0].effective_from, effectiveTo: null, isManagerPlan: mine[0].isManagerPlan === true })
+  }
+  return rows
+}

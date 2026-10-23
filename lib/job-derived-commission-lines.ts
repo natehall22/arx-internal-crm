@@ -30,6 +30,7 @@ import {
   type ManagementOverlayLane,
   type ManagementOverlayPlanVersion,
 } from '@/lib/management-comp-overlay'
+import { buildDefaultCoverageRows } from '@/lib/comp-plan-defaults'
 import {
   loadSelfGenByOpportunity,
   normalizeSelfGenRate,
@@ -102,6 +103,47 @@ async function loadEffectiveCompAssignments(
       isManagerPlan: plan?.is_manager_plan === true,
     }
   })
+}
+
+/**
+ * Role defaults stand in for assignments here, so a default-plan rep earns the same derived lines (inspection, self-gen,
+ * manager override) as an assigned one; test accounts are dropped entirely. Same eligibility rule as the base-pay
+ * resolver (lib/comp-plan-defaults.ts userGetsDefaultPlan). Before the defaults table / test flag exist, adds nothing.
+ */
+async function applyDefaultsAndTestAccounts(
+  supabase: SupabaseClient,
+  orgId: string,
+  assignments: EffectiveCompAssignmentRow[]
+): Promise<EffectiveCompAssignmentRow[]> {
+  let usersRes = await supabase.from('users').select('id, role, active, is_test_account').eq('org_id', orgId)
+  if (usersRes.error && (usersRes.error as { code?: string }).code === '42703') {
+    usersRes = (await supabase.from('users').select('id, role, active').eq('org_id', orgId)) as typeof usersRes
+  }
+  if (usersRes.error) throw usersRes.error
+  const users = ((usersRes.data || []) as Array<{ id: string; role: string; active: boolean | null; is_test_account?: boolean | null }>).map((u) => ({
+    id: u.id,
+    role: u.role,
+    active: u.active,
+    isTestAccount: u.is_test_account === true,
+  }))
+  const testIds = new Set(users.filter((u) => u.isTestAccount).map((u) => u.id))
+  const kept = assignments.filter((a) => !testIds.has(a.userId))
+
+  const defRes = await supabase.from('org_default_comp_plans').select('role, comp_plan_id, effective_from, comp_plans(is_manager_plan)').eq('org_id', orgId)
+  if (defRes.error) {
+    if ((defRes.error as { code?: string }).code === '42P01' || /does not exist|schema cache/i.test(String(defRes.error.message))) return kept
+    throw defRes.error
+  }
+  const defaults = ((defRes.data || []) as unknown as Array<{ role: string; comp_plan_id: string; effective_from: string; comp_plans: { is_manager_plan?: boolean | null } | { is_manager_plan?: boolean | null }[] | null }>).map((d) => {
+    const plan = Array.isArray(d.comp_plans) ? d.comp_plans[0] : d.comp_plans
+    return { role: d.role, comp_plan_id: d.comp_plan_id, effective_from: d.effective_from, isManagerPlan: plan?.is_manager_plan === true }
+  })
+  const covered = buildDefaultCoverageRows({
+    users,
+    everAssignedUserIds: new Set(assignments.map((a) => a.userId)),
+    defaults,
+  })
+  return [...kept, ...covered]
 }
 
 async function loadManagementOverlayAssignments(
@@ -224,7 +266,7 @@ export async function loadDerivedCommissionContext(
     anySelfGen
       ? loadSelfGenByOpportunity(supabase, orgId, opportunityIds)
       : Promise.resolve(new Map<string, SelfGenOpportunityRow>()),
-    loadEffectiveCompAssignments(supabase, orgId),
+    loadEffectiveCompAssignments(supabase, orgId).then((rows) => applyDefaultsAndTestAccounts(supabase, orgId, rows)),
   ])
 
   return {

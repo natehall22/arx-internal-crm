@@ -36,7 +36,7 @@ describe('period metrics from the reporting views', () => {
     })
     const rows = await fetchPeriodMetricRows(admin, { orgId: 'org-1', startIso: '2026-10-18T04:00:00Z', endIso: '2026-10-25T04:00:00Z' })
     expect(new Set(seen.map((s) => s.split(':')[1]))).toEqual(new Set(['org-1']))
-    expect(seen).toHaveLength(5)
+    expect(seen).toHaveLength(6) // 5 views + the test-account lookup
     expect(rows.doors).toHaveLength(2)
     expect(rows.sits).toHaveLength(1)
     expect(rows.sales.map((s) => s.opportunity_id).sort()).toEqual(['k3', 'o9'])
