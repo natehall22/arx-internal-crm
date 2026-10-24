@@ -824,7 +824,9 @@ export async function POST(request: Request) {
     )
 
     // Idempotency guard: if this lead already has an appointment at this exact slot,
-    // reuse it instead of creating/syncing duplicates.
+    // reuse it instead of creating/syncing duplicates. 'completed' counts too: the DB unique index
+    // only covers scheduled/confirmed, so a replayed save after the inspection was dispositioned
+    // used to insert a second live row (Carann Brown, 10/12 — a ghost that locked the closer out).
     if (scheduleInspection && inspectionScheduledFor) {
       const { data: existingAppointment } = await supabase
         .from('scheduled_appointments')
@@ -832,7 +834,7 @@ export async function POST(request: Request) {
         .eq('org_id', profile.org_id)
         .eq('lead_id', leadRow.id)
         .eq('scheduled_for', inspectionScheduledFor)
-        .in('status', ['scheduled', 'confirmed'])
+        .in('status', ['scheduled', 'confirmed', 'completed'])
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle()
