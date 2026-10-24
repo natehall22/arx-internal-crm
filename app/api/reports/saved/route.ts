@@ -10,6 +10,8 @@ import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 import { canAccessReportsFromPermissionNames, canExportReportsFromPermissionNames } from '@/lib/permissions'
 import { parseSpec } from '@/lib/reporting/report-spec'
 import { createServiceClient } from '@/lib/supabase/service'
+import { hasFinancials } from '@/lib/financials-access'
+import { specTouchesFinancials } from '@/lib/reporting/templates'
 
 export const dynamic = 'force-dynamic'
 const SCHEDULES = ['daily', 'weekly_mon', 'monthly_1']
@@ -52,6 +54,10 @@ export async function POST(request: NextRequest) {
   if (!name) return NextResponse.json({ error: 'Give the report a name' }, { status: 400 })
   const parsed = parseSpec(b?.spec)
   if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 })
+  // You cannot save (or schedule) a report you could not run yourself.
+  if (specTouchesFinancials(parsed.spec) && !hasFinancials(await resolveEffectivePermissionNames(a.admin, a.profile.id, a.profile))) {
+    return NextResponse.json({ error: 'That report uses financial figures, which your role cannot see.' }, { status: 400 })
+  }
   const schedule = SCHEDULES.includes(b?.schedule) ? b!.schedule : null
   const recipients: string[] = Array.isArray(b?.schedule_recipients)
     ? b!.schedule_recipients.map((e: unknown) => String(e).trim().toLowerCase()).filter(Boolean)

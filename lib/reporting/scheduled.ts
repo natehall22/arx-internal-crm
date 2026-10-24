@@ -63,6 +63,7 @@ export async function sendScheduledReports(
       if (!staff || staff.length === 0) throw new Error('no active recipients')
       const { getMailTransport } = await import('@/lib/setter-email')
       let delivered = 0
+      let transientFailures = 0
       for (const person of staff as Array<{ id: string; org_id: string; role: string; custom_role_id: string | null; team_id: string | null; region_id: string | null; email: string }>) {
         try {
           const ctx = await buildReportContext(admin, person)
@@ -77,11 +78,17 @@ export async function sendScheduledReports(
           })
           delivered += 1
         } catch (error) {
-          if (!(error instanceof ReportAccessError)) throw error
-          // This person may not see that report (e.g. it needs reports:financials). They are skipped, not sent a reduced copy.
+          // A person who may not see this report (e.g. it needs reports:financials) is skipped, not sent a reduced copy.
+          if (error instanceof ReportAccessError) continue
+          transientFailures += 1
+          console.error('[scheduled-reports] send failed', r.id, person.id, error instanceof Error ? error.message : error)
         }
       }
-      if (delivered === 0) throw new Error('no recipient is allowed to receive this report')
+      // Anyone already mailed must not be mailed again by a retry, so the claim is kept once ANY copy went out.
+      // Only a run that delivered nothing because of a transient failure is released for the next cron fire; a permanent
+      // "nobody here is allowed to receive this" is logged and left claimed for the day.
+      if (delivered === 0 && transientFailures > 0) throw new Error('no copy could be sent (transient failure), will retry')
+      if (delivered === 0) console.warn('[scheduled-reports] no recipient is allowed to receive', r.id)
       sent += 1
     } catch (error) {
       failed += 1

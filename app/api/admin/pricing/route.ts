@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { createServiceClient } from '@/lib/supabase/service'
+import { stripPricebookCosts } from '@/lib/pricebook-costs'
+import { canSeeFinancials } from '@/lib/financials-access'
 
 export const dynamic = 'force-dynamic'
 
@@ -137,6 +139,9 @@ export async function GET(request: NextRequest) {
         .order('name')
       items = itemsData || []
     }
+
+    // Cost / margin columns need reports:financials (lib/pricebook-costs.ts); the editor still lists prices for operations.
+    items = stripPricebookCosts(items, await canSeeFinancials(adminClient, { id: user.id, role: profile.role, custom_role_id: (profile as { custom_role_id?: string | null }).custom_role_id }))
 
     // Get org settings
     const { data: org } = await adminClient

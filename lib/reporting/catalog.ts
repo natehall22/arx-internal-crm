@@ -46,7 +46,7 @@ export const DATASETS: Record<DatasetKey, Dataset> = {
       c('job_source', 'Lead source'), c('sale_date', 'Sale date', 'date'), c('completed_at', 'Completed', 'date'),
       c('scheduled_date', 'Install date', 'date'), c('materials_status', 'Materials'), c('permit_status', 'Permit'),
       c('salesperson', 'Salesperson'), c('sale_amount', 'Sale amount', 'money'), c('collected', 'Collected', 'money'),
-      c('balance_due', 'Balance due', 'money'), c('aging_bucket', 'How old (unpaid)'), c('days_since_sale', 'Days since sale', 'number'),
+      c('balance_due', 'Balance due', 'money'), c('aging_bucket', 'How old (unpaid)', 'text', true), c('days_since_sale', 'Days since sale', 'number'),
       c('dealer_fee', 'Lender fee', 'money', true), c('cost_total', 'Total cost', 'money', true),
       c('profit_before_commission', 'Profit before commission', 'money', true),
     ],

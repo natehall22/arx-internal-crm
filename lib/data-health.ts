@@ -30,7 +30,7 @@ import { SALE_AGREEMENT_TYPES } from '@/lib/sales-metrics'
 import { isOwnerProfile } from '@/lib/super-admin'
 import { loadEndedPlanPeople, loadPayPlanGaps, type EndedPlanPerson, type PayPlanGap } from '@/lib/comp-plan-defaults-db'
 import { calendarDaySpan } from '@/lib/job-trades'
-import { missingRequiredPhotoTags } from '@/lib/final-photo-tags'
+import { REQUIRED_FINAL_PHOTO_TAGS, missingRequiredPhotoTags } from '@/lib/final-photo-tags'
 
 /** Paid-in-full tolerance (owner decision #2). */
 export const PAID_TOLERANCE_CENTS = 5
@@ -680,9 +680,11 @@ export async function loadDataHealth(
       admin.from('proposals').select('id, tax_amount').eq('org_id', orgId).in('id', chunk)
     ),
   ])
-  const doneTradeIds = trades.filter((t) => t.status === 'completed').map((t) => t.id)
+  // Only crews of jobs still in play: collected / cancelled jobs are history and never flagged, so their photos are not fetched.
+  const liveJobIds = new Set(jobs.filter((j) => j.status !== 'collected' && j.status !== 'cancelled').map((j) => j.id))
+  const doneTradeIds = trades.filter((t) => t.status === 'completed' && liveJobIds.has(t.job_id)).map((t) => t.id)
   const donePhotos = await selectIn<{ work_order_id: string; photo_tag: string | null }>(doneTradeIds, (chunk) =>
-    admin.from('photos').select('work_order_id, photo_tag').eq('org_id', orgId).is('deleted_at', null).in('work_order_id', chunk)
+    admin.from('photos').select('work_order_id, photo_tag').eq('org_id', orgId).is('deleted_at', null).in('photo_tag', [...REQUIRED_FINAL_PHOTO_TAGS]).in('work_order_id', chunk)
   )
   const photoTagsByTrade = new Map<string, Array<string | null>>()
   for (const p of donePhotos) photoTagsByTrade.set(p.work_order_id, [...(photoTagsByTrade.get(p.work_order_id) ?? []), p.photo_tag])
@@ -708,7 +710,7 @@ export async function loadDataHealth(
   const costCountByJob = new Map<string, number>()
   for (const line of costLines) costCountByJob.set(line.job_id, (costCountByJob.get(line.job_id) ?? 0) + 1)
   const tradesByJob = groupBy(
-    trades.map((t) => ({ ...t, photoTags: t.status === 'completed' ? photoTagsByTrade.get(t.id) ?? [] : undefined })),
+    trades.map((t) => ({ ...t, photoTags: t.status === 'completed' && liveJobIds.has(t.job_id) ? photoTagsByTrade.get(t.id) ?? [] : undefined })),
     (t) => t.job_id
   )
 

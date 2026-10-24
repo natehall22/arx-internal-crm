@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { partnerApiError, partnerRequestContext } from '@/lib/referral-partner-api'
 import { loadReferredJobs } from '@/lib/referral-partner-stats'
 import { PARTNER_SELECT, assignedToLabel, daysUntilOpen, type ReferralPartnerRow } from '@/lib/referral-partners'
+import { canSeeFinancials } from '@/lib/financials-access'
 
 export const dynamic = 'force-dynamic'
 
@@ -16,9 +17,11 @@ export const dynamic = 'force-dynamic'
  */
 export async function GET(request: NextRequest) {
   try {
-    const { supabase, orgId, access } = await partnerRequestContext()
+    const { supabase, userId, profile, orgId, access } = await partnerRequestContext()
     if (!access.canManage) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     const kind = request.nextUrl.searchParams.get('kind') ?? 'partner'
+    // Revenue per partner / rep is financial data (reports:financials); counts stay visible.
+    const money = await canSeeFinancials(supabase, { id: userId, role: profile.role, custom_role_id: profile.custom_role_id })
 
     const { data, error } = await supabase
       .from('referral_partners')
@@ -55,11 +58,11 @@ export async function GET(request: NextRequest) {
             assigned_to: assignedToLabel(p),
             referred: referredCount.get(p.id) ?? 0,
             jobs_sold: mine.length,
-            revenue: mine.reduce((s, j) => s + j.sale_amount, 0),
+            revenue: money ? mine.reduce((s, j) => s + j.sale_amount, 0) : null,
           }
         })
         .filter((r) => r.referred > 0)
-        .sort((a, b) => b.revenue - a.revenue)
+        .sort((a, b) => (b.revenue ?? b.jobs_sold) - (a.revenue ?? a.jobs_sold))
       return NextResponse.json({ rows })
     }
 
@@ -88,10 +91,10 @@ export async function GET(request: NextRequest) {
           revenue: 0,
         }
         row.jobs_sold += 1
-        row.revenue += amountByJob.get(r.job_id) ?? 0
+        row.revenue += money ? amountByJob.get(r.job_id) ?? 0 : 0
         byRep.set(r.user_id, row)
       }
-      return NextResponse.json({ rows: Array.from(byRep.values()).sort((a, b) => b.revenue - a.revenue) })
+      return NextResponse.json({ rows: Array.from(byRep.values()).map((r) => (money ? r : { ...r, revenue: null })).sort((a, b) => (b.revenue ?? b.jobs_sold) - (a.revenue ?? a.jobs_sold)) })
     }
 
     return NextResponse.json({ error: 'Unknown report' }, { status: 400 })

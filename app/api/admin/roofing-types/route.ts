@@ -75,7 +75,7 @@ export async function GET(request: NextRequest) {
 
     const { data: profile } = await adminClient
       .from('users')
-      .select('org_id, role')
+      .select('org_id, role, custom_role_id')
       .eq('id', user.id)
       .single()
 
@@ -97,7 +97,7 @@ export async function GET(request: NextRequest) {
 
     // Cost / margin columns only for owners, admins and ops (lib/pricebook-costs.ts).
     return NextResponse.json({
-      roofingTypes: stripPricebookCosts(roofingTypes, await canSeeFinancials(adminClient, { id: user.id, role: profile.role })),
+      roofingTypes: stripPricebookCosts(roofingTypes, await canSeeFinancials(adminClient, { id: user.id, role: profile.role, custom_role_id: (profile as { custom_role_id?: string | null }).custom_role_id })),
       role: profile.role,
     })
   } catch (err) {
