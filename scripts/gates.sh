@@ -15,7 +15,8 @@ fi
 
 SHA="$(git rev-parse HEAD)"
 STAMP_DIR="$(git rev-parse --git-common-dir)/arx-gates-passed"
-mkdir -p "$STAMP_DIR"
+if [ -e "$STAMP_DIR" ] && [ ! -d "$STAMP_DIR" ]; then rm -f "$STAMP_DIR"; fi   # an older version kept one stamp FILE here
+mkdir -p "$STAMP_DIR" || { echo "gates: cannot create $STAMP_DIR" >&2; exit 1; }
 STAMP="$STAMP_DIR/$SHA"
 rm -f "$STAMP"
 FLAKY=()
@@ -50,7 +51,8 @@ if [ "$(git rev-parse HEAD)" != "$SHA" ] || [ -n "$(git status --porcelain)" ]; 
   exit 1
 fi
 
-date -u +%FT%TZ > "$STAMP"
+date -u +%FT%TZ > "$STAMP" || { echo "gates: could not write the stamp $STAMP; the push would be refused" >&2; exit 1; }
+[ -f "$STAMP" ] || { echo "gates: stamp missing after write" >&2; exit 1; }
 echo ""
 echo "gates: ALL PASSED on $SHA"
 if [ "${#FLAKY[@]}" -gt 0 ]; then echo "gates: flaky (passed only on rerun): ${FLAKY[*]}"; fi
