@@ -414,6 +414,8 @@ export type SupplierOrderRecord = {
   lastDeliveryAddress: string | null
   lastSentAt: string | null
   lastSentTo: string | null
+  /** When the materials arrived (null = not marked received). */
+  receivedAt: string | null
 }
 
 export type SupplierCardState = 'not_sent' | 'sent' | 'changed' | 'needs_cancellation' | 'cancelled'

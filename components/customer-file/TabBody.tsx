@@ -14,7 +14,7 @@ import { createServiceClient } from '@/lib/supabase/service'
 import PhoneLink from '@/components/PhoneLink'
 
 /** One tab's content. Each tab is its own route, so only the active one runs its queries. */
-export default async function TabBody({ customerId, dealId, tab }: { customerId: string; dealId: string; tab: string }) {
+export default async function TabBody({ customerId, dealId, tab, jobTab = null }: { customerId: string; dealId: string; tab: string; jobTab?: string | null }) {
   if (!isFileTab(tab)) notFound()
   const ctx = await loadFile(customerId, dealId)
   if (!ctx.tabs.includes(tab)) notFound()
@@ -27,7 +27,14 @@ export default async function TabBody({ customerId, dealId, tab }: { customerId:
       // The existing opportunity page, re-shelled (no second Nav).
       return <OpportunityView params={{ id: dealId }} embedded />
     case 'job':
-      return ctx.job ? <JobView params={{ id: ctx.job.id }} embedded /> : notFound()
+      return ctx.job ? (
+        <JobView
+          params={{ id: ctx.job.id }}
+          embedded
+          initialTab={jobTab}
+          notesSlot={<ThreadPanel customerId={customerId} dealId={dealId} variant="page" />}
+        />
+      ) : notFound()
     case 'money':
       return ctx.job ? (
         <MoneyCards jobId={ctx.job.id} saleAmount={ctx.job.sale_amount} jobSource={null} customerEmail={ctx.customer.email} canBill={ctx.canViewJobBilling} />

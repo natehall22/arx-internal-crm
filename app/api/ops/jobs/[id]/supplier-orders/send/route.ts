@@ -17,6 +17,7 @@ import {
   executeSupplierOrderSend,
   loadSupplierOrderContext,
   resolveSupplierOrderAccess,
+  syncMaterialsMirror,
   supabaseSupplierOrderStore,
 } from '@/lib/supplier-orders'
 
@@ -80,6 +81,8 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
         { status: result.status }
       )
     }
+    // Keep the stored materials status (board, reports, Needs-you) in step with the supplier orders: partly / fully ordered.
+    await syncMaterialsMirror(auth.admin, auth.profile.org_id, params.id).catch((e) => console.error('[supplier-orders/send] mirror failed', e))
     return NextResponse.json(result)
   } catch (error) {
     console.error('[supplier-orders/send] failed', error)

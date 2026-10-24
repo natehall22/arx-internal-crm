@@ -451,3 +451,24 @@ export const HARNESS_PROJECTS = {
   projectsError: null,
   closerByProjectId: { p1: 'Sam Closer-Longname Hernandez', p2: 'Nathan Hall' },
 }
+
+/** Shaped like prod job 26-0037: roofing crew date already past with photos missing, gutters later, materials marked received but no supplier orders on file, balance owed. */
+export const HARNESS_JOB_0037 = {
+  ...HARNESS_JOB,
+  id: 'job-0037', job_number: '26-0037', status: 'scheduled', sale_amount: 16325, collected_cents: 163250,
+  materials_status: 'received', materials_ordered_at: '2026-10-08T12:00:00Z', scheduled_date: '2026-10-20', completed_at: null, started_at: null,
+  sold_scope: null, installation_agreement: { pdf_url: 'https://example.test/agreement.pdf', status: 'completed', agreement_type: 'installation' },
+  roof_report: { id: 'rr1', pdf_generated_at: '2026-10-02T12:00:00Z' },
+}
+export const HARNESS_TRADES_0037 = {
+  trades: [
+    { id: 't1', work_order_number: 'WO-0101', trade: 'roofing', trade_source: 'auto', status: 'scheduled', scheduled_date: '2026-10-20', scheduled_time_start: null, install_days: 1, completed_at: null,
+      sub: { id: 's1', company_name: 'Sparky Roofing LLC', phone: '7045550101', has_scheduling_email: true }, calendar_sync_error: null, has_calendar_event: true,
+      missing_photo_tags: ['left', 'right'], photo_count: 2, crew_link_url: 'https://example.test/crew/abc' },
+    { id: 't2', work_order_number: 'WO-0102', trade: 'gutters', trade_source: 'auto', status: 'scheduled', scheduled_date: '2026-10-27', scheduled_time_start: null, install_days: 0.5, completed_at: null,
+      sub: { id: 's2', company_name: 'Rain Gutters Co', phone: '7045550102', has_scheduling_email: false }, calendar_sync_error: null, has_calendar_event: false,
+      missing_photo_tags: ['front', 'back', 'left', 'right'], photo_count: 0, crew_link_url: null },
+  ],
+}
+export const HARNESS_PAYMENTS_0037 = { payments: [{ id: 'pay1', job_id: 'job-0037', paid_at: '2026-10-02', amount_cents: 163250, payment_type: 'deposit', method: 'check', payer: 'homeowner', note: null, created_at: '2026-10-02T12:00:00Z', created_by: 'u1', funding_status: 'cleared' }], collected_cents: 163250, collected_dollars: 1632.5, sale_amount_cents: 1632500, sale_amount_dollars: 16325, remaining_cents: 1469250, remaining_dollars: 14692.5, payment_count: 1, paid_in_full: false, paid_by_payments: false }
+export const SUPPLIER_VIEW_0037 = { jobNumber: '26-0037', jobCancelled: false, canSend: true, rollup: { parts: [], covered: 0, total: 0, allCovered: false, summary: '' }, blockers: [], warnings: [], cards: [], nonPo: [], unassigned: [], trades: [], lines: [], suppliers: [], defaultDeliveryDate: null, defaultDeliveryAddress: null }

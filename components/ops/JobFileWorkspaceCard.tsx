@@ -3,6 +3,7 @@
 import type { DragEvent, FormEvent } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { multipartFilenameForUpload } from '@/lib/files/storage'
+import { useJobPhotoQueue } from '@/components/job/useJobPhotoQueue'
 import { createClientBrowser } from '@/lib/supabase/client'
 import { pickValidEmail } from '@/lib/email-address'
 import { isOrgSuperuserRoleSlug } from '@/lib/permissions'
@@ -69,6 +70,10 @@ interface JobFileWorkspaceCardProps {
   ledgerVersion?: number
   /** Called after this card adds or reviews a cost line, so the Materials/Financials cards reload. */
   onLedgerMutated?: () => void
+  /** Which parts to show. Default: all three (classic Photos & files card). */
+  sections?: Array<'photos' | 'documents' | 'costs'>
+  /** Job-page v2: no card chrome or long help text, photos as a tappable grid. */
+  compact?: boolean
 }
 
 type StatusMessage = {
@@ -154,7 +159,10 @@ export default function JobFileWorkspaceCard({
   dealerFeeAmount,
   ledgerVersion = 0,
   onLedgerMutated,
+  sections,
+  compact = false,
 }: JobFileWorkspaceCardProps) {
+  const show = (name: 'photos' | 'documents' | 'costs') => !sections || sections.includes(name)
   const supabase = useMemo(() => createClientBrowser(), [])
 
   const [loading, setLoading] = useState(true)
@@ -163,10 +171,6 @@ export default function JobFileWorkspaceCard({
   const [costLines, setCostLines] = useState<CostLineRow[]>([])
   const [attachmentCountByLine, setAttachmentCountByLine] = useState<Record<string, number>>({})
   const [tableUnavailable, setTableUnavailable] = useState(false)
-  const [uploadingPhoto, setUploadingPhoto] = useState(false)
-  const [photoUploadProgress, setPhotoUploadProgress] = useState<{ done: number; total: number } | null>(
-    null
-  )
   const [uploadingDocument, setUploadingDocument] = useState(false)
   const [certificateBusy, setCertificateBusy] = useState(false)
   const [uploadingCostAttachment, setUploadingCostAttachment] = useState(false)
@@ -435,67 +439,18 @@ export default function JobFileWorkspaceCard({
     }
   }, [registerOpenAddCostShortcut, tableUnavailable])
 
+  // Photos are saved on the phone first and uploaded from there, so a bad signal on a roof never loses them.
+  const photoQueue = useJobPhotoQueue(jobId, () => void loadData(undefined, { keepLoadedUI: true }))
+  const uploadingPhoto = photoQueue.flushing
   const handlePhotosSelected = async (fileList?: FileList | null) => {
     const files = fileList ? Array.from(fileList).filter((f) => f.size > 0) : []
     if (files.length === 0) return
-    setUploadingPhoto(true)
-    setPhotoUploadProgress({ done: 0, total: files.length })
     setStatusMessage(null)
-    let ok = 0
-    let firstError = ''
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i]
-      setPhotoUploadProgress({ done: i, total: files.length })
-      try {
-        const safeName = multipartFilenameForUpload(file, `photo_${i + 1}`)
-        const reg = await fetchOpsJson(`/api/ops/jobs/${jobId}/photos/register`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ filename: safeName }),
-        })
-        const photoId = String(reg.photoId)
-        const storagePath = String(reg.storagePath)
-        const bucket = String(reg.bucket)
-        const signedUploadToken = String(reg.signedUploadToken)
-
-        const { error: uploadError } = await supabase.storage
-          .from(bucket)
-          .uploadToSignedUrl(storagePath, signedUploadToken, file, {
-            contentType: file.type || 'application/octet-stream',
-          })
-        if (uploadError) throw new Error(uploadError.message)
-
-        const data = await fetchOpsJson(`/api/ops/jobs/${jobId}/photos/finalize`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            photoId,
-            photo_tag: photoTag,
-            mime_type: file.type || null,
-            file_size: file.size,
-          }),
-        })
-
-        if (data?.photo) {
-          setPhotos((prev) => [data.photo as PhotoRow, ...prev])
-        }
-        ok++
-      } catch (error: any) {
-        if (!firstError) firstError = error?.message || 'Upload failed'
-      }
-      setPhotoUploadProgress({ done: i + 1, total: files.length })
+    try {
+      await photoQueue.add(files, { tag: photoTag, workOrderId: null })
+    } catch (error: any) {
+      setStatusMessage({ type: 'error', text: error?.message || 'Could not save the photos' })
     }
-
-    setStatusMessage({
-      type: ok < files.length ? 'error' : 'success',
-      text:
-        ok === files.length
-          ? `Uploaded ${ok} photo${ok === 1 ? '' : 's'} successfully.`
-          : `Uploaded ${ok} of ${files.length}.${firstError ? ` ${firstError}` : ''}`,
-    })
-    await loadData(undefined, { keepLoadedUI: true })
-    setUploadingPhoto(false)
-    setPhotoUploadProgress(null)
     if (photoInputRef.current) photoInputRef.current.value = ''
   }
 
@@ -967,15 +922,17 @@ export default function JobFileWorkspaceCard({
     userRole === 'regional_manager'
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
-      <div className="flex items-start justify-between gap-3 mb-4">
-        <div>
-          <h2 className="text-base sm:text-lg font-semibold text-gray-900">Job Files Workspace</h2>
-          <p className="text-sm text-gray-600 mt-1">
-            Photos, documents, and cost records for this job.
-          </p>
+    <div className={compact ? '' : 'bg-white rounded-xl shadow-sm border p-4 sm:p-6'}>
+      {!compact && (
+        <div className="flex items-start justify-between gap-3 mb-4">
+          <div>
+            <h2 className="text-base sm:text-lg font-semibold text-gray-900">Job Files Workspace</h2>
+            <p className="text-sm text-gray-600 mt-1">
+              Photos, documents, and cost records for this job.
+            </p>
+          </div>
         </div>
-      </div>
+      )}
 
       {tableUnavailable && (
         <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
@@ -996,6 +953,7 @@ export default function JobFileWorkspaceCard({
       )}
 
       <div className="space-y-6">
+        {show('photos') && (
         <section>
           <div className="flex items-center justify-between gap-3 mb-2">
             <h3 className="text-sm sm:text-base font-semibold text-gray-900">Photos</h3>
@@ -1021,11 +979,7 @@ export default function JobFileWorkspaceCard({
                 disabled={uploadingPhoto || tableUnavailable}
                 className="text-sm px-3 py-2 rounded-lg border border-indigo-600 text-indigo-700 hover:bg-indigo-50 disabled:opacity-50"
               >
-                {uploadingPhoto
-                  ? photoUploadProgress
-                    ? `Uploading ${photoUploadProgress.done}/${photoUploadProgress.total}…`
-                    : 'Uploading…'
-                  : 'Upload Photos'}
+                {uploadingPhoto ? 'Uploading…' : compact ? 'Add photos' : 'Upload Photos'}
               </button>
               <input
                 ref={photoInputRef}
@@ -1037,11 +991,19 @@ export default function JobFileWorkspaceCard({
               />
             </div>
           </div>
+          {photoQueue.pending > 0 && (
+            <p className="mb-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-[#2c2c2a]" role="status">
+              {photoQueue.pending} photo{photoQueue.pending === 1 ? '' : 's'} saved on this phone,{' '}
+              {photoQueue.flushing ? 'uploading now…' : 'waiting for signal. They upload by themselves.'}
+            </p>
+          )}
+          {!compact && (
           <p className="text-xs text-gray-500 mb-3">
             Upload before/progress/final photos so office and production can track the job clearly. Select multiple
             images in the file picker (Shift- or Cmd/Ctrl-click) or drag files into the area below. Click a filename to
             open the photo viewer and step through all job photos with arrow keys.
           </p>
+          )}
 
           <div
             className={`rounded-lg border-2 border-dashed transition-colors ${
@@ -1066,6 +1028,28 @@ export default function JobFileWorkspaceCard({
                 <p className="mb-1">No photos yet.</p>
                 <p>Use &quot;Upload Photos&quot; or drag image files here (HEIC, JPEG, PNG, etc.).</p>
               </div>
+            ) : compact ? (
+              <ul className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 gap-2 p-2">
+                {photos.map((photo, idx) => (
+                  <li key={photo.id}>
+                    <button
+                      type="button"
+                      className="relative block w-full aspect-square overflow-hidden rounded-lg bg-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      aria-label={`Open photo ${photo.filename}`}
+                      onClick={() => {
+                        setJobPhotoLightboxIndex(idx)
+                        setJobPhotoLightboxOpen(true)
+                      }}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={jobPhotoDownloadUrl(jobId, photo.id)} alt="" loading="lazy" className="h-full w-full object-cover" />
+                      <span className="absolute inset-x-0 bottom-0 bg-black/70 px-1.5 py-0.5 text-left text-xs text-white capitalize">
+                        {photo.photo_tag || 'general'}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
             ) : (
               <div className="overflow-x-auto rounded-md border border-gray-200 m-2">
                 <table className="min-w-full text-sm">
@@ -1117,7 +1101,9 @@ export default function JobFileWorkspaceCard({
             onIndexChange={setJobPhotoLightboxIndex}
           />
         </section>
+        )}
 
+        {show('documents') && (
         <section>
           <div className="flex items-center justify-between gap-3 mb-2">
             <h3 className="text-sm sm:text-base font-semibold text-gray-900">Documents</h3>
@@ -1388,7 +1374,9 @@ export default function JobFileWorkspaceCard({
             )}
           </div>
         </section>
+        )}
 
+        {show('costs') && (
         <section id="job-costs-section">
           <div className="flex flex-wrap items-center justify-between gap-3 mb-2">
             <h3 className="text-sm sm:text-base font-semibold text-gray-900">Costs</h3>
@@ -1631,6 +1619,7 @@ export default function JobFileWorkspaceCard({
             )}
           </div>
         </section>
+        )}
       </div>
     </div>
   )

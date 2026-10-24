@@ -19,6 +19,10 @@ interface PageProps {
   params: { id: string }
   /** Inside the Customer File (/c/…/job): no Nav, no legacy notes card. */
   embedded?: boolean
+  /** Deep link: which of the five job tabs to open (the route segment). */
+  initialTab?: string | null
+  /** The Customer File thread, shown as the Notes tab on a phone (the file's side panel carries it on a desktop). */
+  notesSlot?: React.ReactNode
 }
 
 type FinancialSourceProposalOption = {
@@ -53,10 +57,10 @@ const jobSelectWithoutPaymentMethod = `
 `
 
 /** The job page body, shared by /ops/jobs/[id] and the Customer File's Job tab. */
-export default async function JobView({ params, embedded = false }: PageProps) {
+export default async function JobView({ params, embedded = false, initialTab = null, notesSlot }: PageProps) {
   const { authUser, profile } = await requireAuth()
   const admin = createServiceClient()
-  const { canJobBoard, canViewJobFinancials, canDeleteProductionJob } = await resolveOpsAccess(
+  const { canJobBoard, canViewJobFinancials, canDeleteProductionJob, canEditJobs } = await resolveOpsAccess(
     admin,
     authUser.id,
     profile
@@ -565,6 +569,9 @@ export default async function JobView({ params, embedded = false }: PageProps) {
   return (
     <JobDetailClient
       embedded={embedded}
+      v2={(profile as { ui_prefs?: { jobPageV2?: unknown } | null }).ui_prefs?.jobPageV2 === true}
+      initialTab={initialTab}
+      notesSlot={notesSlot}
       initialJob={transformedJob as any}
       paymentMethod={resolvedPaymentMethod}
       materialsCoverageOverrides={materialsCoverageOverrides}
@@ -572,6 +579,7 @@ export default async function JobView({ params, embedded = false }: PageProps) {
       canViewProfitability={canViewJobFinancials}
       canViewReportFinancials={hasFinancials(await resolveEffectivePermissionNames(admin, authUser.id, profile))}
       canDeleteProductionJob={canDeleteProductionJob}
+      canEditJobs={canEditJobs}
       canViewJobBilling={canViewJobBilling}
       canEditPayrollAttribution={canEditPayrollAttribution}
       isSuperAdmin={isSuperAdmin(profile)}

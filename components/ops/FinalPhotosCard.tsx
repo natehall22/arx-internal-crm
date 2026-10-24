@@ -8,6 +8,7 @@ import { multipartFilenameForUpload } from '@/lib/files/storage'
 import { FINAL_PHOTO_TAGS, REQUIRED_FINAL_PHOTO_TAGS, finalPhotoTagLabel } from '@/lib/final-photo-tags'
 import { TRADE_LABELS, type Trade } from '@/lib/job-trades'
 import { toast } from '@/components/ui/toast'
+import { useJobPhotoQueue } from '@/components/job/useJobPhotoQueue'
 
 interface FinalPhoto {
   id: string
@@ -96,45 +97,17 @@ export default function FinalPhotosCard({ jobId, trades }: FinalPhotosCardProps)
     return map
   }, [finalPhotos])
 
+  // Saved on the phone first, then uploaded; waits for signal and retries on its own (lib/job-photo-queue.ts).
+  const photoQueue = useJobPhotoQueue(jobId, () => void loadPhotos())
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
+    const files = Array.from(e.target.files ?? [])
+    if (files.length === 0) return
     setUploading(true)
     try {
-      // Direct to storage (register → upload → finalize): phone photos exceed the
-      // ~4.5MB request limit a multipart POST through the API route would hit.
-      const regRes = await fetch(`/api/ops/jobs/${jobId}/photos/register`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ filename: multipartFilenameForUpload(file, 'photo') }),
-      })
-      const reg = await regRes.json().catch(() => ({}))
-      if (!regRes.ok) throw new Error(reg.error || 'Failed to start upload')
-
-      const { error: uploadError } = await createClientBrowser()
-        .storage.from(String(reg.bucket))
-        .uploadToSignedUrl(String(reg.storagePath), String(reg.signedUploadToken), file, {
-          contentType: file.type || 'application/octet-stream',
-        })
-      if (uploadError) throw new Error(uploadError.message)
-
-      const finRes = await fetch(`/api/ops/jobs/${jobId}/photos/finalize`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          photoId: reg.photoId,
-          photo_tag: selectedTag,
-          mime_type: file.type || null,
-          file_size: file.size,
-          work_order_id: selectedTradeId === JOB_LEVEL ? null : selectedTradeId,
-        }),
-      })
-      const fin = await finRes.json().catch(() => ({}))
-      if (!finRes.ok) throw new Error(fin.error || 'Failed to save photo')
-      await loadPhotos()
+      await photoQueue.add(files, { tag: selectedTag, workOrderId: selectedTradeId === JOB_LEVEL ? null : selectedTradeId })
     } catch (err) {
       console.error('Upload error:', err)
-      toast.error(err instanceof Error ? err.message : 'Failed to upload photo')
+      toast.error(err instanceof Error ? err.message : 'Failed to save the photo on this phone')
     } finally {
       setUploading(false)
       if (fileInputRef.current) fileInputRef.current.value = ''
@@ -218,10 +191,15 @@ export default function FinalPhotosCard({ jobId, trades }: FinalPhotosCardProps)
                 uploading ? 'bg-gray-300 text-gray-600' : 'bg-indigo-600 text-white hover:bg-indigo-700 active:bg-indigo-800'
               }`}
             >
-              {uploading ? 'Uploading...' : '📷 Upload Photo'}
+              {uploading ? 'Saving…' : '📷 Upload Photo'}
             </span>
           </label>
         </div>
+        {photoQueue.pending > 0 && (
+          <p role="status" className="mt-2 text-sm text-[#2c2c2a]">
+            {photoQueue.pending} photo{photoQueue.pending === 1 ? '' : 's'} saved on this phone, {photoQueue.flushing ? 'uploading now…' : 'waiting for signal. They upload by themselves.'}
+          </p>
+        )}
       </div>
 
       <div className="mb-4">

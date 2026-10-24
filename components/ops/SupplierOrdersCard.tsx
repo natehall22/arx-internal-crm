@@ -2,13 +2,15 @@
 
 import { useCallback, useEffect, useState } from 'react'
 
+import { supplierDisplayState, type MaterialsState } from '@/lib/job-materials-state'
 import type { SupplierOrdersView, SupplierCard, SupplierOrderPreview } from '@/lib/supplier-orders'
 
 type Preview = Omit<SupplierOrderPreview, 'pdf' | 'sheet'> & { hasPdf: boolean }
 
-const STATE_LABEL: Record<SupplierCard['state'], string> = {
-  not_sent: 'Not sent',
+const SHOWN_LABEL: Record<ReturnType<typeof supplierDisplayState>, string> = {
+  draft: 'Draft',
   sent: 'Sent',
+  received: 'Received',
   changed: 'Changed since sent',
   needs_cancellation: 'Needs cancellation',
   cancelled: 'Cancelled',
@@ -18,8 +20,8 @@ const STATE_LABEL: Record<SupplierCard['state'], string> = {
  * Supplier orders: one card per supplier, a preview of exactly what would go out, and an explicit
  * "Send to <supplier>" button. Nothing here (or anywhere else) sends without that click.
  */
-export default function SupplierOrdersCard({ jobId, onChanged }: { jobId: string; onChanged?: () => void }) {
-  const [view, setView] = useState<(SupplierOrdersView & { canSend?: boolean }) | null>(null)
+export default function SupplierOrdersCard({ jobId, onChanged, onState }: { jobId: string; onChanged?: () => void; /** The job's one materials answer, every time it loads or changes. */ onState?: (state: MaterialsState) => void }) {
+  const [view, setView] = useState<(SupplierOrdersView & { canSend?: boolean; materialsState?: MaterialsState }) | null>(null)
   const [setupMissing, setSetupMissing] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [open, setOpen] = useState<{ vendorId: string; kind: 'order' | 'cancellation' } | null>(null)
@@ -37,8 +39,9 @@ export default function SupplierOrdersCard({ jobId, onChanged }: { jobId: string
     // A malformed answer must never take the whole job page down.
     if (!json.rollup || !Array.isArray(json.cards)) return setError('Could not load supplier orders')
     setView(json)
+    if (json.materialsState) onState?.(json.materialsState)
     setDeliveryDate((d) => d || json.defaultDeliveryDate || '')
-  }, [jobId])
+  }, [jobId, onState])
 
   useEffect(() => {
     void load()
@@ -122,55 +125,102 @@ export default function SupplierOrdersCard({ jobId, onChanged }: { jobId: string
   if (setupMissing) return <p className="text-[#2c2c2a]">{setupMissing}</p>
   if (!view) return error ? <p className="text-[#a32d2d]">{error}</p> : null
 
-  const btn = 'inline-flex min-h-[44px] w-full sm:w-auto items-center justify-center rounded-lg border border-[#5f5e5a] bg-white px-4 py-2 text-sm font-semibold text-[#2c2c2a] disabled:opacity-50'
+  const btn = 'inline-flex min-h-[44px] items-center justify-center rounded-lg border border-[#5f5e5a] bg-white px-4 py-2 text-sm font-semibold text-[#2c2c2a] disabled:opacity-50'
+  const primary = 'inline-flex min-h-[44px] w-full items-center justify-center rounded-lg bg-[#2b0a3d] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50 sm:w-auto'
   const field = 'block w-full min-h-[44px] rounded-lg border border-[#8a877d] bg-white px-3 py-2 text-base text-[#2c2c2a]'
+  const when = (iso: string) => new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+  const pdfUrl = (vendorId: string) => `/api/ops/jobs/${jobId}/supplier-orders/preview?vendorId=${vendorId}&kind=order&deliveryDate=${deliveryDate}&format=pdf`
+
+  const markReceived = async (card: SupplierCard, received: boolean) => {
+    setBusy(true)
+    try {
+      const res = await fetch(`/api/ops/jobs/${jobId}/supplier-orders/received`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ vendorId: card.vendorId, received }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) return setError(json.error || 'Could not save. Try again.')
+      setError(null)
+      await load()
+      onChanged?.()
+    } finally {
+      setBusy(false)
+    }
+  }
 
   return (
-    <section className="rounded-lg border border-[#d3d1c7] bg-white p-4 text-[#2c2c2a]">
-      <h3 className="m-0 text-base font-semibold">Supplier orders</h3>
-      <p className="mb-3 mt-1 text-sm">{view.rollup.summary}</p>
+    <section className="text-[#2c2c2a]" aria-label="Supplier orders">
       {view.blockers.map((b) => (
-        <p key={b} className="text-sm text-[#a32d2d]">{b}</p>
+        <p key={b} className="mb-2 text-sm text-[#a32d2d]">{b}</p>
       ))}
       {view.warnings.map((w) => (
-        <p key={w} className="text-sm text-[#7a4b00]">{w}</p>
+        <p key={w} className="mb-2 text-sm text-[#7a4b00]">{w}</p>
       ))}
-      {view.cards.map((c) => (
-        <div key={c.vendorId} className="border-t border-[#e6e4dc] py-3">
-          <div className="flex flex-wrap items-baseline gap-x-2">
-            <strong className="text-base">{c.supplierName}</strong>
-            <span className="text-sm">{c.poNumber} · {STATE_LABEL[c.state]}</span>
-          </div>
-          {c.lastSentAt && (
-            <p className="mt-0.5 break-words text-sm">Last sent {new Date(c.lastSentAt).toLocaleString()} to {c.lastSentTo}</p>
-          )}
-          <ul className="my-2 ml-5 list-disc text-sm">
-            {c.lines.map((l) => (
-              <li key={l.key} className="break-words">{l.label}{l.qty ? ` — ${l.qty}` : ''}</li>
-            ))}
-          </ul>
-          {c.blockers.map((b) => (
-            <p key={b} className="my-1 text-sm text-[#a32d2d]">{b}</p>
-          ))}
-          {view.canSend && (
-            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-              <button type="button" className={btn} onClick={() => openPreview(c.vendorId, 'order')} disabled={view.jobCancelled}>
-                Review &amp; send to {c.supplierName}
-              </button>
-              <button type="button" className={btn} disabled={busy || view.jobCancelled || c.state === 'sent'} onClick={() => sentMyself(c)}>
-                I sent this to {c.supplierName} myself
-              </button>
-              {c.canCancel && (
-                <button type="button" className={btn} onClick={() => openPreview(c.vendorId, 'cancellation')}>
-                  Review cancellation
-                </button>
+      <ul className="m-0 flex list-none flex-col gap-3 p-0">
+        {view.cards.map((c) => {
+          const shown = supplierDisplayState(c)
+          const chip = shown === 'received' ? 'bg-emerald-100 text-emerald-900' : shown === 'sent' ? 'bg-blue-100 text-blue-900' : shown === 'draft' ? 'bg-gray-100 text-[#2c2c2a]' : 'bg-amber-100 text-amber-900'
+          const sendLabel = shown === 'changed' ? `Send updated order to ${c.supplierName}` : `Send order to ${c.supplierName}`
+          return (
+            <li key={c.vendorId} className="rounded-lg border border-[#d3d1c7] bg-white p-3 sm:p-4">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                <strong className="text-base">{c.supplierName}</strong>
+                <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${chip}`}>{SHOWN_LABEL[shown]}</span>
+                <span className="text-xs text-[#57574f]">{c.poNumber}</span>
+              </div>
+              {(c.lastSentAt || c.receivedAt) && (
+                <p className="mt-1 break-words text-sm text-[#2c2c2a]">
+                  {c.lastSentAt && <>Sent {when(c.lastSentAt)}{c.lastSentTo ? ` to ${c.lastSentTo}` : ''}</>}
+                  {c.lastSentAt && c.receivedAt ? ' · ' : ''}
+                  {c.receivedAt && <>Received {when(c.receivedAt)}</>}
+                </p>
               )}
-            </div>
-          )}
-        </div>
-      ))}
+              {c.lines.length > 0 && (
+                <details className="mt-2 text-sm">
+                  <summary className="min-h-[44px] cursor-pointer py-2 font-medium">{c.lines.length} item{c.lines.length === 1 ? '' : 's'}</summary>
+                  <ul className="m-0 ml-5 list-disc pb-1">
+                    {c.lines.map((l) => (
+                      <li key={l.key} className="break-words">{l.label}{l.qty ? ` — ${l.qty}` : ''}</li>
+                    ))}
+                  </ul>
+                </details>
+              )}
+              {c.blockers.map((b) => (
+                <p key={b} className="my-1 text-sm text-[#a32d2d]">{b}</p>
+              ))}
+              {view.canSend && (
+                <div className="mt-2 flex flex-col gap-2">
+                  {(shown === 'draft' || shown === 'changed') && (
+                    <button type="button" className={primary} onClick={() => openPreview(c.vendorId, 'order')} disabled={view.jobCancelled}>
+                      {sendLabel}
+                    </button>
+                  )}
+                  <div className="flex flex-wrap gap-2">
+                    {c.lines.length > 0 && <a className={btn} href={pdfUrl(c.vendorId)} target="_blank" rel="noopener noreferrer">View PDF</a>}
+                    {c.lines.length > 0 && <a className={btn} href={pdfUrl(c.vendorId)} download>Download</a>}
+                    <a className={btn} href={`/ops/jobs/${jobId}/sheets`}>Edit</a>
+                    {shown === 'sent' && (
+                      <button type="button" className={btn} disabled={busy} onClick={() => markReceived(c, true)}>Mark received</button>
+                    )}
+                    {shown === 'received' && (
+                      <button type="button" className={btn} disabled={busy} onClick={() => markReceived(c, false)}>Undo received</button>
+                    )}
+                    {shown === 'draft' && (
+                      <button type="button" className={btn} disabled={busy || view.jobCancelled} onClick={() => sentMyself(c)}>I sent it myself</button>
+                    )}
+                    {c.canCancel && (
+                      <button type="button" className={btn} onClick={() => openPreview(c.vendorId, 'cancellation')}>Review cancellation</button>
+                    )}
+                  </div>
+                </div>
+              )}
+            </li>
+          )
+        })}
+      </ul>
       {view.nonPo.map((g) => (
-        <p key={`${g.source}-${g.trade}`} className="my-1.5 text-sm">{g.label} — not on a purchase order</p>
+        <p key={`${g.source}-${g.trade}`} className="mt-2 rounded-lg bg-[#f2f1ee] px-3 py-2 text-sm">{g.label}</p>
       ))}
 
       {open && (

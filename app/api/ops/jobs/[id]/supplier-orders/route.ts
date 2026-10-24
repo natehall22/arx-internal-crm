@@ -9,7 +9,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { isMaterialSource } from '@/lib/material-sourcing'
 import { createServiceClient } from '@/lib/supabase/service'
-import { buildSupplierOrdersView, loadSupplierOrderContext, resolveSupplierOrderAccess } from '@/lib/supplier-orders'
+import { buildSupplierOrdersView, loadSupplierOrderContext, materialsStateForContext, resolveSupplierOrderAccess } from '@/lib/supplier-orders'
 
 export const dynamic = 'force-dynamic'
 
@@ -35,7 +35,13 @@ export async function GET(_request: NextRequest, { params }: { params: { id: str
     if (!loaded.ok) {
       return NextResponse.json({ setupMissing: true, message: 'Emailing orders is not switched on yet (database update pending).' })
     }
-    return NextResponse.json({ ...buildSupplierOrdersView(loaded.ctx), canSend: auth.canSend })
+    const { data: stored } = await auth.admin.from('production_jobs').select('materials_status').eq('id', params.id).eq('org_id', auth.profile.org_id).maybeSingle()
+    return NextResponse.json({
+      ...buildSupplierOrdersView(loaded.ctx),
+      // The ONE materials answer (derived from the supplier orders; the stored status is only the fallback).
+      materialsState: materialsStateForContext(loaded.ctx, (stored as { materials_status: string | null } | null)?.materials_status ?? null),
+      canSend: auth.canSend,
+    })
   } catch (error) {
     console.error('[supplier-orders] GET failed', error)
     return NextResponse.json({ error: 'Could not load supplier orders' }, { status: 500 })

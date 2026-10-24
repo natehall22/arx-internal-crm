@@ -41,7 +41,7 @@ import ProposalsPage from '@/app/proposals/page'
 import LeadsClient from '@/app/leads/LeadsClient'
 import OpportunitiesPage from '@/app/opportunities/page'
 import JobDetailClient from '@/app/ops/jobs/[id]/JobDetailClient'
-import { HARNESS_JOB } from '@/e2e/fixtures'
+import { HARNESS_JOB, HARNESS_JOB_0037 } from '@/e2e/fixtures'
 import AnnouncementBanner from '@/components/AnnouncementBanner'
 import AnnouncementsClient from '@/app/admin/announcements/AnnouncementsClient'
 import ContractModal from '@/components/contracts/ContractModal'
@@ -152,6 +152,28 @@ export default function Harness({ params }: { params: { screen: string } }) {
           changeOrdersSection={null}
         />
       )
+    case 'job-v2-ops':
+    case 'job-v2-owner': {
+      const owner = params.screen === 'job-v2-owner'
+      return (
+        <JobDetailClient
+          v2
+          initialJob={HARNESS_JOB_0037 as never}
+          paymentMethod="finance"
+          userRole={owner ? 'admin' : 'operations'}
+          canViewReportFinancials={owner}
+          canViewProfitability
+          canEditJobs
+          canDeleteProductionJob={false}
+          canViewJobBilling
+          canEditPayrollAttribution={owner}
+          canEditFinancialSource={false}
+          isSuperAdmin={owner}
+          financialSourceProposalOptions={[]}
+          changeOrdersSection={null}
+        />
+      )
+    }
     case 'announcement-banner':
       return (
         <div>

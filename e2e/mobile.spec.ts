@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import { REPORT_TEMPLATES } from '../lib/reporting/templates'
-import { HARNESS_INCENTIVES, HARNESS_LEADERBOARD, HARNESS_INSIDE_SALES, HARNESS_INSTALL_SCHEDULE, HARNESS_PARTNERS, HARNESS_APPOINTMENTS, HARNESS_THREAD, HARNESS_PROPOSALS, HARNESS_LEADS, ANNOUNCEMENTS, BANNER, DEFAULT_PLANS, COST_LINES, SUPPLIERS, PAY_WEEK, MY_PAY, REPORT_RESULT, SALE_CREDIT, SUPPLIER_PREVIEW, SUPPLIER_VIEW, TEMPLATE_META, USERS } from './fixtures'
+import { HARNESS_TRADES_0037, HARNESS_PAYMENTS_0037, SUPPLIER_VIEW_0037, HARNESS_INCENTIVES, HARNESS_LEADERBOARD, HARNESS_INSIDE_SALES, HARNESS_INSTALL_SCHEDULE, HARNESS_PARTNERS, HARNESS_APPOINTMENTS, HARNESS_THREAD, HARNESS_PROPOSALS, HARNESS_LEADS, ANNOUNCEMENTS, BANNER, DEFAULT_PLANS, COST_LINES, SUPPLIERS, PAY_WEEK, MY_PAY, REPORT_RESULT, SALE_CREDIT, SUPPLIER_PREVIEW, SUPPLIER_VIEW, TEMPLATE_META, USERS } from './fixtures'
 
 const json = (body: unknown, status = 200) => ({ status, contentType: 'application/json', body: JSON.stringify(body) })
 
@@ -48,7 +48,15 @@ async function mockApi(page: Page) {
   })
 }
 
-type Screen = { name: string; path: string; ready: string; states?: Array<{ name: string; run: (page: Page) => Promise<void> }> }
+/** Answers for a job shaped like 26-0037. Registered after mockApi, so these win. */
+async function mockJob0037(page: Page) {
+  await page.route('**/api/ops/jobs/*/trades', (route) => route.fulfill(json(HARNESS_TRADES_0037)))
+  await page.route('**/api/ops/jobs/*/payments', (route) => route.fulfill(json(HARNESS_PAYMENTS_0037)))
+  await page.route('**/api/ops/jobs/*/supplier-orders', (route) => route.fulfill(json(SUPPLIER_VIEW_0037)))
+  await page.route('**/api/ops/jobs/*/run-sheet/email', (route) => route.fulfill(json({ recipients: [{ email: 'sparky@example.test', name: 'Sparky Roofing LLC' }] })))
+}
+
+type Screen = { name: string; path: string; ready: string; mock?: (page: Page) => Promise<void>; states?: Array<{ name: string; run: (page: Page) => Promise<void> }> }
 
 const SCREENS: Screen[] = [
   { name: 'force-paid-dialog', path: '/dev-harness/force-paid', ready: 'textarea, input' },
@@ -152,6 +160,15 @@ const SCREENS: Screen[] = [
   { name: 'list-appointments', path: '/dev-harness/appointments', ready: 'text=Ashley Gaines >> visible=true',
     states: [{ name: 'needs-feedback', run: async (p) => { await p.getByLabel('Saved views').selectOption({ label: 'Needs feedback' }); await p.waitForSelector('text=Bill Cox >> visible=true') } }, { name: 'reassign', run: async (p) => { await p.getByRole('button', { name: 'Reassign' }).first().click(); await p.waitForSelector('text=Reassign appointment') } }] },
   { name: 'list-opportunities', path: '/dev-harness/opportunities', ready: 'text=Bill Cox >> visible=true' },
+  ...(['ops', 'owner'] as const).map((who): Screen => ({
+    name: `job-v2-${who}`, path: `/dev-harness/job-v2-${who}`, ready: '[role=tablist]', mock: mockJob0037,
+    states: [
+      { name: 'materials', run: async (p) => { await p.getByRole('tab', { name: 'Materials' }).click(); await p.waitForSelector('#materials-section') } },
+      { name: 'money', run: async (p) => { await p.getByRole('tab', { name: 'Money' }).click(); await p.waitForSelector('[data-testid=money-head]') } },
+      { name: 'files', run: async (p) => { await p.getByRole('tab', { name: 'Files' }).click(); await p.waitForSelector('#job-files-section') } },
+      { name: 'run-sheet-email', run: async (p) => { await p.getByRole('tab', { name: 'Crews' }).click(); await p.getByRole('button', { name: 'Email' }).click(); await p.waitForSelector('text=Send the run sheet to') } },
+    ],
+  })),
   { name: 'pay-week', path: '/dev-harness/pay-week', ready: 'text=Needs you (3)',
     states: [
       { name: 'person-open', run: async (p) => { await p.getByRole('button', { name: /Jordan Vale/ }).click(); await p.waitForSelector('text=Change') } },
@@ -192,6 +209,7 @@ for (const screen of SCREENS) {
     for (const v of variants) {
       test(`${screen.name} / ${v.name}`, async ({ page }, info) => {
         await mockApi(page)
+        await screen.mock?.(page)
         await page.goto(screen.path)
         await page.waitForSelector(screen.ready, { timeout: 30_000 })
         await v.run(page)

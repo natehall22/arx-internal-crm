@@ -324,3 +324,6 @@ Incentive program for setters:
 - Gross margin (pre-comp): 52.4%
 - OPEX: 4% of revenue ($653/roof)
 - Owner draw: 20% of gross profit
+
+- **Job page v2 (built 2026-10-29, OFF for everyone).** `JobDetailClient` renders the old body or the new five-tab body (Crews · Materials · Money · Notes · Files) by the `v2` prop (`users.ui_prefs.jobPageV2`). Both bodies live in the same file until cutover, so the old one is a deletion candidate once the switch is on for all. Materials status is ONE answer, `lib/job-materials-state.ts` (supplier orders first, stored `materials_status` as fallback and mirror). Parity: `docs/job-page-parity-2026-10.md`.
+

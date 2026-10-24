@@ -22,6 +22,12 @@ import CompleteJobModal from '@/components/ops/CompleteJobModal'
 import { PAID_IN_FULL_TOLERANCE_CENTS } from '@/lib/job-collection'
 import JobPaymentMethodBanner from '@/components/ops/JobPaymentMethodBanner'
 import JobDocumentsBanner from '@/components/ops/JobDocumentsBanner'
+import JobCustomerRow from '@/components/job/JobCustomerRow'
+import JobTabsBar from '@/components/job/JobTabsBar'
+import JobRunSheetRow from '@/components/job/JobRunSheetRow'
+import JobQuickLinks from '@/components/job/JobQuickLinks'
+import { deriveMaterialsState, type MaterialsState } from '@/lib/job-materials-state'
+import { isJobTab, pickDefaultJobTab, tabsNeedingAttention, type JobTab } from '@/lib/job-tabs'
 import JobReadyToPayBanner from '@/components/ops/JobReadyToPayBanner'
 import JobPayrollSentBanner from '@/components/ops/JobPayrollSentBanner'
 import SettledExternallyCard from '@/components/ops/SettledExternallyCard'
@@ -356,6 +362,8 @@ interface JobDetailClientProps {
   /** reports:financials: the Financials card (contract total, comp, profit, margin). Optional: defaults to hidden. */
   canViewReportFinancials?: boolean
   canDeleteProductionJob: boolean
+  /** Ops edit access (jobs:edit): may email the run sheet. */
+  canEditJobs?: boolean
   canViewJobBilling: boolean
   canEditPayrollAttribution: boolean
   canEditFinancialSource: boolean
@@ -363,7 +371,24 @@ interface JobDetailClientProps {
   isSuperAdmin?: boolean
   financialSourceProposalOptions: FinancialSourceProposalOption[]
   changeOrdersSection: JobChangeOrdersSectionProps | null
+  /** New job page (Crews · Materials · Money · Notes · Files). Per-person switch, off by default. */
+  v2?: boolean
+  /** Deep link from the route (/…/jobs/[id]/materials). */
+  initialTab?: string | null
+  /** The Customer File thread, used as the Notes tab on a phone. */
+  notesSlot?: React.ReactNode
 }
+
+/** Old six-tab keys -> the five job tabs, so every "jump to X" in this file works on both pages. */
+const OLD_TO_JOB_TAB: Record<string, JobTab> = {
+  overview: 'crews',
+  scope: 'materials',
+  materials: 'materials',
+  financials: 'money',
+  photos: 'files',
+  notes: 'notes',
+}
+const LAST_TAB_KEY = 'arx.jobTab'
 
 interface JobNote {
   id: string
@@ -568,6 +593,7 @@ export default function JobDetailClient({
   canViewProfitability,
   canViewReportFinancials = false,
   canDeleteProductionJob,
+  canEditJobs = false,
   canViewJobBilling,
   canEditPayrollAttribution,
   canEditFinancialSource,
@@ -575,6 +601,9 @@ export default function JobDetailClient({
   financialSourceProposalOptions,
   changeOrdersSection,
   embedded = false,
+  v2 = false,
+  initialTab = null,
+  notesSlot,
 }: JobDetailClientProps) {
   const router = useRouter()
   const [job, setJob] = useState<Job>(initialJob)
@@ -618,7 +647,50 @@ export default function JobDetailClient({
     openAddCostShortcutRef.current = openForm
   }, [])
   // Mobile tab navigation (lg+ always shows all sections)
-  const [mobileTab, setMobileTab] = useState<'overview' | 'scope' | 'materials' | 'financials' | 'photos' | 'notes'>('overview')
+  const [mobileTab, setOldMobileTab] = useState<'overview' | 'scope' | 'materials' | 'financials' | 'photos' | 'notes'>('overview')
+  // New job page: the five tabs. Deep link wins, then the next thing that needs doing, then the last tab used.
+  const [jobTab, setJobTabState] = useState<JobTab>(isJobTab(initialTab) ? initialTab : 'crews')
+  const tabChosen = useRef(isJobTab(initialTab))
+  /** The one materials answer (supplier orders first, stored status as the fallback). */
+  const [materialsState, setMaterialsState] = useState<MaterialsState>(() =>
+    deriveMaterialsState({ stored: initialJob.materials_status })
+  )
+  const selectJobTab = useCallback((tab: JobTab) => {
+    tabChosen.current = true
+    setJobTabState(tab)
+    try {
+      localStorage.setItem(LAST_TAB_KEY, tab)
+      const parts = window.location.pathname.split('/')
+      if (isJobTab(parts[parts.length - 1])) parts.pop()
+      window.history.replaceState(null, '', `${parts.join('/')}/${tab}${window.location.hash}`)
+    } catch {
+      /* storage or history unavailable: the tab still switches */
+    }
+  }, [])
+  const setMobileTab = useCallback(
+    (key: 'overview' | 'scope' | 'materials' | 'financials' | 'photos' | 'notes') => {
+      if (v2) selectJobTab(OLD_TO_JOB_TAB[key])
+      else setOldMobileTab(key)
+    },
+    [v2, selectJobTab]
+  )
+  const ord = (n: number): React.CSSProperties | undefined => (v2 ? { order: n } : undefined)
+  const v2Tabs = useMemo<JobTab[]>(
+    () => [
+      'crews',
+      'materials',
+      ...((canViewProfitability || canViewJobBilling ? ['money'] : []) as JobTab[]),
+      ...((!embedded || notesSlot ? ['notes'] : []) as JobTab[]),
+      'files',
+    ],
+    [canViewProfitability, canViewJobBilling, embedded, notesSlot]
+  )
+  /** Visibility for a block: the new page shows it only on its tab; the old page keeps mobile-tab / desktop-all. */
+  const blockCls = (oldKey: string, newTab: JobTab, extra = ''): string | undefined => {
+    const cls = v2 ? (jobTab === newTab ? '' : 'hidden') : mobileTab !== oldKey ? 'hidden lg:block' : ''
+    const out = `${cls} ${extra}`.trim()
+    return out || undefined
+  }
 
   // Mention/tagging state
   const [orgUsers, setOrgUsers] = useState<OrgUser[]>([])
@@ -667,7 +739,7 @@ export default function JobDetailClient({
       const hash = window.location.hash
       if (!hash) return
 
-      if (window.innerWidth < 1024) {
+      if (v2 || window.innerWidth < 1024) {
         if (hash === '#materials-section') {
           setMobileTab('materials')
         } else if (hash === '#payments-section' || hash === '#invoices-section' || hash === '#payroll-attribution-section') {
@@ -689,7 +761,7 @@ export default function JobDetailClient({
   }, [])
 
   const focusCompletionCertificateTools = useCallback(() => {
-    if (typeof window !== 'undefined' && window.innerWidth < 1024) {
+    if (typeof window !== 'undefined' && (v2 || window.innerWidth < 1024)) {
       setMobileTab('photos')
     }
     const scrollToCert = () =>
@@ -994,6 +1066,23 @@ export default function JobDetailClient({
     recordedCollectedCents,
   })
 
+  /** Business-day string in the org's zone, for "has the crew's last day passed". */
+  const todayYmd = useMemo(() => new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' }), [])
+  const unpaidForTabs = canViewJobBilling && paymentSummary ? unpaidContractCents : null
+  const v2Attention = useMemo(
+    () => tabsNeedingAttention({ jobStatus: job.status, materialsKey: materialsState.key, trades: jobTrades, todayYmd, balanceOwedCents: unpaidForTabs }).filter((t) => v2Tabs.includes(t)),
+    [job.status, materialsState.key, jobTrades, todayYmd, unpaidForTabs, v2Tabs]
+  )
+  // Until the person picks a tab (or arrives by a deep link), follow the next thing that needs doing as the data arrives.
+  useEffect(() => {
+    if (!v2 || tabChosen.current) return
+    let last: string | null = null
+    try { last = localStorage.getItem(LAST_TAB_KEY) } catch { /* private mode */ }
+    setJobTabState(
+      pickDefaultJobTab({ jobStatus: job.status, materialsKey: materialsState.key, trades: jobTrades, todayYmd, balanceOwedCents: unpaidForTabs, allowed: v2Tabs, lastTab: last })
+    )
+  }, [v2, job.status, materialsState.key, jobTrades, todayYmd, unpaidForTabs, v2Tabs])
+
   const handleCompleteClick = () => {
     // Warn, don't block: crews finish out one at a time, and ops may know a
     // trade is done before its row says so. 'complete' starts payroll, so ask.
@@ -1296,7 +1385,14 @@ export default function JobDetailClient({
   const handleAttachReceiptInvoiceShortcut = () => {
     const isMobile = typeof window !== 'undefined' && window.innerWidth < 1024
 
-    if (isMobile) {
+    if (v2) {
+      // Cost attachments live on the Money tab in the new page.
+      selectJobTab('money')
+      setTimeout(() => {
+        openCostAttachmentShortcutRef.current?.()
+        document.getElementById('job-files-workspace-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }, 100)
+    } else if (isMobile) {
       // Show Photos tab first so JobFileWorkspaceCard (and file input) are in the layout — then open picker + scroll
       setMobileTab('photos')
       setTimeout(() => {
@@ -1320,13 +1416,102 @@ export default function JobDetailClient({
       if (materialsEl) materialsEl.scrollIntoView({ behavior: 'smooth', block: 'start' })
     }
 
-    if (isMobile) {
+    if (v2) {
+      selectJobTab('money')
+      setTimeout(openAndScroll, 100)
+    } else if (isMobile) {
       setMobileTab('materials')
       setTimeout(openAndScroll, 100)
     } else {
       openAndScroll()
     }
   }
+
+  const jobMaterialsCard = (
+    <JobMaterialsCard
+      jobId={job.id}
+      userRole={userRole}
+      title={v2 ? 'Job costs & materials' : 'Materials'}
+      materialsOrderedAt={job.materials_ordered_at}
+      materialsEta={job.materials_eta}
+      materialsNotes={job.materials_notes}
+      onLedgerChange={setCostSummary}
+      ledgerVersion={ledgerVersion}
+      onLedgerMutated={bumpLedgerVersion}
+      onAttachReceiptInvoice={handleAttachReceiptInvoiceShortcut}
+      registerOpenAddJobCost={registerOpenAddCostShortcut}
+    />
+  )
+
+  const legacyNotes = (
+            <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
+              <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-4">Internal Notes</h2>
+              
+              {/* Add new note */}
+              <div className="mb-4 relative">
+                <AINoteSummary notes={jobNotes} />
+                <textarea
+                  value={newNoteText}
+                  onChange={handleNoteChange}
+                  rows={3}
+                  className="w-full px-3 sm:px-4 py-2 border border-gray-300 rounded-lg mb-2 text-gray-900 text-base"
+                  placeholder="Add a note… Tip: type @ to mention a teammate."
+                />
+                
+                {/* @mention dropdown */}
+                {showMentionDropdown && filteredUsers.length > 0 && (
+                  <div className="absolute z-10 bg-white border border-gray-200 rounded-lg shadow-lg mt-1 w-full sm:w-64 max-h-48 overflow-y-auto">
+                    {filteredUsers.map(user => (
+                      <button
+                        key={user.id}
+                        onClick={() => insertMention(user)}
+                        className="w-full text-left px-3 py-3 sm:py-2 hover:bg-gray-100 text-gray-900 text-sm min-h-[44px]"
+                      >
+                        {user.full_name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                
+                <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
+                  <button
+                    onClick={addNote}
+                    disabled={saving || !newNoteText.trim()}
+                    className="min-h-[44px] px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {saving ? 'Adding...' : 'Add Note'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Notes list */}
+              <div className="border-t pt-4">
+                {loadingNotes ? (
+                  <p className="text-gray-500 text-sm">Loading notes...</p>
+                ) : jobNotes.length === 0 ? (
+                  <p className="text-gray-500 text-sm">No notes yet</p>
+                ) : (
+                  <div className="space-y-4">
+                    {jobNotes.map((note) => (
+                      <div key={note.id} className="border-b pb-3 last:border-b-0 last:pb-0">
+                        <p className="text-sm sm:text-base text-gray-900 whitespace-pre-wrap break-words">{renderNoteWithMentions(note.note)}</p>
+                        <p className="text-xs text-gray-500 mt-1">
+                          {note.user?.full_name || 'Unknown'} • {new Date(note.created_at).toLocaleString('en-US', {
+                            month: 'short',
+                            day: 'numeric',
+                            year: 'numeric',
+                            hour: 'numeric',
+                            minute: '2-digit',
+                            hour12: true,
+                          })}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+  )
 
   return (
     <div className="min-h-screen bg-gray-50 max-sm:[&_button]:min-h-[44px] max-sm:[&_select]:min-h-[44px] max-sm:[&_select]:text-base max-sm:[&_input:not([type=checkbox]):not([type=radio]):not([type=file])]:min-h-[44px] max-sm:[&_input]:text-base max-sm:[&_textarea]:text-base">
@@ -1696,8 +1881,9 @@ export default function JobDetailClient({
             </div>
             <div>
               <span className="text-gray-500 text-xs block">Materials</span>
-              <span className={`font-medium ${materials.color}`}>
-                {materials.label}
+              <span className={`font-medium ${v2 ? materialsState.color : materials.color}`}>
+                {v2 ? materialsState.label : materials.label}
+                {v2 && materialsState.detail ? ` (${materialsState.detail})` : ''}
               </span>
             </div>
           </div>
@@ -1776,6 +1962,10 @@ export default function JobDetailClient({
           </div>
         )}
 
+        {v2 ? (
+          <JobCustomerRow jobId={job.id} customer={job.customer ?? null} />
+        ) : (
+          <>
         {/* CUSTOMER CONTACT — promoted next to the identity block. Ops calls customers
             constantly; this used to be buried in a sidebar card below Schedule/Assignment/Insurance. */}
         <div className="mb-4 sm:mb-6 bg-white rounded-xl shadow-sm border p-4 sm:px-6 sm:py-4">
@@ -1822,9 +2012,13 @@ export default function JobDetailClient({
           )}
         </div>
 
+          </>
+        )}
+
         {/* Job documents — merged crew run sheet + supplier order sheet banner. Replaces the
             former JobRunSheetBanner + MaterialsOrderBanner pair (deliberate visual twins that
             invited a misclick). Same links, same gating. */}
+        {!v2 && (
         <JobDocumentsBanner
           jobId={job.id}
           jobNumber={job.job_number}
@@ -1836,6 +2030,7 @@ export default function JobDetailClient({
           onUndoMaterialsOrdered={job.status === 'cancelled' ? undefined : () => void setMaterialsOrdered(false)}
           markingMaterials={saving}
         />
+        )}
 
         {job.payroll_settled_externally_at ? (
           <SettledExternallyCard jobId={job.id} settledAt={job.payroll_settled_externally_at} reason={job.settled_externally_reason ?? null} canUnsettle={isSuperAdmin} />
@@ -1863,6 +2058,8 @@ export default function JobDetailClient({
         {/* Job costs live on the Materials card (+ Job Cost). Surface a shortcut at the top so
             it is not buried. Desktop always shows it. Mobile hides it only on the Financials
             tab, which renders its own copy so the two don't stack. */}
+        {!v2 && (
+          <>
         <div className="hidden lg:block">
           <JobCostsCallout layout="stacked" onAddCost={handleAddCostShortcut} />
         </div>
@@ -1889,8 +2086,15 @@ export default function JobDetailClient({
           </div>
         )}
 
+          </>
+        )}
+
+        {v2 && (
+          <JobTabsBar tabs={v2Tabs} active={jobTab} attention={v2Attention} hideOnDesktop={['notes']} onSelect={selectJobTab} />
+        )}
+
         {/* Mobile tab bar — hidden on desktop */}
-        <div className="lg:hidden bg-white border rounded-xl shadow-sm mb-4 overflow-hidden">
+        <div className={`${v2 ? 'hidden' : 'lg:hidden'} bg-white border rounded-xl shadow-sm mb-4 overflow-hidden`}>
           <div className="flex overflow-x-auto">
             {([
               { key: 'overview', label: 'Overview' },
@@ -1915,10 +2119,36 @@ export default function JobDetailClient({
           </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
-          <div className="lg:col-span-2 space-y-4 sm:space-y-6">
+        <div className={v2 ? 'lg:flex lg:items-start lg:gap-6' : 'grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6'}>
+          <div className={v2 ? 'flex min-w-0 flex-1 flex-col gap-4' : 'contents'}>
+          {v2 && jobTab === 'notes' && (
+            <p className="hidden rounded-xl border bg-white p-3 text-sm text-[#2c2c2a] lg:block">Notes are in the panel on the right.</p>
+          )}
+          {v2 && (
+            <>
+              <div className={jobTab === 'crews' ? undefined : 'hidden'} style={ord(1)}>
+                <JobRunSheetRow jobId={job.id} canEdit={canEditJobs} />
+              </div>
+              {canShowCompletionCertificateBoardLink(job.status) && (
+            <div style={ord(4)} className={`${jobTab === 'crews' ? '' : 'hidden'} flex flex-wrap items-center gap-3 rounded-xl border bg-white p-3 shadow-sm`}>
+              <div className="min-w-0 flex-1 basis-48">
+                <p className="text-sm font-semibold text-[#2c2c2a]">Finish up</p>
+                <p className="text-xs text-[#2c2c2a]">Certificate of completion: make the PDF, email it to the customer.</p>
+              </div>
+              <button
+                type="button"
+                onClick={focusCompletionCertificateTools}
+                className="inline-flex min-h-[44px] items-center rounded-lg border border-gray-300 bg-white px-4 text-sm font-semibold text-[#2c2c2a] hover:bg-gray-50"
+              >
+                Certificate tools
+              </button>
+            </div>
+          )}
+            </>
+          )}
+          <div className={v2 ? 'contents' : 'lg:col-span-2 space-y-4 sm:space-y-6'}>
             {/* SCOPE TAB */}
-            <div className={mobileTab !== 'scope' ? 'hidden lg:block' : undefined}>
+            <div className={blockCls('scope', 'materials')} style={ord(3)}>
               <OperationsSnapshotCard
                 project={job.project}
                 headerAction={
@@ -1964,7 +2194,19 @@ export default function JobDetailClient({
             </div>
 
             {/* MATERIALS TAB */}
-            <div id="materials-section" className={mobileTab !== 'materials' ? 'hidden lg:block' : undefined}>
+            <div id="materials-section" className={blockCls('materials', 'materials')} style={ord(1)}>
+              {v2 && (
+                <div className="mb-3 rounded-xl border bg-white p-3 shadow-sm" data-testid="materials-status">
+                  <p className="text-sm font-medium uppercase tracking-wide text-[#2c2c2a]">Materials</p>
+                  <p className={`text-xl font-bold ${materialsState.color}`}>
+                    {materialsState.label}
+                    {materialsState.detail ? ` (${materialsState.detail})` : ''}
+                  </p>
+                  {materialsState.source === 'recorded' && (
+                    <p className="mt-1 text-sm text-[#2c2c2a]">Recorded on the job. No supplier orders are on file for it.</p>
+                  )}
+                </div>
+              )}
               {job.sold_scope && job.job_type === 'roofing' ? (
                 <MaterialsOrderCard
                   scope={job.sold_scope}
@@ -1972,112 +2214,37 @@ export default function JobDetailClient({
                   coverageOverrides={materialsCoverageOverrides ?? null}
                 />
               ) : null}
-              <SupplierOrdersCard jobId={job.id} />
-              <JobMaterialsCard
-                jobId={job.id}
-                userRole={userRole}
-                title="Materials"
-                materialsOrderedAt={job.materials_ordered_at}
-                materialsEta={job.materials_eta}
-                materialsNotes={job.materials_notes}
-                onLedgerChange={setCostSummary}
-                ledgerVersion={ledgerVersion}
-                onLedgerMutated={bumpLedgerVersion}
-                onAttachReceiptInvoice={handleAttachReceiptInvoiceShortcut}
-                registerOpenAddJobCost={registerOpenAddCostShortcut}
-              />
+              <SupplierOrdersCard jobId={job.id} onState={setMaterialsState} onChanged={() => void reloadJob()} />
+              {!v2 && jobMaterialsCard}
             </div>
 
             {/* PHOTOS & FILES TAB */}
-            <div id="job-files-workspace-section" className={mobileTab !== 'photos' ? 'hidden lg:block' : undefined}>
+            <div id={v2 ? 'job-files-section' : 'job-files-workspace-section'} className={blockCls('photos', 'files')} style={ord(1)}>
               <JobFileWorkspaceCard
                 jobId={job.id}
                 userRole={userRole}
                 canSeeJobFinancialAmounts={canViewProfitability}
                 jobStatus={job.status}
                 customerEmail={job.customer?.email || null}
-                registerOpenCostAttachmentShortcut={registerOpenCostAttachmentShortcut}
+                registerOpenCostAttachmentShortcut={v2 ? undefined : registerOpenCostAttachmentShortcut}
                 dealerFeeAmount={job.dealer_fee_amount ?? null}
                 ledgerVersion={ledgerVersion}
                 onLedgerMutated={bumpLedgerVersion}
+                sections={v2 ? ['photos', 'documents'] : undefined}
+                compact={v2}
               />
             </div>
 
-            {/* NOTES TAB — replaced by the Customer File thread when embedded */}
-            {!embedded && (
-            <div className={`bg-white rounded-xl shadow-sm border p-4 sm:p-6 ${mobileTab !== 'notes' ? 'hidden lg:block' : ''}`}>
-              <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-4">Internal Notes</h2>
-              
-              {/* Add new note */}
-              <div className="mb-4 relative">
-                <AINoteSummary notes={jobNotes} />
-                <textarea
-                  value={newNoteText}
-                  onChange={handleNoteChange}
-                  rows={3}
-                  className="w-full px-3 sm:px-4 py-2 border border-gray-300 rounded-lg mb-2 text-gray-900 text-base"
-                  placeholder="Add a note… Tip: type @ to mention a teammate."
-                />
-                
-                {/* @mention dropdown */}
-                {showMentionDropdown && filteredUsers.length > 0 && (
-                  <div className="absolute z-10 bg-white border border-gray-200 rounded-lg shadow-lg mt-1 w-full sm:w-64 max-h-48 overflow-y-auto">
-                    {filteredUsers.map(user => (
-                      <button
-                        key={user.id}
-                        onClick={() => insertMention(user)}
-                        className="w-full text-left px-3 py-3 sm:py-2 hover:bg-gray-100 text-gray-900 text-sm min-h-[44px]"
-                      >
-                        {user.full_name}
-                      </button>
-                    ))}
-                  </div>
-                )}
-                
-                <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
-                  <button
-                    onClick={addNote}
-                    disabled={saving || !newNoteText.trim()}
-                    className="min-h-[44px] px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {saving ? 'Adding...' : 'Add Note'}
-                  </button>
-                </div>
+            {!embedded && !v2 && (
+              <div className={mobileTab !== 'notes' ? 'hidden lg:block' : undefined}>
+                {legacyNotes}
               </div>
-
-              {/* Notes list */}
-              <div className="border-t pt-4">
-                {loadingNotes ? (
-                  <p className="text-gray-500 text-sm">Loading notes...</p>
-                ) : jobNotes.length === 0 ? (
-                  <p className="text-gray-500 text-sm">No notes yet</p>
-                ) : (
-                  <div className="space-y-4">
-                    {jobNotes.map((note) => (
-                      <div key={note.id} className="border-b pb-3 last:border-b-0 last:pb-0">
-                        <p className="text-sm sm:text-base text-gray-900 whitespace-pre-wrap break-words">{renderNoteWithMentions(note.note)}</p>
-                        <p className="text-xs text-gray-500 mt-1">
-                          {note.user?.full_name || 'Unknown'} • {new Date(note.created_at).toLocaleString('en-US', {
-                            month: 'short',
-                            day: 'numeric',
-                            year: 'numeric',
-                            hour: 'numeric',
-                            minute: '2-digit',
-                            hour12: true,
-                          })}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
             )}
           </div>
 
-          <div className="space-y-4 sm:space-y-6">
+          <div className={v2 ? 'contents' : 'space-y-4 sm:space-y-6'}>
             {/* OVERVIEW TAB — Schedule & Crews: one row per trade (roofing, gutters, siding…) */}
-            <div className={mobileTab !== 'overview' ? 'hidden lg:block' : undefined}>
+            <div className={blockCls('overview', 'crews')} style={ord(2)}>
               <JobTradesCard
                 jobId={job.id}
                 jobLabel={`${job.job_number} • ${job.customer?.name || job.address_text}`}
@@ -2086,22 +2253,39 @@ export default function JobDetailClient({
             </div>{/* end overview tab wrapper */}
 
             {/* Final photos — desktop: above Financials (admin/owner); mobile: Photos tab */}
-            <div className={mobileTab !== 'photos' ? 'hidden lg:block' : undefined}>
+            <div className={blockCls('photos', 'crews')} style={ord(3)}>
               <FinalPhotosCard jobId={job.id} trades={jobTrades} />
             </div>
 
             {/* FINANCIALS TAB — Financials, Payments, Invoices, Work Orders */}
-            <div className={mobileTab !== 'financials' ? 'hidden lg:block' : undefined}>
+            <div className={v2 ? 'contents' : mobileTab !== 'financials' ? 'hidden lg:block' : undefined}>
             {/* Gated on canViewFinancialTab (not the narrower canViewProfitability) to match every other
                 block in this tab — everything here self-gates on the same permission that controls whether
                 the mobile Financials tab button appears at all. */}
-            {canViewFinancialTab && (
+            {canViewFinancialTab && !v2 && (
               <div className="lg:hidden">
                 <JobCostsCallout layout="inline" onAddCost={handleAddCostShortcut} />
               </div>
             )}
+            {v2 && canViewFinancialTab && (
+              <div className={`${jobTab === 'money' ? '' : 'hidden'} flex flex-wrap items-center gap-3 rounded-xl border bg-white p-3 shadow-sm`} style={ord(1)} data-testid="money-head">
+                <div className="min-w-0 flex-1 basis-40">
+                  <p className="text-xs font-medium uppercase tracking-wide text-[#2c2c2a]">Balance owed</p>
+                  <p className="text-2xl font-bold tabular-nums text-[#2c2c2a]">
+                    {canViewJobBilling && paymentSummary ? formatCents(unpaidContractCents) : '—'}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleAddCostShortcut}
+                  className="inline-flex min-h-[44px] items-center rounded-lg border border-gray-300 bg-white px-4 text-sm font-semibold text-[#2c2c2a] hover:bg-gray-50"
+                >
+                  + Job cost
+                </button>
+              </div>
+            )}
             {canViewProfitability && canViewReportFinancials && (
-              <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
+              <div className={`bg-white rounded-xl shadow-sm border p-4 sm:p-6 ${v2 ? (jobTab === 'money' ? '' : 'hidden') : ''}`} style={ord(5)}>
                 <div className="mb-4 flex items-start justify-between gap-3">
                   <div>
                     <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-1">Financials</h2>
@@ -2301,7 +2485,7 @@ export default function JobDetailClient({
             )}
 
             {job.payroll_attribution && (canViewJobBilling || canEditPayrollAttribution) && (
-              <div id="payroll-attribution-section" className="scroll-mt-20">
+              <div id="payroll-attribution-section" className={`scroll-mt-20 ${v2 && jobTab !== 'money' ? 'hidden' : ''}`} style={ord(6)}>
                 <PayrollAttributionEditor
                   opportunityId={job.payroll_attribution.opportunity_id}
                   initial={job.payroll_attribution}
@@ -2313,7 +2497,7 @@ export default function JobDetailClient({
               </div>
             )}
 
-            <div id="payments-section" className="scroll-mt-20">
+            <div id="payments-section" className={`scroll-mt-20 ${v2 && jobTab !== 'money' ? 'hidden' : ''}`} style={ord(3)}>
               {canViewJobBilling ? (
                 <JobPaymentsCard
                   jobId={job.id}
@@ -2333,7 +2517,7 @@ export default function JobDetailClient({
             </div>
 
             {canViewJobBilling && (
-              <div id="invoices-section">
+              <div id="invoices-section" className={v2 && jobTab !== 'money' ? 'hidden' : undefined} style={ord(4)}>
                 <JobInvoicesCard
                   jobId={job.id}
                   saleAmount={job.sale_amount}
@@ -2344,9 +2528,35 @@ export default function JobDetailClient({
               </div>
             )}
 
-            <JobWorkOrdersCard jobId={job.id} projectId={job.project_id} />
+            <div className={v2 && jobTab !== 'crews' ? 'hidden' : undefined} style={ord(6)}>
+              <JobWorkOrdersCard jobId={job.id} projectId={job.project_id} />
+            </div>
+
+            {v2 && (
+              <>
+                <div className={jobTab === 'money' ? undefined : 'hidden'} style={ord(7)}>
+                  {jobMaterialsCard}
+                </div>
+                <div id="job-files-workspace-section" className={jobTab === 'money' ? undefined : 'hidden'} style={ord(8)}>
+                  <JobFileWorkspaceCard
+                    jobId={job.id}
+                    userRole={userRole}
+                    canSeeJobFinancialAmounts={canViewProfitability}
+                    jobStatus={job.status}
+                    customerEmail={job.customer?.email || null}
+                    registerOpenCostAttachmentShortcut={registerOpenCostAttachmentShortcut}
+                    dealerFeeAmount={job.dealer_fee_amount ?? null}
+                    ledgerVersion={ledgerVersion}
+                    onLedgerMutated={bumpLedgerVersion}
+                    sections={['costs']}
+                    compact
+                  />
+                </div>
+              </>
+            )}
 
             {changeOrdersSection && (
+              <div className={v2 && jobTab !== 'money' ? 'hidden' : undefined} style={ord(9)}>
               <ChangeOrdersSection
                 variant="ops"
                 projectId={changeOrdersSection.projectId}
@@ -2362,12 +2572,14 @@ export default function JobDetailClient({
                 repName={changeOrdersSection.repName}
                 changeOrders={changeOrdersSection.changeOrders}
               />
+              </div>
             )}
             </div>{/* end costs tab wrapper */}
 
             {/* OVERVIEW TAB — Insurance, Permit, Related (all conditional / miscellaneous) */}
-            <div className={mobileTab !== 'overview' ? 'hidden lg:block' : undefined}>
+            <div className={v2 ? 'contents' : mobileTab !== 'overview' ? 'hidden lg:block' : undefined}>
 
+            <div className={v2 && jobTab !== 'money' ? 'hidden' : undefined} style={ord(10)}>
             <InsuranceCard job={job} onUpdate={(fields) => {
               setJob(j => ({ ...j, ...fields }))
               fetch(`/api/ops/jobs/${job.id}`, {
@@ -2376,10 +2588,11 @@ export default function JobDetailClient({
                 body: JSON.stringify(fields),
               })
             }} />
+            </div>
 
             {/* Permit — recorded with one tap at each real step (needs one → applied → approved).
                 Before this the status had no way to be set, so every job said "Not needed". */}
-            <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
+            <div className={`bg-white rounded-xl shadow-sm border p-4 sm:p-6 ${v2 && jobTab !== 'crews' ? 'hidden' : ''}`} style={ord(5)}>
               <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-2">Permit</h2>
               <p className="text-sm text-[#2c2c2a] mb-3">
                 {!job.permit_required
@@ -2430,7 +2643,7 @@ export default function JobDetailClient({
               )}
             </div>
 
-            <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
+            <div className={`bg-white rounded-xl shadow-sm border p-4 sm:p-6 ${v2 && jobTab !== 'files' ? 'hidden' : ''}`} style={ord(2)}>
               <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-4">Related</h2>
               <div className="space-y-1">
                 {/* Sale agreement - from order_form_contracts */}
@@ -2475,8 +2688,39 @@ export default function JobDetailClient({
             </div>{/* end overview tab wrapper (permit + related) */}
 
           </div>
+          </div>
+          {v2 && (
+            <aside className={`${jobTab === 'notes' ? '' : 'hidden'} lg:sticky lg:top-4 lg:block lg:w-[340px] lg:shrink-0 ${embedded ? 'lg:hidden' : ''}`} data-testid="job-side-panel">
+              {embedded ? notesSlot : (
+                <div className="space-y-3">
+                  <JobQuickLinks job={job} />
+                  {legacyNotes}
+                </div>
+              )}
+            </aside>
+          )}
         </div>
       </div>
+
+      {isSuperAdmin && (
+        <div className="px-4 pb-6 text-center">
+          <button
+            type="button"
+            onClick={async () => {
+              const res = await fetch('/api/admin/job-page-v2', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ enabled: !v2 }),
+              })
+              if (res.ok) window.location.reload()
+              else toast.error('Could not switch the job page')
+            }}
+            className="min-h-[44px] text-sm font-medium text-[#2c2c2a] underline underline-offset-2"
+          >
+            {v2 ? 'Use the old job page' : 'Try the new job page'}
+          </button>
+        </div>
+      )}
 
       {showCompleteModal && (
         <CompleteJobModal

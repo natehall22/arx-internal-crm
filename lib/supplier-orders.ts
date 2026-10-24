@@ -62,6 +62,7 @@ import { DEFAULT_TIMEZONE } from '@/lib/timezone'
 import { FILES_BUCKET } from '@/lib/files/storage'
 import { resolveOpsAccess } from '@/lib/ops-access'
 import { isSuperAdmin, type SuperAdminProfile } from '@/lib/super-admin'
+import { deriveMaterialsState } from '@/lib/job-materials-state'
 
 /**
  * Who may do what. Viewing/previewing = the job board. Sending, cancelling and changing where a
@@ -303,6 +304,7 @@ export async function loadSupplierOrderContext(
     lastDeliveryAddress: str(o.last_delivery_address),
     lastSentAt: str(o.last_sent_at),
     lastSentTo: str(o.last_sent_to),
+    receivedAt: str(o.received_at),
   }))
 
   let lastSentSourcing: SourcingSnapshot | null = null
@@ -382,6 +384,8 @@ export type SupplierCard = {
   blockers: string[]
   lastSentAt: string | null
   lastSentTo: string | null
+  /** When the materials arrived; null = not marked received. */
+  receivedAt: string | null
   canCancel: boolean
 }
 
@@ -440,6 +444,7 @@ export function buildSupplierOrdersView(ctx: SupplierOrderContext, now: Date = n
       blockers: Array.from(new Set([...g.blockers, ...(channel ? [channel] : [])])),
       lastSentAt: order?.lastSentAt ?? null,
       lastSentTo: order?.lastSentTo ?? null,
+      receivedAt: order?.receivedAt ?? null,
       canCancel: order?.status === 'sent',
     }
   })
@@ -457,6 +462,7 @@ export function buildSupplierOrdersView(ctx: SupplierOrderContext, now: Date = n
       blockers: [],
       lastSentAt: o.lastSentAt,
       lastSentTo: o.lastSentTo,
+      receivedAt: o.receivedAt,
       canCancel: o.status === 'sent',
     })
   }
@@ -1159,5 +1165,37 @@ function orderFromRow(o: Record<string, unknown>): SupplierOrderRecord {
     lastDeliveryAddress: str(o.last_delivery_address),
     lastSentAt: str(o.last_sent_at),
     lastSentTo: str(o.last_sent_to),
+    receivedAt: str(o.received_at),
   }
+}
+
+
+/** The job's one materials answer, from its supplier orders (stored status only as the fallback). */
+export function materialsStateForContext(ctx: SupplierOrderContext, stored: string | null) {
+  const rollup = materialsOrderRollup({ sourcing: sourcingFor(ctx), orders: ctx.orders, trades: ctx.trades })
+  return deriveMaterialsState({
+    stored,
+    suppliers: { rollup, sentOrders: ctx.orders.filter((o) => o.status === 'sent').map((o) => ({ receivedAt: o.receivedAt })) },
+  })
+}
+
+/**
+ * Keeps production_jobs.materials_status (what the board, reports and Needs-you read) in step with the supplier orders.
+ * Runs after a send or a "received" change. Never moves the job's own status; only the materials mirror (+ the ordered date once).
+ */
+export async function syncMaterialsMirror(admin: SupabaseClient, orgId: string, jobId: string): Promise<{ changed: boolean; state: ReturnType<typeof deriveMaterialsState> | null }> {
+  const loaded = await loadSupplierOrderContext(admin, orgId, jobId)
+  if (!loaded.ok) return { changed: false, state: null }
+  const { data: job } = await admin.from('production_jobs').select('materials_status, materials_ordered_at').eq('id', jobId).eq('org_id', orgId).maybeSingle()
+  if (!job) return { changed: false, state: null }
+  const state = materialsStateForContext(loaded.ctx, (job as { materials_status: string | null }).materials_status)
+  if (state.source !== 'suppliers' || state.mirror === (job as { materials_status: string | null }).materials_status) return { changed: false, state }
+  const patch: Record<string, unknown> = { materials_status: state.mirror }
+  if (state.mirror !== 'not_ordered' && !(job as { materials_ordered_at: string | null }).materials_ordered_at) patch.materials_ordered_at = new Date().toISOString()
+  const { error } = await admin.from('production_jobs').update(patch).eq('id', jobId).eq('org_id', orgId)
+  if (error) {
+    console.error('[supplier-orders] materials mirror failed', error.message)
+    return { changed: false, state }
+  }
+  return { changed: true, state }
 }
