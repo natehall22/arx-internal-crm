@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { canRecordMoney } from '@/lib/financials-access'
 
 type MaybeString = string | null | undefined
 
@@ -14,57 +15,24 @@ function isFinanceAdminLabel(value: MaybeString): boolean {
   return normalized === 'finance_admin'
 }
 
-export function canAccessJobBilling(args: {
-  role?: MaybeString
-  customRoleName?: MaybeString
-  customRoleDisplayName?: MaybeString
-}): boolean {
-  const role = normalizeLabel(args.role)
-  if (
-    role === 'owner' ||
-    role === 'finance_admin' ||
-    role === 'admin' ||
-    role === 'operations' ||
-    /** Same jobs/ops surface as Nav ops links — can record deposits and view job payments */
-    role === 'regional_manager' ||
-    role === 'manager'
-  ) {
-    return true
-  }
-
-  return (
-    isFinanceAdminLabel(args.customRoleName) ||
-    isFinanceAdminLabel(args.customRoleDisplayName)
-  )
+/** The finance_admin custom-role label (a custom role named so records money without holding money:record). */
+function hasFinanceAdminLabel(args: { customRoleName?: MaybeString; customRoleDisplayName?: MaybeString }): boolean {
+  return isFinanceAdminLabel(args.customRoleName) || isFinanceAdminLabel(args.customRoleDisplayName)
 }
 
 /**
  * Job-billing gate for a caller resolved by `requireAuthApi()`.
  *
- * `canAccessJobBilling` also honours a *custom* role named `finance_admin`, which lives
- * on `custom_roles`, not on `users`. Six API routes each hand-rolled the same
- * `custom_role:custom_roles(name, display_name)` join plus the array/object unwrap that
- * PostgREST embedding requires; this is the single home for it.
+ * Job billing = the `money:record` permission (ops and admins by default; grantable, and an owner can switch it off for one
+ * person), plus the legacy `finance_admin` custom-role label. The single home for the check; every route and page asks here.
  *
- * Only queries `custom_roles` when the caller actually has one — a built-in role that
- * already passes short-circuits without the extra round trip.
  */
 export async function callerCanAccessJobBilling(
   admin: SupabaseClient,
-  profile: { role?: MaybeString; custom_role_id?: string | null }
+  profile: { id: string; role?: MaybeString; custom_role_id?: string | null }
 ): Promise<boolean> {
-  if (canAccessJobBilling({ role: profile.role })) return true
+  if (await canRecordMoney(admin, { id: profile.id, role: String(profile.role ?? ''), custom_role_id: profile.custom_role_id })) return true
   if (!profile.custom_role_id) return false
-
-  const { data: customRole } = await admin
-    .from('custom_roles')
-    .select('name, display_name')
-    .eq('id', profile.custom_role_id)
-    .maybeSingle()
-
-  return canAccessJobBilling({
-    role: profile.role,
-    customRoleName: customRole?.name,
-    customRoleDisplayName: customRole?.display_name,
-  })
+  const { data: customRole } = await admin.from('custom_roles').select('name, display_name').eq('id', profile.custom_role_id).maybeSingle()
+  return hasFinanceAdminLabel({ customRoleName: customRole?.name, customRoleDisplayName: customRole?.display_name })
 }

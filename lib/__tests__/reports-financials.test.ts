@@ -50,7 +50,6 @@ describe('reports:financials', () => {
 
   it('the forecast, AI assistant and job Financials card ask for it', () => {
     expect(read('app/api/reports/forecast/route.ts')).toContain('hasFinancials')
-    expect(read('app/api/ai/chat/route.ts')).toContain('hasFinancials')
     expect(read('app/ops/jobs/[id]/JobView.tsx')).toContain('hasFinancials')
     expect(read('app/ops/jobs/[id]/JobDetailClient.tsx')).toMatch(/canViewProfitability && canViewReportFinancials/)
   })

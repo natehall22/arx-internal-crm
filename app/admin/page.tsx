@@ -9,6 +9,7 @@ import { canManageCanvassTerritories } from '@/lib/canvass-territory-manager-rol
 import { canOpenSettingsHub, visibleSettingsGroups } from '@/lib/settings-registry'
 
 import SettingsHub from './SettingsHub'
+import { isOwnerProfile } from '@/lib/super-admin'
 
 /** Settings: every admin page in one grouped, searchable list (lib/settings-registry.ts). */
 export default async function SettingsPage() {
@@ -20,6 +21,7 @@ export default async function SettingsPage() {
     canPayroll: ['admin', 'owner', 'operations'].includes(profile.role),
     canSuperuser: ['admin', 'owner'].includes(profile.role),
     canWorkAreas: canManageCanvassTerritories(profile.role),
+    canOwner: isOwnerProfile(profile),
   })
 
   return (

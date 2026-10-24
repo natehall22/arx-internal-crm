@@ -2,7 +2,7 @@
  * The one list of everything an admin can configure, grouped, for the Settings page (app/admin/page.tsx).
  * Access mirrors what each card's own gate has always been (the hub only hides what the page itself would refuse).
  */
-export type SettingsAccess = 'leadership' | 'cost' | 'payroll' | 'superuser' | 'workAreas'
+export type SettingsAccess = 'leadership' | 'cost' | 'payroll' | 'superuser' | 'workAreas' | 'owner'
 
 export type SettingsItem = { title: string; description: string; href: string; access: SettingsAccess; keywords?: string }
 export type SettingsGroup = { id: string; title: string; items: SettingsItem[] }
@@ -14,6 +14,7 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
     items: [
       { title: 'Users', description: 'Accounts, roles and who reports to whom', href: '/admin/users', access: 'leadership' },
       { title: 'Roles & permissions', description: 'Create roles and choose what each can do', href: '/admin/roles', access: 'leadership' },
+      { title: 'Money access', description: 'Who can see company financials and who can record job money (owners only)', href: '/admin/money-access', access: 'owner', keywords: 'financials permission payments profit' },
       { title: 'Presets', description: 'Reusable permission sets for setting up a new user', href: '/admin/presets', access: 'leadership', keywords: 'templates' },
       { title: 'Teams', description: 'Sales teams within regions', href: '/admin/teams', access: 'leadership' },
       { title: 'Regions', description: 'Geographic regions for the company', href: '/admin/regions', access: 'leadership' },
@@ -83,9 +84,9 @@ export function canOpenSettingsHub(role: string): boolean {
   return LEADERSHIP.includes(role)
 }
 
-export function visibleSettingsGroups(flags: { canCost: boolean; canPayroll: boolean; canSuperuser: boolean; canWorkAreas: boolean }): SettingsGroup[] {
+export function visibleSettingsGroups(flags: { canCost: boolean; canPayroll: boolean; canSuperuser: boolean; canWorkAreas: boolean; canOwner?: boolean }): SettingsGroup[] {
   const ok = (a: SettingsAccess) =>
-    a === 'leadership' || (a === 'cost' && flags.canCost) || (a === 'payroll' && flags.canPayroll) || (a === 'superuser' && flags.canSuperuser) || (a === 'workAreas' && flags.canWorkAreas)
+    a === 'leadership' || (a === 'cost' && flags.canCost) || (a === 'payroll' && flags.canPayroll) || (a === 'superuser' && flags.canSuperuser) || (a === 'workAreas' && flags.canWorkAreas) || (a === 'owner' && !!flags.canOwner)
   return SETTINGS_GROUPS.map((g) => ({ ...g, items: g.items.filter((i) => ok(i.access)) })).filter((g) => g.items.length > 0)
 }
 

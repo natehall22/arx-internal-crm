@@ -17,7 +17,7 @@ const base = (dataset: DatasetKey, over: Partial<ReportSpec>): ReportSpec => ({
 })
 
 /** True when the spec reads a finance-only dataset or any sensitive (money / cost / margin / pay) column. */
-export function specTouchesFinancials(spec: ReportSpec): boolean {
+export function specTouchesFinancials(spec: ReportSpec, scope?: 'own' | 'team' | 'region' | 'all'): boolean {
   const ds = DATASETS[spec.dataset]
   if (ds.financeOnly) return true
   const used = [
@@ -26,7 +26,8 @@ export function specTouchesFinancials(spec: ReportSpec): boolean {
     spec.sortBy ?? null,
     ...spec.filters.map((f) => f.column),
   ].filter(Boolean) as string[]
-  return used.some((k) => columnOf(ds, k)?.sensitive)
+  // With scope 'own', a sale price on the viewer's own deals does not count (see DatasetColumn.own).
+  return used.some((k) => { const col = columnOf(ds, k); return !!col?.sensitive && !(col.own && scope === 'own') })
 }
 
 const RAW_TEMPLATES: ReportTemplate[] = [

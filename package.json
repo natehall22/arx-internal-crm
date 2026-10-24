@@ -31,7 +31,8 @@
     "solar-permits:solar-api": "tsx --env-file=.env.local scripts/solar-permits/solar-api-pilot.ts",
     "solar-permits:candidates": "tsx --env-file=.env.local scripts/solar-permits/solar-candidates.ts",
     "solar-permits:ingest-candidates": "tsx --env-file=.env.local scripts/solar-permits/ingest-candidates.ts",
-    "test:mobile": "playwright test"
+    "test:mobile": "playwright test",
+    "gates": "bash scripts/gates.sh"
   },
   "dependencies": {
     "@radix-ui/react-alert-dialog": "^1.2.1",

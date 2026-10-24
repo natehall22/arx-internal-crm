@@ -56,13 +56,14 @@ describe('role scoping', () => {
     expect(() => checkAccess(ctx({ finance: true }), DATASETS.payments, pay.spec)).not.toThrow()
   })
 
-  it('a rep can count their sales but not total the dollars without reports:financials', () => {
+  it('a rep sees their OWN sale prices; company-wide dollar totals need reports:financials', () => {
     const count = parseSpec({ dataset: 'sales', metric: { kind: 'count' } })
     if (!count.ok) throw new Error('bad spec')
     expect(() => checkAccess(ctx({ scope: 'own', scopedUserIds: ['u1'] }), DATASETS.sales, count.spec)).not.toThrow()
     if (!sales.ok) throw new Error('bad spec')
-    expect(() => checkAccess(ctx({ scope: 'own', scopedUserIds: ['u1'] }), DATASETS.sales, sales.spec)).toThrow(ReportAccessError)
-    expect(() => checkAccess(ctx({ scope: 'own', scopedUserIds: ['u1'], finance: true }), DATASETS.sales, sales.spec)).not.toThrow()
+    expect(() => checkAccess(ctx({ scope: 'own', scopedUserIds: ['u1'] }), DATASETS.sales, sales.spec)).not.toThrow()
+    expect(() => checkAccess(ctx({ scope: 'all' }), DATASETS.sales, sales.spec)).toThrow(ReportAccessError)
+    expect(() => checkAccess(ctx({ scope: 'all', finance: true }), DATASETS.sales, sales.spec)).not.toThrow()
   })
 
   it('every money column is financial, whatever the dataset', () => {

@@ -11,6 +11,8 @@ export type DatasetColumn = {
   type: ColumnType
   /** Money / margin / pay / cost: needs reports:financials. Hidden from everyone else, in rows, filters, grouping and exports. Every 'money' column is sensitive. */
   sensitive?: boolean
+  /** A sale PRICE on the viewer's own deals: visible without reports:financials when the viewer's scope is 'own'. */
+  own?: boolean
 }
 
 export type Dataset = {
@@ -35,7 +37,7 @@ export const DATASET_KEYS = [
 ] as const
 export type DatasetKey = (typeof DATASET_KEYS)[number]
 
-const c = (key: string, label: string, type: ColumnType = 'text', sensitive = false): DatasetColumn => ({ key, label, type, ...(sensitive || type === 'money' ? { sensitive: true } : {}) })
+const c = (key: string, label: string, type: ColumnType = 'text', sensitive = false, own = false): DatasetColumn => ({ key, label, type, ...(sensitive || type === 'money' ? { sensitive: true } : {}), ...(own ? { own: true } : {}) })
 
 export const DATASETS: Record<DatasetKey, Dataset> = {
   jobs: {
@@ -45,7 +47,7 @@ export const DATASETS: Record<DatasetKey, Dataset> = {
       c('job_number', 'Job #'), c('status', 'Status'), c('job_type', 'Job type'), c('address', 'Address'),
       c('job_source', 'Lead source'), c('sale_date', 'Sale date', 'date'), c('completed_at', 'Completed', 'date'),
       c('scheduled_date', 'Install date', 'date'), c('materials_status', 'Materials'), c('permit_status', 'Permit'),
-      c('salesperson', 'Salesperson'), c('sale_amount', 'Sale amount', 'money'), c('collected', 'Collected', 'money'),
+      c('salesperson', 'Salesperson'), c('sale_amount', 'Sale amount', 'money', false, true), c('collected', 'Collected', 'money'),
       c('balance_due', 'Balance due', 'money'), c('aging_bucket', 'How old (unpaid)', 'text', true), c('days_since_sale', 'Days since sale', 'number'),
       c('dealer_fee', 'Lender fee', 'money', true), c('cost_total', 'Total cost', 'money', true),
       c('profit_before_commission', 'Profit before commission', 'money', true),
@@ -55,7 +57,7 @@ export const DATASETS: Record<DatasetKey, Dataset> = {
     idColumn: 'contract_id', key: 'sales', label: 'Sales', description: 'Signed sale agreements, credited to the closer and setter.',
     view: 'rpt_sales', dateColumn: 'signed_at', ownerColumn: 'closer_user_id',
     columns: [
-      c('signed_at', 'Signed', 'date'), c('address', 'Address'), c('amount', 'Sale amount', 'money'), c('agreement_type', 'Type'),
+      c('signed_at', 'Signed', 'date'), c('address', 'Address'), c('amount', 'Sale amount', 'money', false, true), c('agreement_type', 'Type'),
       c('payment_method', 'Payment method'), c('closer', 'Closer'), c('setter', 'Setter'), c('job_source', 'Lead source'),
       c('is_self_generated', 'Self-generated', 'bool'),
     ],
@@ -108,7 +110,7 @@ export const DATASETS: Record<DatasetKey, Dataset> = {
     view: 'rpt_opportunities', dateColumn: 'created_at', ownerColumn: 'closer_user_id',
     columns: [
       c('created_at', 'Created', 'date'), c('status', 'Status'), c('pipeline_stage', 'Stage'), c('inspection_outcome', 'Inspection result'),
-      c('job_source', 'Lead source'), c('closer', 'Closer'), c('setter', 'Setter'), c('estimated_value', 'Estimated value', 'money'), c('is_sold', 'Sold', 'bool'),
+      c('job_source', 'Lead source'), c('closer', 'Closer'), c('setter', 'Setter'), c('estimated_value', 'Estimated value', 'money', false, true), c('is_sold', 'Sold', 'bool'),
     ],
   },
   inspection_sets: {

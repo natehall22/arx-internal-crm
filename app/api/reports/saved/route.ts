@@ -7,7 +7,7 @@ import { NextRequest, NextResponse } from 'next/server'
 
 import { requireAuthApi } from '@/lib/auth'
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
-import { canAccessReportsFromPermissionNames, canExportReportsFromPermissionNames } from '@/lib/permissions'
+import { canAccessReportsFromPermissionNames, canExportReportsFromPermissionNames, getReportScopeFromPermissionNames } from '@/lib/permissions'
 import { parseSpec } from '@/lib/reporting/report-spec'
 import { createServiceClient } from '@/lib/supabase/service'
 import { hasFinancials } from '@/lib/financials-access'
@@ -55,7 +55,8 @@ export async function POST(request: NextRequest) {
   const parsed = parseSpec(b?.spec)
   if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 })
   // You cannot save (or schedule) a report you could not run yourself.
-  if (specTouchesFinancials(parsed.spec) && !hasFinancials(await resolveEffectivePermissionNames(a.admin, a.profile.id, a.profile))) {
+  const savePerms = await resolveEffectivePermissionNames(a.admin, a.profile.id, a.profile)
+  if (specTouchesFinancials(parsed.spec, getReportScopeFromPermissionNames(savePerms)) && !hasFinancials(savePerms)) {
     return NextResponse.json({ error: 'That report uses financial figures, which your role cannot see.' }, { status: 400 })
   }
   const schedule = SCHEDULES.includes(b?.schedule) ? b!.schedule : null

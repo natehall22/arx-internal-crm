@@ -136,7 +136,7 @@ export default function ReportsPage() {
         {meta && activeTab === 'overview' && (
           <>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, marginBottom: 16 }}>
-              {KPIS.filter((k) => have.has(k.spec.dataset) && (meta.finance || !k.money)).map((k) => <Kpi key={k.label} label={k.label} spec={k.spec} preset={preset} />)}
+              {KPIS.filter((k) => have.has(k.spec.dataset) && (meta.finance || !k.money || meta.scope === 'own')).map((k) => <Kpi key={k.label} label={k.label} spec={k.spec} preset={preset} />)}
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 12 }}>
               {tiles.map((t) => <Tile key={t.key} template={t} preset={preset} />)}

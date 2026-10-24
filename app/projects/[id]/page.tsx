@@ -28,7 +28,7 @@ import {
   isOrgSuperuserRoleSlug,
   isRepLikeCustomerRecordRole,
 } from '@/lib/permissions'
-import { canAccessJobBilling } from '@/lib/finance-access'
+import { callerCanAccessJobBilling } from '@/lib/finance-access'
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 import { resolveOpsAccess } from '@/lib/ops-access'
 import PayrollAttributionEditor, {
@@ -306,7 +306,7 @@ export default async function ProjectDetailPage({
   const customerName = project.customers?.name || project.leads?.homeowner_name || 'Customer'
   const customerEmail = project.customers?.email || project.leads?.email || null
 
-  const canViewJobBilling = canAccessJobBilling({ role: profile.role })
+  const canViewJobBilling = await callerCanAccessJobBilling(createServiceClient(), profile)
   // Sale credit is confirmed at contract signing; afterwards only an owner (super admin) may
   // change it, with a reason (enforced again in PATCH /api/opportunities/[id]).
   const canEditPayrollAttribution = isSuperAdmin(profile)

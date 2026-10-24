@@ -24,7 +24,6 @@ import {
   getRequestAccessToken,
 } from '@/lib/supabase/request-client'
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
-import { hasFinancials } from '@/lib/financials-access'
 import { resolveSalesDocAccessBarred } from '@/lib/sales-doc-access'
 import { createServiceClient } from '@/lib/supabase/service'
 
@@ -277,14 +276,14 @@ export async function POST(request: NextRequest) {
     const context = normalizeClientContext(rawContext)
 
     const salesDocAccessBarred = await resolveSalesDocAccessBarred(admin, profile.id, profile)
-    // Dollar figures (opportunity value, commission, pay) reach the assistant only for people with reports:financials.
-    const financialsOk = hasFinancials(effectivePermissions)
+    // Own money stays visible (a rep's own commission; the value of a deal they can open - record access is deal-scoped).
+    // Company financials (profit, other people's pay) never reach the assistant: its context carries none.
 
     const recordAccess = {
       role: profile.role,
       fullAccess: effectivePermissions.fullAccess,
       permissionNames: effectivePermissions.permissionNames,
-      redactOpportunityFinancials: salesDocAccessBarred || !financialsOk,
+      redactOpportunityFinancials: salesDocAccessBarred,
     }
 
     const recordContextAppendix =
@@ -303,7 +302,7 @@ export async function POST(request: NextRequest) {
         role: profile.role,
         fullAccess: effectivePermissions.fullAccess,
         permissionNames: effectivePermissions.permissionNames,
-        redactFinancials: salesDocAccessBarred || !financialsOk,
+        redactFinancials: salesDocAccessBarred,
       })
     }
 

@@ -4,7 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { notFound, redirect } from 'next/navigation'
 import JobDetailClient from './JobDetailClient'
-import { canAccessJobBilling } from '@/lib/finance-access'
+import { callerCanAccessJobBilling } from '@/lib/finance-access'
 import { redactProductionJobFinancialSummaryFields, resolveOpsAccess } from '@/lib/ops-access'
 import { buildJobSoldScope, type JobSoldScope } from '@/lib/job-sold-scope'
 import { isSuperAdmin } from '@/lib/super-admin'
@@ -69,19 +69,7 @@ export default async function JobView({ params, embedded = false }: PageProps) {
   const canEditFinancialSource = canViewJobFinancials
   const supabase = createClient()
 
-  const customRole = profile.custom_role_id
-    ? (await supabase
-        .from('custom_roles')
-        .select('name, display_name')
-        .eq('id', profile.custom_role_id)
-        .single()).data
-    : null
-
-  const canViewJobBilling = canAccessJobBilling({
-    role: profile.role,
-    customRoleName: customRole?.name,
-    customRoleDisplayName: customRole?.display_name,
-  })
+  const canViewJobBilling = await callerCanAccessJobBilling(admin, profile)
 
   const jobQueryWithPaymentMethod = supabase
     .from('production_jobs')

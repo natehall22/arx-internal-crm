@@ -23,7 +23,15 @@ export type EffectivePermissionsResult = {
   /** Explicit full-access result from admin/owner roles or admin:full permission */
   fullAccess: boolean
   permissionNames: Set<string>
+  /**
+   * Permissions an owner has switched OFF for this one person (table permission_denials), even over full access.
+   * Only the permissions in DENIABLE_PERMISSIONS can be denied; hasFinancials / hasMoneyRecord honour it.
+   */
+  denied?: ReadonlySet<string>
 }
+
+/** The only permissions a per-user "off" switch applies to. */
+export const DENIABLE_PERMISSIONS = ['reports:financials', 'money:record'] as const
 
 /**
  * Resolved permission names for RBAC navigation and route guards.
@@ -31,6 +39,19 @@ export type EffectivePermissionsResult = {
  * - `custom_role_id` set: only permissions from that role + `user_permissions` extras (not the generic `custom` matrix).
  */
 export async function resolveEffectivePermissionNames(
+  admin: SupabaseClient,
+  userId: string,
+  profile: { role: string; custom_role_id?: string | null }
+): Promise<EffectivePermissionsResult> {
+  const [base, { data: denials }] = await Promise.all([
+    resolveBasePermissionNames(admin, userId, profile),
+    admin.from('permission_denials').select('permission_name').eq('user_id', userId),
+  ])
+  const denied = new Set<string>((denials ?? []).map((d: { permission_name: string }) => d.permission_name))
+  return denied.size > 0 ? { ...base, denied } : base
+}
+
+async function resolveBasePermissionNames(
   admin: SupabaseClient,
   userId: string,
   profile: { role: string; custom_role_id?: string | null }

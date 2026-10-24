@@ -74,6 +74,12 @@ export class ReportAccessError extends Error {
   }
 }
 
+/** A column needs reports:financials unless it is a sale price on the viewer's OWN deals (scope 'own'). */
+export function needsFinancials(ctx: Pick<ReportContext, 'finance' | 'scope'>, col: DatasetColumn | undefined): boolean {
+  if (!col?.sensitive || ctx.finance) return false
+  return !(col.own && ctx.scope === 'own')
+}
+
 export function checkAccess(ctx: ReportContext, ds: Dataset, spec: ReportSpec): void {
   if (ds.financeOnly && !ctx.finance) throw new ReportAccessError('That report is for owners and finance only.')
   if (!ds.ownerColumn && ctx.scope !== 'all' && !ctx.finance) throw new ReportAccessError('That report covers the whole company, which your role cannot see.')
@@ -83,14 +89,14 @@ export function checkAccess(ctx: ReportContext, ds: Dataset, spec: ReportSpec): 
     spec.sortBy ?? null,
     ...spec.filters.map((f) => f.column),
   ].filter(Boolean) as string[]
-  if (!ctx.finance && used.some((k) => columnOf(ds, k)?.sensitive)) {
+  if (used.some((k) => needsFinancials(ctx, columnOf(ds, k)))) {
     throw new ReportAccessError('That report uses cost, margin or pay figures, which your role cannot see.')
   }
 }
 
 /** Columns the viewer may see in row listings. */
 export function visibleColumns(ctx: ReportContext, ds: Dataset): DatasetColumn[] {
-  return ds.columns.filter((c) => ctx.finance || !c.sensitive)
+  return ds.columns.filter((c) => !needsFinancials(ctx, c))
 }
 
 function startOfWeek(iso: string): string {

@@ -46,7 +46,7 @@ export default async function TodayPage() {
   const mine = summarizePeriodRows(rows, kind === 'owner' || kind === 'ops' ? null : new Set([profile.id]), opts)
 
   const [closerQueues, opsQueues, ownerQueues, report] = await Promise.all([
-    kind === 'closer' ? loadCloserQueues(admin, profile.org_id, profile.id, new Date(), { money: hasFinancials(perms) }) : Promise.resolve([]),
+    kind === 'closer' ? loadCloserQueues(admin, profile.org_id, profile.id, new Date(), { money: true }) : Promise.resolve([]),
     kind === 'ops' ? loadOpsQueues(admin, profile.org_id) : Promise.resolve([]),
     kind === 'owner' ? loadOwnerExceptions(admin, profile.org_id, new Date(), { money: hasFinancials(perms) }) : Promise.resolve([]),
     kind === 'ops' || kind === 'owner' ? loadNeedsYouForViewer(admin, profile.org_id, profile, canAccessJobBoardFromPermissionNames(perms)) : Promise.resolve(null),

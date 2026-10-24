@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation'
 
 import { requireAuth } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
-import { canAccessJobBilling } from '@/lib/finance-access'
+import { callerCanAccessJobBilling } from '@/lib/finance-access'
 import { defaultTab, tabsFor, type FileTab } from '@/lib/customer-file/access'
 import { buildStages, nextAction, type StageStep } from '@/lib/customer-file/stage'
 import { dealRefsFor, getPinned, loadDeal, type ThreadMessage } from '@/lib/threads/get-thread'
@@ -124,7 +124,7 @@ export const loadFile = cache(async (customerId: string, dealId: string): Promis
     tabs: tabsFor(viewer, { hasJob }),
     landing: defaultTab(viewer, { hasJob }, remembered),
     pinned,
-    canViewJobBilling: canAccessJobBilling({ role: profile.role }),
+    canViewJobBilling: await callerCanAccessJobBilling(admin, profile),
     signedContract,
     proposalCount,
   }

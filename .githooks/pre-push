@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Refuses a push unless scripts/gates.sh passed on the exact commit being pushed.
+# (git push --no-verify skips this; don't.)
+STAMP="$(git rev-parse --git-common-dir)/arx-gates-passed"
+ZERO="0000000000000000000000000000000000000000"
+PASSED=""
+[ -f "$STAMP" ] && PASSED="$(cut -d' ' -f1 "$STAMP")"
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [ "$local_sha" = "$ZERO" ] && continue            # deleting a branch
+  if [ "$local_sha" != "$PASSED" ]; then
+    echo "pre-push: refusing to push $local_ref ($local_sha)." >&2
+    echo "pre-push: the gates have not passed on that exact commit. Run:  npm run gates" >&2
+    exit 1
+  fi
+done
+exit 0

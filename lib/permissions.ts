@@ -67,6 +67,7 @@ export type PermissionName =
   | 'reports:view_all'
   | 'reports:export'
   | 'reports:financials'
+  | 'money:record'
   | 'reports:create'
   // Teams
   | 'teams:view'
@@ -291,7 +292,7 @@ const rolePermissions: Record<UserRole, Permission[]> = {
     'proposals:view',
     'contracts:view',
     'projects:view', 'projects:edit',
-    'jobs:view', 'jobs:edit', 'jobs:financials:view',
+    'jobs:view', 'jobs:edit', 'jobs:financials:view', 'money:record',
     'reports:view_all', 'reports:create', 'reports:export',
     'teams:view',
     'users:view',
