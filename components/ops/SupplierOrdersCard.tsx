@@ -151,6 +151,7 @@ export default function SupplierOrdersCard({ jobId, onChanged, onState }: { jobI
 
   return (
     <section className="text-[#2c2c2a]" aria-label="Supplier orders">
+      <h3 className="mb-2 text-base font-semibold">Supplier orders</h3>
       {view.blockers.map((b) => (
         <p key={b} className="mb-2 text-sm text-[#a32d2d]">{b}</p>
       ))}

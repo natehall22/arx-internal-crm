@@ -118,7 +118,7 @@ const SCREENS: Screen[] = [
       run: async (p: Page) => { await p.getByRole('button', { name: tab, exact: true }).click(); await p.waitForTimeout(500) },
     })) },
   { name: 'supplier-orders', path: '/dev-harness/supplier-orders', ready: 'text=Supplier orders',
-    states: [{ name: 'preview-open', run: async (p) => { await p.getByRole('button', { name: /Review & send to ABC Supply/ }).click(); await p.waitForSelector('text=Send to ABC Supply') } }] },
+    states: [{ name: 'preview-open', run: async (p) => { await p.getByRole('button', { name: /Send order to ABC Supply/ }).click(); await p.waitForSelector('text=Send to ABC Supply') } }] },
   { name: 'reports-home', path: '/dev-harness/reports-home', ready: 'text=Performance at a glance' },
   { name: 'reports-explore', path: '/dev-harness/reports-explore', ready: 'text=Sales by closer',
     states: [
