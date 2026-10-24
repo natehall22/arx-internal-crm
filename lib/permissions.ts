@@ -457,6 +457,17 @@ export function isBarredFromSalesDocAccess(
 }
 
 /**
+ * Field roles for the job/ops hard deny: everyone barred from sales docs (setters, canvassers, inside sales) PLUS custom roles
+ * named for the call center. By role slug and role NAME only, never inferred from permissions. Mirrors the SQL in
+ * can_view_job_board / message_visible_to (migration 202610280010); lib/__tests__/job-notes-rls-parity.test.ts keeps them equal.
+ */
+export function isFieldRoleLike(input: SalesDocAccessInput | null | undefined): boolean {
+  if (!input) return false
+  if (isBarredFromSalesDocAccess(input)) return true
+  return /call[ _]center/i.test(`${input.customRoleName ?? ''} ${input.customRoleDisplayName ?? ''}`)
+}
+
+/**
  * @deprecated Prefer {@link isBarredFromSalesDocAccess} with role-like input when custom roles apply.
  */
 export function isBarredFromSalesDocApis(role: string | null | undefined): boolean {

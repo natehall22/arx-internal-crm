@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import { isPayrollAdminRole } from '@/lib/payroll-admin-access'
-import { lockPayrollPeriod, PAYROLL_PERIOD_COLUMNS as PERIOD_COLUMNS } from '@/lib/payroll-period-lock'
+import { PAYROLL_PERIOD_COLUMNS as PERIOD_COLUMNS } from '@/lib/payroll-period-lock'
 
 export const dynamic = 'force-dynamic'
 
@@ -73,9 +73,9 @@ export async function PATCH(
     const now = new Date().toISOString()
 
     if (body.action === 'lock') {
-      const result = await lockPayrollPeriod(supabase, { orgId, periodId, actorUserId: profile.id, status: existing.status })
-      if (!result.ok) return NextResponse.json(result.body, { status: result.status })
-      return NextResponse.json({ period: result.period, materialization: result.materialization, message: result.message })
+      // One lock path: "Pay this week → Approve" (POST /api/admin/payroll/pay-week/approve), which commits the week atomically
+      // and only for the total the admin was shown. The old period API had no total to check against.
+      return NextResponse.json({ error: 'Approve the week from Pay this week.', code: 'use_pay_this_week' }, { status: 410 })
     }
 
     if (body.action === 'mark_paid') {

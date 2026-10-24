@@ -496,12 +496,13 @@ export async function POST(request: NextRequest) {
             phone: contract.customer_phone || leadForName?.phone,
           })
           try {
+            // skipIntegrations: the enrich call below is the ONE QuickBooks enqueue for this signing.
             const { customer_id } = await upsertCustomer(supabase, contract.org_id, {
               name: displayName,
               email: contract.customer_email || leadForName?.email,
               phone: contract.customer_phone || leadForName?.phone,
               address_text: contract.project_address || leadForName?.address_text,
-            })
+            }, { skipIntegrations: true })
             customerId = customer_id
           } catch (e) {
             console.error('[Contract Sign] upsertCustomer (new project)', e)
@@ -760,7 +761,7 @@ export async function POST(request: NextRequest) {
               email: contract.customer_email || leadForName?.email,
               phone: contract.customer_phone || leadForName?.phone,
               address_text: contract.project_address || leadForName?.address_text,
-            })
+            }, { skipIntegrations: true })
             ensuredId = customer_id
             await supabase.from('projects').update({ customer_id: ensuredId }).eq('id', projectId)
             if (contract.opportunity_id) {
@@ -769,9 +770,9 @@ export async function POST(request: NextRequest) {
             if (leadId) {
               await supabase.from('leads').update({ customer_id: ensuredId }).eq('id', leadId)
             }
-          } else {
-            await enrichCustomerFromContract(supabase, contract.org_id, ensuredId, contract)
           }
+          // The one QuickBooks enqueue for this signing (the upsert above skips its own).
+          await enrichCustomerFromContract(supabase, contract.org_id, ensuredId, contract)
         } catch (e) {
           console.error('[Contract Sign] ensure customer (existing project)', e)
         }

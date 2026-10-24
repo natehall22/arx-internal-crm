@@ -1,6 +1,7 @@
 jest.mock('@/lib/payroll-statement-email', () => ({ sendPayrollStatementEmail: jest.fn() }))
 
 import { createFakeDb } from '@/lib/test-helpers/fake-db'
+import { fakePayrollRpcs } from '@/lib/test-helpers/fake-payroll-rpc'
 import { approvePayWeek } from '@/lib/payroll-approve'
 import { loadPayWeek } from '@/lib/payroll-pay-week'
 
@@ -26,15 +27,7 @@ function build(extra: Record<string, Array<Record<string, unknown>>> = {}) {
     },
     {
       relations: { user_comp_plans: { comp_plans: { table: 'comp_plans', fk: 'comp_plan_id' } } },
-      rpc: {
-        // The real claim function sets the token on the open period; the fake does the same.
-        payroll_claim_period_lock: (args, tables) => {
-          const row = (tables.payroll_periods ?? []).find((r) => r.id === args.p_period_id && r.status === 'open')
-          if (!row) return false
-          row.lock_claim_token = args.p_token
-          return true
-        },
-      },
+      rpc: fakePayrollRpcs,
     }
   )
 }
@@ -50,7 +43,6 @@ describe('approvePayWeek', () => {
     expect(res.ok).toBe(true)
     if (!res.ok) return
     expect(res.total).toBe(2400)
-    expect(res.mismatch).toBe(false)
     expect(db.tables.payroll_periods.find((p) => p.id === periodId)?.status).toBe('locked')
     expect((db.tables.payroll_payout_lines ?? []).map((l) => [l.user_id, l.net_amount]).sort()).toEqual([['c1', 1400], ['s1', 1000]])
     // The unapproved bonus stays where it is (nothing was moved before the lock) and shows up on the NEXT open week.

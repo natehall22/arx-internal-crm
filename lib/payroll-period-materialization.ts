@@ -3,6 +3,7 @@ import type { CompPlanForCalc } from '@/lib/calculate-commission-from-plan'
 import { buildCommissionPayrollSnapshot } from '@/lib/commission-payroll'
 import { evaluateJobCollection, sumCollectedCents } from '@/lib/job-collection'
 import { roundMoney } from '@/lib/money'
+import { cutoffYmdEt } from '@/lib/weekly-payroll/cutoff'
 import { loadJobCostLedger } from '@/lib/job-cost-ledger'
 import {
   buildAdditiveParticipantsForJob,
@@ -12,6 +13,7 @@ import {
 import {
   buildMonthlyTierMetricMaps,
   collectParticipants,
+  isTestAccountUser,
   computeRawCommissionForParticipant,
   loadActiveCompPlanForUser,
   loadAdditiveDealCommissionParticipants,
@@ -73,53 +75,6 @@ type CostRow = {
   deduct_from_commission_base: boolean
   created_at: string
   updated_at: string
-}
-
-export type MaterializePayrollPeriodResult = {
-  periodId: string
-  eligibleJobs: number
-  snapshotsCreated: number
-  payoutLinesCreated: number
-  skippedJobs: Array<{ jobId: string; reason: string }>
-  /**
-   * Jobs flagged self-generated that ALSO carry a separate setter. The derived 6%
-   * self-gen line was suppressed on these (paying both would stack past the 18% pool
-   * cap and scale every other line down); a human must fix the attribution.
-   */
-  selfGenSetterConflictJobIds: string[]
-}
-
-/**
- * True when Postgres rejected a payroll write because the job (or job/rep/role) is
- * already paid in a different period — raised by the single-period triggers in
- * supabase/migrations/202610210002_payroll_no_cross_period_double_pay.sql.
- */
-export function isPayrollAlreadyPaidError(error: unknown): boolean {
-  if (!error || typeof error !== 'object') return false
-  const { code, message } = error as { code?: unknown; message?: unknown }
-  return code === '23505' && typeof message === 'string' && message.startsWith('payroll_already_paid:')
-}
-
-/**
- * Deletes a job snapshot only while it has no payout lines, in one atomic DB call
- * (payroll_discard_lineless_job_snapshot, serialized with line inserts for the job).
- * Used when the line write for a just-written snapshot fails. The "no lines" condition
- * matters: if a concurrent lock of the SAME period already wrote this snapshot's lines
- * (which is why our insert hit the unique index), deleting it would cascade away real
- * pay. Best effort: a cleanup failure is logged and the original error is reported.
- * If it does fail, the lineless snapshot is retried by the next lock of this period.
- */
-async function discardSnapshotIfLineless(
-  supabase: SupabaseClient,
-  orgId: string,
-  snapshotId: string,
-  jobNumber: string
-): Promise<void> {
-  const { error } = await supabase.rpc('payroll_discard_lineless_job_snapshot', {
-    p_org_id: orgId,
-    p_snapshot_id: snapshotId,
-  })
-  if (error) console.error('materializePayrollPeriod: snapshot cleanup failed', { jobNumber, error })
 }
 
 function latestIso(values: Array<string | null | undefined>): string | null {
@@ -269,7 +224,7 @@ export function waitingReasonText(reason: string, collectedCents: number, saleAm
 
 /**
  * THE payroll calculation, with no writes. Everything "what will this period pay" shows (the Pay-this-week preview) and
- * everything Approve writes comes from this one function: `materializePayrollPeriod` below is plan + persist, so a
+ * everything Approve writes comes from this one function: `payroll_commit_week` (via lockPayrollPeriod) persists exactly this plan, so a
  * preview cannot drift from what is paid. Eligible jobs → `jobs`; with `includeWaiting`, every other job sold on/before
  * the cutoff is priced by the same code and returned in `waiting` with its reason.
  */
@@ -309,7 +264,7 @@ export async function planPayrollPeriod(
     )
     .eq('org_id', orgId)
     .not('sale_date', 'is', null)
-    .lte('sale_date', period.cutoff_at.slice(0, 10))
+    .lte('sale_date', cutoffYmdEt(period.cutoff_at))
     .in('status', statuses)
     // Settled outside the CRM before cutover: never planned, previewed, waiting or paid (and the double-pay checks never see them).
     .is('payroll_settled_externally_at', null)
@@ -495,7 +450,7 @@ export async function planPayrollPeriod(
       string,
       { role: string; plan: CompPlanForCalc; calc: ReturnType<typeof computeRawCommissionForParticipant>; flatBonus: number }
     >()
-    const saleDate = job.sale_date || period.cutoff_at.slice(0, 10)
+    const saleDate = job.sale_date || cutoffYmdEt(period.cutoff_at)
     const monthKey = monthKeyFromSaleDate(job.sale_date)
 
     // Producers whose pay on THIS job was overridden by an admin. Their comp plan is
@@ -508,6 +463,8 @@ export async function planPayrollPeriod(
     }> = []
 
     for (const participant of participants) {
+      // A test account earns nothing: no plan line, and no per-job override can create one either.
+      if (await isTestAccountUser(supabase, participant.userId, orgId)) continue
       const override = producerOverrides.get(
         producerOverrideKey(
           job.id,
@@ -574,7 +531,11 @@ export async function planPayrollPeriod(
       opportunityOwnerUserId: opportunity?.owner_user_id ?? null,
       saleDate: job.sale_date ?? null,
     })
-    const additiveParticipants = derived.participants
+    // Test accounts get no additive (inspection / self-gen / manager) credit either, explicit or derived.
+    const additiveParticipants: typeof derived.participants = []
+    for (const participant of derived.participants) {
+      if (!(await isTestAccountUser(supabase, participant.userId, orgId))) additiveParticipants.push(participant)
+    }
     // Captured as a local const: the guard above proves compBase is a positive
     // number, but TypeScript drops property narrowing inside the closures below.
     const additiveCommissionBase = payrollSnapshot.compBase
@@ -687,7 +648,7 @@ export async function planPayrollPeriod(
     }
     if (priced.selfGenSetterConflict) {
       selfGenSetterConflictJobIds.push(job.id)
-      console.warn('materializePayrollPeriod: self-gen job also has a setter; 6% line suppressed', {
+      console.warn('planPayrollPeriod: self-gen job also has a setter; 6% line suppressed', {
         orgId,
         periodId,
         jobId: job.id,
@@ -773,124 +734,5 @@ export async function planPayrollPeriod(
     eligibleJobs: eligible.length,
     skippedJobs,
     selfGenSetterConflictJobIds,
-  }
-}
-
-/**
- * Builds immutable job snapshots and participant payout lines for all eligible,
- * previously-unpaid jobs through a payroll period cutoff. Safe to retry.
- *
- * This is `planPayrollPeriod` (the one calculation) plus the writes — nothing here recomputes a line.
- */
-export async function materializePayrollPeriod(
-  supabase: SupabaseClient,
-  input: { orgId: string; periodId: string; actorUserId: string; onlyJobIds?: string[] }
-): Promise<MaterializePayrollPeriodResult> {
-  const { orgId, periodId, actorUserId } = input
-  const plan = await planPayrollPeriod(supabase, { orgId, periodId, onlyJobIds: input.onlyJobIds })
-  const { period } = plan
-  const skippedJobs = plan.skippedJobs
-
-  if (plan.eligibleJobs === 0) {
-    return {
-      periodId,
-      eligibleJobs: 0,
-      snapshotsCreated: 0,
-      payoutLinesCreated: 0,
-      skippedJobs,
-      selfGenSetterConflictJobIds: [],
-    }
-  }
-
-  const now = new Date().toISOString()
-  const { data: periodSnapshot, error: periodSnapshotError } = await supabase
-    .from('payroll_period_snapshots')
-    .upsert(
-      { org_id: orgId, payroll_period_id: periodId, locked_at: now, locked_by: actorUserId },
-      { onConflict: 'payroll_period_id' }
-    )
-    .select('id')
-    .single()
-  if (periodSnapshotError || !periodSnapshot) {
-    throw periodSnapshotError || new Error('Failed to create payroll period snapshot')
-  }
-
-  let snapshotsCreated = 0
-  let payoutLinesCreated = 0
-
-  for (const planned of plan.jobs) {
-    const job = planned.job
-    const { data: jobSnapshot, error: jobSnapshotError } = await supabase
-      .from('payroll_job_snapshots')
-      .upsert(
-        { ...planned.snapshotRow, payroll_period_snapshot_id: periodSnapshot.id },
-        { onConflict: 'payroll_period_id,job_id' }
-      )
-      .select('id')
-      .single()
-    if (isPayrollAlreadyPaidError(jobSnapshotError)) {
-      // Another lock paid this job after `alreadySnapshotted` was read. The DB trigger
-      // (202610210002_payroll_no_cross_period_double_pay.sql) rejected the write; skip
-      // the job exactly as the up-front check would have.
-      skippedJobs.push({ jobId: job.id, reason: 'already_paid_by_race' })
-      continue
-    }
-    if (jobSnapshotError || !jobSnapshot) {
-      throw jobSnapshotError || new Error(`Failed to snapshot job ${job.job_number}`)
-    }
-    const rowsWithSnapshot = planned.rows.map((row) => ({
-      ...row,
-      payroll_job_snapshot_id: jobSnapshot.id,
-    }))
-    // Snapshot and lines are separate PostgREST calls, so a failure here would leave a
-    // snapshot with no lines: every later lock would treat the job as paid and it would
-    // never be paid at all. Remove that snapshot before giving up on the job.
-    let payoutError: unknown = null
-    let missingRows: typeof rowsWithSnapshot = []
-    // Keep the application retry-safe even before the additive unique-index
-    // migration reaches an environment with legacy migration-history drift.
-    const { data: existingPayoutRows, error: existingPayoutError } = await supabase
-      .from('payroll_payout_lines')
-      .select('user_id, participant_role')
-      .eq('payroll_period_id', periodId)
-      .eq('job_id', job.id)
-    if (existingPayoutError) {
-      payoutError = existingPayoutError
-    } else {
-      const existingPayoutKeys = new Set(
-        (existingPayoutRows || []).map((row) => `${row.user_id}|${row.participant_role}`)
-      )
-      missingRows = rowsWithSnapshot.filter(
-        (row) => !existingPayoutKeys.has(`${row.user_id}|${row.participant_role}`)
-      )
-      if (missingRows.length > 0) {
-        const { error } = await supabase.from('payroll_payout_lines').insert(missingRows)
-        payoutError = error
-      }
-    }
-    if (payoutError) {
-      await discardSnapshotIfLineless(supabase, orgId, jobSnapshot.id as string, job.job_number)
-      if (isPayrollAlreadyPaidError(payoutError)) {
-        skippedJobs.push({ jobId: job.id, reason: 'already_paid_by_race' })
-        continue
-      }
-      throw payoutError
-    }
-    snapshotsCreated += 1
-    payoutLinesCreated += missingRows.length
-
-    const { error: stateUpdateError } = await supabase
-      .from('job_payroll_state')
-      .upsert({ ...planned.stateRow, updated_at: now }, { onConflict: 'job_id' })
-    if (stateUpdateError) throw stateUpdateError
-  }
-
-  return {
-    periodId,
-    eligibleJobs: plan.eligibleJobs,
-    snapshotsCreated,
-    payoutLinesCreated,
-    skippedJobs,
-    selfGenSetterConflictJobIds: plan.selfGenSetterConflictJobIds,
   }
 }

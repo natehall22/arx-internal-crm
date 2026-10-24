@@ -1,5 +1,7 @@
 import { createFakeDb } from '@/lib/test-helpers/fake-db'
-import { materializePayrollPeriod, planPayrollPeriod } from '@/lib/payroll-period-materialization'
+import { planPayrollPeriod } from '@/lib/payroll-period-materialization'
+import { lockPayrollPeriod } from '@/lib/payroll-period-lock'
+import { fakePayrollRpcs } from '@/lib/test-helpers/fake-payroll-rpc'
 
 /** Jobs settled outside the CRM before cutover must never reach the payroll calculation, preview or payment. */
 const ORG = 'org1'
@@ -15,6 +17,7 @@ const seed = () => ({
   user_comp_plans: [{ user_id: 'c1', org_id: ORG, comp_plan_id: 'plan-closer', effective_from: '2026-01-01', effective_to: null, override_percentage: null, hourly_rate_override: null }],
 })
 const relations = { user_comp_plans: { comp_plans: { table: 'comp_plans', fk: 'comp_plan_id' } } }
+const rpc = fakePayrollRpcs
 
 it('plan, preview waiting list and Approve never include a job settled externally', async () => {
   const db = createFakeDb(seed(), { relations })
@@ -23,9 +26,9 @@ it('plan, preview waiting list and Approve never include a job settled externall
   expect(plan.waiting.map((w) => w.job.job_number)).toEqual([])
   expect(plan.skippedJobs.map((s) => s.jobId)).not.toContain('j1')
 
-  const run = createFakeDb(seed(), { relations })
-  const res = await materializePayrollPeriod(run.client, { orgId: 'org1', periodId: 'p1', actorUserId: 'a' })
-  expect(res.payoutLinesCreated).toBe(1)
+  const run = createFakeDb(seed(), { relations, rpc })
+  const res = await lockPayrollPeriod(run.client, { orgId: 'org1', periodId: 'p1', actorUserId: 'a', status: 'open' })
+  expect(res.ok && res.summary.lines).toBe(1)
   expect((run.tables.payroll_payout_lines ?? []).every((l) => l.job_id === 'j2')).toBe(true)
 })
 

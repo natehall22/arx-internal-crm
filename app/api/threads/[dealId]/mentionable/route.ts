@@ -1,3 +1,4 @@
+import { guardThreadSchema } from '@/lib/threads/route-guard'
 import { NextResponse } from 'next/server'
 
 import { dealRefOf } from '@/lib/threads/get-thread'
@@ -8,7 +9,7 @@ import { resolveThreadViewer } from '@/lib/threads/viewer'
 import { AUDIENCES, canReadMessage, type Audience } from '@/lib/threads/visibility'
 
 /** Who the @ picker offers: only people who can READ the chosen audience (no "@setter" on a Production note). Anyone else can still be typed — they just get a content-free ping. */
-export async function GET(request: Request, { params }: { params: { dealId: string } }) {
+async function handleGET(request: Request, { params }: { params: { dealId: string } }) {
   const ctx = await threadAuth()
   if (ctx instanceof NextResponse) return ctx
   const deal = await threadDeal(ctx, params.dealId)
@@ -30,3 +31,5 @@ export async function GET(request: Request, { params }: { params: { dealId: stri
   }
   return NextResponse.json({ users: out })
 }
+
+export const GET = guardThreadSchema(handleGET)

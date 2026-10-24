@@ -38,7 +38,7 @@ export default function PayWeekClient() {
   const [change, setChange] = React.useState<{ p: PayWeekPerson; l: PayWeekLine } | null>(null)
   const [changeAmount, setChangeAmount] = React.useState('')
   const [changeReason, setChangeReason] = React.useState('')
-  const [done, setDone] = React.useState<{ total: number; people: number; mismatch: boolean; writtenTotal: number } | null>(null)
+  const [done, setDone] = React.useState<{ total: number; people: number } | null>(null)
   const [emailing, setEmailing] = React.useState(false)
   const [emailed, setEmailed] = React.useState<{ sent: number; skipped: number; failed: number } | null>(null)
   const [bonusBusy, setBonusBusy] = React.useState(false)
@@ -86,7 +86,7 @@ export default function PayWeekClient() {
     try {
       const res = await post('approve', { periodId: week.period.id, expectedTotal: week.totals.amount })
       setConfirming(false)
-      setDone({ total: res.total, people: res.people, mismatch: !!res.mismatch, writtenTotal: res.writtenTotal })
+      setDone({ total: res.total, people: res.people })
       await load()
       if (emailIt) void sendEmails(week.period.id)
     } catch (e) {
@@ -175,9 +175,8 @@ export default function PayWeekClient() {
       </header>
 
       {done ? (
-        <div className={cn('rounded-ui border p-4 text-ink', done.mismatch ? 'border-danger bg-red-50' : 'border-emerald-300 bg-emerald-50')} role="status">
+        <div className="rounded-ui border border-emerald-300 bg-emerald-50 p-4 text-ink" role="status">
           <p className="text-ui-lg font-semibold">Approved: {formatMoney(done.total)} to {done.people} {done.people === 1 ? 'person' : 'people'}.</p>
-          {done.mismatch ? <p className="text-ui-base">Heads up: what was written ({formatMoney(done.writtenTotal)}) differs from the {formatMoney(done.total)} you approved, because something changed while it was saving. Check the people below before paying anyone.</p> : null}
           {emailing ? <p className="text-ui-base">Emailing statements…</p> : emailed ? <p className="text-ui-base">Statements emailed: {emailed.sent}{emailed.skipped ? ` · not emailed (no address or inactive): ${emailed.skipped}` : ''}{emailed.failed ? ` · failed: ${emailed.failed}` : ''}.</p> : null}
         </div>
       ) : null}

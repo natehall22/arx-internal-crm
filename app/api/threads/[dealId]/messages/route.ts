@@ -1,3 +1,4 @@
+import { guardThreadSchema } from '@/lib/threads/route-guard'
 import { NextResponse } from 'next/server'
 
 import { dealRefOf } from '@/lib/threads/get-thread'
@@ -9,7 +10,7 @@ import { loadMessage, postMessage } from '@/lib/threads/post-message'
 import { resolveByReply } from '@/lib/threads/waiting'
 import { AUDIENCES, canReadMessage, defaultAudience, writableAudiences, type Audience } from '@/lib/threads/visibility'
 
-export async function GET(request: Request, { params }: { params: { dealId: string } }) {
+async function handleGET(request: Request, { params }: { params: { dealId: string } }) {
   const ctx = await threadAuth()
   if (ctx instanceof NextResponse) return ctx
   const deal = await threadDeal(ctx, params.dealId)
@@ -50,7 +51,7 @@ export async function GET(request: Request, { params }: { params: { dealId: stri
   })
 }
 
-export async function POST(request: Request, { params }: { params: { dealId: string } }) {
+async function handlePOST(request: Request, { params }: { params: { dealId: string } }) {
   const ctx = await threadAuth()
   if (ctx instanceof NextResponse) return ctx
   const deal = await threadDeal(ctx, params.dealId)
@@ -95,3 +96,6 @@ async function dealLabel(admin: ThreadCtx['admin'], dealId: string) {
   const { data } = await admin.from('opportunities').select('address_text').eq('id', dealId).maybeSingle()
   return (data as { address_text?: string | null } | null)?.address_text || 'Job'
 }
+
+export const GET = guardThreadSchema(handleGET)
+export const POST = guardThreadSchema(handlePOST)

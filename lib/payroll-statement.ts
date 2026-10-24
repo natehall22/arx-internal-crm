@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import {
   computePeriodUnitEarningsForUser,
+  loadStoredUnitEarnings,
   resolvePayrollPeriodWindow,
   type CompPlanForPeriodUnitPay,
   type PeriodUnitEarningsResult,
@@ -9,6 +10,7 @@ import { computeHourlyEarnings } from '@/lib/weekly-payroll/hourly-earnings'
 import { loadActiveCompPlanForUser, producerStorageRoleForParticipant } from '@/lib/payroll-export'
 import { roundMoney } from '@/lib/money'
 import { loadPeriodAdjustments } from '@/lib/payroll-adjustments'
+import { cutoffYmdEt } from '@/lib/weekly-payroll/cutoff'
 
 /**
  * The `deal_commission_roles.role` that would override a given payout line.
@@ -114,7 +116,7 @@ export async function buildPayrollStatement(
 ): Promise<PayrollStatementPayload | null> {
   const { data: period, error: periodErr } = await supabase
     .from('payroll_periods')
-    .select('id, period_label, cutoff_at, scheduled_pay_date, status')
+    .select('id, period_label, cutoff_at, scheduled_pay_date, status, units_frozen_at')
     .eq('id', periodId)
     .eq('org_id', orgId)
     .maybeSingle()
@@ -277,32 +279,32 @@ export async function buildPayrollStatement(
   }
 
   const saleDate = period.cutoff_at
-    ? String(period.cutoff_at).slice(0, 10)
+    ? cutoffYmdEt(String(period.cutoff_at))
     : new Date().toISOString().slice(0, 10)
-  const assignment = await loadActiveCompPlanForUser(supabase, userId, orgId, saleDate)
-  const compPlan = assignment?.comp_plans as Record<string, unknown> | null
-
-  const periodWindow = await resolvePayrollPeriodWindow(
-    supabase,
-    orgId,
-    periodId,
-    String(period.cutoff_at)
-  )
-
+  // An approved week reads the per-unit pay stored at approval — never a recalculation. A week locked before per-unit pay was
+  // frozen (no units_frozen_at) keeps the old live calculation.
+  const periodWindow = await resolvePayrollPeriodWindow(supabase, orgId, periodId, String(period.cutoff_at))
   let periodUnits: PeriodUnitEarningsResult | null = null
-  if (compPlan && period.cutoff_at) {
-    periodUnits = await computePeriodUnitEarningsForUser(supabase, {
-      orgId,
-      userId,
-      plan: {
-        plan_type: String(compPlan.plan_type || ''),
-        unit_type: (compPlan.unit_type as string | null) ?? null,
-        unit_rate: compPlan.unit_rate != null ? Number(compPlan.unit_rate) : null,
-        hybrid_components: (compPlan.hybrid_components as CompPlanForPeriodUnitPay['hybrid_components']) ?? null,
-      },
-      startIso: periodWindow.startIso,
-      endIso: periodWindow.endIso,
-    })
+  if (period.units_frozen_at && period.status !== 'open') {
+    const stored = (await loadStoredUnitEarnings(supabase, orgId, periodId, [userId])).get(userId)
+    periodUnits = stored ? (stored.detail ?? ({ total: stored.total, lines: [] } as unknown as PeriodUnitEarningsResult)) : null
+  } else {
+    const assignment = await loadActiveCompPlanForUser(supabase, userId, orgId, saleDate)
+    const compPlan = assignment?.comp_plans as Record<string, unknown> | null
+    if (compPlan && period.cutoff_at) {
+      periodUnits = await computePeriodUnitEarningsForUser(supabase, {
+        orgId,
+        userId,
+        plan: {
+          plan_type: String(compPlan.plan_type || ''),
+          unit_type: (compPlan.unit_type as string | null) ?? null,
+          unit_rate: compPlan.unit_rate != null ? Number(compPlan.unit_rate) : null,
+          hybrid_components: (compPlan.hybrid_components as CompPlanForPeriodUnitPay['hybrid_components']) ?? null,
+        },
+        startIso: periodWindow.startIso,
+        endIso: periodWindow.endIso,
+      })
+    }
   }
 
   const grossCommission = deals.reduce((s, d) => s + d.dealTotal, 0)

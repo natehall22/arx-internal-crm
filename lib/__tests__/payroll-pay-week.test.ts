@@ -1,5 +1,6 @@
 import { createFakeDb } from '@/lib/test-helpers/fake-db'
-import { materializePayrollPeriod } from '@/lib/payroll-period-materialization'
+import { lockPayrollPeriod } from '@/lib/payroll-period-lock'
+import { fakePayrollRpcs } from '@/lib/test-helpers/fake-payroll-rpc'
 import { buildWarnings, composeWeek, describeCommission, loadPayWeek, payWeekCsv, resolvePayWeekPeriod, type PayWeek } from '@/lib/payroll-pay-week'
 
 const ORG = 'org1'
@@ -43,7 +44,7 @@ describe('Pay this week', () => {
   })
 
   it('the preview total and every line equal what Approve writes', async () => {
-    const db = createFakeDb(seed(), { relations })
+    const db = createFakeDb(seed(), { relations, rpc: fakePayrollRpcs })
     const week = await loadPayWeek(db.client, ORG, NOW)
     expect(week.state).toBe('draft')
     // $20,000 + $21,000(j2 not fully funded → waiting): only j1 is payable. Closer 7% = 1,400, setter 5% = 1,000.
@@ -54,14 +55,13 @@ describe('Pay this week', () => {
     expect(week.waiting[0].who.find((w) => w.name === 'Jordan Vale')?.estimate).toBe(1470)
 
     // Approve = materialize the same period; what it writes must equal the preview, person by person.
-    await materializePayrollPeriod(db.client, { orgId: ORG, periodId: week.period.id, actorUserId: 'admin' })
+    expect((await lockPayrollPeriod(db.client, { orgId: ORG, periodId: week.period.id, actorUserId: 'admin', status: 'open', now: NOW })).ok).toBe(true)
     const paid = new Map<string, number>()
     for (const l of db.tables.payroll_payout_lines ?? []) paid.set(String(l.user_id), (paid.get(String(l.user_id)) ?? 0) + Number(l.net_amount))
     for (const p of week.people) expect(paid.get(p.userId)).toBe(p.total)
     expect(Array.from(paid.values()).reduce((a, b) => a + b, 0)).toBe(week.totals.amount)
 
     // …and the approved view (read back from the stored lines) is the same screen.
-    await (db.client as unknown as { from: (t: string) => { update: (v: unknown) => { eq: (c: string, v: unknown) => Promise<unknown> } } }).from('payroll_periods').update({ status: 'locked' }).eq('id', week.period.id)
     const approved = await loadPayWeek(db.client, ORG, NOW)
     expect(approved.state).toBe('approved')
     expect(approved.totals).toEqual(week.totals)

@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
+import { createServiceClient } from '@/lib/supabase/service'
+import { resolveThreadViewer } from '@/lib/threads/viewer'
+import { redactThreadNotifications } from '@/lib/threads/waiting'
 
 export async function GET(request: NextRequest) {
   try {
@@ -43,8 +46,13 @@ export async function GET(request: NextRequest) {
       .eq('recipient_user_id', profile.id)
       .is('read_at', null)
 
+    // Notification text that points at a thread message is shown only while the person can still read that message.
+    const admin = createServiceClient()
+    const rows = notifications || []
+    const safe = rows.some((n: { activity_id?: string | null }) => n.activity_id) ? await redactThreadNotifications(admin, await resolveThreadViewer(admin, profile), rows) : rows
+
     return NextResponse.json({ 
-      notifications: notifications || [],
+      notifications: safe,
       unread_count: count || 0,
     })
 

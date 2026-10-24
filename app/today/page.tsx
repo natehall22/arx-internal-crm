@@ -19,6 +19,7 @@ import { canAccessJobBoardFromPermissionNames, isOrgSuperuserRoleSlug } from '@/
 import { fetchPeriodMetricRows, getContactDispositionIdSet, summarizePeriodRows } from '@/lib/reporting/period-metrics'
 import { isOwnerProfile } from '@/lib/super-admin'
 import { createServiceClient } from '@/lib/supabase/service'
+import { resolveThreadViewer } from '@/lib/threads/viewer'
 import { listWaiting } from '@/lib/threads/waiting'
 import { loadCloserQueues, loadOpsQueues, loadOwnerExceptions, todayKindFor, type TodayKind } from '@/lib/today'
 
@@ -64,7 +65,7 @@ export default async function TodayPage() {
             { label: 'Inspections set', value: mine.inspectionsSet },
             { label: 'Appointments', value: mine.calendar },
           ]
-  const waiting = await listWaiting(admin, profile.id).catch(() => [])
+  const waiting = await resolveThreadViewer(admin, profile).then((viewer) => listWaiting(admin, viewer)).catch(() => [])
   const queues = [...closerQueues, ...opsQueues, ...ownerQueues]
 
   return (

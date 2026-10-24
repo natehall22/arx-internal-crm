@@ -74,8 +74,19 @@ function ownsDealAsCloser(v: ThreadViewer, deal: DealRef): boolean {
   return v.closerLike && !!deal && (deal.owner_user_id === v.userId || (deal.closer_user_ids ?? []).includes(v.userId))
 }
 
+/**
+ * Field roles — setters, canvassers, inside sales / call center — NEVER see Production/Crew, the Job tab, pricing or financials,
+ * whatever job-board permission a custom role or a per-user grant gave them. This deny is checked BEFORE every positive grant
+ * (the resolver also strips every jobs: and ops: permission from theirs; this is the second lock, and the SQL `message_visible_to`
+ * mirrors it).
+ */
+export function isFieldRole(v: ThreadViewer): boolean {
+  return !v.ownerLike && (v.setterLike || v.insideSales === true || v.pricingBarred)
+}
+
 /** True when the viewer may see the Production/Crew sides of this deal. */
 export function canSeeProduction(v: ThreadViewer, deal: DealRef): boolean {
+  if (isFieldRole(v)) return false
   if (v.ownerLike) return true
   return v.jobBoard || v.managerLike || ownsDealAsCloser(v, deal)
 }
@@ -105,8 +116,8 @@ export function writableAudiences(v: ThreadViewer, deal: DealRef): Audience[] {
   if ((v.setterLike || v.closerLike) && deal && !ownsDeal(v, deal)) return out
   out.push('team')
   out.push('sales')
-  if (v.ownerLike || v.jobEdit || v.jobBoard || ownsDealAsCloser(v, deal)) out.push('production')
-  if (v.ownerLike || v.jobEdit) out.push('crew')
+  if (canSeeProduction(v, deal) && (v.ownerLike || v.jobEdit || v.jobBoard || ownsDealAsCloser(v, deal))) out.push('production')
+  if (!isFieldRole(v) && (v.ownerLike || v.jobEdit)) out.push('crew')
   return out
 }
 

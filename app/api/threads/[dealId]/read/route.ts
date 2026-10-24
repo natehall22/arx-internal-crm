@@ -1,10 +1,11 @@
+import { guardThreadSchema } from '@/lib/threads/route-guard'
 import { NextResponse } from 'next/server'
 
 import { threadAuth, threadDeal } from '@/lib/threads/api'
 import { ensureThread } from '@/lib/threads/post-message'
 
 /** "Seen by" pointer: the viewer has read this deal's thread up to now. */
-export async function POST(_req: Request, { params }: { params: { dealId: string } }) {
+async function handlePOST(_req: Request, { params }: { params: { dealId: string } }) {
   const ctx = await threadAuth()
   if (ctx instanceof NextResponse) return ctx
   const deal = await threadDeal(ctx, params.dealId)
@@ -17,3 +18,5 @@ export async function POST(_req: Request, { params }: { params: { dealId: string
   }
   return NextResponse.json({ ok: true })
 }
+
+export const POST = guardThreadSchema(handlePOST)

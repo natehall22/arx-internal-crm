@@ -1,8 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
-import { weeklyPayrollPayDateForCutoff } from '@/lib/weekly-payroll/cutoff'
-
-const ymdEt = (d: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(d)
+import { weeklyPayrollPayDateForCutoff, ymdEt } from '@/lib/weekly-payroll/cutoff'
 
 /**
  * The OPEN weekly period one week after `cutoffAt`, created if it does not exist yet (nothing to set up). An existing
@@ -38,4 +36,14 @@ export async function ensureNextOpenPeriod(admin: SupabaseClient, orgId: string,
     if (row && row.status === 'open') return { id: row.id }
   }
   throw new Error('Could not find an open week to put this on')
+}
+
+/** The message the three payroll writers show while a week is being approved (the database refuses their write). */
+export const PERIOD_CLAIMED_MESSAGE = 'This week is being approved right now. Try again in a minute.'
+
+/** True when Postgres refused a write because the week holds a live approval claim (trigger payroll_guard_claimed_period). */
+export function isPeriodClaimedError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
+  const { code, message } = error as { code?: unknown; message?: unknown }
+  return code === '55006' || (typeof message === 'string' && message.includes('payroll_period_claimed'))
 }

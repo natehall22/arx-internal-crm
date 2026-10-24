@@ -1,5 +1,7 @@
 import { createFakeDb } from '@/lib/test-helpers/fake-db'
-import { materializePayrollPeriod, planPayrollPeriod } from '@/lib/payroll-period-materialization'
+import { planPayrollPeriod } from '@/lib/payroll-period-materialization'
+import { lockPayrollPeriod } from '@/lib/payroll-period-lock'
+import { fakePayrollRpcs } from '@/lib/test-helpers/fake-payroll-rpc'
 
 const ORG = 'org1'
 const PERIOD = 'p1'
@@ -32,6 +34,7 @@ function seed(extra: Record<string, Array<Record<string, unknown>>> = {}) {
   }
 }
 const relations = { user_comp_plans: { comp_plans: { table: 'comp_plans', fk: 'comp_plan_id' } } }
+const rpc = fakePayrollRpcs
 
 const strip = (v: unknown): unknown => JSON.parse(JSON.stringify(v, (k, x) => (['locked_at', 'updated_at', 'created_at'].includes(k) ? undefined : x)))
 const writesByTable = (w: ReturnType<typeof createFakeDb>['writes']) => {
@@ -46,8 +49,9 @@ describe('planPayrollPeriod is the one calculation', () => {
     const plan = await planPayrollPeriod(preview.client, { orgId: ORG, periodId: PERIOD, includeWaiting: true })
     expect(preview.writes).toEqual([]) // planning never writes
 
-    const run = createFakeDb(seed(), { relations })
-    await materializePayrollPeriod(run.client, { orgId: ORG, periodId: PERIOD, actorUserId: 'admin' })
+    const run = createFakeDb(seed(), { relations, rpc })
+    const locked = await lockPayrollPeriod(run.client, { orgId: ORG, periodId: PERIOD, actorUserId: 'admin', status: 'open' })
+    expect(locked.ok).toBe(true)
     const paid = (run.tables.payroll_payout_lines ?? []).map((r) => ({ job: r.job_id, user: r.user_id, role: r.participant_role, gross: r.gross_amount, net: r.net_amount }))
     const planned = plan.jobs.flatMap((j) => j.rows.map((r) => ({ job: r.job_id, user: r.user_id, role: r.participant_role, gross: r.gross_amount, net: r.net_amount })))
     const key = (x: { job: unknown; user: unknown }) => `${x.job}|${x.user}`
@@ -81,8 +85,29 @@ describe('only finished jobs are ever payable', () => {
     const plan = await planPayrollPeriod(db.client, { orgId: ORG, periodId: PERIOD, includeWaiting: true })
     expect(plan.jobs).toHaveLength(0)
     expect(plan.waiting.find((w) => w.job.job_number === '26-0141')?.reasonText).toBe('Install not marked complete')
-    const run = createFakeDb(s, { relations })
-    const res = await materializePayrollPeriod(run.client, { orgId: ORG, periodId: PERIOD, actorUserId: 'a' })
-    expect(res.payoutLinesCreated).toBe(0)
+    const run = createFakeDb(s, { relations, rpc })
+    await lockPayrollPeriod(run.client, { orgId: ORG, periodId: PERIOD, actorUserId: 'a', status: 'open' })
+    expect(run.tables.payroll_payout_lines ?? []).toHaveLength(0)
+  })
+})
+
+describe('test accounts never earn a pay line', () => {
+  it('a per-job producer override cannot create a line for a flagged test account', async () => {
+    const s = seed({
+      users: [{ id: 'c1', org_id: ORG, role: 'sales_rep', active: true, is_test_account: true }, { id: 's1', org_id: ORG, role: 'setter', active: true }],
+      // the office typed a $500 override for the test closer on j1
+      deal_commission_roles: [{ org_id: ORG, job_id: 'j1', user_id: 'c1', role: 'closer', override_amount: 500, override_percent: null }],
+    })
+    const db = createFakeDb(s, { relations })
+    const plan = await planPayrollPeriod(db.client, { orgId: ORG, periodId: PERIOD })
+    const lines = plan.jobs.flatMap((j) => j.rows)
+    expect(lines.some((l) => l.user_id === 'c1')).toBe(false)
+    expect(lines.find((l) => l.user_id === 's1')?.net_amount).toBe(1000) // the real setter is untouched
+  })
+
+  it('the same override DOES pay a normal (non-test) closer — the flag is the only difference', async () => {
+    const db = createFakeDb(seed({ deal_commission_roles: [{ org_id: ORG, job_id: 'j1', user_id: 'c1', role: 'closer', override_amount: 500, override_percent: null }] }), { relations })
+    const plan = await planPayrollPeriod(db.client, { orgId: ORG, periodId: PERIOD })
+    expect(plan.jobs.flatMap((j) => j.rows).find((l) => l.user_id === 'c1')?.net_amount).toBe(500)
   })
 })

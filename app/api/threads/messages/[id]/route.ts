@@ -1,3 +1,4 @@
+import { guardThreadSchema } from '@/lib/threads/route-guard'
 import { NextResponse } from 'next/server'
 
 import { dealRefOf } from '@/lib/threads/get-thread'
@@ -10,7 +11,7 @@ import { AUDIENCES, canDeleteMessage, canPin, canReadMessage, canReclassify, loo
 const MAX_CUSTOMER_PINS = 3
 
 /** Pin / unpin / edit / delete (tombstone) / re-classify. Nothing is ever hard-deleted. */
-export async function PATCH(request: Request, { params }: { params: { id: string } }) {
+async function handlePATCH(request: Request, { params }: { params: { id: string } }) {
   const ctx = await threadAuth()
   if (ctx instanceof NextResponse) return ctx
   const { admin, viewer } = ctx
@@ -95,3 +96,4 @@ export async function PATCH(request: Request, { params }: { params: { id: string
   return NextResponse.json({ message: await loadMessage(admin, viewer.orgId, r.id) })
 }
 
+export const PATCH = guardThreadSchema(handlePATCH)

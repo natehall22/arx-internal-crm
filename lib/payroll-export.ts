@@ -352,6 +352,11 @@ function loadUserPayFlags(supabase: SupabaseClient, userId: string, orgId: strin
   return p
 }
 
+/** True for a flagged test account (users.is_test_account): never earns a pay line — plan, per-job override or additive credit. */
+export async function isTestAccountUser(supabase: SupabaseClient, userId: string, orgId: string): Promise<boolean> {
+  return (await loadUserPayFlags(supabase, userId, orgId)).isTestAccount
+}
+
 async function readUserPayFlags(supabase: SupabaseClient, userId: string, orgId: string): Promise<UserPayFlags> {
   let res = await supabase.from('users').select('role, active, is_test_account').eq('id', userId).eq('org_id', orgId).maybeSingle()
   if (res.error && (res.error as { code?: string }).code === '42703') {

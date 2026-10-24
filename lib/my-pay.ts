@@ -135,10 +135,10 @@ export async function loadMyPay(admin: SupabaseClient, orgId: string, userId: st
   const amount = roundMoney(Math.max(0, person?.raw ?? 0))
 
   // Paid history: the last approved weeks (never the open one)
-  const { data: past } = await admin.from('payroll_periods').select('id, cutoff_at, scheduled_pay_date, status, period_label').eq('org_id', orgId).in('status', ['locked', 'paid']).neq('id', period.id).order('cutoff_at', { ascending: false }).limit(6)
+  const { data: past } = await admin.from('payroll_periods').select('id, cutoff_at, scheduled_pay_date, status, period_label, units_frozen_at').eq('org_id', orgId).in('status', ['locked', 'paid']).neq('id', period.id).order('cutoff_at', { ascending: false }).limit(6)
   const paid: MyPay['paid'] = []
   for (const p of past ?? []) {
-    const pp: PayWeekPeriod = { id: p.id as string, label: (p.period_label as string) ?? '', cutoffAt: p.cutoff_at as string, payDate: p.scheduled_pay_date as string, status: p.status as string, weekStart: '', weekEnding: '' }
+    const pp: PayWeekPeriod = { id: p.id as string, label: (p.period_label as string) ?? '', cutoffAt: p.cutoff_at as string, payDate: p.scheduled_pay_date as string, status: p.status as string, unitsFrozen: Boolean(p.units_frozen_at), weekStart: '', weekEnding: '' }
     const { data } = await admin.from('payroll_payout_lines').select('job_id, user_id, participant_role, gross_amount, net_amount, comp_plan_snapshot').eq('org_id', orgId).eq('payroll_period_id', pp.id).eq('user_id', userId)
     const pers = await myWeekLines(admin, orgId, userId, pp, (data ?? []) as typeof rows, name)
     if (!pers || (pers.lines.length === 0 && pers.raw === 0)) continue

@@ -1,6 +1,7 @@
 jest.mock('@/lib/payroll-statement-email', () => ({ sendPayrollStatementEmail: jest.fn() }))
 
 import { createFakeDb } from '@/lib/test-helpers/fake-db'
+import { fakePayrollRpcs } from '@/lib/test-helpers/fake-payroll-rpc'
 import { addAdjustment, voidAdjustment } from '@/lib/payroll-adjustments'
 import { approvePayWeek } from '@/lib/payroll-approve'
 import { loadPayWeek } from '@/lib/payroll-pay-week'
@@ -28,14 +29,7 @@ function build(extra: Record<string, Array<Record<string, unknown>>> = {}) {
     },
     {
       relations: { user_comp_plans: { comp_plans: { table: 'comp_plans', fk: 'comp_plan_id' } } },
-      rpc: {
-        payroll_claim_period_lock: (args, tables) => {
-          const row = (tables.payroll_periods ?? []).find((r) => r.id === args.p_period_id && r.status === 'open')
-          if (!row) return false
-          row.lock_claim_token = args.p_token
-          return true
-        },
-      },
+      rpc: fakePayrollRpcs,
     }
   )
 }
@@ -143,16 +137,19 @@ describe('adjustments', () => {
     expect(await voidAdjustment(db.client, ORG, add.id)).toMatchObject({ ok: false, status: 409 })
   })
 
-  it('a retried approve carries the debt once, not twice', async () => {
+  it('approving a week with a negative check carries the debt to next week once, and pays only what is positive', async () => {
     const db = build()
     const week = await loadPayWeek(db.client, ORG, NOW)
     await addAdjustment(db.client, { orgId: ORG, actorUserId: 'a', viewedPeriodId: week.period.id, userId: 's1', amount: -1300, reason: 'clawback' })
     const draft = await loadPayWeek(db.client, ORG, NOW)
-    const { carryNegativeBalances } = await import('@/lib/payroll-approve')
-    const first = await carryNegativeBalances(db.client, ORG, 'a', draft)
-    const again = await carryNegativeBalances(db.client, ORG, 'a', draft)
-    expect(again).toEqual(first)
-    expect((db.tables.payroll_adjustments ?? []).filter((r) => r.kind === 'balance')).toHaveLength(1)
+    expect(draft.totals.amount).toBe(1400) // Riley's check floors at $0
+    const { approvePayWeek } = await import('@/lib/payroll-approve')
+    const res = await approvePayWeek(db.client, { orgId: ORG, actorUserId: 'a', periodId: week.period.id, expectedTotal: draft.totals.amount, now: NOW })
+    expect(res.ok).toBe(true)
+    const carried = (db.tables.payroll_adjustments ?? []).filter((r) => r.kind === 'balance')
+    expect(carried).toHaveLength(1)
+    expect(carried[0]).toMatchObject({ user_id: 's1', amount: -300, status: 'pending', source_period_id: week.period.id })
+    expect(carried[0].payroll_period_id).not.toBe(week.period.id)
   })
 
   it('a long reply still saves as the fix reason (trimmed to 300)', async () => {

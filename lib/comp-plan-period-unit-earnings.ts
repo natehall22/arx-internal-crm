@@ -601,3 +601,20 @@ export async function computePeriodUnitEarningsForUser(
     lines,
   })
 }
+
+export type UnitEarnings = Map<string, { total: number; detail: PeriodUnitEarningsResult | null }>
+
+/** The per-unit pay stored when the week was approved (payroll_unit_earnings). */
+export async function loadStoredUnitEarnings(admin: SupabaseClient, orgId: string, periodId: string, userIds?: string[]): Promise<UnitEarnings> {
+  const out: UnitEarnings = new Map()
+  let q = admin.from('payroll_unit_earnings').select('user_id, amount, detail').eq('org_id', orgId).eq('payroll_period_id', periodId)
+  if (userIds) q = q.in('user_id', userIds)
+  const { data, error } = await q
+  if (error) throw error
+  for (const r of data ?? []) {
+    const total = roundMoney(Number(r.amount) || 0)
+    if (total > 0) out.set(r.user_id as string, { total, detail: (r.detail as PeriodUnitEarningsResult | null) ?? null })
+  }
+  return out
+}
+

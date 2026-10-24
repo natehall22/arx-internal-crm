@@ -1,6 +1,9 @@
 import { NextRequest } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
+import { createServiceClient } from '@/lib/supabase/service'
+import { resolveThreadViewer } from '@/lib/threads/viewer'
+import { redactThreadNotifications } from '@/lib/threads/waiting'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -59,8 +62,12 @@ export async function GET(request: NextRequest) {
             .eq('recipient_user_id', profile.id)
             .is('read_at', null)
 
+          // Re-checked on every tick: a role or deal change takes effect without a reconnect.
+          const rows = notifications || []
+          const admin = createServiceClient()
+          const safe = rows.some((n: { activity_id?: string | null }) => n.activity_id) ? await redactThreadNotifications(admin, await resolveThreadViewer(admin, profile), rows) : rows
           sendEvent('notifications', {
-            notifications: notifications || [],
+            notifications: safe,
             unread_count: unreadCount || 0,
           })
 

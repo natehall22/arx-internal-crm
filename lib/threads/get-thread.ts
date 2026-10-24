@@ -1,3 +1,4 @@
+import { isThreadSchemaMissing, ThreadSchemaPendingError } from '@/lib/threads/schema-guard'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { canReadMessage, canReadRowOnDeal, type Audience, type DealRef, type ThreadViewer } from '@/lib/threads/visibility'
@@ -173,7 +174,7 @@ export async function getTimeline(
 
   // Over-fetch: rows the viewer may not read are dropped below, and a page must still fill.
   const { data, error } = await q.order('created_at', { ascending: false }).limit(limit * 3 + 1)
-  if (error) throw new Error(`timeline: ${error.message}`)
+  if (error) throw isThreadSchemaMissing(error) ? new ThreadSchemaPendingError() : new Error(`timeline: ${error.message}`)
 
   const dealRef: DealRef = dealRefOf(deal)
   // "All deals" mixes deals: each row is checked against ITS OWN deal, never the one that happens to be open.

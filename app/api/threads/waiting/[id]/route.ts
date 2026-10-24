@@ -1,10 +1,11 @@
+import { guardThreadSchema } from '@/lib/threads/route-guard'
 import { NextResponse } from 'next/server'
 
 import { threadAuth } from '@/lib/threads/api'
 import { resolveWaiting } from '@/lib/threads/waiting'
 
 /** Done / Snooze 1h on the caller's OWN item (the update is scoped to recipient_user_id). */
-export async function POST(request: Request, { params }: { params: { id: string } }) {
+async function handlePOST(request: Request, { params }: { params: { id: string } }) {
   const ctx = await threadAuth()
   if (ctx instanceof NextResponse) return ctx
   const body = await request.json().catch(() => ({}))
@@ -13,3 +14,5 @@ export async function POST(request: Request, { params }: { params: { id: string 
   const ok = await resolveWaiting(ctx.admin, ctx.viewer.userId, params.id, action)
   return ok ? NextResponse.json({ ok: true }) : NextResponse.json({ error: 'Not found' }, { status: 404 })
 }
+
+export const POST = guardThreadSchema(handlePOST)

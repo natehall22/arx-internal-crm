@@ -81,26 +81,29 @@ export async function findExistingCustomer(
       .from('customers')
       .select('*')
       .eq('org_id', orgId)
-      .ilike('email', identityEmail)
+      .eq('email_lower', identityEmail)
+      .order('created_at', { ascending: true })
+      .order('id', { ascending: true })
       .limit(1)
-      .single()
     
-    if (byEmail) existingCustomer = byEmail
+    // Exact on the stored lower(trim(email)): ILIKE treated "_" and "%" in an address as wildcards ("a_b@x.com" matched "aXb@x.com").
+    if (byEmail && byEmail[0]) existingCustomer = byEmail[0]
   }
 
-  // Try to find by normalized phone if no email match.
-  // We store the raw phone but match by stripping non-digits; filter in DB using LIKE on last 10 digits.
+  // Try to find by normalized phone if no email match: EXACT equality on the stored digits-only `phone_normalized`
+  // (the 10 digits, or 1 + the 10 digits). A formatted number like "(704) 555-0142" matches "7045550142"; the old
+  // LIKE on the raw `phone` text could not, which is how formatting differences made duplicate customers.
+  // Oldest first, so every caller (and every concurrent caller) agrees on the same row.
   if (!existingCustomer && normalizedPhone && normalizedPhone.length === 10) {
     const { data: byPhone } = await supabase
       .from('customers')
       .select('*')
       .eq('org_id', orgId)
-      .like('phone', `%${normalizedPhone}`)
-      .limit(5)
-
-    if (byPhone) {
-      existingCustomer = byPhone.find((c: any) => normalizePhone(c.phone) === normalizedPhone) ?? null
-    }
+      .or(`phone_normalized.eq.${normalizedPhone},phone_normalized.eq.1${normalizedPhone}`)
+      .order('created_at', { ascending: true })
+      .order('id', { ascending: true })
+      .limit(1)
+    existingCustomer = (byPhone ?? [])[0] ?? null
   }
 
   // Try fuzzy match by name + address if still no match.
@@ -127,6 +130,18 @@ export async function findExistingCustomer(
   }
 
   return existingCustomer
+}
+
+/** The oldest customer row (created_at, id) sharing this real email or 10-digit phone — the row every concurrent creator agrees wins. */
+async function oldestCustomerIdByIdentity(supabase: SupabaseClient, orgId: string, who: { email?: string | null; phone?: string | null }): Promise<string | null> {
+  const email = normalizeIdentityEmail(who.email)
+  const phone = normalizePhone(who.phone)
+  const filters: string[] = []
+  if (email) filters.push(`email_lower.eq.${email.replace(/[,()]/g, '')}`)
+  if (phone && phone.length === 10) filters.push(`phone_normalized.eq.${phone}`, `phone_normalized.eq.1${phone}`)
+  if (filters.length === 0) return null
+  const { data } = await supabase.from('customers').select('id').eq('org_id', orgId).or(filters.join(',')).order('created_at', { ascending: true }).order('id', { ascending: true }).limit(1)
+  return ((data ?? [])[0]?.id as string | undefined) ?? null
 }
 
 /**
@@ -190,6 +205,14 @@ export async function upsertCustomer(
 
   if (error || !newCustomer) {
     throw new Error(`Failed to create customer: ${error?.message || 'Unknown error'}`)
+  }
+
+  // Two bookings for the same person at the same moment can both miss the lookup above and both insert. Settle it
+  // deterministically: the OLDEST row for this email/phone wins; a newer duplicate (ours, still unreferenced) removes itself.
+  const winnerId = await oldestCustomerIdByIdentity(supabase, orgId, { email, phone })
+  if (winnerId && winnerId !== newCustomer.id) {
+    await supabase.from('customers').delete().eq('id', newCustomer.id).eq('org_id', orgId)
+    return { customer_id: winnerId, created: false }
   }
 
   // Enqueue integration event for new customer

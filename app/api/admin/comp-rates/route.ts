@@ -28,6 +28,7 @@ import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import { isPayrollAdminRole } from '@/lib/payroll-admin-access'
 import { getEasternTodayIso } from '@/lib/eastern-datetime'
+import { cutoffYmdEt } from '@/lib/weekly-payroll/cutoff'
 
 export const dynamic = 'force-dynamic'
 
@@ -282,19 +283,19 @@ export async function POST(request: NextRequest) {
     const newestSettled = (settledPeriods || [])
       .slice()
       .sort((a, b) => (a.cutoff_at < b.cutoff_at ? 1 : -1))[0]
-    if (newestSettled && effectiveFrom <= newestSettled.cutoff_at.slice(0, 10)) {
+    if (newestSettled && effectiveFrom <= cutoffYmdEt(newestSettled.cutoff_at)) {
       return NextResponse.json(
         {
           error:
             `Payroll period "${newestSettled.period_label}" is already ${newestSettled.status} ` +
-            `through ${newestSettled.cutoff_at.slice(0, 10)}. ${effectiveFrom} reaches back to or ` +
+            `through ${cutoffYmdEt(newestSettled.cutoff_at)}. ${effectiveFrom} reaches back to or ` +
             'before that date, which could change what an already-settled job pays. Choose a later effective date.',
           code: 'locked_period',
           period: {
             id: newestSettled.id,
             label: newestSettled.period_label,
             status: newestSettled.status,
-            cutoffDate: newestSettled.cutoff_at.slice(0, 10),
+            cutoffDate: cutoffYmdEt(newestSettled.cutoff_at),
           },
         },
         { status: 400 }

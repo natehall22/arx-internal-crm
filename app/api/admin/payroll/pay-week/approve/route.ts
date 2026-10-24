@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
   try {
     const result = await approvePayWeek(a.admin, { orgId: a.profile.org_id, actorUserId: a.profile.id, periodId: body.periodId as string, expectedTotal: expected })
     if (!result.ok) return NextResponse.json(result.body, { status: result.status })
-    return NextResponse.json({ ok: true, total: result.total, people: result.people, mismatch: result.mismatch, writtenTotal: result.writtenTotal, message: result.message })
+    return NextResponse.json({ ok: true, total: result.total, people: result.people, message: result.message })
   } catch (e) {
     if ((e as Error).message === 'Pay period not found') return NextResponse.json({ error: 'Week not found' }, { status: 404 })
     console.error('POST pay-week approve', e)

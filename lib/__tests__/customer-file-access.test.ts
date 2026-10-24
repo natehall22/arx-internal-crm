@@ -11,8 +11,8 @@ const inside = { ...base, pricingBarred: true, insideSales: true }
 const salesMgr = { ...base, managerLike: true }
 
 describe('customer file tabs', () => {
-  it('setters: overview + sales (+ notes); never job, money or files', () => {
-    expect(tabsFor(setter, { hasJob: true })).toEqual(['overview', 'sales', 'notes'])
+  it('setters: overview + notes only; never sales (the opportunity page 404s for them), job, money or files', () => {
+    expect(tabsFor(setter, { hasJob: true })).toEqual(['overview', 'notes'])
   })
   it('closers see sales + files; no job (the job page needs board access) or money', () => {
     expect(tabsFor(closer, { hasJob: true })).toEqual(['overview', 'sales', 'files', 'notes'])

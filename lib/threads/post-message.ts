@@ -1,3 +1,4 @@
+import { isThreadSchemaMissing, SCHEMA_PENDING_MESSAGE } from '@/lib/threads/schema-guard'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { mentionCandidates, resolveNoteMentions } from '@/lib/note-mentions'
@@ -49,7 +50,7 @@ export type PostResult =
       blindMentions: string[]
       pricingNotice: boolean
     }
-  | { ok: false; status: 400 | 403 | 404 | 409 | 429; error: string }
+  | { ok: false; status: 400 | 403 | 404 | 409 | 429 | 503; error: string }
 
 export type DealForPost = {
   id: string
@@ -199,6 +200,8 @@ export async function postMessage(
       const prior = again ? await loadMessage(admin, viewer.orgId, (again as { id: string }).id) : null
       if (prior) return { ok: true, message: prior, recipients: [], blindMentions: [], pricingNotice: false }
     }
+    // Code live before migration 202610270010: a clear, retryable answer, nothing half-written.
+    if (isThreadSchemaMissing(error)) return { ok: false, status: 503, error: SCHEMA_PENDING_MESSAGE }
     return { ok: false, status: 409, error: 'Failed to post message' }
   }
 

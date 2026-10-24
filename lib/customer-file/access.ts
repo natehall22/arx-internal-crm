@@ -1,4 +1,4 @@
-import type { ThreadViewer } from '@/lib/threads/visibility'
+import { isFieldRole, type ThreadViewer } from '@/lib/threads/visibility'
 
 /**
  * Customer File tabs + who lands where. Pure and client-safe; permission-shaped (no role-slug
@@ -24,10 +24,14 @@ export type FileAccessInput = { hasJob: boolean }
 
 /** The tabs this viewer may open on this deal. "notes" is the mobile home of the thread (the desktop rail covers it). */
 export function tabsFor(v: ThreadViewer, input: FileAccessInput): FileTab[] {
-  const tabs: FileTab[] = ['overview', 'sales']
+  // The Sales tab is the opportunity page, which 404s for setters and canvassers (their home is the canvass app; a read-limited
+  // setter view is not built). Until it is, they are not offered a tab that leads to a "not found" page.
+  const tabs: FileTab[] = v.setterLike && !v.insideSales ? ['overview'] : ['overview', 'sales']
   // The Job tab is the existing job page, which itself requires job-board access.
-  if (input.hasJob && (v.ownerLike || v.jobBoard)) tabs.push('job')
-  if (input.hasJob && (v.ownerLike || v.jobFinancials)) tabs.push('money')
+  // Field roles (setters, canvassers, inside sales) never get Job or Money, even with a custom grant: deny first.
+  const field = isFieldRole(v)
+  if (input.hasJob && !field && (v.ownerLike || v.jobBoard)) tabs.push('job')
+  if (input.hasJob && !field && (v.ownerLike || v.jobFinancials)) tabs.push('money')
   // Contracts and pricing PDFs live in Files: pricing-barred roles (setters, inside sales) don't get it.
   if (!v.pricingBarred) tabs.push('files')
   tabs.push('notes')

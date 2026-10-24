@@ -1,6 +1,7 @@
 jest.mock('@/lib/payroll-statement-email', () => ({ sendPayrollStatementEmail: jest.fn() }))
 
 import { createFakeDb } from '@/lib/test-helpers/fake-db'
+import { fakePayrollRpcs } from '@/lib/test-helpers/fake-payroll-rpc'
 import { fileDispute, loadMyPay } from '@/lib/my-pay'
 import { resolveDispute } from '@/lib/payroll-disputes'
 import { approvePayWeek } from '@/lib/payroll-approve'
@@ -33,14 +34,7 @@ function build() {
     },
     {
       relations: { user_comp_plans: { comp_plans: { table: 'comp_plans', fk: 'comp_plan_id' } } },
-      rpc: {
-        payroll_claim_period_lock: (args, tables) => {
-          const row = (tables.payroll_periods ?? []).find((r) => r.id === args.p_period_id && r.status === 'open')
-          if (!row) return false
-          row.lock_claim_token = args.p_token
-          return true
-        },
-      },
+      rpc: fakePayrollRpcs,
     }
   )
 }

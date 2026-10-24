@@ -117,7 +117,9 @@ AS $$
     FROM v
   ),
   g AS (SELECT f.*, (f.owner_like OR f.job_board OR f.manager_like OR f.closer_role OR f.base_setter OR f.inside_like) AS recognized,
-        (f.base_setter AND NOT f.inside_like) AS setter_like, (f.pricing_role AND NOT f.base_setter AND NOT f.inside_like) AS pricing_ok FROM f)
+        (f.base_setter AND NOT f.inside_like) AS setter_like, (f.pricing_role AND NOT f.base_setter AND NOT f.inside_like) AS pricing_ok,
+        -- Field roles (setters, canvassers, inside sales / call center): NEVER Production/Crew, whatever job-board grant they were given.
+        (f.base_setter OR f.inside_like) AS field_role FROM f)
   SELECT CASE
     WHEN p_audience IS NULL THEN true                       -- legacy rows: unchanged behaviour
     WHEN NOT coalesce((SELECT in_org FROM g), false) THEN false
@@ -125,9 +127,9 @@ AS $$
     WHEN NOT coalesce((SELECT recognized FROM g), false) THEN false     -- unknown roles (sub, custom-only) see nothing
     WHEN p_restricted IS TRUE AND NOT coalesce((SELECT pricing_ok FROM g), false) THEN false
     WHEN p_audience IN ('production','crew') THEN
-      coalesce((SELECT job_board OR manager_like OR own_closer FROM g), false)
+      coalesce((SELECT NOT field_role AND (job_board OR manager_like OR own_closer) FROM g), false)
     ELSE  -- team | sales
-      CASE WHEN coalesce((SELECT setter_like OR closer_role FROM g), false) THEN (p_opportunity IS NULL OR coalesce((SELECT own_deal FROM g), false))
+      CASE WHEN coalesce((SELECT setter_like OR closer_role FROM g), false) THEN (p_opportunity IS NOT NULL AND coalesce((SELECT own_deal FROM g), false))   -- no deal = not theirs (same as canReadRowOnDeal 'none')
            ELSE true END
   END;
 $$;

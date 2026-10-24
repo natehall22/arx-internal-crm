@@ -46,6 +46,16 @@ export function getLastWeeklyPayrollCutoffEtAtOrBefore(referenceUtc: Date): Date
   throw new Error('Unable to compute last weekly payroll cutoff')
 }
 
+/** The Eastern calendar date (YYYY-MM-DD) of an instant. A Wednesday-night cutoff is already Thursday in UTC, so never slice an ISO string for it. */
+export function ymdEt(d: Date): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: WEEKLY_PAYROLL_TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).format(d)
+}
+
+/** The Eastern calendar date of a period's cutoff: the one date plans, sale dates and hours are looked up by. */
+export function cutoffYmdEt(cutoffAt: string | Date): string {
+  return ymdEt(typeof cutoffAt === 'string' ? new Date(cutoffAt) : cutoffAt)
+}
+
 /** Payday for a weekly cutoff: the Friday after it (Eastern calendar date, YYYY-MM-DD). */
 export function weeklyPayrollPayDateForCutoff(cutoffUtc: Date): string {
   const local = toZonedTime(cutoffUtc, WEEKLY_PAYROLL_TZ)

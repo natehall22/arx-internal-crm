@@ -127,7 +127,19 @@ export function createFakeDb(
   }
 
   return {
-    client: { from: (t: string) => builder(t), rpc: async (name: string, args: Record<string, unknown>) => ({ data: opts.rpc?.[name]?.(args, tables) ?? null, error: null }) } as never,
+    client: { from: (t: string) => builder(t), rpc: async (name: string, args: Record<string, unknown>) => {
+      const fn = opts.rpc?.[name]
+      if (!fn) return { data: null, error: null }
+      // A handler that throws is a Postgres exception: everything it wrote is rolled back (one transaction).
+      const before = JSON.parse(JSON.stringify(tables)) as Record<string, Row[]>
+      try {
+        return { data: fn(args, tables) ?? null, error: null }
+      } catch (e) {
+        for (const k of Object.keys(tables)) delete tables[k]
+        Object.assign(tables, before)
+        return { data: null, error: { message: (e as Error).message, code: (e as { code?: string }).code } }
+      }
+    } } as never,
     tables,
     writes,
   }

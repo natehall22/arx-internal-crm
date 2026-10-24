@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
-import { getPermissions } from '@/lib/permissions'
+import { getPermissions, isFieldRoleLike } from '@/lib/permissions'
 import { ORG_SUPERUSER_ROLE_SLUGS } from '@/lib/org-role-constants'
 import type { UserRole } from '@/lib/types/database'
 
@@ -11,6 +11,13 @@ const LEGACY_ROLE_MATRIX_ALIASES: Record<string, UserRole> = {
   manager: 'sales_manager',
   closer: 'sales_rep',
 }
+
+/**
+ * Setters, canvassers and inside sales never reach production or money screens: no job board, ops dashboard, job financials or
+ * job edits — whatever a custom role or a per-user grant says. Applied BEFORE grants are returned, so every consumer (nav, Today,
+ * route guards, thread viewer, search, AI) obeys it from this one place. Owners (full access) are never field roles.
+ */
+const FIELD_ROLE_DENIED_PERMISSION_PREFIXES = ['jobs:', 'ops:']
 
 export type EffectivePermissionsResult = {
   /** Explicit full-access result from admin/owner roles or admin:full permission */
@@ -34,8 +41,13 @@ export async function resolveEffectivePermissionNames(
   }
 
   const names = new Set<string>()
+  let customRoleName: string | null = null
+  let customRoleDisplayName: string | null = null
 
   if (profile.custom_role_id) {
+    const { data: cr } = await admin.from('custom_roles').select('name, display_name').eq('id', profile.custom_role_id).maybeSingle()
+    customRoleName = (cr?.name as string | null) ?? null
+    customRoleDisplayName = (cr?.display_name as string | null) ?? null
     const { data: rps } = await admin
       .from('role_permissions')
       .select('permission:permissions(name)')
@@ -62,6 +74,13 @@ export async function resolveEffectivePermissionNames(
     const p = (row as { permission?: { name?: string } | { name?: string }[] | null }).permission
     const n = Array.isArray(p) ? p[0]?.name : p?.name
     if (n) names.add(n)
+  }
+
+  // Field-role hard deny, before any grant is honoured (see FIELD_ROLE_DENIED_PERMISSION_PREFIXES). By role and role NAME only —
+  // never inferred from permissions, so granting an ops person a queue permission cannot cost them the job board.
+  if (isFieldRoleLike({ role: roleNorm, customRoleName, customRoleDisplayName })) {
+    // (an admin:full grant is a grant too: a field role is never promoted to full access)
+    for (const n of Array.from(names)) if (n === 'admin:full' || FIELD_ROLE_DENIED_PERMISSION_PREFIXES.some((pre) => n.startsWith(pre))) names.delete(n)
   }
 
   if (names.has('admin:full')) {
