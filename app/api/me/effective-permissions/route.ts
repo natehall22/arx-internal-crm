@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 import { requireAuthApi } from '@/lib/auth'
+import { isPayWeekEnabled } from '@/lib/payroll-flag'
 import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
@@ -20,6 +21,8 @@ export async function GET() {
       role: profile.role,
       fullAccess,
       permissions: Array.from(permissionNames).sort(),
+      // Server-side feature flags the client navigation needs (the new payroll screens ship OFF).
+      flags: { payWeek: isPayWeekEnabled() },
     })
   } catch (e) {
     if (e instanceof Error && (e.message === 'Unauthorized' || e.message === 'Account disabled')) {

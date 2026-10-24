@@ -2,12 +2,14 @@
 import { NextResponse } from 'next/server'
 
 import { requireAuthApi } from '@/lib/auth'
+import { isPayWeekEnabled } from '@/lib/payroll-flag'
 import { canSeeMyPay, loadMyPay } from '@/lib/my-pay'
 import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
 
 export async function GET() {
+  if (!isPayWeekEnabled()) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   let ctx
   try {
     ctx = await requireAuthApi()

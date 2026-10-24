@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
-import { weeklyPayrollPayDateForCutoff, ymdEt } from '@/lib/weekly-payroll/cutoff'
+import { addEasternDays, weeklyPayrollPayDateForCutoff, ymdEt } from '@/lib/weekly-payroll/cutoff'
 
 /**
  * The OPEN weekly period one week after `cutoffAt`, created if it does not exist yet (nothing to set up). An existing
@@ -11,7 +11,8 @@ export async function ensureNextOpenPeriod(admin: SupabaseClient, orgId: string,
   // is already approved is skipped (a fix for an old week lands on the next week that can still change); a week that
   // does not exist yet is created.
   for (let k = 1; k <= 8; k++) {
-    const target = new Date(new Date(cutoffAt).getTime() + k * 7 * 86_400_000)
+    // Eastern calendar weeks, rebuilt with the timezone database (a fixed 7 x 24h is an hour off across a clock change).
+    const target = addEasternDays(cutoffAt, k * 7)
     const from = new Date(target.getTime() - 36 * 3_600_000).toISOString()
     const to = new Date(target.getTime() + 36 * 3_600_000).toISOString()
     const find = async () => {
@@ -38,12 +39,19 @@ export async function ensureNextOpenPeriod(admin: SupabaseClient, orgId: string,
   throw new Error('Could not find an open week to put this on')
 }
 
-/** The message the three payroll writers show while a week is being approved (the database refuses their write). */
+/** The message the payroll writers show while a week is being approved (the database refuses their write). */
 export const PERIOD_CLAIMED_MESSAGE = 'This week is being approved right now. Try again in a minute.'
+export const PERIOD_CLOSED_MESSAGE = 'This week is already approved, so its hours, bonuses and fixes can no longer change. Put the fix on the next open week.'
 
-/** True when Postgres refused a write because the week holds a live approval claim (trigger payroll_guard_claimed_period). */
+/** True when Postgres refused a payroll write for the week's state (SQLSTATE 55006: live approval claim, week already approved, or week frozen). */
 export function isPeriodClaimedError(error: unknown): boolean {
   if (!error || typeof error !== 'object') return false
   const { code, message } = error as { code?: unknown; message?: unknown }
-  return code === '55006' || (typeof message === 'string' && message.includes('payroll_period_claimed'))
+  return code === '55006' || (typeof message === 'string' && /payroll_period_(claimed|not_open|frozen)/.test(message))
+}
+
+/** The plain-English reason for such a refusal. */
+export function periodRefusalMessage(error: unknown): string {
+  const msg = String((error as { message?: unknown } | null)?.message ?? '')
+  return /payroll_period_(not_open|frozen)/.test(msg) ? PERIOD_CLOSED_MESSAGE : PERIOD_CLAIMED_MESSAGE
 }

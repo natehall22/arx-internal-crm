@@ -11,7 +11,7 @@ import fs from 'fs'
 import path from 'path'
 
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
-import { canAccessJobBoardFromPermissionNames } from '@/lib/permissions'
+import { canAccessJobBoardFromPermissionNames, FIELD_ROLE_NAME_PATTERN, FIELD_ROLE_SLUGS, isFieldRoleLike } from '@/lib/permissions'
 import { canReadJobNotes } from '@/lib/ops-access'
 
 const SQL = fs.readFileSync(
@@ -21,8 +21,11 @@ const SQL = fs.readFileSync(
 const BODY = SQL.split('\n').filter((l) => !l.trim().startsWith('--')).join('\n')
 // The CURRENT definition of the function (it was replaced by the field-role deny).
 const FN_SQL = fs.readFileSync(path.resolve(__dirname, '../../supabase/migrations/202610280010_atomic_approve_and_field_role_deny.sql'), 'utf8')
-const FN_BODY = FN_SQL.slice(FN_SQL.indexOf('CREATE OR REPLACE FUNCTION public.can_view_job_board')).split('\n').filter((l) => !l.trim().startsWith('--')).join('\n')
-const FIELD_ROLES = ((FN_BODY.match(/u\.role IN \(([^)]*)\)/) || [])[1] || '').split(',').map((x) => x.trim().replace(/'/g, '')).filter(Boolean)
+const FN_BODY = FN_SQL.slice(FN_SQL.indexOf('CREATE OR REPLACE FUNCTION arx_private.can_view_job_board')).split('\n').filter((l) => !l.trim().startsWith('--')).join('\n')
+const FIELD_FN = FN_SQL.slice(FN_SQL.indexOf('CREATE OR REPLACE FUNCTION arx_private.is_field_role'), FN_SQL.indexOf('-- 6. Private evaluators'))
+// the ONE SQL classification: its role list and its name regex are parsed out of the migration and compared with the TS twin
+const FIELD_ROLES = ((FIELD_FN.match(/IN \(([^)]*)\)/) || [])[1] || '').split(',').map((x) => x.trim().replace(/'/g, '')).filter(Boolean)
+const SQL_NAME_PATTERN = (FIELD_FN.match(/~ '(\(\^\|\[\^a-z\]\)[^']*)'/) || [])[1] || ''
 
 /** Every users.role enum value in prod (2026-10-21) plus every TS UserRole. */
 const ALL_ROLES = [
@@ -64,7 +67,7 @@ function sqlCanViewJobBoard(role: string, opts: { customRole?: string[]; userPer
   if (SQL_SUPERUSER_ROLES.includes(role)) return true
   // Field roles (by role slug, or a custom role NAMED inside sales / call center): denied BEFORE any grant.
   const crname = (opts.customRoleName ?? '').toLowerCase()
-  if (FIELD_ROLES.includes(role) || /inside sales|inside_sales|call center|call_center/.test(crname)) return false
+  if (FIELD_ROLES.includes(role) || (!/manager/.test(crname) && new RegExp(SQL_NAME_PATTERN).test(crname))) return false
   if (!opts.customRole && legacyRoles.includes(role)) return true
   const names = [...(opts.customRole ?? []), ...(opts.userPerms ?? [])]
   return names.some((n) => SQL_PERMISSION_NAMES.includes(n))
@@ -95,8 +98,21 @@ describe('can_view_job_board (SQL) matches canReadJobNotes (TS) for every role',
     expect(sqlCanViewJobBoard(role, o)).toBe(await tsCanReadJobNotes(role, o))
   })
 
-  it('the field-role list in SQL is exactly the roles the TS deny covers (setter, canvasser, inside sales, call center)', () => {
-    expect(FIELD_ROLES.sort()).toEqual(['call_center', 'canvasser', 'inside sales', 'inside_sales', 'setter'])
+  it('the field-role list and name pattern in SQL are exactly the TypeScript ones (one shared classification)', () => {
+    expect([...FIELD_ROLES].sort()).toEqual([...FIELD_ROLE_SLUGS].sort())
+    expect(SQL_NAME_PATTERN).toBe(FIELD_ROLE_NAME_PATTERN)
+  })
+
+  it.each([
+    ['custom', 'Setter', 'Setter', true], ['custom', 'canvasser_lead', 'Canvasser Lead', true], ['custom', 'Inside Sales Plus', 'Inside Sales Plus', true],
+    ['custom', 'call_center_rep', 'Call Center Rep', true], ['custom', 'setter_manager', 'Setter Manager', false], ['custom', 'ops_lead', 'Ops Lead', false],
+    ['setter', '', '', true], ['canvasser', '', '', true], ['inside_sales', '', '', true], ['call_center', '', '', true], ['admin', '', '', false], ['operations', '', '', false],
+    ['custom', 'Closer', 'Sales Closer', false], ['custom', 'subsetter', 'Subsetter', false],
+  ] as const)('classification vector: role %s / custom "%s" / "%s" -> field role = %s (TS and SQL pattern agree)', (role, name, display, expected) => {
+    expect(isFieldRoleLike({ role, customRoleName: name, customRoleDisplayName: display })).toBe(expected)
+    const crname = `${name} ${display}`.toLowerCase()
+    const sql = FIELD_ROLES.includes(role) || (!/manager/.test(crname) && new RegExp(SQL_NAME_PATTERN).test(crname))
+    expect(sql).toBe(expected)
   })
 
   it.each(ALL_ROLES)('role %s handed every job grant by a user grant: SQL and TS deny the same people', async (role) => {
@@ -104,7 +120,7 @@ describe('can_view_job_board (SQL) matches canReadJobNotes (TS) for every role',
     expect(sqlCanViewJobBoard(role, o)).toBe(await tsCanReadJobNotes(role, o))
   })
 
-  it.each(['Inside Sales Plus', 'call_center_rep', 'Call Center'])('a custom role named %s with job grants is denied in SQL and TS alike', async (customRoleName) => {
+  it.each(['Inside Sales Plus', 'call_center_rep', 'Call Center', 'Setter', 'Canvasser Lead'])('a custom role named %s with job grants is denied in SQL and TS alike', async (customRoleName) => {
     const o = { customRole: ['jobs:view', 'jobs:edit'], customRoleName }
     expect(sqlCanViewJobBoard('custom', o)).toBe(await tsCanReadJobNotes('custom', o))
     expect(await tsCanReadJobNotes('custom', o)).toBe(false)

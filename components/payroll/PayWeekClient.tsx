@@ -290,7 +290,7 @@ export default function PayWeekClient() {
       {draft ? (
         <div className="fixed inset-x-0 bottom-0 z-30 border-t border-surface-line bg-surface md:left-60 print:hidden" style={{ bottom: 'var(--pay-footer-offset, 0px)' }}>
           <div className="mx-auto flex max-w-3xl flex-col gap-1 px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
-            <Button size="md" className="min-h-[3.5rem] w-full text-ui-lg" disabled={week.totals.amount <= 0} onClick={() => setConfirming(true)}>Approve {formatMoney(week.totals.amount)}</Button>
+            <Button size="md" className="min-h-[3.5rem] w-full text-ui-lg" disabled={!week.canApprove} onClick={() => setConfirming(true)}>Approve {formatMoney(week.totals.amount)}</Button>
             <p className="text-center text-ui-sm text-ink-muted">{openNeeds.length ? `${openNeeds.length} item${openNeeds.length > 1 ? 's' : ''} above not done — they wait for next week. ` : ''}{week.totals.people} {week.totals.people === 1 ? 'person' : 'people'} · payday {formatDateWeekday(week.period.payDate)}</p>
           </div>
         </div>

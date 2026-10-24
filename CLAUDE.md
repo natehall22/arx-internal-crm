@@ -123,6 +123,8 @@ listed file, migrate it.
 
 | 15 | **"What is a person's total for a pay week" exists three times:** `composeWeek` (`lib/payroll-pay-week.ts`), SQL `payroll_week_person_totals` (the atomic-approve validator) and the fake RPC mirror in `lib/test-helpers/fake-payroll-rpc.ts`. Also dead since the atomic approve: SQL `payroll_discard_lineless_job_snapshot`. | 3 copies | Medium — a new pay-line kind must be added in all three or Approve refuses every week. The SQL runs against Postgres in `supabase/tests/run-release-2026-10-batch.sh`. Fold into one definition when payroll is next restructured. |
 
+| 15 | **Two payroll lock paths while `PAYROLL_PAY_WEEK_ENABLED` is off (2026-10-24).** `lib/legacy-payroll-lock.ts` + `lib/legacy-payroll-materialization.ts` are main's pre-atomic lock/eligibility code kept so the release ships with payroll unchanged; `lib/payroll-period-materialization.ts` (`planPayrollPeriod`, `derivePayrollEligibility`) + `payroll_commit_week` are the new one. Delete the legacy pair, the restored old payroll pages/routes (`app/admin/payroll/{periods,weekly,statements,[periodId]}`, `LegacyPayrollPage.tsx`, `lib/weekly-payroll/{commission-base,eligibility,explicit-rules,index}.ts`) and the build-time redirect conditional in `next.config.js` the day the flag is turned on for good. | 2 lock paths | Medium — a payroll rule fixed in one and not the other. |
+
 **Rule going forward:** items 1, 3b, 4 and 5 are the ones that can cause a real incident.
 Fix opportunistically — when a task already touches one of these files, migrate
 that file rather than extending the pattern.

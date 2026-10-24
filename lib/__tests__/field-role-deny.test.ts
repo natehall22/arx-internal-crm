@@ -71,6 +71,18 @@ describe('the permission resolver strips job/ops grants from field roles', () =>
     expect(Array.from(r.permissionNames).filter((n) => /^(jobs|ops):/.test(n))).toEqual([])
   })
 
+  it.each([['Setter', 'Setter'], ['canvasser_lead', 'Canvasser Lead'], ['Call Center Rep', 'call_center_rep'], ['setters', 'Setters'], ['canvassers', 'Canvassers'], ['inside-sales', 'Inside-Sales'], ['call_centre', 'Call Centre']])('a custom role named "%s" holding every job grant gets nothing (setter / canvasser / call center named roles are field roles)', async (name, display) => {
+    const r = await resolveEffectivePermissionNames(adminWith({ roleGrants: GRANTED, customRole: { name, display_name: display } }), 'u9', { role: 'custom', custom_role_id: 'crX' })
+    expect(Array.from(r.permissionNames).filter((n) => /^(jobs|ops):/.test(n))).toEqual([])
+    const access = await resolveOpsAccess(adminWith({ roleGrants: GRANTED, customRole: { name, display_name: display } }), 'u9', { role: 'custom', custom_role_id: 'crX' })
+    expect(access).toMatchObject({ canJobBoard: false, canEditJobs: false, canViewJobFinancials: false, canOpsDashboard: false })
+  })
+
+  it('a Setter Manager custom role is a manager, not a field role: it keeps its grants', async () => {
+    const r = await resolveEffectivePermissionNames(adminWith({ roleGrants: GRANTED, customRole: { name: 'setter_manager', display_name: 'Setter Manager' } }), 'u8', { role: 'custom', custom_role_id: 'crM' })
+    expect(r.permissionNames.has('jobs:view')).toBe(true)
+  })
+
   it('an ops-style custom role with the same grants keeps them (the deny is by role, never inferred)', async () => {
     const r = await resolveEffectivePermissionNames(adminWith({ roleGrants: GRANTED, customRole: { name: 'ops_lead', display_name: 'Ops Lead' } }), 'u3', { role: 'custom', custom_role_id: 'cr2' })
     expect(r.permissionNames.has('jobs:view')).toBe(true)

@@ -3,7 +3,6 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { roundMoney } from '@/lib/money'
 import { loadPayWeekFull, type PayWeekFull } from '@/lib/payroll-pay-week'
-import { ensureNextOpenPeriod } from '@/lib/payroll-periods'
 
 export const PAYROLL_PERIOD_COLUMNS =
   'id, period_label, cutoff_at, lock_at, scheduled_pay_date, status, locked_at, paid_at, created_at'
@@ -43,6 +42,8 @@ export function mapCommitError(error: { message?: string; code?: string }, compu
   if (/payroll_commit:(total_mismatch|job_changed)|payroll_already_paid/.test(msg)) {
     return { ok: false, status: 409, body: { error: 'The numbers changed while approving. Nothing was paid; review them again.', code: 'changed', total: computedTotal } }
   }
+  if (/payroll_commit:next_week_busy/.test(msg)) return { ok: false, status: 409, body: { error: 'Next week is being approved right now, so a balance cannot be carried into it. Try again in a minute. Nothing was paid.', code: 'next_week_busy' } }
+  if (/payroll_commit:no_next_period/.test(msg)) return { ok: false, status: 409, body: { error: 'There is no open week to carry a negative balance into. Nothing was paid.', code: 'no_next_period' } }
   if (/payroll_commit:not_found/.test(msg)) return { ok: false, status: 404, body: { error: 'Week not found' } }
   console.error('payroll_commit_week', error)
   return { ok: false, status: 500, body: { error: 'Could not approve. Nothing was paid; refresh and try again.' } }
@@ -104,12 +105,8 @@ export async function lockPayrollPeriod(
       return { ok: false, status: 409, body: { error: 'The numbers changed while you were looking. Review them again.', code: 'changed', total: computed } }
     }
     const plan = buildCommitPlan(full)
-    const hasNegative = full.week.people.some((p) => p.raw < 0)
-    // A $0 week still approves when there are snapshots to write (jobs that pay nothing) or a balance to carry.
-    if (computed <= 0 && plan.jobs.length === 0 && !hasNegative) {
-      return { ok: false, status: 409, body: { error: 'Nothing to pay this week' } }
-    }
-    const next = hasNegative ? await ensureNextOpenPeriod(supabase, orgId, full.week.period.cutoffAt) : null
+    // The server's own answer (the screen uses the same flag): jobs to snapshot or balances to carry count even at $0 payable.
+    if (!full.week.canApprove) return { ok: false, status: 409, body: { error: 'Nothing to pay this week' } }
 
     const { data, error } = await supabase.rpc('payroll_commit_week', {
       p_org_id: orgId,
@@ -117,7 +114,6 @@ export async function lockPayrollPeriod(
       p_token: lockToken,
       p_actor_user_id: actorUserId,
       p_expected_total: computed,
-      p_next_period_id: next?.id ?? null,
       p_plan: plan,
     })
     if (error) return mapCommitError(error, computed)

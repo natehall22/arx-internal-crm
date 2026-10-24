@@ -457,14 +457,21 @@ export function isBarredFromSalesDocAccess(
 }
 
 /**
- * Field roles for the job/ops hard deny: everyone barred from sales docs (setters, canvassers, inside sales) PLUS custom roles
- * named for the call center. By role slug and role NAME only, never inferred from permissions. Mirrors the SQL in
- * can_view_job_board / message_visible_to (migration 202610280010); lib/__tests__/job-notes-rls-parity.test.ts keeps them equal.
+ * THE field-role classification (TypeScript side). Setters, canvassers, inside sales and call center — by role slug OR by custom-role
+ * NAME (name + display name, lowercased, joined by one space) containing one of those words, unless it is a manager role
+ * ("Setter Manager" runs setters; it is not one). By role/name only, never inferred from permissions. The SQL twin is
+ * arx_private.is_field_role() (migration 202610280010); lib/__tests__/job-notes-rls-parity.test.ts keeps the two equal.
  */
+export const FIELD_ROLE_SLUGS: readonly string[] = ['setter', 'canvasser', 'inside_sales', 'inside sales', 'call_center', 'call center']
+export const FIELD_ROLE_NAME_PATTERN = '(^|[^a-z])(setter|canvasser|inside[ _-]?sales|call[ _-]?cent(er|re))s?([^a-z]|$)'
+const FIELD_ROLE_NAME_RE = new RegExp(FIELD_ROLE_NAME_PATTERN)
+
 export function isFieldRoleLike(input: SalesDocAccessInput | null | undefined): boolean {
   if (!input) return false
-  if (isBarredFromSalesDocAccess(input)) return true
-  return /call[ _]center/i.test(`${input.customRoleName ?? ''} ${input.customRoleDisplayName ?? ''}`)
+  const role = String(input.role ?? '').toLowerCase().trim()
+  if (FIELD_ROLE_SLUGS.includes(role)) return true
+  const crname = `${input.customRoleName ?? ''} ${input.customRoleDisplayName ?? ''}`.toLowerCase()
+  return !/manager/.test(crname) && FIELD_ROLE_NAME_RE.test(crname)
 }
 
 /**

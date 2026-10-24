@@ -5,7 +5,7 @@ import { fakePayrollRpcs } from '@/lib/test-helpers/fake-payroll-rpc'
 import { addAdjustment } from '@/lib/payroll-adjustments'
 import { approvePayWeek } from '@/lib/payroll-approve'
 import { loadHourlyRoster } from '@/lib/payroll-hours'
-import { isPeriodClaimedError } from '@/lib/payroll-periods'
+import { isPeriodClaimedError, periodRefusalMessage, PERIOD_CLAIMED_MESSAGE, PERIOD_CLOSED_MESSAGE } from '@/lib/payroll-periods'
 import { loadPayWeek } from '@/lib/payroll-pay-week'
 import { planPayrollPeriod } from '@/lib/payroll-period-materialization'
 import { mapCommitError } from '@/lib/payroll-period-lock'
@@ -261,5 +261,50 @@ describe('review fixes', () => {
     const draft = await loadPayWeek(db.client, ORG, NOW)
     expect(draft.totals.amount).toBe(100)
     expect((await approvePayWeek(db.client, { orgId: ORG, actorUserId: 'a', periodId: week.period.id, expectedTotal: 100, now: NOW })).ok).toBe(true)
+  })
+})
+
+describe('canApprove is decided by the server', () => {
+  it('true for a $0 week that has a negative balance to carry, false when there is truly nothing to do', async () => {
+    const db = build({ production_jobs: [] })
+    const week = await loadPayWeek(db.client, ORG, NOW)
+    expect(week.canApprove).toBe(false) // nothing at all
+    await addAdjustment(db.client, { orgId: ORG, actorUserId: 'a', viewedPeriodId: week.period.id, userId: 's1', amount: -300, reason: 'clawback' })
+    const withDebt = await loadPayWeek(db.client, ORG, NOW)
+    expect(withDebt.totals.amount).toBe(0)
+    expect(withDebt.canApprove).toBe(true) // $0 payable, but a balance to carry
+  })
+
+  it('true when there are jobs to snapshot even if they pay $0 in total; the paying week is true; an approved week is false', async () => {
+    const db = build()
+    const week = await loadPayWeek(db.client, ORG, NOW)
+    expect(week.canApprove).toBe(true)
+    await approvePayWeek(db.client, { orgId: ORG, actorUserId: 'a', periodId: week.period.id, expectedTotal: week.totals.amount, now: NOW })
+    expect((await loadPayWeek(db.client, ORG, NOW, week.period.id)).canApprove).toBe(false)
+  })
+
+  it('a $0 week with jobs to snapshot approves (setter + closer on 0% plans)', async () => {
+    const zero = (id: string) => ({ id, name: id, plan_type: 'percentage', base_percentage: 0, is_active: true, org_id: ORG })
+    const db = build({ comp_plans: [zero('plan-closer'), zero('plan-setter')] })
+    const week = await loadPayWeek(db.client, ORG, NOW)
+    expect(week.totals.amount).toBe(0)
+    if (week.canApprove) {
+      const res = await approvePayWeek(db.client, { orgId: ORG, actorUserId: 'a', periodId: week.period.id, expectedTotal: 0, now: NOW })
+      expect(res.ok).toBe(true)
+      expect(db.tables.payroll_job_snapshots ?? []).toHaveLength(1)
+    }
+  })
+})
+
+describe('refusals', () => {
+  it('maps the new commit refusals to plain 409s', () => {
+    expect(mapCommitError({ message: 'payroll_commit:next_week_busy' }, 1)).toMatchObject({ ok: false, status: 409, body: { code: 'next_week_busy' } })
+    expect(mapCommitError({ message: 'payroll_commit:no_next_period' }, 1)).toMatchObject({ ok: false, status: 409, body: { code: 'no_next_period' } })
+  })
+  it('tells a claimed week from an already-approved one', () => {
+    expect(isPeriodClaimedError({ code: '55006', message: 'payroll_period_not_open: x' })).toBe(true)
+    expect(periodRefusalMessage({ message: 'payroll_period_claimed: x' })).toBe(PERIOD_CLAIMED_MESSAGE)
+    expect(periodRefusalMessage({ message: 'payroll_period_not_open: x' })).toBe(PERIOD_CLOSED_MESSAGE)
+    expect(periodRefusalMessage({ message: 'payroll_period_frozen: x' })).toBe(PERIOD_CLOSED_MESSAGE)
   })
 })

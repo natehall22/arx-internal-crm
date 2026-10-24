@@ -3,6 +3,8 @@
  * SQL is exercised against Postgres in the dress rehearsal; these keep the TypeScript tests honest about what the
  * database does on success and on every refusal (a thrown error rolls the whole fake database back, see fake-db.ts).
  */
+import { addEasternDays, cutoffYmdEt, weeklyPayrollPayDateForCutoff } from '@/lib/weekly-payroll/cutoff'
+
 type Row = Record<string, unknown>
 type Tables = Record<string, Row[]>
 const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100
@@ -77,10 +79,25 @@ export const fakePayrollRpcs: Record<string, (args: Record<string, unknown>, tab
     const negatives = Array.from(totals.entries()).filter(([, v]) => v < 0)
     let carried = 0
     if (negatives.length) {
-      if (!args.p_next_period_id) throw new Error('payroll_commit:no_next_period')
+      // find-or-create the next OPEN week in the same transaction (Eastern calendar weeks), verify it is not mid-approval
+      let target: Row | null = null
+      for (let k = 1; k <= 8 && !target; k++) {
+        const tc = addEasternDays(String(period.cutoff_at), 7 * k)
+        const near = () => (tables.payroll_periods ?? []).find((p) => p.org_id === orgId && p.status !== 'cancelled' && Math.abs(new Date(String(p.cutoff_at)).getTime() - tc.getTime()) <= 36 * 3_600_000)
+        let cand = near()
+        if (!cand) {
+          tables.payroll_periods.push({ id: id('wk'), org_id: orgId, period_label: `Week ending ${cutoffYmdEt(tc)}`, cutoff_at: tc.toISOString(), lock_at: tc.toISOString(), scheduled_pay_date: weeklyPayrollPayDateForCutoff(tc), status: 'open', created_at: new Date().toISOString() })
+          cand = near()
+        }
+        if (cand && cand.status === 'open') {
+          if (cand.lock_claim_token) throw new Error('payroll_commit:next_week_busy')
+          target = cand
+        }
+      }
+      if (!target) throw new Error('payroll_commit:no_next_period')
       for (const [userId, amount] of negatives) {
         if (tables.payroll_adjustments.some((a) => a.kind === 'balance' && a.status !== 'void' && a.source_period_id === periodId && a.user_id === userId)) continue
-        tables.payroll_adjustments.push({ id: id('adj'), org_id: orgId, payroll_period_id: args.p_next_period_id, user_id: userId, amount, reason: 'Carried over', kind: 'balance', status: 'pending', source_period_id: periodId, created_by: args.p_actor_user_id })
+        tables.payroll_adjustments.push({ id: id('adj'), org_id: orgId, payroll_period_id: target.id, user_id: userId, amount, reason: 'Carried over', kind: 'balance', status: 'pending', source_period_id: periodId, created_by: args.p_actor_user_id })
         carried += 1
       }
     }

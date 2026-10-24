@@ -3,7 +3,7 @@ import { requireAuthApi } from '@/lib/auth'
 import { isPayrollAdminRole, isRegionalBonusApproverRole } from '@/lib/payroll-admin-access'
 import { isUserInManagerHierarchy } from '@/lib/payroll-statement-access'
 import { createServiceClient } from '@/lib/supabase/service'
-import { isPeriodClaimedError, PERIOD_CLAIMED_MESSAGE } from '@/lib/payroll-periods'
+import { isPeriodClaimedError, periodRefusalMessage } from '@/lib/payroll-periods'
 
 export const dynamic = 'force-dynamic'
 
@@ -147,7 +147,7 @@ export async function PATCH(
       .maybeSingle()
 
     if (isPeriodClaimedError(updateError)) {
-      return NextResponse.json({ error: PERIOD_CLAIMED_MESSAGE }, { status: 409 })
+      return NextResponse.json({ error: periodRefusalMessage(updateError) }, { status: 409 })
     }
     if (updateError) {
       return NextResponse.json({ error: updateError.message }, { status: 500 })

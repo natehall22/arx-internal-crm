@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
+import { legacyLockPayrollPeriod } from '@/lib/legacy-payroll-lock'
+import { isPayWeekEnabled } from '@/lib/payroll-flag'
 import { isPayrollAdminRole } from '@/lib/payroll-admin-access'
 import { PAYROLL_PERIOD_COLUMNS as PERIOD_COLUMNS } from '@/lib/payroll-period-lock'
 
@@ -73,8 +75,12 @@ export async function PATCH(
     const now = new Date().toISOString()
 
     if (body.action === 'lock') {
-      // One lock path: "Pay this week → Approve" (POST /api/admin/payroll/pay-week/approve), which commits the week atomically
-      // and only for the total the admin was shown. The old period API had no total to check against.
+      if (!isPayWeekEnabled()) {
+        // Flag off (ship default): the lock exactly as main ran it.
+        return legacyLockPayrollPeriod(supabase, { orgId, periodId, actorUserId: profile.id, status: existing.status, now })
+      }
+      // One lock path once the flag is on: "Pay this week → Approve" (POST /api/admin/payroll/pay-week/approve), which commits the week
+      // atomically and only for the total the admin was shown. The old period API had no total to check against.
       return NextResponse.json({ error: 'Approve the week from Pay this week.', code: 'use_pay_this_week' }, { status: 410 })
     }
 
@@ -110,6 +116,9 @@ export async function PATCH(
         p_action: body.action,
         p_actor_user_id: profile.id,
       })
+      if (rpcErr && /payroll_period_frozen/.test(String(rpcErr.message ?? ''))) {
+        return NextResponse.json({ error: 'This approved week holds frozen pay, applied fixes or a carried balance and cannot be reopened or cancelled. Correct it with a fix on the next open week.', code: 'period_frozen' }, { status: 409 })
+      }
       if (rpcErr) {
         console.error(`period ${body.action}`, rpcErr)
         return NextResponse.json({ error: `Failed to ${body.action} period` }, { status: 500 })

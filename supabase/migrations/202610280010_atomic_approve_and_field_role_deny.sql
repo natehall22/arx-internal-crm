@@ -1,27 +1,46 @@
--- Payroll Approve as ONE atomic database step. Additive: one table, one column, three functions, three triggers.
+-- Payroll Approve as ONE atomic database step + the field-role hard deny. Additive tables/columns; replaces three live functions.
 --
 -- Before: Approve = claim -> (TypeScript) write snapshots/lines one request at a time -> flip to locked -> mark fixes applied
 -- -> carry negative balances, with "undo" code for the failures. A crash or a write between those calls left a half-written week,
 -- and the hours / bonus / fix writers only checked "is the week claimed?" in TypeScript, then wrote (check-then-write race).
 --
 -- After:
---   1. payroll_guard_claimed_period() — a trigger on payroll_rep_hours, payroll_bonus_lines and payroll_adjustments refuses any
---      insert/update/delete on a period that holds a LIVE lock claim (the claim is taken before the plan is computed and held until
---      the commit). The trigger takes the period row FOR SHARE, so a writer that is mid-flight makes the claim wait for it, and a
---      claim that is already held makes the writer fail. Atomic with the writer's own transaction.
+--   1. payroll_guard_claimed_period() — a trigger on payroll_rep_hours, payroll_bonus_lines and payroll_adjustments. Under a
+--      FOR SHARE lock on the period row it refuses a write when the period holds a LIVE lock claim OR is not 'open'. A writer that
+--      was waiting on a claim re-reads the committed row afterwards, sees 'locked', and is refused. Money lines of a closed week can
+--      never change; only the moves that cannot change a check are allowed (a pending bonus landing on / leaving a closed week, a
+--      bonus marked paid, a pending bonus moved onto an OPEN week).
 --   2. payroll_commit_week() — claim holder only: writes the period snapshot, every job snapshot + payout line + job_payroll_state,
 --      the frozen per-unit earnings, re-reads every person's total from the tables and REFUSES unless it equals the total the
---      admin approved, carries negative checks to the next week, marks the week's fixes applied and flips the period to locked.
---      Any failure raises and Postgres rolls the whole thing back.
+--      admin approved, finds-or-creates next week IN THE SAME TRANSACTION, locks it, verifies it is open and unclaimed, carries
+--      negative checks into it, marks the week's fixes applied and flips the period to locked. Any failure rolls everything back.
 --   3. payroll_unit_earnings — per-unit pay is stored at approval, so a locked/paid week never recalculates it.
+--   4. payroll_guard_frozen_period_status() — an approved week that holds frozen unit pay, applied fixes or carried balances can
+--      never be reopened or cancelled (the carry would be orphaned).
+--   5. Field roles (setter, canvasser, inside sales, call center — by role slug OR custom-role NAME) NEVER read the job board,
+--      Production/Crew messages or pricing. ONE definition: arx_private.is_field_role(); lib/permissions.ts isFieldRoleLike mirrors
+--      it and job-notes-rls-parity.test.ts keeps them equal.
+--   6. The SECURITY DEFINER evaluators moved to the private schema arx_private (service-only). The public can_view_job_board() /
+--      message_visible_to() are thin wrappers bound to auth.uid(): a signed-in user can no longer probe another person's access.
 --
 -- Rollback (nothing here changes existing rows):
 --   DROP TRIGGER trg_guard_claimed_period ON payroll_rep_hours; (and on payroll_bonus_lines, payroll_adjustments)
---   DROP FUNCTION payroll_commit_week(uuid,uuid,uuid,uuid,numeric,uuid,jsonb), payroll_week_person_totals(uuid,uuid),
---                 payroll_guard_claimed_period();
+--   DROP TRIGGER trg_guard_frozen_period_status ON payroll_periods;
+--   DROP FUNCTION payroll_commit_week(uuid,uuid,uuid,uuid,numeric,jsonb), payroll_week_person_totals(uuid,uuid),
+--                 payroll_guard_claimed_period(), payroll_guard_frozen_period_status();
 --   ALTER TABLE payroll_periods DROP COLUMN units_frozen_at;  DROP TABLE payroll_unit_earnings;
--- (Run AFTER 202610250010_payroll_adjustments.sql: the trigger and the carry reference payroll_adjustments.)
--- Also (section 5): can_view_job_board() gains a field-role hard deny (see there for its rollback).
+--   Re-create the previous public.can_view_job_board(uuid) (admin/owner OR legacy `operations` OR a jobs:view / jobs:edit / admin:full
+--   grant) and the 202610270010 body of public.message_visible_to(); then DROP SCHEMA arx_private CASCADE.
+-- (Run AFTER 202610250010_payroll_adjustments.sql and 202610270010_threads_audiences.sql.)
+
+-- 0. Private schema (service-only) -----------------------------------------------------------------------------------
+CREATE SCHEMA IF NOT EXISTS arx_private;
+REVOKE ALL ON SCHEMA arx_private FROM PUBLIC;
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN REVOKE ALL ON SCHEMA arx_private FROM anon; END IF;
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN REVOKE ALL ON SCHEMA arx_private FROM authenticated; END IF;
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN GRANT USAGE ON SCHEMA arx_private TO service_role; END IF;
+END $$;
 
 -- 1. Frozen per-unit earnings ----------------------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS payroll_unit_earnings (
@@ -41,7 +60,7 @@ COMMENT ON TABLE payroll_unit_earnings IS 'Per-unit pay frozen when a week is ap
 ALTER TABLE payroll_periods ADD COLUMN IF NOT EXISTS units_frozen_at TIMESTAMPTZ;
 COMMENT ON COLUMN payroll_periods.units_frozen_at IS 'Set by payroll_commit_week. NULL on a locked period = locked before per-unit pay was frozen (readers recompute, as they always did).';
 
--- 2. Claim guard on the three writers --------------------------------------------------------------------------------
+-- 2. Writer guard: live claim OR closed week ------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.payroll_guard_claimed_period()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -49,25 +68,51 @@ SET search_path = public
 AS $$
 DECLARE
   v_period uuid;
+  v_status text;
   v_live boolean;
+  v_is_bonus boolean := (TG_TABLE_NAME = 'payroll_bonus_lines');
+  v_old_p uuid;
+  v_new_p uuid;
+  v_old_money boolean := false;   -- the row counted toward a check before this write (approved / paid bonus)
+  v_new_money boolean := false;   -- ... and after it
+  v_paid_only boolean := false;   -- an approved bonus being marked paid, nothing else changed
 BEGIN
   -- payroll_commit_week writes under the claim it holds.
   IF current_setting('arx.payroll_commit', true) = 'on' THEN
     IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
     RETURN NEW;
   END IF;
-  FOR v_period IN
-    SELECT DISTINCT x FROM (
-      SELECT CASE WHEN TG_OP IN ('UPDATE', 'DELETE') THEN OLD.payroll_period_id END AS x
-      UNION ALL
-      SELECT CASE WHEN TG_OP IN ('INSERT', 'UPDATE') THEN NEW.payroll_period_id END
-    ) s WHERE x IS NOT NULL
-  LOOP
-    -- FOR SHARE: a claim (an UPDATE of this row) waits for any writer already in flight; a claim already held is seen here.
-    SELECT (lock_claim_token IS NOT NULL AND lock_claimed_at IS NOT NULL AND lock_claimed_at > now() - interval '15 minutes')
-      INTO v_live FROM payroll_periods WHERE id = v_period FOR SHARE;
+  IF TG_OP IN ('UPDATE', 'DELETE') THEN v_old_p := OLD.payroll_period_id; END IF;
+  IF TG_OP IN ('INSERT', 'UPDATE') THEN v_new_p := NEW.payroll_period_id; END IF;
+  IF v_is_bonus THEN
+    IF TG_OP IN ('UPDATE', 'DELETE') THEN v_old_money := OLD.status::text IN ('approved', 'paid'); END IF;
+    IF TG_OP IN ('INSERT', 'UPDATE') THEN v_new_money := NEW.status::text IN ('approved', 'paid'); END IF;
+    IF TG_OP = 'UPDATE' THEN
+      v_paid_only := OLD.status::text = 'approved' AND NEW.status::text = 'paid' AND OLD.amount = NEW.amount AND OLD.user_id = NEW.user_id;
+    END IF;
+  END IF;
+
+  FOR v_period IN SELECT DISTINCT x FROM unnest(ARRAY[v_old_p, v_new_p]) AS x WHERE x IS NOT NULL LOOP
+    -- FOR SHARE: a claim / commit (an UPDATE of this row) waits for a writer already in flight, and a writer that waited for a
+    -- claim re-reads the COMMITTED row (now 'locked') here.
+    SELECT status, (lock_claim_token IS NOT NULL AND lock_claimed_at IS NOT NULL AND lock_claimed_at > now() - interval '15 minutes')
+      INTO v_status, v_live FROM payroll_periods WHERE id = v_period FOR SHARE;
+    IF NOT FOUND THEN CONTINUE; END IF;
     IF COALESCE(v_live, false) THEN
       RAISE EXCEPTION 'payroll_period_claimed: this week is being approved right now; try again in a minute' USING ERRCODE = '55006';
+    END IF;
+    IF v_status <> 'open' THEN
+      -- Only writes that cannot change what a check is made of may touch a closed week (bonuses only).
+      IF v_is_bonus AND (
+           (v_period = v_old_p AND v_period = v_new_p
+              AND ((NOT v_old_money AND NOT v_new_money)
+                   OR v_paid_only))
+        OR (v_period = v_old_p AND v_period IS DISTINCT FROM v_new_p AND NOT v_old_money)    -- a pending line moved out onto an open week
+        OR (v_period = v_new_p AND v_period IS DISTINCT FROM v_old_p AND NOT v_new_money)    -- a pending/rejected line landing on a closed week
+      ) THEN
+        CONTINUE;
+      END IF;
+      RAISE EXCEPTION 'payroll_period_not_open: this week is already approved; its hours, bonuses and fixes can no longer change' USING ERRCODE = '55006';
     END IF;
   END LOOP;
   IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
@@ -84,6 +129,28 @@ CREATE TRIGGER trg_guard_claimed_period BEFORE INSERT OR UPDATE OR DELETE ON pay
 DROP TRIGGER IF EXISTS trg_guard_claimed_period ON payroll_adjustments;
 CREATE TRIGGER trg_guard_claimed_period BEFORE INSERT OR UPDATE OR DELETE ON payroll_adjustments
   FOR EACH ROW EXECUTE FUNCTION public.payroll_guard_claimed_period();
+
+-- 2b. An approved week with frozen pay / applied fixes / carried balances can never be reopened or cancelled ------------
+CREATE OR REPLACE FUNCTION public.payroll_guard_frozen_period_status()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = public
+AS $$
+BEGIN
+  IF current_setting('arx.payroll_commit', true) = 'on' THEN RETURN NEW; END IF;
+  IF OLD.status IN ('locked', 'paid') AND NEW.status IN ('open', 'cancelled') AND (
+       OLD.units_frozen_at IS NOT NULL
+    OR EXISTS (SELECT 1 FROM payroll_adjustments a WHERE a.payroll_period_id = OLD.id AND a.status = 'applied')
+    OR EXISTS (SELECT 1 FROM payroll_adjustments c WHERE c.source_period_id = OLD.id AND c.kind = 'balance' AND c.status <> 'void')
+  ) THEN
+    RAISE EXCEPTION 'payroll_period_frozen: an approved week with frozen pay, applied fixes or carried balances cannot be reopened or cancelled; correct it with a fix on the next open week' USING ERRCODE = '55006';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+DROP TRIGGER IF EXISTS trg_guard_frozen_period_status ON payroll_periods;
+CREATE TRIGGER trg_guard_frozen_period_status BEFORE UPDATE OF status ON payroll_periods
+  FOR EACH ROW EXECUTE FUNCTION public.payroll_guard_frozen_period_status();
 
 -- 3. One person-total definition, in SQL (mirrors composeWeek in lib/payroll-pay-week.ts) -----------------------------
 CREATE OR REPLACE FUNCTION public.payroll_week_person_totals(p_org_id uuid, p_period_id uuid)
@@ -108,13 +175,13 @@ $$;
 -- 4. The atomic commit -----------------------------------------------------------------------------------------------
 -- p_plan = { jobs: [{ job_id, sale_amount, commission_comp_base, snapshot:{...}, lines:[{...}], state:{...} }],
 --            units: [{ user_id, amount, detail }] }
+DROP FUNCTION IF EXISTS public.payroll_commit_week(uuid, uuid, uuid, uuid, numeric, uuid, jsonb);
 CREATE OR REPLACE FUNCTION public.payroll_commit_week(
   p_org_id uuid,
   p_period_id uuid,
   p_token uuid,
   p_actor_user_id uuid,
   p_expected_total numeric,
-  p_next_period_id uuid,
   p_plan jsonb
 )
 RETURNS jsonb
@@ -124,6 +191,7 @@ SET search_path = public
 AS $$
 DECLARE
   v_period payroll_periods%ROWTYPE;
+  v_next payroll_periods%ROWTYPE;
   v_psnap uuid;
   v_job jsonb;
   v_snap_id uuid;
@@ -135,6 +203,11 @@ DECLARE
   v_people integer;
   v_carried integer := 0;
   v_negative integer;
+  v_date date;
+  v_k integer;
+  v_tc timestamptz;
+  v_cand uuid;
+  v_target uuid;
 BEGIN
   PERFORM set_config('arx.payroll_commit', 'on', true);
 
@@ -235,12 +308,40 @@ BEGIN
     RAISE EXCEPTION 'payroll_commit:total_mismatch:%:%', round(v_total, 2), round(p_expected_total, 2);
   END IF;
 
-  -- A check cannot go below $0: what is owed back is carried to next week, once per person per source week.
+  -- A check cannot go below $0: what is owed back is carried into the next OPEN week, once per person per source week.
+  -- The target is found (or created) HERE, locked, and verified in this same transaction — never trusted from the caller.
   IF v_negative > 0 THEN
-    IF p_next_period_id IS NULL THEN RAISE EXCEPTION 'payroll_commit:no_next_period'; END IF;
+    v_date := (v_period.cutoff_at AT TIME ZONE 'America/New_York')::date;
+    v_target := NULL;
+    FOR v_k IN 1..8 LOOP
+      -- Eastern calendar weeks rebuilt with the timezone database (never fixed 24 h days).
+      v_tc := ((v_date + 7 * v_k) + time '23:59:59.999') AT TIME ZONE 'America/New_York';
+      SELECT id INTO v_cand FROM payroll_periods
+        WHERE org_id = p_org_id AND status <> 'cancelled' AND cutoff_at BETWEEN v_tc - interval '36 hours' AND v_tc + interval '36 hours'
+        ORDER BY created_at, id LIMIT 1;
+      IF v_cand IS NULL THEN
+        INSERT INTO payroll_periods (org_id, period_label, cutoff_at, lock_at, scheduled_pay_date, status)
+        VALUES (p_org_id, 'Week ending ' || to_char(v_date + 7 * v_k, 'YYYY-MM-DD'), v_tc, v_tc, (v_date + 7 * v_k + 2), 'open')
+        ON CONFLICT DO NOTHING;
+        SELECT id INTO v_cand FROM payroll_periods
+          WHERE org_id = p_org_id AND status <> 'cancelled' AND cutoff_at BETWEEN v_tc - interval '36 hours' AND v_tc + interval '36 hours'
+          ORDER BY created_at, id LIMIT 1;
+      END IF;
+      CONTINUE WHEN v_cand IS NULL;
+      SELECT * INTO v_next FROM payroll_periods WHERE id = v_cand AND org_id = p_org_id FOR UPDATE;
+      CONTINUE WHEN NOT FOUND;
+      IF v_next.status = 'open' THEN
+        IF v_next.lock_claim_token IS NOT NULL AND v_next.lock_claimed_at IS NOT NULL AND v_next.lock_claimed_at > now() - interval '15 minutes' THEN
+          RAISE EXCEPTION 'payroll_commit:next_week_busy';
+        END IF;
+        v_target := v_next.id;
+        EXIT;
+      END IF;
+    END LOOP;
+    IF v_target IS NULL THEN RAISE EXCEPTION 'payroll_commit:no_next_period'; END IF;
     INSERT INTO payroll_adjustments (org_id, payroll_period_id, user_id, amount, reason, kind, status, source_period_id, created_by)
-    SELECT p_org_id, p_next_period_id, t.user_id, t.raw,
-           'Carried over from the week ending ' || to_char(v_period.cutoff_at AT TIME ZONE 'America/New_York', 'YYYY-MM-DD'),
+    SELECT p_org_id, v_target, t.user_id, t.raw,
+           'Carried over from the week ending ' || to_char(v_date, 'YYYY-MM-DD'),
            'balance', 'pending', p_period_id, p_actor_user_id
     FROM payroll_week_person_totals(p_org_id, p_period_id) t
     WHERE t.raw < 0
@@ -260,32 +361,18 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.payroll_guard_claimed_period() FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.payroll_week_person_totals(uuid, uuid) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.payroll_commit_week(uuid, uuid, uuid, uuid, numeric, uuid, jsonb) FROM PUBLIC;
-DO $$
-DECLARE r text;
-BEGIN
-  FOREACH r IN ARRAY ARRAY['anon', 'authenticated'] LOOP
-    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r) THEN
-      EXECUTE format('REVOKE ALL ON FUNCTION public.payroll_week_person_totals(uuid, uuid) FROM %I', r);
-      EXECUTE format('REVOKE ALL ON FUNCTION public.payroll_commit_week(uuid, uuid, uuid, uuid, numeric, uuid, jsonb) FROM %I', r);
-    END IF;
-  END LOOP;
-  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
-    GRANT EXECUTE ON FUNCTION public.payroll_week_person_totals(uuid, uuid) TO service_role;
-    GRANT EXECUTE ON FUNCTION public.payroll_commit_week(uuid, uuid, uuid, uuid, numeric, uuid, jsonb) TO service_role;
-  END IF;
-END $$;
+-- 5. ONE field-role classification (SQL side) ------------------------------------------------------------------------
+-- Role slug in the list, or a custom role whose NAME (name + display name, lowercased) contains the word setter / canvasser /
+-- inside sales / call center — unless it is a manager role. lib/permissions.ts isFieldRoleLike is the TypeScript mirror.
+CREATE OR REPLACE FUNCTION arx_private.is_field_role(p_role text, p_crname text) RETURNS boolean
+LANGUAGE sql IMMUTABLE AS $$
+  SELECT lower(btrim(coalesce(p_role, ''))) IN ('setter', 'canvasser', 'inside_sales', 'inside sales', 'call_center', 'call center')
+      OR (lower(coalesce(p_crname, '')) !~ 'manager'
+          AND lower(coalesce(p_crname, '')) ~ '(^|[^a-z])(setter|canvasser|inside[ _-]?sales|call[ _-]?cent(er|re))s?([^a-z]|$)');
+$$;
 
--- 5. Field-role hard deny in the SQL job-board test ----------------------------------------------------------------------
--- Setters, canvassers and inside sales / call center NEVER read the job board (so never production notes, the Job tab, pricing or
--- financials), whatever job permission was granted to their custom role or user. The deny runs BEFORE the positive grants; the
--- app side is lib/effective-permissions.ts + lib/threads/visibility.ts. Only tightens: owners/admins and every other role are
--- unchanged. Used by the production_job_notes RLS policies and message_visible_to.
--- Rollback: re-create the function without the `field` CTE (previous body: admin/owner OR legacy `operations` OR a jobs:view /
--- jobs:edit / admin:full grant).
-CREATE OR REPLACE FUNCTION public.can_view_job_board(p_user uuid)
+-- 6. Private evaluators (service-only) + public wrappers bound to the caller -----------------------------------------------
+CREATE OR REPLACE FUNCTION arx_private.can_view_job_board(p_user uuid)
 RETURNS boolean
 LANGUAGE sql
 STABLE SECURITY DEFINER
@@ -298,11 +385,7 @@ AS $function$
     WHERE us.id = p_user
   ),
   field AS (
-    SELECT EXISTS (
-      SELECT 1 FROM u
-      WHERE u.role IN ('setter', 'canvasser', 'inside_sales', 'inside sales', 'call_center')
-         OR u.crname LIKE '%inside sales%' OR u.crname LIKE '%inside_sales%' OR u.crname LIKE '%call center%' OR u.crname LIKE '%call_center%'
-    ) AS denied
+    SELECT EXISTS (SELECT 1 FROM u WHERE arx_private.is_field_role(u.role, u.crname)) AS denied
   ),
   names AS (
     SELECT p.name
@@ -327,3 +410,130 @@ AS $function$
       )
     );
 $function$;
+
+CREATE OR REPLACE FUNCTION arx_private.message_visible_to(
+  p_viewer uuid, p_audience text, p_restricted boolean, p_org uuid, p_opportunity uuid
+) RETURNS boolean
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp
+AS $$
+  WITH v AS (
+    SELECT u.id, u.org_id, lower(trim(u.role::text)) AS role, u.custom_role_id, coalesce(u.is_super_admin, false) AS sa, u.active,
+           lower(coalesce(cr.name, '') || ' ' || coalesce(cr.display_name, '')) AS crname
+    FROM users u LEFT JOIN custom_roles cr ON cr.id = u.custom_role_id
+    WHERE u.id = p_viewer
+  ),
+  d AS (SELECT o.owner_user_id, o.setter_user_id FROM opportunities o WHERE o.id = p_opportunity),
+  f AS (
+    SELECT
+      v.org_id = p_org AND coalesce(v.active, true) AS in_org,
+      (v.sa OR v.role IN ('owner','admin')) AS owner_like,
+      arx_private.can_view_job_board(v.id) AS job_board,
+      v.role IN ('manager','sales_manager','regional_manager','operations') AS manager_like,
+      (v.role IN ('setter','canvasser')) AS base_setter,
+      (v.role IN ('rep','sales_rep','closer')) AS closer_role,
+      (v.role IN ('rep','sales_rep','closer') AND (EXISTS (SELECT 1 FROM d WHERE d.owner_user_id = v.id)
+        OR EXISTS (SELECT 1 FROM scheduled_appointments sa WHERE sa.opportunity_id = p_opportunity AND sa.closer_user_id = v.id))) AS own_closer,
+      (v.role IN ('inside_sales','inside sales','call_center')
+        OR v.crname LIKE '%inside sales%' OR v.crname LIKE '%inside_sales%' OR v.crname LIKE '%call center%' OR v.crname LIKE '%call_center%') AS inside_like,
+      v.role IN ('admin','owner','operations','manager','sales_manager','regional_manager','rep','sales_rep','closer') OR v.sa AS pricing_role,
+      arx_private.is_field_role(v.role, v.crname) AS field_role,
+      (EXISTS (SELECT 1 FROM d WHERE d.owner_user_id = v.id OR d.setter_user_id = v.id)
+        OR EXISTS (SELECT 1 FROM scheduled_appointments sa WHERE sa.opportunity_id = p_opportunity AND (sa.closer_user_id = v.id OR sa.canvasser_user_id = v.id))) AS own_deal
+    FROM v
+  ),
+  g AS (SELECT f.*, (f.owner_like OR f.job_board OR f.manager_like OR f.closer_role OR f.base_setter OR f.inside_like) AS recognized,
+        (f.base_setter AND NOT f.inside_like) AS setter_like, (f.pricing_role AND NOT f.field_role) AS pricing_ok FROM f)
+  SELECT CASE
+    WHEN p_audience IS NULL THEN true                       -- legacy rows: unchanged behaviour
+    WHEN NOT coalesce((SELECT in_org FROM g), false) THEN false
+    WHEN coalesce((SELECT owner_like FROM g), false) THEN true
+    WHEN NOT coalesce((SELECT recognized FROM g), false) THEN false     -- unknown roles (sub, custom-only) see nothing
+    WHEN p_restricted IS TRUE AND NOT coalesce((SELECT pricing_ok FROM g), false) THEN false
+    WHEN p_audience IN ('production','crew') THEN
+      coalesce((SELECT NOT field_role AND (job_board OR manager_like OR own_closer) FROM g), false)
+    ELSE  -- team | sales
+      CASE WHEN coalesce((SELECT setter_like OR closer_role FROM g), false) THEN (p_opportunity IS NOT NULL AND coalesce((SELECT own_deal FROM g), false))   -- no deal = not theirs (same as canReadRowOnDeal 'none')
+           ELSE true END
+  END;
+$$;
+
+-- The public functions keep their signatures (live RLS policies call them with auth.uid()) but can only answer for the CALLER —
+-- or for the server (service role / a direct database session).
+CREATE OR REPLACE FUNCTION public.can_view_job_board(p_user uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE SECURITY DEFINER
+SET search_path TO 'public', 'pg_temp'
+AS $function$
+  SELECT CASE
+    WHEN p_user IS NOT NULL AND (p_user = auth.uid() OR auth.role() = 'service_role' OR session_user IN ('postgres', 'supabase_admin'))
+    THEN arx_private.can_view_job_board(p_user)
+    ELSE false
+  END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.message_visible_to(
+  p_viewer uuid, p_audience text, p_restricted boolean, p_org uuid, p_opportunity uuid
+) RETURNS boolean
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp
+AS $$
+  SELECT CASE
+    WHEN p_viewer IS NOT NULL AND (p_viewer = auth.uid() OR auth.role() = 'service_role' OR session_user IN ('postgres', 'supabase_admin'))
+    THEN arx_private.message_visible_to(p_viewer, p_audience, p_restricted, p_org, p_opportunity)
+    ELSE false
+  END;
+$$;
+
+-- search_messages is service-only: it calls the private evaluator directly.
+CREATE OR REPLACE FUNCTION public.search_messages(p_org uuid, p_viewer uuid, p_q text, p_limit int DEFAULT 20)
+RETURNS TABLE (id uuid, opportunity_id uuid, lead_id uuid, customer_id uuid, body text, created_at timestamptz, score real)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, extensions, pg_temp
+AS $$
+  WITH q AS (
+    SELECT lower(btrim(p_q)) AS t,
+           '%' || replace(replace(replace(lower(btrim(p_q)), '\', '\\'), '%', '\%'), '_', '\_') || '%' AS pat
+  )
+  SELECT a.id, a.opportunity_id, a.lead_id, a.customer_id, a.body, a.created_at,
+         greatest(word_similarity(q.t, lower(a.body)), CASE WHEN lower(a.body) LIKE q.pat THEN 1 ELSE 0 END)::real AS score
+  FROM activities a, q
+  WHERE a.org_id = p_org
+    AND a.deleted_at IS NULL
+    AND a.referral_partner_id IS NULL
+    AND a.audience IS NOT NULL
+    AND a.opportunity_id IS NOT NULL
+    AND coalesce(a.origin, 'human') = 'human'
+    AND length(q.t) >= 2
+    AND (lower(a.body) LIKE q.pat OR q.t <% lower(a.body))
+    AND arx_private.message_visible_to(p_viewer, a.audience, a.restricted_pricing, a.org_id, a.opportunity_id)
+  ORDER BY score DESC, a.created_at DESC
+  LIMIT greatest(1, least(p_limit, 50));
+$$;
+
+-- Privileges --------------------------------------------------------------------------------------------------------
+REVOKE ALL ON FUNCTION public.payroll_guard_claimed_period() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.payroll_guard_frozen_period_status() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.payroll_week_person_totals(uuid, uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.payroll_commit_week(uuid, uuid, uuid, uuid, numeric, jsonb) FROM PUBLIC;
+REVOKE ALL ON FUNCTION arx_private.is_field_role(text, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION arx_private.can_view_job_board(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION arx_private.message_visible_to(uuid, text, boolean, uuid, uuid) FROM PUBLIC;
+DO $$
+DECLARE r text;
+BEGIN
+  FOREACH r IN ARRAY ARRAY['anon', 'authenticated'] LOOP
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r) THEN
+      EXECUTE format('REVOKE ALL ON FUNCTION public.payroll_week_person_totals(uuid, uuid) FROM %I', r);
+      EXECUTE format('REVOKE ALL ON FUNCTION public.payroll_commit_week(uuid, uuid, uuid, uuid, numeric, jsonb) FROM %I', r);
+      EXECUTE format('REVOKE ALL ON FUNCTION arx_private.is_field_role(text, text) FROM %I', r);
+      EXECUTE format('REVOKE ALL ON FUNCTION arx_private.can_view_job_board(uuid) FROM %I', r);
+      EXECUTE format('REVOKE ALL ON FUNCTION arx_private.message_visible_to(uuid, text, boolean, uuid, uuid) FROM %I', r);
+    END IF;
+  END LOOP;
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
+    GRANT EXECUTE ON FUNCTION public.payroll_week_person_totals(uuid, uuid) TO service_role;
+    GRANT EXECUTE ON FUNCTION public.payroll_commit_week(uuid, uuid, uuid, uuid, numeric, jsonb) TO service_role;
+    GRANT EXECUTE ON FUNCTION arx_private.is_field_role(text, text) TO service_role;
+    GRANT EXECUTE ON FUNCTION arx_private.can_view_job_board(uuid) TO service_role;
+    GRANT EXECUTE ON FUNCTION arx_private.message_visible_to(uuid, text, boolean, uuid, uuid) TO service_role;
+  END IF;
+END $$;

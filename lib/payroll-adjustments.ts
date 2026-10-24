@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { roundMoney } from '@/lib/money'
-import { ensureNextOpenPeriod, isPeriodClaimedError, PERIOD_CLAIMED_MESSAGE } from '@/lib/payroll-periods'
+import { ensureNextOpenPeriod, isPeriodClaimedError, periodRefusalMessage } from '@/lib/payroll-periods'
 
 const LOCK_CLAIM_STALE_MS = 15 * 60 * 1000
 
@@ -89,7 +89,7 @@ export async function addAdjustment(
     })
     .select('id')
     .single()
-  if (isPeriodClaimedError(error)) return { ok: false, status: 409, error: PERIOD_CLAIMED_MESSAGE }
+  if (isPeriodClaimedError(error)) return { ok: false, status: 409, error: periodRefusalMessage(error) }
   if (error || !data) {
     console.error('payroll adjustment insert', error)
     return { ok: false, status: 500, error: 'Could not save the fix' }
@@ -104,7 +104,7 @@ export async function voidAdjustment(admin: SupabaseClient, orgId: string, id: s
   const { data: period } = await admin.from('payroll_periods').select('status, lock_claimed_at').eq('id', adj.payroll_period_id as string).eq('org_id', orgId).maybeSingle()
   if (!period || !periodIsEditable(period)) return { ok: false, status: 409, error: 'That week is already approved (or being approved)' }
   const { error } = await admin.from('payroll_adjustments').update({ status: 'void' }).eq('id', id).eq('org_id', orgId).eq('status', 'pending')
-  if (isPeriodClaimedError(error)) return { ok: false, status: 409, error: PERIOD_CLAIMED_MESSAGE }
+  if (isPeriodClaimedError(error)) return { ok: false, status: 409, error: periodRefusalMessage(error) }
   if (error) return { ok: false, status: 500, error: 'Could not remove the fix' }
   // Re-check: if an approval claimed the week between the read and the write, put the line back (the check was frozen).
   const { data: after } = await admin.from('payroll_periods').select('status, lock_claimed_at').eq('id', adj.payroll_period_id as string).eq('org_id', orgId).maybeSingle()

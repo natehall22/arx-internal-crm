@@ -34,6 +34,7 @@ export default function Nav() {
   const [userPermissions, setUserPermissions] = useState<string[]>([])
   const [effectivePermsReady, setEffectivePermsReady] = useState(false)
   const [effectiveFullAccess, setEffectiveFullAccess] = useState(false)
+  const [payWeekEnabled, setPayWeekEnabled] = useState(false)
   const [effectivePermissionNames, setEffectivePermissionNames] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
   const [companyName, setCompanyName] = useState<string>('ARX CRM')
@@ -78,6 +79,7 @@ export default function Nav() {
             ? ((data as { permissions: unknown[] }).permissions.filter((x) => typeof x === 'string') as string[])
             : []
           setEffectiveFullAccess(apiFullAccess)
+          setPayWeekEnabled((data as { flags?: { payWeek?: unknown } }).flags?.payWeek === true)
           if (!apiFullAccess) {
             setEffectivePermissionNames(new Set(serverPerms))
           }
@@ -251,6 +253,7 @@ export default function Nav() {
       reports: canAccessReportsFromPermissionNames(navPermInput) || canAccessReports(userRole || undefined),
       isPayrollAdmin: isPayrollAdminRole(userRole),
       earnsPay: COMMISSION_ROLES.has(userRole ?? ''),
+      payWeek: payWeekEnabled,
     },
   })
   const activeId = activeSectionId(pathname, nav)

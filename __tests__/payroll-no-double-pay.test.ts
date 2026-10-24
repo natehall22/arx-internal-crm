@@ -8,6 +8,7 @@
  *  3. mark_paid / edits are conditional and refuse while a lock is in progress.
  */
 
+jest.mock('@/lib/payroll-flag', () => ({ isPayWeekEnabled: () => true })) // flag ON: the legacy lock is retired
 jest.mock('@/lib/auth', () => ({ requireAuthApi: jest.fn() }))
 jest.mock('@/lib/supabase/service', () => ({ createServiceClient: jest.fn() }))
 jest.mock('next/server', () => ({

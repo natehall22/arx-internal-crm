@@ -1,6 +1,6 @@
 import { activeSectionId, visibleNav, type NavContext } from '@/lib/nav-config'
 
-const flags = { isOpsOnly: false, canSeeOpsDashboard: false, canSeeJobBoard: false, canSeeInsideSales: false, projectsBarred: false, salesDocBarred: false, customerRecords: false, reports: false, isPayrollAdmin: false, earnsPay: false }
+const flags = { isOpsOnly: false, canSeeOpsDashboard: false, canSeeJobBoard: false, canSeeInsideSales: false, projectsBarred: false, salesDocBarred: false, customerRecords: false, reports: false, isPayrollAdmin: false, earnsPay: false, payWeek: true }
 const ctx = (o: Partial<Omit<NavContext, 'flags'>> & { flags?: Partial<NavContext['flags']> } = {}): NavContext => ({
   permsReady: true, role: 'sales_rep', fullAccess: false, permissionNames: new Set(), ...o, flags: { ...flags, ...o.flags },
 })
@@ -36,6 +36,7 @@ describe('nav config', () => {
   })
   it('a commission role sees Money → My pay; a payroll admin sees Payroll', () => {
     expect(leaves(ctx({ flags: { earnsPay: true } }))).toContain('/my-pay')
+    expect(leaves(ctx({ flags: { earnsPay: true, payWeek: false } }))).not.toContain('/my-pay')
     expect(leaves(ctx({ flags: { isPayrollAdmin: true } }))).not.toContain('/my-pay')
     expect(ids(ctx({ flags: { earnsPay: true } }))).toContain('money')
   })

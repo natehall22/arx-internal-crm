@@ -19,6 +19,7 @@ import {
 } from '@/lib/inside-sales-booker-attribution'
 import { SALE_AGREEMENT_TYPES } from '@/lib/sales-metrics'
 import { roundMoney } from '@/lib/money'
+import { addEasternDays } from '@/lib/weekly-payroll/cutoff'
 import { fetchSupabaseAllPages } from '@/lib/supabase-fetch-all-pages'
 
 export type HybridComponentForUnitPay = {
@@ -157,7 +158,7 @@ export async function resolvePayrollPeriodWindow(
   const endMs = new Date(cutoffAt).getTime()
   const startMs = prev?.cutoff_at
     ? new Date(String(prev.cutoff_at)).getTime()
-    : endMs - 7 * 24 * 60 * 60 * 1000
+    : addEasternDays(cutoffAt, -7).getTime() // calendar week, not 7 x 24h (a clock change makes that an hour off)
 
   return {
     startIso: new Date(startMs).toISOString(),

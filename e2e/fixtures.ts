@@ -207,7 +207,7 @@ export const HARNESS_QUEUES = [
 
 /** Fictional week for the Pay-this-week screen (names, jobs and amounts are made up). */
 export const PAY_WEEK = {
-  period: { id: '00000000-0000-4000-8000-000000000001', label: 'Week ending 2026-10-21', cutoffAt: '2026-10-22T03:59:59.999Z', payDate: '2026-10-23', status: 'open', weekStart: '2026-10-15', weekEnding: '2026-10-21' },
+  canApprove: true, period: { id: '00000000-0000-4000-8000-000000000001', label: 'Week ending 2026-10-21', cutoffAt: '2026-10-22T03:59:59.999Z', payDate: '2026-10-23', status: 'open', weekStart: '2026-10-15', weekEnding: '2026-10-21' },
   state: 'draft',
   totals: { amount: 5238.5, people: 5 },
   needs: [

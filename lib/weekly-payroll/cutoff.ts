@@ -56,6 +56,32 @@ export function cutoffYmdEt(cutoffAt: string | Date): string {
   return ymdEt(typeof cutoffAt === 'string' ? new Date(cutoffAt) : cutoffAt)
 }
 
+/**
+ * Calendar arithmetic on an Eastern DATE string (YYYY-MM-DD): + n days. Done on a noon-UTC anchor so no clock change can
+ * repeat or skip a date. NEVER add or subtract 24-hour multiples to a payroll instant — in a clock-change week that is off by an hour
+ * and lands on the wrong calendar day.
+ */
+export function addDaysYmd(ymd: string, n: number): string {
+  const d = new Date(`${ymd}T12:00:00Z`)
+  d.setUTCDate(d.getUTCDate() + n)
+  return d.toISOString().slice(0, 10)
+}
+
+/** Wednesday 11:59:59.999 PM Eastern (the weekly cutoff) for a given Eastern date, rebuilt with the timezone database. */
+export function cutoffInstantForYmd(ymd: string): Date {
+  return fromZonedTime(`${ymd}T23:59:59.999`, WEEKLY_PAYROLL_TZ)
+}
+
+/** The cutoff `n` calendar days (n = 7k for weeks) after/before another cutoff, as the same Eastern wall-clock time. */
+export function addEasternDays(cutoff: Date | string, n: number): Date {
+  return cutoffInstantForYmd(addDaysYmd(cutoffYmdEt(cutoff), n))
+}
+
+/** First calendar day (Eastern) of the week a cutoff pays: the Thursday before it. */
+export function weekStartYmd(cutoff: Date | string): string {
+  return addDaysYmd(cutoffYmdEt(cutoff), -6)
+}
+
 /** Payday for a weekly cutoff: the Friday after it (Eastern calendar date, YYYY-MM-DD). */
 export function weeklyPayrollPayDateForCutoff(cutoffUtc: Date): string {
   const local = toZonedTime(cutoffUtc, WEEKLY_PAYROLL_TZ)

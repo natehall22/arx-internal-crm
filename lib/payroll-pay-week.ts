@@ -15,7 +15,7 @@ import { loadOpenDisputes } from '@/lib/payroll-disputes'
 import { loadHourlyRoster, loadPlanForWeek, loadWeekPeople, type HourlyRosterRow } from '@/lib/payroll-hours'
 import { planPayrollPeriod, type PlannedPayoutRow, type WaitingJob } from '@/lib/payroll-period-materialization'
 import { computeNetPayout } from '@/lib/payroll-statement'
-import { cutoffYmdEt, getLastWeeklyPayrollCutoffEtAtOrBefore, weeklyPayrollPayDateForCutoff, ymdEt } from '@/lib/weekly-payroll/cutoff'
+import { addEasternDays, cutoffYmdEt, getLastWeeklyPayrollCutoffEtAtOrBefore, weekStartYmd, weeklyPayrollPayDateForCutoff, ymdEt } from '@/lib/weekly-payroll/cutoff'
 
 /** A single line over this amount is flagged above the Approve button. */
 export const BIG_LINE_THRESHOLD = 3000
@@ -89,6 +89,11 @@ export type PayWeek = {
   period: PayWeekPeriod
   state: 'draft' | 'approved'
   totals: { amount: number; people: number }
+  /**
+   * Calculated on the server: true when Approve has something to DO — jobs to snapshot or negative balances to carry — even if the
+   * payable total is $0. The screen enables Approve from this, never from `total > 0`.
+   */
+  canApprove: boolean
   needs: PayWeekNeed[]
   warnings: PayWeekWarning[]
   /** Jobs that finished before this week and are paid for the first time here (shown in the Approve confirmation). */
@@ -234,7 +239,7 @@ export function buildWarnings(args: { people: PayWeekPerson[]; firstTimePayees: 
 function toPeriod(row: { id: string; period_label: string | null; cutoff_at: string; scheduled_pay_date: string; status: string; units_frozen_at?: string | null }): PayWeekPeriod {
   const cutoff = new Date(row.cutoff_at)
   const end = ymdEt(cutoff)
-  const start = ymdEt(new Date(cutoff.getTime() - 6 * 86_400_000))
+  const start = weekStartYmd(cutoff)
   return { id: row.id, label: row.period_label ?? end, cutoffAt: row.cutoff_at, payDate: row.scheduled_pay_date, status: row.status, unitsFrozen: Boolean(row.units_frozen_at), weekStart: start, weekEnding: end }
 }
 
@@ -524,7 +529,7 @@ export async function loadPayWeekFull(admin: SupabaseClient, orgId: string, now:
 
   let nextWeek: PayWeek['nextWeek'] = null
   if (!draft) {
-    const nc = new Date(new Date(period.cutoffAt).getTime() + 7 * 86_400_000)
+    const nc = addEasternDays(period.cutoffAt, 7)
     const { data: np } = await admin.from('payroll_periods').select('id, cutoff_at, scheduled_pay_date').eq('org_id', orgId).eq('status', 'open').gte('cutoff_at', new Date(nc.getTime() - 36 * 3_600_000).toISOString()).lte('cutoff_at', new Date(nc.getTime() + 36 * 3_600_000).toISOString()).order('created_at', { ascending: true }).limit(1)
     const nrow = (np ?? [])[0]
     if (nrow) {
@@ -539,6 +544,7 @@ export async function loadPayWeekFull(admin: SupabaseClient, orgId: string, now:
     period,
     state: draft ? 'draft' : 'approved',
     totals: { amount: roundMoney(payable.reduce((s, p) => s + p.total, 0)), people: payable.length },
+    canApprove: draft && (payable.length > 0 || (fullPlan?.jobs.length ?? 0) > 0 || people.some((p) => p.raw < 0)),
     needs,
     warnings,
     backlog,

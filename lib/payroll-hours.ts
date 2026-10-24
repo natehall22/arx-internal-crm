@@ -3,7 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { CompPlanForCalc } from '@/lib/calculate-commission-from-plan'
 import { loadActiveCompPlanForUser } from '@/lib/payroll-export'
 import { resolveHourlyRate } from '@/lib/payroll-hourly-rate'
-import { isPeriodClaimedError, PERIOD_CLAIMED_MESSAGE } from '@/lib/payroll-periods'
+import { isPeriodClaimedError, periodRefusalMessage } from '@/lib/payroll-periods'
 import { cutoffYmdEt, ymdEt } from '@/lib/weekly-payroll/cutoff'
 import { computeHourlyEarnings } from '@/lib/weekly-payroll/hourly-earnings'
 
@@ -194,7 +194,7 @@ export async function saveHoursEntries(
       .select('id')
       .single()
 
-    if (isPeriodClaimedError(saveErr)) return { ok: false, status: 409, error: PERIOD_CLAIMED_MESSAGE }
+    if (isPeriodClaimedError(saveErr)) return { ok: false, status: 409, error: periodRefusalMessage(saveErr) }
     if (saveErr || !saved) {
       console.error('payroll_rep_hours upsert', saveErr)
       return { ok: false, status: 500, error: 'Failed to save hours' }
