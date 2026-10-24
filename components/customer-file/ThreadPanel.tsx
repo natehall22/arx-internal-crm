@@ -1,5 +1,6 @@
 'use client'
 
+import { confirmDialog } from '@/components/ui/confirm-dialog'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, usePathname } from 'next/navigation'
 
@@ -269,7 +270,7 @@ function MessageBubble({ m, data, highlighted, onAct, onReply, parent }: { m: Th
           {(data.canPin || (data.canPinOwn && mine)) && <button type="button" className="min-h-tap px-2 text-ink" onClick={() => onAct(m.id, { action: 'pin', scope: 'customer' })}>Pin to customer</button>}
           {(data.canPin || (data.canPinOwn && mine)) && <button type="button" className="min-h-tap px-2 text-ink" onClick={() => onAct(m.id, { action: 'pin', scope: 'deal' })}>Pin to deal</button>}
           {data.writable.includes('production') && m.audience && m.audience !== 'production' && data.isOwner && <button type="button" className="min-h-tap px-2 text-ink" onClick={() => onAct(m.id, { action: 'reclassify', audience: 'production' })}>Make Production</button>}
-          {(mine || data.isOwner) && <button type="button" className="min-h-tap px-2 text-danger" onClick={() => { if (confirm('Remove this message?')) onAct(m.id, { action: 'delete' }) }}>Remove</button>}
+          {(mine || data.isOwner) && <button type="button" className="min-h-tap px-2 text-danger" onClick={async () => { if (await confirmDialog({ title: 'Remove this message?', confirmLabel: 'Remove', destructive: true })) onAct(m.id, { action: 'delete' }) }}>Remove</button>}
         </div>
       )}
       </>)}
@@ -300,7 +301,7 @@ function Composer({ dealId, data, replyTo, onClearReply, onSent }: { dealId: str
 
   async function send() {
     if (!body.trim() || busy) return
-    if (priority === 'urgent' && !confirm('This will buzz the people mentioned, even in quiet hours. Send as urgent?')) return
+    if (priority === 'urgent' && !(await confirmDialog({ title: 'Send as urgent?', description: 'This will buzz the people mentioned, even in quiet hours.', confirmLabel: 'Send urgent' }))) return
     setBusy(true)
     setErr(null)
     try {

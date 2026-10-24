@@ -17,8 +17,8 @@ import { createFakeDb } from '@/lib/test-helpers/fake-db'
 import { findExistingCustomer, upsertCustomer } from '@/lib/customers'
 
 jest.mock('@/lib/integrations', () => ({ enqueueCustomerUpserted: jest.fn(async () => undefined) }))
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const { enqueueCustomerUpserted } = require('@/lib/integrations') as { enqueueCustomerUpserted: jest.Mock }
+import * as integrations from '@/lib/integrations'
+const enqueueCustomerUpserted = integrations.enqueueCustomerUpserted as unknown as jest.Mock
 
 const ORG = 'org1'
 const cust = (id: string, extra: Record<string, unknown>) => ({ id, org_id: ORG, name: 'N', created_at: '2026-01-01T00:00:00Z', ...extra })
