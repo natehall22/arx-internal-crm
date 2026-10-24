@@ -41,6 +41,36 @@ describe('generateJobMaterialOrderPDF', () => {
     expect(pdf).toContain('+ 3 more lines - see the job in the CRM')
   })
 
+  it('prints an ops-edited quantity without telling the supplier what the CRM computed', () => {
+    const pdf = generateJobMaterialOrderPDF({
+      ...base,
+      isEmpty: false,
+      sections: [
+        {
+          title: 'Order',
+          rows: [
+            {
+              key: 'hip_ridge_cap',
+              label: 'Hip & ridge cap',
+              qty: '4 bundles',
+              detail: 'ridge 98 LF + hip 0 LF = 98.0 LF',
+              status: 'ready',
+              note: null,
+              computedQty: '0.98 sq · 4 bundles',
+              computedDetail: 'ridge 98 LF + hip 0 LF = 98.0 LF',
+              computedNote: null,
+              isExcluded: false,
+              isEdited: true,
+              overrideNote: null,
+            },
+          ],
+        },
+      ],
+    }).toString('latin1')
+    expect(pdf).toContain('4 bundles')
+    expect(pdf).not.toContain('CRM computed')
+  })
+
   it('prints a short accessory list whole, with no marker', () => {
     const pdf = generateJobMaterialOrderPDF({ ...base, accessories: '1 Pipe Boot\nChimney flashing' }).toString('latin1')
     expect(pdf).toContain('Chimney flashing')
