@@ -117,19 +117,19 @@ grant execute on function public.my_opportunity_ids(uuid, uuid[]) to service_rol
 
 drop policy if exists closer_own_deals on public.proposals;
 create policy closer_own_deals on public.proposals as restrictive for select to authenticated
-  using (not public.is_closer_self() or created_by = auth.uid() or public.opp_is_mine_self(opportunity_id) or public.project_is_mine_self(project_id));
+  using (not (select public.is_closer_self()) or created_by = (select auth.uid()) or public.opp_is_mine_self(opportunity_id) or public.project_is_mine_self(project_id));
 
 drop policy if exists closer_own_deals on public.order_form_contracts;
 create policy closer_own_deals on public.order_form_contracts as restrictive for select to authenticated
-  using (not public.is_closer_self() or created_by = auth.uid() or public.opp_is_mine_self(opportunity_id) or public.proposal_is_mine_self(proposal_id));
+  using (not (select public.is_closer_self()) or created_by = (select auth.uid()) or public.opp_is_mine_self(opportunity_id) or public.proposal_is_mine_self(proposal_id));
 
 drop policy if exists closer_own_deals on public.proposal_line_items;
 create policy closer_own_deals on public.proposal_line_items as restrictive for select to authenticated
-  using (not public.is_closer_self() or public.proposal_is_mine_self(proposal_id));
+  using (not (select public.is_closer_self()) or public.proposal_is_mine_self(proposal_id));
 
 drop policy if exists closer_own_deals on public.production_jobs;
 create policy closer_own_deals on public.production_jobs as restrictive for select to authenticated
-  using (not public.is_closer_self() or created_by = auth.uid() or public.project_is_mine_self(project_id)
+  using (not (select public.is_closer_self()) or created_by = (select auth.uid()) or public.project_is_mine_self(project_id)
          or public.proposal_is_mine_self(accepted_proposal_id) or public.proposal_is_mine_self(linked_proposal_id));
 
 do $$
@@ -137,13 +137,13 @@ declare t text;
 begin
   foreach t in array array['job_payments', 'job_invoices', 'job_additional_scope', 'job_change_orders'] loop
     execute format('drop policy if exists closer_own_deals on public.%I', t);
-    execute format('create policy closer_own_deals on public.%I as restrictive for select to authenticated using (not public.is_closer_self() or created_by = auth.uid() or public.job_is_mine_self(job_id))', t);
+    execute format('create policy closer_own_deals on public.%I as restrictive for select to authenticated using (not (select public.is_closer_self()) or created_by = (select auth.uid()) or public.job_is_mine_self(job_id))', t);
   end loop;
 end $$;
 
 drop policy if exists closer_own_deals on public.job_invoice_items;
 create policy closer_own_deals on public.job_invoice_items as restrictive for select to authenticated
-  using (not public.is_closer_self() or public.invoice_is_mine_self(invoice_id));
+  using (not (select public.is_closer_self()) or public.invoice_is_mine_self(invoice_id));
 
 -- Pricebook: cost / margin columns closed to every user token.
 revoke select on public.pricebook_items from authenticated, anon;

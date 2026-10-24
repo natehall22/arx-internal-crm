@@ -31,3 +31,13 @@ describe('contact scope (setters / canvassers)', () => {
     expect(out.map((l) => l.homeowner_name)).toEqual(['A', 'B', null])
   })
 })
+
+describe('referral lookups mask contact details for setters', () => {
+  it('masks names to first name + last initial', () => {
+    const { maskPersonName } = require('@/lib/contact-scope') as typeof import('@/lib/contact-scope')
+    expect(maskPersonName('Pat Smith')).toBe('Pat S.')
+    expect(maskPersonName('Pat van der Berg')).toBe('Pat B.')
+    expect(maskPersonName('Cher')).toBe('Cher')
+    expect(maskPersonName('')).toBe('Unnamed')
+  })
+})

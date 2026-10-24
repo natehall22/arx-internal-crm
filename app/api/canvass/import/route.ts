@@ -71,7 +71,8 @@ export async function POST(request: NextRequest) {
 
     // Only fetch existing leads that share an address with the import — avoids full-table scan
     const { data: existingLeads } = candidateAddresses.length > 0
-      ? await supabase
+      // Service client: the duplicate check must see every pin in the company, not just the importer's own (setters' tokens are scoped to their own work).
+      ? await createServiceClient()
           .from('leads')
           .select('address_text, lat, lng')
           .eq('org_id', profile.org_id)

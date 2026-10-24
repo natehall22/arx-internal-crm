@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { createServiceClient } from '@/lib/supabase/service'
+import { stripPricebookCosts } from '@/lib/pricebook-costs'
 
 export const dynamic = 'force-dynamic'
 
@@ -98,7 +99,7 @@ export async function GET(request: NextRequest) {
       .order('name')
 
     return NextResponse.json({
-      pricebookItems: items || [],
+      pricebookItems: stripPricebookCosts(items, profile.role),
       templates: templates || [],
       orgId: profile.org_id,
       role: profile.role,

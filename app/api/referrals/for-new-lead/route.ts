@@ -58,7 +58,11 @@ export async function POST(request: NextRequest) {
   }
   if (!customerId) return NextResponse.json({ error: 'Could not resolve the referrer' }, { status: 422 })
 
-  const bonus = Number.isFinite(body.bonus_amount) ? Number(body.bonus_amount) : 100
+  // Same default as the form (100). A person may lower it or set up to $500; anything else falls back to the default.
+  const asked = Number(body.bonus_amount)
+  const bonus = Number.isFinite(asked) && asked >= 0 && asked <= 500 ? asked : 100
+  const { count: already } = await admin.from('referrals').select('id', { count: 'exact', head: true }).eq('org_id', orgId).eq('referred_lead_id', lead.id)
+  if ((already ?? 0) > 0) return NextResponse.json({ ok: true, duplicate: true })
   const { error } = await admin.from('referrals').insert({
     org_id: orgId,
     referrer_customer_id: customerId,

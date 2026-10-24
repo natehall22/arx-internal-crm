@@ -27,6 +27,7 @@ import { isOrgSuperuserRoleSlug } from '@/lib/org-role-constants'
 import { deleteCanvassLeadWithDependencies } from '@/lib/canvass-lead-delete'
 import { createServiceClient } from '@/lib/supabase/service'
 import { isCanvassDoorEligible } from '@/lib/canvass-lead-attribution'
+import { isContactScoped, LEAD_CONTACT_FIELDS, myLeadIds } from '@/lib/contact-scope'
 
 export const dynamic = 'force-dynamic'
 
@@ -589,6 +590,17 @@ export async function POST(request: Request) {
               reassigned_at: reassignedAt,
               prior_knock_at: lastKnockAt,
             }),
+          }
+        }
+      }
+
+      // A setter touching someone else's pin sees it with name / phone / email / notes blanked (lib/contact-scope.ts), so the
+      // form posts those blank. Never let that erase the real values: for a pin that is not theirs, only non-empty values are written.
+      if (existingLead && (await isContactScoped(supabase, profile))) {
+        const mine = ownershipPatch.owner_user_id === profile.id || (await myLeadIds(supabase, profile.id, [leadId])).has(leadId)
+        if (!mine) {
+          for (const key of LEAD_CONTACT_FIELDS) {
+            if (leadPayload[key] == null || leadPayload[key] === '') delete leadPayload[key]
           }
         }
       }

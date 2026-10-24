@@ -36,8 +36,10 @@ export async function isContactScoped(admin: SupabaseClient, profile: ScopeProfi
 export async function myLeadIds(admin: SupabaseClient, userId: string, ids: string[]): Promise<Set<string>> {
   const mine = new Set<string>()
   const unique = Array.from(new Set(ids.filter(Boolean)))
-  for (let i = 0; i < unique.length; i += 1000) {
-    const { data, error } = await admin.rpc('my_lead_ids', { p_user: userId, p_ids: unique.slice(i, i + 1000) })
+  const chunks: string[][] = []
+  for (let i = 0; i < unique.length; i += 1000) chunks.push(unique.slice(i, i + 1000))
+  const results = await Promise.all(chunks.map((ids) => admin.rpc('my_lead_ids', { p_user: userId, p_ids: ids })))
+  for (const { data, error } of results) {
     if (error) throw new Error(`my_lead_ids: ${error.message}`)
     for (const row of (data ?? []) as Array<string | { my_lead_ids?: string }>) mine.add(typeof row === 'string' ? row : String(row.my_lead_ids))
   }
@@ -66,4 +68,12 @@ export async function redactLeadsForViewer<T extends { id: string; owner_user_id
   const rest = leads.filter((l) => !direct(l)).map((l) => l.id)
   const mine = rest.length ? await myLeadIds(admin, profile.id, rest) : new Set<string>()
   return leads.map((l) => (direct(l) || mine.has(l.id) ? l : redactLeadContact(l)))
+}
+
+/** "Pat Smith" -> "Pat S." : enough to recognise the person, not enough to contact or look them up elsewhere. */
+export function maskPersonName(name: string | null | undefined): string {
+  const parts = String(name ?? '').trim().split(/\s+/).filter(Boolean)
+  if (parts.length === 0) return 'Unnamed'
+  if (parts.length === 1) return parts[0]
+  return `${parts[0]} ${parts[parts.length - 1][0].toUpperCase()}.`
 }

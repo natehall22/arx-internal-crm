@@ -1,19 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 import { requireAuthApi } from '@/lib/auth'
-import { isContactScoped } from '@/lib/contact-scope'
+import { isContactScoped, maskPersonName } from '@/lib/contact-scope'
 import { buildIlikeFilterValue } from '@/lib/referral-links'
 import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
-
-/** "Pat Smith" -> "Pat S." : enough to recognise the person, not enough to contact or look them up elsewhere. */
-function maskName(name: string | null): string {
-  const parts = String(name ?? '').trim().split(/\s+/).filter(Boolean)
-  if (parts.length === 0) return 'Unnamed'
-  if (parts.length === 1) return parts[0]
-  return `${parts[0]} ${parts[parts.length - 1][0].toUpperCase()}.`
-}
 
 /**
  * "Who referred this lead?" lookup for the new-lead form. Replaces the form's direct database reads, which a setter's own
@@ -54,6 +46,6 @@ export async function GET(request: NextRequest) {
     seen.add(key)
     return true
   })
-  const results = scoped ? unique.map((r) => ({ id: r.id, type: r.type, name: maskName(r.name), phone: null, email: null, address: r.address, masked: true })) : unique.map((r) => ({ ...r, masked: false }))
+  const results = scoped ? unique.map((r) => ({ id: r.id, type: r.type, name: maskPersonName(r.name), phone: null, email: null, address: r.address, masked: true })) : unique.map((r) => ({ ...r, masked: false }))
   return NextResponse.json({ results })
 }

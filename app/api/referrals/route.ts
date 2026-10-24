@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { createServiceClient } from '@/lib/supabase/service'
+import { isContactScoped, maskPersonName, mayReadLead } from '@/lib/contact-scope'
 
 export const dynamic = 'force-dynamic'
 
@@ -75,7 +76,7 @@ export async function GET(request: NextRequest) {
     // Get user profile for org_id
     const { data: profile } = await adminClient
       .from('users')
-      .select('org_id')
+      .select('org_id, role, custom_role_id, is_super_admin')
       .eq('id', user.id)
       .single()
 
@@ -88,8 +89,13 @@ export async function GET(request: NextRequest) {
     const leadId = searchParams.get('lead_id')
     const excludeLeadId = searchParams.get('exclude_lead_id')
 
+    // Setters / canvassers: contact details only for their own work (lib/contact-scope.ts).
+    const scopeProfile = { id: user.id, role: profile.role, custom_role_id: profile.custom_role_id, is_super_admin: profile.is_super_admin }
+    const scoped = await isContactScoped(adminClient, scopeProfile)
+
     // If lead_id is provided, get the referral for that lead
     if (leadId) {
+      if (scoped && !(await mayReadLead(adminClient, scopeProfile, leadId))) return NextResponse.json({ referral: null })
       const { data: referral } = await adminClient
         .from('referrals')
         .select('*')
@@ -166,6 +172,10 @@ export async function GET(request: NextRequest) {
       seen.add(key)
       return true
     })
+
+    if (scoped) {
+      return NextResponse.json({ results: uniqueResults.map((r) => ({ ...r, name: maskPersonName(r.name), phone: null, email: null })) })
+    }
 
     return NextResponse.json({ results: uniqueResults })
   } catch (error) {

@@ -14,18 +14,21 @@ set search_path = public, pg_temp
 as $$
   select exists (select 1 from public.user_comp_plans a where a.user_id = auth.uid() and a.comp_plan_id = p_plan)
       or (exists (select 1 from public.comp_plans p where p.id = p_plan and p.is_default and p.is_active)
-          and not exists (select 1 from public.user_comp_plans a where a.user_id = auth.uid()));
+          -- the default plan is the plan that applies to me when I have no CURRENT assignment to an active plan
+          and not exists (select 1 from public.user_comp_plans a join public.comp_plans cp on cp.id = a.comp_plan_id
+                           where a.user_id = auth.uid() and cp.is_active
+                             and a.effective_from <= current_date and (a.effective_to is null or a.effective_to >= current_date)));
 $$;
 revoke all on function public.comp_plan_is_mine_self(uuid) from public, anon;
 grant execute on function public.comp_plan_is_mine_self(uuid) to authenticated, service_role;
 
 drop policy if exists own_plans_only on public.comp_plans;
 create policy own_plans_only on public.comp_plans as restrictive for select to authenticated
-  using (public.is_payroll_admin() or public.comp_plan_is_mine_self(id));
+  using ((select public.is_payroll_admin()) or public.comp_plan_is_mine_self(id));
 
 drop policy if exists own_plans_only on public.user_comp_plans;
 create policy own_plans_only on public.user_comp_plans as restrictive for select to authenticated
-  using (public.is_payroll_admin() or user_id = auth.uid());
+  using ((select public.is_payroll_admin()) or user_id = (select auth.uid()));
 
 commit;
 -- ROLLBACK: drop policy own_plans_only on public.comp_plans; drop policy own_plans_only on public.user_comp_plans;

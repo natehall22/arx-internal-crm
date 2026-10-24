@@ -70,20 +70,20 @@ revoke all on function arx_private.lead_mine(uuid, uuid) from public, anon, auth
 
 drop policy if exists setter_own_work on public.leads;
 create policy setter_own_work on public.leads as restrictive for select to authenticated
-  using (not public.is_setter_canvasser_self() or owner_user_id = auth.uid() or pin_attributed_user_id = auth.uid() or closer_user_id = auth.uid() or public.lead_is_mine_self(id));
+  using (not (select public.is_setter_canvasser_self()) or owner_user_id = (select auth.uid()) or pin_attributed_user_id = (select auth.uid()) or closer_user_id = (select auth.uid()) or public.lead_is_mine_self(id));
 
 drop policy if exists setter_own_work on public.scheduled_appointments;
 create policy setter_own_work on public.scheduled_appointments as restrictive for select to authenticated
-  using (not public.is_setter_canvasser_self() or canvasser_user_id = auth.uid() or closer_user_id = auth.uid() or inside_sales_booked_by_user_id = auth.uid() or public.lead_is_mine_self(lead_id));
+  using (not (select public.is_setter_canvasser_self()) or canvasser_user_id = (select auth.uid()) or closer_user_id = (select auth.uid()) or inside_sales_booked_by_user_id = (select auth.uid()) or public.lead_is_mine_self(lead_id));
 
 drop policy if exists setter_own_work on public.opportunities;
 create policy setter_own_work on public.opportunities as restrictive for select to authenticated
-  using (not public.is_setter_canvasser_self() or setter_user_id = auth.uid() or owner_user_id = auth.uid() or assigned_user_id = auth.uid() or public.lead_is_mine_self(lead_id));
+  using (not (select public.is_setter_canvasser_self()) or setter_user_id = (select auth.uid()) or owner_user_id = (select auth.uid()) or assigned_user_id = (select auth.uid()) or public.lead_is_mine_self(lead_id));
 
 -- A customer is theirs when one of THEIR deals or leads points at it (the inner reads run under the same restrictive policies).
 drop policy if exists setter_own_work on public.customers;
 create policy setter_own_work on public.customers as restrictive for select to authenticated
-  using (not public.is_setter_canvasser_self()
+  using (not (select public.is_setter_canvasser_self())
          or exists (select 1 from public.opportunities o where o.customer_id = customers.id)
          or exists (select 1 from public.leads l where l.customer_id = customers.id));
 

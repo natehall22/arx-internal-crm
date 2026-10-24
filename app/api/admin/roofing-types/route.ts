@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { createServiceClient } from '@/lib/supabase/service'
+import { stripPricebookCosts } from '@/lib/pricebook-costs'
 
 export const dynamic = 'force-dynamic'
 
@@ -93,8 +94,9 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to fetch roofing types' }, { status: 500 })
     }
 
+    // Cost / margin columns only for owners, admins and ops (lib/pricebook-costs.ts).
     return NextResponse.json({
-      roofingTypes: roofingTypes || [],
+      roofingTypes: stripPricebookCosts(roofingTypes, profile.role),
       role: profile.role,
     })
   } catch (err) {
