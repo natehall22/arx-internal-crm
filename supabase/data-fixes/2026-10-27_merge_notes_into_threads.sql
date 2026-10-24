@@ -85,7 +85,10 @@ BEGIN
 
   INSERT INTO release_backups.merge_notes_classified (activity_id, run_id, prev_origin, prev_audience, prev_restricted_pricing, applied_origin, applied_audience, applied_restricted_pricing)
   SELECT id, v_run, prev_origin, prev_audience, prev_restricted, new_origin, new_audience, new_restricted FROM _classify
-  ON CONFLICT (activity_id) DO NOTHING;
+  -- A re-apply after an undo must start a fresh backup row (not keep the undone one), or the next undo would restore nothing.
+  ON CONFLICT (activity_id) DO UPDATE SET run_id = EXCLUDED.run_id, prev_origin = EXCLUDED.prev_origin, prev_audience = EXCLUDED.prev_audience,
+    prev_restricted_pricing = EXCLUDED.prev_restricted_pricing, applied_origin = EXCLUDED.applied_origin, applied_audience = EXCLUDED.applied_audience,
+    applied_restricted_pricing = EXCLUDED.applied_restricted_pricing, applied_at = now(), undone_at = NULL, kept_reason = NULL;
   UPDATE activities a SET origin = c.new_origin, audience = c.new_audience, restricted_pricing = c.new_restricted FROM _classify c WHERE c.id = a.id;
   SELECT count(*) INTO v_classified FROM _classify;
 

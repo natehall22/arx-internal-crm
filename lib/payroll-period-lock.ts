@@ -94,6 +94,7 @@ export async function lockPayrollPeriod(
     try {
       full = await loadPayWeekFull(supabase, orgId, now, periodId)
     } catch (e) {
+      if ((e as Error).message === 'Pay period not found') return { ok: false, status: 404, body: { error: 'Week not found' } }
       console.error('period lock: calculation failed', e)
       return { ok: false, status: 500, body: { error: 'Cannot lock: the pay calculation failed. Nothing was paid.' } }
     }

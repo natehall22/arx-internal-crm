@@ -219,3 +219,47 @@ describe('writers refused while a week is being approved', () => {
     expect(mapCommitError({ message: 'boom' }, 10)).toMatchObject({ ok: false, status: 500 })
   })
 })
+
+describe('review fixes', () => {
+  it('payWeekDays is calendar arithmetic on the Eastern date: 7 distinct days even across the clock changes', () => {
+    // Wed 2026-11-04 23:59:59 EST (week of the fall-back on Sun 2026-11-01) and Wed 2026-03-11 EDT (spring-forward Sun 03-08)
+    const { payWeekDays } = jest.requireActual('@/lib/payroll-hours') as typeof import('@/lib/payroll-hours')
+    for (const [cutoff, start, end] of [['2026-11-05T04:59:59.999Z', '2026-10-29', '2026-11-04'], ['2026-03-12T03:59:59.999Z', '2026-03-05', '2026-03-11']] as const) {
+      const w = payWeekDays(cutoff)
+      expect(w.start).toBe(start)
+      expect(w.end).toBe(end)
+      expect(new Set(w.days).size).toBe(7)
+    }
+  })
+
+  it('a missing week is a 404 from the lock path, not a 500', async () => {
+    const db = build()
+    const res = await approvePayWeek(db.client, { orgId: ORG, actorUserId: 'a', periodId: '00000000-0000-4000-8000-000000000999', expectedTotal: 0, now: NOW }).catch((e) => e as Error)
+    expect(res instanceof Error ? res.message : '').toBe('Pay period not found') // approve route maps this to 404
+  })
+
+  it('the preview counts payout lines already on the open week, so Approve (which sums every line) can match it', async () => {
+    const db = build()
+    const week = await loadPayWeek(db.client, ORG, NOW)
+    // debris of an interrupted earlier approval: a line for a job the plan no longer lists
+    db.tables.payroll_payout_lines = [{ org_id: ORG, payroll_period_id: week.period.id, job_id: 'old-job', user_id: 'c1', participant_role: 'sales_rep', gross_amount: 100, net_amount: 100, comp_plan_snapshot: {} }]
+    const withDebris = await loadPayWeek(db.client, ORG, NOW)
+    expect(withDebris.totals.amount).toBe(week.totals.amount + 100)
+    const res = await approvePayWeek(db.client, { orgId: ORG, actorUserId: 'a', periodId: week.period.id, expectedTotal: withDebris.totals.amount, now: NOW })
+    expect(res).toMatchObject({ ok: true, total: week.totals.amount + 100 })
+  })
+
+  it('a saved hours row\'s stored earnings are the pay (the database sums the same column)', async () => {
+    const db = build({
+      users: [{ id: 'h1', org_id: ORG, full_name: 'Hourly Hal', role: 'sales_rep', active: true }],
+      production_jobs: [],
+      comp_plans: [{ id: 'plan-hr', name: 'Hourly', plan_type: 'hourly', hourly_rate: 20, is_active: true, org_id: ORG }],
+      user_comp_plans: [{ user_id: 'h1', org_id: ORG, comp_plan_id: 'plan-hr', effective_from: '2026-01-01', effective_to: null, override_percentage: null, hourly_rate_override: null }],
+    })
+    const week = await loadPayWeek(db.client, ORG, NOW)
+    db.tables.payroll_rep_hours = [{ org_id: ORG, payroll_period_id: week.period.id, user_id: 'h1', regular_hours: 5, overtime_hours: 0, hourly_rate_snapshot: 20, hourly_earnings: 100, notes: null }]
+    const draft = await loadPayWeek(db.client, ORG, NOW)
+    expect(draft.totals.amount).toBe(100)
+    expect((await approvePayWeek(db.client, { orgId: ORG, actorUserId: 'a', periodId: week.period.id, expectedTotal: 100, now: NOW })).ok).toBe(true)
+  })
+})

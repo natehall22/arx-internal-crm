@@ -45,13 +45,13 @@ export async function resolveEffectivePermissionNames(
   let customRoleDisplayName: string | null = null
 
   if (profile.custom_role_id) {
-    const { data: cr } = await admin.from('custom_roles').select('name, display_name').eq('id', profile.custom_role_id).maybeSingle()
+    // Role name (for the field-role deny) and its grants, in parallel: one round trip, not two.
+    const [{ data: cr }, { data: rps }] = await Promise.all([
+      admin.from('custom_roles').select('name, display_name').eq('id', profile.custom_role_id).maybeSingle(),
+      admin.from('role_permissions').select('permission:permissions(name)').eq('role_id', profile.custom_role_id),
+    ])
     customRoleName = (cr?.name as string | null) ?? null
     customRoleDisplayName = (cr?.display_name as string | null) ?? null
-    const { data: rps } = await admin
-      .from('role_permissions')
-      .select('permission:permissions(name)')
-      .eq('role_id', profile.custom_role_id)
 
     for (const rp of rps || []) {
       const p = (rp as { permission?: { name?: string } | { name?: string }[] | null }).permission

@@ -69,5 +69,12 @@ BEGIN
   IF (SELECT origin FROM activities WHERE id = a_sys) IS NOT NULL THEN RAISE EXCEPTION 'undo did not restore the system row'; END IF;
   v_report := v_report || E'\nundo OK: ' || v_undo::text;
 
+  -- apply AGAIN after an undo, then undo AGAIN: the second undo must still restore (a stale backup row must not block it)
+  v_res := release_backups.merge_notes_into_threads('apply');
+  IF (SELECT origin FROM activities WHERE id = a_human) IS NULL THEN RAISE EXCEPTION 're-apply did not reclassify the setter note'; END IF;
+  v_undo := release_backups.undo_merge_notes_into_threads();
+  IF (SELECT origin FROM activities WHERE id = a_human) IS NOT NULL THEN RAISE EXCEPTION 'second undo restored nothing (stale backup row): %', v_undo; END IF;
+  v_report := v_report || E'\napply -> undo -> apply -> undo OK: ' || v_undo::text;
+
   RAISE EXCEPTION E'REPORT (rolled back by design):%', v_report;
 END

@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { lockPayrollPeriod } from '@/lib/payroll-period-lock'
-import { loadPayWeek, type PayWeek } from '@/lib/payroll-pay-week'
+import { loadPayWeek, resolvePayWeekPeriod, type PayWeek } from '@/lib/payroll-pay-week'
 import { buildPayrollStatement } from '@/lib/payroll-statement'
 import { sendPayrollStatementEmail } from '@/lib/payroll-statement-email'
 import { pickValidEmail } from '@/lib/setter-email'
@@ -24,14 +24,13 @@ export async function approvePayWeek(
 ): Promise<ApproveResult> {
   const { orgId, periodId } = input
   const now = input.now ?? new Date()
-  const week = await loadPayWeek(admin, orgId, now, periodId)
-  if (week.state !== 'draft') return { ok: false, status: 409, body: { error: 'This week is already approved' } }
+  // Cheap early exits from the period row alone; the pay calculation runs ONCE, under the claim, inside lockPayrollPeriod
+  // (which also refuses when its total is not the one the admin was shown).
+  const period = await resolvePayWeekPeriod(admin, orgId, now, periodId)
+  if (period.status !== 'open') return { ok: false, status: 409, body: { error: 'This week is already approved' } }
   // A week can only be approved once it has ended (its Wednesday cutoff has passed): never the upcoming week.
-  if (new Date(week.period.cutoffAt).getTime() > now.getTime()) {
+  if (new Date(period.cutoffAt).getTime() > now.getTime()) {
     return { ok: false, status: 409, body: { error: "This week hasn't ended yet. Approve it after Wednesday night.", code: 'not_ended' } }
-  }
-  if (Math.round(week.totals.amount * 100) !== Math.round(input.expectedTotal * 100)) {
-    return { ok: false, status: 409, body: { error: 'The numbers changed while you were looking. Review them again.', code: 'changed', total: week.totals.amount } }
   }
 
   const lock = await lockPayrollPeriod(admin, { orgId, periodId, actorUserId: input.actorUserId, status: 'open', expectedTotal: input.expectedTotal, now })

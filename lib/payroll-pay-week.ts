@@ -421,6 +421,16 @@ export async function loadPayWeekFull(admin: SupabaseClient, orgId: string, now:
     const plan = await planPayrollPeriod(admin, { orgId, periodId: period.id, includeWaiting: true })
     fullPlan = plan
     rows = plan.jobs.flatMap((j) => j.rows)
+    // Lines already written to this still-open week (debris of an interrupted approval, or a reopened week) are part of what Approve
+    // commits — the database total counts every line on the period — so the preview must show them too, or Approve could never match it.
+    const { data: existing, error: existingErr } = await admin
+      .from('payroll_payout_lines')
+      .select('job_id, user_id, participant_role, gross_amount, net_amount, comp_plan_snapshot')
+      .eq('org_id', orgId)
+      .eq('payroll_period_id', period.id)
+    if (existingErr) throw existingErr
+    const planned = new Set(rows.map((r) => `${r.job_id}|${r.user_id}|${r.participant_role}`))
+    for (const l of (existing ?? []) as WeekInputs['rows']) if (!planned.has(`${l.job_id}|${l.user_id}|${l.participant_role}`)) rows.push(l)
     waiting = plan.waiting
     conflictJobIds = plan.selfGenSetterConflictJobIds
     const old = plan.jobs.filter((j) => ymdEt(new Date(j.eligibleAt)) < period.weekStart)
@@ -436,9 +446,11 @@ export async function loadPayWeekFull(admin: SupabaseClient, orgId: string, now:
   }
 
   const jobIds = Array.from(new Set([...rows.map((r) => r.job_id), ...waiting.map((w) => w.job.id)]))
+  // Everyone active on any day of the week: read once, shared by the hours roster and per-unit pay.
+  const weekPeople = await loadWeekPeople(admin, orgId, { id: period.id, cutoff_at: period.cutoffAt })
   const [jobs, hours, bonusRes, adjustments] = await Promise.all([
     loadJobs(admin, orgId, jobIds),
-    draft ? loadHourlyRoster(admin, orgId, { id: period.id, cutoff_at: period.cutoffAt }) : loadStoredHours(admin, orgId, period.id),
+    draft ? loadHourlyRoster(admin, orgId, { id: period.id, cutoff_at: period.cutoffAt }, weekPeople) : loadStoredHours(admin, orgId, period.id),
     admin.from('payroll_bonus_lines').select('id, user_id, bonus_type, amount, description, status').eq('org_id', orgId).eq('payroll_period_id', period.id),
     loadPeriodAdjustments(admin, orgId, period.id),
   ])
@@ -473,7 +485,6 @@ export async function loadPayWeekFull(admin: SupabaseClient, orgId: string, now:
   }
   // Per-unit pay: everyone who was active on any day of the week is checked (a unit-plan person with no commission rows and no
   // hours still earns it). An approved week reads what was stored at approval.
-  const weekPeople = await loadWeekPeople(admin, orgId, { id: period.id, cutoff_at: period.cutoffAt })
   const leftOrSaved = new Set(weekPeople.filter((p) => !p.active).map((p) => p.id))
   const unitIds = Array.from(new Set([...weekPeople.map((u) => u.id), ...rows.map((r) => r.user_id), ...hours.map((h) => h.user_id)]))
   const unitEarnings = await loadWeekUnitEarnings(admin, orgId, period, unitIds, new Set([...Array.from(leftOrSaved), ...hours.filter((h) => h.has_entry).map((h) => h.user_id)]))

@@ -44,8 +44,10 @@ function isHourlyEligiblePlan(
 export function payWeekDays(cutoffAt: string | null | undefined): { start: string; end: string; days: string[] } {
   const cutoff = cutoffAt ? new Date(cutoffAt) : new Date()
   const end = cutoffYmdEt(cutoff)
+  // Calendar arithmetic on the Eastern DATE (noon UTC avoids any DST edge), never on instants: subtracting 24h multiples from a
+  // 23:59 Eastern cutoff repeats/skips a date in the week the clocks change.
   const days: string[] = []
-  for (let i = 0; i < 7; i++) days.push(ymdEt(new Date(cutoff.getTime() - i * 86_400_000)))
+  for (let i = 0; i < 7; i++) days.push(new Date(new Date(`${end}T12:00:00Z`).getTime() - i * 86_400_000).toISOString().slice(0, 10))
   return { start: days[days.length - 1], end, days }
 }
 
@@ -92,10 +94,12 @@ export async function loadPlanForWeek(supabase: SupabaseClient, userId: string, 
 export async function loadHourlyRoster(
   supabase: SupabaseClient,
   orgId: string,
-  period: { id: string; cutoff_at: string | null }
+  period: { id: string; cutoff_at: string | null },
+  /** Already-loaded people for this week (loadWeekPeople), to skip a second read. */
+  preloadedPeople?: WeekPerson[]
 ): Promise<HourlyRosterRow[]> {
   const [people, { data: savedRows }] = await Promise.all([
-    loadWeekPeople(supabase, orgId, period),
+    preloadedPeople ? Promise.resolve(preloadedPeople) : loadWeekPeople(supabase, orgId, period),
     supabase
       .from('payroll_rep_hours')
       .select('user_id, regular_hours, overtime_hours, hourly_rate_snapshot, hourly_earnings, notes, locked_at')
@@ -116,10 +120,9 @@ export async function loadHourlyRoster(
     const reg = Number(saved?.regular_hours) || 0
     const ot = Number(saved?.overtime_hours) || 0
     const rate = hourlyRate ?? (Number(saved?.hourly_rate_snapshot) || 0)
-    const earnings =
-      saved?.hourly_earnings != null
-        ? Number(saved.hourly_earnings)
-        : computeHourlyEarnings({ regularHours: reg, overtimeHours: ot, hourlyRate: rate }).total
+    // A saved row's stored earnings ARE the pay (saveHoursEntries always writes them; an approved week reads the same column).
+    // The database commit sums the same column, so the preview and the commit cannot disagree.
+    const earnings = saved ? Number(saved.hourly_earnings) || 0 : computeHourlyEarnings({ regularHours: reg, overtimeHours: ot, hourlyRate: rate }).total
     rows.push({
       user_id: u.id,
       full_name: u.full_name,
