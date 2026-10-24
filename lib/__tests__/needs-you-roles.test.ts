@@ -74,8 +74,8 @@ describe('who gets what from Needs you (pure rule)', () => {
 
 describe('every problem code is deliberately classified', () => {
   it('a new HealthProblemCode must be placed on purpose: ops-visible, or money/credit (owner only)', () => {
-    const ALL: HealthProblemCode[] = ['no_signed_contract', 'missing_commission_base', 'commission_base_mismatch', 'sale_amount_mismatch', 'collected_but_short', 'paid_not_marked_collected', 'no_deal_linked', 'no_closer', 'no_setter', 'self_gen_setter_conflict', 'completed_no_costs', 'not_installed', 'materials_not_ordered', 'permit_pending', 'crews_done_job_open', 'appointment_no_outcome']
-    const OPS = ['completed_no_costs', 'materials_not_ordered', 'permit_pending', 'crews_done_job_open', 'appointment_no_outcome']
+    const ALL: HealthProblemCode[] = ['no_signed_contract', 'missing_commission_base', 'commission_base_mismatch', 'sale_amount_mismatch', 'collected_but_short', 'paid_not_marked_collected', 'no_deal_linked', 'no_closer', 'no_setter', 'self_gen_setter_conflict', 'completed_no_costs', 'not_installed', 'materials_not_ordered', 'permit_pending', 'crews_done_job_open', 'crew_past_due', 'trade_done_no_photos', 'appointment_no_outcome']
+    const OPS = ['completed_no_costs', 'materials_not_ordered', 'permit_pending', 'crews_done_job_open', 'crew_past_due', 'trade_done_no_photos', 'appointment_no_outcome']
     // Build a report with one row per code and check exactly the ops codes survive for ops.
     const report: DataHealthReport = { generatedAt: 'x', jobs: ALL.map((code, i) => ({ kind: 'job', jobId: `j${i}`, jobNumber: `26-${i}`, status: 'complete', addressText: null, problems: [p(code, 'money', 'row')] })), appointments: [], count: ALL.length }
     expect(codes(shapeNeedsYou(report, 'ops')!).sort()).toEqual([...OPS].sort())

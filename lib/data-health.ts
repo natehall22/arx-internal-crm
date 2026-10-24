@@ -29,6 +29,8 @@ import { ymdInBusinessTz } from '@/lib/calendar-business-tz'
 import { SALE_AGREEMENT_TYPES } from '@/lib/sales-metrics'
 import { isOwnerProfile } from '@/lib/super-admin'
 import { loadEndedPlanPeople, loadPayPlanGaps, type EndedPlanPerson, type PayPlanGap } from '@/lib/comp-plan-defaults-db'
+import { calendarDaySpan } from '@/lib/job-trades'
+import { missingRequiredPhotoTags } from '@/lib/final-photo-tags'
 
 /** Paid-in-full tolerance (owner decision #2). */
 export const PAID_TOLERANCE_CENTS = 5
@@ -60,6 +62,8 @@ export type HealthProblemCode =
   | 'materials_not_ordered'
   | 'permit_pending'
   | 'crews_done_job_open'
+  | 'crew_past_due'
+  | 'trade_done_no_photos'
   | 'appointment_no_outcome'
 
 export type HealthProblem = {
@@ -136,6 +140,24 @@ export type HealthDealRow = {
   is_self_generated?: boolean | null
 }
 
+/** One crew (trade) of a job, with the facts the ops checks need. `photoTags` is only needed for crews marked done. */
+export type HealthTradeRow = {
+  id?: string
+  status: string
+  trade?: string | null
+  scheduled_date?: string | null
+  install_days?: number | string | null
+  photoTags?: Array<string | null>
+}
+
+const TRADE_WORD: Record<string, string> = { roofing: 'Roofing', gutters: 'Gutters', siding: 'Siding', windows: 'Windows', other: 'Other' }
+
+/** Last calendar day a crew works: 1 or ½ day = its date, 1½ or 2 days = the next day too. */
+export function crewLastDay(t: Pick<HealthTradeRow, 'scheduled_date' | 'install_days'>): string | null {
+  if (!t.scheduled_date) return null
+  return calendarDaySpan(t.install_days) > 1 ? addDaysToDateOnly(t.scheduled_date, 1) : t.scheduled_date
+}
+
 export type JobHealthInput = {
   job: HealthJobRow
   /** Sum of the job's completed sale agreements (installation/repair), or null when none. */
@@ -150,7 +172,7 @@ export type JobHealthInput = {
   paidCents: number
   costLineCount: number
   deal: HealthDealRow | null
-  trades: { status: string }[]
+  trades: HealthTradeRow[]
   todayYmd: string
 }
 
@@ -398,6 +420,40 @@ export function evaluateJobHealth(input: JobHealthInput): HealthProblem[] {
     })
   }
   const activeTrades = input.trades.filter((t) => t.status !== 'cancelled')
+  // A crew whose last day has passed and is not marked done (jobs on hold / finished / cancelled are not chased).
+  if (job.status === 'sold' || job.status === 'materials' || job.status === 'scheduled' || job.status === 'in_progress') {
+    for (const t of activeTrades) {
+      const last = crewLastDay(t)
+      if (t.status !== 'completed' && last && last < input.todayYmd) {
+        problems.push({
+          code: 'crew_past_due',
+          area: 'ops',
+          message: `${TRADE_WORD[t.trade ?? ''] ?? 'A'} crew was due ${last} and isn't marked done.`,
+          fixLabel: 'Open crews',
+          fixHref: jobHref(job.id, 'job-trades'),
+          blocksPay: false,
+        })
+      }
+    }
+  }
+  // A crew marked done without its required photos (the override on the Done button lets this happen; it should not go unseen).
+  // Collected jobs are history (their crews were closed out before photos were required), so they are not chased.
+  if (job.status !== 'cancelled' && job.status !== 'collected') {
+    for (const t of activeTrades) {
+      if (t.status !== 'completed' || !t.photoTags) continue
+      const missing = missingRequiredPhotoTags(t.photoTags)
+      if (missing.length > 0) {
+        problems.push({
+          code: 'trade_done_no_photos',
+          area: 'ops',
+          message: `${TRADE_WORD[t.trade ?? ''] ?? 'A'} crew is marked done with ${4 - Math.min(4, missing.length)} of 4 required photos.`,
+          fixLabel: 'Add photos',
+          fixHref: jobHref(job.id, 'job-trades'),
+          blocksPay: false,
+        })
+      }
+    }
+  }
   if (
     (job.status === 'in_progress' || job.status === 'scheduled') &&
     activeTrades.length > 0 &&
@@ -612,10 +668,10 @@ export async function loadDataHealth(
     selectIn<{ job_id: string }>(jobIds, (chunk) =>
       admin.from('job_cost_lines').select('job_id').eq('org_id', orgId).is('deleted_at', null).in('job_id', chunk)
     ),
-    selectIn<{ job_id: string; status: string }>(jobIds, (chunk) =>
+    selectIn<{ id: string; job_id: string; status: string; trade: string | null; scheduled_date: string | null; install_days: number | string | null }>(jobIds, (chunk) =>
       admin
         .from('work_orders')
-        .select('job_id, status')
+        .select('id, job_id, status, trade, scheduled_date, install_days')
         .eq('org_id', orgId)
         .not('trade', 'is', null)
         .in('job_id', chunk)
@@ -624,6 +680,12 @@ export async function loadDataHealth(
       admin.from('proposals').select('id, tax_amount').eq('org_id', orgId).in('id', chunk)
     ),
   ])
+  const doneTradeIds = trades.filter((t) => t.status === 'completed').map((t) => t.id)
+  const donePhotos = await selectIn<{ work_order_id: string; photo_tag: string | null }>(doneTradeIds, (chunk) =>
+    admin.from('photos').select('work_order_id, photo_tag').eq('org_id', orgId).is('deleted_at', null).in('work_order_id', chunk)
+  )
+  const photoTagsByTrade = new Map<string, Array<string | null>>()
+  for (const p of donePhotos) photoTagsByTrade.set(p.work_order_id, [...(photoTagsByTrade.get(p.work_order_id) ?? []), p.photo_tag])
   const taxByProposal = new Map(proposals.map((p) => [p.id, num(p.tax_amount) ?? 0]))
 
   const oppByProject = new Map(projects.map((p) => [p.id, p.opportunity_id]))
@@ -645,7 +707,10 @@ export async function loadDataHealth(
   const paymentsByJob = groupBy(payments, (p) => p.job_id)
   const costCountByJob = new Map<string, number>()
   for (const line of costLines) costCountByJob.set(line.job_id, (costCountByJob.get(line.job_id) ?? 0) + 1)
-  const tradesByJob = groupBy(trades, (t) => t.job_id)
+  const tradesByJob = groupBy(
+    trades.map((t) => ({ ...t, photoTags: t.status === 'completed' ? photoTagsByTrade.get(t.id) ?? [] : undefined })),
+    (t) => t.job_id
+  )
 
   const jobHealth: JobHealth[] = []
   for (const job of jobs) {
@@ -784,6 +849,8 @@ const OPS_VISIBLE_CODES: ReadonlySet<HealthProblemCode> = new Set<HealthProblemC
   'materials_not_ordered',
   'permit_pending',
   'crews_done_job_open',
+  'crew_past_due',
+  'trade_done_no_photos',
   'completed_no_costs', // "missing cost lines" (the row says so without amounts)
   'appointment_no_outcome',
 ])

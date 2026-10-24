@@ -172,6 +172,39 @@ describe('evaluateJobHealth', () => {
       const i = input({ paidCents: 0, job: { ...open, scheduled_date: '2026-10-22', permit_required: true, permit_status: 'pending' } })
       expect(codes(i)).toContain('permit_pending')
     })
+    describe('crews past due and done without photos', () => {
+      const j = (status: string) => ({ status, paidCents: 0, costLineCount: 0 })
+      it('a crew whose last day has passed and is not done is flagged', () => {
+        const t = [{ status: 'scheduled', trade: 'roofing', scheduled_date: '2026-10-20', install_days: 1 }]
+        expect(codes(input({ paidCents: 0, job: j('scheduled'), trades: t }))).toContain('crew_past_due')
+      })
+      it('today and tomorrow are not past due; a 2-day crew is due through its second day', () => {
+        const today = input({ paidCents: 0, job: j('scheduled'), trades: [{ status: 'scheduled', trade: 'roofing', scheduled_date: '2026-10-21', install_days: 1 }] })
+        expect(codes(today)).not.toContain('crew_past_due')
+        const twoDay = input({ paidCents: 0, job: j('in_progress'), trades: [{ status: 'scheduled', trade: 'roofing', scheduled_date: '2026-10-20', install_days: 2 }] })
+        expect(codes(twoDay)).not.toContain('crew_past_due')
+        const lateTwoDay = input({ paidCents: 0, job: j('in_progress'), trades: [{ status: 'scheduled', trade: 'roofing', scheduled_date: '2026-10-19', install_days: 2 }] })
+        expect(codes(lateTwoDay)).toContain('crew_past_due')
+      })
+      it('done, cancelled, unscheduled crews and held / finished jobs are not flagged', () => {
+        const old = { scheduled_date: '2026-10-01', install_days: 1, trade: 'roofing' }
+        expect(codes(input({ paidCents: 0, job: j('scheduled'), trades: [{ status: 'completed', ...old, photoTags: ['final_front', 'final_back', 'final_left', 'final_right'] }] }))).not.toContain('crew_past_due')
+        expect(codes(input({ paidCents: 0, job: j('scheduled'), trades: [{ status: 'cancelled', ...old }] }))).not.toContain('crew_past_due')
+        expect(codes(input({ paidCents: 0, job: j('scheduled'), trades: [{ status: 'scheduled', trade: 'roofing' }] }))).not.toContain('crew_past_due')
+        for (const status of ['on_hold', 'complete', 'collected', 'cancelled']) {
+          expect(codes(input({ paidCents: 0, job: j(status), trades: [{ status: 'scheduled', ...old }] }))).not.toContain('crew_past_due')
+        }
+      })
+      it('a crew marked done with fewer than the 4 required photos is flagged; with all 4 it is not', () => {
+        const done = { status: 'completed', trade: 'gutters' }
+        expect(codes(input({ paidCents: 0, job: j('in_progress'), trades: [{ ...done, photoTags: [] }] }))).toContain('trade_done_no_photos')
+        expect(codes(input({ paidCents: 0, job: j('in_progress'), trades: [{ ...done, photoTags: ['final_front', 'other_final'] }] }))).toContain('trade_done_no_photos')
+        // collected jobs are history, not chased
+        expect(codes(input({ paidCents: 0, job: j('collected'), trades: [{ ...done, photoTags: [] }] }))).not.toContain('trade_done_no_photos')
+        // photo facts not loaded (undefined) never raises a false alarm
+        expect(codes(input({ paidCents: 0, job: j('in_progress'), trades: [{ ...done }] }))).not.toContain('trade_done_no_photos')
+      })
+    })
     it('every crew done but the job still open', () => {
       expect(codes(input({ paidCents: 0, job: { status: 'in_progress' }, trades: [{ status: 'completed' }, { status: 'cancelled' }] }))).toContain(
         'crews_done_job_open'
