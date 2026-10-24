@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { createServiceClient } from '@/lib/supabase/service'
 import { stripPricebookCosts } from '@/lib/pricebook-costs'
+import { canSeeFinancials } from '@/lib/financials-access'
 
 export const dynamic = 'force-dynamic'
 
@@ -99,7 +100,7 @@ export async function GET(request: NextRequest) {
       .order('name')
 
     return NextResponse.json({
-      pricebookItems: stripPricebookCosts(items, profile.role),
+      pricebookItems: stripPricebookCosts(items, await canSeeFinancials(adminClient, { id: user.id, role: profile.role })),
       templates: templates || [],
       orgId: profile.org_id,
       role: profile.role,

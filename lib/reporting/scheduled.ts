@@ -1,12 +1,12 @@
 /**
  * Emails saved reports on their schedule. Called by the 7am morning-update cron, once per org per day.
- * Each report runs AS ITS CREATOR (their scope and finance access), so a schedule can never show
- * a recipient more than its creator could see.
+ * Each recipient receives the report run AS THEMSELVES (their own scope and reports:financials), so a schedule can never
+ * show a recipient more than they could open themselves; the creator must still be able to export it.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { getCrmEmailFrom } from '@/lib/crm-email-from'
-import { buildReportContext, resultToCsv, runReport } from '@/lib/reporting/run'
+import { ReportAccessError, buildReportContext, resultToCsv, runReport } from '@/lib/reporting/run'
 import { parseSpec } from '@/lib/reporting/report-spec'
 
 function dueToday(schedule: string, now: Date): boolean {
@@ -49,22 +49,39 @@ export async function sendScheduledReports(
         .maybeSingle()
       const parsed = parseSpec(r.spec)
       if (!creator || creator.active === false || !parsed.ok) throw new Error('creator inactive or spec invalid')
-      const ctx = await buildReportContext(admin, creator)
-      // The creator must STILL be allowed to see and export this, and recipients must still be team members.
-      if (!ctx.canExport) throw new Error('creator can no longer export reports')
-      const { data: staff } = await admin.from('users').select('email').eq('org_id', orgId).eq('active', true).in('email', r.schedule_recipients ?? [])
-      const known = new Set((staff ?? []).map((u: { email: string | null }) => String(u.email).toLowerCase()))
-      const recipients = (r.schedule_recipients ?? []).filter((e: string) => known.has(String(e).toLowerCase()))
-      if (recipients.length === 0) throw new Error('no active recipients')
-      const result = await runReport(admin, ctx, parsed.spec)
+      const creatorCtx = await buildReportContext(admin, creator)
+      // The creator must STILL be allowed to export this.
+      if (!creatorCtx.canExport) throw new Error('creator can no longer export reports')
+      // Each recipient gets the report AS THEMSELVES: their own scope and their own financial access. A recipient without
+      // reports:financials never receives a financial column (or a financial-only report at all), whatever the creator can see.
+      const { data: staff } = await admin
+        .from('users')
+        .select('id, org_id, role, custom_role_id, team_id, region_id, email')
+        .eq('org_id', orgId)
+        .eq('active', true)
+        .in('email', r.schedule_recipients ?? [])
+      if (!staff || staff.length === 0) throw new Error('no active recipients')
       const { getMailTransport } = await import('@/lib/setter-email')
-      await getMailTransport().sendMail({
-        from: getCrmEmailFrom(),
-        to: recipients,
-        subject: `${r.name} — ${todayKey}`,
-        text: `Your scheduled report "${r.name}" is attached (${result.rows.length} rows).`,
-        attachments: [{ filename: `${String(r.name).replace(/[^a-z0-9_-]+/gi, '-')}.csv`, content: resultToCsv(result), contentType: 'text/csv' }],
-      })
+      let delivered = 0
+      for (const person of staff as Array<{ id: string; org_id: string; role: string; custom_role_id: string | null; team_id: string | null; region_id: string | null; email: string }>) {
+        try {
+          const ctx = await buildReportContext(admin, person)
+          if (!ctx.canExport) continue
+          const result = await runReport(admin, ctx, parsed.spec)
+          await getMailTransport().sendMail({
+            from: getCrmEmailFrom(),
+            to: person.email,
+            subject: `${r.name} — ${todayKey}`,
+            text: `Your scheduled report "${r.name}" is attached (${result.rows.length} rows).`,
+            attachments: [{ filename: `${String(r.name).replace(/[^a-z0-9_-]+/gi, '-')}.csv`, content: resultToCsv(result), contentType: 'text/csv' }],
+          })
+          delivered += 1
+        } catch (error) {
+          if (!(error instanceof ReportAccessError)) throw error
+          // This person may not see that report (e.g. it needs reports:financials). They are skipped, not sent a reduced copy.
+        }
+      }
+      if (delivered === 0) throw new Error('no recipient is allowed to receive this report')
       sent += 1
     } catch (error) {
       failed += 1

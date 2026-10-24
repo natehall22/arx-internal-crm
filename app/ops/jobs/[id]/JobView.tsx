@@ -12,6 +12,8 @@ import {
   resolveMaterialsCoverageOverrides,
   type MaterialsCoverageOverrides,
 } from '@/lib/materials-coverage-overrides'
+import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
+import { hasFinancials } from '@/lib/financials-access'
 
 interface PageProps {
   params: { id: string }
@@ -580,6 +582,7 @@ export default async function JobView({ params, embedded = false }: PageProps) {
       materialsCoverageOverrides={materialsCoverageOverrides}
       userRole={profile.role}
       canViewProfitability={canViewJobFinancials}
+      canViewReportFinancials={hasFinancials(await resolveEffectivePermissionNames(admin, authUser.id, profile))}
       canDeleteProductionJob={canDeleteProductionJob}
       canViewJobBilling={canViewJobBilling}
       canEditPayrollAttribution={canEditPayrollAttribution}

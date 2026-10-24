@@ -50,7 +50,8 @@ export function apptQueue(id: string, title: string, rows: ApptRow[], count: num
 }
 
 type ProposalRow = { id: string; customer_name: string | null; proposal_number: string | number | null; total: number | null }
-export function proposalQueue(rows: ProposalRow[], count: number): Queue {
+/** `money` = the viewer has reports:financials; without it the proposal total is not shown. */
+export function proposalQueue(rows: ProposalRow[], count: number, money = false): Queue {
   return {
     id: 'unsigned-proposals',
     title: 'Proposals waiting for a signature',
@@ -59,7 +60,7 @@ export function proposalQueue(rows: ProposalRow[], count: number): Queue {
     items: rows.slice(0, LIST_CAP).map((p) => ({
       id: p.id,
       title: p.customer_name || 'Proposal',
-      detail: `${p.proposal_number ? `#${p.proposal_number} · ` : ''}${formatMoney(p.total)}`,
+      detail: `${p.proposal_number ? `#${p.proposal_number} · ` : ''}${money ? formatMoney(p.total) : ''}`.replace(/ · $/, '') || 'Sent',
       href: `/proposals/${p.id}`,
     })),
   }
@@ -81,7 +82,7 @@ export function jobQueue(id: string, title: string, rows: JobRow[], count: numbe
   }
 }
 
-export async function loadCloserQueues(admin: SupabaseClient, orgId: string, userId: string, now = new Date()): Promise<Queue[]> {
+export async function loadCloserQueues(admin: SupabaseClient, orgId: string, userId: string, now = new Date(), opts: { money?: boolean } = {}): Promise<Queue[]> {
   const { start, end } = getDateRangeForTimeFrame('today', NY)
   const since = new Date(now.getTime() - 30 * 86_400_000).toISOString()
   const apptCols = 'id, address_text, scheduled_for, opportunity_id, lead_id'
@@ -94,7 +95,7 @@ export async function loadCloserQueues(admin: SupabaseClient, orgId: string, use
   return [
     apptQueue('today-appointments', "Today's appointments", (todayAppts.data ?? []) as ApptRow[], todayAppts.count ?? 0, 'No more appointments today.'),
     apptQueue('outcomes-to-log', 'Outcomes to log', (pastAppts.data ?? []) as ApptRow[], pastAppts.count ?? 0, 'Every past appointment has an outcome.', true),
-    proposalQueue((proposals.data ?? []) as ProposalRow[], proposals.count ?? 0),
+    proposalQueue((proposals.data ?? []) as ProposalRow[], proposals.count ?? 0, opts.money),
   ]
 }
 
@@ -115,7 +116,7 @@ export async function loadOpsQueues(admin: SupabaseClient, orgId: string): Promi
 }
 
 /** Owner: the same queues counted across the whole org; a queue with nothing in it is not shown ("exceptions only"). */
-export async function loadOwnerExceptions(admin: SupabaseClient, orgId: string, now = new Date()): Promise<Queue[]> {
+export async function loadOwnerExceptions(admin: SupabaseClient, orgId: string, now = new Date(), opts: { money?: boolean } = { money: true }): Promise<Queue[]> {
   const todayYmd = new Intl.DateTimeFormat('en-CA', { timeZone: NY }).format(now)
   const weekAgo = new Date(now.getTime() - 7 * 86_400_000).toISOString()
   // Same 14-day window as Needs you (older ones are owner clean-up, see lib/data-health.ts).
@@ -129,7 +130,7 @@ export async function loadOwnerExceptions(admin: SupabaseClient, orgId: string, 
   ;[noOutcome, stale, overdue, unscheduled].forEach(ok)
   const queues = [
     apptQueue('no-outcome', 'Appointments with no outcome logged', (noOutcome.data ?? []) as ApptRow[], noOutcome.count ?? 0, '', true),
-    { ...proposalQueue((stale.data ?? []) as ProposalRow[], stale.count ?? 0), title: 'Proposals sent over a week ago, still unsigned' },
+    { ...proposalQueue((stale.data ?? []) as ProposalRow[], stale.count ?? 0, opts.money), title: 'Proposals sent over a week ago, still unsigned' },
     jobQueue('overdue-installs', 'Installs past their date and not started', (overdue.data ?? []) as JobRow[], overdue.count ?? 0, ''),
     jobQueue('unscheduled-jobs', 'Sold jobs with no install date', (unscheduled.data ?? []) as JobRow[], unscheduled.count ?? 0, ''),
   ]

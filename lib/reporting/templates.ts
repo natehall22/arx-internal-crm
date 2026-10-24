@@ -1,4 +1,4 @@
-import type { DatasetKey } from '@/lib/reporting/catalog'
+import { DATASETS, columnOf, type DatasetKey } from '@/lib/reporting/catalog'
 import type { ReportSpec } from '@/lib/reporting/report-spec'
 
 export type ReportTemplate = {
@@ -16,7 +16,20 @@ const base = (dataset: DatasetKey, over: Partial<ReportSpec>): ReportSpec => ({
   dataset, mode: 'summary', groupBy: null, metric: { kind: 'count' }, date: { preset: '90d' }, filters: [], sortDesc: true, ...over,
 })
 
-export const REPORT_TEMPLATES: ReportTemplate[] = [
+/** True when the spec reads a finance-only dataset or any sensitive (money / cost / margin / pay) column. */
+export function specTouchesFinancials(spec: ReportSpec): boolean {
+  const ds = DATASETS[spec.dataset]
+  if (ds.financeOnly) return true
+  const used = [
+    spec.groupBy && !spec.groupBy.startsWith('@') ? spec.groupBy : null,
+    'column' in spec.metric ? spec.metric.column : null,
+    spec.sortBy ?? null,
+    ...spec.filters.map((f) => f.column),
+  ].filter(Boolean) as string[]
+  return used.some((k) => columnOf(ds, k)?.sensitive)
+}
+
+const RAW_TEMPLATES: ReportTemplate[] = [
   { key: 'sales-by-closer', title: 'Sales by closer', group: 'Sales', blurb: 'Signed sales per closer.', chart: 'bar',
     spec: base('sales', { groupBy: 'closer', metric: { kind: 'sum', column: 'amount' } }) },
   { key: 'sales-by-setter', title: 'Sales by setter', group: 'Sales', blurb: 'Signed sales per setter.', chart: 'bar',
@@ -72,6 +85,9 @@ export const REPORT_TEMPLATES: ReportTemplate[] = [
   { key: 'referrals-by-partner', title: 'Referrals by partner', group: 'Pipeline', blurb: 'Opportunities each referral partner sent.', chart: 'bar',
     spec: base('referral_partners', { groupBy: 'name', metric: { kind: 'sum', column: 'referred_opportunities' }, date: { preset: 'all' } }) },
 ]
+
+/** The `finance` flag is DERIVED from what the template reads, so a new template can never forget it. */
+export const REPORT_TEMPLATES: ReportTemplate[] = RAW_TEMPLATES.map((t) => ({ ...t, finance: t.finance || specTouchesFinancials(t.spec) }))
 
 export function templateByKey(key: string): ReportTemplate | undefined {
   return REPORT_TEMPLATES.find((t) => t.key === key)

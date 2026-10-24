@@ -66,6 +66,7 @@ export type PermissionName =
   | 'reports:view_region'
   | 'reports:view_all'
   | 'reports:export'
+  | 'reports:financials'
   | 'reports:create'
   // Teams
   | 'teams:view'

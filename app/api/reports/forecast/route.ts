@@ -4,6 +4,7 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { canAccessReportsFromPermissionNames } from '@/lib/permissions'
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 import { CANCELLED_JOB_STATUS } from '@/lib/job-status'
+import { canSeeFinancials, hasFinancials } from '@/lib/financials-access'
 
 export const dynamic = 'force-dynamic'
 
@@ -49,6 +50,10 @@ export async function GET(request: NextRequest) {
     const supabase = createServiceClient()
     const reportPermissions = await resolveEffectivePermissionNames(supabase, profile.id, profile)
     if (!canAccessReportsFromPermissionNames(reportPermissions)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+    // The forecast is revenue and pipeline dollars: reports:financials only.
+    if (!hasFinancials(reportPermissions)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
@@ -315,7 +320,7 @@ export async function GET(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   try {
     const { profile } = await requireAuthApi()
-    if (!['admin', 'owner', 'sales_manager', 'regional_manager'].includes(profile.role)) {
+    if (!['admin', 'owner', 'sales_manager', 'regional_manager'].includes(profile.role) || !(await canSeeFinancials(createServiceClient(), profile))) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 

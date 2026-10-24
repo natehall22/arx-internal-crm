@@ -17,8 +17,8 @@ type Meta = { templates: ReportTemplate[]; canExport: boolean; finance: boolean;
 const INK = '#2c2c2a'
 const card: React.CSSProperties = { background: '#fff', color: INK, border: '1px solid #d3d1c7', borderRadius: 12, padding: 16 }
 
-const KPIS: { label: string; spec: Omit<ReportSpec, 'date'> }[] = [
-  { label: 'Sales signed ($)', spec: { dataset: 'sales', mode: 'summary', metric: { kind: 'sum', column: 'amount' }, filters: [] } },
+const KPIS: { label: string; money?: boolean; spec: Omit<ReportSpec, 'date'> }[] = [
+  { label: 'Sales signed ($)', money: true, spec: { dataset: 'sales', mode: 'summary', metric: { kind: 'sum', column: 'amount' }, filters: [] } },
   { label: 'Inspections set', spec: { dataset: 'inspection_sets', mode: 'summary', metric: { kind: 'count' }, filters: [] } },
   { label: 'Sits', spec: { dataset: 'sits', mode: 'summary', metric: { kind: 'count' }, filters: [] } },
   { label: 'Doors knocked', spec: { dataset: 'canvass_doors', mode: 'summary', metric: { kind: 'count' }, filters: [] } },
@@ -119,7 +119,7 @@ export default function ReportsPage() {
         </div>
 
         <div className="flex gap-1 mb-6 border-b overflow-x-auto">
-          {(['overview', 'forecast'] as const).map((t) => (
+          {(meta?.finance ? (['overview', 'forecast'] as const) : (['overview'] as const)).map((t) => (
             <button key={t} onClick={() => setActiveTab(t)}
               className={`min-h-[44px] px-4 py-3 font-medium text-sm border-b-2 -mb-px ${activeTab === t ? 'border-indigo-600 text-indigo-700' : 'border-transparent text-gray-700 hover:text-gray-900'}`}>
               {t === 'overview' ? 'Overview' : 'Forecast'}
@@ -132,11 +132,11 @@ export default function ReportsPage() {
 
         {error && <p style={{ color: '#a32d2d' }}>{error}</p>}
         {!meta && !error && <p>Loading…</p>}
-        {meta && activeTab === 'forecast' && <ForecastTab currentUser={{ role: meta.role }} />}
+        {meta?.finance && activeTab === 'forecast' && <ForecastTab currentUser={{ role: meta.role }} />}
         {meta && activeTab === 'overview' && (
           <>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, marginBottom: 16 }}>
-              {KPIS.filter((k) => have.has(k.spec.dataset)).map((k) => <Kpi key={k.label} label={k.label} spec={k.spec} preset={preset} />)}
+              {KPIS.filter((k) => have.has(k.spec.dataset) && (meta.finance || !k.money)).map((k) => <Kpi key={k.label} label={k.label} spec={k.spec} preset={preset} />)}
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 12 }}>
               {tiles.map((t) => <Tile key={t.key} template={t} preset={preset} />)}

@@ -141,6 +141,7 @@ export default function Harness({ params }: { params: { screen: string } }) {
           initialJob={HARNESS_JOB as never}
           paymentMethod="finance"
           userRole="admin"
+          canViewReportFinancials
           canViewProfitability
           canDeleteProductionJob={false}
           canViewJobBilling

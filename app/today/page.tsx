@@ -15,6 +15,7 @@ import { requireAuth } from '@/lib/auth'
 import { getDateRangeForTimeFrame } from '@/lib/date-ranges'
 import { loadNeedsYouForViewer } from '@/lib/data-health'
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
+import { hasFinancials } from '@/lib/financials-access'
 import { canAccessJobBoardFromPermissionNames, isOrgSuperuserRoleSlug } from '@/lib/permissions'
 import { fetchPeriodMetricRows, getContactDispositionIdSet, summarizePeriodRows } from '@/lib/reporting/period-metrics'
 import { isOwnerProfile } from '@/lib/super-admin'
@@ -45,9 +46,9 @@ export default async function TodayPage() {
   const mine = summarizePeriodRows(rows, kind === 'owner' || kind === 'ops' ? null : new Set([profile.id]), opts)
 
   const [closerQueues, opsQueues, ownerQueues, report] = await Promise.all([
-    kind === 'closer' ? loadCloserQueues(admin, profile.org_id, profile.id) : Promise.resolve([]),
+    kind === 'closer' ? loadCloserQueues(admin, profile.org_id, profile.id, new Date(), { money: hasFinancials(perms) }) : Promise.resolve([]),
     kind === 'ops' ? loadOpsQueues(admin, profile.org_id) : Promise.resolve([]),
-    kind === 'owner' ? loadOwnerExceptions(admin, profile.org_id) : Promise.resolve([]),
+    kind === 'owner' ? loadOwnerExceptions(admin, profile.org_id, new Date(), { money: hasFinancials(perms) }) : Promise.resolve([]),
     kind === 'ops' || kind === 'owner' ? loadNeedsYouForViewer(admin, profile.org_id, profile, canAccessJobBoardFromPermissionNames(perms)) : Promise.resolve(null),
   ])
   // The one Needs-you rule (lib/data-health.ts): owner everything, ops operational rows, anyone else nothing.

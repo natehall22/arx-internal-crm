@@ -2,7 +2,8 @@ import { readFileSync } from 'fs'
 import { join } from 'path'
 
 import { isCloserScoped, mayAccessDealDoc } from '@/lib/deal-scope'
-import { canSeePricebookCosts, stripPricebookCosts } from '@/lib/pricebook-costs'
+import { stripPricebookCosts } from '@/lib/pricebook-costs'
+import { hasFinancials } from '@/lib/financials-access'
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf8')
 const sql80 = read('supabase/migrations/202610290080_closer_deal_scope_and_pricebook_costs.sql').split('-- ROLLBACK')[0]
@@ -30,14 +31,14 @@ describe('closer deal scope', () => {
 
 describe('pricebook cost columns', () => {
   const rows = [{ id: 'a', name: 'Shingles', unit_price: 10, cost_price: 4, material_cost: 3, labor_cost: 1, profit_margin_percent: 60 }]
-  it('only owners, admins and ops see cost / margin', () => {
-    for (const r of ['admin', 'owner', 'operations']) expect(canSeePricebookCosts(r)).toBe(true)
-    for (const r of ['sales_rep', 'sales_manager', 'regional_manager', 'setter', 'canvasser']) expect(canSeePricebookCosts(r)).toBe(false)
-    expect(canSeePricebookCosts('sales_rep', true)).toBe(true)
+  it('cost / margin needs reports:financials (admin / owner full access, or a grant)', () => {
+    expect(hasFinancials({ fullAccess: true, permissionNames: new Set() })).toBe(true)
+    expect(hasFinancials({ fullAccess: false, permissionNames: new Set(['reports:financials']) })).toBe(true)
+    expect(hasFinancials({ fullAccess: false, permissionNames: new Set(['reports:view_all', 'jobs:financials:view', 'reports:export']) })).toBe(false)
   })
-  it('sales roles keep sell prices and lose cost', () => {
-    expect(stripPricebookCosts(rows, 'sales_rep')).toEqual([{ id: 'a', name: 'Shingles', unit_price: 10 }])
-    expect(stripPricebookCosts(rows, 'admin')).toEqual(rows)
+  it('without it sell prices stay and cost goes; with it nothing is removed', () => {
+    expect(stripPricebookCosts(rows, false)).toEqual([{ id: 'a', name: 'Shingles', unit_price: 10 }])
+    expect(stripPricebookCosts(rows, true)).toEqual(rows)
   })
   it('the database refuses the cost columns to every user token', () => {
     expect(sql80).toMatch(/revoke select on public\.pricebook_items from authenticated, anon/)

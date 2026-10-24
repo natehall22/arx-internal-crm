@@ -9,7 +9,7 @@ export type DatasetColumn = {
   key: string
   label: string
   type: ColumnType
-  /** Margin / pay / cost: finance roles only. Hidden from everyone else, in rows, filters, grouping and exports. */
+  /** Money / margin / pay / cost: needs reports:financials. Hidden from everyone else, in rows, filters, grouping and exports. Every 'money' column is sensitive. */
   sensitive?: boolean
 }
 
@@ -35,7 +35,7 @@ export const DATASET_KEYS = [
 ] as const
 export type DatasetKey = (typeof DATASET_KEYS)[number]
 
-const c = (key: string, label: string, type: ColumnType = 'text', sensitive = false): DatasetColumn => ({ key, label, type, ...(sensitive ? { sensitive } : {}) })
+const c = (key: string, label: string, type: ColumnType = 'text', sensitive = false): DatasetColumn => ({ key, label, type, ...(sensitive || type === 'money' ? { sensitive: true } : {}) })
 
 export const DATASETS: Record<DatasetKey, Dataset> = {
   jobs: {
@@ -62,7 +62,7 @@ export const DATASETS: Record<DatasetKey, Dataset> = {
   },
   payments: {
     idColumn: 'payment_id', key: 'payments', label: 'Payments', description: 'Money received on jobs.',
-    view: 'rpt_payments', dateColumn: 'paid_at', ownerColumn: null,
+    view: 'rpt_payments', dateColumn: 'paid_at', ownerColumn: null, financeOnly: true,
     columns: [
       c('job_number', 'Job #'), c('paid_at', 'Paid', 'date'), c('amount', 'Amount', 'money'), c('payment_type', 'Type'),
       c('method', 'Method'), c('funding_status', 'Funding'),

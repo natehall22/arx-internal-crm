@@ -49,16 +49,24 @@ describe('role scoping', () => {
     expect(() => checkAccess(ctx({ finance: true }), DATASETS.payroll_lines, payroll.spec)).not.toThrow()
   })
 
-  it('company-level data (no owner column) needs the all-company scope', () => {
+  it('payments (money, company-level) need reports:financials', () => {
     const pay = parseSpec({ dataset: 'payments', metric: { kind: 'count' } })
     if (!pay.ok) throw new Error('bad spec')
-    expect(() => checkAccess(ctx({ scope: 'own', scopedUserIds: ['u1'] }), DATASETS.payments, pay.spec)).toThrow(ReportAccessError)
-    expect(() => checkAccess(ctx(), DATASETS.payments, pay.spec)).not.toThrow()
+    expect(() => checkAccess(ctx(), DATASETS.payments, pay.spec)).toThrow(ReportAccessError)
+    expect(() => checkAccess(ctx({ finance: true }), DATASETS.payments, pay.spec)).not.toThrow()
   })
 
-  it('sales are fine for a rep', () => {
+  it('a rep can count their sales but not total the dollars without reports:financials', () => {
+    const count = parseSpec({ dataset: 'sales', metric: { kind: 'count' } })
+    if (!count.ok) throw new Error('bad spec')
+    expect(() => checkAccess(ctx({ scope: 'own', scopedUserIds: ['u1'] }), DATASETS.sales, count.spec)).not.toThrow()
     if (!sales.ok) throw new Error('bad spec')
-    expect(() => checkAccess(ctx({ scope: 'own', scopedUserIds: ['u1'] }), DATASETS.sales, sales.spec)).not.toThrow()
+    expect(() => checkAccess(ctx({ scope: 'own', scopedUserIds: ['u1'] }), DATASETS.sales, sales.spec)).toThrow(ReportAccessError)
+    expect(() => checkAccess(ctx({ scope: 'own', scopedUserIds: ['u1'], finance: true }), DATASETS.sales, sales.spec)).not.toThrow()
+  })
+
+  it('every money column is financial, whatever the dataset', () => {
+    for (const ds of Object.values(DATASETS)) for (const col of ds.columns) if (col.type === 'money') expect({ ds: ds.key, col: col.key, sensitive: !!col.sensitive }).toEqual({ ds: ds.key, col: col.key, sensitive: true })
   })
 
   it('rejects unknown columns and datasets', () => {
@@ -97,7 +105,7 @@ describe('runReport', () => {
     ])
     const spec = parseSpec({ dataset: 'sales', groupBy: 'closer', metric: { kind: 'sum', column: 'amount' }, date: { preset: 'all' } })
     if (!spec.ok) throw new Error('bad spec')
-    const r = await runReport(admin, ctx(), spec.spec)
+    const r = await runReport(admin, ctx({ finance: true }), spec.spec)
     expect(r.rows.map((x) => [x.group, x.value])).toEqual([['Ann', 150], ['Bo', 70]])
     expect(r.summary?.value).toBe(220)
   })

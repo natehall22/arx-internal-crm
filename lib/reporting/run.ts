@@ -2,7 +2,7 @@
  * The ONE report runner. Every screen, export and scheduled email goes through runReport():
  *   - always filters org_id (views are read with the service client, so this is the org fence)
  *   - always applies the viewer's scope (own / team / region / all) on the dataset's owner column
- *   - hides finance-only data (cost, margin, pay) from everyone but finance roles — in rows, filters,
+ *   - hides financial data (money columns, cost, margin, pay) from everyone without reports:financials — in rows, filters,
  *     grouping, sorting and exports
  * Metrics themselves are defined once in the SQL views; this file only filters, groups and totals.
  */
@@ -12,7 +12,7 @@ import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 import { canExportReportsFromPermissionNames, getReportScopeFromPermissionNames } from '@/lib/permissions'
 import { DATASETS, columnOf, type Dataset, type DatasetColumn } from '@/lib/reporting/catalog'
 import { MAX_ROWS_RETURNED, MAX_ROWS_SCANNED, dateBounds, type ReportSpec } from '@/lib/reporting/report-spec'
-import { PAYROLL_ADMIN_ROLES } from '@/lib/payroll-admin-access'
+import { hasFinancials } from '@/lib/financials-access'
 
 export type ReportContext = {
   orgId: string
@@ -29,7 +29,6 @@ type Viewer = { id: string; org_id: string; role: string; custom_role_id?: strin
 export async function buildReportContext(admin: SupabaseClient, profile: Viewer): Promise<ReportContext> {
   const perms = await resolveEffectivePermissionNames(admin, profile.id, profile)
   const scope = getReportScopeFromPermissionNames(perms)
-  const role = String(profile.role || '').toLowerCase()
   let scopedUserIds: string[] | null = null
   if (scope === 'own') scopedUserIds = [profile.id]
   else if (scope === 'team') {
@@ -52,7 +51,7 @@ export async function buildReportContext(admin: SupabaseClient, profile: Viewer)
     orgId: profile.org_id,
     userId: profile.id,
     scope,
-    finance: perms.fullAccess || (PAYROLL_ADMIN_ROLES as readonly string[]).includes(role),
+    finance: hasFinancials(perms),
     canExport: canExportReportsFromPermissionNames(perms),
     scopedUserIds,
   }

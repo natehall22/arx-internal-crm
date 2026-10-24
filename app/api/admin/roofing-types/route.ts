@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { createServiceClient } from '@/lib/supabase/service'
 import { stripPricebookCosts } from '@/lib/pricebook-costs'
+import { canSeeFinancials } from '@/lib/financials-access'
 
 export const dynamic = 'force-dynamic'
 
@@ -96,7 +97,7 @@ export async function GET(request: NextRequest) {
 
     // Cost / margin columns only for owners, admins and ops (lib/pricebook-costs.ts).
     return NextResponse.json({
-      roofingTypes: stripPricebookCosts(roofingTypes, profile.role),
+      roofingTypes: stripPricebookCosts(roofingTypes, await canSeeFinancials(adminClient, { id: user.id, role: profile.role })),
       role: profile.role,
     })
   } catch (err) {

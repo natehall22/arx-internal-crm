@@ -6,6 +6,7 @@ import { resolveSalesDocAccessBarred } from '@/lib/sales-doc-access'
 import { loadBuilderMeasurement } from '@/lib/proposal-builder-measurement'
 import { createServiceClient } from '@/lib/supabase/service'
 import { stripPricebookCosts } from '@/lib/pricebook-costs'
+import { canSeeFinancials } from '@/lib/financials-access'
 
 export const dynamic = 'force-dynamic'
 
@@ -238,7 +239,8 @@ export async function GET(request: NextRequest) {
       .order('name')
 
     // Filter based on visibility
-    const itemsForRole = stripPricebookCosts(items as Array<Record<string, unknown>> | null, profile.role, (profile as { is_super_admin?: boolean | null }).is_super_admin)
+    const costsOk = await canSeeFinancials(adminClient, { id: user.id, role: profile.role, custom_role_id: profile.custom_role_id })
+    const itemsForRole = stripPricebookCosts(items as Array<Record<string, unknown>> | null, costsOk)
     const visibleItems = (itemsForRole as any[]).filter((item: any) => {
       if (!item.visibility || item.visibility === 'all' || item.visibility === 'sales_reps') return true
       if (item.visibility === 'managers' && ['admin', 'regional_manager', 'sales_manager'].includes(profile.role)) return true
@@ -328,7 +330,7 @@ export async function GET(request: NextRequest) {
         material_cost_per_square: materialCostPerSquare,
         labor_cost_per_square: laborCostPerSquare,
       }
-    }), profile.role, (profile as { is_super_admin?: boolean | null }).is_super_admin)
+    }), costsOk)
 
     // If no pricebook items exist, create default items from org pricing settings
     let pricebookItems = visibleItems.filter((i: any) => !i.is_adder)

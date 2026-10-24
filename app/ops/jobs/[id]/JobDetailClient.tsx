@@ -353,6 +353,8 @@ interface JobDetailClientProps {
   materialsCoverageOverrides?: MaterialsCoverageOverrides
   userRole: string
   canViewProfitability: boolean
+  /** reports:financials: the Financials card (contract total, comp, profit, margin). Optional: defaults to hidden. */
+  canViewReportFinancials?: boolean
   canDeleteProductionJob: boolean
   canViewJobBilling: boolean
   canEditPayrollAttribution: boolean
@@ -564,6 +566,7 @@ export default function JobDetailClient({
   materialsCoverageOverrides,
   userRole,
   canViewProfitability,
+  canViewReportFinancials = false,
   canDeleteProductionJob,
   canViewJobBilling,
   canEditPayrollAttribution,
@@ -2097,7 +2100,7 @@ export default function JobDetailClient({
                 <JobCostsCallout layout="inline" onAddCost={handleAddCostShortcut} />
               </div>
             )}
-            {canViewProfitability && (
+            {canViewProfitability && canViewReportFinancials && (
               <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
                 <div className="mb-4 flex items-start justify-between gap-3">
                   <div>

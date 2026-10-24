@@ -7,6 +7,7 @@ import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 import { isBarredFromSalesDocAccess } from '@/lib/permissions'
 import PricebookItemPhotoCell from '@/components/pricebook/PricebookItemPhotoCell'
 import { stripPricebookCosts } from '@/lib/pricebook-costs'
+import { canSeeFinancials } from '@/lib/financials-access'
 
 // Matches the role gate on /api/admin/pricing/items/[id]/image
 const PRICEBOOK_IMAGE_EDIT_ROLES = new Set(['admin', 'operations'])
@@ -65,7 +66,7 @@ export default async function PricebookPage() {
     .order('category', { ascending: true })
     .order('name', { ascending: true })
 
-  const items = stripPricebookCosts((itemsRaw ?? []) as Array<Record<string, any>>, profile.role)
+  const items = stripPricebookCosts((itemsRaw ?? []) as Array<Record<string, any>>, await canSeeFinancials(admin, profile))
 
   const canEditPhotos = PRICEBOOK_IMAGE_EDIT_ROLES.has(profile.role)
 
