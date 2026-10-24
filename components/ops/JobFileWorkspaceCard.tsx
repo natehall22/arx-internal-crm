@@ -3,6 +3,7 @@
 import type { DragEvent, FormEvent } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { multipartFilenameForUpload } from '@/lib/files/storage'
+import PhotoQueueNotice from '@/components/job/PhotoQueueNotice'
 import { useJobPhotoQueue } from '@/components/job/useJobPhotoQueue'
 import { createClientBrowser } from '@/lib/supabase/client'
 import { pickValidEmail } from '@/lib/email-address'
@@ -440,7 +441,7 @@ export default function JobFileWorkspaceCard({
   }, [registerOpenAddCostShortcut, tableUnavailable])
 
   // Photos are saved on the phone first and uploaded from there, so a bad signal on a roof never loses them.
-  const photoQueue = useJobPhotoQueue(jobId, () => void loadData(undefined, { keepLoadedUI: true }))
+  const photoQueue = useJobPhotoQueue(jobId, () => void loadData(undefined, { keepLoadedUI: true }), show('photos'))
   const uploadingPhoto = photoQueue.flushing
   const handlePhotosSelected = async (fileList?: FileList | null) => {
     const files = fileList ? Array.from(fileList).filter((f) => f.size > 0) : []
@@ -991,12 +992,7 @@ export default function JobFileWorkspaceCard({
               />
             </div>
           </div>
-          {photoQueue.pending > 0 && (
-            <p className="mb-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-[#2c2c2a]" role="status">
-              {photoQueue.pending} photo{photoQueue.pending === 1 ? '' : 's'} saved on this phone,{' '}
-              {photoQueue.flushing ? 'uploading now…' : 'waiting for signal. They upload by themselves.'}
-            </p>
-          )}
+          <PhotoQueueNotice queue={photoQueue} className="mb-3" />
           {!compact && (
           <p className="text-xs text-gray-500 mb-3">
             Upload before/progress/final photos so office and production can track the job clearly. Select multiple

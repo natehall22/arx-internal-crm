@@ -21,6 +21,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
   }
   if (!ctx.canSend) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
+  if (!(request.headers.get('content-type') ?? '').includes('application/json')) return NextResponse.json({ error: 'JSON only' }, { status: 415 })
   const body = (await request.json().catch(() => null)) as { vendorId?: string; received?: boolean } | null
   if (!body?.vendorId || typeof body.received !== 'boolean') return NextResponse.json({ error: 'vendorId and received are required' }, { status: 400 })
 

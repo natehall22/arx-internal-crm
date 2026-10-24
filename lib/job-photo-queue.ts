@@ -15,6 +15,8 @@ export type QueuedPhoto = {
   createdAt: number
   attempts: number
   lastError: string | null
+  /** Result of `register`, kept so a retry resumes the same photo instead of making a second one. */
+  reg?: { photoId: string; storagePath: string; bucket: string; signedUploadToken: string } | null
   blob: Blob
 }
 
@@ -22,7 +24,7 @@ export interface PhotoQueueStore {
   put(item: QueuedPhoto): Promise<void>
   list(jobId?: string): Promise<QueuedPhoto[]>
   remove(id: string): Promise<void>
-  update(id: string, patch: Partial<Pick<QueuedPhoto, 'attempts' | 'lastError'>>): Promise<void>
+  update(id: string, patch: Partial<Pick<QueuedPhoto, 'attempts' | 'lastError' | 'reg'>>): Promise<void>
 }
 
 export type UploadSteps = {
@@ -38,7 +40,8 @@ export const MAX_ATTEMPTS = 6
 export function isOfflineError(error: unknown): boolean {
   if (typeof navigator !== 'undefined' && navigator.onLine === false) return true
   const msg = error instanceof Error ? error.message : String(error)
-  return error instanceof TypeError || /failed to fetch|network|load failed|offline|timed out/i.test(msg)
+  // Only the browser's own "could not reach the server" messages. A server message that merely mentions "network" is a real failure.
+  return error instanceof TypeError && /failed to fetch|networkerror|load failed|network request failed|offline/i.test(msg)
 }
 
 export async function enqueuePhotos(
@@ -74,8 +77,14 @@ export async function flushPhotoQueue(
   for (const item of items) {
     if (item.attempts >= MAX_ATTEMPTS) { failed++; continue }
     try {
-      const reg = await steps.register(item.jobId, item.filename)
-      await steps.upload(reg, item.blob, item.mime)
+      const reg = item.reg ?? (await steps.register(item.jobId, item.filename))
+      if (!item.reg) await store.update(item.id, { reg })
+      try {
+        await steps.upload(reg, item.blob, item.mime)
+      } catch (error) {
+        if (!isOfflineError(error)) await store.update(item.id, { reg: null }) // the upload slot may be spent: start a fresh one next time
+        throw error
+      }
       const photo = await steps.finalize(item.jobId, { photoId: reg.photoId, photo_tag: item.tag, mime_type: item.mime, file_size: item.size, work_order_id: item.workOrderId })
       await store.remove(item.id)
       uploaded++

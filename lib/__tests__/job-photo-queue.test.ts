@@ -49,3 +49,22 @@ describe('job photo queue', () => {
     expect((await store.list()).map((q) => q.jobId)).toEqual(['j2'])
   })
 })
+
+describe('resume and stuck photos', () => {
+  it('reuses the registered upload on a retry instead of registering a second photo', async () => {
+    const store = memoryPhotoStore()
+    await enqueuePhotos(store, [{ jobId: 'j', file: new Blob(['x']), tag: null, workOrderId: null, filename: 'a.jpg' }])
+    let registers = 0
+    let finalizeFails = true
+    const steps = {
+      register: async () => { registers++; return { photoId: 'p1', storagePath: 'x', bucket: 'b', signedUploadToken: 't' } },
+      upload: async () => undefined,
+      finalize: async () => { if (finalizeFails) throw new TypeError('Failed to fetch'); return {} },
+    }
+    await flushPhotoQueue(store, steps, { jobId: 'j' })
+    finalizeFails = false
+    const r = await flushPhotoQueue(store, steps, { jobId: 'j' })
+    expect(registers).toBe(1)
+    expect(r.uploaded).toBe(1)
+  })
+})

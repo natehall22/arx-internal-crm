@@ -652,9 +652,14 @@ export default function JobDetailClient({
   const [jobTab, setJobTabState] = useState<JobTab>(isJobTab(initialTab) ? initialTab : 'crews')
   const tabChosen = useRef(isJobTab(initialTab))
   /** The one materials answer (supplier orders first, stored status as the fallback). */
+  const [tradesLoaded, setTradesLoaded] = useState(false)
   const [materialsState, setMaterialsState] = useState<MaterialsState>(() =>
     deriveMaterialsState({ stored: initialJob.materials_status })
   )
+  // A job with no supplier plan shows the recorded status; keep it current when ops mark it ordered.
+  useEffect(() => {
+    setMaterialsState((prev) => (prev.source === 'recorded' ? deriveMaterialsState({ stored: job.materials_status }) : prev))
+  }, [job.materials_status])
   const selectJobTab = useCallback((tab: JobTab) => {
     tabChosen.current = true
     setJobTabState(tab)
@@ -679,11 +684,11 @@ export default function JobDetailClient({
     () => [
       'crews',
       'materials',
-      ...((canViewProfitability || canViewJobBilling ? ['money'] : []) as JobTab[]),
+      'money', // the cost ledger, insurance and cost attachments are on it for everyone, as on the old page; money cards self-gate
       ...((!embedded || notesSlot ? ['notes'] : []) as JobTab[]),
       'files',
     ],
-    [canViewProfitability, canViewJobBilling, embedded, notesSlot]
+    [embedded, notesSlot]
   )
   /** Visibility for a block: the new page shows it only on its tab; the old page keeps mobile-tab / desktop-all. */
   const blockCls = (oldKey: string, newTab: JobTab, extra = ''): string | undefined => {
@@ -1007,6 +1012,7 @@ export default function JobDetailClient({
   reloadJobRef.current = reloadJob
   const handleTradesChange = useCallback((trades: JobTradeView[], changed: boolean) => {
     setJobTrades(trades)
+    setTradesLoaded(true)
     if (changed) void reloadJobRef.current()
   }, [])
 
@@ -1075,13 +1081,15 @@ export default function JobDetailClient({
   )
   // Until the person picks a tab (or arrives by a deep link), follow the next thing that needs doing as the data arrives.
   useEffect(() => {
-    if (!v2 || tabChosen.current) return
+    // Wait until the crews (and payments, when shown) have arrived, pick once, then never move the person on their own.
+    if (!v2 || tabChosen.current || !tradesLoaded || (canViewJobBilling && !paymentSummary)) return
+    tabChosen.current = true
     let last: string | null = null
     try { last = localStorage.getItem(LAST_TAB_KEY) } catch { /* private mode */ }
     setJobTabState(
-      pickDefaultJobTab({ jobStatus: job.status, materialsKey: materialsState.key, trades: jobTrades, todayYmd, balanceOwedCents: unpaidForTabs, allowed: v2Tabs, lastTab: last })
+      pickDefaultJobTab({ jobStatus: job.status, materialsKey: materialsState.key, trades: jobTrades, todayYmd, balanceOwedCents: unpaidForTabs, allowed: v2Tabs.filter((t) => t !== 'notes'), lastTab: last })
     )
-  }, [v2, job.status, materialsState.key, jobTrades, todayYmd, unpaidForTabs, v2Tabs])
+  }, [v2, job.status, materialsState.key, jobTrades, tradesLoaded, canViewJobBilling, paymentSummary, todayYmd, unpaidForTabs, v2Tabs])
 
   const handleCompleteClick = () => {
     // Warn, don't block: crews finish out one at a time, and ops may know a
@@ -2203,7 +2211,19 @@ export default function JobDetailClient({
                     {materialsState.detail ? ` (${materialsState.detail})` : ''}
                   </p>
                   {materialsState.source === 'recorded' && (
-                    <p className="mt-1 text-sm text-[#2c2c2a]">Recorded on the job. No supplier orders are on file for it.</p>
+                    <div className="mt-1 flex flex-wrap items-center gap-3">
+                      <p className="text-sm text-[#2c2c2a]">Recorded on the job. No supplier orders are on file for it.</p>
+                      {job.status !== 'cancelled' && materialsState.key === 'not_ordered' && (
+                        <button type="button" disabled={saving} onClick={() => void setMaterialsOrdered(true)} className="inline-flex min-h-[44px] items-center rounded-lg border border-gray-300 bg-white px-4 text-sm font-semibold text-[#2c2c2a] disabled:opacity-60">
+                          {saving ? 'Saving…' : 'Mark materials ordered'}
+                        </button>
+                      )}
+                      {job.status !== 'cancelled' && job.materials_status === 'ordered' && (
+                        <button type="button" disabled={saving} onClick={() => void setMaterialsOrdered(false)} className="inline-flex min-h-[44px] items-center px-2 text-sm font-semibold text-[#2c2c2a] underline underline-offset-2 disabled:opacity-60">
+                          Undo
+                        </button>
+                      )}
+                    </div>
                   )}
                 </div>
               )}

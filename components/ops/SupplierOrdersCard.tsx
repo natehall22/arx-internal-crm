@@ -157,11 +157,16 @@ export default function SupplierOrdersCard({ jobId, onChanged, onState }: { jobI
       {view.warnings.map((w) => (
         <p key={w} className="mb-2 text-sm text-[#7a4b00]">{w}</p>
       ))}
+      {view.rollup?.summary && <p className="mb-2 text-sm font-medium">{view.rollup.summary}</p>}
       <ul className="m-0 flex list-none flex-col gap-3 p-0">
         {view.cards.map((c) => {
           const shown = supplierDisplayState(c)
           const chip = shown === 'received' ? 'bg-emerald-100 text-emerald-900' : shown === 'sent' ? 'bg-blue-100 text-blue-900' : shown === 'draft' ? 'bg-gray-100 text-[#2c2c2a]' : 'bg-amber-100 text-amber-900'
-          const sendLabel = shown === 'changed' ? `Send updated order to ${c.supplierName}` : `Send order to ${c.supplierName}`
+          const sendLabel =
+            shown === 'changed' ? `Send updated order to ${c.supplierName}`
+            : shown === 'sent' || shown === 'received' ? `Send again to ${c.supplierName}`
+            : shown === 'draft' ? `Send order to ${c.supplierName}`
+            : `Review & send to ${c.supplierName}`
           return (
             <li key={c.vendorId} className="rounded-lg border border-[#d3d1c7] bg-white p-3 sm:p-4">
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -191,11 +196,9 @@ export default function SupplierOrdersCard({ jobId, onChanged, onState }: { jobI
               ))}
               {view.canSend && (
                 <div className="mt-2 flex flex-col gap-2">
-                  {(shown === 'draft' || shown === 'changed') && (
-                    <button type="button" className={primary} onClick={() => openPreview(c.vendorId, 'order')} disabled={view.jobCancelled}>
-                      {sendLabel}
-                    </button>
-                  )}
+                  <button type="button" className={shown === 'draft' || shown === 'changed' ? primary : btn} onClick={() => openPreview(c.vendorId, 'order')} disabled={view.jobCancelled}>
+                    {sendLabel}
+                  </button>
                   <div className="flex flex-wrap gap-2">
                     {c.lines.length > 0 && <a className={btn} href={pdfUrl(c.vendorId)} target="_blank" rel="noopener noreferrer">View PDF</a>}
                     {c.lines.length > 0 && <a className={btn} href={pdfUrl(c.vendorId)} download>Download</a>}
@@ -206,7 +209,7 @@ export default function SupplierOrdersCard({ jobId, onChanged, onState }: { jobI
                     {shown === 'received' && (
                       <button type="button" className={btn} disabled={busy} onClick={() => markReceived(c, false)}>Undo received</button>
                     )}
-                    {shown === 'draft' && (
+                    {shown !== 'sent' && shown !== 'received' && (
                       <button type="button" className={btn} disabled={busy || view.jobCancelled} onClick={() => sentMyself(c)}>I sent it myself</button>
                     )}
                     {c.canCancel && (

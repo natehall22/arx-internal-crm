@@ -3,8 +3,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { multipartFilenameForUpload } from '@/lib/files/storage'
-import { enqueuePhotos, flushPhotoQueue, indexedDbPhotoStore, memoryPhotoStore, type UploadSteps } from '@/lib/job-photo-queue'
+import { enqueuePhotos, flushPhotoQueue, MAX_ATTEMPTS, indexedDbPhotoStore, memoryPhotoStore, type UploadSteps } from '@/lib/job-photo-queue'
 import { createClientBrowser } from '@/lib/supabase/client'
+
+/** One flush at a time per job across every card on the page, so two cards never upload the same photo twice. */
+const flushLocks = new Map<string, Promise<unknown>>()
+const UPLOADED_EVENT = 'arx-job-photos-uploaded'
 
 async function json(res: Response) {
   return res.json().catch(() => ({}))
@@ -15,7 +19,7 @@ async function json(res: Response) {
  * anything that could not go waits and is retried when the phone is back online, the tab is shown again, or every 30 seconds.
  * `onUploaded` fires after at least one photo reached the server so the caller can refresh its list.
  */
-export function useJobPhotoQueue(jobId: string, onUploaded: () => void) {
+export function useJobPhotoQueue(jobId: string, onUploaded: () => void, enabled = true) {
   const store = useMemo(() => (typeof indexedDB === 'undefined' ? memoryPhotoStore() : indexedDbPhotoStore()), [])
   const steps = useMemo<UploadSteps>(() => {
     const supabase = createClientBrowser()
@@ -40,39 +44,70 @@ export function useJobPhotoQueue(jobId: string, onUploaded: () => void) {
   }, [])
 
   const [pending, setPending] = useState(0)
+  const [failed, setFailed] = useState<{ count: number; lastError: string | null }>({ count: 0, lastError: null })
   const [flushing, setFlushing] = useState(false)
-  const busy = useRef(false)
   const uploadedCb = useRef(onUploaded)
   uploadedCb.current = onUploaded
 
+  const refresh = useCallback(async () => {
+    const list = await store.list(jobId)
+    setPending(list.length)
+    const bad = list.filter((p) => p.attempts >= MAX_ATTEMPTS)
+    setFailed({ count: bad.length, lastError: bad[0]?.lastError ?? null })
+  }, [store, jobId])
+
   const flush = useCallback(async () => {
-    if (busy.current) return null
-    busy.current = true
-    setFlushing(true)
-    try {
-      const r = await flushPhotoQueue(store, steps, { jobId })
-      setPending(r.remaining)
-      if (r.uploaded > 0) uploadedCb.current()
-      return r
-    } finally {
-      busy.current = false
-      setFlushing(false)
-    }
-  }, [store, steps, jobId])
+    const prev = flushLocks.get(jobId) ?? Promise.resolve()
+    const run = prev.catch(() => undefined).then(async () => {
+      setFlushing(true)
+      try {
+        const r = await flushPhotoQueue(store, steps, { jobId })
+        await refresh()
+        if (r.uploaded > 0) window.dispatchEvent(new CustomEvent(UPLOADED_EVENT, { detail: jobId }))
+        return r
+      } finally {
+        setFlushing(false)
+      }
+    })
+    flushLocks.set(jobId, run)
+    return run
+  }, [store, steps, jobId, refresh])
+
+  // Any card's upload refreshes every card's list (one flushed photo may belong to a different card).
+  useEffect(() => {
+    const on = (e: Event) => { if ((e as CustomEvent).detail === jobId) uploadedCb.current() }
+    window.addEventListener(UPLOADED_EVENT, on)
+    return () => window.removeEventListener(UPLOADED_EVENT, on)
+  }, [jobId])
 
   const add = useCallback(
     async (files: File[], meta: { tag: string | null; workOrderId: string | null }) => {
       const usable = files.filter((f) => f.size > 0)
       if (usable.length === 0) return null
-      await enqueuePhotos(store, usable.map((file, i) => ({ jobId, file, tag: meta.tag, workOrderId: meta.workOrderId, filename: multipartFilenameForUpload(file, `photo_${i + 1}`) })))
-      setPending((await store.list(jobId)).length)
+      try {
+        await enqueuePhotos(store, usable.map((file, i) => ({ jobId, file, tag: meta.tag, workOrderId: meta.workOrderId, filename: multipartFilenameForUpload(file, `photo_${i + 1}`) })))
+      } catch {
+        throw new Error('Could not save the photos on this phone (storage is full or blocked). Free some space and try again.')
+      }
+      await refresh()
       return flush()
     },
-    [store, jobId, flush]
+    [store, jobId, flush, refresh]
   )
 
+  /** Failed photos: try them again, or throw them away. */
+  const retryFailed = useCallback(async () => {
+    for (const p of (await store.list(jobId)).filter((x) => x.attempts >= MAX_ATTEMPTS)) await store.update(p.id, { attempts: 0, lastError: null, reg: null })
+    return flush()
+  }, [store, jobId, flush])
+  const removeFailed = useCallback(async () => {
+    for (const p of (await store.list(jobId)).filter((x) => x.attempts >= MAX_ATTEMPTS)) await store.remove(p.id)
+    await refresh()
+  }, [store, jobId, refresh])
+
   useEffect(() => {
-    void store.list(jobId).then((l) => setPending(l.length)).then(() => flush())
+    if (!enabled) return
+    void refresh().then(() => flush())
     const onOnline = () => void flush()
     const onVisible = () => { if (document.visibilityState === 'visible') void flush() }
     window.addEventListener('online', onOnline)
@@ -83,7 +118,7 @@ export function useJobPhotoQueue(jobId: string, onUploaded: () => void) {
       document.removeEventListener('visibilitychange', onVisible)
       window.clearInterval(timer)
     }
-  }, [store, jobId, flush])
+  }, [enabled, refresh, flush])
 
-  return { pending, flushing, add, flush }
+  return { pending, failed, flushing, add, flush, retryFailed, removeFailed }
 }

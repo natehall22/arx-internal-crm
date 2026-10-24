@@ -60,6 +60,7 @@ export function deriveMaterialsState(input: { stored: string | null | undefined;
   const { covered, total, allCovered } = s.rollup
   if (covered === 0) return build('not_ordered', 'suppliers', `0 of ${total} ordered`)
   if (!allCovered) return build('partial', 'suppliers', `${covered} of ${total} ordered`)
+  if (s.sentOrders.length === 0) return build('ordered', 'suppliers', 'supplied by the installer')
   const allReceived = s.sentOrders.length > 0 && s.sentOrders.every((o) => !!o.receivedAt)
   if (allReceived) return build('received', 'suppliers', `${total} of ${total} received`)
   const received = s.sentOrders.filter((o) => !!o.receivedAt).length

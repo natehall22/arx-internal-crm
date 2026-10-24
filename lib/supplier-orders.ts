@@ -1012,6 +1012,8 @@ export async function executeSupplierOrderSend(
         last_sent_to: sentTo,
         cancelled_at: null,
         cancelled_by: null,
+        // A revised order has to be delivered again.
+        ...(preview.kind === 'revision' ? { received_at: null, received_by: null } : {}),
         updated_at: sentAt,
       }
   for (const k of Object.keys(orderPatch)) if (orderPatch[k] === undefined) delete orderPatch[k]
@@ -1180,22 +1182,27 @@ export function materialsStateForContext(ctx: SupplierOrderContext, stored: stri
 }
 
 /**
- * Keeps production_jobs.materials_status (what the board, reports and Needs-you read) in step with the supplier orders.
- * Runs after a send or a "received" change. Never moves the job's own status; only the materials mirror (+ the ordered date once).
+ * Keeps production_jobs.materials_status in step with RECEIPTS only. "Ordered" is still written by the existing send path
+ * (markMaterialsOrdered, which also moves a sold job to Material Ordering) and is never written here; "partial" is never stored
+ * (the page derives it). Only ordered <-> received moves, guarded on the value just read so a concurrent change wins.
  */
 export async function syncMaterialsMirror(admin: SupabaseClient, orgId: string, jobId: string): Promise<{ changed: boolean; state: ReturnType<typeof deriveMaterialsState> | null }> {
   const loaded = await loadSupplierOrderContext(admin, orgId, jobId)
   if (!loaded.ok) return { changed: false, state: null }
-  const { data: job } = await admin.from('production_jobs').select('materials_status, materials_ordered_at').eq('id', jobId).eq('org_id', orgId).maybeSingle()
+  const { data: job } = await admin.from('production_jobs').select('materials_status').eq('id', jobId).eq('org_id', orgId).maybeSingle()
   if (!job) return { changed: false, state: null }
-  const state = materialsStateForContext(loaded.ctx, (job as { materials_status: string | null }).materials_status)
-  if (state.source !== 'suppliers' || state.mirror === (job as { materials_status: string | null }).materials_status) return { changed: false, state }
-  const patch: Record<string, unknown> = { materials_status: state.mirror }
-  if (state.mirror !== 'not_ordered' && !(job as { materials_ordered_at: string | null }).materials_ordered_at) patch.materials_ordered_at = new Date().toISOString()
-  const { error } = await admin.from('production_jobs').update(patch).eq('id', jobId).eq('org_id', orgId)
+  const stored = (job as { materials_status: string | null }).materials_status
+  const state = materialsStateForContext(loaded.ctx, stored)
+  let target: 'received' | 'ordered' | null = null
+  if (state.source === 'suppliers') {
+    if (state.key === 'received' && stored === 'ordered') target = 'received'
+    else if (state.key === 'ordered' && stored === 'received') target = 'ordered'
+  }
+  if (!target) return { changed: false, state }
+  const { data, error } = await admin.from('production_jobs').update({ materials_status: target }).eq('id', jobId).eq('org_id', orgId).eq('materials_status', stored as string).select('id')
   if (error) {
     console.error('[supplier-orders] materials mirror failed', error.message)
     return { changed: false, state }
   }
-  return { changed: true, state }
+  return { changed: (data ?? []).length > 0, state }
 }

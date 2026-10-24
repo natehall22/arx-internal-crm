@@ -8,6 +8,7 @@ import { multipartFilenameForUpload } from '@/lib/files/storage'
 import { FINAL_PHOTO_TAGS, REQUIRED_FINAL_PHOTO_TAGS, finalPhotoTagLabel } from '@/lib/final-photo-tags'
 import { TRADE_LABELS, type Trade } from '@/lib/job-trades'
 import { toast } from '@/components/ui/toast'
+import PhotoQueueNotice from '@/components/job/PhotoQueueNotice'
 import { useJobPhotoQueue } from '@/components/job/useJobPhotoQueue'
 
 interface FinalPhoto {
@@ -195,11 +196,7 @@ export default function FinalPhotosCard({ jobId, trades }: FinalPhotosCardProps)
             </span>
           </label>
         </div>
-        {photoQueue.pending > 0 && (
-          <p role="status" className="mt-2 text-sm text-[#2c2c2a]">
-            {photoQueue.pending} photo{photoQueue.pending === 1 ? '' : 's'} saved on this phone, {photoQueue.flushing ? 'uploading now…' : 'waiting for signal. They upload by themselves.'}
-          </p>
-        )}
+        <PhotoQueueNotice queue={photoQueue} className="mt-2" />
       </div>
 
       <div className="mb-4">
