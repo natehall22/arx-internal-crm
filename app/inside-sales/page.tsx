@@ -432,7 +432,7 @@ export default function InsideSalesPage() {
       <button
         type="button"
         onClick={() => handleCopyPhone(phone)}
-        className={`font-semibold text-indigo-700 hover:text-indigo-900 hover:underline ${
+        className={`inline-flex min-h-tap items-center font-semibold text-indigo-700 hover:text-indigo-900 hover:underline ${
           large ? 'text-2xl tracking-wide' : 'text-sm'
         }`}
         title="Tap to copy for the dialer"
@@ -613,7 +613,7 @@ export default function InsideSalesPage() {
         <button
           type="button"
           onClick={() => openLogModal(item)}
-          className="rounded-lg bg-gray-900 px-3 py-2 text-sm font-semibold text-white hover:bg-gray-700"
+          className="inline-flex min-h-tap items-center rounded-lg bg-gray-900 px-3 text-sm font-semibold text-white hover:bg-gray-700"
         >
           Log Call
         </button>
@@ -621,7 +621,7 @@ export default function InsideSalesPage() {
           <button
             type="button"
             onClick={() => openScheduleBack(item)}
-            className="rounded-lg bg-indigo-100 px-3 py-2 text-sm font-medium text-indigo-900 hover:bg-indigo-200"
+            className="inline-flex min-h-tap items-center rounded-lg bg-indigo-100 px-3 text-sm font-medium text-indigo-900 hover:bg-indigo-200"
           >
             Schedule Back
           </button>
@@ -629,7 +629,7 @@ export default function InsideSalesPage() {
         <button
           type="button"
           onClick={() => openLogModal(item, 'reschedule')}
-          className="rounded-lg bg-amber-100 px-3 py-2 text-sm font-medium text-amber-900 hover:bg-amber-200"
+          className="inline-flex min-h-tap items-center rounded-lg bg-amber-100 px-3 text-sm font-medium text-amber-900 hover:bg-amber-200"
         >
           Reschedule
         </button>
@@ -637,7 +637,7 @@ export default function InsideSalesPage() {
           type="button"
           onClick={() => handleQuickAction(item, 'mark_unresponsive')}
           disabled={isPending}
-          className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-800 hover:bg-slate-200 disabled:opacity-50"
+          className="inline-flex min-h-tap items-center rounded-lg bg-slate-100 px-3 text-sm font-medium text-slate-800 hover:bg-slate-200 disabled:opacity-50"
         >
           Unresponsive
         </button>
@@ -645,13 +645,13 @@ export default function InsideSalesPage() {
           type="button"
           onClick={() => handleQuickAction(item, 'mark_lost')}
           disabled={isPending}
-          className="rounded-lg bg-red-100 px-3 py-2 text-sm font-medium text-red-900 hover:bg-red-200 disabled:opacity-50"
+          className="inline-flex min-h-tap items-center rounded-lg bg-red-100 px-3 text-sm font-medium text-red-900 hover:bg-red-200 disabled:opacity-50"
         >
           Lost
         </button>
         <Link
           href={`/opportunities/${item.id}`}
-          className="rounded-lg px-3 py-2 text-sm font-medium text-gray-500 hover:bg-gray-50"
+          className="inline-flex min-h-tap items-center rounded-lg px-3 text-sm font-medium text-gray-500 hover:bg-gray-50"
         >
           Full record →
         </Link>
@@ -720,7 +720,7 @@ export default function InsideSalesPage() {
                 <button
                   type="button"
                   onClick={() => setWorkIndex((i) => Math.min(i + 1, Math.max(workQueue.length - 1, 0)))}
-                  className="rounded-lg px-3 py-2 text-sm font-medium text-gray-500 hover:bg-gray-50"
+                  className="inline-flex min-h-tap items-center rounded-lg px-3 text-sm font-medium text-gray-500 hover:bg-gray-50"
                 >
                   Skip →
                 </button>
@@ -857,7 +857,7 @@ export default function InsideSalesPage() {
                   <button
                     type="button"
                     onClick={() => setWorkIndex((i) => Math.min(i + 1, Math.max(workQueue.length - 1, 0)))}
-                    className="rounded-lg px-3 py-2 text-sm font-medium text-gray-500 hover:bg-gray-50"
+                    className="inline-flex min-h-tap items-center rounded-lg px-3 text-sm font-medium text-gray-500 hover:bg-gray-50"
                   >
                     Skip →
                   </button>

@@ -37,6 +37,7 @@ import { isOrgSuperuserRoleSlug } from '@/lib/org-role-constants'
 import { reconcileStaleFormField } from '@/lib/stale-form-field'
 import { leadSourceEditOptions, leadSourceLabel } from '@/lib/lead-sources'
 import { formatPhone } from '@/lib/format'
+import { mayReadLead } from '@/lib/contact-scope'
 
 // Helper to convert UTC ISO string to datetime-local format in Eastern time
 function toEasternDatetimeLocal(isoString: string | null): string {
@@ -106,6 +107,11 @@ export default async function LeadView({
   const { data: lead } = await leadQuery.single()
 
   if (!lead) {
+    notFound()
+  }
+
+  // Setters / canvassers open only their own leads (lib/contact-scope.ts; same rule as the database).
+  if (!(await mayReadLead(supabase, profile, params.id))) {
     notFound()
   }
 
@@ -229,7 +235,7 @@ export default async function LeadView({
       leadQuery = leadQuery.eq('owner_user_id', profile.id)
     }
     const { data: accessCheck } = await leadQuery.single()
-    if (!accessCheck) return
+    if (!accessCheck || !(await mayReadLead(supabase, profile, params.id))) return
 
     const homeownerName = String(formData.get('homeowner_name') ?? '')
     const phone = String(formData.get('phone') ?? '')
@@ -286,7 +292,7 @@ export default async function LeadView({
     }
     const { data: freshLead } = await leadQuery.single()
 
-    if (!freshLead) return
+    if (!freshLead || !(await mayReadLead(supabase, profile, params.id))) return
 
     const baseline = (key: string) => String(formData.get(key) ?? '').trim() || null
 

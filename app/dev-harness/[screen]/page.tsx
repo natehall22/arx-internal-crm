@@ -25,6 +25,12 @@ import { HARNESS_CONTRACT } from '@/e2e/fixtures'
 import PayrollAttributionEditor from '@/components/payroll/PayrollAttributionEditor'
 import OpsClient from '@/app/ops/OpsClient'
 import OpsDashboardView from '@/components/ops/OpsDashboardView'
+import ProjectsView from '@/components/projects/ProjectsView'
+import IncentivesClient from '@/app/sisu/IncentivesClient'
+import { HARNESS_INCENTIVES, HARNESS_PROJECTS } from '@/e2e/fixtures'
+import InsideSalesPage from '@/app/inside-sales/page'
+import InstallScheduleClient from '@/app/ops/schedule/InstallScheduleClient'
+import ReferralPartnersClient from '@/app/referral-partners/ReferralPartnersClient'
 import { HARNESS_OPS_DASHBOARD } from '@/e2e/fixtures'
 import AppointmentsList from '@/components/appointments/AppointmentsList'
 import { HARNESS_OPS_JOBS, HARNESS_WORK_ORDERS, HARNESS_CUSTOMERS, HARNESS_PROFIT_ROWS } from '@/e2e/fixtures'
@@ -115,6 +121,16 @@ export default function Harness({ params }: { params: { screen: string } }) {
           <PayrollAttributionEditor opportunityId="opp-1" canEdit initial={{ opportunity_id: 'opp-1', setter_user_id: 'u2', closer_user_id: 'u1', setter_name: 'Stevo Potts', closer_name: 'Nathan Hall' }} />
         </div>
       )
+    case 'projects':
+      return <ProjectsView {...(HARNESS_PROJECTS as unknown as React.ComponentProps<typeof ProjectsView>)} />
+    case 'incentives':
+      return <IncentivesClient {...(HARNESS_INCENTIVES as unknown as React.ComponentProps<typeof IncentivesClient>)} />
+    case 'inside-sales':
+      return <InsideSalesPage />
+    case 'ops-schedule':
+      return <InstallScheduleClient />
+    case 'referral-partners':
+      return <ReferralPartnersClient types={[{ id: 't1', name: 'Realtor' }, { id: 't2', name: 'Adjuster' }]} canManage />
     case 'ops-dashboard':
       return <OpsDashboardView {...(HARNESS_OPS_DASHBOARD as unknown as React.ComponentProps<typeof OpsDashboardView>)} />
     case 'ops-board':

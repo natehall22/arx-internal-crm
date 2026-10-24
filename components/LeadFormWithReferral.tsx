@@ -157,55 +157,13 @@ export default function LeadFormWithReferral({
 
   const searchReferrers = async (query: string) => {
     setSearching(true)
-    const supabase = createClientBrowser()
-    const searchPattern = `%${query}%`
-
-    // Search customers
-    const { data: customers } = await supabase
-      .from('customers')
-      .select('id, name, phone, email, address_text')
-      .eq('org_id', orgId)
-      .or(`name.ilike.${searchPattern},phone.ilike.${searchPattern},email.ilike.${searchPattern},address_text.ilike.${searchPattern}`)
-      .limit(10)
-
-    // Search leads (existing customers who might refer)
-    const { data: leads } = await supabase
-      .from('leads')
-      .select('id, homeowner_name, phone, email, address_text')
-      .eq('org_id', orgId)
-      .in('status', ['won', 'appointment', 'inspection', 'estimate_sent']) // Only leads that became customers
-      .or(`homeowner_name.ilike.${searchPattern},phone.ilike.${searchPattern},email.ilike.${searchPattern},address_text.ilike.${searchPattern}`)
-      .limit(10)
-
-    const results: ReferrerResult[] = [
-      ...(customers || []).map(c => ({
-        id: c.id,
-        type: 'customer' as const,
-        name: c.name || 'Unnamed Customer',
-        phone: c.phone,
-        email: c.email,
-        address: c.address_text,
-      })),
-      ...(leads || []).map(l => ({
-        id: l.id,
-        type: 'lead' as const,
-        name: l.homeowner_name || 'Unnamed Lead',
-        phone: l.phone,
-        email: l.email,
-        address: l.address_text,
-      })),
-    ]
-
-    // Remove duplicates (by name+phone combo)
-    const seen = new Set<string>()
-    const uniqueResults = results.filter(r => {
-      const key = `${r.name}-${r.phone}`
-      if (seen.has(key)) return false
-      seen.add(key)
-      return true
-    })
-
-    setSearchResults(uniqueResults)
+    try {
+      const res = await fetch(`/api/referrals/referrer-search?q=${encodeURIComponent(query)}`)
+      const json = res.ok ? await res.json() : { results: [] }
+      setSearchResults((json.results ?? []) as ReferrerResult[])
+    } catch {
+      setSearchResults([])
+    }
     setSearching(false)
   }
 
@@ -237,8 +195,6 @@ export default function LeadFormWithReferral({
 
     setSaving(true)
 
-    const supabase = createClientBrowser()
-
     // Create the lead via API
     const response = await fetch('/api/leads', {
       method: 'POST',
@@ -266,85 +222,21 @@ export default function LeadFormWithReferral({
     const { lead_id } = await response.json()
     const lead = { id: lead_id }
 
-    // If there's a referrer selected, create the referral record
+    // If there's a referrer selected, the server finds/creates their customer and records the referral
+    // (the setter's phone never needs the referrer's phone / email).
     if (selectedReferrer && source === 'referral') {
-      // First, ensure the referrer has a customer record (or create one if they're a lead)
-      let referrerCustomerId = selectedReferrer.type === 'customer' ? selectedReferrer.id : null
-
-      if (selectedReferrer.type === 'lead') {
-        // Check if this lead has an associated customer by phone (most reliable)
-        let existingCustomer = null
-        if (selectedReferrer.phone) {
-          const { data } = await supabase
-            .from('customers')
-            .select('id')
-            .eq('org_id', orgId)
-            .eq('phone', selectedReferrer.phone)
-            .limit(1)
-            .maybeSingle()
-          existingCustomer = data
-        }
-        
-        // If not found by phone, try by name
-        if (!existingCustomer && selectedReferrer.name) {
-          const { data } = await supabase
-            .from('customers')
-            .select('id')
-            .eq('org_id', orgId)
-            .eq('name', selectedReferrer.name)
-            .limit(1)
-            .maybeSingle()
-          existingCustomer = data
-        }
-
-        if (existingCustomer) {
-          referrerCustomerId = existingCustomer.id
-        } else {
-          // Create a customer record for this lead
-          const { data: newCustomer } = await supabase
-            .from('customers')
-            .insert({
-              org_id: orgId,
-              name: selectedReferrer.name,
-              phone: selectedReferrer.phone,
-              email: selectedReferrer.email,
-              address_text: selectedReferrer.address,
-            })
-            .select('id')
-            .single()
-
-          if (newCustomer) {
-            referrerCustomerId = newCustomer.id
-          }
-        }
-      }
-
-      if (referrerCustomerId) {
-        // Create the referral record
-        const { error: referralError } = await supabase
-          .from('referrals')
-          .insert({
-            org_id: orgId,
-            referrer_customer_id: referrerCustomerId,
-            referrer_name: selectedReferrer.name,
-            referrer_email: selectedReferrer.email,
-            referrer_phone: selectedReferrer.phone,
-            referred_name: form.homeowner_name || 'New Lead',
-            referred_email: form.email,
-            referred_phone: form.phone,
-            referred_address: form.address_text,
-            referred_lead_id: lead.id,
-            bonus_amount: parseFloat(bonusAmount) || defaultBonusAmount,
-            bonus_type: 'cash',
-            status: 'pending',
-            created_by: userId,
-          })
-
-        if (referralError) {
-          console.error('Referral creation error:', referralError)
-          // Don't fail the whole operation, just log it
-        }
-      }
+      const referralRes = await fetch('/api/referrals/for-new-lead', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          referrer_type: selectedReferrer.type,
+          referrer_id: selectedReferrer.id,
+          referred_lead_id: lead.id,
+          bonus_amount: parseFloat(bonusAmount) || defaultBonusAmount,
+        }),
+      }).catch(() => null)
+      if (!referralRes?.ok) console.error('Referral creation error')
+      // Don't fail the whole operation, just log it
     }
 
     const hasSchedulableAddress = !!form.address_text?.trim()

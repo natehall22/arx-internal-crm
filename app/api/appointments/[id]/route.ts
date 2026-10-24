@@ -12,6 +12,7 @@ import { resolveApiRequestAuthUser } from '@/lib/supabase-api-request-auth'
 import { deleteGoogleEventWithFallback, getValidAccessToken } from '@/lib/appointment-calendar-sync'
 import { saleCreditLockBlock } from '@/lib/deal-sale-credit'
 import { createServiceClient } from '@/lib/supabase/service'
+import { isContactScoped, myLeadIds } from '@/lib/contact-scope'
 
 export const dynamic = 'force-dynamic'
 
@@ -62,7 +63,7 @@ export async function GET(
 
     let { data: profile } = await adminClient
       .from('users')
-      .select('org_id, role, is_super_admin, active')
+      .select('org_id, role, is_super_admin, active, custom_role_id')
       .eq('id', user.id)
       .maybeSingle()
 
@@ -94,9 +95,9 @@ export async function GET(
           },
           { onConflict: 'id' }
         )
-        .select('org_id, role, is_super_admin, active')
+        .select('org_id, role, is_super_admin, active, custom_role_id')
         .maybeSingle()
-      profile = recovered || { org_id: derivedOrgId, role: 'rep' as const, is_super_admin: false, active: true }
+      profile = recovered || { org_id: derivedOrgId, role: 'rep' as const, is_super_admin: false, active: true, custom_role_id: null }
     }
 
     if (!profile?.org_id) {
@@ -117,6 +118,15 @@ export async function GET(
 
     if (error || !appointment) {
       return NextResponse.json({ error: 'Appointment not found' }, { status: 404 })
+    }
+
+    // Setters / canvassers open only appointments they set, closed or booked, or on a lead of theirs (lib/contact-scope.ts).
+    const scopeProfile = { id: user.id, role: String(profile.role), custom_role_id: (profile as { custom_role_id?: string | null }).custom_role_id ?? null, is_super_admin: profile.is_super_admin }
+    if (await isContactScoped(adminClient, scopeProfile)) {
+      const mineAppt = [appointment.canvasser_user_id, appointment.closer_user_id, appointment.inside_sales_booked_by_user_id].includes(user.id)
+      if (!mineAppt && !(appointment.lead_id && (await myLeadIds(adminClient, user.id, [appointment.lead_id])).has(appointment.lead_id))) {
+        return NextResponse.json({ error: 'Appointment not found' }, { status: 404 })
+      }
     }
 
     // Get setter info if exists

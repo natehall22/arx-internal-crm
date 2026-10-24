@@ -36,7 +36,8 @@ export default async function EstimatePage({
 
   const { data: pricebookItems } = await supabase
     .from('pricebook_items')
-    .select('*')
+    // Explicit columns: cost / margin columns are closed to user tokens (migration 202610290080).
+    .select('id, org_id, pricebook_id, category, item_type, name, unit, unit_price, price_type, is_labor, is_taxable, is_commissionable, active, created_at, updated_at, is_adder, adder_category, visibility, show_to_customer, image_url')
     .eq('org_id', profile.org_id)
     .eq('active', true)
     .order('category', { ascending: true })

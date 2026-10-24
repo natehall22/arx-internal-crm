@@ -58,14 +58,14 @@ export default function ReferralPartnersClient({
         <h1 className="text-2xl font-bold text-[#2c2c2a]">Referral Partners</h1>
         <div className="flex items-center gap-3">
           {canManage && (
-            <Link href="/referral-partners/manage" className="text-sm font-semibold text-indigo-700 hover:underline">
+            <Link href="/referral-partners/manage" className="inline-flex min-h-tap items-center text-sm font-semibold text-indigo-700 hover:underline">
               Manage
             </Link>
           )}
           <button
             type="button"
             onClick={() => setAdding((v) => !v)}
-            className="rounded-lg bg-gray-800 px-3 py-2 text-sm font-semibold text-white hover:bg-gray-700"
+            className="min-h-tap rounded-lg bg-gray-800 px-3 text-sm font-semibold text-white hover:bg-gray-700"
           >
             {adding ? 'Close' : '+ Add Partner'}
           </button>
@@ -95,7 +95,7 @@ export default function ReferralPartnersClient({
             key={s.id}
             type="button"
             onClick={() => setScope(s.id)}
-            className={`rounded-full px-3 py-1.5 text-sm font-semibold ${
+            className={`min-h-tap rounded-full px-4 text-sm font-semibold ${
               scope === s.id ? 'bg-gray-800 text-white' : 'bg-white text-[#2c2c2a] border border-gray-300'
             }`}
           >

@@ -5,6 +5,7 @@ import { SALE_AGREEMENT_TYPES } from '@/lib/sales-metrics'
 import { resolveProposalSoldRoofSquares } from '@/lib/sold-roof-squares'
 import { resolveSalesDocAccessBarred } from '@/lib/sales-doc-access'
 import { createServiceClient } from '@/lib/supabase/service'
+import { mayAccessDealDoc } from '@/lib/deal-scope'
 
 export const dynamic = 'force-dynamic'
 
@@ -99,7 +100,7 @@ export async function GET(
     // Get user profile for org_id and role
     const { data: profile } = await adminClient
       .from('users')
-      .select('org_id, role, custom_role_id')
+      .select('org_id, role, custom_role_id, is_super_admin')
       .eq('id', user.id)
       .single()
 
@@ -120,6 +121,11 @@ export async function GET(
       .single()
 
     if (proposalError || !proposal) {
+      return NextResponse.json({ error: 'Proposal not found' }, { status: 404 })
+    }
+
+    // Closers open prices only on deals they are on (lib/deal-scope.ts; same rule as the database).
+    if (!(await mayAccessDealDoc(adminClient, { id: user.id, role: profile.role, is_super_admin: profile.is_super_admin }, proposal as { created_by?: string | null; opportunity_id?: string | null }))) {
       return NextResponse.json({ error: 'Proposal not found' }, { status: 404 })
     }
 

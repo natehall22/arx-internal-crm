@@ -13,6 +13,7 @@ import {
 import { canManageCanvassTerritories } from '@/lib/canvass-territory-manager-roles'
 import { canReceiveCanvassAppointment } from '@/lib/canvass-appointment-eligibility'
 import { createServiceClient } from '@/lib/supabase/service'
+import { redactLeadsForViewer } from '@/lib/contact-scope'
 
 export const dynamic = 'force-dynamic'
 
@@ -88,7 +89,7 @@ export async function GET(request: NextRequest) {
     
     const { data: profileData, error: profileError } = await adminClient
       .from('users')
-      .select('role, org_id, team_id, region_id, canvass_pin_visibility, full_name')
+      .select('role, org_id, team_id, region_id, canvass_pin_visibility, full_name, custom_role_id, is_super_admin')
       .eq('id', user.id)
       .single()
 
@@ -97,7 +98,7 @@ export async function GET(request: NextRequest) {
       // If canvass_pin_visibility column doesn't exist, try without it
       const { data: fallbackProfile } = await adminClient
         .from('users')
-        .select('role, org_id, team_id, region_id, full_name')
+        .select('role, org_id, team_id, region_id, full_name, custom_role_id, is_super_admin')
         .eq('id', user.id)
         .single()
       
@@ -218,6 +219,9 @@ export async function GET(request: NextRequest) {
       }
     }
     
+    // Setters / canvassers keep every pin on the map but only see names, phones, emails and notes on their own work.
+    leads = await redactLeadsForViewer(adminClient, { id: user.id, role: profile.role, custom_role_id: profile.custom_role_id, is_super_admin: profile.is_super_admin }, leads)
+
     console.log('Canvass data: returning', leads?.length || 0, 'leads, visibility:', visibility, 'filter:', visibleUserIds.length > 0 ? visibleUserIds : 'all')
 
     // Get users for closer selection - only active users who can receive appointments.

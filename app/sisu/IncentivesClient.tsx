@@ -1293,7 +1293,7 @@ function LeaderboardFilterControls({
 }) {
   // Mirrors the dashboard's picker (select + two date inputs) in the Sisu dark theme.
   const controlClass =
-    'rounded-lg border border-gray-700 bg-gray-900 px-3 py-1.5 text-xs font-semibold text-white focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500'
+    'min-h-tap rounded-lg border border-gray-700 bg-gray-900 px-3 py-1.5 text-base font-semibold text-white sm:text-xs focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500'
 
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -1481,7 +1481,7 @@ export function LeaderboardSection({
               key={tab}
               type="button"
               onClick={() => setActiveRoleTab(tab)}
-              className={`rounded-full px-3 py-1.5 transition ${
+              className={`min-h-tap rounded-full px-3 py-1.5 transition ${
                 activeRoleTab === tab
                   ? 'bg-indigo-600 text-white'
                   : 'text-gray-400 hover:text-white'
@@ -1504,7 +1504,7 @@ export function LeaderboardSection({
             key={tab}
             type="button"
             onClick={() => setViewTab(tab)}
-            className={`rounded-full px-3 py-1.5 transition ${
+            className={`min-h-tap rounded-full px-3 py-1.5 transition ${
               viewTab === tab
                 ? 'bg-violet-600 text-white'
                 : 'text-gray-400 hover:text-white'
@@ -1663,7 +1663,7 @@ function StatusBar({
           type="button"
           disabled={!chip.onClick}
           onClick={chip.onClick}
-          className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+          className={`flex min-h-tap items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
             chip.amber
               ? 'border-amber-500/40 bg-amber-950/50 text-amber-300'
               : chip.onClick
@@ -1917,7 +1917,7 @@ export default function IncentivesClient({
               key={view}
               type="button"
               onClick={() => setMainView(view)}
-              className={`rounded-xl px-4 py-2.5 transition-all duration-150 ${
+              className={`min-h-tap rounded-xl px-4 py-2.5 transition-all duration-150 ${
                 mainView === view
                   ? 'bg-indigo-600 text-white shadow-md shadow-indigo-950/50 ring-1 ring-indigo-400/30'
                   : 'text-gray-400 hover:bg-gray-800/60 hover:text-gray-200'

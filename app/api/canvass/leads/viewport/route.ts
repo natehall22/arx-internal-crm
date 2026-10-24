@@ -21,6 +21,7 @@ import {
 import { ensureLeadHasMapPin } from '@/lib/lead-map-pin'
 import { isExcludeDispositionFilter, parseExcludedDisposition } from '@/lib/canvass-pin-filter'
 import { createServiceClient } from '@/lib/supabase/service'
+import { redactLeadsForViewer } from '@/lib/contact-scope'
 
 export const dynamic = 'force-dynamic'
 
@@ -420,7 +421,7 @@ export async function POST(request: NextRequest) {
 
     const { data: profile } = await adminClient
       .from('users')
-      .select('org_id, role, canvass_pin_visibility')
+      .select('org_id, role, canvass_pin_visibility, custom_role_id, is_super_admin')
       .eq('id', user.id)
       .single()
 
@@ -456,6 +457,8 @@ export async function POST(request: NextRequest) {
         })
       }
     }
+
+    out = await redactLeadsForViewer(adminClient, { id: user.id, role: profile.role, custom_role_id: profile.custom_role_id, is_super_admin: profile.is_super_admin }, out)
 
     return NextResponse.json({ leads: out })
 

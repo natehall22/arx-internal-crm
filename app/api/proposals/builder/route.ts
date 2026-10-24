@@ -5,6 +5,7 @@ import { SALE_AGREEMENT_TYPES } from '@/lib/sales-metrics'
 import { resolveSalesDocAccessBarred } from '@/lib/sales-doc-access'
 import { loadBuilderMeasurement } from '@/lib/proposal-builder-measurement'
 import { createServiceClient } from '@/lib/supabase/service'
+import { stripPricebookCosts } from '@/lib/pricebook-costs'
 
 export const dynamic = 'force-dynamic'
 
@@ -237,7 +238,8 @@ export async function GET(request: NextRequest) {
       .order('name')
 
     // Filter based on visibility
-    const visibleItems = (items || []).filter((item: any) => {
+    const itemsForRole = stripPricebookCosts(items as Array<Record<string, unknown>> | null, profile.role, (profile as { is_super_admin?: boolean | null }).is_super_admin)
+    const visibleItems = (itemsForRole as any[]).filter((item: any) => {
       if (!item.visibility || item.visibility === 'all' || item.visibility === 'sales_reps') return true
       if (item.visibility === 'managers' && ['admin', 'regional_manager', 'sales_manager'].includes(profile.role)) return true
       if (item.visibility === 'admin_only' && profile.role === 'admin') return true
@@ -308,7 +310,7 @@ export async function GET(request: NextRequest) {
     
     // Map database fields to frontend expected fields
     // Convert pricing based on pricing_unit: sqft needs to be multiplied by 100 to get per-square price
-    const roofingTypes = (roofingTypesRaw || []).map((rt: any) => {
+    const roofingTypes = stripPricebookCosts((roofingTypesRaw || []).map((rt: any) => {
       let pricePerSquare = rt.unit_price || 0
       let materialCostPerSquare = rt.material_cost || null
       let laborCostPerSquare = rt.labor_cost || null
@@ -326,7 +328,7 @@ export async function GET(request: NextRequest) {
         material_cost_per_square: materialCostPerSquare,
         labor_cost_per_square: laborCostPerSquare,
       }
-    })
+    }), profile.role, (profile as { is_super_admin?: boolean | null }).is_super_admin)
 
     // If no pricebook items exist, create default items from org pricing settings
     let pricebookItems = visibleItems.filter((i: any) => !i.is_adder)

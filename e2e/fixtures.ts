@@ -370,3 +370,84 @@ export const HARNESS_OPS_DASHBOARD = {
   materialsNeeded: [{ id: 'j2', job_number: '26-0043', address_text: '12 Elm Street, Concord NC 28025', materials_status: 'not_ordered', materials_eta: null }],
   recentNotes: [{ id: 'n1', created_at: '2026-10-25T15:00:00Z', note: 'Customer asked for the crew to park on the street, not the driveway. Please confirm the dumpster drop for Tuesday morning.', production_job: { id: 'j1', job_number: '26-0042' }, user: { full_name: 'Nathan Hall' } }],
 }
+
+
+// Ops → Schedule (InstallScheduleClient): long names on purpose. Dates are relative to today so the week window always has jobs.
+const weekDayISO = (dow: number) => { const d = new Date(); d.setDate(d.getDate() - d.getDay() + dow); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` }
+const dayISO = (offset: number) => { const d = new Date(); d.setDate(d.getDate() + offset); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` }
+export const HARNESS_INSTALL_SCHEDULE = {
+  subs: [
+    { id: 's1', company_name: 'Hernandez Roofing and Exteriors LLC', services: ['roofing'], scheduling_email: 'crew@hernandez.test', phone: '7045550142' },
+    { id: 's2', company_name: 'Sparky Gutters', services: ['gutters'], scheduling_email: null, phone: null },
+  ],
+  scheduled: [
+    { id: 'w1', job_id: 'j1', job_number: '26-0042', trade: 'roofing', customer_name: 'Bartholomew Featherstonehaugh-Smythe', address_text: '4400 Very Long Boulevard Name Suite 200, Mooresville NC 28117', scheduled_date: weekDayISO(2), scheduled_time_start: null, install_days: 1, assigned_sub_id: 's1', status: 'scheduled', job_status: 'scheduled', total_squares: 28.5 },
+    { id: 'w2', job_id: 'j2', job_number: '26-0043', trade: 'gutters', customer_name: 'Ashley Gaines', address_text: '12 Elm Street, Concord NC 28025', scheduled_date: weekDayISO(3), scheduled_time_start: '07:30', install_days: 2, assigned_sub_id: 's2', status: 'scheduled', job_status: 'scheduled', total_squares: null },
+  ],
+  unscheduled: [
+    { id: 'w3', job_id: 'j3', job_number: '26-0044', trade: 'roofing', customer_name: 'Bill Cox', address_text: '88 Oak Lane Extension Road, Kannapolis NC 28081', job_status: 'sold', total_squares: 31, sold_at: dayISO(-3) },
+  ],
+}
+
+// Referral Partners list.
+export const HARNESS_PARTNERS = {
+  partners: [
+    { id: 'rp1', org_id: 'org-1', type_id: 't1', other_type_text: null, name: 'Concord Realty Group of the Carolinas', phone: '7049038092', email: 'hello@concordrealty.test', company: 'Concord Realty Group', notes: null, assigned_user_id: 'u1', status: 'assigned', assigned_at: '2026-09-01T12:00:00Z', last_touched_at: '2026-10-10T12:00:00Z', created_by: 'u1', created_at: '2026-09-01T12:00:00Z', type: { id: 't1', name: 'Realtor', inactivity_days: 60 }, assignee: { id: 'u1', full_name: 'Nathan Hall' }, days_until_open: 3, is_mine: true, similar: false },
+    { id: 'rp2', org_id: 'org-1', type_id: 't2', other_type_text: null, name: 'Mooresville Insurance Adjusters', phone: null, email: null, company: null, notes: null, assigned_user_id: null, status: 'open', assigned_at: null, last_touched_at: '2026-08-01T12:00:00Z', created_by: 'u1', created_at: '2026-08-01T12:00:00Z', type: { id: 't2', name: 'Adjuster', inactivity_days: 45 }, assignee: null, days_until_open: null, is_mine: false, similar: false },
+  ],
+}
+
+
+// Inside Sales queue (app/inside-sales/page.tsx).
+const iso = (offsetHours: number) => new Date(Date.now() + offsetHours * 3600_000).toISOString()
+const insideItem = (id: string, name: string, phone: string | null, kind: 'didnt_sit' | 'handoff' | 'knockback' | 'storm') => ({
+  id, customerName: name, customerPhone: phone, address_text: '4400 Very Long Boulevard Name Suite 200, Mooresville NC 28117',
+  inspection_notes: 'Customer wants gutters quoted too.', follow_up_at: iso(-5), created_at: iso(-72), followUpKind: kind, followUpOutcomeLabel: 'Did not sit',
+  knockback_reason: null, closerName: 'Sam Closer', assignedToName: null, callableNow: true, eligibleAtIso: null,
+  story: 'Inspection was set for Tuesday but the homeowner was not home when the closer arrived.', objective: 'Get them rebooked',
+  handoffContext: null, attemptCount: 2, lastAttemptAt: iso(-30), lastAttemptSummary: 'Left voicemail', daysInQueue: 3, overdueDays: 1, priorityTier: 1,
+  activities: [], adjusterMeetingSync: null,
+})
+export const HARNESS_INSIDE_SALES = {
+  canView: true, canSelfAssign: true,
+  counts: { total: 3, readyToCall: 3, didntSit: 2, handoff: 1, knockback: 0, storm: 0, dueNow: 3, neverAttempted: 0, overdue: 1 },
+  items: [
+    insideItem('o1', 'Bartholomew Featherstonehaugh-Smythe', '7049038092', 'didnt_sit'),
+    insideItem('o2', 'Ashley Gaines', '(704) 707-6274', 'handoff'),
+    insideItem('o3', 'Bill Cox', null, 'didnt_sit'),
+  ],
+}
+
+
+// Incentives (app/sisu/IncentivesClient.tsx).
+export const HARNESS_INCENTIVES = {
+  profile: { id: 'u1', org_id: 'org-1', full_name: 'Bartholomew Featherstonehaugh-Smythe', role: 'sales_rep', email: 'b@example.test' },
+  liveMetrics: { inspectionsSet: 6, doorsKnocked: 212, doorsKnockedForBadge: 212, closedSales: 2, closedSalesMonth: 5 },
+  goal: { id: 'g1', weekly_doors_target: 300, weekly_inspections_target: 8, weekly_sales_target: 3, weekly_revenue_target: 50000, effective_from: '2026-10-01', effective_to: null },
+  activeSpiffs: [
+    { id: 'h1', name: 'Fall Storm Sprint — Most Inspections Set This Week', description: 'Set the most inspections Monday to Friday.', trigger_metric: 'inspections_set', threshold: 10, reward_type: 'cash', reward_amount: 250, reward_note: null, eligible_roles: ['sales_rep'], starts_at: '2026-10-19T04:00:00Z', ends_at: '2026-10-31T04:00:00Z', status: 'active', currentValue: 6, qualified: false },
+  ],
+  earnedBadges: [],
+  isSetterLike: false,
+  approvedBonuses: [{ id: 'b1', bonus_type: 'spiff', amount: 250, source_id: null, status: 'approved', scheduled_pay_date: '2026-10-30' }],
+  metricsAsOf: new Date().toISOString(),
+}
+export const HARNESS_LEADERBOARD = {
+  setters: [
+    { user_id: 'u9', full_name: 'Jordan Setter-Longname Hernandez', role: 'setter', primary_metric: 14, doors_knocked: 480, rank: 1, badge_count: 2 },
+    { user_id: 'u8', full_name: 'Sam Setter', role: 'setter', primary_metric: 9, doors_knocked: 301, rank: 2 },
+  ],
+  closers: [{ user_id: 'u1', full_name: 'Bartholomew Featherstonehaugh-Smythe', role: 'sales_rep', primary_metric: 2, doors_knocked: 0, rank: 1 }],
+  asOf: new Date().toISOString(),
+}
+
+
+// Projects list (components/projects/ProjectsView).
+export const HARNESS_PROJECTS = {
+  projects: [
+    { id: 'p1', address_text: '4400 Very Long Boulevard Name Suite 200, Mooresville NC 28117', project_type: 'roofing', status: 'in_progress', customers: { name: 'Bartholomew Featherstonehaugh-Smythe' }, leads: null, production_jobs: [{ status: 'in_progress' }] },
+    { id: 'p2', address_text: '12 Elm Street, Concord NC 28025', project_type: 'roofing', status: 'open', customers: null, leads: { homeowner_name: 'Ashley Gaines' }, production_jobs: [] },
+  ],
+  projectsError: null,
+  closerByProjectId: { p1: 'Sam Closer-Longname Hernandez', p2: 'Nathan Hall' },
+}

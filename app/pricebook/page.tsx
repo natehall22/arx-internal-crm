@@ -6,6 +6,7 @@ import { redirect } from 'next/navigation'
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 import { isBarredFromSalesDocAccess } from '@/lib/permissions'
 import PricebookItemPhotoCell from '@/components/pricebook/PricebookItemPhotoCell'
+import { stripPricebookCosts } from '@/lib/pricebook-costs'
 
 // Matches the role gate on /api/admin/pricing/items/[id]/image
 const PRICEBOOK_IMAGE_EDIT_ROLES = new Set(['admin', 'operations'])
@@ -55,13 +56,16 @@ export default async function PricebookPage() {
 
   const pricebookId = defaultPricebook?.id
 
-  const { data: items } = await supabase
+  // Service client: cost / margin columns are closed to user tokens (migration 202610290080); stripped below for anyone but owners / admins / ops.
+  const { data: itemsRaw } = await admin
     .from('pricebook_items')
     .select('*')
     .eq('org_id', profile.org_id)
     .eq('active', true)
     .order('category', { ascending: true })
     .order('name', { ascending: true })
+
+  const items = stripPricebookCosts((itemsRaw ?? []) as Array<Record<string, any>>, profile.role)
 
   const canEditPhotos = PRICEBOOK_IMAGE_EDIT_ROLES.has(profile.role)
 

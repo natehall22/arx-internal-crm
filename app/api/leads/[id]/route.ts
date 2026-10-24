@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { isOrgSuperuserRoleSlug } from '@/lib/org-role-constants'
 import { createServiceClient } from '@/lib/supabase/service'
+import { mayReadLead } from '@/lib/contact-scope'
 
 export const dynamic = 'force-dynamic'
 
@@ -80,7 +81,7 @@ export async function GET(
     // Get user profile for org_id
     const { data: profile } = await adminClient
       .from('users')
-      .select('org_id, role')
+      .select('org_id, role, custom_role_id, is_super_admin')
       .eq('id', user.id)
       .single()
 
@@ -97,6 +98,11 @@ export async function GET(
       .single()
 
     if (leadError || !lead) {
+      return NextResponse.json({ error: 'Lead not found' }, { status: 404 })
+    }
+
+    // Setters / canvassers open only their own leads (lib/contact-scope.ts).
+    if (!(await mayReadLead(adminClient, { id: user.id, role: profile.role, custom_role_id: profile.custom_role_id, is_super_admin: profile.is_super_admin }, leadId))) {
       return NextResponse.json({ error: 'Lead not found' }, { status: 404 })
     }
 

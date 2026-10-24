@@ -4,6 +4,7 @@ import { saveDealSaleCredit, SALE_CREDIT_EDIT_ROLES, type SaleCreditChange } fro
 import { isSuperAdmin } from '@/lib/super-admin'
 import { canSetReferredBy, getPartnerAccess } from '@/lib/referral-partners'
 import { createServiceClient } from '@/lib/supabase/service'
+import { isContactScoped, myLeadIds } from '@/lib/contact-scope'
 
 export const dynamic = 'force-dynamic'
 
@@ -16,10 +17,15 @@ const REP_LIKE_ROLES = new Set(['rep', 'sales_rep', 'closer'])
 
 async function canRepAccessOpportunity(
   adminClient: ReturnType<typeof createServiceClient>,
-  profile: { role: string; org_id: string },
+  profile: { role: string; org_id: string; custom_role_id?: string | null; is_super_admin?: boolean | null },
   userId: string,
   opportunity: { owner_user_id: string | null; setter_user_id: string | null; lead_id: string | null }
 ): Promise<boolean> {
+  // Setters / canvassers: deals they are on, or on a lead of theirs (lib/contact-scope.ts — same rule as the database).
+  if (await isContactScoped(adminClient, { id: userId, role: profile.role, custom_role_id: (profile as { custom_role_id?: string | null }).custom_role_id ?? null, is_super_admin: (profile as { is_super_admin?: boolean | null }).is_super_admin ?? null })) {
+    if ([opportunity.owner_user_id, opportunity.setter_user_id, (opportunity as { assigned_user_id?: string | null }).assigned_user_id].includes(userId)) return true
+    return !!opportunity.lead_id && (await myLeadIds(adminClient, userId, [opportunity.lead_id])).has(opportunity.lead_id)
+  }
   if (!REP_LIKE_ROLES.has(profile.role)) return true
 
   if (opportunity.owner_user_id === userId) return true

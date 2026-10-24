@@ -719,7 +719,7 @@ export default function InstallScheduleClient({ embedded = false }: { /** Inside
           </div>
           <Link
             href="/ops"
-            className="inline-flex items-center rounded-lg border border-[#c9c7c0] bg-white px-4 py-2 text-sm font-medium text-[#2c2c2a] hover:bg-[#f2f1ee]"
+            className="inline-flex min-h-tap items-center rounded-lg border border-[#c9c7c0] bg-white px-4 py-2 text-sm font-medium text-[#2c2c2a] hover:bg-[#f2f1ee]"
           >
             ← Back to Board
           </Link>
@@ -1053,7 +1053,7 @@ export default function InstallScheduleClient({ embedded = false }: { /** Inside
                                           room a 7-char job number leaves. */}
                                       <Link
                                         href={`/ops/jobs/${job.job_id}#job-trades`}
-                                        className="flex min-w-0 flex-1 flex-col justify-center leading-tight text-[#2c2c2a] hover:underline"
+                                        className="flex min-h-tap min-w-0 flex-1 flex-col justify-center leading-tight text-[#2c2c2a] hover:underline"
                                         title={`${TRADE_LABELS[job.trade]} · ${formatInstallDays(job.install_days)} — ${job.job_number} — ${job.customer_name || job.address_text}${job.total_squares ? ` · ${job.total_squares} sq` : ''}${done ? ' · Done' : ''}${rsvpText ? ` · ${rsvpText}` : ''}`}
                                       >
                                         <span className="flex min-w-0 items-baseline gap-0.5 font-semibold">
@@ -1101,7 +1101,7 @@ export default function InstallScheduleClient({ embedded = false }: { /** Inside
                                            truncating it anyway. Kept visible on touch devices
                                            (hover:none), where a landscape tablet renders the lg grid
                                            but has no hover to reveal it with. */
-                                        className="absolute right-0 top-1/2 flex min-h-[32px] min-w-[32px] -translate-y-1/2 items-center justify-center rounded-full bg-white/85 text-[#57574f] opacity-0 shadow-sm transition-opacity hover:bg-white hover:text-red-600 focus:opacity-100 focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
+                                        className="absolute right-0 top-1/2 flex min-h-tap min-w-tap -translate-y-1/2 items-center justify-center rounded-full bg-white/85 text-[#57574f] opacity-0 shadow-sm transition-opacity hover:bg-white hover:text-red-600 focus:opacity-100 focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
                                         aria-label={`Remove ${TRADE_LABELS[job.trade]} ${job.job_number} from schedule`}
                                         title="Remove from schedule"
                                       >
@@ -1213,7 +1213,7 @@ export default function InstallScheduleClient({ embedded = false }: { /** Inside
                                           >
                                             <Link
                                               href={`/ops/jobs/${job.job_id}#job-trades`}
-                                              className="text-[#2c2c2a] hover:underline"
+                                              className="inline-flex min-h-tap items-center text-[#2c2c2a] hover:underline"
                                               onClick={(e) => e.stopPropagation()}
                                               title={rsvpText ?? undefined}
                                             >
@@ -1238,7 +1238,7 @@ export default function InstallScheduleClient({ embedded = false }: { /** Inside
                                                   e.stopPropagation()
                                                   unassignJob(job, sub.company_name)
                                                 }}
-                                                className="flex min-h-[36px] min-w-[36px] shrink-0 items-center justify-center text-[#57574f] hover:text-red-600"
+                                                className="flex min-h-tap min-w-tap shrink-0 items-center justify-center text-[#57574f] hover:text-red-600"
                                                 aria-label={`Remove ${TRADE_LABELS[job.trade]} ${job.job_number}`}
                                               >
                                                 ×
