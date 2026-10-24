@@ -283,7 +283,7 @@ export async function POST(request: NextRequest) {
       role: profile.role,
       fullAccess: effectivePermissions.fullAccess,
       permissionNames: effectivePermissions.permissionNames,
-      redactOpportunityFinancials: salesDocAccessBarred,
+      redactOpportunityFinancials: salesDocAccessBarred || !!effectivePermissions.denied?.has('reports:financials'),
     }
 
     const recordContextAppendix =

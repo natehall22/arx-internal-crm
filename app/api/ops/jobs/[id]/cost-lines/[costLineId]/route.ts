@@ -9,6 +9,7 @@ import {
   resolveVendorId,
   signedCostAmount,
 } from '@/lib/job-cost-ledger'
+import { callerCanAccessJobBilling } from '@/lib/finance-access'
 
 export const runtime = 'nodejs'
 
@@ -94,7 +95,7 @@ export async function PATCH(request: Request, { params }: RouteParams) {
       authUser.id,
       profile
     )
-    if (!canJobBoard) {
+    if (!canJobBoard || !(await callerCanAccessJobBilling(supabase, profile))) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
@@ -174,7 +175,7 @@ export async function DELETE(_request: Request, { params }: RouteParams) {
   } catch {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
-  if (profile.role !== 'admin') {
+  if (profile.role !== 'admin' || !(await callerCanAccessJobBilling(createServiceClient(), profile))) {
     return NextResponse.json({ error: 'Only admins can delete job costs' }, { status: 403 })
   }
 

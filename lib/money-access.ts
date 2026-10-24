@@ -37,19 +37,20 @@ export async function listMoneyAccess(admin: SupabaseClient, orgId: string): Pro
     const p = Array.isArray(g.permission) ? g.permission[0] : g.permission
     if (p?.name) granted.add(`${g.user_id}|${p.name}`)
   }
-  const rows: MoneyAccessRow[] = []
-  for (const u of (users ?? []) as Array<{ id: string; full_name: string | null; role: string; custom_role_id: string | null; is_super_admin: boolean | null; active: boolean }>) {
-    const perms = await resolveEffectivePermissionNames(admin, u.id, u)
+  const people = (users ?? []) as Array<{ id: string; full_name: string | null; role: string; custom_role_id: string | null; is_super_admin: boolean | null; active: boolean }>
+  const resolved = await Promise.all(people.map((u) => resolveEffectivePermissionNames(admin, u.id, u)))
+  const rows: MoneyAccessRow[] = people.map((u, i) => {
+    const perms = resolved[i]
     const mode = (name: MoneyPermission): MoneyMode => (denied.has(`${u.id}|${name}`) ? 'deny' : granted.has(`${u.id}|${name}`) ? 'grant' : 'default')
-    rows.push({
+    return {
       id: u.id,
       name: u.full_name ?? '(no name)',
       role: u.role,
       isOwner: isOwnerProfile(u),
       financials: { effective: hasFinancials(perms), mode: mode('reports:financials') },
       moneyRecord: { effective: hasMoneyRecord(perms), mode: mode('money:record') },
-    })
-  }
+    }
+  })
   return rows
 }
 
@@ -75,15 +76,18 @@ export async function setMoneyAccess(
   const before: MoneyMode = den ? 'deny' : gr ? 'grant' : 'default'
   if (before === input.mode) return { ok: true, before, after: before }
 
-  // Clear both switches, then set the wanted one.
-  await admin.from('permission_denials').delete().eq('user_id', input.userId).eq('permission_name', input.permission)
-  await admin.from('user_permissions').delete().eq('user_id', input.userId).eq('permission_id', perm.id)
+  // Set the wanted switch FIRST, then clear the other one: a failure part-way never leaves the person less restricted than before.
   if (input.mode === 'deny') {
-    const { error } = await admin.from('permission_denials').insert({ org_id: actor.org_id, user_id: input.userId, permission_name: input.permission, denied_by: actor.id, reason: input.reason?.slice(0, 300) ?? null })
+    const { error } = await admin.from('permission_denials').upsert({ org_id: actor.org_id, user_id: input.userId, permission_name: input.permission, denied_by: actor.id, reason: input.reason?.slice(0, 300) ?? null }, { onConflict: 'user_id,permission_name' })
     if (error) return { ok: false, status: 500, error: 'Could not save' }
+    await admin.from('user_permissions').delete().eq('user_id', input.userId).eq('permission_id', perm.id)
   } else if (input.mode === 'grant') {
-    const { error } = await admin.from('user_permissions').insert({ org_id: actor.org_id, user_id: input.userId, permission_id: perm.id, granted_by: actor.id })
+    const { error } = await admin.from('user_permissions').upsert({ org_id: actor.org_id, user_id: input.userId, permission_id: perm.id, granted_by: actor.id }, { onConflict: 'user_id,permission_id' })
     if (error) return { ok: false, status: 500, error: 'Could not save' }
+    await admin.from('permission_denials').delete().eq('user_id', input.userId).eq('permission_name', input.permission)
+  } else {
+    await admin.from('permission_denials').delete().eq('user_id', input.userId).eq('permission_name', input.permission)
+    await admin.from('user_permissions').delete().eq('user_id', input.userId).eq('permission_id', perm.id)
   }
   await admin.from('permission_audit').insert({
     org_id: actor.org_id, actor_user_id: actor.id, target_user_id: input.userId, permission_name: input.permission,

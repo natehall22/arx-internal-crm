@@ -17,7 +17,7 @@ const LEGACY_ROLE_MATRIX_ALIASES: Record<string, UserRole> = {
  * job edits — whatever a custom role or a per-user grant says. Applied BEFORE grants are returned, so every consumer (nav, Today,
  * route guards, thread viewer, search, AI) obeys it from this one place. Owners (full access) are never field roles.
  */
-const FIELD_ROLE_DENIED_PERMISSION_PREFIXES = ['jobs:', 'ops:']
+const FIELD_ROLE_DENIED_PERMISSION_PREFIXES = ['jobs:', 'ops:', 'money:']
 
 export type EffectivePermissionsResult = {
   /** Explicit full-access result from admin/owner roles or admin:full permission */
@@ -43,11 +43,16 @@ export async function resolveEffectivePermissionNames(
   userId: string,
   profile: { role: string; custom_role_id?: string | null }
 ): Promise<EffectivePermissionsResult> {
-  const [base, { data: denials }] = await Promise.all([
+  const [base, { data: denials, error: denialError }] = await Promise.all([
     resolveBasePermissionNames(admin, userId, profile),
     admin.from('permission_denials').select('permission_name').eq('user_id', userId),
   ])
   const denied = new Set<string>((denials ?? []).map((d: { permission_name: string }) => d.permission_name))
+  if (denialError && denialError.code !== '42P01') {
+    // Fail closed: if the OFF switches cannot be read, the two money permissions are treated as off for this request.
+    console.error('[permissions] could not read permission_denials; money permissions treated as off', denialError.message)
+    for (const name of DENIABLE_PERMISSIONS) denied.add(name)
+  }
   return denied.size > 0 ? { ...base, denied } : base
 }
 

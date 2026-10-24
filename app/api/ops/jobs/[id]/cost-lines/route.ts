@@ -11,6 +11,7 @@ import {
   resolveVendorId,
   signedCostAmount,
 } from '@/lib/job-cost-ledger'
+import { callerCanAccessJobBilling } from '@/lib/finance-access'
 
 export const runtime = 'nodejs'
 
@@ -101,7 +102,8 @@ export async function POST(request: Request, { params }: { params: { id: string 
     const jobId = params.id
 
     const { canJobBoard } = await resolveOpsAccess(supabase, authUser.id, profile)
-    if (!canJobBoard) {
+    if (!canJobBoard || !(await callerCanAccessJobBilling(supabase, profile))) {
+      // Adding a job cost is "recording job money": money:record (ops and admins by default).
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 

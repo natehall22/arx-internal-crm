@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { canRecordMoney } from '@/lib/financials-access'
+import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
+import { hasMoneyRecord } from '@/lib/financials-access'
 
 type MaybeString = string | null | undefined
 
@@ -31,7 +32,10 @@ export async function callerCanAccessJobBilling(
   admin: SupabaseClient,
   profile: { id: string; role?: MaybeString; custom_role_id?: string | null }
 ): Promise<boolean> {
-  if (await canRecordMoney(admin, { id: profile.id, role: String(profile.role ?? ''), custom_role_id: profile.custom_role_id })) return true
+  const perms = await resolveEffectivePermissionNames(admin, profile.id, { role: String(profile.role ?? ''), custom_role_id: profile.custom_role_id })
+  // An owner's OFF switch wins over everything below, including the finance_admin role label.
+  if (perms.denied?.has('money:record')) return false
+  if (hasMoneyRecord(perms)) return true
   if (!profile.custom_role_id) return false
   const { data: customRole } = await admin.from('custom_roles').select('name, display_name').eq('id', profile.custom_role_id).maybeSingle()
   return hasFinanceAdminLabel({ customRoleName: customRole?.name, customRoleDisplayName: customRole?.display_name })

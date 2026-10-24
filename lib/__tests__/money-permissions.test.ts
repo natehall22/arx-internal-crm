@@ -79,6 +79,7 @@ describe('changing money access', () => {
         select: () => api, eq: (c: string, v: unknown) => { filters.push([c, v]); return api },
         maybeSingle: async () => ({ data: rows.find((r) => filters.every(([c, v]) => r[c] === v)) ?? null }),
         insert: async (v: Row) => { rows.push(v); return { error: null } },
+        upsert: async (v: Row) => { rows.push(v); return { error: null } },
         delete: () => ({ eq: (c: string, v: unknown) => ({ eq: async (c2: string, v2: unknown) => { const keep = rows.filter((r) => !(r[c] === v && r[c2] === v2)); rows.length = 0; rows.push(...keep); return {} } }) }),
       }
       return api
@@ -110,7 +111,7 @@ describe('changing money access', () => {
   })
   it('the job billing routes ask for money:record', () => {
     const src = read('lib/finance-access.ts')
-    expect(src).toContain('canRecordMoney')
+    expect(src).toContain('hasMoneyRecord')
     expect(src).not.toMatch(/role === 'regional_manager'/)
   })
 })

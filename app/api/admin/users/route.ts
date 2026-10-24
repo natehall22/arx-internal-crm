@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import { isOrgSuperuserRoleSlug } from '@/lib/permissions'
 import { getCrmEmailFrom, getMailTransport } from '@/lib/setter-email'
 import { createServiceClient } from '@/lib/supabase/service'
+import { actorIsOwner, isMoneyPermissionName, lockMoneyPermissions, moneyPermissionIds } from '@/lib/money-permission-guard'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -166,8 +167,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: `Failed to create user profile: ${profileError.message}` }, { status: 500 })
     }
 
-    if (permission_ids && Array.isArray(permission_ids) && permission_ids.length > 0) {
-      const permissionInserts = permission_ids.map((permId: string) => ({
+    // Money permissions can only be given by an owner (use Settings > Money access).
+    const newUserPermissionIds = lockMoneyPermissions(Array.isArray(permission_ids) ? permission_ids : [], [], await moneyPermissionIds(adminClient), await actorIsOwner(adminClient, user.id))
+    if (newUserPermissionIds.length > 0) {
+      const permissionInserts = newUserPermissionIds.map((permId: string) => ({
         org_id: targetOrgId,
         user_id: authData.user.id,
         permission_id: permId,

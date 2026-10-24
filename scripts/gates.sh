@@ -14,7 +14,9 @@ if [ -n "$(git status --porcelain)" ]; then
 fi
 
 SHA="$(git rev-parse HEAD)"
-STAMP="$(git rev-parse --git-common-dir)/arx-gates-passed"
+STAMP_DIR="$(git rev-parse --git-common-dir)/arx-gates-passed"
+mkdir -p "$STAMP_DIR"
+STAMP="$STAMP_DIR/$SHA"
 rm -f "$STAMP"
 FLAKY=()
 
@@ -48,7 +50,7 @@ if [ "$(git rev-parse HEAD)" != "$SHA" ] || [ -n "$(git status --porcelain)" ]; 
   exit 1
 fi
 
-echo "$SHA $(date -u +%FT%TZ)" > "$STAMP"
+date -u +%FT%TZ > "$STAMP"
 echo ""
 echo "gates: ALL PASSED on $SHA"
 if [ "${#FLAKY[@]}" -gt 0 ]; then echo "gates: flaky (passed only on rerun): ${FLAKY[*]}"; fi

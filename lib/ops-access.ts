@@ -41,8 +41,9 @@ export async function resolveOpsAccess(
 
   const canJobBoard = canAccessJobBoardFromPermissionNames(permissions)
 
+  // An owner's OFF switch for money:record also hides the job's money (costs, collected, balance owed).
   const canViewJobFinancials =
-    permissions.fullAccess || permissions.permissionNames.has('jobs:financials:view')
+    !permissions.denied?.has('money:record') && (permissions.fullAccess || permissions.permissionNames.has('jobs:financials:view'))
 
   return {
     permissions,

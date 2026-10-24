@@ -5,6 +5,7 @@ import { formatCurrency, formatInvoiceDisplayDate } from '@/lib/job-payments'
 import { redirect } from 'next/navigation'
 import PrintButton from './PrintButton'
 import { formatPhone } from '@/lib/format'
+import { callerCanAccessJobBilling } from '@/lib/finance-access'
 
 interface ResolvedCustomer {
   name: string
@@ -87,12 +88,16 @@ export default async function PrintInvoicePage({
 
   const { data: profile } = await adminClient
     .from('users')
-    .select('org_id')
+    .select('id, org_id, role, custom_role_id')
     .eq('id', user.id)
     .single()
 
   if (!profile) {
     redirect('/login')
+  }
+  // Printing an invoice is part of the job's books: money:record (it had no check at all before).
+  if (!(await callerCanAccessJobBilling(adminClient, profile))) {
+    redirect('/dashboard')
   }
 
   // Fetch invoice by UUID id, fallback to invoice_number

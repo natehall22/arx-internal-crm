@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { createServiceClient } from '@/lib/supabase/service'
+import { actorIsOwner, lockMoneyPermissions, moneyPermissionIds } from '@/lib/money-permission-guard'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -191,8 +192,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: insertError.message }, { status: 500 })
   }
 
-  if (permission_ids && Array.isArray(permission_ids) && permission_ids.length > 0) {
-    const permInserts = permission_ids.map((permId: string) => ({
+  const savedNewIds = lockMoneyPermissions(Array.isArray(permission_ids) ? permission_ids : [], [], await moneyPermissionIds(adminClient), await actorIsOwner(adminClient, user.id))
+  if (savedNewIds.length > 0) {
+    const permInserts = savedNewIds.map((permId: string) => ({
       role_id: newRole.id,
       permission_id: permId,
     }))
@@ -258,10 +260,18 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ error: updateError.message }, { status: 500 })
   }
 
+  // Only an owner may add or remove the money permissions on a role; for anyone else they stay as they were.
+  const { data: currentRolePerms } = await adminClient.from('role_permissions').select('permission_id').eq('role_id', id)
+  const savedRoleIds = lockMoneyPermissions(
+    Array.isArray(permission_ids) ? permission_ids : [],
+    (currentRolePerms ?? []).map((p: { permission_id: string }) => p.permission_id),
+    await moneyPermissionIds(adminClient),
+    await actorIsOwner(adminClient, user.id)
+  )
   await adminClient.from('role_permissions').delete().eq('role_id', id)
 
-  if (permission_ids && Array.isArray(permission_ids) && permission_ids.length > 0) {
-    const permInserts = permission_ids.map((permId: string) => ({
+  if (savedRoleIds.length > 0) {
+    const permInserts = savedRoleIds.map((permId: string) => ({
       role_id: id,
       permission_id: permId,
     }))

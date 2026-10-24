@@ -4,6 +4,7 @@ import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 import { isOrgSuperuserRoleSlug } from '@/lib/permissions'
+import { actorIsOwner, isMoneyPermissionName, lockMoneyPermissions, moneyPermissionIds } from '@/lib/money-permission-guard'
 
 // GET - Check if current user has a specific permission
 export async function GET(request: NextRequest) {
@@ -71,6 +72,11 @@ export async function POST(request: NextRequest) {
 
   if (!permissionData) {
     return NextResponse.json({ error: 'Permission not found' }, { status: 404 })
+  }
+
+  // The two money permissions are owner-only (Settings > Money access).
+  if (isMoneyPermissionName(permission_name) && !(await actorIsOwner(createServiceClient(), profile.id))) {
+    return NextResponse.json({ error: 'Only an owner can change money access' }, { status: 403 })
   }
 
   // Verify target user is in same org
@@ -141,6 +147,11 @@ export async function DELETE(request: NextRequest) {
 
   if (!permissionData) {
     return NextResponse.json({ error: 'Permission not found' }, { status: 404 })
+  }
+
+  // The two money permissions are owner-only (Settings > Money access).
+  if (isMoneyPermissionName(permissionName) && !(await actorIsOwner(createServiceClient(), profile.id))) {
+    return NextResponse.json({ error: 'Only an owner can change money access' }, { status: 403 })
   }
 
   // Verify target user is in the same org. RLS already confines the delete below to the

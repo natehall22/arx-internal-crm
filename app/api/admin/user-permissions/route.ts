@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { createServiceClient } from '@/lib/supabase/service'
+import { actorIsOwner, lockMoneyPermissions, moneyPermissionIds } from '@/lib/money-permission-guard'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -160,8 +161,17 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ error: 'Failed to update permissions' }, { status: 500 })
   }
 
-  if (permission_ids && Array.isArray(permission_ids) && permission_ids.length > 0) {
-    const permInserts = permission_ids.map((permId: string) => ({
+  // Only an owner may add or remove the money permissions; for anyone else they are left exactly as they were.
+  const moneyIds = await moneyPermissionIds(adminClient)
+  const savedIds = lockMoneyPermissions(
+    Array.isArray(permission_ids) ? permission_ids : [],
+    (existingPerms ?? []).map((p: { permission_id: string }) => p.permission_id),
+    moneyIds,
+    await actorIsOwner(adminClient, user.id)
+  )
+
+  if (savedIds.length > 0) {
+    const permInserts = savedIds.map((permId: string) => ({
       org_id: profile.org_id,
       user_id: user_id,
       permission_id: permId,
