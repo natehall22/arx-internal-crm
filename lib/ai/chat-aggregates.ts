@@ -83,6 +83,7 @@ async function countMyLeadsThisWeek(
     .from('leads')
     .select('id', { count: 'exact', head: true })
     .eq('org_id', access.orgId)
+    .eq('lead_in_pipeline', true)
     .gte('created_at', start.toISOString())
     .lt('created_at', end.toISOString())
     .or(

@@ -258,30 +258,9 @@ export async function GET(request: NextRequest) {
     }
 
     // First, get all lead IDs that have opportunities (for door_to_door filtering)
-    const { data: opportunities } = await adminClient
-      .from('opportunities')
-      .select('lead_id')
-      .eq('org_id', profile.org_id)
-      .not('lead_id', 'is', null)
-
-    const leadIdsWithOpportunities = new Set(
-      opportunities?.map(o => o.lead_id).filter(Boolean) || []
-    )
-
-    const { data: scheduledForDoorFilter } = await adminClient
-      .from('scheduled_appointments')
-      .select('lead_id')
-      .eq('org_id', profile.org_id)
-      .in('status', ['scheduled', 'confirmed'])
-      .not('lead_id', 'is', null)
-
-    const leadIdsWithScheduledAppointment = new Set(
-      scheduledForDoorFilter?.map((r: { lead_id: string | null }) => r.lead_id).filter(Boolean) || []
-    )
-
-    // Helper to apply common filters to a query
     const applyFilters = (query: any): any => {
-      let q = query
+      // The one pipeline rule (public.lead_in_pipeline, migration 202610290030): bare canvass pins never list here.
+      let q = query.eq('lead_in_pipeline', true)
 
       // Role-based filtering
       if (insideSalesScoped) {
@@ -374,44 +353,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to fetch leads' }, { status: 500 })
     }
 
-    // Hide raw door knocks until there is real pipeline activity. Opportunity alone used to
-    // be the signal, but opportunities are often created at inspection outcome — so a lead can
-    // be in "inspection" with a scheduled time and still have no opportunity row yet.
-    // If scheduled_appointments exists (calendar path), always show — avoids hiding when the
-    // lead row is stale but the appointment row is not.
-    const progressedDoorToDoorStatuses = new Set([
-      'appointment',
-      'inspection',
-      'estimate_sent',
-      'won',
-      'lost',
-    ])
-
-    const filteredLeads = (rawLeads || []).filter(
-      (lead: {
-        id: string
-        source: string | null
-        status: string | null
-        inspection_scheduled_for: string | null
-      }) => {
-        if (lead.source !== 'door_to_door') {
-          return true
-        }
-        if (leadIdsWithOpportunities.has(lead.id)) {
-          return true
-        }
-        if (leadIdsWithScheduledAppointment.has(lead.id)) {
-          return true
-        }
-        if (lead.inspection_scheduled_for) {
-          return true
-        }
-        if (lead.status && progressedDoorToDoorStatuses.has(lead.status)) {
-          return true
-        }
-        return false
-      }
-    )
+    const filteredLeads = rawLeads || []
 
     // Get opportunity IDs for the filtered leads in a single query
     const filteredLeadIds = filteredLeads.map((l: { id: string }) => l.id)
@@ -439,9 +381,6 @@ export async function GET(request: NextRequest) {
       opportunity_id: opportunityMap[lead.id] || null,
     }))
 
-    // Calculate accurate total by checking how many door_to_door leads need filtering
-    // For simplicity, we'll return the filtered count for this page
-    // A more accurate approach would require a separate count query
     const totalCount = rawCount || 0
     const totalPages = Math.ceil(totalCount / limit)
 

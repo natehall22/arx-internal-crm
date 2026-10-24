@@ -10,7 +10,7 @@ import DashboardClient from './DashboardClient'
 import OpsDashboard from '@/components/dashboard/OpsDashboard'
 import { getDateRangeForTimeFrame } from '@/lib/date-ranges'
 import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
-import { getContactDispositionIdSet, SOLAR_IMPORT_LEAD_SOURCE } from '@/lib/sales-metrics'
+import { getContactDispositionIdSet } from '@/lib/sales-metrics'
 import { fetchPeriodMetricRows, summarizePeriodRows } from '@/lib/reporting/period-metrics'
 import { shouldShowUserOnTeamLeaderboard } from '@/lib/dashboard-team-leaderboard'
 import { isOrgSuperuserRoleSlug, isRepLikeCustomerRecordRole } from '@/lib/permissions'
@@ -171,8 +171,8 @@ export default async function DashboardPage() {
     .from('leads')
     .select('id, status, source', { count: 'exact', head: true })
     .eq('org_id', profile.org_id)
-    // Exclude raw door knocks and the bulk-created Solar Home pins (solar_import) from "Total Leads"
-    .not('source', 'in', `(door_to_door,${SOLAR_IMPORT_LEAD_SOURCE})`)
+    // "Total Leads" = the pipeline rule (public.lead_in_pipeline): contact, booked or inbound. Bare door knocks and Solar pins are out.
+    .eq('lead_in_pipeline', true)
   
   if (!isAdmin) {
     if (teamMemberIds.length > 1) {
@@ -189,7 +189,7 @@ export default async function DashboardPage() {
     .select('id', { count: 'exact', head: true })
     .eq('org_id', profile.org_id)
     .eq('status', 'new')
-    .not('source', 'in', `(door_to_door,${SOLAR_IMPORT_LEAD_SOURCE})`)
+    .eq('lead_in_pipeline', true)
   
   if (!isAdmin) {
     if (teamMemberIds.length > 1) {
