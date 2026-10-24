@@ -6,6 +6,7 @@
 jest.mock('@/lib/auth', () => ({ requireAuthApi: jest.fn() }))
 jest.mock('@/lib/supabase/service', () => ({ createServiceClient: jest.fn() }))
 jest.mock('@/lib/ops-access', () => ({ resolveOpsAccess: jest.fn() }))
+jest.mock('@/lib/finance-access', () => ({ callerCanAccessJobBilling: jest.fn() }))
 jest.mock('next/server', () => ({
   NextResponse: {
     json: (body: unknown, init?: { status?: number }) => ({
@@ -18,12 +19,14 @@ jest.mock('next/server', () => ({
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import { resolveOpsAccess } from '@/lib/ops-access'
+import { callerCanAccessJobBilling } from '@/lib/finance-access'
 import { POST, GET } from '@/app/api/ops/jobs/[id]/cost-lines/route'
 import { PATCH, DELETE } from '@/app/api/ops/jobs/[id]/cost-lines/[costLineId]/route'
 
 const mockAuth = requireAuthApi as jest.Mock
 const mockClient = createServiceClient as jest.Mock
 const mockAccess = resolveOpsAccess as jest.Mock
+const mockBilling = callerCanAccessJobBilling as jest.Mock
 
 type Op = { table: string; method: string; args: unknown[] }
 
@@ -60,6 +63,7 @@ const lineParams = { params: { id: 'job-1', costLineId: 'line-1' } }
 
 beforeEach(() => {
   jest.resetAllMocks()
+  mockBilling.mockResolvedValue(true) // money:record by default; one test below turns it off
   mockAuth.mockResolvedValue({ authUser: { id: 'auth-1' }, profile: { id: 'u1', org_id: 'org-1', role: 'operations' } })
   mockAccess.mockResolvedValue({ canJobBoard: true, canViewJobFinancials: true })
 })
@@ -115,6 +119,13 @@ describe('POST cost-lines', () => {
   it('401 when not signed in', async () => {
     mockAuth.mockRejectedValue(new Error('no session'))
     expect(((await POST(req({}), params)) as any).status).toBe(401)
+  })
+
+  it('adding a job cost needs money:record (an owner can switch it off for one person)', async () => {
+    mockAccess.mockResolvedValue({ canJobBoard: true, canViewJobFinancials: true })
+    mockBilling.mockResolvedValue(false)
+    mockClient.mockReturnValue(fakeSupabase({ production_jobs: [{ data: { id: 'job-1', org_id: 'org-1' } }] }))
+    expect(((await POST(req({ description: 'x', amount: 1 }), params)) as any).status).toBe(403)
   })
 })
 
