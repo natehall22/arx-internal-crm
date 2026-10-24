@@ -55,12 +55,39 @@ Rules: every PR targets this branch (not `main`), has its own branch, tests, bug
 | `feat/pay-adjustments` | PR 2c: "Fix a mistake" — signed lines on the next open week (a paid week never changes) + negative checks carried forward as balances; counted in the screen, statements, emails, PDF and CSV | `202610250010_payroll_adjustments.sql` (additive; **not applied**) |
 | `feat/my-pay` | PR 3: rep "My pay" (/my-pay; This week / Coming with the reason / Paid, each line with its math) + "Something's wrong?" per line → admin's Needs you (reply or Add a fix); Money → My pay in the nav for commission roles | `202610250020_payroll_disputes.sql` (additive; **not applied**) |
 
+## SHIP RUNBOOK + ROLLBACK PLAN (written 2026-10-24, before anything is applied)
+
+**Safety net (no manual backup was taken, by decision):** Supabase daily physical backups, latest verified `2026-10-23 10:15 UTC` (7 retained; the next one lands ~10:15 UTC / 6:15 am ET on the ship day). Every data fix also keeps its own old values in the private schema `release_backups` with a one-command undo (below). Everything the code needs from the database is additive.
+
+**Vercel rollback target (current production):** deployment `https://arx-internal-1g2gqw1em-nathan-halls-projects-ef79f55c.vercel.app` (GitHub deployment 7268754739, commit `924f2cac30bd`, state success, 2026-10-23 02:35 UTC). To roll back: Vercel dashboard → Deployments → that deployment → Promote to Production (instant, no rebuild). The old code runs fine against the new schema (everything below is additive), so a code rollback never needs a database rollback.
+
+**Apply order (Step 4):** 1) migrations in filename order; 2) smoke the CURRENT app against the new schema; 3) `link_orphan_opportunities('preview')` → read the match list → `('apply')`; 4) `merge_notes_into_threads('preview')` → `('apply')`; 5) merge to `main`, confirm Vercel deploy; 6) keep `CUSTOMER_FILE_REDIRECTS` and the ABC connector OFF.
+
+| # | Migration | What it does | Safe to leave in place if the code is rolled back? | Undo (only if the DB itself must go back) |
+|---|---|---|---|---|
+| 1 | `202610240020_table_views` | new table | yes (unused) | `DROP TABLE table_views;` |
+| 2 | `202610240050_global_search` | pg_trgm indexes + `search_all` | yes | `DROP FUNCTION search_all(uuid,text,text[],uuid,int);` + the 6 `idx_search_*` indexes |
+| 3 | `202610250010_payroll_adjustments` | new table | yes | `DROP TABLE payroll_adjustments;` (after #4 and #6's trigger) |
+| 4 | `202610250020_payroll_disputes` | new table | yes | `DROP TABLE payroll_disputes;` |
+| 5 | `202610270010_threads_audiences` | new nullable columns on `activities`/`notifications`/`users`, `threads`, `thread_members`, `message_visible_to`, `search_messages`, and the **four `activities` RLS policies replaced** (legacy rows with `audience IS NULL` behave exactly as before; only the browser WRITE policies are tighter) | yes. The old app only writes legacy-style rows, which the new policies allow | restore the previous `activities` policies: read `org_id = get_user_org_id(auth.uid()) AND referral_partner_id IS NULL`; insert/update/delete `org_id = get_user_org_id(auth.uid()) AND user_id = auth.uid()`; then `DROP FUNCTION message_visible_to, search_messages; DROP TABLE thread_members, threads;` (new columns may stay) |
+| 6 | `202610280010_atomic_approve_and_field_role_deny` | `payroll_unit_earnings`, `payroll_periods.units_frozen_at`, claim-guard triggers on hours/bonus/fix tables, `payroll_week_person_totals`, `payroll_commit_week`, and **`can_view_job_board()` replaced** with a field-role deny | yes, with one caveat: the triggers refuse hours/bonus/fix writes on a week that is mid-approval (only while a lock claim is live, max 15 min). The old Approve never leaves a claim open longer than its request | drop the 3 triggers `trg_guard_claimed_period` and the 3 functions; `ALTER TABLE payroll_periods DROP COLUMN units_frozen_at; DROP TABLE payroll_unit_earnings;` and re-create `can_view_job_board` without the `field` CTE (previous body in the migration header) |
+
+**Data fixes** (both leave exact backups in `release_backups`; both are previews until `'apply'` is called):
+* `SELECT release_backups.undo_merge_notes_into_threads();` — restores every classified activity from its saved previous values and deletes only the copied notes nobody has touched (edited / removed / re-audienced / re-pinned / replied-to notes are kept and reported). **Run this first if both must be undone.**
+* `SELECT release_backups.undo_link_orphan_opportunities();` — puts back `customer_id = NULL` only where the applied customer is still there, and deletes only the customers this run created that nothing else references (every foreign key to `customers` is checked).
+
+**Dress rehearsal on production (2026-10-24, rolled back — nothing persisted; ~12 s):** all 6 migrations + both data fixes applied with their text md5-verified against the repo files; exactly 4 `activities` policies after; migrations alone changed no existing activity row; orphan fix: **362 orphans → 2 linked by email, 360 on 347 new customers (49 → 396), 1 phone match refused (names disagree), 0 orphans left**; notes fix: **4,138 activities classified, 479 notes copied**; no setter/canvasser can read any production, crew or pricing-flagged message; both undos restored activities (rows, bodies, all new columns NULL), opportunity links, customer count (49) and orphan count (362) EXACTLY; payroll commit/claim-guard tests T1–T8 passed on the production tables. **Counts differ from the 2026-10-22 preview (363 / 314 new customers / 478 notes) for two reasons:** (1) 34 of the old "phone matches" were one filler number (`2222222222`, a test customer) swallowing 34 real people — the filler rule and the names-must-agree rule now stop that, so those get their own customers; (2) the day's new data (+1 opportunity linked, +1 note).
+
+**Smoke test after deploy (Step 5):** canvass (knock, book, offline sync), job page (all tabs), order-sheet send preview, Pay this week preview, rep My pay, Needs you (role-correct), reports, global search, a setter posting/reading a thread with production + pricing hidden. Any failure → promote the rollback deployment above, then report. `GET /api/health` with `Authorization: Bearer $CRON_SECRET` reports `schema.threads` and `schema.payrollAtomicApprove` (both must be `true`).
+
+**Findings from the external review (Cursor + Codex) and what was done** — see the table in the PR / chat summary; fixes are in commits `31c4a31f`, `92b0c3d2`, `2da2d528` on `release/2026-10-batch`.
+
 ## State 2026-10-22
 `release/2026-10-batch` = main + UI stack (A, B) + payroll stack (#77–#80). tsc clean, jest 2035 pass. Settled-externally jobs are excluded from plan, preview, Approve and My pay (`payroll-settled-externally.test.ts`, `settled-externally-guards.test.ts`); preview == Approve covered by the pay-week approve tests.
-**READY TO SHIP — apply order (all migrations additive; data fixes after them):**
-1. `202610240020_table_views` · 2. `202610240050_global_search` · 3. `202610250010_payroll_adjustments` · 4. `202610250020_payroll_disputes` · 5. `202610270010_threads_audiences` (also tightens the browser write policies on `activities`)
-6. Data fix `2026-10-27_link_orphan_opportunities.sql` (363 opportunities → customers; +314 customers)
-7. Data fix `2026-10-27_merge_notes_into_threads.sql` (classify 4,337 activities; copy 478 old notes; price-looking notes flagged)
+**READY TO SHIP (after the review fixes) — apply order (migrations are additive; #5 tightens browser write policies on `activities` and #6 replaces `can_view_job_board` and adds claim-guard triggers — see the runbook above):**
+1. `202610240020_table_views` · 2. `202610240050_global_search` · 3. `202610250010_payroll_adjustments` · 4. `202610250020_payroll_disputes` · 5. `202610270010_threads_audiences` · 6. `202610280010_atomic_approve_and_field_role_deny`
+7. Data fix `2026-10-27_link_orphan_opportunities.sql` — now a preview-by-default function (`release_backups.link_orphan_opportunities('apply')`); counts per the rehearsal above
+8. Data fix `2026-10-27_merge_notes_into_threads.sql` — preview-by-default (`release_backups.merge_notes_into_threads('apply')`)
 8. Merge `release/2026-10-batch` to main, confirm the Vercel deploy, then smoke-test payroll, job page, order sheets, Needs you, reports, a thread post as setter and ops.
 9. Optional switches after deploy: `CUSTOMER_FILE_REDIRECTS` (off), ABC connector (off), then run `npm run payroll:side-by-side` for the first two Pay-this-week previews.
 Rollbacks: each migration/data fix lists its own (additive tables/columns can stay; policies and data fixes have exact SQL).
