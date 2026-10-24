@@ -7,6 +7,7 @@ import { ridgeHipCapOrderSummary } from '@/lib/hip-ridge-cap-squares'
 import { BUNDLES_PER_SQUARE, CAP_LF_PER_BUNDLE } from '@/lib/roof-shingle-constants'
 import { formatNumericDraft, parseDraftFloat, previewNumber } from '@/lib/numeric-input-draft'
 import { toast } from '@/components/ui/toast'
+import { formatPhone } from '@/lib/format'
 
 interface PricebookItem {
   id: string
@@ -1995,7 +1996,7 @@ export default function ProposalBuilderPage() {
                     <h3 className="text-sm font-medium text-gray-500 uppercase tracking-wider mb-2">Customer</h3>
                     <p className="font-medium text-gray-900">{form.customer_name}</p>
                     <p className="text-gray-600">{form.customer_address}</p>
-                    {form.customer_phone && <p className="text-gray-600">{form.customer_phone}</p>}
+                    {form.customer_phone && <p className="text-gray-600">{formatPhone(form.customer_phone)}</p>}
                     {form.customer_email && <p className="text-gray-600">{form.customer_email}</p>}
                   </div>
                   <div className="text-right">

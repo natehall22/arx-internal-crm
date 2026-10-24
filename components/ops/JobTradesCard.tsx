@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from 'react'
 import ScheduleJobModal, { type ScheduleTrade } from '@/components/ops/ScheduleJobModal'
 import { finalPhotoTagLabel } from '@/lib/final-photo-tags'
 import { TRADES, TRADE_LABELS, formatInstallDays, formatWallClock12h, type Trade } from '@/lib/job-trades'
+import PhoneLink from '@/components/PhoneLink'
 
 /** Shape returned by GET /api/ops/jobs/[id]/trades. */
 export interface JobTradeView {
@@ -260,9 +261,7 @@ export default function JobTradesCard({ jobId, jobLabel, readOnly = false, onTra
                         {t.sub.phone && (
                           <>
                             {' · '}
-                            <a href={`tel:${t.sub.phone}`} className="text-indigo-700 hover:underline">
-                              {t.sub.phone}
-                            </a>
+                            <PhoneLink value={t.sub.phone} className="inline-flex min-h-tap items-center text-indigo-700 hover:underline" />
                           </>
                         )}
                       </p>

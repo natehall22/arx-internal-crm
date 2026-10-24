@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import SignaturePad from './SignaturePad'
 import { parseDraftFloat, previewNumber } from '@/lib/numeric-input-draft'
+import { formatPhone } from '@/lib/format'
 
 interface ContractModalProps {
   isOpen: boolean
@@ -872,7 +873,7 @@ export default function ContractModal({
                         </div>
                       )}
                       <div><span className="text-gray-500">Address:</span> {formData.projectAddress}</div>
-                      <div><span className="text-gray-500">Phone:</span> {formData.customerPhone || 'N/A'}</div>
+                      <div><span className="text-gray-500">Phone:</span> {formData.customerPhone ? formatPhone(formData.customerPhone) : 'N/A'}</div>
                       <div><span className="text-gray-500">Email:</span> {formData.customerEmail || 'N/A'}</div>
                     </div>
                   </div>

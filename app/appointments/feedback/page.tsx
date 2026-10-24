@@ -18,6 +18,7 @@ import {
   isInsuranceFollowUpOutcomeId,
   isRescheduledOutcomeId,
 } from '@/lib/insurance-call-booking'
+import PhoneLink from '@/components/PhoneLink'
 
 interface Appointment {
   id: string
@@ -491,7 +492,7 @@ export default function AppointmentFeedbackPage() {
             <div>
               <p className="text-gray-500">Phone</p>
               <p className="font-medium text-gray-900">
-                {appointment?.leads?.phone || lead?.phone || 'N/A'}
+                <PhoneLink value={appointment?.leads?.phone || lead?.phone} empty="N/A" />
               </p>
             </div>
             {(appointmentDate || inspectionDate) && (

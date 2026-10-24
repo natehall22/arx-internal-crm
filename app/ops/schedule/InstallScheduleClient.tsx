@@ -11,6 +11,7 @@ import {
   type InstallDays,
   type Trade,
 } from '@/lib/job-trades'
+import { formatPhone } from '@/lib/format'
 
 /* ------------------------------------------------------------------------ *
  * API contract (GET /api/ops/install-schedule, POST .../assign, .../unassign)
@@ -936,7 +937,7 @@ export default function InstallScheduleClient({ embedded = false }: { /** Inside
                               />
                               <span className="truncate text-sm font-semibold text-[#2c2c2a]">{sub.company_name}</span>
                             </div>
-                            {sub.phone && <div className="mt-0.5 truncate text-xs text-[#57574f]">{sub.phone}</div>}
+                            {sub.phone && <div className="mt-0.5 truncate text-xs text-[#57574f]">{formatPhone(sub.phone)}</div>}
                             {!sub.scheduling_email && (
                               /* Say it BEFORE the job is placed, not after. Scheduling still works
                                  without an address, but nothing reaches the crew — and finding that

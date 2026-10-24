@@ -48,6 +48,7 @@ import {
   buildOpportunityListQuery,
   filtersFromSearchParams,
 } from '@/lib/opportunity-list-filters'
+import PhoneLink from '@/components/PhoneLink'
 
 /** The opportunity page body, shared by /opportunities/[id] and the Customer File's Sales tab. */
 export default async function OpportunityView({
@@ -837,7 +838,7 @@ export default async function OpportunityView({
                       <p className="text-gray-900 mt-0.5">{opportunity.customers?.name || '—'}</p>
                     )}
                     <p className="text-gray-900 mt-0.5">
-                      {leadRow?.phone || opportunity.customers?.phone || opportunity.contact_phone || '—'}
+                      <PhoneLink value={leadRow?.phone || opportunity.customers?.phone || opportunity.contact_phone} />
                     </p>
                   </>
                 ) : (
@@ -846,7 +847,7 @@ export default async function OpportunityView({
                       <LinkCustomerButton sourceType="opportunity" sourceId={opportunity.id} className="" />
                     </div>
                     <p className="text-gray-900 mt-0.5">
-                      {leadRow?.phone || opportunity.customers?.phone || opportunity.contact_phone || '—'}
+                      <PhoneLink value={leadRow?.phone || opportunity.customers?.phone || opportunity.contact_phone} />
                     </p>
                   </>
                 )}

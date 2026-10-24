@@ -1,6 +1,7 @@
 import { createServiceClient } from '@/lib/supabase/service'
 import { notFound } from 'next/navigation'
 import SignaturePad from '@/components/SignaturePad'
+import PhoneLink from '@/components/PhoneLink'
 
 export const dynamic = 'force-dynamic'
 
@@ -107,7 +108,7 @@ export default async function ContractSigningPage({
                   </div>
                   <div>
                     <span className="font-medium">Phone:</span>{' '}
-                    {contract.contract_payload?.phone || 'N/A'}
+                    <PhoneLink value={contract.contract_payload?.phone} empty="N/A" />
                   </div>
                   <div>
                     <span className="font-medium">Email:</span>{' '}

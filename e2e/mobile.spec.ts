@@ -81,6 +81,18 @@ const SCREENS: Screen[] = [
   { name: 'change-order-signing', path: '/dev-harness/change-order-signing', ready: 'text=CO-1' },
   { name: 'crew-photo-capture', path: '/dev-harness/crew-capture', ready: 'text=Front of house' },
   { name: 'payroll-attribution', path: '/dev-harness/payroll-attribution', ready: 'text=Payroll attribution' },
+  { name: 'ops-dashboard', path: '/dev-harness/ops-dashboard', ready: 'text=Operations Dashboard',
+    states: [{ name: 'pipeline-tiles', run: async (p) => {
+      // Five tiles in a 2-column grid with the full words (Sold / Materials / Scheduled / In progress / Completed).
+      const labels = ['Sold', 'Materials', 'Scheduled', 'In progress', 'Completed']
+      const xs = new Set<number>()
+      for (const l of labels) {
+        const el = p.getByRole('link', { name: new RegExp(`${l}$`) }).first()
+        await el.waitFor()
+        xs.add(Math.round((await el.boundingBox())!.x))
+      }
+      if (xs.size !== 2) throw new Error(`pipeline tiles should sit in 2 columns, found ${xs.size}`)
+    } }] },
   { name: 'ops-board', path: '/dev-harness/ops-board', ready: 'text=26-0041',
     states: [{ name: 'board-view', run: async (p) => { await p.getByRole('button', { name: 'Board', exact: true }).click(); await p.waitForTimeout(300) } }] },
   { name: 'job-page', path: '/dev-harness/job-page', ready: 'text=26-0042',

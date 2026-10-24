@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { toast } from '@/components/ui/toast'
+import PhoneLink from '@/components/PhoneLink'
 
 interface Customer {
   id: string
@@ -164,9 +165,7 @@ export default function CustomerInfoCard({ customer }: CustomerInfoCardProps) {
         <div>
           <span className="font-medium">Phone:</span>{' '}
           {customer.phone ? (
-            <a href={`tel:${customer.phone}`} className="text-indigo-600 hover:text-indigo-800">
-              {customer.phone}
-            </a>
+            <PhoneLink value={customer.phone} className="inline-flex min-h-tap items-center text-indigo-600 hover:text-indigo-800" />
           ) : (
             <span className="text-gray-400">No phone</span>
           )}

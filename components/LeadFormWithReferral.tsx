@@ -8,6 +8,7 @@ import CloseScheduleModal, { type CloseScheduleConfirm } from '@/components/appo
 import LeadInspectionScheduleModal from '@/components/leads/LeadInspectionScheduleModal'
 import { MANUAL_LEAD_SOURCES } from '@/lib/lead-sources'
 import { toast } from '@/components/ui/toast'
+import { formatPhone } from '@/lib/format'
 
 interface ReferrerResult {
   id: string
@@ -605,7 +606,7 @@ export default function LeadFormWithReferral({
                   <p className="font-medium text-gray-900">{selectedReferrer.name}</p>
                   <p className="text-sm text-gray-500">
                     {selectedReferrer.type === 'customer' ? 'Customer' : 'Previous Lead'}
-                    {selectedReferrer.phone && ` • ${selectedReferrer.phone}`}
+                    {selectedReferrer.phone && ` • ${formatPhone(selectedReferrer.phone)}`}
                   </p>
                   {selectedReferrer.address && (
                     <p className="text-sm text-gray-500">{selectedReferrer.address}</p>
@@ -673,7 +674,7 @@ export default function LeadFormWithReferral({
                         <div>
                           <p className="font-medium text-gray-900">{result.name}</p>
                           <p className="text-sm text-gray-500">
-                            {result.phone || result.email || 'No contact info'}
+                            {result.phone ? formatPhone(result.phone) : result.email || 'No contact info'}
                           </p>
                           {result.address && (
                             <p className="text-xs text-gray-400">{result.address}</p>

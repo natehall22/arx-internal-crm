@@ -4,6 +4,7 @@
  * the `search_all` SQL function (pg_trgm: typos, partial phone numbers, job numbers, proposal numbers).
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { formatPhonesInText } from '@/lib/format'
 
 export type SearchKind = 'customer' | 'job' | 'proposal' | 'opportunity'
 export type SearchGroup = { kinds: SearchKind[]; owner: string | null }
@@ -48,7 +49,7 @@ export async function runSearch(admin: SupabaseClient, orgId: string, q: string,
   for (const r of results) {
     if (r.error) throw r.error
     for (const row of (r.data ?? []) as Array<{ kind: SearchKind; id: string; title: string; subtitle: string | null; score: number }>) {
-      hits.push({ kind: row.kind, id: row.id, title: row.title, subtitle: row.subtitle ?? '', score: Number(row.score) })
+      hits.push({ kind: row.kind, id: row.id, title: row.title, subtitle: formatPhonesInText(row.subtitle ?? ''), score: Number(row.score) })
     }
   }
   return hits.sort((a, b) => b.score - a.score || a.title.localeCompare(b.title)).slice(0, limit)

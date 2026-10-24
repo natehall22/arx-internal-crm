@@ -12,6 +12,7 @@ import {
   type PartnerListItem,
   type ReferralPartnerStatus,
 } from '@/lib/referral-partners'
+import { formatPhone } from '@/lib/format'
 
 type Scope = 'all' | 'mine' | 'open'
 
@@ -143,7 +144,7 @@ function PartnerRow({ partner }: { partner: PartnerListItem }) {
         <div className="min-w-0">
           <p className="truncate text-base font-semibold text-[#2c2c2a]">{partner.name}</p>
           <p className="truncate text-sm text-gray-700">
-            {[partner.company, partnerTypeLabel(partner), partner.phone].filter(Boolean).join(' · ')}
+            {[partner.company, partnerTypeLabel(partner), partner.phone ? formatPhone(partner.phone) : null].filter(Boolean).join(' · ')}
           </p>
         </div>
         <OwnerBadge partner={partner} />

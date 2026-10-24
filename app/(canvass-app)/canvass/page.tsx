@@ -17,6 +17,7 @@ import { useGeolocation } from './lib/useGeolocation'
 import { useViewportLeads, ViewportPin, FullPinData } from './lib/useViewportLeads'
 import type { AssignedTerritoryMapPayload } from '@/lib/canvass-territories'
 import { isOrgSuperuserRoleSlug } from '@/lib/org-role-constants'
+import { formatPhone } from '@/lib/format'
 
 // Global type declarations for Google Maps and MarkerClusterer
 declare global {
@@ -772,7 +773,7 @@ export default function CanvassPage() {
                             {addressText || `${pin.lat.toFixed(4)}, ${pin.lng.toFixed(4)}`}
                           </p>
                           {phone && (
-                            <p className="text-sm text-gray-500">{phone}</p>
+                            <p className="text-sm text-gray-500">{formatPhone(phone)}</p>
                           )}
                         </div>
                         <span className={`px-2 py-1 text-xs rounded-full font-medium ${

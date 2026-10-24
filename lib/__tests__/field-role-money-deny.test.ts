@@ -6,7 +6,7 @@ const sql = readFileSync(join(process.cwd(), 'supabase/migrations/202610290020_f
 describe('field-role money deny (RLS)', () => {
   it('uses restrictive policies only, so no existing rule is loosened', () => {
     expect(sql).not.toMatch(/create policy [^;]*for (insert|update|delete|all)/i)
-    for (const m of sql.matchAll(/create policy[^;]*/gi)) expect(m[0]).toMatch(/restrictive/i)
+    for (const m of Array.from(sql.matchAll(/create policy[^;]*/gi))) expect(m[0]).toMatch(/restrictive/i)
   })
 
   it.each(['proposals', 'proposal_line_items', 'order_form_contracts', 'job_payments', 'production_jobs', 'pricebook_items'])('%s is closed to field roles', (t) => {

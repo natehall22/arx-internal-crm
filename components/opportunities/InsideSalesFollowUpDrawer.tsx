@@ -3,6 +3,7 @@
 import { useMemo, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import CloseScheduleModal, { type CloseScheduleConfirm } from '@/components/appointments/CloseScheduleModal'
+import { formatPhone } from '@/lib/format'
 
 type ActivityRow = {
   id: string
@@ -263,7 +264,7 @@ export default function InsideSalesFollowUpDrawer({
             <p className="mt-2 text-sm text-gray-700">
               {customerPhone && phoneDigits ? (
                 <a href={`tel:${phoneDigits}`} className="font-medium text-indigo-700 hover:underline">
-                  {customerPhone}
+                  {formatPhone(customerPhone)}
                 </a>
               ) : (
                 <span>No phone on file</span>
@@ -319,7 +320,7 @@ export default function InsideSalesFollowUpDrawer({
                 <p className="mt-1 text-sm text-gray-600">
                   {customerPhone && phoneDigits ? (
                     <a href={`tel:${phoneDigits}`} className="font-medium text-indigo-700 hover:underline">
-                      {customerPhone}
+                      {formatPhone(customerPhone)}
                     </a>
                   ) : (
                     'No phone on file'
@@ -368,7 +369,7 @@ export default function InsideSalesFollowUpDrawer({
                   </div>
                   <div>
                     <p className="text-xs font-medium uppercase tracking-wide text-amber-800">Phone</p>
-                    <p className="mt-1 font-medium text-gray-900">{customerPhone || '—'}</p>
+                    <p className="mt-1 font-medium text-gray-900">{customerPhone ? formatPhone(customerPhone) : '—'}</p>
                   </div>
                 </div>
                 {closerNotes && (

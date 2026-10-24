@@ -5,6 +5,8 @@ import { useEffect, useRef, useState } from 'react'
 type Props = {
   /** Raw value shown and copied — phone number or email address. */
   value: string
+  /** What to show instead of `value` (e.g. a formatted phone); `value` is still what gets copied. */
+  display?: string
   /** tel: or mailto: target for the tap-to-dial/tap-to-mail affordance. */
   href: string
   /** Leading emoji marker, matched to the surrounding card style. */
@@ -19,7 +21,7 @@ type Props = {
  * desktop: dragging across anchor text starts a link drag instead of a
  * selection, so the value gets an explicit copy button and `select-all`.
  */
-export default function CopyableContact({ value, href, icon, label, className }: Props) {
+export default function CopyableContact({ value, display, href, icon, label, className }: Props) {
   const [copied, setCopied] = useState(false)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -42,7 +44,7 @@ export default function CopyableContact({ value, href, icon, label, className }:
     <div className={`min-h-[44px] flex items-center gap-2 ${className ?? ''}`}>
       <a href={href} className="min-h-[44px] flex items-center text-sm text-indigo-600 break-all">
         <span aria-hidden="true" className="mr-1">{icon}</span>
-        <span className="select-all">{value}</span>
+        <span className="select-all">{display ?? value}</span>
       </a>
       <button
         type="button"

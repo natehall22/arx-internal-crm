@@ -13,6 +13,7 @@ import { getProposalCustomerPricing, formatSelectedFinancingTerms } from '@/lib/
 import { resolveContractTotalSquares } from '@/lib/sold-roof-squares'
 import { toast } from '@/components/ui/toast'
 import { confirmDialog } from '@/components/ui/confirm-dialog'
+import PhoneLink from '@/components/PhoneLink'
 
 interface Proposal {
   id: string
@@ -708,7 +709,7 @@ export default function ProposalDetailPage() {
                 <h3 className="text-sm font-medium text-gray-700 uppercase tracking-wider mb-2">Customer</h3>
                 <p className="font-medium text-gray-900">{proposal.customer_name}</p>
                 <p className="text-gray-900">{proposal.customer_address}</p>
-                {proposal.customer_phone && <p className="text-gray-900">{proposal.customer_phone}</p>}
+                {proposal.customer_phone && <p className="text-gray-900"><PhoneLink value={proposal.customer_phone} /></p>}
                 {proposal.customer_email && <p className="text-gray-900">{proposal.customer_email}</p>}
               </div>
               <div className="text-right">

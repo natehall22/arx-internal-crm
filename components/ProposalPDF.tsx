@@ -1,6 +1,7 @@
 'use client'
 
 import { Document, Page, Text, View, StyleSheet, Image } from '@react-pdf/renderer'
+import { formatPhone } from '@/lib/format'
 
 // Using built-in Helvetica font for reliability (no external font loading required)
 
@@ -539,7 +540,7 @@ export const ProposalPDF = ({ data }: { data: ProposalData }) => {
         <View style={styles.header}>
           <View style={styles.companyInfo}>
             <Text style={styles.companyName}>{company?.name || 'Your Company'}</Text>
-            {company?.phone && <Text style={styles.companyDetail}>{company.phone}</Text>}
+            {company?.phone && <Text style={styles.companyDetail}>{formatPhone(company.phone)}</Text>}
             {company?.email && <Text style={styles.companyDetail}>{company.email}</Text>}
             {company?.address && <Text style={styles.companyDetail}>{company.address}</Text>}
           </View>
@@ -562,7 +563,7 @@ export const ProposalPDF = ({ data }: { data: ProposalData }) => {
                 {proposal.customer_phone && (
                   <>
                     <Text style={styles.label}>Phone</Text>
-                    <Text style={styles.value}>{proposal.customer_phone}</Text>
+                    <Text style={styles.value}>{formatPhone(proposal.customer_phone)}</Text>
                   </>
                 )}
               </View>
@@ -572,7 +573,7 @@ export const ProposalPDF = ({ data }: { data: ProposalData }) => {
                 {rep?.phone && (
                   <>
                     <Text style={styles.label}>Rep Phone</Text>
-                    <Text style={styles.value}>{rep.phone}</Text>
+                    <Text style={styles.value}>{formatPhone(rep.phone)}</Text>
                   </>
                 )}
                 {rep?.email && (

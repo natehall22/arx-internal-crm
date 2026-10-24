@@ -11,6 +11,7 @@ import {
   type PartnerListItem,
 } from '@/lib/referral-partners'
 import { OwnerBadge } from '../ReferralPartnersClient'
+import PhoneLink from '@/components/PhoneLink'
 
 type Detail = {
   partner: PartnerListItem
@@ -101,9 +102,7 @@ export default function PartnerDetailClient({
         </div>
         <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-sm text-[#2c2c2a]">
           {partner.phone && (
-            <a href={`tel:${partner.phone}`} className="font-semibold text-indigo-700">
-              {partner.phone}
-            </a>
+            <PhoneLink value={partner.phone} className="inline-flex min-h-tap items-center font-semibold text-indigo-700" />
           )}
           {partner.email && (
             <a href={`mailto:${partner.email}`} className="font-semibold text-indigo-700">

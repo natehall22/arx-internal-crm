@@ -7,6 +7,7 @@ import { filterAppointmentsByCalendarScope } from '@/lib/calendar-scope-filters'
 import { nyDayRangeUtc } from '@/lib/calendar-business-tz'
 import { createClientBrowser } from '@/lib/supabase/client'
 import type { DbUserRole } from '@/lib/types/database'
+import PhoneLink from '@/components/PhoneLink'
 
 // Typed as DbUserRole: an unknown label makes Postgres reject the entire query
 // (22P02) and the lane view renders empty.
@@ -545,7 +546,7 @@ export default function TeamLaneView({
               </p>
               <p>
                 <span className="text-gray-500">Phone:</span>{' '}
-                <span className="text-gray-900">{selectedAppointment.lead?.phone || 'No phone'}</span>
+                <span className="text-gray-900"><PhoneLink value={selectedAppointment.lead?.phone} empty="No phone" /></span>
               </p>
               <p>
                 <span className="text-gray-500">Closer:</span>{' '}

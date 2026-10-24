@@ -76,3 +76,17 @@ export function formatPhone(v: Maybe<string>): string {
   const t = d.length === 11 && d.startsWith('1') ? d.slice(1) : d
   return t.length === 10 ? `(${t.slice(0, 3)}) ${t.slice(3, 6)}-${t.slice(6)}` : v
 }
+
+/** "tel:+17049038092" for a dialable US number; null when there is nothing to dial. */
+export function telHref(v: Maybe<string>): string | null {
+  if (!v) return null
+  const d = v.replace(/\D/g, '')
+  if (d.length === 10) return `tel:+1${d}`
+  if (d.length === 11 && d.startsWith('1')) return `tel:+${d}`
+  return null
+}
+
+/** Rewrites any US phone number inside a sentence as "(704) 903-8092" (search subtitles built in SQL carry the raw digits). */
+export function formatPhonesInText(text: string): string {
+  return text.replace(/(^|\D)(?:\+?1[\s.-]?)?\(?(\d{3})\)?[\s.-]?(\d{3})[\s.-]?(\d{4})(?!\d)/g, '$1($2) $3-$4')
+}

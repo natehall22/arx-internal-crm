@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
+import { formatPhone } from '@/lib/format'
+import PhoneLink from '@/components/PhoneLink'
 
 interface Customer {
   id: string
@@ -346,7 +348,7 @@ export default function LinkCreateCustomerModal({
                       <div>
                         <p className="font-medium text-gray-900">{customer.name}</p>
                         <p className="text-sm text-gray-500">
-                          {[customer.email, customer.phone].filter(Boolean).join(' • ')}
+                          {[customer.email, customer.phone ? formatPhone(customer.phone) : null].filter(Boolean).join(' • ')}
                         </p>
                         {customer.address_text && (
                           <p className="text-sm text-gray-400">{customer.address_text}</p>
@@ -457,7 +459,7 @@ export default function LinkCreateCustomerModal({
                         <p className="text-sm text-gray-600">Contact: {source.customer_name}</p>
                       )}
                       <p className="text-sm text-gray-500">
-                        {[source.customer_email, source.customer_phone].filter(Boolean).join(' • ')}
+                        {[source.customer_email, source.customer_phone ? formatPhone(source.customer_phone) : null].filter(Boolean).join(' • ')}
                       </p>
                       {source.customer_address && (
                         <p className="text-sm text-gray-400">{source.customer_address}</p>
@@ -474,7 +476,7 @@ export default function LinkCreateCustomerModal({
                   <div className="space-y-1 text-sm">
                     <p><span className="text-gray-500">Name:</span> {selectedSource.customer_name || '—'}</p>
                     <p><span className="text-gray-500">Email:</span> {selectedSource.customer_email || '—'}</p>
-                    <p><span className="text-gray-500">Phone:</span> {selectedSource.customer_phone || '—'}</p>
+                    <p><span className="text-gray-500">Phone:</span> <PhoneLink value={selectedSource.customer_phone} /></p>
                     <p><span className="text-gray-500">Address:</span> {selectedSource.customer_address || '—'}</p>
                   </div>
                 </div>

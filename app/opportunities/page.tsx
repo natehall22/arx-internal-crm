@@ -18,6 +18,7 @@ import {
   type OpportunityListFilters,
 } from '@/lib/opportunity-list-filters'
 import { type OpportunityListRow as Opportunity } from '@/components/opportunities/opportunity-list-shared'
+import { formatPhone } from '@/lib/format'
 
 type InsideSalesActivity = {
   id: string
@@ -597,10 +598,10 @@ export default function OpportunitiesPage() {
                                   href={`tel:${phoneDigits}`}
                                   className="text-indigo-700 hover:text-indigo-900 hover:underline"
                                 >
-                                  {item.customerPhone}
+                                  {formatPhone(item.customerPhone)}
                                 </a>
                               ) : (
-                                item.customerPhone || 'No phone'
+                                item.customerPhone ? formatPhone(item.customerPhone) : 'No phone'
                               )}
                             </p>
                           </div>

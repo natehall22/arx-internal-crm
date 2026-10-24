@@ -36,6 +36,7 @@ import {
 import { isOrgSuperuserRoleSlug } from '@/lib/org-role-constants'
 import { reconcileStaleFormField } from '@/lib/stale-form-field'
 import { leadSourceEditOptions, leadSourceLabel } from '@/lib/lead-sources'
+import { formatPhone } from '@/lib/format'
 
 // Helper to convert UTC ISO string to datetime-local format in Eastern time
 function toEasternDatetimeLocal(isoString: string | null): string {
@@ -568,7 +569,7 @@ export default async function LeadView({
             summary: `Inspection: ${freshLead.homeowner_name || 'Customer'}${isRescheduled ? ' (Rescheduled)' : ''}`,
             description: [
               `Customer: ${freshLead.homeowner_name || 'N/A'}`,
-              freshLead.phone ? `Phone: ${freshLead.phone}` : '',
+              freshLead.phone ? `Phone: ${formatPhone(freshLead.phone)}` : '',
               freshLead.address_text ? `Address: ${freshLead.address_text}` : '',
               '',
               freshLead.canvass_notes ? `Canvass Notes:\n${freshLead.canvass_notes}` : '',

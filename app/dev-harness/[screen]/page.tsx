@@ -24,6 +24,8 @@ import CrewPhotoCapture from '@/app/crew/[token]/CrewPhotoCapture'
 import { HARNESS_CONTRACT } from '@/e2e/fixtures'
 import PayrollAttributionEditor from '@/components/payroll/PayrollAttributionEditor'
 import OpsClient from '@/app/ops/OpsClient'
+import OpsDashboardView from '@/components/ops/OpsDashboardView'
+import { HARNESS_OPS_DASHBOARD } from '@/e2e/fixtures'
 import AppointmentsList from '@/components/appointments/AppointmentsList'
 import { HARNESS_OPS_JOBS, HARNESS_WORK_ORDERS, HARNESS_CUSTOMERS, HARNESS_PROFIT_ROWS } from '@/e2e/fixtures'
 import WorkOrdersClient from '@/app/work-orders/WorkOrdersClient'
@@ -113,6 +115,8 @@ export default function Harness({ params }: { params: { screen: string } }) {
           <PayrollAttributionEditor opportunityId="opp-1" canEdit initial={{ opportunity_id: 'opp-1', setter_user_id: 'u2', closer_user_id: 'u1', setter_name: 'Stevo Potts', closer_name: 'Nathan Hall' }} />
         </div>
       )
+    case 'ops-dashboard':
+      return <OpsDashboardView {...(HARNESS_OPS_DASHBOARD as unknown as React.ComponentProps<typeof OpsDashboardView>)} />
     case 'ops-board':
       return <OpsClient initialJobs={HARNESS_OPS_JOBS as never} orgId="org-1" canViewProfitability />
     case 'job-page':

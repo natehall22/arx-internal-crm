@@ -11,6 +11,7 @@ import OpportunityView from '@/app/opportunities/[id]/OpportunityView'
 import { isFileTab, type FileTab } from '@/lib/customer-file/access'
 import { loadFile } from '@/lib/customer-file/load'
 import { createServiceClient } from '@/lib/supabase/service'
+import PhoneLink from '@/components/PhoneLink'
 
 /** One tab's content. Each tab is its own route, so only the active one runs its queries. */
 export default async function TabBody({ customerId, dealId, tab }: { customerId: string; dealId: string; tab: string }) {
@@ -49,7 +50,7 @@ async function Overview({ customerId, dealId }: { customerId: string; dealId: st
         <CardContent>
           <dl className="grid grid-cols-[8rem_1fr] gap-y-2 text-ui-base text-ink">
             <dt className="text-ink-muted">Address</dt><dd>{deal.address_text || customer.address_text || '—'}</dd>
-            <dt className="text-ink-muted">Phone</dt><dd>{customer.phone || '—'}</dd>
+            <dt className="text-ink-muted">Phone</dt><dd><PhoneLink value={customer.phone} /></dd>
             <dt className="text-ink-muted">Email</dt><dd className="break-all">{customer.email || '—'}</dd>
             <dt className="text-ink-muted">Proposals</dt><dd>{ctx.proposalCount}</dd>
             <dt className="text-ink-muted">Contract</dt><dd>{ctx.signedContract ? 'Signed' : 'Not signed'}</dd>

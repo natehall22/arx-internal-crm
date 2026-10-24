@@ -4,6 +4,7 @@ import { ARX_DEFAULT_OFFICE_ADDRESS } from '@/lib/company-address'
 import { formatCurrency, formatInvoiceDisplayDate } from '@/lib/job-payments'
 import { redirect } from 'next/navigation'
 import PrintButton from './PrintButton'
+import { formatPhone } from '@/lib/format'
 
 interface ResolvedCustomer {
   name: string
@@ -294,7 +295,7 @@ export default async function PrintInvoicePage({
               <div className="company-name">{org?.name || 'ARX Roofing & Exteriors, LLC'}</div>
               <div className="company-address">
                 {companyAddress || ARX_DEFAULT_OFFICE_ADDRESS}
-                {org?.phone && `\n${org.phone}`}
+                {org?.phone && `\n${formatPhone(org.phone)}`}
                 {org?.email && `\n${org.email}`}
               </div>
             </div>
@@ -322,7 +323,7 @@ export default async function PrintInvoicePage({
             <div className="bill-to-name">{resolvedCustomer.name}</div>
             <div className="bill-to-address">
               {resolvedCustomer.address}
-              {resolvedCustomer.phone && `\n${resolvedCustomer.phone}`}
+              {resolvedCustomer.phone && `\n${formatPhone(resolvedCustomer.phone)}`}
               {resolvedCustomer.email && `\n${resolvedCustomer.email}`}
             </div>
           </div>
@@ -394,7 +395,7 @@ export default async function PrintInvoicePage({
                 Please make payment by the due date shown above.<br />
                 Accepted payment methods: Check, Credit Card, ACH Bank Transfer<br /><br />
                 For questions about this invoice, please contact us at:<br />
-                {org?.phone || org?.email || 'our office'}
+                {org?.phone ? formatPhone(org.phone) : org?.email || 'our office'}
               </div>
             </div>
           )}

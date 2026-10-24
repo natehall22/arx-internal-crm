@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { toast } from '@/components/ui/toast'
 import { confirmDialog } from '@/components/ui/confirm-dialog'
+import { formatPhone } from '@/lib/format'
 
 interface ReferrerResult {
   id: string
@@ -273,7 +274,7 @@ export default function LeadReferralInfo({
                     <div>
                       <p className="font-medium text-gray-900">{result.name}</p>
                       <p className="text-sm text-gray-500">
-                        {result.phone || result.email || 'No contact info'}
+                        {result.phone ? formatPhone(result.phone) : result.email || 'No contact info'}
                       </p>
                     </div>
                     <span className={`px-2 py-0.5 text-xs rounded ${

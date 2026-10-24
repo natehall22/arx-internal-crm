@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import Nav from '@/components/Nav'
+import { formatPhone } from '@/lib/format'
 
 type RepInfo = {
   name: string
@@ -117,7 +118,7 @@ export default function DoorDropClient() {
               <div className="rep-block">
                 <div className="rep-name">{rep.name}</div>
                 <div className="rep-title">{rep.title}</div>
-                <div className="rep-phone">{rep.phone}</div>
+                <div className="rep-phone">{(rep.phone ? formatPhone(rep.phone) : '')}</div>
                 <div className="rep-email">{rep.email}</div>
               </div>
             </header>
@@ -177,7 +178,7 @@ export default function DoorDropClient() {
               <div className="cta-box">
                 <div>
                   <h4>Claim your free evaluation and $500 discount.</h4>
-                  <p>Call {rep.phone} or visit arxroofing.com to schedule.</p>
+                  <p>Call {(rep.phone ? formatPhone(rep.phone) : '')} or visit arxroofing.com to schedule.</p>
                 </div>
                 <div className="qr-wrap">
                   <img src={qrUrl} alt="QR code for arxroofing.com" />
@@ -189,7 +190,7 @@ export default function DoorDropClient() {
                 <p>Best,</p>
                 <strong>{rep.name}</strong>
                 <span>
-                  {rep.title} · ARX Roofing & Exteriors · {rep.phone}
+                  {rep.title} · ARX Roofing & Exteriors · {(rep.phone ? formatPhone(rep.phone) : '')}
                 </span>
               </div>
               <p className="ps-line">
@@ -236,7 +237,7 @@ export default function DoorDropClient() {
             </h2>
             <span>Free evaluation + $500 exclusive discount inside</span>
             <strong>
-              Questions? Call {rep.phone} · {rep.name}
+              Questions? Call {(rep.phone ? formatPhone(rep.phone) : '')} · {rep.name}
             </strong>
             <em>$500 Buyer & Seller Discount · Open to Claim</em>
           </div>

@@ -346,3 +346,27 @@ export const HARNESS_APPOINTMENTS = {
     { id: 'a3', lead_id: 'l3', opportunity_id: 'o3', scheduled_for: '2026-09-20T15:00:00Z', duration_minutes: 60, address_text: '9 Birch Ln', notes: null, status: 'completed', closer_user_id: 'u1', canvasser_user_id: null, leads: { homeowner_name: 'Dana Whitfield', phone: null }, closer: { id: 'u1', full_name: 'Sam Closer' }, setter: null, feedback: { outcome: 'sale', notes: 'Moving forward', setter_feedback: null, completed_at: '2026-09-20T17:00:00Z' } },
   ],
 }
+
+
+// Operations Dashboard (components/ops/OpsDashboardView): long names and addresses on purpose, urgent + on-hold callouts.
+export const HARNESS_OPS_DASHBOARD = {
+  today: new Date('2026-10-26T14:00:00Z'),
+  canJobBoard: true,
+  canFixPayPlans: true,
+  needsYou: HARNESS_NEEDS_YOU,
+  needsYouAudience: 'owner' as const,
+  pipelineStats: { sold: 7, materials: 4, scheduled: 9, in_progress: 3, complete: 12 },
+  totalActive: 35,
+  urgentJobs: 2,
+  onHoldJobs: 1,
+  todaysJobsList: [
+    { id: 'j1', job_number: '26-0042', status: 'in_progress', priority: 'urgent', address_text: '4400 Very Long Boulevard Name Suite 200, Mooresville NC 28117', scheduled_time_start: '07:30', assigned_crew: { id: 'c1', name: 'Hernandez Roofing Crew A', color: '#2d6a4f' }, assigned_sub: null, customer: { name: 'Bartholomew Featherstonehaugh-Smythe', phone: '7049038092' } },
+    { id: 'j2', job_number: '26-0043', status: 'scheduled', priority: 'normal', address_text: '12 Elm Street, Concord NC 28025', scheduled_time_start: null, assigned_crew: null, assigned_sub: { id: 's1', company_name: 'Sparky Gutters and Exteriors LLC' }, customer: { name: 'Ashley Gaines', phone: null } },
+  ],
+  upcomingJobsList: [
+    { id: 'j3', job_number: '26-0044', status: 'scheduled', scheduled_date: '2026-10-28', address_text: '88 Oak Lane Extension Road, Kannapolis NC 28081', assigned_crew: { id: 'c2', name: 'Crew B', color: '#9d4edd' }, assigned_sub: null },
+  ],
+  crews: [{ id: 'c1', name: 'Hernandez Roofing Crew A', color: '#2d6a4f', crew_type: 'roofing' }, { id: 'c2', name: 'Crew B', color: '#9d4edd', crew_type: 'gutters' }],
+  materialsNeeded: [{ id: 'j2', job_number: '26-0043', address_text: '12 Elm Street, Concord NC 28025', materials_status: 'not_ordered', materials_eta: null }],
+  recentNotes: [{ id: 'n1', created_at: '2026-10-25T15:00:00Z', note: 'Customer asked for the crew to park on the street, not the driveway. Please confirm the dumpster drop for Tuesday morning.', production_job: { id: 'j1', job_number: '26-0042' }, user: { full_name: 'Nathan Hall' } }],
+}

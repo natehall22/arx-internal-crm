@@ -50,6 +50,7 @@ import { canShowCompletionCertificateBoardLink } from '@/lib/ops-completion-cert
 import { jobDirectCost, type JobCostSummary } from '@/lib/job-cost-ledger'
 import { toast } from '@/components/ui/toast'
 import { confirmDialog } from '@/components/ui/confirm-dialog'
+import { formatPhone, telHref } from '@/lib/format'
 
 
 interface Job {
@@ -1788,7 +1789,8 @@ export default function JobDetailClient({
               {job.customer.phone && (
                 <CopyableContact
                   value={job.customer.phone}
-                  href={`tel:${job.customer.phone}`}
+                  display={formatPhone(job.customer.phone)}
+                  href={telHref(job.customer.phone) ?? `tel:${job.customer.phone}`}
                   icon="📞"
                   label="phone number"
                 />

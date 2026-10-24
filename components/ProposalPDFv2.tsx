@@ -695,6 +695,7 @@ export {
   formatSelectedFinancingTerms,
   shouldShowSelectedFinancingPayment,
 } from '@/lib/proposal-pricing-visibility'
+import { formatPhone } from '@/lib/format'
 
 const formatDate = (dateString: string) => {
   return new Date(dateString).toLocaleDateString('en-US', {
@@ -868,7 +869,7 @@ export const ProposalPDFv2 = ({ data, theme = 'print' }: ProposalPDFProps) => {
             <View style={styles.coverRepInfo}>
               <Text style={styles.coverRepLabel}>Your Representative</Text>
               <Text style={styles.coverRepName}>{rep?.full_name || 'Sales Representative'}</Text>
-              {rep?.phone && <Text style={styles.coverRepPhone}>{rep.phone}</Text>}
+              {rep?.phone && <Text style={styles.coverRepPhone}>{formatPhone(rep.phone)}</Text>}
             </View>
             {company?.website && (
               <Text style={styles.coverWebsite}>{company.website}</Text>
@@ -900,7 +901,7 @@ export const ProposalPDFv2 = ({ data, theme = 'print' }: ProposalPDFProps) => {
               {proposal.customer_phone && (
                 <>
                   <Text style={styles.infoLabel}>Phone</Text>
-                  <Text style={styles.infoValue}>{proposal.customer_phone}</Text>
+                  <Text style={styles.infoValue}>{formatPhone(proposal.customer_phone)}</Text>
                 </>
               )}
             </View>

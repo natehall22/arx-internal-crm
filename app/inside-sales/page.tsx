@@ -8,6 +8,7 @@ import { FEEDBACK_PROMPT_DISPLAY_TIMEZONE } from '@/lib/scheduling-prompt'
 import { EASTERN_TZ, easternDatetimeLocalToUtcIso } from '@/lib/eastern-datetime'
 import { suggestedNextAttemptDays, type HandoffContext } from '@/lib/inside-sales-priority'
 import { formatInTimeZone } from 'date-fns-tz'
+import { formatPhone } from '@/lib/format'
 
 type ActivityRow = {
   id: string
@@ -436,7 +437,7 @@ export default function InsideSalesPage() {
         }`}
         title="Tap to copy for the dialer"
       >
-        {copiedPhone === phone ? 'Copied!' : phone}
+        {copiedPhone === phone ? 'Copied!' : formatPhone(phone)}
       </button>
     )
   }

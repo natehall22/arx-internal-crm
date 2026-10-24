@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { StatusPill } from '@/components/ui/badge'
 import { PageHeader } from '@/components/ui/page-header'
 import { DataTable, type TableFilter, type TableView } from '@/components/ui/data-table'
+import { formatPhone } from '@/lib/format'
 
 type Lead = {
   id: string
@@ -126,7 +127,7 @@ export default function LeadsClient({ profile, canViewInbound, campaigns, leadSo
           return (
             <span>
               <span className="font-semibold">{l.homeowner_name || 'N/A'}</span>
-              <span className="block text-ui-sm text-ink-muted">{l.phone || l.email || 'No contact'}</span>
+              <span className="block text-ui-sm text-ink-muted">{l.phone ? formatPhone(l.phone) : l.email || 'No contact'}</span>
             </span>
           )
         },

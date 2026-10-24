@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import SignaturePad from '@/components/contracts/SignaturePad'
+import PhoneLink from '@/components/PhoneLink'
 
 interface Contract {
   id: string
@@ -323,7 +324,7 @@ export default function CustomerSigningForm({ contract, token }: CustomerSigning
                 </div>
                 <div>
                   <span className="text-gray-500">Phone Number:</span>
-                  <span className="ml-2 font-medium text-black">{contract.customer_phone || 'N/A'}</span>
+                  <span className="ml-2 font-medium text-black"><PhoneLink value={contract.customer_phone} empty="N/A" /></span>
                 </div>
                 <div>
                   <span className="text-gray-500">Email:</span>

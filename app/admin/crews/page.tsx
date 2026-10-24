@@ -6,6 +6,7 @@ import Nav from '@/components/Nav'
 import Link from 'next/link'
 import { toast } from '@/components/ui/toast'
 import { confirmDialog } from '@/components/ui/confirm-dialog'
+import PhoneLink from '@/components/PhoneLink'
 
 interface Crew {
   id: string
@@ -387,7 +388,7 @@ export default function CrewsPage() {
                   {/* Stats Row */}
                   <div className="flex items-center gap-4 text-sm text-gray-500 mb-4">
                     <span>📊 {crew.daily_capacity} jobs/day</span>
-                    {crew.phone && <span>📞 {crew.phone}</span>}
+                    {crew.phone && <span>📞 <PhoneLink value={crew.phone} /></span>}
                   </div>
 
                   {/* Actions */}

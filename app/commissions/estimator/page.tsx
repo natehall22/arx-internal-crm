@@ -119,15 +119,8 @@ export default function CommissionEstimatorPage() {
     }
 
     // Load adders for commission calculation
-    const { data: adderData } = await supabase
-      .from('pricebook_items')
-      .select(
-        'id, name, unit_price, price_type, is_commissionable, commission_percent, commission_cap, manager_spo_enabled, manager_spo_percent, unit'
-      )
-      .eq('org_id', profile.org_id)
-      .eq('is_adder', true)
-      .eq('active', true)
-      .order('name')
+    const adderRes = await fetch('/api/commissions/estimator-adders').then((r) => (r.ok ? r.json() : { adders: [] })).catch(() => ({ adders: [] }))
+    const adderData = adderRes.adders
 
     setAdders(adderData || [])
 

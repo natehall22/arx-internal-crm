@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
 import { createClientBrowser } from '@/lib/supabase/client'
+import PhoneLink from '@/components/PhoneLink'
 
 interface WorkOrder {
   id: string
@@ -374,7 +375,7 @@ export default function WorkOrderDetailClient({
                     {workOrder.customers.name}
                   </Link>
                   {workOrder.customers.phone && (
-                    <div className="text-sm text-gray-600">{workOrder.customers.phone}</div>
+                    <div className="text-sm text-gray-600"><PhoneLink value={workOrder.customers.phone} /></div>
                   )}
                 </div>
               )}
@@ -423,7 +424,7 @@ export default function WorkOrderDetailClient({
                     <div className="font-medium text-gray-900">{workOrder.assigned_sub.company_name}</div>
                     <div className="text-sm text-gray-500">Sub-Contractor</div>
                     {workOrder.assigned_sub.phone && (
-                      <div className="text-sm text-gray-500">{workOrder.assigned_sub.phone}</div>
+                      <div className="text-sm text-gray-500"><PhoneLink value={workOrder.assigned_sub.phone} /></div>
                     )}
                   </div>
                 </div>

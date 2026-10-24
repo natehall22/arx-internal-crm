@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import Nav from '@/components/Nav'
+import { formatPhone } from '@/lib/format'
 
 type MarketerInfo = {
   name: string
@@ -29,7 +30,7 @@ function AppointmentCard({ marketer }: { marketer: MarketerInfo }) {
       <div className="marketer-block">
         <p>Roofing Specialist</p>
         <h2>{marketer.name}</h2>
-        <h3>{marketer.phone}</h3>
+        <h3>{(marketer.phone ? formatPhone(marketer.phone) : '')}</h3>
       </div>
 
       <div className="write-row">

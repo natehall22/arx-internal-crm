@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { DataTable, type TableFilter, type TableView } from '@/components/ui/data-table'
 import { toast } from '@/components/ui/toast'
 import { confirmDialog } from '@/components/ui/confirm-dialog'
+import PhoneLink from '@/components/PhoneLink'
 
 interface SubContractor {
   id: string
@@ -37,7 +38,7 @@ const subColumns: ColumnDef<SubContractor, any>[] = [
       return (
         <span>
           {x.contact_name ? <span className="block">{x.contact_name}</span> : null}
-          {x.phone ? <span className="block text-ui-sm text-ink-muted">{x.phone}</span> : null}
+          {x.phone ? <span className="block text-ui-sm text-ink-muted"><PhoneLink value={x.phone} /></span> : null}
           {x.email ? <span className="block break-all text-ui-sm text-ink-muted">{x.email}</span> : null}
         </span>
       )

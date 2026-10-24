@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useSubPortalLanguage, LanguageToggle } from '@/lib/i18n/SubPortalLanguageContext'
 import { toast } from '@/components/ui/toast'
+import PhoneLink from '@/components/PhoneLink'
 
 interface LineItem {
   id: string
@@ -195,9 +196,7 @@ export default function SubJobDetailClient({ job, companyName }: SubJobDetailCli
               <p className="text-sm text-gray-500">{t('customer')}</p>
               <p className="font-medium text-gray-900">{job.customer_name || 'N/A'}</p>
               {job.customer_phone && (
-                <a href={`tel:${job.customer_phone}`} className="text-sm text-indigo-600 min-h-[44px] inline-flex items-center">
-                  {job.customer_phone}
-                </a>
+                <PhoneLink value={job.customer_phone} className="text-sm text-indigo-600 min-h-[44px] inline-flex items-center" />
               )}
             </div>
 
