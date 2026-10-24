@@ -82,6 +82,24 @@ Rules: every PR targets this branch (not `main`), has its own branch, tests, bug
 
 **PAYROLL_PAY_WEEK_ENABLED (default OFF) — ship tonight with the new payroll screens dark.** While the env var is unset or not `true`: `/admin/payroll` renders the OLD payroll hub (restored from main), the old Pay periods / Weekly worksheet / Consultant statements / hours pages and APIs are back with their old URLs (no redirects), the period `lock` action runs the OLD lock (`lib/legacy-payroll-lock.ts` + `lib/legacy-payroll-materialization.ts`, main's code), and the new surface is a 404: Pay this week + its APIs (`requirePayrollAdminApi`), `/my-pay`, `/api/me/pay`, `/api/me/pay/dispute`, and the nav "My pay" link. Migration #6 is additive and unused by the old flow except the writer triggers, which refuse hours/bonus/fix writes on a week mid-lock or already approved (the old flow never needed those). To turn on: set the var in Vercel and REDEPLOY (the old-URL redirects are read at build time). **Do not flip it on mid-way through the side-by-side:** weeks locked by the old lock have no frozen per-unit pay (`units_frozen_at` NULL), so turn it on at a week boundary and use the new Approve from the first fresh week on. Turn-on gate: Codex re-review passes + 2-week side-by-side with Andrew's paid-outside numbers matches to the cent. Delete the two `legacy-payroll-*` files when it is on for good (Known Redundancy in CLAUDE.md).
 
+### Shipped 2026-10-24 (evening) — payroll OFF
+Migrations 1–6 applied in order, then both data fixes, then `main` fast-forwarded `924f2cac → f33f922c`. Counts matched the rehearsal exactly: 362 orphan opportunities linked, 347 customers created (49 → 396), 4,138 activities classified, 479 notes copied. `PAYROLL_PAY_WEEK_ENABLED`, `CUSTOMER_FILE_REDIRECTS` and the ABC connector are all unset. Undo for the data fixes: `SELECT release_backups.undo_merge_notes_into_threads();` first, then `SELECT release_backups.undo_link_orphan_opportunities();`. Rollback target for code: deployment `924f2cac30bd` (Vercel → Promote to Production).
+
+### OWED BEFORE PAYROLL TURNS ON (NOT shipped; all required)
+1. **Parity test**: the legacy and new planners produce identical payout lines for the same inputs.
+2. **Flag read at runtime** (the old-URL redirects in `next.config.js` are read at build time), or document the exact redeploy step: set `PAYROLL_PAY_WEEK_ENABLED=true` in Vercel → redeploy production → confirm `/admin/payroll` shows Pay this week and `/admin/payroll/periods` redirects to it.
+3. **Flip only at a period boundary** (never mid-period).
+4. **Legacy-locked weeks are shown from stored payout lines only, never recomputed** (they have no `units_frozen_at`).
+5. **Per-company pay schedule setting**: weekly / biweekly / twice monthly (today the Wednesday-cutoff weekly schedule is hardcoded).
+6. **Codex + Cursor payroll-only re-review** passes.
+7. **2-week side-by-side** with Andrew's paid-outside numbers (one row per person per week) matches to the cent.
+8. **1 week running alongside** the old payroll before it is the only path.
+9. Then delete `lib/legacy-payroll-*` and the restored old pages/routes (CLAUDE.md Known Redundancy #15).
+
+### QUEUED FOR THE NEXT RELEASE (from the 2026-10-24 security review, both LOW)
+- Serve notification bodies **only through the redacting API**: browser clients can still read their own `notifications` rows straight from RLS and bypass the redaction (a stale 200-character copy can survive a role demotion). Remove the direct read path or store the body redacted at write time.
+- Make the `?around=` pagination cursor in `app/api/threads/[dealId]/messages/route.ts` **opaque** (it currently exposes a message's creation timestamp and checks the target against the open deal, not the target's own deal).
+
 **Findings from the external review (Cursor + Codex) and what was done** — see the table in the PR / chat summary; fixes are in commits `31c4a31f`, `92b0c3d2`, `2da2d528` on `release/2026-10-batch`.
 
 ## State 2026-10-22
