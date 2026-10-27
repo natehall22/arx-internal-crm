@@ -44,6 +44,9 @@ export async function ensureProductionJobForContract(
   }
 ): Promise<{ production_job_id: string | null; job_number: string | null }> {
   const { orgId, projectId, contract, customerId, actorUserId } = params
+  // Repair only fills a gap: an existing job (even a cancelled one) is returned untouched, never reinstated or rewritten.
+  const { data: existing } = await supabase.from('production_jobs').select('id, job_number').eq('project_id', projectId).maybeSingle()
+  if (existing?.id) return { production_job_id: existing.id, job_number: existing.job_number ?? null }
   const result = await ensureJobForSignedContract(supabase, {
     contract,
     projectId,

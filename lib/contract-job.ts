@@ -139,8 +139,8 @@ export async function ensureJobForSignedContract(
 
   const jobType = jobTypeFromContractScope(contract)
   let { data: newJob, error: jobError } = await supabase.from('production_jobs').insert(row(jobType)).select('id, job_number').single()
-  if (jobError && jobError.code === '23514' && jobType !== 'mixed') {
-    // A job_type the database does not know yet must not cost the job.
+  if (jobError && jobError.code === '23514' && jobType !== 'mixed' && /job_type_check/.test(jobError.message ?? '')) {
+    // Migration 202610290130 not applied yet: a job_type the database does not know must not cost the job (apply the migration before deploying: 'mixed' is booked as a roofing crew).
     console.error('[contract-job] job_type check failed, retrying as mixed:', jobType, jobError.message)
     ;({ data: newJob, error: jobError } = await supabase.from('production_jobs').insert(row('mixed')).select('id, job_number').single())
   }

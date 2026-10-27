@@ -23,7 +23,7 @@ function stubClient(rejectTypes: string[]) {
         if (table === 'production_jobs') {
           inserted.push(row)
           const rejected = rejectTypes.includes(String(row.job_type))
-          q.single = async () => (rejected ? { data: null, error: { code: '23514', message: 'job_type check' } } : { data: { id: 'job1', job_number: '26-0050' }, error: null })
+          q.single = async () => (rejected ? { data: null, error: { code: '23514', message: 'violates check constraint "production_jobs_job_type_check"' } } : { data: { id: 'job1', job_number: '26-0050' }, error: null })
         } else q.single = async () => ({ data: null, error: null })
         return q
       },
