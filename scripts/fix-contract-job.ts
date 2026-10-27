@@ -31,7 +31,7 @@ async function main() {
 
   const { data: opp } = await admin.from('opportunities').select('job_source, insurance_stage').eq('id', contract.opportunity_id).maybeSingle()
   console.log({ contract: contract.id, customer: contract.customer_name, project: project.id, projectCustomer: project.customer_id, projectStatus: project.status, scope_gutters: contract.scope_gutters })
-  if (!apply) { console.log('dry run: no job created. Re-run with --apply (after the customer fix has been COMMITted).'); return }
+  if (!apply) { console.log('dry run: no job created. Re-run with --apply (after fix_carann_brown has been applied).'); return }
 
   const result = await ensureJobForSignedContract(admin, {
     contract, projectId: project.id, customerId: project.customer_id, salespersonId: project.owner_user_id || contract.created_by,

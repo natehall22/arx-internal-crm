@@ -33,8 +33,10 @@ interface UpsertResult {
   created: boolean
 }
 
-const SEQUENTIAL_DIGITS = '01234567890123456789'
-const SEQUENTIAL_DIGITS_DESC = '98765432109876543210'
+export const SEQUENTIAL_DIGITS = '01234567890123456789'
+export const SEQUENTIAL_DIGITS_DESC = '98765432109876543210'
+/** The test-row name rule as a pattern source (the SQL backfill carries the same text; a test keeps them equal). */
+export const TEST_CUSTOMER_NAME_SOURCE = '^\\s*(test|testing|tester|asdf|xxx+)\\b'
 
 /** Filler numbers (2222222222, 1234567890, 9876543210, 0000000000): digits typed to get past a required field, not a person. */
 export function isPlaceholderPhone(phone: string | null | undefined): boolean {
@@ -45,7 +47,7 @@ export function isPlaceholderPhone(phone: string | null | undefined): boolean {
 
 /** A throwaway customer row ("testing", "Test User"): never the answer to "who is this person". */
 export function isTestCustomerName(name: string | null | undefined): boolean {
-  return /^\s*(test|testing|tester|asdf|xxx+)\b/i.test(name ?? '')
+  return new RegExp(TEST_CUSTOMER_NAME_SOURCE, 'i').test(name ?? '')
 }
 
 function normalizePhone(phone: string | null | undefined): string | null {

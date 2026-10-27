@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
+import { findExistingCustomer } from '@/lib/customers'
 
 export const dynamic = 'force-dynamic'
 
@@ -44,8 +45,8 @@ export async function POST(request: NextRequest) {
     email = r.email as string | null
     customerId = (r.customer_id as string | null) ?? null
     if (!customerId && phone) {
-      const { data } = await admin.from('customers').select('id').eq('org_id', orgId).eq('phone', phone).limit(1).maybeSingle()
-      customerId = data?.id ?? null
+      // The one matching rule (lib/customers.ts): last-10 digits, filler numbers and test rows never match.
+      customerId = (await findExistingCustomer(admin, orgId, { name: '', phone }))?.id ?? null
     }
     if (!customerId && name) {
       const { data } = await admin.from('customers').select('id').eq('org_id', orgId).eq('name', name).limit(1).maybeSingle()
