@@ -131,6 +131,25 @@ export default function SupplierOrdersCard({ jobId, onChanged, onState }: { jobI
   const when = (iso: string) => new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
   const pdfUrl = (vendorId: string) => `/api/ops/jobs/${jobId}/supplier-orders/preview?vendorId=${vendorId}&kind=order&deliveryDate=${deliveryDate}&format=pdf`
 
+  const switchSupplier = async (card: SupplierCard, toVendorId: string) => {
+    if (!toVendorId || toVendorId === card.vendorId) return
+    setBusy(true)
+    try {
+      const res = await fetch(`/api/ops/jobs/${jobId}/supplier-orders/switch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fromVendorId: card.vendorId, toVendorId }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) return setError(json.error || 'Could not switch the supplier. Try again.')
+      setError(null)
+      await load()
+      onChanged?.()
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const markReceived = async (card: SupplierCard, received: boolean) => {
     setBusy(true)
     try {
@@ -195,6 +214,17 @@ export default function SupplierOrdersCard({ jobId, onChanged, onState }: { jobI
               {c.blockers.map((b) => (
                 <p key={b} className="my-1 text-sm text-[#a32d2d]">{b}</p>
               ))}
+              {view.canSend && shown === 'draft' && c.orderStatus !== 'sent' && c.lines.length > 0 && !view.jobCancelled && (
+                <label className="mt-2 block text-sm font-medium">
+                  Supplier
+                  <select className={field} value={c.vendorId} disabled={busy} onChange={(e) => void switchSupplier(c, e.target.value)}>
+                    {view.suppliers.some((s) => s.id === c.vendorId) ? null : <option value={c.vendorId}>{c.supplierName}</option>}
+                    {view.suppliers.map((s) => (
+                      <option key={s.id} value={s.id}>{s.name}</option>
+                    ))}
+                  </select>
+                </label>
+              )}
               {view.canSend && (
                 <div className="mt-2 flex flex-col gap-2">
                   <button type="button" className={shown === 'draft' || shown === 'changed' ? primary : btn} onClick={() => openPreview(c.vendorId, 'order')} disabled={view.jobCancelled}>

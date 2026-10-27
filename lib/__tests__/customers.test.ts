@@ -14,7 +14,7 @@ describe('normalizeIdentityEmail', () => {
 
 // ---- one matching rule: exact on the stored normalized columns; concurrent creation settles on the oldest row ----
 import { createFakeDb } from '@/lib/test-helpers/fake-db'
-import { findExistingCustomer, upsertCustomer } from '@/lib/customers'
+import { findExistingCustomer, upsertCustomer, isPlaceholderPhone, isTestCustomerName } from '@/lib/customers'
 
 jest.mock('@/lib/integrations', () => ({ enqueueCustomerUpserted: jest.fn(async () => undefined) }))
 import * as integrations from '@/lib/integrations'
@@ -86,5 +86,28 @@ describe('upsertCustomer is idempotent under concurrent bookings', () => {
     enqueueCustomerUpserted.mockClear()
     await upsertCustomer(db.client, ORG, { name: 'B', phone: '7045550102' }, { skipIntegrations: true })
     expect(enqueueCustomerUpserted).not.toHaveBeenCalled()
+  })
+})
+
+describe('placeholder phones and test customers never identify a person', () => {
+  it('flags repeated and sequential filler numbers, not real ones', () => {
+    for (const p of ['2222222222', '(222) 222-2222', '1234567890', '0000000000', '9876543210', '012-345-6789', '+1 555 555 5555']) expect(isPlaceholderPhone(p)).toBe(true)
+    for (const p of ['7045550142', '2223334444', '', null]) expect(isPlaceholderPhone(p)).toBe(false)
+  })
+
+  it('a real customer typed with 2222222222 does not match the test customer that has it', async () => {
+    const db = createFakeDb({ customers: [cust('t1', { name: 'testing', phone_normalized: '2222222222' })] })
+    expect(await findExistingCustomer(db.client, ORG, { name: 'Carann Brown', phone: '2222222222' })).toBeNull()
+  })
+
+  it('skips a test-named row on a real phone or email, keeps looking', async () => {
+    expect(isTestCustomerName('testing')).toBe(true)
+    expect(isTestCustomerName('Tester Smith')).toBe(true)
+    expect(isTestCustomerName('Testa Rossa')).toBe(false)
+    const db = createFakeDb({ customers: [
+      cust('t1', { name: 'testing', phone_normalized: '7045550142', created_at: '2026-01-01T00:00:00Z' }),
+      cust('r1', { name: 'Real Person', phone_normalized: '7045550142', created_at: '2026-02-01T00:00:00Z' }),
+    ] })
+    expect((await findExistingCustomer(db.client, ORG, { name: 'x', phone: '7045550142' }))?.id).toBe('r1')
   })
 })

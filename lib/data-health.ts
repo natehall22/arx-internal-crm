@@ -95,10 +95,24 @@ export type AppointmentHealth = {
   problems: HealthProblem[]
 }
 
+/** A completed sale agreement with no production job behind it (the job is where payroll, scheduling and ordering start). */
+export type ContractNoJobHealth = {
+  contractId: string
+  opportunityId: string | null
+  customerName: string
+  addressText: string | null
+  signedAt: string
+}
+
+/** Only recent signings are Needs-you material; older ones are history (e.g. a March 2026 agreement signed before the CRM tracked jobs). */
+export const CONTRACT_NO_JOB_WINDOW_DAYS = 90
+
 export type DataHealthReport = {
   generatedAt: string
   jobs: JobHealth[]
   appointments: AppointmentHealth[]
+  /** Signed installation/repair agreements (last 90 days) that have no production job. Optional so older builders stay valid. */
+  contractsNoJob?: ContractNoJobHealth[]
   /**
    * People who would be paid nothing for lack of a pay plan, one row per role (money). Not tied to a job.
    * Optional so older report builders stay valid.
@@ -108,7 +122,7 @@ export type DataHealthReport = {
   hiddenOldAppointments?: number
   /** Active people whose pay plan was ended and not replaced (paid nothing until someone assigns one). */
   endedPlans?: EndedPlanPerson[]
-  /** Total problem rows (jobs with ≥1 problem + appointments + pay-plan gaps). */
+  /** Total problem rows (jobs with ≥1 problem + appointments + contracts with no job + pay-plan gaps). */
   count: number
 }
 
@@ -609,6 +623,64 @@ function groupBy<T>(rows: T[], key: (row: T) => string | null | undefined): Map<
   return map
 }
 
+/** Pure: which of these signed agreements have no job — via their project, or a job already pointing at their proposal. */
+export function contractsWithoutJob(
+  contracts: Array<{ id: string; opportunity_id: string | null; proposal_id: string | null; customer_name: string | null; project_address: string | null; customer_signed_at: string | null }>,
+  projectsByOpportunity: Map<string, string[]>,
+  projectIdsWithJob: Set<string>,
+  proposalIdsWithJob: Set<string>
+): ContractNoJobHealth[] {
+  return contracts
+    .filter((c) => {
+      if (c.proposal_id && proposalIdsWithJob.has(c.proposal_id)) return false
+      const projectIds = c.opportunity_id ? projectsByOpportunity.get(c.opportunity_id) ?? [] : []
+      return !projectIds.some((id) => projectIdsWithJob.has(id))
+    })
+    .map((c) => ({
+      contractId: c.id,
+      opportunityId: c.opportunity_id,
+      customerName: c.customer_name?.trim() || 'Customer',
+      addressText: c.project_address ?? null,
+      signedAt: c.customer_signed_at ?? '',
+    }))
+}
+
+async function loadContractsNoJob(admin: SupabaseClient, orgId: string, now: Date): Promise<ContractNoJobHealth[]> {
+  const since = new Date(now.getTime() - CONTRACT_NO_JOB_WINDOW_DAYS * 86_400_000).toISOString()
+  const contracts = await selectAll<{ id: string; opportunity_id: string | null; proposal_id: string | null; customer_name: string | null; project_address: string | null; customer_signed_at: string | null }>((from, to) =>
+    admin
+      .from('order_form_contracts')
+      .select('id, opportunity_id, proposal_id, customer_name, project_address, customer_signed_at')
+      .eq('org_id', orgId)
+      .eq('status', 'completed')
+      .in('agreement_type', [...SALE_AGREEMENT_TYPES])
+      .gte('customer_signed_at', since)
+      .order('customer_signed_at', { ascending: false })
+      .range(from, to)
+  )
+  if (contracts.length === 0) return []
+  const oppIds = Array.from(new Set(contracts.map((c) => c.opportunity_id).filter((v): v is string => !!v)))
+  const proposalIds = Array.from(new Set(contracts.map((c) => c.proposal_id).filter((v): v is string => !!v)))
+  const projects = await selectIn<{ id: string; opportunity_id: string | null }>(oppIds, (chunk) =>
+    admin.from('projects').select('id, opportunity_id').eq('org_id', orgId).in('opportunity_id', chunk)
+  )
+  const projectsByOpportunity = new Map<string, string[]>()
+  for (const p of projects) if (p.opportunity_id) projectsByOpportunity.set(p.opportunity_id, [...(projectsByOpportunity.get(p.opportunity_id) ?? []), p.id])
+  // Any status counts, a cancelled job is still a job.
+  const jobsByProject = await selectIn<{ project_id: string | null }>(projects.map((p) => p.id), (chunk) =>
+    admin.from('production_jobs').select('project_id').eq('org_id', orgId).in('project_id', chunk)
+  )
+  const jobsByProposal = await selectIn<{ accepted_proposal_id: string | null }>(proposalIds, (chunk) =>
+    admin.from('production_jobs').select('accepted_proposal_id').eq('org_id', orgId).in('accepted_proposal_id', chunk)
+  )
+  return contractsWithoutJob(
+    contracts,
+    projectsByOpportunity,
+    new Set(jobsByProject.map((j) => j.project_id).filter((v): v is string => !!v)),
+    new Set(jobsByProposal.map((j) => j.accepted_proposal_id).filter((v): v is string => !!v))
+  )
+}
+
 export async function loadDataHealth(
   admin: SupabaseClient,
   orgId: string,
@@ -791,6 +863,7 @@ export async function loadDataHealth(
   }
 
   const flaggedJobs = jobHealth.filter((j) => j.problems.length > 0)
+  const contractsNoJob = opts.jobIds ? [] : await loadContractsNoJob(admin, orgId, now)
   // Org-level check, only on the full report (not the single-job payability gate).
   const payPlans = opts.jobIds ? [] : await loadPayPlanGaps(admin, orgId, now)
   const endedPlans = opts.jobIds ? [] : await loadEndedPlanPeople(admin, orgId, now)
@@ -798,10 +871,11 @@ export async function loadDataHealth(
     generatedAt: now.toISOString(),
     jobs: flaggedJobs,
     appointments: appointmentHealth,
+    contractsNoJob,
     hiddenOldAppointments,
     payPlans,
     endedPlans,
-    count: flaggedJobs.length + appointmentHealth.length + payPlans.length + (endedPlans.length > 0 ? 1 : 0),
+    count: flaggedJobs.length + appointmentHealth.length + contractsNoJob.length + payPlans.length + (endedPlans.length > 0 ? 1 : 0),
   }
 }
 
@@ -880,7 +954,8 @@ export function shapeNeedsYou(report: DataHealthReport, audience: NeedsYouAudien
   const keep = (problems: HealthProblem[]) => problems.filter((p) => OPS_VISIBLE_CODES.has(p.code)).map((p) => ({ ...p, blocksPay: false }))
   const jobs = report.jobs.map((j) => ({ ...j, problems: keep(j.problems) })).filter((j) => j.problems.length > 0)
   const appointments = report.appointments.map((a) => ({ ...a, problems: keep(a.problems) })).filter((a) => a.problems.length > 0)
-  return { generatedAt: report.generatedAt, jobs, appointments, count: jobs.length + appointments.length }
+  const contractsNoJob = report.contractsNoJob ?? []
+  return { generatedAt: report.generatedAt, jobs, appointments, contractsNoJob, count: jobs.length + appointments.length + contractsNoJob.length }
 }
 
 /**

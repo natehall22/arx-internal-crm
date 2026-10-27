@@ -6,7 +6,7 @@ import { syncJobSaleForProjectOrJob } from '@/lib/job-commission-base'
 import { enrichCustomerFromContract, resolveCustomerDisplayName, upsertCustomer } from '@/lib/customers'
 import { resolveProposalSoldRoofSquares } from '@/lib/sold-roof-squares'
 import { createServiceClient } from '@/lib/supabase/service'
-import { reinstateCancelledJob } from '@/lib/job-cancellation'
+import { ensureJobForSignedContract } from '@/lib/contract-job'
 import { applyContractSignedStatuses } from '@/lib/job-status-events'
 
 type EmbeddedLeadRow = { owner_user_id?: string | null; closer_user_id?: string | null }
@@ -416,6 +416,33 @@ export async function POST(request: NextRequest) {
       console.error('[Contract Sign] Full error:', pdfError)
     }
 
+    const createJobForSigning = async (j: { projectId: string; customerId: string | null; salespersonId: string | null; jobSource: string | null; insuranceStage: string | null; refreshExisting: boolean }) => {
+      try {
+        const result = await ensureJobForSignedContract(supabase, {
+          contract,
+          projectId: j.projectId,
+          customerId: j.customerId,
+          salespersonId: j.salespersonId,
+          actorUserId: contract.created_by ?? null,
+          agreementLabel,
+          jobSource: j.jobSource,
+          insuranceStage: j.insuranceStage,
+          refreshExisting: j.refreshExisting,
+        })
+        if (result.error) console.error('[Contract Sign] NO JOB CREATED for signed contract', contract.id, result.error)
+        if (result.jobId) {
+          await ensureDealerFeeCostLine(supabase, {
+            orgId: contract.org_id,
+            jobId: result.jobId,
+            userId: contract.created_by,
+            dealerFeeAmount: result.financing.dealer_fee_amount,
+          })
+        }
+      } catch (jobCreationError) {
+        console.error('[Contract Sign] Error in job creation:', jobCreationError)
+      }
+    }
+
     let projectId = null
     let projectCreateError: string | null = null
     if (isContingency) {
@@ -577,127 +604,15 @@ export async function POST(request: NextRequest) {
             body: 'Project created from signed contract.',
           })
 
-          // Auto-create production job when contract is signed
-          try {
-            let proposalFinancing: {
-              financing_program_id?: string | null
-              dealer_fee_percent?: number | null
-              dealer_fee_amount?: number | null
-            } = {}
-            if (contract.proposal_id) {
-              const { data: propRow } = await supabase
-                .from('proposals')
-                .select('financing_program_id, dealer_fee_percent, dealer_fee_amount')
-                .eq('id', contract.proposal_id)
-                .maybeSingle()
-              if (propRow) {
-                // Lender bookkeeping only. The commission base is the signed contract total
-                // (+ signed change orders), written below by syncJobSaleForProjectOrJob.
-                const isFinance = contract.payment_method === 'finance'
-                proposalFinancing = {
-                  financing_program_id: isFinance ? propRow.financing_program_id : null,
-                  dealer_fee_percent: isFinance ? propRow.dealer_fee_percent : null,
-                  dealer_fee_amount: isFinance ? propRow.dealer_fee_amount : null,
-                }
-              }
-            }
-
-            // Check if production job already exists for this project
-            const { data: existingJob } = await supabase
-              .from('production_jobs')
-              .select('id, job_number')
-              .eq('project_id', projectId)
-              .maybeSingle()
-
-            if (!existingJob) {
-              // Determine job type from contract scope
-              const jobType = contract.scope_roof_replacement || contract.scope_roof_repair ? 'roofing' : 
-                             contract.scope_siding ? 'siding' : 
-                             contract.scope_gutters ? 'gutters' : 'mixed'
-
-              const { data: newJob, error: jobError } = await supabase
-                .from('production_jobs')
-                .insert({
-                  org_id: contract.org_id,
-                  project_id: projectId,
-                  customer_id: customerId,
-                  job_type: jobType,
-                  address_text: contract.project_address || '',
-                  accepted_proposal_id: contract.proposal_id || null,
-                  salesperson_id: opportunity?.owner_user_id ?? contract.created_by,
-                  sale_date: new Date().toISOString().split('T')[0],
-                  sale_amount: contract.project_cost || null,
-                  deposit_required_percent: contract.deposit_amount && contract.project_cost 
-                    ? Math.round((contract.deposit_amount / contract.project_cost) * 100) 
-                    : null,
-                  created_by: contract.created_by,
-                  internal_notes: contract.notes || null,
-                  special_instructions: contract.exclusions || null,
-                  job_source: oppForProject?.job_source || (contract.payment_method === 'insurance' ? 'insurance' : 'retail'),
-                  insurance_stage:
-                    (oppForProject?.job_source === 'insurance' || contract.payment_method === 'insurance')
-                      ? (oppForProject?.insurance_stage || 'contingency_signed')
-                      : null,
-                  ...proposalFinancing,
-                })
-                .select('id, job_number')
-                .single()
-
-              if (jobError) {
-                console.error('[Contract Sign] Error creating production job:', jobError)
-              } else if (newJob) {
-                console.log('[Contract Sign] Production job created:', newJob.job_number)
-                await ensureDealerFeeCostLine(supabase, {
-                  orgId: contract.org_id,
-                  jobId: newJob.id,
-                  userId: contract.created_by,
-                  dealerFeeAmount: proposalFinancing.dealer_fee_amount,
-                })
-                
-                // Update project status to in_progress
-                await supabase
-                  .from('projects')
-                  .update({ status: 'in_progress' })
-                  .eq('id', projectId)
-
-                // Log activity
-                await supabase.from('activities').insert({
-                  org_id: contract.org_id,
-                  project_id: projectId,
-                  user_id: contract.created_by,
-                  type: 'status_change',
-                  body: `Production job ${newJob.job_number} auto-created from signed ${agreementLabel}.`,
-                })
-              }
-            } else {
-              console.log('[Contract Sign] Production job already exists:', existingJob.job_number)
-              await reinstateCancelledJob(supabase, {
-                orgId: contract.org_id,
-                jobId: existingJob.id,
-                projectId,
-                userId: contract.created_by ?? null,
-                saleAmount: contract.project_cost ?? null,
-              })
-              if (proposalFinancing.dealer_fee_amount != null || contract.proposal_id) {
-                await supabase
-                  .from('production_jobs')
-                  .update({
-                    ...proposalFinancing,
-                    accepted_proposal_id: contract.proposal_id || null,
-                  })
-                  .eq('id', existingJob.id)
-                  .eq('org_id', contract.org_id)
-              }
-              await ensureDealerFeeCostLine(supabase, {
-                orgId: contract.org_id,
-                jobId: existingJob.id,
-                userId: contract.created_by,
-                dealerFeeAmount: proposalFinancing.dealer_fee_amount,
-              })
-            }
-          } catch (jobCreationError) {
-            console.error('[Contract Sign] Error in job creation:', jobCreationError)
-          }
+          // Every completed sale agreement gets a job, whatever the trade (lib/contract-job.ts is the one creator).
+          await createJobForSigning({
+            projectId,
+            customerId,
+            salespersonId: opportunity?.owner_user_id ?? contract.created_by,
+            jobSource: oppForProject?.job_source ?? null,
+            insuranceStage: oppForProject?.insurance_stage ?? null,
+            refreshExisting: false,
+          })
         }
       } else {
         projectId = existingProject.id
@@ -777,129 +692,23 @@ export async function POST(request: NextRequest) {
           console.error('[Contract Sign] ensure customer (existing project)', e)
         }
         
-        // Even if project exists, check if we need to create a job
-        try {
-          let proposalFinancingExisting: {
-            financing_program_id?: string | null
-            dealer_fee_percent?: number | null
-            dealer_fee_amount?: number | null
-          } = {}
-          if (contract.proposal_id) {
-            const { data: propRow2 } = await supabase
-              .from('proposals')
-              .select('financing_program_id, dealer_fee_percent, dealer_fee_amount')
-              .eq('id', contract.proposal_id)
-              .maybeSingle()
-            if (propRow2) {
-              // Lender bookkeeping only — see the new-project branch above.
-              const isFinance = contract.payment_method === 'finance'
-              proposalFinancingExisting = {
-                financing_program_id: isFinance ? propRow2.financing_program_id : null,
-                dealer_fee_percent: isFinance ? propRow2.dealer_fee_percent : null,
-                dealer_fee_amount: isFinance ? propRow2.dealer_fee_amount : null,
-              }
-            }
-          }
-
-          const { data: projectData } = await supabase
-            .from('projects')
-            .select('customer_id, owner_user_id')
-            .eq('id', projectId)
-            .single()
-
-          const { data: existingJob } = await supabase
-            .from('production_jobs')
-            .select('id, job_number')
-            .eq('project_id', projectId)
-            .maybeSingle()
-
-          if (!existingJob) {
-            const jobType = contract.scope_roof_replacement || contract.scope_roof_repair ? 'roofing' : 
-                           contract.scope_siding ? 'siding' : 
-                           contract.scope_gutters ? 'gutters' : 'mixed'
-
-            const { data: newJob, error: jobError } = await supabase
-              .from('production_jobs')
-              .insert({
-                org_id: contract.org_id,
-                project_id: projectId,
-                customer_id: projectData?.customer_id || null,
-                job_type: jobType,
-                address_text: contract.project_address || '',
-                accepted_proposal_id: contract.proposal_id || null,
-                salesperson_id: projectData?.owner_user_id || contract.created_by,
-                sale_date: new Date().toISOString().split('T')[0],
-                sale_amount: contract.project_cost || null,
-                deposit_required_percent: contract.deposit_amount && contract.project_cost 
-                  ? Math.round((contract.deposit_amount / contract.project_cost) * 100) 
-                  : null,
-                created_by: contract.created_by,
-                internal_notes: contract.notes || null,
-                special_instructions: contract.exclusions || null,
-                ...proposalFinancingExisting,
-              })
-              .select('id, job_number')
-              .single()
-
-            if (jobError) {
-              console.error('[Contract Sign] Error creating production job for existing project:', jobError)
-            } else if (newJob) {
-              console.log('[Contract Sign] Production job created for existing project:', newJob.job_number)
-              await ensureDealerFeeCostLine(supabase, {
-                orgId: contract.org_id,
-                jobId: newJob.id,
-                userId: contract.created_by,
-                dealerFeeAmount: proposalFinancingExisting.dealer_fee_amount,
-              })
-              
-              await supabase
-                .from('projects')
-                .update({ status: 'in_progress' })
-                .eq('id', projectId)
-
-              await supabase.from('activities').insert({
-                org_id: contract.org_id,
-                project_id: projectId,
-                user_id: contract.created_by,
-                type: 'status_change',
-                body: `Production job ${newJob.job_number} auto-created from signed ${agreementLabel}.`,
-              })
-            }
-          } else {
-            await reinstateCancelledJob(supabase, {
-              orgId: contract.org_id,
-              jobId: existingJob.id,
-              projectId,
-              userId: contract.created_by ?? null,
-              saleAmount: contract.project_cost ?? null,
-            })
-            if (
-              proposalFinancingExisting.dealer_fee_amount != null ||
-              contract.proposal_id ||
-              projectData?.customer_id ||
-              projectData?.owner_user_id
-            ) {
-              await supabase
-                .from('production_jobs')
-                .update({
-                  ...proposalFinancingExisting,
-                  accepted_proposal_id: contract.proposal_id || null,
-                  customer_id: projectData?.customer_id || null,
-                  salesperson_id: projectData?.owner_user_id || contract.created_by,
-                })
-                .eq('id', existingJob.id)
-                .eq('org_id', contract.org_id)
-            }
-            await ensureDealerFeeCostLine(supabase, {
-              orgId: contract.org_id,
-              jobId: existingJob.id,
-              userId: contract.created_by,
-              dealerFeeAmount: proposalFinancingExisting.dealer_fee_amount,
-            })
-          }
-        } catch (jobCreationError) {
-          console.error('[Contract Sign] Error creating job for existing project:', jobCreationError)
-        }
+        // Even if the project exists, the job may not (it is created here, never assumed).
+        const { data: projectData } = await supabase
+          .from('projects')
+          .select('customer_id, owner_user_id')
+          .eq('id', projectId)
+          .single()
+        const { data: oppJobRow } = contract.opportunity_id
+          ? await supabase.from('opportunities').select('job_source, insurance_stage').eq('id', contract.opportunity_id).maybeSingle()
+          : { data: null }
+        await createJobForSigning({
+          projectId,
+          customerId: projectData?.customer_id || null,
+          salespersonId: projectData?.owner_user_id || contract.created_by,
+          jobSource: oppJobRow?.job_source ?? null,
+          insuranceStage: oppJobRow?.insurance_stage ?? null,
+          refreshExisting: true,
+        })
       }
     } catch (projectError) {
       console.error('Error creating project:', projectError)

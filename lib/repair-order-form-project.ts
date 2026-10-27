@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { resolveCustomerDisplayName, upsertCustomer } from '@/lib/customers'
 import { syncJobSaleAndCommissionBase } from '@/lib/job-commission-base'
+import { ensureJobForSignedContract } from '@/lib/contract-job'
 
 export type OrderFormContractRow = {
   id: string
@@ -31,13 +32,7 @@ function projectTypeFromContract(c: OrderFormContractRow): 'roofing' | 'siding' 
   return 'mixed'
 }
 
-function jobTypeFromContract(c: OrderFormContractRow): 'roofing' | 'siding' | 'gutters' | 'mixed' {
-  if (c.scope_roof_replacement || c.scope_roof_repair) return 'roofing'
-  if (c.scope_siding) return 'siding'
-  if (c.scope_gutters) return 'gutters'
-  return 'mixed'
-}
-
+/** Admin repair: the same single creator as contract signing (lib/contract-job.ts), plus the commission-base sync signing does after. */
 export async function ensureProductionJobForContract(
   supabase: SupabaseClient,
   params: {
@@ -49,61 +44,17 @@ export async function ensureProductionJobForContract(
   }
 ): Promise<{ production_job_id: string | null; job_number: string | null }> {
   const { orgId, projectId, contract, customerId, actorUserId } = params
-
-  const { data: existingJob } = await supabase
-    .from('production_jobs')
-    .select('id, job_number')
-    .eq('project_id', projectId)
-    .maybeSingle()
-
-  if (existingJob?.id) {
-    return { production_job_id: existingJob.id, job_number: existingJob.job_number ?? null }
-  }
-
-  const jobType = jobTypeFromContract(contract)
-  const salespersonId = contract.created_by || actorUserId
-
-  const { data: newJob, error: jobError } = await supabase
-    .from('production_jobs')
-    .insert({
-      org_id: orgId,
-      project_id: projectId,
-      customer_id: customerId,
-      job_type: jobType,
-      address_text: contract.project_address || '',
-      salesperson_id: salespersonId,
-      sale_date: new Date().toISOString().split('T')[0],
-      sale_amount: contract.project_cost || null,
-      deposit_required_percent:
-        contract.deposit_amount && contract.project_cost
-          ? Math.round((contract.deposit_amount / contract.project_cost) * 100)
-          : null,
-      created_by: actorUserId,
-      internal_notes: contract.notes || null,
-      special_instructions: contract.exclusions || null,
-    })
-    .select('id, job_number')
-    .single()
-
-  if (jobError || !newJob) {
-    console.error('[repair-order-form-project] production_jobs insert', jobError)
-    return { production_job_id: null, job_number: null }
-  }
-
-  // Sale amount + commission base from the signed contract (+ signed COs) — the one writer.
-  await syncJobSaleAndCommissionBase(supabase, { orgId, jobId: newJob.id })
-
-  await supabase.from('projects').update({ status: 'in_progress' }).eq('id', projectId)
-
-  await supabase.from('activities').insert({
-    org_id: orgId,
-    project_id: projectId,
-    user_id: actorUserId,
-    type: 'status_change',
-    body: `Production job ${newJob.job_number} created via admin repair (signed contract).`,
+  const result = await ensureJobForSignedContract(supabase, {
+    contract,
+    projectId,
+    customerId,
+    salespersonId: contract.created_by || actorUserId,
+    actorUserId,
+    agreementLabel: 'contract',
+    activityBody: undefined,
   })
-
-  return { production_job_id: newJob.id, job_number: newJob.job_number ?? null }
+  if (result.jobId) await syncJobSaleAndCommissionBase(supabase, { orgId, jobId: result.jobId })
+  return { production_job_id: result.jobId, job_number: result.jobNumber }
 }
 
 /**
