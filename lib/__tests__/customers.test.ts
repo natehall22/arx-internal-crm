@@ -110,4 +110,11 @@ describe('placeholder phones and test customers never identify a person', () => 
     ] })
     expect((await findExistingCustomer(db.client, ORG, { name: 'x', phone: '7045550142' }))?.id).toBe('r1')
   })
+
+  it('a new real customer on a real phone a test row also has is NOT merged into the test row', async () => {
+    const db = createFakeDb({ customers: [cust('t1', { name: 'testing', phone: '7045550142', phone_normalized: '7045550142', created_at: '2026-01-01T00:00:00Z' })] })
+    const r = await upsertCustomer(db.client, ORG, { name: 'Carann Brown', phone: '7045550142', email: null }, { skipIntegrations: true })
+    expect(r.created).toBe(true)
+    expect(r.customer_id).not.toBe('t1')
+  })
 })

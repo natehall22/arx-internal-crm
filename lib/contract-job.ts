@@ -105,7 +105,7 @@ export async function ensureJobForSignedContract(
         .from('production_jobs')
         .update({
           ...financing,
-          accepted_proposal_id: contract.proposal_id || null,
+          ...(contract.proposal_id ? { accepted_proposal_id: contract.proposal_id } : {}),
           ...(args.refreshExisting && customerId ? { customer_id: customerId } : {}),
           ...(args.refreshExisting && salespersonId ? { salesperson_id: salespersonId } : {}),
         })

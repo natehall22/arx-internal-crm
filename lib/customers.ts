@@ -156,8 +156,9 @@ async function oldestCustomerIdByIdentity(supabase: SupabaseClient, orgId: strin
   if (email) filters.push(`email_lower.eq.${email.replace(/[,()]/g, '')}`)
   if (phone && phone.length === 10) filters.push(`phone_normalized.eq.${phone}`, `phone_normalized.eq.1${phone}`)
   if (filters.length === 0) return null
-  const { data } = await supabase.from('customers').select('id').eq('org_id', orgId).or(filters.join(',')).order('created_at', { ascending: true }).order('id', { ascending: true }).limit(1)
-  return ((data ?? [])[0]?.id as string | undefined) ?? null
+  const { data } = await supabase.from('customers').select('id, name').eq('org_id', orgId).or(filters.join(',')).order('created_at', { ascending: true }).order('id', { ascending: true }).limit(5)
+  // Same rule as findExistingCustomer: a test-named row is never the winner (or our new, real row would delete itself into it).
+  return ((data ?? []).find((c: any) => !isTestCustomerName(c.name))?.id as string | undefined) ?? null
 }
 
 /**
