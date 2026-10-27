@@ -37,6 +37,7 @@ import CopyableContact from '@/components/CopyableContact'
 import JobWorkOrdersCard from '@/components/ops/JobWorkOrdersCard'
 import { PIPELINE_STAGES, getJobPipelineCurrentIndex } from '@/lib/job-pipeline'
 import SoldScopeCard from '@/components/ops/SoldScopeCard'
+import { MENU_ITEM, OverflowMenu } from '@/components/ui/overflow-menu'
 import { noteMentionHighlightRegex } from '@/lib/note-mentions'
 import JobMaterialsCard from '@/components/ops/JobMaterialsCard'
 import SupplierOrdersCard from '@/components/ops/SupplierOrdersCard'
@@ -1607,6 +1608,13 @@ export default function JobDetailClient({
                 >
                   Exterior Measure
                 </Link>
+                {v2 && job.project_id ? (
+                  <OverflowMenu label="More job actions">
+                    <Link href={`/projects/${job.project_id}`} className={MENU_ITEM}>
+                      View project
+                    </Link>
+                  </OverflowMenu>
+                ) : null}
               </div>
 
               {isCancelled && (
@@ -2157,19 +2165,23 @@ export default function JobDetailClient({
           <div className={v2 ? 'contents' : 'lg:col-span-2 space-y-4 sm:space-y-6'}>
             {/* SCOPE TAB */}
             <div className={blockCls('scope', 'materials')} style={ord(3)}>
-              <OperationsSnapshotCard
-                project={job.project}
-                headerAction={
-                  job.project_id ? (
-                    <Link
-                      href={`/projects/${job.project_id}`}
-                      className="inline-flex min-h-[44px] items-center text-sm font-medium text-indigo-700 hover:text-indigo-900 shrink-0"
-                    >
-                      View project →
-                    </Link>
-                  ) : undefined
-                }
-              />
+              {/* The old page shows the project's Operations Snapshot here; the new page does not (Projects are going away).
+                  Its one action, "View project", lives in the header ⋯ menu. */}
+              {!v2 && (
+                <OperationsSnapshotCard
+                  project={job.project}
+                  headerAction={
+                    job.project_id ? (
+                      <Link
+                        href={`/projects/${job.project_id}`}
+                        className="inline-flex min-h-[44px] items-center text-sm font-medium text-indigo-700 hover:text-indigo-900 shrink-0"
+                      >
+                        View project →
+                      </Link>
+                    ) : undefined
+                  }
+                />
+              )}
 
               {/* The materials brief lives here, with the rest of "what was sold", NOT up in the
                   identity block where it was: 579px of shingle/ridge/flashing detail sat directly

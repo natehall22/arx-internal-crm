@@ -135,7 +135,7 @@ export default function JobRoofingBrief({
           {fields.proposalHref ? (
             <Link
               href={fields.proposalHref}
-              className="text-xs font-medium text-indigo-700 underline hover:text-indigo-900"
+              className="inline-flex min-h-[44px] items-center text-xs font-medium text-indigo-700 underline hover:text-indigo-900"
             >
               {fields.proposalNumber ? `Proposal ${fields.proposalNumber}` : 'View proposal'}
             </Link>

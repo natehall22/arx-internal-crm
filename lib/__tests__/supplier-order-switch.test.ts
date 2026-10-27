@@ -59,7 +59,7 @@ describe('after the switch the card and the preview follow the new supplier', ()
   it('the draft card is QXO and its preview goes to QXO\'s order email, not ABC\'s', () => {
     expect(sourcingFor(switched).supplierGroups.map((g) => g.supplier.id)).toEqual(['qxo'])
     expect(buildSupplierOrdersView(switched).cards.map((c) => c.supplierName)).toEqual(['QXO'])
-    const built = buildSupplierOrderPreview(switched, { vendorId: 'qxo', requested: 'order', deliveryDate: '2026-11-02', deliveryAddress: '12 Elm St', note: null }, { id: 'u1', name: 'Ops', email: 'ops@arx.test', canSend: true })
+    const built = buildSupplierOrderPreview(switched, { vendorId: 'qxo', requested: 'order', deliveryDate: '2026-11-02', deliveryAddress: '12 Elm St', note: null }, { id: 'u1', name: 'Ops', email: 'ops@arx.test' })
     if (!built.ok) throw new Error(built.message)
     expect(built.preview.email.to).toBe('qxo@orders.test')
   })
