@@ -118,7 +118,7 @@ const SCREENS: Screen[] = [
       run: async (p: Page) => { await p.getByRole('button', { name: tab, exact: true }).click(); await p.waitForTimeout(500) },
     })) },
   { name: 'supplier-orders', path: '/dev-harness/supplier-orders', ready: 'text=Supplier orders',
-    states: [{ name: 'preview-open', run: async (p) => { await p.getByRole('button', { name: /Send order to ABC Supply/ }).click(); await p.waitForSelector('text=Send to ABC Supply') } }] },
+    states: [{ name: 'preview-open', run: async (p) => { await p.getByRole('button', { name: /Send order to ABC Supply/ }).click(); await p.waitForSelector('text=Send to ABC Supply') } }, { name: 'supplier-picker', run: async (p) => { await p.getByLabel('Supplier').first().waitFor() } }] },
   { name: 'reports-home', path: '/dev-harness/reports-home', ready: 'text=Performance at a glance' },
   { name: 'reports-explore', path: '/dev-harness/reports-explore', ready: 'text=Sales by closer',
     states: [
@@ -245,3 +245,53 @@ for (const screen of SCREENS) {
     }
   })
 }
+
+
+// 2026-10-26: at 375px the Sold Scope header pushed "AI Summary" off the right edge of the Materials tab. View Proposal and
+// + Add Item stay on screen; Generate Job Packet and AI Summary live in the ⋯ menu below 640px. Every card header on the tab
+// must also sit inside the viewport (an overflow-hidden parent hides the clip from the page-level scroll check).
+test.describe('job page Materials tab on a phone', () => {
+  for (const who of ['ops', 'owner'] as const) {
+    test(`${who}: no sideways scroll and no clipped card header`, async ({ page }, info) => {
+      if (info.project.name !== 'iphone-se') test.skip()
+      await mockApi(page)
+      await mockJob0037(page)
+      await page.goto(`/dev-harness/job-v2-${who}`)
+      await page.waitForSelector('[role=tablist]')
+      await page.getByRole('tab', { name: 'Materials' }).click()
+      await page.waitForSelector('#materials-section')
+      await page.getByRole('heading', { name: 'Sold Scope' }).waitFor()
+      await page.waitForTimeout(500)
+
+      const vw = page.viewportSize()!.width
+      expect(vw).toBe(375)
+      const scroll = await page.evaluate(() => ({ doc: document.documentElement.scrollWidth, body: document.body.scrollWidth }))
+      expect(scroll.doc, 'page scrolls sideways').toBeLessThanOrEqual(vw)
+      expect(scroll.body, 'body scrolls sideways').toBeLessThanOrEqual(vw)
+
+      // Nothing visible on the tab may sit past the right edge (headers, buttons, links, headings).
+      const clipped = await page.evaluate((width) => {
+        const out: string[] = []
+        const tab = document.querySelector('#materials-section')?.parentElement ?? document.body
+        tab.querySelectorAll<HTMLElement>('h2, h3, button, a[href], [role=button]').forEach((el) => {
+          const r = el.getBoundingClientRect()
+          const cs = getComputedStyle(el)
+          if (r.width === 0 || r.height === 0 || cs.visibility === 'hidden') return
+          if (r.right > width + 0.5 || r.left < -0.5) out.push(`${el.tagName.toLowerCase()} "${(el.innerText || el.getAttribute('aria-label') || '').trim().slice(0, 30)}" left=${Math.round(r.left)} right=${Math.round(r.right)}`)
+        })
+        return out
+      }, vw)
+      expect(clipped, `clipped past the screen edge:\n${clipped.join('\n')}`).toEqual([])
+
+      // View Proposal and + Add Item stay visible; the packet + AI Summary are behind the ⋯ menu.
+      await expect(page.getByRole('link', { name: /View Proposal/ })).toBeVisible()
+      await expect(page.getByRole('button', { name: /Add Item/ }).first()).toBeVisible()
+      await expect(page.getByRole('button', { name: /AI Summary/ })).toBeHidden()
+      await page.getByRole('button', { name: 'More Sold Scope actions' }).click()
+      await expect(page.getByRole('button', { name: /AI Summary/ })).toBeVisible()
+      const box = await page.getByRole('button', { name: /AI Summary/ }).boundingBox()
+      expect(box!.x + box!.width).toBeLessThanOrEqual(vw)
+      expect(box!.height).toBeGreaterThanOrEqual(43.5)
+    })
+  }
+})

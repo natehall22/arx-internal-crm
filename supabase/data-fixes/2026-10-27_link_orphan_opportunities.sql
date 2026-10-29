@@ -63,6 +63,20 @@ LANGUAGE sql IMMUTABLE AS $$
       OR (cardinality(release_backups.name_tokens(b)) >= 2 AND release_backups.name_tokens(b) <@ release_backups.name_tokens(a));
 $$;
 
+-- Filler phones and throwaway customer rows are not identities. SAME rules as lib/customers.ts isPlaceholderPhone / isTestCustomerName
+-- (lib/__tests__/placeholder-rule-parity.test.ts fails if the two drift apart).
+CREATE OR REPLACE FUNCTION release_backups.is_placeholder_phone(p text) RETURNS boolean
+LANGUAGE sql IMMUTABLE AS $$
+  SELECT length(right(regexp_replace(coalesce(p,''),'\D','','g'),10)) = 10 AND (
+    right(regexp_replace(coalesce(p,''),'\D','','g'),10) ~ '^(\d)\1{9}$'
+    OR position(right(regexp_replace(coalesce(p,''),'\D','','g'),10) in '01234567890123456789') > 0
+    OR position(right(regexp_replace(coalesce(p,''),'\D','','g'),10) in '98765432109876543210') > 0);
+$$;
+CREATE OR REPLACE FUNCTION release_backups.is_test_customer_name(n text) RETURNS boolean
+LANGUAGE sql IMMUTABLE AS $$
+  SELECT coalesce(n,'') ~* '^\s*(test|testing|tester|asdf|xxx+)\y';
+$$;
+
 -- The plan: one row per orphan opportunity with what will happen to it.
 CREATE OR REPLACE FUNCTION release_backups.orphan_plan() RETURNS TABLE (
   opp_id uuid, org_id uuid, status text, lead_id uuid, lead_name text, lead_phone text, lead_email text, lead_address text, opp_address text,
@@ -71,20 +85,19 @@ CREATE OR REPLACE FUNCTION release_backups.orphan_plan() RETURNS TABLE (
   WITH o AS (
     SELECT op.id AS opp_id, op.org_id, op.status::text AS status, op.lead_id, op.address_text AS opp_addr,
            l.homeowner_name, l.phone, l.email, l.address_text AS lead_addr,
-           CASE WHEN right(regexp_replace(coalesce(l.phone,''),'\D','','g'),10) ~ '^(\d)\1{9}$'
-                  OR right(regexp_replace(coalesce(l.phone,''),'\D','','g'),10) IN ('1234567890','0123456789') THEN ''
+           CASE WHEN release_backups.is_placeholder_phone(l.phone) THEN ''
                 ELSE right(regexp_replace(coalesce(l.phone,''),'\D','','g'),10) END AS p10,
            CASE WHEN lower(btrim(coalesce(l.email,''))) IN ('','none@none.com','noemail@noemail.com','noemail@example.com') THEN NULL ELSE lower(btrim(l.email)) END AS em
     FROM opportunities op LEFT JOIN leads l ON l.id = op.lead_id AND l.org_id = op.org_id
     WHERE op.customer_id IS NULL
   ), c AS (
     SELECT o.*,
-      (SELECT c.id FROM customers c WHERE c.org_id = o.org_id AND o.em IS NOT NULL AND c.email_lower = o.em ORDER BY c.created_at, c.id LIMIT 1) AS by_email,
+      (SELECT c.id FROM customers c WHERE c.org_id = o.org_id AND o.em IS NOT NULL AND c.email_lower = o.em AND NOT release_backups.is_test_customer_name(c.name) ORDER BY c.created_at, c.id LIMIT 1) AS by_email,
       -- oldest customer that shares the EXACT normalized phone ...
-      (SELECT c.id FROM customers c WHERE c.org_id = o.org_id AND length(o.p10) = 10 AND c.phone_normalized IN (o.p10, '1' || o.p10) ORDER BY c.created_at, c.id LIMIT 1) AS phone_candidate,
+      (SELECT c.id FROM customers c WHERE c.org_id = o.org_id AND length(o.p10) = 10 AND c.phone_normalized IN (o.p10, '1' || o.p10) AND NOT release_backups.is_test_customer_name(c.name) ORDER BY c.created_at, c.id LIMIT 1) AS phone_candidate,
       -- ... and the oldest one whose NAME also agrees with the lead's: the only phone match we accept
       (SELECT c.id FROM customers c WHERE c.org_id = o.org_id AND length(o.p10) = 10 AND c.phone_normalized IN (o.p10, '1' || o.p10)
-          AND release_backups.names_compatible(o.homeowner_name, c.name) ORDER BY c.created_at, c.id LIMIT 1) AS by_phone
+          AND NOT release_backups.is_test_customer_name(c.name) AND release_backups.names_compatible(o.homeowner_name, c.name) ORDER BY c.created_at, c.id LIMIT 1) AS by_phone
     FROM o
   )
   SELECT c.opp_id, c.org_id, c.status, c.lead_id, c.homeowner_name, c.phone, c.email, c.lead_addr, c.opp_addr, c.p10, c.em, c.by_email, c.by_phone, c.phone_candidate,

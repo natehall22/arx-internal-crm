@@ -213,7 +213,7 @@ export default function JobSoldScopeSummary({
         {proposalHref && (
           <Link
             href={proposalHref}
-            className="text-xs font-medium text-sky-900 underline hover:text-sky-950 shrink-0"
+            className="inline-flex min-h-[44px] items-center text-xs font-medium text-sky-900 underline hover:text-sky-950 shrink-0"
           >
             {scope.proposal_number ? `Proposal ${scope.proposal_number}` : 'View proposal'}
           </Link>

@@ -403,3 +403,18 @@ describe('loadDataHealth', () => {
     expect(buildNeedsYouHtml({ generatedAt: '', jobs: [], appointments: [], count: 0 })).toContain('All clear')
   })
 })
+
+describe('contractsWithoutJob (Signed contract with no job)', () => {
+  const { contractsWithoutJob } = require('@/lib/data-health')
+  const c = (id: string, opp: string | null, proposal: string | null = null) => ({ id, opportunity_id: opp, proposal_id: proposal, customer_name: 'Carann Brown', project_address: '172 S Smallwood Pl', customer_signed_at: '2026-10-23T11:50:53Z' })
+
+  it('flags a contract whose project has no job, and one with no project at all', () => {
+    const out = contractsWithoutJob([c('c1', 'o1'), c('c2', 'o2')], new Map([['o1', ['p1']]]), new Set(), new Set())
+    expect(out.map((r: { contractId: string }) => r.contractId)).toEqual(['c1', 'c2'])
+  })
+
+  it('a job on the project, or on the same proposal, clears it (cancelled jobs count: they are still jobs)', () => {
+    const out = contractsWithoutJob([c('c1', 'o1'), c('c2', 'o2', 'pr2')], new Map([['o1', ['p1']]]), new Set(['p1']), new Set(['pr2']))
+    expect(out).toEqual([])
+  })
+})

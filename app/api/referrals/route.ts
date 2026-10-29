@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { createServiceClient } from '@/lib/supabase/service'
 import { isContactScoped, maskPersonName, mayReadLead } from '@/lib/contact-scope'
+import { findExistingCustomer } from '@/lib/customers'
 
 export const dynamic = 'force-dynamic'
 
@@ -231,14 +232,9 @@ export async function POST(request: NextRequest) {
       // Check if this lead has an associated customer by phone
       let existingCustomer = null
       if (referrer.phone) {
-        const { data } = await adminClient
-          .from('customers')
-          .select('id')
-          .eq('org_id', profile.org_id)
-          .eq('phone', referrer.phone)
-          .limit(1)
-          .maybeSingle()
-        existingCustomer = data
+        // The one matching rule (lib/customers.ts): last-10 digits, filler numbers and test rows never match.
+        const found = await findExistingCustomer(adminClient, profile.org_id, { name: '', phone: referrer.phone })
+        existingCustomer = found ? { id: found.id } : null
       }
       
       // If not found by phone, try by name
