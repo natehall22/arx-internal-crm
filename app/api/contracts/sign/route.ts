@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { customerSignedDocUrl } from '@/lib/files/files-object'
 import nodemailer from 'nodemailer'
 import { getCrmEmailFrom } from '@/lib/crm-email-from'
 import { buildOrderFormContractSaleDescription, notifyOrgAdminsOfSale } from '@/lib/admin-sale-email'
@@ -949,21 +950,25 @@ export async function POST(request: NextRequest) {
       })
     }
 
+    // The customer's link to their signed copy goes through the token route, never the bucket's public URL
+    // (the stored pdf_url is unchanged and stays staff-side).
+    const customerPdfUrl = pdfUrl ? customerSignedDocUrl('contract', String(contract.signing_token)) : null
+
     // Always try to send confirmation email if customer has email
     let emailSent = false
     if (contract.customer_email) {
       console.log('[Contract Sign] Sending confirmation email to:', contract.customer_email)
       
-      const pdfSection = pdfUrl
+      const pdfSection = customerPdfUrl
         ? `<p style="text-align: center;">
-            <a href="${pdfUrl}" style="display: inline-block; background: #22c55e; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; margin: 20px 0;">Download Signed Agreement</a>
+            <a href="${customerPdfUrl}" style="display: inline-block; background: #22c55e; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; margin: 20px 0;">Download Signed Agreement</a>
           </p>`
         : `<p style="background: #fef3c7; padding: 12px; border-radius: 6px; color: #92400e;">
             Your signed agreement is being processed. A copy will be sent to you shortly, or you can contact us to request one.
           </p>`
 
-      const pdfTextSection = pdfUrl
-        ? `You can download your signed agreement here:\n${pdfUrl}`
+      const pdfTextSection = customerPdfUrl
+        ? `You can download your signed agreement here:\n${customerPdfUrl}`
         : `Your signed agreement is being processed. Please contact us if you need a copy.`
 
       const emailText = `Dear ${contract.customer_name},
@@ -1049,7 +1054,7 @@ ARX Roofing & Exteriors LLC`
 
     return NextResponse.json({
       success: true,
-      pdfUrl,
+      pdfUrl: customerPdfUrl,
       projectId,
       emailSent,
       pdfGenerationError,

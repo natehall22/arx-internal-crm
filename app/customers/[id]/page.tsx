@@ -12,6 +12,7 @@ import { canAccessCustomerRecordsFromPermissionNames, isRepLikeCustomerRecordRol
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 import { isReferralManagerRole } from '@/lib/referral-links'
 import { projectStatusLabelForJobStatus } from '@/lib/job-status'
+import { filesObjectHref } from '@/lib/files/files-object'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
 
@@ -425,7 +426,7 @@ export default async function CustomerDetailPage({
                     </div>
                     {file.storage_path ? (
                       <a
-                        href={`${supabaseUrl}/storage/v1/object/public/files/${file.storage_path}`}
+                        href={filesObjectHref(file.storage_path) ?? `${supabaseUrl}/storage/v1/object/public/files/${file.storage_path}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-indigo-600 hover:text-indigo-800 text-sm font-medium"

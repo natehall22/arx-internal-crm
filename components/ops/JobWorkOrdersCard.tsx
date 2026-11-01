@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { createClientBrowser } from '@/lib/supabase/client'
+import { filesObjectHref } from '@/lib/files/files-object'
 
 interface WorkOrderPhoto {
   id: string
@@ -155,6 +156,11 @@ export default function JobWorkOrdersCard({ jobId, projectId }: JobWorkOrdersCar
   const [showCompleted, setShowCompleted] = useState(false)
   
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  // storage_path carries its bucket ("files/…" or "work-order-photos/…"). Only `files` objects go through the signed-read
+  // route; other buckets keep the link they had.
+  const workOrderPhotoHref = (storagePath: string) =>
+    (storagePath.startsWith('files/') ? filesObjectHref(storagePath.slice('files/'.length)) : null) ??
+    `${supabaseUrl}/storage/v1/object/public/${storagePath}`
 
   const getCompletedByName = (wo: WorkOrder): string | null => {
     if (wo.completed_by_sub) {
@@ -300,13 +306,13 @@ export default function JobWorkOrdersCard({ jobId, projectId }: JobWorkOrdersCar
                                   {workDonePhotos.slice(0, 4).map(photo => (
                                     <a
                                       key={photo.id}
-                                      href={`${supabaseUrl}/storage/v1/object/public/${photo.storage_path}`}
+                                      href={workOrderPhotoHref(photo.storage_path)}
                                       target="_blank"
                                       rel="noopener noreferrer"
                                       className="aspect-square bg-gray-100 rounded overflow-hidden"
                                     >
                                       <Image
-                                        src={`${supabaseUrl}/storage/v1/object/public/${photo.storage_path}`}
+                                        src={workOrderPhotoHref(photo.storage_path)}
                                         alt="Work done"
                                         width={96}
                                         height={96}
@@ -333,13 +339,13 @@ export default function JobWorkOrdersCard({ jobId, projectId }: JobWorkOrdersCar
                                   {cleanupPhotos.slice(0, 4).map(photo => (
                                     <a
                                       key={photo.id}
-                                      href={`${supabaseUrl}/storage/v1/object/public/${photo.storage_path}`}
+                                      href={workOrderPhotoHref(photo.storage_path)}
                                       target="_blank"
                                       rel="noopener noreferrer"
                                       className="aspect-square bg-gray-100 rounded overflow-hidden"
                                     >
                                       <Image
-                                        src={`${supabaseUrl}/storage/v1/object/public/${photo.storage_path}`}
+                                        src={workOrderPhotoHref(photo.storage_path)}
                                         alt="Cleanup"
                                         width={96}
                                         height={96}

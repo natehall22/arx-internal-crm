@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import ChangeOrderModal from './ChangeOrderModal'
 import { toast } from '@/components/ui/toast'
+import { filesDocHref } from '@/lib/files/files-object'
 
 interface ChangeOrder {
   id: string
@@ -12,6 +13,7 @@ interface ChangeOrder {
   customer_signed_at?: string | null
   updated_total: number
   pdf_url: string | null
+  pdf_storage_path?: string | null
   status?: string
   signing_token?: string | null
 }
@@ -166,7 +168,7 @@ export default function ChangeOrdersSection({
                 </button>
               ) : co.pdf_url ? (
                 <a
-                  href={co.pdf_url}
+                  href={filesDocHref(co.pdf_storage_path, co.pdf_url) ?? co.pdf_url}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-2 px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 min-h-[44px]"

@@ -2,6 +2,7 @@ import { loadJobNotes } from '@/lib/threads/job-notes'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
+import { filesObjectHref } from '@/lib/files/files-object'
 import { requireAuthApi } from '@/lib/auth'
 import { generateJobPacketPDF } from '@/lib/pdf/job-packet'
 
@@ -32,11 +33,10 @@ export async function POST(
         .single()
 
       if (existingJob?.job_packet_pdf_path) {
-        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
         // Use files bucket (job-files bucket doesn't exist)
         return NextResponse.json({
           success: true,
-          url: `${supabaseUrl}/storage/v1/object/public/files/${existingJob.job_packet_pdf_path}`,
+          url: filesObjectHref(existingJob.job_packet_pdf_path),
           pdf_path: existingJob.job_packet_pdf_path,
           generated_at: existingJob.job_packet_generated_at,
           cached: true,
@@ -187,12 +187,11 @@ export async function POST(
         ignoreDuplicates: true,
       })
 
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
     console.log('[Job Packet] Complete. Path:', storagePath)
 
     return NextResponse.json({
       success: true,
-      url: `${supabaseUrl}/storage/v1/object/public/files/${storagePath}`,
+      url: filesObjectHref(storagePath),
       pdf_path: storagePath,
       generated_at: new Date().toISOString(),
       cached: false,
@@ -224,13 +223,12 @@ export async function GET(
       return NextResponse.json({ error: 'Job not found' }, { status: 404 })
     }
 
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
 
     return NextResponse.json({
       has_packet: !!job.job_packet_pdf_path,
       pdf_path: job.job_packet_pdf_path,
       url: job.job_packet_pdf_path 
-        ? `${supabaseUrl}/storage/v1/object/public/files/${job.job_packet_pdf_path}`
+        ? filesObjectHref(job.job_packet_pdf_path)
         : null,
       generated_at: job.job_packet_generated_at,
     })

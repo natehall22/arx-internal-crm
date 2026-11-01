@@ -146,6 +146,8 @@ that file rather than extending the pattern.
 
 **Known Redundancy additions (2026-10-23):** (15) four routes create opportunities (`leads/[id]/opportunity`, `inspections/status`, `canvass/lead` ×2) and each must call `customerIdForLead` — one creator would be safer. (16) The inside-sales queue is still two screens (`/inside-sales` conveyor and the Opportunities tab). (17) `/api/threads/[dealId]/mentionable` resolves a viewer per user (N+1).
 
+**Known Redundancy additions (2026-11-01):** (18) Two job-packet routes (`/api/jobs/[id]/job-packet` and `/api/ops/jobs/[id]/packet`, near-identical; `GenerateJobPacketButton` tries one then the other) — only their returned `url` was moved onto `filesObjectHref` in the files-bucket signed-reads change. Fold into one. (19) Five writers still hand-build `…/object/public/files/…` URLs (`contracts/sign`, `change-orders/sign|create|[id]/regenerate-pdf`) and store them in `pdf_url`; readers now go through `lib/files/files-object.ts` (`filesObjectHref` / `filesDocHref` / `customerSignedDocUrl`). Stop storing public URLs (store the path only) before the `files` bucket is made private.
+
 ## UI Conventions
 - **Text contrast is an ongoing, recurring problem in this build — always verify text stands out.** Use explicit dark text (`#2c2c2a`, not generic gray) on light surfaces; never place text directly on the satellite/photo map — use a solid or opaque-scrim background; aim for WCAG AA. Validate legibility on a cheap Android in direct sun for any field-facing UI.
 

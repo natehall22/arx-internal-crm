@@ -10,6 +10,7 @@ import {
   type RunSheetFieldKey,
 } from '@/lib/job-run-sheet'
 import type { JobSignedContract } from '@/lib/job-contract'
+import { filesDocHref } from '@/lib/files/files-object'
 import type { JobSoldScope } from '@/lib/job-sold-scope'
 import type { MaterialsCoverageOverrides } from '@/lib/materials-coverage-overrides'
 import { MATERIAL_ORDER_UPDATED_EVENT } from '@/lib/materials-order-overrides'
@@ -467,7 +468,7 @@ function SignedContractPanel({ contracts }: { contracts: JobSignedContract[] }) 
             </span>
             {c.pdfUrl && (
               <a
-                href={c.pdfUrl}
+                href={filesDocHref(null, c.pdfUrl) ?? c.pdfUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="font-semibold text-[#3d0080] underline underline-offset-2"

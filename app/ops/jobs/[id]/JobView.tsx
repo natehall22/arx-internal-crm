@@ -227,6 +227,7 @@ export default async function JobView({ params, embedded = false, initialTab = n
     customer_signed_at: string | null
     updated_total: number
     pdf_url: string | null
+    pdf_storage_path?: string | null
     status: string
     signing_token: string | null
   }[] = []
@@ -279,7 +280,7 @@ export default async function JobView({ params, embedded = false, initialTab = n
       const { data: coData } = await supabaseService
         .from('job_change_orders')
         .select(
-          'id, co_number, signed_at, updated_total, pdf_url, status, signing_token, customer_signed_at'
+          'id, co_number, signed_at, updated_total, pdf_url, pdf_storage_path, status, signing_token, customer_signed_at'
         )
         .eq('org_id', profile.org_id)
         .eq('project_id', jobRes.data.project_id)

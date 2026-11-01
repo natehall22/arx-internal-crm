@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import { useSubPortalLanguage, LanguageToggle } from '@/lib/i18n/SubPortalLanguageContext'
 import { toast } from '@/components/ui/toast'
 import PhoneLink from '@/components/PhoneLink'
+import { filesObjectHref } from '@/lib/files/files-object'
 
 interface LineItem {
   id: string
@@ -328,7 +329,7 @@ export default function SubJobDetailClient({ job, companyName }: SubJobDetailCli
             <div className="grid grid-cols-3 gap-2">
               {job.files.map(file => {
                 const isImage = file.mime_type?.startsWith('image/')
-                const fileUrl = `${supabaseUrl}/storage/v1/object/public/files/${file.storage_path}`
+                const fileUrl = filesObjectHref(file.storage_path) ?? `${supabaseUrl}/storage/v1/object/public/files/${file.storage_path}`
                 
                 return isImage ? (
                   <a
@@ -369,7 +370,7 @@ export default function SubJobDetailClient({ job, companyName }: SubJobDetailCli
         {job.job_packet_pdf_path && (
           <div className="bg-white rounded-lg shadow-sm border p-4">
             <a
-              href={`${supabaseUrl}/storage/v1/object/public/job-files/${job.job_packet_pdf_path}`}
+              href={filesObjectHref(job.job_packet_pdf_path) ?? '#'}
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center justify-center gap-2 w-full bg-gray-100 text-gray-700 py-3 rounded-lg font-medium hover:bg-gray-200 min-h-[44px]"

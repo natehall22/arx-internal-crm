@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import SignaturePad from '@/components/contracts/SignaturePad'
+import { filesObjectHref } from '@/lib/files/files-object'
 import { parseDraftFloat, previewNumber } from '@/lib/numeric-input-draft'
 
 interface ChangeOrderModalProps {
@@ -239,7 +240,7 @@ export default function ChangeOrderModal({
                 )}
                 {pdfUrl && (
                   <a
-                    href={pdfUrl}
+                    href={filesObjectHref(pdfUrl) ?? pdfUrl}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="inline-flex items-center gap-2 px-6 py-3 bg-green-600 text-white font-medium rounded-lg hover:bg-green-700 min-h-[48px]"

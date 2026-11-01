@@ -4,6 +4,7 @@ import { syncJobSaleForProjectOrJob } from '@/lib/job-commission-base'
 import nodemailer from 'nodemailer'
 import { getCrmEmailFrom } from '@/lib/crm-email-from'
 import { createServiceClient } from '@/lib/supabase/service'
+import { customerSignedDocUrl } from '@/lib/files/files-object'
 
 export async function POST(request: NextRequest) {
   try {
@@ -114,6 +115,9 @@ export async function POST(request: NextRequest) {
       console.error('[Change Order Sign] pdf generation error:', pdfError)
     }
 
+    // The customer's link to their signed copy goes through the token route, never the bucket's public URL.
+    const customerPdfUrl = pdfUrl ? customerSignedDocUrl('change-order', String(changeOrder.signing_token)) : null
+
     if (changeOrder.customer_email) {
       try {
         const transporter = nodemailer.createTransport({
@@ -130,15 +134,15 @@ export async function POST(request: NextRequest) {
           from: getCrmEmailFrom(),
           to: changeOrder.customer_email,
           subject: `Signed Change Order ${changeOrder.co_number}`,
-          text: `Thank you for signing your change order.\n\n${pdfUrl ? `Signed copy: ${pdfUrl}\n\n` : ''}ARX Roofing & Exteriors`,
-          html: `<p>Thank you for signing your change order.</p>${pdfUrl ? `<p><a href="${pdfUrl}">Download signed copy</a></p>` : ''}<p>ARX Roofing & Exteriors</p>`,
+          text: `Thank you for signing your change order.\n\n${customerPdfUrl ? `Signed copy: ${customerPdfUrl}\n\n` : ''}ARX Roofing & Exteriors`,
+          html: `<p>Thank you for signing your change order.</p>${customerPdfUrl ? `<p><a href="${customerPdfUrl}">Download signed copy</a></p>` : ''}<p>ARX Roofing & Exteriors</p>`,
         })
       } catch (emailError) {
         console.error('[Change Order Sign] email error:', emailError)
       }
     }
 
-    return NextResponse.json({ success: true, pdfUrl })
+    return NextResponse.json({ success: true, pdfUrl: customerPdfUrl })
   } catch (error) {
     console.error('[Change Order Sign] error:', error)
     return NextResponse.json({ error: 'Failed to sign change order' }, { status: 500 })

@@ -57,6 +57,7 @@ import { jobDirectCost, type JobCostSummary } from '@/lib/job-cost-ledger'
 import { toast } from '@/components/ui/toast'
 import { confirmDialog } from '@/components/ui/confirm-dialog'
 import { formatPhone, telHref } from '@/lib/format'
+import { filesDocHref } from '@/lib/files/files-object'
 
 
 interface Job {
@@ -334,6 +335,7 @@ interface JobChangeOrdersSectionProps {
     customer_signed_at: string | null
     updated_total: number
     pdf_url: string | null
+    pdf_storage_path?: string | null
     status: string
     signing_token: string | null
   }[]
@@ -2670,7 +2672,7 @@ export default function JobDetailClient({
                 {job.installation_agreement && job.installation_agreement.status === 'completed' && (
                   job.installation_agreement.pdf_url ? (
                     <a
-                      href={job.installation_agreement.pdf_url}
+                      href={filesDocHref(null, job.installation_agreement.pdf_url) ?? job.installation_agreement.pdf_url}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="min-h-[44px] flex items-center gap-2 px-3 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 mb-3"

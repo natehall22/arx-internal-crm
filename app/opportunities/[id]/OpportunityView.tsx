@@ -49,6 +49,7 @@ import {
   filtersFromSearchParams,
 } from '@/lib/opportunity-list-filters'
 import PhoneLink from '@/components/PhoneLink'
+import { filesObjectHref } from '@/lib/files/files-object'
 
 /** The opportunity page body, shared by /opportunities/[id] and the Customer File's Sales tab. */
 export default async function OpportunityView({
@@ -1427,7 +1428,7 @@ export default async function OpportunityView({
             <div className="space-y-2">
               {files && files.length > 0 ? (
                 files.map((file: any) => {
-                  const fileUrl = `${supabaseUrl}/storage/v1/object/public/files/${file.storage_path}`
+                  const fileUrl = filesObjectHref(file.storage_path) ?? `${supabaseUrl}/storage/v1/object/public/files/${file.storage_path}`
                   return (
                     <div key={file.id} className="flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50">
                       <div className="flex items-center gap-3">

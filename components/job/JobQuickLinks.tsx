@@ -2,6 +2,8 @@
 
 import Link from 'next/link'
 
+import { filesDocHref } from '@/lib/files/files-object'
+
 type LinkJob = {
   id: string
   customer?: { id: string } | null
@@ -23,7 +25,7 @@ export default function JobQuickLinks({ job }: { job: LinkJob }) {
         <a className={row} href={`/api/ops/jobs/${job.id}/material-order/pdf`} target="_blank" rel="noopener noreferrer">Supplier order sheet <span aria-hidden>↗</span></a>
       ) : null}
       {agreement?.pdf_url ? (
-        <a className={row} href={agreement.pdf_url} target="_blank" rel="noopener noreferrer">
+        <a className={row} href={filesDocHref(null, agreement.pdf_url) ?? agreement.pdf_url} target="_blank" rel="noopener noreferrer">
           {agreement.agreement_type === 'repair' ? 'Repair agreement' : 'Installation agreement'} <span aria-hidden>↗</span>
         </a>
       ) : null}

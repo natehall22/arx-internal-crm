@@ -38,6 +38,7 @@ import ReviewRequestCard from '@/components/reviews/ReviewRequestCard'
 import { isReviewEligibleStatus } from '@/lib/review-requests'
 import { isSuperAdmin } from '@/lib/super-admin'
 import { redirectProjectToFile } from '@/lib/customer-file/redirects'
+import { filesDocHref, filesObjectHref } from '@/lib/files/files-object'
 
 export default async function ProjectDetailPage({
   params,
@@ -274,7 +275,7 @@ export default async function ProjectDetailPage({
   try {
     const { data: coData } = await supabase
       .from('job_change_orders')
-      .select('id, co_number, signed_at, updated_total, pdf_url, status, signing_token, customer_signed_at')
+      .select('id, co_number, signed_at, updated_total, pdf_url, pdf_storage_path, status, signing_token, customer_signed_at')
       .eq('project_id', params.id)
       .order('created_at', { ascending: true })
 
@@ -596,7 +597,7 @@ export default async function ProjectDetailPage({
               <h2 className="text-xl font-bold text-gray-900">{agreementLabel}</h2>
               {installationAgreement.pdf_url ? (
                 <a
-                  href={installationAgreement.pdf_url}
+                  href={filesDocHref(null, installationAgreement.pdf_url) ?? installationAgreement.pdf_url}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-2 px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700"
@@ -790,7 +791,7 @@ export default async function ProjectDetailPage({
             <div className="space-y-2 mt-4">
               {files && files.length > 0 ? (
                 files.map((file: any) => {
-                  const fileUrl = `${supabaseUrl}/storage/v1/object/public/files/${file.storage_path}`
+                  const fileUrl = filesObjectHref(file.storage_path) ?? `${supabaseUrl}/storage/v1/object/public/files/${file.storage_path}`
                   return (
                     <div key={file.id} className="flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50">
                       <div className="flex items-center gap-3">

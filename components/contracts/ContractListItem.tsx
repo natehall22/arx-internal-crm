@@ -1,5 +1,6 @@
 'use client'
 import { toast } from '@/components/ui/toast'
+import { filesDocHref } from '@/lib/files/files-object'
 
 interface ContractListItemProps {
   contract: {
@@ -21,6 +22,7 @@ export default function ContractListItem({ contract }: ContractListItemProps) {
   }
 
   const isCompleted = contract.status === 'completed'
+  const pdfHref = filesDocHref(null, contract.pdf_url) ?? contract.pdf_url ?? undefined
   const label =
     contract.agreement_type === 'contingency'
       ? 'Insurance Contingency'
@@ -65,7 +67,7 @@ export default function ContractListItem({ contract }: ContractListItemProps) {
           )}
           {isCompleted && contract.pdf_url ? (
             <a
-              href={contract.pdf_url}
+              href={pdfHref}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-2 px-3 py-1.5 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700"
@@ -78,7 +80,7 @@ export default function ContractListItem({ contract }: ContractListItemProps) {
           ) : contract.status === 'voided' && contract.customer_signed_at && contract.pdf_url ? (
             // Superseded by a later signature — kept (never deleted) so the executed copy stays retrievable.
             <a
-              href={contract.pdf_url}
+              href={pdfHref}
               target="_blank"
               rel="noopener noreferrer"
               className="text-sm font-medium text-[#2c2c2a] underline hover:no-underline"

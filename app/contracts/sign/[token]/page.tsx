@@ -1,6 +1,7 @@
 export const dynamic = 'force-dynamic'
 
 import { createServiceClient } from '@/lib/supabase/service'
+import { customerSignedDocPath } from '@/lib/files/files-object'
 import CustomerSigningForm from './CustomerSigningForm'
 
 export default async function ContractSigningPage({
@@ -73,7 +74,7 @@ export default async function ContractSigningPage({
           </p>
           {contract.pdf_url && (
             <a
-              href={contract.pdf_url}
+              href={customerSignedDocPath('contract', String(contract.signing_token))}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-2 mt-4 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
