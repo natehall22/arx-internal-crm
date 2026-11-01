@@ -11,9 +11,9 @@ describe('getDateRangeForTimeFrame', () => {
       expect(end).toBeInstanceOf(Date)
       expect(end.getTime()).toBeGreaterThan(start.getTime())
       
-      // End should be exactly 24 hours after start
+      // End is the next local midnight: 24 hours, or 23/25 on a DST change day (this failed every DST Sunday)
       const diffMs = end.getTime() - start.getTime()
-      expect(diffMs).toBe(24 * 60 * 60 * 1000)
+      expect([23, 24, 25].map((h) => h * 60 * 60 * 1000)).toContain(diffMs)
     })
 
     it('should have start time at midnight local time', () => {
