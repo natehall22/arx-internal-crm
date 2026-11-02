@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { storageSafeFileName } from '@/lib/files/files-object'
 import { requireAuthApi } from '@/lib/auth'
 import { resolveSalesDocAccessBarred } from '@/lib/sales-doc-access'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -118,7 +119,7 @@ export async function POST(
 
     // Upload file to storage
     const fileBuffer = Buffer.from(await file.arrayBuffer())
-    const storagePath = `org/${profile.org_id}/opportunities/${opportunityId}/contracts/${Date.now()}_${file.name}`
+    const storagePath = `org/${profile.org_id}/opportunities/${opportunityId}/contracts/${Date.now()}_${storageSafeFileName(file.name)}`
 
     const { error: uploadError } = await adminClient.storage
       .from('files')

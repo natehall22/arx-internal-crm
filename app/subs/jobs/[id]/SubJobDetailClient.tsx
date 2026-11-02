@@ -367,10 +367,10 @@ export default function SubJobDetailClient({ job, companyName }: SubJobDetailCli
         )}
 
         {/* Job Packet Download */}
-        {job.job_packet_pdf_path && (
+        {job.job_packet_pdf_path && filesObjectHref(job.job_packet_pdf_path) && (
           <div className="bg-white rounded-lg shadow-sm border p-4">
             <a
-              href={filesObjectHref(job.job_packet_pdf_path) ?? '#'}
+              href={filesObjectHref(job.job_packet_pdf_path) ?? undefined}
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center justify-center gap-2 w-full bg-gray-100 text-gray-700 py-3 rounded-lg font-medium hover:bg-gray-200 min-h-[44px]"

@@ -46,7 +46,14 @@ export async function GET(_request: Request, { params }: { params: { kind: strin
     const storedUrl = String(doc.pdf_url ?? '').trim()
     // The old contract-signing fallback uploaded to the `contracts` bucket when `files` failed; that URL is not a `files`
     // object, so keep sending the customer where they went before.
+    // Only ever redirect to our own Supabase storage origin, never to an arbitrary stored URL.
     if (storedUrl && /^https?:\/\//i.test(storedUrl) && !filesPathFromStoredUrl(storedUrl)) {
+      const supabaseOrigin = (() => {
+        try { return new URL(process.env.NEXT_PUBLIC_SUPABASE_URL ?? '').origin } catch { return null }
+      })()
+      let storedOrigin: string | null = null
+      try { storedOrigin = new URL(storedUrl).origin } catch { storedOrigin = null }
+      if (!supabaseOrigin || storedOrigin !== supabaseOrigin) return notFound()
       return NextResponse.redirect(storedUrl, { status: 302, headers: PRIVATE })
     }
 

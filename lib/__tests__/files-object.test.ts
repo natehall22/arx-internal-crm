@@ -163,3 +163,36 @@ describe('customer signed-document links', () => {
     )
   })
 })
+
+
+describe('encoded traversal and unsafe characters', () => {
+  const { isSafeFilesPath, filesPathFromStoredUrl, storageSafeFileName } = require('../files/files-object')
+  it.each([
+    'org/a/%2e%2e/%2e%2e/org/b/contracts/x.pdf',
+    'org/a/.%2e/org/b/x.pdf',
+    'org/a/%2E./org/b/x.pdf',
+    'proposals/a/%2e%2e/%2e%2e/org/b/contracts/x.pdf',
+    'org/a/x%2fy.pdf',
+    'org/a/x%5cy.pdf',
+  ])('refuses %s', (p: string) => {
+    expect(isSafeFilesPath(p)).toBe(false)
+    expect(filesPathFromStoredUrl(p, 'https://example.supabase.co')).toBeNull()
+  })
+  it.each(['org/a/x?y.pdf', 'org/a/x#y.pdf'])('refuses %s as a path to sign', (p: string) => {
+    // A bare stored value drops its query/fragment (stored ?t= cache busters), but the path itself is never signable.
+    expect(isSafeFilesPath(p)).toBe(false)
+  })
+  it('refuses a double-encoded traversal inside a stored public URL', () => {
+    expect(
+      filesPathFromStoredUrl(
+        'https://example.supabase.co/storage/v1/object/public/files/org/a/%252e%252e/org/b/x.pdf',
+        'https://example.supabase.co'
+      )
+    ).toBeNull()
+  })
+  it('makes upload names key-safe', () => {
+    expect(storageSafeFileName('Smith 50% #2?.pdf')).toBe('Smith_50_2_.pdf')
+    expect(storageSafeFileName('..secret')).toBe('_secret')
+    expect(isSafeFilesPath(`org/a/projects/p/1-${storageSafeFileName('a b%c.pdf')}`)).toBe(true)
+  })
+})

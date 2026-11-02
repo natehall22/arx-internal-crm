@@ -29,10 +29,15 @@ export const FILES_SIGNED_URL_TTL_SECONDS = 60 * 10
 const MAX_PATH_LENGTH = 1024
 const STORAGE_OBJECT_PATH_RE = /^\/storage\/v1\/(?:object|render\/image)\/(?:public|sign|authenticated)\/([^/]+)\/(.+)$/
 
-/** A storage path we are willing to sign: relative, no empty / dot segments, no control characters or backslashes. */
+/**
+ * A storage path we are willing to sign: relative, no empty / dot segments, no control characters, backslashes or `%`.
+ * `%` is refused outright: storage-js puts the path into the request URL unencoded, so `%2e%2e` would be resolved as `..`
+ * by the URL parser AFTER our checks and reach another org's object. Real object names never contain `%` (uploaders
+ * build them from UUIDs, timestamps and sanitized file names), and stored URLs are percent-decoded before this check.
+ */
 export function isSafeFilesPath(path: string): boolean {
   if (!path || path.length > MAX_PATH_LENGTH) return false
-  if (/[\u0000-\u001f\u007f\\]/.test(path)) return false
+  if (/[\u0000-\u001f\u007f\\%?#]/.test(path)) return false
   const segments = path.split('/')
   return segments.every((s) => s.length > 0 && s !== '.' && s !== '..')
 }
@@ -82,6 +87,14 @@ export function filesPathFromStoredUrl(
   if (raw.startsWith('/') || raw.startsWith('//')) return null
   const path = raw.split(/[?#]/)[0]
   return isSafeFilesPath(path) ? path : null
+}
+
+/** A file name safe to use inside a `files` object key: letters, digits, dot, dash and underscore only (everything else,
+ *  including `%`, `?` and `#`, becomes `_`), so the object can always pass `isSafeFilesPath`. Keep the original name in
+ *  the row's display column, not the key. */
+export function storageSafeFileName(name: string | null | undefined): string {
+  const cleaned = String(name ?? '').replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^\.+/, '_').slice(0, 180)
+  return cleaned || 'file'
 }
 
 /** Same-origin link to a `files` object through the authorized read route, or null when the value is not one. */

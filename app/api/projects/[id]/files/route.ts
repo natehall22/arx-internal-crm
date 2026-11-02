@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { storageSafeFileName } from '@/lib/files/files-object'
 import { requireAuthApi } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 
@@ -45,7 +46,7 @@ export async function POST(
       return NextResponse.json({ error: 'Project not found' }, { status: 404 })
     }
 
-    const safeFileName = file.name.replace(/\s+/g, '_')
+    const safeFileName = storageSafeFileName(file.name)
     const storagePath = `org/${profile.org_id}/projects/${projectId}/${Date.now()}-${safeFileName}`
 
     const { error: uploadError } = await supabase.storage

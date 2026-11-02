@@ -49,7 +49,7 @@ import {
   filtersFromSearchParams,
 } from '@/lib/opportunity-list-filters'
 import PhoneLink from '@/components/PhoneLink'
-import { filesObjectHref } from '@/lib/files/files-object'
+import { filesObjectHref, classifyFilesPath, fieldRoleMayReadFilesPath } from '@/lib/files/files-object'
 
 /** The opportunity page body, shared by /opportunities/[id] and the Customer File's Sales tab. */
 export default async function OpportunityView({
@@ -290,8 +290,15 @@ export default async function OpportunityView({
     .select('*')
     .eq('opportunity_id', params.id)
     .order('created_at', { ascending: false })
+  // Same rule as /api/files/object: barred viewers would get a 404 on contract uploads, so don't list them.
+  const visibleFiles = (files ?? []).filter((file: any) => {
+    if (!isSalesDocBarredViewer) return true
+    const c = classifyFilesPath(String(file?.storage_path ?? ''))
+    return c ? fieldRoleMayReadFilesPath(c) : false
+  })
 
-  const designPdfUrl = opportunity.design_pdf_path
+  // Design PDFs are sales docs: barred viewers (setters / inside sales) don't get a signed link.
+  const designPdfUrl = opportunity.design_pdf_path && !isSalesDocBarredViewer
     ? (
         await supabase.storage
           .from('files')
@@ -1426,8 +1433,8 @@ export default async function OpportunityView({
           <div className="bg-white shadow rounded-lg p-6">
             <h2 className="text-xl font-bold text-gray-900 mb-4">Files</h2>
             <div className="space-y-2">
-              {files && files.length > 0 ? (
-                files.map((file: any) => {
+              {visibleFiles.length > 0 ? (
+                visibleFiles.map((file: any) => {
                   const fileUrl = filesObjectHref(file.storage_path) ?? `${supabaseUrl}/storage/v1/object/public/files/${file.storage_path}`
                   return (
                     <div key={file.id} className="flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50">
