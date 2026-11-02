@@ -111,11 +111,12 @@ describe('getDateRangeForTimeFrame', () => {
   })
 
   describe('yesterday', () => {
-    it('should return 24-hour range for yesterday', () => {
+    it('should return a one-local-day range for yesterday', () => {
       const { start, end } = getDateRangeForTimeFrame('yesterday', timezone)
       
+      // Midnight to midnight: 24 hours, or 23/25 the day after a DST change (failed on 2026-11-02)
       const diffMs = end.getTime() - start.getTime()
-      expect(diffMs).toBe(24 * 60 * 60 * 1000)
+      expect([23, 24, 25].map((h) => h * 60 * 60 * 1000)).toContain(diffMs)
     })
   })
 
@@ -124,7 +125,8 @@ describe('getDateRangeForTimeFrame', () => {
       const { start, end } = getDateRangeForTimeFrame('last_week', timezone)
       
       const diffMs = end.getTime() - start.getTime()
-      expect(diffMs).toBe(7 * 24 * 60 * 60 * 1000)
+      // 7 local days: 168 hours, or 167/169 when the window spans a DST change
+      expect([167, 168, 169].map((h) => h * 60 * 60 * 1000)).toContain(diffMs)
     })
 
     it('should start on Sunday of last week', () => {
