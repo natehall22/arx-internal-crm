@@ -35,6 +35,11 @@ export type JobSoldScopeRoofMeasureLf = {
   drip_edge_lf?: number | null
   /** e.g. "6/12". Not an LF, but it rides here so every sheet reads pitch off the same row. */
   predominant_pitch?: string | null
+  /**
+   * True when the roof measure saved with sections whose downslope was never set, so ridge / hip /
+   * valley LF may be split wrong (job 26-0048: 22 LF ridge saved, ~50 LF real → 4 vent sticks, not 12).
+   */
+  ridge_hip_valley_unverified?: boolean
 }
 
 /** Extra measurement-derived inputs for the ops materials order list (all optional/additive). */
@@ -96,6 +101,24 @@ export function positiveWastePercent(value: unknown): number | null {
   return Math.round(n * 10) / 10
 }
 
+/** Text the roof-measure tool saves in validation_notes when sections still need a downslope arrow. */
+export const DOWNSLOPE_PENDING_NOTE_TEXT = 'may need manual downslope'
+
+/**
+ * Whether the measurement's ridge / hip / valley split was saved unverified. New saves carry
+ * `downslope_review_pending` (count of sections); older rows only have the validation note.
+ */
+export function ridgeHipValleyUnverified(raw: Record<string, unknown> | null): boolean {
+  if (!raw) return false
+  const pending = raw.downslope_review_pending
+  if (typeof pending === 'number' && Number.isFinite(pending)) return pending > 0
+  const notes = raw.validation_notes
+  return (
+    Array.isArray(notes) &&
+    notes.some((n) => typeof n === 'string' && n.includes(DOWNSLOPE_PENDING_NOTE_TEXT))
+  )
+}
+
 export function buildRoofMeasurementLinear(
   row: JobRoofMeasurementRow | null
 ): JobSoldScopeRoofMeasureLf | null {
@@ -130,6 +153,7 @@ export function buildRoofMeasurementLinear(
       typeof row.predominant_pitch === 'string' && row.predominant_pitch.trim()
         ? row.predominant_pitch.trim()
         : null,
+    ridge_hip_valley_unverified: ridgeHipValleyUnverified(raw),
   }
 
   const hasNumeric =
