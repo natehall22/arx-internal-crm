@@ -94,6 +94,16 @@ export function storageSafeFileName(name: string | null | undefined): string {
   return cleaned || 'file'
 }
 
+/** Link for an image that may be a `files` object or an external http(s) URL (e.g. a satellite image): the signed-read
+ *  route for `files` objects, the URL itself for other hosts, null for anything else (an unsafe bare path never becomes a
+ *  broken relative link). */
+export function filesObjectHrefOrExternal(value: string | null | undefined): string | null {
+  const href = filesObjectHref(value)
+  if (href) return href
+  const raw = String(value ?? '').trim()
+  return /^https?:\/\//i.test(raw) && !filesPathFromStoredUrl(raw) && !/\/storage\/v1\/object\/(public|sign|authenticated)\/files\//i.test(raw) ? raw : null
+}
+
 /** Same-origin link to a `files` object through the authorized read route, or null when the value is not one. */
 export function filesObjectHref(urlOrPath: string | null | undefined): string | null {
   const path = filesPathFromStoredUrl(urlOrPath)

@@ -168,7 +168,7 @@ export default function ChangeOrdersSection({
                 </button>
               ) : co.pdf_url ? (
                 <a
-                  href={filesDocHref(co.pdf_storage_path, co.pdf_url) ?? co.pdf_url}
+                  href={filesDocHref(co.pdf_storage_path, co.pdf_url) ?? undefined}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-2 px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 min-h-[44px]"

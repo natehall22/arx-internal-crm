@@ -2672,7 +2672,7 @@ export default function JobDetailClient({
                 {job.installation_agreement && job.installation_agreement.status === 'completed' && (
                   job.installation_agreement.pdf_url ? (
                     <a
-                      href={filesDocHref(null, job.installation_agreement.pdf_url) ?? job.installation_agreement.pdf_url}
+                      href={filesDocHref(null, job.installation_agreement.pdf_url) ?? undefined}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="min-h-[44px] flex items-center gap-2 px-3 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 mb-3"

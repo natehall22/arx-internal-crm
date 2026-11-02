@@ -22,7 +22,7 @@ export default function ContractListItem({ contract }: ContractListItemProps) {
   }
 
   const isCompleted = contract.status === 'completed'
-  const pdfHref = filesDocHref(null, contract.pdf_url) ?? contract.pdf_url ?? undefined
+  const pdfHref = filesDocHref(null, contract.pdf_url) ?? undefined
   const label =
     contract.agreement_type === 'contingency'
       ? 'Insurance Contingency'

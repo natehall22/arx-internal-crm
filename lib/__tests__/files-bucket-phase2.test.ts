@@ -189,3 +189,15 @@ describe('no app code builds a files-bucket public URL', () => {
     expect(hits.map((f) => path.relative(process.cwd(), f))).toEqual([])
   })
 })
+
+
+describe('filesObjectHrefOrExternal', () => {
+  const { filesObjectHrefOrExternal } = require('../files/files-object')
+  it('routes files objects, passes other hosts, refuses unsafe bare paths', () => {
+    expect(filesObjectHrefOrExternal('proposals/org1/p1/cover.jpg')).toMatch(/^\/api\/files\/object\?path=/)
+    expect(filesObjectHrefOrExternal('https://maps.googleapis.com/maps/api/staticmap?x=1')).toBe('https://maps.googleapis.com/maps/api/staticmap?x=1')
+    expect(filesObjectHrefOrExternal('org/a/%2e%2e/b.png')).toBeNull()
+    expect(filesObjectHrefOrExternal('')).toBeNull()
+    expect(filesObjectHrefOrExternal(null)).toBeNull()
+  })
+})

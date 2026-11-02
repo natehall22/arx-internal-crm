@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { storageSafeFileName } from '@/lib/files/files-object'
 import { requireAuthApi } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
+import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
 
@@ -49,7 +50,11 @@ export async function POST(
     const safeFileName = storageSafeFileName(file.name)
     const storagePath = `org/${profile.org_id}/projects/${projectId}/${Date.now()}-${safeFileName}`
 
-    const { error: uploadError } = await supabase.storage
+    // Storage writes use the service client: the `files` bucket has no user-level storage
+    // policies (a signed-in user could otherwise overwrite or delete any org/<org>/ object,
+    // including signed contracts). Authorization is the RLS-bound project lookup above.
+    const storage = createServiceClient().storage
+    const { error: uploadError } = await storage
       .from('files')
       .upload(storagePath, file, {
         contentType: file.type || 'application/octet-stream',
@@ -97,7 +102,7 @@ export async function POST(
 
     if (!inserted) {
       // Keep storage clean if metadata insert fails on all schema variants.
-      await supabase.storage.from('files').remove([storagePath])
+      await storage.from('files').remove([storagePath])
       return NextResponse.json(
         { error: lastInsertError?.message || 'Failed to save file record' },
         { status: 500 }

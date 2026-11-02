@@ -596,7 +596,7 @@ export default async function ProjectDetailPage({
               <h2 className="text-xl font-bold text-gray-900">{agreementLabel}</h2>
               {installationAgreement.pdf_url ? (
                 <a
-                  href={filesDocHref(null, installationAgreement.pdf_url) ?? installationAgreement.pdf_url}
+                  href={filesDocHref(null, installationAgreement.pdf_url) ?? undefined}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-2 px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700"

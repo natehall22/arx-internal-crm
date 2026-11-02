@@ -138,7 +138,7 @@ export async function GET(
     // Get company info
     const { data: company } = await adminClient
       .from('orgs')
-      .select('name, logo_url, phone, email, address, website')
+      .select('name, logo_url, settings, phone, email, address, website')
       .eq('id', profile.org_id)
       .single()
 
@@ -177,7 +177,8 @@ export async function GET(
       proposal: proposalForClient,
       lineItems: lineItems || [],
       // Logo as a link through the public logo route (the browser PDF builder fetches it), never a `files` public URL.
-      company: company ? { ...company, logo_url: orgLogoHref(profile.org_id, company) } : company,
+      // `settings` is read only to find an older logo value; never send it to the browser.
+      company: company ? { ...omitSettings(company), logo_url: orgLogoHref(profile.org_id, company) } : company,
       rep: proposalForClient.users,
       measurement,
       has_completed_installation_contract: Boolean(signedSaleAgreement),
@@ -518,4 +519,9 @@ export async function DELETE(
       error: error instanceof Error ? error.message : 'Failed to delete proposal' 
     }, { status: 500 })
   }
+}
+
+function omitSettings<T extends { settings?: unknown }>(row: T): Omit<T, 'settings'> {
+  const { settings: _settings, ...rest } = row
+  return rest
 }

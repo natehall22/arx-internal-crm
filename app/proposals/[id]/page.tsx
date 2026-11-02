@@ -14,7 +14,7 @@ import { resolveContractTotalSquares } from '@/lib/sold-roof-squares'
 import { toast } from '@/components/ui/toast'
 import { confirmDialog } from '@/components/ui/confirm-dialog'
 import PhoneLink from '@/components/PhoneLink'
-import { filesObjectHref } from '@/lib/files/files-object'
+import { filesObjectHref, filesObjectHrefOrExternal } from '@/lib/files/files-object'
 
 interface Proposal {
   id: string
@@ -240,7 +240,7 @@ export default function ProposalDetailPage() {
     try {
       // Use custom cover image if set, otherwise fall back to satellite image
       // A `files`-bucket cover goes through the signed-read route (same origin, session cookie); anything else as stored.
-      let propertyImageUrl = filesObjectHref(proposal.cover_image_url) ?? (proposal.cover_image_url || undefined)
+      let propertyImageUrl = filesObjectHrefOrExternal(proposal.cover_image_url) ?? undefined
       
       if (!propertyImageUrl) {
         // Generate satellite image URL as fallback
@@ -271,7 +271,9 @@ export default function ProposalDetailPage() {
           console.log('PDF Generation - Logo converted to base64 successfully')
           companyForPdf.logo_url = logoBase64
         } else {
+          // A relative /api/org-logo URL would make react-pdf fail the whole render; drop the logo instead.
           console.log('PDF Generation - Failed to convert logo to base64')
+          if (companyForPdf) delete companyForPdf.logo_url
         }
       }
       console.log('PDF Generation - Company for PDF:', companyForPdf)
@@ -746,7 +748,7 @@ export default function ProposalDetailPage() {
                   <>
                     <img
                       key={proposal.cover_image_url}
-                      src={filesObjectHref(proposal.cover_image_url) ?? proposal.cover_image_url}
+                      src={filesObjectHrefOrExternal(proposal.cover_image_url) ?? undefined}
                       alt={`Property at ${proposal.customer_address}`}
                       className="w-full h-64 object-cover"
                       onError={(e) => {
@@ -1388,7 +1390,7 @@ export default function ProposalDetailPage() {
                       <label className="block text-sm font-medium text-gray-700 mb-2">Current Image</label>
                       <div className="rounded-lg overflow-hidden border border-gray-200">
                         <img
-                          src={filesObjectHref(proposal.cover_image_url) ?? proposal.cover_image_url}
+                          src={filesObjectHrefOrExternal(proposal.cover_image_url) ?? undefined}
                           alt="Current property"
                           className="w-full h-40 object-cover"
                         />

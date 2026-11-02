@@ -331,7 +331,7 @@ export default function SubJobDetailClient({ job, companyName }: SubJobDetailCli
                 const fileUrl = filesObjectHref(file.storage_path)
                 if (!fileUrl) {
                   return (
-                    <div key={file.id} className="aspect-square bg-gray-100 rounded flex items-center justify-center p-2">
+                    <div key={file.id} className="aspect-square overflow-hidden bg-gray-100 rounded flex items-center justify-center p-2">
                       <p className="text-sm text-[#4b4b48] text-center break-words">{file.file_name} (not available)</p>
                     </div>
                   )

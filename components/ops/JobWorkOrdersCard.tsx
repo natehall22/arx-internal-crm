@@ -250,8 +250,8 @@ export default function JobWorkOrdersCard({ jobId, projectId }: JobWorkOrdersCar
               {showCompleted && (
                 <div className="mt-3 space-y-4">
                   {completedWorkOrders.map(wo => {
-                    const workDonePhotos = wo.photos?.filter(p => p.photo_type === 'work_done') || []
-                    const cleanupPhotos = wo.photos?.filter(p => p.photo_type === 'cleanup') || []
+                    const workDonePhotos = wo.photos?.filter(p => p.photo_type === 'work_done' && workOrderPhotoHref(p.storage_path)) || []
+                    const cleanupPhotos = wo.photos?.filter(p => p.photo_type === 'cleanup' && workOrderPhotoHref(p.storage_path)) || []
                     const completedByName = getCompletedByName(wo)
                     
                     return (
@@ -304,7 +304,7 @@ export default function JobWorkOrdersCard({ jobId, projectId }: JobWorkOrdersCar
                                   Work Done Photos ({workDonePhotos.length})
                                 </p>
                                 <div className="grid grid-cols-4 gap-1">
-                                  {workDonePhotos.slice(0, 4).filter(photo => workOrderPhotoHref(photo.storage_path)).map(photo => (
+                                  {workDonePhotos.slice(0, 4).map(photo => (
                                     <a
                                       key={photo.id}
                                       href={workOrderPhotoHref(photo.storage_path) ?? undefined}
@@ -337,7 +337,7 @@ export default function JobWorkOrdersCard({ jobId, projectId }: JobWorkOrdersCar
                                   Cleanup Photos ({cleanupPhotos.length})
                                 </p>
                                 <div className="grid grid-cols-4 gap-1">
-                                  {cleanupPhotos.slice(0, 4).filter(photo => workOrderPhotoHref(photo.storage_path)).map(photo => (
+                                  {cleanupPhotos.slice(0, 4).map(photo => (
                                     <a
                                       key={photo.id}
                                       href={workOrderPhotoHref(photo.storage_path) ?? undefined}
