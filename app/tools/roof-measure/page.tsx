@@ -31,6 +31,7 @@ import {
   drainSourceLabel,
   enrichFacetDrainDefaults,
   needsDrainReview,
+  isDownslopePending,
   snapAzimuthDegrees,
 } from '@/lib/roof-measure-drain-overlay'
 import { classifyRoofEdgesWithOptionalPlanes } from '@/lib/roof-plane-edge-classification'
@@ -555,6 +556,8 @@ export default function RoofMeasurePage() {
   const prevFacetCountForAutoExpandRef = useRef(0)
   const sectionListItemRefs = useRef<Map<string, HTMLDivElement>>(new Map())
   const facetsRef = useRef<RoofFacet[]>([])
+  /** Set while the save prompt / request runs so a second tap can't start another save. */
+  const saveInFlightRef = useRef(false)
   const linearFeaturesRef = useRef<LinearFeature[]>([])
   const penetrationCountsRef = useRef({ penetration_count: 0, chimney_count: 0, skylight_count: 0 })
   const polylinesRef = useRef<Map<string, any>>(new Map())
@@ -3256,8 +3259,8 @@ export default function RoofMeasurePage() {
       ridgesLf: measuredRidges,
       facetCount,
     }
-    const facetsPendingDrainReview = currentFacets.filter(
-      (facet) => needsDrainReview(facet, drainReviewContext) && facet.drain_azimuth_source !== 'manual'
+    const facetsPendingDrainReview = currentFacets.filter((facet) =>
+      isDownslopePending(facet, drainReviewContext)
     )
     if (facetsPendingDrainReview.length > 0) {
       validationNotes.push(
@@ -3425,24 +3428,33 @@ export default function RoofMeasurePage() {
     // vent sticks instead of ~12). Make the rep look before it reaches the proposal and the order.
     const pendingDownslope = measurements.downslope_review_pending ?? 0
     if (pendingDownslope > 0) {
-      const saveAnyway = await confirmDialog({
-        title: `Set downslope on ${pendingDownslope} section${pendingDownslope === 1 ? '' : 's'}?`,
-        description:
-          'Without the downslope arrows, ridge, hip and valley footage can be wrong — that sets ridge vent and cap on the order. Saving anyway flags ridge vent and cap as "confirm" on the materials order.',
-        confirmLabel: 'Save anyway',
-        cancelLabel: 'Fix downslope',
-      })
+      if (saveInFlightRef.current) return
+      saveInFlightRef.current = true
+      let saveAnyway = false
+      try {
+        saveAnyway = await confirmDialog({
+          title: `Set downslope on ${pendingDownslope} section${pendingDownslope === 1 ? '' : 's'}?`,
+          description:
+            'Without the downslope arrows, ridge, hip and valley footage can be wrong — that sets ridge vent and cap on the order. Saving anyway flags ridge vent and cap as "confirm" on the materials order.',
+          confirmLabel: 'Save anyway',
+          cancelLabel: 'Fix downslope',
+        })
+      } finally {
+        saveInFlightRef.current = false
+      }
       if (!saveAnyway) {
-        const firstPending = facetsRef.current.find(
-          (facet) =>
-            facet.drain_azimuth_source !== 'manual' &&
-            needsDrainReview(facet, getDrainReviewContext(measurements))
+        const firstPending = facetsRef.current.find((facet) =>
+          isDownslopePending(facet, getDrainReviewContext(measurements))
         )
-        closeSaveModal()
-        if (firstPending) {
-          setSelectedFacet(firstPending.id)
-          setIsAdjustingDrain(true)
+        if (!firstPending) {
+          toast('Open each section and set its downslope arrow toward the eave.')
+          return
         }
+        // Keep any overlap reason already typed — only hide the modals.
+        setShowSaveModal(false)
+        setShowOverlapOverrideConfirm(false)
+        selectFacet(firstPending.id) // scrolls it into view; resets adjusting, so set it after
+        setIsAdjustingDrain(true)
         return
       }
     }

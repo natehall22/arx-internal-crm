@@ -79,6 +79,26 @@ export function needsDrainReview(
   return false
 }
 
+/**
+ * A section whose ridge / hip / valley split still depends on a guessed downslope: it needs review
+ * and nobody set the arrow (manual) and lidar didn't measure it (dsm). The save count, the
+ * validation note and the save prompt all use this so they can't disagree.
+ */
+export function isDownslopePending(
+  facet: FacetDrainFields,
+  context: Parameters<typeof needsDrainReview>[1]
+): boolean {
+  if (facet.drain_azimuth_source === 'manual') return false
+  if (
+    facet.drain_azimuth_source === 'dsm' &&
+    facet.drain_azimuth_degrees != null &&
+    Number.isFinite(facet.drain_azimuth_degrees)
+  ) {
+    return false
+  }
+  return needsDrainReview(facet, context)
+}
+
 export function enrichFacetDrainDefaults<T extends FacetDrainFields>(
   facet: T,
   allFacets: FacetDrainFields[]
