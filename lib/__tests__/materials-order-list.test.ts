@@ -87,6 +87,30 @@ describe('buildMaterialsOrderList', () => {
     expect(vent.qty).toContain('24 LF') // 30 - 6, single-run fallback
   })
 
+  it('flags ridge vent + cap "confirm" when the measure saved without downslope (job 26-0048)', () => {
+    // Saved 22 LF ridge, hips 0; ~50 LF was real → 4 vent sticks went out instead of ~12.
+    const unverified = buildMaterialsOrderList({
+      totalSquaresWithWaste: 28,
+      linear: { ...hartLinear, ridges_lf: 22, hips_lf: 0, ridge_hip_valley_unverified: true },
+    })
+    const vent = unverified.find((i) => i.key === 'ridge_vent')!
+    const cap = unverified.find((i) => i.key === 'hip_ridge_cap')!
+    expect(vent.qty).toContain('4 pieces') // the math itself is unchanged
+    expect(vent.status).toBe('confirm')
+    expect(vent.note).toMatch(/ridge/i)
+    expect(cap.status).toBe('confirm')
+    expect(cap.note).toMatch(/ridge/i)
+  })
+
+  it('keeps ridge vent + cap "ready" when the ridge LF is verified', () => {
+    const verified = buildMaterialsOrderList({
+      totalSquaresWithWaste: 28,
+      linear: { ...hartLinear, ridges_lf: 46, ridge_hip_valley_unverified: false },
+    })
+    expect(verified.find((i) => i.key === 'ridge_vent')!.status).toBe('ready')
+    expect(verified.find((i) => i.key === 'hip_ridge_cap')!.status).toBe('ready')
+  })
+
   it('auto-computes ice & water for low-slope area', () => {
     const lowSlope = buildMaterialsOrderList({
       totalSquaresWithWaste: 20,

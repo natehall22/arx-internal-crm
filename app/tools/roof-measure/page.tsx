@@ -31,6 +31,7 @@ import {
   drainSourceLabel,
   enrichFacetDrainDefaults,
   needsDrainReview,
+  isDownslopePending,
   snapAzimuthDegrees,
 } from '@/lib/roof-measure-drain-overlay'
 import { classifyRoofEdgesWithOptionalPlanes } from '@/lib/roof-plane-edge-classification'
@@ -198,6 +199,11 @@ interface MeasurementData {
   lf_slope_corrected?: boolean
   quote_ready?: boolean
   linear_review_status?: 'measured' | 'missing'
+  /**
+   * Sections still flagged for a downslope arrow at save. Ridge / hip / valley LF can be split
+   * wrong until they're set — the materials order marks ridge vent + cap "confirm" when > 0.
+   */
+  downslope_review_pending?: number
   measurement_confidence: 'high' | 'medium' | 'low'
   validation_notes: string[]
   unclassified_shared_lf?: number
@@ -550,6 +556,8 @@ export default function RoofMeasurePage() {
   const prevFacetCountForAutoExpandRef = useRef(0)
   const sectionListItemRefs = useRef<Map<string, HTMLDivElement>>(new Map())
   const facetsRef = useRef<RoofFacet[]>([])
+  /** Set while the save prompt / request runs so a second tap can't start another save. */
+  const saveInFlightRef = useRef(false)
   const linearFeaturesRef = useRef<LinearFeature[]>([])
   const penetrationCountsRef = useRef({ penetration_count: 0, chimney_count: 0, skylight_count: 0 })
   const polylinesRef = useRef<Map<string, any>>(new Map())
@@ -3251,8 +3259,8 @@ export default function RoofMeasurePage() {
       ridgesLf: measuredRidges,
       facetCount,
     }
-    const facetsPendingDrainReview = currentFacets.filter(
-      (facet) => needsDrainReview(facet, drainReviewContext) && facet.drain_azimuth_source !== 'manual'
+    const facetsPendingDrainReview = currentFacets.filter((facet) =>
+      isDownslopePending(facet, drainReviewContext)
     )
     if (facetsPendingDrainReview.length > 0) {
       validationNotes.push(
@@ -3309,6 +3317,7 @@ export default function RoofMeasurePage() {
       lf_slope_corrected: true,
       quote_ready: quoteReady,
       linear_review_status: hasMeasuredLinework ? 'measured' : 'missing',
+      downslope_review_pending: facetsPendingDrainReview.length,
       measurement_confidence: confidence,
       validation_notes: validationNotes,
       unclassified_shared_lf: baseEdges.unclassified_shared_lf,
@@ -3413,6 +3422,41 @@ export default function RoofMeasurePage() {
     if (solarOverlap.blocksSave && !options?.overlapOverride) {
       toast('Fix overlapping roof sections before saving. Check the validation notes panel for details.')
       return
+    }
+
+    // Unset downslope arrows can put ridge footage in the wrong bucket (job 26-0048 ordered 4 ridge
+    // vent sticks instead of ~12). Make the rep look before it reaches the proposal and the order.
+    const pendingDownslope = measurements.downslope_review_pending ?? 0
+    if (pendingDownslope > 0) {
+      if (saveInFlightRef.current) return
+      saveInFlightRef.current = true
+      let saveAnyway = false
+      try {
+        saveAnyway = await confirmDialog({
+          title: `Set downslope on ${pendingDownslope} section${pendingDownslope === 1 ? '' : 's'}?`,
+          description:
+            'Without the downslope arrows, ridge, hip and valley footage can be wrong — that sets ridge vent and cap on the order. Saving anyway flags ridge vent and cap as "confirm" on the materials order.',
+          confirmLabel: 'Save anyway',
+          cancelLabel: 'Fix downslope',
+        })
+      } finally {
+        saveInFlightRef.current = false
+      }
+      if (!saveAnyway) {
+        const firstPending = facetsRef.current.find((facet) =>
+          isDownslopePending(facet, getDrainReviewContext(measurements))
+        )
+        if (!firstPending) {
+          toast('Open each section and set its downslope arrow toward the eave.')
+          return
+        }
+        // Keep any overlap reason already typed — only hide the modals.
+        setShowSaveModal(false)
+        setShowOverlapOverrideConfirm(false)
+        selectFacet(firstPending.id) // scrolls it into view; resets adjusting, so set it after
+        setIsAdjustingDrain(true)
+        return
+      }
     }
 
     const overlapOverride =

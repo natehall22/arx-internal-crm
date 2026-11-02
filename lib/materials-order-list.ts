@@ -47,7 +47,13 @@ export type MaterialsOrderLinear = {
   step_flashing_lf: number | null
   wall_flashing_lf: number | null
   drip_edge_lf?: number | null
+  /** Roof measure saved without downslope set — ridge LF (vent + cap) needs a check before ordering. */
+  ridge_hip_valley_unverified?: boolean
 }
+
+/** Note on ridge-driven rows when the roof measure's ridge / hip split was never verified. */
+export const RIDGE_LF_UNVERIFIED_NOTE =
+  "Ridge length wasn't verified on the roof measure (downslope not set) — check ridge LF before ordering."
 
 export type MaterialsOrderInput = {
   /** Sold total squares including waste (the "19.1 sq total" number). */
@@ -78,6 +84,7 @@ function fmtLf(n: number): string {
 export const MATERIALS_ORDER_STARTER_CUSHION_PERCENT = 5
 
 export function buildMaterialsOrderList(input: MaterialsOrderInput): MaterialsOrderItem[] {
+  const ridgeUnverified = input.linear?.ridge_hip_valley_unverified === true
   const items: MaterialsOrderItem[] = []
   const linear = input.linear
   const totalSq = pos(input.totalSquaresWithWaste)
@@ -155,8 +162,8 @@ export function buildMaterialsOrderList(input: MaterialsOrderInput): MaterialsOr
       label: 'Hip & ridge cap',
       qty: bundles != null ? `${cap.capSq.toFixed(2)} sq · ${bundles} bundles` : `${cap.capSq.toFixed(2)} sq`,
       detail: `ridge ${fmtLf(pos(linear.ridges_lf))} LF + hip ${fmtLf(pos(linear.hips_lf))} LF = ${cap.combinedLf.toFixed(1)} LF`,
-      status: 'ready',
-      note: null,
+      status: ridgeUnverified ? 'confirm' : 'ready',
+      note: ridgeUnverified ? RIDGE_LF_UNVERIFIED_NOTE : null,
     })
   }
 
@@ -181,8 +188,8 @@ export function buildMaterialsOrderList(input: MaterialsOrderInput): MaterialsOr
       label: 'Ridge vent',
       qty: pieces > 0 ? `${fmtLf(ventLf)} LF · ${pieces} pieces` : '0 LF',
       detail: `ridge ${fmtLf(ridgesLf)} LF − ${cov.ridgeVentEndSetbackFt}' each end${segmentNote} @ ${cov.ridgeVentLfPerPiece}' pieces`,
-      status: 'ready',
-      note: null,
+      status: ridgeUnverified ? 'confirm' : 'ready',
+      note: ridgeUnverified ? RIDGE_LF_UNVERIFIED_NOTE : null,
     })
   }
 
