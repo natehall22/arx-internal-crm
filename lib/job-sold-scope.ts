@@ -101,22 +101,15 @@ export function positiveWastePercent(value: unknown): number | null {
   return Math.round(n * 10) / 10
 }
 
-/** Text the roof-measure tool saves in validation_notes when sections still need a downslope arrow. */
-export const DOWNSLOPE_PENDING_NOTE_TEXT = 'may need manual downslope'
-
 /**
- * Whether the measurement's ridge / hip / valley split was saved unverified. New saves carry
- * `downslope_review_pending` (count of sections); older rows only have the validation note.
+ * Whether the measurement's ridge / hip / valley split was saved unverified. Only measurements
+ * saved with `downslope_review_pending` count — older rows are deliberately not read off their
+ * validation note, because flipping lines on already-sent supplier orders would make every one
+ * of those POs look changed and send as a revision.
  */
 export function ridgeHipValleyUnverified(raw: Record<string, unknown> | null): boolean {
-  if (!raw) return false
-  const pending = raw.downslope_review_pending
-  if (typeof pending === 'number' && Number.isFinite(pending)) return pending > 0
-  const notes = raw.validation_notes
-  return (
-    Array.isArray(notes) &&
-    notes.some((n) => typeof n === 'string' && n.includes(DOWNSLOPE_PENDING_NOTE_TEXT))
-  )
+  const pending = raw?.downslope_review_pending
+  return typeof pending === 'number' && Number.isFinite(pending) && pending > 0
 }
 
 export function buildRoofMeasurementLinear(

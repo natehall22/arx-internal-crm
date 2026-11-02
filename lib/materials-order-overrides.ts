@@ -1,4 +1,4 @@
-import type { MaterialsOrderItem } from '@/lib/materials-order-list'
+import { RIDGE_LF_UNVERIFIED_NOTE, type MaterialsOrderItem } from '@/lib/materials-order-list'
 
 export type JobMaterialOrderOverrideRow = {
   id: string
@@ -46,11 +46,15 @@ export function applyMaterialOrderOverrides(
     const hasQtyOverride = override?.qty_text != null && override.qty_text.trim() !== ''
     const hasNoteOverride = override?.note != null && override.note.trim() !== ''
     const isEdited = isExcluded || hasQtyOverride || hasNoteOverride
+    // Ops typing a qty on a ridge row flagged "check ridge LF" is the check — it orders as normal
+    // and the warning doesn't go to the supplier.
+    const ridgeChecked = hasQtyOverride && item.note === RIDGE_LF_UNVERIFIED_NOTE
 
     return {
       ...item,
+      status: ridgeChecked ? 'ready' : item.status,
       qty: isExcluded ? null : hasQtyOverride ? override!.qty_text!.trim() : item.qty,
-      note: hasNoteOverride ? override!.note!.trim() : item.note,
+      note: hasNoteOverride ? override!.note!.trim() : ridgeChecked ? null : item.note,
       computedQty: item.qty,
       computedDetail: item.detail,
       computedNote: item.note,
