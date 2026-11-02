@@ -150,7 +150,7 @@ const SCREENS: Screen[] = [
       { name: 'mention-picker', run: async (p) => { await p.getByLabel('Message').fill('@Ril'); await p.waitForSelector('text=Riley Ops') } },
     ] },
   { name: 'list-work-orders', path: '/dev-harness/work-orders', ready: 'text=WO-0015 >> visible=true',
-    states: [{ name: 'done-view', run: async (p) => { await p.getByLabel('Saved views').selectOption({ label: 'Done' }); await p.getByText('WO-0012', { exact: true }).locator('visible=true').first().waitFor() } }] },
+    states: [{ name: 'done-view', run: async (p) => { await expect(async () => { await p.getByLabel('Saved views').selectOption({ label: 'Done' }); await expect(p.getByText('WO-0012', { exact: true }).locator('visible=true').first()).toBeVisible({ timeout: 2_000 }) }).toPass({ timeout: 30_000 }) } }] },
   { name: 'list-customers', path: '/dev-harness/customers', ready: 'text=Ashley Gaines >> visible=true',
     states: [{ name: 'prospects', run: async (p) => { await p.getByLabel('Saved views').selectOption({ label: 'Prospects (not sold yet)' }); await p.waitForSelector('text=Dana Whitfield >> visible=true') } }] },
   { name: 'list-proposals', path: '/dev-harness/proposals', ready: 'text=P-00121 >> visible=true' },
