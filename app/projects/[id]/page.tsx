@@ -56,7 +56,6 @@ export default async function ProjectDetailPage({
   ) {
     notFound()
   }
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
 
   const viewAllProjects = canViewAllProjects(profile.role)
   const viewManagedProjects = !viewAllProjects && canViewManagedProjects(profile.role)
@@ -791,7 +790,7 @@ export default async function ProjectDetailPage({
             <div className="space-y-2 mt-4">
               {files && files.length > 0 ? (
                 files.map((file: any) => {
-                  const fileUrl = filesObjectHref(file.storage_path) ?? `${supabaseUrl}/storage/v1/object/public/files/${file.storage_path}`
+                  const fileUrl = filesObjectHref(file.storage_path)
                   return (
                     <div key={file.id} className="flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50">
                       <div className="flex items-center gap-3">
@@ -811,6 +810,7 @@ export default async function ProjectDetailPage({
                           <p className="text-xs text-gray-500 capitalize">{file.tag}</p>
                         </div>
                       </div>
+                      {fileUrl ? (
                       <a
                         href={fileUrl}
                         target="_blank"
@@ -822,6 +822,9 @@ export default async function ProjectDetailPage({
                         </svg>
                         Download
                       </a>
+                      ) : (
+                        <span className="text-sm text-[#4b4b48]">Not available</span>
+                      )}
                     </div>
                   )
                 })

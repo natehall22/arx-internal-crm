@@ -1,20 +1,17 @@
 /**
  * The `files` Supabase storage bucket — how the app links to an object in it.
  *
- * Phase 1 of making the bucket private (2026-11): every read goes through an authorized route that redirects to a short-lived
- * signed URL, instead of the bucket's public URL. The bucket itself is still public and writers still store full public URLs
- * (`order_form_contracts.pdf_url`, `job_change_orders.pdf_url`, `proposals.cover_image_url`, `orgs.logo_url`), so this module
- * turns whatever is stored — a full public URL or a bare path — back into a storage path.
+ * Every read goes through an authorized route that redirects to a short-lived signed URL, never the bucket's public URL, so
+ * the bucket can be private. Writers store the storage path (phase 2, 2026-11); rows written before that still hold a full
+ * public URL (`order_form_contracts.pdf_url`, `job_change_orders.pdf_url`, `proposals.cover_image_url`, `orgs.logo_url`), so
+ * this module turns whatever is stored — a full public URL or a bare path — back into a storage path.
  *
  * - Staff + subs:  `filesObjectHref(urlOrPath)` → `/api/files/object?path=…` (auth + org/sub check, then a 10-minute signed URL).
  * - Customers:     `customerSignedDocPath(kind, token)` → `/api/files/signed/<kind>/<token>` (signing token, signed docs only).
+ * - Org logo:      `orgLogoHref(orgId, org)` → `/api/org-logo/<orgId>` (public, not sensitive; signed + cached redirect).
  *
  * Client-safe: no server imports. `signFilesObject` takes the service client as an argument so this file never pulls the
  * service-role client into a browser bundle.
- *
- * TODO (before the bucket is flipped private): the org logo (`orgs.logo_url` / `orgs.settings.logo_url`, read by
- * components/Nav.tsx, app/admin/settings/page.tsx and the browser-side proposal PDF) is still read by its public URL. It is not
- * sensitive; move it to a public assets bucket rather than signing it on every page load.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 
@@ -156,6 +153,54 @@ export function fieldRoleMayReadFilesPath(c: FilesPathClass): boolean {
     return c.segments.length >= 5 && sub !== 'contracts' && sub !== 'design'
   }
   return false
+}
+
+/* ------------------------------------------------------------------------ *
+ * Org logo (public: shown in Nav to staff and subs, embedded in proposal PDFs)
+ * ------------------------------------------------------------------------ */
+
+type OrgLogoSource = { logo_url?: string | null; settings?: unknown } | null | undefined
+
+/** The org's stored logo value: `orgs.logo_url`, else the older `orgs.settings.logo_url`. */
+export function storedOrgLogo(org: OrgLogoSource): string | null {
+  if (!org) return null
+  const settings = org.settings && typeof org.settings === 'object' ? (org.settings as Record<string, unknown>) : null
+  const v = String(org.logo_url ?? '').trim() || String(settings?.logo_url ?? '').trim()
+  return v || null
+}
+
+/**
+ * Storage path of the org's logo, only when the stored value is that org's own `org/<orgId>/logo.<ext>` object. The public
+ * logo route signs exactly this, so a tampered stored value can never make it sign anything else in the bucket.
+ */
+export function orgLogoPath(orgId: string | null | undefined, org: OrgLogoSource): string | null {
+  if (!orgId) return null
+  const path = filesPathFromStoredUrl(storedOrgLogo(org))
+  if (!path) return null
+  const c = classifyFilesPath(path)
+  if (c.kind !== 'org' || c.orgId !== orgId || c.segments.length !== 3 || !/^logo\.[A-Za-z0-9]+$/.test(c.area)) return null
+  return path
+}
+
+/** Short stable tag of the stored value, so a new upload (new `?v=`) busts caches and an unchanged logo stays cached. */
+function logoVersion(stored: string): string {
+  let h = 5381
+  for (let i = 0; i < stored.length; i++) h = ((h * 33) ^ stored.charCodeAt(i)) >>> 0
+  return h.toString(36)
+}
+
+/**
+ * Link to the org's logo through `GET /api/org-logo/<orgId>`, or null when there is none. Pass `appUrl` (or `absolute: true`)
+ * for an absolute URL (emails, anything rendered off-site).
+ */
+export function orgLogoHref(
+  orgId: string | null | undefined,
+  org: OrgLogoSource,
+  opts: { absolute?: boolean; appUrl?: string | null } = {}
+): string | null {
+  if (!orgLogoPath(orgId, org)) return null
+  const rel = `/api/org-logo/${encodeURIComponent(String(orgId))}?v=${logoVersion(storedOrgLogo(org) ?? '')}`
+  return opts.absolute || opts.appUrl ? `${resolveAppUrl(opts.appUrl).replace(/\/$/, '')}${rel}` : rel
 }
 
 /* ------------------------------------------------------------------------ *

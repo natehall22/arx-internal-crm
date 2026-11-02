@@ -103,7 +103,8 @@ export async function POST(request: NextRequest) {
         })
 
       if (!uploadError) {
-        pdfUrl = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/files/${pdfStoragePath}`
+        // Stored as the storage path (never a public URL); readers link through lib/files/files-object.ts.
+        pdfUrl = pdfStoragePath
         await supabase
           .from('job_change_orders')
           .update({ pdf_url: pdfUrl, pdf_storage_path: pdfStoragePath })

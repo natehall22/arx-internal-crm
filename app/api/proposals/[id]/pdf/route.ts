@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import { resolveSalesDocAccessBarred } from '@/lib/sales-doc-access'
+import { orgLogoHref } from '@/lib/files/files-object'
 
 export async function GET(
   request: NextRequest,
@@ -66,7 +67,10 @@ export async function GET(
       proposal,
       lineItems: lineItems || [],
       measurement: measurementData,
-      company: proposal.orgs,
+      // Absolute link through the public logo route; the caller may render the PDF off-site.
+      company: proposal.orgs
+        ? { ...proposal.orgs, logo_url: orgLogoHref(proposal.org_id, proposal.orgs, { absolute: true }) }
+        : proposal.orgs,
       rep: proposal.users,
     })
   } catch (error) {

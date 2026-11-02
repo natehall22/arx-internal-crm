@@ -6,6 +6,7 @@ import { resolveProposalSoldRoofSquares } from '@/lib/sold-roof-squares'
 import { resolveSalesDocAccessBarred } from '@/lib/sales-doc-access'
 import { createServiceClient } from '@/lib/supabase/service'
 import { mayAccessDealDoc } from '@/lib/deal-scope'
+import { orgLogoHref } from '@/lib/files/files-object'
 
 export const dynamic = 'force-dynamic'
 
@@ -175,7 +176,8 @@ export async function GET(
     return NextResponse.json({
       proposal: proposalForClient,
       lineItems: lineItems || [],
-      company,
+      // Logo as a link through the public logo route (the browser PDF builder fetches it), never a `files` public URL.
+      company: company ? { ...company, logo_url: orgLogoHref(profile.org_id, company) } : company,
       rep: proposalForClient.users,
       measurement,
       has_completed_installation_contract: Boolean(signedSaleAgreement),

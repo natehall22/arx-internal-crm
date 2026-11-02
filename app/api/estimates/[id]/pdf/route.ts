@@ -1,5 +1,6 @@
 import React from 'react'
 import { requireAuthApi } from '@/lib/auth'
+import { signFilesObject } from '@/lib/files/files-object'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { NextResponse } from 'next/server'
@@ -11,7 +12,12 @@ export async function POST(
   request: Request,
   { params }: { params: { id: string } }
 ) {
-  const { profile } = await requireAuthApi()
+  let profile: Awaited<ReturnType<typeof requireAuthApi>>['profile']
+  try {
+    ;({ profile } = await requireAuthApi())
+  } catch {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
   const supabase = createClient()
   const serviceSupabase = createServiceClient()
 
@@ -85,11 +91,9 @@ export async function POST(
       .eq('id', params.id)
 
     // Get signed URL
-    const { data: urlData, error: urlError } = await serviceSupabase.storage
-      .from('files')
-      .createSignedUrl(storagePath, 3600)
+    const signedUrl = await signFilesObject(serviceSupabase, storagePath, 3600)
 
-    if (urlError || !urlData) {
+    if (!signedUrl) {
       return NextResponse.json(
         { error: 'Failed to generate download URL' },
         { status: 500 }
@@ -98,7 +102,7 @@ export async function POST(
 
     return NextResponse.json({
       success: true,
-      downloadUrl: urlData.signedUrl,
+      downloadUrl: signedUrl,
     })
   } catch (error: any) {
     console.error('PDF generation error:', error)

@@ -1,4 +1,5 @@
 import { requireAuthApi } from '@/lib/auth'
+import { signFilesObject } from '@/lib/files/files-object'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { NextResponse } from 'next/server'
@@ -7,7 +8,12 @@ export async function GET(
   request: Request,
   { params }: { params: { id: string } }
 ) {
-  const { profile } = await requireAuthApi()
+  let profile: Awaited<ReturnType<typeof requireAuthApi>>['profile']
+  try {
+    ;({ profile } = await requireAuthApi())
+  } catch {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
   const supabase = createClient()
   const serviceSupabase = createServiceClient()
 
@@ -27,13 +33,10 @@ export async function GET(
     return NextResponse.json({ error: 'Contract not found' }, { status: 404 })
   }
 
-  const { data: urlData, error } = await serviceSupabase.storage
-    .from('files')
-    .createSignedUrl(project.contract_pdf_path, 3600)
-
-  if (error || !urlData) {
+  const signedUrl = await signFilesObject(serviceSupabase, project.contract_pdf_path, 3600)
+  if (!signedUrl) {
     return NextResponse.json({ error: 'Failed to create download URL' }, { status: 500 })
   }
 
-  return NextResponse.redirect(urlData.signedUrl, { status: 302 })
+  return NextResponse.redirect(signedUrl, { status: 302 })
 }

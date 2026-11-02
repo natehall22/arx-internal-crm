@@ -100,7 +100,8 @@ export async function POST(request: NextRequest) {
       if (uploadError) {
         console.error('[Change Order] Error uploading PDF:', uploadError.message)
       } else {
-        pdfUrl = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/files/${pdfStoragePath}`
+        // Stored as the storage path (never a public URL); readers link through lib/files/files-object.ts.
+        pdfUrl = pdfStoragePath
         console.log('[Change Order] PDF uploaded:', pdfUrl)
       }
       } catch (pdfError: any) {

@@ -68,7 +68,6 @@ export default function SubJobDetailClient({ job, companyName }: SubJobDetailCli
   const [completionNotes, setCompletionNotes] = useState('')
   const [showCompleteModal, setShowCompleteModal] = useState(false)
 
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
   
   const statusColors: Record<string, { bg: string; text: string }> = {
     scheduled: { bg: 'bg-purple-100', text: 'text-purple-700' },
@@ -329,8 +328,15 @@ export default function SubJobDetailClient({ job, companyName }: SubJobDetailCli
             <div className="grid grid-cols-3 gap-2">
               {job.files.map(file => {
                 const isImage = file.mime_type?.startsWith('image/')
-                const fileUrl = filesObjectHref(file.storage_path) ?? `${supabaseUrl}/storage/v1/object/public/files/${file.storage_path}`
-                
+                const fileUrl = filesObjectHref(file.storage_path)
+                if (!fileUrl) {
+                  return (
+                    <div key={file.id} className="aspect-square bg-gray-100 rounded flex items-center justify-center p-2">
+                      <p className="text-sm text-[#4b4b48] text-center break-words">{file.file_name} (not available)</p>
+                    </div>
+                  )
+                }
+
                 return isImage ? (
                   <a
                     key={file.id}

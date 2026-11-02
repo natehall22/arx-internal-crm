@@ -49,7 +49,7 @@ import {
   filtersFromSearchParams,
 } from '@/lib/opportunity-list-filters'
 import PhoneLink from '@/components/PhoneLink'
-import { filesObjectHref, classifyFilesPath, fieldRoleMayReadFilesPath } from '@/lib/files/files-object'
+import { filesObjectHref, classifyFilesPath, fieldRoleMayReadFilesPath, signFilesObject } from '@/lib/files/files-object'
 
 /** The opportunity page body, shared by /opportunities/[id] and the Customer File's Sales tab. */
 export default async function OpportunityView({
@@ -75,7 +75,6 @@ export default async function OpportunityView({
   // Use service client to bypass RLS
   const supabase = createServiceClient()
   const { canJobBoard } = await resolveOpsAccess(supabase, authUser.id, profile)
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
 
   const opportunityQuery = supabase
     .from('opportunities')
@@ -299,11 +298,7 @@ export default async function OpportunityView({
 
   // Design PDFs are sales docs: barred viewers (setters / inside sales) don't get a signed link.
   const designPdfUrl = opportunity.design_pdf_path && !isSalesDocBarredViewer
-    ? (
-        await supabase.storage
-          .from('files')
-          .createSignedUrl(opportunity.design_pdf_path, 3600)
-      ).data?.signedUrl
+    ? await signFilesObject(supabase, opportunity.design_pdf_path, 3600)
     : null
 
   // Pricing/sales-doc data — skip fetches for inside-sales workers (not rendered; avoids SSR leakage)
@@ -1435,7 +1430,7 @@ export default async function OpportunityView({
             <div className="space-y-2">
               {visibleFiles.length > 0 ? (
                 visibleFiles.map((file: any) => {
-                  const fileUrl = filesObjectHref(file.storage_path) ?? `${supabaseUrl}/storage/v1/object/public/files/${file.storage_path}`
+                  const fileUrl = filesObjectHref(file.storage_path)
                   return (
                     <div key={file.id} className="flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50">
                       <div className="flex items-center gap-3">
@@ -1455,6 +1450,7 @@ export default async function OpportunityView({
                           <p className="text-xs text-gray-500 capitalize">{file.tag}</p>
                         </div>
                       </div>
+                      {fileUrl ? (
                       <a
                         href={fileUrl}
                         target="_blank"
@@ -1466,6 +1462,9 @@ export default async function OpportunityView({
                         </svg>
                         Download
                       </a>
+                      ) : (
+                        <span className="text-sm text-[#4b4b48]">Not available</span>
+                      )}
                     </div>
                   )
                 })

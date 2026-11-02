@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
+import { filesObjectHref } from '@/lib/files/files-object'
 import { createServiceClient } from '@/lib/supabase/service'
 import { generateChangeOrderPdf } from '@/lib/contracts/generateChangeOrderPdf'
 
@@ -76,7 +77,8 @@ export async function POST(
       return NextResponse.json({ error: uploadError.message }, { status: 500 })
     }
 
-    const pdfUrl = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/files/${pdfStoragePath}`
+    // Stored as the storage path (never a public URL); readers link through lib/files/files-object.ts.
+    const pdfUrl = pdfStoragePath
 
     const { error: updErr } = await service
       .from('job_change_orders')
@@ -87,7 +89,7 @@ export async function POST(
       return NextResponse.json({ error: updErr.message }, { status: 500 })
     }
 
-    return NextResponse.json({ success: true, pdfUrl })
+    return NextResponse.json({ success: true, pdfUrl: filesObjectHref(pdfStoragePath) })
   } catch (e) {
     console.error('[Change Order Regenerate]', e)
     return NextResponse.json({ error: 'Failed to generate PDF' }, { status: 500 })

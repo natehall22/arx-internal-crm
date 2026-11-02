@@ -1,4 +1,5 @@
 import { createServiceClient } from '@/lib/supabase/service'
+import { signFilesObject } from '@/lib/files/files-object'
 import { notFound } from 'next/navigation'
 import SignaturePad from '@/components/SignaturePad'
 import PhoneLink from '@/components/PhoneLink'
@@ -22,9 +23,9 @@ export default async function ContractSigningPage({
     notFound()
   }
 
-  const { data: urlData } = await serviceSupabase.storage
-    .from('files')
-    .createSignedUrl(contract.contract_pdf_path, 3600)
+  const signedPdfUrl = contract.contract_pdf_path
+    ? await signFilesObject(serviceSupabase, contract.contract_pdf_path, 3600)
+    : null
 
   const { data: repSignature } = await serviceSupabase
     .from('contract_signatures')
@@ -52,10 +53,10 @@ export default async function ContractSigningPage({
           </div>
 
           <div className="rounded-lg border border-slate-800 bg-slate-950 p-4 text-sm">
-            {urlData?.signedUrl ? (
+            {signedPdfUrl ? (
               <div className="space-y-3">
                 <a
-                  href={urlData.signedUrl}
+                  href={signedPdfUrl}
                   className="text-indigo-300 hover:text-indigo-200"
                 >
                   Download contract PDF
@@ -63,7 +64,7 @@ export default async function ContractSigningPage({
                 <div className="h-[520px] w-full overflow-hidden rounded-md border border-slate-800">
                   <iframe
                     title="Contract PDF"
-                    src={urlData.signedUrl}
+                    src={signedPdfUrl}
                     className="h-full w-full"
                   />
                 </div>

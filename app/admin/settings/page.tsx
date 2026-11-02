@@ -19,6 +19,7 @@ import {
   UNDERLAYMENT_SQ_PER_ROLL,
 } from '@/lib/roof-shingle-constants'
 import { toast } from '@/components/ui/toast'
+import { orgLogoHref } from '@/lib/files/files-object'
 import { confirmDialog } from '@/components/ui/confirm-dialog'
 
 type SettingsSection = 
@@ -558,8 +559,8 @@ export default function AdminSettingsPage() {
           date_format: data.org.date_format || data.settings?.date_format || 'MM/DD/YYYY',
           currency: data.org.currency || data.settings?.currency || 'USD',
         })
-        // Load logo URL
-        setLogoUrl(data.org.logo_url || data.settings?.logo_url || null)
+        // Logo through the public logo route (the `files` bucket is not read by public URL)
+        setLogoUrl(orgLogoHref(data.org.id, { logo_url: data.org.logo_url, settings: data.settings ?? data.org.settings }))
         setSchedulingSettings({
           inspection_feedback_buffer_minutes: data.org.inspection_feedback_buffer_minutes ?? 0,
           default_scheduling_gap_minutes: data.org.default_scheduling_gap_minutes ?? 15,
@@ -743,7 +744,7 @@ export default function AdminSettingsPage() {
 
       const data = await response.json()
       setLogoUrl(data.logo_url)
-      toast.error('Logo uploaded successfully!')
+      toast.success('Logo uploaded')
     } catch (error) {
       console.error('Error uploading logo:', error)
       toast.error('Failed to upload logo')
@@ -772,7 +773,7 @@ export default function AdminSettingsPage() {
       }
 
       setLogoUrl(null)
-      toast.error('Logo removed successfully!')
+      toast.success('Logo removed')
     } catch (error) {
       console.error('Error removing logo:', error)
       toast.error('Failed to remove logo')

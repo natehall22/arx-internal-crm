@@ -4,6 +4,7 @@ import { useRef, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { createClientBrowser } from '@/lib/supabase/client'
+import { orgLogoHref } from '@/lib/files/files-object'
 import {
   canAccessCustomerRecords,
   canAccessCustomerRecordsFromPermissionNames,
@@ -132,17 +133,8 @@ export default function Nav() {
             if (org.name) {
               setCompanyName(org.name)
             }
-            // Check for logo_url in column or settings
-            const logoUrl = org.logo_url || (org.settings as any)?.logo_url
-            if (logoUrl) {
-              // Add cache-busting timestamp for logo
-              const logoWithCacheBust = logoUrl.includes('?')
-                ? `${logoUrl}&_t=${Date.now()}`
-                : `${logoUrl}?_t=${Date.now()}`
-              setCompanyLogo(logoWithCacheBust)
-            } else {
-              setCompanyLogo(null)
-            }
+            // Public logo route; its `?v=` changes on every upload (lib/files/files-object.ts)
+            setCompanyLogo(orgLogoHref(profile.org_id, org))
           }
         }
 
@@ -196,15 +188,7 @@ export default function Nav() {
           if (org.name) {
             setCompanyName(org.name)
           }
-          const logoUrl = org.logo_url || org.settings?.logo_url
-          if (logoUrl) {
-            const logoWithCacheBust = logoUrl.includes('?') 
-              ? `${logoUrl}&_t=${Date.now()}` 
-              : `${logoUrl}?_t=${Date.now()}`
-            setCompanyLogo(logoWithCacheBust)
-          } else {
-            setCompanyLogo(null)
-          }
+          setCompanyLogo(orgLogoHref(profile.org_id, org))
         }
       }
     }

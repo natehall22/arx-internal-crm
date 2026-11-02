@@ -156,11 +156,12 @@ export default function JobWorkOrdersCard({ jobId, projectId }: JobWorkOrdersCar
   const [showCompleted, setShowCompleted] = useState(false)
   
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-  // storage_path carries its bucket ("files/…" or "work-order-photos/…"). Only `files` objects go through the signed-read
-  // route; other buckets keep the link they had.
-  const workOrderPhotoHref = (storagePath: string) =>
-    (storagePath.startsWith('files/') ? filesObjectHref(storagePath.slice('files/'.length)) : null) ??
-    `${supabaseUrl}/storage/v1/object/public/${storagePath}`
+  // storage_path carries its bucket ("files/…" or "work-order-photos/…"). `files` objects go only through the signed-read
+  // route (null = not linkable, never a public URL); other buckets keep the link they had.
+  const workOrderPhotoHref = (storagePath: string): string | null =>
+    storagePath.startsWith('files/')
+      ? filesObjectHref(storagePath.slice('files/'.length))
+      : `${supabaseUrl}/storage/v1/object/public/${storagePath}`
 
   const getCompletedByName = (wo: WorkOrder): string | null => {
     if (wo.completed_by_sub) {
@@ -303,16 +304,16 @@ export default function JobWorkOrdersCard({ jobId, projectId }: JobWorkOrdersCar
                                   Work Done Photos ({workDonePhotos.length})
                                 </p>
                                 <div className="grid grid-cols-4 gap-1">
-                                  {workDonePhotos.slice(0, 4).map(photo => (
+                                  {workDonePhotos.slice(0, 4).filter(photo => workOrderPhotoHref(photo.storage_path)).map(photo => (
                                     <a
                                       key={photo.id}
-                                      href={workOrderPhotoHref(photo.storage_path)}
+                                      href={workOrderPhotoHref(photo.storage_path) ?? undefined}
                                       target="_blank"
                                       rel="noopener noreferrer"
                                       className="aspect-square bg-gray-100 rounded overflow-hidden"
                                     >
                                       <Image
-                                        src={workOrderPhotoHref(photo.storage_path)}
+                                        src={workOrderPhotoHref(photo.storage_path) ?? ''}
                                         alt="Work done"
                                         width={96}
                                         height={96}
@@ -336,16 +337,16 @@ export default function JobWorkOrdersCard({ jobId, projectId }: JobWorkOrdersCar
                                   Cleanup Photos ({cleanupPhotos.length})
                                 </p>
                                 <div className="grid grid-cols-4 gap-1">
-                                  {cleanupPhotos.slice(0, 4).map(photo => (
+                                  {cleanupPhotos.slice(0, 4).filter(photo => workOrderPhotoHref(photo.storage_path)).map(photo => (
                                     <a
                                       key={photo.id}
-                                      href={workOrderPhotoHref(photo.storage_path)}
+                                      href={workOrderPhotoHref(photo.storage_path) ?? undefined}
                                       target="_blank"
                                       rel="noopener noreferrer"
                                       className="aspect-square bg-gray-100 rounded overflow-hidden"
                                     >
                                       <Image
-                                        src={workOrderPhotoHref(photo.storage_path)}
+                                        src={workOrderPhotoHref(photo.storage_path) ?? ''}
                                         alt="Cleanup"
                                         width={96}
                                         height={96}

@@ -365,35 +365,22 @@ export async function POST(request: NextRequest) {
       const fileName = `${fileNamePrefix}_${contract.id}_${Date.now()}.pdf`
       pdfStoragePath = `org/${contract.org_id}/contracts/${fileName}`
 
-      // Try files bucket first (more reliable)
+      // `files` bucket only. The old fallback to the `contracts` bucket stored a public URL into a PRIVATE bucket, so its
+      // link never opened (0 rows ever used it); a failed upload is now reported as a PDF error like any other.
       const { error: filesUploadError } = await supabase.storage
         .from('files')
         .upload(pdfStoragePath, pdfBuffer, {
           contentType: 'application/pdf',
           upsert: true, // Allow overwrite if exists
         })
-      
+
       if (filesUploadError) {
         console.error('[Contract Sign] Error uploading to files bucket:', filesUploadError.message)
-        
-        // Fallback to contracts bucket
-        const { error: contractsUploadError } = await supabase.storage
-          .from('contracts')
-          .upload(pdfStoragePath, pdfBuffer, {
-            contentType: 'application/pdf',
-            upsert: true,
-          })
-        
-        if (contractsUploadError) {
-          console.error('[Contract Sign] Error uploading to contracts bucket:', contractsUploadError.message)
-          pdfGenerationError = `Storage upload failed: ${contractsUploadError.message}`
-        } else {
-          pdfUrl = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/contracts/${pdfStoragePath}`
-          console.log('[Contract Sign] PDF uploaded to contracts bucket:', pdfUrl)
-        }
+        pdfGenerationError = `Storage upload failed: ${filesUploadError.message}`
       } else {
-        pdfUrl = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/files/${pdfStoragePath}`
-        console.log('[Contract Sign] PDF uploaded to files bucket:', pdfUrl)
+        // Stored as the storage path (never a public URL); readers link through lib/files/files-object.ts.
+        pdfUrl = pdfStoragePath
+        console.log('[Contract Sign] PDF uploaded to files bucket:', pdfStoragePath)
       }
 
       if (pdfUrl) {

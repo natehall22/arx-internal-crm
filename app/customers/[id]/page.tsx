@@ -14,7 +14,6 @@ import { isReferralManagerRole } from '@/lib/referral-links'
 import { projectStatusLabelForJobStatus } from '@/lib/job-status'
 import { filesObjectHref } from '@/lib/files/files-object'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
 
 function resolveProjectDisplayStatus(project: any) {
   const jobs = Array.isArray(project.production_jobs) ? project.production_jobs : []
@@ -424,9 +423,9 @@ export default async function CustomerDetailPage({
                       <p className="text-sm text-gray-900 truncate">{file.file_name}</p>
                       <p className="text-xs text-gray-500 capitalize">{file.tag}</p>
                     </div>
-                    {file.storage_path ? (
+                    {filesObjectHref(file.storage_path) ? (
                       <a
-                        href={filesObjectHref(file.storage_path) ?? `${supabaseUrl}/storage/v1/object/public/files/${file.storage_path}`}
+                        href={filesObjectHref(file.storage_path) ?? undefined}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-indigo-600 hover:text-indigo-800 text-sm font-medium"
@@ -434,7 +433,7 @@ export default async function CustomerDetailPage({
                         Open
                       </a>
                     ) : (
-                      <span className="text-xs text-gray-400">No link</span>
+                      <span className="text-sm text-[#4b4b48]">No link</span>
                     )}
                   </div>
                 ))

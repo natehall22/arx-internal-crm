@@ -1,5 +1,6 @@
 import { requireAuth } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
+import { signFilesObject } from '@/lib/files/files-object'
 import SignaturePad from '@/components/SignaturePad'
 import { notFound } from 'next/navigation'
 
@@ -33,9 +34,9 @@ export default async function RepContractPage({
     notFound()
   }
 
-  const { data: urlData } = await serviceSupabase.storage
-    .from('files')
-    .createSignedUrl(contract.contract_pdf_path, 3600)
+  const signedPdfUrl = contract.contract_pdf_path
+    ? await signFilesObject(serviceSupabase, contract.contract_pdf_path, 3600)
+    : null
 
   return (
     <div className="min-h-screen bg-slate-950 text-white">
@@ -52,10 +53,10 @@ export default async function RepContractPage({
           </div>
 
           <div className="rounded-lg border border-slate-800 bg-slate-950 p-4 text-sm">
-            {urlData?.signedUrl ? (
+            {signedPdfUrl ? (
               <div className="space-y-3">
                 <a
-                  href={urlData.signedUrl}
+                  href={signedPdfUrl}
                   className="text-indigo-300 hover:text-indigo-200"
                 >
                   Download contract PDF
@@ -63,7 +64,7 @@ export default async function RepContractPage({
                 <div className="h-[520px] w-full overflow-hidden rounded-md border border-slate-800">
                   <iframe
                     title="Contract PDF"
-                    src={urlData.signedUrl}
+                    src={signedPdfUrl}
                     className="h-full w-full"
                   />
                 </div>

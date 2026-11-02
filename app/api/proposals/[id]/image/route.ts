@@ -1,60 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { requireAuthApi, type AuthContext } from '@/lib/auth'
+import { filesObjectHref, storageSafeFileName } from '@/lib/files/files-object'
 import { resolveSalesDocAccessBarred } from '@/lib/sales-doc-access'
 import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
 
-function getSessionFromRequest(req: NextRequest) {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const projectRef = supabaseUrl.match(/https:\/\/([^.]+)\./)?.[1] || ''
-  const cookieName = `sb-${projectRef}-auth-token`
-  
-  const singleCookie = req.cookies.get(cookieName)
-  if (singleCookie?.value) {
-    try {
-      const decoded = decodeURIComponent(singleCookie.value)
-      return JSON.parse(decoded)
-    } catch {
-      return null
-    }
+/** Signed-in user with an org, or a 401/404 response. */
+async function requireProposalImageUser(): Promise<{ userId: string; profile: AuthContext['profile'] & { org_id: string } } | NextResponse> {
+  let ctx: AuthContext
+  try {
+    ctx = await requireAuthApi()
+  } catch {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
-  
-  const chunks: string[] = []
-  let i = 0
-  while (true) {
-    const chunk = req.cookies.get(`${cookieName}.${i}`)
-    if (!chunk?.value) break
-    chunks.push(chunk.value)
-    i++
+  if (!ctx.profile?.org_id) {
+    return NextResponse.json({ error: 'User profile not found' }, { status: 404 })
   }
-  
-  if (chunks.length > 0) {
-    try {
-      const decoded = decodeURIComponent(chunks.join(''))
-      return JSON.parse(decoded)
-    } catch {
-      return null
-    }
-  }
-  
-  return null
-}
-
-function getAuthClient(req: NextRequest) {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  const sessionData = getSessionFromRequest(req)
-  
-  return {
-    client: createClient(supabaseUrl, supabaseKey, {
-      auth: { autoRefreshToken: false, persistSession: false },
-      global: sessionData?.access_token
-        ? { headers: { Authorization: `Bearer ${sessionData.access_token}` } }
-        : undefined,
-    }),
-    accessToken: sessionData?.access_token,
-  }
+  return { userId: ctx.authUser.id, profile: ctx.profile as AuthContext['profile'] & { org_id: string } }
 }
 
 // POST - Upload property image for proposal
@@ -63,31 +26,13 @@ export async function POST(
   { params }: { params: { id: string } }
 ) {
   try {
-    const { client: authClient, accessToken } = getAuthClient(request)
-    
-    if (!accessToken) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-    
-    const { data: { user }, error: userError } = await authClient.auth.getUser(accessToken)
-    if (userError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    const auth = await requireProposalImageUser()
+    if (auth instanceof NextResponse) return auth
+    const { userId, profile } = auth
 
     const adminClient = createServiceClient()
 
-    // Get user profile
-    const { data: profile } = await adminClient
-      .from('users')
-      .select('org_id, role, custom_role_id')
-      .eq('id', user.id)
-      .single()
-
-    if (!profile?.org_id) {
-      return NextResponse.json({ error: 'User profile not found' }, { status: 404 })
-    }
-
-    if (await resolveSalesDocAccessBarred(adminClient, user.id, profile)) {
+    if (await resolveSalesDocAccessBarred(adminClient, userId, profile)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
@@ -148,10 +93,10 @@ export async function POST(
             : 'image/jpeg'
 
     // Generate file path based on type
-    const fileExt = fileName.split('.').pop() || 'jpg'
+    const fileExt = storageSafeFileName(fileName.split('.').pop() || 'jpg').replace(/\./g, '') || 'jpg'
     const timestamp = Date.now()
     const filePath = imageType === 'inspection'
-      ? `proposals/${profile.org_id}/${params.id}/inspection-${imageIndex}-${timestamp}.${fileExt}`
+      ? `proposals/${profile.org_id}/${params.id}/inspection-${storageSafeFileName(imageIndex)}-${timestamp}.${fileExt}`
       : `proposals/${profile.org_id}/${params.id}/property-${timestamp}.${fileExt}`
 
     // Convert file to buffer
@@ -189,13 +134,9 @@ export async function POST(
       return NextResponse.json({ error: 'Failed to upload image' }, { status: 500 })
     }
 
-    // Get public URL with cache-busting timestamp
-    const { data: urlData } = adminClient.storage
-      .from('files')
-      .getPublicUrl(filePath)
-
-    // Add cache-busting parameter to prevent browser caching issues
-    const imageUrl = `${urlData.publicUrl}?t=${timestamp}`
+    // Store the storage path, not a public URL: readers link through filesObjectHref (the path is unique per upload, so it
+    // needs no cache-busting query).
+    const imageUrl = filePath
 
     // For property images, update proposal with cover image URL
     if (imageType === 'property') {
@@ -218,7 +159,7 @@ export async function POST(
     // For inspection photos, just return the URL
     return NextResponse.json({ 
       success: true,
-      url: imageUrl,
+      url: filesObjectHref(imageUrl),
       type: imageType,
       index: imageIndex,
     })
@@ -232,34 +173,17 @@ export async function POST(
 
 // DELETE - Remove property image from proposal
 export async function DELETE(
-  request: NextRequest,
+  _request: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
-    const { client: authClient, accessToken } = getAuthClient(request)
-    
-    if (!accessToken) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-    
-    const { data: { user }, error: userError } = await authClient.auth.getUser(accessToken)
-    if (userError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    const auth = await requireProposalImageUser()
+    if (auth instanceof NextResponse) return auth
+    const { userId, profile } = auth
 
     const adminClient = createServiceClient()
 
-    const { data: profile } = await adminClient
-      .from('users')
-      .select('org_id, role, custom_role_id')
-      .eq('id', user.id)
-      .single()
-
-    if (!profile?.org_id) {
-      return NextResponse.json({ error: 'User profile not found' }, { status: 404 })
-    }
-
-    if (await resolveSalesDocAccessBarred(adminClient, user.id, profile)) {
+    if (await resolveSalesDocAccessBarred(adminClient, userId, profile)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
