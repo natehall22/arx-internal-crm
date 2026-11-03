@@ -42,6 +42,11 @@ export default function SupplierOrdersCard({ jobId, onChanged, onState }: { jobI
     // A malformed answer must never take the whole job page down.
     if (!json.rollup || !Array.isArray(json.cards)) return setError('Could not load supplier orders')
     setView(json)
+    // Back to one draft card (the split was undone): drop the "+ Add supplier" leftovers.
+    if ((json.cards as SupplierCard[]).filter((c) => supplierDisplayState(c) === 'draft' && c.lines.length > 0).length <= 1) {
+      setAddingSupplier(false)
+      setPendingVendorId('')
+    }
     if (json.materialsState) onState?.(json.materialsState)
     setDeliveryDate((d) => d || json.defaultDeliveryDate || '')
   }, [jobId, onState])
@@ -134,17 +139,17 @@ export default function SupplierOrdersCard({ jobId, onChanged, onState }: { jobI
   const when = (iso: string) => new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
   const pdfUrl = (vendorId: string) => `/api/ops/jobs/${jobId}/supplier-orders/preview?vendorId=${vendorId}&kind=order&deliveryDate=${deliveryDate}&format=pdf`
 
-  const switchSupplier = async (card: SupplierCard, toVendorId: string) => {
-    if (!toVendorId || toVendorId === card.vendorId) return
+  // Every card action except send: POST, show the error or reload. Nothing here sends.
+  const postAndReload = async (path: string, body: Record<string, unknown>, fallbackError: string) => {
     setBusy(true)
     try {
-      const res = await fetch(`/api/ops/jobs/${jobId}/supplier-orders/switch`, {
+      const res = await fetch(`/api/ops/jobs/${jobId}/${path}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fromVendorId: card.vendorId, toVendorId }),
+        body: JSON.stringify(body),
       })
       const json = await res.json().catch(() => ({}))
-      if (!res.ok) return setError(json.error || 'Could not switch the supplier. Try again.')
+      if (!res.ok) return setError(json.error || fallbackError)
       setError(null)
       await load()
       onChanged?.()
@@ -153,48 +158,32 @@ export default function SupplierOrdersCard({ jobId, onChanged, onState }: { jobI
     }
   }
 
-  const moveLine = async (itemKey: string, toVendorId: string) => {
-    setBusy(true)
-    try {
-      const res = await fetch(`/api/ops/jobs/${jobId}/supplier-orders/line`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ itemKey, toVendorId }),
-      })
-      const json = await res.json().catch(() => ({}))
-      if (!res.ok) return setError(json.error || 'Could not move the item. Try again.')
-      setError(null)
-      await load()
-      onChanged?.()
-    } finally {
-      setBusy(false)
-    }
+  const switchSupplier = (card: SupplierCard, toVendorId: string) => {
+    if (!toVendorId || toVendorId === card.vendorId) return
+    return postAndReload('supplier-orders/switch', { fromVendorId: card.vendorId, toVendorId }, 'Could not switch the supplier. Try again.')
   }
+
+
+  const moveLine = (itemKey: string, toVendorId: string) => postAndReload('supplier-orders/line', { itemKey, toVendorId }, 'Could not move the item. Try again.')
+
 
   // A draft with items that nothing has been sent for: the only cards whose supplier can still change.
   const canPick = (c: SupplierCard, shown: string) =>
     !!view.canSend && shown === 'draft' && c.orderStatus !== 'sent' && c.lines.length > 0 && !view.jobCancelled
+  // Where an item can go: any active supplier whose card on this job (if any) is still a draft.
+  const movableTo = view.suppliers.filter((s) => {
+    const card = view.cards.find((c) => c.vendorId === s.id)
+    return !card || supplierDisplayState(card) === 'draft'
+  })
+  // Per-item "Buy from" pickers: while adding a supplier, or while two drafts can trade items. A sent card beside one
+  // draft (the normal roofing + gutters job) stays plain.
+  const splitting = addingSupplier || view.cards.filter((c) => canPick(c, supplierDisplayState(c))).length > 1
   const unusedSuppliers = view.suppliers.filter((s) => !view.cards.some((c) => c.vendorId === s.id))
   const pendingSupplier = view.suppliers.find((s) => s.id === pendingVendorId && unusedSuppliers.some((u) => u.id === s.id))
   const showAdd = !!view.canSend && !view.jobCancelled && unusedSuppliers.length > 0 && view.cards.some((c) => canPick(c, supplierDisplayState(c)))
 
-  const markReceived = async (card: SupplierCard, received: boolean) => {
-    setBusy(true)
-    try {
-      const res = await fetch(`/api/ops/jobs/${jobId}/supplier-orders/received`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ vendorId: card.vendorId, received }),
-      })
-      const json = await res.json().catch(() => ({}))
-      if (!res.ok) return setError(json.error || 'Could not save. Try again.')
-      setError(null)
-      await load()
-      onChanged?.()
-    } finally {
-      setBusy(false)
-    }
-  }
+  const markReceived = (card: SupplierCard, received: boolean) => postAndReload('supplier-orders/received', { vendorId: card.vendorId, received }, 'Could not save. Try again.')
+
 
   return (
     <section className="text-[#2c2c2a]" aria-label="Supplier orders">
@@ -219,7 +208,7 @@ export default function SupplierOrdersCard({ jobId, onChanged, onState }: { jobI
             <li key={c.vendorId} className="rounded-lg border border-[#d3d1c7] bg-white p-3 sm:p-4">
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                 {canPick(c, shown) ? (
-                  <select aria-label="Supplier" className="min-h-[44px] min-w-[10rem] rounded-lg border border-[#8a877d] bg-white px-3 py-2 text-base font-semibold text-[#2c2c2a]" value={c.vendorId} disabled={busy} onChange={(e) => void switchSupplier(c, e.target.value)}>
+                  <select aria-label={`Supplier for ${c.poNumber}`} className="min-h-[44px] min-w-[10rem] rounded-lg border border-[#8a877d] bg-white px-3 py-2 text-base font-semibold text-[#2c2c2a]" value={c.vendorId} disabled={busy} onChange={(e) => void switchSupplier(c, e.target.value)}>
                     {view.suppliers.some((s) => s.id === c.vendorId) ? null : <option value={c.vendorId}>{c.supplierName}</option>}
                     {view.suppliers.map((s) => (
                       <option key={s.id} value={s.id}>{s.name}</option>
@@ -239,15 +228,15 @@ export default function SupplierOrdersCard({ jobId, onChanged, onState }: { jobI
                 </p>
               )}
               {c.lines.length > 0 && (
-                <details className="mt-2 text-sm" open={addingSupplier || view.cards.length > 1 || undefined}>
+                <details className="mt-2 text-sm" open={(splitting && canPick(c, shown)) || undefined}>
                   <summary className="min-h-[44px] cursor-pointer py-2 font-medium">{c.lines.length} item{c.lines.length === 1 ? '' : 's'}</summary>
                   <ul className="m-0 ml-5 list-disc pb-1">
                     {c.lines.map((l) => (
                       <li key={l.key} className="break-words">
                         {l.label}{l.qty ? ` — ${l.qty}` : ''}
-                        {canPick(c, shown) && (addingSupplier || view.cards.length > 1) && (
+                        {canPick(c, shown) && splitting && (
                           <select aria-label={`Buy ${l.label} from`} className={`${field} mt-1`} value={c.vendorId} disabled={busy} onChange={(e) => void moveLine(l.key, e.target.value)}>
-                            {view.suppliers.map((s) => (
+                            {movableTo.map((s) => (
                               <option key={s.id} value={s.id}>{s.name}</option>
                             ))}
                           </select>
@@ -296,6 +285,9 @@ export default function SupplierOrdersCard({ jobId, onChanged, onState }: { jobI
               ))}
             </select>
             <p className="mt-2 text-sm">{pendingSupplier ? `No items yet. Pick "${pendingSupplier.name}" on the items above to move them here.` : 'Choose a supplier, then pick it on the items above to move them here.'}</p>
+            <button type="button" className="mt-1 inline-flex min-h-[44px] items-center text-sm font-semibold text-[#2c2c2a] underline" onClick={() => { setAddingSupplier(false); setPendingVendorId('') }}>
+              Cancel
+            </button>
           </li>
         )}
       </ul>

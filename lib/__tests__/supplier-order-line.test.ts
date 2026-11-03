@@ -2,7 +2,7 @@ jest.mock('@/lib/pdf/job-material-order', () => ({
   renderJobMaterialOrderPDF: () => ({ pdf: Buffer.from('%PDF-test'), truncated: false }),
 }))
 
-import { planLineSupplierMove } from '@/lib/supplier-order-line'
+import { applyLineSupplierMove, planLineSupplierMove } from '@/lib/supplier-order-line'
 import { planSupplierSwitch } from '@/lib/supplier-order-switch'
 import { buildSupplierOrdersView, type SupplierOrderContext } from '@/lib/supplier-orders'
 import type { OrderLine, SupplierRecord } from '@/lib/material-sourcing'
@@ -59,5 +59,25 @@ describe('switching a card that only holds moved items', () => {
 
   it('the trade card still re-points its trade', () => {
     expect(planSupplierSwitch(split, 'abc', 'hvac')).toMatchObject({ ok: true, trades: ['roofing'], lineKeys: ['shingles'] })
+  })
+})
+
+describe('applyLineSupplierMove', () => {
+  it('upserts only the vendor pick on (job_id, item_key), so qty/excluded/note edits survive', async () => {
+    const upsert = jest.fn().mockResolvedValue({ error: null })
+    const admin = { from: jest.fn(() => ({ upsert })) } as any
+    const res = await applyLineSupplierMove(admin, { orgId: 'org', jobId: 'job', userId: 'u1', toVendorId: 'qxo', plan: { ok: true, itemKey: 'starter', fromName: 'ABC Supply', toName: 'QXO', label: 'starter' } })
+    expect(res).toEqual({ ok: true })
+    expect(admin.from).toHaveBeenCalledWith('job_material_order_overrides')
+    const [row, opts] = upsert.mock.calls[0]
+    expect(Object.keys(row).sort()).toEqual(['item_key', 'job_id', 'org_id', 'updated_at', 'updated_by', 'vendor_id'])
+    expect(row).toMatchObject({ org_id: 'org', job_id: 'job', item_key: 'starter', vendor_id: 'qxo' })
+    expect(opts).toEqual({ onConflict: 'job_id,item_key' })
+  })
+
+  it('reports a failed write', async () => {
+    const admin = { from: () => ({ upsert: async () => ({ error: { message: 'x' } }) }) } as any
+    const res = await applyLineSupplierMove(admin, { orgId: 'org', jobId: 'job', userId: 'u1', toVendorId: 'qxo', plan: { ok: true, itemKey: 'starter', fromName: 'A', toName: 'Q', label: 'starter' } })
+    expect(res.ok).toBe(false)
   })
 })

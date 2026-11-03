@@ -1,11 +1,12 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
+import { draftMoveGuard } from '@/lib/supplier-order-switch'
 import { sourcingFor, type SupplierOrderContext } from '@/lib/supplier-orders'
 
 /**
  * Move ONE line of a DRAFT supplier PO to another active supplier (the "+ Add supplier" second card). Writes the same
  * per-line pick (job_material_order_overrides.vendor_id) the sourcing resolver already reads, so the card, preview, PDF
- * and send all follow it. Never sends. Same guards as {@link planSupplierSwitch}: nothing a supplier already holds moves.
+ * and send all follow it. Never sends. Same guards as the card switch ({@link draftMoveGuard}): nothing a supplier already holds moves.
  */
 
 export type LineMovePlan =
@@ -14,23 +15,13 @@ export type LineMovePlan =
 
 export function planLineSupplierMove(ctx: SupplierOrderContext, itemKey: string, toVendorId: string): LineMovePlan {
   if (!itemKey || !toVendorId) return { ok: false, status: 400, error: 'Pick a supplier.' }
-  if (ctx.jobStatus === 'cancelled') return { ok: false, status: 409, error: 'This job is cancelled.' }
-  const to = ctx.suppliers.find((s) => s.id === toVendorId)
-  if (!to || !to.active) return { ok: false, status: 400, error: 'That supplier is not active. An owner can turn it on in Settings → Suppliers.' }
-
   const group = sourcingFor(ctx).supplierGroups.find((g) => g.lines.some((l) => l.key === itemKey))
   if (!group) return { ok: false, status: 404, error: 'That item is no longer on a supplier order. Reload the page.' }
-  if (group.supplier.id === toVendorId) return { ok: false, status: 400, error: 'Pick a different supplier.' }
-
-  const fromOrder = ctx.orders.find((o) => o.vendorId === group.supplier.id) ?? null
-  const toOrder = ctx.orders.find((o) => o.vendorId === toVendorId) ?? null
-  if (fromOrder && fromOrder.status !== 'draft') return { ok: false, status: 409, error: 'This order was already sent. Only a draft can change supplier.' }
-  if (toOrder && toOrder.status !== 'draft') return { ok: false, status: 409, error: `${to.name} already has a sent order on this job. Only a draft can change supplier.` }
-  const inFlight = ctx.sends.some((s) => (s.vendorId === group.supplier.id || s.vendorId === toVendorId) && s.status === 'sending')
-  if (inFlight) return { ok: false, status: 409, error: 'An email for this job is being sent right now. Wait a minute and try again.' }
+  const guard = draftMoveGuard(ctx, group.supplier.id, toVendorId)
+  if (!guard.ok) return guard
 
   const label = group.lines.find((l) => l.key === itemKey)?.label ?? itemKey
-  return { ok: true, itemKey, fromName: group.supplier.name, toName: to.name, label }
+  return { ok: true, itemKey, fromName: group.supplier.name, toName: guard.to.name, label }
 }
 
 export async function applyLineSupplierMove(
