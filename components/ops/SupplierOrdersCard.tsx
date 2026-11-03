@@ -30,6 +30,9 @@ export default function SupplierOrdersCard({ jobId, onChanged, onState }: { jobI
   const [note, setNote] = useState('')
   const [busy, setBusy] = useState(false)
   const [confirm, setConfirm] = useState<string | null>(null)
+  // '+ Add supplier': an empty second card, and the per-item pickers that fill it. Client-only until an item moves there.
+  const [addingSupplier, setAddingSupplier] = useState(false)
+  const [pendingVendorId, setPendingVendorId] = useState('')
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/ops/jobs/${jobId}/supplier-orders`)
@@ -150,6 +153,31 @@ export default function SupplierOrdersCard({ jobId, onChanged, onState }: { jobI
     }
   }
 
+  const moveLine = async (itemKey: string, toVendorId: string) => {
+    setBusy(true)
+    try {
+      const res = await fetch(`/api/ops/jobs/${jobId}/supplier-orders/line`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ itemKey, toVendorId }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) return setError(json.error || 'Could not move the item. Try again.')
+      setError(null)
+      await load()
+      onChanged?.()
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // A draft with items that nothing has been sent for: the only cards whose supplier can still change.
+  const canPick = (c: SupplierCard, shown: string) =>
+    !!view.canSend && shown === 'draft' && c.orderStatus !== 'sent' && c.lines.length > 0 && !view.jobCancelled
+  const unusedSuppliers = view.suppliers.filter((s) => !view.cards.some((c) => c.vendorId === s.id))
+  const pendingSupplier = view.suppliers.find((s) => s.id === pendingVendorId && unusedSuppliers.some((u) => u.id === s.id))
+  const showAdd = !!view.canSend && !view.jobCancelled && unusedSuppliers.length > 0 && view.cards.some((c) => canPick(c, supplierDisplayState(c)))
+
   const markReceived = async (card: SupplierCard, received: boolean) => {
     setBusy(true)
     try {
@@ -190,7 +218,16 @@ export default function SupplierOrdersCard({ jobId, onChanged, onState }: { jobI
           return (
             <li key={c.vendorId} className="rounded-lg border border-[#d3d1c7] bg-white p-3 sm:p-4">
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                <strong className="text-base">{c.supplierName}</strong>
+                {canPick(c, shown) ? (
+                  <select aria-label="Supplier" className="min-h-[44px] min-w-[10rem] rounded-lg border border-[#8a877d] bg-white px-3 py-2 text-base font-semibold text-[#2c2c2a]" value={c.vendorId} disabled={busy} onChange={(e) => void switchSupplier(c, e.target.value)}>
+                    {view.suppliers.some((s) => s.id === c.vendorId) ? null : <option value={c.vendorId}>{c.supplierName}</option>}
+                    {view.suppliers.map((s) => (
+                      <option key={s.id} value={s.id}>{s.name}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <strong className="text-base">{c.supplierName}</strong>
+                )}
                 <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${chip}`}>{SHOWN_LABEL[shown]}</span>
                 <span className="text-xs text-[#57574f]">{c.poNumber}</span>
               </div>
@@ -202,11 +239,20 @@ export default function SupplierOrdersCard({ jobId, onChanged, onState }: { jobI
                 </p>
               )}
               {c.lines.length > 0 && (
-                <details className="mt-2 text-sm">
+                <details className="mt-2 text-sm" open={addingSupplier || view.cards.length > 1 || undefined}>
                   <summary className="min-h-[44px] cursor-pointer py-2 font-medium">{c.lines.length} item{c.lines.length === 1 ? '' : 's'}</summary>
                   <ul className="m-0 ml-5 list-disc pb-1">
                     {c.lines.map((l) => (
-                      <li key={l.key} className="break-words">{l.label}{l.qty ? ` — ${l.qty}` : ''}</li>
+                      <li key={l.key} className="break-words">
+                        {l.label}{l.qty ? ` — ${l.qty}` : ''}
+                        {canPick(c, shown) && (addingSupplier || view.cards.length > 1) && (
+                          <select aria-label={`Buy ${l.label} from`} className={`${field} mt-1`} value={c.vendorId} disabled={busy} onChange={(e) => void moveLine(l.key, e.target.value)}>
+                            {view.suppliers.map((s) => (
+                              <option key={s.id} value={s.id}>{s.name}</option>
+                            ))}
+                          </select>
+                        )}
+                      </li>
                     ))}
                   </ul>
                 </details>
@@ -214,17 +260,6 @@ export default function SupplierOrdersCard({ jobId, onChanged, onState }: { jobI
               {c.blockers.map((b) => (
                 <p key={b} className="my-1 text-sm text-[#a32d2d]">{b}</p>
               ))}
-              {view.canSend && shown === 'draft' && c.orderStatus !== 'sent' && c.lines.length > 0 && !view.jobCancelled && (
-                <label className="mt-2 block text-sm font-medium">
-                  Supplier
-                  <select className={field} value={c.vendorId} disabled={busy} onChange={(e) => void switchSupplier(c, e.target.value)}>
-                    {view.suppliers.some((s) => s.id === c.vendorId) ? null : <option value={c.vendorId}>{c.supplierName}</option>}
-                    {view.suppliers.map((s) => (
-                      <option key={s.id} value={s.id}>{s.name}</option>
-                    ))}
-                  </select>
-                </label>
-              )}
               {view.canSend && (
                 <div className="mt-2 flex flex-col gap-2">
                   <button type="button" className={shown === 'draft' || shown === 'changed' ? primary : btn} onClick={() => openPreview(c.vendorId, 'order')} disabled={view.jobCancelled}>
@@ -252,7 +287,23 @@ export default function SupplierOrdersCard({ jobId, onChanged, onState }: { jobI
             </li>
           )
         })}
+        {addingSupplier && showAdd && (!pendingVendorId || !!pendingSupplier) && (
+          <li className="rounded-lg border border-dashed border-[#8a877d] bg-white p-3 sm:p-4">
+            <select aria-label="Supplier for the new order" className={`${field} font-semibold`} value={pendingSupplier?.id ?? ''} onChange={(e) => setPendingVendorId(e.target.value)}>
+              <option value="">Choose a supplier</option>
+              {unusedSuppliers.map((s) => (
+                <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+            </select>
+            <p className="mt-2 text-sm">{pendingSupplier ? `No items yet. Pick "${pendingSupplier.name}" on the items above to move them here.` : 'Choose a supplier, then pick it on the items above to move them here.'}</p>
+          </li>
+        )}
       </ul>
+      {showAdd && !addingSupplier && (
+        <button type="button" className="mt-2 inline-flex min-h-[44px] items-center text-sm font-semibold text-[#2b0a3d] underline" onClick={() => setAddingSupplier(true)}>
+          + Add supplier
+        </button>
+      )}
       {view.nonPo.map((g) => (
         <p key={`${g.source}-${g.trade}`} className="mt-2 rounded-lg bg-[#f2f1ee] px-3 py-2 text-sm">{g.label}</p>
       ))}

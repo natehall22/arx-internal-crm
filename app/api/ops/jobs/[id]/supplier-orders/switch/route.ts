@@ -42,7 +42,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       jobId: params.id,
       userId: profile.id,
       kind: 'system',
-      body: `Draft supplier order moved from ${plan.fromName} to ${plan.toName} (${plan.trades.join(', ')}).`,
+      body: `Draft supplier order moved from ${plan.fromName} to ${plan.toName} ${plan.trades.length > 0 ? `(${plan.trades.join(', ')})` : '(moved items)'}.`,
     })
     return NextResponse.json({ ok: true })
   } catch (error) {

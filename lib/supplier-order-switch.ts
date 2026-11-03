@@ -39,9 +39,13 @@ export function planSupplierSwitch(ctx: SupplierOrderContext, fromVendorId: stri
   const inFlight = ctx.sends.some((s) => (s.vendorId === fromVendorId || s.vendorId === toVendorId) && s.status === 'sending')
   if (inFlight) return { ok: false, status: 409, error: 'An email for this job is being sent right now. Wait a minute and try again.' }
 
+  // Only re-point a trade when this card holds lines that follow the trade's pick. A card made of items moved here one
+  // by one ("+ Add supplier") must not drag the trade — and with it every other card's lines — along.
+  const lineOverridden = new Set(ctx.lines.filter((l) => l.vendorOverrideId).map((l) => l.key))
+  const trades = Array.from(new Set(group.lines.filter((l) => !lineOverridden.has(l.key)).map((l) => l.trade)))
   return {
     ok: true,
-    trades: group.trades,
+    trades,
     lineKeys: group.lines.map((l) => l.key),
     fromName: group.supplier.name,
     toName: to.name,
@@ -55,16 +59,19 @@ export async function applySupplierSwitch(
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const { orgId, jobId, toVendorId, plan } = args
 
-  // 1. The per-trade pick (keeps any "installer buys it" style source the trade already has).
-  const { data: existing, error: readError } = await admin.from('job_trade_material_sources').select('trade, material_source').eq('org_id', orgId).eq('job_id', jobId).in('trade', plan.trades)
-  if (readError) return { ok: false, error: 'Could not save. Try again.' }
-  const sourceByTrade = new Map((existing ?? []).map((r: { trade: string; material_source: string | null }) => [r.trade, r.material_source]))
   const now = new Date().toISOString()
-  const { error: tradeError } = await admin.from('job_trade_material_sources').upsert(
-    plan.trades.map((trade) => ({ org_id: orgId, job_id: jobId, trade, material_source: sourceByTrade.get(trade) ?? null, vendor_id: toVendorId, updated_by: args.userId, updated_at: now })),
-    { onConflict: 'job_id,trade' }
-  )
-  if (tradeError) return { ok: false, error: 'Could not save. Try again.' }
+
+  // 1. The per-trade pick (keeps any "installer buys it" style source the trade already has). None for a card made only of moved items.
+  if (plan.trades.length > 0) {
+    const { data: existing, error: readError } = await admin.from('job_trade_material_sources').select('trade, material_source').eq('org_id', orgId).eq('job_id', jobId).in('trade', plan.trades)
+    if (readError) return { ok: false, error: 'Could not save. Try again.' }
+    const sourceByTrade = new Map((existing ?? []).map((r: { trade: string; material_source: string | null }) => [r.trade, r.material_source]))
+    const { error: tradeError } = await admin.from('job_trade_material_sources').upsert(
+      plan.trades.map((trade) => ({ org_id: orgId, job_id: jobId, trade, material_source: sourceByTrade.get(trade) ?? null, vendor_id: toVendorId, updated_by: args.userId, updated_at: now })),
+      { onConflict: 'job_id,trade' }
+    )
+    if (tradeError) return { ok: false, error: 'Could not save. Try again.' }
+  }
 
   // 2. A line that had its own supplier pick (which beats the trade's) follows too.
   if (plan.lineKeys.length > 0) {
