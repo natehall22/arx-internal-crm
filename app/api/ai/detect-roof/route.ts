@@ -3,8 +3,7 @@ import OpenAI from 'openai'
 import { requireAuthApi } from '@/lib/auth'
 import { resolveSalesDocAccessBarred } from '@/lib/sales-doc-access'
 import { createServiceClient } from '@/lib/supabase/service'
-import { loadBuildingPointsNear } from '@/lib/lidar/building-points'
-import { measureRoofFromLidar } from '@/lib/lidar/roof-planes'
+import { measureLidarRoofNear } from '@/lib/lidar/measure-near'
 import { LIDAR_FACET_SOURCE, lidarRoofToEdges, lidarRoofToFacets } from '@/lib/lidar/roof-facets'
 import { registerOutlinesToImage } from '@/lib/lidar/image-register'
 import { getBitmapDimensionsFromBase64 } from '@/lib/png-dimensions-from-base64'
@@ -1389,18 +1388,9 @@ export async function POST(request: Request) {
         try {
           // The map centre first; if no building sits under it (the pin is on the yard or
           // street), retry at Google's building centre for this address.
-          const anchor = solarContext.anchor
-          const pins = [requestedCenter]
-          if (anchor && distanceMeters(requestedCenter, anchor) > 5 && distanceMeters(requestedCenter, anchor) < 40) pins.push(anchor)
-          let lidar: Awaited<ReturnType<typeof loadBuildingPointsNear>> | null = null
-          let roof: ReturnType<typeof measureRoofFromLidar> = null
-          let pin = requestedCenter
-          for (const candidate of pins) {
-            lidar = await loadBuildingPointsNear(admin, candidate.lat, candidate.lng)
-            roof = lidar.status === 'ok' ? measureRoofFromLidar(lidar.points) : null
-            pin = candidate
-            if (roof || lidar.status !== 'ok') break
-          }
+          const lidar = await measureLidarRoofNear(admin, requestedCenter, solarContext.anchor ?? null)
+          const roof = lidar.status === 'ok' ? lidar.roof : null
+          const pin = lidar.status === 'ok' ? lidar.pin : requestedCenter
           // Line the sections up with the photo the rep edits on (survey vs imagery drift).
           let shift = { eastM: 0, northM: 0 }
           if (roof) {
@@ -1418,8 +1408,8 @@ export async function POST(request: Request) {
             }
           }
           const lidarFacets = roof ? lidarRoofToFacets(roof, pin.lat, pin.lng, shift) : []
-          if (lidar && roof && lidarFacets.length > 0) {
-            const surveyYear = lidar.status === 'ok' && lidar.collectedEnd ? lidar.collectedEnd.slice(0, 4) : null
+          if (lidar.status === 'ok' && roof && lidarFacets.length > 0) {
+            const surveyYear = lidar.collectedEnd ? lidar.collectedEnd.slice(0, 4) : null
             return NextResponse.json({
               facets: lidarFacets,
               ridges: [],
@@ -1434,12 +1424,13 @@ export async function POST(request: Request) {
               facet_source: LIDAR_FACET_SOURCE,
               lidar_totals: roof.totals,
               lidar_edges: lidarRoofToEdges(roof),
-              lidar_collected_end: lidar.status === 'ok' ? lidar.collectedEnd : null,
+              lidar_collected_end: lidar.collectedEnd,
+              lidar_other_structures: lidar.otherStructures,
               detection_mode: 'lidar',
               openai_calls: 0,
             })
           }
-          console.info('[detect-roof] lidar unavailable; using Solar', { status: lidar?.status, planes: roof?.planes.length ?? 0 })
+          console.info('[detect-roof] lidar unavailable; using Solar', { status: lidar.status, planes: roof?.planes.length ?? 0 })
         } catch (lidarError) {
           console.warn('[detect-roof] lidar failed; using Solar', lidarError)
         }

@@ -131,6 +131,55 @@ function buildingUnderPin(points: LocalPoint[]): { pts: LocalPoint[]; footprintC
   return { pts: Array.from(comp).flatMap((k) => occ.get(k)!), footprintCells: comp.size }
 }
 
+export type NearbyStructure = { footprintSqft: number; gapFt: number }
+
+/**
+ * Other buildings in the point cloud besides the one under the pin, for a "detached structure?"
+ * flag. Only footprints of ~300–1,100 sq ft count: smaller is a shed/playhouse (ignored on
+ * purpose), larger is almost always the neighbour's house. Gap = nearest 1 m cell to the main
+ * building. Advisory only — never added to squares (no parcel lines, so ownership is unknown).
+ */
+export function nearbyStructures(
+  points: LocalPoint[],
+  opts: { minFootprintM2?: number; maxFootprintM2?: number; maxGapM?: number } = {}
+): NearbyStructure[] {
+  const minM2 = opts.minFootprintM2 ?? 28
+  const maxM2 = opts.maxFootprintM2 ?? 100
+  const maxGap = opts.maxGapM ?? 25
+  const { pts: main } = buildingUnderPin(points)
+  if (main.length === 0) return []
+  const occ = new Set<string>()
+  for (const p of points) occ.add(key(Math.floor(p.x), Math.floor(p.y)))
+  const mainCells = new Set(main.map((p) => key(Math.floor(p.x), Math.floor(p.y))))
+  const seen = new Set<string>(mainCells)
+  const mainList = Array.from(mainCells).map(unkey)
+  const out: NearbyStructure[] = []
+  for (const start of Array.from(occ)) {
+    if (seen.has(start)) continue
+    const comp: string[] = []
+    const stack = [start]
+    while (stack.length) {
+      const k = stack.pop()!
+      if (seen.has(k) || !occ.has(k)) continue
+      seen.add(k)
+      comp.push(k)
+      const [i, j] = unkey(k)
+      for (const [di, dj] of NEIGHBOURS_8) stack.push(key(i + di, j + dj))
+    }
+    if (comp.length < minM2 || comp.length > maxM2) continue
+    let gap = Infinity
+    for (const k of comp) {
+      const [i, j] = unkey(k)
+      for (const [mi, mj] of mainList) {
+        const d = Math.hypot(i - mi, j - mj)
+        if (d < gap) gap = d
+      }
+    }
+    if (gap <= maxGap) out.push({ footprintSqft: Math.round(comp.length * M2_TO_SQFT), gapFt: Math.round(gap * M_TO_FT) })
+  }
+  return out.sort((a, b) => a.gapFt - b.gapFt)
+}
+
 function measureRoofOnce(
   points: LocalPoint[],
   opts: { toleranceM?: number; minPlaneAreaM2?: number; seed?: number } = {}

@@ -15,31 +15,71 @@ export function getPublicEstimateOrgId(): string {
 export const PUBLIC_ESTIMATE_ORG_ID =
   process.env.PUBLIC_ESTIMATE_ORG_ID || '9089d4ad-f46c-405b-9798-6751d45a7051'
 
-/** Fixed consumer shingle rate — not pricebook / margin stack. */
-export function getPublicEstimatePricePerSquare(): number {
+/**
+ * Fallback consumer shingle rate per square (squares INCLUDING waste) when the pricebook
+ * can't be read. The live rate is the org's active "Asphalt Shingles" roofing type
+ * (lib/public-estimate-rate.ts) so the estimate follows pricebook changes with no deploy.
+ * $451.20 = the Asphalt Shingles sell rate since 2026-08-18. Env override wins over both.
+ */
+export const PUBLIC_ESTIMATE_DEFAULT_PRICE_PER_SQUARE = 451.2
+
+export function getPublicEstimatePriceOverride(): number | null {
   const raw = Number(process.env.PUBLIC_ESTIMATE_PRICE_PER_SQUARE)
-  return Number.isFinite(raw) && raw > 0 ? raw : 413
+  return Number.isFinite(raw) && raw > 0 ? raw : null
 }
 
-export const PUBLIC_ESTIMATE_PRICE_PER_SQUARE = getPublicEstimatePricePerSquare()
-
-/** Fallback shingle rate when auto-measure is unreliable but squares_mid > 0 (facet_count < 10). */
-export function getPublicEstimateFallbackPricePerSquare(): number {
-  const raw = Number(process.env.PUBLIC_ESTIMATE_FALLBACK_PRICE_PER_SQUARE)
-  return Number.isFinite(raw) && raw > 0 ? raw : 530
+/** Sync rate (env override → default). Prefer resolvePublicEstimatePricePerSquare() on the server. */
+export function getPublicEstimatePricePerSquare(): number {
+  return getPublicEstimatePriceOverride() ?? PUBLIC_ESTIMATE_DEFAULT_PRICE_PER_SQUARE
 }
 
-/** Complex fallback shingle rate when auto-measure is unreliable with squares_mid > 0 and facet_count ≥ 10. */
-export function getPublicEstimateComplexFallbackPricePerSquare(): number {
-  const raw = Number(process.env.PUBLIC_ESTIMATE_COMPLEX_FALLBACK_PRICE_PER_SQUARE)
-  return Number.isFinite(raw) && raw > 0 ? raw : 550
-}
+/** Name of the pricebook roofing type the estimate prices from. */
+export const PUBLIC_ESTIMATE_ROOFING_TYPE_NAME = 'Asphalt Shingles'
 
-/** ± band around mid price / squares (aligned with measure accuracy docs ~±15%). */
-export const PUBLIC_ESTIMATE_RANGE_BAND = (() => {
+export type PublicEstimateConfidence = 'high' | 'standard' | 'low'
+
+/**
+ * Price range around the mid, by measurement confidence (2026-11 calibration):
+ *  - high: in-house lidar (≈5% squares error vs carrier reports on 9 roofs)
+ *  - standard: Google Solar, measure looks reliable
+ *  - low: Solar unreliable / complex / stale imagery. Solar has only ever under-read
+ *    (Brigstock −5% base, Heritage −17% with waste), so the range leans high instead of
+ *    padding the $/sq like the old $530/$550 fallback rates did.
+ * Env PUBLIC_ESTIMATE_RANGE_BAND (legacy, symmetric) still overrides "standard" when set.
+ */
+export function getPublicEstimateBand(confidence: PublicEstimateConfidence | null | undefined): {
+  low: number
+  high: number
+} {
+  if (confidence === 'high') return { low: 0.06, high: 0.08 }
+  if (confidence === 'low') return { low: 0.1, high: 0.25 }
   const raw = Number(process.env.PUBLIC_ESTIMATE_RANGE_BAND)
-  return Number.isFinite(raw) && raw > 0 && raw < 0.5 ? raw : 0.15
-})()
+  if (Number.isFinite(raw) && raw > 0 && raw < 0.5) return { low: raw, high: raw }
+  return { low: 0.08, high: 0.12 }
+}
+
+/**
+ * Waste the customer is PRICED on (what reps sell), not what crews burn (~10% actual).
+ * 2026-11 CRM data, 19 signed roofs: ≤4 sections 10.5% median, 5–9 sections 16%,
+ * 10+ sections 22.5%; no hips/valleys 10.3%, 150+ LF hip+valley 21.5%.
+ */
+export function getPublicEstimateSoldWastePercent(input: {
+  facetCount: number
+  hipValleyLf?: number | null
+}): number {
+  const lf = input.hipValleyLf
+  if (lf != null && Number.isFinite(lf) && lf >= 0) {
+    if (lf >= 150) return 21.5
+    if (lf >= 50) return 16
+    return 11
+  }
+  if (input.facetCount >= 10) return 22
+  if (input.facetCount >= 5) return 16
+  return 11
+}
+
+/** Solar imagery older than this many years can miss additions/new roofs → low confidence. */
+export const PUBLIC_ESTIMATE_MAX_IMAGERY_AGE_YEARS = 4
 
 export const PUBLIC_ESTIMATE_TOKEN_TTL_MS = (() => {
   const raw = Number(process.env.PUBLIC_ESTIMATE_TOKEN_TTL_MS)
@@ -110,10 +150,10 @@ export const PUBLIC_ESTIMATE_FALLBACK_PREVIEW_MESSAGE =
 export const PUBLIC_ESTIMATE_FALLBACK_GATE_COPY =
   'Enter your name, email, and phone to see your conservative estimate range. Your roof looks complex from satellite imagery, so we use a buffered estimate — our team will manually measure your roof on a free inspection to confirm accuracy. This is an estimate only — not a quote. Based on roof complexity, the price could be different. One of our reps will reach out soon with a few clarifying, no-pressure questions.'
 
-/** Hybrid disclaimer for paid fallback unlock/reveal — conservative range + manual measure. No $/sq rate. */
+/** Hybrid disclaimer for paid fallback unlock/reveal — wider range + manual measure. No $/sq rate. */
 export function getPublicEstimateFallbackDisclaimer(): string {
   return (
-    'This is an estimate only — not a quote. It is based on aerial/satellite imagery and a conservative rate for complex roofs — satellite views can under-read square footage. ' +
+    'This is an estimate only — not a quote. It is based on aerial/satellite imagery, with a wider range for complex roofs — satellite views can under-read square footage. ' +
     'Our design team will manually measure your roof on a free inspection to confirm accuracy before any quote. ' +
     'Based on roof complexity, the price could be different. Pitch, condition, and complexity are verified on inspection. ' +
     'This range is for roofing (shingles) only; extras like gutters, decking, or tear-off are separate and confirmed after inspection. ' +

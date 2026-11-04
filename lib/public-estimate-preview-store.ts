@@ -1,4 +1,8 @@
-import { PUBLIC_ESTIMATE_TOKEN_TTL_MS, getPublicEstimateOrgId } from '@/lib/public-estimate-config'
+import {
+  PUBLIC_ESTIMATE_TOKEN_TTL_MS,
+  getPublicEstimateOrgId,
+  type PublicEstimateConfidence,
+} from '@/lib/public-estimate-config'
 import { createServiceClient } from '@/lib/supabase/service'
 
 /** Measurement snapshot kept server-side only — never in the signed preview token. */
@@ -14,8 +18,30 @@ export type PublicEstimatePreviewSnapshot = {
   facet_count: number
   measure_source: string
   requires_manual_measure: boolean
+  /** 2026-11 accuracy fields — null on older rows / before the migration is applied. */
+  base_squares?: number | null
+  confidence?: PublicEstimateConfidence | null
+  price_per_square?: number | null
+  flags?: string[] | null
+  other_structures?: { footprintSqft: number; gapFt: number }[] | null
+  imagery_date?: string | null
+  lidar_collected_end?: string | null
+  calibration_factor?: number | null
+  estimate_version?: string | null
   expiresAt: number
 }
+
+const ACCURACY_FIELDS = [
+  'base_squares',
+  'confidence',
+  'price_per_square',
+  'flags',
+  'other_structures',
+  'imagery_date',
+  'lidar_collected_end',
+  'calibration_factor',
+  'estimate_version',
+] as const
 
 type PublicEstimatePreviewRow = {
   jti: string
@@ -31,6 +57,21 @@ type PublicEstimatePreviewRow = {
   measure_source: string
   requires_manual_measure: boolean
   expires_at: string
+  base_squares?: number | string | null
+  confidence?: string | null
+  price_per_square?: number | string | null
+  flags?: string[] | null
+  other_structures?: { footprintSqft: number; gapFt: number }[] | null
+  imagery_date?: string | null
+  lidar_collected_end?: string | null
+  calibration_factor?: number | string | null
+  estimate_version?: string | null
+}
+
+const numOrNull = (v: unknown): number | null => {
+  if (v == null || v === '') return null
+  const n = Number(v)
+  return Number.isFinite(n) ? n : null
 }
 
 function rowToSnapshot(row: PublicEstimatePreviewRow): PublicEstimatePreviewSnapshot {
@@ -46,6 +87,16 @@ function rowToSnapshot(row: PublicEstimatePreviewRow): PublicEstimatePreviewSnap
     facet_count: row.facet_count,
     measure_source: row.measure_source,
     requires_manual_measure: row.requires_manual_measure,
+    base_squares: numOrNull(row.base_squares),
+    confidence:
+      row.confidence === 'high' || row.confidence === 'standard' || row.confidence === 'low' ? row.confidence : null,
+    price_per_square: numOrNull(row.price_per_square),
+    flags: Array.isArray(row.flags) ? row.flags : null,
+    other_structures: Array.isArray(row.other_structures) ? row.other_structures : null,
+    imagery_date: row.imagery_date ?? null,
+    lidar_collected_end: row.lidar_collected_end ?? null,
+    calibration_factor: numOrNull(row.calibration_factor),
+    estimate_version: row.estimate_version ?? null,
     expiresAt: new Date(row.expires_at).getTime(),
   }
 }
@@ -64,7 +115,7 @@ export async function storePublicEstimatePreview(
   const expires_at = new Date(expiresAt).toISOString()
 
   const adminClient = createServiceClient()
-  const { error } = await adminClient.from('public_estimate_previews').upsert({
+  const coreRow = {
     jti: snapshot.jti,
     org_id: getPublicEstimateOrgId(),
     address: snapshot.address,
@@ -78,7 +129,19 @@ export async function storePublicEstimatePreview(
     measure_source: snapshot.measure_source,
     requires_manual_measure: snapshot.requires_manual_measure,
     expires_at,
-  })
+  }
+  const accuracyRow: Record<string, unknown> = {}
+  for (const k of ACCURACY_FIELDS) {
+    const v = snapshot[k]
+    if (v !== undefined) accuracyRow[k] = v
+  }
+  let { error } = await adminClient.from('public_estimate_previews').upsert({ ...coreRow, ...accuracyRow })
+  // Migration 202611030020 not applied yet → retry with the original columns so the funnel
+  // keeps working (price then falls back to the default rate at unlock).
+  if (error && Object.keys(accuracyRow).length && /column|schema cache/i.test(error.message ?? '')) {
+    console.warn('[public-estimate] accuracy columns missing; storing core snapshot only', error.message)
+    ;({ error } = await adminClient.from('public_estimate_previews').upsert(coreRow))
+  }
 
   if (error) {
     console.error('[public-estimate] preview store write failed:', error)

@@ -33,7 +33,7 @@ export type Dataset = {
 
 export const DATASET_KEYS = [
   'jobs', 'sales', 'payments', 'job_costs', 'payroll_lines', 'canvass_doors', 'appointments', 'leads',
-  'opportunities', 'referral_partners', 'inspection_sets', 'sits',
+  'opportunities', 'referral_partners', 'inspection_sets', 'sits', 'instant_estimate_accuracy',
 ] as const
 export type DatasetKey = (typeof DATASET_KEYS)[number]
 
@@ -129,6 +129,18 @@ export const DATASETS: Record<DatasetKey, Dataset> = {
     columns: [
       c('name', 'Partner'), c('company', 'Company'), c('status', 'Status'), c('owner', 'Owner'), c('assigned_at', 'Assigned', 'date'),
       c('last_touched_at', 'Last touched', 'date'), c('referred_opportunities', 'Referrals', 'number'),
+    ],
+  },
+  instant_estimate_accuracy: {
+    idColumn: 'check_id', key: 'instant_estimate_accuracy', label: 'Instant Estimate accuracy',
+    description: 'Website Instant Estimate vs trusted roof squares on real jobs (positive error = estimate read high).',
+    view: 'rpt_instant_estimate_accuracy', dateColumn: 'checked_at', ownerColumn: null,
+    columns: [
+      c('checked_at', 'Checked', 'date'), c('address', 'Address'), c('measure_source', 'Estimate source'), c('confidence', 'Confidence'),
+      c('flags', 'Flags'), c('truth_source', 'Truth source'), c('est_base_squares', 'Estimate squares (no waste)', 'number'),
+      c('truth_base_squares', 'Measured squares (no waste)', 'number'), c('error_pct', 'Error %', 'number'), c('abs_error_pct', 'Abs error %', 'number'),
+      c('est_squares_with_waste', 'Estimate squares (with waste)', 'number'), c('truth_squares_with_waste', 'Sold squares', 'number'),
+      c('sold_error_pct', 'Error vs sold %', 'number'), c('ordered_squares', 'Ordered squares', 'number'), c('estimate_version', 'Estimate version'),
     ],
   },
 }

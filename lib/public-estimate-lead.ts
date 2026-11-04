@@ -339,6 +339,36 @@ function formatUsd(n: number): string {
   return `$${n.toLocaleString('en-US')}`
 }
 
+const FLAG_TEXT: Record<string, string> = {
+  possible_detached_structure: 'possible detached garage/shop on the lot (NOT included in squares)',
+  possible_addition_since_lidar_survey: 'roof looks bigger than the 2016–17 lidar survey — likely an addition; confirm on site',
+  imagery_old: 'aerial imagery is old — confirm nothing changed',
+  building_far_from_address: 'measured building sits far from the address pin — confirm it is the right house',
+  low_slope_section: 'has a low-slope/flat section (not shingle-able) — price separately',
+  no_roof_data: 'no usable roof data',
+}
+
+/** Rep-facing "what to double-check" line(s) from the measurement flags. Never shown to homeowners. */
+export function describeEstimateMeasureCheck(snapshot: PublicEstimatePreviewSnapshot): string[] {
+  const lines: string[] = []
+  const conf = snapshot.confidence
+  if (conf) {
+    const src =
+      snapshot.measure_source === 'lidar'
+        ? `in-house lidar${snapshot.lidar_collected_end ? ` (${snapshot.lidar_collected_end.slice(0, 4)} survey)` : ''}`
+        : `Google Solar${snapshot.imagery_date ? ` (imagery ${snapshot.imagery_date.slice(0, 7)})` : ''}`
+    lines.push(`Measure confidence: ${conf.toUpperCase()} — ${src}${snapshot.base_squares != null ? ` · ${snapshot.base_squares} sq before waste` : ''}`)
+  }
+  for (const f of snapshot.flags ?? []) {
+    if (f.startsWith('geocode_')) lines.push('Check: address pin was approximate — confirm the house')
+    else lines.push(`Check: ${FLAG_TEXT[f] ?? f}`)
+  }
+  for (const o of snapshot.other_structures ?? []) {
+    lines.push(`  · ~${o.footprintSqft} sq ft structure ${o.gapFt} ft from the house`)
+  }
+  return lines
+}
+
 /** Exported for unit tests — ops notes differ by auto vs fallback vs silent manual routing. */
 export function buildEstimateNotes(options: {
   snapshot: PublicEstimatePreviewSnapshot
@@ -359,6 +389,7 @@ export function buildEstimateNotes(options: {
       `Address (locked from aerial preview): ${snapshot.address}`,
       measureDetail,
       `Waste ~${snapshot.waste_percent}% · source=${snapshot.measure_source} · facets=${snapshot.facet_count}`,
+      ...describeEstimateMeasureCheck(snapshot),
       '',
       'No estimate generated for customer — complex roofing system; manual draw required before estimating.',
       'Routing: unassigned in Leads (no inside-sales auto_assign) — grab manually from the leads list.',
@@ -366,9 +397,9 @@ export function buildEstimateNotes(options: {
   }
   const fallbackLine =
     customerPath === 'fallback_unreliable'
-      ? `Auto-measure unreliable — pricing used $${pricePerSquare}/sq FALLBACK (est. ${snapshot.squares_low}–${snapshot.squares_high} sq mid ${snapshot.squares_mid})`
+      ? `Auto-measure unreliable — range widened, leans high (est. ${snapshot.squares_low}–${snapshot.squares_high} sq mid ${snapshot.squares_mid})`
       : customerPath === 'fallback_complex'
-        ? `Auto-measure unreliable — pricing used $${pricePerSquare}/sq COMPLEX FALLBACK (est. ${snapshot.squares_low}–${snapshot.squares_high} sq mid ${snapshot.squares_mid})`
+        ? `Auto-measure unreliable, complex roof — range widened, leans high (est. ${snapshot.squares_low}–${snapshot.squares_high} sq mid ${snapshot.squares_mid})`
         : null
   const fallbackFollowUp = isPublicEstimatePaidFallbackPath(customerPath)
     ? 'Follow-up: complex aerial roof — manual roof measure required to confirm squares before quoting.'
@@ -379,8 +410,9 @@ export function buildEstimateNotes(options: {
     ...(fallbackLine ? [fallbackLine] : []),
     ...(fallbackFollowUp ? [fallbackFollowUp] : []),
     `Est. squares: ${snapshot.squares_low}–${snapshot.squares_high} (mid ${snapshot.squares_mid})`,
-    `Est. range shown to customer: ${formatUsd(price_low)}–${formatUsd(price_high)} @ $${pricePerSquare}/sq shingles (roofing only)`,
+    `Est. range shown to customer: ${formatUsd(price_low)}–${formatUsd(price_high)} @ $${pricePerSquare.toFixed(2)}/sq shingles (roofing only)`,
     `Waste ~${snapshot.waste_percent}% · source=${snapshot.measure_source} · facets=${snapshot.facet_count}`,
+    ...describeEstimateMeasureCheck(snapshot),
     '',
     'Customer-facing disclaimer (same copy they saw):',
     disclaimer,
@@ -827,6 +859,14 @@ function buildRawPayload(options: {
     measure_source: snapshot.measure_source,
     facet_count: snapshot.facet_count,
     requires_manual_measure: snapshot.requires_manual_measure,
+    base_squares: snapshot.base_squares ?? null,
+    confidence: snapshot.confidence ?? null,
+    measure_flags: snapshot.flags ?? null,
+    other_structures: snapshot.other_structures ?? null,
+    imagery_date: snapshot.imagery_date ?? null,
+    lidar_collected_end: snapshot.lidar_collected_end ?? null,
+    calibration_factor: snapshot.calibration_factor ?? null,
+    estimate_version: snapshot.estimate_version ?? null,
     pricing_mode: customerPath,
     estimate_mode: customerPath === 'silent_manual' ? 'manual_design' : 'auto',
     homeowner_name: contact.name,
@@ -1278,9 +1318,9 @@ export function buildOpsAlertEmailContent(options: {
   const paidFallback = isPublicEstimatePaidFallbackPath(customerPath)
   const fallbackLabel =
     customerPath === 'fallback_complex'
-      ? `$${pricePerSquare}/sq COMPLEX FALLBACK`
+      ? `$${pricePerSquare.toFixed(2)}/sq — COMPLEX, UNRELIABLE MEASURE (wide range)`
       : customerPath === 'fallback_unreliable'
-        ? `$${pricePerSquare}/sq FALLBACK`
+        ? `$${pricePerSquare.toFixed(2)}/sq — UNRELIABLE MEASURE (wide range)`
         : null
 
   if (silentManual) {
@@ -1335,7 +1375,7 @@ export function buildOpsAlertEmailContent(options: {
     `Phone: ${phone}`,
     `Email: ${email}`,
     `Address: ${address}`,
-    `Estimate shown: ${formatUsd(price_low)}–${formatUsd(price_high)} (est. ${squares_est} sq @ $${pricePerSquare}/sq shingles — roofing only)`,
+    `Estimate shown: ${formatUsd(price_low)}–${formatUsd(price_high)} (est. ${squares_est} sq @ $${pricePerSquare.toFixed(2)}/sq shingles — roofing only)`,
     '',
     'Customer was told: estimate only (not a quote); based on roof complexity the price could be different; you will ask clarifying no-pressure questions.',
     disclaimer,
@@ -1354,7 +1394,7 @@ export function buildOpsAlertEmailContent(options: {
             <li>Phone: <a href="tel:${escapeHtml(phone.replace(/[^\d+]/g, ''))}">${escapeHtml(phone)}</a></li>
             <li>Email: ${escapeHtml(email)}</li>
             <li>Address: ${escapeHtml(address)}</li>
-            <li>Estimate: <strong>${escapeHtml(formatUsd(price_low))}–${escapeHtml(formatUsd(price_high))}</strong> (est. ${squares_est} squares · $${pricePerSquare}/sq shingles)</li>
+            <li>Estimate: <strong>${escapeHtml(formatUsd(price_low))}–${escapeHtml(formatUsd(price_high))}</strong> (est. ${squares_est} squares · $${pricePerSquare.toFixed(2)}/sq shingles)</li>
           </ul>
           <p style="color:#2c2c2a;font-size:14px;line-height:1.45"><em>${escapeHtml(disclaimer)}</em></p>
           <p><a href="${escapeHtml(leadUrl)}" style="background:#b45309;color:#fff;padding:10px 16px;text-decoration:none;border-radius:6px">Open lead in CRM</a></p>
@@ -1606,9 +1646,9 @@ export async function createOrGetPublicEstimateLead(options: {
   const adminClient = createServiceClient()
   const orgId = getPublicEstimateOrgId()
   const externalLeadId = `public-estimate:${snapshot.jti}`
-  const { path: customerPath, pricePerSquare } = resolvePublicEstimatePricingPath(snapshot)
+  const { path: customerPath, pricePerSquare, confidence } = resolvePublicEstimatePricingPath(snapshot)
   const disclaimer = getPublicEstimateDisclaimerForPath(customerPath)
-  const pricing = computePublicEstimatePricing(snapshot.squares_mid, pricePerSquare)
+  const pricing = computePublicEstimatePricing(snapshot.squares_mid, pricePerSquare, confidence)
   const price_low = pricing.price_low
   const price_high = pricing.price_high
   const squares_est = pricing.squares_mid

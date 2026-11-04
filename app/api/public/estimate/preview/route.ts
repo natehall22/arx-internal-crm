@@ -161,6 +161,15 @@ export async function POST(request: NextRequest) {
       facet_count: result.facet_count,
       measure_source: result.measure_source,
       requires_manual_measure: result.requires_manual_measure,
+      base_squares: result.base_squares,
+      confidence: result.confidence,
+      price_per_square: result.price_per_square,
+      flags: result.flags,
+      other_structures: result.other_structures,
+      imagery_date: result.imagery_date,
+      lidar_collected_end: result.lidar_collected_end,
+      calibration_factor: result.calibration_factor,
+      estimate_version: result.estimate_version,
     })
   } catch {
     return publicEstimateJson(

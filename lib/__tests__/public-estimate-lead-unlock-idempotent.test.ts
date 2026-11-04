@@ -534,7 +534,7 @@ describe('public estimate idempotent unlock promotion', () => {
     expect(lead.source).toBe(PUBLIC_ESTIMATE_LEAD_SOURCE_NAME)
     expect(lead.lead_source_id).toBe(LEAD_SOURCE_ID)
     expect(lead.notes).toMatch(/CALL IMMEDIATELY/)
-    expect(lead.notes).toMatch(/\$530\/sq FALLBACK/)
+    expect(lead.notes).toMatch(/Auto-measure unreliable — range widened/)
     expect(lead.notes).not.toMatch(/DO NOT quote/)
     expect(lead.raw_payload.pricing_mode).toBe('fallback_unreliable')
     expect(lead.raw_payload.estimate_mode).toBe('auto')
@@ -564,7 +564,7 @@ describe('public estimate idempotent unlock promotion', () => {
     expect(lead.source).toBe(PUBLIC_ESTIMATE_LEAD_SOURCE_NAME)
   })
 
-  it('promotes Manual Measure lead to fallback_complex with $550/sq notes once', async () => {
+  it('promotes Manual Measure lead to fallback_complex with complex-roof notes once', async () => {
     const jti = 'jti-promote-complex'
     seedManualMeasureLead(jti)
     const snapshot: PublicEstimatePreviewSnapshot = {
@@ -584,8 +584,7 @@ describe('public estimate idempotent unlock promotion', () => {
 
     const lead = leads.get(`lead-${jti}`)!
     expect(lead.raw_payload.pricing_mode).toBe('fallback_complex')
-    expect(lead.notes).toMatch(/\$550\/sq COMPLEX FALLBACK/)
-    expect(lead.notes).not.toMatch(/\$530\/sq FALLBACK/)
+    expect(lead.notes).toMatch(/unreliable, complex roof — range widened/)
   })
 
   it('does not duplicate promotion alerts or homeowner reveal email for concurrent unlocks', async () => {
