@@ -1,0 +1,685 @@
+{
+  "app/(canvass-app)/canvass/components/CanvassReportIssue.tsx": {
+    "brand": 1
+  },
+  "app/(canvass-app)/canvass/components/LeadModal.tsx": {
+    "timezone": 2
+  },
+  "app/admin/comp-plans/page.tsx": {
+    "timezone": 1
+  },
+  "app/admin/door-drop/DoorDropClient.tsx": {
+    "address": 1,
+    "brand": 12
+  },
+  "app/admin/email-blasts/resend-today/page.tsx": {
+    "brand": 1
+  },
+  "app/admin/goals/GoalsClient.tsx": {
+    "timezone": 1
+  },
+  "app/admin/integrations/page.tsx": {
+    "brand": 1
+  },
+  "app/admin/job-profit-tracker/page.tsx": {
+    "brand": 1
+  },
+  "app/admin/payroll/weekly/page.tsx": {
+    "timezone": 2
+  },
+  "app/admin/print-kit/appointment-cards/AppointmentCardsClient.tsx": {
+    "brand": 1
+  },
+  "app/admin/settings/page.tsx": {
+    "brand": 3,
+    "timezone": 6
+  },
+  "app/admin/sisu/setter-ramp/SetterRampClient.tsx": {
+    "timezone": 1
+  },
+  "app/admin/subs/page.tsx": {
+    "brand": 7
+  },
+  "app/admin/teams/page.tsx": {
+    "timezone": 10
+  },
+  "app/api/admin/data/route.ts": {
+    "timezone": 3
+  },
+  "app/api/admin/employee-agreements/route.ts": {
+    "brand": 1
+  },
+  "app/api/admin/sisu/accountability/route.ts": {
+    "timezone": 1
+  },
+  "app/api/admin/users/route.ts": {
+    "brand": 1
+  },
+  "app/api/ai/chat/route.ts": {
+    "brand": 1
+  },
+  "app/api/ai/route.ts": {
+    "brand": 3
+  },
+  "app/api/appointments/[id]/route.ts": {
+    "brand": 3
+  },
+  "app/api/calendar/sync/route.ts": {
+    "timezone": 1
+  },
+  "app/api/canvass/availability/route.ts": {
+    "brand": 1,
+    "timezone": 7
+  },
+  "app/api/canvass/lead/route.ts": {
+    "brand": 1,
+    "timezone": 2
+  },
+  "app/api/canvass/team-availability/route.ts": {
+    "brand": 1,
+    "timezone": 7
+  },
+  "app/api/change-orders/create/route.ts": {
+    "address": 2,
+    "brand": 2
+  },
+  "app/api/change-orders/sign/route.ts": {
+    "brand": 2
+  },
+  "app/api/close-appointments/submit/route.ts": {
+    "timezone": 1
+  },
+  "app/api/coaching/trend/route.ts": {
+    "timezone": 1
+  },
+  "app/api/commissions/weekly/route.ts": {
+    "timezone": 2
+  },
+  "app/api/contracts/create/route.ts": {
+    "address": 2,
+    "brand": 7
+  },
+  "app/api/contracts/sign/route.ts": {
+    "address": 2,
+    "brand": 10
+  },
+  "app/api/crew/[token]/photos/finalize/route.ts": {
+    "brand": 2
+  },
+  "app/api/crew/[token]/photos/register/route.ts": {
+    "brand": 1
+  },
+  "app/api/cron/founder-contacts-digest/route.ts": {
+    "timezone": 2
+  },
+  "app/api/cron/instant-estimate-accuracy/route.ts": {
+    "brand": 1
+  },
+  "app/api/dashboard/ops-metrics/route.ts": {
+    "timezone": 1
+  },
+  "app/api/dashboard/personal-stats/route.ts": {
+    "timezone": 1
+  },
+  "app/api/dashboard/team-stats/route.ts": {
+    "timezone": 1
+  },
+  "app/api/feedback/submit/route.ts": {
+    "brand": 1
+  },
+  "app/api/inspection-reports/[id]/pdf/route.ts": {
+    "brand": 1
+  },
+  "app/api/inspection-reports/[id]/send/route.ts": {
+    "address": 2,
+    "brand": 4
+  },
+  "app/api/inspections/reschedule/route.ts": {
+    "timezone": 3
+  },
+  "app/api/inspections/schedule-close/route.ts": {
+    "timezone": 8
+  },
+  "app/api/inspections/status/route.ts": {
+    "brand": 1,
+    "timezone": 4
+  },
+  "app/api/login/page.tsx": {
+    "brand": 1
+  },
+  "app/api/mobile/capabilities/route.ts": {
+    "brand": 2
+  },
+  "app/api/mobile/leads/route.ts": {
+    "brand": 1
+  },
+  "app/api/mobile/org-config/route.ts": {
+    "brand": 1
+  },
+  "app/api/mobile/territories/route.ts": {
+    "brand": 1
+  },
+  "app/api/opportunities/[id]/inside-sales-follow-up/route.ts": {
+    "timezone": 6
+  },
+  "app/api/opportunities/[id]/measure/lidar/route.ts": {
+    "brand": 1
+  },
+  "app/api/opportunities/[id]/proposals/route.ts": {
+    "brand": 1
+  },
+  "app/api/ops/install-schedule/availability/route.ts": {
+    "brand": 1
+  },
+  "app/api/ops/jobs/[id]/cancel/route.ts": {
+    "brand": 1
+  },
+  "app/api/ops/jobs/[id]/completion-certificate/send/route.ts": {
+    "brand": 1
+  },
+  "app/api/ops/jobs/[id]/notes/route.ts": {
+    "brand": 1
+  },
+  "app/api/ops/scheduling-assignees/route.ts": {
+    "brand": 1
+  },
+  "app/api/public/estimate/config/route.ts": {
+    "brand": 1
+  },
+  "app/api/public/estimate/preview/route.ts": {
+    "address": 4
+  },
+  "app/api/public/estimate/unlock/route.ts": {
+    "address": 2
+  },
+  "app/api/sisu/incentives/route.ts": {
+    "timezone": 1
+  },
+  "app/api/sisu/leaderboard/route.ts": {
+    "timezone": 1
+  },
+  "app/api/threads/[dealId]/messages/route.ts": {
+    "brand": 1
+  },
+  "app/api/trial-signup/route.ts": {
+    "brand": 1,
+    "timezone": 1
+  },
+  "app/api/user/comp-plan/route.ts": {
+    "timezone": 1
+  },
+  "app/api/webhooks/leads/route.ts": {
+    "brand": 3
+  },
+  "app/appointments/feedback/page.tsx": {
+    "timezone": 4
+  },
+  "app/change-orders/sign/[token]/page.tsx": {
+    "brand": 1
+  },
+  "app/comp-agreements/receipt/[token]/page.tsx": {
+    "brand": 1
+  },
+  "app/comp-agreements/sign/[token]/page.tsx": {
+    "brand": 1
+  },
+  "app/contracts/[token]/page.tsx": {
+    "brand": 1
+  },
+  "app/contracts/[token]/rep/page.tsx": {
+    "brand": 1
+  },
+  "app/contracts/sign/[token]/CustomerSigningForm.tsx": {
+    "address": 2,
+    "brand": 54
+  },
+  "app/contracts/sign/[token]/page.tsx": {
+    "address": 1,
+    "brand": 4
+  },
+  "app/crew/[token]/CrewPhotoCapture.tsx": {
+    "brand": 5
+  },
+  "app/crew/[token]/page.tsx": {
+    "brand": 2
+  },
+  "app/dashboard/DashboardClient.tsx": {
+    "timezone": 6
+  },
+  "app/dashboard/page.tsx": {
+    "timezone": 2
+  },
+  "app/invoices/[invoiceId]/print/page.tsx": {
+    "brand": 2
+  },
+  "app/layout.tsx": {
+    "brand": 3
+  },
+  "app/leads/[id]/LeadView.tsx": {
+    "timezone": 4
+  },
+  "app/login/page.tsx": {
+    "brand": 1
+  },
+  "app/opportunities/[id]/OpportunityView.tsx": {
+    "brand": 2,
+    "timezone": 1
+  },
+  "app/opportunities/[id]/measure/print/page.tsx": {
+    "brand": 1
+  },
+  "app/ops/OpsClient.tsx": {
+    "timezone": 2
+  },
+  "app/ops/jobs/[id]/JobDetailClient.tsx": {
+    "brand": 1,
+    "timezone": 2
+  },
+  "app/ops/jobs/[id]/measure/ExteriorMeasureClient.tsx": {
+    "brand": 1
+  },
+  "app/ops/jobs/[id]/measure/print/page.tsx": {
+    "brand": 1
+  },
+  "app/ops/schedule/InstallScheduleClient.tsx": {
+    "brand": 3
+  },
+  "app/page.tsx": {
+    "brand": 10
+  },
+  "app/privacy/page.tsx": {
+    "brand": 6
+  },
+  "app/r/[token]/page.tsx": {
+    "address": 4,
+    "brand": 7
+  },
+  "app/referral-partners/[id]/PartnerDetailClient.tsx": {
+    "timezone": 1
+  },
+  "app/sisu/page.tsx": {
+    "timezone": 2
+  },
+  "app/terms/page.tsx": {
+    "brand": 3
+  },
+  "app/today/page.tsx": {
+    "timezone": 1
+  },
+  "app/tools/roof-measure/measurements/page.tsx": {
+    "brand": 2
+  },
+  "app/trial/page.tsx": {
+    "brand": 4
+  },
+  "app/work-orders/[id]/WorkOrderDetailClient.tsx": {
+    "timezone": 1
+  },
+  "components/AIAssistant.tsx": {
+    "brand": 1
+  },
+  "components/AppointmentFeedbackPrompt.tsx": {
+    "timezone": 2
+  },
+  "components/AuthShell.tsx": {
+    "brand": 1
+  },
+  "components/InspectionStatusCard.tsx": {
+    "timezone": 1
+  },
+  "components/Nav.tsx": {
+    "brand": 2
+  },
+  "components/ProposalPDFv2.tsx": {
+    "brand": 11
+  },
+  "components/RequestMeasurementModal.tsx": {
+    "brand": 1
+  },
+  "components/RoofMeasurementCard.tsx": {
+    "brand": 2
+  },
+  "components/SetterFeedbackPrompt.tsx": {
+    "timezone": 1
+  },
+  "components/appointments/CalendarView.tsx": {
+    "timezone": 3
+  },
+  "components/appointments/CloseScheduleModal.tsx": {
+    "timezone": 2
+  },
+  "components/change-orders/ChangeOrderModal.tsx": {
+    "brand": 1
+  },
+  "components/contracts/ContractModal.tsx": {
+    "brand": 3
+  },
+  "components/customer-file/ThreadPanel.tsx": {
+    "brand": 1
+  },
+  "components/employee-agreements/AgreementDocument.tsx": {
+    "brand": 1
+  },
+  "components/inspection-report/ReportBuilder.tsx": {
+    "brand": 2
+  },
+  "components/opportunities/CloseAppointmentStatusSection.tsx": {
+    "timezone": 1
+  },
+  "components/opportunities/InsideSalesFollowUpDrawer.tsx": {
+    "timezone": 1
+  },
+  "components/ops/JobDocumentsBanner.tsx": {
+    "timezone": 1
+  },
+  "components/ops/JobMaterialsCard.tsx": {
+    "timezone": 2
+  },
+  "components/ops/JobPaymentsCard.tsx": {
+    "timezone": 2
+  },
+  "components/ops/JobPayrollSentBanner.tsx": {
+    "timezone": 1
+  },
+  "components/ops/JobSoldScopeSummary.tsx": {
+    "brand": 1
+  },
+  "components/ops/OpsBoardJobCard.tsx": {
+    "timezone": 1
+  },
+  "components/ops/OpsDashboardView.tsx": {
+    "timezone": 2
+  },
+  "lib/adjuster-meeting-alert.ts": {
+    "brand": 1,
+    "timezone": 1
+  },
+  "lib/admin-sale-email.ts": {
+    "brand": 1
+  },
+  "lib/ai/chat-aggregates.ts": {
+    "timezone": 1
+  },
+  "lib/ai/chat-allowlist.ts": {
+    "brand": 2
+  },
+  "lib/ai/crm-navigation-guide.ts": {
+    "brand": 5
+  },
+  "lib/ai/insurance-claim-benchmarks.ts": {
+    "brand": 1
+  },
+  "lib/aurora-roof-summary-mapper.ts": {
+    "brand": 1
+  },
+  "lib/calendar-business-tz.ts": {
+    "timezone": 2
+  },
+  "lib/canvass-lead-attribution.ts": {
+    "timezone": 1
+  },
+  "lib/closer-briefing-email.ts": {
+    "brand": 1
+  },
+  "lib/comp-plan-roles.ts": {
+    "brand": 1
+  },
+  "lib/company-address.ts": {
+    "brand": 1
+  },
+  "lib/completion-certificate.tsx": {
+    "address": 1,
+    "brand": 6
+  },
+  "lib/contracts/generateChangeOrderPdf.ts": {
+    "address": 1,
+    "brand": 5
+  },
+  "lib/contracts/generatePdf.ts": {
+    "address": 4,
+    "brand": 63
+  },
+  "lib/crew-link.ts": {
+    "brand": 3
+  },
+  "lib/crm-email-from.ts": {
+    "brand": 3
+  },
+  "lib/date-ranges.ts": {
+    "timezone": 2
+  },
+  "lib/eastern-datetime.ts": {
+    "timezone": 1
+  },
+  "lib/exterior-measure-api.ts": {
+    "brand": 1
+  },
+  "lib/founder-calendar/page-html.ts": {
+    "address": 2,
+    "brand": 3
+  },
+  "lib/founder-contacts.ts": {
+    "brand": 1
+  },
+  "lib/google-calendar.ts": {
+    "brand": 1
+  },
+  "lib/incentive-metrics.ts": {
+    "timezone": 2
+  },
+  "lib/inside-sales-booker-attribution.ts": {
+    "timezone": 1
+  },
+  "lib/inside-sales-priority.ts": {
+    "brand": 1,
+    "timezone": 1
+  },
+  "lib/inspection-local-wall-clock.ts": {
+    "timezone": 6
+  },
+  "lib/inspection-report/pdf.ts": {
+    "brand": 8
+  },
+  "lib/inspection-report/server.ts": {
+    "brand": 2
+  },
+  "lib/inspection-report/types.ts": {
+    "address": 3,
+    "brand": 12
+  },
+  "lib/install-calendar.ts": {
+    "brand": 7,
+    "timezone": 1
+  },
+  "lib/instant-estimate-accuracy.ts": {
+    "brand": 1
+  },
+  "lib/job-run-sheet.ts": {
+    "brand": 1
+  },
+  "lib/job-sold-scope.ts": {
+    "brand": 1
+  },
+  "lib/lidar-measure-ingest.ts": {
+    "brand": 2
+  },
+  "lib/lidar/roof-planes.ts": {
+    "brand": 1
+  },
+  "lib/lidar/sources.ts": {
+    "brand": 1
+  },
+  "lib/materials-order-list.ts": {
+    "brand": 2
+  },
+  "lib/morning-update-email.ts": {
+    "brand": 3
+  },
+  "lib/morning-update-schedule.ts": {
+    "timezone": 2
+  },
+  "lib/payroll-period-week.ts": {
+    "timezone": 1
+  },
+  "lib/payroll-statement-email.ts": {
+    "brand": 1
+  },
+  "lib/pdf/ProposalPDF.tsx": {
+    "brand": 1
+  },
+  "lib/pdf/job-packet.ts": {
+    "brand": 2
+  },
+  "lib/pdf/job-run-sheet.ts": {
+    "timezone": 2
+  },
+  "lib/pdf/payroll-statement.ts": {
+    "address": 1,
+    "brand": 3
+  },
+  "lib/program-444-utils.ts": {
+    "timezone": 1
+  },
+  "lib/public-estimate-config.ts": {
+    "brand": 8
+  },
+  "lib/public-estimate-lead.ts": {
+    "address": 4,
+    "brand": 14
+  },
+  "lib/push-apns.ts": {
+    "brand": 4
+  },
+  "lib/review-requests.ts": {
+    "brand": 4
+  },
+  "lib/roof-shingle-constants.ts": {
+    "brand": 2
+  },
+  "lib/round-robin.ts": {
+    "timezone": 1
+  },
+  "lib/scheduling-buffer.ts": {
+    "brand": 1
+  },
+  "lib/scheduling-prompt.ts": {
+    "timezone": 1
+  },
+  "lib/setter-email.ts": {
+    "brand": 1
+  },
+  "lib/setter-field-update-email.ts": {
+    "timezone": 1
+  },
+  "lib/setter-ramp-utils.ts": {
+    "timezone": 1
+  },
+  "lib/sisu-monthly-closed-sales.ts": {
+    "timezone": 1
+  },
+  "lib/sisu-weekly-doors.ts": {
+    "timezone": 1
+  },
+  "lib/storm-opportunity-alerts.ts": {
+    "brand": 2,
+    "timezone": 1
+  },
+  "lib/sub-availability.ts": {
+    "brand": 2,
+    "timezone": 1
+  },
+  "lib/super-admin.ts": {
+    "brand": 2
+  },
+  "lib/threads/notify.ts": {
+    "brand": 1
+  },
+  "lib/timezone.ts": {
+    "timezone": 10
+  },
+  "lib/today.ts": {
+    "timezone": 1
+  },
+  "lib/weather-nws.ts": {
+    "brand": 2
+  },
+  "lib/weekly-payroll/cutoff.ts": {
+    "timezone": 1
+  },
+  "supabase/migrations/036_org_contact_fields.sql": {
+    "timezone": 2
+  },
+  "supabase/migrations/064_contract_signing.sql": {
+    "brand": 1
+  },
+  "supabase/migrations/121_weekly_sales_payroll_foundation.sql": {
+    "timezone": 1
+  },
+  "supabase/migrations/132_opportunity_exterior_measure_mvp.sql": {
+    "brand": 3
+  },
+  "supabase/migrations/135_payroll_commission_transparency_columns.sql": {
+    "timezone": 1
+  },
+  "supabase/migrations/202506090007_org_444_bonus_label.sql": {
+    "brand": 1
+  },
+  "supabase/migrations/202607010001_inspection_reports.sql": {
+    "brand": 1
+  },
+  "supabase/migrations/202607120001_mobile_device_tokens.sql": {
+    "brand": 2
+  },
+  "supabase/migrations/202607220001_website_instant_estimate_lead_source.sql": {
+    "brand": 1
+  },
+  "supabase/migrations/202607240001_website_instant_estimate_manual_measure_lead_source.sql": {
+    "brand": 1
+  },
+  "supabase/migrations/202608050002_org_manager_override_and_self_gen_rates.sql": {
+    "timezone": 9
+  },
+  "supabase/migrations/202608070001_management_comp_overlays.sql": {
+    "timezone": 6
+  },
+  "supabase/migrations/202608070002_management_overlay_team_assignment_eligibility.sql": {
+    "timezone": 1
+  },
+  "supabase/migrations/202608070003_comp_rate_admin_editor.sql": {
+    "timezone": 2
+  },
+  "supabase/migrations/202608070004_fix_upsert_org_derived_commission_rates_column_ambiguity.sql": {
+    "timezone": 1
+  },
+  "supabase/migrations/202608190001_comp_plan_versions.sql": {
+    "timezone": 1
+  },
+  "supabase/migrations/202608190002_comp_plan_versions_exact_flag_copy.sql": {
+    "timezone": 1
+  },
+  "supabase/migrations/202609050001_install_scheduling.sql": {
+    "brand": 1
+  },
+  "supabase/migrations/202609080001_sub_calendar_availability.sql": {
+    "brand": 3
+  },
+  "supabase/migrations/202610200001_referral_partners.sql": {
+    "brand": 1,
+    "timezone": 1
+  },
+  "supabase/migrations/202610210010_money_inputs_super_admin_paid_override.sql": {
+    "brand": 1
+  },
+  "supabase/migrations/202610240040_end_plan_on_deactivation.sql": {
+    "timezone": 1
+  },
+  "supabase/migrations/202610280010_atomic_approve_and_field_role_deny.sql": {
+    "timezone": 2
+  },
+  "supabase/migrations/202611030010_instant_estimate_checks.sql": {
+    "brand": 1
+  },
+  "supabase/migrations/RUN_THIS_MISSING_TABLES.sql": {
+    "timezone": 2
+  }
+}

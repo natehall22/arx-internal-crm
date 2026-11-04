@@ -32,7 +32,9 @@
     "solar-permits:candidates": "tsx --env-file=.env.local scripts/solar-permits/solar-candidates.ts",
     "solar-permits:ingest-candidates": "tsx --env-file=.env.local scripts/solar-permits/ingest-candidates.ts",
     "test:mobile": "playwright test",
-    "gates": "bash scripts/gates.sh"
+    "gates": "bash scripts/gates.sh",
+    "hardcode:check": "node scripts/hardcode-ratchet.mjs",
+    "hardcode:update": "node scripts/hardcode-ratchet.mjs --update"
   },
   "dependencies": {
     "@radix-ui/react-alert-dialog": "^1.2.1",
