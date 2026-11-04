@@ -5,7 +5,7 @@
  * Server-only (service client reads the private `lidar-buildings` bucket).
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { haversineDistanceFeet } from '@/lib/roof-measure-geometry'
+import { distanceMetersR6371 } from '@/lib/roof-measure-geometry'
 import { loadBuildingPointsNear } from './building-points'
 import { measureRoofFromLidar, nearbyStructures, type LidarRoofResult, type NearbyStructure } from './roof-planes'
 
@@ -25,7 +25,15 @@ export type LidarRoofNearResult =
     }
   | { status: 'not_ingested' | 'no_coverage' | 'no_building'; tiles: string[] }
 
-const FT_PER_M = 3.28084
+/** Advisory only — a failure here must never change the measurement. */
+function safeNearbyStructures(points: Parameters<typeof nearbyStructures>[0]): NearbyStructure[] {
+  try {
+    return nearbyStructures(points)
+  } catch (err) {
+    console.warn('[lidar] nearby-structure check skipped', err)
+    return []
+  }
+}
 
 export async function measureLidarRoofNear(
   admin: SupabaseClient,
@@ -35,7 +43,7 @@ export async function measureLidarRoofNear(
 ): Promise<LidarRoofNearResult> {
   const pins: LatLng[] = [requested]
   if (anchor) {
-    const dM = haversineDistanceFeet(requested, anchor) / FT_PER_M
+    const dM = distanceMetersR6371(requested, anchor)
     // anchorFirst: the requested point is a non-rooftop geocode (street/interpolated), so
     // Google's building centre is the better first guess at the main house.
     if (dM > 5 && dM < 40) {
@@ -55,7 +63,7 @@ export async function measureLidarRoofNear(
         roof,
         pin,
         collectedEnd: lidar.collectedEnd,
-        otherStructures: nearbyStructures(lidar.points),
+        otherStructures: safeNearbyStructures(lidar.points),
         tiles: lidar.tiles,
       }
     }

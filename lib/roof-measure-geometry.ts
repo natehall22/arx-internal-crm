@@ -53,6 +53,24 @@ function toRadians(value: number): number {
   return (value * Math.PI) / 180
 }
 
+/**
+ * Great-circle distance in metres (R = 6,371,000 m) — the exact formula the measure tool's
+ * detect-roof route has always used for its lidar/Solar pin rules. Kept separate from
+ * haversineDistanceFeet (R = 6,371,008.8 m) so those thresholds don't move.
+ */
+export function distanceMetersR6371(a: RoofMeasurePoint, b: RoofMeasurePoint): number {
+  const toRad = (value: number) => (value * Math.PI) / 180
+  const earthRadiusMeters = 6371000
+  const dLat = toRad(b.lat - a.lat)
+  const dLng = toRad(b.lng - a.lng)
+  const lat1 = toRad(a.lat)
+  const lat2 = toRad(b.lat)
+  const haversine =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) * Math.sin(dLng / 2)
+  return 2 * earthRadiusMeters * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine))
+}
+
 export function haversineDistanceFeet(a: RoofMeasurePoint, b: RoofMeasurePoint): number {
   const lat1 = toRadians(a.lat)
   const lat2 = toRadians(b.lat)

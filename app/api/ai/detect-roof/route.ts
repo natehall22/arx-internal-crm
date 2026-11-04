@@ -4,6 +4,7 @@ import { requireAuthApi } from '@/lib/auth'
 import { resolveSalesDocAccessBarred } from '@/lib/sales-doc-access'
 import { createServiceClient } from '@/lib/supabase/service'
 import { measureLidarRoofNear } from '@/lib/lidar/measure-near'
+import { distanceMetersR6371 } from '@/lib/roof-measure-geometry'
 import { LIDAR_FACET_SOURCE, lidarRoofToEdges, lidarRoofToFacets } from '@/lib/lidar/roof-facets'
 import { registerOutlinesToImage } from '@/lib/lidar/image-register'
 import { getBitmapDimensionsFromBase64 } from '@/lib/png-dimensions-from-base64'
@@ -184,20 +185,7 @@ function distanceBetween(a: { lat: number; lng: number }, b: { lat: number; lng:
   return Math.sqrt(latDiff * latDiff + lngDiff * lngDiff)
 }
 
-function distanceMeters(a: { lat: number; lng: number }, b: { lat: number; lng: number }) {
-  const toRadians = (value: number) => (value * Math.PI) / 180
-  const earthRadiusMeters = 6371000
-  const dLat = toRadians(b.lat - a.lat)
-  const dLng = toRadians(b.lng - a.lng)
-  const lat1 = toRadians(a.lat)
-  const lat2 = toRadians(b.lat)
-
-  const haversine =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) * Math.sin(dLng / 2)
-
-  return 2 * earthRadiusMeters * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine))
-}
+const distanceMeters = distanceMetersR6371
 
 function distanceFeet(a: { lat: number; lng: number }, b: { lat: number; lng: number }) {
   return distanceMeters(a, b) * 3.28084
