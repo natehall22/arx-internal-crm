@@ -95,3 +95,9 @@ Scored the current classifier against the carrier-report jobs where tool scope m
 - **Pricing (history — rates as of 2026-07):** Basis **$413/sq × 47 = $19,411**. IE **$530/sq fallback** range **$17,615–$23,831** still contained $19,411 — rate buffer compensated for square under-read.
 - **Superseded 2026-11:** the padded $530/$550 fallback rates are gone. The estimate now prices every path at the live pricebook rate and widens the RANGE instead (unreliable Solar −10%/+25%); this case is a jest regression test (`public-roof-estimate.test.ts`, "Heritage Ct regression"). Lidar is tried first. See `docs/measure-tool/instant-estimate-accuracy.md`.
 - **CSV row:** `heritage-ct-2026-07`.
+
+### Field confirmations (Nathan, 2026-11-03) — hand-drawn measures are hitting
+- **Exact:** Tom Shinn (44.31 sq) and Peduto (28.8 sq). **Field shingles spot on:** Kim Green, Yvette Cox (Corriher), Arthur Jones.
+- **All five were hand-drawn or AI-draft-then-corrected — none was an unedited lidar or Solar auto-measure.** So these validate the rep drawing workflow, not first-try auto-measure. They are good truth rows for grading auto-measure (the Instant Estimate accuracy cron picks them up as `in_house_manual`).
+- Goal set the same day: **auto-measure within 2% on squares on the first try** for houses and buildings.
+- **CSV rows:** `shinn-lynchburg-2026-07`, `peduto-whispering-oaks-2026-09`, `green-wesleyan-2026-11`, `corriher-springs-2026-09`, `jones-acorn-oaks-2026-10`.
