@@ -101,3 +101,9 @@ Scored the current classifier against the carrier-report jobs where tool scope m
 - **All five were hand-drawn or AI-draft-then-corrected — none was an unedited lidar or Solar auto-measure.** So these validate the rep drawing workflow, not first-try auto-measure. They are good truth rows for grading auto-measure (the Instant Estimate accuracy cron picks them up as `in_house_manual`).
 - Goal set the same day: **auto-measure within 2% on squares on the first try** for houses and buildings.
 - **CSV rows:** `shinn-lynchburg-2026-07`, `peduto-whispering-oaks-2026-09`, `green-wesleyan-2026-11`, `corriher-springs-2026-09`, `jones-acorn-oaks-2026-10`.
+
+### 9917 Brigstock Ct (Mclaughlin, job 26-0037) — first post-install waste number from a CRM-generated order
+- Ordered off the CRM sheet (83 bundles / 27.67 sq from 27.44 sold), **1 sq left over → ~17% actual waste** on 22.77 measured (hand-drawn). Sold waste was 20.5% — covered with ~1 sq to spare.
+- Takeaway: ~10% actual waste holds on simpler roofs, not this one. Supports pricing waste by complexity rather than a flat 10%.
+- Siding on the same job measured out perfectly, but by hand — says nothing yet about the exterior measure tool.
+- **CSV row:** `mclaughlin-brigstock-2026-10` (assumes the order matched the sheet; confirm).
