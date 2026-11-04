@@ -263,6 +263,21 @@ function yearsBetween(isoA: string, isoB: string): number {
   return (new Date(isoB).getTime() - new Date(isoA).getTime()) / (365.25 * 86_400_000)
 }
 
+/** Lidar gets this long; past it the estimate falls back to Solar so the 60 s route never times out. */
+const LIDAR_TIMEOUT_MS = 15_000
+
+async function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<null>((resolve) => {
+    timer = setTimeout(() => resolve(null), ms)
+  })
+  try {
+    return await Promise.race([p, timeout])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
 /** Imagery more than this far from the geocoded point is probably a different building. */
 const MAX_BUILDING_OFFSET_FT = 100
 
@@ -343,35 +358,60 @@ export async function measurePublicRoofEstimate(
     // ── 1. In-house lidar (main building only; detached structures flagged, not added) ──
     if (ROOF_MEASURE_LIDAR_ENABLED) {
       try {
-        const lidar = await measureLidarRoofNear(admin, { lat: coords.lat, lng: coords.lng }, solar.anchor)
-        if (lidar.status === 'ok' && lidar.roof.totals.squares > 0) {
+        const geocodeApproximate = flags.some((f) => f.startsWith('geocode_'))
+        const lidar = await withTimeout(
+          measureLidarRoofNear(admin, { lat: coords.lat, lng: coords.lng }, solar.anchor, {
+            anchorFirst: geocodeApproximate,
+          }),
+          LIDAR_TIMEOUT_MS
+        )
+        if (lidar && lidar.status === 'ok' && lidar.roof.totals.squares > 0) {
           const t = lidar.roof.totals
-          let baseSquares = t.squares
-          lidar_collected_end = lidar.collectedEnd
-          other_structures = lidar.otherStructures
-          if (other_structures.length) flags.push('possible_detached_structure')
-          // Survey is 2016–17. If newer Solar imagery sees clearly more footprint, assume an
-          // addition since the survey: scale up and drop to standard confidence.
           const solarGround = solarGroundSqft(solar.segments)
-          const newerImagery =
-            solar.imageryDate != null && lidar.collectedEnd != null && solar.imageryDate > lidar.collectedEnd
-          if (newerImagery && t.flatSqft > 0 && solarGround > t.flatSqft * 1.15 && solarGround - t.flatSqft > 150) {
-            baseSquares = baseSquares * (solarGround / t.flatSqft)
-            flags.push('possible_addition_since_lidar_survey')
-            confidence = 'standard'
+          // Is Google's building the same one lidar measured? (within ~20 m of the lidar pin)
+          const solarSameBuilding =
+            solar.anchor != null && haversineDistanceFeet(solar.anchor, lidar.pin) / 3.28084 <= 20
+          // Lidar landed on something much smaller than Google's building at this address
+          // (a garage, a neighbour's shed) → don't trust it; let Solar measure the house.
+          const lidarTooSmall = solarSameBuilding && solarGround > 0 && t.flatSqft < solarGround * 0.6
+          if (lidarTooSmall) {
+            flags.push('lidar_solar_mismatch')
           } else {
-            confidence = 'high'
+            let baseSquares = t.squares
+            lidar_collected_end = lidar.collectedEnd
+            other_structures = lidar.otherStructures
+            if (other_structures.length) flags.push('possible_detached_structure')
+            // Survey is 2016–17. If newer Solar imagery of the SAME building sees clearly more
+            // footprint, assume an addition since the survey: scale up, standard confidence.
+            const newerImagery =
+              solar.imageryDate != null && lidar.collectedEnd != null && solar.imageryDate > lidar.collectedEnd
+            if (
+              solarSameBuilding &&
+              newerImagery &&
+              t.flatSqft > 0 &&
+              solarGround > t.flatSqft * 1.15 &&
+              solarGround - t.flatSqft > 150
+            ) {
+              baseSquares = baseSquares * (solarGround / t.flatSqft)
+              flags.push('possible_addition_since_lidar_survey')
+              confidence = 'standard'
+            } else {
+              // An approximate address pin that Google couldn't confirm stays at standard.
+              confidence = geocodeApproximate && !solarSameBuilding ? 'standard' : 'high'
+            }
+            measured = {
+              baseSquares,
+              facetCount: lidar.roof.planes.length,
+              avgPitchMultiplier: t.flatSqft > 0 ? (t.squares * 100) / t.flatSqft : 1,
+              lowSlopeSqft: lidar.roof.planes
+                .filter((p) => p.pitchDegrees < LOW_SLOPE_DEGREES)
+                .reduce((s, p) => s + p.flatAreaM2 * 10.7639, 0),
+              hipValleyLf: t.hipLf + t.valleyLf,
+            }
+            measure_source = 'lidar'
           }
-          measured = {
-            baseSquares,
-            facetCount: lidar.roof.planes.length,
-            avgPitchMultiplier: t.flatSqft > 0 ? (t.squares * 100) / t.flatSqft : 1,
-            lowSlopeSqft: lidar.roof.planes
-              .filter((p) => p.pitchDegrees < LOW_SLOPE_DEGREES)
-              .reduce((s, p) => s + p.flatAreaM2 * 10.7639, 0),
-            hipValleyLf: t.hipLf + t.valleyLf,
-          }
-          measure_source = 'lidar'
+        } else if (lidar == null) {
+          console.warn('[public-estimate] lidar timed out; using Solar')
         }
       } catch (lidarError) {
         console.warn('[public-estimate] lidar failed; using Solar', lidarError)

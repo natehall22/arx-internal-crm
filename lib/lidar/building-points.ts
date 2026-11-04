@@ -4,7 +4,7 @@
  * Server-only: reads the private `lidar-buildings` bucket with the service client.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { decodeTilePoints } from './tile-store'
+import { decodeTilePoints, type TilePoints } from './tile-store'
 import { US_SURVEY_FOOT_M, wgs84ToNcFt } from './nc-state-plane'
 import { LIDAR_BUILDINGS_BUCKET } from './sources'
 import type { LocalPoint } from './roof-planes'
@@ -14,6 +14,28 @@ export type BuildingPointsResult =
   | { status: 'not_ingested' | 'no_coverage'; points: []; collectedEnd: null; tiles: string[] }
 
 const DEG_LAT_PER_M = 1 / 111_320
+
+/**
+ * Small per-instance cache of decoded tiles (~2–3 MB each). A measurement often reads the
+ * same tiles twice (address point, then Google's building centre), and nearby estimates hit
+ * the same tiles — this keeps Supabase egress and latency down. Tiles never change once ready.
+ */
+const TILE_CACHE_MAX = 6
+const tileCache = new Map<string, TilePoints['xyz']>()
+async function tileXyz(admin: SupabaseClient, path: string, id: string) {
+  const hit = tileCache.get(path)
+  if (hit) {
+    tileCache.delete(path)
+    tileCache.set(path, hit) // LRU bump
+    return hit
+  }
+  const { data: blob, error: dlErr } = await admin.storage.from(LIDAR_BUILDINGS_BUCKET).download(path)
+  if (dlErr || !blob) throw dlErr ?? new Error(`lidar tile ${id} missing from storage`)
+  const { xyz } = decodeTilePoints(new Uint8Array(await blob.arrayBuffer()))
+  tileCache.set(path, xyz)
+  while (tileCache.size > TILE_CACHE_MAX) tileCache.delete(tileCache.keys().next().value as string)
+  return xyz
+}
 
 export async function loadBuildingPointsNear(
   admin: SupabaseClient,
@@ -42,9 +64,7 @@ export async function loadBuildingPointsNear(
   const rFt = radiusM / US_SURVEY_FOOT_M
   const points: LocalPoint[] = []
   for (const t of all) {
-    const { data: blob, error: dlErr } = await admin.storage.from(LIDAR_BUILDINGS_BUCKET).download(t.storage_path!)
-    if (dlErr || !blob) throw dlErr ?? new Error(`lidar tile ${t.id} missing from storage`)
-    const { xyz } = decodeTilePoints(new Uint8Array(await blob.arrayBuffer()))
+    const xyz = await tileXyz(admin, t.storage_path!, t.id)
     for (let i = 0; i < xyz.length; i += 3) {
       const dx = xyz[i] - px, dy = xyz[i + 1] - py
       if (Math.abs(dx) > rFt || Math.abs(dy) > rFt) continue

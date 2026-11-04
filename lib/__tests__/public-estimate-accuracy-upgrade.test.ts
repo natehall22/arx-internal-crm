@@ -43,6 +43,11 @@ describe('nearbyStructures (detached garage flag)', () => {
     const neighbour = block(10, -6, 12, 12) // 144 m² — too big to be an outbuilding
     expect(nearbyStructures([...house, ...neighbour])).toHaveLength(0)
   })
+  it('ignores a neighbour house cut off at the 35 m clip edge', () => {
+    const house = block(-6, -5, 12, 10)
+    const clippedNeighbour = block(27, -4, 7.9, 8) // ends at x≈34.9 — touching the clip box
+    expect(nearbyStructures([...house, ...clippedNeighbour])).toHaveLength(0)
+  })
   it('returns nothing when no building is under the pin', () => {
     expect(nearbyStructures(block(30, 30, 8, 8))).toEqual([])
   })
@@ -95,7 +100,7 @@ describe('pricebook rate resolver', () => {
 
   function adminReturning(row: unknown, error: unknown = null) {
     const chain: Record<string, unknown> = {}
-    for (const m of ['select', 'eq', 'limit']) chain[m] = () => chain
+    for (const m of ['select', 'eq', 'order', 'limit']) chain[m] = () => chain
     chain.maybeSingle = async () => ({ data: row, error })
     return { from: () => chain } as never
   }
@@ -104,8 +109,10 @@ describe('pricebook rate resolver', () => {
     const rate = await resolvePublicEstimatePricePerSquare(adminReturning({ unit_price: '465.00', pricing_unit: 'square' }), 'org')
     expect(rate).toBe(465)
   })
-  it('ignores a non-square or out-of-band rate', async () => {
-    expect(await resolvePublicEstimatePricePerSquare(adminReturning({ unit_price: '4.51', pricing_unit: 'sqft' }), 'org')).toBe(451.2)
+  it('converts a per-sq-ft rate and ignores an out-of-band rate', async () => {
+    expect(await resolvePublicEstimatePricePerSquare(adminReturning({ unit_price: '4.65', pricing_unit: 'sqft' }), 'org')).toBe(465)
+    __resetPublicEstimateRateCache()
+    expect(await resolvePublicEstimatePricePerSquare(adminReturning({ unit_price: '450', pricing_unit: 'lf' }), 'org')).toBe(451.2)
     __resetPublicEstimateRateCache()
     expect(await resolvePublicEstimatePricePerSquare(adminReturning({ unit_price: '45.12', pricing_unit: 'square' }), 'org')).toBe(451.2)
   })

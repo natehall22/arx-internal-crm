@@ -92,5 +92,6 @@ Scored the current classifier against the carrier-report jobs where tool scope m
 
 ### Heritage Ct (2300 Heritage Ct, Kannapolis) — IE under-read, fallback range still covered basis
 - **Symptom:** Instant Estimate mid **39.1 sq** (`solar_mask_whole`; unreliable) vs hard measure **47 sq w/ waste** (~8 sq under-read).
-- **Pricing:** Basis **$413/sq × 47 = $19,411**. IE **$530/sq fallback** range **$17,615–$23,831** still contained $19,411 — rate buffer compensated for square under-read.
+- **Pricing (history — rates as of 2026-07):** Basis **$413/sq × 47 = $19,411**. IE **$530/sq fallback** range **$17,615–$23,831** still contained $19,411 — rate buffer compensated for square under-read.
+- **Superseded 2026-11:** the padded $530/$550 fallback rates are gone. The estimate now prices every path at the live pricebook rate and widens the RANGE instead (unreliable Solar −10%/+25%); this case is a jest regression test (`public-roof-estimate.test.ts`, "Heritage Ct regression"). Lidar is tried first. See `docs/measure-tool/instant-estimate-accuracy.md`.
 - **CSV row:** `heritage-ct-2026-07`.

@@ -1100,6 +1100,14 @@ function snapshotFromLeadRawPayload(
     return null
   }
 
+  // 2026-11 accuracy fields. Only trusted on rows written by the new estimator
+  // (estimate_version set): older leads stored the padded $530/$550 rates in price_per_square.
+  const estimate_version = typeof raw.estimate_version === 'string' ? raw.estimate_version : null
+  const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null)
+  const confidence =
+    raw.confidence === 'high' || raw.confidence === 'standard' || raw.confidence === 'low' ? raw.confidence : null
+  const flagsRaw = Array.isArray(raw.measure_flags) ? raw.measure_flags : Array.isArray(raw.flags) ? raw.flags : null
+
   return {
     jti,
     address,
@@ -1112,6 +1120,21 @@ function snapshotFromLeadRawPayload(
     facet_count,
     measure_source,
     requires_manual_measure,
+    ...(estimate_version
+      ? {
+          estimate_version,
+          price_per_square: num(raw.price_per_square),
+          confidence,
+          base_squares: num(raw.base_squares),
+          flags: flagsRaw ? flagsRaw.filter((f): f is string => typeof f === 'string') : null,
+          other_structures: Array.isArray(raw.other_structures)
+            ? (raw.other_structures as { footprintSqft: number; gapFt: number }[])
+            : null,
+          imagery_date: typeof raw.imagery_date === 'string' ? raw.imagery_date : null,
+          lidar_collected_end: typeof raw.lidar_collected_end === 'string' ? raw.lidar_collected_end : null,
+          calibration_factor: num(raw.calibration_factor),
+        }
+      : {}),
     expiresAt: Number.MAX_SAFE_INTEGER,
   }
 }

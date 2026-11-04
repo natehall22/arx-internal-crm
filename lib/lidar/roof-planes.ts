@@ -141,11 +141,15 @@ export type NearbyStructure = { footprintSqft: number; gapFt: number }
  */
 export function nearbyStructures(
   points: LocalPoint[],
-  opts: { minFootprintM2?: number; maxFootprintM2?: number; maxGapM?: number } = {}
+  opts: { minFootprintM2?: number; maxFootprintM2?: number; maxGapM?: number; clipRadiusM?: number } = {}
 ): NearbyStructure[] {
   const minM2 = opts.minFootprintM2 ?? 28
   const maxM2 = opts.maxFootprintM2 ?? 100
   const maxGap = opts.maxGapM ?? 25
+  // Points arrive clipped to a box/circle around the pin (building-points.ts, 35 m). A
+  // neighbour's house cut off at that edge looks garage-sized — drop anything touching it.
+  const clip = opts.clipRadiusM ?? 35
+  const touchesClip = (i: number, j: number) => Math.max(Math.abs(i + 0.5), Math.abs(j + 0.5)) >= clip - 1.5
   const { pts: main } = buildingUnderPin(points)
   if (main.length === 0) return []
   const occ = new Set<string>()
@@ -167,6 +171,7 @@ export function nearbyStructures(
       for (const [di, dj] of NEIGHBOURS_8) stack.push(key(i + di, j + dj))
     }
     if (comp.length < minM2 || comp.length > maxM2) continue
+    if (comp.some((k) => { const [i, j] = unkey(k); return touchesClip(i, j) })) continue
     let gap = Infinity
     for (const k of comp) {
       const [i, j] = unkey(k)

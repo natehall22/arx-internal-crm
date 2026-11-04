@@ -33,6 +33,12 @@ export const TRUTH_SOURCES = ['carrier_report', 'manual', 'in_house_manual', 'li
 export type TruthSource = (typeof TRUTH_SOURCES)[number]
 /** Truth sources independent enough of the estimator to calibrate it. Keep in sync with the SQL view. */
 export const CALIBRATION_TRUTH_SOURCES: readonly TruthSource[] = ['carrier_report', 'manual', 'in_house_manual', 'lidar_reviewed']
+
+/** Mirrors the view: lidar_reviewed truth never grades a lidar estimate (same data, same error). */
+export function countsForCalibration(truth: string | null | undefined, measureSource: string | null | undefined): boolean {
+  if (!truth || !(CALIBRATION_TRUTH_SOURCES as readonly string[]).includes(truth)) return false
+  return !(truth === 'lidar_reviewed' && measureSource === 'lidar')
+}
 /** roof_measurements.source values that are third-party/carrier measurement reports. */
 export const CARRIER_REPORT_SOURCES = new Set(['eagleview', 'roofr', 'hover', 'solo', 'aurora', 'gaf', 'quickmeasure', 'carrier'])
 
@@ -324,9 +330,18 @@ async function saveCheck(admin: SupabaseClient, orgId: string, row: Record<strin
     .eq('opportunity_id', row.opportunity_id)
     .eq('estimate_version', row.estimate_version)
     .maybeSingle()
-  const { error } = existing?.id
+  let { error } = existing?.id
     ? await admin.from('instant_estimate_checks').update(row).eq('id', existing.id).eq('org_id', orgId)
     : await admin.from('instant_estimate_checks').insert({ ...row, org_id: orgId })
+  // Two opportunities can resolve to the same production job (project + proposal links). The job
+  // is already checked under this version, so keep this opportunity's row without the job link —
+  // otherwise nothing is saved and the address is re-run (and re-billed) every night.
+  if (error && (error as { code?: string }).code === '23505' && row.production_job_id != null) {
+    const retry = { ...row, production_job_id: null }
+    ;({ error } = existing?.id
+      ? await admin.from('instant_estimate_checks').update(retry).eq('id', existing.id).eq('org_id', orgId)
+      : await admin.from('instant_estimate_checks').insert({ ...retry, org_id: orgId }))
+  }
   if (error) throw new Error(error.message)
 }
 

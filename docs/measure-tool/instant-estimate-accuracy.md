@@ -76,3 +76,9 @@ night, a permanent one is recorded and not retried.
 
 - Measurements saved without an opportunity aren't used (nothing to tie a check to).
 - No dedicated screen — the report is the screen.
+
+
+## Guard rails added in review (2026-11-03)
+- `lidar_reviewed` truth never grades a `lidar` estimate (same data, same error) — excluded in the view and `countsForCalibration`.
+- Two opportunities resolving to one production job no longer get re-checked (and re-billed) nightly: the second row is kept without the job link.
+- The public estimate is unaffected by any calibration error: a failed read means factor 1.

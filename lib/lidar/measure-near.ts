@@ -30,12 +30,18 @@ const FT_PER_M = 3.28084
 export async function measureLidarRoofNear(
   admin: SupabaseClient,
   requested: LatLng,
-  anchor: LatLng | null
+  anchor: LatLng | null,
+  opts: { anchorFirst?: boolean } = {}
 ): Promise<LidarRoofNearResult> {
   const pins: LatLng[] = [requested]
   if (anchor) {
     const dM = haversineDistanceFeet(requested, anchor) / FT_PER_M
-    if (dM > 5 && dM < 40) pins.push(anchor)
+    // anchorFirst: the requested point is a non-rooftop geocode (street/interpolated), so
+    // Google's building centre is the better first guess at the main house.
+    if (dM > 5 && dM < 40) {
+      if (opts.anchorFirst) pins.unshift(anchor)
+      else pins.push(anchor)
+    }
   }
   let lastTiles: string[] = []
   for (const pin of pins) {

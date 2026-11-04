@@ -71,6 +71,8 @@ WITH latest AS (
   FROM instant_estimate_checks c
   WHERE c.created_at >= now() - interval '365 days'
     AND c.truth_source IN ('carrier_report', 'manual', 'in_house_manual', 'lidar_reviewed')
+    -- An unedited lidar measurement can't grade a lidar estimate: same data, same error.
+    AND NOT (c.truth_source = 'lidar_reviewed' AND c.measure_source = 'lidar')
     AND c.truth_base_squares > 0
     AND c.est_base_squares > 0
     AND c.measure_source IS NOT NULL
