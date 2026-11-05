@@ -8,6 +8,19 @@ export type EmailBlastConfig = {
   enabled: boolean
   role_targets: string[]
   user_targets: string[]
+  /** Morning update only: what each person gets, by user id. Missing = 'all'. */
+  user_focus?: Record<string, MorningUpdateFocus>
+}
+
+/**
+ * Morning update per person. 'all' = the full email. 'crews' = the scoreboard, the crew/install "Today" queues and the
+ * operational (no-dollar) "Needs you" rows — for owners whose job is scheduling crews.
+ */
+export type MorningUpdateFocus = 'all' | 'crews'
+
+export function morningUpdateFocusFor(config: EmailBlastConfig | null | undefined, userId: string | null | undefined): MorningUpdateFocus {
+  if (!userId) return 'all'
+  return config?.user_focus?.[userId] === 'crews' ? 'crews' : 'all'
 }
 
 export type OrgEmailBlastSettings = Record<EmailBlastType, EmailBlastConfig>
@@ -57,7 +70,7 @@ export const EMAIL_BLAST_DEFINITIONS: EmailBlastDefinition[] = [
     id: 'morning_update',
     title: 'Owner Morning Update',
     description:
-      'Daily summary email at 5:30am ET (Mon–Sat) with doors, inspections, sales, and revenue totals.',
+      'Daily email at 5:30am ET (Mon–Sat): today’s to-do list, then doors, inspections, sales, and revenue totals. Choose Everything or Crews only per person.',
   },
   {
     id: 'setter_field_update',
@@ -130,11 +143,20 @@ function normalizeConfig(value: unknown, fallback: EmailBlastConfig): EmailBlast
 
 function normalizeMorningUpdateConfig(value: unknown, fallback: EmailBlastConfig): EmailBlastConfig {
   const normalized = normalizeConfig(value, fallback)
+  const rawFocus = value && typeof value === 'object' ? (value as Record<string, unknown>).user_focus : null
+  // Only non-default choices are stored, so the setting stays small and 'all' never needs writing.
+  const userFocus: Record<string, MorningUpdateFocus> = {}
+  if (rawFocus && typeof rawFocus === 'object') {
+    for (const [userId, focus] of Object.entries(rawFocus as Record<string, unknown>)) {
+      if (typeof userId === 'string' && userId.trim() && focus === 'crews') userFocus[userId.trim()] = 'crews'
+    }
+  }
   return {
     ...normalized,
     role_targets: normalized.role_targets.filter((role) =>
       MORNING_UPDATE_RECIPIENT_ROLES.has(role as UserRole)
     ),
+    user_focus: userFocus,
   }
 }
 

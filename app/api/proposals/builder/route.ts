@@ -600,7 +600,7 @@ export async function PUT(request: NextRequest) {
 
     const { data: existing, error: existingError } = await adminClient
       .from('proposals')
-      .select('id, org_id, status')
+      .select('id, org_id, status, sent_at')
       .eq('id', proposal_id)
       .eq('org_id', profile.org_id)
       .single()
@@ -676,6 +676,12 @@ export async function PUT(request: NextRequest) {
       financing_program_id: proposal.financing_program_id,
     })
     Object.assign(cleanProposal, financingMerged)
+
+    // Saving as sent is "sending": stamp when it started waiting (it was never written here, so follow-up queues had no date).
+    // Only the first time — a later re-save keeps the original date.
+    if (cleanProposal.status === 'sent' && !existing.sent_at) {
+      cleanProposal.sent_at = new Date().toISOString()
+    }
 
     let { data: updated, error: updateError } = await adminClient
       .from('proposals')

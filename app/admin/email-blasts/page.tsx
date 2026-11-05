@@ -6,10 +6,13 @@ import Nav from '@/components/Nav'
 
 type EmailBlastType = 'sale' | 'job_payment' | 'morning_update' | 'setter_field_update'
 
+type MorningUpdateFocus = 'all' | 'crews'
+
 type EmailBlastConfig = {
   enabled: boolean
   role_targets: string[]
   user_targets: string[]
+  user_focus?: Record<string, MorningUpdateFocus>
 }
 
 type RoleOption = {
@@ -101,6 +104,15 @@ export default function EmailBlastsPage() {
     })
   }
 
+  const setFocus = (userId: string, focus: MorningUpdateFocus) => {
+    updateConfig('morning_update', (current) => {
+      const next = { ...(current.user_focus || {}) }
+      if (focus === 'crews') next[userId] = 'crews'
+      else delete next[userId]
+      return { ...current, user_focus: next }
+    })
+  }
+
   const saveSettings = async () => {
     if (!settings) return
     setSaving(true)
@@ -127,13 +139,15 @@ export default function EmailBlastsPage() {
     }
   }
 
-  const sendMorningUpdateTest = async () => {
+  const sendMorningUpdateTest = async (focus?: MorningUpdateFocus) => {
     setSendingTest(true)
     setMessage(null)
 
     try {
       const response = await fetch('/api/admin/email-blasts/morning-update/test', {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(focus ? { focus } : {}),
       })
       const data = await response.json()
 
@@ -143,7 +157,7 @@ export default function EmailBlastsPage() {
 
       setMessage({
         type: 'success',
-        text: `Test morning update sent to ${data.to || 'your email'}`,
+        text: `Test morning update${focus === 'crews' ? ' (crews version)' : ''} sent to ${data.to || 'your email'}`,
       })
     } catch (error: unknown) {
       const text = error instanceof Error ? error.message : 'Failed to send test email'
@@ -250,14 +264,24 @@ export default function EmailBlastsPage() {
                         Enable this blast
                       </label>
                       {definition.id === 'morning_update' && (
-                        <button
-                          type="button"
-                          onClick={sendMorningUpdateTest}
-                          disabled={loading || sendingTest}
-                          className="inline-flex items-center justify-center rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-100 disabled:opacity-50"
-                        >
-                          {sendingTest ? 'Sending test…' : 'Send test to my email'}
-                        </button>
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => sendMorningUpdateTest()}
+                            disabled={loading || sendingTest}
+                            className="inline-flex min-h-[44px] items-center justify-center rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-100 disabled:opacity-50"
+                          >
+                            {sendingTest ? 'Sending test…' : 'Send test to my email'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => sendMorningUpdateTest('crews')}
+                            disabled={loading || sendingTest}
+                            className="inline-flex min-h-[44px] items-center justify-center rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-900 hover:bg-gray-50 disabled:opacity-50"
+                          >
+                            Test the crews-only version
+                          </button>
+                        </>
                       )}
                     </div>
                   </div>
@@ -299,11 +323,24 @@ export default function EmailBlastsPage() {
                               onChange={() => toggleUser(definition.id, user.id)}
                               className="mt-0.5 h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
                             />
-                            <span>
+                            <span className="min-w-0 flex-1">
                               <span className="block font-medium text-gray-900">{user.full_name || user.email}</span>
                               <span className="block text-xs text-gray-500">
                                 {user.email} {user.role ? `• ${roleOptions.find((option) => option.role === user.role)?.label || user.role}` : ''}
                               </span>
+                              {definition.id === 'morning_update' &&
+                                (config.user_targets.includes(user.id) || config.role_targets.includes(String(user.role || ''))) && (
+                                  <select
+                                    aria-label={`What ${user.full_name || user.email} gets`}
+                                    value={config.user_focus?.[user.id] === 'crews' ? 'crews' : 'all'}
+                                    onClick={(e) => e.stopPropagation()}
+                                    onChange={(e) => setFocus(user.id, e.target.value as MorningUpdateFocus)}
+                                    className="mt-2 block min-h-[44px] w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-base text-gray-900"
+                                  >
+                                    <option value="all">Gets everything</option>
+                                    <option value="crews">Crews only (installs, scheduling, ops issues)</option>
+                                  </select>
+                                )}
                             </span>
                           </label>
                         ))}

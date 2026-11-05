@@ -1,7 +1,13 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { getOrgEmailBlastSettings, resolveEmailBlastRecipients } from '@/lib/admin-email-blasts'
+import {
+  getOrgEmailBlastSettings,
+  morningUpdateFocusFor,
+  resolveEmailBlastRecipients,
+  type MorningUpdateFocus,
+} from '@/lib/admin-email-blasts'
 import { fetchMorningUpdateMetrics, type MorningUpdateMetrics } from '@/lib/morning-update-metrics'
-import { loadDataHealth, needsYouForEmailRecipient, type DataHealthReport } from '@/lib/data-health'
+import { loadDataHealth, needsYouForEmailRecipient, shapeNeedsYou, type DataHealthReport } from '@/lib/data-health'
+import { loadCrewWeekQueue, loadOpsQueues, loadOwnerExceptions, type Queue } from '@/lib/today'
 import { resolveAppUrl } from '@/lib/job-trades'
 import { getCrmEmailFrom, getMailTransport } from '@/lib/setter-email'
 
@@ -129,9 +135,58 @@ export function buildNeedsYouHtml(report: DataHealthReport, appUrl?: string | nu
       `
 }
 
+/** Queue rows listed per queue before "and N more" (the Today screen has them all). */
+const TODAY_EMAIL_ROWS = 8
+
+/**
+ * The "Today" queues for one focus — the same queue definitions as the Today screen (lib/today.ts), one load per focus,
+ * not per person. 'all' = owner exceptions; the no-outcome appointments queue is left out because "Needs you" already
+ * reports it. 'crews' = this week's crews and sold jobs with no install date.
+ */
+export async function loadMorningTodayQueues(
+  supabase: SupabaseClient,
+  orgId: string,
+  focus: MorningUpdateFocus,
+  now = new Date()
+): Promise<Queue[]> {
+  if (focus === 'crews') {
+    const [crews, ops] = await Promise.all([loadCrewWeekQueue(supabase, orgId, now), loadOpsQueues(supabase, orgId)])
+    return [crews, ...ops.filter((q) => q.id === 'jobs-to-schedule')]
+  }
+  const owner = await loadOwnerExceptions(supabase, orgId, now, { money: false })
+  return owner.filter((q) => q.id !== 'no-outcome')
+}
+
+/** "Today" block: what to act on this morning. Job/proposal numbers and plain facts only — no customer details. */
+export function buildTodayHtml(queues: Queue[], appUrl?: string | null): string {
+  const base = resolveAppUrl(appUrl)
+  const heading = '<h2 style="margin: 24px 0 6px; color: #111827; font-size: 18px;">Today</h2>'
+  if (queues.length === 0) {
+    return `${heading}<p style="margin: 0 0 8px; color: #2c2c2a; font-size: 14px;">Nothing is waiting on you.</p>`
+  }
+  const blocks = queues
+    .map((q) => {
+      if (q.count === 0) {
+        return `<h3 style="margin: 14px 0 4px; color: #111827; font-size: 15px;">${escapeHtml(q.title)}</h3><p style="margin: 0; color: #2c2c2a; font-size: 14px;">${escapeHtml(q.empty)}</p>`
+      }
+      const rows = q.items
+        .slice(0, TODAY_EMAIL_ROWS)
+        .map((i) => {
+          const note = i.note ? ` — ${escapeHtml(i.note)}` : ''
+          return `<li style="margin: 3px 0; color: #2c2c2a; font-size: 14px;"><a href="${escapeHtml(base + i.href)}" style="color: #2b0a3d; font-weight: 600;">${escapeHtml(i.ref)}</a>${note}</li>`
+        })
+        .join('')
+      const more = q.count - Math.min(q.items.length, TODAY_EMAIL_ROWS)
+      const moreLine = more > 0 ? `<li style="margin: 3px 0; color: #2c2c2a; font-size: 13px;">…and ${more} more on <a href="${escapeHtml(`${base}/today`)}" style="color: #2b0a3d;">Today</a>.</li>` : ''
+      return `<h3 style="margin: 14px 0 4px; color: #111827; font-size: 15px;">${escapeHtml(q.title)} (${q.count})</h3><ul style="margin: 0; padding-left: 18px;">${rows}${moreLine}</ul>`
+    })
+    .join('')
+  return `${heading}${blocks}`
+}
+
 export function buildMorningUpdateHtml(
   metrics: MorningUpdateMetrics,
-  options?: { test?: boolean; needsYou?: DataHealthReport | null }
+  options?: { test?: boolean; needsYou?: DataHealthReport | null; today?: Queue[] | null }
 ): string {
   const period = activityLabelPrefix(metrics.activityPeriodKind)
 
@@ -190,6 +245,7 @@ export function buildMorningUpdateHtml(
         ${options?.test ? '<p style="margin: 0 0 16px; padding: 10px 12px; background: #fef3c7; color: #92400e; border-radius: 8px; font-size: 13px; font-weight: 600;">Test email — not sent on the daily schedule.</p>' : ''}
         <h1 style="margin: 0 0 8px; color: #111827; font-size: 22px;">ARX Morning Update</h1>
         <p style="margin: 0 0 4px; color: #111827; font-size: 14px; font-weight: 600;">${escapeHtml(metrics.sentDateLabel)}</p>
+        ${options?.today ? buildTodayHtml(options.today) : ''}
         ${metricSection(period, activitySubline, {
           doors: metrics.doorsKnockedPeriod,
           inspections: metrics.inspectionsScheduledPeriod,
@@ -233,6 +289,8 @@ export async function sendMorningUpdateEmail(
     metrics?: MorningUpdateMetrics
     /** Bypasses blast settings; sends only to these addresses with a [TEST] subject prefix. */
     testToEmails?: string[]
+    /** Test only: preview a focus instead of the recipient's own setting. */
+    testFocus?: MorningUpdateFocus
   }
 ): Promise<{ sent: number; skipped: boolean; reason?: string }> {
   if (!process.env.SMTP_HOST) {
@@ -241,6 +299,20 @@ export async function sendMorningUpdateEmail(
 
   const isTest = Array.isArray(params.testToEmails) && params.testToEmails.length > 0
   let emails: string[] = []
+
+  // Settings are read on the test path too: who gets which version of the email lives there.
+  const { data: orgRow, error: orgError } = await supabase
+    .from('orgs')
+    .select('settings')
+    .eq('id', params.orgId)
+    .maybeSingle()
+
+  if (orgError) {
+    console.error('sendMorningUpdateEmail: org settings query', orgError)
+    throw orgError
+  }
+
+  const settings = getOrgEmailBlastSettings(orgRow?.settings)
 
   if (isTest) {
     emails = Array.from(
@@ -251,18 +323,6 @@ export async function sendMorningUpdateEmail(
       )
     )
   } else {
-    const { data: orgRow, error: orgError } = await supabase
-      .from('orgs')
-      .select('settings')
-      .eq('id', params.orgId)
-      .maybeSingle()
-
-    if (orgError) {
-      console.error('sendMorningUpdateEmail: org settings query', orgError)
-      throw orgError
-    }
-
-    const settings = getOrgEmailBlastSettings(orgRow?.settings)
     const resolved = await resolveEmailBlastRecipients(supabase, {
       orgId: params.orgId,
       blastType: 'morning_update',
@@ -291,21 +351,40 @@ export async function sendMorningUpdateEmail(
   // row by email; an address with no user row is treated as having no role (no section).
   const { data: recipientRows, error: recipientError } = await supabase
     .from('users')
-    .select('email, role, is_super_admin, active')
+    .select('id, email, role, is_super_admin, active')
     .eq('org_id', params.orgId)
   if (recipientError) {
     // Fail closed: without the user list nobody gets the section.
     console.error('sendMorningUpdateEmail: could not load recipients (is migration 202610210010 applied?)', recipientError.message)
   }
-  const viewerByEmail = new Map<string, { role: string | null; is_super_admin: boolean | null; active: boolean | null }>()
-  for (const u of (recipientRows || []) as Array<{ email: string | null; role: string | null; is_super_admin: boolean | null; active: boolean | null }>) {
+  type Viewer = { id: string | null; role: string | null; is_super_admin: boolean | null; active: boolean | null }
+  const viewerByEmail = new Map<string, Viewer>()
+  for (const u of (recipientRows || []) as Array<{ id: string; email: string | null; role: string | null; is_super_admin: boolean | null; active: boolean | null }>) {
     const key = String(u.email || '').trim().toLowerCase()
     // Two user rows with one address: it is ambiguous who is reading, so fail closed (no section) — never the more privileged row.
-    viewerByEmail.set(key, viewerByEmail.has(key) ? { role: null, is_super_admin: false, active: false } : { role: u.role, is_super_admin: u.is_super_admin, active: u.active })
+    viewerByEmail.set(key, viewerByEmail.has(key) ? { id: null, role: null, is_super_admin: false, active: false } : { id: u.id, role: u.role, is_super_admin: u.is_super_admin, active: u.active })
   }
+  const focusFor = (to: string): MorningUpdateFocus =>
+    (isTest && params.testFocus) || morningUpdateFocusFor(settings.morning_update, viewerByEmail.get(to.trim().toLowerCase())?.id)
+
+  // "Today" is loaded once per focus in use. Like "Needs you", a failure drops the section and never stops the email.
+  const todayByFocus = new Map<MorningUpdateFocus, Queue[] | null>()
+  for (const focus of Array.from(new Set(emails.map(focusFor)))) {
+    try {
+      todayByFocus.set(focus, await loadMorningTodayQueues(supabase, params.orgId, focus))
+    } catch (error) {
+      console.error(`sendMorningUpdateEmail: today queues failed (${focus})`, error)
+      todayByFocus.set(focus, null)
+    }
+  }
+
   const htmlFor = (to: string): string => {
-    if (!needsYou) return buildMorningUpdateHtml(metrics, { test: isTest, needsYou: null })
-    return buildMorningUpdateHtml(metrics, { test: isTest, needsYou: needsYouForEmailRecipient(needsYou, viewerByEmail.get(to.trim().toLowerCase())) })
+    const focus = focusFor(to)
+    const today = todayByFocus.get(focus) ?? null
+    let shaped = needsYou ? needsYouForEmailRecipient(needsYou, viewerByEmail.get(to.trim().toLowerCase())) : null
+    // Crews focus only narrows: an owner on 'crews' gets the operational rows (no dollars), never more than their role allows.
+    if (shaped && needsYou && focus === 'crews') shaped = shapeNeedsYou(needsYou, 'ops')
+    return buildMorningUpdateHtml(metrics, { test: isTest, needsYou: shaped, today })
   }
 
   let sent = 0
