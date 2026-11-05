@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { User } from '@/lib/types/database'
-import { REPORT_BUCKET, ReportPhotoMeta, seedReportDoc } from './types'
+import { getOrgBrand, getUserPhone, type OrgBrand } from '@/lib/org-brand'
+import { normalizeReportDoc, REPORT_BUCKET, ReportDoc, ReportPhotoMeta, seedReportDoc } from './types'
 
 const REP_LIKE_ROLES = ['rep', 'sales_rep', 'closer'] as const
 
@@ -101,6 +102,22 @@ export interface ReportRow {
   created_at: string
   updated_at: string
   doc_updated_at: string | null
+}
+
+/**
+ * Normalize a stored/posted report doc with its org's brand and its rep's phone (the report's creator,
+ * `created_by_user_id`) — used only to fill fields the doc is missing; stored footers always win.
+ */
+export async function normalizeReportDocForOrg(
+  admin: SupabaseClient,
+  raw: unknown,
+  report: { org_id: string; created_by_user_id?: string | null }
+): Promise<{ doc: ReportDoc; brand: OrgBrand; repPhone: string | null }> {
+  const [brand, repPhone] = await Promise.all([
+    getOrgBrand(admin, report.org_id),
+    getUserPhone(admin, report.created_by_user_id, report.org_id),
+  ])
+  return { doc: normalizeReportDoc(raw, { repPhone }, brand), brand, repPhone }
 }
 
 const REPORT_COLUMNS =
@@ -203,13 +220,19 @@ export async function getOrCreateReport(
       .maybeSingle()
     ownerName = lead?.homeowner_name || ''
   }
-  const { data: me } = await admin.from('users').select('full_name').eq('id', userId).maybeSingle()
+  const { data: me } = await admin.from('users').select('full_name, phone').eq('id', userId).maybeSingle()
 
-  const doc = seedReportDoc({
-    ownerName,
-    address: opp.address_text || '',
-    preparedBy: me?.full_name ? `${me.full_name}, ARX Roofing & Exteriors` : 'ARX Roofing & Exteriors',
-  })
+  const brand = await getOrgBrand(admin, orgId)
+  const doc = seedReportDoc(
+    {
+      ownerName,
+      address: opp.address_text || '',
+      preparedBy: me?.full_name ? `${me.full_name}, ${brand.name}` : brand.name,
+      // the report's rep (its creator, = created_by_user_id) — customers call the rep, else the company
+      repPhone: me?.phone,
+    },
+    brand
+  )
 
   const { data: createdRow, error } = await admin
     .from('inspection_reports')

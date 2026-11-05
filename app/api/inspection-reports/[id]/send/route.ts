@@ -2,16 +2,15 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import { getCrmEmailFrom, getMailTransport } from '@/lib/setter-email'
-import { normalizeReportDoc, REPORT_BUCKET, REPORT_EDIT_ROLES, reportSlug } from '@/lib/inspection-report/types'
-import { authErrorResponse, assertRepCanAccessReport, fetchReportForOrg, opportunityAccessResponse } from '@/lib/inspection-report/server'
+import { REPORT_BUCKET, REPORT_EDIT_ROLES, reportSlug } from '@/lib/inspection-report/types'
+import { authErrorResponse, assertRepCanAccessReport, fetchReportForOrg, normalizeReportDocForOrg, opportunityAccessResponse } from '@/lib/inspection-report/server'
+import { contactPhone } from '@/lib/org-brand'
+import { reportEmailFooterHtml, reportEmailHeaderHtml } from '@/lib/inspection-report/brand-copy'
+import { escapeHtml } from '@/lib/html'
 
 // Attachments are base64-encoded over SMTP (+33%); most relays reject messages much past
 // 25MB total, so attach only up to 15MB of PDF and fall back to the share link above that.
 const MAX_ATTACH_BYTES = 15 * 1024 * 1024
-
-function escapeHtml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
-}
 
 function appBaseUrl(): string {
   return (process.env.NEXT_PUBLIC_APP_URL || 'https://arx-internal-crm.vercel.app').replace(/\/$/, '')
@@ -46,7 +45,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     }
     const personalMessage = typeof body?.message === 'string' ? body.message.trim().slice(0, 2000) : ''
 
-    const doc = normalizeReportDoc(report.doc)
+    const { doc, brand } = await normalizeReportDocForOrg(admin, report.doc, report)
     const address = doc.propertyAddressHeader || 'your property'
     const shareUrl = `${appBaseUrl()}/r/${report.share_token}`
 
@@ -71,8 +70,10 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       }
     }
 
-    const { data: sender } = await admin.from('users').select('full_name, email').eq('id', profile.id).maybeSingle()
-    const senderName = sender?.full_name || 'ARX Roofing & Exteriors'
+    const { data: sender } = await admin.from('users').select('full_name, email, phone').eq('id', profile.id).maybeSingle()
+    const senderName = sender?.full_name || brand.name
+    // the email names the sender as the person to reply to, so its footer shows the sender's phone
+    const phone = contactPhone(brand, sender?.phone)
 
     const messageHtml = personalMessage
       ? `<p style="color:#374151; white-space:pre-line;">${escapeHtml(personalMessage)}</p>`
@@ -87,7 +88,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto; padding: 24px; color:#2c2c2a;">
           <div style="background:#2B2A28; border-bottom:3px solid #B0904E; padding:18px 24px; border-radius:8px 8px 0 0;">
-            <span style="color:#F4ECDC; font-size:18px; font-weight:bold; letter-spacing:1px;">ARX <span style="color:#B0904E;">Roofing &amp; Exteriors</span></span>
+            <span style="color:#F4ECDC; font-size:18px; font-weight:bold; letter-spacing:1px;">${reportEmailHeaderHtml(brand)}</span>
           </div>
           <div style="border:1px solid #e3ddcf; border-top:none; padding:24px; border-radius:0 0 8px 8px;">
             <h2 style="margin:0 0 12px; color:#2c2c2a;">Your roof inspection report is ready</h2>
@@ -99,7 +100,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
             </p>
             <p style="color:#374151;">Questions about anything in the report? Just reply to this email — it goes straight to ${escapeHtml(senderName)}.</p>
             <p style="color:#8A8A8A; font-size:12px; margin-top:28px; border-top:1px solid #e3ddcf; padding-top:12px;">
-              ARX Roofing &amp; Exteriors &nbsp;|&nbsp; Charlotte / Kannapolis, NC &nbsp;|&nbsp; (360) 485-9413 &nbsp;|&nbsp; arxroofing.com
+              ${reportEmailFooterHtml(brand, phone)}
             </p>
           </div>
         </div>

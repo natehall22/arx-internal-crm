@@ -6,6 +6,8 @@
  * standalone ARX Roof Report Builder's serialized project so the PDF engine port
  * (lib/inspection-report/pdf.ts) renders identical output.
  */
+import { contactPhone, type OrgBrand, resolveOrgBrand } from '@/lib/org-brand'
+import { reportFooterContact, reportFooterLine } from './brand-copy'
 
 export interface ReportInfoField {
   id: string
@@ -84,10 +86,6 @@ export interface ReportPhotoMeta {
 
 export const REPORT_BUCKET = 'inspection-reports'
 
-const DEFAULT_FOOTER =
-  'ARX Roofing & Exteriors  |  Charlotte / Kannapolis, NC  |  (360) 485-9413  |  arxroofing.com'
-const DEFAULT_FOOTER_CONTACT = 'arxroofing.com   |   (360) 485-9413   |   info@arxroofing.com'
-
 /** Legacy seed subtitle — cleared on normalize so the cover does not show reinspection boilerplate. */
 const LEGACY_COVER_SUBTITLE = 'Supplemental Inspection & Request for Reinspection'
 
@@ -97,14 +95,21 @@ export interface SeedPrefill {
   ownerName?: string
   address?: string
   preparedBy?: string
+  /** users.phone of the report's rep; blank → the company phone. */
+  repPhone?: string | null
 }
 
-/** Fresh report doc with the standard sections and claims-ready summary copy, prefilled from CRM data. */
-export function seedReportDoc(prefill: SeedPrefill = {}): ReportDoc {
+/**
+ * Fresh report doc with the standard sections and claims-ready summary copy, prefilled from CRM data.
+ * `brand` (from getOrgBrand) + `prefill.repPhone` drive the footer lines; omitted → the defaults.
+ * Seeded once: a stored doc keeps its footer (normalizeReportDoc only fills missing fields).
+ */
+export function seedReportDoc(prefill: SeedPrefill = {}, brand: OrgBrand = resolveOrgBrand(null)): ReportDoc {
+  const phone = contactPhone(brand, prefill.repPhone)
   return {
     v: 1,
     propertyAddressHeader: prefill.address || '',
-    footerLine: DEFAULT_FOOTER,
+    footerLine: reportFooterLine(brand, phone),
     cover: {
       heroPhotoId: null,
       title: 'ROOF DAMAGE\nDOCUMENTATION',
@@ -118,7 +123,7 @@ export function seedReportDoc(prefill: SeedPrefill = {}): ReportDoc {
         { id: uid(), label: 'Date of Loss', value: '' },
       ],
       note: "Prepared for the homeowner and for the insurance carrier's review.",
-      footerContact: DEFAULT_FOOTER_CONTACT,
+      footerContact: reportFooterContact(brand, phone),
     },
     summary: {
       include: true,
@@ -183,8 +188,8 @@ export function seedReportDoc(prefill: SeedPrefill = {}): ReportDoc {
  * Normalize a doc loaded from the DB against the seed shape, so older/partial docs
  * (or a bare '{}' default) never crash the builder or the PDF engine.
  */
-export function normalizeReportDoc(raw: unknown, prefill: SeedPrefill = {}): ReportDoc {
-  const seed = seedReportDoc(prefill)
+export function normalizeReportDoc(raw: unknown, prefill: SeedPrefill = {}, brand?: OrgBrand): ReportDoc {
+  const seed = seedReportDoc(prefill, brand)
   if (!raw || typeof raw !== 'object') return seed
   const o = raw as Partial<ReportDoc>
   if (!o.cover || !Array.isArray(o.sections)) return seed

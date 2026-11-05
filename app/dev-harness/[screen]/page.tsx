@@ -64,6 +64,29 @@ import ThreadPanel from '@/components/customer-file/ThreadPanel'
 import { HARNESS_FILE_CTX } from '@/e2e/fixtures'
 import { HARNESS_QUEUES } from '@/e2e/fixtures'
 import EmailBlastsPage from '@/app/admin/email-blasts/page'
+import GeneralSettingsCard, { type GeneralSettingsValues } from '@/components/admin/GeneralSettingsCard'
+import { DEFAULT_TIMEZONE } from '@/lib/timezone'
+
+function GeneralSettingsHarness({ canEditBrand }: { canEditBrand: boolean }) {
+  const [value, setValue] = useState<GeneralSettingsValues>({
+    company_name: 'Harness Roofing & Exteriors',
+    company_phone: '(555) 010-0100',
+    company_email: 'office@example.test',
+    company_address: '100 Main St\nSpringfield, ST 00000',
+    brand_short_name: 'Harness',
+    brand_website: 'example.test',
+    brand_service_area: 'Springfield / Shelbyville, ST',
+    timezone: DEFAULT_TIMEZONE,
+    date_format: 'MM/DD/YYYY',
+    currency: 'USD',
+  })
+  return (
+    <div className="mx-auto max-w-2xl p-4">
+      <h1 className="text-2xl font-bold mb-6" style={{ color: '#2c2c2a' }}>General Settings</h1>
+      <GeneralSettingsCard value={value} onChange={(patch) => setValue((prev) => ({ ...prev, ...patch }))} canEditBrand={canEditBrand} saving={false} onSave={() => undefined} />
+    </div>
+  )
+}
 
 export default function Harness({ params }: { params: { screen: string } }) {
   if (process.env.NODE_ENV === 'production') notFound()
@@ -252,6 +275,10 @@ export default function Harness({ params }: { params: { screen: string } }) {
       return <div className="p-3"><DefaultPlansCard /></div>
     case 'my-pay':
       return <div className="mx-auto max-w-xl p-4"><MyPayClient /></div>
+    case 'admin-settings':
+      return <GeneralSettingsHarness canEditBrand />
+    case 'admin-settings-readonly':
+      return <GeneralSettingsHarness canEditBrand={false} />
     case 'pay-week':
       return <div className="mx-auto max-w-3xl p-4"><PayWeekClient /></div>
     default:

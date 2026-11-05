@@ -3,11 +3,12 @@ export const dynamic = 'force-dynamic'
 import { redirect, notFound } from 'next/navigation'
 import { requireAuth } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
-import { normalizeReportDoc, REPORT_EDIT_ROLES } from '@/lib/inspection-report/types'
+import { REPORT_EDIT_ROLES } from '@/lib/inspection-report/types'
 import {
   attachSignedUrls,
   fetchReportPhotos,
   getOrCreateReport,
+  normalizeReportDocForOrg,
 } from '@/lib/inspection-report/server'
 import ReportBuilder from '@/components/inspection-report/ReportBuilder'
 
@@ -27,6 +28,7 @@ export default async function OpportunityReportPage({ params }: { params: { id: 
 
   const { report } = result
   const photos = await attachSignedUrls(admin, await fetchReportPhotos(admin, report.id, profile.org_id))
+  const { doc: initialDoc } = await normalizeReportDocForOrg(admin, report.doc, report)
 
   // customer email for the send dialog (customer preferred, lead as fallback)
   let customerEmail: string | null = null
@@ -55,7 +57,7 @@ export default async function OpportunityReportPage({ params }: { params: { id: 
       pdfSizeBytes={report.pdf_size_bytes}
       lastSentTo={report.last_sent_to}
       updatedAt={report.doc_updated_at ?? report.updated_at}
-      initialDoc={normalizeReportDoc(report.doc)}
+      initialDoc={initialDoc}
       initialPhotos={photos.map((p) => ({
         id: p.id,
         url: p.url ?? null,

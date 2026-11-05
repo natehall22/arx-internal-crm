@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
-import { normalizeReportDoc, REPORT_BUCKET, REPORT_EDIT_ROLES } from '@/lib/inspection-report/types'
-import { authErrorResponse, attachSignedUrls, assertRepCanAccessReport, fetchReportForOrg, fetchReportPhotos, opportunityAccessResponse } from '@/lib/inspection-report/server'
+import { REPORT_BUCKET, REPORT_EDIT_ROLES } from '@/lib/inspection-report/types'
+import { authErrorResponse, attachSignedUrls, assertRepCanAccessReport, fetchReportForOrg, fetchReportPhotos, normalizeReportDocForOrg, opportunityAccessResponse } from '@/lib/inspection-report/server'
 
 // GET — full report + photos with signed URLs
 export async function GET(_request: NextRequest, { params }: { params: { id: string } }) {
@@ -50,7 +50,8 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     }
     // Normalize instead of trusting the client shape — a malformed doc must never be able
     // to brick the builder or the PDF engine for this report.
-    const doc = normalizeReportDoc(body.doc)
+    // brand + rep phone only fill fields the client left out (sent footer lines always win)
+    const { doc } = await normalizeReportDocForOrg(admin, body.doc, report)
 
     // Optimistic concurrency on doc_updated_at (NOT updated_at — that also moves on photo
     // uploads and would make a device conflict with itself). A whole-doc PATCH from a stale
