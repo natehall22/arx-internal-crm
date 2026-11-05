@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { resolveOrgBrand } from '@/lib/org-brand'
 import { createClient } from '@supabase/supabase-js'
 import { PROPOSAL_DELETE_PRIVILEGED_ROLES } from '@/lib/proposal-delete-access'
 import { SALE_AGREEMENT_TYPES } from '@/lib/sales-metrics'
@@ -138,7 +139,7 @@ export async function GET(
     // Get company info
     const { data: company } = await adminClient
       .from('orgs')
-      .select('name, logo_url, settings, phone, email, address, website')
+      .select('name, logo_url, settings, phone, email, address')
       .eq('id', profile.org_id)
       .single()
 
@@ -178,7 +179,10 @@ export async function GET(
       lineItems: lineItems || [],
       // Logo as a link through the public logo route (the browser PDF builder fetches it), never a `files` public URL.
       // `settings` is read only to find an older logo value; never send it to the browser.
-      company: company ? { ...omitSettings(company), logo_url: orgLogoHref(profile.org_id, company) } : company,
+      // orgs has no website column: the website comes from the org brand (lib/org-brand, settings.brand → default).
+      company: company
+        ? { ...omitSettings(company), website: resolveOrgBrand(company).website, logo_url: orgLogoHref(profile.org_id, company) }
+        : company,
       rep: proposalForClient.users,
       measurement,
       has_completed_installation_contract: Boolean(signedSaleAgreement),

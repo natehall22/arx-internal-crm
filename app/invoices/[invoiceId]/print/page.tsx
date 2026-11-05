@@ -215,7 +215,7 @@ export default async function PrintInvoicePage({
   // Get org settings
   const { data: org } = await adminClient
     .from('orgs')
-    .select('name, address, city, state, zip, phone, email')
+    .select('name, address, phone, email')
     .eq('id', profile.org_id)
     .single()
 
@@ -227,10 +227,7 @@ export default async function PrintInvoicePage({
     jobData?.address_text || ''
   )
 
-  const companyAddress = [
-    org?.address,
-    org?.city && org?.state ? `${org.city}, ${org.state} ${org.zip || ''}`.trim() : null,
-  ].filter(Boolean).join('\n')
+  const companyAddress = org?.address || ''
 
   const balanceCents = invoice.total_cents - appliedCents
   const isPaid = balanceCents <= 0
