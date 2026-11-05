@@ -20,6 +20,7 @@ import {
 } from '@/lib/roof-shingle-constants'
 import { toast } from '@/components/ui/toast'
 import { orgLogoHref } from '@/lib/files/files-object'
+import { DEFAULT_TIMEZONE } from '@/lib/timezone'
 import GeneralSettingsCard, { GENERAL_BRAND_INPUTS, type GeneralSettingsValues } from '@/components/admin/GeneralSettingsCard'
 import { confirmDialog } from '@/components/ui/confirm-dialog'
 
@@ -147,7 +148,7 @@ export default function AdminSettingsPage() {
     brand_short_name: '',
     brand_website: '',
     brand_service_area: '',
-    timezone: 'America/Chicago',
+    timezone: DEFAULT_TIMEZONE,
     date_format: 'MM/DD/YYYY',
     currency: 'USD',
   })
@@ -574,7 +575,7 @@ export default function AdminSettingsPage() {
           company_email: data.org.email || data.settings?.company_email || '',
           company_address: data.org.address || data.settings?.company_address || '',
           ...brand,
-          timezone: data.org.timezone || data.settings?.timezone || 'America/Chicago',
+          timezone: data.org.timezone || data.settings?.timezone || DEFAULT_TIMEZONE,
           date_format: data.org.date_format || data.settings?.date_format || 'MM/DD/YYYY',
           currency: data.org.currency || data.settings?.currency || 'USD',
         })

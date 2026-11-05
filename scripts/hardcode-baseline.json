@@ -31,8 +31,7 @@
     "brand": 1
   },
   "app/admin/settings/page.tsx": {
-    "brand": 3,
-    "timezone": 2
+    "brand": 3
   },
   "app/admin/sisu/setter-ramp/SetterRampClient.tsx": {
     "timezone": 1
