@@ -41,7 +41,7 @@
     "brand": 7
   },
   "app/admin/teams/page.tsx": {
-    "timezone": 10
+    "timezone": 13
   },
   "app/api/admin/data/route.ts": {
     "timezone": 3
@@ -69,7 +69,7 @@
   },
   "app/api/canvass/availability/route.ts": {
     "brand": 1,
-    "timezone": 7
+    "timezone": 8
   },
   "app/api/canvass/lead/route.ts": {
     "brand": 1,
@@ -77,7 +77,7 @@
   },
   "app/api/canvass/team-availability/route.ts": {
     "brand": 1,
-    "timezone": 7
+    "timezone": 8
   },
   "app/api/change-orders/create/route.ts": {
     "address": 2,
@@ -100,7 +100,7 @@
     "brand": 7
   },
   "app/api/contracts/sign/route.ts": {
-    "address": 2,
+    "address": 4,
     "brand": 10
   },
   "app/api/crew/[token]/photos/finalize/route.ts": {
@@ -230,7 +230,7 @@
     "brand": 1
   },
   "app/contracts/sign/[token]/CustomerSigningForm.tsx": {
-    "address": 2,
+    "address": 4,
     "brand": 54
   },
   "app/contracts/sign/[token]/page.tsx": {
@@ -244,19 +244,19 @@
     "brand": 2
   },
   "app/dashboard/DashboardClient.tsx": {
-    "timezone": 6
+    "timezone": 8
   },
   "app/dashboard/page.tsx": {
     "timezone": 2
   },
   "app/invoices/[invoiceId]/print/page.tsx": {
-    "brand": 2
+    "brand": 4
   },
   "app/layout.tsx": {
     "brand": 3
   },
   "app/leads/[id]/LeadView.tsx": {
-    "timezone": 4
+    "timezone": 6
   },
   "app/login/page.tsx": {
     "brand": 1
@@ -343,7 +343,7 @@
     "timezone": 1
   },
   "components/appointments/CalendarView.tsx": {
-    "timezone": 3
+    "timezone": 6
   },
   "components/appointments/CloseScheduleModal.tsx": {
     "timezone": 2
@@ -425,18 +425,19 @@
     "brand": 1
   },
   "lib/company-address.ts": {
-    "brand": 1
+    "address": 2,
+    "brand": 2
   },
   "lib/completion-certificate.tsx": {
     "address": 1,
-    "brand": 6
+    "brand": 8
   },
   "lib/contracts/generateChangeOrderPdf.ts": {
-    "address": 1,
+    "address": 3,
     "brand": 5
   },
   "lib/contracts/generatePdf.ts": {
-    "address": 4,
+    "address": 14,
     "brand": 63
   },
   "lib/crew-link.ts": {
@@ -449,6 +450,9 @@
     "timezone": 2
   },
   "lib/eastern-datetime.ts": {
+    "timezone": 6
+  },
+  "lib/employee-comp-agreements.ts": {
     "timezone": 1
   },
   "lib/exterior-measure-api.ts": {
@@ -460,6 +464,9 @@
   },
   "lib/founder-contacts.ts": {
     "brand": 1
+  },
+  "lib/goals-period.ts": {
+    "timezone": 1
   },
   "lib/google-calendar.ts": {
     "brand": 1
@@ -475,7 +482,7 @@
     "timezone": 1
   },
   "lib/inspection-local-wall-clock.ts": {
-    "timezone": 6
+    "timezone": 7
   },
   "lib/inspection-report/pdf.ts": {
     "brand": 8
@@ -509,6 +516,9 @@
   "lib/lidar/sources.ts": {
     "brand": 1
   },
+  "lib/lidar/tile-store.ts": {
+    "brand": 4
+  },
   "lib/materials-order-list.ts": {
     "brand": 2
   },
@@ -516,13 +526,16 @@
     "brand": 3
   },
   "lib/morning-update-schedule.ts": {
-    "timezone": 2
+    "timezone": 3
   },
   "lib/payroll-period-week.ts": {
     "timezone": 1
   },
   "lib/payroll-statement-email.ts": {
     "brand": 1
+  },
+  "lib/pdf/InvoicePDF.tsx": {
+    "brand": 2
   },
   "lib/pdf/ProposalPDF.tsx": {
     "brand": 1
@@ -535,7 +548,7 @@
   },
   "lib/pdf/payroll-statement.ts": {
     "address": 1,
-    "brand": 3
+    "brand": 5
   },
   "lib/program-444-utils.ts": {
     "timezone": 1
@@ -580,6 +593,9 @@
   "lib/sisu-weekly-doors.ts": {
     "timezone": 1
   },
+  "lib/solar-roof-mask-facets.ts": {
+    "address": 1
+  },
   "lib/storm-opportunity-alerts.ts": {
     "brand": 2,
     "timezone": 1
@@ -595,7 +611,7 @@
     "brand": 1
   },
   "lib/timezone.ts": {
-    "timezone": 10
+    "timezone": 13
   },
   "lib/today.ts": {
     "timezone": 1
@@ -604,82 +620,6 @@
     "brand": 2
   },
   "lib/weekly-payroll/cutoff.ts": {
-    "timezone": 1
-  },
-  "supabase/migrations/036_org_contact_fields.sql": {
-    "timezone": 2
-  },
-  "supabase/migrations/064_contract_signing.sql": {
-    "brand": 1
-  },
-  "supabase/migrations/121_weekly_sales_payroll_foundation.sql": {
-    "timezone": 1
-  },
-  "supabase/migrations/132_opportunity_exterior_measure_mvp.sql": {
-    "brand": 3
-  },
-  "supabase/migrations/135_payroll_commission_transparency_columns.sql": {
-    "timezone": 1
-  },
-  "supabase/migrations/202506090007_org_444_bonus_label.sql": {
-    "brand": 1
-  },
-  "supabase/migrations/202607010001_inspection_reports.sql": {
-    "brand": 1
-  },
-  "supabase/migrations/202607120001_mobile_device_tokens.sql": {
-    "brand": 2
-  },
-  "supabase/migrations/202607220001_website_instant_estimate_lead_source.sql": {
-    "brand": 1
-  },
-  "supabase/migrations/202607240001_website_instant_estimate_manual_measure_lead_source.sql": {
-    "brand": 1
-  },
-  "supabase/migrations/202608050002_org_manager_override_and_self_gen_rates.sql": {
-    "timezone": 9
-  },
-  "supabase/migrations/202608070001_management_comp_overlays.sql": {
-    "timezone": 6
-  },
-  "supabase/migrations/202608070002_management_overlay_team_assignment_eligibility.sql": {
-    "timezone": 1
-  },
-  "supabase/migrations/202608070003_comp_rate_admin_editor.sql": {
-    "timezone": 2
-  },
-  "supabase/migrations/202608070004_fix_upsert_org_derived_commission_rates_column_ambiguity.sql": {
-    "timezone": 1
-  },
-  "supabase/migrations/202608190001_comp_plan_versions.sql": {
-    "timezone": 1
-  },
-  "supabase/migrations/202608190002_comp_plan_versions_exact_flag_copy.sql": {
-    "timezone": 1
-  },
-  "supabase/migrations/202609050001_install_scheduling.sql": {
-    "brand": 1
-  },
-  "supabase/migrations/202609080001_sub_calendar_availability.sql": {
-    "brand": 3
-  },
-  "supabase/migrations/202610200001_referral_partners.sql": {
-    "brand": 1,
-    "timezone": 1
-  },
-  "supabase/migrations/202610210010_money_inputs_super_admin_paid_override.sql": {
-    "brand": 1
-  },
-  "supabase/migrations/202610240040_end_plan_on_deactivation.sql": {
-    "timezone": 1
-  },
-  "supabase/migrations/202610280010_atomic_approve_and_field_role_deny.sql": {
-    "timezone": 2
-  },
-  "supabase/migrations/202611030010_instant_estimate_checks.sql": {
-    "brand": 1
-  },
-  "supabase/migrations/RUN_THIS_MISSING_TABLES.sql": {
     "timezone": 2
   }
 }
