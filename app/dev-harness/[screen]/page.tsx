@@ -63,6 +63,7 @@ import FileTabs from '@/components/customer-file/FileTabs'
 import ThreadPanel from '@/components/customer-file/ThreadPanel'
 import { HARNESS_FILE_CTX } from '@/e2e/fixtures'
 import { HARNESS_QUEUES } from '@/e2e/fixtures'
+import EmailBlastsPage from '@/app/admin/email-blasts/page'
 
 export default function Harness({ params }: { params: { screen: string } }) {
   if (process.env.NODE_ENV === 'production') notFound()
@@ -109,6 +110,8 @@ export default function Harness({ params }: { params: { screen: string } }) {
     }
     case 'suppliers-admin':
       return <SuppliersClient />
+    case 'email-blasts':
+      return <EmailBlastsPage />
     case 'contract-signing':
       return <ContractSigningForm contract={HARNESS_CONTRACT as never} token="tok" />
     case 'change-order-signing':

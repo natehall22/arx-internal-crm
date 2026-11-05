@@ -158,9 +158,13 @@ export async function loadMorningTodayQueues(
 }
 
 /** "Today" block: what to act on this morning. Job/proposal numbers and plain facts only — no customer details. */
-export function buildTodayHtml(queues: Queue[], appUrl?: string | null): string {
+export function buildTodayHtml(queues: Queue[] | null, appUrl?: string | null): string {
   const base = resolveAppUrl(appUrl)
   const heading = '<h2 style="margin: 24px 0 6px; color: #111827; font-size: 18px;">Today</h2>'
+  // A failed load must never read as "nothing to do".
+  if (queues === null) {
+    return `${heading}<p style="margin: 0 0 8px; color: #2c2c2a; font-size: 14px;">Today&apos;s list couldn&apos;t load. <a href="${escapeHtml(`${base}/today`)}" style="color: #2b0a3d;">Open Today</a>.</p>`
+  }
   if (queues.length === 0) {
     return `${heading}<p style="margin: 0 0 8px; color: #2c2c2a; font-size: 14px;">Nothing is waiting on you.</p>`
   }
@@ -186,6 +190,7 @@ export function buildTodayHtml(queues: Queue[], appUrl?: string | null): string 
 
 export function buildMorningUpdateHtml(
   metrics: MorningUpdateMetrics,
+  /** `today`: undefined = no Today block; null = it failed to load (says so). */
   options?: { test?: boolean; needsYou?: DataHealthReport | null; today?: Queue[] | null }
 ): string {
   const period = activityLabelPrefix(metrics.activityPeriodKind)
@@ -245,7 +250,7 @@ export function buildMorningUpdateHtml(
         ${options?.test ? '<p style="margin: 0 0 16px; padding: 10px 12px; background: #fef3c7; color: #92400e; border-radius: 8px; font-size: 13px; font-weight: 600;">Test email — not sent on the daily schedule.</p>' : ''}
         <h1 style="margin: 0 0 8px; color: #111827; font-size: 22px;">ARX Morning Update</h1>
         <p style="margin: 0 0 4px; color: #111827; font-size: 14px; font-weight: 600;">${escapeHtml(metrics.sentDateLabel)}</p>
-        ${options?.today ? buildTodayHtml(options.today) : ''}
+        ${options?.today !== undefined ? buildTodayHtml(options.today) : ''}
         ${metricSection(period, activitySubline, {
           doors: metrics.doorsKnockedPeriod,
           inspections: metrics.inspectionsScheduledPeriod,

@@ -3,17 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import Nav from '@/components/Nav'
-
-type EmailBlastType = 'sale' | 'job_payment' | 'morning_update' | 'setter_field_update'
-
-type MorningUpdateFocus = 'all' | 'crews'
-
-type EmailBlastConfig = {
-  enabled: boolean
-  role_targets: string[]
-  user_targets: string[]
-  user_focus?: Record<string, MorningUpdateFocus>
-}
+import type { EmailBlastConfig, EmailBlastType, MorningUpdateFocus } from '@/lib/admin-email-blasts'
 
 type RoleOption = {
   role: string
@@ -186,7 +176,7 @@ export default function EmailBlastsPage() {
       <Nav />
       <div className="max-w-6xl mx-auto px-4 py-6">
         <div className="mb-6">
-          <Link href="/admin" className="inline-flex items-center text-sm text-gray-600 hover:text-gray-900 mb-2">
+          <Link href="/admin" className="mb-2 inline-flex min-h-[44px] items-center text-sm text-gray-600 hover:text-gray-900">
             <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
             </svg>
@@ -202,7 +192,7 @@ export default function EmailBlastsPage() {
             <button
               onClick={saveSettings}
               disabled={loading || saving || !settings}
-              className="inline-flex items-center justify-center rounded-lg bg-indigo-600 px-4 py-2 text-white hover:bg-indigo-700 disabled:opacity-50"
+              className="inline-flex min-h-[44px] items-center justify-center rounded-lg bg-indigo-600 px-4 py-2 text-white hover:bg-indigo-700 disabled:opacity-50"
             >
               {saving ? 'Saving...' : 'Save changes'}
             </button>
@@ -312,38 +302,38 @@ export default function EmailBlastsPage() {
                       <h3 className="text-sm font-semibold text-gray-900">Specific People</h3>
                       <p className="mt-1 text-sm text-gray-500">Add or remove named recipients without changing role-wide coverage.</p>
                       <div className="mt-3 max-h-72 space-y-2 overflow-y-auto pr-1">
-                        {userOptionsForBlast.map((user) => (
-                          <label
-                            key={`${definition.id}-${user.id}`}
-                            className="flex items-start gap-3 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700"
-                          >
-                            <input
-                              type="checkbox"
-                              checked={config.user_targets.includes(user.id)}
-                              onChange={() => toggleUser(definition.id, user.id)}
-                              className="mt-0.5 h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
-                            />
-                            <span className="min-w-0 flex-1">
-                              <span className="block font-medium text-gray-900">{user.full_name || user.email}</span>
-                              <span className="block text-xs text-gray-500">
-                                {user.email} {user.role ? `• ${roleOptions.find((option) => option.role === user.role)?.label || user.role}` : ''}
-                              </span>
-                              {definition.id === 'morning_update' &&
-                                (config.user_targets.includes(user.id) || config.role_targets.includes(String(user.role || ''))) && (
-                                  <select
-                                    aria-label={`What ${user.full_name || user.email} gets`}
-                                    value={config.user_focus?.[user.id] === 'crews' ? 'crews' : 'all'}
-                                    onClick={(e) => e.stopPropagation()}
-                                    onChange={(e) => setFocus(user.id, e.target.value as MorningUpdateFocus)}
-                                    className="mt-2 block min-h-[44px] w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-base text-gray-900"
-                                  >
-                                    <option value="all">Gets everything</option>
-                                    <option value="crews">Crews only (installs, scheduling, ops issues)</option>
-                                  </select>
-                                )}
-                            </span>
-                          </label>
-                        ))}
+                        {userOptionsForBlast.map((user) => {
+                          const receives = config.user_targets.includes(user.id) || config.role_targets.includes(String(user.role || ''))
+                          return (
+                            <div key={`${definition.id}-${user.id}`} className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700">
+                              <label className="flex items-start gap-3">
+                                <input
+                                  type="checkbox"
+                                  checked={config.user_targets.includes(user.id)}
+                                  onChange={() => toggleUser(definition.id, user.id)}
+                                  className="mt-0.5 h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                                />
+                                <span className="min-w-0 flex-1">
+                                  <span className="block font-medium text-gray-900">{user.full_name || user.email}</span>
+                                  <span className="block text-xs text-gray-500">
+                                    {user.email} {user.role ? `• ${roleOptions.find((option) => option.role === user.role)?.label || user.role}` : ''}
+                                  </span>
+                                </span>
+                              </label>
+                              {definition.id === 'morning_update' && receives && (
+                                <select
+                                  aria-label={`What ${user.full_name || user.email} gets`}
+                                  value={config.user_focus?.[user.id] === 'crews' ? 'crews' : 'all'}
+                                  onChange={(e) => setFocus(user.id, e.target.value as MorningUpdateFocus)}
+                                  className="mt-2 block min-h-[44px] w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-base text-gray-900"
+                                >
+                                  <option value="all">Gets everything</option>
+                                  <option value="crews">Crews only</option>
+                                </select>
+                              )}
+                            </div>
+                          )
+                        })}
                       </div>
                     </div>
                   </div>

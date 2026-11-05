@@ -51,6 +51,7 @@ describe('Today block in the morning email', () => {
 
   it('says so when nothing is waiting, and shows a queue’s empty line', () => {
     expect(buildTodayHtml([])).toContain('Nothing is waiting on you.')
+    expect(buildTodayHtml(null)).toContain("couldn&apos;t load")
     const empty: Queue = { id: 'crews-this-week', title: 'Crews this week', count: 0, empty: 'No crews on the calendar this week.', items: [] }
     expect(buildTodayHtml([empty])).toContain('No crews on the calendar this week.')
   })

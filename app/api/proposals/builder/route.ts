@@ -677,9 +677,9 @@ export async function PUT(request: NextRequest) {
     })
     Object.assign(cleanProposal, financingMerged)
 
-    // Saving as sent is "sending": stamp when it started waiting (it was never written here, so follow-up queues had no date).
-    // Only the first time — a later re-save keeps the original date.
-    if (cleanProposal.status === 'sent' && !existing.sent_at) {
+    // Saving a draft as sent is "sending": stamp when it started waiting (this path never wrote it, so follow-up queues
+    // had no date). Only on the change to 'sent' — re-saving an already-sent proposal must not restart its clock.
+    if (cleanProposal.status === 'sent' && existing.status !== 'sent' && !existing.sent_at) {
       cleanProposal.sent_at = new Date().toISOString()
     }
 
