@@ -106,6 +106,18 @@ describe.each([
   })
 })
 
+describe('legal name (invoices, contracts)', () => {
+  it('defaults to the exact string invoices printed before', () => {
+    expect(resolveOrgBrand(null).legalName).toBe('ARX Roofing & Exteriors, LLC')
+    // ARX prod row: org name has no ", LLC" and settings.brand is null — invoices still show the legal name
+    expect(resolveOrgBrand({ name: 'ARX Roofing & Exteriors', settings: null }).legalName).toBe('ARX Roofing & Exteriors, LLC')
+  })
+  it('comes from settings.brand.legalName and is editable from the General form', () => {
+    expect(resolveOrgBrand({ settings: { brand: { legalName: 'Other Co, Inc.' } } }).legalName).toBe('Other Co, Inc.')
+    expect(brandPatchFromGeneral({ brand_legal_name: 'Other Co, Inc.' })).toEqual({ legalName: 'Other Co, Inc.' })
+  })
+})
+
 describe('resolveOrgBrand precedence', () => {
   it('orgs columns always win; settings.brand only supplies fields with no column', () => {
     const b = resolveOrgBrand({

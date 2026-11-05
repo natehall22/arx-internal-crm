@@ -73,6 +73,7 @@ function GeneralSettingsHarness({ canEditBrand }: { canEditBrand: boolean }) {
     company_phone: '(555) 010-0100',
     company_email: 'office@example.test',
     company_address: '100 Main St\nSpringfield, ST 00000',
+    brand_legal_name: 'Harness Roofing & Exteriors, LLC',
     brand_short_name: 'Harness',
     brand_website: 'example.test',
     brand_service_area: 'Springfield / Shelbyville, ST',

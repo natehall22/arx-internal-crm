@@ -245,7 +245,7 @@
     "timezone": 2
   },
   "app/invoices/[invoiceId]/print/page.tsx": {
-    "brand": 4
+    "brand": 2
   },
   "app/layout.tsx": {
     "brand": 3
@@ -520,7 +520,7 @@
   },
   "lib/org-brand.ts": {
     "address": 2,
-    "brand": 6
+    "brand": 7
   },
   "lib/payroll-period-week.ts": {
     "timezone": 1

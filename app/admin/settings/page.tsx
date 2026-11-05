@@ -145,6 +145,7 @@ export default function AdminSettingsPage() {
     company_email: '',
     company_address: '',
     // settings.brand — blank falls back to the default (lib/org-brand)
+    brand_legal_name: '',
     brand_short_name: '',
     brand_website: '',
     brand_service_area: '',
@@ -563,6 +564,7 @@ export default function AdminSettingsPage() {
       
       if (data.org) {
         const brand = {
+          brand_legal_name: data.settings?.brand?.legalName || '',
           brand_short_name: data.settings?.brand?.shortName || '',
           brand_website: data.settings?.brand?.website || '',
           brand_service_area: data.settings?.brand?.serviceArea || '',
@@ -678,7 +680,7 @@ export default function AdminSettingsPage() {
   const saveSettings = async () => {
     setSaving(true)
     // brand_* only when loaded, editable and changed — the server merges just those keys
-    const { brand_short_name: _s, brand_website: _w, brand_service_area: _a, ...generalBody }: Record<string, string> = { ...generalSettings }
+    const { brand_legal_name: _l, brand_short_name: _s, brand_website: _w, brand_service_area: _a, ...generalBody }: Record<string, string> = { ...generalSettings }
     if (loadedBrand && canEditBrand) {
       for (const [key] of GENERAL_BRAND_INPUTS) {
         if (generalSettings[key] !== loadedBrand[key]) generalBody[key] = generalSettings[key]
@@ -698,13 +700,14 @@ export default function AdminSettingsPage() {
       }
       if (loadedBrand && canEditBrand) {
         setLoadedBrand({
+          brand_legal_name: generalSettings.brand_legal_name,
           brand_short_name: generalSettings.brand_short_name,
           brand_website: generalSettings.brand_website,
           brand_service_area: generalSettings.brand_service_area,
         })
       }
       
-      toast.error('Settings saved!')
+      toast.success('Settings saved!')
     } catch (error) {
       console.error('Error saving settings:', error)
       toast.error('Failed to save settings')
@@ -1734,7 +1737,7 @@ export default function AdminSettingsPage() {
                         return
                       }
                       
-                      toast.error('Settings saved!')
+                      toast.success('Settings saved!')
                     } catch (error) {
                       console.error('Error saving settings:', error)
                       toast.error('Failed to save settings')

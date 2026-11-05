@@ -21,6 +21,8 @@ import { formatPhone, telHref } from '@/lib/format'
 export interface OrgBrand {
   /** Display name, e.g. report footers and email headers. */
   name: string
+  /** Legal entity name for invoices and contracts, e.g. "Company, LLC". */
+  legalName: string
   /** Short wordmark shown before the rest of the name. */
   shortName: string
   /** Company phone — what customers see when the rep has no phone on file. */
@@ -37,6 +39,7 @@ export interface OrgBrand {
 
 export const DEFAULT_ORG_BRAND: Readonly<OrgBrand> = Object.freeze({
   name: 'ARX Roofing & Exteriors',
+  legalName: 'ARX Roofing & Exteriors, LLC',
   shortName: 'ARX',
   phone: '(704) 313-8834',
   email: 'info@arxroofing.com',
@@ -52,7 +55,7 @@ const COLUMN_BACKED = ['name', 'phone', 'email', 'address'] as const
 type ColumnBackedKey = (typeof COLUMN_BACKED)[number]
 
 /** The only keys stored under `orgs.settings.brand` — fields with no `orgs` column. */
-export const BRAND_SETTINGS_KEYS = ['shortName', 'website', 'serviceArea'] as const
+export const BRAND_SETTINGS_KEYS = ['legalName', 'shortName', 'website', 'serviceArea'] as const
 export type BrandSettingsKey = (typeof BRAND_SETTINGS_KEYS)[number]
 
 /** Longest value a brand field may hold (characters, after trimming). */
@@ -155,6 +158,7 @@ export function mergeBrandSettings(current: unknown, patch: unknown): Record<str
 
 /** Admin → Settings → General form field → `settings.brand` key. */
 export const GENERAL_BRAND_FIELDS = {
+  brand_legal_name: 'legalName',
   brand_short_name: 'shortName',
   brand_website: 'website',
   brand_service_area: 'serviceArea',

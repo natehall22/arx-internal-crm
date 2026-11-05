@@ -5,6 +5,7 @@ import { formatCurrency, formatInvoiceDisplayDate } from '@/lib/job-payments'
 import { redirect } from 'next/navigation'
 import PrintButton from './PrintButton'
 import { formatPhone } from '@/lib/format'
+import { resolveOrgBrand } from '@/lib/org-brand'
 import { callerCanAccessJobBilling } from '@/lib/finance-access'
 
 interface ResolvedCustomer {
@@ -215,9 +216,12 @@ export default async function PrintInvoicePage({
   // Get org settings
   const { data: org } = await adminClient
     .from('orgs')
-    .select('name, address, phone, email')
+    .select('name, address, phone, email, settings')
     .eq('id', profile.org_id)
     .single()
+
+  // Invoices carry the legal entity name: settings.brand.legalName (owners edit it in Settings), else the default.
+  const legalName = resolveOrgBrand(org).legalName
 
   // Resolve customer with priority chain
   const resolvedCustomer = resolveCustomer(
@@ -294,7 +298,7 @@ export default async function PrintInvoicePage({
 
           <div className="header">
             <div>
-              <div className="company-name">{org?.name || 'ARX Roofing & Exteriors, LLC'}</div>
+              <div className="company-name">{legalName}</div>
               <div className="company-address">
                 {companyAddress || ARX_DEFAULT_OFFICE_ADDRESS}
                 {org?.phone && `\n${formatPhone(org.phone)}`}
@@ -404,7 +408,7 @@ export default async function PrintInvoicePage({
 
           <div className="footer">
             <div>Thank you for your business!</div>
-            <div>{org?.name || 'ARX Roofing & Exteriors, LLC'} • {invoice.invoice_number}</div>
+            <div>{legalName} • {invoice.invoice_number}</div>
           </div>
         </div>
 
