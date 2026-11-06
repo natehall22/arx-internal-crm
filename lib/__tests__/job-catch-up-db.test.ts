@@ -146,7 +146,8 @@ describe('loadJobCatchUps', () => {
     expect(big.calls.filter((t) => t === 'job_payments')).toHaveLength(1)
     expect(big.calls.filter((t) => t === 'job_change_orders')).toHaveLength(1)
     // The Materials-tab answer is the one per-job read, and only for sold / materials / scheduled jobs.
-    expect(materialsCalls).toHaveLength(30)
+    // The full Materials answer is capped at 25 jobs per board load; the rest use the recorded status.
+    expect(materialsCalls).toHaveLength(25)
   })
 })
 

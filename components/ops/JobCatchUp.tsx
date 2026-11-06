@@ -46,6 +46,23 @@ type Candidate = { id: string; name: string }
  * Pick (or clear) a job's owner — the one write path, PUT /api/ops/jobs/[id]/owner (jobs:edit). Only rendered for
  * people who can edit the job. Saves, then refreshes the page so the box, banner and line all re-derive.
  */
+/** Banner and box each show the owner; one save tells both (same page, no reload). */
+const OWNER_EVENT = 'job-owner-changed'
+type OwnerEventDetail = { jobId: string; name: string | null }
+function announceOwner(detail: OwnerEventDetail) {
+  window.dispatchEvent(new CustomEvent<OwnerEventDetail>(OWNER_EVENT, { detail }))
+}
+function useOwnerChanges(jobId: string, onChange: (name: string | null) => void) {
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const d = (e as CustomEvent<OwnerEventDetail>).detail
+      if (d?.jobId === jobId) onChange(d.name)
+    }
+    window.addEventListener(OWNER_EVENT, handler)
+    return () => window.removeEventListener(OWNER_EVENT, handler)
+  }, [jobId, onChange])
+}
+
 export function JobOwnerPicker({ jobId, currentOwnerId, onSaved, onCancel, tone = 'light' }: { jobId: string; currentOwnerId: string | null; onSaved: (name: string | null) => void; onCancel?: () => void; tone?: 'light' | 'alert' }) {
   const router = useRouter()
   const [candidates, setCandidates] = useState<Candidate[] | null>(null)
@@ -118,11 +135,12 @@ export function JobOwnerPicker({ jobId, currentOwnerId, onSaved, onCancel, tone 
  */
 export function JobOwnerBanner({ catchUp, canSetOwner }: { catchUp: JobCatchUpResult; canSetOwner: boolean }) {
   const [ownerName, setOwnerName] = useState<string | null>(null)
+  useOwnerChanges(catchUp.jobId, setOwnerName)
   if (catchUp.ownerKind !== 'unassigned' || ownerName) return null
   return (
     <div role="alert" data-testid="no-owner-banner" className="mb-4 flex flex-col gap-2 rounded-xl bg-red-800 p-4 text-white shadow-sm sm:flex-row sm:items-center sm:justify-between sm:px-6">
       <p className="text-base font-semibold">No owner — assign one</p>
-      {canSetOwner && <JobOwnerPicker jobId={catchUp.jobId} currentOwnerId={null} tone="alert" onSaved={(name) => setOwnerName(name)} />}
+      {canSetOwner && <JobOwnerPicker jobId={catchUp.jobId} currentOwnerId={null} tone="alert" onSaved={(name) => announceOwner({ jobId: catchUp.jobId, name })} />}
     </div>
   )
 }
@@ -131,6 +149,10 @@ export function JobOwnerBanner({ catchUp, canSetOwner }: { catchUp: JobCatchUpRe
 export function JobOwnerField({ catchUp, canSetOwner }: { catchUp: JobCatchUpResult; canSetOwner: boolean }) {
   const [open, setOpen] = useState(false)
   const [shown, setShown] = useState<{ owner: string; kind: JobCatchUpResult['ownerKind'] }>({ owner: catchUp.owner, kind: catchUp.ownerKind })
+  useOwnerChanges(catchUp.jobId, setShownFromName)
+  function setShownFromName(name: string | null) {
+    setShown(name ? { owner: name, kind: 'assigned' } : { owner: 'No owner', kind: 'unassigned' })
+  }
   if (shown.kind === 'unknown') return null
   const text = <span className={shown.kind === 'unassigned' ? 'font-semibold text-red-800' : undefined}>{shown.owner}</span>
   return (
@@ -158,7 +180,7 @@ export function JobOwnerField({ catchUp, canSetOwner }: { catchUp: JobCatchUpRes
             currentOwnerId={catchUp.ownerUserId}
             onCancel={() => setOpen(false)}
             onSaved={(name) => {
-              setShown(name ? { owner: name, kind: 'assigned' } : { owner: 'No owner', kind: 'unassigned' })
+              announceOwner({ jobId: catchUp.jobId, name })
               setOpen(false)
             }}
           />

@@ -36,6 +36,8 @@ export async function loadJobCatchUpSettings(admin: SupabaseClient, orgId: strin
 const MATERIALS_STEP_STATUSES = new Set(['sold', 'materials', 'scheduled'])
 /** Supplier-plan loads run this many at a time. */
 const MATERIALS_CONCURRENCY = 4
+/** Most jobs that get the Materials tab's full answer per board load; beyond this the recorded status is used. */
+const MATERIALS_MAX_JOBS = 25
 
 /**
  * Seams. `materialsState` is the Materials tab's own answer (lib/supplier-orders.ts `loadJobMaterialsState`), loaded
@@ -199,7 +201,8 @@ export async function loadJobCatchUps(
 
   // The Materials tab's answer for the jobs whose next step can be about materials (a few at a time).
   const materialsByJob = new Map<string, MaterialsState>()
-  const needMaterials = jobs.filter((j) => MATERIALS_STEP_STATUSES.has(j.status))
+  // Capped: each one is the full Materials tab load. Beyond the cap the recorded status answers (Known Redundancy #26).
+  const needMaterials = jobs.filter((j) => MATERIALS_STEP_STATUSES.has(j.status)).slice(0, MATERIALS_MAX_JOBS)
   for (let i = 0; i < needMaterials.length; i += MATERIALS_CONCURRENCY) {
     await Promise.all(
       needMaterials.slice(i, i + MATERIALS_CONCURRENCY).map(async (j) => {

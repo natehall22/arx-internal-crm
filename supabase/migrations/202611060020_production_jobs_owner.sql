@@ -1,6 +1,6 @@
 -- Job catch-up: an explicit job owner (Nathan, 2026-11-06). Who has the ball on a production job.
 --
--- Nullable and additive. No backfill: existing jobs stay unowned and the catch-up box shows a guess (marked as one)
+-- Nullable and additive. No backfill: existing jobs stay unowned; with catch-up on they show a red "No owner" banner
 -- until someone with jobs:edit picks an owner. Written only by PUT /api/ops/jobs/[id]/owner (lib/job-owner.ts).
 -- The app works before this is applied (the column is treated as null).
 --
