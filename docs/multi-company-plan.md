@@ -41,6 +41,11 @@ nothing ARX customers or reps see unless the slice says so. Gate on every slice:
 7. **Rebuildable schema baseline** from a prod schema dump, so a new project can be created from
    the repo.
 8. **Per-deployment env checklist**: `docs/new-deployment-env.md`.
+   Must include **`DEPLOYMENT_ORG_ID`** = that company's `orgs.id`. Every company copy sets it: `resolveAuth`
+   (`lib/auth.ts`) then refuses any signed-in user whose profile is in another org (401 / login redirect).
+   Unset = no fence (how ARX prod runs until it is set). Routes still on hand-rolled cookie auth (Known
+   Redundancy #3b, 42 files) and other raw `auth.getUser` paths (`appointments/[id]` via `resolveApiRequestAuthUser`, `inspections/status`,
+   `inspections/schedule-close`, `whoami`, and browser-client pages that rely on RLS alone) are not fenced until they move onto `requireAuthApi`.
 9. **Idempotent seed-new-company script**: org row, settings.brand, roles, defaults; safe to re-run.
 10. **Company web address + login**: each company gets its own address (company.<product-domain>) with its logo on
     the login page; iPhone app asks for a company code once and remembers it; shared-database later = email login

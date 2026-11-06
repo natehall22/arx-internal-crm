@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { createServiceClient } from '@/lib/supabase/service'
 import { actorIsOwner, lockMoneyPermissions, moneyPermissionIds } from '@/lib/money-permission-guard'
+import { isOrgSuperuserRoleSlug } from '@/lib/org-role-constants'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -82,6 +83,10 @@ export async function GET(request: NextRequest) {
 
   if (!profile) {
     return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
+  }
+  // Every user's grants are listed below: only people who can manage roles may read them.
+  if (!isOrgSuperuserRoleSlug(profile.role) && profile.role !== 'regional_manager') {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
   // Get all permissions
