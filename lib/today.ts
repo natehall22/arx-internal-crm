@@ -10,7 +10,7 @@ import { formatDateShort, formatDateWeekday, formatMoney, formatPhone, formatTim
 import { formatStormEventDateLabel, formatStormMagnitudeLabel, type StormAlertLayer } from '@/lib/storm-opportunity-alerts'
 import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
 import { addDaysToDateOnly } from '@/lib/install-calendar'
-import { TRADE_LABELS, type Trade } from '@/lib/job-trades'
+import { loadOrgTrades, tradeLabel } from '@/lib/org-trades'
 
 export type TodayKind = 'setter' | 'ops' | 'owner' | 'closer'
 
@@ -160,13 +160,14 @@ export async function loadCrewWeekQueue(admin: SupabaseClient, orgId: string, no
   const rows = (crews.data ?? []) as CrewRow[]
   const jobIds = Array.from(new Set(rows.map((r) => r.job_id).filter((v): v is string => Boolean(v))))
   const subIds = Array.from(new Set(rows.map((r) => r.assigned_sub_id).filter((v): v is string => Boolean(v))))
-  const [jobs, subs] = await Promise.all([
+  const [jobs, subs, orgTrades] = await Promise.all([
     jobIds.length
       ? admin.from('production_jobs').select('id, job_number, address_text, status').eq('org_id', orgId).in('id', jobIds)
       : Promise.resolve({ data: [], error: null }),
     subIds.length
       ? admin.from('sub_contractors').select('id, company_name').eq('org_id', orgId).in('id', subIds)
       : Promise.resolve({ data: [], error: null }),
+    rows.length ? loadOrgTrades(admin, orgId) : Promise.resolve([]),
   ])
   ;[jobs, subs].forEach(ok)
   const jobById = new Map(((jobs.data ?? []) as Array<{ id: string; job_number: string | null; address_text: string | null; status: string }>).map((j) => [j.id, j]))
@@ -182,7 +183,7 @@ export async function loadCrewWeekQueue(admin: SupabaseClient, orgId: string, no
     empty: 'No crews on the calendar this week.',
     items: live.slice(0, LIST_CAP).map((r) => {
       const job = jobById.get(r.job_id as string)!
-      const trade = TRADE_LABELS[r.trade as Trade] ?? 'Crew'
+      const trade = r.trade ? tradeLabel(r.trade, orgTrades) : 'Crew'
       const sub = (r.assigned_sub_id && subById.get(r.assigned_sub_id)) || 'no crew assigned'
       const facts = `${formatDateWeekday(r.scheduled_date)} · ${trade} · ${sub}`
       return {

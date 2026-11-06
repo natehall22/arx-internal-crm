@@ -19,7 +19,8 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { writeJobNote } from '@/lib/threads/job-notes'
 import { materialOrderFromRunSheet, type JobMaterialOrderData } from '@/lib/job-material-order'
 import { buildJobRunSheet } from '@/lib/job-run-sheet'
-import { isTradeActive, primaryTradeForJobType } from '@/lib/job-trades'
+import { isTradeActive } from '@/lib/job-trades'
+import { primaryTradeForJobType, tradeLabel } from '@/lib/org-trades'
 import {
   canonicalContent,
   decideSend,
@@ -37,7 +38,6 @@ import {
   snapshotLines,
   sourcingSnapshot,
   supplierCardState,
-  tradeLabel,
   type LastSend,
   type LineSnapshot,
   type MaterialSource,

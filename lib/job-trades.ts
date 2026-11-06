@@ -20,24 +20,13 @@
  * Auto trades are only ever ADDED. Removing one sets it `cancelled` (kept, so
  * the unique index stops it being re-added on the next page load).
  *
- * This file is PURE and client-safe (labels, lengths, detection, derivation).
- * Database reads/writes live in `lib/job-trades-db.ts`.
+ * WHICH trades exist (slugs, labels, order, line-item keywords) is each company's
+ * own list — `lib/org-trades.ts` (`org_trades` table), the one source. This file
+ * is PURE and client-safe (lengths, crew link, derivation). Database
+ * reads/writes live in `lib/job-trades-db.ts`.
  */
 
-export const TRADES = ['roofing', 'gutters', 'siding', 'windows', 'other'] as const
-export type Trade = (typeof TRADES)[number]
-
-export const TRADE_LABELS: Record<Trade, string> = {
-  roofing: 'Roofing',
-  gutters: 'Gutters',
-  siding: 'Siding',
-  windows: 'Windows',
-  other: 'Other',
-}
-
-export function isTrade(value: unknown): value is Trade {
-  return typeof value === 'string' && (TRADES as readonly string[]).includes(value)
-}
+import type { Trade } from '@/lib/org-trades'
 
 /* ------------------------------------------------------------------------ *
  * Crew time on site. Ops picks it by hand for now; the values are what a future
@@ -97,41 +86,6 @@ export function formatWallClock12h(time: string | null | undefined): string {
   const suffix = h24 >= 12 ? 'PM' : 'AM'
   const h12 = h24 % 12 === 0 ? 12 : h24 % 12
   return `${h12}:${String(m).padStart(2, '0')} ${suffix}`
-}
-
-/* ------------------------------------------------------------------------ *
- * Detection from what was sold. Deliberately conservative: a missed trade is
- * one "+ Add trade" click; a wrong one books a crew nobody needs. Fascia/soffit
- * are NOT matched — on these jobs they are done by the roofer, the gutter crew
- * or the siding crew depending on the job, so ops decides.
- * ------------------------------------------------------------------------ */
-
-const TRADE_LINE_ITEM_PATTERNS: [Exclude<Trade, 'roofing' | 'other'>, RegExp][] = [
-  ['gutters', /gutter|downspout/i],
-  ['siding', /siding/i],
-  ['windows', /\bwindows?\b/i],
-]
-
-export function detectTradesFromLineItems(
-  items: { name?: string | null; category?: string | null }[]
-): Trade[] {
-  const found = new Set<Trade>()
-  for (const item of items) {
-    const text = `${item.name ?? ''} ${item.category ?? ''}`
-    for (const [trade, pattern] of TRADE_LINE_ITEM_PATTERNS) {
-      if (pattern.test(text)) found.add(trade)
-    }
-  }
-  return TRADES.filter((t) => found.has(t))
-}
-
-/** The trade a job always has, from its `job_type` ('mixed' and unknown → roofing). */
-export function primaryTradeForJobType(jobType: string | null | undefined): Trade {
-  const t = String(jobType ?? '').toLowerCase().trim()
-  if (t === 'gutters' || t === 'gutter') return 'gutters'
-  if (t === 'siding') return 'siding'
-  if (t === 'windows' || t === 'window') return 'windows'
-  return 'roofing'
 }
 
 /* ------------------------------------------------------------------------ *
@@ -198,13 +152,6 @@ export function isTradeActive(row: { status: string }): boolean {
 
 export function isTradeComplete(row: { status: string }): boolean {
   return row.status === 'completed'
-}
-
-/** Roofing first, then the fixed trade order, then creation time. */
-export function sortTrades<T extends { trade: Trade; created_at: string }>(rows: T[]): T[] {
-  return [...rows].sort(
-    (a, b) => TRADES.indexOf(a.trade) - TRADES.indexOf(b.trade) || a.created_at.localeCompare(b.created_at)
-  )
 }
 
 /* ------------------------------------------------------------------------ *

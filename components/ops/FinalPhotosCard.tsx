@@ -6,7 +6,7 @@ import { jobPhotoDownloadUrl } from '@/lib/ops-job-photo-url'
 import { createClientBrowser } from '@/lib/supabase/client'
 import { multipartFilenameForUpload } from '@/lib/files/storage'
 import { FINAL_PHOTO_TAGS, REQUIRED_FINAL_PHOTO_TAGS, finalPhotoTagLabel } from '@/lib/final-photo-tags'
-import { TRADE_LABELS, type Trade } from '@/lib/job-trades'
+import type { Trade } from '@/lib/org-trades'
 import { toast } from '@/components/ui/toast'
 import PhotoQueueNotice from '@/components/job/PhotoQueueNotice'
 import { useJobPhotoQueue } from '@/components/job/useJobPhotoQueue'
@@ -22,7 +22,8 @@ interface FinalPhoto {
 interface FinalPhotosCardProps {
   jobId: string
   /** The job's crews, from Schedule & Crews. Each needs its own 4 walk-around photos. */
-  trades: { id: string; trade: Trade; status: string }[]
+  /** The job's crews with the company's label for each (from JobTradesCard). */
+  trades: { id: string; trade: Trade; label: string; status: string }[]
 }
 
 /** Photos not tied to a crew (uploaded before trades existed, or by ops without picking one). */
@@ -81,7 +82,7 @@ export default function FinalPhotosCard({ jobId, trades }: FinalPhotosCardProps)
           src: jobPhotoDownloadUrl(jobId, p.id),
           href: jobPhotoDownloadUrl(jobId, p.id),
           title: p.filename,
-          caption: [trade ? TRADE_LABELS[trade.trade] : null, finalPhotoTagLabel(p.photo_tag)].filter(Boolean).join(' · ') || null,
+          caption: [trade ? trade.label : null, finalPhotoTagLabel(p.photo_tag)].filter(Boolean).join(' · ') || null,
         }
       }),
     [finalPhotos, jobId, trades]
@@ -117,7 +118,7 @@ export default function FinalPhotosCard({ jobId, trades }: FinalPhotosCardProps)
 
   const checklistRows: { key: string; label: string }[] =
     trades.length > 0
-      ? trades.map((t) => ({ key: t.id, label: TRADE_LABELS[t.trade] }))
+      ? trades.map((t) => ({ key: t.id, label: t.label }))
       : [{ key: JOB_LEVEL, label: 'Job' }]
   const selectedTags = tagsByTrade.get(selectedTradeId) ?? new Set<string>()
   const allRequiredDone = checklistRows.every((row) =>
@@ -160,7 +161,7 @@ export default function FinalPhotosCard({ jobId, trades }: FinalPhotosCardProps)
             >
               {trades.map((t) => (
                 <option key={t.id} value={t.id}>
-                  {TRADE_LABELS[t.trade]}
+                  {t.label}
                 </option>
               ))}
             </select>
@@ -201,7 +202,7 @@ export default function FinalPhotosCard({ jobId, trades }: FinalPhotosCardProps)
 
       <div className="mb-4">
         <h3 className="text-sm font-medium text-[#2c2c2a] mb-2">
-          Checklist{trades.length > 1 ? ` — ${TRADE_LABELS[trades.find((t) => t.id === selectedTradeId)?.trade ?? 'roofing']}` : ''}
+          Checklist{trades.length > 1 ? ` — ${trades.find((t) => t.id === selectedTradeId)?.label ?? trades[0].label}` : ''}
         </h3>
         <div className="grid grid-cols-2 gap-2">
           {FINAL_PHOTO_TAGS.slice(0, 8).map((tag) => {

@@ -9,7 +9,7 @@ import { canManageCanvassTerritories } from '@/lib/canvass-territory-manager-rol
 import { canOpenSettingsHub, visibleSettingsGroups } from '@/lib/settings-registry'
 
 import SettingsHub from './SettingsHub'
-import { isOwnerProfile } from '@/lib/super-admin'
+import { isOwnerProfile, isSuperAdmin } from '@/lib/super-admin'
 import JobCatchUpSettingsCard from '@/components/admin/JobCatchUpSettingsCard'
 import { loadJobCatchUpSettings } from '@/lib/job-catch-up-db'
 import { canEditJobCatchUpSettings } from '@/lib/job-catch-up-settings'
@@ -26,6 +26,7 @@ export default async function SettingsPage() {
     canSuperuser: ['admin', 'owner'].includes(profile.role),
     canWorkAreas: canManageCanvassTerritories(profile.role),
     canOwner: isOwnerProfile(profile),
+    canSuperAdmin: isSuperAdmin(profile),
   })
   // Small org switches live as cards right here (the hub's "Job catch-up" entry links to #job-catch-up).
   const catchUp = await loadJobCatchUpSettings(createServiceClient(), profile.org_id)

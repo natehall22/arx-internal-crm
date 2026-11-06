@@ -153,7 +153,7 @@ that file rather than extending the pattern.
 
 **Known Redundancy additions (2026-10-23):** (15) four routes create opportunities (`leads/[id]/opportunity`, `inspections/status`, `canvass/lead` ×2) and each must call `customerIdForLead` — one creator would be safer. (16) The inside-sales queue is still two screens (`/inside-sales` conveyor and the Opportunities tab). (17) `/api/threads/[dealId]/mentionable` resolves a viewer per user (N+1).
 
-**Known Redundancy additions (2026-11-06):** (26) Job catch-up gets each board job's materials step by running the full Materials tab load per job (`lib/job-catch-up-db.ts`, capped at 25 jobs per board load; the rest use the recorded status), because the supplier-order answer has no batched form. Give `lib/job-materials-state.ts` a batched loader (org-level reads once) before the board grows past ~25 jobs in sold/materials/scheduled.
+**Known Redundancy additions (2026-11-06):** (26) Job catch-up gets each board job's materials step by running the full Materials tab load per job (`lib/job-catch-up-db.ts`, capped at 25 jobs per board load; the rest use the recorded status), because the supplier-order answer has no batched form. Give `lib/job-materials-state.ts` a batched loader (org-level reads once) before the board grows past ~25 jobs in sold/materials/scheduled. (27) Trade slug literals still left after `org_trades`: `deriveJobSchedule` prefers the `'roofing'` crew as the job sub, the board/invite quote squares only for `'roofing'`, and supplier ordering (`lib/material-sourcing.ts`, `lib/supplier-orders.ts`) labels trades from `DEFAULT_ORG_TRADES`, not the org list — fold in with the add-ons → supplier-ordering PR.
 
 **Known Redundancy additions (2026-11-05):** (25) `orgs.settings` has many writers that spread a stale copy (`/api/admin/settings` `type:'settings'`, `canvass_dispositions`, `inspection_outcomes`, the column fallback, `admin/data` dashboard_settings) — only brand saves merge atomically (`merge_org_brand_settings`). A save of one key can still overwrite another saved a moment earlier. Move every settings writer onto per-key SQL merges. **2026-11-06:** the ONE per-key writer now exists — `mergeOrgSettings` (`lib/org-settings.ts`, SQL `merge_org_settings(p_org_id, p_path, p_set, p_remove)`, migration 202611060010, NOT applied; read-merge-write fallback only on a missing function). Users: job catch-up (top level) and brand (`saveBrandSettings`, path `{brand}`); `merge_org_brand_settings` is dropped by 202611100010 (apply only after the code is deployed). Move the other writers onto it when touched. **Also pre-existing and still open:** the generic `type:'settings'` save on `/api/admin/settings` accepts ANY key from managers (admin / regional_manager / sales_manager) — only `brand` and the job catch-up keys are stripped. It should become an allow-list.
 
@@ -215,8 +215,11 @@ Nathan's goal: measure complex roofs ourselves — **no paid EagleView/Hover rep
 Built on the single send door in `lib/suppliers/send-order.ts`; **OFF by default** (env `SUPPLIER_API_ORDERING`, `orgs.supplier_api_ordering_enabled`, per-supplier switch), sandbox first, second owner approves orders over the limit or of unknown size, one attempt and never an auto-retry, only first orders (no API revise/cancel), append-only `supplier_api_events`. **Never call ABC's Pricing API or compare ABC prices with other suppliers — their Terms forbid it** (test-enforced). Setup and gaps: `docs/abc-supply-connector.md`.
 
 ## Install Scheduling — crews per trade (2026-09-15)
-A job's crews are **trades**: one `work_orders` row per trade (`trade` = roofing | gutters |
-siding | windows | other, `work_order_type='install'`), each with its own sub, date, length
+A job's crews are **trades**: one `work_orders` row per trade (`trade` = a slug from the company's own
+list, `org_trades` — read ONLY via `loadOrgTrades` in `lib/org-trades.ts`, falling back to `DEFAULT_ORG_TRADES`
+until migration 202611060020 is applied; composite FK `(org_id, trade)`; slugs never change, trades are turned
+off not deleted; owners edit it at Settings → Job setup; client components get the list from the server response),
+`work_order_type='install'`, each with its own sub, date, length
 (`install_days` ½ | 1 | 1½ | 2, ops-selected), Google invite, and crew photo link. Pure helpers
 in `lib/job-trades.ts` (client-safe), DB in `lib/job-trades-db.ts`.
 - **One write path:** `POST /api/ops/install-schedule/assign|unassign` take `workOrderId`.

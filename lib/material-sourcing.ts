@@ -15,7 +15,7 @@
  *
  * Pure and client-safe: the job page, the preview, the send route and tests all call this.
  */
-import { TRADE_LABELS } from '@/lib/job-trades'
+import { tradeLabel } from '@/lib/org-trades'
 import type { SupplierApiSettings } from '@/lib/suppliers/abc/types'
 
 export const MATERIAL_SOURCES = ['supplier', 'installer', 'customer', 'stock'] as const
@@ -30,14 +30,6 @@ export const MATERIAL_SOURCE_LABELS: Record<MaterialSource, string> = {
 
 export function isMaterialSource(value: unknown): value is MaterialSource {
   return typeof value === 'string' && (MATERIAL_SOURCES as readonly string[]).includes(value)
-}
-
-/** Display name for any trade string — known trades use their label, others are title-cased. */
-export function tradeLabel(trade: string): string {
-  const known = (TRADE_LABELS as Record<string, string>)[trade]
-  if (known) return known
-  const t = trade.replace(/[_-]+/g, ' ').trim()
-  return t ? t.charAt(0).toUpperCase() + t.slice(1) : 'Other'
 }
 
 export type OrderLineStatus = 'ready' | 'confirm' | 'manual'

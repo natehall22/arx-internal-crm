@@ -2,13 +2,16 @@
 
 import { useState } from 'react'
 
-import { INSTALL_DAY_OPTIONS, TRADE_LABELS, formatInstallDays, type InstallDays, type Trade } from '@/lib/job-trades'
+import { INSTALL_DAY_OPTIONS, formatInstallDays, type InstallDays } from '@/lib/job-trades'
+import type { Trade } from '@/lib/org-trades'
 import { toast } from '@/components/ui/toast'
 
 /** One trade (crew) of a job, as the modal needs it. */
 export interface ScheduleTrade {
   id: string
   trade: Trade
+  /** The company's name for the trade. */
+  label: string
   scheduled_date: string | null
   scheduled_time_start: string | null
   install_days: number | null
@@ -125,7 +128,7 @@ export default function ScheduleJobModal({ trade, jobLabel, subs, onClose, onSav
       <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full max-h-[90vh] flex flex-col">
         <div className="p-5 sm:p-6 border-b">
           <h2 className="text-xl font-bold text-[#2c2c2a]">
-            {trade.scheduled_date ? 'Change' : 'Schedule'} {TRADE_LABELS[trade.trade]}
+            {trade.scheduled_date ? 'Change' : 'Schedule'} {trade.label}
           </h2>
           <p className="text-[#57574f] text-sm mt-1">{jobLabel}</p>
         </div>
@@ -196,7 +199,7 @@ export default function ScheduleJobModal({ trade, jobLabel, subs, onClose, onSav
             <div className="space-y-2">
               {visibleSubs.length === 0 ? (
                 <div className="text-center py-5 bg-gray-50 rounded-lg">
-                  <p className="text-[#2c2c2a] text-sm">No sub-contractors are tagged for {TRADE_LABELS[trade.trade]}.</p>
+                  <p className="text-[#2c2c2a] text-sm">No sub-contractors are tagged for {trade.label}.</p>
                   <a href="/admin/subs" className="text-indigo-700 text-sm hover:underline">
                     Manage sub-contractors →
                   </a>
@@ -233,7 +236,7 @@ export default function ScheduleJobModal({ trade, jobLabel, subs, onClose, onSav
                 onClick={() => setShowAllSubs((v) => !v)}
                 className="mt-2 min-h-[44px] text-sm text-indigo-700 hover:underline"
               >
-                {showAllSubs ? `Only ${TRADE_LABELS[trade.trade]} subs` : `Show all subs (${hiddenCount} more)`}
+                {showAllSubs ? `Only ${trade.label} subs` : `Show all subs (${hiddenCount} more)`}
               </button>
             )}
           </div>

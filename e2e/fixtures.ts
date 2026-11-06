@@ -375,7 +375,30 @@ export const HARNESS_OPS_DASHBOARD = {
 // Ops → Schedule (InstallScheduleClient): long names on purpose. Dates are relative to today so the week window always has jobs.
 const weekDayISO = (dow: number) => { const d = new Date(); d.setDate(d.getDate() - d.getDay() + dow); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` }
 const dayISO = (offset: number) => { const d = new Date(); d.setDate(d.getDate() + offset); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` }
+/** The standard trades list as the server sends it (lib/org-trades.ts tradeOptions). */
+export const HARNESS_ORG_TRADES = [
+  { slug: 'roofing', label: 'Roofing', active: true },
+  { slug: 'gutters', label: 'Gutters', active: true },
+  { slug: 'siding', label: 'Siding', active: true },
+  { slug: 'windows', label: 'Windows', active: true },
+  { slug: 'other', label: 'Other', active: true },
+]
+
+/** Settings → Job setup → Trades (GET /api/admin/job-setup/trades). A long custom name and an inactive trade test wrapping. */
+export const JOB_SETUP_TRADES = {
+  editable: true,
+  trades: [
+    { slug: 'roofing', label: 'Roofing', sort: 10, active: true, matchKeywords: null },
+    { slug: 'gutters', label: 'Gutters', sort: 20, active: true, matchKeywords: ['gutter', 'downspout'] },
+    { slug: 'siding', label: 'Siding', sort: 30, active: true, matchKeywords: ['siding'] },
+    { slug: 'windows', label: 'Windows', sort: 40, active: false, matchKeywords: ['\\bwindows?\\b'] },
+    { slug: 'solar_panel_removal_reinstall', label: 'Solar panel removal & reinstall', sort: 50, active: true, matchKeywords: null },
+    { slug: 'other', label: 'Other', sort: 60, active: true, matchKeywords: null },
+  ],
+}
+
 export const HARNESS_INSTALL_SCHEDULE = {
+  orgTrades: HARNESS_ORG_TRADES,
   subs: [
     { id: 's1', company_name: 'Hernandez Roofing and Exteriors LLC', services: ['roofing'], scheduling_email: 'crew@hernandez.test', phone: '7045550142' },
     { id: 's2', company_name: 'Sparky Gutters', services: ['gutters'], scheduling_email: null, phone: null },
@@ -461,6 +484,7 @@ export const HARNESS_JOB_0037 = {
   roof_report: { id: 'rr1', pdf_generated_at: '2026-10-02T12:00:00Z' },
 }
 export const HARNESS_TRADES_0037 = {
+  orgTrades: HARNESS_ORG_TRADES,
   trades: [
     { id: 't1', work_order_number: 'WO-0101', trade: 'roofing', trade_source: 'auto', status: 'scheduled', scheduled_date: '2026-10-20', scheduled_time_start: null, install_days: 1, completed_at: null,
       sub: { id: 's1', company_name: 'Sparky Roofing LLC', phone: '7045550101', has_scheduling_email: true }, calendar_sync_error: null, has_calendar_event: true,

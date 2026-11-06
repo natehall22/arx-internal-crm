@@ -8,15 +8,19 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { resolveJobProposalId } from '@/lib/job-sold-scope'
 import {
   JOB_TRADE_COLUMNS,
-  TRADE_LABELS,
   deriveJobSchedule,
-  detectTradesFromLineItems,
   newCrewLinkToken,
-  primaryTradeForJobType,
   type DerivedJobSchedule,
   type JobTradeRow,
-  type Trade,
 } from '@/lib/job-trades'
+import {
+  detectTradesFromLineItems,
+  loadOrgTrades,
+  primaryTradeForJobType,
+  tradeLabel,
+  type OrgTrade,
+  type Trade,
+} from '@/lib/org-trades'
 
 /* ------------------------------------------------------------------------ *
  * ensureJobTrades
@@ -126,10 +130,11 @@ export async function ensureJobTrades(
     }
   }
 
+  const orgTrades = await loadOrgTrades(admin, orgId)
   const inserts: Record<string, unknown>[] = []
   for (const job of jobs) {
     const haveAuto = autoTradesByJob.get(job.id) ?? new Set<string>()
-    const primary = primaryTradeForJobType(job.job_type)
+    const primary = primaryTradeForJobType(job.job_type, orgTrades)
     const done = isDone(job)
 
     // A job with any trade at all already had its primary handled (ops may have
@@ -142,7 +147,7 @@ export async function ensureJobTrades(
       if (!done || scheduled) {
         const adoptedDays = job.install_days === 2 ? 2 : job.scheduled_date ? 1 : null
         inserts.push({
-          ...baseTradeInsert(job, primary, 'auto'),
+          ...baseTradeInsert(job, primary, 'auto', orgTrades),
           status: done ? 'completed' : scheduled ? 'scheduled' : 'pending',
           assigned_sub_id: job.assigned_sub_id,
           scheduled_date: job.scheduled_date,
@@ -158,9 +163,9 @@ export async function ensureJobTrades(
 
     const proposalId = proposalIdByJob.get(job.id)
     if (!done && proposalId) {
-      for (const trade of detectTradesFromLineItems(itemsByProposal.get(proposalId) ?? [])) {
+      for (const trade of detectTradesFromLineItems(itemsByProposal.get(proposalId) ?? [], orgTrades)) {
         if (trade === primary || haveAuto.has(trade)) continue
-        inserts.push({ ...baseTradeInsert(job, trade, 'auto'), status: 'pending' })
+        inserts.push({ ...baseTradeInsert(job, trade, 'auto', orgTrades), status: 'pending' })
       }
     }
   }
@@ -180,6 +185,7 @@ function baseTradeInsert(
   job: Pick<EnsureJobRow, 'id' | 'org_id' | 'project_id' | 'customer_id' | 'address_text' | 'created_by'>,
   trade: Trade,
   source: 'auto' | 'manual',
+  orgTrades: readonly OrgTrade[],
   createdBy?: string
 ): Record<string, unknown> {
   return {
@@ -190,7 +196,7 @@ function baseTradeInsert(
     work_order_type: 'install',
     trade,
     trade_source: source,
-    title: `${TRADE_LABELS[trade]} install`,
+    title: `${tradeLabel(trade, orgTrades)} install`,
     address: job.address_text,
     created_by: createdBy ?? job.created_by,
   }
@@ -212,10 +218,11 @@ export async function addManualTrade(
     .maybeSingle()
   if (!job) return { error: 'Job not found', status: 404 }
   if (job.cancelled_at) return { error: 'This job is cancelled', status: 400 }
+  const orgTrades = await loadOrgTrades(admin, orgId)
 
   const { data, error } = await admin
     .from('work_orders')
-    .insert({ ...baseTradeInsert(job, trade, 'manual', userId), status: 'pending' })
+    .insert({ ...baseTradeInsert(job, trade, 'manual', orgTrades, userId), status: 'pending' })
     .select(JOB_TRADE_COLUMNS)
     .single()
   if (error || !data) {

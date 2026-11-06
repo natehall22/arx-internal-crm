@@ -16,7 +16,8 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { FILES_BUCKET } from '@/lib/files/storage'
 import { addDaysToDateOnly } from '@/lib/install-calendar'
 import { ymdInBusinessTz } from '@/lib/calendar-business-tz'
-import { CREW_LINK_GRACE_DAYS, calendarDaySpan, type Trade } from '@/lib/job-trades'
+import { CREW_LINK_GRACE_DAYS, calendarDaySpan } from '@/lib/job-trades'
+import type { Trade } from '@/lib/org-trades'
 import { getOrgBrand } from '@/lib/org-brand'
 
 /** Enough for a thorough walk-around plus detail shots; stops a leaked link filling storage. */

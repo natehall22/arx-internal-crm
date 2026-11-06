@@ -6,7 +6,8 @@ import { resolveOpsAccess } from '@/lib/ops-access'
 import { removeInstallFromCalendar } from '@/lib/install-calendar'
 import { loadTradeWithJob } from '@/lib/job-trade-calendar'
 import { missingRequiredPhotoTags } from '@/lib/final-photo-tags'
-import { JOB_TRADE_COLUMNS, crewLinkUrl, installDaysOrDefault, isTrade, sortTrades, type JobTradeRow } from '@/lib/job-trades'
+import { JOB_TRADE_COLUMNS, crewLinkUrl, installDaysOrDefault, type JobTradeRow } from '@/lib/job-trades'
+import { activeTrades, isAddableTrade, loadOrgTrades, sortTrades, tradeOptions } from '@/lib/org-trades'
 import { addManualTrade, ensureJobTrades, syncJobScheduleFromTrades } from '@/lib/job-trades-db'
 
 type AuthCtx = { authUser: { id: string }; profile: { id: string; org_id: string; role: string; custom_role_id?: string | null } }
@@ -58,7 +59,8 @@ export async function GET(_request: Request, { params }: { params: { id: string 
     console.error('[job trades GET]', error)
     return NextResponse.json({ error: 'Failed to load trades' }, { status: 500 })
   }
-  const trades = sortTrades((tradesData || []) as JobTradeRow[])
+  const orgTrades = await loadOrgTrades(admin, orgId)
+  const trades = sortTrades((tradesData || []) as JobTradeRow[], orgTrades)
 
   const subIds = Array.from(new Set(trades.map((t) => t.assigned_sub_id).filter(Boolean))) as string[]
   const tradeIds = trades.map((t) => t.id)
@@ -94,6 +96,8 @@ export async function GET(_request: Request, { params }: { params: { id: string 
 
   return NextResponse.json({
     canEdit: canEditJobs,
+    /** The company's trades (labels for every row; active ones are what "+ Add trade" offers). */
+    orgTrades: tradeOptions(orgTrades),
     trades: trades.map((t) => {
       const tags = tagsByTrade.get(t.id) ?? []
       const sub = t.assigned_sub_id ? subById.get(t.assigned_sub_id) ?? null : null
@@ -130,8 +134,12 @@ export async function POST(request: Request, { params }: { params: { id: string 
 
   const body = (await request.json().catch(() => null)) as { trade?: unknown } | null
   const trade = body?.trade
-  if (!isTrade(trade)) {
-    return NextResponse.json({ error: 'trade must be roofing, gutters, siding, windows or other' }, { status: 400 })
+  const orgTrades = await loadOrgTrades(admin, ctx.profile.org_id)
+  if (!isAddableTrade(trade, orgTrades)) {
+    return NextResponse.json(
+      { error: `trade must be one of: ${activeTrades(orgTrades).map((t) => t.slug).join(', ')}` },
+      { status: 400 }
+    )
   }
 
   const result = await addManualTrade(admin, ctx.profile.org_id, params.id, trade, ctx.profile.id)
