@@ -1,0 +1,89 @@
+name: CI
+
+# The same gates as scripts/gates.sh (the local pre-push hook), run on every pull request and every
+# push to main, so a skipped hook can't land a broken commit. One job per gate, all in parallel.
+# No secrets: the build gets placeholder public values, the tests and phone suite mock Supabase and /api.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  # A newer push to a PR branch makes the older run moot; every commit on main keeps its own verdict.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  gate:
+    name: ${{ matrix.gate }}
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ matrix.timeout }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - gate: hardcode ratchet
+            timeout: 5
+            run: node scripts/hardcode-ratchet.mjs
+          - gate: jest
+            timeout: 20
+            run: npx jest --silent
+          - gate: typescript
+            timeout: 15
+            run: npx tsc --noEmit -p .
+          - gate: lint
+            timeout: 15
+            run: npx next lint
+          - gate: build
+            timeout: 25
+            # Next 14.1 can exit 0 after its compiler worker is killed (OOM); BUILD_ID only exists after a real build.
+            run: npx next build && test -f .next/BUILD_ID
+          - gate: phone suite
+            timeout: 25
+            run: npx playwright test
+    env:
+      NEXT_TELEMETRY_DISABLED: '1'
+      NODE_OPTIONS: --max-old-space-size=8192
+      # Placeholders only (never real values): enough for `next build` to compile and prerender.
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:9
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder-anon-key
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+      # Not a secret: a dummy so any server code reached at build fails on the dead URL above, not on a missing key.
+      SUPABASE_SERVICE_ROLE_KEY: ci-placeholder-service-role-key
+    steps:
+      - uses: actions/checkout@v4
+
+      # The ratchet compares the committed baseline with origin/main's and silently skips that check
+      # when origin/main is missing, so fetch it and fail if it still isn't there.
+      - name: Fetch origin/main
+        if: matrix.gate == 'hardcode ratchet'
+        run: |
+          git fetch --no-tags --depth=1 origin +refs/heads/main:refs/remotes/origin/main
+          git rev-parse --verify origin/main
+
+      - uses: actions/setup-node@v4
+        if: matrix.gate != 'hardcode ratchet'
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        if: matrix.gate != 'hardcode ratchet'
+        run: npm ci --no-audit --no-fund
+
+      - name: Install Chromium
+        if: matrix.gate == 'phone suite'
+        run: npx playwright install --with-deps chromium
+
+      - name: ${{ matrix.gate }}
+        run: ${{ matrix.run }}
+
+      # gates.sh refuses a commit when a gate dirties the tree; do the same here.
+      - name: Tree unchanged
+        run: |
+          git status --porcelain
+          test -z "$(git status --porcelain)"

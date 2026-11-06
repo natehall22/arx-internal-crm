@@ -42,7 +42,10 @@ run_gate "hardcode ratchet" node scripts/hardcode-ratchet.mjs         || fail "h
 run_gate "jest"       npx jest --silent                              || fail "jest"
 run_gate "typescript" npx tsc --noEmit -p .                           || fail "typescript"
 run_gate "lint"       npx next lint                                   || fail "lint"
-run_gate "build"      env NODE_OPTIONS=--max-old-space-size=8192 npx next build || fail "build"
+# Next 14.1 can exit 0 after its compiler is killed (e.g. out of memory) without producing a build, so start from a clean
+# .next and require the BUILD_ID it writes only on success.
+build_gate() { rm -rf .next && env NODE_OPTIONS=--max-old-space-size=8192 npx next build && test -s .next/BUILD_ID; }
+run_gate "build"      build_gate || fail "build"
 run_gate "phone suite" npx playwright test                            || fail "phone suite"
 
 # Nothing may have changed while the gates ran (a build or test must not dirty the tree).
