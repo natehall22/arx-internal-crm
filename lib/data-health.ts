@@ -685,7 +685,7 @@ export async function loadDataHealthWithRows(
     selectIn<HealthTradeDbRow>(loadedJobIds, (chunk) =>
       admin
         .from('work_orders')
-        .select('id, job_id, status, trade, scheduled_date, install_days, created_at, updated_at, completed_at, install_sync_failed_at, assigned_sub:sub_contractors(company_name)')
+        .select('id, job_id, status, trade, scheduled_date, install_days, created_at, updated_at, completed_at, install_sync_failed_at, assigned_sub:sub_contractors!work_orders_assigned_sub_id_fkey(company_name)')
         .eq('org_id', orgId)
         .not('trade', 'is', null)
         .in('job_id', chunk)

@@ -192,15 +192,15 @@ export async function GET() {
       .select(`
         id,
         job_id,
-        work_type,
-        assigned_at,
-        due_date,
+        work_type:work_order_type,
+        assigned_at:created_at,
+        due_date:scheduled_date,
         job:production_jobs(job_number),
-        sub:sub_contractors(company_name)
+        sub:sub_contractors!work_orders_assigned_sub_id_fkey(company_name)
       `)
       .eq('org_id', profile.org_id)
       .not('status', 'in', '("completed","cancelled")')
-      .order('assigned_at', { ascending: false })
+      .order('created_at', { ascending: false })
       .limit(8)
 
     const formattedWorkOrders = (openWOs || []).map(wo => {
