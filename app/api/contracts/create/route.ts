@@ -16,8 +16,14 @@ import { buildContractReadyEmail } from '@/lib/contracts/customer-emails'
 import { getDocumentBrand } from '@/lib/org-brand'
 
 export async function POST(request: NextRequest) {
+  let auth: Awaited<ReturnType<typeof requireAuthApi>>
   try {
-    const { authUser, profile } = await requireAuthApi()
+    auth = await requireAuthApi()
+  } catch {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  const { authUser, profile } = auth
+  try {
 
     if (await resolveSalesDocAccessBarred(createServiceClient(), authUser.id, profile)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
@@ -102,6 +108,20 @@ export async function POST(request: NextRequest) {
         { error: 'Representative name and signature are required' },
         { status: 400 }
       )
+    }
+
+    // The opportunity id comes from the request: confirm it is this org's before anything below
+    // writes against it (sale credit, voiding pending contracts, the new contract row).
+    if (opportunityId) {
+      const { data: opportunity } = await supabase
+        .from('opportunities')
+        .select('id')
+        .eq('id', opportunityId)
+        .eq('org_id', profile.org_id)
+        .maybeSingle()
+      if (!opportunity) {
+        return NextResponse.json({ error: 'Opportunity not found' }, { status: 404 })
+      }
     }
 
     // Sale credit (closer / setter / self-generated) is confirmed here, on the signing screen,

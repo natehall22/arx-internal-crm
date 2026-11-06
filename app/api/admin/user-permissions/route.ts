@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import { actorIsOwner, lockMoneyPermissions, moneyPermissionIds } from '@/lib/money-permission-guard'
 
@@ -7,70 +7,26 @@ export const dynamic = 'force-dynamic'
 export const revalidate = 0
 export const fetchCache = 'force-no-store'
 
-function getSessionFromRequest(req: NextRequest) {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const projectRef = supabaseUrl.match(/https:\/\/([^.]+)\./)?.[1] || ''
-  const cookieName = `sb-${projectRef}-auth-token`
-  
-  const singleCookie = req.cookies.get(cookieName)
-  if (singleCookie?.value) {
-    try {
-      const decoded = decodeURIComponent(singleCookie.value)
-      return JSON.parse(decoded)
-    } catch {
-      return null
-    }
+// Same roles for reading and writing someone's grants.
+const PERMISSION_ADMIN_ROLES = ['admin', 'regional_manager']
+
+async function authorize(): Promise<{ userId: string; orgId: string } | NextResponse> {
+  let ctx: Awaited<ReturnType<typeof requireAuthApi>>
+  try {
+    ctx = await requireAuthApi()
+  } catch {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
-  
-  const chunks: string[] = []
-  let i = 0
-  while (true) {
-    const chunk = req.cookies.get(`${cookieName}.${i}`)
-    if (!chunk?.value) break
-    chunks.push(chunk.value)
-    i++
+  if (!PERMISSION_ADMIN_ROLES.includes(ctx.profile.role)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
-  
-  if (chunks.length > 0) {
-    try {
-      const decoded = decodeURIComponent(chunks.join(''))
-      return JSON.parse(decoded)
-    } catch {
-      return null
-    }
-  }
-  
-  return null
+  return { userId: ctx.authUser.id, orgId: ctx.profile.org_id }
 }
 
-function getAuthClient(req: NextRequest) {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  const sessionData = getSessionFromRequest(req)
-  
-  return {
-    client: createClient(supabaseUrl, supabaseKey, {
-      auth: { autoRefreshToken: false, persistSession: false },
-      global: sessionData?.access_token
-        ? { headers: { Authorization: `Bearer ${sessionData.access_token}` } }
-        : undefined,
-    }),
-    accessToken: sessionData?.access_token,
-  }
-}
-
-// GET - Get permissions for a specific user
+// GET - Get permissions for a specific user in the caller's org
 export async function GET(request: NextRequest) {
-  const { client: authClient, accessToken } = getAuthClient(request)
-  
-  if (!accessToken) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-  
-  const { data: { user } } = await authClient.auth.getUser(accessToken)
-  if (!user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const auth = await authorize()
+  if (auth instanceof NextResponse) return auth
 
   const userId = request.nextUrl.searchParams.get('userId')
   if (!userId) {
@@ -78,7 +34,17 @@ export async function GET(request: NextRequest) {
   }
 
   const adminClient = createServiceClient()
-  
+
+  const { data: targetUser } = await adminClient
+    .from('users')
+    .select('id')
+    .eq('id', userId)
+    .eq('org_id', auth.orgId)
+    .maybeSingle()
+  if (!targetUser) {
+    return NextResponse.json({ error: 'User not found' }, { status: 404 })
+  }
+
   const { data: permissions } = await adminClient
     .from('user_permissions')
     .select('permission_id')
@@ -91,28 +57,12 @@ export async function GET(request: NextRequest) {
 
 // PUT - Update user permissions
 export async function PUT(request: NextRequest) {
-  const { client: authClient, accessToken } = getAuthClient(request)
-  
-  if (!accessToken) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-  
-  const { data: { user } } = await authClient.auth.getUser(accessToken)
-  if (!user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const auth = await authorize()
+  if (auth instanceof NextResponse) return auth
+  const user = { id: auth.userId }
+  const profile = { org_id: auth.orgId }
 
   const adminClient = createServiceClient()
-
-  const { data: profile } = await adminClient
-    .from('users')
-    .select('role, org_id')
-    .eq('id', user.id)
-    .single()
-
-  if (!profile || !['admin', 'regional_manager'].includes(profile.role)) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-  }
 
   const body = await request.json()
   const { user_id, permission_ids, custom_role_id } = body
