@@ -22,6 +22,7 @@ import ChangeOrderSigningForm from '@/app/change-orders/sign/[token]/CustomerSig
 import { generateContractPdf } from '@/lib/contracts/generatePdf'
 import { generateChangeOrderPdf } from '@/lib/contracts/generateChangeOrderPdf'
 import {
+  INSTALLATION_SIGNING_STATEMENT,
   CHANGE_ORDER_AGREEMENT,
   CONTINGENCY_TERMS,
   INSTALLATION_TERMS,
@@ -116,6 +117,20 @@ describe('signing screen shows exactly the PDF terms', () => {
     // same deadline rule as the PDF: 3 business days after Thu Nov 5 2026 → Tue Nov 10 2026
     expect(notice.deadline).toBe('November 10, 2026')
     expect(pdfNotice).toContain('NOT LATER THAN MIDNIGHT OF: November 10, 2026')
+  })
+
+  it('installation signing statement: screen shows the PDF sentence; repair/contingency show none (their PDFs print none)', async () => {
+    const pdfText = (await generateContractPdf(contract('installation'), DOC)).toString('latin1')
+    expect(pdfText).toContain('have read the above Order Form'.replace('have', 'has'))
+    const { unmount } = render(<ContractSigningForm contract={contract('installation')} token="tok" brand={DOC} cancellationNotice={notice} />)
+    expect(screen.getByText(INSTALLATION_SIGNING_STATEMENT)).toBeTruthy()
+    unmount()
+    for (const t of ['repair', 'contingency']) {
+      const r = render(<ContractSigningForm contract={contract(t)} token="tok" brand={DOC} cancellationNotice={notice} />)
+      expect(screen.queryByText(INSTALLATION_SIGNING_STATEMENT)).toBeNull()
+      expect(screen.queryByText(/By signing, you agree to the work and price shown/)).toBeNull()
+      r.unmount()
+    }
   })
 
   it('repair and contingency screens do not show the installation notice', () => {

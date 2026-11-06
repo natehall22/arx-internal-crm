@@ -6,6 +6,7 @@ import PhoneLink from '@/components/PhoneLink'
 import type { DocumentBrand } from '@/lib/org-brand'
 import {
   CONTINGENCY_TERMS,
+  INSTALLATION_SIGNING_STATEMENT,
   INSTALLATION_TERMS,
   NOTICE_OF_CANCELLATION_CANCEL_LINE,
   NOTICE_OF_CANCELLATION_TITLE,
@@ -509,17 +510,12 @@ export default function CustomerSigningForm({ contract, token, brand, cancellati
             <section>
               <h2 className="text-lg font-bold text-black border-b pb-2 mb-4">Signatures</h2>
               
-              <div className="p-4 bg-gray-50 rounded-lg mb-6 text-sm text-black">
-                {isRepair ? (
-                  <p>
-                    By signing, you agree to the work and price shown—for this job only. Anything else needs a change order.
-                  </p>
-                ) : (
-                  <p>
-                    By signing below, the undersigned represents that he or she has read this Agreement in its entirety and agrees to be bound by its terms.
-                  </p>
-                )}
-              </div>
+              {/* Same statement as the PDF (lib/contracts/terms.ts); the repair and contingency PDFs print none. */}
+              {!isRepair && !isContingency && (
+                <div className="p-4 bg-gray-50 rounded-lg mb-6 text-base text-[#2c2c2a]">
+                  <p>{INSTALLATION_SIGNING_STATEMENT}</p>
+                </div>
+              )}
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                 {/* Customer Signature */}

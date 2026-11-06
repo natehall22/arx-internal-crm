@@ -4,6 +4,7 @@ import type { DocumentBrand } from '@/lib/org-brand'
 import {
   CONTINGENCY_TERMS,
   formatContractDate as formatDate,
+  INSTALLATION_SIGNING_STATEMENT,
   INSTALLATION_TERMS,
   NOTICE_OF_CANCELLATION_CANCEL_LINE,
   NOTICE_OF_CANCELLATION_TITLE,
@@ -524,7 +525,7 @@ export async function generateContractPdf(contract: ContractData, brand: Documen
   // Signature Block
   checkNewPage(180)
   doc.setFontSize(8)
-  const legalText = 'By signing below, the undersigned represents that (i) he or she has read the above Order Form and the Terms and Conditions (collectively, the "Agreement") in its entirety, and (ii) he or she agrees to be bound by the terms and conditions of the Agreement.'
+  const legalText = INSTALLATION_SIGNING_STATEMENT
   const legalLines = wrapText(doc, legalText, contentWidth)
   for (const line of legalLines) {
     doc.text(line, margin, y)

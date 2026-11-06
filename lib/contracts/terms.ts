@@ -168,6 +168,10 @@ export const REPAIR_TERMS: readonly string[] = [
   ]
 
 /** Change order — the agreement sentence above the signatures. */
+/** Installation agreement signing statement (printed above the signatures on the PDF and shown on the signing screen). */
+export const INSTALLATION_SIGNING_STATEMENT =
+  'By signing below, the undersigned represents that (i) he or she has read the above Order Form and the Terms and Conditions (collectively, the "Agreement") in its entirety, and (ii) he or she agrees to be bound by the terms and conditions of the Agreement.'
+
 export const CHANGE_ORDER_AGREEMENT =
   'By signing below, both parties agree to the changes described above. The customer acknowledges that the updated total project cost and remaining balance are accurate.'
 
