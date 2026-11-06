@@ -167,11 +167,11 @@ export const REPAIR_TERMS: readonly string[] = [
   '7. Signing on a phone or computer still counts.',
   ]
 
-/** Change order — the agreement sentence above the signatures. */
 /** Installation agreement signing statement (printed above the signatures on the PDF and shown on the signing screen). */
 export const INSTALLATION_SIGNING_STATEMENT =
   'By signing below, the undersigned represents that (i) he or she has read the above Order Form and the Terms and Conditions (collectively, the "Agreement") in its entirety, and (ii) he or she agrees to be bound by the terms and conditions of the Agreement.'
 
+/** Change order — the agreement sentence above the signatures. */
 export const CHANGE_ORDER_AGREEMENT =
   'By signing below, both parties agree to the changes described above. The customer acknowledges that the updated total project cost and remaining balance are accurate.'
 
@@ -205,7 +205,7 @@ export function addBusinessDays(date: Date, days: number): Date {
 }
 
 export interface CancellationNotice {
-  /** "Date of Transaction" value (blank before the customer signs, as on the PDF). */
+  /** "Date of Transaction" value — the signing date (the signing screen passes today, "as if signed now"). */
   transactionDate: string
   /** "NOT LATER THAN MIDNIGHT OF" value. */
   deadline: string

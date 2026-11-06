@@ -341,7 +341,7 @@ function generateRepairPdf(contract: ContractData, brand: DocumentBrand): Buffer
   return Buffer.from(doc.output('arraybuffer'))
 }
 
-/** Clause wording below still names the original company; per-company templates are slice 2b (docs/multi-company-plan.md). */
+/** Clause wording (lib/contracts/terms.ts) still names the original company; per-company templates are slice 2b (docs/multi-company-plan.md). */
 export async function generateContractPdf(contract: ContractData, brand: DocumentBrand): Promise<Buffer> {
   if (contract.agreement_type === 'contingency') {
     return generateContingencyPdf(contract, brand)

@@ -355,16 +355,20 @@ export default function CustomerSigningForm({ contract, token, brand, cancellati
               <button
                 type="button"
                 onClick={() => setShowTerms(!showTerms)}
-                className="flex min-h-[44px] items-center gap-2 text-indigo-700 hover:text-indigo-900 text-sm font-medium"
+                aria-expanded={showTerms}
+                aria-controls={showTerms ? 'agreement-terms' : undefined}
+                className="flex min-h-[44px] items-center gap-2 text-indigo-700 hover:text-indigo-900 text-base font-medium"
               >
-                <svg className={`w-4 h-4 transition-transform ${showTerms ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className={`w-4 h-4 transition-transform ${showTerms ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                 </svg>
                 {showTerms ? 'Hide' : 'View'} Full Terms and Conditions
               </button>
               {showTerms && (
                 <div
+                  id="agreement-terms"
                   data-testid="agreement-terms"
+                  tabIndex={0}
                   className="mt-4 p-4 bg-gray-50 rounded-lg max-h-96 overflow-y-auto text-base leading-relaxed text-[#2c2c2a] space-y-3"
                 >
                   {isContingency || isRepair ? (
@@ -385,7 +389,7 @@ export default function CustomerSigningForm({ contract, token, brand, cancellati
                     type="button"
                     onClick={() => setShowCancellation(!showCancellation)}
                     aria-expanded={showCancellation}
-                    aria-controls="notice-of-cancellation"
+                    aria-controls={showCancellation ? 'notice-of-cancellation' : undefined}
                     className="mt-2 flex min-h-[44px] items-center gap-2 text-indigo-700 hover:text-indigo-900 text-base font-medium"
                   >
                     <svg className={`w-4 h-4 transition-transform ${showCancellation ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
@@ -394,9 +398,12 @@ export default function CustomerSigningForm({ contract, token, brand, cancellati
                     {NOTICE_OF_CANCELLATION_TITLE}
                   </button>
                   {showCancellation && (
+                    <>
+                    <p className="mt-2 text-base text-[#2c2c2a]">Dates below assume you sign today. Your copy shows the dates from when you actually sign.</p>
                     <div
                       id="notice-of-cancellation"
                       data-testid="notice-of-cancellation"
+                      tabIndex={0}
                       className="mt-2 p-4 bg-gray-50 rounded-lg max-h-96 overflow-y-auto text-base leading-relaxed text-[#2c2c2a] space-y-3"
                     >
                       <h3 className="font-bold">{NOTICE_OF_CANCELLATION_TITLE}</h3>
@@ -405,6 +412,7 @@ export default function CustomerSigningForm({ contract, token, brand, cancellati
                       <p className="whitespace-pre-wrap">{cancellationNotice.body}</p>
                       <p>{NOTICE_OF_CANCELLATION_CANCEL_LINE}</p>
                     </div>
+                    </>
                   )}
                 </>
               )}
