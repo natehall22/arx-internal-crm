@@ -6,7 +6,7 @@ import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
 
-export async function POST() {
+export async function POST(request: Request) {
   try {
     const { profile } = await requireAuthApi()
 
@@ -19,10 +19,15 @@ export async function POST() {
       return NextResponse.json({ error: 'Your profile has no email address' }, { status: 400 })
     }
 
+    // Optional preview of one version ('all' | 'crews'); otherwise the tester's own setting is used.
+    const body = await request.json().catch(() => null)
+    const testFocus = body?.focus === 'crews' || body?.focus === 'all' ? body.focus : undefined
+
     const supabase = createServiceClient()
     const result = await sendMorningUpdateEmail(supabase, {
       orgId: profile.org_id,
       testToEmails: [email],
+      testFocus,
     })
 
     if (result.skipped) {

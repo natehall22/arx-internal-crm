@@ -8,9 +8,8 @@ Subcontractor model (no in-house crews). Based in the US, field reps canvass doo
 | Owner | Domain |
 |---|---|
 | Nathan Hall | Closing, tech stack, training, leadership development |
-| Evan | Setting, social media, relationships, recruiting |
-| Steve | In-field operations (paid via OPP 9% of commissionable) |
-| Andrew | Back office operations and finance (paid via OPP 9% of commissionable) |
+| Steve | Crew scheduling (paid via OPP 9% of commissionable) |
+| Andrew | Crew scheduling (paid via OPP 9% of commissionable) |
 
 ## Business Model
 - **Lead gen:** Door-to-door canvassing (setters) → inspection → close
@@ -340,6 +339,8 @@ Incentive program for setters:
 - Gross margin (pre-comp): 52.4%
 - OPEX: 4% of revenue ($653/roof)
 - Owner draw: 20% of gross profit
+
+- **Morning update "Today" + per-person focus (2026-11-05).** The owner morning email opens with "Today", built from the SAME queue loaders as the `/today` screen (`lib/today.ts`) — never a second query set. Each recipient is Everything (owner exceptions) or Crews only (crews this week + jobs to schedule, and "Needs you" narrowed to the no-dollar ops rows), set per person on Admin → Email Blasts (`email_blasts.morning_update.user_focus`, only 'crews' stored). Email rows show job/proposal numbers, never customer names or addresses (`QueueItem.ref/note`). "Waiting for a signature" is ONE rule, `loadUnsignedProposals`: status 'sent', deal not won/lost, aged by `sent_at ?? pdf_generated_at ?? created_at` (the builder never wrote `sent_at` before this date; it now stamps it on first save as sent).
 
 - **Job page v2 (built 2026-10-29, OFF for everyone).** `JobDetailClient` renders the old body or the new five-tab body (Crews · Materials · Money · Notes · Files) by the `v2` prop (`users.ui_prefs.jobPageV2`). Both bodies live in the same file until cutover, so the old one is a deletion candidate once the switch is on for all. Materials status is ONE answer, `lib/job-materials-state.ts` (supplier orders first, stored `materials_status` as fallback and mirror). Parity: `docs/job-page-parity-2026-10.md`.
 

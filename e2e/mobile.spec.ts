@@ -84,6 +84,19 @@ const SCREENS: Screen[] = [
       if (box.width > vp.width) throw new Error('banner wider than the screen')
       if (!main || main.y < box.y + box.height - 1) throw new Error('banner overlaps the page main action')
     } }] },
+  { name: 'email-blasts', path: '/dev-harness/email-blasts', ready: 'text=Owner Morning Update', mock: async (p) => {
+    const users = [
+      { id: 'u-nathan', full_name: 'Nathan Hall', email: 'nathan@example.test', role: 'admin', active: true },
+      { id: 'u-andrew', full_name: 'Andrew Waltz', email: 'andrew@example.test', role: 'admin', active: true },
+    ]
+    const blast = (enabled: boolean) => ({ enabled, role_targets: [], user_targets: ['u-nathan', 'u-andrew'] })
+    await p.route('**/api/admin/email-blasts', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+      definitions: [{ id: 'morning_update', title: 'Owner Morning Update', description: 'Daily email.' }],
+      roleOptions: [{ role: 'owner', label: 'Owner' }, { role: 'admin', label: 'Admin' }],
+      settings: { sale: blast(false), job_payment: blast(false), setter_field_update: blast(false), morning_update: { ...blast(true), user_focus: { 'u-andrew': 'crews' } } },
+      users,
+    }) }))
+  } },
   { name: 'announcements-admin', path: '/dev-harness/announcements-admin', ready: 'text=Announcements',
     states: [{ name: 'edit', run: async (p) => { await p.getByRole('button', { name: 'Edit' }).click(); await p.waitForSelector('text=Edit announcement') } }] },
   { name: 'materials-cost-entry', path: '/dev-harness/materials-costs', ready: 'text=Total job costs',

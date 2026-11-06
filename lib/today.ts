@@ -6,12 +6,18 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { getDateRangeForTimeFrame } from '@/lib/date-ranges'
-import { formatDateShort, formatMoney, formatTime } from '@/lib/format'
+import { formatDateShort, formatDateWeekday, formatMoney, formatTime } from '@/lib/format'
 import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
+import { addDaysToDateOnly } from '@/lib/install-calendar'
+import { TRADE_LABELS, type Trade } from '@/lib/job-trades'
 
 export type TodayKind = 'setter' | 'ops' | 'owner' | 'closer'
 
-export type QueueItem = { id: string; title: string; detail: string; href: string }
+/**
+ * `title`/`detail` are for the signed-in app screen. `ref`/`note` are the email-safe version (morning update):
+ * a job or proposal number and plain facts, never a customer name or address.
+ */
+export type QueueItem = { id: string; title: string; detail: string; href: string; ref: string; note: string }
 export type Queue = { id: string; title: string; count: number; items: QueueItem[]; empty: string }
 
 export function todayKindFor(args: { role: string | null | undefined; isSuperuser: boolean; canJobBoard: boolean }): TodayKind {
@@ -45,11 +51,57 @@ export function apptQueue(id: string, title: string, rows: ApptRow[], count: num
       title: a.address_text || 'Appointment',
       detail: withDay ? `${formatDateShort(a.scheduled_for)} · ${formatTime(a.scheduled_for)}` : formatTime(a.scheduled_for),
       href: apptHref(a),
+      ref: 'Appointment',
+      note: withDay ? `${formatDateShort(a.scheduled_for)} · ${formatTime(a.scheduled_for)}` : formatTime(a.scheduled_for),
     })),
   }
 }
 
-type ProposalRow = { id: string; customer_name: string | null; proposal_number: string | number | null; total: number | null }
+type ProposalRow = { id: string; customer_name: string | null; proposal_number: string | number | null; total: number | null; sent_at?: string | null }
+
+type UnsignedRow = ProposalRow & { opportunity_id: string | null; pdf_generated_at: string | null; created_at: string }
+
+/**
+ * When a proposal started waiting. `sent_at` was never written when a proposal was saved as sent from the builder
+ * (45 of 47 live 'sent' rows had none, 2026-11-05), so fall back to the PDF time, then creation.
+ */
+export function proposalWaitingSince(p: Pick<UnsignedRow, 'sent_at' | 'pdf_generated_at' | 'created_at'>): string {
+  return p.sent_at || p.pdf_generated_at || p.created_at
+}
+
+/**
+ * The one definition of "a proposal waiting for a signature": status 'sent', and its deal not already won or lost
+ * (a won/lost deal's other proposals keep their old 'sent' label). Oldest first. `olderThan` keeps only those waiting
+ * since before that moment. Returns the capped rows plus the true count.
+ */
+export async function loadUnsignedProposals(
+  admin: SupabaseClient,
+  orgId: string,
+  opts: { createdBy?: string; olderThan?: Date } = {}
+): Promise<{ rows: ProposalRow[]; count: number }> {
+  let q = admin
+    .from('proposals')
+    .select('id, customer_name, proposal_number, total, sent_at, opportunity_id, pdf_generated_at, created_at')
+    .eq('org_id', orgId)
+    .eq('status', 'sent')
+  if (opts.createdBy) q = q.eq('created_by', opts.createdBy)
+  const rows = (ok(await q.order('created_at', { ascending: true }).limit(1000)).data ?? []) as UnsignedRow[]
+  const oppIds = Array.from(new Set(rows.map((r) => r.opportunity_id).filter((v): v is string => Boolean(v))))
+  const closed = new Set<string>()
+  for (let i = 0; i < oppIds.length; i += 200) {
+    const opps = ok(
+      await admin.from('opportunities').select('id, status').eq('org_id', orgId).in('id', oppIds.slice(i, i + 200)).in('status', ['won', 'lost'])
+    )
+    for (const o of (opps.data ?? []) as Array<{ id: string }>) closed.add(o.id)
+  }
+  const cutoff = opts.olderThan?.getTime()
+  const open = rows
+    .filter((r) => !(r.opportunity_id && closed.has(r.opportunity_id)))
+    .map((r) => ({ ...r, sent_at: proposalWaitingSince(r) }))
+    .filter((r) => cutoff == null || new Date(r.sent_at).getTime() < cutoff)
+    .sort((a, b) => a.sent_at.localeCompare(b.sent_at))
+  return { rows: open.slice(0, LIST_CAP), count: open.length }
+}
 /** `money` = the viewer has reports:financials; without it the proposal total is not shown. */
 export function proposalQueue(rows: ProposalRow[], count: number, money = false): Queue {
   return {
@@ -62,6 +114,8 @@ export function proposalQueue(rows: ProposalRow[], count: number, money = false)
       title: p.customer_name || 'Proposal',
       detail: `${p.proposal_number ? `#${p.proposal_number} · ` : ''}${money ? formatMoney(p.total) : ''}`.replace(/ · $/, '') || 'Sent',
       href: `/proposals/${p.id}`,
+      ref: p.proposal_number ? `Proposal #${p.proposal_number}` : 'Proposal',
+      note: p.sent_at ? `waiting since ${formatDateShort(p.sent_at)}` : 'waiting',
     })),
   }
 }
@@ -78,7 +132,66 @@ export function jobQueue(id: string, title: string, rows: JobRow[], count: numbe
       title: `Job ${j.job_number ?? ''}`.trim(),
       detail: [j.address_text, j.scheduled_date ? `install ${j.scheduled_date}` : null].filter(Boolean).join(' · '),
       href: `/ops/jobs/${j.id}`,
+      ref: `Job ${j.job_number ?? ''}`.trim(),
+      note: j.scheduled_date ? `install ${formatDateShort(j.scheduled_date)}` : '',
     })),
+  }
+}
+
+type CrewRow = { id: string; job_id: string | null; trade: string | null; scheduled_date: string; assigned_sub_id: string | null }
+
+/** Every crew (trade) on the calendar from today through the next 6 days, soonest first. Cancelled jobs are left out. */
+export async function loadCrewWeekQueue(admin: SupabaseClient, orgId: string, now = new Date()): Promise<Queue> {
+  const todayYmd = new Intl.DateTimeFormat('en-CA', { timeZone: NY }).format(now)
+  const crews = ok(
+    await admin
+      .from('work_orders')
+      .select('id, job_id, trade, scheduled_date, assigned_sub_id')
+      .eq('org_id', orgId)
+      .not('trade', 'is', null)
+      .not('status', 'in', '(completed,cancelled)')
+      .gte('scheduled_date', todayYmd)
+      .lte('scheduled_date', addDaysToDateOnly(todayYmd, 6))
+      .order('scheduled_date')
+      .limit(200)
+  )
+  const rows = (crews.data ?? []) as CrewRow[]
+  const jobIds = Array.from(new Set(rows.map((r) => r.job_id).filter((v): v is string => Boolean(v))))
+  const subIds = Array.from(new Set(rows.map((r) => r.assigned_sub_id).filter((v): v is string => Boolean(v))))
+  const [jobs, subs] = await Promise.all([
+    jobIds.length
+      ? admin.from('production_jobs').select('id, job_number, address_text, status').eq('org_id', orgId).in('id', jobIds)
+      : Promise.resolve({ data: [], error: null }),
+    subIds.length
+      ? admin.from('sub_contractors').select('id, company_name').eq('org_id', orgId).in('id', subIds)
+      : Promise.resolve({ data: [], error: null }),
+  ])
+  ;[jobs, subs].forEach(ok)
+  const jobById = new Map(((jobs.data ?? []) as Array<{ id: string; job_number: string | null; address_text: string | null; status: string }>).map((j) => [j.id, j]))
+  const subById = new Map(((subs.data ?? []) as Array<{ id: string; company_name: string | null }>).map((s) => [s.id, s.company_name]))
+  const live = rows.filter((r) => {
+    const job = r.job_id ? jobById.get(r.job_id) : null
+    return job && job.status !== 'cancelled'
+  })
+  return {
+    id: 'crews-this-week',
+    title: 'Crews this week',
+    count: live.length,
+    empty: 'No crews on the calendar this week.',
+    items: live.slice(0, LIST_CAP).map((r) => {
+      const job = jobById.get(r.job_id as string)!
+      const trade = TRADE_LABELS[r.trade as Trade] ?? 'Crew'
+      const sub = (r.assigned_sub_id && subById.get(r.assigned_sub_id)) || 'no crew assigned'
+      const facts = `${formatDateWeekday(r.scheduled_date)} · ${trade} · ${sub}`
+      return {
+        id: r.id,
+        title: `Job ${job.job_number ?? ''}`.trim(),
+        detail: [facts, job.address_text].filter(Boolean).join(' · '),
+        href: `/ops/jobs/${job.id}`,
+        ref: `Job ${job.job_number ?? ''}`.trim(),
+        note: facts,
+      }
+    }),
   }
 }
 
@@ -86,16 +199,16 @@ export async function loadCloserQueues(admin: SupabaseClient, orgId: string, use
   const { start, end } = getDateRangeForTimeFrame('today', NY)
   const since = new Date(now.getTime() - 30 * 86_400_000).toISOString()
   const apptCols = 'id, address_text, scheduled_for, opportunity_id, lead_id'
-  const [todayAppts, pastAppts, proposals] = await Promise.all([
+  const [todayAppts, pastAppts, unsigned] = await Promise.all([
     admin.from('scheduled_appointments').select(apptCols, { count: 'exact' }).eq('org_id', orgId).eq('closer_user_id', userId).eq('status', 'scheduled').gte('scheduled_for', start.toISOString()).lt('scheduled_for', end.toISOString()).gte('scheduled_for', now.toISOString()).order('scheduled_for').limit(LIST_CAP),
     admin.from('scheduled_appointments').select(apptCols, { count: 'exact' }).eq('org_id', orgId).eq('closer_user_id', userId).eq('status', 'scheduled').is('outcome_not_recorded_at', null).lt('scheduled_for', now.toISOString()).gte('scheduled_for', since).order('scheduled_for', { ascending: false }).limit(LIST_CAP),
-    admin.from('proposals').select('id, customer_name, proposal_number, total', { count: 'exact' }).eq('org_id', orgId).eq('created_by', userId).eq('status', 'sent').order('sent_at', { ascending: true }).limit(LIST_CAP),
+    loadUnsignedProposals(admin, orgId, { createdBy: userId }),
   ])
-  ;[todayAppts, pastAppts, proposals].forEach(ok)
+  ;[todayAppts, pastAppts].forEach(ok)
   return [
     apptQueue('today-appointments', "Today's appointments", (todayAppts.data ?? []) as ApptRow[], todayAppts.count ?? 0, 'No more appointments today.'),
     apptQueue('outcomes-to-log', 'Outcomes to log', (pastAppts.data ?? []) as ApptRow[], pastAppts.count ?? 0, 'Every past appointment has an outcome.', true),
-    proposalQueue((proposals.data ?? []) as ProposalRow[], proposals.count ?? 0, opts.money),
+    proposalQueue(unsigned.rows, unsigned.count, opts.money),
   ]
 }
 
@@ -118,19 +231,19 @@ export async function loadOpsQueues(admin: SupabaseClient, orgId: string): Promi
 /** Owner: the same queues counted across the whole org; a queue with nothing in it is not shown ("exceptions only"). */
 export async function loadOwnerExceptions(admin: SupabaseClient, orgId: string, now = new Date(), opts: { money?: boolean } = { money: true }): Promise<Queue[]> {
   const todayYmd = new Intl.DateTimeFormat('en-CA', { timeZone: NY }).format(now)
-  const weekAgo = new Date(now.getTime() - 7 * 86_400_000).toISOString()
+  const weekAgo = new Date(now.getTime() - 7 * 86_400_000)
   // Same 14-day window as Needs you (older ones are owner clean-up, see lib/data-health.ts).
   const since = new Date(now.getTime() - 14 * 86_400_000).toISOString()
   const [noOutcome, stale, overdue, unscheduled] = await Promise.all([
     admin.from('scheduled_appointments').select('id, address_text, scheduled_for, opportunity_id, lead_id', { count: 'exact' }).eq('org_id', orgId).eq('status', 'scheduled').is('outcome_not_recorded_at', null).lt('scheduled_for', now.toISOString()).gte('scheduled_for', since).order('scheduled_for', { ascending: false }).limit(LIST_CAP),
-    admin.from('proposals').select('id, customer_name, proposal_number, total', { count: 'exact' }).eq('org_id', orgId).eq('status', 'sent').lt('sent_at', weekAgo).order('sent_at', { ascending: true }).limit(LIST_CAP),
+    loadUnsignedProposals(admin, orgId, { olderThan: weekAgo }),
     admin.from('production_jobs').select('id, job_number, address_text, scheduled_date', { count: 'exact' }).eq('org_id', orgId).eq('status', 'scheduled').lt('scheduled_date', todayYmd).order('scheduled_date').limit(LIST_CAP),
     admin.from('production_jobs').select('id, job_number, address_text, scheduled_date', { count: 'exact' }).eq('org_id', orgId).in('status', ['sold', 'materials']).is('scheduled_date', null).order('sale_date').limit(LIST_CAP),
   ])
-  ;[noOutcome, stale, overdue, unscheduled].forEach(ok)
+  ;[noOutcome, overdue, unscheduled].forEach(ok)
   const queues = [
     apptQueue('no-outcome', 'Appointments with no outcome logged', (noOutcome.data ?? []) as ApptRow[], noOutcome.count ?? 0, '', true),
-    { ...proposalQueue((stale.data ?? []) as ProposalRow[], stale.count ?? 0, opts.money), title: 'Proposals sent over a week ago, still unsigned' },
+    { ...proposalQueue(stale.rows, stale.count, opts.money), title: 'Proposals waiting over a week, still unsigned' },
     jobQueue('overdue-installs', 'Installs past their date and not started', (overdue.data ?? []) as JobRow[], overdue.count ?? 0, ''),
     jobQueue('unscheduled-jobs', 'Sold jobs with no install date', (unscheduled.data ?? []) as JobRow[], unscheduled.count ?? 0, ''),
   ]

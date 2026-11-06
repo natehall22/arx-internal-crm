@@ -196,12 +196,12 @@ export const DEFAULT_PLANS = {
 
 export const HARNESS_QUEUES = [
   { id: 'today-appointments', title: "Today's appointments", count: 2, empty: 'No more appointments today.', items: [
-    { id: 'a1', title: '12 Elm Street, Concord NC 28025', detail: '3:30 PM', href: '#' },
-    { id: 'a2', title: '4400 Very Long Boulevard Name Suite 200, Mooresville NC 28117', detail: '5:00 PM', href: '#' },
+    { id: 'a1', title: '12 Elm Street, Concord NC 28025', detail: '3:30 PM', href: '#', ref: 'Appointment', note: '3:30 PM' },
+    { id: 'a2', title: '4400 Very Long Boulevard Name Suite 200, Mooresville NC 28117', detail: '5:00 PM', href: '#', ref: 'Appointment', note: '5:00 PM' },
   ] },
   { id: 'outcomes-to-log', title: 'Outcomes to log', count: 0, empty: 'Every past appointment has an outcome.', items: [] },
   { id: 'unsigned-proposals', title: 'Proposals waiting for a signature', count: 9, empty: 'Nothing waiting on a customer.', items: [
-    { id: 'p1', title: 'Ashley Gaines', detail: '#P-00118 · $18,430.50', href: '#' },
+    { id: 'p1', title: 'Ashley Gaines', detail: '#P-00118 · $18,430.50', href: '#', ref: 'Proposal #P-00118', note: 'waiting since Oct 21' },
   ] },
 ]
 
