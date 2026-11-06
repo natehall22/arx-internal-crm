@@ -1,5 +1,5 @@
 import { morningUpdateFocusFor, normalizeOrgEmailBlastSettings } from '../admin-email-blasts'
-import { buildTodayHtml } from '../morning-update-email'
+import { buildTodayHtml, loadMorningTodayQueues } from '../morning-update-email'
 import { jobQueue, loadStormHitsQueue, proposalQueue, type Queue } from '../today'
 
 describe('morning update focus setting', () => {
@@ -89,9 +89,9 @@ describe('Storm hits call list', () => {
 
   const admin = fakeAdmin({
     storm_opportunity_alerts: [
-      { opportunity_id: 'o1', event_date: '2026-11-05', layer: 'wind', magnitude: 60, damage: false, distance_miles: 1.2, match_source: 'report', created_at: '2026-11-06T10:00:00Z' },
+      { opportunity_id: 'o1', event_date: '2026-11-05', layer: 'wind', magnitude: 60, damage: false, distance_miles: 1.2, match_source: 'report', routed: true, created_at: '2026-11-06T10:00:00Z' },
       { opportunity_id: 'o1', event_date: '2026-11-05', layer: 'hail', magnitude: 1.25, damage: false, distance_miles: 0, match_source: 'swath', created_at: '2026-11-06T10:00:00Z' },
-      { opportunity_id: 'o2', event_date: '2026-11-04', layer: 'hail', magnitude: 1, damage: false, distance_miles: 0.4, match_source: 'report', created_at: '2026-11-05T10:00:00Z' },
+      { opportunity_id: 'o2', event_date: '2026-11-04', layer: 'hail', magnitude: 1, damage: false, distance_miles: 0.4, match_source: 'report', routed: false, created_at: '2026-11-05T10:00:00Z' },
       { opportunity_id: 'o3', event_date: '2026-11-05', layer: 'hail', magnitude: 2, damage: false, distance_miles: 0.1, match_source: 'report', created_at: '2026-11-06T10:00:00Z' },
     ],
     opportunities: [
@@ -108,7 +108,9 @@ describe('Storm hits call list', () => {
     expect(q.items[0].note).toContain('1.25 in hail')
     expect(q.items[0].note).toContain('inside the storm area')
     expect(q.items[0].phone).toBe('704-555-0142')
-    expect(q.items[1].phone).toBeNull() // not dialable
+    expect(q.items[1].phone).toBe('n/a') // kept as typed; only dialable numbers get tap-to-call
+    expect(q.items[1].note).toContain('a rep is already working this deal')
+    expect(q.items[0].note).not.toContain('already working')
     expect(q.items[0].href).toBe('/opportunities/o1')
   })
 
@@ -120,5 +122,47 @@ describe('Storm hits call list', () => {
     expect(html).toContain('href="tel:+17045550142"')
     expect(html).toContain('(704) 555-0142')
     expect(html).not.toContain('Won Deal')
+    expect(html).not.toContain('tel:n/a')
+  })
+
+  it('a failed storm lookup shows a "couldn’t load" line and keeps the rest of Today', async () => {
+    const broken = {
+      from(table: string) {
+        const q: any = {
+          select: () => q, eq: () => q, gte: () => q, lt: () => q, is: () => q, order: () => q, limit: () => q, in: () => q, not: () => q, lte: () => q, neq: () => q,
+          then: (resolve: (v: unknown) => void) =>
+            resolve(
+              table === 'storm_opportunity_alerts'
+                ? { data: null, error: { message: 'boom' } }
+                : table === 'production_jobs'
+                  ? { data: [{ id: 'j1', job_number: '26-0038', address_text: null, scheduled_date: null }], count: 1, error: null }
+                  : { data: [], count: 0, error: null }
+            ),
+        }
+        return q
+      },
+    } as any
+    const spy = jest.spyOn(console, 'error').mockImplementation(() => {})
+    const queues = await loadMorningTodayQueues(broken, 'org', 'all', new Date('2026-11-06T11:00:00Z'))
+    spy.mockRestore()
+    expect(queues[0].id).toBe('storm-hits')
+    expect(buildTodayHtml(queues)).toContain('Storm hits couldn’t load today.')
+    expect(queues.some((q) => q.id === 'unscheduled-jobs')).toBe(true)
+  })
+
+  it('the crews version never loads storm hits', async () => {
+    const tables: string[] = []
+    const spyAdmin = {
+      from(table: string) {
+        tables.push(table)
+        const q: any = {
+          select: () => q, eq: () => q, gte: () => q, lt: () => q, is: () => q, order: () => q, limit: () => q, in: () => q, not: () => q, lte: () => q, neq: () => q,
+          then: (resolve: (v: unknown) => void) => resolve({ data: [], count: 0, error: null }),
+        }
+        return q
+      },
+    } as any
+    await loadMorningTodayQueues(spyAdmin, 'org', 'crews', new Date('2026-11-06T11:00:00Z'))
+    expect(tables).not.toContain('storm_opportunity_alerts')
   })
 })

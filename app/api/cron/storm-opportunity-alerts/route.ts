@@ -9,8 +9,6 @@ import {
   buildStormNotificationTitle,
   filterStormReportsForAlerts,
   filterStormSwathsForAlerts,
-  formatStormMagnitudeLabel,
-  formatStormProximityLabel,
   isStormOpportunityEligible,
   isOnUnresolvedStormPipelineStage,
   matchStormReportsToOpportunity,

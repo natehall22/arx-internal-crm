@@ -195,7 +195,11 @@ export function buildTodayHtml(queues: Queue[] | null, appUrl?: string | null): 
         .map((i) => {
           const note = i.note ? ` — ${escapeHtml(i.note)}` : ''
           const tel = telHref(i.phone)
-          const call = tel ? ` · <a href="${escapeHtml(tel)}" style="color: #2b0a3d; font-weight: 600; white-space: nowrap;">${escapeHtml(formatPhone(i.phone))}</a>` : ''
+          const call = tel
+            ? ` · <a href="${escapeHtml(tel)}" style="color: #2b0a3d; font-weight: 600; white-space: nowrap;">${escapeHtml(formatPhone(i.phone))}</a>`
+            : i.phone
+              ? ` · ${escapeHtml(i.phone)}`
+              : ''
           return `<li style="margin: 3px 0; color: #2c2c2a; font-size: 14px;"><a href="${escapeHtml(base + i.href)}" style="color: #2b0a3d; font-weight: 600;">${escapeHtml(i.ref)}</a>${note}${call}</li>`
         })
         .join('')

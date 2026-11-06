@@ -6,7 +6,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { getDateRangeForTimeFrame } from '@/lib/date-ranges'
-import { formatDateShort, formatDateWeekday, formatMoney, formatPhone, formatTime, telHref } from '@/lib/format'
+import { formatDateShort, formatDateWeekday, formatMoney, formatPhone, formatTime } from '@/lib/format'
 import { formatStormEventDateLabel, formatStormMagnitudeLabel, type StormAlertLayer } from '@/lib/storm-opportunity-alerts'
 import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
 import { addDaysToDateOnly } from '@/lib/install-calendar'
@@ -230,7 +230,6 @@ export async function loadOpsQueues(admin: SupabaseClient, orgId: string): Promi
   ]
 }
 
-/** Owner: the same queues counted across the whole org; a queue with nothing in it is not shown ("exceptions only"). */
 /** Storm hits stay listed this many days, so a weekend storm is still on Monday's list. */
 const STORM_HIT_DAYS = 3
 
@@ -242,6 +241,7 @@ type StormAlertRow = {
   damage: boolean | null
   distance_miles: number | string | null
   match_source: string | null
+  routed: boolean | null
   created_at: string
 }
 
@@ -255,19 +255,24 @@ export async function loadStormHitsQueue(admin: SupabaseClient, orgId: string, n
   const alerts = ok(
     await admin
       .from('storm_opportunity_alerts')
-      .select('opportunity_id, event_date, layer, magnitude, damage, distance_miles, match_source, created_at')
+      .select('opportunity_id, event_date, layer, magnitude, damage, distance_miles, match_source, routed, created_at')
       .eq('org_id', orgId)
       .gte('created_at', since)
       .order('event_date', { ascending: false })
       .limit(500)
   )
   const rows = (alerts.data ?? []) as StormAlertRow[]
-  // Biggest hit per deal: hail beats wind, then the larger magnitude.
+  // Per deal: show its biggest hit (hail beats wind, then size), sort by its latest storm, and remember whether the
+  // cron routed it to inside sales (it skips deals a rep is already working, e.g. a close is booked).
+  const score = (x: StormAlertRow) => (x.layer === 'hail' ? 1000 : 0) + Number(x.magnitude ?? 0)
   const best = new Map<string, StormAlertRow>()
+  const latest = new Map<string, string>()
+  const routed = new Set<string>()
   for (const r of rows) {
     const cur = best.get(r.opportunity_id)
-    const score = (x: StormAlertRow) => (x.layer === 'hail' ? 1000 : 0) + Number(x.magnitude ?? 0)
     if (!cur || score(r) > score(cur)) best.set(r.opportunity_id, r)
+    if ((latest.get(r.opportunity_id) ?? '') < r.event_date) latest.set(r.opportunity_id, r.event_date)
+    if (r.routed) routed.add(r.opportunity_id)
   }
   const oppIds = Array.from(best.keys())
   type Opp = { id: string; status: string | null; leads: { homeowner_name: string | null; phone: string | null } | Array<{ homeowner_name: string | null; phone: string | null }> | null }
@@ -285,7 +290,13 @@ export async function loadStormHitsQueue(admin: SupabaseClient, orgId: string, n
   const open = opps
     .filter((o) => o.status !== 'won' && o.status !== 'lost')
     .map((o) => ({ opp: o, alert: best.get(o.id)! }))
-    .sort((a, b) => b.alert.event_date.localeCompare(a.alert.event_date))
+    // Newest storm first; same day → bigger hit first; then id, so the list never reshuffles between emails.
+    .sort(
+      (a, b) =>
+        (latest.get(b.opp.id) ?? '').localeCompare(latest.get(a.opp.id) ?? '') ||
+        score(b.alert) - score(a.alert) ||
+        a.opp.id.localeCompare(b.opp.id)
+    )
   return {
     id: 'storm-hits',
     title: 'Storm hits on open deals',
@@ -294,14 +305,18 @@ export async function loadStormHitsQueue(admin: SupabaseClient, orgId: string, n
     items: open.slice(0, cap).map(({ opp, alert }) => {
       const lead = Array.isArray(opp.leads) ? opp.leads[0] : opp.leads
       const name = lead?.homeowner_name?.trim() || 'Customer'
-      const phone = telHref(lead?.phone) ? lead?.phone ?? null : null
+      // Keep any number on a call list; only dialable ones become tap-to-call (see the email renderer).
+      const phone = lead?.phone?.trim() || null
       const distance = Number(alert.distance_miles ?? 0)
       const where = alert.match_source === 'swath' && distance <= 0 ? 'inside the storm area' : `${distance.toFixed(1)} mi away`
       const facts = [
         formatStormMagnitudeLabel((alert.layer === 'hail' ? 'hail' : 'wind') as StormAlertLayer, { magnitude: Number(alert.magnitude ?? 0), damage: Boolean(alert.damage) }),
         formatStormEventDateLabel(alert.event_date),
         where,
-      ].join(' · ')
+        routed.has(opp.id) ? null : 'a rep is already working this deal',
+      ]
+        .filter(Boolean)
+        .join(' · ')
       return {
         id: opp.id,
         title: name,
@@ -315,6 +330,7 @@ export async function loadStormHitsQueue(admin: SupabaseClient, orgId: string, n
   }
 }
 
+/** Owner: the same queues counted across the whole org; a queue with nothing in it is not shown ("exceptions only"). */
 export async function loadOwnerExceptions(admin: SupabaseClient, orgId: string, now = new Date(), opts: { money?: boolean } = { money: true }): Promise<Queue[]> {
   const todayYmd = new Intl.DateTimeFormat('en-CA', { timeZone: NY }).format(now)
   const weekAgo = new Date(now.getTime() - 7 * 86_400_000)

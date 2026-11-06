@@ -15,9 +15,8 @@ import { getCrmEmailFrom, getMailTransport } from '@/lib/setter-email'
 import { formatDateTimeInTimezone } from '@/lib/timezone'
 
 /**
- * Where the alert goes. Env-overridable with a default, matching the existing
- * `stormAlertEmailTo()` pattern in lib/storm-opportunity-alerts.ts — one named
- * place to change the recipient instead of an address buried in the scheduling path.
+ * Where the alert goes. Env-overridable with a default — one named place to change
+ * the recipient instead of an address buried in the scheduling path.
  */
 export function adjusterMeetingAlertEmailTo(): string {
   return (process.env.ADJUSTER_MEETING_ALERT_EMAIL_TO || 'nathan@arxroofing.com').trim()
