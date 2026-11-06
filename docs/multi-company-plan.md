@@ -42,6 +42,9 @@ nothing ARX customers or reps see unless the slice says so. Gate on every slice:
    the repo.
 8. **Per-deployment env checklist**: `docs/new-deployment-env.md`.
 9. **Idempotent seed-new-company script**: org row, settings.brand, roles, defaults; safe to re-run.
+10. **Company web address + login**: each company gets its own address (company.<product-domain>) with its logo on
+    the login page; iPhone app asks for a company code once and remembers it; shared-database later = email login
+    with a company picker only for people in two companies. Product domain TBD (Nathan).
 
 ## Open after slice 2a
 - `getCrmEmailFrom` (From header "ARX Roofing <info@…>") still hardcoded; per-org From needs the org passed to every sender.
