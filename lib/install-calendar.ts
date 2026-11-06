@@ -6,8 +6,8 @@
  * guest (its sub) and its own crew photo link, so the gutter crew is never sent
  * the roofer's day and a reschedule of one trade leaves the others alone.
  *
- * ARX uses subcontractor crews only (no in-house crews). A sub has no CRM login
- * and no Google OAuth of their own — instead they give ARX whatever email they
+ * The company uses subcontractor crews only (no in-house crews). A sub has no CRM login
+ * and no Google OAuth of their own — instead they give the company whatever email they
  * already use (`sub_contractors.scheduling_email`), and that address goes on the
  * event as an ATTENDEE. Google then emails them the invite and every later
  * change. We never send the sub anything ourselves.
@@ -64,6 +64,7 @@ import {
 } from '@/lib/google-calendar'
 import { getValidAccessToken } from '@/lib/appointment-calendar-sync'
 import { CALENDAR_BUSINESS_TZ } from '@/lib/calendar-business-tz'
+import { DEFAULT_ORG_BRAND } from '@/lib/org-brand'
 import {
   TRADE_LABELS,
   HALF_DAY_HOURS,
@@ -227,8 +228,10 @@ export type BuildInstallEventInput = {
   totalSquares?: number | null
   /** The sub's address (`sub_contractors.scheduling_email`); omitted when not on file. */
   schedulingEmail?: string | null
-  /** ARX's own number, so the crew has someone to call from the invite itself. */
+  /** The company's own number, so the crew has someone to call from the invite itself. */
   orgPhone?: string | null
+  /** The company's short name (org brand) — "call <name>", "<name> staff only". Missing → the default brand. */
+  orgShortName?: string | null
   /** The crew's photo link token; the line is omitted without one. */
   crewLinkToken?: string | null
   appUrl?: string | null
@@ -242,7 +245,7 @@ export type BuildInstallEventInput = {
  * address, how long they're booked, and the photo link they tap when they finish.
  *
  * The CRM job link is explicitly marked staff-only: the sub has no login, so for
- * them it is a dead end. It stays because the same event sits on ARX's own
+ * them it is a dead end. It stays because the same event sits on the company's own
  * calendar, where ops can use it.
  */
 export function buildInstallEvent(input: BuildInstallEventInput): CalendarEvent {
@@ -256,6 +259,7 @@ export function buildInstallEvent(input: BuildInstallEventInput): CalendarEvent 
       : null
 
   const photoUrl = input.crewLinkToken ? crewLinkUrl(input.crewLinkToken, input.appUrl) : null
+  const company = input.orgShortName?.trim() || DEFAULT_ORG_BRAND.shortName
 
   const descriptionLines = [
     input.addressText ? `📍 ${input.addressText}` : null,
@@ -264,10 +268,10 @@ export function buildInstallEvent(input: BuildInstallEventInput): CalendarEvent 
     '',
     photoUrl ? `📸 When you finish, take the job photos here: ${photoUrl}` : null,
     photoUrl ? '' : null,
-    input.orgPhone ? `Questions or a problem on site — call ARX at ${input.orgPhone}.` : 'Questions or a problem on site — call ARX.',
+    input.orgPhone ? `Questions or a problem on site — call ${company} at ${input.orgPhone}.` : `Questions or a problem on site — call ${company}.`,
     `Job #${input.jobNumber} (quote this when you call).`,
     '',
-    `ARX staff only: ${installJobPageUrl(input.jobId, input.appUrl)}`,
+    `${company} staff only: ${installJobPageUrl(input.jobId, input.appUrl)}`,
   ].filter((line): line is string => line !== null)
 
   const schedulingEmail = (input.schedulingEmail ?? '').trim().toLowerCase()
@@ -366,6 +370,7 @@ export type SyncInstallToCalendarParams = {
   /** The ops user performing the assignment — fallback Google token. */
   schedulingUserId: string
   orgPhone?: string | null
+  orgShortName?: string | null
   appUrl?: string | null
 }
 
@@ -447,6 +452,7 @@ export async function syncInstallToCalendar(
     totalSquares: params.totalSquares,
     schedulingEmail: params.schedulingEmail,
     orgPhone: params.orgPhone,
+    orgShortName: params.orgShortName,
     crewLinkToken: trade.crew_link_token,
     appUrl: params.appUrl,
   })

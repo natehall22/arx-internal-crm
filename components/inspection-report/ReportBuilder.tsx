@@ -54,6 +54,8 @@ interface Props {
   initialDoc: ReportDoc
   initialPhotos: { id: string; url: string | null; width: number | null; height: number | null }[]
   customerEmail: string | null
+  /** Company short name (org brand) for the PDF's wordmark fallback and guide copy. */
+  companyShortName: string
 }
 
 /** One-tap captions per section flavor — typing on a roof is the enemy. */
@@ -571,6 +573,7 @@ export default function ReportBuilder(props: Props) {
           doc: d,
           hasPhoto: (id) => !!photosRef.current[id],
           logoPng,
+          companyShortName: props.companyShortName,
           quality: t.q,
           maxSide: t.s,
           getPhotoJpeg: async (pid, quality, maxSide) => {
@@ -633,7 +636,7 @@ export default function ReportBuilder(props: Props) {
         }
         throw new Error('Network error — check your connection and hit Build PDF again; your photos and edits are saved.')
       }
-      const slug = reportSlug(d)
+      const slug = reportSlug(d, props.companyShortName)
       const reg = await postStage({ stage: 'register', slug })
       const { bucket, path, token } = await reg.json()
       const { error: upErr } = await supabase.storage
@@ -673,7 +676,7 @@ export default function ReportBuilder(props: Props) {
 
   const sharePdf = useCallback(async () => {
     const bytes = lastPdfBytesRef.current
-    const filename = `${reportSlug(docRef.current)}.pdf`
+    const filename = `${reportSlug(docRef.current, props.companyShortName)}.pdf`
     if (bytes && typeof navigator.share === 'function') {
       try {
         const file = new File([new Blob([bytes as BlobPart])], filename, { type: 'application/pdf' })

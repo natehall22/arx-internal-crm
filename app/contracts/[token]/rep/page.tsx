@@ -1,6 +1,7 @@
 import { requireAuth } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import { signFilesObject } from '@/lib/files/files-object'
+import { getOrgBrand } from '@/lib/org-brand'
 import SignaturePad from '@/components/SignaturePad'
 import { notFound } from 'next/navigation'
 
@@ -34,6 +35,8 @@ export default async function RepContractPage({
     notFound()
   }
 
+  const brand = await getOrgBrand(serviceSupabase, contract.org_id)
+
   const signedPdfUrl = contract.contract_pdf_path
     ? await signFilesObject(serviceSupabase, contract.contract_pdf_path, 3600)
     : null
@@ -44,7 +47,7 @@ export default async function RepContractPage({
         <div className="w-full rounded-2xl border border-slate-800 bg-slate-900 p-8 shadow-xl">
           <div className="mb-6">
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
-              ARX Roofing & Exteriors
+              {brand.name}
             </p>
             <h1 className="mt-2 text-2xl font-semibold">Rep Contract Review</h1>
             <p className="mt-2 text-sm text-slate-400">

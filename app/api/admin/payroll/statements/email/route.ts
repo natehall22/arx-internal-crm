@@ -4,6 +4,7 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { isPayrollAdminRole } from '@/lib/payroll-admin-access'
 import { buildPayrollStatement } from '@/lib/payroll-statement'
 import { sendPayrollStatementEmail } from '@/lib/payroll-statement-email'
+import { getOrgBrand } from '@/lib/org-brand'
 import { pickValidEmail } from '@/lib/setter-email'
 import { isUserActiveForTransactionalEmail } from '@/lib/user-email-eligibility'
 
@@ -95,6 +96,7 @@ export async function POST(request: NextRequest) {
       recipientName: (user.full_name as string) || 'Consultant',
       recipientUserId: userId,
       statement,
+      brand: await getOrgBrand(supabase, orgId),
       attachPdf: body.attach_pdf !== false,
     })
 

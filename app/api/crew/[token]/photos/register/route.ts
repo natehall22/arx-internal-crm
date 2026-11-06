@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 
 import { createServiceClient } from '@/lib/supabase/service'
-import { crewLinkUploadRefusal, resolveCrewLink } from '@/lib/crew-link'
+import { crewCallName, crewLinkUploadRefusal, resolveCrewLink } from '@/lib/crew-link'
 import { registerJobPhotoUpload } from '@/lib/job-photo-upload'
 
 export const runtime = 'nodejs'
@@ -17,7 +17,12 @@ export async function POST(request: Request, { params }: { params: { token: stri
   const link = await resolveCrewLink(admin, params.token)
   if (!link.ok) {
     return NextResponse.json(
-      { error: link.reason === 'expired' ? 'This photo link has expired — call ARX.' : 'This photo link is no longer active.' },
+      {
+        error:
+          link.reason === 'expired'
+            ? `This photo link has expired — call ${await crewCallName(admin, link.orgId)}.`
+            : 'This photo link is no longer active.',
+      },
       { status: link.reason === 'expired' ? 410 : 404 }
     )
   }

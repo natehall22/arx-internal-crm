@@ -1,3 +1,4 @@
+import type { OrgBrand } from '@/lib/org-brand'
 import type { PayrollStatementPayload } from '@/lib/payroll-statement'
 import { formatPayrollMoney } from '@/lib/payroll-format'
 import {
@@ -96,6 +97,8 @@ export async function sendPayrollStatementEmail(input: {
   recipientName: string
   recipientUserId: string
   statement: PayrollStatementPayload
+  /** The paying company's identity for the PDF header (getOrgBrand). */
+  brand: OrgBrand
   attachPdf?: boolean
 }): Promise<{ statementUrl: string; pdfAttached: boolean }> {
   if (!process.env.SMTP_HOST) {
@@ -108,7 +111,7 @@ export async function sendPayrollStatementEmail(input: {
 
   if (input.attachPdf !== false) {
     try {
-      const pdfBuffer = buildPayrollStatementPdfBuffer(input.statement, { statementUrl })
+      const pdfBuffer = buildPayrollStatementPdfBuffer(input.statement, { statementUrl, brand: input.brand })
       attachments.push({
         filename: payrollStatementPdfFilename(input.statement.period.label, input.recipientUserId),
         content: pdfBuffer,

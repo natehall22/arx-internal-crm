@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import SignaturePad from '@/components/contracts/SignaturePad'
 import PhoneLink from '@/components/PhoneLink'
+import type { DocumentBrand } from '@/lib/org-brand'
 
 interface Contract {
   id: string
@@ -35,6 +36,8 @@ interface Contract {
 interface CustomerSigningFormProps {
   contract: Contract
   token: string
+  /** Company identity (letterhead spellings) — loaded server-side from the contract's org. */
+  brand: DocumentBrand
 }
 
 const TERMS_AND_CONDITIONS = `
@@ -157,7 +160,7 @@ Repair agreement
 • Electronic signatures count.
 `
 
-export default function CustomerSigningForm({ contract, token }: CustomerSigningFormProps) {
+export default function CustomerSigningForm({ contract, token, brand }: CustomerSigningFormProps) {
   const isContingency = contract.agreement_type === 'contingency'
   const isRepair = contract.agreement_type === 'repair'
   const agreementLabel = isContingency
@@ -277,8 +280,8 @@ export default function CustomerSigningForm({ contract, token }: CustomerSigning
             </a>
           )}
           <p className="text-sm text-gray-500 mt-6">
-            ARX Roofing & Exteriors LLC<br />
-            704-313-8834 | info@arxroofing.com
+            {brand.legalName}<br />
+            {brand.phone} | {brand.email}
           </p>
         </div>
       </div>
@@ -291,12 +294,12 @@ export default function CustomerSigningForm({ contract, token }: CustomerSigning
         <div className="bg-white rounded-xl shadow-lg overflow-clip">
           {/* Header */}
           <div className="bg-indigo-900 text-white p-6 text-center">
-            <h1 className="text-2xl font-bold">ARX ROOFING & EXTERIORS LLC</h1>
+            <h1 className="text-2xl font-bold">{brand.legalNameUpper}</h1>
             <p className="text-indigo-200 text-sm mt-1">
-              4101 Woodbury Terrace NW, Concord, NC 28027
+              {brand.addressLine}
             </p>
             <p className="text-indigo-200 text-sm">
-              Phone: 704-313-8834 | Email: info@arxroofing.com
+              Phone: {brand.phone} | Email: {brand.email}
             </p>
             <div className="mt-4 inline-block bg-white text-indigo-900 px-4 py-2 rounded-lg font-bold">
               {agreementLabel}
@@ -623,7 +626,7 @@ export default function CustomerSigningForm({ contract, token }: CustomerSigning
 
                 {/* Rep Signature (read-only) */}
                 <div>
-                  <h3 className="font-medium text-black mb-3">ARX Roofing & Exteriors</h3>
+                  <h3 className="font-medium text-black mb-3">{brand.name}</h3>
                   <div className="space-y-3">
                     <div>
                       <label className="block text-sm text-gray-600 mb-1">Print Name</label>
@@ -701,7 +704,7 @@ export default function CustomerSigningForm({ contract, token }: CustomerSigning
         </div>
 
         <p className="text-center text-sm text-gray-500 mt-6">
-          ARX Roofing & Exteriors LLC | arxroofing.com
+          {brand.legalName} | {brand.website}
         </p>
       </div>
     </div>

@@ -10,6 +10,7 @@ import {
   getOrCreateReport,
   normalizeReportDocForOrg,
 } from '@/lib/inspection-report/server'
+import { getOrgBrand } from '@/lib/org-brand'
 import ReportBuilder from '@/components/inspection-report/ReportBuilder'
 
 // Full-screen phone-first builder (no CRM nav chrome — the rep is on a roof).
@@ -47,6 +48,7 @@ export default async function OpportunityReportPage({ params }: { params: { id: 
       : Promise.resolve({ data: null }),
   ])
   customerEmail = custRes.data?.email || leadRes.data?.email || null
+  const brand = await getOrgBrand(admin, profile.org_id)
 
   return (
     <ReportBuilder
@@ -65,6 +67,7 @@ export default async function OpportunityReportPage({ params }: { params: { id: 
         height: p.height,
       }))}
       customerEmail={customerEmail}
+      companyShortName={brand.shortName}
     />
   )
 }

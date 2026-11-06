@@ -6,6 +6,8 @@ import { generateChangeOrderPdf } from '@/lib/contracts/generateChangeOrderPdf'
 import { syncJobSaleForProjectOrJob } from '@/lib/job-commission-base'
 import nodemailer from 'nodemailer'
 import { getCrmEmailFrom } from '@/lib/crm-email-from'
+import { buildChangeOrderReadyEmail } from '@/lib/contracts/customer-emails'
+import { getDocumentBrand } from '@/lib/org-brand'
 import crypto from 'crypto'
 
 export async function POST(request: NextRequest) {
@@ -54,6 +56,8 @@ export async function POST(request: NextRequest) {
     }
 
     const signedAt = new Date().toISOString()
+    // Company identity for the PDF letterhead and the customer email.
+    const documentBrand = await getDocumentBrand(createServiceClient(), profile.org_id)
     const today = new Date().toISOString().split('T')[0]
 
     // Generate PDF for in-person mode only.
@@ -80,7 +84,7 @@ export async function POST(request: NextRequest) {
         repName,
         repSignature,
         originalContractDate,
-      })
+      }, documentBrand)
 
       console.log('[Change Order] PDF generated, size:', pdfBuffer.length, 'bytes')
 
@@ -184,12 +188,21 @@ export async function POST(request: NextRequest) {
           },
         })
 
+        const email = buildChangeOrderReadyEmail({
+          brand: documentBrand,
+          coNumber,
+          customerName,
+          signingUrl,
+          projectAddress,
+          updatedTotal,
+          repName,
+        })
         await transporter.sendMail({
           from: getCrmEmailFrom(),
           to: customerEmail,
-          subject: `Please sign Change Order ${coNumber}`,
-          text: `Hi ${customerName},\n\nYour change order is ready for signature.\n\nPlease review and sign here:\n${signingUrl}\n\nProject: ${projectAddress}\nUpdated Total: $${Number(updatedTotal || 0).toLocaleString()}\n\nIf you have questions, call 704-313-8834.\n\n- ${repName}, ARX Roofing & Exteriors`,
-          html: `<p>Hi ${customerName},</p><p>Your change order is ready for signature.</p><p><a href="${signingUrl}">Review & Sign Change Order</a></p><p><strong>Project:</strong> ${projectAddress}<br/><strong>Updated Total:</strong> $${Number(updatedTotal || 0).toLocaleString()}</p><p>If you have questions, call 704-313-8834.</p><p>- ${repName}, ARX Roofing & Exteriors</p>`,
+          subject: email.subject,
+          text: email.text,
+          html: email.html,
         })
       } catch (emailError) {
         console.error('[Change Order] Failed to send signing email:', emailError)

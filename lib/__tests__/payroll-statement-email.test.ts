@@ -30,6 +30,7 @@ import {
   payrollStatementPdfFilename,
 } from '@/lib/pdf/payroll-statement'
 import type { PayrollStatementPayload } from '@/lib/payroll-statement'
+import { DEFAULT_ORG_BRAND } from '@/lib/org-brand'
 
 const sampleStatement: PayrollStatementPayload = {
   period: {
@@ -140,7 +141,7 @@ describe('payroll-statement PDF', () => {
   })
 
   it('generates a non-empty PDF buffer', () => {
-    const buf = buildPayrollStatementPdfBuffer(sampleStatement)
+    const buf = buildPayrollStatementPdfBuffer(sampleStatement, { brand: DEFAULT_ORG_BRAND })
     expect(buf.length).toBeGreaterThan(0)
     expect(buf.subarray(0, 4).toString()).toBe('%PDF')
   })

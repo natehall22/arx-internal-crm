@@ -1,5 +1,7 @@
 import { jsPDF } from 'jspdf'
 
+import type { DocumentBrand } from '@/lib/org-brand'
+
 export interface ChangeOrderData {
   coNumber: string
   date: string
@@ -68,7 +70,7 @@ function wrapText(doc: jsPDF, text: string, maxWidth: number): string[] {
   return lines
 }
 
-export async function generateChangeOrderPdf(data: ChangeOrderData): Promise<Buffer> {
+export async function generateChangeOrderPdf(data: ChangeOrderData, brand: DocumentBrand): Promise<Buffer> {
   const doc = new jsPDF({
     orientation: 'portrait',
     unit: 'pt',
@@ -81,15 +83,15 @@ export async function generateChangeOrderPdf(data: ChangeOrderData): Promise<Buf
   const contentWidth = pageWidth - (margin * 2)
   let y = margin
 
-  // ARX Header (reused from Installation Agreement)
+  // Company letterhead (same as the Installation Agreement)
   doc.setFontSize(18)
   doc.setFont('helvetica', 'bold')
-  doc.text('ARX ROOFING & EXTERIORS LLC', pageWidth / 2, y, { align: 'center' })
+  doc.text(brand.legalNameUpper, pageWidth / 2, y, { align: 'center' })
   y += 18
   
   doc.setFontSize(9)
   doc.setFont('helvetica', 'normal')
-  doc.text('4101 Woodbury Terrace NW, Concord, NC 28027 | 704-313-8834 | info@arxroofing.com', pageWidth / 2, y, { align: 'center' })
+  doc.text(`${brand.addressLine} | ${brand.phone} | ${brand.email}`, pageWidth / 2, y, { align: 'center' })
   y += 30
 
   // Title
@@ -199,7 +201,7 @@ export async function generateChangeOrderPdf(data: ChangeOrderData): Promise<Buf
   doc.setFontSize(10)
   doc.setFont('helvetica', 'bold')
   doc.text('Customer', leftCol, y)
-  doc.text('ARX Roofing & Exteriors', rightCol, y)
+  doc.text(brand.name, rightCol, y)
   y += 18
 
   doc.setFont('helvetica', 'normal')
@@ -254,7 +256,7 @@ export async function generateChangeOrderPdf(data: ChangeOrderData): Promise<Buf
   
   // Page footer
   doc.setTextColor(100)
-  doc.text(`${data.coNumber} | ARX Roofing & Exteriors LLC`, pageWidth / 2, pageHeight - 30, { align: 'center' })
+  doc.text(`${data.coNumber} | ${brand.legalName}`, pageWidth / 2, pageHeight - 30, { align: 'center' })
 
   // Convert to Buffer
   const pdfOutput = doc.output('arraybuffer')

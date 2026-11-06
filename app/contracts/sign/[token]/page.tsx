@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic'
 
 import { createServiceClient } from '@/lib/supabase/service'
 import { customerSignedDocPath } from '@/lib/files/files-object'
+import { getDocumentBrand } from '@/lib/org-brand'
 import CustomerSigningForm from './CustomerSigningForm'
 
 export default async function ContractSigningPage({
@@ -17,6 +18,9 @@ export default async function ContractSigningPage({
     .eq('signing_token', params.token)
     .single()
 
+  // Company identity from the contract's org (no contract → the default identity).
+  const brand = await getDocumentBrand(supabase, contract?.org_id)
+
   if (error || !contract) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
@@ -28,7 +32,7 @@ export default async function ContractSigningPage({
           </div>
           <h1 className="text-xl font-bold text-gray-900 mb-2">Contract Not Found</h1>
           <p className="text-gray-600">
-            This contract link is invalid or has been removed. Please contact ARX Roofing & Exteriors for assistance.
+            This contract link is invalid or has been removed. Please contact {brand.name} for assistance.
           </p>
         </div>
       </div>
@@ -46,11 +50,11 @@ export default async function ContractSigningPage({
           </div>
           <h1 className="text-xl font-bold text-gray-900 mb-2">Link Expired</h1>
           <p className="text-gray-600">
-            This contract signing link has expired. Please contact ARX Roofing & Exteriors to request a new link.
+            This contract signing link has expired. Please contact {brand.name} to request a new link.
           </p>
           <p className="text-sm text-gray-500 mt-4">
-            Phone: 704-313-8834<br />
-            Email: info@arxroofing.com
+            Phone: {brand.phone}<br />
+            Email: {brand.email}
           </p>
         </div>
       </div>
@@ -101,12 +105,12 @@ export default async function ContractSigningPage({
           </div>
           <h1 className="text-xl font-bold text-gray-900 mb-2">Contract Voided</h1>
           <p className="text-gray-600">
-            This contract has been voided and is no longer valid. Please contact ARX Roofing & Exteriors for more information.
+            This contract has been voided and is no longer valid. Please contact {brand.name} for more information.
           </p>
         </div>
       </div>
     )
   }
 
-  return <CustomerSigningForm contract={contract} token={params.token} />
+  return <CustomerSigningForm contract={contract} token={params.token} brand={brand} />
 }

@@ -12,6 +12,8 @@ import {
 import { isSuperAdmin } from '@/lib/super-admin'
 import nodemailer from 'nodemailer'
 import { getCrmEmailFrom } from '@/lib/crm-email-from'
+import { buildContractReadyEmail } from '@/lib/contracts/customer-emails'
+import { getDocumentBrand } from '@/lib/org-brand'
 
 export async function POST(request: NextRequest) {
   try {
@@ -221,72 +223,22 @@ export async function POST(request: NextRequest) {
           },
         })
 
+        const email = buildContractReadyEmail({
+          brand: await getDocumentBrand(supabase, profile.org_id),
+          agreementLabel,
+          customerName,
+          signingUrl,
+          projectAddress,
+          isContingency: safeAgreementType === 'contingency',
+          projectCost: safeProjectCost,
+          repName,
+        })
         await transporter.sendMail({
           from: getCrmEmailFrom(),
           to: customerEmail,
-          subject: `ARX Roofing - Your ${agreementLabel} is Ready to Sign`,
-          text: `Hi ${customerName},
-
-Your ${agreementLabel} is ready. Please review and sign it using the link below:
-
-${signingUrl}
-
-Project: ${projectAddress}
-${safeAgreementType !== 'contingency' ? `Amount: $${safeProjectCost.toLocaleString()}` : 'Amount: Not required until final Installation Agreement'}
-
-This link expires in 7 days.
-
-Questions? Call 704-313-8834 or email info@arxroofing.com
-
-- ${repName}, ARX Roofing & Exteriors`,
-          html: `<!DOCTYPE html>
-<html>
-<body style="margin:0;padding:0;font-family:Arial,sans-serif;background:#f4f4f4;">
-<table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f4;padding:20px 0;">
-<tr><td align="center">
-<table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px;overflow:hidden;">
-
-<tr><td style="background:#1e3a5f;padding:20px;text-align:center;">
-<h1 style="margin:0;color:#ffffff;font-size:20px;">ARX ROOFING & EXTERIORS</h1>
-</td></tr>
-
-<tr><td style="padding:30px 30px 20px 30px;">
-<p style="margin:0 0 15px 0;font-size:16px;color:#333;">Hi ${customerName},</p>
-<p style="margin:0 0 25px 0;font-size:16px;color:#333;">Your ${agreementLabel} is ready for signature. Click below to review and sign:</p>
-</td></tr>
-
-<tr><td align="center" style="padding:0 30px 25px 30px;">
-<table cellpadding="0" cellspacing="0"><tr>
-<td style="background:#22c55e;border-radius:6px;padding:14px 32px;">
-<a href="${signingUrl}" style="color:#ffffff;text-decoration:none;font-size:18px;font-weight:bold;display:block;">Review & Sign Agreement</a>
-</td>
-</tr></table>
-</td></tr>
-
-<tr><td style="padding:0 30px 20px 30px;">
-<table width="100%" cellpadding="12" cellspacing="0" style="background:#f9f9f9;border-radius:6px;">
-<tr><td style="font-size:14px;color:#666;">
-<strong style="color:#333;">Project:</strong> ${projectAddress}<br>
-<strong style="color:#333;">Agreement:</strong> ${agreementLabel}<br>
-<strong style="color:#333;">Amount:</strong> ${safeAgreementType !== 'contingency' ? `$${safeProjectCost.toLocaleString()}` : 'Not required until final Installation Agreement'}
-</td></tr>
-</table>
-</td></tr>
-
-<tr><td style="padding:0 30px 25px 30px;">
-<p style="margin:0;font-size:13px;color:#999;">This link expires in 7 days.</p>
-</td></tr>
-
-<tr><td style="padding:20px 30px;border-top:1px solid #eee;font-size:13px;color:#666;">
-Questions? <strong>704-313-8834</strong> or <a href="mailto:info@arxroofing.com" style="color:#1e3a5f;">info@arxroofing.com</a><br><br>
-${repName}<br>ARX Roofing & Exteriors LLC
-</td></tr>
-
-</table>
-</td></tr>
-</table>
-</body>
-</html>`,
+          subject: email.subject,
+          text: email.text,
+          html: email.html,
         })
       } catch (emailError) {
         console.error('Error sending contract email:', emailError)

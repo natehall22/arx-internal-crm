@@ -46,6 +46,7 @@ const deliveries = new Map<string, { state: 'claimed' | 'sent' | 'failed'; attem
 let reconcileUpdateShouldFail = false
 let claimRpcUnavailable = false
 let homeownerRevealEmailShouldFail = false
+let orgBrandReadShouldFail = false
 
 function resetStores() {
   leads.clear()
@@ -56,6 +57,7 @@ function resetStores() {
   reconcileUpdateShouldFail = false
   claimRpcUnavailable = false
   homeownerRevealEmailShouldFail = false
+  orgBrandReadShouldFail = false
 }
 
 function seedManualMeasureLead(jti: string): LeadRow {
@@ -274,6 +276,11 @@ jest.mock('@/lib/supabase/service', () => ({
                 data: { id: ORG_ID, settings: { web_leads_owner_id: null } },
                 error: null,
               }),
+              // getOrgBrand (alert inbox + homeowner email identity): the org has no brand set → defaults.
+              maybeSingle: async () =>
+                orgBrandReadShouldFail
+                  ? { data: null, error: { message: 'connection reset' } }
+                  : { data: { name: null, phone: null, email: null, address: null, brand: null }, error: null },
             }),
           }),
         }
@@ -562,6 +569,41 @@ describe('public estimate idempotent unlock promotion', () => {
     expect(sentMail).toHaveLength(mailCountAfterFirst)
     expect(lead.owner_user_id).toBe(INSIDE_SALES_USER_ID)
     expect(lead.source).toBe(PUBLIC_ESTIMATE_LEAD_SOURCE_NAME)
+  })
+
+  it('lead alert goes to the company inbox when the org brand loads', async () => {
+    const jti = 'jti-brand-ok'
+    seedManualMeasureLead(jti)
+    await createOrGetPublicEstimateLead({
+      snapshot: fallbackSnapshot(jti),
+      tokenExp: Math.floor(Date.now() / 1000) + 3600,
+      contact: { name: 'Jane Doe', email: 'jane@example.com', phone: '7045551212' },
+      previewToken: 'preview-token-prefix-test',
+    })
+    const alert = sentMail.find((m) => /CALL NOW/i.test(m.subject))
+    expect(alert?.to.split(', ')).toEqual(['info@arxroofing.com', 'inside@arxroofing.com'])
+  })
+
+  it('a failed org brand lookup never sends the lead alert to the default inbox', async () => {
+    const jti = 'jti-brand-failed'
+    seedManualMeasureLead(jti)
+    orgBrandReadShouldFail = true
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const result = await createOrGetPublicEstimateLead({
+        snapshot: fallbackSnapshot(jti),
+        tokenExp: Math.floor(Date.now() / 1000) + 3600,
+        contact: { name: 'Jane Doe', email: 'jane@example.com', phone: '7045551212' },
+        previewToken: 'preview-token-prefix-test',
+      })
+      expect(result.ok).toBe(true)
+      expect(sentMail.some((m) => m.to.includes('info@arxroofing.com'))).toBe(false)
+      const alert = sentMail.find((m) => /CALL NOW/i.test(m.subject))
+      expect(alert?.to).toBe('inside@arxroofing.com')
+      expect(errorSpy.mock.calls.some((c) => String(c[0]).includes('ALERT NOT SENT TO COMPANY INBOX'))).toBe(true)
+    } finally {
+      errorSpy.mockRestore()
+    }
   })
 
   it('promotes Manual Measure lead to fallback_complex with complex-roof notes once', async () => {

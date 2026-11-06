@@ -17,6 +17,7 @@ import { FILES_BUCKET } from '@/lib/files/storage'
 import { addDaysToDateOnly } from '@/lib/install-calendar'
 import { ymdInBusinessTz } from '@/lib/calendar-business-tz'
 import { CREW_LINK_GRACE_DAYS, calendarDaySpan, type Trade } from '@/lib/job-trades'
+import { getOrgBrand } from '@/lib/org-brand'
 
 /** Enough for a thorough walk-around plus detail shots; stops a leaked link filling storage. */
 export const CREW_LINK_MAX_PHOTOS = 80
@@ -45,7 +46,10 @@ export type CrewLinkContext = {
   status: string
 }
 
-export type CrewLinkResult = { ok: true; ctx: CrewLinkContext } | { ok: false; reason: 'invalid' | 'expired' }
+/** A dead link still carries its org when the trade row was found, so the page can name the company to call. */
+export type CrewLinkResult =
+  | { ok: true; ctx: CrewLinkContext }
+  | { ok: false; reason: 'invalid' | 'expired'; orgId: string | null }
 
 /** Pure: is a link for a crew whose first day is `scheduledDate` still usable on `todayYmd`? */
 export function isCrewLinkExpired(scheduledDate: string, installDays: unknown, todayYmd: string): boolean {
@@ -54,7 +58,7 @@ export function isCrewLinkExpired(scheduledDate: string, installDays: unknown, t
 }
 
 export async function resolveCrewLink(admin: SupabaseClient, token: string): Promise<CrewLinkResult> {
-  if (!TOKEN_RE.test(token)) return { ok: false, reason: 'invalid' }
+  if (!TOKEN_RE.test(token)) return { ok: false, reason: 'invalid', orgId: null }
 
   const { data: trade } = await admin
     .from('work_orders')
@@ -63,7 +67,7 @@ export async function resolveCrewLink(admin: SupabaseClient, token: string): Pro
     .not('trade', 'is', null)
     .maybeSingle()
   if (!trade || !trade.job_id || !trade.scheduled_date || !trade.assigned_sub_id || trade.status === 'cancelled') {
-    return { ok: false, reason: 'invalid' }
+    return { ok: false, reason: 'invalid', orgId: trade?.org_id ?? null }
   }
 
   const { data: job } = await admin
@@ -72,10 +76,10 @@ export async function resolveCrewLink(admin: SupabaseClient, token: string): Pro
     .eq('id', trade.job_id)
     .eq('org_id', trade.org_id)
     .maybeSingle()
-  if (!job || job.cancelled_at) return { ok: false, reason: 'invalid' }
+  if (!job || job.cancelled_at) return { ok: false, reason: 'invalid', orgId: trade.org_id }
 
   if (isCrewLinkExpired(trade.scheduled_date, trade.install_days, ymdInBusinessTz(new Date()))) {
-    return { ok: false, reason: 'expired' }
+    return { ok: false, reason: 'expired', orgId: trade.org_id }
   }
 
   return {
@@ -91,6 +95,11 @@ export async function resolveCrewLink(admin: SupabaseClient, token: string): Pro
       status: trade.status,
     },
   }
+}
+
+/** Who a crew should call in crew-facing messages ("call <short name>"): the company's short name. Company-level → never a rep. */
+export async function crewCallName(admin: SupabaseClient, orgId: string | null | undefined): Promise<string> {
+  return (await getOrgBrand(admin, orgId)).shortName
 }
 
 /** Tag → count of photos already on this trade. */
@@ -118,7 +127,7 @@ export async function crewLinkPhotoCounts(admin: SupabaseClient, ctx: CrewLinkCo
 export async function crewLinkUploadRefusal(admin: SupabaseClient, ctx: CrewLinkContext): Promise<string | null> {
   const counts = await crewLinkPhotoCounts(admin, ctx)
   if (Object.values(counts).reduce((a, b) => a + b, 0) >= CREW_LINK_MAX_PHOTOS) {
-    return 'Photo limit reached for this job — call ARX.'
+    return `Photo limit reached for this job — call ${await crewCallName(admin, ctx.orgId)}.`
   }
 
   const folder = `${ctx.orgId}/jobs/${ctx.jobId}/photos`
@@ -133,9 +142,9 @@ export async function crewLinkUploadRefusal(admin: SupabaseClient, ctx: CrewLink
     return 'Couldn’t start the upload — try again.'
   }
   const fileCount = (objects || []).length
-  if (fileCount >= JOB_PHOTO_FOLDER_SCAN_LIMIT) return 'Photo limit reached for this job — call ARX.'
+  if (fileCount >= JOB_PHOTO_FOLDER_SCAN_LIMIT) return `Photo limit reached for this job — call ${await crewCallName(admin, ctx.orgId)}.`
   if (fileCount - (recordedCount ?? 0) >= CREW_LINK_MAX_UNFINISHED_UPLOADS) {
-    return 'Too many unfinished uploads on this job — call ARX.'
+    return `Too many unfinished uploads on this job — call ${await crewCallName(admin, ctx.orgId)}.`
   }
   return null
 }

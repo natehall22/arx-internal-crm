@@ -22,6 +22,7 @@ import ContractSigningForm from '@/app/contracts/sign/[token]/CustomerSigningFor
 import ChangeOrderSigningForm from '@/app/change-orders/sign/[token]/CustomerSigningForm'
 import CrewPhotoCapture from '@/app/crew/[token]/CrewPhotoCapture'
 import { HARNESS_CONTRACT } from '@/e2e/fixtures'
+import { DEFAULT_DOCUMENT_BRAND } from '@/lib/org-brand'
 import PayrollAttributionEditor from '@/components/payroll/PayrollAttributionEditor'
 import OpsClient from '@/app/ops/OpsClient'
 import OpsDashboardView from '@/components/ops/OpsDashboardView'
@@ -137,11 +138,11 @@ export default function Harness({ params }: { params: { screen: string } }) {
     case 'email-blasts':
       return <EmailBlastsPage />
     case 'contract-signing':
-      return <ContractSigningForm contract={HARNESS_CONTRACT as never} token="tok" />
+      return <ContractSigningForm contract={HARNESS_CONTRACT as never} token="tok" brand={DEFAULT_DOCUMENT_BRAND} />
     case 'change-order-signing':
       return <ChangeOrderSigningForm changeOrder={{ co_number: 'CO-1', description: 'Replace 3 sheets of rotten decking at the rear slope. Add 40 LF of drip edge.', customer_print_name: 'Pat Customer', updated_total: 16825 }} token="tok" />
     case 'crew-capture':
-      return <CrewPhotoCapture token="tok" tradeLabel="Roofing" addressText="12 Elm Street, Concord NC 28025" jobNumber="26-0042" initialCounts={{ final_front: 1 }} />
+      return <CrewPhotoCapture token="tok" tradeLabel="Roofing" addressText="12 Elm Street, Concord NC 28025" jobNumber="26-0042" initialCounts={{ final_front: 1 }} brand={DEFAULT_DOCUMENT_BRAND} />
     case 'payroll-attribution':
       return (
         <div className="p-3">

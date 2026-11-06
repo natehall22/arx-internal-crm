@@ -4,6 +4,7 @@ import { useRef, useState } from 'react'
 
 import { createClientBrowser } from '@/lib/supabase/client'
 import { REQUIRED_FINAL_PHOTO_TAGS } from '@/lib/final-photo-tags'
+import type { DocumentBrand } from '@/lib/org-brand'
 
 /**
  * Crew walk-around. Field UI: plain "what goes where" labels, big targets,
@@ -28,7 +29,9 @@ type Props = {
   addressText: string | null
   jobNumber: string
   initialCounts: Record<string, number>
-  /** Crew-audience notes from ARX (text only; never pricing). */
+  /** The company the crew works for (org brand): casual name in the header, short name in "Notes from …". */
+  brand: Pick<DocumentBrand, 'casualName' | 'shortName'>
+  /** Crew-audience notes from the company (text only; never pricing). */
   crewNotes?: { id: string; body: string; created_at: string }[]
 }
 
@@ -63,7 +66,7 @@ async function postJson(url: string, body: unknown): Promise<Record<string, unkn
   return data
 }
 
-export default function CrewPhotoCapture({ token, tradeLabel, addressText, jobNumber, initialCounts, crewNotes }: Props) {
+export default function CrewPhotoCapture({ token, tradeLabel, addressText, jobNumber, initialCounts, brand, crewNotes }: Props) {
   const [counts, setCounts] = useState<Record<string, number>>(initialCounts)
   const [started, setStarted] = useState(false)
   const [upload, setUpload] = useState<UploadState>({ status: 'idle' })
@@ -127,13 +130,13 @@ export default function CrewPhotoCapture({ token, tradeLabel, addressText, jobNu
   return (
     <main className="min-h-screen bg-[#f7f6f2] px-4 pb-10 pt-6 text-[#2c2c2a]">
       <div className="mx-auto max-w-md">
-        <p className="text-sm font-semibold uppercase tracking-wide text-[#57574f]">ARX Roofing · Job #{jobNumber}</p>
+        <p className="text-sm font-semibold uppercase tracking-wide text-[#57574f]">{brand.casualName} · Job #{jobNumber}</p>
         <h1 className="mt-1 text-2xl font-bold">{tradeLabel} photos</h1>
         {addressText && <p className="mt-1 text-lg">{addressText}</p>}
 
         {crewNotes && crewNotes.length > 0 && (
-          <section aria-label="Notes from ARX" className="mt-4 rounded-lg border-2 border-amber-500 bg-amber-50 p-4">
-            <h2 className="text-lg font-bold">Notes from ARX</h2>
+          <section aria-label={`Notes from ${brand.shortName}`} className="mt-4 rounded-lg border-2 border-amber-500 bg-amber-50 p-4">
+            <h2 className="text-lg font-bold">{`Notes from ${brand.shortName}`}</h2>
             <ul className="mt-2 space-y-2">
               {crewNotes.map((n) => <li key={n.id} className="whitespace-pre-wrap break-words text-lg">{n.body}</li>)}
             </ul>
@@ -205,7 +208,7 @@ export default function CrewPhotoCapture({ token, tradeLabel, addressText, jobNu
           {upload.status === 'idle' && allRequiredDone && (
             <div className="rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-5 text-center">
               <p className="text-xl font-bold text-emerald-900">All 4 photos done ✓</p>
-              <p className="mt-1 text-base">Add close-ups or anything ARX should see.</p>
+              <p className="mt-1 text-base">{`Add close-ups or anything ${brand.shortName} should see.`}</p>
             </div>
           )}
 

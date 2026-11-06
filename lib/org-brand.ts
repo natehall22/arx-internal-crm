@@ -15,8 +15,7 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 
-import { ARX_DEFAULT_OFFICE_ADDRESS } from '@/lib/company-address'
-import { formatPhone, telHref } from '@/lib/format'
+import { formatPhone, formatPhoneDashed, telHref } from '@/lib/format'
 
 export interface OrgBrand {
   /** Display name, e.g. report footers and email headers. */
@@ -45,7 +44,7 @@ export const DEFAULT_ORG_BRAND: Readonly<OrgBrand> = Object.freeze({
   email: 'info@arxroofing.com',
   website: 'arxroofing.com',
   serviceArea: 'Charlotte / Kannapolis, NC',
-  address: ARX_DEFAULT_OFFICE_ADDRESS,
+  address: '4101 Woodbury Ter NW\nConcord, NC 28027',
 })
 
 const ORG_BRAND_KEYS = Object.keys(DEFAULT_ORG_BRAND) as Array<keyof OrgBrand>
@@ -95,19 +94,58 @@ export function resolveOrgBrand(row: OrgBrandRow | null | undefined): OrgBrand {
   return out
 }
 
-/** Load and resolve an org's brand. Falls back to defaults (with a warning) if the row can't be read. */
-export async function getOrgBrand(client: SupabaseClient, orgId: string | null | undefined): Promise<OrgBrand> {
-  if (!orgId) return resolveOrgBrand(null)
+/** An org's brand plus whether it really came from the org row (`ok: false` → the defaults were used). */
+export interface OrgBrandResult {
+  brand: OrgBrand
+  ok: boolean
+}
+
+async function readOrgBrandRow(client: SupabaseClient, orgId: string): Promise<OrgBrandRow | null> {
   const { data, error } = await client
     .from('orgs')
     .select('name, phone, email, address, brand:settings->brand')
     .eq('id', orgId)
     .maybeSingle()
-  if (error || !data) {
-    console.warn('getOrgBrand: org row not readable, using defaults', orgId, error?.message)
-    return resolveOrgBrand(null)
+  if (error) throw error
+  return (data as OrgBrandRow | null) ?? null
+}
+
+/**
+ * Load and resolve an org's brand. Never throws: a failed read is retried once, then logged and the defaults are
+ * returned with `ok: false` so callers that must not act on the defaults (e.g. sending to the company inbox) can tell.
+ */
+export async function getOrgBrandResult(client: SupabaseClient, orgId: string | null | undefined): Promise<OrgBrandResult> {
+  if (!orgId) return { brand: resolveOrgBrand(null), ok: false }
+  let lastError: unknown = null
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const row = await readOrgBrandRow(client, orgId)
+      if (row) return { brand: resolveOrgBrand(row), ok: true }
+      console.error('getOrgBrand: org row not found, using defaults', orgId)
+      return { brand: resolveOrgBrand(null), ok: false }
+    } catch (e) {
+      lastError = e
+    }
   }
-  return resolveOrgBrand(data as OrgBrandRow)
+  console.error('getOrgBrand: org row not readable after retry, using defaults', orgId, lastError)
+  return { brand: resolveOrgBrand(null), ok: false }
+}
+
+/** Load and resolve an org's brand (defaults when it can't be read). Never throws. */
+export async function getOrgBrand(client: SupabaseClient, orgId: string | null | undefined): Promise<OrgBrand> {
+  return (await getOrgBrandResult(client, orgId)).brand
+}
+
+/**
+ * "a" or "an" before the short name ("an Apex team member", "a Summit team member"): "an" when it starts with a
+ * vowel letter, or is an all-caps initialism whose first letter is said with a vowel sound (F → "eff", M → "em"…).
+ */
+export function shortNameArticle(shortName: string, sentenceStart = false): string {
+  const word = shortName.trim().split(/\s+/)[0] ?? ''
+  const vowelSound =
+    /^[aeiou]/i.test(word) || (/^[A-Z]{2,}$/.test(word.replace(/[^A-Za-z]/g, '')) && /^[AEFHILMNORSX]/.test(word))
+  const article = vowelSound ? 'an' : 'a'
+  return sentenceStart ? article[0].toUpperCase() + article.slice(1) : article
 }
 
 /** Phone a customer document shows: the owning rep's (formatted) when it is a dialable number, else the company phone (as stored). */
@@ -225,3 +263,67 @@ export function brandServiceRegion(brand: Pick<OrgBrand, 'serviceArea'>): string
 export function brandWebsiteHref(brand: Pick<OrgBrand, 'website'>): string {
   return /^https?:\/\//i.test(brand.website) ? brand.website : `https://${brand.website}`
 }
+
+/**
+ * Contract / change-order / signing-page letterhead spellings, derived from the brand. ARX's documents used their own
+ * spellings before slice 2a ("…Exteriors LLC" with no comma, "Terrace" written out, dashed phone); while the org still
+ * holds the DEFAULT value of a field, that spelling is kept so ARX's documents stay byte-identical. Any edited value
+ * prints as stored (address lines joined with ", ", phone dashed when it is a 10-digit US number).
+ */
+export interface DocumentBrand {
+  /** "Company Name" — signature blocks, greetings. */
+  name: string
+  /** "COMPANY NAME" — email banners. */
+  nameUpper: string
+  /** Legal entity as contracts print it ("Company Name LLC"). */
+  legalName: string
+  /** "COMPANY NAME LLC" — letterhead title. */
+  legalNameUpper: string
+  /** Conversational name: the display name up to " & " ("ARX Roofing"). */
+  casualName: string
+  /** Wordmark ("ARX") — "call ARX", "an ARX team member". */
+  shortName: string
+  /** Company phone, dashed ("704-313-8834"). */
+  phone: string
+  email: string
+  website: string
+  /** Office address, one entry per line. */
+  addressLines: string[]
+  /** Office address on one line ("Street, City, ST ZIP"). */
+  addressLine: string
+}
+
+/** The office address as contracts have always spelled it (USPS "Ter" written out), for the default address only. */
+const DEFAULT_DOCUMENT_ADDRESS = '4101 Woodbury Terrace NW\nConcord, NC 28027'
+
+/** Pure: the letterhead spellings for a resolved brand. Plain data, safe to pass to client components. */
+export function brandDocument(brand: OrgBrand): DocumentBrand {
+  const legalName =
+    brand.legalName === DEFAULT_ORG_BRAND.legalName ? brand.legalName.replace(/, (LLC)$/, ' $1') : brand.legalName
+  const address = brand.address === DEFAULT_ORG_BRAND.address ? DEFAULT_DOCUMENT_ADDRESS : brand.address
+  const addressLines = address
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean)
+  return {
+    name: brand.name,
+    nameUpper: brand.name.toUpperCase(),
+    legalName,
+    legalNameUpper: legalName.toUpperCase(),
+    casualName: brand.name.split(' & ')[0].trim() || brand.name,
+    shortName: brand.shortName,
+    phone: formatPhoneDashed(brand.phone),
+    email: brand.email,
+    website: brand.website,
+    addressLines,
+    addressLine: addressLines.join(', '),
+  }
+}
+
+/** Load an org's brand and its letterhead spellings in one call (server only). */
+export async function getDocumentBrand(client: SupabaseClient, orgId: string | null | undefined): Promise<DocumentBrand> {
+  return brandDocument(await getOrgBrand(client, orgId))
+}
+
+/** Letterhead spellings for an org with no stored identity (ARX's exact pre-slice-2a strings). */
+export const DEFAULT_DOCUMENT_BRAND: Readonly<DocumentBrand> = Object.freeze(brandDocument(resolveOrgBrand(null)))

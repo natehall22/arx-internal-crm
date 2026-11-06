@@ -1,4 +1,5 @@
 /** Public website roof-estimate funnel config (not the internal measure tool). */
+import { shortNameArticle } from '@/lib/org-brand'
 
 /** ARX org for inbound website estimate leads — must be set explicitly when funnel is enabled. */
 export function getPublicEstimateOrgId(): string {
@@ -138,7 +139,7 @@ export const PUBLIC_ESTIMATE_GATE_COPY =
 export const PUBLIC_ESTIMATE_MANUAL_GATE_COPY =
   'Enter your name, email, and phone so we can follow up with next steps. Your roof needs a manual measure by our design team — we will not show an instant dollar range here.'
 
-/** Customer-facing congratulations shown on arxroofing.com after unlock (manual path). */
+/** Customer-facing congratulations shown on the company website after unlock (manual path). */
 export const PUBLIC_ESTIMATE_MANUAL_MEASURE_MESSAGE =
   'Congratulations! You have a beautiful and complex roof. One of our designers will reach out to you once they have manually drawn your roof.'
 
@@ -193,14 +194,16 @@ export function getPublicEstimatePreviewMessageForPath(path: PublicEstimateCusto
 }
 
 /** Post-unlock next_step copy returned to the website reveal/manual steps. */
-export function getPublicEstimateUnlockNextStepForPath(path: PublicEstimateCustomerPathName): string {
+/** `companyShortName` is the org brand's short name (lib/org-brand), e.g. "An <short name> team member…". */
+export function getPublicEstimateUnlockNextStepForPath(path: PublicEstimateCustomerPathName, companyShortName: string): string {
+  const An = shortNameArticle(companyShortName, true)
   if (path === 'silent_manual') {
-    return 'One of our designers will reach out once they have manually drawn your roof. An ARX team member will call you shortly.'
+    return `One of our designers will reach out once they have manually drawn your roof. ${An} ${companyShortName} team member will call you shortly.`
   }
   if (isPublicEstimatePaidFallbackPath(path)) {
-    return 'An ARX team member will call you shortly. We will also follow up with a manual roof measure on a free inspection so your estimate is accurate — estimate only, not a quote.'
+    return `${An} ${companyShortName} team member will call you shortly. We will also follow up with a manual roof measure on a free inspection so your estimate is accurate — estimate only, not a quote.`
   }
-  return 'An ARX team member will call you shortly to confirm details and schedule a free inspection.'
+  return `${An} ${companyShortName} team member will call you shortly to confirm details and schedule a free inspection.`
 }
 
 export const PUBLIC_ESTIMATE_ALLOWED_ORIGINS = [

@@ -1,5 +1,7 @@
 import { jsPDF } from 'jspdf'
 
+import type { OrgBrand } from '@/lib/org-brand'
+
 interface LineItem {
   name: string
   description?: string | null
@@ -59,7 +61,8 @@ function wrapText(doc: jsPDF, text: string, maxWidth: number): string[] {
   return lines
 }
 
-export async function generateJobPacketPDF(data: JobPacketData): Promise<Buffer> {
+/** `brand.legalName` heads and footers the packet (crew-facing, company-level). */
+export async function generateJobPacketPDF(data: JobPacketData, brand: Pick<OrgBrand, 'legalName'>): Promise<Buffer> {
   const doc = new jsPDF({
     orientation: 'portrait',
     unit: 'pt',
@@ -75,7 +78,7 @@ export async function generateJobPacketPDF(data: JobPacketData): Promise<Buffer>
   // Header
   doc.setFontSize(18)
   doc.setFont('helvetica', 'bold')
-  doc.text('ARX Roofing & Exteriors, LLC', pageWidth / 2, y, { align: 'center' })
+  doc.text(brand.legalName, pageWidth / 2, y, { align: 'center' })
   y += 25
 
   doc.setFontSize(14)
@@ -325,7 +328,7 @@ export async function generateJobPacketPDF(data: JobPacketData): Promise<Buffer>
 
   // Footer
   doc.setFontSize(8)
-  doc.text('ARX Roofing & Exteriors, LLC - Confidential', pageWidth / 2, 750, { align: 'center' })
+  doc.text(`${brand.legalName} - Confidential`, pageWidth / 2, 750, { align: 'center' })
 
   // Convert to Buffer
   const pdfOutput = doc.output('arraybuffer')

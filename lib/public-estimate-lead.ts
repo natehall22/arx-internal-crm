@@ -20,6 +20,8 @@ import {
   type PublicEstimateRevealPath,
 } from '@/lib/public-estimate-pricing'
 import { createServiceClient } from '@/lib/supabase/service'
+import { telHref } from '@/lib/format'
+import { brandDocument, getOrgBrandResult, shortNameArticle, type OrgBrand, type OrgBrandResult } from '@/lib/org-brand'
 
 function escapeHtml(s: string): string {
   return s
@@ -85,6 +87,26 @@ export function shouldSendHomeownerEstimateEmail(
   return true
 }
 
+/** Company lines shared by the homeowner emails: questions line (company phone, linked when dialable) and sign-off. */
+function homeownerEmailBrandCopy(brand: OrgBrand) {
+  const doc = brandDocument(brand)
+  const tel = telHref(brand.phone)
+  const phoneHtml = tel
+    ? `<a href="${tel}" style="color:#b45309">${escapeHtml(brand.phone)}</a>`
+    : escapeHtml(brand.phone)
+  return {
+    questionsText: `Questions before we call? Reply to this email or call ${brand.phone}.`,
+    signoffText: `— ${brand.name}`,
+    phoneHtml,
+    casualName: doc.casualName,
+    nameHtml: escapeHtml(brand.name),
+    casualNameHtml: escapeHtml(doc.casualName),
+    shortNameHtml: escapeHtml(brand.shortName),
+    /** "An" / "A" before the short name at the start of a sentence. */
+    teamMemberArticle: shortNameArticle(brand.shortName, true),
+  }
+}
+
 export function buildHomeownerEstimateEmailContent(options: {
   name: string
   email: string
@@ -94,12 +116,15 @@ export function buildHomeownerEstimateEmailContent(options: {
   squares_est: number
   disclaimer: string
   customerPath?: PublicEstimateCustomerPath
+  /** The estimating company (org brand). Company phone: no rep owns the homeowner yet. */
+  brand: OrgBrand
 }): HomeownerEstimateEmailContent {
-  const { name, address, price_low, price_high, squares_est, disclaimer, customerPath = 'auto' } =
+  const { name, address, price_low, price_high, squares_est, disclaimer, customerPath = 'auto', brand } =
     options
+  const copy = homeownerEmailBrandCopy(brand)
   const paidFallback = isPublicEstimatePaidFallbackPath(customerPath)
   const range = `${formatUsd(price_low)}–${formatUsd(price_high)}`
-  const subject = `Your ARX roof estimate for ${address}`
+  const subject = `Your ${brand.shortName} roof estimate for ${address}`
   const imageryLine = paidFallback
     ? 'This conservative estimate range is based on aerial/satellite imagery of your complex roof — satellite views can under-read square footage.'
     : 'This estimate is based on aerial/satellite imagery of your roof.'
@@ -109,7 +134,7 @@ export function buildHomeownerEstimateEmailContent(options: {
   const text = [
     `Hi ${name},`,
     '',
-    'Thanks for using ARX Roofing\'s instant roof estimate.',
+    `Thanks for using ${copy.casualName}'s instant roof estimate.`,
     '',
     `Property: ${address}`,
     `Estimated roofing range (shingles): ${range}`,
@@ -120,16 +145,16 @@ export function buildHomeownerEstimateEmailContent(options: {
     '',
     disclaimer,
     '',
-    'An ARX team member will call you shortly with a few clarifying, no-pressure questions.',
+    `${copy.teamMemberArticle} ${brand.shortName} team member will call you shortly with a few clarifying, no-pressure questions.`,
     '',
-    'Questions before we call? Reply to this email or call (704) 313-8834.',
+    copy.questionsText,
     '',
-    '— ARX Roofing & Exteriors',
+    copy.signoffText,
   ].join('\n')
 
   const html = `<div style="font-family:Arial,Helvetica,sans-serif;max-width:640px;margin:0 auto;padding:24px;color:#2c2c2a">
   <p style="margin:0 0 16px;font-size:16px">Hi ${escapeHtml(name)},</p>
-  <p style="margin:0 0 20px;font-size:15px;line-height:1.5">Thanks for using ARX Roofing's instant roof <strong>estimate</strong>.</p>
+  <p style="margin:0 0 20px;font-size:15px;line-height:1.5">Thanks for using ${copy.casualNameHtml}'s instant roof <strong>estimate</strong>.</p>
   <div style="border:1px solid #e5e5e0;border-radius:10px;padding:20px;margin:0 0 20px;background:#fafaf8">
     <p style="margin:0 0 8px;font-size:13px;color:#6b6b66;text-transform:uppercase;letter-spacing:0.04em">Estimated roofing range (shingles)</p>
     <p style="margin:0 0 12px;font-size:32px;font-weight:700;color:#2c2c2a">${escapeHtml(range)}</p>
@@ -143,9 +168,9 @@ export function buildHomeownerEstimateEmailContent(options: {
       : ''
   }
   <p style="margin:0 0 20px;font-size:14px;line-height:1.55;color:#2c2c2a"><em>${escapeHtml(disclaimer)}</em></p>
-  <p style="margin:0 0 8px;font-size:15px;line-height:1.5;color:#2c2c2a"><strong>An ARX team member will call you shortly</strong> with a few clarifying, no-pressure questions.</p>
-  <p style="margin:16px 0 0;font-size:13px;color:#6b6b66">Questions before we call? Reply to this email or call <a href="tel:+17043138834" style="color:#b45309">(704) 313-8834</a>.</p>
-  <p style="margin:24px 0 0;font-size:13px;color:#6b6b66">— ARX Roofing &amp; Exteriors</p>
+  <p style="margin:0 0 8px;font-size:15px;line-height:1.5;color:#2c2c2a"><strong>An ${copy.shortNameHtml} team member will call you shortly</strong> with a few clarifying, no-pressure questions.</p>
+  <p style="margin:16px 0 0;font-size:13px;color:#6b6b66">Questions before we call? Reply to this email or call ${copy.phoneHtml}.</p>
+  <p style="margin:24px 0 0;font-size:13px;color:#6b6b66">— ${copy.nameHtml}</p>
 </div>`
 
   return { subject, text, html }
@@ -154,33 +179,36 @@ export function buildHomeownerEstimateEmailContent(options: {
 export function buildHomeownerManualDesignEmailContent(options: {
   name: string
   address: string
+  /** The estimating company (org brand). Company phone: no rep owns the homeowner yet. */
+  brand: OrgBrand
 }): HomeownerEstimateEmailContent {
-  const { name, address } = options
+  const { name, address, brand } = options
+  const copy = homeownerEmailBrandCopy(brand)
   const subject = `We received your roof request for ${address}`
   const text = [
     `Hi ${name},`,
     '',
-    'Thanks for requesting a roof estimate from ARX Roofing.',
+    `Thanks for requesting a roof estimate from ${copy.casualName}.`,
     '',
     `Property: ${address}`,
     '',
     'Your roof needs a manual measure by our design team. One of our designers will reach out once they have drawn your roof.',
     '',
-    'An ARX team member will call you shortly with next steps.',
+    `${copy.teamMemberArticle} ${brand.shortName} team member will call you shortly with next steps.`,
     '',
-    'Questions before we call? Reply to this email or call (704) 313-8834.',
+    copy.questionsText,
     '',
-    '— ARX Roofing & Exteriors',
+    copy.signoffText,
   ].join('\n')
 
   const html = `<div style="font-family:Arial,Helvetica,sans-serif;max-width:640px;margin:0 auto;padding:24px;color:#2c2c2a">
   <p style="margin:0 0 16px;font-size:16px">Hi ${escapeHtml(name)},</p>
-  <p style="margin:0 0 20px;font-size:15px;line-height:1.5">Thanks for requesting a roof estimate from ARX Roofing.</p>
+  <p style="margin:0 0 20px;font-size:15px;line-height:1.5">Thanks for requesting a roof estimate from ${copy.casualNameHtml}.</p>
   <p style="margin:0 0 12px;font-size:14px;color:#2c2c2a">${escapeHtml(address)}</p>
   <p style="margin:0 0 20px;font-size:14px;line-height:1.55;color:#2c2c2a">Your roof needs a manual measure by our design team. One of our designers will reach out once they have drawn your roof.</p>
-  <p style="margin:0 0 8px;font-size:15px;line-height:1.5;color:#2c2c2a"><strong>An ARX team member will call you shortly</strong> with next steps.</p>
-  <p style="margin:16px 0 0;font-size:13px;color:#6b6b66">Questions before we call? Reply to this email or call <a href="tel:+17043138834" style="color:#b45309">(704) 313-8834</a>.</p>
-  <p style="margin:24px 0 0;font-size:13px;color:#6b6b66">— ARX Roofing &amp; Exteriors</p>
+  <p style="margin:0 0 8px;font-size:15px;line-height:1.5;color:#2c2c2a"><strong>An ${copy.shortNameHtml} team member will call you shortly</strong> with next steps.</p>
+  <p style="margin:16px 0 0;font-size:13px;color:#6b6b66">Questions before we call? Reply to this email or call ${copy.phoneHtml}.</p>
+  <p style="margin:24px 0 0;font-size:13px;color:#6b6b66">— ${copy.nameHtml}</p>
 </div>`
 
   return { subject, text, html }
@@ -939,6 +967,8 @@ async function fetchLeadByExternalId(
 
 async function handleExistingPublicEstimateLeadUnlock(options: {
   adminClient: AdminClient
+  /** The org brand, read once per request (getOrgBrandResult). */
+  brand: OrgBrandResult
   orgId: string
   existing: ExistingPublicEstimateLeadRow
   snapshot: PublicEstimatePreviewSnapshot
@@ -953,6 +983,7 @@ async function handleExistingPublicEstimateLeadUnlock(options: {
 }): Promise<PublicEstimateLeadResult> {
   const {
     adminClient,
+    brand,
     orgId,
     existing,
     snapshot,
@@ -1013,6 +1044,7 @@ async function handleExistingPublicEstimateLeadUnlock(options: {
     // delivery claims suppress duplicates.
     const result = await finalizePublicEstimateUnlock({
       adminClient,
+      brand,
       leadId: existing.id,
       created: false,
       forceHomeownerRevealEmail: firstRevealPromotion,
@@ -1035,6 +1067,7 @@ async function handleExistingPublicEstimateLeadUnlock(options: {
 
   return finalizePublicEstimateUnlock({
     adminClient,
+    brand,
     leadId: existing.id,
     created: false,
     snapshot,
@@ -1168,6 +1201,8 @@ export async function resolvePublicEstimateSnapshotForUnlock(
 
 async function sendNewPublicEstimateLeadAlerts(options: {
   adminClient: AdminClient
+  /** The org brand, read once per request (getOrgBrandResult). */
+  brand: OrgBrandResult
   orgId: string
   leadId: string
   leadSource: PublicEstimateLeadSourceRow | null
@@ -1183,6 +1218,7 @@ async function sendNewPublicEstimateLeadAlerts(options: {
 }) {
   const {
     adminClient,
+    brand,
     orgId,
     leadId,
     leadSource,
@@ -1255,7 +1291,16 @@ async function sendNewPublicEstimateLeadAlerts(options: {
   const leadUrl = `${appUrl}/leads/${leadId}`
   // Primary internal alert inbox. Live lead_sources has no notification_emails column —
   // do not select/insert that field. Owner email is still added when auto-assigned (auto path only).
-  const emailRecipients = new Set<string>(['info@arxroofing.com'])
+  // The company's own inbox (org brand email) gets the alert — only when the brand really loaded; the
+  // default inbox belongs to another company, so a failed lookup must never send a lead there.
+  const emailRecipients = new Set<string>()
+  if (brand.ok) {
+    emailRecipients.add(brand.brand.email.toLowerCase())
+  } else {
+    console.error(
+      `[public-estimate] ALERT NOT SENT TO COMPANY INBOX — org brand lookup failed for org ${orgId}, lead ${leadId}. Check the lead in the CRM.`
+    )
+  }
   const notifyEmails = (leadSource as { notification_emails?: unknown } | null)?.notification_emails
   if (Array.isArray(notifyEmails)) {
     for (const e of notifyEmails) {
@@ -1280,6 +1325,8 @@ async function sendNewPublicEstimateLeadAlerts(options: {
       if (!process.env.SMTP_HOST || !process.env.SMTP_USER) {
         throw new Error('SMTP not configured')
       }
+      // Nobody to tell yet (company inbox unknown) → fail the channel so a later unlock retries it.
+      if (!emailRecipients.size) throw new Error('No alert recipients: org brand lookup failed')
       const alert = buildOpsAlertEmailContent({
         customerPath,
         name,
@@ -1472,6 +1519,8 @@ async function markHomeownerEstimateEmailed(
  */
 async function maybeSendHomeownerEstimateEmail(options: {
   adminClient: AdminClient
+  /** The org brand, read once per request (getOrgBrandResult). */
+  brand: OrgBrandResult
   leadId: string
   snapshot: PublicEstimatePreviewSnapshot
   customerPath: PublicEstimateCustomerPath
@@ -1486,6 +1535,7 @@ async function maybeSendHomeownerEstimateEmail(options: {
 }): Promise<boolean> {
   const {
     adminClient,
+    brand,
     leadId,
     snapshot,
     customerPath,
@@ -1515,6 +1565,7 @@ async function maybeSendHomeownerEstimateEmail(options: {
         ? buildHomeownerManualDesignEmailContent({
             name,
             address: snapshot.address,
+            brand: brand.brand,
           })
         : buildHomeownerEstimateEmailContent({
             name,
@@ -1525,6 +1576,7 @@ async function maybeSendHomeownerEstimateEmail(options: {
             squares_est,
             disclaimer,
             customerPath,
+            brand: brand.brand,
           })
 
     return runClaimedPublicEstimateUnlockDelivery(
@@ -1554,6 +1606,8 @@ async function maybeSendHomeownerEstimateEmail(options: {
 
 async function finalizePublicEstimateUnlock(options: {
   adminClient: AdminClient
+  /** The org brand, read once per request (getOrgBrandResult). */
+  brand: OrgBrandResult
   leadId: string
   created: boolean
   forceHomeownerRevealEmail?: boolean
@@ -1570,6 +1624,7 @@ async function finalizePublicEstimateUnlock(options: {
 }): Promise<PublicEstimateLeadResult> {
   const {
     adminClient,
+    brand,
     leadId,
     created,
     forceHomeownerRevealEmail = false,
@@ -1590,6 +1645,7 @@ async function finalizePublicEstimateUnlock(options: {
   // pre-deployment alerts on their first retry.
   await sendNewPublicEstimateLeadAlerts({
     adminClient,
+    brand,
     orgId: getPublicEstimateOrgId(),
     leadId,
     leadSource,
@@ -1606,6 +1662,7 @@ async function finalizePublicEstimateUnlock(options: {
 
   const estimate_emailed = await maybeSendHomeownerEstimateEmail({
     adminClient,
+    brand,
     leadId,
     snapshot,
     customerPath,
@@ -1650,6 +1707,8 @@ export async function createOrGetPublicEstimateLead(options: {
   tokenExp: number
   contact: PublicEstimateContact
   previewToken: string
+  /** The org brand when the caller already read it this request; otherwise it is read here. */
+  brand?: OrgBrandResult
 }): Promise<PublicEstimateLeadResult> {
   const { snapshot, tokenExp, contact, previewToken } = options
   const name = contact.name.trim()
@@ -1668,6 +1727,7 @@ export async function createOrGetPublicEstimateLead(options: {
 
   const adminClient = createServiceClient()
   const orgId = getPublicEstimateOrgId()
+  const brand = options.brand ?? (await getOrgBrandResult(adminClient, orgId))
   const externalLeadId = `public-estimate:${snapshot.jti}`
   const { path: customerPath, pricePerSquare, confidence } = resolvePublicEstimatePricingPath(snapshot)
   const disclaimer = getPublicEstimateDisclaimerForPath(customerPath)
@@ -1691,6 +1751,7 @@ export async function createOrGetPublicEstimateLead(options: {
   if (existingByJti?.id) {
     return handleExistingPublicEstimateLeadUnlock({
       adminClient,
+      brand,
       orgId,
       existing: existingByJti,
       snapshot,
@@ -1756,6 +1817,7 @@ export async function createOrGetPublicEstimateLead(options: {
     if (raced?.id) {
       return handleExistingPublicEstimateLeadUnlock({
         adminClient,
+        brand,
         orgId,
         existing: raced,
         snapshot,
@@ -1776,6 +1838,7 @@ export async function createOrGetPublicEstimateLead(options: {
     if (raced?.id) {
       return handleExistingPublicEstimateLeadUnlock({
         adminClient,
+        brand,
         orgId,
         existing: raced,
         snapshot,
@@ -1795,6 +1858,7 @@ export async function createOrGetPublicEstimateLead(options: {
 
   return finalizePublicEstimateUnlock({
     adminClient,
+    brand,
     leadId: lead.id,
     created: true,
     snapshot,

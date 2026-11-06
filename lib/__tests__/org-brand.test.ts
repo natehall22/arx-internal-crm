@@ -13,10 +13,14 @@ import {
   BRAND_FIELD_MAX,
   brandPatchOps,
   contactPhone,
+  getOrgBrand,
+  getOrgBrandResult,
   getUserPhone,
   mergeBrandSettings,
   resolveOrgBrand,
+  shortNameArticle,
 } from '@/lib/org-brand'
+import { getPublicEstimateUnlockNextStepForPath } from '@/lib/public-estimate-config'
 import { normalizeReportDoc, seedReportDoc } from '@/lib/inspection-report/types'
 import {
   reportEmailFooterHtml,
@@ -276,6 +280,82 @@ describe('getUserPhone', () => {
     expect(await getUserPhone(client(null).c, 'u1', 'org-1')).toBeNull()
     expect(await getUserPhone(client({ phone: '7045551234', active: true }).c, null, 'org-1')).toBeNull()
     expect(await getUserPhone(client({ phone: '7045551234', active: true }).c, 'u1', null)).toBeNull()
+  })
+})
+
+describe('getOrgBrand never throws', () => {
+  const ROW = { name: 'Summit Roofing', phone: '555-010-0199', email: 'hi@summit.test', address: '1 Main St', brand: { shortName: 'Summit' } }
+  /** A client whose org read answers each call from `answers` in turn (a function throws, an object is returned). */
+  function client(answers: Array<(() => never) | { data: unknown; error: unknown }>) {
+    let calls = 0
+    const q = {
+      select: () => q,
+      eq: () => q,
+      maybeSingle: async () => {
+        const a = answers[Math.min(calls++, answers.length - 1)]
+        return typeof a === 'function' ? a() : a
+      },
+    }
+    return { c: { from: () => q } as never, calls: () => calls }
+  }
+  let errorSpy: jest.SpyInstance
+  beforeEach(() => {
+    errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
+  })
+  afterEach(() => errorSpy.mockRestore())
+
+  it('a client that throws → defaults, retried once, logged with the org id', async () => {
+    const { c, calls } = client([
+      () => {
+        throw new Error('fetch failed')
+      },
+    ])
+    expect(await getOrgBrandResult(c, 'org-1')).toEqual({ brand: resolveOrgBrand(null), ok: false })
+    expect(calls()).toBe(2)
+    expect(errorSpy.mock.calls.some((args) => args.includes('org-1'))).toBe(true)
+  })
+  it('a client that returns {error} → defaults without throwing', async () => {
+    const { c, calls } = client([{ data: null, error: { message: 'timeout' } }])
+    expect(await getOrgBrand(c, 'org-1')).toEqual(DEFAULT_ORG_BRAND)
+    expect(calls()).toBe(2)
+  })
+  it('a transient error then success → the real row', async () => {
+    const { c } = client([{ data: null, error: { message: 'timeout' } }, { data: ROW, error: null }])
+    const result = await getOrgBrandResult(c, 'org-1')
+    expect(result.ok).toBe(true)
+    expect(result.brand.shortName).toBe('Summit')
+    expect(result.brand.phone).toBe('555-010-0199')
+  })
+  it('a missing row or no org id → defaults, not ok', async () => {
+    expect((await getOrgBrandResult(client([{ data: null, error: null }]).c, 'org-1')).ok).toBe(false)
+    expect(await getOrgBrandResult(client([{ data: ROW, error: null }]).c, null)).toEqual({
+      brand: resolveOrgBrand(null),
+      ok: false,
+    })
+  })
+})
+
+describe('article before the short name', () => {
+  it.each([
+    ['ARX', 'an'],
+    ['Summit', 'a'],
+    ['Apex', 'an'],
+    ['FMR', 'an'],
+    ['MRX', 'an'],
+    ['BRX', 'a'],
+    ['Faber', 'a'],
+    ['UBR', 'an'],
+  ])('%s → %s', (name, article) => {
+    expect(shortNameArticle(name)).toBe(article)
+  })
+  it('capitalises at the start of a sentence; ARX copy is unchanged', () => {
+    expect(getPublicEstimateUnlockNextStepForPath('auto', 'ARX')).toBe(
+      'An ARX team member will call you shortly to confirm details and schedule a free inspection.'
+    )
+    expect(getPublicEstimateUnlockNextStepForPath('auto', 'Summit')).toBe(
+      'A Summit team member will call you shortly to confirm details and schedule a free inspection.'
+    )
+    expect(getPublicEstimateUnlockNextStepForPath('silent_manual', 'Summit')).toContain('. A Summit team member')
   })
 })
 

@@ -4,12 +4,10 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { FILES_BUCKET } from '@/lib/files/storage'
 import { generateCompletionCertificateDocument } from '@/lib/completion-certificate'
 import { getCrmEmailFrom, getMailTransport, pickValidEmail } from '@/lib/setter-email'
+import { escapeHtml } from '@/lib/html'
+import { getOrgBrand } from '@/lib/org-brand'
 
 export const runtime = 'nodejs'
-
-function escapeHtml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
-}
 
 export async function POST(
   request: Request,
@@ -74,6 +72,7 @@ export async function POST(
     const buffer = Buffer.from(await fileData.arrayBuffer())
 
     const fromAddress = getCrmEmailFrom()
+    const brand = await getOrgBrand(supabase, profile.org_id)
 
     await getMailTransport().sendMail({
       from: fromAddress,
@@ -87,7 +86,7 @@ export async function POST(
             <tr><td style="padding: 6px 0; color: #6b7280; width: 120px;">Job</td><td style="padding: 6px 0;">${escapeHtml(jobNumber)}</td></tr>
             <tr><td style="padding: 6px 0; color: #6b7280;">Property</td><td style="padding: 6px 0;">${escapeHtml(address)}</td></tr>
           </table>
-          <p style="font-size: 12px; color: #6b7280;">This is an automated message from ARX Roofing & Exteriors.</p>
+          <p style="font-size: 12px; color: #6b7280;">This is an automated message from ${escapeHtml(brand.name)}.</p>
         </div>
       `,
       attachments: [{ filename: document.filename, content: buffer, contentType: 'application/pdf' }],

@@ -1,0 +1,119 @@
+{
+  "note": "SHA-256 of each PDF as origin/main 0cdbd142 rendered it (fixed clock). Regenerate only for an intended output change.",
+  "now": "2026-11-06T15:00:00.000Z",
+  "contractBase": {
+    "id": "c-1",
+    "customer_name": "Jane Q. Homeowner",
+    "customer_email": "jane@example.com",
+    "customer_phone": "7045550100",
+    "project_address": "12 Oak St, Concord, NC 28025",
+    "project_cost": 18450.5,
+    "total_squares": 31,
+    "roofing_material": "IKO Dynasty",
+    "scope_roof_replacement": true,
+    "scope_gutters": true,
+    "scope_other": "Skylight reflash",
+    "payment_method": "insurance",
+    "deposit_amount": 0,
+    "est_completion_date": "2026-12-01",
+    "exclusions": "Interior drywall",
+    "additional_products": "Ridge vent",
+    "notes": "Gate code 1234",
+    "preferred_contact": "phone",
+    "customer_print_name": "Jane Q. Homeowner",
+    "customer_initials_change_orders": "JQH",
+    "customer_initials_property_condition": "JQH",
+    "customer_initials_landscaping": "JQH",
+    "customer_initials_insurance": "JQH",
+    "rep_name": "Sam Rep",
+    "rep_title": "Project Consultant",
+    "rep_signed_at": "2026-11-05T14:00:00.000Z",
+    "customer_signed_at": "2026-11-05T15:00:00.000Z",
+    "customer_ip": "203.0.113.9"
+  },
+  "coInput": {
+    "coNumber": "CO-002",
+    "date": "2026-11-05T15:00:00.000Z",
+    "customerName": "Jane Q. Homeowner",
+    "projectAddress": "12 Oak St, Concord, NC 28025",
+    "originalAmount": 18450.5,
+    "updatedTotal": 19950.5,
+    "updatedRemaining": 1500,
+    "description": "Add 6 sheets OSB decking\nReplace 2 pipe boots",
+    "customerPrintName": "Jane Q. Homeowner",
+    "customerSignature": "",
+    "repName": "Sam Rep",
+    "repSignature": "",
+    "originalContractDate": "2026-10-01"
+  },
+  "certInput": {
+    "jobNumber": "26-0042",
+    "customerName": "Jane Q. Homeowner",
+    "propertyAddress": "12 Oak St, Concord, NC 28025",
+    "jobType": "roof_replacement",
+    "workDescription": null,
+    "completionDate": "2026-11-04",
+    "generatedDate": "2026-11-06T15:00:00.000Z"
+  },
+  "statement": {
+    "period": {
+      "id": "period-123",
+      "label": "2026-w22",
+      "cutoffAt": "2026-05-30T16:32:00.000Z",
+      "startAt": "2026-05-23T16:32:00.000Z",
+      "endAt": "2026-05-30T16:32:00.000Z",
+      "payDate": "2026-06-05",
+      "status": "locked"
+    },
+    "rep": {
+      "id": "user-1",
+      "name": "Roda Temanil"
+    },
+    "deals": [],
+    "hourly": {
+      "regularHours": 40,
+      "overtimeHours": 0,
+      "hourlyRate": 5,
+      "regularEarnings": 200,
+      "overtimeEarnings": 0,
+      "total": 200,
+      "notes": null
+    },
+    "periodUnits": {
+      "components": [
+        {
+          "unitType": "sale",
+          "label": "Sale pay",
+          "count": 3,
+          "rate": 10,
+          "amount": 30
+        }
+      ],
+      "lines": [],
+      "total": 30,
+      "sitCount": 0,
+      "saleCount": 3
+    },
+    "totals": {
+      "grossCommission": 0,
+      "hourlyEarnings": 200,
+      "periodUnitEarnings": 30,
+      "bonusEarnings": 0,
+      "adjustments": 0,
+      "chargebacksApplied": 0,
+      "netPayout": 230,
+      "hasDeficit": false
+    },
+    "chargebacks": [],
+    "bonuses": [],
+    "adjustments": []
+  },
+  "sha256": {
+    "contract_installation": "f06021f7965bf9077a9e11475b23f35cd4f1dab2bca3d73fc95dc4bf2696e52f",
+    "contract_contingency": "b5a2442d65b61c3b5673650019b99608ea9d1dd8be0e945832f242cf7ce838b5",
+    "contract_repair": "6779412ed1fef8b98d65fbcfb49eaaae487ca571e8ae8a44bada1d5775da8b9f",
+    "change_order": "07816bb4912360805688a731e6944705bf3174ede0137e3ebe1857d415123dbe",
+    "completion_certificate": "776544d5ee92f32c6aaa5fe2d8ec558e5992132dc1181aac58d16a498386f76e",
+    "payroll_statement": "81e7a6fafc902b91385554b03ddb7a5401dc83f388137b2185bbf9b1b45dc878"
+  }
+}

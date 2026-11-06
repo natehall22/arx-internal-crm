@@ -1,4 +1,5 @@
 import { loadJobNotes } from '@/lib/threads/job-notes'
+import { DEFAULT_ORG_BRAND } from '@/lib/org-brand'
 /**
  * Job Run Sheet — the one-page "everything you need to run this job" hand-off.
  *
@@ -469,7 +470,7 @@ export async function buildJobRunSheet(
 
   return {
     jobId,
-    orgName: clean(orgRes.data?.name) || 'ARX Roofing & Exteriors',
+    orgName: clean(orgRes.data?.name) || DEFAULT_ORG_BRAND.name,
     orgPhone: clean(orgRes.data?.phone),
     jobNumber: job.job_number,
     jobType: job.job_type,

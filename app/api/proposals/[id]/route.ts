@@ -174,6 +174,8 @@ export async function GET(
       .limit(1)
       .maybeSingle()
 
+    const companyBrand = company ? resolveOrgBrand(company) : null
+
     return NextResponse.json({
       proposal: proposalForClient,
       lineItems: lineItems || [],
@@ -181,7 +183,7 @@ export async function GET(
       // `settings` is read only to find an older logo value; never send it to the browser.
       // orgs has no website column: the website comes from the org brand (lib/org-brand, settings.brand → default).
       company: company
-        ? { ...omitSettings(company), website: resolveOrgBrand(company).website, logo_url: orgLogoHref(profile.org_id, company) }
+        ? { ...omitSettings(company), website: companyBrand?.website, short_name: companyBrand?.shortName, logo_url: orgLogoHref(profile.org_id, company) }
         : company,
       rep: proposalForClient.users,
       measurement,

@@ -5,6 +5,7 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { filesObjectHref } from '@/lib/files/files-object'
 import { requireAuthApi } from '@/lib/auth'
 import { generateJobPacketPDF } from '@/lib/pdf/job-packet'
+import { getOrgBrand } from '@/lib/org-brand'
 
 export async function POST(
   request: NextRequest,
@@ -169,7 +170,7 @@ export async function POST(
     console.log('[Job Packet] Generating PDF for job:', params.id)
     let pdfBuffer: Buffer
     try {
-      pdfBuffer = await generateJobPacketPDF(packetData)
+      pdfBuffer = await generateJobPacketPDF(packetData, await getOrgBrand(createServiceClient(), profile.org_id))
       console.log('[Job Packet] PDF generated, size:', pdfBuffer.length, 'bytes')
     } catch (pdfError: any) {
       console.error('[Job Packet] PDF generation failed:', pdfError?.message || pdfError)
