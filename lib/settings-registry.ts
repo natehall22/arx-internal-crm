@@ -71,7 +71,6 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
     title: 'System',
     items: [
       { title: 'Company settings', description: 'Workflows, fields, dispositions and system options', href: '/admin/settings', access: 'leadership' },
-      { title: 'Integrations', description: 'EagleView, Roofr, Solo, Aurora and more', href: '/admin/integrations', access: 'leadership' },
       { title: 'Dashboard settings', description: 'What shows on each dashboard', href: '/admin/dashboard-settings', access: 'leadership' },
       { title: 'Announcements', description: "What's-new banners shown to the team", href: '/admin/announcements', access: 'leadership' },
       { title: 'My settings', description: 'Your profile, notifications and Google Calendar', href: '/settings', access: 'leadership' },

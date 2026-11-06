@@ -154,12 +154,13 @@ async function oldestCustomerIdByIdentity(supabase: SupabaseClient, orgId: strin
  * 
  * If found: update any missing fields (address/phone/email)
  * If not found: create new customer
+ *
+ * Never tells QuickBooks: `enrichCustomerFromContract` (contract signing) is the ONE place a customer is queued for it.
  */
 export async function upsertCustomer(
   supabase: SupabaseClient,
   orgId: string,
-  data: CustomerData,
-  opts: { skipIntegrations?: boolean } = {}
+  data: CustomerData
 ): Promise<UpsertResult> {
   const { name, email, phone, address_text } = data
   const existingCustomer = await findExistingCustomer(supabase, orgId, data)
@@ -179,12 +180,6 @@ export async function upsertCustomer(
         .from('customers')
         .update(updates)
         .eq('id', existingCustomer.id)
-      
-      // Enqueue integration event for customer update
-      if (!opts.skipIntegrations) enqueueCustomerUpserted(supabase, orgId, existingCustomer.id, {
-        ...existingCustomer,
-        ...updates,
-      }).catch(err => console.error('Failed to enqueue customer event:', err))
     }
     
     return { customer_id: existingCustomer.id, created: false }
@@ -214,14 +209,6 @@ export async function upsertCustomer(
     await supabase.from('customers').delete().eq('id', newCustomer.id).eq('org_id', orgId)
     return { customer_id: winnerId, created: false }
   }
-
-  // Enqueue integration event for new customer
-  if (!opts.skipIntegrations) enqueueCustomerUpserted(supabase, orgId, newCustomer.id, {
-    name,
-    email,
-    phone,
-    address_text,
-  }).catch(err => console.error('Failed to enqueue customer event:', err))
 
   return { customer_id: newCustomer.id, created: true }
 }

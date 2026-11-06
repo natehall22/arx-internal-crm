@@ -1,9 +1,5 @@
 import { SupabaseClient } from '@supabase/supabase-js'
-import {
-  IntegrationProvider,
-  IntegrationEventType,
-  EnqueueEventParams,
-} from './types/integrations'
+import { EnqueueEventParams } from './types/integrations'
 
 /**
  * Generate a deterministic idempotency key for an event.
@@ -90,7 +86,8 @@ export async function enqueueIntegrationEvent(
 }
 
 /**
- * Enqueue customer upsert event for all configured providers.
+ * Enqueue customer upsert event. Called ONLY from contract signing (`enrichCustomerFromContract`).
+ * Nothing drains the outbox yet — see docs/quickbooks-sync.md.
  */
 export async function enqueueCustomerUpserted(
   supabase: SupabaseClient,
@@ -98,8 +95,6 @@ export async function enqueueCustomerUpserted(
   customerId: string,
   customerData: Record<string, any>
 ): Promise<void> {
-  // For now, only enqueue for QuickBooks
-  // In future, check org settings for enabled integrations
   await enqueueIntegrationEvent(supabase, {
     orgId,
     provider: 'quickbooks',
@@ -113,74 +108,6 @@ export async function enqueueCustomerUpserted(
         email: customerData.email,
         phone: customerData.phone,
         address: customerData.address_text,
-      },
-    },
-  })
-}
-
-/**
- * Enqueue invoice finalized event.
- */
-export async function enqueueInvoiceFinalized(
-  supabase: SupabaseClient,
-  orgId: string,
-  invoiceId: string,
-  invoiceData: {
-    invoice_number: string
-    customer_id?: string
-    total_cents: number
-    issued_at: string
-    due_at?: string
-    line_items: Array<{
-      description: string
-      qty: number
-      unit_price_cents: number
-      line_total_cents: number
-    }>
-  }
-): Promise<void> {
-  await enqueueIntegrationEvent(supabase, {
-    orgId,
-    provider: 'quickbooks',
-    eventType: 'invoice.finalized',
-    entityTable: 'job_invoices',
-    entityId: invoiceId,
-    payload: {
-      invoice: {
-        id: invoiceId,
-        invoice_number: invoiceData.invoice_number,
-        customer_id: invoiceData.customer_id,
-        total_cents: invoiceData.total_cents,
-        issued_at: invoiceData.issued_at,
-        due_at: invoiceData.due_at,
-        line_items: invoiceData.line_items,
-      },
-    },
-  })
-}
-
-/**
- * Enqueue invoice voided event.
- */
-export async function enqueueInvoiceVoided(
-  supabase: SupabaseClient,
-  orgId: string,
-  invoiceId: string,
-  invoiceNumber: string,
-  voidReason: string
-): Promise<void> {
-  await enqueueIntegrationEvent(supabase, {
-    orgId,
-    provider: 'quickbooks',
-    eventType: 'invoice.voided',
-    entityTable: 'job_invoices',
-    entityId: invoiceId,
-    payload: {
-      invoice: {
-        id: invoiceId,
-        invoice_number: invoiceNumber,
-        void_reason: voidReason,
-        voided_at: new Date().toISOString(),
       },
     },
   })
@@ -222,70 +149,4 @@ export async function enqueuePaymentRecorded(
       },
     },
   })
-}
-
-/**
- * Get pending outbox events for processing.
- * Used by integration worker/cron job.
- */
-export async function getPendingOutboxEvents(
-  supabase: SupabaseClient,
-  provider: IntegrationProvider,
-  limit: number = 100
-): Promise<any[]> {
-  const { data, error } = await supabase
-    .from('integration_outbox')
-    .select('*')
-    .eq('provider', provider)
-    .in('status', ['pending', 'failed'])
-    .lt('attempt_count', 5) // Max 5 retries
-    .order('created_at', { ascending: true })
-    .limit(limit)
-
-  if (error) {
-    console.error('Failed to fetch pending outbox events:', error)
-    return []
-  }
-
-  return data || []
-}
-
-/**
- * Mark an outbox event as completed.
- */
-export async function markEventCompleted(
-  supabase: SupabaseClient,
-  eventId: string,
-  externalId?: string
-): Promise<void> {
-  await supabase
-    .from('integration_outbox')
-    .update({
-      status: 'completed',
-      processed_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', eventId)
-
-  // If external ID provided, update the source entity
-  // This would be done by the integration processor
-}
-
-/**
- * Mark an outbox event as failed.
- */
-export async function markEventFailed(
-  supabase: SupabaseClient,
-  eventId: string,
-  error: string
-): Promise<void> {
-  await supabase
-    .from('integration_outbox')
-    .update({
-      status: 'failed',
-      last_error: error,
-      attempt_count: supabase.rpc('increment_attempt_count', { event_id: eventId }),
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', eventId)
 }

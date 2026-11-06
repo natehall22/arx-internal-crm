@@ -35,8 +35,7 @@ export async function customerIdForLead(admin: SupabaseClient, orgId: string, le
         email: lead.email ?? null,
         phone: lead.phone ?? null,
         address_text: lead.address_text ?? null,
-      },
-      { skipIntegrations: true }
+      }
     )
     return customer_id
   } catch (e) {

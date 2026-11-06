@@ -114,19 +114,6 @@ export default function ContractUpload({ opportunityId }: ContractUploadProps) {
           )}
         </button>
       </form>
-
-      <div className="mt-4 pt-4 border-t">
-        <p className="text-xs text-gray-400 mb-2">Or use e-signature:</p>
-        <div className="flex flex-wrap gap-2">
-          <a
-            href="/admin/integrations#esign"
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-indigo-600 bg-indigo-50 rounded-lg hover:bg-indigo-100"
-          >
-            <span>✍️</span>
-            Connect DocuSign, PandaDoc, or Dropbox Sign
-          </a>
-        </div>
-      </div>
     </div>
   )
 }

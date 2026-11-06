@@ -10,7 +10,6 @@ import {
   InvoiceKind,
   DepositInfo,
 } from './types/invoices'
-import { enqueueInvoiceFinalized, enqueueInvoiceVoided } from './integrations'
 import { formatCurrency } from './job-payments'
 import { normalizeDepositFraction } from './job-pipeline'
 
@@ -608,7 +607,7 @@ async function recalculateInvoiceTotals(
  * Finalize and send an invoice.
  * Sets status to 'sent', records sent_at and email.
  * PDF generation is handled separately via the /api/invoices/[id]/pdf endpoint.
- * Email sending is not implemented here; outbox events are still enqueued.
+ * Email sending is not implemented here. Nothing is sent to QuickBooks (see docs/quickbooks-sync.md).
  */
 export async function finalizeAndSendInvoice(
   supabase: SupabaseClient,
@@ -656,31 +655,6 @@ export async function finalizeAndSendInvoice(
 
   if (error || !updated) {
     throw new Error(`Failed to send invoice: ${error?.message || 'Unknown error'}`)
-  }
-
-  // Get job info for integration event
-  const { data: job } = await supabase
-    .from('production_jobs')
-    .select('org_id, customer_id')
-    .eq('id', invoice.job_id)
-    .single()
-
-  // Get line items for integration payload
-  const { data: items } = await supabase
-    .from('job_invoice_items')
-    .select('description, qty, unit_price_cents, line_total_cents')
-    .eq('invoice_id', invoiceId)
-
-  // Enqueue integration event
-  if (job) {
-    enqueueInvoiceFinalized(supabase, job.org_id, invoiceId, {
-      invoice_number: updated.invoice_number,
-      customer_id: job.customer_id,
-      total_cents: updated.total_cents,
-      issued_at: today,
-      due_at: updated.due_at,
-      line_items: items || [],
-    }).catch(err => console.error('Failed to enqueue invoice event:', err))
   }
 
   // TODO: Integrate with email service to actually send the invoice
@@ -931,23 +905,11 @@ export async function voidInvoice(
       void_reason: reason.trim(),
     })
     .eq('id', invoiceId)
-    .select('*, production_jobs!inner(org_id)')
+    .select()
     .single()
 
   if (error || !updated) {
     throw new Error(`Failed to void invoice: ${error?.message || 'Unknown error'}`)
-  }
-
-  // Enqueue integration event
-  const orgId = (updated as any).production_jobs?.org_id
-  if (orgId) {
-    enqueueInvoiceVoided(
-      supabase,
-      orgId,
-      invoiceId,
-      updated.invoice_number,
-      reason.trim()
-    ).catch(err => console.error('Failed to enqueue void event:', err))
   }
 
   return updated as JobInvoice

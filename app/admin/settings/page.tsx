@@ -39,7 +39,6 @@ type SettingsSection =
   | 'budgets'
   | 'capital'
   | 'commissions'
-  | 'quickbooks'
   | 'integrations'
   | 'measurement-tools'
   | 'notifications'
@@ -132,13 +131,6 @@ export default function AdminSettingsPage() {
   
   // Settings state
   const [customFields, setCustomFields] = useState<CustomField[]>([])
-  const [integrationSettings, setIntegrationSettings] = useState({
-    quickbooks_connected: false,
-    quickbooks_company_id: '',
-    quickbooks_sync_invoices: true,
-    quickbooks_sync_customers: true,
-    quickbooks_sync_payments: true,
-  })
   const [generalSettings, setGeneralSettings] = useState<GeneralSettingsValues>({
     company_name: '',
     company_phone: '',
@@ -422,23 +414,6 @@ export default function AdminSettingsPage() {
       ],
     },
     // ACCOUNTING
-    {
-      id: 'quickbooks',
-      name: 'QuickBooks',
-      category: 'accounting',
-      description: 'Sync invoices, payments, and customer data',
-      useCases: [
-        'Auto-create invoices from won deals',
-        'Sync customer records',
-        'Track payments in one place',
-      ],
-      icon: '💰',
-      connected: false,
-      enabled: true,
-      configFields: [
-        { key: 'account', label: 'QuickBooks Company', type: 'text', placeholder: 'Your company name', required: true },
-      ],
-    },
     {
       id: 'xero',
       name: 'Xero',
@@ -847,7 +822,6 @@ export default function AdminSettingsPage() {
     {
       title: 'INTEGRATIONS',
       items: [
-        { id: 'quickbooks', label: 'QuickBooks' },
         { id: 'measurement-tools', label: 'Measurement Tools' },
         { id: 'integrations', label: 'Other Integrations' },
       ],
@@ -1422,112 +1396,6 @@ export default function AdminSettingsPage() {
                   </div>
                 </div>
               )}
-            </div>
-          )}
-
-          {/* QuickBooks Integration */}
-          {activeSection === 'quickbooks' && (
-            <div className="max-w-2xl">
-              <h1 className="text-2xl font-bold text-gray-900 mb-6">QuickBooks Integration</h1>
-              
-              <div className="bg-white rounded-xl shadow-sm border p-6 space-y-6">
-                <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-                  <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
-                      <svg className="w-8 h-8 text-green-600" viewBox="0 0 24 24" fill="currentColor">
-                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
-                      </svg>
-                    </div>
-                    <div>
-                      <h3 className="font-semibold text-gray-900">QuickBooks Online</h3>
-                      <p className="text-sm text-gray-500">
-                        {integrationSettings.quickbooks_connected 
-                          ? `Connected to ${integrationSettings.quickbooks_company_id}`
-                          : 'Not connected'}
-                      </p>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => {
-                      // QuickBooks OAuth flow would go here
-                      toast('QuickBooks OAuth integration - would redirect to Intuit')
-                    }}
-                    className={`px-4 py-2 rounded-lg font-medium ${
-                      integrationSettings.quickbooks_connected
-                        ? 'text-red-600 border border-red-200 hover:bg-red-50'
-                        : 'bg-green-600 text-white hover:bg-green-700'
-                    }`}
-                  >
-                    {integrationSettings.quickbooks_connected ? 'Disconnect' : 'Connect'}
-                  </button>
-                </div>
-
-                {integrationSettings.quickbooks_connected && (
-                  <>
-                    <div className="border-t pt-6">
-                      <h3 className="font-medium text-gray-900 mb-4">Sync Settings</h3>
-                      <div className="space-y-3">
-                        <label className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                          <div>
-                            <p className="font-medium text-gray-900">Sync Invoices</p>
-                            <p className="text-sm text-gray-500">Automatically create invoices in QuickBooks</p>
-                          </div>
-                          <input
-                            type="checkbox"
-                            checked={integrationSettings.quickbooks_sync_invoices}
-                            onChange={(e) => setIntegrationSettings(prev => ({ ...prev, quickbooks_sync_invoices: e.target.checked }))}
-                            className="w-5 h-5 rounded border-gray-300 text-indigo-600"
-                          />
-                        </label>
-                        <label className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                          <div>
-                            <p className="font-medium text-gray-900">Sync Customers</p>
-                            <p className="text-sm text-gray-500">Create customers in QuickBooks when projects are created</p>
-                          </div>
-                          <input
-                            type="checkbox"
-                            checked={integrationSettings.quickbooks_sync_customers}
-                            onChange={(e) => setIntegrationSettings(prev => ({ ...prev, quickbooks_sync_customers: e.target.checked }))}
-                            className="w-5 h-5 rounded border-gray-300 text-indigo-600"
-                          />
-                        </label>
-                        <label className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                          <div>
-                            <p className="font-medium text-gray-900">Sync Payments</p>
-                            <p className="text-sm text-gray-500">Record payments in QuickBooks when collected</p>
-                          </div>
-                          <input
-                            type="checkbox"
-                            checked={integrationSettings.quickbooks_sync_payments}
-                            onChange={(e) => setIntegrationSettings(prev => ({ ...prev, quickbooks_sync_payments: e.target.checked }))}
-                            className="w-5 h-5 rounded border-gray-300 text-indigo-600"
-                          />
-                        </label>
-                      </div>
-                    </div>
-
-                    <div className="pt-4 border-t">
-                      <button
-                        onClick={saveSettings}
-                        disabled={saving}
-                        className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
-                      >
-                        {saving ? 'Saving...' : 'Save Changes'}
-                      </button>
-                    </div>
-                  </>
-                )}
-              </div>
-
-              <div className="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-100">
-                <h4 className="font-medium text-blue-900 mb-2">How QuickBooks Integration Works</h4>
-                <ul className="text-sm text-blue-700 space-y-1">
-                  <li>• When a project is marked as complete, an invoice is created in QuickBooks</li>
-                  <li>• Customer records are synced to keep both systems in sync</li>
-                  <li>• Payments recorded in ARX CRM are reflected in QuickBooks</li>
-                  <li>• Commission reports can be exported for payroll processing</li>
-                </ul>
-              </div>
             </div>
           )}
 
@@ -3160,7 +3028,7 @@ export default function AdminSettingsPage() {
                           </ol>
                         </div>
                       )}
-                      {(editingIntegration.id === 'quickbooks' || editingIntegration.id === 'xero') && (
+                      {editingIntegration.id === 'xero' && (
                         <div className="p-4 bg-amber-50 rounded-lg border border-amber-100">
                           <p className="text-sm text-amber-800">
                             <strong>Note:</strong> Clicking Connect will redirect you to {editingIntegration.name} to authorize the connection.

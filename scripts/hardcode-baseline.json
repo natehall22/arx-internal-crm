@@ -18,9 +18,6 @@
   "app/admin/goals/GoalsClient.tsx": {
     "timezone": 1
   },
-  "app/admin/integrations/page.tsx": {
-    "brand": 1
-  },
   "app/admin/job-profit-tracker/page.tsx": {
     "brand": 1
   },
@@ -31,7 +28,7 @@
     "brand": 1
   },
   "app/admin/settings/page.tsx": {
-    "brand": 3
+    "brand": 2
   },
   "app/admin/sisu/setter-ramp/SetterRampClient.tsx": {
     "timezone": 1
