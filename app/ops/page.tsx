@@ -11,6 +11,7 @@ import { opsBoardJobsSelectEmbedded } from '@/lib/ops-board-query'
 import { enrichOpsJobsWithPayrollSentAt } from '@/lib/ops-payroll-enrich'
 import { enrichJobsWithCostLedger } from '@/lib/job-cost-ledger'
 import type { OpsBoardJob } from '@/lib/ops-board-types'
+import { attachBoardCatchUps } from '@/lib/job-catch-up-db'
 import {
   enrichOpsJobsWithMeasureSoldSquaresFallback,
   enrichOpsJobsWithSoldSquares,
@@ -38,6 +39,8 @@ export default async function OpsPage() {
   await enrichOpsJobsWithSoldSquares(supabase, profile.org_id, rawJobs)
   await enrichOpsJobsWithMeasureSoldSquaresFallback(supabase, profile.org_id, rawJobs)
   if (ops.canViewJobFinancials) await enrichJobsWithCostLedger(admin, profile.org_id, rawJobs)
+  // Off by default (org setting): when off this is one settings read and the board renders exactly as before.
+  const catchUp = await attachBoardCatchUps(admin, profile.org_id, profile, rawJobs)
   const jobIds = rawJobs.map((j) => j.id)
   const collectedByJob: Record<string, number> = {}
   if (jobIds.length > 0) {
@@ -94,6 +97,7 @@ export default async function OpsPage() {
       initialJobs={transformedJobs as unknown as OpsBoardJob[]}
       orgId={profile.org_id}
       canViewProfitability={ops.canViewJobFinancials}
+      catchUp={catchUp.enabled ? catchUp : undefined}
     />
   )
 }

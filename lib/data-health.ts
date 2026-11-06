@@ -31,6 +31,7 @@ import { isOwnerProfile } from '@/lib/super-admin'
 import { loadEndedPlanPeople, loadPayPlanGaps, type EndedPlanPerson, type PayPlanGap } from '@/lib/comp-plan-defaults-db'
 import { calendarDaySpan } from '@/lib/job-trades'
 import { REQUIRED_FINAL_PHOTO_TAGS, missingRequiredPhotoTags } from '@/lib/final-photo-tags'
+import { selectAll, selectIn } from '@/lib/supabase/paged-select'
 
 /** Paid-in-full tolerance (owner decision #2). */
 export const PAID_TOLERANCE_CENTS = 5
@@ -546,35 +547,6 @@ export function payabilityFromProblems(
 /* ------------------------------------------------------------------------ *
  * Loader
  * ------------------------------------------------------------------------ */
-
-const PAGE = 1000
-const IN_CHUNK = 200
-
-async function selectAll<T>(
-  build: (from: number, to: number) => PromiseLike<{ data: unknown; error: { message: string } | null }>
-): Promise<T[]> {
-  const out: T[] = []
-  for (let from = 0; ; from += PAGE) {
-    const { data, error } = await build(from, from + PAGE - 1)
-    if (error) throw new Error(error.message)
-    const rows = (data as T[] | null) ?? []
-    out.push(...rows)
-    if (rows.length < PAGE) return out
-  }
-}
-
-async function selectIn<T>(
-  ids: string[],
-  build: (chunk: string[]) => PromiseLike<{ data: unknown; error: { message: string } | null }>
-): Promise<T[]> {
-  const out: T[] = []
-  for (let i = 0; i < ids.length; i += IN_CHUNK) {
-    const { data, error } = await build(ids.slice(i, i + IN_CHUNK))
-    if (error) throw new Error(error.message)
-    out.push(...(((data as T[] | null) ?? []) as T[]))
-  }
-  return out
-}
 
 type ContractRow = { opportunity_id: string | null; proposal_id: string | null; project_cost: number | string | null }
 

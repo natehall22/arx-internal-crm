@@ -18,6 +18,7 @@ import {
 } from '@/lib/ops-board-sold-squares'
 import { syncJobSaleAndCommissionBase } from '@/lib/job-commission-base'
 import { resolveProductionJobFinancials } from '@/lib/resolve-production-job-sale-from-project'
+import { attachBoardCatchUps } from '@/lib/job-catch-up-db'
 
 function roundMoney(n: number): number {
   return Math.round((Number(n) || 0) * 100) / 100
@@ -320,6 +321,8 @@ export async function GET(request: Request) {
     await enrichOpsJobsWithSoldSquares(adminClient, profile.org_id, jobList)
     await enrichOpsJobsWithMeasureSoldSquaresFallback(adminClient, profile.org_id, jobList)
     if (canViewJobFinancials) await enrichJobsWithCostLedger(adminClient, profile.org_id, jobList)
+    // The board's refresh asks for catch-up (`?catch_up=1`); attached only when the org has it on. Other callers unchanged.
+    if (searchParams.get('catch_up') === '1') await attachBoardCatchUps(adminClient, profile.org_id, profile, jobList)
     const jobIds = jobList.map((j) => j.id)
     const collectedByJob: Record<string, number> = {}
     if (jobIds.length > 0) {

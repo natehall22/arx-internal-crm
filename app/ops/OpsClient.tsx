@@ -30,6 +30,7 @@ import { Button } from '@/components/ui/button'
 import { StatusPill } from '@/components/ui/badge'
 import { formatDate, formatMoney } from '@/lib/format'
 import { DataTable, type TableFilter, type TableView } from '@/components/ui/data-table'
+import { JobCatchUpLine } from '@/components/ops/JobCatchUp'
 
 /** Paused jobs render in a strip above the board; cancelled ones in a list below it. */
 type BoardColumnStatus = Exclude<JobStatus, 'collected' | 'on_hold' | 'cancelled'>
@@ -38,6 +39,8 @@ interface OpsClientProps {
   initialJobs: OpsBoardJob[]
   orgId: string
   canViewProfitability: boolean
+  /** Job catch-up (org setting). Absent = off: the board renders exactly as before. */
+  catchUp?: { enabled: boolean; stuckDays: number; failed?: boolean }
 }
 
 const priorityConfig: Record<string, { icon: string; color: string }> = {
@@ -60,6 +63,10 @@ const LIST_VIEWS: TableView[] = [
   { id: 'sys:late', name: 'Past due', state: { sorting: [{ id: 'scheduled', desc: false }], search: '', filters: { scheduled: 'late' } } },
   { id: 'sys:hold', name: 'On hold', state: { sorting: [{ id: 'job', desc: false }], search: '', filters: { status: 'on_hold' } } },
 ]
+
+/** Only when catch-up is on: stuck jobs, longest-idle first. */
+const STUCK_VIEW: TableView = { id: 'sys:stuck', name: 'Stuck', state: { sorting: [{ id: 'catchup', desc: true }], search: '', filters: { stuck: 'stuck' } } }
+const LIST_VIEWS_WITH_STUCK: TableView[] = [...LIST_VIEWS, STUCK_VIEW]
 
 function matchesActiveSearch(job: OpsBoardJob, query: string): boolean {
   if (!query) return true
@@ -100,7 +107,8 @@ function formatJobTypeLabel(jobType: string): string {
     .join(' ')
 }
 
-export default function OpsClient({ initialJobs, orgId, canViewProfitability }: OpsClientProps) {
+export default function OpsClient({ initialJobs, orgId, canViewProfitability, catchUp }: OpsClientProps) {
+  const catchUpOn = catchUp?.enabled === true
   const router = useRouter()
   const [jobs, setJobs] = useState<OpsBoardJob[]>(initialJobs)
   const [viewMode, setViewMode] = useState<'board' | 'list'>('board')
@@ -141,7 +149,7 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability }: 
   }, [])
 
   const loadData = useCallback(async () => {
-    const response = await fetch('/api/ops/jobs')
+    const response = await fetch(catchUpOn ? '/api/ops/jobs?catch_up=1' : '/api/ops/jobs')
     if (!response.ok) return
     const { jobs: jobsData } = await response.json()
 
@@ -176,7 +184,7 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability }: 
       } as OpsBoardJob
     })
     setJobs(transformedJobs)
-  }, [])
+  }, [catchUpOn])
 
   // Costs come from the one job cost ledger (`job.job_costs`, attached server-side by
   // enrichJobsWithCostLedger) — never the old production_jobs.labor_cost/material_cost columns.
@@ -238,6 +246,15 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability }: 
       },
       { id: 'value', header: 'Value', accessorFn: (j) => j.sale_amount ?? 0, cell: (c) => (c.getValue() ? formatMoney(Number(c.getValue())) : '—'), meta: { align: 'right' as const } },
     ]
+    if (catchUpOn) {
+      // One line per job (lib/job-catch-up.ts); sorts by days since the last update.
+      cols.splice(1, 0, {
+        id: 'catchup',
+        header: 'Where it stands',
+        accessorFn: (j) => j.catch_up?.ageDays ?? -1,
+        cell: (c) => (c.row.original.catch_up ? <JobCatchUpLine catchUp={c.row.original.catch_up} className="max-w-[22rem]" /> : '—'),
+      })
+    }
     if (canViewProfitability) {
       cols.push({
         id: 'profit',
@@ -259,7 +276,7 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability }: 
     }
     return cols
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canViewProfitability])
+  }, [canViewProfitability, catchUpOn])
 
   const activeJobs = useMemo(
     () => jobs.filter((job) => job.status !== 'collected' && job.status !== CANCELLED_JOB_STATUS),
@@ -307,8 +324,11 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability }: 
       { key: 'type', label: 'Type', options: jobTypeOptions.map((t) => ({ value: t, label: formatJobTypeLabel(t) })), accessor: (j) => j.job_type },
       { key: 'materials', label: 'Materials', options: Object.entries(materialsConfig).map(([value, m]) => ({ value, label: m.label })), accessor: (j) => j.materials_status },
       { key: 'scheduled', label: 'Scheduled', options: [{ value: 'no', label: 'Not scheduled' }, { value: 'yes', label: 'Scheduled' }, { value: 'late', label: 'Past due' }], accessor: (j) => (isJobPastDue(j) ? 'late' : j.scheduled_date ? 'yes' : 'no') },
+      ...(catchUpOn
+        ? [{ key: 'stuck', label: 'Stuck', options: [{ value: 'stuck', label: 'Stuck' }, { value: 'moving', label: 'Moving' }], accessor: (j: OpsBoardJob) => (j.catch_up ? (j.catch_up.stuck ? 'stuck' : 'moving') : null) }]
+        : []),
     ],
-    [jobTypeOptions]
+    [jobTypeOptions, catchUpOn]
   )
 
   const jobsByBoardStatus = useMemo(() => {
@@ -449,6 +469,9 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability }: 
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Production Board</h1>
             <p className="text-gray-500 text-sm">Track each job from sold through payment</p>
+            {catchUp?.failed && (
+              <p role="status" className="mt-1 text-sm text-amber-950">The where-it-stands lines couldn&apos;t load. Refresh to try again.</p>
+            )}
           </div>
           <div className="flex items-center gap-3">
             <Link
@@ -635,7 +658,7 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability }: 
             getRowHref={(j) => `/ops/jobs/${j.id}`}
             searchPlaceholder="Search job number, address, customer or handoff"
             filters={listFilters}
-            systemViews={LIST_VIEWS}
+            systemViews={catchUpOn ? LIST_VIEWS_WITH_STUCK : LIST_VIEWS}
             defaultViewId="sys:all"
             initialSorting={[{ id: 'scheduled', desc: false }]}
             rowActions={(job) => (

@@ -14,6 +14,8 @@ import {
 } from '@/lib/materials-coverage-overrides'
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 import { hasFinancials } from '@/lib/financials-access'
+import { loadJobCatchUpSettings, loadJobCatchUps } from '@/lib/job-catch-up-db'
+import type { JobCatchUpResult } from '@/lib/job-catch-up'
 
 interface PageProps {
   params: { id: string }
@@ -567,8 +569,21 @@ export default async function JobView({ params, embedded = false, initialTab = n
     originalContract?.payment_method ??
     (jobRes.data.financing_program_id ? 'finance' : null)
 
+  // "Where this stands" (org setting, off by default). Paid / waiting on payment only for people who see billing today.
+  let catchUp: JobCatchUpResult | null = null
+  const catchUpSettings = await loadJobCatchUpSettings(admin, profile.org_id)
+  if (catchUpSettings.enabled) {
+    try {
+      const byJob = await loadJobCatchUps(admin, profile.org_id, profile, [jobRes.data.id], { stuckDays: catchUpSettings.stuckDays, showPayment: canViewJobBilling })
+      catchUp = byJob.get(jobRes.data.id) ?? null
+    } catch (error) {
+      console.error('[job-catch-up] job page load failed', error)
+    }
+  }
+
   return (
     <JobDetailClient
+      catchUp={catchUp}
       embedded={embedded}
       v2={(profile as { ui_prefs?: { jobPageV2?: unknown } | null }).ui_prefs?.jobPageV2 === true}
       initialTab={initialTab}

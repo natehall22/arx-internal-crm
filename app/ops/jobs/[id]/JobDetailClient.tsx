@@ -27,6 +27,8 @@ import JobTabsBar from '@/components/job/JobTabsBar'
 import JobRunSheetRow from '@/components/job/JobRunSheetRow'
 import JobQuickLinks from '@/components/job/JobQuickLinks'
 import { deriveMaterialsState, type MaterialsState } from '@/lib/job-materials-state'
+import { JobCatchUpBox } from '@/components/ops/JobCatchUp'
+import type { JobCatchUpResult } from '@/lib/job-catch-up'
 import { isJobTab, pickDefaultJobTab, tabsNeedingAttention, type JobTab } from '@/lib/job-tabs'
 import JobReadyToPayBanner from '@/components/ops/JobReadyToPayBanner'
 import JobPayrollSentBanner from '@/components/ops/JobPayrollSentBanner'
@@ -379,6 +381,8 @@ interface JobDetailClientProps {
   initialTab?: string | null
   /** The Customer File thread, used as the Notes tab on a phone. */
   notesSlot?: React.ReactNode
+  /** "Where this stands" (lib/job-catch-up.ts). Null/absent = the org has it off: nothing renders. */
+  catchUp?: JobCatchUpResult | null
 }
 
 /** Old six-tab keys -> the five job tabs, so every "jump to X" in this file works on both pages. */
@@ -606,6 +610,7 @@ export default function JobDetailClient({
   v2 = false,
   initialTab = null,
   notesSlot,
+  catchUp = null,
 }: JobDetailClientProps) {
   const router = useRouter()
   const [job, setJob] = useState<Job>(initialJob)
@@ -1971,6 +1976,9 @@ export default function JobDetailClient({
             </div>
           </div>
         )}
+
+        {/* Both job bodies: the catch-up box sits at the top, above the customer row. */}
+        {catchUp && <JobCatchUpBox catchUp={catchUp} />}
 
         {v2 ? (
           <JobCustomerRow jobId={job.id} customer={job.customer ?? null} />
