@@ -21,6 +21,7 @@ import {
   type CatchUpTrade,
   type JobCatchUpResult,
 } from '@/lib/job-catch-up'
+import { loadOrgTrades, tradeLabel } from '@/lib/org-trades'
 import { fetchSupabaseAllPages, selectIn } from '@/lib/supabase-fetch-all-pages'
 import { effectiveOrigin } from '@/lib/threads/get-thread'
 import { visibleActivities } from '@/lib/threads/legacy-feed'
@@ -158,7 +159,7 @@ export async function loadJobCatchUps(
   const ownerIds = Array.from(new Set(jobs.map((j) => j.owner_user_id).filter((v): v is string => !!v)))
 
   // Crews, payments and signed change orders come back from data health — read once, not twice.
-  const [health, projects, supplierOrders, photos, owners] = await Promise.all([
+  const [health, projects, supplierOrders, photos, owners, orgTrades] = await Promise.all([
     loadDataHealthWithRows(admin, orgId, { jobIds: jobIdsFound, includeAppointments: false, now }),
     selectIn<{ id: string; opportunity_id: string | null }>(projectIds, (chunk) => admin.from('projects').select('id, opportunity_id').eq('org_id', orgId).in('id', chunk)),
     selectIn<{ job_id: string; status: string; last_sent_at: string | null; received_at: string | null }>(jobIdsFound, (chunk) =>
@@ -168,6 +169,7 @@ export async function loadJobCatchUps(
       admin.from('photos').select('job_id, created_at').eq('org_id', orgId).is('deleted_at', null).gte('created_at', sinceIso).in('job_id', chunk)
     ),
     selectIn<{ id: string; full_name: string | null }>(ownerIds, (chunk) => admin.from('users').select('id, full_name').eq('org_id', orgId).in('id', chunk)),
+    loadOrgTrades(admin, orgId),
   ])
   const ownerName = new Map(owners.map((u) => [u.id, u.full_name]))
 
@@ -225,6 +227,7 @@ export async function loadJobCatchUps(
     const dealId = job.project_id ? oppByProject.get(job.project_id) ?? null : null
     const jobTrades: CatchUpTrade[] = (tradesByJob.get(job.id) ?? []).map((t) => ({
       trade: t.trade,
+      label: tradeLabel(t.trade, orgTrades),
       status: t.status,
       scheduled_date: t.scheduled_date,
       install_days: t.install_days,

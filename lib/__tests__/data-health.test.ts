@@ -178,6 +178,13 @@ describe('evaluateJobHealth', () => {
         const t = [{ status: 'scheduled', trade: 'roofing', scheduled_date: '2026-10-20', install_days: 1 }]
         expect(codes(input({ paidCents: 0, job: j('scheduled'), trades: t }))).toContain('crew_past_due')
       })
+      it("names the crew with the company's trade label", () => {
+        const t = [{ status: 'scheduled', trade: 'solar_rr', scheduled_date: '2026-10-20', install_days: 1 }]
+        const msg = (orgTrades?: Array<{ slug: string; label: string }>) =>
+          evaluateJobHealth(input({ paidCents: 0, job: j('scheduled'), trades: t, orgTrades })).find((p) => p.code === 'crew_past_due')?.message
+        expect(msg([{ slug: 'solar_rr', label: 'Solar panel R&R' }])).toMatch(/^Solar panel R&R crew was due/)
+        expect(msg()).toMatch(/^Solar rr crew was due/)
+      })
       it('today and tomorrow are not past due; a 2-day crew is due through its second day', () => {
         const today = input({ paidCents: 0, job: j('scheduled'), trades: [{ status: 'scheduled', trade: 'roofing', scheduled_date: '2026-10-21', install_days: 1 }] })
         expect(codes(today)).not.toContain('crew_past_due')

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
+import { loadOrgTrades, tradeOptions } from '@/lib/org-trades'
 
 export const dynamic = 'force-dynamic'
 
@@ -98,10 +99,14 @@ export async function GET() {
       console.error('Subs API: could not resolve install scheduling account', e)
     }
 
+    // The Services choices are the company's trades (Settings → Job setup), so a sub's services match its crews.
+    const trades = tradeOptions(await loadOrgTrades(supabase, profile.org_id))
+
     return NextResponse.json({
       subs: subs || [],
       orgId: profile.org_id,
       installSchedulingEmail,
+      trades,
     })
   } catch (error) {
     console.error('Subs API error:', error)

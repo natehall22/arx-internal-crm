@@ -10,6 +10,7 @@ import { DataTable, type TableFilter, type TableView } from '@/components/ui/dat
 import { toast } from '@/components/ui/toast'
 import { confirmDialog } from '@/components/ui/confirm-dialog'
 import PhoneLink from '@/components/PhoneLink'
+import { DEFAULT_ORG_TRADES, serviceIsTrade, tradeOptions, type OrgTradeOption } from '@/lib/org-trades'
 
 interface SubContractor {
   id: string
@@ -115,20 +116,11 @@ export default function SubContractorsPage() {
     portal_access_enabled: false,
   })
 
-  const serviceOptions = [
-    'Roofing',
-    'Siding',
-    'Gutters',
-    'Windows',
-    'Doors',
-    'Painting',
-    'Drywall',
-    'Electrical',
-    'Plumbing',
-    'HVAC',
-    'Flooring',
-    'General Labor',
-  ]
+  // Services = the company's active trades (from /api/admin/subs). Values saved before (e.g. "Doors") stay on the sub and
+  // show as extra chips so they can still be seen and removed.
+  const [trades, setTrades] = useState<OrgTradeOption[]>(() => tradeOptions(DEFAULT_ORG_TRADES.map((t) => ({ ...t }))))
+  const serviceTrades = trades.filter((t) => t.active)
+  const otherServices = formData.services.filter((v) => !serviceTrades.some((t) => serviceIsTrade(v, t)))
 
   useEffect(() => {
     loadSubs()
@@ -172,6 +164,7 @@ export default function SubContractorsPage() {
       
       const data = await response.json()
       setSubs(data.subs || [])
+      if (Array.isArray(data.trades) && data.trades.length > 0) setTrades(data.trades)
       setInstallSchedulingEmail(
         typeof data.installSchedulingEmail === 'string' ? data.installSchedulingEmail : null
       )
@@ -225,13 +218,17 @@ export default function SubContractorsPage() {
     setShowModal(true)
   }
 
-  const toggleService = (service: string) => {
+  const toggleTradeService = (trade: OrgTradeOption) => {
     setFormData(prev => ({
       ...prev,
-      services: prev.services.includes(service)
-        ? prev.services.filter(s => s !== service)
-        : [...prev.services, service],
+      services: prev.services.some(v => serviceIsTrade(v, trade))
+        ? prev.services.filter(v => !serviceIsTrade(v, trade))
+        : [...prev.services, trade.label],
     }))
+  }
+
+  const removeService = (service: string) => {
+    setFormData(prev => ({ ...prev, services: prev.services.filter(v => v !== service) }))
   }
 
   const saveSub = async () => {
@@ -584,18 +581,29 @@ export default function SubContractorsPage() {
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Services</label>
                   <div className="flex flex-wrap gap-2">
-                    {serviceOptions.map(service => (
+                    {serviceTrades.map(trade => (
                       <button
-                        key={service}
+                        key={trade.slug}
                         type="button"
-                        onClick={() => toggleService(service)}
+                        onClick={() => toggleTradeService(trade)}
                         className={`px-3 py-1.5 rounded-lg text-sm ${
-                          formData.services.includes(service)
+                          formData.services.some(v => serviceIsTrade(v, trade))
                             ? 'bg-indigo-600 text-white'
                             : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                         }`}
                       >
-                        {service}
+                        {trade.label}
+                      </button>
+                    ))}
+                    {otherServices.map(service => (
+                      <button
+                        key={`other-${service}`}
+                        type="button"
+                        onClick={() => removeService(service)}
+                        title="Saved earlier — not one of your trades. Tap to remove."
+                        className="px-3 py-1.5 rounded-lg text-sm bg-indigo-600 text-white"
+                      >
+                        {service} ✕
                       </button>
                     ))}
                   </div>

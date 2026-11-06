@@ -18,6 +18,7 @@ import {
   readJobCatchUpSettings,
 } from '@/lib/job-catch-up-settings'
 import { deriveMaterialsState } from '@/lib/job-materials-state'
+import { tradeLabel } from '@/lib/org-trades'
 import type { HealthProblem } from '@/lib/data-health'
 import { workingDaysBetweenDateOnly } from '@/lib/schedule-window'
 
@@ -26,7 +27,10 @@ const NOW = new Date('2026-11-06T15:00:00Z')
 const TODAY = '2026-11-06'
 
 const materials = (stored: string) => deriveMaterialsState({ stored })
-const trade = (over: Partial<CatchUpTrade> = {}): CatchUpTrade => ({ trade: 'roofing', status: 'scheduled', scheduled_date: '2026-11-12', install_days: 1, sub_name: 'Ridgeline Roofing LLC', ...over })
+const trade = (over: Partial<CatchUpTrade> = {}): CatchUpTrade => {
+  const t = { trade: 'roofing', status: 'scheduled', scheduled_date: '2026-11-12', install_days: 1, sub_name: 'Ridgeline Roofing LLC', ...over }
+  return { ...t, label: over.label ?? tradeLabel(t.trade) }
+}
 const note = (over: Partial<CatchUpNote> = {}): CatchUpNote => ({ id: 'n1', at: '2026-11-04T14:00:00Z', who: 'Steve Potts', type: 'note', text: 'Called the county, permit should clear Monday.', from: 'person', ...over })
 const problem = (code: HealthProblem['code'], message: string): HealthProblem => ({ code, area: 'ops', message, fixLabel: 'Open job', fixHref: '/ops/jobs/j1', blocksPay: false })
 

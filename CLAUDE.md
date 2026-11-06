@@ -217,8 +217,8 @@ Built on the single send door in `lib/suppliers/send-order.ts`; **OFF by default
 ## Install Scheduling — crews per trade (2026-09-15)
 A job's crews are **trades**: one `work_orders` row per trade (`trade` = a slug from the company's own
 list, `org_trades` — read ONLY via `loadOrgTrades` in `lib/org-trades.ts`, falling back to `DEFAULT_ORG_TRADES`
-until migration 202611060020 is applied; composite FK `(org_id, trade)`; slugs never change, trades are turned
-off not deleted; owners edit it at Settings → Job setup; client components get the list from the server response),
+until migration 202611060030 is applied; composite FK `(org_id, trade)`; slugs never change, trades are turned
+off not deleted; owners edit it at Settings → Job setup; client components get the list from the server response; every trade label — catch-up, data health, crews — comes from `tradeLabel(slug, orgTrades)`, never a local map; sub Services choices are the org's active trade labels and match a crew via `subServicesMatchTrade` (slug OR label, case/space/underscore-insensitive; older free-text values like "Doors" stay on the sub)),
 `work_order_type='install'`, each with its own sub, date, length
 (`install_days` ½ | 1 | 1½ | 2, ops-selected), Google invite, and crew photo link. Pure helpers
 in `lib/job-trades.ts` (client-safe), DB in `lib/job-trades-db.ts`.

@@ -13,6 +13,9 @@ import {
   isAddableTrade,
   loadOrgTrades,
   loadOrgTradesWithSource,
+  normTradeText,
+  serviceIsTrade,
+  subServicesMatchTrade,
   primaryTradeForJobType,
   slugForNewTrade,
   sortTrades,
@@ -96,7 +99,7 @@ describe('standard list = the old constants (golden)', () => {
 
 describe('migration seed = DEFAULT_ORG_TRADES', () => {
   it('seeds exactly the standard list (slug, label, sort, active, keywords)', () => {
-    const sql = readFileSync(path.join(process.cwd(), 'supabase/migrations/202611060020_org_trades.sql'), 'utf8')
+    const sql = readFileSync(path.join(process.cwd(), 'supabase/migrations/202611060030_org_trades.sql'), 'utf8')
     const rows = Array.from(sql.matchAll(/\(p_org_id, '([a-z_]+)',\s*'([^']+)',\s*(\d+), (TRUE|FALSE), (NULL|ARRAY\[[^\]]*\])\)/g)).map((m) => ({
       slug: m[1],
       label: m[2],
@@ -160,8 +163,40 @@ describe('loadOrgTrades', () => {
 
   it('falls back to the standard list when the table is missing or the org has no rows', async () => {
     const missing = { from: () => ({ select: () => ({ eq: async () => ({ data: null, error: { code: '42P01', message: 'relation "org_trades" does not exist' } }) }) }) }
-    expect(await loadOrgTradesWithSource(missing as never, 'org-1')).toEqual({ trades: DEFAULT_ORG_TRADES.map((t) => ({ ...t })), source: 'default' })
+    expect(await loadOrgTradesWithSource(missing as never, 'org-1')).toEqual({ trades: DEFAULT_ORG_TRADES.map((t) => ({ ...t })), source: 'default', tableExists: false })
     const empty = createFakeDb({ org_trades: [] })
-    expect((await loadOrgTradesWithSource(empty.client, 'org-1')).source).toBe('default')
+    // Zero rows: the standard list, but the table is there — Settings can edit it (the first save seeds it).
+    expect(await loadOrgTradesWithSource(empty.client, 'org-1')).toMatchObject({ source: 'default', tableExists: true })
+  })
+})
+
+describe('sub services ↔ trades', () => {
+  it('normalizes case, spaces, underscores and dashes', () => {
+    expect(normTradeText(' General_Labor ')).toBe('general labor')
+    expect(normTradeText('solar-panel  removal')).toBe('solar panel removal')
+  })
+
+  it('a stored value is the trade by slug or label', () => {
+    const solar = { slug: 'solar_removal', label: 'Solar panel R&R' }
+    expect(serviceIsTrade('Solar Removal', solar)).toBe(true)
+    expect(serviceIsTrade('solar panel r&r', solar)).toBe(true)
+    expect(serviceIsTrade('Solar', solar)).toBe(false)
+    expect(serviceIsTrade('', solar)).toBe(false)
+  })
+
+  it('matches subs to a trade the way the schedule modal always did, plus the company label', () => {
+    const gutters = { slug: 'gutters', label: 'Gutters' }
+    expect(subServicesMatchTrade(['Gutter'], gutters)).toBe(true)
+    expect(subServicesMatchTrade(['Seamless gutters'], gutters)).toBe(true)
+    expect(subServicesMatchTrade(['Roofing'], gutters)).toBe(false)
+    expect(subServicesMatchTrade([], gutters)).toBe(true)
+    expect(subServicesMatchTrade(null, gutters)).toBe(true)
+    // Old free-text values stay valid on existing subs; they just don't match a different trade.
+    expect(subServicesMatchTrade(['Doors', 'General Labor', 'Electrical'], gutters)).toBe(false)
+    expect(subServicesMatchTrade(['Doors'], { slug: 'other', label: 'Other' })).toBe(true)
+    // Renamed / custom trade: the label counts, and so does the slug, ignoring underscores.
+    expect(subServicesMatchTrade(['Exterior cladding'], { slug: 'siding', label: 'Exterior cladding' })).toBe(true)
+    expect(subServicesMatchTrade(['Siding'], { slug: 'siding', label: 'Exterior cladding' })).toBe(true)
+    expect(subServicesMatchTrade(['solar removal'], { slug: 'solar_removal', label: 'Solar R&R' })).toBe(true)
   })
 })

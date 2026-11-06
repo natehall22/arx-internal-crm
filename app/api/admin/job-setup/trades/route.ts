@@ -17,12 +17,15 @@ async function superAdmin() {
   }
 }
 
-/** GET — the company's trades (owners only). `editable: false` until migration 202611060020 is applied. */
+/**
+ * GET — the company's trades (owners only). `editable: false` only until migration 202611060030 is applied (or when the
+ * table can't be read); a company with zero rows is editable — its first save seeds the standard list.
+ */
 export async function GET() {
   const profile = await superAdmin()
   if (!profile) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-  const { trades, source } = await loadOrgTradesWithSource(createServiceClient(), profile.org_id)
-  return NextResponse.json({ trades, editable: source === 'table' })
+  const { trades, tableExists } = await loadOrgTradesWithSource(createServiceClient(), profile.org_id)
+  return NextResponse.json({ trades, editable: tableExists })
 }
 
 /**

@@ -3,7 +3,7 @@
 import { useState } from 'react'
 
 import { INSTALL_DAY_OPTIONS, formatInstallDays, type InstallDays } from '@/lib/job-trades'
-import type { Trade } from '@/lib/org-trades'
+import { subServicesMatchTrade, type Trade } from '@/lib/org-trades'
 import { toast } from '@/components/ui/toast'
 
 /** One trade (crew) of a job, as the modal needs it. */
@@ -30,22 +30,6 @@ interface Props {
   subs: SubContractor[]
   onClose: () => void
   onSave: () => void
-}
-
-/** Match admin-entered service labels (e.g. "Gutter", "Gutters") to a trade/job type slug (e.g. gutters). */
-export function subServicesMatchJobType(services: string[] | null | undefined, jobType: string): boolean {
-  if (!services || services.length === 0) return true
-  const j = jobType.toLowerCase().trim()
-  if (!j || j === 'mixed' || j === 'other') return true
-
-  const variants: string[] = [j]
-  const jAlt = j.endsWith('s') && j.length > 2 ? j.slice(0, -1) : `${j}s`
-  if (!variants.includes(jAlt)) variants.push(jAlt)
-
-  return services.some((raw) => {
-    const low = raw.trim().toLowerCase()
-    return Boolean(low) && variants.some((v) => v && low.includes(v))
-  })
 }
 
 const HALF_DAY_STARTS: { value: string; label: string }[] = [
@@ -81,7 +65,7 @@ export default function ScheduleJobModal({ trade, jobLabel, subs, onClose, onSav
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const matchingSubs = subs.filter((sub) => subServicesMatchJobType(sub.services, trade.trade))
+  const matchingSubs = subs.filter((sub) => subServicesMatchTrade(sub.services, { slug: trade.trade, label: trade.label }))
   const visibleSubs = showAllSubs ? subs : matchingSubs
   const hiddenCount = subs.length - matchingSubs.length
 

@@ -67,7 +67,7 @@ export async function saveOrgTradeChange(
   const bySlug = new Map(trades.map((t) => [t.slug, t]))
   const findTrade = (slug: unknown) => (typeof slug === 'string' ? bySlug.get(slug) ?? null : null)
 
-  let error: { message?: string } | null = null
+  let error: { message?: string; code?: string } | null = null
   switch (change.action) {
     case 'add': {
       const label = cleanTradeLabel(change.label)
@@ -106,20 +106,26 @@ export async function saveOrgTradeChange(
         new Set(order).size === order.length &&
         order.every((slug) => bySlug.has(slug as string))
       if (!same) return fail(400, 'The list changed — reload and try again')
-      // One statement, so a reorder is all or nothing.
-      ;({ error } = await client.from('org_trades').upsert(
-        (order as string[]).map((slug, i) => {
-          const t = bySlug.get(slug)!
-          return { org_id: orgId, slug, label: t.label, active: t.active, match_keywords: t.matchKeywords, sort: (i + 1) * 10, updated_by: userId }
-        }),
-        { onConflict: 'org_id,slug' }
-      ))
+      // `sort` only, and only the rows that moved — label/active are never rewritten from this (possibly stale) read.
+      // Not one transaction: a failed write leaves a partly-moved order (display only); a retry finishes it.
+      const moves = (order as string[])
+        .map((slug, i) => ({ slug, sort: (i + 1) * 10 }))
+        .filter((m) => bySlug.get(m.slug)!.sort !== m.sort)
+      const results = await Promise.all(
+        moves.map((m) => client.from('org_trades').update({ sort: m.sort, updated_by: userId }).eq('org_id', orgId).eq('slug', m.slug))
+      )
+      error = results.find((r) => r.error)?.error ?? null
       break
     }
     default:
       return fail(400, 'Unknown change')
   }
   if (error) {
+    // Unique (org_id, slug): someone else added the same trade a moment ago.
+    if (error.code === '23505') {
+      forgetOrgTrades(client, orgId)
+      return fail(409, 'That trade was just added by someone else — reload to see it')
+    }
     console.error('[org-trades-admin] write failed', error)
     return fail(500, 'Could not save')
   }

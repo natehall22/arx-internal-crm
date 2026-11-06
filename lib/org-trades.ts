@@ -1,7 +1,7 @@
 /**
  * Each company's own trades list — the crews a job can need (roofing, gutters, siding, …).
  *
- * ONE source: the `org_trades` table (migration 202611060020), read through {@link loadOrgTrades}.
+ * ONE source: the `org_trades` table (migration 202611060030), read through {@link loadOrgTrades}.
  * {@link DEFAULT_ORG_TRADES} is what every company is seeded with and what the app falls back to
  * while the table is missing or empty for an org — it is not a second list to edit.
  *
@@ -33,7 +33,7 @@ export type OrgTrade = {
 export type OrgTradeOption = Pick<OrgTrade, 'slug' | 'label' | 'active'>
 
 /**
- * Seed for every company (migration 202611060020 inserts exactly these — a test keeps them equal).
+ * Seed for every company (migration 202611060030 inserts exactly these — a test keeps them equal).
  * Detection is deliberately conservative: a missed trade is one "+ Add trade" click; a wrong one books a
  * crew nobody needs. Fascia/soffit are NOT matched — the roofer, the gutter crew or the siding crew does
  * them depending on the job, so ops decides.
@@ -157,6 +157,41 @@ export function cleanTradeLabel(value: unknown): string | null {
 }
 
 /* ------------------------------------------------------------------------ *
+ * Sub services (sub_contractors.services is free text: today's values, old values like "Doors" stay valid)
+ * ------------------------------------------------------------------------ */
+
+/** "General_Labor", " general  labor " → "general labor" (case, spaces, underscores and dashes ignored). */
+export function normTradeText(value: string | null | undefined): string {
+  return String(value ?? '').toLowerCase().replace(/[\s_-]+/g, ' ').trim()
+}
+
+/** Is this stored service value the given trade (its slug or its label)? */
+export function serviceIsTrade(service: string, trade: Pick<OrgTrade, 'slug' | 'label'>): boolean {
+  const s = normTradeText(service)
+  return Boolean(s) && (s === normTradeText(trade.slug) || s === normTradeText(trade.label))
+}
+
+/**
+ * Can a sub with these services work this trade? No services = any trade; `other` / `mixed` = any sub.
+ * Matches the trade's slug OR label, singular or plural, inside the stored text ("Gutter" → gutters).
+ */
+export function subServicesMatchTrade(services: readonly string[] | null | undefined, trade: Pick<OrgTrade, 'slug' | 'label'>): boolean {
+  if (!services || services.length === 0) return true
+  const slug = normTradeText(trade.slug)
+  if (!slug || slug === MIXED_JOB_TYPE || slug === 'other') return true
+  const variants = new Set<string>()
+  for (const v of [slug, normTradeText(trade.label)]) {
+    if (!v) continue
+    variants.add(v)
+    variants.add(v.endsWith('s') && v.length > 2 ? v.slice(0, -1) : `${v}s`)
+  }
+  return services.some((raw) => {
+    const low = normTradeText(raw)
+    return Boolean(low) && Array.from(variants).some((v) => low.includes(v))
+  })
+}
+
+/* ------------------------------------------------------------------------ *
  * Loading (server)
  * ------------------------------------------------------------------------ */
 
@@ -181,13 +216,17 @@ export function isMissingTableError(error: { code?: string; message?: string } |
   return error.code === '42P01' || error.code === 'PGRST205' || (/org_trades/.test(msg) && /does not exist|could not find/i.test(msg))
 }
 
-export type OrgTradesLoad = { trades: OrgTrade[]; source: 'table' | 'default' }
+/**
+ * `source` = where the list came from ('table' = the company's rows). `tableExists` is separate: a company with zero rows
+ * (created before the seed trigger) reads the default list but CAN be edited — the first save seeds it.
+ */
+export type OrgTradesLoad = { trades: OrgTrade[]; source: 'table' | 'default'; tableExists: boolean }
 
 /** Per client instance (one service client per request), per org. */
 const cache = new WeakMap<object, Map<string, Promise<OrgTradesLoad>>>()
 
 async function fetchOrgTrades(client: SupabaseClient, orgId: string): Promise<OrgTradesLoad> {
-  const fallback: OrgTradesLoad = { trades: DEFAULT_ORG_TRADES.map((t) => ({ ...t })), source: 'default' }
+  const fallback: OrgTradesLoad = { trades: DEFAULT_ORG_TRADES.map((t) => ({ ...t })), source: 'default', tableExists: false }
   try {
     const { data, error } = await client.from('org_trades').select(ORG_TRADE_COLUMNS).eq('org_id', orgId)
     if (error) {
@@ -195,7 +234,7 @@ async function fetchOrgTrades(client: SupabaseClient, orgId: string): Promise<Or
       return fallback
     }
     const rows = ((data ?? []) as OrgTradeDbRow[]).map(orgTradeFromRow)
-    return rows.length > 0 ? { trades: orderedTrades(rows), source: 'table' } : fallback
+    return rows.length > 0 ? { trades: orderedTrades(rows), source: 'table', tableExists: true } : { ...fallback, tableExists: true }
   } catch (e) {
     console.error('[org-trades] load threw — using the default list', e)
     return fallback

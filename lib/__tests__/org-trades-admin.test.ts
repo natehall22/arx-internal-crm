@@ -47,11 +47,25 @@ describe('saveOrgTradeChange', () => {
     expect(db.tables.org_trades.filter((t) => t.org_id === 'org-1').map((t) => t.slug)).toEqual(DEFAULT_ORG_TRADES.map((t) => t.slug))
   })
 
-  it('reorders in one write and refuses a stale order', async () => {
+  it('reorders by writing only `sort` on the rows that moved, and refuses a stale order', async () => {
     const order = ['gutters', 'roofing', 'siding', 'windows', 'other']
-    const r = await saveOrgTradeChange(db.client, 'org-1', 'u1', { action: 'reorder', order })
+    // Someone renamed a trade after this owner's page loaded: the reorder must not put the old name back.
+    const r0 = await saveOrgTradeChange(db.client, 'org-1', 'u1', { action: 'rename', slug: 'siding', label: 'Cladding' })
+    expect(r0.ok).toBe(true)
+    db.writes.length = 0
+    const patches: Array<Record<string, unknown>> = []
+    const real = db.client as unknown as { from: (t: string) => Record<string, (...a: unknown[]) => unknown> }
+    const spy = {
+      from: (t: string) => {
+        const b = real.from(t)
+        return { ...b, update: (p: Record<string, unknown>) => (patches.push(p), b.update(p)) }
+      },
+    }
+    const r = await saveOrgTradeChange(spy as never, 'org-1', 'u1', { action: 'reorder', order })
     expect(r.ok && r.trades.map((t) => t.slug)).toEqual(order)
-    expect(db.writes.filter((w) => w.table === 'org_trades' && w.op !== 'insert')).toHaveLength(1)
+    expect(db.writes.filter((w) => w.table === 'org_trades').map((w) => w.op)).toEqual(['update', 'update'])
+    expect(patches.map((p) => Object.keys(p).sort())).toEqual([['sort', 'updated_by'], ['sort', 'updated_by']])
+    expect(r.ok && r.trades.find((t) => t.slug === 'siding')?.label).toBe('Cladding')
     expect(await saveOrgTradeChange(db.client, 'org-1', 'u1', { action: 'reorder', order: ['roofing'] })).toMatchObject({ ok: false, status: 400 })
   })
 
@@ -65,6 +79,19 @@ describe('saveOrgTradeChange', () => {
     expect(await saveOrgTradeChange(db.client, 'org-2', 'u1', { action: 'rename', slug: 'siding', label: 'X' })).toMatchObject({ ok: false, status: 404 })
     await saveOrgTradeChange(db.client, 'org-1', 'u1', { action: 'rename', slug: 'roofing', label: 'Roofs' })
     expect(db.tables.org_trades.find((t) => t.org_id === 'org-2')?.label).toBe('Roofing')
+  })
+
+  it('a duplicate the database refuses (unique org_id + slug, 23505) is a 409 with a clear message', async () => {
+    const real = db.client as unknown as { from: (t: string) => Record<string, unknown> }
+    const racing = {
+      from: (t: string) => {
+        const b = real.from(t)
+        return { ...b, insert: async () => ({ data: null, error: { code: '23505', message: 'duplicate key value violates unique constraint "org_trades_org_slug_key"' } }) }
+      },
+    }
+    const r = await saveOrgTradeChange(racing as never, 'org-1', 'u1', { action: 'add', label: 'Solar' })
+    expect(r).toMatchObject({ ok: false, status: 409 })
+    expect(!r.ok && r.error).toMatch(/just added by someone else/)
   })
 
   it('says the page is not ready (503) until the migration is applied', async () => {
@@ -90,6 +117,17 @@ describe('/api/admin/job-setup/trades', () => {
     profile = null
     expect((await GET()).status).toBe(403)
     expect(db.tables.org_trades).toHaveLength(6)
+  })
+
+  it('a company with no rows yet is editable (the first save seeds the standard list)', async () => {
+    const { GET } = await import('@/app/api/admin/job-setup/trades/route')
+    db = createFakeDb({ org_trades: [] })
+    profile = { id: 'u1', org_id: 'org-1', role: 'admin', is_super_admin: true, active: true }
+    const got = await (await GET()).json()
+    expect(got.editable).toBe(true)
+    expect(got.trades.map((t: { slug: string }) => t.slug)).toEqual(DEFAULT_ORG_TRADES.map((t) => t.slug))
+    expect((await post({ action: 'add', label: 'Solar' })).status).toBe(200)
+    expect(db.tables.org_trades.map((t) => t.slug)).toEqual([...DEFAULT_ORG_TRADES.map((t) => t.slug), 'solar'])
   })
 
   it('a super admin reads and writes their own org', async () => {
