@@ -7,8 +7,9 @@ import {
 } from '@/lib/admin-email-blasts'
 import { fetchMorningUpdateMetrics, type MorningUpdateMetrics } from '@/lib/morning-update-metrics'
 import { loadDataHealth, needsYouForEmailRecipient, shapeNeedsYou, type DataHealthReport } from '@/lib/data-health'
-import { loadCrewWeekQueue, loadOpsQueues, loadOwnerExceptions, type Queue } from '@/lib/today'
+import { loadCrewWeekQueue, loadOpsQueues, loadOwnerExceptions, loadStormHitsQueue, type Queue } from '@/lib/today'
 import { resolveAppUrl } from '@/lib/job-trades'
+import { formatPhone, telHref } from '@/lib/format'
 import { getCrmEmailFrom, getMailTransport } from '@/lib/setter-email'
 
 function escapeHtml(s: string): string {
@@ -137,6 +138,8 @@ export function buildNeedsYouHtml(report: DataHealthReport, appUrl?: string | nu
 
 /** Queue rows listed per queue before "and N more" (the Today screen has them all). */
 const TODAY_EMAIL_ROWS = 8
+/** Storm hits are a call list that is not on the Today screen, so the email lists them all (up to this). */
+const STORM_EMAIL_ROWS = 40
 
 /**
  * The "Today" queues for one focus — the same queue definitions as the Today screen (lib/today.ts), one load per focus,
@@ -153,11 +156,24 @@ export async function loadMorningTodayQueues(
     const [crews, ops] = await Promise.all([loadCrewWeekQueue(supabase, orgId, now), loadOpsQueues(supabase, orgId)])
     return [crews, ...ops.filter((q) => q.id === 'jobs-to-schedule')]
   }
-  const owner = await loadOwnerExceptions(supabase, orgId, now, { money: false })
-  return owner.filter((q) => q.id !== 'no-outcome')
+  // Storm hits lead: they are the most time-sensitive, and only this version carries them (ops don't need them).
+  // A storm lookup failure drops only the storm list (and says so), never the rest of Today.
+  let stormFailed = false
+  const [storm, owner] = await Promise.all([
+    loadStormHitsQueue(supabase, orgId, now, STORM_EMAIL_ROWS).catch((error): Queue => {
+      console.error('morning update: storm hits failed', error)
+      stormFailed = true
+      return { id: 'storm-hits', title: 'Storm hits on open deals', count: 0, empty: 'Storm hits couldn’t load today.', items: [] }
+    }),
+    loadOwnerExceptions(supabase, orgId, now, { money: false }),
+  ])
+  return [...(storm.count > 0 || stormFailed ? [storm] : []), ...owner.filter((q) => q.id !== 'no-outcome')]
 }
 
-/** "Today" block: what to act on this morning. Job/proposal numbers and plain facts only — no customer details. */
+/**
+ * "Today" block: what to act on this morning. Job/proposal numbers and plain facts — no customer details, except the
+ * storm-hits call list (name + tap-to-call), which only the "Everything" version loads.
+ */
 export function buildTodayHtml(queues: Queue[] | null, appUrl?: string | null): string {
   const base = resolveAppUrl(appUrl)
   const heading = '<h2 style="margin: 24px 0 6px; color: #111827; font-size: 18px;">Today</h2>'
@@ -173,15 +189,27 @@ export function buildTodayHtml(queues: Queue[] | null, appUrl?: string | null): 
       if (q.count === 0) {
         return `<h3 style="margin: 14px 0 4px; color: #111827; font-size: 15px;">${escapeHtml(q.title)}</h3><p style="margin: 0; color: #2c2c2a; font-size: 14px;">${escapeHtml(q.empty)}</p>`
       }
+      const cap = q.id === 'storm-hits' ? STORM_EMAIL_ROWS : TODAY_EMAIL_ROWS
       const rows = q.items
-        .slice(0, TODAY_EMAIL_ROWS)
+        .slice(0, cap)
         .map((i) => {
           const note = i.note ? ` — ${escapeHtml(i.note)}` : ''
-          return `<li style="margin: 3px 0; color: #2c2c2a; font-size: 14px;"><a href="${escapeHtml(base + i.href)}" style="color: #2b0a3d; font-weight: 600;">${escapeHtml(i.ref)}</a>${note}</li>`
+          const tel = telHref(i.phone)
+          const call = tel
+            ? ` · <a href="${escapeHtml(tel)}" style="color: #2b0a3d; font-weight: 600; white-space: nowrap;">${escapeHtml(formatPhone(i.phone))}</a>`
+            : i.phone
+              ? ` · ${escapeHtml(i.phone)}`
+              : ''
+          return `<li style="margin: 3px 0; color: #2c2c2a; font-size: 14px;"><a href="${escapeHtml(base + i.href)}" style="color: #2b0a3d; font-weight: 600;">${escapeHtml(i.ref)}</a>${note}${call}</li>`
         })
         .join('')
-      const more = q.count - Math.min(q.items.length, TODAY_EMAIL_ROWS)
-      const moreLine = more > 0 ? `<li style="margin: 3px 0; color: #2c2c2a; font-size: 13px;">…and ${more} more on <a href="${escapeHtml(`${base}/today`)}" style="color: #2b0a3d;">Today</a>.</li>` : ''
+      const more = q.count - Math.min(q.items.length, cap)
+      const moreLine =
+        more <= 0
+          ? ''
+          : q.id === 'storm-hits'
+            ? `<li style="margin: 3px 0; color: #2c2c2a; font-size: 13px;">…and ${more} more.</li>`
+            : `<li style="margin: 3px 0; color: #2c2c2a; font-size: 13px;">…and ${more} more on <a href="${escapeHtml(`${base}/today`)}" style="color: #2b0a3d;">Today</a>.</li>`
       return `<h3 style="margin: 14px 0 4px; color: #111827; font-size: 15px;">${escapeHtml(q.title)} (${q.count})</h3><ul style="margin: 0; padding-left: 18px;">${rows}${moreLine}</ul>`
     })
     .join('')

@@ -28,7 +28,6 @@ export const STORM_ALERT_WIND_MIN_MPH = 58
 /** IEM fetch window — filtered down to {@link STORM_ALERT_LOOKBACK_ET_DAYS} ET calendar days. */
 export const STORM_IEM_FETCH_WINDOW_DAYS = 3
 export const STORM_ALERT_LOOKBACK_ET_DAYS = 2
-export const STORM_ALERT_EMAIL_MAX_ROWS = 50
 export const STORM_ALERT_TIMEZONE = 'America/New_York'
 
 export type StormAlertLayer = 'hail' | 'wind'
@@ -67,25 +66,8 @@ export type StormMatchResult = {
   insideSwath: boolean
 }
 
-export type StormAlertDigestRow = {
-  customerName: string
-  address: string
-  layer: StormAlertLayer
-  eventDate: string
-  magnitudeLabel: string
-  /** Pre-rendered by {@link formatStormProximityLabel} — swaths have no meaningful distance. */
-  proximityLabel: string
-  source: StormMatchSource
-  routed: boolean
-  opportunityId: string
-}
-
 export function stormOpportunityAlertsEnabled(): boolean {
   return process.env.STORM_OPPORTUNITY_ALERTS_ENABLED === 'true'
-}
-
-export function stormAlertEmailTo(): string {
-  return (process.env.STORM_ALERT_EMAIL_TO || 'info@arxroofing.com').trim()
 }
 
 const EARTH_RADIUS_MILES = 3958.7613
@@ -422,72 +404,4 @@ export function buildStormNotificationTitle(customerName: string): string {
 
 export function stormPipelineStageForRouting(): string {
   return STORM_PIPELINE_PREFIX
-}
-
-export function buildStormAlertDigestHtml(rows: StormAlertDigestRow[]): string {
-  const limited = rows.slice(0, STORM_ALERT_EMAIL_MAX_ROWS)
-  const tableRows = limited
-    .map(
-      (row) =>
-        `<tr>
-          <td style="padding:8px 10px;border-bottom:1px solid #E5E7EB;color:#111827;">${escapeHtml(row.customerName)}</td>
-          <td style="padding:8px 10px;border-bottom:1px solid #E5E7EB;color:#374151;">${escapeHtml(row.address || '—')}</td>
-          <td style="padding:8px 10px;border-bottom:1px solid #E5E7EB;color:#374151;">${escapeHtml(row.layer)}</td>
-          <td style="padding:8px 10px;border-bottom:1px solid #E5E7EB;color:#374151;">${escapeHtml(row.magnitudeLabel)}</td>
-          <td style="padding:8px 10px;border-bottom:1px solid #E5E7EB;color:#374151;">${escapeHtml(formatStormEventDateLabel(row.eventDate))}</td>
-          <td style="padding:8px 10px;border-bottom:1px solid #E5E7EB;color:#374151;">${escapeHtml(row.proximityLabel)}</td>
-          <td style="padding:8px 10px;border-bottom:1px solid #E5E7EB;color:#374151;">${row.routed ? 'Routed to IS' : 'Noted only'}</td>
-        </tr>`
-    )
-    .join('')
-
-  const overflow =
-    rows.length > STORM_ALERT_EMAIL_MAX_ROWS
-      ? `<p style="color:#6B7280;font-size:13px;">Showing first ${STORM_ALERT_EMAIL_MAX_ROWS} of ${rows.length} new alerts.</p>`
-      : ''
-
-  return `
-    <div style="font-family:Arial,sans-serif;max-width:960px;margin:0 auto;padding:20px;">
-      <h2 style="color:#111827;margin-bottom:8px;">Storm opportunity alerts (est.)</h2>
-      <p style="color:#374151;margin-bottom:16px;">
-        New storm-near-opportunity matches from the latest cron run. All magnitudes and impact language are estimates only.
-      </p>
-      <table style="width:100%;border-collapse:collapse;font-size:14px;">
-        <thead>
-          <tr style="background:#F3F4F6;text-align:left;">
-            <th style="padding:8px 10px;color:#374151;">Customer</th>
-            <th style="padding:8px 10px;color:#374151;">Address</th>
-            <th style="padding:8px 10px;color:#374151;">Layer</th>
-            <th style="padding:8px 10px;color:#374151;">Report</th>
-            <th style="padding:8px 10px;color:#374151;">Date (ET)</th>
-            <th style="padding:8px 10px;color:#374151;">Proximity (est.)</th>
-            <th style="padding:8px 10px;color:#374151;">Action</th>
-          </tr>
-        </thead>
-        <tbody>${tableRows}</tbody>
-      </table>
-      ${overflow}
-      <p style="color:#6B7280;font-size:12px;margin-top:16px;">Automated ARX CRM storm alert digest.</p>
-    </div>
-  `
-}
-
-export function buildStormAlertDigestText(rows: StormAlertDigestRow[]): string {
-  const limited = rows.slice(0, STORM_ALERT_EMAIL_MAX_ROWS)
-  const lines = limited.map(
-    (row) =>
-      `${row.customerName} | ${row.address || '—'} | ${row.layer} (${row.source}) | ${row.magnitudeLabel} | ${formatStormEventDateLabel(row.eventDate)} | ${row.proximityLabel} | ${row.routed ? 'Routed' : 'Noted'}`
-  )
-  if (rows.length > STORM_ALERT_EMAIL_MAX_ROWS) {
-    lines.push(`…and ${rows.length - STORM_ALERT_EMAIL_MAX_ROWS} more`)
-  }
-  return ['Storm opportunity alerts (est.)', '', ...lines].join('\n')
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
 }

@@ -6,7 +6,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { getDateRangeForTimeFrame } from '@/lib/date-ranges'
-import { formatDateShort, formatDateWeekday, formatMoney, formatTime } from '@/lib/format'
+import { formatDateShort, formatDateWeekday, formatMoney, formatPhone, formatTime } from '@/lib/format'
+import { formatStormEventDateLabel, formatStormMagnitudeLabel, type StormAlertLayer } from '@/lib/storm-opportunity-alerts'
 import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
 import { addDaysToDateOnly } from '@/lib/install-calendar'
 import { TRADE_LABELS, type Trade } from '@/lib/job-trades'
@@ -14,10 +15,11 @@ import { TRADE_LABELS, type Trade } from '@/lib/job-trades'
 export type TodayKind = 'setter' | 'ops' | 'owner' | 'closer'
 
 /**
- * `title`/`detail` are for the signed-in app screen. `ref`/`note` are the email-safe version (morning update):
- * a job or proposal number and plain facts, never a customer name or address.
+ * `title`/`detail` are for the signed-in app screen. `ref`/`note` are the email version (morning update): a job or
+ * proposal number and plain facts, never a customer name or address — except the storm-hits queue, which is a call
+ * list and carries the customer's name and `phone` (owner "Everything" email only; Nathan, 2026-11-06).
  */
-export type QueueItem = { id: string; title: string; detail: string; href: string; ref: string; note: string }
+export type QueueItem = { id: string; title: string; detail: string; href: string; ref: string; note: string; phone?: string | null }
 export type Queue = { id: string; title: string; count: number; items: QueueItem[]; empty: string }
 
 export function todayKindFor(args: { role: string | null | undefined; isSuperuser: boolean; canJobBoard: boolean }): TodayKind {
@@ -226,6 +228,106 @@ export async function loadOpsQueues(admin: SupabaseClient, orgId: string): Promi
     jobQueue('orders-to-send', 'Orders to send', (toOrder.data ?? []) as JobRow[], toOrder.count ?? 0, 'Materials are ordered on every open job.'),
     jobQueue('awaiting-payment', 'Finished, waiting on payment', (awaiting.data ?? []) as JobRow[], awaiting.count ?? 0, 'Nothing is waiting on payment.'),
   ]
+}
+
+/** Storm hits stay listed this many days, so a weekend storm is still on Monday's list. */
+const STORM_HIT_DAYS = 3
+
+type StormAlertRow = {
+  opportunity_id: string
+  event_date: string
+  layer: string
+  magnitude: number | string | null
+  damage: boolean | null
+  distance_miles: number | string | null
+  match_source: string | null
+  routed: boolean | null
+  created_at: string
+}
+
+/**
+ * Open deals a storm just hit — a call list. Reads what the storm-alert cron already matched
+ * (`storm_opportunity_alerts`); nothing is re-matched here. One line per deal (its biggest hit), newest storm first.
+ * Won/lost deals drop off. Inside-sales routing is untouched; this only lists them.
+ */
+export async function loadStormHitsQueue(admin: SupabaseClient, orgId: string, now = new Date(), cap = LIST_CAP): Promise<Queue> {
+  const since = new Date(now.getTime() - STORM_HIT_DAYS * 86_400_000).toISOString()
+  const alerts = ok(
+    await admin
+      .from('storm_opportunity_alerts')
+      .select('opportunity_id, event_date, layer, magnitude, damage, distance_miles, match_source, routed, created_at')
+      .eq('org_id', orgId)
+      .gte('created_at', since)
+      .order('event_date', { ascending: false })
+      .limit(500)
+  )
+  const rows = (alerts.data ?? []) as StormAlertRow[]
+  // Per deal: show its biggest hit (hail beats wind, then size), sort by its latest storm, and remember whether the
+  // cron routed it to inside sales (it skips deals a rep is already working, e.g. a close is booked).
+  const score = (x: StormAlertRow) => (x.layer === 'hail' ? 1000 : 0) + Number(x.magnitude ?? 0)
+  const best = new Map<string, StormAlertRow>()
+  const latest = new Map<string, string>()
+  const routed = new Set<string>()
+  for (const r of rows) {
+    const cur = best.get(r.opportunity_id)
+    if (!cur || score(r) > score(cur)) best.set(r.opportunity_id, r)
+    if ((latest.get(r.opportunity_id) ?? '') < r.event_date) latest.set(r.opportunity_id, r.event_date)
+    if (r.routed) routed.add(r.opportunity_id)
+  }
+  const oppIds = Array.from(best.keys())
+  type Opp = { id: string; status: string | null; leads: { homeowner_name: string | null; phone: string | null } | Array<{ homeowner_name: string | null; phone: string | null }> | null }
+  const opps: Opp[] = []
+  for (let i = 0; i < oppIds.length; i += 200) {
+    const res = ok(
+      await admin
+        .from('opportunities')
+        .select('id, status, leads(homeowner_name, phone)')
+        .eq('org_id', orgId)
+        .in('id', oppIds.slice(i, i + 200))
+    )
+    opps.push(...((res.data ?? []) as Opp[]))
+  }
+  const open = opps
+    .filter((o) => o.status !== 'won' && o.status !== 'lost')
+    .map((o) => ({ opp: o, alert: best.get(o.id)! }))
+    // Newest storm first; same day → bigger hit first; then id, so the list never reshuffles between emails.
+    .sort(
+      (a, b) =>
+        (latest.get(b.opp.id) ?? '').localeCompare(latest.get(a.opp.id) ?? '') ||
+        score(b.alert) - score(a.alert) ||
+        a.opp.id.localeCompare(b.opp.id)
+    )
+  return {
+    id: 'storm-hits',
+    title: 'Storm hits on open deals',
+    count: open.length,
+    empty: 'No new storm hits on open deals.',
+    items: open.slice(0, cap).map(({ opp, alert }) => {
+      const lead = Array.isArray(opp.leads) ? opp.leads[0] : opp.leads
+      const name = lead?.homeowner_name?.trim() || 'Customer'
+      // Keep any number on a call list; only dialable ones become tap-to-call (see the email renderer).
+      const phone = lead?.phone?.trim() || null
+      const distance = Number(alert.distance_miles ?? 0)
+      const where = alert.match_source === 'swath' && distance <= 0 ? 'inside the storm area' : `${distance.toFixed(1)} mi away`
+      const facts = [
+        formatStormMagnitudeLabel((alert.layer === 'hail' ? 'hail' : 'wind') as StormAlertLayer, { magnitude: Number(alert.magnitude ?? 0), damage: Boolean(alert.damage) }),
+        formatStormEventDateLabel(alert.event_date),
+        where,
+        routed.has(opp.id) ? null : 'a rep is already working this deal',
+      ]
+        .filter(Boolean)
+        .join(' · ')
+      return {
+        id: opp.id,
+        title: name,
+        detail: [facts, phone ? formatPhone(phone) : null].filter(Boolean).join(' · '),
+        href: `/opportunities/${opp.id}`,
+        ref: name,
+        note: facts,
+        phone,
+      }
+    }),
+  }
 }
 
 /** Owner: the same queues counted across the whole org; a queue with nothing in it is not shown ("exceptions only"). */

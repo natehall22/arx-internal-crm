@@ -498,7 +498,6 @@
     "address": 1
   },
   "lib/storm-opportunity-alerts.ts": {
-    "brand": 2,
     "timezone": 1
   },
   "lib/sub-availability.ts": {
