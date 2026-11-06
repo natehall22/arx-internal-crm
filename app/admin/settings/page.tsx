@@ -20,7 +20,11 @@ import {
 } from '@/lib/roof-shingle-constants'
 import { toast } from '@/components/ui/toast'
 import { orgLogoHref } from '@/lib/files/files-object'
+import { DEFAULT_TIMEZONE } from '@/lib/timezone'
+import GeneralSettingsCard, { GENERAL_BRAND_INPUTS, type GeneralSettingsValues } from '@/components/admin/GeneralSettingsCard'
 import { confirmDialog } from '@/components/ui/confirm-dialog'
+
+type BrandInputKey = (typeof GENERAL_BRAND_INPUTS)[number][0]
 
 type SettingsSection = 
   | 'contact-fields' 
@@ -135,15 +139,24 @@ export default function AdminSettingsPage() {
     quickbooks_sync_customers: true,
     quickbooks_sync_payments: true,
   })
-  const [generalSettings, setGeneralSettings] = useState({
+  const [generalSettings, setGeneralSettings] = useState<GeneralSettingsValues>({
     company_name: '',
     company_phone: '',
     company_email: '',
     company_address: '',
-    timezone: 'America/Chicago',
+    // settings.brand — blank falls back to the default (lib/org-brand)
+    brand_legal_name: '',
+    brand_short_name: '',
+    brand_website: '',
+    brand_service_area: '',
+    timezone: DEFAULT_TIMEZONE,
     date_format: 'MM/DD/YYYY',
     currency: 'USD',
   })
+  // Brand values as loaded (null until the GET succeeds): a save sends a brand field only when it differs,
+  // so it never rewrites settings.brand from stale or unloaded values.
+  const [loadedBrand, setLoadedBrand] = useState<Record<BrandInputKey, string> | null>(null)
+  const [canEditBrand, setCanEditBrand] = useState(false)
   const [commissionSettings, setCommissionSettings] = useState({
     commission_period: 'monthly' as 'weekly' | 'bi-weekly' | 'monthly',
     week_start_day: 0 as number, // 0 = Sunday, 1 = Monday, etc.
@@ -550,12 +563,21 @@ export default function AdminSettingsPage() {
       const data = await response.json()
       
       if (data.org) {
+        const brand = {
+          brand_legal_name: data.settings?.brand?.legalName || '',
+          brand_short_name: data.settings?.brand?.shortName || '',
+          brand_website: data.settings?.brand?.website || '',
+          brand_service_area: data.settings?.brand?.serviceArea || '',
+        }
+        setLoadedBrand(brand)
+        setCanEditBrand(data.canEditBrand === true)
         setGeneralSettings({
           company_name: data.org.name || '',
           company_phone: data.org.phone || data.settings?.company_phone || '',
           company_email: data.org.email || data.settings?.company_email || '',
           company_address: data.org.address || data.settings?.company_address || '',
-          timezone: data.org.timezone || data.settings?.timezone || 'America/Chicago',
+          ...brand,
+          timezone: data.org.timezone || data.settings?.timezone || DEFAULT_TIMEZONE,
           date_format: data.org.date_format || data.settings?.date_format || 'MM/DD/YYYY',
           currency: data.org.currency || data.settings?.currency || 'USD',
         })
@@ -657,14 +679,18 @@ export default function AdminSettingsPage() {
 
   const saveSettings = async () => {
     setSaving(true)
+    // brand_* only when loaded, editable and changed — the server merges just those keys
+    const { brand_legal_name: _l, brand_short_name: _s, brand_website: _w, brand_service_area: _a, ...generalBody }: Record<string, string> = { ...generalSettings }
+    if (loadedBrand && canEditBrand) {
+      for (const [key] of GENERAL_BRAND_INPUTS) {
+        if (generalSettings[key] !== loadedBrand[key]) generalBody[key] = generalSettings[key]
+      }
+    }
     try {
       const response = await fetch('/api/admin/settings', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          type: 'general',
-          ...generalSettings,
-        }),
+        body: JSON.stringify({ type: 'general', ...generalBody }),
       })
       
       if (!response.ok) {
@@ -672,8 +698,16 @@ export default function AdminSettingsPage() {
         toast.error(data.error || 'Failed to save settings')
         return
       }
+      if (loadedBrand && canEditBrand) {
+        setLoadedBrand({
+          brand_legal_name: generalSettings.brand_legal_name,
+          brand_short_name: generalSettings.brand_short_name,
+          brand_website: generalSettings.brand_website,
+          brand_service_area: generalSettings.brand_service_area,
+        })
+      }
       
-      toast.error('Settings saved!')
+      toast.success('Settings saved!')
     } catch (error) {
       console.error('Error saving settings:', error)
       toast.error('Failed to save settings')
@@ -954,99 +988,13 @@ export default function AdminSettingsPage() {
                 </div>
               )}
               
-              <div className="bg-white rounded-xl shadow-sm border p-6 space-y-6">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Company Name</label>
-                  <input
-                    type="text"
-                    value={generalSettings.company_name}
-                    onChange={(e) => setGeneralSettings(prev => ({ ...prev, company_name: e.target.value }))}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Phone</label>
-                    <input
-                      type="tel"
-                      value={generalSettings.company_phone}
-                      onChange={(e) => setGeneralSettings(prev => ({ ...prev, company_phone: e.target.value }))}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Email</label>
-                    <input
-                      type="email"
-                      value={generalSettings.company_email}
-                      onChange={(e) => setGeneralSettings(prev => ({ ...prev, company_email: e.target.value }))}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Address</label>
-                  <textarea
-                    value={generalSettings.company_address}
-                    onChange={(e) => setGeneralSettings(prev => ({ ...prev, company_address: e.target.value }))}
-                    rows={2}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                  />
-                </div>
-
-                <div className="grid grid-cols-3 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Timezone</label>
-                    <select
-                      value={generalSettings.timezone}
-                      onChange={(e) => setGeneralSettings(prev => ({ ...prev, timezone: e.target.value }))}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                    >
-                      <option value="America/New_York">Eastern</option>
-                      <option value="America/Chicago">Central</option>
-                      <option value="America/Denver">Mountain</option>
-                      <option value="America/Los_Angeles">Pacific</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Date Format</label>
-                    <select
-                      value={generalSettings.date_format}
-                      onChange={(e) => setGeneralSettings(prev => ({ ...prev, date_format: e.target.value }))}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                    >
-                      <option value="MM/DD/YYYY">MM/DD/YYYY</option>
-                      <option value="DD/MM/YYYY">DD/MM/YYYY</option>
-                      <option value="YYYY-MM-DD">YYYY-MM-DD</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Currency</label>
-                    <select
-                      value={generalSettings.currency}
-                      onChange={(e) => setGeneralSettings(prev => ({ ...prev, currency: e.target.value }))}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                    >
-                      <option value="USD">USD ($)</option>
-                      <option value="CAD">CAD ($)</option>
-                      <option value="EUR">EUR (€)</option>
-                      <option value="GBP">GBP (£)</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div className="pt-4 border-t">
-                  <button
-                    onClick={saveSettings}
-                    disabled={saving}
-                    className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
-                  >
-                    {saving ? 'Saving...' : 'Save Changes'}
-                  </button>
-                </div>
-              </div>
+              <GeneralSettingsCard
+                value={generalSettings}
+                onChange={(patch) => setGeneralSettings((prev) => ({ ...prev, ...patch }))}
+                canEditBrand={canEditBrand}
+                saving={saving}
+                onSave={saveSettings}
+              />
             </div>
           )}
 
@@ -1789,7 +1737,7 @@ export default function AdminSettingsPage() {
                         return
                       }
                       
-                      toast.error('Settings saved!')
+                      toast.success('Settings saved!')
                     } catch (error) {
                       console.error('Error saving settings:', error)
                       toast.error('Failed to save settings')

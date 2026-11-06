@@ -1,39 +1,57 @@
 import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
+import { cache } from 'react'
 import { createServiceClient } from '@/lib/supabase/service'
-import { normalizeReportDoc, REPORT_BUCKET } from '@/lib/inspection-report/types'
+import { REPORT_BUCKET } from '@/lib/inspection-report/types'
 import { orderedPhotoIds } from '@/lib/inspection-report/pdf'
+import { reportShareTitle } from '@/lib/inspection-report/brand-copy'
+import { normalizeReportDocForOrg } from '@/lib/inspection-report/server'
+import { brandNameRest, brandServiceRegion, brandWebsiteHref, contactPhone, resolveOrgBrand } from '@/lib/org-brand'
+import { telHref } from '@/lib/format'
 
 // Public, tokenized share page for a roof inspection report. The customer forwards this
 // link to family, neighbors, or their insurance carrier — so it doubles as a branded
-// landing page with a clear way to reach ARX.
+// landing page with a clear way to reach the company (identity from the org row, lib/org-brand).
 
 export const dynamic = 'force-dynamic'
 
-export const metadata: Metadata = {
-  title: 'Roof Inspection Report — ARX Roofing & Exteriors',
-  robots: { index: false, follow: false },
-}
+const TOKEN_RE = /^[a-f0-9]{48,80}$/i
 
-export default async function SharedReportPage({ params }: { params: { token: string } }) {
-  const token = params.token
-  // Tokens are 64 hex chars; reject junk early without a DB round trip
-  if (!/^[a-f0-9]{48,80}$/i.test(token)) notFound()
-
+// One lookup per request, shared by generateMetadata and the page (React cache): the report row, its
+// normalized doc, its org's brand and its rep's phone. null = junk or unknown token.
+const loadSharedReport = cache(async (token: string) => {
+  if (!TOKEN_RE.test(token)) return null
   const admin = createServiceClient()
   const { data: report } = await admin
     .from('inspection_reports')
-    .select('id, org_id, doc, pdf_storage_path, pdf_size_bytes, pdf_photo_count, pdf_generated_at')
+    .select('id, org_id, created_by_user_id, doc, pdf_storage_path, pdf_size_bytes, pdf_photo_count, pdf_generated_at')
     .eq('share_token', token)
     .maybeSingle()
-  if (!report || !report.pdf_storage_path) notFound()
+  if (!report) return null
+  return { admin, report, ...(await normalizeReportDocForOrg(admin, report.doc, report)) }
+})
+
+// Title is the report's company; a bad/unknown token still gets the default title (the page itself 404s).
+export async function generateMetadata({ params }: { params: { token: string } }): Promise<Metadata> {
+  const loaded = await loadSharedReport(params.token)
+  return { title: reportShareTitle(loaded?.brand ?? resolveOrgBrand(null)), robots: { index: false, follow: false } }
+}
+
+export default async function SharedReportPage({ params }: { params: { token: string } }) {
+  // Tokens are 64 hex chars; junk is rejected without a DB round trip
+  const loaded = await loadSharedReport(params.token)
+  if (!loaded || !loaded.report.pdf_storage_path) notFound()
+  const { admin, report, doc, brand, repPhone } = loaded
 
   const { data: signed } = await admin.storage
     .from(REPORT_BUCKET)
     .createSignedUrl(report.pdf_storage_path, 60 * 60)
   if (!signed?.signedUrl) notFound()
 
-  const doc = normalizeReportDoc(report.doc)
+  // the report's rep (its creator) is who the customer calls; no dialable phone on file → the company phone
+  const phone = contactPhone(brand, repPhone)
+  const nameRest = brandNameRest(brand)
+  const phoneHref = telHref(phone)
   const address = doc.propertyAddressHeader
   // Count snapshotted at PDF-finalize time so later doc edits can't disagree with the file;
   // fall back to the doc for reports finalized before the snapshot column existed.
@@ -52,7 +70,13 @@ export default async function SharedReportPage({ params }: { params: { token: st
           style={{ background: '#2B2A28', borderBottom: '3px solid #B0904E' }}
         >
           <div className="text-2xl font-bold tracking-widest" style={{ color: '#F4ECDC' }}>
-            ARX <span style={{ color: '#B0904E' }}>ROOFING &amp; EXTERIORS</span>
+            {nameRest === null ? (
+              brand.name.toUpperCase()
+            ) : (
+              <>
+                {brand.shortName} <span style={{ color: '#B0904E' }}>{nameRest.toUpperCase()}</span>
+              </>
+            )}
           </div>
           <div className="mt-1 text-xs uppercase tracking-wider" style={{ color: '#cfc6b3' }}>
             Roof Inspection Report
@@ -106,30 +130,32 @@ export default async function SharedReportPage({ params }: { params: { token: st
               Think your roof may have been impacted too?
             </div>
             <p className="mt-1 text-sm" style={{ color: '#333333' }}>
-              ARX provides free, no-obligation roof inspections across the Charlotte / Kannapolis area — with the
+              {brand.shortName} provides free, no-obligation roof inspections across the {brandServiceRegion(brand)} area — with the
               same measured photo documentation you see in this report.
             </p>
+            {phoneHref ? (
+              <a
+                href={phoneHref}
+                className="mt-3 inline-block rounded-lg px-5 py-2.5 text-sm font-bold"
+                style={{ background: '#2B2A28', color: '#F4ECDC' }}
+              >
+                Call {phone}
+              </a>
+            ) : null}
             <a
-              href="tel:+13604859413"
-              className="mt-3 inline-block rounded-lg px-5 py-2.5 text-sm font-bold"
-              style={{ background: '#2B2A28', color: '#F4ECDC' }}
-            >
-              Call (360) 485-9413
-            </a>
-            <a
-              href="https://arxroofing.com"
+              href={brandWebsiteHref(brand)}
               target="_blank"
               rel="noopener"
-              className="ml-3 mt-3 inline-block rounded-lg px-5 py-2.5 text-sm font-bold"
+              className={`${phoneHref ? 'ml-3 ' : ''}mt-3 inline-block rounded-lg px-5 py-2.5 text-sm font-bold`}
               style={{ border: '1px solid #2B2A28', color: '#2c2c2a' }}
             >
-              arxroofing.com
+              {brand.website}
             </a>
           </div>
         </div>
 
         <p className="mt-4 text-center text-xs" style={{ color: '#8A8A8A' }}>
-          ARX Roofing &amp; Exteriors &nbsp;|&nbsp; Charlotte / Kannapolis, NC &nbsp;|&nbsp; (360) 485-9413
+          {brand.name} &nbsp;|&nbsp; {brand.serviceArea} &nbsp;|&nbsp; {phone}
         </p>
       </div>
     </div>

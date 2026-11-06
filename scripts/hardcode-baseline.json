@@ -31,8 +31,7 @@
     "brand": 1
   },
   "app/admin/settings/page.tsx": {
-    "brand": 3,
-    "timezone": 6
+    "brand": 3
   },
   "app/admin/sisu/setter-ramp/SetterRampClient.tsx": {
     "timezone": 1
@@ -129,10 +128,6 @@
   },
   "app/api/inspection-reports/[id]/pdf/route.ts": {
     "brand": 1
-  },
-  "app/api/inspection-reports/[id]/send/route.ts": {
-    "address": 2,
-    "brand": 4
   },
   "app/api/inspections/reschedule/route.ts": {
     "timezone": 3
@@ -250,7 +245,7 @@
     "timezone": 2
   },
   "app/invoices/[invoiceId]/print/page.tsx": {
-    "brand": 4
+    "brand": 2
   },
   "app/layout.tsx": {
     "brand": 3
@@ -289,10 +284,6 @@
   },
   "app/privacy/page.tsx": {
     "brand": 6
-  },
-  "app/r/[token]/page.tsx": {
-    "address": 4,
-    "brand": 7
   },
   "app/referral-partners/[id]/PartnerDetailClient.tsx": {
     "timezone": 1
@@ -341,6 +332,9 @@
   },
   "components/SetterFeedbackPrompt.tsx": {
     "timezone": 1
+  },
+  "components/admin/GeneralSettingsCard.tsx": {
+    "timezone": 4
   },
   "components/appointments/CalendarView.tsx": {
     "timezone": 6
@@ -487,12 +481,8 @@
   "lib/inspection-report/pdf.ts": {
     "brand": 8
   },
-  "lib/inspection-report/server.ts": {
-    "brand": 2
-  },
   "lib/inspection-report/types.ts": {
-    "address": 3,
-    "brand": 12
+    "brand": 8
   },
   "lib/install-calendar.ts": {
     "brand": 7,
@@ -527,6 +517,10 @@
   },
   "lib/morning-update-schedule.ts": {
     "timezone": 3
+  },
+  "lib/org-brand.ts": {
+    "address": 2,
+    "brand": 7
   },
   "lib/payroll-period-week.ts": {
     "timezone": 1

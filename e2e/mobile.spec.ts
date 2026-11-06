@@ -182,6 +182,9 @@ const SCREENS: Screen[] = [
       { name: 'run-sheet-email', run: async (p) => { await p.getByRole('tab', { name: 'Crews' }).click(); await p.getByRole('button', { name: 'Email' }).click(); await p.waitForSelector('text=Send the run sheet to') } },
     ],
   })),
+  { name: 'admin-settings', path: '/dev-harness/admin-settings', ready: 'text=Customer-facing brand',
+    states: [{ name: 'editing-brand', run: async (p) => { await p.getByLabel('Website').fill('example.test/roofing'); await p.waitForTimeout(200) } }] },
+  { name: 'admin-settings-readonly', path: '/dev-harness/admin-settings-readonly', ready: 'text=Only an owner can change these' },
   { name: 'pay-week', path: '/dev-harness/pay-week', ready: 'text=Needs you (3)',
     states: [
       { name: 'person-open', run: async (p) => { await p.getByRole('button', { name: /Jordan Vale/ }).click(); await p.waitForSelector('text=Change') } },

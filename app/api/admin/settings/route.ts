@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { createServiceClient } from '@/lib/supabase/service'
+import { brandPatchFromGeneral, saveBrandSettings } from '@/lib/org-brand'
+import { isSuperAdmin } from '@/lib/super-admin'
 
 export const dynamic = 'force-dynamic'
 
@@ -75,7 +77,7 @@ export async function GET(request: NextRequest) {
     // Get user profile
     const { data: profile } = await adminClient
       .from('users')
-      .select('org_id, role')
+      .select('org_id, role, is_super_admin, active')
       .eq('id', user.id)
       .single()
 
@@ -98,6 +100,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       orgId: profile.org_id,
       role: profile.role,
+      // brand fields (settings.brand) are editable only by super admins; the page shows them read-only otherwise
+      canEditBrand: isSuperAdmin(profile),
       org: org || {},
       settings: org?.settings || {},
     })
@@ -127,7 +131,7 @@ export async function PATCH(request: NextRequest) {
 
     const { data: profile } = await adminClient
       .from('users')
-      .select('org_id, role')
+      .select('org_id, role, is_super_admin, active')
       .eq('id', user.id)
       .single()
 
@@ -148,6 +152,17 @@ export async function PATCH(request: NextRequest) {
     const currentSettings = org?.settings || {}
 
     if (type === 'general') {
+      // Brand fields (settings.brand, lib/org-brand): only super admins may change them; anyone else's brand_*
+      // keys are ignored and the rest of the save goes ahead. Written after the columns, touching only the
+      // keys sent (the page sends a brand field only when the user changed it).
+      const brandPatch = isSuperAdmin(profile) ? brandPatchFromGeneral(data) : null
+      const saveBrand = async () => {
+        if (!brandPatch) return NextResponse.json({ success: true })
+        const { error: brandError } = await saveBrandSettings(adminClient, profile.org_id, brandPatch)
+        if (brandError) return NextResponse.json({ error: brandError }, { status: 400 })
+        return NextResponse.json({ success: true })
+      }
+
       // Try to update org-level fields directly first
       // If columns don't exist, fall back to storing in settings JSONB
       const orgUpdate: Record<string, any> = {
@@ -193,23 +208,25 @@ export async function PATCH(request: NextRequest) {
         if (settingsError) {
           return NextResponse.json({ error: settingsError.message }, { status: 400 })
         }
-        return NextResponse.json({ success: true })
+        return saveBrand()
       }
 
       if (error) {
         return NextResponse.json({ error: error.message }, { status: 400 })
       }
-      return NextResponse.json({ success: true })
+      return saveBrand()
     }
 
     if (type === 'settings') {
-      // Update settings JSON field
+      // Update settings JSON field. `brand` is never taken from here: its one writer is the General save
+      // above (super admins only, saveBrandSettings).
+      const { brand: _brand, ...settingsData } = data
       const { error } = await adminClient
         .from('orgs')
         .update({
           settings: {
             ...currentSettings,
-            ...data,
+            ...settingsData,
           }
         })
         .eq('id', profile.org_id)
