@@ -20,38 +20,25 @@ function roundMoney(n: number): number {
 /**
  * Resolve the starting sale amount + lender details when creating a production job from a project.
  * The commission base is NOT resolved here — lib/job-commission-base.ts writes it (and the final
- * sale amount) from the signed contract + signed change orders right after the job is created.
- * Contract total comes from change orders / installation agreement; lender/dealer fee and financing
- * program come from the linked proposal (installation PDF often omits loan details).
+ * sale amount) from the signed contract + signed change orders right after the job is created, so
+ * change orders are deliberately not read here (one answer for what a CO adds).
+ * The starting total comes from the signed sale agreement, else the proposal; lender/dealer fee and
+ * financing program come from the linked proposal (installation PDF often omits loan details).
  */
 export async function resolveProductionJobFinancials(
   adminClient: SupabaseClient,
   args: {
     orgId: string
-    projectId: string
     /** Latest accepted proposal id, or null (installation agreement proposal_id is used as fallback). */
     acceptedProposalId: string | null
     installationContract: InstallationContractSnapshot
   }
 ): Promise<ResolvedProductionJobFinancials> {
-  const { orgId, projectId, acceptedProposalId, installationContract } = args
+  const { orgId, acceptedProposalId, installationContract } = args
 
   let proposalId = acceptedProposalId
   if (!proposalId && installationContract?.proposal_id) {
     proposalId = installationContract.proposal_id
-  }
-
-  const { data: coRows } = await adminClient
-    .from('job_change_orders')
-    .select('updated_total')
-    .eq('org_id', orgId)
-    .eq('project_id', projectId)
-    .order('created_at', { ascending: true })
-
-  let saleFromCo: number | null = null
-  if (coRows?.length) {
-    const v = roundMoney(Number(coRows[coRows.length - 1].updated_total) || 0)
-    if (v > 0) saleFromCo = v
   }
 
   let saleFromContract: number | null = null
@@ -92,7 +79,7 @@ export async function resolveProductionJobFinancials(
       : null
 
   const sale_amount =
-    saleFromCo ?? saleFromContract ?? saleFromFinanced ?? saleFromSubtotal ?? null
+    saleFromContract ?? saleFromFinanced ?? saleFromSubtotal ?? null
 
   const paymentMethod = installationContract?.payment_method ?? null
   const proposalFinancingProgramId = proposalRow?.financing_program_id
