@@ -2,7 +2,7 @@ jest.mock('@/lib/pdf/job-material-order', () => ({
   renderJobMaterialOrderPDF: () => ({ pdf: Buffer.from('%PDF-test'), truncated: false }),
 }))
 
-import { executeSupplierOrderSend, buildSupplierOrderPreview, type SupplierOrderContext, type SendDeps } from '@/lib/supplier-orders'
+import { executeSupplierOrderSend, buildSupplierOrderPreview, buildSupplierOrdersView, type SupplierOrderContext, type SendDeps } from '@/lib/supplier-orders'
 import { poNumber, type OrderLine, type SupplierRecord } from '@/lib/material-sourcing'
 
 const supplier = (over: Partial<SupplierRecord> = {}): SupplierRecord => ({
@@ -116,5 +116,20 @@ describe('manual record is orders only', () => {
     const r = await executeSupplierOrderSend(ctx(), { ...req, requested: 'cancellation', previewToken: '', confirmResend: false, manual: true }, actor, d)
     expect(r.ok).toBe(false)
     expect(calls).toEqual([])
+  })
+})
+
+describe('trade labels on the supplier orders view', () => {
+  // GC simulation 2026-11-06: after an owner renamed Roofing, the Materials tab still said "Roofing" (default list).
+  it("uses the company's own trade labels", () => {
+    const view = buildSupplierOrdersView(
+      ctx({
+        orgTrades: [
+          { slug: 'roofing', label: 'Roof & Sheathing', sort: 10, active: true, matchKeywords: null },
+          { slug: 'electrical', label: 'Electrical', sort: 20, active: true, matchKeywords: null },
+        ],
+      })
+    )
+    expect(view.trades.map((t) => t.label)).toEqual(['Roof & Sheathing', 'Electrical'])
   })
 })
