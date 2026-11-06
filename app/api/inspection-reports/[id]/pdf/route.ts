@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getOrgBrand } from '@/lib/org-brand'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import { signedUploadTokenForPath } from '@/lib/files/signed-upload'
@@ -9,12 +10,13 @@ import { authErrorResponse, assertRepCanAccessReport, fetchReportForOrg, opportu
 // generates it, registers here for a signed-upload token, uploads straight to storage,
 // then finalizes here. Same register → uploadToSignedUrl → finalize flow as ops job files.
 
-function sanitizeSlug(raw: unknown): string {
+/** `fallbackPrefix` is the company short name (org brand). */
+function sanitizeSlug(raw: unknown, fallbackPrefix: string): string {
   const s = String(raw || '')
     .replace(/[^a-zA-Z0-9._-]/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 80)
-  return s || `ARX-Roof-Report-${new Date().toISOString().slice(0, 10)}`
+  return s || `${fallbackPrefix}-Roof-Report-${new Date().toISOString().slice(0, 10)}`
 }
 
 // GET — short-lived signed URL for viewing/downloading the stored PDF.
@@ -71,7 +73,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     const stage = body?.stage
 
     if (stage === 'register') {
-      const slug = sanitizeSlug(body?.slug)
+      const slug = sanitizeSlug(body?.slug, (await getOrgBrand(admin, profile.org_id)).shortName)
       // Unique object per generation: signed-upload tokens can't upsert an existing object,
       // and the old PDF must stay live until the new one fully lands.
       const path = `${profile.org_id}/${report.id}/pdf/${crypto.randomUUID().slice(0, 8)}_${slug}.pdf`

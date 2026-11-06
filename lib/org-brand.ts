@@ -15,8 +15,7 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 
-import { ARX_DEFAULT_OFFICE_ADDRESS } from '@/lib/company-address'
-import { formatPhone, telHref } from '@/lib/format'
+import { formatPhone, formatPhoneDashed, telHref } from '@/lib/format'
 
 export interface OrgBrand {
   /** Display name, e.g. report footers and email headers. */
@@ -45,7 +44,7 @@ export const DEFAULT_ORG_BRAND: Readonly<OrgBrand> = Object.freeze({
   email: 'info@arxroofing.com',
   website: 'arxroofing.com',
   serviceArea: 'Charlotte / Kannapolis, NC',
-  address: ARX_DEFAULT_OFFICE_ADDRESS,
+  address: '4101 Woodbury Ter NW\nConcord, NC 28027',
 })
 
 const ORG_BRAND_KEYS = Object.keys(DEFAULT_ORG_BRAND) as Array<keyof OrgBrand>
@@ -225,3 +224,67 @@ export function brandServiceRegion(brand: Pick<OrgBrand, 'serviceArea'>): string
 export function brandWebsiteHref(brand: Pick<OrgBrand, 'website'>): string {
   return /^https?:\/\//i.test(brand.website) ? brand.website : `https://${brand.website}`
 }
+
+/**
+ * Contract / change-order / signing-page letterhead spellings, derived from the brand. ARX's documents used their own
+ * spellings before slice 2a ("…Exteriors LLC" with no comma, "Terrace" written out, dashed phone); while the org still
+ * holds the DEFAULT value of a field, that spelling is kept so ARX's documents stay byte-identical. Any edited value
+ * prints as stored (address lines joined with ", ", phone dashed when it is a 10-digit US number).
+ */
+export interface DocumentBrand {
+  /** "Company Name" — signature blocks, greetings. */
+  name: string
+  /** "COMPANY NAME" — email banners. */
+  nameUpper: string
+  /** Legal entity as contracts print it ("Company Name LLC"). */
+  legalName: string
+  /** "COMPANY NAME LLC" — letterhead title. */
+  legalNameUpper: string
+  /** Conversational name: the display name up to " & " ("ARX Roofing"). */
+  casualName: string
+  /** Wordmark ("ARX") — "call ARX", "an ARX team member". */
+  shortName: string
+  /** Company phone, dashed ("704-313-8834"). */
+  phone: string
+  email: string
+  website: string
+  /** Office address, one entry per line. */
+  addressLines: string[]
+  /** Office address on one line ("Street, City, ST ZIP"). */
+  addressLine: string
+}
+
+/** The office address as contracts have always spelled it (USPS "Ter" written out), for the default address only. */
+const DEFAULT_DOCUMENT_ADDRESS = '4101 Woodbury Terrace NW\nConcord, NC 28027'
+
+/** Pure: the letterhead spellings for a resolved brand. Plain data, safe to pass to client components. */
+export function brandDocument(brand: OrgBrand): DocumentBrand {
+  const legalName =
+    brand.legalName === DEFAULT_ORG_BRAND.legalName ? brand.legalName.replace(/, (LLC)$/, ' $1') : brand.legalName
+  const address = brand.address === DEFAULT_ORG_BRAND.address ? DEFAULT_DOCUMENT_ADDRESS : brand.address
+  const addressLines = address
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean)
+  return {
+    name: brand.name,
+    nameUpper: brand.name.toUpperCase(),
+    legalName,
+    legalNameUpper: legalName.toUpperCase(),
+    casualName: brand.name.split(' & ')[0].trim() || brand.name,
+    shortName: brand.shortName,
+    phone: formatPhoneDashed(brand.phone),
+    email: brand.email,
+    website: brand.website,
+    addressLines,
+    addressLine: addressLines.join(', '),
+  }
+}
+
+/** Load an org's brand and its letterhead spellings in one call (server only). */
+export async function getDocumentBrand(client: SupabaseClient, orgId: string | null | undefined): Promise<DocumentBrand> {
+  return brandDocument(await getOrgBrand(client, orgId))
+}
+
+/** Letterhead spellings for an org with no stored identity (ARX's exact pre-slice-2a strings). */
+export const DEFAULT_DOCUMENT_BRAND: Readonly<DocumentBrand> = Object.freeze(brandDocument(resolveOrgBrand(null)))

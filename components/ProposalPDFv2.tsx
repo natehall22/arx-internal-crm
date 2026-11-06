@@ -1,6 +1,7 @@
 'use client'
 
 import { Document, Page, Text, View, StyleSheet, Image } from '@react-pdf/renderer'
+import { DEFAULT_ORG_BRAND } from '@/lib/org-brand'
 import {
   formatProposalMoney,
   formatSelectedFinancingTerms,
@@ -111,6 +112,8 @@ export interface ProposalPDFData {
     email?: string
     address?: string
     website?: string
+    /** Wordmark from the org brand (short name), used in "Why Homeowners Choose …". */
+    short_name?: string
   }
   rep?: {
     full_name: string
@@ -820,6 +823,9 @@ export function getWaysToPayCustomerCopy(): string {
 export const ProposalPDFv2 = ({ data, theme = 'print' }: ProposalPDFProps) => {
   const styles = createStyles(theme)
   const { proposal, lineItems, measurement, company, rep, photos, inspectionNotes, financing } = data
+  // Company identity comes from the org row (lib/org-brand); the defaults only cover a missing company payload.
+  const brandName = company?.name || DEFAULT_ORG_BRAND.name
+  const brandShortName = company?.short_name || DEFAULT_ORG_BRAND.shortName
   const breakdown = getProposalDisplayPricing(proposal)
   const displayPricing = {
     ...breakdown,
@@ -847,7 +853,7 @@ export const ProposalPDFv2 = ({ data, theme = 'print' }: ProposalPDFProps) => {
             {company?.logo_url ? (
               <Image src={company.logo_url} style={styles.coverLogo} />
             ) : (
-              <Text style={styles.coverLogoText}>{company?.name || 'ARX Roofing & Exteriors'}</Text>
+              <Text style={styles.coverLogoText}>{brandName}</Text>
             )}
             <View style={styles.coverDivider} />
           </View>
@@ -954,7 +960,7 @@ export const ProposalPDFv2 = ({ data, theme = 'print' }: ProposalPDFProps) => {
         </View>
 
         <View style={styles.footer}>
-          <Text style={styles.footerText}>{company?.name || 'ARX Roofing & Exteriors'}</Text>
+          <Text style={styles.footerText}>{brandName}</Text>
           <Text style={styles.footerText}>{proposal.proposal_number}</Text>
           <Text style={styles.footerText}>Page 2 of {totalPages}</Text>
         </View>
@@ -1023,7 +1029,7 @@ export const ProposalPDFv2 = ({ data, theme = 'print' }: ProposalPDFProps) => {
         </View>
 
         <View style={styles.footer}>
-          <Text style={styles.footerText}>{company?.name || 'ARX Roofing & Exteriors'}</Text>
+          <Text style={styles.footerText}>{brandName}</Text>
           <Text style={styles.footerText}>{proposal.proposal_number}</Text>
           <Text style={styles.footerText}>Page 3 of {totalPages}</Text>
         </View>
@@ -1064,14 +1070,14 @@ export const ProposalPDFv2 = ({ data, theme = 'print' }: ProposalPDFProps) => {
         </View>
 
         <View style={styles.footer}>
-          <Text style={styles.footerText}>{company?.name || 'ARX Roofing & Exteriors'}</Text>
+          <Text style={styles.footerText}>{brandName}</Text>
           <Text style={styles.footerText}>{proposal.proposal_number}</Text>
           <Text style={styles.footerText}>Page 4 of {totalPages}</Text>
         </View>
       </Page>
 
       {/* ================================================================
-          PAGE 5: WARRANTIES & WHY ARX
+          PAGE 5: WARRANTIES & WHY US
           ================================================================ */}
       <Page size="LETTER" style={styles.page}>
         <View style={styles.pageContent}>
@@ -1092,9 +1098,9 @@ export const ProposalPDFv2 = ({ data, theme = 'print' }: ProposalPDFProps) => {
             ))}
           </View>
 
-          {/* Why ARX */}
+          {/* Why us */}
           <View style={[styles.sectionHeader, { marginTop: tokens.spacing.xl }]}>
-            <Text style={styles.sectionTitle}>Why Homeowners Choose ARX</Text>
+            <Text style={styles.sectionTitle}>{`Why Homeowners Choose ${brandShortName}`}</Text>
           </View>
 
           {whyUsPoints.map((point, index) => (
@@ -1107,13 +1113,13 @@ export const ProposalPDFv2 = ({ data, theme = 'print' }: ProposalPDFProps) => {
           {/* Disclaimer */}
           <View style={styles.disclaimer}>
             <Text style={styles.disclaimerText}>
-              Insurance coverage decisions are made by the carrier. ARX can assist throughout the process.
+              {`Insurance coverage decisions are made by the carrier. ${brandShortName} can assist throughout the process.`}
             </Text>
           </View>
         </View>
 
         <View style={styles.footer}>
-          <Text style={styles.footerText}>{company?.name || 'ARX Roofing & Exteriors'}</Text>
+          <Text style={styles.footerText}>{brandName}</Text>
           <Text style={styles.footerText}>{proposal.proposal_number}</Text>
           <Text style={styles.footerText}>Page 5 of {totalPages}</Text>
         </View>
@@ -1161,7 +1167,7 @@ export const ProposalPDFv2 = ({ data, theme = 'print' }: ProposalPDFProps) => {
         </View>
 
         <View style={styles.footer}>
-          <Text style={styles.footerText}>{company?.name || 'ARX Roofing & Exteriors'}</Text>
+          <Text style={styles.footerText}>{brandName}</Text>
           <Text style={styles.footerText}>{proposal.proposal_number}</Text>
           <Text style={styles.footerText}>Page 6 of {totalPages}</Text>
         </View>
@@ -1233,7 +1239,7 @@ export const ProposalPDFv2 = ({ data, theme = 'print' }: ProposalPDFProps) => {
         </View>
 
         <View style={styles.footer}>
-          <Text style={styles.footerText}>{company?.name || 'ARX Roofing & Exteriors'}</Text>
+          <Text style={styles.footerText}>{brandName}</Text>
           <Text style={styles.footerText}>{proposal.proposal_number}</Text>
           <Text style={styles.footerText}>Page {totalPages} of {totalPages}</Text>
         </View>

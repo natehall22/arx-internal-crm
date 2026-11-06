@@ -1,5 +1,7 @@
 import { jsPDF } from 'jspdf'
 
+import type { DocumentBrand } from '@/lib/org-brand'
+
 export interface ContractData {
   id: string
   agreement_type?: string
@@ -102,7 +104,7 @@ function wrapText(doc: jsPDF, text: string, maxWidth: number): string[] {
   return lines
 }
 
-function generateContingencyPdf(contract: ContractData): Buffer {
+function generateContingencyPdf(contract: ContractData, brand: DocumentBrand): Buffer {
   const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'letter' })
   const pageWidth = 612
   const pageHeight = 792
@@ -121,11 +123,11 @@ function generateContingencyPdf(contract: ContractData): Buffer {
 
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(17)
-  doc.text('ARX ROOFING & EXTERIORS LLC', pageWidth / 2, y, { align: 'center' })
+  doc.text(brand.legalNameUpper, pageWidth / 2, y, { align: 'center' })
   y += 15
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(8)
-  doc.text('4101 Woodbury Terrace NW, Concord, NC 28027 | 704-313-8834 | info@arxroofing.com', pageWidth / 2, y, { align: 'center' })
+  doc.text(`${brand.addressLine} | ${brand.phone} | ${brand.email}`, pageWidth / 2, y, { align: 'center' })
   y += 24
 
   doc.setFont('helvetica', 'bold')
@@ -190,7 +192,7 @@ function generateContingencyPdf(contract: ContractData): Buffer {
   const leftCol = margin
   const rightCol = 320
   doc.text('Customer', leftCol, y)
-  doc.text('ARX Roofing & Exteriors', rightCol, y)
+  doc.text(brand.name, rightCol, y)
   y += 14
   doc.setFont('helvetica', 'normal')
   doc.text(`Print Name: ${contract.customer_print_name || ''}`, leftCol, y)
@@ -224,12 +226,12 @@ function generateContingencyPdf(contract: ContractData): Buffer {
 
   doc.setFontSize(7)
   doc.setTextColor(100)
-  doc.text('Page 1 of 1 | ARX Roofing & Exteriors LLC', pageWidth / 2, pageHeight - 24, { align: 'center' })
+  doc.text(`Page 1 of 1 | ${brand.legalName}`, pageWidth / 2, pageHeight - 24, { align: 'center' })
 
   return Buffer.from(doc.output('arraybuffer'))
 }
 
-function generateRepairPdf(contract: ContractData): Buffer {
+function generateRepairPdf(contract: ContractData, brand: DocumentBrand): Buffer {
   const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'letter' })
   const pageWidth = 612
   const pageHeight = 792
@@ -248,11 +250,11 @@ function generateRepairPdf(contract: ContractData): Buffer {
 
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(17)
-  doc.text('ARX ROOFING & EXTERIORS LLC', pageWidth / 2, y, { align: 'center' })
+  doc.text(brand.legalNameUpper, pageWidth / 2, y, { align: 'center' })
   y += 15
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(8)
-  doc.text('4101 Woodbury Terrace NW, Concord, NC 28027 | 704-313-8834 | info@arxroofing.com', pageWidth / 2, y, { align: 'center' })
+  doc.text(`${brand.addressLine} | ${brand.phone} | ${brand.email}`, pageWidth / 2, y, { align: 'center' })
   y += 24
 
   doc.setFont('helvetica', 'bold')
@@ -335,7 +337,7 @@ function generateRepairPdf(contract: ContractData): Buffer {
   const leftCol = margin
   const rightCol = 320
   doc.text('Customer', leftCol, y)
-  doc.text('ARX Roofing & Exteriors', rightCol, y)
+  doc.text(brand.name, rightCol, y)
   y += 14
   doc.setFont('helvetica', 'normal')
   doc.text(`Print Name: ${contract.customer_print_name || ''}`, leftCol, y)
@@ -369,17 +371,18 @@ function generateRepairPdf(contract: ContractData): Buffer {
 
   doc.setFontSize(7)
   doc.setTextColor(100)
-  doc.text('Page 1 of 1 | ARX Roofing & Exteriors LLC', pageWidth / 2, pageHeight - 24, { align: 'center' })
+  doc.text(`Page 1 of 1 | ${brand.legalName}`, pageWidth / 2, pageHeight - 24, { align: 'center' })
 
   return Buffer.from(doc.output('arraybuffer'))
 }
 
-export async function generateContractPdf(contract: ContractData): Promise<Buffer> {
+/** Clause wording below still names the original company; per-company templates are slice 2b (docs/multi-company-plan.md). */
+export async function generateContractPdf(contract: ContractData, brand: DocumentBrand): Promise<Buffer> {
   if (contract.agreement_type === 'contingency') {
-    return generateContingencyPdf(contract)
+    return generateContingencyPdf(contract, brand)
   }
   if (contract.agreement_type === 'repair') {
-    return generateRepairPdf(contract)
+    return generateRepairPdf(contract, brand)
   }
 
   const doc = new jsPDF({
@@ -398,7 +401,7 @@ export async function generateContractPdf(contract: ContractData): Promise<Buffe
   const addPageNumber = () => {
     doc.setFontSize(8)
     doc.setTextColor(100)
-    doc.text(`Page ${pageNum} of 7 | ARX Roofing & Exteriors LLC`, pageWidth / 2, pageHeight - 30, { align: 'center' })
+    doc.text(`Page ${pageNum} of 7 | ${brand.legalName}`, pageWidth / 2, pageHeight - 30, { align: 'center' })
     doc.setTextColor(0)
   }
 
@@ -414,12 +417,12 @@ export async function generateContractPdf(contract: ContractData): Promise<Buffe
   // PAGE 1: Cover Page
   doc.setFontSize(24)
   doc.setFont('helvetica', 'bold')
-  doc.text('ARX ROOFING & EXTERIORS LLC', pageWidth / 2, 200, { align: 'center' })
+  doc.text(brand.legalNameUpper, pageWidth / 2, 200, { align: 'center' })
   
   doc.setFontSize(10)
   doc.setFont('helvetica', 'normal')
-  doc.text('4101 Woodbury Terrace NW, Concord, NC 28027', pageWidth / 2, 240, { align: 'center' })
-  doc.text('Phone: 704-313-8834 | Email: info@arxroofing.com | arxroofing.com', pageWidth / 2, 255, { align: 'center' })
+  doc.text(brand.addressLine, pageWidth / 2, 240, { align: 'center' })
+  doc.text(`Phone: ${brand.phone} | Email: ${brand.email} | ${brand.website}`, pageWidth / 2, 255, { align: 'center' })
   
   doc.setFontSize(28)
   doc.setFont('helvetica', 'bold')
@@ -436,11 +439,11 @@ export async function generateContractPdf(contract: ContractData): Promise<Buffe
   // Header
   doc.setFontSize(16)
   doc.setFont('helvetica', 'bold')
-  doc.text('ARX ROOFING & EXTERIORS LLC', pageWidth / 2, y, { align: 'center' })
+  doc.text(brand.legalNameUpper, pageWidth / 2, y, { align: 'center' })
   y += 18
   doc.setFontSize(9)
   doc.setFont('helvetica', 'normal')
-  doc.text('4101 Woodbury Terrace NW, Concord, NC 28027 | 704-313-8834 | info@arxroofing.com', pageWidth / 2, y, { align: 'center' })
+  doc.text(`${brand.addressLine} | ${brand.phone} | ${brand.email}`, pageWidth / 2, y, { align: 'center' })
   y += 25
 
   // Customer And Premise Section
@@ -572,7 +575,7 @@ export async function generateContractPdf(contract: ContractData): Promise<Buffe
   doc.setFontSize(10)
   doc.setFont('helvetica', 'bold')
   doc.text('Customer', leftCol, y)
-  doc.text('ARX Roofing & Exteriors', rightCol, y)
+  doc.text(brand.name, rightCol, y)
   y += 18
 
   doc.setFont('helvetica', 'normal')
@@ -735,9 +738,7 @@ If you do make the goods available to the seller and the seller does not pick th
 
 To cancel this transaction, mail or deliver a signed and dated copy of this cancellation notice or any other written notice to:
 
-ARX Roofing & Exteriors LLC
-4101 Woodbury Terrace NW
-Concord, NC 28027
+${[brand.legalName, ...brand.addressLines].join('\n')}
 
 NOT LATER THAN MIDNIGHT OF ${formatDate(cancellationDeadline.toISOString())}`
 

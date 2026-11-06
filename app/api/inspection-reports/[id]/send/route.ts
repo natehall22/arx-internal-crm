@@ -61,7 +61,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
         const buf = Buffer.from(await blob.arrayBuffer())
         if (buf.length <= MAX_ATTACH_BYTES) {
           attachments.push({
-            filename: `${reportSlug(doc)}.pdf`,
+            filename: `${reportSlug(doc, brand.shortName)}.pdf`,
             content: buf,
             contentType: 'application/pdf',
           })

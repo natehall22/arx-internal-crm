@@ -77,6 +77,14 @@ export function formatPhone(v: Maybe<string>): string {
   return t.length === 10 ? `(${t.slice(0, 3)}) ${t.slice(3, 6)}-${t.slice(6)}` : v
 }
 
+/** "704-555-0142" for 10/11-digit US numbers (contract letterheads); anything else is returned as typed. */
+export function formatPhoneDashed(v: Maybe<string>): string {
+  if (!v) return EMPTY
+  const d = v.replace(/\D/g, '')
+  const t = d.length === 11 && d.startsWith('1') ? d.slice(1) : d
+  return t.length === 10 ? `${t.slice(0, 3)}-${t.slice(3, 6)}-${t.slice(6)}` : v
+}
+
 /** "tel:+17049038092" for a dialable US number; null when there is nothing to dial. */
 export function telHref(v: Maybe<string>): string | null {
   if (!v) return null

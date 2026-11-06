@@ -99,14 +99,16 @@ interface ProposalPDFProps {
   estimate: Estimate & { projects: Project }
   lines: EstimateLine[]
   customerName?: string
+  /** Company casual name from the org brand (brandDocument). */
+  companyName: string
 }
 
-export function ProposalPDF({ estimate, lines, customerName }: ProposalPDFProps) {
+export function ProposalPDF({ estimate, lines, customerName, companyName }: ProposalPDFProps) {
   return (
     <Document>
       <Page size="A4" style={styles.page}>
         <View style={styles.header}>
-          <Text style={styles.companyName}>ARX Roofing</Text>
+          <Text style={styles.companyName}>{companyName}</Text>
           <Text>Proposal / Estimate</Text>
         </View>
 

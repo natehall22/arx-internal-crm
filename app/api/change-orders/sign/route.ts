@@ -3,6 +3,8 @@ import { generateChangeOrderPdf } from '@/lib/contracts/generateChangeOrderPdf'
 import { syncJobSaleForProjectOrJob } from '@/lib/job-commission-base'
 import nodemailer from 'nodemailer'
 import { getCrmEmailFrom } from '@/lib/crm-email-from'
+import { buildChangeOrderSignedEmail } from '@/lib/contracts/customer-emails'
+import { getDocumentBrand } from '@/lib/org-brand'
 import { createServiceClient } from '@/lib/supabase/service'
 import { customerSignedDocUrl } from '@/lib/files/files-object'
 
@@ -37,6 +39,7 @@ export async function POST(request: NextRequest) {
     }
 
     const nowIso = new Date().toISOString()
+    const documentBrand = await getDocumentBrand(supabase, changeOrder.org_id)
 
     const { error: updateError } = await supabase
       .from('job_change_orders')
@@ -90,7 +93,7 @@ export async function POST(request: NextRequest) {
         repName: changeOrder.rep_name || '',
         repSignature: changeOrder.rep_signature_data || '',
         originalContractDate: changeOrder.original_contract_date || null,
-      })
+      }, documentBrand)
 
       const fileName = `${String(changeOrder.co_number || 'co').replace(/-/g, '_')}_${Date.now()}.pdf`
       pdfStoragePath = `org/${changeOrder.org_id}/change-orders/${changeOrder.project_id}/${fileName}`
@@ -131,12 +134,17 @@ export async function POST(request: NextRequest) {
           },
         })
 
+        const email = buildChangeOrderSignedEmail({
+          brand: documentBrand,
+          coNumber: changeOrder.co_number,
+          customerPdfUrl,
+        })
         await transporter.sendMail({
           from: getCrmEmailFrom(),
           to: changeOrder.customer_email,
-          subject: `Signed Change Order ${changeOrder.co_number}`,
-          text: `Thank you for signing your change order.\n\n${customerPdfUrl ? `Signed copy: ${customerPdfUrl}\n\n` : ''}ARX Roofing & Exteriors`,
-          html: `<p>Thank you for signing your change order.</p>${customerPdfUrl ? `<p><a href="${customerPdfUrl}">Download signed copy</a></p>` : ''}<p>ARX Roofing & Exteriors</p>`,
+          subject: email.subject,
+          text: email.text,
+          html: email.html,
         })
       } catch (emailError) {
         console.error('[Change Order Sign] email error:', emailError)

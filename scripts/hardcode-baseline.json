@@ -78,13 +78,6 @@
     "brand": 1,
     "timezone": 8
   },
-  "app/api/change-orders/create/route.ts": {
-    "address": 2,
-    "brand": 2
-  },
-  "app/api/change-orders/sign/route.ts": {
-    "brand": 2
-  },
   "app/api/close-appointments/submit/route.ts": {
     "timezone": 1
   },
@@ -93,20 +86,6 @@
   },
   "app/api/commissions/weekly/route.ts": {
     "timezone": 2
-  },
-  "app/api/contracts/create/route.ts": {
-    "address": 2,
-    "brand": 7
-  },
-  "app/api/contracts/sign/route.ts": {
-    "address": 4,
-    "brand": 10
-  },
-  "app/api/crew/[token]/photos/finalize/route.ts": {
-    "brand": 2
-  },
-  "app/api/crew/[token]/photos/register/route.ts": {
-    "brand": 1
   },
   "app/api/cron/founder-contacts-digest/route.ts": {
     "timezone": 2
@@ -124,9 +103,6 @@
     "timezone": 1
   },
   "app/api/feedback/submit/route.ts": {
-    "brand": 1
-  },
-  "app/api/inspection-reports/[id]/pdf/route.ts": {
     "brand": 1
   },
   "app/api/inspections/reschedule/route.ts": {
@@ -169,9 +145,6 @@
   "app/api/ops/jobs/[id]/cancel/route.ts": {
     "brand": 1
   },
-  "app/api/ops/jobs/[id]/completion-certificate/send/route.ts": {
-    "brand": 1
-  },
   "app/api/ops/jobs/[id]/notes/route.ts": {
     "brand": 1
   },
@@ -180,12 +153,6 @@
   },
   "app/api/public/estimate/config/route.ts": {
     "brand": 1
-  },
-  "app/api/public/estimate/preview/route.ts": {
-    "address": 4
-  },
-  "app/api/public/estimate/unlock/route.ts": {
-    "address": 2
   },
   "app/api/sisu/incentives/route.ts": {
     "timezone": 1
@@ -209,43 +176,20 @@
   "app/appointments/feedback/page.tsx": {
     "timezone": 4
   },
-  "app/change-orders/sign/[token]/page.tsx": {
-    "brand": 1
-  },
   "app/comp-agreements/receipt/[token]/page.tsx": {
     "brand": 1
   },
   "app/comp-agreements/sign/[token]/page.tsx": {
     "brand": 1
   },
-  "app/contracts/[token]/page.tsx": {
-    "brand": 1
-  },
-  "app/contracts/[token]/rep/page.tsx": {
-    "brand": 1
-  },
   "app/contracts/sign/[token]/CustomerSigningForm.tsx": {
-    "address": 4,
-    "brand": 54
-  },
-  "app/contracts/sign/[token]/page.tsx": {
-    "address": 1,
-    "brand": 4
-  },
-  "app/crew/[token]/CrewPhotoCapture.tsx": {
-    "brand": 5
-  },
-  "app/crew/[token]/page.tsx": {
-    "brand": 2
+    "brand": 47
   },
   "app/dashboard/DashboardClient.tsx": {
     "timezone": 8
   },
   "app/dashboard/page.tsx": {
     "timezone": 2
-  },
-  "app/invoices/[invoiceId]/print/page.tsx": {
-    "brand": 2
   },
   "app/layout.tsx": {
     "brand": 3
@@ -320,9 +264,6 @@
   },
   "components/Nav.tsx": {
     "brand": 2
-  },
-  "components/ProposalPDFv2.tsx": {
-    "brand": 11
   },
   "components/RequestMeasurementModal.tsx": {
     "brand": 1
@@ -418,24 +359,11 @@
   "lib/comp-plan-roles.ts": {
     "brand": 1
   },
-  "lib/company-address.ts": {
-    "address": 2,
-    "brand": 2
-  },
   "lib/completion-certificate.tsx": {
-    "address": 1,
-    "brand": 8
-  },
-  "lib/contracts/generateChangeOrderPdf.ts": {
-    "address": 3,
-    "brand": 5
+    "brand": 1
   },
   "lib/contracts/generatePdf.ts": {
-    "address": 14,
-    "brand": 63
-  },
-  "lib/crew-link.ts": {
-    "brand": 3
+    "brand": 47
   },
   "lib/crm-email-from.ts": {
     "brand": 3
@@ -479,19 +407,15 @@
     "timezone": 7
   },
   "lib/inspection-report/pdf.ts": {
-    "brand": 8
+    "brand": 3
   },
   "lib/inspection-report/types.ts": {
-    "brand": 8
+    "brand": 7
   },
   "lib/install-calendar.ts": {
-    "brand": 7,
     "timezone": 1
   },
   "lib/instant-estimate-accuracy.ts": {
-    "brand": 1
-  },
-  "lib/job-run-sheet.ts": {
     "brand": 1
   },
   "lib/job-sold-scope.ts": {
@@ -519,8 +443,8 @@
     "timezone": 3
   },
   "lib/org-brand.ts": {
-    "address": 2,
-    "brand": 7
+    "address": 7,
+    "brand": 12
   },
   "lib/payroll-period-week.ts": {
     "timezone": 1
@@ -528,36 +452,19 @@
   "lib/payroll-statement-email.ts": {
     "brand": 1
   },
-  "lib/pdf/InvoicePDF.tsx": {
-    "brand": 2
-  },
-  "lib/pdf/ProposalPDF.tsx": {
-    "brand": 1
-  },
-  "lib/pdf/job-packet.ts": {
-    "brand": 2
-  },
   "lib/pdf/job-run-sheet.ts": {
     "timezone": 2
   },
   "lib/pdf/payroll-statement.ts": {
-    "address": 1,
-    "brand": 5
+    "brand": 1
   },
   "lib/program-444-utils.ts": {
     "timezone": 1
   },
   "lib/public-estimate-config.ts": {
-    "brand": 8
-  },
-  "lib/public-estimate-lead.ts": {
-    "address": 4,
-    "brand": 14
-  },
-  "lib/push-apns.ts": {
     "brand": 4
   },
-  "lib/review-requests.ts": {
+  "lib/push-apns.ts": {
     "brand": 4
   },
   "lib/roof-shingle-constants.ts": {

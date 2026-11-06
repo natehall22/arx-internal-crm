@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 
 import { createServiceClient } from '@/lib/supabase/service'
 import { CREW_PHOTO_TAGS } from '@/lib/final-photo-tags'
-import { CREW_LINK_MAX_PHOTOS, crewLinkPhotoCounts, resolveCrewLink } from '@/lib/crew-link'
+import { CREW_LINK_MAX_PHOTOS, crewCallName, crewLinkPhotoCounts, resolveCrewLink } from '@/lib/crew-link'
 import { finalizeJobPhotoUpload } from '@/lib/job-photo-upload'
 import { completeTradeFromCrewPhotos } from '@/lib/job-status-events'
 
@@ -21,7 +21,12 @@ export async function POST(request: Request, { params }: { params: { token: stri
   const link = await resolveCrewLink(admin, params.token)
   if (!link.ok) {
     return NextResponse.json(
-      { error: link.reason === 'expired' ? 'This photo link has expired — call ARX.' : 'This photo link is no longer active.' },
+      {
+        error:
+          link.reason === 'expired'
+            ? `This photo link has expired — call ${await crewCallName(admin, link.orgId)}.`
+            : 'This photo link is no longer active.',
+      },
       { status: link.reason === 'expired' ? 410 : 404 }
     )
   }
@@ -39,7 +44,10 @@ export async function POST(request: Request, { params }: { params: { token: stri
   const counts = await crewLinkPhotoCounts(admin, link.ctx)
   const total = Object.values(counts).reduce((a, b) => a + b, 0)
   if (total >= CREW_LINK_MAX_PHOTOS) {
-    return NextResponse.json({ error: 'Photo limit reached for this job — call ARX.' }, { status: 429 })
+    return NextResponse.json(
+      { error: `Photo limit reached for this job — call ${await crewCallName(admin, link.ctx.orgId)}.` },
+      { status: 429 }
+    )
   }
 
   const result = await finalizeJobPhotoUpload(admin, {

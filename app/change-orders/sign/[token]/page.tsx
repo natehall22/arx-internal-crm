@@ -1,6 +1,7 @@
 export const dynamic = 'force-dynamic'
 
 import { createServiceClient } from '@/lib/supabase/service'
+import { getDocumentBrand } from '@/lib/org-brand'
 import CustomerSigningForm from './CustomerSigningForm'
 
 export default async function ChangeOrderSigningPage({
@@ -12,7 +13,7 @@ export default async function ChangeOrderSigningPage({
 
   const { data: changeOrder } = await supabase
     .from('job_change_orders')
-    .select('id, co_number, description, customer_print_name, status, token_expires_at, updated_total')
+    .select('id, org_id, co_number, description, customer_print_name, status, token_expires_at, updated_total')
     .eq('signing_token', params.token)
     .single()
 
@@ -28,11 +29,12 @@ export default async function ChangeOrderSigningPage({
   }
 
   if (changeOrder.token_expires_at && new Date(changeOrder.token_expires_at) < new Date()) {
+    const brand = await getDocumentBrand(supabase, changeOrder.org_id)
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
         <div className="max-w-md w-full bg-white rounded-xl shadow-lg p-8 text-center">
           <h1 className="text-xl font-bold text-gray-900 mb-2">Link Expired</h1>
-          <p className="text-gray-600">This signing link has expired. Please contact ARX Roofing.</p>
+          <p className="text-gray-600">This signing link has expired. Please contact {brand.casualName}.</p>
         </div>
       </div>
     )

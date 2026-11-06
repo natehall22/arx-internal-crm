@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { customerSignedDocUrl } from '@/lib/files/files-object'
 import nodemailer from 'nodemailer'
 import { getCrmEmailFrom } from '@/lib/crm-email-from'
+import { buildContractSignedEmail } from '@/lib/contracts/customer-emails'
+import { getDocumentBrand } from '@/lib/org-brand'
 import { buildOrderFormContractSaleDescription, notifyOrgAdminsOfSale } from '@/lib/admin-sale-email'
 import { syncJobSaleForProjectOrJob } from '@/lib/job-commission-base'
 import { enrichCustomerFromContract, resolveCustomerDisplayName, upsertCustomer } from '@/lib/customers'
@@ -347,6 +349,9 @@ export async function POST(request: NextRequest) {
       .eq('id', contract.id)
       .single()
 
+    // Company identity for the PDF letterhead and the customer email (one read).
+    const documentBrand = await getDocumentBrand(supabase, contract.org_id)
+
     let pdfUrl: string | null = null
     let pdfStoragePath: string | null = null
     let pdfGenerationError: string | null = null
@@ -357,7 +362,7 @@ export async function POST(request: NextRequest) {
       
       // Dynamic import to avoid issues with @react-pdf/renderer in edge runtime
       const { generateContractPdf } = await import('@/lib/contracts/generatePdf')
-      const pdfBuffer = await generateContractPdf(updatedContract)
+      const pdfBuffer = await generateContractPdf(updatedContract, documentBrand)
       
       console.log('[Contract Sign] PDF generated, size:', pdfBuffer.length, 'bytes')
       
@@ -946,93 +951,16 @@ export async function POST(request: NextRequest) {
     if (contract.customer_email) {
       console.log('[Contract Sign] Sending confirmation email to:', contract.customer_email)
       
-      const pdfSection = customerPdfUrl
-        ? `<p style="text-align: center;">
-            <a href="${customerPdfUrl}" style="display: inline-block; background: #22c55e; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; margin: 20px 0;">Download Signed Agreement</a>
-          </p>`
-        : `<p style="background: #fef3c7; padding: 12px; border-radius: 6px; color: #92400e;">
-            Your signed agreement is being processed. A copy will be sent to you shortly, or you can contact us to request one.
-          </p>`
-
-      const pdfTextSection = customerPdfUrl
-        ? `You can download your signed agreement here:\n${customerPdfUrl}`
-        : `Your signed agreement is being processed. Please contact us if you need a copy.`
-
-      const emailText = `Dear ${contract.customer_name},
-
-Thank you for signing your ${agreementLabel} with ARX Roofing & Exteriors!
-
-${pdfTextSection}
-
-Project Details:
-- Address: ${contract.project_address}
-${isContingency ? '- Project Cost: Not required until final Installation Agreement' : `- Project Cost: $${contract.project_cost.toLocaleString()}`}
-
-We look forward to working with you!
-
-If you have any questions, please contact us at:
-Phone: 704-313-8834
-Email: info@arxroofing.com
-
-Best regards,
-ARX Roofing & Exteriors LLC`
-
-      const emailHtml = `
-<!DOCTYPE html>
-<html>
-<head>
-  <style>
-    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-    .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-    .header { background: #1e3a5f; color: white; padding: 20px; text-align: center; }
-    .content { padding: 20px; background: #f9f9f9; }
-    .details { background: white; padding: 15px; border-radius: 6px; margin: 15px 0; }
-    .footer { text-align: center; padding: 20px; color: #666; font-size: 14px; }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <div class="header">
-      <h1 style="margin: 0;">ARX ROOFING & EXTERIORS LLC</h1>
-      <p style="margin: 5px 0 0 0; opacity: 0.9;">Agreement Signed Successfully!</p>
-    </div>
-    <div class="content">
-      <p>Dear ${contract.customer_name},</p>
-      <p>Thank you for signing your ${agreementLabel} with ARX Roofing & Exteriors!</p>
-      
-      <div class="details">
-        <strong>Project Details:</strong><br>
-        Address: ${contract.project_address}<br>
-        Project Cost: ${isContingency ? 'Not required until final Installation Agreement' : `$${contract.project_cost.toLocaleString()}`}
-      </div>
-      
-      ${pdfSection}
-      
-      <p>We look forward to working with you!</p>
-      
-      <p>If you have any questions, please contact us:</p>
-      <p>
-        Phone: 704-313-8834<br>
-        Email: info@arxroofing.com
-      </p>
-      
-      <p>Best regards,<br>ARX Roofing & Exteriors LLC</p>
-    </div>
-    <div class="footer">
-      <p>ARX Roofing & Exteriors LLC<br>
-      4101 Woodbury Terrace NW, Concord, NC 28027<br>
-      arxroofing.com</p>
-    </div>
-  </div>
-</body>
-</html>`
-
-      emailSent = await sendEmail(
-        contract.customer_email,
-        `ARX Roofing & Exteriors - Your Signed ${agreementLabel}`,
-        emailText,
-        emailHtml
-      )
+      const email = buildContractSignedEmail({
+        brand: documentBrand,
+        agreementLabel,
+        customerName: contract.customer_name,
+        projectAddress: contract.project_address,
+        isContingency,
+        projectCost: contract.project_cost,
+        customerPdfUrl,
+      })
+      emailSent = await sendEmail(contract.customer_email, email.subject, email.text, email.html)
       
       console.log('[Contract Sign] Email sent:', emailSent)
     }

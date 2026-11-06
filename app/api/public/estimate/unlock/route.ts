@@ -5,7 +5,7 @@ import {
   clientIpFromRequest,
   consumePublicEstimateRateLimit,
 } from '@/lib/public-estimate-rate-limit'
-import { createOrGetPublicEstimateLead, resolvePublicEstimateSnapshotForUnlock } from '@/lib/public-estimate-lead'
+import { createOrGetPublicEstimateLead, publicEstimateCompanyBrand, resolvePublicEstimateSnapshotForUnlock } from '@/lib/public-estimate-lead'
 import { resolvePublicEstimatePricingPath } from '@/lib/public-estimate-pricing'
 import { verifyPublicEstimateToken } from '@/lib/public-estimate-token'
 
@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
   } catch {
     return publicEstimateJson(
       {
-        error: 'Public roof estimate is not configured. Please call (704) 313-8834.',
+        error: `Public roof estimate is not configured. Please call ${(await publicEstimateCompanyBrand()).phone}.`,
         code: 'misconfigured',
       },
       503,
@@ -123,7 +123,7 @@ export async function POST(request: NextRequest) {
   } catch {
     return publicEstimateJson(
       {
-        error: 'Could not load your estimate preview. Please try again or call (704) 313-8834.',
+        error: `Could not load your estimate preview. Please try again or call ${(await publicEstimateCompanyBrand()).phone}.`,
         code: 'preview_store_unavailable',
       },
       503,
@@ -196,7 +196,7 @@ export async function POST(request: NextRequest) {
     facet_count: snapshot.facet_count,
   })
   const disclaimer = getPublicEstimateDisclaimerForPath(customerPath)
-  const nextStep = getPublicEstimateUnlockNextStepForPath(customerPath)
+  const nextStep = getPublicEstimateUnlockNextStepForPath(customerPath, (await publicEstimateCompanyBrand()).shortName)
 
   return publicEstimateJson(
     leadResult.estimate_mode === 'manual_design'

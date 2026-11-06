@@ -17,6 +17,7 @@ import {
 import { classifyPublicEstimateCustomerPath } from '@/lib/public-estimate-pricing'
 import { storePublicEstimatePreview } from '@/lib/public-estimate-preview-store'
 import { createPublicEstimateToken } from '@/lib/public-estimate-token'
+import { publicEstimateCompanyBrand } from '@/lib/public-estimate-lead'
 import {
   measurePublicRoofEstimate,
   newPublicEstimateJti,
@@ -104,7 +105,7 @@ export async function POST(request: NextRequest) {
   } catch {
     return publicEstimateJson(
       {
-        error: 'Public roof estimate is not configured. Please call (704) 313-8834.',
+        error: `Public roof estimate is not configured. Please call ${(await publicEstimateCompanyBrand()).phone}.`,
         code: 'misconfigured',
       },
       503,
@@ -125,7 +126,7 @@ export async function POST(request: NextRequest) {
         error:
           measured.reason === 'geocode_failed'
             ? 'We could not find that address. Check the spelling and try again.'
-            : 'Estimate preview failed. Please try again or call (704) 313-8834.',
+            : `Estimate preview failed. Please try again or call ${(await publicEstimateCompanyBrand()).phone}.`,
         code: measured.reason,
       },
       status,
@@ -138,7 +139,7 @@ export async function POST(request: NextRequest) {
     return publicEstimateJson(
       {
         error:
-          'That address looks outside our service area (Charlotte metro and nearby). Call (704) 313-8834 and we can still help.',
+          `That address looks outside our service area (Charlotte metro and nearby). Call ${(await publicEstimateCompanyBrand()).phone} and we can still help.`,
         code: 'out_of_service_area',
       },
       422,
@@ -174,7 +175,7 @@ export async function POST(request: NextRequest) {
   } catch {
     return publicEstimateJson(
       {
-        error: 'Estimate preview failed. Please try again or call (704) 313-8834.',
+        error: `Estimate preview failed. Please try again or call ${(await publicEstimateCompanyBrand()).phone}.`,
         code: 'preview_store_failed',
       },
       500,

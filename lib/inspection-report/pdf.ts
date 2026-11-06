@@ -98,6 +98,8 @@ interface Fonts {
   bold: PDFFont
   obl: PDFFont
   logo: PDFImage | null
+  /** Company short name (org brand): the wordmark when there is no logo, and the guide's "- … included -". */
+  shortName: string
 }
 
 function drawCentered(page: PDFPage, text: string, y: number, font: PDFFont, size: number, color: ReturnType<typeof rgb>) {
@@ -130,12 +132,13 @@ function drawLogo(page: PDFPage, x: number, y: number, w: number, h: number, fon
     if (ir > br) { dw = w; dh = w / ir } else { dh = h; dw = dh * ir }
     page.drawImage(fonts.logo, { x: x + (w - dw) / 2, y: y + (h - dh) / 2, width: dw, height: dh })
   } else {
-    // fallback wordmark "ARX" sized to box, cream on charcoal
+    // fallback wordmark (company short name) sized to box, cream on charcoal
     const f = fonts.bold
+    const mark = S(fonts.shortName)
     let size = h * 0.9
-    while (f.widthOfTextAtSize('ARX', size) > w && size > 6) size -= 0.5
-    const tw = f.widthOfTextAtSize('ARX', size)
-    page.drawText('ARX', { x: x + (w - tw) / 2, y: y + (h - size * 0.72) / 2, size, font: f, color: C.cream })
+    while (f.widthOfTextAtSize(mark, size) > w && size > 6) size -= 0.5
+    const tw = f.widthOfTextAtSize(mark, size)
+    page.drawText(mark, { x: x + (w - tw) / 2, y: y + (h - size * 0.72) / 2, size, font: f, color: C.cream })
   }
 }
 
@@ -489,8 +492,7 @@ function drawGuidePage1(page: PDFPage, doc: ReportDoc, pageNum: number, fonts: F
   drawInnerHeader(page, doc, GUIDE_HEADER, fonts)
   drawInnerFooter(page, doc, pageNum, fonts)
   let y = drawGuideTitle(page, 'Choosing Your Roofer', fonts)
-  const intro =
-    'A new roof is a major investment. Whoever you choose to work with - ARX included - a reputable roofing company should be able to answer every question below in writing. Take your time, and ask.'
+  const intro = `A new roof is a major investment. Whoever you choose to work with - ${fonts.shortName} included - a reputable roofing company should be able to answer every question below in writing. Take your time, and ask.`
   for (const ln of wrapText(intro, fonts.obl, 9.5, 504)) {
     page.drawText(S(ln), { x: 54, y, size: 9.5, font: fonts.obl, color: C.body })
     y -= 13
@@ -589,18 +591,21 @@ export interface BuildPdfOptions {
   hasPhoto: (photoId: string) => boolean
   /** PNG bytes of the brand logo; wordmark fallback when null. */
   logoPng?: Uint8Array | null
+  /** Company short name from the org brand (lib/org-brand). */
+  companyShortName: string
   quality: number
   maxSide: number
 }
 
 export async function buildReportPdf(opts: BuildPdfOptions): Promise<Uint8Array> {
-  const { doc: rdoc, getPhotoJpeg, hasPhoto, logoPng, quality, maxSide } = opts
+  const { doc: rdoc, getPhotoJpeg, hasPhoto, logoPng, quality, maxSide, companyShortName } = opts
   const doc = await PDFDocument.create()
   const fonts: Fonts = {
     reg: await doc.embedFont(StandardFonts.Helvetica),
     bold: await doc.embedFont(StandardFonts.HelveticaBold),
     obl: await doc.embedFont(StandardFonts.HelveticaOblique),
     logo: null,
+    shortName: companyShortName,
   }
   if (logoPng) {
     try { fonts.logo = await doc.embedPng(logoPng) } catch { fonts.logo = null }

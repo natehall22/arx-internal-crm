@@ -18,6 +18,7 @@ import {
   type InstallSyncTradeRow,
 } from '@/lib/install-calendar'
 import { JOB_TRADE_COLUMNS, type JobTradeRow } from '@/lib/job-trades'
+import { resolveOrgBrand, type OrgBrandRow } from '@/lib/org-brand'
 
 const TRADE_JOB_COLUMNS =
   'id, org_id, job_number, address_text, status, cancelled_at, project_id, accepted_proposal_id, linked_proposal_id, job_type, customer:customers(id, name), project:projects(sold_roof_squares, opportunity_id)'
@@ -104,7 +105,7 @@ export async function syncTradeCalendar(
       : Promise.resolve({ data: null }),
     // The crew gets this number in the invite so they have someone to call from
     // the job site. Non-fatal: a missing phone just drops that line.
-    admin.from('orgs').select('phone').eq('id', orgId).maybeSingle(),
+    admin.from('orgs').select('name, phone, email, address, brand:settings->brand').eq('id', orgId).maybeSingle(),
   ])
 
   let totalSquares: number | null = null
@@ -129,6 +130,7 @@ export async function syncTradeCalendar(
     totalSquares,
     schedulingEmail,
     orgPhone: (org as { phone?: string | null } | null)?.phone ?? null,
+    orgShortName: resolveOrgBrand(org as OrgBrandRow | null).shortName,
     schedulingUserId: params.schedulingUserId,
   })
 

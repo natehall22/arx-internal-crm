@@ -1,5 +1,7 @@
 import crypto from 'crypto'
 
+import type { DocumentBrand } from '@/lib/org-brand'
+
 /**
  * Post-job Google review requests. Shared server-side helpers for composing the
  * message, minting/validating the tracked-link token, and gating on job status.
@@ -8,12 +10,13 @@ import crypto from 'crypto'
  * the review card receives the composed message/link/phone from the API instead.
  */
 
-// ARX Roofing & Exteriors Google Business Profile "leave a review" short link.
+// The original company's Google Business Profile "leave a review" short link.
 // Used as the hard fallback if an org has not set `google_review_url` in settings.
 export const DEFAULT_GOOGLE_REVIEW_URL = 'https://g.page/r/CZXGjypqewJ8EBM/review'
 
+/** `{company}` is the company's casual name from the org brand (only this default uses it). */
 export const DEFAULT_REVIEW_MESSAGE_TEMPLATE =
-  "Hi {first_name}, it's {rep_first_name} with ARX Roofing! It was a pleasure getting your new roof taken care of, and thank you for trusting us with your home. When you get a quick minute, would you mind sharing your experience on Google? It means the world to me and the team: {link}"
+  "Hi {first_name}, it's {rep_first_name} with {company}! It was a pleasure getting your new roof taken care of, and thank you for trusting us with your home. When you get a quick minute, would you mind sharing your experience on Google? It means the world to me and the team: {link}"
 
 // Production job statuses where a review request is appropriate (job is done).
 export const REVIEW_ELIGIBLE_STATUSES = ['complete', 'collected'] as const
@@ -69,11 +72,16 @@ export function composeReviewMessage(opts: {
   customerName?: string | null
   repName?: string | null
   link: string
+  /** The sending company (org brand): casual name in the default text, short name in "the … team". */
+  company: Pick<DocumentBrand, 'casualName' | 'shortName'>
 }): string {
   const template = opts.template && opts.template.trim() ? opts.template : DEFAULT_REVIEW_MESSAGE_TEMPLATE
   const customerFirst = firstNameOf(opts.customerName, 'there')
-  const repFirst = opts.repName ? firstNameOf(opts.repName, 'the ARX team') : 'the ARX team'
-  let out = replaceAllSafe(template, '{first_name}', customerFirst)
+  const team = `the ${opts.company.shortName} team`
+  const repFirst = opts.repName ? firstNameOf(opts.repName, team) : team
+  // {company} first, so a name that happens to contain a placeholder is never expanded.
+  let out = replaceAllSafe(template, '{company}', opts.company.casualName)
+  out = replaceAllSafe(out, '{first_name}', customerFirst)
   out = replaceAllSafe(out, '{rep_first_name}', repFirst)
   out = replaceAllSafe(out, '{link}', opts.link)
   return out

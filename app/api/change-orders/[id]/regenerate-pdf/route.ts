@@ -3,6 +3,7 @@ import { requireAuthApi } from '@/lib/auth'
 import { filesObjectHref } from '@/lib/files/files-object'
 import { createServiceClient } from '@/lib/supabase/service'
 import { generateChangeOrderPdf } from '@/lib/contracts/generateChangeOrderPdf'
+import { getDocumentBrand } from '@/lib/org-brand'
 
 export const dynamic = 'force-dynamic'
 
@@ -62,7 +63,7 @@ export async function POST(
       repName: co.rep_name || '',
       repSignature: co.rep_signature_data || '',
       originalContractDate: co.original_contract_date || null,
-    })
+    }, await getDocumentBrand(service, profile.org_id))
 
     const fileName = `${String(co.co_number || 'co').replace(/-/g, '_')}_regen_${Date.now()}.pdf`
     const pdfStoragePath = `org/${co.org_id}/change-orders/${co.project_id}/${fileName}`

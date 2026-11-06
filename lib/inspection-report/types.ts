@@ -252,7 +252,8 @@ export const REPORT_EDIT_ROLES = new Set([
 ])
 
 /** Per-job PDF filename: address slug + date, so a rep doing several houses gets distinct files. */
-export function reportSlug(doc: ReportDoc): string {
+/** PDF file name; prefixed with the company short name (org brand). */
+export function reportSlug(doc: ReportDoc, companyShortName: string): string {
   const fld = (re: RegExp) =>
     ((doc.cover.infoFields.find((f) => re.test(f.label || '')) || { value: '' }).value || '')
       .split('\n')[0]
@@ -262,5 +263,5 @@ export function reportSlug(doc: ReportDoc): string {
       .replace(/[^a-z0-9]+/gi, '-')
       .replace(/^-+|-+$/g, '')
       .slice(0, 40) || 'Roof-Report'
-  return `ARX-${base}-${new Date().toISOString().slice(0, 10)}`
+  return `${companyShortName}-${base}-${new Date().toISOString().slice(0, 10)}`
 }

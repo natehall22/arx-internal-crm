@@ -7,6 +7,7 @@ import {
   buildTrackedReviewLink,
   isReviewEligibleStatus,
 } from '@/lib/review-requests'
+import { getDocumentBrand } from '@/lib/org-brand'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -173,6 +174,7 @@ export async function POST(
     customerName: customer?.name,
     repName: salesperson?.full_name,
     link,
+    company: await getDocumentBrand(supabase, profile.org_id),
   })
 
   return NextResponse.json({

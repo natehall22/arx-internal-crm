@@ -20,6 +20,8 @@ import {
   type PublicEstimateRevealPath,
 } from '@/lib/public-estimate-pricing'
 import { createServiceClient } from '@/lib/supabase/service'
+import { telHref } from '@/lib/format'
+import { brandDocument, getOrgBrand, resolveOrgBrand, type OrgBrand } from '@/lib/org-brand'
 
 function escapeHtml(s: string): string {
   return s
@@ -85,6 +87,34 @@ export function shouldSendHomeownerEstimateEmail(
   return true
 }
 
+/** The estimating company (org brand) for the public estimate's customer-facing copy. Never throws. */
+export async function publicEstimateCompanyBrand(): Promise<OrgBrand> {
+  try {
+    return await getOrgBrand(createServiceClient(), getPublicEstimateOrgId())
+  } catch {
+    // Unconfigured org id / service key (the "misconfigured" path) → the default brand.
+    return resolveOrgBrand(null)
+  }
+}
+
+/** Company lines shared by the homeowner emails: questions line (company phone, linked when dialable) and sign-off. */
+function homeownerEmailBrandCopy(brand: OrgBrand) {
+  const doc = brandDocument(brand)
+  const tel = telHref(brand.phone)
+  const phoneHtml = tel
+    ? `<a href="${tel}" style="color:#b45309">${escapeHtml(brand.phone)}</a>`
+    : escapeHtml(brand.phone)
+  return {
+    questionsText: `Questions before we call? Reply to this email or call ${brand.phone}.`,
+    signoffText: `— ${brand.name}`,
+    phoneHtml,
+    casualName: doc.casualName,
+    nameHtml: escapeHtml(brand.name),
+    casualNameHtml: escapeHtml(doc.casualName),
+    shortNameHtml: escapeHtml(brand.shortName),
+  }
+}
+
 export function buildHomeownerEstimateEmailContent(options: {
   name: string
   email: string
@@ -94,12 +124,15 @@ export function buildHomeownerEstimateEmailContent(options: {
   squares_est: number
   disclaimer: string
   customerPath?: PublicEstimateCustomerPath
+  /** The estimating company (org brand). Company phone: no rep owns the homeowner yet. */
+  brand: OrgBrand
 }): HomeownerEstimateEmailContent {
-  const { name, address, price_low, price_high, squares_est, disclaimer, customerPath = 'auto' } =
+  const { name, address, price_low, price_high, squares_est, disclaimer, customerPath = 'auto', brand } =
     options
+  const copy = homeownerEmailBrandCopy(brand)
   const paidFallback = isPublicEstimatePaidFallbackPath(customerPath)
   const range = `${formatUsd(price_low)}–${formatUsd(price_high)}`
-  const subject = `Your ARX roof estimate for ${address}`
+  const subject = `Your ${brand.shortName} roof estimate for ${address}`
   const imageryLine = paidFallback
     ? 'This conservative estimate range is based on aerial/satellite imagery of your complex roof — satellite views can under-read square footage.'
     : 'This estimate is based on aerial/satellite imagery of your roof.'
@@ -109,7 +142,7 @@ export function buildHomeownerEstimateEmailContent(options: {
   const text = [
     `Hi ${name},`,
     '',
-    'Thanks for using ARX Roofing\'s instant roof estimate.',
+    `Thanks for using ${copy.casualName}'s instant roof estimate.`,
     '',
     `Property: ${address}`,
     `Estimated roofing range (shingles): ${range}`,
@@ -120,16 +153,16 @@ export function buildHomeownerEstimateEmailContent(options: {
     '',
     disclaimer,
     '',
-    'An ARX team member will call you shortly with a few clarifying, no-pressure questions.',
+    `An ${brand.shortName} team member will call you shortly with a few clarifying, no-pressure questions.`,
     '',
-    'Questions before we call? Reply to this email or call (704) 313-8834.',
+    copy.questionsText,
     '',
-    '— ARX Roofing & Exteriors',
+    copy.signoffText,
   ].join('\n')
 
   const html = `<div style="font-family:Arial,Helvetica,sans-serif;max-width:640px;margin:0 auto;padding:24px;color:#2c2c2a">
   <p style="margin:0 0 16px;font-size:16px">Hi ${escapeHtml(name)},</p>
-  <p style="margin:0 0 20px;font-size:15px;line-height:1.5">Thanks for using ARX Roofing's instant roof <strong>estimate</strong>.</p>
+  <p style="margin:0 0 20px;font-size:15px;line-height:1.5">Thanks for using ${copy.casualNameHtml}'s instant roof <strong>estimate</strong>.</p>
   <div style="border:1px solid #e5e5e0;border-radius:10px;padding:20px;margin:0 0 20px;background:#fafaf8">
     <p style="margin:0 0 8px;font-size:13px;color:#6b6b66;text-transform:uppercase;letter-spacing:0.04em">Estimated roofing range (shingles)</p>
     <p style="margin:0 0 12px;font-size:32px;font-weight:700;color:#2c2c2a">${escapeHtml(range)}</p>
@@ -143,9 +176,9 @@ export function buildHomeownerEstimateEmailContent(options: {
       : ''
   }
   <p style="margin:0 0 20px;font-size:14px;line-height:1.55;color:#2c2c2a"><em>${escapeHtml(disclaimer)}</em></p>
-  <p style="margin:0 0 8px;font-size:15px;line-height:1.5;color:#2c2c2a"><strong>An ARX team member will call you shortly</strong> with a few clarifying, no-pressure questions.</p>
-  <p style="margin:16px 0 0;font-size:13px;color:#6b6b66">Questions before we call? Reply to this email or call <a href="tel:+17043138834" style="color:#b45309">(704) 313-8834</a>.</p>
-  <p style="margin:24px 0 0;font-size:13px;color:#6b6b66">— ARX Roofing &amp; Exteriors</p>
+  <p style="margin:0 0 8px;font-size:15px;line-height:1.5;color:#2c2c2a"><strong>An ${copy.shortNameHtml} team member will call you shortly</strong> with a few clarifying, no-pressure questions.</p>
+  <p style="margin:16px 0 0;font-size:13px;color:#6b6b66">Questions before we call? Reply to this email or call ${copy.phoneHtml}.</p>
+  <p style="margin:24px 0 0;font-size:13px;color:#6b6b66">— ${copy.nameHtml}</p>
 </div>`
 
   return { subject, text, html }
@@ -154,33 +187,36 @@ export function buildHomeownerEstimateEmailContent(options: {
 export function buildHomeownerManualDesignEmailContent(options: {
   name: string
   address: string
+  /** The estimating company (org brand). Company phone: no rep owns the homeowner yet. */
+  brand: OrgBrand
 }): HomeownerEstimateEmailContent {
-  const { name, address } = options
+  const { name, address, brand } = options
+  const copy = homeownerEmailBrandCopy(brand)
   const subject = `We received your roof request for ${address}`
   const text = [
     `Hi ${name},`,
     '',
-    'Thanks for requesting a roof estimate from ARX Roofing.',
+    `Thanks for requesting a roof estimate from ${copy.casualName}.`,
     '',
     `Property: ${address}`,
     '',
     'Your roof needs a manual measure by our design team. One of our designers will reach out once they have drawn your roof.',
     '',
-    'An ARX team member will call you shortly with next steps.',
+    `An ${brand.shortName} team member will call you shortly with next steps.`,
     '',
-    'Questions before we call? Reply to this email or call (704) 313-8834.',
+    copy.questionsText,
     '',
-    '— ARX Roofing & Exteriors',
+    copy.signoffText,
   ].join('\n')
 
   const html = `<div style="font-family:Arial,Helvetica,sans-serif;max-width:640px;margin:0 auto;padding:24px;color:#2c2c2a">
   <p style="margin:0 0 16px;font-size:16px">Hi ${escapeHtml(name)},</p>
-  <p style="margin:0 0 20px;font-size:15px;line-height:1.5">Thanks for requesting a roof estimate from ARX Roofing.</p>
+  <p style="margin:0 0 20px;font-size:15px;line-height:1.5">Thanks for requesting a roof estimate from ${copy.casualNameHtml}.</p>
   <p style="margin:0 0 12px;font-size:14px;color:#2c2c2a">${escapeHtml(address)}</p>
   <p style="margin:0 0 20px;font-size:14px;line-height:1.55;color:#2c2c2a">Your roof needs a manual measure by our design team. One of our designers will reach out once they have drawn your roof.</p>
-  <p style="margin:0 0 8px;font-size:15px;line-height:1.5;color:#2c2c2a"><strong>An ARX team member will call you shortly</strong> with next steps.</p>
-  <p style="margin:16px 0 0;font-size:13px;color:#6b6b66">Questions before we call? Reply to this email or call <a href="tel:+17043138834" style="color:#b45309">(704) 313-8834</a>.</p>
-  <p style="margin:24px 0 0;font-size:13px;color:#6b6b66">— ARX Roofing &amp; Exteriors</p>
+  <p style="margin:0 0 8px;font-size:15px;line-height:1.5;color:#2c2c2a"><strong>An ${copy.shortNameHtml} team member will call you shortly</strong> with next steps.</p>
+  <p style="margin:16px 0 0;font-size:13px;color:#6b6b66">Questions before we call? Reply to this email or call ${copy.phoneHtml}.</p>
+  <p style="margin:24px 0 0;font-size:13px;color:#6b6b66">— ${copy.nameHtml}</p>
 </div>`
 
   return { subject, text, html }
@@ -1255,7 +1291,8 @@ async function sendNewPublicEstimateLeadAlerts(options: {
   const leadUrl = `${appUrl}/leads/${leadId}`
   // Primary internal alert inbox. Live lead_sources has no notification_emails column —
   // do not select/insert that field. Owner email is still added when auto-assigned (auto path only).
-  const emailRecipients = new Set<string>(['info@arxroofing.com'])
+  // The company's own inbox (org brand email) always gets the alert.
+  const emailRecipients = new Set<string>([(await getOrgBrand(adminClient, orgId)).email.toLowerCase()])
   const notifyEmails = (leadSource as { notification_emails?: unknown } | null)?.notification_emails
   if (Array.isArray(notifyEmails)) {
     for (const e of notifyEmails) {
@@ -1510,11 +1547,13 @@ async function maybeSendHomeownerEstimateEmail(options: {
       return false
     }
 
+    const brand = await getOrgBrand(adminClient, getPublicEstimateOrgId())
     const { subject, text, html } =
       customerPath === 'silent_manual'
         ? buildHomeownerManualDesignEmailContent({
             name,
             address: snapshot.address,
+            brand,
           })
         : buildHomeownerEstimateEmailContent({
             name,
@@ -1525,6 +1564,7 @@ async function maybeSendHomeownerEstimateEmail(options: {
             squares_est,
             disclaimer,
             customerPath,
+            brand,
           })
 
     return runClaimedPublicEstimateUnlockDelivery(

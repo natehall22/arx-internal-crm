@@ -2,7 +2,8 @@ import { existsSync, readFileSync } from 'fs'
 import { join } from 'path'
 import { jsPDF } from 'jspdf'
 import type { PayrollStatementPayload } from '@/lib/payroll-statement'
-import { ARX_DEFAULT_OFFICE_ADDRESS } from '@/lib/company-address'
+import { formatPhoneDashed } from '@/lib/format'
+import type { OrgBrand } from '@/lib/org-brand'
 import { formatPayrollMoney } from '@/lib/payroll-format'
 
 const COLORS = {
@@ -18,13 +19,7 @@ const COLORS = {
   alertBg: [254, 242, 242] as const,
 }
 
-const COMPANY = {
-  name: 'ARX Roofing & Exteriors',
-  address: ARX_DEFAULT_OFFICE_ADDRESS,
-  phone: '704-313-8834',
-  email: 'info@arxroofing.com',
-  logoPath: join(process.cwd(), 'public', 'brand', 'arx-shield.png'),
-}
+const LOGO_PATH = join(process.cwd(), 'public', 'brand', 'arx-shield.png')
 
 type Rgb = readonly [number, number, number]
 
@@ -148,8 +143,16 @@ function buildActivitySummary(statement: PayrollStatementPayload): string | null
  */
 export function buildPayrollStatementPdfBuffer(
   statement: PayrollStatementPayload,
-  opts?: { statementUrl?: string }
+  opts: { statementUrl?: string; brand: OrgBrand }
 ): Buffer {
+  // Company block from the org brand; company phone (dashed) — this is the company's statement to its rep.
+  const COMPANY = {
+    name: opts.brand.name,
+    address: opts.brand.address,
+    phone: formatPhoneDashed(opts.brand.phone),
+    email: opts.brand.email,
+    logoPath: LOGO_PATH,
+  }
   const doc = new jsPDF({ unit: 'pt', format: 'letter' })
   const pageW = doc.internal.pageSize.getWidth()
   const pageH = doc.internal.pageSize.getHeight()

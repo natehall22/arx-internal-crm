@@ -274,6 +274,8 @@ jest.mock('@/lib/supabase/service', () => ({
                 data: { id: ORG_ID, settings: { web_leads_owner_id: null } },
                 error: null,
               }),
+              // getOrgBrand (alert inbox + homeowner email identity): the org has no brand set → defaults.
+              maybeSingle: async () => ({ data: { name: null, phone: null, email: null, address: null, brand: null }, error: null }),
             }),
           }),
         }

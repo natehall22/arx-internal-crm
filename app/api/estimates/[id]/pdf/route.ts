@@ -7,6 +7,7 @@ import { NextResponse } from 'next/server'
 import { validateRequiredAdders } from '@/lib/required-adders'
 import { renderToBuffer } from '@react-pdf/renderer'
 import { ProposalPDF } from '@/lib/pdf/ProposalPDF'
+import { getDocumentBrand } from '@/lib/org-brand'
 
 export async function POST(
   request: Request,
@@ -62,6 +63,7 @@ export async function POST(
       estimate,
       lines: lines || [],
       customerName: customerName || undefined,
+      companyName: (await getDocumentBrand(createServiceClient(), profile.org_id)).casualName,
     }) as unknown as React.ReactElement
 
     const pdfBuffer = await renderToBuffer(pdfDoc)

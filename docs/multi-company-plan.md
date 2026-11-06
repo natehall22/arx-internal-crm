@@ -12,9 +12,19 @@ nothing ARX customers or reps see unless the slice says so. Gate on every slice:
    `users.phone` (report creator; the sender on the email), else `brand.phone` (`contactPhone`).
    Sent reports keep their stored footer. Admin → Settings → General edits short name, website,
    service-area line (merged into `settings.brand`). Settings timezone fallback is `DEFAULT_TIMEZONE`.
-2. **Contracts / PDFs / customer copy onto OrgBrand**, with golden-text diff tests per document
-   (byte-identical for ARX). Legal text for company #2 is their own template, not string
-   interpolation into ARX's contract. Adds `legalName`; phones follow `contactPhone` (rep, else company).
+2a. **Customer-facing identity onto OrgBrand — DONE (feat/org-brand-slice2a).** Contract / change-order PDF
+   letterhead + footers, signing pages, agreement/CO emails (`lib/contracts/customer-emails.ts`), proposal PDF
+   fallbacks, completion certificate, invoice address, payroll statement, job packet, crew page + invite + API
+   messages, review SMS, website-estimate emails/errors/next step, report PDF wordmark + filename. Letterheads use
+   `brandDocument` (legal name, one-line address, dashed phone; ARX's historical spellings kept only while the org
+   holds the default value). Phones: company phone where it was already shown (byte-identity beats the rep rule);
+   proposals/reports keep the rep phone. Golden tests: `lib/__tests__/org-brand-documents.test.ts` (PDF SHA-256s +
+   copy recorded from origin/main 0cdbd142). `lib/company-address.ts` and dead `lib/pdf/InvoicePDF.tsx` deleted.
+2b. **Per-company / per-industry contract & document templates** (designed separately). Clause wording that names
+   the company inside a sentence (`lib/contracts/generatePdf.ts` terms, contingency + repair clauses, cancellation
+   notice text; `CustomerSigningForm.tsx` terms; `ContractModal.tsx` attestation; report seed text in
+   `lib/inspection-report/types.ts`; door-drop / appointment-card print kits; employee comp agreements) becomes
+   each company's own template — never string interpolation into ARX's contract.
 3. **Internal UI copy**: "ARX CRM" is the PRODUCT name and stays (Nathan, 2026-11-05, Salesforce-style) — not per-company. Every existing "ARX CRM" literal moves onto ONE product constant (e.g. `PRODUCT_NAME` in one module) and the ratchet baseline shrinks; staff-facing chrome (login, Nav title, staff system emails, page `<title>`) shows it beside the company's own logo/name. Anything else that says "ARX" in staff UI and means the company → the org brand.
 4. **Timezone step A — pure aliasing, no behavior change.** `lib/business-timezone.ts`
    `BUSINESS_TIMEZONE`; the 10 existing constants alias it; the 135 safe literal swaps. First run
@@ -28,9 +38,10 @@ nothing ARX customers or reps see unless the slice says so. Gate on every slice:
 8. **Per-deployment env checklist**: `docs/new-deployment-env.md`.
 9. **Idempotent seed-new-company script**: org row, settings.brand, roles, defaults; safe to re-run.
 
-## Open after slice 1
-- `getCrmEmailFrom` (From header) is unchanged and still hardcoded; per-org From needs the org passed
-  through every mail sender.
-- PDF engine wordmark fallback "ARX" and guide copy ("ARX included") in `lib/inspection-report/pdf.ts`.
-- `lib/company-address.ts` callers (invoice, certificate, payroll PDF) not yet on `brand.address`.
+## Open after slice 2a
+- `getCrmEmailFrom` (From header "ARX Roofing <info@…>") still hardcoded; per-org From needs the org passed to every sender.
+- Static ARX logo files (`public/brand/arx-shield.png`) on the completion certificate, payroll PDF and appointment
+  cards, and `arx-report-logo.png` in the report builder — move to the org logo (`orgLogoHref`) with a golden update.
+- "ARX CRM" on the customer-facing completion-certificate footer → slice 3 product constant (Nathan to decide wording).
+- Hardcoded certificate signer name; public-estimate service-area copy ("Charlotte metro") and geofence.
 - A new org with no `settings.brand` shows ARX's defaults. Slice 9 must seed `settings.brand`.

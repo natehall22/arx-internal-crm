@@ -4,12 +4,13 @@ import { jsPDF } from 'jspdf'
 import { SupabaseClient } from '@supabase/supabase-js'
 import { FILES_BUCKET, buildJobDocumentStoragePath } from '@/lib/files/storage'
 import { newDocumentInsert } from '@/lib/files/documents'
-import { ARX_DEFAULT_OFFICE_ADDRESS } from '@/lib/company-address'
+import { formatPhoneDashed } from '@/lib/format'
+import { getOrgBrand, type OrgBrand } from '@/lib/org-brand'
 
 export const COMPLETION_CERTIFICATE_CATEGORY = 'completion_certificate'
 export const COMPLETION_CERTIFICATE_TITLE = 'Certificate of Completion'
 
-/** Printed signature line for Authorized ARX Representative (certificate template). */
+/** Printed signature line for the company's authorized representative (certificate template). */
 const COMPLETION_CERTIFICATE_AUTH_REP_NAME = 'Nathan Hall'
 
 type JoinedCustomer = { id?: string | null; name?: string | null; email?: string | null; phone?: string | null }
@@ -40,8 +41,10 @@ function titleCase(value?: string | null) {
  * Server-only PDF (jsPDF). Avoids @react-pdf/renderer in this path — Next/Vercel bundling
  * can throw "Component is not a constructor" when react-pdf is packed into route handlers.
  */
-function buildCompletionCertificatePdfBuffer(args: {
+export function buildCompletionCertificatePdfBuffer(args: {
   companyName: string
+  /** Wordmark for "Authorized … Representative". */
+  companyShortName: string
   companyAddress: string
   companyPhone: string | null
   companyEmail: string | null
@@ -177,9 +180,9 @@ function buildCompletionCertificatePdfBuffer(args: {
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(10)
   doc.setTextColor(75, 85, 99)
-  doc.text('Authorized ARX Representative', boxLeft, sigY + 14)
+  doc.text(`Authorized ${args.companyShortName} Representative`, boxLeft, sigY + 14)
 
-  doc.text('Authorized ARX Representative', boxLeft, sigY + 14)
+  doc.text(`Authorized ${args.companyShortName} Representative`, boxLeft, sigY + 14)
 
   const dateColLeft = boxLeft + colW + 24
   doc.setFont('helvetica', 'bold')
@@ -199,6 +202,17 @@ function buildCompletionCertificatePdfBuffer(args: {
   })
 
   return Buffer.from(doc.output('arraybuffer'))
+}
+
+/** Company block of the certificate, from the org brand. Company-level document → company phone (dashed), never a rep's. */
+export function completionCertificateCompany(brand: OrgBrand) {
+  return {
+    companyName: brand.name,
+    companyShortName: brand.shortName,
+    companyAddress: brand.address,
+    companyPhone: formatPhoneDashed(brand.phone),
+    companyEmail: brand.email,
+  }
 }
 
 export async function getExistingCompletionCertificate(
@@ -271,10 +285,7 @@ export async function generateCompletionCertificateDocument(
   const logoPath = join(process.cwd(), 'public', 'brand', 'arx-shield.png')
 
   const pdfBuffer = buildCompletionCertificatePdfBuffer({
-    companyName: 'ARX Roofing & Exteriors',
-    companyAddress: ARX_DEFAULT_OFFICE_ADDRESS,
-    companyPhone: '704-313-8834',
-    companyEmail: 'info@arxroofing.com',
+    ...completionCertificateCompany(await getOrgBrand(supabase, args.orgId)),
     logoAbsolutePath: logoPath,
     jobNumber: (job as any).job_number,
     customerName: customer?.name || 'Customer',
