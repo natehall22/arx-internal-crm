@@ -4,6 +4,7 @@ import path from 'node:path'
 
 import {
   DEFAULT_ORG_BRAND,
+  isMissingFunction,
   brandNameRest,
   brandPatchFromGeneral,
   brandServiceRegion,
@@ -103,6 +104,14 @@ describe.each([
     expect(brandWebsiteHref(b)).toBe(OLD.pageWebsiteHref)
     expect(b.website).toBe(OLD.pageWebsite)
     expect(b.address).toBe('4101 Woodbury Ter NW\nConcord, NC 28027')
+  })
+})
+
+describe('atomic brand save fallback', () => {
+  it('falls back only when the merge function does not exist', () => {
+    expect(isMissingFunction({ code: 'PGRST202', message: 'Could not find the function public.merge_org_brand_settings' })).toBe(true)
+    expect(isMissingFunction({ code: '42883', message: 'function does not exist' })).toBe(true)
+    expect(isMissingFunction({ code: '42501', message: 'permission denied for function merge_org_brand_settings' })).toBe(false)
   })
 })
 

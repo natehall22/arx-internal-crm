@@ -22,7 +22,7 @@ export interface GeneralSettingsValues {
 }
 
 export const GENERAL_BRAND_INPUTS = [
-  ['brand_legal_name', 'Legal name (invoices, contracts)'],
+  ['brand_legal_name', 'Legal name (on invoices)'],
   ['brand_short_name', 'Short name'],
   ['brand_website', 'Website'],
   ['brand_service_area', 'Service area line'],

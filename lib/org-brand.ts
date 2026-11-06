@@ -179,8 +179,9 @@ export function brandSettingsUpdate(currentSettings: unknown, patch: BrandPatch)
   return { ...current, brand: mergeBrandSettings(current.brand, patch) }
 }
 
-function isMissingFunction(error: { code?: string; message?: string }): boolean {
-  return error.code === 'PGRST202' || error.code === '42883' || /merge_org_brand_settings/.test(error.message ?? '')
+/** Only "the function does not exist yet" falls back; any other error (e.g. 42501 permission denied) is returned. */
+export function isMissingFunction(error: { code?: string; message?: string }): boolean {
+  return error.code === 'PGRST202' || error.code === '42883'
 }
 
 /**
