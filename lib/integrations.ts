@@ -67,6 +67,7 @@ export async function enqueueIntegrationEvent(
         idempotency_key: idempotencyKey,
         payload: enrichedPayload,
         status: 'pending',
+        last_error: null, // a re-enqueued row (e.g. one skipped by a data fix) must not keep its old reason
         updated_at: new Date().toISOString(),
       },
       {

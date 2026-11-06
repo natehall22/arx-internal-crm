@@ -55,7 +55,7 @@ BEGIN
   SELECT coalesce(jsonb_object_agg(k, n), '{}'::jsonb), coalesce(sum(n), 0)::int INTO v_plan, v_n
   FROM (SELECT provider || ':' || event_type AS k, count(*) AS n
           FROM integration_outbox
-         WHERE status = 'pending' AND coalesce(attempt_count, 0) = 0 AND processed_at IS NULL AND created_at < p_before
+         WHERE status = 'pending' AND provider = 'quickbooks' AND coalesce(attempt_count, 0) = 0 AND processed_at IS NULL AND created_at < p_before
          GROUP BY 1) t;
 
   IF p_mode = 'preview' THEN
@@ -69,7 +69,7 @@ BEGIN
                                                     applied_status, applied_last_error)
   SELECT v_run, o.id, o.org_id, o.provider, o.event_type, o.status::text, o.last_error, o.updated_at, 'skipped', v_reason
     FROM integration_outbox o
-   WHERE o.status = 'pending' AND coalesce(o.attempt_count, 0) = 0 AND o.processed_at IS NULL AND o.created_at < p_before
+   WHERE o.status = 'pending' AND o.provider = 'quickbooks' AND coalesce(o.attempt_count, 0) = 0 AND o.processed_at IS NULL AND o.created_at < p_before
      FOR UPDATE;
 
   UPDATE integration_outbox o SET status = 'skipped', last_error = v_reason, updated_at = now()
@@ -79,7 +79,7 @@ BEGIN
 
   IF v_done <> v_n THEN RAISE EXCEPTION 'skip_stale_qb_outbox: skipped % of % planned; rolled back', v_done, v_n; END IF;
   SELECT count(*) INTO v_left FROM integration_outbox
-   WHERE status = 'pending' AND coalesce(attempt_count, 0) = 0 AND processed_at IS NULL AND created_at < p_before;
+   WHERE status = 'pending' AND provider = 'quickbooks' AND coalesce(attempt_count, 0) = 0 AND processed_at IS NULL AND created_at < p_before;
   IF v_left <> 0 THEN RAISE EXCEPTION 'skip_stale_qb_outbox: % stale rows still pending; rolled back', v_left; END IF;
 
   RETURN jsonb_build_object('mode', 'apply', 'run_id', v_run, 'cutoff', p_before, 'rows_skipped', v_done, 'by_event', v_plan,
