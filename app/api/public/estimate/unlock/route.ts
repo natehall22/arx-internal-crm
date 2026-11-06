@@ -5,7 +5,9 @@ import {
   clientIpFromRequest,
   consumePublicEstimateRateLimit,
 } from '@/lib/public-estimate-rate-limit'
-import { createOrGetPublicEstimateLead, publicEstimateCompanyBrand, resolvePublicEstimateSnapshotForUnlock } from '@/lib/public-estimate-lead'
+import { createOrGetPublicEstimateLead, resolvePublicEstimateSnapshotForUnlock } from '@/lib/public-estimate-lead'
+import { getOrgBrandResult, resolveOrgBrand, type OrgBrandResult } from '@/lib/org-brand'
+import { createServiceClient } from '@/lib/supabase/service'
 import { resolvePublicEstimatePricingPath } from '@/lib/public-estimate-pricing'
 import { verifyPublicEstimateToken } from '@/lib/public-estimate-token'
 
@@ -52,18 +54,24 @@ export async function POST(request: NextRequest) {
     )
   }
 
+  let orgId: string
   try {
-    getPublicEstimateOrgId()
+    orgId = getPublicEstimateOrgId()
   } catch {
+    // No org configured → no org row to read; the default brand.
     return publicEstimateJson(
       {
-        error: `Public roof estimate is not configured. Please call ${(await publicEstimateCompanyBrand()).phone}.`,
+        error: `Public roof estimate is not configured. Please call ${resolveOrgBrand(null).phone}.`,
         code: 'misconfigured',
       },
       503,
       origin
     )
   }
+
+  // The org brand is read at most once per request, only when a reply needs it, and handed to the lead code.
+  let brandRead: Promise<OrgBrandResult> | null = null
+  const orgBrand = () => (brandRead ??= getOrgBrandResult(createServiceClient(), orgId))
 
   const ip = clientIpFromRequest(request)
   const rate = consumePublicEstimateRateLimit({
@@ -123,7 +131,7 @@ export async function POST(request: NextRequest) {
   } catch {
     return publicEstimateJson(
       {
-        error: `Could not load your estimate preview. Please try again or call ${(await publicEstimateCompanyBrand()).phone}.`,
+        error: `Could not load your estimate preview. Please try again or call ${(await orgBrand()).brand.phone}.`,
         code: 'preview_store_unavailable',
       },
       503,
@@ -180,6 +188,7 @@ export async function POST(request: NextRequest) {
     tokenExp: tokenCheck.payload.exp,
     contact: { name, email: email.trim(), phone: phone.trim() },
     previewToken: preview_token,
+    brand: await orgBrand(),
   })
 
   if (!leadResult.ok) {
@@ -196,7 +205,7 @@ export async function POST(request: NextRequest) {
     facet_count: snapshot.facet_count,
   })
   const disclaimer = getPublicEstimateDisclaimerForPath(customerPath)
-  const nextStep = getPublicEstimateUnlockNextStepForPath(customerPath, (await publicEstimateCompanyBrand()).shortName)
+  const nextStep = getPublicEstimateUnlockNextStepForPath(customerPath, (await orgBrand()).brand.shortName)
 
   return publicEstimateJson(
     leadResult.estimate_mode === 'manual_design'

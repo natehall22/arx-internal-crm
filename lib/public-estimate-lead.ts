@@ -21,7 +21,7 @@ import {
 } from '@/lib/public-estimate-pricing'
 import { createServiceClient } from '@/lib/supabase/service'
 import { telHref } from '@/lib/format'
-import { brandDocument, getOrgBrand, resolveOrgBrand, type OrgBrand } from '@/lib/org-brand'
+import { brandDocument, getOrgBrandResult, shortNameArticle, type OrgBrand, type OrgBrandResult } from '@/lib/org-brand'
 
 function escapeHtml(s: string): string {
   return s
@@ -87,16 +87,6 @@ export function shouldSendHomeownerEstimateEmail(
   return true
 }
 
-/** The estimating company (org brand) for the public estimate's customer-facing copy. Never throws. */
-export async function publicEstimateCompanyBrand(): Promise<OrgBrand> {
-  try {
-    return await getOrgBrand(createServiceClient(), getPublicEstimateOrgId())
-  } catch {
-    // Unconfigured org id / service key (the "misconfigured" path) → the default brand.
-    return resolveOrgBrand(null)
-  }
-}
-
 /** Company lines shared by the homeowner emails: questions line (company phone, linked when dialable) and sign-off. */
 function homeownerEmailBrandCopy(brand: OrgBrand) {
   const doc = brandDocument(brand)
@@ -112,6 +102,8 @@ function homeownerEmailBrandCopy(brand: OrgBrand) {
     nameHtml: escapeHtml(brand.name),
     casualNameHtml: escapeHtml(doc.casualName),
     shortNameHtml: escapeHtml(brand.shortName),
+    /** "An" / "A" before the short name at the start of a sentence. */
+    teamMemberArticle: shortNameArticle(brand.shortName, true),
   }
 }
 
@@ -153,7 +145,7 @@ export function buildHomeownerEstimateEmailContent(options: {
     '',
     disclaimer,
     '',
-    `An ${brand.shortName} team member will call you shortly with a few clarifying, no-pressure questions.`,
+    `${copy.teamMemberArticle} ${brand.shortName} team member will call you shortly with a few clarifying, no-pressure questions.`,
     '',
     copy.questionsText,
     '',
@@ -202,7 +194,7 @@ export function buildHomeownerManualDesignEmailContent(options: {
     '',
     'Your roof needs a manual measure by our design team. One of our designers will reach out once they have drawn your roof.',
     '',
-    `An ${brand.shortName} team member will call you shortly with next steps.`,
+    `${copy.teamMemberArticle} ${brand.shortName} team member will call you shortly with next steps.`,
     '',
     copy.questionsText,
     '',
@@ -975,6 +967,8 @@ async function fetchLeadByExternalId(
 
 async function handleExistingPublicEstimateLeadUnlock(options: {
   adminClient: AdminClient
+  /** The org brand, read once per request (getOrgBrandResult). */
+  brand: OrgBrandResult
   orgId: string
   existing: ExistingPublicEstimateLeadRow
   snapshot: PublicEstimatePreviewSnapshot
@@ -989,6 +983,7 @@ async function handleExistingPublicEstimateLeadUnlock(options: {
 }): Promise<PublicEstimateLeadResult> {
   const {
     adminClient,
+    brand,
     orgId,
     existing,
     snapshot,
@@ -1049,6 +1044,7 @@ async function handleExistingPublicEstimateLeadUnlock(options: {
     // delivery claims suppress duplicates.
     const result = await finalizePublicEstimateUnlock({
       adminClient,
+      brand,
       leadId: existing.id,
       created: false,
       forceHomeownerRevealEmail: firstRevealPromotion,
@@ -1071,6 +1067,7 @@ async function handleExistingPublicEstimateLeadUnlock(options: {
 
   return finalizePublicEstimateUnlock({
     adminClient,
+    brand,
     leadId: existing.id,
     created: false,
     snapshot,
@@ -1204,6 +1201,8 @@ export async function resolvePublicEstimateSnapshotForUnlock(
 
 async function sendNewPublicEstimateLeadAlerts(options: {
   adminClient: AdminClient
+  /** The org brand, read once per request (getOrgBrandResult). */
+  brand: OrgBrandResult
   orgId: string
   leadId: string
   leadSource: PublicEstimateLeadSourceRow | null
@@ -1219,6 +1218,7 @@ async function sendNewPublicEstimateLeadAlerts(options: {
 }) {
   const {
     adminClient,
+    brand,
     orgId,
     leadId,
     leadSource,
@@ -1291,8 +1291,16 @@ async function sendNewPublicEstimateLeadAlerts(options: {
   const leadUrl = `${appUrl}/leads/${leadId}`
   // Primary internal alert inbox. Live lead_sources has no notification_emails column —
   // do not select/insert that field. Owner email is still added when auto-assigned (auto path only).
-  // The company's own inbox (org brand email) always gets the alert.
-  const emailRecipients = new Set<string>([(await getOrgBrand(adminClient, orgId)).email.toLowerCase()])
+  // The company's own inbox (org brand email) gets the alert — only when the brand really loaded; the
+  // default inbox belongs to another company, so a failed lookup must never send a lead there.
+  const emailRecipients = new Set<string>()
+  if (brand.ok) {
+    emailRecipients.add(brand.brand.email.toLowerCase())
+  } else {
+    console.error(
+      `[public-estimate] ALERT NOT SENT TO COMPANY INBOX — org brand lookup failed for org ${orgId}, lead ${leadId}. Check the lead in the CRM.`
+    )
+  }
   const notifyEmails = (leadSource as { notification_emails?: unknown } | null)?.notification_emails
   if (Array.isArray(notifyEmails)) {
     for (const e of notifyEmails) {
@@ -1317,6 +1325,8 @@ async function sendNewPublicEstimateLeadAlerts(options: {
       if (!process.env.SMTP_HOST || !process.env.SMTP_USER) {
         throw new Error('SMTP not configured')
       }
+      // Nobody to tell yet (company inbox unknown) → fail the channel so a later unlock retries it.
+      if (!emailRecipients.size) throw new Error('No alert recipients: org brand lookup failed')
       const alert = buildOpsAlertEmailContent({
         customerPath,
         name,
@@ -1509,6 +1519,8 @@ async function markHomeownerEstimateEmailed(
  */
 async function maybeSendHomeownerEstimateEmail(options: {
   adminClient: AdminClient
+  /** The org brand, read once per request (getOrgBrandResult). */
+  brand: OrgBrandResult
   leadId: string
   snapshot: PublicEstimatePreviewSnapshot
   customerPath: PublicEstimateCustomerPath
@@ -1523,6 +1535,7 @@ async function maybeSendHomeownerEstimateEmail(options: {
 }): Promise<boolean> {
   const {
     adminClient,
+    brand,
     leadId,
     snapshot,
     customerPath,
@@ -1547,13 +1560,12 @@ async function maybeSendHomeownerEstimateEmail(options: {
       return false
     }
 
-    const brand = await getOrgBrand(adminClient, getPublicEstimateOrgId())
     const { subject, text, html } =
       customerPath === 'silent_manual'
         ? buildHomeownerManualDesignEmailContent({
             name,
             address: snapshot.address,
-            brand,
+            brand: brand.brand,
           })
         : buildHomeownerEstimateEmailContent({
             name,
@@ -1564,7 +1576,7 @@ async function maybeSendHomeownerEstimateEmail(options: {
             squares_est,
             disclaimer,
             customerPath,
-            brand,
+            brand: brand.brand,
           })
 
     return runClaimedPublicEstimateUnlockDelivery(
@@ -1594,6 +1606,8 @@ async function maybeSendHomeownerEstimateEmail(options: {
 
 async function finalizePublicEstimateUnlock(options: {
   adminClient: AdminClient
+  /** The org brand, read once per request (getOrgBrandResult). */
+  brand: OrgBrandResult
   leadId: string
   created: boolean
   forceHomeownerRevealEmail?: boolean
@@ -1610,6 +1624,7 @@ async function finalizePublicEstimateUnlock(options: {
 }): Promise<PublicEstimateLeadResult> {
   const {
     adminClient,
+    brand,
     leadId,
     created,
     forceHomeownerRevealEmail = false,
@@ -1630,6 +1645,7 @@ async function finalizePublicEstimateUnlock(options: {
   // pre-deployment alerts on their first retry.
   await sendNewPublicEstimateLeadAlerts({
     adminClient,
+    brand,
     orgId: getPublicEstimateOrgId(),
     leadId,
     leadSource,
@@ -1646,6 +1662,7 @@ async function finalizePublicEstimateUnlock(options: {
 
   const estimate_emailed = await maybeSendHomeownerEstimateEmail({
     adminClient,
+    brand,
     leadId,
     snapshot,
     customerPath,
@@ -1690,6 +1707,8 @@ export async function createOrGetPublicEstimateLead(options: {
   tokenExp: number
   contact: PublicEstimateContact
   previewToken: string
+  /** The org brand when the caller already read it this request; otherwise it is read here. */
+  brand?: OrgBrandResult
 }): Promise<PublicEstimateLeadResult> {
   const { snapshot, tokenExp, contact, previewToken } = options
   const name = contact.name.trim()
@@ -1708,6 +1727,7 @@ export async function createOrGetPublicEstimateLead(options: {
 
   const adminClient = createServiceClient()
   const orgId = getPublicEstimateOrgId()
+  const brand = options.brand ?? (await getOrgBrandResult(adminClient, orgId))
   const externalLeadId = `public-estimate:${snapshot.jti}`
   const { path: customerPath, pricePerSquare, confidence } = resolvePublicEstimatePricingPath(snapshot)
   const disclaimer = getPublicEstimateDisclaimerForPath(customerPath)
@@ -1731,6 +1751,7 @@ export async function createOrGetPublicEstimateLead(options: {
   if (existingByJti?.id) {
     return handleExistingPublicEstimateLeadUnlock({
       adminClient,
+      brand,
       orgId,
       existing: existingByJti,
       snapshot,
@@ -1796,6 +1817,7 @@ export async function createOrGetPublicEstimateLead(options: {
     if (raced?.id) {
       return handleExistingPublicEstimateLeadUnlock({
         adminClient,
+        brand,
         orgId,
         existing: raced,
         snapshot,
@@ -1816,6 +1838,7 @@ export async function createOrGetPublicEstimateLead(options: {
     if (raced?.id) {
       return handleExistingPublicEstimateLeadUnlock({
         adminClient,
+        brand,
         orgId,
         existing: raced,
         snapshot,
@@ -1835,6 +1858,7 @@ export async function createOrGetPublicEstimateLead(options: {
 
   return finalizePublicEstimateUnlock({
     adminClient,
+    brand,
     leadId: lead.id,
     created: true,
     snapshot,

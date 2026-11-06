@@ -25,6 +25,11 @@ nothing ARX customers or reps see unless the slice says so. Gate on every slice:
    notice text; `CustomerSigningForm.tsx` terms; `ContractModal.tsx` attestation; report seed text in
    `lib/inspection-report/types.ts`; door-drop / appointment-card print kits; employee comp agreements) becomes
    each company's own template — never string interpolation into ARX's contract.
+   **PRE-COMPANY-2 BLOCKER:** `DEFAULT_ORG_BRAND` holds ARX's identity, so any fallback on another company's copy
+   shows ARX. In 2b: write ARX's brand fields (legalName, shortName, website, serviceArea, and its contract spellings
+   via its v1 template) into ARX's org row/template, then make `DEFAULT_ORG_BRAND` neutral and delete the
+   `brandDocument()` ARX-spelling special case. Also 2b/2c: the "Charlotte metro" out-of-area text
+   (`app/api/public/estimate/preview/route.ts`) and neutral wording for unknown-token signing / crew pages.
 3. **Internal UI copy**: "ARX CRM" is the PRODUCT name and stays (Nathan, 2026-11-05, Salesforce-style) — not per-company. Every existing "ARX CRM" literal moves onto ONE product constant (e.g. `PRODUCT_NAME` in one module) and the ratchet baseline shrinks; staff-facing chrome (login, Nav title, staff system emails, page `<title>`) shows it beside the company's own logo/name. Anything else that says "ARX" in staff UI and means the company → the org brand.
 4. **Timezone step A — pure aliasing, no behavior change.** `lib/business-timezone.ts`
    `BUSINESS_TIMEZONE`; the 10 existing constants alias it; the 135 safe literal swaps. First run
@@ -43,5 +48,5 @@ nothing ARX customers or reps see unless the slice says so. Gate on every slice:
 - Static ARX logo files (`public/brand/arx-shield.png`) on the completion certificate, payroll PDF and appointment
   cards, and `arx-report-logo.png` in the report builder — move to the org logo (`orgLogoHref`) with a golden update.
 - "ARX CRM" on the customer-facing completion-certificate footer → slice 3 product constant (Nathan to decide wording).
-- Hardcoded certificate signer name; public-estimate service-area copy ("Charlotte metro") and geofence.
+- Hardcoded certificate signer name; public-estimate service-area geofence.
 - A new org with no `settings.brand` shows ARX's defaults. Slice 9 must seed `settings.brand`.

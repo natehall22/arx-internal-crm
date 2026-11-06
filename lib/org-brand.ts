@@ -94,19 +94,58 @@ export function resolveOrgBrand(row: OrgBrandRow | null | undefined): OrgBrand {
   return out
 }
 
-/** Load and resolve an org's brand. Falls back to defaults (with a warning) if the row can't be read. */
-export async function getOrgBrand(client: SupabaseClient, orgId: string | null | undefined): Promise<OrgBrand> {
-  if (!orgId) return resolveOrgBrand(null)
+/** An org's brand plus whether it really came from the org row (`ok: false` → the defaults were used). */
+export interface OrgBrandResult {
+  brand: OrgBrand
+  ok: boolean
+}
+
+async function readOrgBrandRow(client: SupabaseClient, orgId: string): Promise<OrgBrandRow | null> {
   const { data, error } = await client
     .from('orgs')
     .select('name, phone, email, address, brand:settings->brand')
     .eq('id', orgId)
     .maybeSingle()
-  if (error || !data) {
-    console.warn('getOrgBrand: org row not readable, using defaults', orgId, error?.message)
-    return resolveOrgBrand(null)
+  if (error) throw error
+  return (data as OrgBrandRow | null) ?? null
+}
+
+/**
+ * Load and resolve an org's brand. Never throws: a failed read is retried once, then logged and the defaults are
+ * returned with `ok: false` so callers that must not act on the defaults (e.g. sending to the company inbox) can tell.
+ */
+export async function getOrgBrandResult(client: SupabaseClient, orgId: string | null | undefined): Promise<OrgBrandResult> {
+  if (!orgId) return { brand: resolveOrgBrand(null), ok: false }
+  let lastError: unknown = null
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const row = await readOrgBrandRow(client, orgId)
+      if (row) return { brand: resolveOrgBrand(row), ok: true }
+      console.error('getOrgBrand: org row not found, using defaults', orgId)
+      return { brand: resolveOrgBrand(null), ok: false }
+    } catch (e) {
+      lastError = e
+    }
   }
-  return resolveOrgBrand(data as OrgBrandRow)
+  console.error('getOrgBrand: org row not readable after retry, using defaults', orgId, lastError)
+  return { brand: resolveOrgBrand(null), ok: false }
+}
+
+/** Load and resolve an org's brand (defaults when it can't be read). Never throws. */
+export async function getOrgBrand(client: SupabaseClient, orgId: string | null | undefined): Promise<OrgBrand> {
+  return (await getOrgBrandResult(client, orgId)).brand
+}
+
+/**
+ * "a" or "an" before the short name ("an Apex team member", "a Summit team member"): "an" when it starts with a
+ * vowel letter, or is an all-caps initialism whose first letter is said with a vowel sound (F → "eff", M → "em"…).
+ */
+export function shortNameArticle(shortName: string, sentenceStart = false): string {
+  const word = shortName.trim().split(/\s+/)[0] ?? ''
+  const vowelSound =
+    /^[aeiou]/i.test(word) || (/^[A-Z]{2,}$/.test(word.replace(/[^A-Za-z]/g, '')) && /^[AEFHILMNORSX]/.test(word))
+  const article = vowelSound ? 'an' : 'a'
+  return sentenceStart ? article[0].toUpperCase() + article.slice(1) : article
 }
 
 /** Phone a customer document shows: the owning rep's (formatted) when it is a dialable number, else the company phone (as stored). */
