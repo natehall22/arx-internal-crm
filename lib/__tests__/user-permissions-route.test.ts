@@ -68,8 +68,8 @@ describe('GET', () => {
     expect(res.status).toBe(404)
     expect(JSON.stringify(await res.json())).not.toContain('p9')
   })
-  test('admin and regional_manager read a same-org user', async () => {
-    for (const role of ['admin', 'regional_manager']) {
+  test('admin, owner and regional_manager read a same-org user', async () => {
+    for (const role of ['admin', 'owner', 'regional_manager']) {
       authResult = as('u-admin', role)
       const res = await get('u-rep')
       expect(res.status).toBe(200)

@@ -2,13 +2,16 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import { actorIsOwner, lockMoneyPermissions, moneyPermissionIds } from '@/lib/money-permission-guard'
+import { isOrgSuperuserRoleSlug } from '@/lib/org-role-constants'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
 export const fetchCache = 'force-no-store'
 
-// Same roles for reading and writing someone's grants.
-const PERMISSION_ADMIN_ROLES = ['admin', 'regional_manager']
+// Same roles for reading and writing someone's grants: owners/admins and regional managers.
+function canManagePermissions(role: string | null | undefined): boolean {
+  return isOrgSuperuserRoleSlug(role) || role === 'regional_manager'
+}
 
 async function authorize(): Promise<{ userId: string; orgId: string } | NextResponse> {
   let ctx: Awaited<ReturnType<typeof requireAuthApi>>
@@ -17,7 +20,7 @@ async function authorize(): Promise<{ userId: string; orgId: string } | NextResp
   } catch {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
-  if (!PERMISSION_ADMIN_ROLES.includes(ctx.profile.role)) {
+  if (!canManagePermissions(ctx.profile.role)) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
   return { userId: ctx.authUser.id, orgId: ctx.profile.org_id }

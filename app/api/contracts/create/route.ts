@@ -123,6 +123,17 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'Opportunity not found' }, { status: 404 })
       }
     }
+    if (proposalId) {
+      const { data: proposal } = await supabase
+        .from('proposals')
+        .select('id')
+        .eq('id', proposalId)
+        .eq('org_id', profile.org_id)
+        .maybeSingle()
+      if (!proposal) {
+        return NextResponse.json({ error: 'Proposal not found' }, { status: 404 })
+      }
+    }
 
     // Sale credit (closer / setter / self-generated) is confirmed here, on the signing screen,
     // and saved with the deal before the agreement goes out. Once a sale agreement is signed
