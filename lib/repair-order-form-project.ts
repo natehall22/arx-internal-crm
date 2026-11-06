@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { resolveCustomerDisplayName, upsertCustomer } from '@/lib/customers'
 import { syncJobSaleAndCommissionBase } from '@/lib/job-commission-base'
+import { depositRequiredFraction } from '@/lib/job-pipeline'
 
 export type OrderFormContractRow = {
   id: string
@@ -74,10 +75,7 @@ export async function ensureProductionJobForContract(
       salesperson_id: salespersonId,
       sale_date: new Date().toISOString().split('T')[0],
       sale_amount: contract.project_cost || null,
-      deposit_required_percent:
-        contract.deposit_amount && contract.project_cost
-          ? Math.round((contract.deposit_amount / contract.project_cost) * 100)
-          : null,
+      deposit_required_percent: depositRequiredFraction(contract.deposit_amount, contract.project_cost),
       created_by: actorUserId,
       internal_notes: contract.notes || null,
       special_instructions: contract.exclusions || null,

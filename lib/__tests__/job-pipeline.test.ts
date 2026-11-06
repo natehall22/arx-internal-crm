@@ -1,5 +1,7 @@
 import {
   depositMilestoneMet,
+  depositRequiredFraction,
+  normalizeDepositFraction,
   getJobPipelineCurrentStage,
   type JobPipelineInput,
 } from '@/lib/job-pipeline'
@@ -75,5 +77,27 @@ describe('depositMilestoneMet', () => {
 
   it('treats a job with no sale amount as not gated', () => {
     expect(depositMilestoneMet({ ...base, sale_amount: 0 })).toBe(true)
+  })
+})
+
+describe('deposit_required_percent (numeric(3,2), a fraction)', () => {
+  // GC simulation 2026-11-06: a 10% deposit wrote 10 into numeric(3,2), the insert overflowed and the signed
+  // contract never got a production job.
+  it('writes a fraction that fits numeric(3,2)', () => {
+    expect(depositRequiredFraction(31180, 311800)).toBe(0.1)
+    expect(depositRequiredFraction(5000, 10000)).toBe(0.5)
+    expect(depositRequiredFraction(12000, 10000)).toBe(1)
+    expect(depositRequiredFraction(0, 10000)).toBeNull()
+    expect(depositRequiredFraction(500, null)).toBeNull()
+  })
+
+  it('reads fractions, legacy whole percents and the 0.50 default the same way', () => {
+    expect(normalizeDepositFraction(0.5)).toBe(0.5)
+    expect(normalizeDepositFraction('0.10')).toBe(0.1)
+    expect(normalizeDepositFraction(5)).toBe(0.05)
+    expect(normalizeDepositFraction(null)).toBeNull()
+    const sale = 10000
+    expect(depositMilestoneMet({ ...base, sale_amount: sale, deposit_required_percent: 0.1, deposit: 1000 })).toBe(true)
+    expect(depositMilestoneMet({ ...base, sale_amount: sale, deposit_required_percent: 0.1, deposit: 999 })).toBe(false)
   })
 })

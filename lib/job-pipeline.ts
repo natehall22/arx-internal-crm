@@ -10,6 +10,27 @@
  * page contradicting itself on the two things ops reads first.
  */
 
+/**
+ * `production_jobs.deposit_required_percent` is numeric(3,2) holding a FRACTION (column default 0.50 = 50%; max 9.99).
+ * Contract signing used to write a whole percent (`Math.round(deposit / cost * 100)`), so any deposit of 9.5% or more
+ * overflowed the column and the production job silently failed to create (the contract still signed). These two helpers
+ * are the one writer and the one reader.
+ */
+export function depositRequiredFraction(depositAmount: number | null | undefined, projectCost: number | null | undefined): number | null {
+  const deposit = Number(depositAmount)
+  const cost = Number(projectCost)
+  if (!Number.isFinite(deposit) || !Number.isFinite(cost) || deposit <= 0 || cost <= 0) return null
+  return Math.min(1, Math.round((deposit / cost) * 100) / 100)
+}
+
+/** Reads the column as a fraction. Values above 1 are legacy whole-percent rows (deposit under 9.5%, e.g. 5 = 5%). */
+export function normalizeDepositFraction(stored: number | string | null | undefined): number | null {
+  if (stored == null) return null
+  const n = Number(stored)
+  if (!Number.isFinite(n) || n <= 0) return null
+  return n > 1 ? n / 100 : n
+}
+
 export const PIPELINE_STAGES = ['Sold', 'Deposit', 'Scheduled', 'In Progress', 'Complete'] as const
 
 export type PipelineStage = (typeof PIPELINE_STAGES)[number]
@@ -33,9 +54,9 @@ export function depositMilestoneMet(job: JobPipelineInput): boolean {
   if (job.status !== 'sold') return true
   const sale = job.sale_amount
   if (!sale || sale <= 0) return true
-  const pct = job.deposit_required_percent
-  if (pct == null || pct <= 0) return (job.deposit ?? 0) > 0
-  const required = sale * (pct / 100)
+  const fraction = normalizeDepositFraction(job.deposit_required_percent)
+  if (fraction == null) return (job.deposit ?? 0) > 0
+  const required = sale * fraction
   return (job.deposit ?? 0) >= required - 0.005
 }
 
