@@ -322,7 +322,8 @@ export async function GET(request: Request) {
     await enrichOpsJobsWithMeasureSoldSquaresFallback(adminClient, profile.org_id, jobList)
     if (canViewJobFinancials) await enrichJobsWithCostLedger(adminClient, profile.org_id, jobList)
     // The board's refresh asks for catch-up (`?catch_up=1`); attached only when the org has it on. Other callers unchanged.
-    if (searchParams.get('catch_up') === '1') await attachBoardCatchUps(adminClient, profile.org_id, profile, jobList)
+    // `catch_up_failed` lets the board show the same "couldn't load" notice as the first render.
+    const catchUp = searchParams.get('catch_up') === '1' ? await attachBoardCatchUps(adminClient, profile.org_id, profile, jobList) : null
     const jobIds = jobList.map((j) => j.id)
     const collectedByJob: Record<string, number> = {}
     if (jobIds.length > 0) {
@@ -345,7 +346,7 @@ export async function GET(request: Request) {
       withPayments as Array<Record<string, unknown>>,
       canViewJobFinancials
     )
-    return NextResponse.json({ jobs: safeJobs })
+    return NextResponse.json(catchUp?.failed ? { jobs: safeJobs, catch_up_failed: true } : { jobs: safeJobs })
 
   } catch (error) {
     console.error('Error in GET /api/ops/jobs:', error)

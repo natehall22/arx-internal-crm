@@ -58,3 +58,22 @@ export function parseScheduleWindow(params: URLSearchParams): ScheduleWindowResu
 
   return { ok: true, window: { start, end } }
 }
+
+/**
+ * Working days (Mon–Fri) after `startStr` up to and including `endStr`, both `YYYY-MM-DD` calendar dates already in the
+ * business time zone. Date-only math like {@link daysBetweenDateOnly}, so DST cannot shift it. 0 when end ≤ start.
+ * Holidays are not known here and count as working days.
+ */
+export function workingDaysBetweenDateOnly(startStr: string, endStr: string): number {
+  const total = daysBetweenDateOnly(startStr, endStr)
+  if (!(total > 0)) return 0
+  const [sy, sm, sd] = startStr.split('-').map(Number)
+  const startDow = new Date(Date.UTC(sy, (sm || 1) - 1, sd || 1)).getUTCDay()
+  const fullWeeks = Math.floor(total / 7)
+  let count = fullWeeks * 5
+  for (let i = fullWeeks * 7 + 1; i <= total; i++) {
+    const dow = (startDow + i) % 7
+    if (dow !== 0 && dow !== 6) count++
+  }
+  return count
+}

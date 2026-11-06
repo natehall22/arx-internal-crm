@@ -31,6 +31,7 @@ import { StatusPill } from '@/components/ui/badge'
 import { formatDate, formatMoney } from '@/lib/format'
 import { DataTable, type TableFilter, type TableView } from '@/components/ui/data-table'
 import { JobCatchUpLine } from '@/components/ops/JobCatchUp'
+import { boardOwnerFilterValue } from '@/lib/job-catch-up'
 
 /** Paused jobs render in a strip above the board; cancelled ones in a list below it. */
 type BoardColumnStatus = Exclude<JobStatus, 'collected' | 'on_hold' | 'cancelled'>
@@ -40,7 +41,7 @@ interface OpsClientProps {
   orgId: string
   canViewProfitability: boolean
   /** Job catch-up (org setting). Absent = off: the board renders exactly as before. */
-  catchUp?: { enabled: boolean; stuckDays: number; failed?: boolean }
+  catchUp?: { enabled: boolean; stuckDays: number; failed?: boolean; viewerId?: string }
 }
 
 const priorityConfig: Record<string, { icon: string; color: string }> = {
@@ -66,7 +67,12 @@ const LIST_VIEWS: TableView[] = [
 
 /** Only when catch-up is on: stuck jobs, longest-idle first. */
 const STUCK_VIEW: TableView = { id: 'sys:stuck', name: 'Stuck', state: { sorting: [{ id: 'catchup', desc: true }], search: '', filters: { stuck: 'stuck' } } }
-const LIST_VIEWS_WITH_STUCK: TableView[] = [...LIST_VIEWS, STUCK_VIEW]
+/** Jobs whose owner is the viewer. */
+const MY_JOBS_VIEW: TableView = { id: 'sys:mine', name: 'My jobs', state: { sorting: [{ id: 'catchup', desc: true }], search: '', filters: { owner: 'me' } } }
+/** Jobs nobody owns yet (only once owners exist — before the owner migration nothing matches). */
+const NO_OWNER_VIEW: TableView = { id: 'sys:no-owner', name: 'No owner', state: { sorting: [{ id: 'catchup', desc: true }], search: '', filters: { owner: 'none' } } }
+const LIST_VIEWS_WITH_STUCK: TableView[] = [...LIST_VIEWS, STUCK_VIEW, MY_JOBS_VIEW, NO_OWNER_VIEW]
+
 
 function matchesActiveSearch(job: OpsBoardJob, query: string): boolean {
   if (!query) return true
@@ -109,6 +115,9 @@ function formatJobTypeLabel(jobType: string): string {
 
 export default function OpsClient({ initialJobs, orgId, canViewProfitability, catchUp }: OpsClientProps) {
   const catchUpOn = catchUp?.enabled === true
+  const viewerId = catchUp?.viewerId ?? null
+  // Same notice as the first render when a refresh couldn't build the lines.
+  const [catchUpFailed, setCatchUpFailed] = useState(catchUp?.failed === true)
   const router = useRouter()
   const [jobs, setJobs] = useState<OpsBoardJob[]>(initialJobs)
   const [viewMode, setViewMode] = useState<'board' | 'list'>('board')
@@ -151,7 +160,8 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability, ca
   const loadData = useCallback(async () => {
     const response = await fetch(catchUpOn ? '/api/ops/jobs?catch_up=1' : '/api/ops/jobs')
     if (!response.ok) return
-    const { jobs: jobsData } = await response.json()
+    const { jobs: jobsData, catch_up_failed: refreshFailed } = await response.json()
+    if (catchUpOn) setCatchUpFailed(refreshFailed === true)
 
     const transformedJobs = (jobsData || []).map((job: Record<string, unknown>) => {
       const rawProject = Array.isArray(job.project) ? job.project[0] : job.project
@@ -325,10 +335,13 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability, ca
       { key: 'materials', label: 'Materials', options: Object.entries(materialsConfig).map(([value, m]) => ({ value, label: m.label })), accessor: (j) => j.materials_status },
       { key: 'scheduled', label: 'Scheduled', options: [{ value: 'no', label: 'Not scheduled' }, { value: 'yes', label: 'Scheduled' }, { value: 'late', label: 'Past due' }], accessor: (j) => (isJobPastDue(j) ? 'late' : j.scheduled_date ? 'yes' : 'no') },
       ...(catchUpOn
-        ? [{ key: 'stuck', label: 'Stuck', options: [{ value: 'stuck', label: 'Stuck' }, { value: 'moving', label: 'Moving' }], accessor: (j: OpsBoardJob) => (j.catch_up ? (j.catch_up.stuck ? 'stuck' : 'moving') : null) }]
+        ? [
+            { key: 'stuck', label: 'Stuck', options: [{ value: 'stuck', label: 'Stuck' }, { value: 'moving', label: 'Moving' }], accessor: (j: OpsBoardJob) => (j.catch_up ? (j.catch_up.stuck ? 'stuck' : 'moving') : null) },
+            { key: 'owner', label: 'Owner', options: [{ value: 'me', label: 'My jobs' }, { value: 'none', label: 'No owner' }, { value: 'other', label: 'Someone else' }], accessor: (j: OpsBoardJob) => boardOwnerFilterValue(j, viewerId) },
+          ]
         : []),
     ],
-    [jobTypeOptions, catchUpOn]
+    [jobTypeOptions, catchUpOn, viewerId]
   )
 
   const jobsByBoardStatus = useMemo(() => {
@@ -469,7 +482,7 @@ export default function OpsClient({ initialJobs, orgId, canViewProfitability, ca
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Production Board</h1>
             <p className="text-gray-500 text-sm">Track each job from sold through payment</p>
-            {catchUp?.failed && (
+            {catchUpFailed && (
               <p role="status" className="mt-1 text-sm text-amber-950">The where-it-stands lines couldn&apos;t load. Refresh to try again.</p>
             )}
           </div>

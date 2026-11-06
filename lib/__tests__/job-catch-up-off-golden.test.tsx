@@ -60,9 +60,9 @@ describe('catch-up OFF renders exactly as before', () => {
 })
 
 const CATCH_UP = {
-  jobId: 'job-1', threadHref: '/c/c1/d/o1/notes', stage: 'Sold', nextStep: 'Waiting on permit', owner: 'Steve', ownerKind: 'person' as const,
+  jobId: 'job-1', threadHref: '/c/c1/d/o1/notes', stage: 'Sold', nextStep: 'Waiting on permit', owner: 'Steve', ownerKind: 'assigned' as const, ownerUserId: 'u-steve',
   lastUpdate: { at: '2026-11-04T14:00:00Z', what: 'Permit office says Monday.', who: 'Steve Potts', kind: 'note' as const },
-  ageDays: 2, ageLabel: '2d', stuck: true, reasons: ["Crew starts 2026-11-08 and the permit isn't approved yet."],
+  ageDays: 2, idleWorkingDays: 2, ageLabel: '2d', stuck: true, reasons: ["Crew starts 2026-11-08 and the permit isn't approved yet."],
   line: 'Steve · Waiting on permit · 2d', lastContact: null, contactIsNote: false,
   recent: [{ at: '2026-11-04T14:00:00Z', what: 'Permit office says Monday.', who: 'Steve Potts', kind: 'note' as const }], done: false,
 }
@@ -87,5 +87,47 @@ describe('catch-up ON', () => {
       expect(box).toContain('href="/c/c1/d/o1/notes"')
       expect(box).not.toMatch(/\$/)
     }
+  })
+})
+
+describe('owner banner + board "No owner" (catch-up on only)', () => {
+  const NO_OWNER = { ...CATCH_UP, owner: 'No owner', ownerKind: 'unassigned' as const, ownerUserId: null, line: 'No owner · Waiting on permit · 2d' }
+  const UNKNOWN = { ...CATCH_UP, owner: '', ownerKind: 'unknown' as const, ownerUserId: null, line: 'Waiting on permit · 2d' }
+  const page = (catchUp: unknown, v2: boolean, canEditJobs: boolean) =>
+    renderToStaticMarkup(<JobDetailClient v2={v2} canEditJobs={canEditJobs} initialJob={(v2 ? HARNESS_JOB_0037 : HARNESS_JOB) as never} {...jobProps} catchUp={catchUp as never} />)
+
+  it('no owner → red banner at the very top of both bodies, before the back link and the job identity', () => {
+    for (const v2 of [false, true]) {
+      const html = page(NO_OWNER, v2, true)
+      const banner = html.indexOf('data-testid="no-owner-banner"')
+      expect(banner).toBeGreaterThan(-1)
+      expect(banner).toBeLessThan(html.indexOf('Back to Production Board'))
+      expect(banner).toBeLessThan(html.indexOf('data-testid="catch-up-box"'))
+      expect(html).toContain('No owner — assign one')
+      expect(html).toMatch(/data-testid="no-owner-banner"[^>]*class="[^"]*bg-red-800[^"]*text-white/)
+    }
+  })
+
+  it('picker only for people who can edit jobs; others see the banner without it', () => {
+    const editor = page(NO_OWNER, false, true)
+    const bannerOf = (html: string) => html.slice(html.indexOf('data-testid="no-owner-banner"'), html.indexOf('data-testid="catch-up-box"'))
+    expect(bannerOf(editor)).toContain('data-testid="owner-select"')
+    const viewer = page(NO_OWNER, false, false)
+    expect(bannerOf(viewer)).toContain('No owner — assign one')
+    expect(bannerOf(viewer)).not.toContain('owner-select')
+    expect(viewer).not.toContain('data-testid="owner-select"')
+  })
+
+  it('owner set → no banner; owner column missing (migration not applied) → no banner, no "No owner"', () => {
+    expect(page(CATCH_UP, false, true)).not.toContain('no-owner-banner')
+    const unknown = page(UNKNOWN, true, true)
+    expect(unknown).not.toContain('no-owner-banner')
+    expect(unknown).not.toContain('No owner')
+  })
+
+  it('board: "No owner" in red where the owner would be; nothing when the owner is unknown', () => {
+    const board = (cu: unknown) => renderToStaticMarkup(<OpsClient initialJobs={HARNESS_OPS_JOBS.map((j, i) => (i === 0 ? { ...j, catch_up: cu } : j)) as never} orgId="org-1" canViewProfitability catchUp={{ enabled: true, stuckDays: 7, viewerId: 'u1' }} />)
+    expect(board(NO_OWNER)).toMatch(/data-testid="catch-up-no-owner" class="[^"]*text-red-800[^"]*">No owner<\/span> · Waiting on permit · 2d/)
+    expect(board(UNKNOWN)).not.toContain('catch-up-no-owner')
   })
 })

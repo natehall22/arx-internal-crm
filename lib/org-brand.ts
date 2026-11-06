@@ -15,6 +15,8 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 
+import { mergeOrgSettings } from '@/lib/org-settings'
+
 import { formatPhone, formatPhoneDashed, telHref } from '@/lib/format'
 
 export interface OrgBrand {
@@ -212,20 +214,13 @@ export function brandPatchFromGeneral(data: Record<string, unknown>): BrandPatch
 }
 
 /** Pure: whole new `orgs.settings` with a brand patch applied; every other settings key is kept. */
-export function brandSettingsUpdate(currentSettings: unknown, patch: BrandPatch): Record<string, unknown> {
-  const current = brandObject(currentSettings)
-  return { ...current, brand: mergeBrandSettings(current.brand, patch) }
-}
-
-/** Only "the function does not exist yet" falls back; any other error (e.g. 42501 permission denied) is returned. */
-export function isMissingFunction(error: { code?: string; message?: string }): boolean {
-  return error.code === 'PGRST202' || error.code === '42883'
-}
+/** Only "the function does not exist yet" falls back (lives with the one settings writer, lib/org-settings.ts). */
+export { isMissingFunction } from '@/lib/org-settings'
 
 /**
- * Write a brand patch into `orgs.settings.brand`, touching only the patched keys. Uses the atomic SQL merge
- * `merge_org_brand_settings` (migration 202611050010) so a concurrent save of another settings key is never
- * overwritten. Until that migration is applied it falls back to read → merge → write of `settings`.
+ * Write a brand patch into `orgs.settings.brand`, touching only the patched keys, through the one per-key settings
+ * writer (`mergeOrgSettings`, SQL `merge_org_settings` with path ['brand']) so a concurrent save of another settings
+ * key is never overwritten. Until that migration is applied it falls back to read → merge → write of the same keys.
  */
 export async function saveBrandSettings(
   client: SupabaseClient,
@@ -234,18 +229,7 @@ export async function saveBrandSettings(
 ): Promise<{ error: string | null }> {
   const { set, remove } = brandPatchOps(patch)
   if (!Object.keys(set).length && !remove.length) return { error: null }
-
-  const { error } = await client.rpc('merge_org_brand_settings', { p_org_id: orgId, p_set: set, p_remove: remove })
-  if (!error) return { error: null }
-  if (!isMissingFunction(error)) return { error: error.message }
-
-  const { data, error: readError } = await client.from('orgs').select('settings').eq('id', orgId).single()
-  if (readError || !data) return { error: readError?.message ?? 'Organization not found' }
-  const { error: writeError } = await client
-    .from('orgs')
-    .update({ settings: brandSettingsUpdate(data.settings, patch) })
-    .eq('id', orgId)
-  return { error: writeError?.message ?? null }
+  return mergeOrgSettings(client, orgId, set, { path: ['brand'], remove })
 }
 
 /** The part of the name after the short wordmark ("Roofing & Exteriors"), or null when it doesn't start with it. */

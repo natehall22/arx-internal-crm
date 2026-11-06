@@ -97,7 +97,7 @@ export default async function OpsPage() {
       initialJobs={transformedJobs as unknown as OpsBoardJob[]}
       orgId={profile.org_id}
       canViewProfitability={ops.canViewJobFinancials}
-      catchUp={catchUp.enabled ? catchUp : undefined}
+      catchUp={catchUp.enabled ? { ...catchUp, viewerId: profile.id } : undefined}
     />
   )
 }

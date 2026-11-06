@@ -27,7 +27,7 @@ import JobTabsBar from '@/components/job/JobTabsBar'
 import JobRunSheetRow from '@/components/job/JobRunSheetRow'
 import JobQuickLinks from '@/components/job/JobQuickLinks'
 import { deriveMaterialsState, type MaterialsState } from '@/lib/job-materials-state'
-import { JobCatchUpBox } from '@/components/ops/JobCatchUp'
+import { JobCatchUpBox, JobOwnerBanner } from '@/components/ops/JobCatchUp'
 import type { JobCatchUpResult } from '@/lib/job-catch-up'
 import { isJobTab, pickDefaultJobTab, tabsNeedingAttention, type JobTab } from '@/lib/job-tabs'
 import JobReadyToPayBanner from '@/components/ops/JobReadyToPayBanner'
@@ -1536,6 +1536,8 @@ export default function JobDetailClient({
       <JobPaymentMethodBanner paymentMethod={paymentMethod} />
 
       <div className="max-w-6xl mx-auto px-3 sm:px-4 py-4 sm:py-6">
+        {/* Catch-up on and nobody owns the job: red banner above everything, both bodies (owner picker inside). */}
+        {catchUp && <JobOwnerBanner catchUp={catchUp} canSetOwner={canEditJobs} />}
         {!embedded && (
           <div className="mb-4 sm:mb-6">
             <Link href="/ops" className="text-indigo-600 hover:text-indigo-800 text-sm font-medium min-h-[44px] inline-flex items-center">
@@ -1978,7 +1980,7 @@ export default function JobDetailClient({
         )}
 
         {/* Both job bodies: the catch-up box sits at the top, above the customer row. */}
-        {catchUp && <JobCatchUpBox catchUp={catchUp} />}
+        {catchUp && <JobCatchUpBox catchUp={catchUp} canSetOwner={canEditJobs} />}
 
         {v2 ? (
           <JobCustomerRow jobId={job.id} customer={job.customer ?? null} />

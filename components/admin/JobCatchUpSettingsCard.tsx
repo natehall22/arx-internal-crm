@@ -1,50 +1,47 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useState } from 'react'
 
-import { Button, Card, CardContent, toast } from '@/components/ui'
-import { DEFAULT_STUCK_DAYS, MAX_STUCK_DAYS, MIN_STUCK_DAYS } from '@/lib/job-catch-up-settings'
+import { Button, Card, CardContent, CardHeader, CardTitle, toast } from '@/components/ui'
+import { MAX_STUCK_DAYS, MIN_STUCK_DAYS } from '@/lib/job-catch-up-settings'
 
 type Settings = { enabled: boolean; stuckDays: number; canEdit: boolean }
 
-/** Admin → Settings → Job catch-up: the on/off switch and "stuck after N days". */
-export default function JobCatchUpSettingsClient() {
-  const [settings, setSettings] = useState<Settings | null>(null)
-  const [days, setDays] = useState(String(DEFAULT_STUCK_DAYS))
+/**
+ * Settings → Job catch-up card (on the Settings page itself): the on/off switch and "stuck after N working days".
+ * Everyone who opens Settings sees it; only admins / owners can change it (PATCH /api/admin/settings `job_catch_up`).
+ */
+export default function JobCatchUpSettingsCard({ initial }: { initial: Settings }) {
+  const [settings, setSettings] = useState<Settings>(initial)
+  const [days, setDays] = useState(String(initial.stuckDays))
   const [saving, setSaving] = useState(false)
-
-  const load = useCallback(async () => {
-    const res = await fetch('/api/admin/job-catch-up', { cache: 'no-store' })
-    if (!res.ok) return toast.error('Could not load')
-    const data = (await res.json()) as Settings
-    setSettings(data)
-    setDays(String(data.stuckDays))
-  }, [])
-  useEffect(() => { void load() }, [load])
 
   async function save(patch: { enabled?: boolean; stuckDays?: number }) {
     setSaving(true)
-    const res = await fetch('/api/admin/job-catch-up', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch) })
+    const res = await fetch('/api/admin/settings', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'job_catch_up', ...patch }) })
     setSaving(false)
     const data = await res.json().catch(() => ({}))
     if (!res.ok) return toast.error(data.error || 'Could not save')
-    setSettings(data as Settings)
-    setDays(String((data as Settings).stuckDays))
+    const next = { ...settings, ...patch }
+    setSettings(next)
+    setDays(String(next.stuckDays))
     toast.success('Saved')
   }
 
-  if (!settings) return <p className="text-ui-base text-ink">Loading…</p>
   const parsed = Number(days)
   const daysValid = Number.isInteger(parsed) && parsed >= MIN_STUCK_DAYS && parsed <= MAX_STUCK_DAYS
 
   return (
-    <Card>
+    <Card id="job-catch-up" className="scroll-mt-4">
+      <CardHeader>
+        <CardTitle>Job catch-up</CardTitle>
+      </CardHeader>
       <CardContent>
         <div className="flex flex-col gap-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <p className="text-ui-lg font-semibold text-ink">{settings.enabled ? 'On for everyone with the job board' : 'Off'}</p>
-              <p className="text-ui-sm text-ink">Field roles never see it. No dollar amounts are shown.</p>
+              <p className="text-ui-sm text-ink">One line per job on the Production Board and a “Where this stands” box on each job, built from what already happened. Field roles never see it. No dollar amounts are shown.</p>
             </div>
             {settings.canEdit && (
               <Button
@@ -83,7 +80,7 @@ export default function JobCatchUpSettingsClient() {
                 onChange={(e) => setDays(e.target.value)}
                 className="min-h-tap w-24 rounded-ui border border-surface-line bg-surface px-3 text-base text-ink"
               />
-              <span className="text-ui-base text-ink">days</span>
+              <span className="text-ui-base text-ink">working days (Mon–Fri)</span>
               {settings.canEdit && (
                 <Button type="submit" variant="secondary" className="min-h-tap" disabled={!daysValid || parsed === settings.stuckDays} loading={saving}>
                   Save

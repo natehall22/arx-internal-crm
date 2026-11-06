@@ -78,7 +78,7 @@ it('super admin: columns saved without settings; brand goes through the atomic m
   expect('settings' in updates[0]).toBe(false)
   expect(updates[0].name).toBe('ARX Roofing & Exteriors')
   expect(rpcs).toEqual([
-    { fn: 'merge_org_brand_settings', args: { p_org_id: 'org-1', p_set: { shortName: 'ZZ', website: 'w'.repeat(120) }, p_remove: ['serviceArea'] } },
+    { fn: 'merge_org_settings', args: { p_org_id: 'org-1', p_path: ['brand'], p_set: { shortName: 'ZZ', website: 'w'.repeat(120) }, p_remove: ['serviceArea'] } },
   ])
 })
 
@@ -139,4 +139,53 @@ it('GET tells the page whether brand fields are editable', async () => {
   expect((await (await get()).json()).canEditBrand).toBe(true)
   superAdmin = false
   expect((await (await get()).json()).canEditBrand).toBe(false)
+})
+
+describe('job catch-up settings (type: job_catch_up) — admins / owners only, per-key merge', () => {
+  it('admin saves the switch + working days through merge_org_settings at the top level', async () => {
+    superAdmin = false
+    const res = await patch({ type: 'job_catch_up', enabled: true, stuckDays: 10 })
+    expect(res.status).toBe(200)
+    expect(rpcs).toEqual([{ fn: 'merge_org_settings', args: { p_org_id: 'org-1', p_path: [], p_set: { job_catch_up_enabled: true, job_catch_up_stuck_days: 10 }, p_remove: [] } }])
+    expect(updates).toHaveLength(0)
+  })
+
+  it('an owner (super admin) whose role is not on the managers list can save it', async () => {
+    role = 'operations'
+    superAdmin = true
+    expect((await patch({ type: 'job_catch_up', enabled: false })).status).toBe(200)
+  })
+
+  it.each(['regional_manager', 'sales_manager', 'operations', 'setter', 'closer'])('%s cannot (403), nothing written', async (r) => {
+    role = r
+    superAdmin = false
+    expect((await patch({ type: 'job_catch_up', enabled: true })).status).toBe(403)
+    expect(rpcs).toHaveLength(0)
+    expect(updates).toHaveLength(0)
+  })
+
+  it('a deactivated admin cannot', async () => {
+    active = false
+    expect((await patch({ type: 'job_catch_up', enabled: true })).status).toBe(403)
+  })
+
+  it.each([[{}], [{ enabled: 'yes' }], [{ stuckDays: 0 }], [{ stuckDays: 61 }], [{ stuckDays: 2.5 }]])('bad input %j → 400, nothing written', async (body) => {
+    expect((await patch({ type: 'job_catch_up', ...body })).status).toBe(400)
+    expect(rpcs).toHaveLength(0)
+  })
+
+  it('before the migration: falls back to read-merge-write of only these keys', async () => {
+    rpcMissing = true
+    expect((await patch({ type: 'job_catch_up', enabled: true })).status).toBe(200)
+    expect(updates).toEqual([{ settings: { ...storedSettings, job_catch_up_enabled: true } }])
+  })
+
+  it('the generic settings save (managers can reach it) can never write the catch-up keys — or brand', async () => {
+    role = 'sales_manager'
+    superAdmin = false
+    storedSettings = { ...storedSettings, job_catch_up_enabled: false, job_catch_up_stuck_days: 7 }
+    await patch({ type: 'settings', job_catch_up_enabled: true, job_catch_up_stuck_days: 1, brand: { website: 'evil' }, other: 2 })
+    expect(updates).toHaveLength(1)
+    expect(updates[0].settings).toEqual({ ...storedSettings, other: 2 })
+  })
 })
