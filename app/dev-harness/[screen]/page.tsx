@@ -58,6 +58,7 @@ import DashboardClient from '@/app/dashboard/DashboardClient'
 import UiKitHarness from '@/components/ui/UiKitHarness'
 import Nav from '@/components/Nav'
 import SettingsHub from '@/app/admin/SettingsHub'
+import JobSetupClient from '@/app/admin/job-setup/JobSetupClient'
 import { visibleSettingsGroups } from '@/lib/settings-registry'
 import { QueueCard, KpiTiles } from '@/components/today/QueueCard'
 import FileHeader from '@/components/customer-file/FileHeader'
@@ -313,6 +314,8 @@ export default function Harness({ params }: { params: { screen: string } }) {
       return <GeneralSettingsHarness canEditBrand />
     case 'admin-settings-readonly':
       return <GeneralSettingsHarness canEditBrand={false} />
+    case 'job-setup':
+      return <div className="mx-auto max-w-3xl p-4"><h1 className="text-ui-xl font-bold text-ink">Job setup</h1><JobSetupClient /></div>
     case 'pay-week':
       return <div className="mx-auto max-w-3xl p-4"><PayWeekClient /></div>
     default:

@@ -5,7 +5,8 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { resolveOpsAccess } from '@/lib/ops-access'
 import { parseScheduleWindow } from '@/lib/schedule-window'
 import { addDaysToDateOnly } from '@/lib/install-calendar'
-import { installDaysOrDefault, sortTrades, type Trade } from '@/lib/job-trades'
+import { installDaysOrDefault } from '@/lib/job-trades'
+import { loadOrgTrades, sortTrades, tradeOptions, type Trade } from '@/lib/org-trades'
 import { ensureJobTrades } from '@/lib/job-trades-db'
 import {
   enrichOpsJobsWithMeasureSoldSquaresFallback,
@@ -206,7 +207,8 @@ export async function GET(request: Request) {
     ]
   })
 
-  const unscheduled = sortTrades(pendingTrades).flatMap((t) => {
+  const orgTrades = await loadOrgTrades(adminClient, orgId)
+  const unscheduled = sortTrades(pendingTrades, orgTrades).flatMap((t) => {
     const job = jobById.get(t.job_id)
     if (!job || job.cancelled_at || !OPEN_JOB_STATUSES.includes(job.status)) return []
     return [
@@ -224,5 +226,5 @@ export async function GET(request: Request) {
     ]
   })
 
-  return NextResponse.json({ subs: subsRes.data ?? [], scheduled, unscheduled })
+  return NextResponse.json({ subs: subsRes.data ?? [], scheduled, unscheduled, orgTrades: tradeOptions(orgTrades) })
 }

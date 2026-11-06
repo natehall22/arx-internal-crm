@@ -1,13 +1,11 @@
 import {
   calendarDaySpan,
   deriveJobSchedule,
-  detectTradesFromLineItems,
   formatInstallDays,
   newCrewLinkToken,
   parseInstallDays,
-  primaryTradeForJobType,
-  sortTrades,
 } from '@/lib/job-trades'
+import { detectTradesFromLineItems, primaryTradeForJobType, sortTrades } from '@/lib/org-trades'
 import { isCrewLinkExpired } from '@/lib/crew-link'
 import { missingRequiredPhotoTags } from '@/lib/final-photo-tags'
 
@@ -55,7 +53,7 @@ describe('detectTradesFromLineItems', () => {
 
 describe('primaryTradeForJobType', () => {
   it('maps job types, defaulting mixed/unknown to roofing', () => {
-    expect(['roofing', 'mixed', null, 'siding', 'gutters'].map(primaryTradeForJobType)).toEqual([
+    expect(['roofing', 'mixed', null, 'siding', 'gutters'].map((t) => primaryTradeForJobType(t))).toEqual([
       'roofing',
       'roofing',
       'roofing',

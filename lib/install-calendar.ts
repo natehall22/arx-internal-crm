@@ -66,7 +66,6 @@ import { getValidAccessToken } from '@/lib/appointment-calendar-sync'
 import { CALENDAR_BUSINESS_TZ } from '@/lib/calendar-business-tz'
 import { DEFAULT_ORG_BRAND } from '@/lib/org-brand'
 import {
-  TRADE_LABELS,
   HALF_DAY_HOURS,
   calendarDaySpan,
   crewLinkUrl,
@@ -74,8 +73,8 @@ import {
   halfDayStartMinutes,
   installDaysOrDefault,
   resolveAppUrl,
-  type Trade,
 } from '@/lib/job-trades'
+import { DEFAULT_ORG_TRADES, loadOrgTrades, tradeLabel, type Trade } from '@/lib/org-trades'
 
 /**
  * `sendUpdates` for create, update AND delete. Google defaults every one of
@@ -216,8 +215,10 @@ export type BuildInstallEventInput = {
   jobNumber: string
   customerName: string
   addressText?: string | null
-  /** Which crew this event is for; defaults to roofing. */
+  /** Which crew this event is for; defaults to the first default trade (roofing). */
   trade?: Trade | null
+  /** The company's name for the trade (org_trades). Missing → the default list's label. */
+  tradeLabel?: string | null
   /** Bare `YYYY-MM-DD` — never a parsed `Date`. */
   scheduledDate: string
   /** ½, 1, 1½ or 2; anything else is treated as 1. */
@@ -249,7 +250,8 @@ export type BuildInstallEventInput = {
  * calendar, where ops can use it.
  */
 export function buildInstallEvent(input: BuildInstallEventInput): CalendarEvent {
-  const trade: Trade = input.trade ?? 'roofing'
+  const trade: Trade = input.trade ?? DEFAULT_ORG_TRADES[0].slug
+  const label = input.tradeLabel?.trim() || tradeLabel(trade)
   const installDays = installDaysOrDefault(input.installDays)
   const halfDay = installDays === 0.5
 
@@ -263,7 +265,7 @@ export function buildInstallEvent(input: BuildInstallEventInput): CalendarEvent 
 
   const descriptionLines = [
     input.addressText ? `📍 ${input.addressText}` : null,
-    `${TRADE_LABELS[trade]}: ${crewLengthLine(installDays, input.scheduledTimeStart)}${squares != null ? ` · ${squares} sq` : ''}`,
+    `${label}: ${crewLengthLine(installDays, input.scheduledTimeStart)}${squares != null ? ` · ${squares} sq` : ''}`,
     `Homeowner: ${input.customerName}`,
     '',
     photoUrl ? `📸 When you finish, take the job photos here: ${photoUrl}` : null,
@@ -311,7 +313,7 @@ export function buildInstallEvent(input: BuildInstallEventInput): CalendarEvent 
   }
 
   return {
-    summary: `${TRADE_LABELS[trade]} install — ${input.customerName}${squares != null ? ` (${squares} sq)` : ''}${halfDay ? ' (½ day)' : ''}`,
+    summary: `${label} install — ${input.customerName}${squares != null ? ` (${squares} sq)` : ''}${halfDay ? ' (½ day)' : ''}`,
     description: descriptionLines.join('\n'),
     ...(input.addressText ? { location: input.addressText } : {}),
     start,
@@ -440,12 +442,14 @@ export async function syncInstallToCalendar(
     }
   }
 
+  const orgTrades = await loadOrgTrades(adminClient, trade.org_id)
   const event = buildInstallEvent({
     jobId: trade.job_id,
     jobNumber: trade.job_number,
     customerName: params.customerName,
     addressText: trade.address_text,
     trade: trade.trade,
+    tradeLabel: tradeLabel(trade.trade, orgTrades),
     scheduledDate: trade.scheduled_date,
     installDays: trade.install_days,
     scheduledTimeStart: trade.scheduled_time_start,

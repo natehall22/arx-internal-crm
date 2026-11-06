@@ -30,6 +30,7 @@ import { SALE_AGREEMENT_TYPES } from '@/lib/sales-metrics'
 import { isOwnerProfile } from '@/lib/super-admin'
 import { loadEndedPlanPeople, loadPayPlanGaps, type EndedPlanPerson, type PayPlanGap } from '@/lib/comp-plan-defaults-db'
 import { calendarDaySpan } from '@/lib/job-trades'
+import { loadOrgTrades, tradeLabel, type OrgTrade } from '@/lib/org-trades'
 import { REQUIRED_FINAL_PHOTO_TAGS, missingRequiredPhotoTags } from '@/lib/final-photo-tags'
 import { fetchSupabaseAllPages, selectIn } from '@/lib/supabase-fetch-all-pages'
 
@@ -151,8 +152,6 @@ export type HealthTradeRow = {
   photoTags?: Array<string | null>
 }
 
-const TRADE_WORD: Record<string, string> = { roofing: 'Roofing', gutters: 'Gutters', siding: 'Siding', windows: 'Windows', other: 'Other' }
-
 /** Last calendar day a crew works: 1 or ½ day = its date, 1½ or 2 days = the next day too. */
 export function crewLastDay(t: Pick<HealthTradeRow, 'scheduled_date' | 'install_days'>): string | null {
   if (!t.scheduled_date) return null
@@ -174,6 +173,8 @@ export type JobHealthInput = {
   costLineCount: number
   deal: HealthDealRow | null
   trades: HealthTradeRow[]
+  /** The company's trades, for crew labels (`loadOrgTrades`); the default list when omitted. */
+  orgTrades?: readonly Pick<OrgTrade, 'slug' | 'label'>[]
   todayYmd: string
 }
 
@@ -429,7 +430,7 @@ export function evaluateJobHealth(input: JobHealthInput): HealthProblem[] {
         problems.push({
           code: 'crew_past_due',
           area: 'ops',
-          message: `${TRADE_WORD[t.trade ?? ''] ?? 'A'} crew was due ${last} and isn't marked done.`,
+          message: `${tradeLabel(t.trade, input.orgTrades)} crew was due ${last} and isn't marked done.`,
           fixLabel: 'Open crews',
           fixHref: jobHref(job.id, 'job-trades'),
           blocksPay: false,
@@ -447,7 +448,7 @@ export function evaluateJobHealth(input: JobHealthInput): HealthProblem[] {
         problems.push({
           code: 'trade_done_no_photos',
           area: 'ops',
-          message: `${TRADE_WORD[t.trade ?? ''] ?? 'A'} crew is marked done with ${4 - Math.min(4, missing.length)} of 4 required photos.`,
+          message: `${tradeLabel(t.trade, input.orgTrades)} crew is marked done with ${4 - Math.min(4, missing.length)} of 4 required photos.`,
           fixLabel: 'Add photos',
           fixHref: jobHref(job.id, 'job-trades'),
           blocksPay: false,
@@ -653,7 +654,7 @@ export async function loadDataHealthWithRows(
   const projectIds = Array.from(new Set(jobs.map((j) => j.project_id).filter((v): v is string => typeof v === 'string')))
 
   const proposalIds = Array.from(new Set(jobs.flatMap((j) => [j.linked_proposal_id, j.accepted_proposal_id]).filter((v): v is string => typeof v === 'string' && v.length > 0)))
-  const [projects, contracts, changeOrders, payments, costLines, trades, proposals] = await Promise.all([
+  const [projects, contracts, changeOrders, payments, costLines, trades, proposals, orgTrades] = await Promise.all([
     selectIn<{ id: string; opportunity_id: string | null }>(projectIds, (chunk) =>
       admin.from('projects').select('id, opportunity_id').eq('org_id', orgId).in('id', chunk)
     ),
@@ -693,6 +694,7 @@ export async function loadDataHealthWithRows(
     selectIn<{ id: string; tax_amount: number | string | null }>(proposalIds, (chunk) =>
       admin.from('proposals').select('id, tax_amount').eq('org_id', orgId).in('id', chunk)
     ),
+    loadOrgTrades(admin, orgId),
   ])
   // Only crews of jobs still in play: collected / cancelled jobs are history and never flagged, so their photos are not fetched.
   const liveJobIds = new Set(jobs.filter((j) => j.status !== 'collected' && j.status !== 'cancelled').map((j) => j.id))
@@ -751,6 +753,7 @@ export async function loadDataHealthWithRows(
       costLineCount: costCountByJob.get(job.id) ?? 0,
       deal: opportunityId ? dealById.get(opportunityId) ?? null : null,
       trades: tradesByJob.get(job.id) ?? [],
+      orgTrades,
       todayYmd,
     })
     jobHealth.push({

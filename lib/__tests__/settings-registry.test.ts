@@ -22,6 +22,10 @@ describe('settings registry', () => {
     expect(filterSettingsGroups(g, 'zzzz')).toEqual([])
     expect(filterSettingsGroups(g, '  ')).toEqual(g)
   })
+  it('Job setup shows only to super admins (the page and its route check isSuperAdmin)', () => {
+    expect(hrefs(visibleSettingsGroups({ ...all, canOwner: true }))).not.toContain('/admin/job-setup')
+    expect(hrefs(visibleSettingsGroups({ ...all, canOwner: true, canSuperAdmin: true }))).toContain('/admin/job-setup')
+  })
   it('only leadership roles open the hub', () => {
     expect(canOpenSettingsHub('owner')).toBe(true)
     expect(canOpenSettingsHub('sales_rep')).toBe(false)

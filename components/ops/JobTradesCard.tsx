@@ -4,14 +4,16 @@ import { useCallback, useEffect, useState } from 'react'
 
 import ScheduleJobModal, { type ScheduleTrade } from '@/components/ops/ScheduleJobModal'
 import { finalPhotoTagLabel } from '@/lib/final-photo-tags'
-import { TRADES, TRADE_LABELS, formatInstallDays, formatWallClock12h, type Trade } from '@/lib/job-trades'
+import { formatInstallDays, formatWallClock12h } from '@/lib/job-trades'
+import { tradeLabel, type OrgTradeOption, type Trade } from '@/lib/org-trades'
 import PhoneLink from '@/components/PhoneLink'
 
-/** Shape returned by GET /api/ops/jobs/[id]/trades. */
+/** A row returned by GET /api/ops/jobs/[id]/trades, plus `label` (the company's name for the trade). */
 export interface JobTradeView {
   id: string
   work_order_number: string
   trade: Trade
+  label: string
   trade_source: 'auto' | 'manual' | null
   status: string
   scheduled_date: string | null
@@ -66,6 +68,8 @@ export default function JobTradesCard({ jobId, jobLabel, readOnly = false, onTra
   const [scheduling, setScheduling] = useState<ScheduleTrade | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [addTrade, setAddTrade] = useState<Trade | ''>('')
+  /** The company's trades, from the same response (the server reads org_trades). */
+  const [orgTrades, setOrgTrades] = useState<OrgTradeOption[]>([])
   const [notice, setNotice] = useState<{ tone: 'ok' | 'warn' | 'error'; text: string } | null>(null)
 
   const load = useCallback(
@@ -74,7 +78,12 @@ export default function JobTradesCard({ jobId, jobLabel, readOnly = false, onTra
         const res = await fetch(`/api/ops/jobs/${jobId}/trades`, { cache: 'no-store' })
         const data = await res.json().catch(() => null)
         if (!res.ok) throw new Error(data?.error || 'Failed to load crews')
-        const list = (data?.trades ?? []) as JobTradeView[]
+        const options = (Array.isArray(data?.orgTrades) ? data.orgTrades : []) as OrgTradeOption[]
+        const list = ((data?.trades ?? []) as Omit<JobTradeView, 'label'>[]).map((t) => ({
+          ...t,
+          label: tradeLabel(t.trade, options),
+        }))
+        setOrgTrades(options)
         setTrades(list)
         setCanEdit(Boolean(data?.canEdit))
         setLoadError(null)
@@ -107,6 +116,7 @@ export default function JobTradesCard({ jobId, jobLabel, readOnly = false, onTra
     setScheduling({
       id: t.id,
       trade: t.trade,
+      label: t.label,
       scheduled_date: t.scheduled_date,
       scheduled_time_start: t.scheduled_time_start,
       install_days: t.install_days,
@@ -126,7 +136,7 @@ export default function JobTradesCard({ jobId, jobLabel, readOnly = false, onTra
       const data = await res.json().catch(() => null)
       if (res.status === 409 && action === 'complete' && Array.isArray(data?.missingPhotoTags)) {
         const missing = (data.missingPhotoTags as string[]).map((tag) => finalPhotoTagLabel(tag)).join(', ')
-        if (window.confirm(`${TRADE_LABELS[t.trade]} is missing photos: ${missing}.\n\nMark it done anyway?`)) {
+        if (window.confirm(`${t.label} is missing photos: ${missing}.\n\nMark it done anyway?`)) {
           setBusyId(null)
           return act(t, 'complete', true)
         }
@@ -145,7 +155,7 @@ export default function JobTradesCard({ jobId, jobLabel, readOnly = false, onTra
   async function unschedule(t: JobTradeView) {
     if (
       !window.confirm(
-        `Take ${TRADE_LABELS[t.trade]} off the schedule?${t.sub ? `\n\n${t.sub.company_name} is sent a cancellation.` : ''}`
+        `Take ${t.label} off the schedule?${t.sub ? `\n\n${t.sub.company_name} is sent a cancellation.` : ''}`
       )
     )
       return
@@ -169,7 +179,7 @@ export default function JobTradesCard({ jobId, jobLabel, readOnly = false, onTra
   }
 
   async function remove(t: JobTradeView) {
-    if (!window.confirm(`Remove ${TRADE_LABELS[t.trade]} from this job?`)) return
+    if (!window.confirm(`Remove ${t.label} from this job?`)) return
     await act(t, 'remove')
   }
 
@@ -232,7 +242,7 @@ export default function JobTradesCard({ jobId, jobLabel, readOnly = false, onTra
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-base font-semibold text-[#2c2c2a]">{TRADE_LABELS[t.trade]}</span>
+                      <span className="text-base font-semibold text-[#2c2c2a]">{t.label}</span>
                       {done ? (
                         <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-900">
                           Done
@@ -365,11 +375,13 @@ export default function JobTradesCard({ jobId, jobLabel, readOnly = false, onTra
             className="min-h-[44px] rounded-lg border border-gray-300 px-3 text-sm text-[#2c2c2a]"
           >
             <option value="">Add a trade…</option>
-            {TRADES.map((tr) => (
-              <option key={tr} value={tr}>
-                {TRADE_LABELS[tr]}
-              </option>
-            ))}
+            {orgTrades
+              .filter((tr) => tr.active)
+              .map((tr) => (
+                <option key={tr.slug} value={tr.slug}>
+                  {tr.label}
+                </option>
+              ))}
           </select>
           <button
             type="button"

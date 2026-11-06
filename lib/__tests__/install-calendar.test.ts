@@ -192,6 +192,12 @@ describe('buildInstallEvent — trades and crew lengths', () => {
     expect(event.description).toContain('Gutters: 1 day')
   })
 
+  it("uses the company's own name for the trade when it renamed it", () => {
+    const event = buildInstallEvent({ ...base, trade: 'siding', tradeLabel: 'Exterior cladding' })
+    expect(event.summary).toBe('Exterior cladding install — Pat Smith')
+    expect(event.description).toContain('Exterior cladding: 1 day')
+  })
+
   it('spans 1½ days over two all-day dates (end exclusive)', () => {
     const event = buildInstallEvent({ ...base, installDays: 1.5 })
     expect(event.start).toEqual({ date: '2026-09-18', dateTime: null, timeZone: null })

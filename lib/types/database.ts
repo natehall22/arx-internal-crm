@@ -896,8 +896,6 @@ export interface WorkOrder {
   completion_notes: string | null
   before_photos: string[]
   after_photos: string[]
-  estimated_cost: number | null
-  actual_cost: number | null
   billable_to_customer: boolean
   created_by: string
   created_at: string

@@ -5,12 +5,11 @@ import Link from 'next/link'
 import Nav from '@/components/Nav'
 import {
   INSTALL_DAY_OPTIONS,
-  TRADE_LABELS,
   calendarDaySpan,
   formatInstallDays,
   type InstallDays,
-  type Trade,
 } from '@/lib/job-trades'
+import { tradeLabel, type OrgTradeOption, type Trade } from '@/lib/org-trades'
 import { formatPhone } from '@/lib/format'
 
 /* ------------------------------------------------------------------------ *
@@ -61,6 +60,8 @@ interface InstallScheduleResponse {
   subs: ScheduleSub[]
   scheduled: ScheduledJob[]
   unscheduled: UnscheduledJob[]
+  /** The company's trades (labels). */
+  orgTrades?: OrgTradeOption[]
 }
 
 type CalendarSyncResult = 'synced' | 'no_token' | 'failed'
@@ -332,6 +333,8 @@ export default function InstallScheduleClient({ embedded = false }: { /** Inside
   const [subs, setSubs] = useState<ScheduleSub[]>([])
   const [scheduled, setScheduled] = useState<ScheduledJob[]>([])
   const [unscheduled, setUnscheduled] = useState<UnscheduledJob[]>([])
+  const [orgTrades, setOrgTrades] = useState<OrgTradeOption[]>([])
+  const labelOf = (trade: Trade) => tradeLabel(trade, orgTrades)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [reloadTick, setReloadTick] = useState(0)
@@ -382,6 +385,7 @@ export default function InstallScheduleClient({ embedded = false }: { /** Inside
         setSubs(Array.isArray(data?.subs) ? data.subs : [])
         setScheduled(Array.isArray(data?.scheduled) ? data.scheduled : [])
         setUnscheduled(Array.isArray(data?.unscheduled) ? data.unscheduled : [])
+        setOrgTrades(Array.isArray(data?.orgTrades) ? data.orgTrades : [])
       })
       .catch((err) => {
         if (cancelled) return
@@ -661,7 +665,7 @@ export default function InstallScheduleClient({ embedded = false }: { /** Inside
 
   async function unassignJob(job: ScheduledJob, subName: string) {
     const ok = window.confirm(
-      `Remove ${TRADE_LABELS[job.trade]} for ${job.job_number}${job.customer_name ? ` — ${job.customer_name}` : ''} from ${subName}'s schedule?\n\nThis un-schedules that crew and emails ${subName} that the date was removed.`
+      `Remove ${labelOf(job.trade)} for ${job.job_number}${job.customer_name ? ` — ${job.customer_name}` : ''} from ${subName}'s schedule?\n\nThis un-schedules that crew and emails ${subName} that the date was removed.`
     )
     if (!ok) return
 
@@ -728,7 +732,7 @@ export default function InstallScheduleClient({ embedded = false }: { /** Inside
         {placingJob && (
           <div className="sticky top-2 z-30 mb-4 flex flex-col gap-2 rounded-lg border border-indigo-300 bg-indigo-50 px-4 py-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
             <div className="text-sm text-[#2c2c2a]">
-              <span className="font-semibold">Placing:</span> {TRADE_LABELS[placingJob.trade]} · {placingJob.job_number}
+              <span className="font-semibold">Placing:</span> {labelOf(placingJob.trade)} · {placingJob.job_number}
               {placingJob.customer_name ? ` · ${placingJob.customer_name}` : ''} — click (or tap) a day on a
               sub&apos;s row to schedule it.
             </div>
@@ -853,7 +857,7 @@ export default function InstallScheduleClient({ embedded = false }: { /** Inside
                         <div className="truncate text-xs text-[#57574f]">{job.customer_name || job.address_text}</div>
                         <div className="mt-1 flex items-center gap-2 text-[10px] text-[#57574f]">
                           <span className="rounded bg-[#e8e6df] px-1.5 py-0.5 font-semibold text-[#2c2c2a]">
-                            {TRADE_LABELS[job.trade]}
+                            {labelOf(job.trade)}
                           </span>
                           {job.total_squares ? <span>{job.total_squares} sq</span> : null}
                         </div>
@@ -1054,7 +1058,7 @@ export default function InstallScheduleClient({ embedded = false }: { /** Inside
                                       <Link
                                         href={`/ops/jobs/${job.job_id}#job-trades`}
                                         className="flex min-h-tap min-w-0 flex-1 flex-col justify-center leading-tight text-[#2c2c2a] hover:underline"
-                                        title={`${TRADE_LABELS[job.trade]} · ${formatInstallDays(job.install_days)} — ${job.job_number} — ${job.customer_name || job.address_text}${job.total_squares ? ` · ${job.total_squares} sq` : ''}${done ? ' · Done' : ''}${rsvpText ? ` · ${rsvpText}` : ''}`}
+                                        title={`${labelOf(job.trade)} · ${formatInstallDays(job.install_days)} — ${job.job_number} — ${job.customer_name || job.address_text}${job.total_squares ? ` · ${job.total_squares} sq` : ''}${done ? ' · Done' : ''}${rsvpText ? ` · ${rsvpText}` : ''}`}
                                       >
                                         <span className="flex min-w-0 items-baseline gap-0.5 font-semibold">
                                           {/* `truncate` needs `min-w-0` on every flex ancestor down to
@@ -1081,7 +1085,7 @@ export default function InstallScheduleClient({ embedded = false }: { /** Inside
                                         </span>
                                         {/* Trade first: one sub can hold a job's roofing AND its gutters. */}
                                         <span className="truncate text-[10px] text-[#2c2c2a]">
-                                          <span className="font-semibold">{TRADE_LABELS[job.trade]}</span>
+                                          <span className="font-semibold">{labelOf(job.trade)}</span>
                                           {shortCustomerName(job.customer_name) ? ` · ${shortCustomerName(job.customer_name)}` : ''}
                                         </span>
                                       </Link>
@@ -1102,7 +1106,7 @@ export default function InstallScheduleClient({ embedded = false }: { /** Inside
                                            (hover:none), where a landscape tablet renders the lg grid
                                            but has no hover to reveal it with. */
                                         className="absolute right-0 top-1/2 flex min-h-tap min-w-tap -translate-y-1/2 items-center justify-center rounded-full bg-white/85 text-[#57574f] opacity-0 shadow-sm transition-opacity hover:bg-white hover:text-red-600 focus:opacity-100 focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
-                                        aria-label={`Remove ${TRADE_LABELS[job.trade]} ${job.job_number} from schedule`}
+                                        aria-label={`Remove ${labelOf(job.trade)} ${job.job_number} from schedule`}
                                         title="Remove from schedule"
                                       >
                                         ×
@@ -1184,7 +1188,7 @@ export default function InstallScheduleClient({ embedded = false }: { /** Inside
                                   {dayJobs.length === 0 ? (
                                     placingJob && (
                                       <span className="text-xs text-indigo-600">
-                                        Tap to place {TRADE_LABELS[placingJob.trade]} · {placingJob.job_number} here
+                                        Tap to place {labelOf(placingJob.trade)} · {placingJob.job_number} here
                                       </span>
                                     )
                                   ) : (
@@ -1217,7 +1221,7 @@ export default function InstallScheduleClient({ embedded = false }: { /** Inside
                                               onClick={(e) => e.stopPropagation()}
                                               title={rsvpText ?? undefined}
                                             >
-                                              <span className="font-semibold">{TRADE_LABELS[job.trade]}</span>
+                                              <span className="font-semibold">{labelOf(job.trade)}</span>
                                               {` · ${job.job_number}`}
                                               {job.customer_name ? ` · ${job.customer_name}` : ''}
                                               {job.install_days !== 1 ? ` · ${formatInstallDays(job.install_days)}` : ''}
@@ -1239,7 +1243,7 @@ export default function InstallScheduleClient({ embedded = false }: { /** Inside
                                                   unassignJob(job, sub.company_name)
                                                 }}
                                                 className="flex min-h-tap min-w-tap shrink-0 items-center justify-center text-[#57574f] hover:text-red-600"
-                                                aria-label={`Remove ${TRADE_LABELS[job.trade]} ${job.job_number}`}
+                                                aria-label={`Remove ${labelOf(job.trade)} ${job.job_number}`}
                                               >
                                                 ×
                                               </button>

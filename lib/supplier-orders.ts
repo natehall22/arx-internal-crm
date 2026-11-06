@@ -19,7 +19,8 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { writeJobNote } from '@/lib/threads/job-notes'
 import { materialOrderFromRunSheet, type JobMaterialOrderData } from '@/lib/job-material-order'
 import { buildJobRunSheet } from '@/lib/job-run-sheet'
-import { isTradeActive, primaryTradeForJobType } from '@/lib/job-trades'
+import { isTradeActive } from '@/lib/job-trades'
+import { loadOrgTrades, primaryTradeForJobType, tradeLabel, type OrgTrade } from '@/lib/org-trades'
 import {
   canonicalContent,
   decideSend,
@@ -37,7 +38,6 @@ import {
   snapshotLines,
   sourcingSnapshot,
   supplierCardState,
-  tradeLabel,
   type LastSend,
   type LineSnapshot,
   type MaterialSource,
@@ -124,6 +124,8 @@ export type SupplierOrderContext = {
   lastSentSourcing: SourcingSnapshot | null
   /** Second-approver requests still open on this job (supplier API orders only). */
   apiApprovals?: OpenApproval[]
+  /** The company's trades (labels for renamed / custom trades). Missing = the default list. */
+  orgTrades?: OrgTrade[]
 }
 
 export type LoadResult =
@@ -157,7 +159,7 @@ export async function loadSupplierOrderContext(
   const sheet = await buildJobRunSheet(admin, orgId, jobId)
   if (!sheet) return { ok: false, reason: 'not_found' }
 
-  const [apiSettings, apiApprovals] = await Promise.all([loadSupplierApiSettings(admin, orgId), loadOpenApprovals(admin, orgId, jobId)])
+  const [apiSettings, apiApprovals, orgTrades] = await Promise.all([loadSupplierApiSettings(admin, orgId), loadOpenApprovals(admin, orgId, jobId), loadOrgTrades(admin, orgId)])
   const [vendorsRes, overridesRes, tradesRes, tradeOvRes, orgDefaultsRes, ordersRes, sendsRes] = await Promise.all([
     admin
       .from('vendors')
@@ -335,7 +337,8 @@ export async function loadSupplierOrderContext(
       jobId,
       jobNumber: sheet.jobNumber || sheet.jobId,
       jobStatus: sheet.status,
-      primaryTrade: primaryTradeForJobType(sheet.jobType),
+      primaryTrade: primaryTradeForJobType(sheet.jobType, orgTrades),
+      orgTrades,
       address: sheet.address ?? null,
       scheduledDate: sheet.scheduledDate,
       orgName: sheet.orgName,
@@ -491,7 +494,7 @@ export function buildSupplierOrdersView(ctx: SupplierOrderContext, now: Date = n
     unassigned: sourcing.unassigned.map((l) => ({ key: l.key, label: l.label, qty: l.qty, trade: l.trade, problem: l.problem })),
     trades: tradeNames.map((trade) => ({
       trade,
-      label: tradeLabel(trade),
+      label: tradeLabel(trade, ctx.orgTrades),
       source: tradeOv.get(trade)?.source ?? null,
       vendorId: tradeOv.get(trade)?.vendorId ?? null,
       installerName: ctx.trades.find((t) => t.trade === trade)?.installer?.name ?? null,

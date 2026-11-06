@@ -175,7 +175,6 @@ export async function POST(request: Request) {
 
     const resolvedFinancials = await resolveProductionJobFinancials(adminClient, {
       orgId: profile.org_id,
-      projectId: project_id,
       acceptedProposalId,
       installationContract: saleAgreementSnapshot,
     })

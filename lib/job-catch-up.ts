@@ -8,7 +8,7 @@
  * Reused, never re-implemented:
  * - status label            → lib/job-status.ts (`jobStatusConfig`)
  * - materials               → lib/job-materials-state.ts (`MaterialsState`, computed by the caller)
- * - crews (trades)          → lib/job-trades.ts labels + lib/data-health.ts `crewLastDay`
+ * - crews (trades)          → the company's trade labels (lib/org-trades.ts, filled in by the loader) + lib/data-health.ts `crewLastDay`
  * - overdue / needs attention → lib/data-health.ts problems, shaped to the no-dollar ops view (`shapeNeedsYou`)
  * - paid / waiting on payment → lib/job-status.ts `paymentStatusChip` (the board chip; one collection rule underneath)
  *
@@ -30,7 +30,6 @@ import { ymdInBusinessTz } from '@/lib/calendar-business-tz'
 import { formatDateShort } from '@/lib/format'
 import type { MaterialsState } from '@/lib/job-materials-state'
 import { jobStatusConfig } from '@/lib/job-status'
-import { TRADE_LABELS, isTrade } from '@/lib/job-trades'
 import { daysBetweenDateOnly, workingDaysBetweenDateOnly } from '@/lib/schedule-window'
 import { ACTIVITY_WINDOW_DAYS } from '@/lib/job-catch-up-settings'
 
@@ -62,6 +61,8 @@ export type CatchUpJob = {
 
 export type CatchUpTrade = {
   trade: string | null
+  /** The company's name for this trade (`tradeLabel` over the org's list — filled in by the loader). */
+  label: string
   status: string
   scheduled_date: string | null
   install_days: number | string | null
@@ -159,10 +160,6 @@ const DONE_STATUSES = new Set(['collected', 'cancelled'])
 /** Two crew-row timestamps this close are the same write. */
 const SAME_MOMENT_MS = 5 * 60_000
 
-function tradeWord(trade: string | null | undefined): string {
-  return isTrade(trade) ? TRADE_LABELS[trade] : 'Crew'
-}
-
 function firstName(name: string | null | undefined): string | null {
   const n = String(name ?? '').trim()
   return n ? n.split(/\s+/)[0] : null
@@ -235,7 +232,7 @@ export function jobEvents(job: CatchUpJob): CatchUpEvent[] {
 export function tradeEvents(trades: CatchUpTrade[]): CatchUpEvent[] {
   const out: CatchUpEvent[] = []
   for (const t of trades) {
-    const word = tradeWord(t.trade)
+    const word = t.label
     if (t.completed_at) out.push({ at: t.completed_at, what: `${word} crew marked done`, who: t.sub_name })
     const u = time(t.updated_at)
     if (!Number.isFinite(u)) continue
@@ -272,13 +269,13 @@ export function deriveNextStep(f: Pick<CatchUpFacts, 'job' | 'trades' | 'materia
     const last = crewLastDay(t)
     return !!last && last < todayYmd
   })
-  if (pastDue) return { text: `Mark ${tradeWord(pastDue.trade).toLowerCase()} crew done`, owner: 'crew', crew: pastDue.sub_name }
+  if (pastDue) return { text: `Mark ${pastDue.label.toLowerCase()} crew done`, owner: 'crew', crew: pastDue.sub_name }
 
   const working = open.find((t) => {
     const last = crewLastDay(t)
     return !!t.scheduled_date && !!last && t.scheduled_date <= todayYmd && todayYmd <= last
   })
-  if (working) return { text: `${tradeWord(working.trade)} crew on site`, owner: 'crew', crew: working.sub_name }
+  if (working) return { text: `${working.label} crew on site`, owner: 'crew', crew: working.sub_name }
 
   if (f.problems.some((p) => p.code === 'trade_done_no_photos')) return { text: 'Get crew photos', owner: 'office' }
 
@@ -292,14 +289,14 @@ export function deriveNextStep(f: Pick<CatchUpFacts, 'job' | 'trades' | 'materia
   const unscheduled = open.filter((t) => !t.scheduled_date)
   if (active.length === 0 && !job.scheduled_date) return { text: 'Schedule crew', owner: 'office' }
   if (unscheduled.length > 0) {
-    const words = unscheduled.map((t) => tradeWord(t.trade).toLowerCase())
+    const words = unscheduled.map((t) => t.label.toLowerCase())
     return { text: `Schedule ${Array.from(new Set(words)).join(' + ')} crew`, owner: 'office' }
   }
 
   const next = open
     .filter((t) => t.scheduled_date && t.scheduled_date > todayYmd)
     .sort((a, b) => String(a.scheduled_date).localeCompare(String(b.scheduled_date)))[0]
-  if (next) return { text: `${tradeWord(next.trade)} crew ${formatDateShort(next.scheduled_date)}`, owner: 'crew', crew: next.sub_name }
+  if (next) return { text: `${next.label} crew ${formatDateShort(next.scheduled_date)}`, owner: 'crew', crew: next.sub_name }
 
   return { text: jobStatusConfig(job.status).label, owner: 'office' }
 }

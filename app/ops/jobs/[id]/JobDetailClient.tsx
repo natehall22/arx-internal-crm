@@ -15,7 +15,6 @@ import { useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
 import JobTradesCard, { type JobTradeView } from '@/components/ops/JobTradesCard'
-import { TRADE_LABELS } from '@/lib/job-trades'
 import JobPaymentsCard from '@/components/ops/JobPaymentsCard'
 import JobInvoicesCard from '@/components/ops/JobInvoicesCard'
 import CompleteJobModal from '@/components/ops/CompleteJobModal'
@@ -1105,7 +1104,7 @@ export default function JobDetailClient({
     if (
       openTrades.length > 0 &&
       !window.confirm(
-        `${openTrades.map((t) => TRADE_LABELS[t.trade]).join(', ')} ${openTrades.length === 1 ? "isn't" : "aren't"} marked done.\n\nMark the whole job complete anyway?`
+        `${openTrades.map((t) => t.label).join(', ')} ${openTrades.length === 1 ? "isn't" : "aren't"} marked done.\n\nMark the whole job complete anyway?`
       )
     ) {
       return

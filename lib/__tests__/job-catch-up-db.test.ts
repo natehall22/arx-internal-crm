@@ -138,9 +138,11 @@ describe('loadJobCatchUps', () => {
     expect(big.calls.length).toBe(small.calls.length)
     expect(big.calls.sort()).toEqual(small.calls.sort())
     // Record the number so a regression to per-job queries is obvious in review.
-    // 15 here (thread viewer resolution is mocked; live adds its permission reads + proposals when present).
+    // 16 here (thread viewer resolution is mocked; live adds its permission reads + proposals when present).
     // Owner names: one more read only when some job has an owner.
-    expect(big.calls.length).toBe(15)
+    expect(big.calls.length).toBe(16)
+    // The company's trade labels: read once, shared by data health and catch-up (cached per client).
+    expect(big.calls.filter((t) => t === 'org_trades')).toHaveLength(1)
     // Crews and payments are read once (by data health) and reused — never a second time by catch-up.
     expect(big.calls.filter((t) => t === 'work_orders')).toHaveLength(1)
     expect(big.calls.filter((t) => t === 'job_payments')).toHaveLength(1)
@@ -163,6 +165,16 @@ describe('loadJobCatchUps — review fixes', () => {
     materialsFor = () => deriveMaterialsState({ stored: 'ordered', suppliers: { rollup: { covered: 1, total: 2, allCovered: false }, sentOrders: [{ receivedAt: null }] } })
     const c = await load(tables)
     expect(c.nextStep).toBe('Finish ordering materials (1 of 2 ordered)')
+  })
+
+  it("crew wording uses the company's own trade name (org_trades), not a fixed list", async () => {
+    const tables = seed(1)
+    tables.production_jobs[0].permit_status = 'approved'
+    materialsFor = () => deriveMaterialsState({ stored: 'ordered' })
+    tables.org_trades = [{ org_id: ORG, slug: 'roofing', label: 'Roof replacement', sort: 10, active: true, match_keywords: null }]
+    const c = await load(tables)
+    expect(JSON.stringify(c)).toContain('Roof replacement crew')
+    expect(JSON.stringify(c)).not.toContain('Roofing crew')
   })
 
   it('materials: a failed supplier-plan read falls back to the recorded status, never breaks the line', async () => {

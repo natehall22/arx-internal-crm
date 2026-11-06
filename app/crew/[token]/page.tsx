@@ -3,7 +3,7 @@ import { cache } from 'react'
 
 import { createServiceClient } from '@/lib/supabase/service'
 import { crewLinkPhotoCounts, resolveCrewLink } from '@/lib/crew-link'
-import { TRADE_LABELS } from '@/lib/job-trades'
+import { loadOrgTrades, tradeLabel } from '@/lib/org-trades'
 import { getDocumentBrand } from '@/lib/org-brand'
 import { loadCrewNotes } from '@/lib/threads/crew-notes'
 import CrewPhotoCapture from './CrewPhotoCapture'
@@ -49,11 +49,12 @@ export default async function CrewPhotoPage({ params }: { params: { token: strin
 
   const counts = await crewLinkPhotoCounts(admin, link.ctx)
   const notes = await loadCrewNotes(admin, link.ctx).catch(() => [])
+  const orgTrades = await loadOrgTrades(admin, link.ctx.orgId)
 
   return (
     <CrewPhotoCapture
       token={params.token}
-      tradeLabel={TRADE_LABELS[link.ctx.trade]}
+      tradeLabel={tradeLabel(link.ctx.trade, orgTrades)}
       addressText={link.ctx.addressText}
       jobNumber={link.ctx.jobNumber}
       initialCounts={counts}

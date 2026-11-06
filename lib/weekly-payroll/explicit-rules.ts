@@ -1,13 +1,12 @@
 /**
  * Canonical explicit rules for weekly sales payroll, funding, comp plans,
- * payment deduplication, post-lock supplements, commission base floors,
+ * payment deduplication, commission base floors,
  * participant snapshots, and row explainability.
  *
  * Downstream APIs and lock jobs should import from here — do not re-encode
  * business rules ad hoc in route handlers.
  */
 
-import type { PaymentType } from '@/lib/types/job-payments'
 import type { FundingStatus } from '@/lib/types/job-payments'
 import { collectParticipants, type PayrollParticipant } from '@/lib/payroll-export'
 
@@ -111,28 +110,6 @@ export function idempotencyKeyProvided(key: string | null | undefined): key is s
   return typeof key === 'string' && key.trim().length > 0
 }
 
-// ── Supplements (and similar) after paid payroll ─────────────────────────────
-
-/**
- * Payment types that represent **late carrier / supplement** flows that may land
- * after a job was already locked or paid on payroll.
- *
- * **Rule**
- * - **Never** mutate locked `payroll_job_snapshots` or paid `payroll_payout_lines`.
- * - Record the payment on the job; route financial effect to **next-period
- *   adjustment** (manual or automated adjustment row), and surface on exception
- *   / reconciliation reports.
- */
-export const POST_LOCK_FUNDS_PAYMENT_TYPES: readonly PaymentType[] = ['insurance_supplement']
-
-export function isPostLockFundsPaymentType(paymentType: PaymentType): boolean {
-  return (POST_LOCK_FUNDS_PAYMENT_TYPES as readonly string[]).includes(paymentType)
-}
-
-export type PostLockFundsHandling = 'next_period_adjustment' | 'blocked_until_review'
-
-export const POST_LOCK_SUPPLEMENT_DEFAULT: PostLockFundsHandling = 'next_period_adjustment'
-
 // ── Negative commission base ─────────────────────────────────────────────────
 
 /**
@@ -197,7 +174,6 @@ export type ExplainCode =
   | 'FUNDING_CLEARED_INCLUDED'
   | 'COMP_PLAN_EFFECTIVE'
   | 'DUPLICATE_NATURAL_KEY'
-  | 'POST_LOCK_SUPPLEMENT'
   | 'COMMISSION_BASE_CLAMPED'
   | 'PARTICIPANT_ORDER'
 
