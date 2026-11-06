@@ -14,7 +14,7 @@ describe('normalizeIdentityEmail', () => {
 
 // ---- one matching rule: exact on the stored normalized columns; concurrent creation settles on the oldest row ----
 import { createFakeDb } from '@/lib/test-helpers/fake-db'
-import { findExistingCustomer, upsertCustomer } from '@/lib/customers'
+import { enrichCustomerFromContract, findExistingCustomer, upsertCustomer } from '@/lib/customers'
 
 jest.mock('@/lib/integrations', () => ({ enqueueCustomerUpserted: jest.fn(async () => undefined) }))
 import * as integrations from '@/lib/integrations'
@@ -78,13 +78,21 @@ describe('upsertCustomer is idempotent under concurrent bookings', () => {
     expect(enqueueCustomerUpserted).not.toHaveBeenCalled()
   })
 
-  it('no competing row: creates once and enqueues once; skipIntegrations enqueues nothing', async () => {
-    const db = createFakeDb({ customers: [] })
+  it('never tells QuickBooks — creating or filling in a customer enqueues nothing (signing is the one moment)', async () => {
+    const db = createFakeDb({ customers: [cust('old', { phone: '7045550199', phone_normalized: '7045550199' })] })
     const a = await upsertCustomer(db.client, ORG, { name: 'A', phone: '7045550101' })
     expect(a.created).toBe(true)
-    expect(enqueueCustomerUpserted).toHaveBeenCalledTimes(1)
-    enqueueCustomerUpserted.mockClear()
-    await upsertCustomer(db.client, ORG, { name: 'B', phone: '7045550102' }, { skipIntegrations: true })
+    // existing row with a missing email: filled in, still nothing queued
+    const b = await upsertCustomer(db.client, ORG, { name: 'N', phone: '7045550199', email: 'n@example.com' })
+    expect(b).toEqual({ customer_id: 'old', created: false })
+    expect(db.tables.customers.find((c) => c.id === 'old')?.email).toBe('n@example.com')
     expect(enqueueCustomerUpserted).not.toHaveBeenCalled()
+  })
+
+  it('contract signing (enrichCustomerFromContract) is the one enqueue: exactly once', async () => {
+    const db = createFakeDb({ customers: [cust('c1', { phone: '7045550142', phone_normalized: '7045550142' })] })
+    await enrichCustomerFromContract(db.client, ORG, 'c1', { customer_email: 'x@example.com' })
+    expect(enqueueCustomerUpserted).toHaveBeenCalledTimes(1)
+    expect(enqueueCustomerUpserted.mock.calls[0][2]).toBe('c1')
   })
 })
