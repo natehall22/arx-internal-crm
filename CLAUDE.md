@@ -214,6 +214,11 @@ Nathan's goal: measure complex roofs ourselves — **no paid EagleView/Hover rep
 ## Supplier ordering by API (ABC Supply) — 2026-10-23
 Built on the single send door in `lib/suppliers/send-order.ts`; **OFF by default** (env `SUPPLIER_API_ORDERING`, `orgs.supplier_api_ordering_enabled`, per-supplier switch), sandbox first, second owner approves orders over the limit or of unknown size, one attempt and never an auto-retry, only first orders (no API revise/cancel), append-only `supplier_api_events`. **Never call ABC's Pricing API or compare ABC prices with other suppliers — their Terms forbid it** (test-enforced). Setup and gaps: `docs/abc-supply-connector.md`.
 
+## QuickBooks (2026-11-06)
+Not connected yet; design in `docs/quickbooks-sync.md`. Until the worker ships, `integration_outbox` only receives
+`customer.upserted` (contract signing, `enrichCustomerFromContract`) and `payment.recorded` (job payments) — nothing drains it.
+`lib/__tests__/quickbooks-outbox-guard.test.ts` holds that line.
+
 ## Install Scheduling — crews per trade (2026-09-15)
 A job's crews are **trades**: one `work_orders` row per trade (`trade` = a slug from the company's own
 list, `org_trades` — read ONLY via `loadOrgTrades` in `lib/org-trades.ts`, falling back to `DEFAULT_ORG_TRADES`

@@ -12,10 +12,11 @@ ROOT="$HERE/.."
 case "${PGHOST:-localhost}" in /*|localhost|127.0.0.1|::1) ;; *) echo "refusing: PGHOST=${PGHOST} is not local" >&2; exit 2 ;; esac
 P() { psql -X -q -v ON_ERROR_STOP=1 "$@"; }
 for f in migrations/202610250010_payroll_adjustments.sql migrations/202610270010_threads_audiences.sql migrations/202610280010_atomic_approve_and_field_role_deny.sql \
-         data-fixes/2026-10-27_link_orphan_opportunities.sql data-fixes/2026-10-27_merge_notes_into_threads.sql; do
+         data-fixes/2026-10-27_link_orphan_opportunities.sql data-fixes/2026-10-27_merge_notes_into_threads.sql \
+         data-fixes/2026-11-06_skip_stale_qb_outbox.sql; do
   P -f "$ROOT/$f" >/dev/null 2>&1 || { echo "FAIL applying $f" >&2; exit 1; }
 done
-for t in payroll_atomic_approve data_fix_link_orphans data_fix_merge_notes threads_field_role; do
+for t in payroll_atomic_approve data_fix_link_orphans data_fix_merge_notes threads_field_role data_fix_skip_stale_qb_outbox; do
   out=$( (echo 'DO $t$'; cat "$HERE/$t.body.sql"; echo '$t$;') | P 2>&1 || true )
   echo "$out" | grep -q 'REPORT (rolled back by design)' || { echo "FAIL $t"; echo "$out" >&2; exit 1; }
   echo "PASS $t"; echo "$out" | grep -E '^(T[0-9]|apply|undo|preview|can_view|message_visible|no-deal)' | sed 's/^/    /'
