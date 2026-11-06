@@ -67,6 +67,8 @@ import { HARNESS_QUEUES } from '@/e2e/fixtures'
 import EmailBlastsPage from '@/app/admin/email-blasts/page'
 import GeneralSettingsCard, { type GeneralSettingsValues } from '@/components/admin/GeneralSettingsCard'
 import { DEFAULT_TIMEZONE } from '@/lib/timezone'
+import JobCatchUpSettingsCard from '@/components/admin/JobCatchUpSettingsCard'
+import { HARNESS_CATCH_UP_JOBS, HARNESS_CATCH_UP_STUCK, HARNESS_VIEWER_ID } from '@/e2e/fixtures'
 
 function GeneralSettingsHarness({ canEditBrand }: { canEditBrand: boolean }) {
   const [value, setValue] = useState<GeneralSettingsValues>({
@@ -163,6 +165,35 @@ export default function Harness({ params }: { params: { screen: string } }) {
       return <OpsDashboardView {...(HARNESS_OPS_DASHBOARD as unknown as React.ComponentProps<typeof OpsDashboardView>)} />
     case 'ops-board':
       return <OpsClient initialJobs={HARNESS_OPS_JOBS as never} orgId="org-1" canViewProfitability />
+    case 'catch-up-board':
+      return <OpsClient initialJobs={HARNESS_CATCH_UP_JOBS as never} orgId="org-1" canViewProfitability={false} catchUp={{ enabled: true, stuckDays: 7, viewerId: HARNESS_VIEWER_ID }} />
+    case 'catch-up-job':
+    case 'catch-up-job-v2': {
+      const v2 = params.screen === 'catch-up-job-v2'
+      return (
+        <JobDetailClient
+          v2={v2}
+          initialJob={(v2 ? HARNESS_JOB_0037 : HARNESS_JOB) as never}
+          catchUp={HARNESS_CATCH_UP_STUCK as never}
+          paymentMethod="finance"
+          userRole="operations"
+          canViewProfitability={false}
+          canEditJobs
+          canDeleteProductionJob={false}
+          canViewJobBilling={false}
+          canEditPayrollAttribution={false}
+          canEditFinancialSource={false}
+          financialSourceProposalOptions={[]}
+          changeOrdersSection={null}
+        />
+      )
+    }
+    case 'catch-up-settings':
+      return (
+        <div className="mx-auto max-w-2xl p-4">
+          <JobCatchUpSettingsCard initial={{ enabled: false, stuckDays: 7, canEdit: true }} />
+        </div>
+      )
     case 'job-page':
       return (
         <JobDetailClient

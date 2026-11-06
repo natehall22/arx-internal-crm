@@ -1182,6 +1182,16 @@ export function materialsStateForContext(ctx: SupplierOrderContext, stored: stri
 }
 
 /**
+ * The job's materials answer exactly as its Materials tab shows it (supplier plan first; the stored status when the job
+ * has no plan, isn't found, or the supplier tables aren't set up). Job catch-up uses this so its next step never
+ * disagrees with the tab.
+ */
+export async function loadJobMaterialsState(admin: SupabaseClient, orgId: string, jobId: string, stored: string | null) {
+  const loaded = await loadSupplierOrderContext(admin, orgId, jobId)
+  return loaded.ok ? materialsStateForContext(loaded.ctx, stored) : deriveMaterialsState({ stored })
+}
+
+/**
  * Keeps production_jobs.materials_status in step with RECEIPTS only. "Ordered" is still written by the existing send path
  * (markMaterialsOrdered, which also moves a sold job to Material Ordering) and is never written here; "partial" is never stored
  * (the page derives it). Only ordered <-> received moves, guarded on the value just read so a concurrent change wins.

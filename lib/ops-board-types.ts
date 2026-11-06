@@ -1,5 +1,6 @@
 import type { JobStatus } from '@/lib/job-status'
 import type { JobCostSummary } from '@/lib/job-cost-ledger'
+import type { JobCatchUpResult } from '@/lib/job-catch-up'
 
 export type { JobStatus }
 
@@ -50,4 +51,6 @@ export interface OpsBoardJob {
   collected_cents?: number
   /** When set, ops marked this job as sent to payroll */
   payroll_sent_at?: string | null
+  /** Job catch-up line (lib/job-catch-up.ts); only present when the org has it switched on. */
+  catch_up?: JobCatchUpResult | null
 }

@@ -8,7 +8,6 @@ import {
   brandNameRest,
   brandPatchFromGeneral,
   brandServiceRegion,
-  brandSettingsUpdate,
   brandWebsiteHref,
   BRAND_FIELD_MAX,
   brandPatchOps,
@@ -20,6 +19,7 @@ import {
   resolveOrgBrand,
   shortNameArticle,
 } from '@/lib/org-brand'
+import { mergeSettingsAt } from '@/lib/org-settings'
 import { getPublicEstimateUnlockNextStepForPath } from '@/lib/public-estimate-config'
 import { normalizeReportDoc, seedReportDoc } from '@/lib/inspection-report/types'
 import {
@@ -232,7 +232,8 @@ describe('settings.brand merge', () => {
 
   it('whole-settings update keeps every other settings key (logo included)', () => {
     const current = { pricing: { a: 1 }, logo_url: 'l', brand: { futureKey: '1', website: 'old' } }
-    expect(brandSettingsUpdate(current, { website: 'new', shortName: '' })).toEqual({
+    const { set, remove } = brandPatchOps({ website: 'new', shortName: '' })
+    expect(mergeSettingsAt(current, ['brand'], set, remove)).toEqual({
       pricing: { a: 1 },
       logo_url: 'l',
       brand: { futureKey: '1', website: 'new' },

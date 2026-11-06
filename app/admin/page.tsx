@@ -10,6 +10,10 @@ import { canOpenSettingsHub, visibleSettingsGroups } from '@/lib/settings-regist
 
 import SettingsHub from './SettingsHub'
 import { isOwnerProfile } from '@/lib/super-admin'
+import JobCatchUpSettingsCard from '@/components/admin/JobCatchUpSettingsCard'
+import { loadJobCatchUpSettings } from '@/lib/job-catch-up-db'
+import { canEditJobCatchUpSettings } from '@/lib/job-catch-up-settings'
+import { createServiceClient } from '@/lib/supabase/service'
 
 /** Settings: every admin page in one grouped, searchable list (lib/settings-registry.ts). */
 export default async function SettingsPage() {
@@ -23,6 +27,8 @@ export default async function SettingsPage() {
     canWorkAreas: canManageCanvassTerritories(profile.role),
     canOwner: isOwnerProfile(profile),
   })
+  // Small org switches live as cards right here (the hub's "Job catch-up" entry links to #job-catch-up).
+  const catchUp = await loadJobCatchUpSettings(createServiceClient(), profile.org_id)
 
   return (
     <div className="min-h-screen bg-surface-subtle">
@@ -30,6 +36,9 @@ export default async function SettingsPage() {
       <main className="mx-auto max-w-6xl px-4 py-4 sm:px-6">
         <PageHeader title="Settings" subtitle="Everything you can set up, in one place." />
         <SettingsHub groups={groups} />
+        <div className="mt-4 max-w-2xl">
+          <JobCatchUpSettingsCard initial={{ ...catchUp, canEdit: canEditJobCatchUpSettings(profile) }} />
+        </div>
       </main>
     </div>
   )

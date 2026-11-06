@@ -11,6 +11,7 @@ import {
 import type { JobStatus, OpsBoardJob } from '@/lib/ops-board-types'
 import { JOB_STATUS_CONFIG, isJobPastDue, paymentStatusChip, resumeStatusForJob } from '@/lib/job-status'
 import { computeRoofSquaresEquation, formatSqPart } from '@/lib/roof-squares-equation'
+import { JobCatchUpLine } from '@/components/ops/JobCatchUp'
 
 const priorityConfig: Record<string, { icon: string; color: string }> = {
   urgent: { icon: '🔴', color: 'text-red-600' },
@@ -105,6 +106,8 @@ function OpsBoardJobCardInner({
         {job.customer?.name && <div className="font-semibold text-gray-900 truncate">{job.customer.name}</div>}
         <div className="text-xs text-gray-500 truncate">{job.address_text}</div>
       </div>
+
+      {job.catch_up && <JobCatchUpLine catchUp={job.catch_up} className="mb-2.5" />}
 
       {boardEquation != null && (
         <div className="mb-2.5 rounded-md border border-sky-200 bg-sky-50 px-2.5 py-2">

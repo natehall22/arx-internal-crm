@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import { REPORT_TEMPLATES } from '../lib/reporting/templates'
-import { HARNESS_TRADES_0037, HARNESS_PAYMENTS_0037, SUPPLIER_VIEW_0037, HARNESS_INCENTIVES, HARNESS_LEADERBOARD, HARNESS_INSIDE_SALES, HARNESS_INSTALL_SCHEDULE, HARNESS_PARTNERS, HARNESS_APPOINTMENTS, HARNESS_THREAD, HARNESS_PROPOSALS, HARNESS_LEADS, ANNOUNCEMENTS, BANNER, DEFAULT_PLANS, COST_LINES, SUPPLIERS, PAY_WEEK, MY_PAY, REPORT_RESULT, SALE_CREDIT, SUPPLIER_PREVIEW, SUPPLIER_VIEW, TEMPLATE_META, USERS } from './fixtures'
+import { HARNESS_TRADES_0037, HARNESS_PAYMENTS_0037, SUPPLIER_VIEW_0037, HARNESS_INCENTIVES, HARNESS_LEADERBOARD, HARNESS_INSIDE_SALES, HARNESS_INSTALL_SCHEDULE, HARNESS_PARTNERS, HARNESS_APPOINTMENTS, HARNESS_THREAD, HARNESS_PROPOSALS, HARNESS_LEADS, ANNOUNCEMENTS, BANNER, DEFAULT_PLANS, COST_LINES, SUPPLIERS, PAY_WEEK, MY_PAY, REPORT_RESULT, SALE_CREDIT, SUPPLIER_PREVIEW, SUPPLIER_VIEW, TEMPLATE_META, USERS, HARNESS_OWNER_CANDIDATES } from './fixtures'
 
 const json = (body: unknown, status = 200) => ({ status, contentType: 'application/json', body: JSON.stringify(body) })
 
@@ -182,6 +182,32 @@ const SCREENS: Screen[] = [
       { name: 'run-sheet-email', run: async (p) => { await p.getByRole('tab', { name: 'Crews' }).click(); await p.getByRole('button', { name: 'Email' }).click(); await p.waitForSelector('text=Send the run sheet to') } },
     ],
   })),
+  { name: 'catch-up-board', path: '/dev-harness/catch-up-board', ready: 'text=No owner · Order materials · 9d >> visible=true',
+    states: [
+      { name: 'board-view', run: async (p) => { await p.getByRole('button', { name: 'Board', exact: true }).click(); await p.waitForSelector('[data-stuck=true] >> visible=true') } },
+      { name: 'stuck-view', run: async (p) => { await p.getByLabel('Saved views').selectOption({ label: 'Stuck' }); await p.waitForSelector('text=No owner · Order materials · 9d >> visible=true') } },
+      { name: 'my-jobs-view', run: async (p) => {
+        await p.getByLabel('Saved views').selectOption({ label: 'My jobs' })
+        await p.waitForSelector('text=Dana · Roofing crew Nov 12 · today >> visible=true')
+        if (await p.locator('text=No owner · Order materials · 9d >> visible=true').count()) throw new Error('My jobs shows a job owned by nobody')
+      } },
+      { name: 'no-owner-view', run: async (p) => {
+        await p.getByLabel('Saved views').selectOption({ label: 'No owner' })
+        await p.waitForSelector('[data-testid=catch-up-no-owner] >> visible=true')
+        if (await p.locator('text=Dana · Roofing crew Nov 12 · today >> visible=true').count()) throw new Error('No owner view shows an owned job')
+      } },
+    ] },
+  { name: 'catch-up-job', path: '/dev-harness/catch-up-job', ready: 'text=Where this stands',
+    mock: async (p) => { await p.route('**/api/ops/jobs/*/owner', (route) => route.fulfill(json(HARNESS_OWNER_CANDIDATES))) },
+    states: [
+      { name: 'no-owner-banner', run: async (p) => {
+        await p.waitForSelector('[data-testid=no-owner-banner] >> visible=true')
+        await p.locator('[data-testid=no-owner-banner] select option', { hasText: 'Dana Example' }).waitFor({ state: 'attached' })
+      } },
+      { name: 'owner-picker-in-box', run: async (p) => { await p.locator('[data-testid=catch-up-box] [data-testid=catch-up-owner]').click(); await p.locator('[data-testid=catch-up-box] select option', { hasText: 'Dana Example' }).waitFor({ state: 'attached' }) } },
+    ] },
+  { name: 'catch-up-job-v2', path: '/dev-harness/catch-up-job-v2', ready: 'text=Where this stands', mock: mockJob0037 },
+  { name: 'catch-up-settings', path: '/dev-harness/catch-up-settings', ready: 'text=Flag a job as stuck' },
   { name: 'admin-settings', path: '/dev-harness/admin-settings', ready: 'text=Customer-facing brand',
     states: [{ name: 'editing-brand', run: async (p) => { await p.getByLabel('Website').fill('example.test/roofing'); await p.waitForTimeout(200) } }] },
   { name: 'admin-settings-readonly', path: '/dev-harness/admin-settings-readonly', ready: 'text=Only an owner can change these' },

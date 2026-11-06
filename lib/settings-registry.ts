@@ -61,6 +61,7 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
       { title: 'Subcontractors', description: 'Sub network, contacts and calendar sharing', href: '/admin/subs', access: 'leadership', keywords: 'subs crews installers' },
       { title: 'Crews', description: 'In-house installation crews', href: '/admin/crews', access: 'leadership' },
       { title: 'Suppliers', description: 'Supplier accounts and ordering', href: '/admin/suppliers', access: 'leadership', keywords: 'abc materials' },
+      { title: 'Job catch-up', description: 'One line per job: who has it, what’s next, what’s stuck', href: '/admin#job-catch-up', access: 'leadership', keywords: 'asana stuck board status where this stands owner working days' },
     ],
   },
   {

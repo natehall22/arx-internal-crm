@@ -472,3 +472,36 @@ export const HARNESS_TRADES_0037 = {
 }
 export const HARNESS_PAYMENTS_0037 = { payments: [{ id: 'pay1', job_id: 'job-0037', paid_at: '2026-10-02', amount_cents: 163250, payment_type: 'deposit', method: 'check', payer: 'homeowner', note: null, created_at: '2026-10-02T12:00:00Z', created_by: 'u1', funding_status: 'cleared' }], collected_cents: 163250, collected_dollars: 1632.5, sale_amount_cents: 1632500, sale_amount_dollars: 16325, remaining_cents: 1469250, remaining_dollars: 14692.5, payment_count: 1, paid_in_full: false, paid_by_payments: false }
 export const SUPPLIER_VIEW_0037 = { jobNumber: '26-0037', jobCancelled: false, canSend: true, rollup: { parts: [], covered: 0, total: 0, allCovered: false, summary: '' }, blockers: [], warnings: [], cards: [], nonPo: [], unassigned: [], trades: [], lines: [], suppliers: [], defaultDeliveryDate: null, defaultDeliveryAddress: null }
+
+/** The harness viewer (board "My jobs"). */
+export const HARNESS_VIEWER_ID = 'u-harness'
+export const HARNESS_OWNER_CANDIDATES = { candidates: [{ id: 'u-harness', name: 'Dana Example' }, { id: 'u-steve', name: 'Steve Potts' }] }
+
+/** Job catch-up (lib/job-catch-up.ts) as the server sends it: one moving, one stuck, one with the next crew date. */
+const catchUp = (over: Record<string, unknown>) => ({
+  jobId: 'job-1', threadHref: '/c/c1/d/o1/notes', stage: 'In Progress', nextStep: 'Roofing crew on site', owner: 'Steve', ownerKind: 'assigned', ownerUserId: 'u-steve',
+  lastUpdate: { at: '2026-11-05T14:00:00Z', what: 'Roofing crew scheduled for Nov 5', who: 'Sparky Roofing LLC', kind: 'event' }, ageDays: 1, idleWorkingDays: 1, ageLabel: '1d',
+  stuck: false, reasons: [] as string[], line: 'Steve · Roofing crew on site · 1d',
+  lastContact: { at: '2026-11-03T15:30:00Z', what: 'Call: Customer asked if the crew can park on the street and start after 8am', who: 'Andrew Waltz', kind: 'contact' }, contactIsNote: false,
+  recent: [
+    { at: '2026-11-05T14:00:00Z', what: 'Roofing crew scheduled for Nov 5', who: 'Sparky Roofing LLC', kind: 'event' },
+    { at: '2026-11-04T19:12:00Z', what: 'Permit office says it clears Monday; dumpster drop confirmed for the morning of install.', who: 'Steve Potts', kind: 'note' },
+    { at: '2026-11-03T15:30:00Z', what: 'Call: Customer asked if the crew can park on the street and start after 8am', who: 'Andrew Waltz', kind: 'contact' },
+  ],
+  done: false,
+  ...over,
+})
+export const HARNESS_CATCH_UP_STUCK = catchUp({
+  jobId: 'job-2', stage: 'Sold', nextStep: 'Order materials', owner: 'No owner', ownerKind: 'unassigned', ownerUserId: null, ageDays: 9, idleWorkingDays: 7, ageLabel: '9d', stuck: true,
+  reasons: ["Crew starts 2026-11-08 and materials aren't marked ordered.", 'Nothing has moved in 7 working days.'], line: 'No owner · Order materials · 9d',
+  lastContact: { at: '2026-10-28T14:00:00Z', what: 'Waiting to hear back from the HOA about the shingle color before we order.', who: 'Steve Potts', kind: 'note' }, contactIsNote: true,
+})
+export const HARNESS_CATCH_UP_JOBS = HARNESS_OPS_JOBS.map((j, i) =>
+  i === 0
+    ? { ...j, catch_up: catchUp({}) }
+    : i === 1
+      ? { ...j, catch_up: HARNESS_CATCH_UP_STUCK }
+      : i === 3
+        ? { ...j, catch_up: catchUp({ jobId: 'job-4', stage: 'Scheduled', nextStep: 'Roofing crew Nov 12', ageLabel: 'today', ageDays: 0, idleWorkingDays: 0, owner: 'Dana', ownerKind: 'assigned', ownerUserId: HARNESS_VIEWER_ID, line: 'Dana · Roofing crew Nov 12 · today' }) }
+        : j
+)

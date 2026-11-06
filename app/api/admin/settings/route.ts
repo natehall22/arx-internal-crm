@@ -3,6 +3,8 @@ import { createClient } from '@supabase/supabase-js'
 import { createServiceClient } from '@/lib/supabase/service'
 import { brandPatchFromGeneral, saveBrandSettings } from '@/lib/org-brand'
 import { isSuperAdmin } from '@/lib/super-admin'
+import { JOB_CATCH_UP_SETTINGS_KEYS, canEditJobCatchUpSettings, parseJobCatchUpPatch } from '@/lib/job-catch-up-settings'
+import { mergeOrgSettings } from '@/lib/org-settings'
 
 export const dynamic = 'force-dynamic'
 
@@ -135,12 +137,23 @@ export async function PATCH(request: NextRequest) {
       .eq('id', user.id)
       .single()
 
+    const body = await request.json()
+    const { type, ...data } = body
+
+    // Job catch-up switch + working days: admins / owners only (its own gate, not the managers' list below),
+    // written per key so nothing else in settings is touched.
+    if (type === 'job_catch_up') {
+      if (!profile?.org_id || !canEditJobCatchUpSettings(profile)) return NextResponse.json({ error: 'Access denied' }, { status: 403 })
+      const parsed = parseJobCatchUpPatch(data)
+      if ('error' in parsed) return NextResponse.json({ error: parsed.error }, { status: 400 })
+      const { error } = await mergeOrgSettings(adminClient, profile.org_id, parsed.set)
+      if (error) return NextResponse.json({ error }, { status: 400 })
+      return NextResponse.json({ success: true })
+    }
+
     if (!profile?.org_id || !['admin', 'regional_manager', 'sales_manager'].includes(profile.role)) {
       return NextResponse.json({ error: 'Access denied' }, { status: 403 })
     }
-
-    const body = await request.json()
-    const { type, ...data } = body
 
     // Get current org data
     const { data: org } = await adminClient
@@ -219,8 +232,11 @@ export async function PATCH(request: NextRequest) {
 
     if (type === 'settings') {
       // Update settings JSON field. `brand` is never taken from here: its one writer is the General save
-      // above (super admins only, saveBrandSettings).
-      const { brand: _brand, ...settingsData } = data
+      // above (super admins only, saveBrandSettings). Nor are the job catch-up keys: only the admin-gated
+      // `job_catch_up` save writes them (managers can reach this path). Any OTHER key is still accepted from
+      // managers — pre-existing; Known Redundancy #25 (should become an allow-list).
+      const { brand: _brand, ...rest } = data
+      const settingsData = Object.fromEntries(Object.entries(rest).filter(([k]) => !JOB_CATCH_UP_SETTINGS_KEYS.includes(k)))
       const { error } = await adminClient
         .from('orgs')
         .update({

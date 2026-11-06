@@ -31,6 +31,7 @@ import { isOwnerProfile } from '@/lib/super-admin'
 import { loadEndedPlanPeople, loadPayPlanGaps, type EndedPlanPerson, type PayPlanGap } from '@/lib/comp-plan-defaults-db'
 import { calendarDaySpan } from '@/lib/job-trades'
 import { REQUIRED_FINAL_PHOTO_TAGS, missingRequiredPhotoTags } from '@/lib/final-photo-tags'
+import { fetchSupabaseAllPages, selectIn } from '@/lib/supabase-fetch-all-pages'
 
 /** Paid-in-full tolerance (owner decision #2). */
 export const PAID_TOLERANCE_CENTS = 5
@@ -547,35 +548,6 @@ export function payabilityFromProblems(
  * Loader
  * ------------------------------------------------------------------------ */
 
-const PAGE = 1000
-const IN_CHUNK = 200
-
-async function selectAll<T>(
-  build: (from: number, to: number) => PromiseLike<{ data: unknown; error: { message: string } | null }>
-): Promise<T[]> {
-  const out: T[] = []
-  for (let from = 0; ; from += PAGE) {
-    const { data, error } = await build(from, from + PAGE - 1)
-    if (error) throw new Error(error.message)
-    const rows = (data as T[] | null) ?? []
-    out.push(...rows)
-    if (rows.length < PAGE) return out
-  }
-}
-
-async function selectIn<T>(
-  ids: string[],
-  build: (chunk: string[]) => PromiseLike<{ data: unknown; error: { message: string } | null }>
-): Promise<T[]> {
-  const out: T[] = []
-  for (let i = 0; i < ids.length; i += IN_CHUNK) {
-    const { data, error } = await build(ids.slice(i, i + IN_CHUNK))
-    if (error) throw new Error(error.message)
-    out.push(...(((data as T[] | null) ?? []) as T[]))
-  }
-  return out
-}
-
 type ContractRow = { opportunity_id: string | null; proposal_id: string | null; project_cost: number | string | null }
 
 /**
@@ -609,11 +581,51 @@ function groupBy<T>(rows: T[], key: (row: T) => string | null | undefined): Map<
   return map
 }
 
+/** A crew (work_orders trade row) as data health reads it — also handed to job catch-up so it isn't read twice. */
+export type HealthTradeDbRow = {
+  id: string
+  job_id: string
+  status: string
+  trade: string | null
+  scheduled_date: string | null
+  install_days: number | string | null
+  created_at: string | null
+  updated_at: string | null
+  completed_at: string | null
+  install_sync_failed_at?: string | null
+  assigned_sub?: { company_name: string | null } | { company_name: string | null }[] | null
+}
+/** A signed change order as data health reads it (also handed to job catch-up for "change order signed"). */
+export type HealthChangeOrderRow = {
+  job_id: string
+  original_amount: number | string
+  updated_total: number | string
+  is_commissionable: boolean | null
+  co_number?: string | number | null
+  customer_signed_at?: string | null
+  signed_at?: string | null
+}
+/** A job payment row as data health reads it (also handed to job catch-up). */
+export type HealthPaymentRow = { job_id: string; amount_cents: number; funding_status: string | null; created_at: string | null }
+
 export async function loadDataHealth(
   admin: SupabaseClient,
   orgId: string,
   opts: { now?: Date; jobIds?: string[]; includeAppointments?: boolean } = {}
 ): Promise<DataHealthReport> {
+  return (await loadDataHealthWithRows(admin, orgId, opts)).report
+}
+
+/**
+ * {@link loadDataHealth} plus the crew, payment and signed change-order rows it already read (crews and payments for
+ * every job it loaded, settled-externally included; change orders for the jobs it checks), so a caller that needs them too (job catch-up) does not query them again. Server only: the rows carry
+ * amounts and must never be sent to a client as-is.
+ */
+export async function loadDataHealthWithRows(
+  admin: SupabaseClient,
+  orgId: string,
+  opts: { now?: Date; jobIds?: string[]; includeAppointments?: boolean } = {}
+): Promise<{ report: DataHealthReport; rows: { trades: HealthTradeDbRow[]; payments: HealthPaymentRow[]; changeOrders: HealthChangeOrderRow[] } }> {
   const now = opts.now ?? new Date()
   const todayYmd = ymdInBusinessTz(now)
   const includeAppointments = opts.includeAppointments ?? !opts.jobIds
@@ -623,7 +635,7 @@ export async function loadDataHealth(
     ? await selectIn<HealthJobRow>(opts.jobIds, (chunk) =>
         admin.from('production_jobs').select('*').eq('org_id', orgId).in('id', chunk)
       )
-    : await selectAll<HealthJobRow>((from, to) =>
+    : await fetchSupabaseAllPages<HealthJobRow>((from, to) =>
         admin
           .from('production_jobs')
           .select('*')
@@ -636,6 +648,8 @@ export async function loadDataHealth(
   // Jobs settled outside the CRM before cutover are not Needs-you material at all (and never payroll's).
   const jobs = allJobs.filter((j) => !isSettledExternally(j))
   const jobIds = jobs.map((j) => j.id)
+  // Crews and payments for every loaded job (the problems below only look at `jobs`), so catch-up can reuse them.
+  const loadedJobIds = allJobs.map((j) => j.id)
   const projectIds = Array.from(new Set(jobs.map((j) => j.project_id).filter((v): v is string => typeof v === 'string')))
 
   const proposalIds = Array.from(new Set(jobs.flatMap((j) => [j.linked_proposal_id, j.accepted_proposal_id]).filter((v): v is string => typeof v === 'string' && v.length > 0)))
@@ -643,7 +657,7 @@ export async function loadDataHealth(
     selectIn<{ id: string; opportunity_id: string | null }>(projectIds, (chunk) =>
       admin.from('projects').select('id, opportunity_id').eq('org_id', orgId).in('id', chunk)
     ),
-    selectAll<ContractRow>((from, to) =>
+    fetchSupabaseAllPages<ContractRow>((from, to) =>
       admin
         .from('order_form_contracts')
         .select('opportunity_id, proposal_id, project_cost')
@@ -652,26 +666,26 @@ export async function loadDataHealth(
         .in('agreement_type', [...SALE_AGREEMENT_TYPES])
         .range(from, to)
     ),
-    selectIn<{ job_id: string; original_amount: number | string; updated_total: number | string; is_commissionable: boolean | null }>(
+    selectIn<HealthChangeOrderRow>(
       jobIds,
       (chunk) =>
         admin
           .from('job_change_orders')
-          .select('job_id, original_amount, updated_total, is_commissionable')
+          .select('job_id, original_amount, updated_total, is_commissionable, co_number, customer_signed_at, signed_at')
           .eq('org_id', orgId)
           .eq('status', 'completed')
           .in('job_id', chunk)
     ),
-    selectIn<{ job_id: string; amount_cents: number; funding_status: string | null }>(jobIds, (chunk) =>
-      admin.from('job_payments').select('job_id, amount_cents, funding_status').in('job_id', chunk)
+    selectIn<HealthPaymentRow>(loadedJobIds, (chunk) =>
+      admin.from('job_payments').select('job_id, amount_cents, funding_status, created_at').in('job_id', chunk)
     ),
     selectIn<{ job_id: string }>(jobIds, (chunk) =>
       admin.from('job_cost_lines').select('job_id').eq('org_id', orgId).is('deleted_at', null).in('job_id', chunk)
     ),
-    selectIn<{ id: string; job_id: string; status: string; trade: string | null; scheduled_date: string | null; install_days: number | string | null }>(jobIds, (chunk) =>
+    selectIn<HealthTradeDbRow>(loadedJobIds, (chunk) =>
       admin
         .from('work_orders')
-        .select('id, job_id, status, trade, scheduled_date, install_days')
+        .select('id, job_id, status, trade, scheduled_date, install_days, created_at, updated_at, completed_at, install_sync_failed_at, assigned_sub:sub_contractors(company_name)')
         .eq('org_id', orgId)
         .not('trade', 'is', null)
         .in('job_id', chunk)
@@ -753,7 +767,7 @@ export async function loadDataHealth(
   if (includeAppointments) {
     const cutoffIso = new Date(now.getTime() - APPOINTMENT_OUTCOME_GRACE_HOURS * 3_600_000).toISOString()
     const windowStartIso = new Date(now.getTime() - APPOINTMENT_NEEDS_YOU_MAX_AGE_DAYS * 86_400_000).toISOString()
-    const appts = await selectAll<HealthAppointmentRow>((from, to) =>
+    const appts = await fetchSupabaseAllPages<HealthAppointmentRow>((from, to) =>
       admin
         .from('scheduled_appointments')
         .select('id, status, scheduled_for, duration_minutes, appointment_type, lead_id, opportunity_id, address_text')
@@ -795,13 +809,16 @@ export async function loadDataHealth(
   const payPlans = opts.jobIds ? [] : await loadPayPlanGaps(admin, orgId, now)
   const endedPlans = opts.jobIds ? [] : await loadEndedPlanPeople(admin, orgId, now)
   return {
-    generatedAt: now.toISOString(),
-    jobs: flaggedJobs,
-    appointments: appointmentHealth,
-    hiddenOldAppointments,
-    payPlans,
-    endedPlans,
-    count: flaggedJobs.length + appointmentHealth.length + payPlans.length + (endedPlans.length > 0 ? 1 : 0),
+    report: {
+      generatedAt: now.toISOString(),
+      jobs: flaggedJobs,
+      appointments: appointmentHealth,
+      hiddenOldAppointments,
+      payPlans,
+      endedPlans,
+      count: flaggedJobs.length + appointmentHealth.length + payPlans.length + (endedPlans.length > 0 ? 1 : 0),
+    },
+    rows: { trades, payments, changeOrders },
   }
 }
 
