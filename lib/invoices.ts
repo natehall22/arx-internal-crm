@@ -12,6 +12,7 @@ import {
 } from './types/invoices'
 import { enqueueInvoiceFinalized, enqueueInvoiceVoided } from './integrations'
 import { formatCurrency } from './job-payments'
+import { normalizeDepositFraction } from './job-pipeline'
 
 /**
  * Get all active (non-void) invoices for a job
@@ -72,7 +73,7 @@ export async function getDepositInfo(
     .single()
 
   const saleAmountCents = Math.round((job?.sale_amount || 0) * 100)
-  const depositPercent = job?.deposit_required_percent || 0.5
+  const depositPercent = normalizeDepositFraction(job?.deposit_required_percent) ?? 0.5
   const requiredDepositCents = Math.round(saleAmountCents * depositPercent)
 
   // Get all deposit payments

@@ -11,6 +11,7 @@ import { resolveProposalSoldRoofSquares } from '@/lib/sold-roof-squares'
 import { createServiceClient } from '@/lib/supabase/service'
 import { reinstateCancelledJob } from '@/lib/job-cancellation'
 import { applyContractSignedStatuses } from '@/lib/job-status-events'
+import { depositRequiredFraction } from '@/lib/job-pipeline'
 
 type EmbeddedLeadRow = { owner_user_id?: string | null; closer_user_id?: string | null }
 type AdminSupabaseClient = ReturnType<typeof createServiceClient>
@@ -620,9 +621,7 @@ export async function POST(request: NextRequest) {
                   salesperson_id: opportunity?.owner_user_id ?? contract.created_by,
                   sale_date: new Date().toISOString().split('T')[0],
                   sale_amount: contract.project_cost || null,
-                  deposit_required_percent: contract.deposit_amount && contract.project_cost 
-                    ? Math.round((contract.deposit_amount / contract.project_cost) * 100) 
-                    : null,
+                  deposit_required_percent: depositRequiredFraction(contract.deposit_amount, contract.project_cost),
                   created_by: contract.created_by,
                   internal_notes: contract.notes || null,
                   special_instructions: contract.exclusions || null,
@@ -823,9 +822,7 @@ export async function POST(request: NextRequest) {
                 salesperson_id: projectData?.owner_user_id || contract.created_by,
                 sale_date: new Date().toISOString().split('T')[0],
                 sale_amount: contract.project_cost || null,
-                deposit_required_percent: contract.deposit_amount && contract.project_cost 
-                  ? Math.round((contract.deposit_amount / contract.project_cost) * 100) 
-                  : null,
+                deposit_required_percent: depositRequiredFraction(contract.deposit_amount, contract.project_cost),
                 created_by: contract.created_by,
                 internal_notes: contract.notes || null,
                 special_instructions: contract.exclusions || null,
