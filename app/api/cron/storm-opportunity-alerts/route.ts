@@ -3,11 +3,8 @@ import { getRecentStormReportsInBbox } from '@/lib/roofradar-open-data'
 import { createServiceClient } from '@/lib/supabase/service'
 import { isInsideSalesRoleLike } from '@/lib/inside-sales-follow-up'
 import { footprintFromEnv } from '@/lib/weather-footprint'
-import { getCrmEmailFrom, getMailTransport } from '@/lib/setter-email'
 import {
   buildStormActivityNote,
-  buildStormAlertDigestHtml,
-  buildStormAlertDigestText,
   buildStormNotificationBody,
   buildStormNotificationTitle,
   filterStormReportsForAlerts,
@@ -20,12 +17,10 @@ import {
   resolveOpportunityCoordinates,
   shouldSkipStormAlertEntirely,
   shouldSkipStormRouting,
-  stormAlertEmailTo,
   stormOpportunityAlertsEnabled,
   stormPipelineStageForRouting,
   STORM_IEM_FETCH_WINDOW_DAYS,
   STORM_ALERT_LOOKBACK_ET_DAYS,
-  type StormAlertDigestRow,
   type StormMatchResult,
   type StormOpportunityCandidate,
   type StormSwathCandidate,
@@ -198,7 +193,6 @@ export async function GET(request: NextRequest) {
     let routed = 0
     let notedOnly = 0
     let skippedCloserMidDeal = 0
-    const digestEntries: Array<{ alertId: string; row: StormAlertDigestRow }> = []
     const routedOpportunityIds = new Set<string>()
     const notifiedOpportunityIds = new Set<string>()
 
@@ -231,7 +225,6 @@ export async function GET(request: NextRequest) {
       let isNewAlert = false
       let alertWasRouted = false
       let processedAt: string | null = null
-      let emailSentAt: string | null = null
 
       const { data: insertedRow, error: insertError } = await admin
         .from('storm_opportunity_alerts')
@@ -248,7 +241,7 @@ export async function GET(request: NextRequest) {
           match_source: match.source,
           routed: false,
         })
-        .select('id, routed, processed_at, email_sent_at')
+        .select('id, routed, processed_at')
         .maybeSingle()
 
       if (insertError) {
@@ -259,7 +252,7 @@ export async function GET(request: NextRequest) {
 
         const { data: existingRow, error: existingError } = await admin
           .from('storm_opportunity_alerts')
-          .select('id, routed, processed_at, email_sent_at')
+          .select('id, routed, processed_at')
           .eq('org_id', match.opportunity.org_id)
           .eq('opportunity_id', match.opportunity.id)
           .eq('event_date', match.eventDate)
@@ -274,12 +267,10 @@ export async function GET(request: NextRequest) {
         alertId = existingRow.id
         alertWasRouted = existingRow.routed === true
         processedAt = existingRow.processed_at || null
-        emailSentAt = existingRow.email_sent_at || null
       } else if (insertedRow?.id) {
         alertId = insertedRow.id
         alertWasRouted = insertedRow.routed === true
         processedAt = insertedRow.processed_at || null
-        emailSentAt = insertedRow.email_sent_at || null
         isNewAlert = true
         inserted += 1
       } else {
@@ -331,10 +322,9 @@ export async function GET(request: NextRequest) {
         notedOnly += 1
       }
 
-      // Only note/notify/digest when we routed successfully or intentionally skipped routing
+      // Only note/notify when we routed successfully or intentionally skipped routing
       // (mid-deal / rep grace / already on another IS queue). Failed route leaves routed=false for retry.
       const allowSideEffects = skipRouting || didRoute
-      let processingComplete = Boolean(processedAt)
 
       if (!processedAt && allowSideEffects) {
         const activityBody = buildStormActivityNote(match)
@@ -417,61 +407,7 @@ export async function GET(request: NextRequest) {
 
           if (processedError) {
             console.error('storm-opportunity-alerts: mark processed error', match.opportunity.id, processedError)
-          } else {
-            processingComplete = true
           }
-        }
-      }
-
-      if (!emailSentAt && allowSideEffects && processingComplete) {
-        digestEntries.push({
-          alertId,
-          row: {
-            customerName,
-            address: match.opportunity.address_text || '',
-            layer: match.layer,
-            eventDate: match.eventDate,
-            magnitudeLabel: formatStormMagnitudeLabel(match.layer, match),
-            proximityLabel: formatStormProximityLabel(match),
-            source: match.source,
-            routed: didRoute,
-            opportunityId: match.opportunity.id,
-          },
-        })
-      }
-    }
-
-    let emailed = false
-    if (digestEntries.length > 0) {
-      const to = stormAlertEmailTo()
-      if (process.env.SMTP_HOST && to.includes('@')) {
-        try {
-          const digestRows = digestEntries.map((entry) => entry.row)
-          const transporter = getMailTransport()
-          const subject = `Storm opportunity alerts (est.): ${digestRows.length} new`
-          await transporter.sendMail({
-            from: getCrmEmailFrom(),
-            to,
-            subject,
-            text: buildStormAlertDigestText(digestRows),
-            html: buildStormAlertDigestHtml(digestRows),
-          })
-
-          let emailMarkFailed = false
-          const alertIds = digestEntries.map((entry) => entry.alertId)
-          for (let start = 0; start < alertIds.length; start += OPPORTUNITY_ID_BATCH_SIZE) {
-            const { error: emailMarkError } = await admin
-              .from('storm_opportunity_alerts')
-              .update({ email_sent_at: nowIso })
-              .in('id', alertIds.slice(start, start + OPPORTUNITY_ID_BATCH_SIZE))
-            if (emailMarkError) {
-              emailMarkFailed = true
-              console.error('storm-opportunity-alerts: mark emailed error', emailMarkError)
-            }
-          }
-          emailed = !emailMarkFailed
-        } catch (emailError) {
-          console.error('storm-opportunity-alerts: email failed', emailError)
         }
       }
     }
@@ -489,7 +425,6 @@ export async function GET(request: NextRequest) {
       routed,
       notedOnly,
       skippedCloserMidDeal,
-      emailed,
     })
   } catch (err) {
     console.error('storm-opportunity-alerts: unexpected error', err)
