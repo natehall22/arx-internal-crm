@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import SignaturePad from '@/components/contracts/SignaturePad'
+import { CHANGE_ORDER_AGREEMENT } from '@/lib/contracts/terms'
 
 interface ChangeOrder {
   co_number: string
@@ -101,6 +102,10 @@ export default function CustomerSigningForm({ changeOrder, token }: CustomerSign
         {error && (
           <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>
         )}
+
+        <p data-testid="change-order-agreement" className="text-base leading-relaxed text-[#2c2c2a]">
+          {CHANGE_ORDER_AGREEMENT}
+        </p>
 
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Print Name</label>

@@ -101,7 +101,11 @@ const SCREENS: Screen[] = [
     states: [{ name: 'edit', run: async (p) => { await p.getByRole('button', { name: 'Edit' }).click(); await p.waitForSelector('text=Edit announcement') } }] },
   { name: 'materials-cost-entry', path: '/dev-harness/materials-costs', ready: 'text=Total job costs',
     states: [{ name: 'add-cost-open', run: async (p) => { await p.getByRole('button', { name: /Job Cost/i }).first().click(); await p.waitForTimeout(300) } }] },
-  { name: 'contract-signing', path: '/dev-harness/contract-signing', ready: 'text=Pat Customer' },
+  { name: 'contract-signing', path: '/dev-harness/contract-signing', ready: 'text=Pat Customer',
+    states: [{ name: 'notice-of-cancellation-open', run: async (p) => {
+      await p.getByRole('button', { name: 'Notice of Cancellation' }).click()
+      await p.waitForSelector('text=I HEREBY CANCEL THIS TRANSACTION.')
+    } }] },
   { name: 'change-order-signing', path: '/dev-harness/change-order-signing', ready: 'text=CO-1' },
   { name: 'crew-photo-capture', path: '/dev-harness/crew-capture', ready: 'text=Front of house' },
   { name: 'payroll-attribution', path: '/dev-harness/payroll-attribution', ready: 'text=Payroll attribution' },

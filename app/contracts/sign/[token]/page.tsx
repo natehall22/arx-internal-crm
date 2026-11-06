@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic'
 import { createServiceClient } from '@/lib/supabase/service'
 import { customerSignedDocPath } from '@/lib/files/files-object'
 import { getDocumentBrand } from '@/lib/org-brand'
+import { noticeOfCancellation } from '@/lib/contracts/terms'
 import CustomerSigningForm from './CustomerSigningForm'
 
 export default async function ContractSigningPage({
@@ -112,5 +113,8 @@ export default async function ContractSigningPage({
     )
   }
 
-  return <CustomerSigningForm contract={contract} token={params.token} brand={brand} />
+  // Shown as if signed now — the PDF computes the same notice from the signing time.
+  const cancellationNotice = noticeOfCancellation(new Date().toISOString(), brand)
+
+  return <CustomerSigningForm contract={contract} token={params.token} brand={brand} cancellationNotice={cancellationNotice} />
 }

@@ -21,8 +21,8 @@ nothing ARX customers or reps see unless the slice says so. Gate on every slice:
    proposals/reports keep the rep phone. Golden tests: `lib/__tests__/org-brand-documents.test.ts` (PDF SHA-256s +
    copy recorded from origin/main 0cdbd142). `lib/company-address.ts` and dead `lib/pdf/InvoicePDF.tsx` deleted.
 2b. **Per-company / per-industry contract & document templates** (designed separately). Clause wording that names
-   the company inside a sentence (`lib/contracts/generatePdf.ts` terms, contingency + repair clauses, cancellation
-   notice text; `CustomerSigningForm.tsx` terms; `ContractModal.tsx` attestation; report seed text in
+   the company inside a sentence (`lib/contracts/terms.ts` — installation, contingency + repair clauses, cancellation
+   notice text, shared by the PDF and the signing screen; `ContractModal.tsx` attestation; report seed text in
    `lib/inspection-report/types.ts`; door-drop / appointment-card print kits; employee comp agreements) becomes
    each company's own template — never string interpolation into ARX's contract.
    **PRE-COMPANY-2 BLOCKER:** `DEFAULT_ORG_BRAND` holds ARX's identity, so any fallback on another company's copy
