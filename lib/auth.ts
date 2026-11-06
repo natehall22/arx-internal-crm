@@ -39,6 +39,17 @@ function getAccessToken(): string | null {
   return getSessionFromCookies()?.access_token ?? null
 }
 
+/**
+ * Per-copy fence. Each company's copy of the CRM sets env DEPLOYMENT_ORG_ID to its own org id; a
+ * signed-in user whose profile belongs to any other org is treated as having no profile. Unset (or
+ * blank) = no fence, so a copy keeps working until the variable is set.
+ */
+export function profileAllowedOnThisDeployment(orgId: string | null | undefined): boolean {
+  const deploymentOrgId = process.env.DEPLOYMENT_ORG_ID?.trim()
+  if (!deploymentOrgId) return true
+  return orgId === deploymentOrgId
+}
+
 async function resolveAuth(): Promise<AuthResolution> {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
   const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
@@ -93,6 +104,10 @@ async function resolveAuth(): Promise<AuthResolution> {
   }
 
   const row = profile as User
+  if (!profileAllowedOnThisDeployment(row.org_id)) {
+    console.error('requireAuth: user belongs to another company copy', user.id)
+    return { status: 'no_profile' }
+  }
   if (row.active === false) {
     console.log('requireAuth: user disabled in users.active', user.id)
     return { status: 'inactive' }
