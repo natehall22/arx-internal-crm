@@ -413,62 +413,7 @@ export default function AdminSettingsPage() {
         { key: 'api_key', label: 'API Key', type: 'password', placeholder: 'From Roofr Settings', required: true },
       ],
     },
-    // ACCOUNTING
-    {
-      id: 'xero',
-      name: 'Xero',
-      category: 'accounting',
-      description: 'Cloud accounting for invoicing and financials',
-      useCases: [
-        'Generate invoices from opportunities',
-        'Sync customer and payment data',
-        'Financial reporting',
-      ],
-      icon: '📊',
-      connected: false,
-      enabled: true,
-      configFields: [
-        { key: 'account', label: 'Xero Organization', type: 'text', placeholder: 'Your organization name', required: true },
-      ],
-    },
     // COMMUNICATION
-    {
-      id: 'twilio',
-      name: 'Twilio',
-      category: 'communication',
-      description: 'SMS notifications to customers and team',
-      useCases: [
-        'Appointment reminders to homeowners',
-        'Job status updates via text',
-        'Team notifications',
-      ],
-      icon: '💬',
-      connected: false,
-      enabled: true,
-      configFields: [
-        { key: 'account', label: 'Account SID', type: 'text', placeholder: 'From Twilio Console', required: true },
-        { key: 'api_key', label: 'Auth Token', type: 'password', placeholder: 'From Twilio Console', required: true },
-        { key: 'phone_number', label: 'Twilio Phone Number', type: 'text', placeholder: '+1234567890', required: true },
-      ],
-    },
-    {
-      id: 'sendgrid',
-      name: 'SendGrid',
-      category: 'communication',
-      description: 'Transactional email delivery',
-      useCases: [
-        'Proposal delivery emails',
-        'Appointment confirmations',
-        'Invoice and receipt emails',
-      ],
-      icon: '📧',
-      connected: false,
-      enabled: true,
-      configFields: [
-        { key: 'account', label: 'Sender Email', type: 'email', placeholder: 'noreply@yourcompany.com', required: true },
-        { key: 'api_key', label: 'API Key', type: 'password', placeholder: 'From SendGrid Settings → API Keys', required: true },
-      ],
-    },
     {
       id: 'google_calendar',
       name: 'Google Calendar',
@@ -2719,7 +2664,6 @@ export default function AdminSettingsPage() {
                   { id: 'all', label: 'All', icon: '📋' },
                   { id: 'signatures', label: 'E-Signatures', icon: '✍️' },
                   { id: 'measurements', label: 'Measurements', icon: '📐' },
-                  { id: 'accounting', label: 'Accounting', icon: '💰' },
                   { id: 'communication', label: 'Communication', icon: '💬' },
                   { id: 'automation', label: 'Automation', icon: '⚡' },
                 ].map((cat) => (
@@ -3016,23 +2960,6 @@ export default function AdminSettingsPage() {
                             <li>Go to Settings → API</li>
                             <li>Create or copy your API key</li>
                           </ol>
-                        </div>
-                      )}
-                      {editingIntegration.id === 'twilio' && (
-                        <div className="p-4 bg-blue-50 rounded-lg border border-blue-100">
-                          <p className="text-sm text-blue-800 font-medium mb-1">Where to find your credentials:</p>
-                          <ol className="text-sm text-blue-700 list-decimal list-inside space-y-1">
-                            <li>Log into Twilio Console</li>
-                            <li>Account SID and Auth Token are on the dashboard</li>
-                            <li>Get a phone number from Phone Numbers → Manage</li>
-                          </ol>
-                        </div>
-                      )}
-                      {editingIntegration.id === 'xero' && (
-                        <div className="p-4 bg-amber-50 rounded-lg border border-amber-100">
-                          <p className="text-sm text-amber-800">
-                            <strong>Note:</strong> Clicking Connect will redirect you to {editingIntegration.name} to authorize the connection.
-                          </p>
                         </div>
                       )}
                     </div>
