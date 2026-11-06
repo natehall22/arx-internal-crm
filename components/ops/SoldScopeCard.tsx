@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import { createClientBrowser } from '@/lib/supabase/client'
 import GenerateJobPacketButton from './GenerateJobPacketButton'
+import { MENU_ITEM, OverflowMenu } from '@/components/ui/overflow-menu'
 import AIJobPacketModal from '@/components/jobs/AIJobPacketModal'
 import type { JobNoteWithAuthor } from '@/lib/types/job-notes'
 import type { JobSoldScope } from '@/lib/job-sold-scope'
@@ -391,15 +392,15 @@ export default function SoldScopeCard({
   const showEmptyState = !hasProposal && !estimateInfo
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border p-6">
-      {/* Header with title and Job Packet button */}
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-3">
+    <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
+      {/* Header: below 640px only View Proposal and + Add Item stay inline; the packet + AI summary move into the ⋯ menu. */}
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 mb-4">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
           <h2 className="text-lg font-semibold text-gray-900">Sold Scope</h2>
           {hasProposal && (
             <Link
               href={`/proposals/${proposalId}`}
-              className="text-sm text-indigo-600 hover:text-indigo-800"
+              className="inline-flex min-h-[44px] items-center text-sm text-indigo-600 hover:text-indigo-800"
             >
               View Proposal →
             </Link>
@@ -409,7 +410,7 @@ export default function SoldScopeCard({
           {jobId && orgId && (
             <button
               onClick={() => setShowAddForm(true)}
-              className="text-sm text-indigo-600 hover:text-indigo-800 flex items-center gap-1"
+              className="inline-flex min-h-[44px] items-center gap-1 text-sm text-indigo-600 hover:text-indigo-800"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -418,15 +419,36 @@ export default function SoldScopeCard({
             </button>
           )}
           {showJobPacketButton && jobId && (
-            <GenerateJobPacketButton jobId={jobId} />
-          )}
-          {showJobPacketButton && jobId && (
-            <button
-              onClick={() => setPacketModalOpen(true)}
-              className="min-h-[44px] px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 text-sm"
-            >
-              ✨ AI Summary
-            </button>
+            <>
+              <div className="hidden sm:block">
+                <GenerateJobPacketButton jobId={jobId} />
+              </div>
+              <button
+                onClick={() => setPacketModalOpen(true)}
+                className="hidden sm:inline-flex min-h-[44px] items-center px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 text-sm"
+              >
+                ✨ AI Summary
+              </button>
+              <OverflowMenu className="sm:hidden" label="More Sold Scope actions">
+                {(close) => (
+                  <>
+                    <div className="px-1 py-1 [&_a]:inline-flex [&_a]:min-h-[44px] [&_a]:items-center [&_button]:min-h-[44px]">
+                      <GenerateJobPacketButton jobId={jobId} />
+                    </div>
+                    <button
+                      type="button"
+                      className={MENU_ITEM}
+                      onClick={() => {
+                        close()
+                        setPacketModalOpen(true)
+                      }}
+                    >
+                      ✨ AI Summary
+                    </button>
+                  </>
+                )}
+              </OverflowMenu>
+            </>
           )}
         </div>
       </div>

@@ -2,7 +2,7 @@
  * How "Needs you" is laid out: one card per JOB (all its issues), pay-plan items as ONE card at the top, past appointments
  * as one card, jobs ordered so what holds pay on an OPEN job comes first, filterable by type. Pure — the component only renders it.
  */
-import type { AppointmentHealth, DataHealthReport, HealthArea, JobHealth } from '@/lib/data-health'
+import type { AppointmentHealth, ContractNoJobHealth, DataHealthReport, HealthArea, JobHealth } from '@/lib/data-health'
 
 export type NeedsFilter = 'all' | 'money' | 'ops'
 
@@ -19,6 +19,8 @@ export type NeedsView = {
   ended: NonNullable<DataHealthReport['endedPlans']>
   jobs: JobCard[]
   appointments: AppointmentHealth[]
+  /** Signed agreements with no job: operational (creating the job), shown under All and Ops. */
+  noJob: ContractNoJobHealth[]
   counts: { all: number; money: number; ops: number }
 }
 
@@ -46,6 +48,7 @@ export function buildNeedsView(report: DataHealthReport, filter: NeedsFilter): N
     )
   // Appointments are operational; pay plans are money.
   const appointments = filter === 'money' ? [] : report.appointments
+  const noJob = filter === 'money' ? [] : report.contractsNoJob ?? []
   const moneyJobs = report.jobs.filter((j) => j.problems.some((p) => filterOfArea(p.area) === 'money')).length
   const opsJobs = report.jobs.filter((j) => j.problems.some((p) => filterOfArea(p.area) === 'ops')).length
   const planCount = plans.length
@@ -54,10 +57,11 @@ export function buildNeedsView(report: DataHealthReport, filter: NeedsFilter): N
     ended: filter === 'ops' ? [] : ended,
     jobs,
     appointments,
+    noJob,
     counts: {
       all: report.count,
       money: moneyJobs + planCount + (ended.length > 0 ? 1 : 0),
-      ops: opsJobs + report.appointments.length,
+      ops: opsJobs + report.appointments.length + (report.contractsNoJob?.length ?? 0),
     },
   }
 }

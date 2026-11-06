@@ -38,9 +38,9 @@ export type DefaultTabInput = {
 
 const NEEDS_MATERIALS = new Set(['sold', 'materials', 'scheduled', 'in_progress'])
 
+/** Materials never opens by itself: its "needs you" dot (tabsNeedingAttention) is the nudge. */
 export function pickDefaultJobTab(i: DefaultTabInput): JobTab {
   const ok = (t: JobTab) => i.allowed.includes(t)
-  if (ok('materials') && NEEDS_MATERIALS.has(i.jobStatus) && (i.materialsKey === 'not_ordered' || i.materialsKey === 'partial')) return 'materials'
   const live = i.trades.filter((t) => t.status !== 'cancelled')
   const overdue = live.some((t) => {
     const last = crewLastDay(t)

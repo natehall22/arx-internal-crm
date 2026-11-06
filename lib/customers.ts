@@ -33,11 +33,28 @@ interface UpsertResult {
   created: boolean
 }
 
+export const SEQUENTIAL_DIGITS = '01234567890123456789'
+export const SEQUENTIAL_DIGITS_DESC = '98765432109876543210'
+/** The test-row name rule as a pattern source (the SQL backfill carries the same text; a test keeps them equal). */
+export const TEST_CUSTOMER_NAME_SOURCE = '^\\s*(test|testing|tester|asdf|xxx+)\\b'
+
+/** Filler numbers (2222222222, 1234567890, 9876543210, 0000000000): digits typed to get past a required field, not a person. */
+export function isPlaceholderPhone(phone: string | null | undefined): boolean {
+  const last10 = (phone ?? '').replace(/\D/g, '').slice(-10)
+  if (last10.length !== 10) return false
+  return /^(\d)\1{9}$/.test(last10) || SEQUENTIAL_DIGITS.includes(last10) || SEQUENTIAL_DIGITS_DESC.includes(last10)
+}
+
+/** A throwaway customer row ("testing", "Test User"): never the answer to "who is this person". */
+export function isTestCustomerName(name: string | null | undefined): boolean {
+  return new RegExp(TEST_CUSTOMER_NAME_SOURCE, 'i').test(name ?? '')
+}
+
 function normalizePhone(phone: string | null | undefined): string | null {
   if (!phone) return null
   const last10 = phone.replace(/\D/g, '').slice(-10)
-  // Filler numbers (0000000000, 5555555555, 1234567890) are not an identity: never merge two people on them.
-  if (last10.length === 10 && (/^(\d)\1{9}$/.test(last10) || last10 === '1234567890' || last10 === '0123456789')) return null
+  // Filler numbers are not an identity: never merge two people on them.
+  if (isPlaceholderPhone(last10)) return null
   return last10
 }
 
@@ -84,10 +101,10 @@ export async function findExistingCustomer(
       .eq('email_lower', identityEmail)
       .order('created_at', { ascending: true })
       .order('id', { ascending: true })
-      .limit(1)
+      .limit(5)
     
     // Exact on the stored lower(trim(email)): ILIKE treated "_" and "%" in an address as wildcards ("a_b@x.com" matched "aXb@x.com").
-    if (byEmail && byEmail[0]) existingCustomer = byEmail[0]
+    existingCustomer = (byEmail ?? []).find((c: any) => !isTestCustomerName(c.name)) ?? null
   }
 
   // Try to find by normalized phone if no email match: EXACT equality on the stored digits-only `phone_normalized`
@@ -102,8 +119,8 @@ export async function findExistingCustomer(
       .or(`phone_normalized.eq.${normalizedPhone},phone_normalized.eq.1${normalizedPhone}`)
       .order('created_at', { ascending: true })
       .order('id', { ascending: true })
-      .limit(1)
-    existingCustomer = (byPhone ?? [])[0] ?? null
+      .limit(5)
+    existingCustomer = (byPhone ?? []).find((c: any) => !isTestCustomerName(c.name)) ?? null
   }
 
   // Try fuzzy match by name + address if still no match.
@@ -123,6 +140,7 @@ export async function findExistingCustomer(
       const searchKey = normalizeString(name) + normalizeString(address_text)
       existingCustomer =
         candidates.find((c: any) => {
+          if (isTestCustomerName(c.name)) return false
           const customerKey = normalizeString(c.name) + normalizeString(c.address_text)
           return customerKey === searchKey
         }) ?? null
@@ -140,8 +158,9 @@ async function oldestCustomerIdByIdentity(supabase: SupabaseClient, orgId: strin
   if (email) filters.push(`email_lower.eq.${email.replace(/[,()]/g, '')}`)
   if (phone && phone.length === 10) filters.push(`phone_normalized.eq.${phone}`, `phone_normalized.eq.1${phone}`)
   if (filters.length === 0) return null
-  const { data } = await supabase.from('customers').select('id').eq('org_id', orgId).or(filters.join(',')).order('created_at', { ascending: true }).order('id', { ascending: true }).limit(1)
-  return ((data ?? [])[0]?.id as string | undefined) ?? null
+  const { data } = await supabase.from('customers').select('id, name').eq('org_id', orgId).or(filters.join(',')).order('created_at', { ascending: true }).order('id', { ascending: true }).limit(5)
+  // Same rule as findExistingCustomer: a test-named row is never the winner (or our new, real row would delete itself into it).
+  return ((data ?? []).find((c: any) => !isTestCustomerName(c.name))?.id as string | undefined) ?? null
 }
 
 /**

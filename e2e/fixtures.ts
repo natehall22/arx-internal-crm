@@ -6,7 +6,8 @@ const problem = (code: string, area: string, message: string, fixLabel: string) 
 
 export const HARNESS_NEEDS_YOU = {
   generatedAt: '2026-10-22T12:00:00Z',
-  count: 5,
+  count: 6,
+  contractsNoJob: [{ contractId: 'c-1', opportunityId: 'opp-9', customerName: 'Carann Brown', addressText: '172 S Smallwood Pl, Charlotte, NC 28208, USA', signedAt: '2026-10-23T11:50:53Z' }],
   endedPlans: [{ id: 'e1', name: 'Nathan Hall', role: 'admin', roleLabel: 'Admin', endedOn: '2026-08-19' }],
   payPlans: [
     { role: 'sales_rep', roleLabel: 'Closer', people: [{ id: 'r1', name: 'Cam Hill' }, { id: 'r2', name: 'Tim Joyce' }, { id: 'r3', name: 'Travis Nelson' }], suggestion: { id: 'plan-closer', name: 'Closer', ratePercent: 7 } },
@@ -46,7 +47,7 @@ export const SUPPLIER_VIEW = {
       lines: [{ key: 'panel2', label: 'Roof-mounted disconnect', qty: '1', trade: 'electrical' }] },
   ],
   nonPo: [{ label: 'Gutters — supplied by installer (Sparky Gutters)', source: 'installer', trade: 'gutters', lines: [] }],
-  unassigned: [], trades: [], lines: [], suppliers: [{ id: 'v1', name: 'ABC Supply' }, { id: 'v2', name: 'City Electric Supply' }],
+  unassigned: [], trades: [], lines: [], suppliers: [{ id: 'v1', name: 'ABC Supply' }, { id: 'v2', name: 'City Electric Supply' }, { id: 'v3', name: 'QXO' }],
   defaultDeliveryDate: '2026-11-02', defaultDeliveryAddress: '12 Elm Street, Concord NC 28025',
 }
 
@@ -457,7 +458,14 @@ export const HARNESS_JOB_0037 = {
   ...HARNESS_JOB,
   id: 'job-0037', job_number: '26-0037', status: 'scheduled', sale_amount: 16325, collected_cents: 163250,
   materials_status: 'received', materials_ordered_at: '2026-10-08T12:00:00Z', scheduled_date: '2026-10-20', completed_at: null, started_at: null,
-  sold_scope: null, installation_agreement: { pdf_url: 'https://example.test/agreement.pdf', status: 'completed', agreement_type: 'installation' },
+  sold_scope: {
+    total_squares: 28, total_squares_source: 'proposal_enriched', measured_squares: 26.4, waste_percent: 10, measure_suggested_waste_percent: null, source: 'proposal',
+    proposal_id: 'prop-1', proposal_number: 'P-00118', opportunity_id: 'opp-1',
+    line_items: [{ id: 'li1', name: 'Architectural shingles, tear-off and install', description: null, category: 'roofing', quantity: 28, unit: 'sq', unit_price: 520, line_total: 14560, is_adder: false },
+      { id: 'li2', name: 'Seamless gutters 6 inch', description: null, category: 'gutters', quantity: 306, unit: 'lf', unit_price: 9, line_total: 2754, is_adder: true }],
+    roof_measurement_linear: null,
+  },
+  installation_agreement: { pdf_url: 'https://example.test/agreement.pdf', status: 'completed', agreement_type: 'installation' },
   roof_report: { id: 'rr1', pdf_generated_at: '2026-10-02T12:00:00Z' },
 }
 export const HARNESS_TRADES_0037 = {

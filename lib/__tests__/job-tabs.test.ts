@@ -6,9 +6,9 @@ const base: DefaultTabInput = {
 }
 
 describe('which job tab opens first', () => {
-  it('materials not sent -> Materials, before anything else', () => {
-    expect(pickDefaultJobTab({ ...base, materialsKey: 'not_ordered' })).toBe('materials')
-    expect(pickDefaultJobTab({ ...base, materialsKey: 'partial', trades: [{ status: 'scheduled', scheduled_date: '2026-10-01', install_days: 1 }] })).toBe('materials')
+  it('materials not sent -> still Crews (the Materials dot is the nudge, the tab stays closed)', () => {
+    expect(pickDefaultJobTab({ ...base, materialsKey: 'not_ordered' })).toBe('crews')
+    expect(pickDefaultJobTab({ ...base, materialsKey: 'partial', lastTab: 'files' })).toBe('files')
   })
   it('crew date passed and not done -> Crews (a 2-day crew is not late on its second day)', () => {
     expect(pickDefaultJobTab({ ...base, trades: [{ status: 'scheduled', scheduled_date: '2026-10-20', install_days: 1 }], lastTab: 'files' })).toBe('crews')

@@ -126,11 +126,17 @@ export function buildNeedsYouHtml(report: DataHealthReport, appUrl?: string | nu
     report.appointments.length > 0
       ? `<p style="margin: 8px 0; color: #2c2c2a; font-size: 14px;">${report.appointments.length} past appointment${report.appointments.length === 1 ? '' : 's'} with no outcome logged.</p>`
       : ''
+  const noJob = report.contractsNoJob ?? []
+  const noJobLine =
+    noJob.length > 0
+      ? `<p style="margin: 8px 0; color: #2c2c2a; font-size: 14px;">Signed contract with no job: ${noJob.map((c) => escapeHtml(c.customerName)).join(', ')}.</p>`
+      : ''
   return `
         <h2 style="margin: 28px 0 6px; color: #111827; font-size: 17px;">Needs you (${report.count})</h2>
         <p style="margin: 0 0 10px; color: #2c2c2a; font-size: 13px;">${holdsPay > 0 ? `${holdsPay} job${holdsPay === 1 ? '' : 's'} can&apos;t be paid until fixed. ` : ''}<a href="${escapeHtml(dashboardUrl)}" style="color: #2b0a3d;">See the full list</a>.</p>
         <table style="width: 100%; border-collapse: collapse; margin: 0 0 8px;">${rows}</table>
         ${moreLine}
+        ${noJobLine}
         ${apptLine}
       `
 }

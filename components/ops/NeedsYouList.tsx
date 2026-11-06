@@ -44,7 +44,7 @@ export default function NeedsYouList({ report, canFixPayPlans = false, audience 
       {label} ({n})
     </button>
   )
-  const nothing = view.plans.length === 0 && view.ended.length === 0 && view.jobs.length === 0 && view.appointments.length === 0
+  const nothing = view.plans.length === 0 && view.ended.length === 0 && view.jobs.length === 0 && view.appointments.length === 0 && view.noJob.length === 0
 
   return (
     <section className="bg-white rounded-xl shadow-sm border p-4 sm:p-6 mb-6" aria-labelledby="needs-you-heading">
@@ -139,6 +139,26 @@ export default function NeedsYouList({ report, canFixPayPlans = false, audience 
             <button type="button" aria-expanded={showAllJobs} onClick={() => setShowAllJobs((v) => !v)} className="mt-2 inline-flex min-h-[44px] items-center text-sm font-semibold text-[#2b0a3d] underline underline-offset-2">
               {showAllJobs ? 'Show fewer jobs' : `Show all (${view.jobs.length})`}
             </button>
+          )}
+
+          {view.noJob.length > 0 && (
+            <div className="mb-3 rounded-lg border border-gray-200 p-3" data-card="contracts-no-job">
+              <p className="text-sm font-semibold text-[#2c2c2a]">
+                <span className="mr-1.5 rounded bg-gray-100 px-1.5 py-0.5 text-xs font-semibold">Ops</span>
+                Signed contract with no job
+              </p>
+              <ul className="mt-2 divide-y divide-gray-200">
+                {view.noJob.map((c) => (
+                  <li key={c.contractId} className="py-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <span className="text-sm text-[#2c2c2a] break-words">
+                      <span className="font-semibold">{c.customerName}</span>
+                      {c.addressText ? <span className="block text-[#57574f]">{c.addressText}</span> : null}
+                    </span>
+                    {c.opportunityId ? <Link href={`/opportunities/${c.opportunityId}`} className={LINK}>Open the deal</Link> : null}
+                  </li>
+                ))}
+              </ul>
+            </div>
           )}
 
           {view.appointments.length > 0 && (

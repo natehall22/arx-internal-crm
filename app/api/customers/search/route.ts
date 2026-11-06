@@ -3,6 +3,7 @@ import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import { canAccessCustomerRecordsFromPermissionNames, isRepLikeCustomerRecordRole } from '@/lib/permissions'
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
+import { isPlaceholderPhone, isTestCustomerName } from '@/lib/customers'
 
 export const dynamic = 'force-dynamic'
 
@@ -70,7 +71,8 @@ export async function GET(request: Request) {
     let customers: any[] = []
 
     // Try exact phone match first (if query looks like a phone)
-    if (normalizedPhone.length >= 7) {
+    // A filler number (2222222222) is not an identity: searching it must not list everyone who was typed with it.
+    if (normalizedPhone.length >= 7 && !isPlaceholderPhone(normalizedPhone)) {
       const { data: phoneMatches } = await (() => {
         let q = adminClient
           .from('customers')
@@ -81,8 +83,9 @@ export async function GET(request: Request) {
         return q.limit(10)
       })()
       
-      if (phoneMatches?.length) {
-        customers = phoneMatches
+      const realMatches = (phoneMatches ?? []).filter((c: { name?: string | null }) => !isTestCustomerName(c.name))
+      if (realMatches.length) {
+        customers = realMatches
       }
     }
 
