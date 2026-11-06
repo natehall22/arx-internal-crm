@@ -4,6 +4,14 @@ import { useState } from 'react'
 import SignaturePad from '@/components/contracts/SignaturePad'
 import PhoneLink from '@/components/PhoneLink'
 import type { DocumentBrand } from '@/lib/org-brand'
+import {
+  CONTINGENCY_TERMS,
+  INSTALLATION_TERMS,
+  NOTICE_OF_CANCELLATION_CANCEL_LINE,
+  NOTICE_OF_CANCELLATION_TITLE,
+  REPAIR_TERMS,
+  type CancellationNotice,
+} from '@/lib/contracts/terms'
 
 interface Contract {
   id: string
@@ -38,129 +46,11 @@ interface CustomerSigningFormProps {
   token: string
   /** Company identity (letterhead spellings) — loaded server-side from the contract's org. */
   brand: DocumentBrand
+  /** Installation Agreement Notice of Cancellation, computed server-side as if signed now (the same rule as the PDF). */
+  cancellationNotice: CancellationNotice
 }
 
-const TERMS_AND_CONDITIONS = `
-Section 1 — Scope Of Work
-1.1 ARX will furnish labor and materials necessary to perform the checked Scope of Work above, in a workmanlike manner, and in reasonable compliance with applicable North Carolina codes and permitting requirements.
-1.2 Standard Roof Replacement (if selected) generally includes: Tear-off and disposal of existing roofing materials. Underlayment, ice/water protection where code/conditions require, drip edge, flashings, and ventilation components as specified. Installation of new shingles/metal/roofing system per manufacturer instructions and code. Basic pipe boot/penetration flashing replacement as needed for the roofing system. Final cleanup and magnet sweep (see Section 8).
-1.3 Exclusions unless specifically included in writing: interior repairs (drywall/paint), mold remediation, structural framing/rafter repairs, electrical/HVAC, chimney/brick/masonry repairs, skylight interior trim, gutter guards, deck/porch repairs, and any work not expressly listed in this Agreement or a signed change order.
-
-Section 2 — Payment
-2.1 Final payment is due immediately upon Substantial Completion of the Work or upon approval of the completed scope by any insurance carrier, whichever occurs first. Customer's obligation to make final payment is not contingent upon receipt of insurance proceeds, recoverable depreciation, or supplemental payments.
-2.2 If any payment is not made when due, ARX may, upon written notice, suspend work until payment is received. Any unpaid balances may accrue interest at the rate of one and one-half percent (1.5%) per month or the maximum allowed by law, whichever is less. Customer agrees to pay reasonable costs of collection if amounts remain unpaid.
-
-Section 3 — Property Conditions and Project Assumptions
-3.1 Customer represents that, to the best of their knowledge, the Property is in reasonably suitable condition for the Work described in this Agreement and that no known structural defects, unsafe conditions, or code violations affecting the roofing system exist, except as disclosed to ARX in writing prior to execution of this Agreement.
-3.2 Customer acknowledges that roofing work is performed based on visual inspection and information reasonably available at the time of estimate. ARX is not responsible for pre-existing conditions, concealed defects, or conditions outside the Scope of Work that are not reasonably observable prior to commencement of the Work, including but not limited to deteriorated decking, framing issues, prior improper installations, or inadequate ventilation.
-3.3 Customer understands that roofing work may temporarily expose portions of the Property to the elements during installation. ARX will take reasonable measures to protect the Property while the Work is in progress; however, ARX is not responsible for damage caused by sudden or unforeseen weather events beyond ARX's control.
-3.4 Customer acknowledges that ARX does not guarantee the condition or performance of underlying structural components, decking, or prior construction not expressly included in the Scope of Work.
-
-Section 4 — Hidden Conditions, Decking, and Code Upgrades
-4.1 Roofing tear-off may reveal concealed damage or conditions not visible at the time of inspection (e.g., rotten decking, damaged flashing, multiple roof layers, inadequate ventilation, code-required items). These are outside the Base Scope unless specifically listed.
-4.2 Decking: Included Decking: First 3 sheets of 4'x8' OSB/plywood are included at no extra cost. Additional Decking, over the three sheets mentioned above, if needed at installation will be billed to customer via written change order. ARX will present documentation and obtain Customer approval before installing additional decking, except where immediate stabilization is required for safety or weather protection.
-4.3 If the permit authority, manufacturer instructions, or code require additional items (e.g., drip edge, starter strip, ventilation changes, ice/water coverage, flashing upgrades), Customer agrees these may be added via change order as necessary to complete a compliant installation.
-
-Section 5 — Change Orders
-5.1 Any work, materials, or price changes not included in the Base Scope must be documented in a written change order signed by both parties before proceeding, except as allowed in Section 4.2 for emergency stabilization.
-5.2 Change orders are due as stated on the change order; if not stated, they are due with the final payment.
-5.3 Any changes to the Scope of Work or price must be confirmed in a written change order signed by both parties. Verbal discussions or informal communications that are not incorporated into a written change order will not modify this Agreement.
-
-Section 6 — Scheduling, Delays, and Access
-6.1 Estimated dates are estimates only. Weather, permitting, inspections, supplier availability, and safety considerations may affect schedule. Delays caused by these factors do not constitute breach.
-6.2 Customer Access and Cooperation: Provide reasonable access to the work area, driveway, electrical power (if needed), and water (if needed). Secure pets and keep children away from the work area and debris. Identify sprinkler heads, invisible fences, septic components, and any known hazards before work begins.
-6.3 Customer is responsible for utilities and for notifying ARX of any special utility shutoffs or restrictions.
-6.4 Customer authorizes ARX to take photographs or videos of the Property before, during, and after the Work for documentation, quality control, warranty, insurance, and training purposes. Any use for marketing or promotional materials will not include personally identifying information without Customer consent.
-6.5 ARX may temporarily suspend work when necessary due to unsafe conditions, weather events, or protection of the Property. Such suspension will not constitute a breach of this Agreement.
-
-Section 7 — Permits, Inspections, and Compliance
-7.1 ARX will obtain required permits and schedule inspections when included/required. Permit/inspection fees are included in total project price.
-7.2 Customer is responsible for providing HOA approvals and any architectural guidelines unless explicitly included in writing.
-7.3 ARX may use qualified subcontractors and remains responsible for the contracted work.
-
-Section 8 — Job Site Protection, Cleanup, and Cosmetic Damage
-8.1 ARX will take reasonable steps to protect landscaping and exterior features; however, exterior construction can cause incidental impacts.
-8.2 ARX will remove project debris and perform a magnet sweep. Customer acknowledges that small nails/fasteners may remain despite reasonable efforts.
-8.3 ARX is not responsible for ordinary incidental/cosmetic impacts (e.g., scuffs, minor lawn divots, disturbed mulch) unless caused by ARX's gross negligence or willful misconduct.
-8.4 Customer acknowledges heavy vehicles/materials may affect asphalt, pavers, or decorative concrete; pre-existing cracks/settling may worsen.
-
-Section 9 — Warranties
-9.1 ARX warrants labor/workmanship against defects for five (5) years from the date of Substantial Completion. This covers installation-related defects only.
-9.2 ARX provides a one (1) year no-leak guarantee on ARX workmanship, conditioned on proper attic ventilation, drainage, and no third-party alterations.
-9.3 Roofing materials are warranted solely by their manufacturers. ARX makes no independent warranty regarding material performance beyond applicable manufacturer warranties. Copies are available upon request.
-9.4 Claims must be submitted in writing to info@arxroofing.com within ten (10) business days of discovery. ARX may inspect before performing warranty work.
-
-Section 10 — Warranty Exclusions
-Workmanship and leak warranties do not cover: Storm/Act of God events (hail, wind, lightning, tornado, heavy rain, hurricane, tree impact). Foot traffic, misuse, abuse, vandalism, or tampering by Customer or third parties. Improper attic ventilation, condensation, gutter/backflow issues, ice dams, or building movement/settlement. Pre-existing structural conditions, substrate failures, rotten rafters, sagging roof lines, or latent defects. Mold, mildew, algae, fungus, or moisture-related damage not directly caused by ARX workmanship. Normal wear and tear, fading, cosmetic changes, and minor waviness/telegraphing of decking irregularities. Damage caused by other trades, antennas/satellites, solar installers, HVAC work, or unapproved repairs. Roof penetrations, modifications, or attachments made by others, whether occurring before or after ARX's work.
-
-Section 11 — Insurance Claim Projects (If Applicable)
-11.1 Customer remains responsible for: (a) the deductible; (b) non-covered upgrades or exclusions; and (c) any amounts not paid by the carrier.
-11.2 If insurance funds are issued to Customer, Customer agrees to promptly endorse/submit those funds to ARX for completed work. Customer agrees that recoverable depreciation is considered payment for completed work once approved by the carrier and shall be promptly remitted to ARX.
-11.3 ARX will not waive deductibles or offer improper inducements. Customer agrees not to request such waivers.
-
-Section 12 — Termination and Ownership of Materials
-12.1 This Agreement begins on the signing date and ends upon completion and payment, unless terminated under this Section.
-12.2 If this is a home-solicitation sale or otherwise subject to a 3-business-day right to cancel, Customer may cancel as stated in the attached Notice of Cancellation.
-12.3 If Customer terminates after work begins, Customer will pay for work performed and costs incurred to date (labor, materials ordered, permits, disposal) less any amounts already paid.
-12.4 Once materials are delivered to the Property, risk of loss due to theft, vandalism, or weather generally transfers to Customer, except to the extent caused by ARX's negligence while materials are under ARX's control.
-
-Section 13 — Limitation of Liability
-13.1 ARX disclaims liability for damages resulting from misuse, abuse, unauthorized modifications/repairs, vandalism, or damage caused by Customer/third parties, or by fire, storms, or other Acts of God.
-13.2 To the fullest extent permitted by law, ARX will not be liable for indirect, incidental, special, consequential, or economic damages (including loss of use, lost profits, or diminution in value).
-13.3 ARX's total liability for any claim arising out of this Agreement will not exceed the amounts actually paid to ARX under this Agreement, except for damages caused by ARX's gross negligence or willful misconduct where such limitation is prohibited by law.
-
-Section 14 — Dispute Resolution; Attorneys' Fees
-14.1 The parties will first attempt to resolve disputes informally within ten (10) business days after written notice.
-14.2 Unless prohibited by law, any lawsuit must be filed in the state or federal courts located in or serving Cabarrus County, North Carolina.
-14.3 In any action to enforce this Agreement, the prevailing party may recover reasonable attorneys' fees and costs to the extent permitted by law.
-
-Section 15 — Entire Agreement; Signatures; Authority
-15.1 This Agreement (including exhibits/change orders) is the entire understanding and supersedes all prior discussions, proposals, and representations, whether oral or written.
-15.2 Any amendment must be in writing and signed by both parties.
-15.3 Customer acknowledges they are contracting with ARX Roofing & Exteriors LLC and that any salesperson/representative is acting as an authorized representative only to the extent of this written Agreement.
-15.4 If any provision is held unenforceable, the remaining provisions remain in effect.
-15.5 Signatures may be executed electronically and will be treated as original signatures.
-`
-
-const CONTINGENCY_TERMS = `
-Insurance Contingency Agreement
-
-1. Purpose. This agreement lets ARX inspect, document, estimate, and communicate with the insurance carrier about exterior storm damage. It does not authorize construction work.
-
-2. Contingency. Customer has no obligation to move forward unless the insurance carrier approves the claim and ARX accepts the approved scope and price.
-
-3. Contractor Selection. If the claim, scope, and price are approved, Customer agrees to use ARX for the approved exterior work, subject to a final Installation Agreement before construction starts.
-
-4. Customer Costs. Customer remains responsible for the deductible, upgrades, non-covered work, code items not paid by insurance, and signed change orders. ARX will not waive deductibles or offer improper inducements.
-
-5. Claim Help. ARX may provide photos, measurements, estimates, supplements, and meeting support. ARX is not a public adjuster and does not decide coverage.
-
-6. No Construction Start. Materials are not ordered and work does not start until the final Installation Agreement is signed.
-
-7. Cancellation. Customer may cancel within any required 3-business-day cancellation period and before the final Installation Agreement. If Customer asks ARX to incur outside costs, Customer will reimburse documented costs.
-
-8. Photos And Communication. Customer authorizes ARX to take photos/video for claim documentation, quality control, training, and project records.
-`
-
-const REPAIR_TERMS = `
-Repair agreement
-
-• Only the work and price shown here. Roofing, gutters, siding, or other repairs—only what is listed. Not a full roof or full job unless we write that.
-
-• Extra work needs a change order first.
-
-• ARX is responsible only for ARX’s work here—not old damage, hidden problems, or other areas.
-
-• Dates are rough; weather and delays happen.
-
-• You pay the price. With insurance, you still cover deductible and what insurance won’t pay unless we agree otherwise.
-
-• We need access; we may take photos for the job and our records.
-
-• Electronic signatures count.
-`
-
-export default function CustomerSigningForm({ contract, token, brand }: CustomerSigningFormProps) {
+export default function CustomerSigningForm({ contract, token, brand, cancellationNotice }: CustomerSigningFormProps) {
   const isContingency = contract.agreement_type === 'contingency'
   const isRepair = contract.agreement_type === 'repair'
   const agreementLabel = isContingency
@@ -172,6 +62,7 @@ export default function CustomerSigningForm({ contract, token, brand }: Customer
   const [printName, setPrintName] = useState('')
   const [signature, setSignature] = useState<string | null>(null)
   const [showTerms, setShowTerms] = useState(false)
+  const [showCancellation, setShowCancellation] = useState(false)
   
   const [initialsChangeOrders, setInitialsChangeOrders] = useState('')
   const [initialsPropertyCondition, setInitialsPropertyCondition] = useState('')
@@ -471,9 +362,50 @@ export default function CustomerSigningForm({ contract, token, brand }: Customer
                 {showTerms ? 'Hide' : 'View'} Full Terms and Conditions
               </button>
               {showTerms && (
-                <div className="mt-4 p-4 bg-gray-50 rounded-lg max-h-96 overflow-y-auto text-sm text-gray-700 whitespace-pre-wrap">
-                  {isContingency ? CONTINGENCY_TERMS : isRepair ? REPAIR_TERMS : TERMS_AND_CONDITIONS}
+                <div
+                  data-testid="agreement-terms"
+                  className="mt-4 p-4 bg-gray-50 rounded-lg max-h-96 overflow-y-auto text-base leading-relaxed text-[#2c2c2a] space-y-3"
+                >
+                  {isContingency || isRepair ? (
+                    (isContingency ? CONTINGENCY_TERMS : REPAIR_TERMS).map((term) => <p key={term}>{term}</p>)
+                  ) : (
+                    INSTALLATION_TERMS.map((section) => (
+                      <div key={section.title} className="space-y-1">
+                        <h3 className="font-semibold">{section.title}</h3>
+                        {section.content.map((paragraph) => <p key={paragraph}>{paragraph}</p>)}
+                      </div>
+                    ))
+                  )}
                 </div>
+              )}
+              {!isContingency && !isRepair && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setShowCancellation(!showCancellation)}
+                    aria-expanded={showCancellation}
+                    aria-controls="notice-of-cancellation"
+                    className="mt-2 flex min-h-[44px] items-center gap-2 text-indigo-700 hover:text-indigo-900 text-base font-medium"
+                  >
+                    <svg className={`w-4 h-4 transition-transform ${showCancellation ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
+                    {NOTICE_OF_CANCELLATION_TITLE}
+                  </button>
+                  {showCancellation && (
+                    <div
+                      id="notice-of-cancellation"
+                      data-testid="notice-of-cancellation"
+                      className="mt-2 p-4 bg-gray-50 rounded-lg max-h-96 overflow-y-auto text-base leading-relaxed text-[#2c2c2a] space-y-3"
+                    >
+                      <h3 className="font-bold">{NOTICE_OF_CANCELLATION_TITLE}</h3>
+                      <p>Date of Transaction: {cancellationNotice.transactionDate}</p>
+                      <p className="font-bold">NOT LATER THAN MIDNIGHT OF: {cancellationNotice.deadline}</p>
+                      <p className="whitespace-pre-wrap">{cancellationNotice.body}</p>
+                      <p>{NOTICE_OF_CANCELLATION_CANCEL_LINE}</p>
+                    </div>
+                  )}
+                </>
               )}
             </section>
 

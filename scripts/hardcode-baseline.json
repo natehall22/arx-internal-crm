@@ -182,9 +182,6 @@
   "app/comp-agreements/sign/[token]/page.tsx": {
     "brand": 1
   },
-  "app/contracts/sign/[token]/CustomerSigningForm.tsx": {
-    "brand": 47
-  },
   "app/dashboard/DashboardClient.tsx": {
     "timezone": 8
   },
@@ -362,7 +359,7 @@
   "lib/completion-certificate.tsx": {
     "brand": 1
   },
-  "lib/contracts/generatePdf.ts": {
+  "lib/contracts/terms.ts": {
     "brand": 47
   },
   "lib/crm-email-from.ts": {

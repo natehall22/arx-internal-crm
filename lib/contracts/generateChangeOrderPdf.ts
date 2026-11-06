@@ -1,5 +1,6 @@
 import { jsPDF } from 'jspdf'
 
+import { CHANGE_ORDER_AGREEMENT } from '@/lib/contracts/terms'
 import type { DocumentBrand } from '@/lib/org-brand'
 
 export interface ChangeOrderData {
@@ -186,8 +187,7 @@ export async function generateChangeOrderPdf(data: ChangeOrderData, brand: Docum
   // Agreement Text
   doc.setFontSize(9)
   doc.setFont('helvetica', 'italic')
-  const agreementText = 'By signing below, both parties agree to the changes described above. The customer acknowledges that the updated total project cost and remaining balance are accurate.'
-  const agreementLines = wrapText(doc, agreementText, contentWidth)
+  const agreementLines = wrapText(doc, CHANGE_ORDER_AGREEMENT, contentWidth)
   for (const line of agreementLines) {
     doc.text(line, margin, y)
     y += 12

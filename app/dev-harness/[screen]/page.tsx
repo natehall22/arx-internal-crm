@@ -23,6 +23,7 @@ import ChangeOrderSigningForm from '@/app/change-orders/sign/[token]/CustomerSig
 import CrewPhotoCapture from '@/app/crew/[token]/CrewPhotoCapture'
 import { HARNESS_CONTRACT } from '@/e2e/fixtures'
 import { DEFAULT_DOCUMENT_BRAND } from '@/lib/org-brand'
+import { noticeOfCancellation } from '@/lib/contracts/terms'
 import PayrollAttributionEditor from '@/components/payroll/PayrollAttributionEditor'
 import OpsClient from '@/app/ops/OpsClient'
 import OpsDashboardView from '@/components/ops/OpsDashboardView'
@@ -140,7 +141,7 @@ export default function Harness({ params }: { params: { screen: string } }) {
     case 'email-blasts':
       return <EmailBlastsPage />
     case 'contract-signing':
-      return <ContractSigningForm contract={HARNESS_CONTRACT as never} token="tok" brand={DEFAULT_DOCUMENT_BRAND} />
+      return <ContractSigningForm contract={HARNESS_CONTRACT as never} token="tok" brand={DEFAULT_DOCUMENT_BRAND} cancellationNotice={noticeOfCancellation('2026-11-06T15:00:00Z', DEFAULT_DOCUMENT_BRAND)} />
     case 'change-order-signing':
       return <ChangeOrderSigningForm changeOrder={{ co_number: 'CO-1', description: 'Replace 3 sheets of rotten decking at the rear slope. Add 40 LF of drip edge.', customer_print_name: 'Pat Customer', updated_total: 16825 }} token="tok" />
     case 'crew-capture':
