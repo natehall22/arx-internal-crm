@@ -157,11 +157,17 @@ export async function loadMorningTodayQueues(
     return [crews, ...ops.filter((q) => q.id === 'jobs-to-schedule')]
   }
   // Storm hits lead: they are the most time-sensitive, and only this version carries them (ops don't need them).
+  // A storm lookup failure drops only the storm list (and says so), never the rest of Today.
+  let stormFailed = false
   const [storm, owner] = await Promise.all([
-    loadStormHitsQueue(supabase, orgId, now, STORM_EMAIL_ROWS),
+    loadStormHitsQueue(supabase, orgId, now, STORM_EMAIL_ROWS).catch((error): Queue => {
+      console.error('morning update: storm hits failed', error)
+      stormFailed = true
+      return { id: 'storm-hits', title: 'Storm hits on open deals', count: 0, empty: 'Storm hits couldn’t load today.', items: [] }
+    }),
     loadOwnerExceptions(supabase, orgId, now, { money: false }),
   ])
-  return [...(storm.count > 0 ? [storm] : []), ...owner.filter((q) => q.id !== 'no-outcome')]
+  return [...(storm.count > 0 || stormFailed ? [storm] : []), ...owner.filter((q) => q.id !== 'no-outcome')]
 }
 
 /**
