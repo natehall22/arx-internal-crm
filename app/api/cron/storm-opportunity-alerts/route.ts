@@ -9,6 +9,7 @@ import {
   buildStormNotificationTitle,
   filterStormReportsForAlerts,
   filterStormSwathsForAlerts,
+  isStormCustomer,
   isStormOpportunityEligible,
   isOnUnresolvedStormPipelineStage,
   matchStormReportsToOpportunity,
@@ -48,7 +49,6 @@ async function loadStormOpportunityCandidates(admin: any): Promise<any[]> {
       .select(
         'id, org_id, lead_id, status, lat, lng, pipeline_stage, assigned_user_id, address_text, leads(homeowner_name, phone, lat, lng, installation_agreement_signed_at)'
       )
-      .neq('status', 'won')
       .order('id', { ascending: true })
       .range(from, from + QUERY_PAGE_SIZE - 1)
 
@@ -278,7 +278,9 @@ export async function GET(request: NextRequest) {
       if (!alertId) continue
 
       const customerName = match.opportunity.homeowner_name || 'Customer'
-      const skipRouting = shouldSkipStormRouting(match.opportunity.pipeline_stage, appointments, now)
+      // Sold customers are listed and noted, never routed: no stage change, no reassignment, no inside-sales ping.
+      const isCustomer = isStormCustomer(match.opportunity.status)
+      const skipRouting = isCustomer || shouldSkipStormRouting(match.opportunity.pipeline_stage, appointments, now)
       let didRoute = alertWasRouted
 
       if (!skipRouting && !didRoute) {
@@ -336,7 +338,7 @@ export async function GET(request: NextRequest) {
         })
 
         let notificationError: unknown = null
-        if (!activityError && !notifiedOpportunityIds.has(match.opportunity.id)) {
+        if (!activityError && !isCustomer && !notifiedOpportunityIds.has(match.opportunity.id)) {
           let insideSalesUsers = insideSalesUsersByOrgId.get(match.opportunity.org_id)
           if (insideSalesUsers === undefined) {
             const { data: fetchedInsideSalesUsers, error: usersError } = await admin

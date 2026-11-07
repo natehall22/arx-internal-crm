@@ -6,6 +6,7 @@ import {
   filterStormSwathsForAlerts,
   isLostStormCandidate,
   isRepWorkingStormGrace,
+  isStormCustomer,
   isStormOpportunityEligible,
   isStormReportWithinEtLookback,
   matchStormReportsToOpportunity,
@@ -172,6 +173,15 @@ describe('storm opportunity eligibility', () => {
     // Inspection history is now required for lost too — a lead we never actually
     // inspected is not "a customer we had an inspection with".
     expect(isStormOpportunityEligible(candidate, coords, DEFAULT_WEATHER_FOOTPRINT, [])).toBe(false)
+  })
+
+  it('includes sold customers with no inspection on record, inside the footprint only', () => {
+    const candidate = baseCandidate({ status: 'won' })
+    const coords = { lat: candidate.lat!, lng: candidate.lng! }
+    expect(isStormCustomer('won')).toBe(true)
+    expect(isStormCustomer('open')).toBe(false)
+    expect(isStormOpportunityEligible(candidate, coords, DEFAULT_WEATHER_FOOTPRINT, [])).toBe(true)
+    expect(isStormOpportunityEligible(candidate, { lat: 0, lng: 0 }, DEFAULT_WEATHER_FOOTPRINT, [])).toBe(false)
   })
 
   it('rejects lost opportunities that already signed installation agreement', () => {

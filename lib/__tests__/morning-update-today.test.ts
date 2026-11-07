@@ -93,35 +93,40 @@ describe('Storm hits call list', () => {
       { opportunity_id: 'o1', event_date: '2026-11-05', layer: 'hail', magnitude: 1.25, damage: false, distance_miles: 0, match_source: 'swath', created_at: '2026-11-06T10:00:00Z' },
       { opportunity_id: 'o2', event_date: '2026-11-04', layer: 'hail', magnitude: 1, damage: false, distance_miles: 0.4, match_source: 'report', routed: false, created_at: '2026-11-05T10:00:00Z' },
       { opportunity_id: 'o3', event_date: '2026-11-05', layer: 'hail', magnitude: 2, damage: false, distance_miles: 0.1, match_source: 'report', created_at: '2026-11-06T10:00:00Z' },
+      { opportunity_id: 'o4', event_date: '2026-11-05', layer: 'hail', magnitude: 1.5, damage: false, distance_miles: 0.2, match_source: 'report', created_at: '2026-11-06T10:00:00Z' },
     ],
     opportunities: [
       { id: 'o1', status: 'open', leads: { homeowner_name: 'Pat Doe', phone: '704-555-0142' } },
       { id: 'o2', status: 'in_progress', leads: [{ homeowner_name: 'Sam Roe', phone: 'n/a' }] },
       { id: 'o3', status: 'won', leads: { homeowner_name: 'Won Deal', phone: '7045550000' } },
+      { id: 'o4', status: 'lost', leads: { homeowner_name: 'Lost Deal', phone: '7045551111' } },
     ],
   })
 
-  it('lists each open deal once with its biggest hit, newest storm first; won/lost drop off', async () => {
+  it('lists each deal once with its biggest hit, newest storm first; customers included, lost drop off', async () => {
     const q = await loadStormHitsQueue(admin, 'org', new Date('2026-11-06T11:00:00Z'))
-    expect(q.count).toBe(2)
-    expect(q.items.map((i) => i.ref)).toEqual(['Pat Doe', 'Sam Roe'])
-    expect(q.items[0].note).toContain('1.25 in hail')
-    expect(q.items[0].note).toContain('inside the storm area')
-    expect(q.items[0].phone).toBe('704-555-0142')
-    expect(q.items[1].phone).toBe('n/a') // kept as typed; only dialable numbers get tap-to-call
-    expect(q.items[1].note).toContain('a rep is already working this deal')
+    expect(q.count).toBe(3)
+    expect(q.items.map((i) => i.ref)).toEqual(['Won Deal', 'Pat Doe', 'Sam Roe'])
+    expect(q.items[0].note).toContain('past customer')
     expect(q.items[0].note).not.toContain('already working')
-    expect(q.items[0].href).toBe('/opportunities/o1')
+    expect(q.items[1].note).toContain('1.25 in hail')
+    expect(q.items[1].note).toContain('inside the storm area')
+    expect(q.items[1].phone).toBe('704-555-0142')
+    expect(q.items[2].phone).toBe('n/a') // kept as typed; only dialable numbers get tap-to-call
+    expect(q.items[2].note).toContain('a rep is already working this deal')
+    expect(q.items[1].note).not.toContain('already working')
+    expect(q.items[1].href).toBe('/opportunities/o1')
   })
 
   it('renders name, facts and a tap-to-call number in the email', async () => {
     const q = await loadStormHitsQueue(admin, 'org', new Date('2026-11-06T11:00:00Z'))
     const html = buildTodayHtml([q], 'https://crm.example.com')
-    expect(html).toContain('Storm hits on open deals (2)')
+    expect(html).toContain('Storm hits on open deals and customers (3)')
     expect(html).toContain('Pat Doe')
     expect(html).toContain('href="tel:+17045550142"')
     expect(html).toContain('(704) 555-0142')
-    expect(html).not.toContain('Won Deal')
+    expect(html).toContain('Won Deal')
+    expect(html).not.toContain('Lost Deal')
     expect(html).not.toContain('tel:n/a')
   })
 

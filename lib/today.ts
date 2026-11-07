@@ -247,9 +247,9 @@ type StormAlertRow = {
 }
 
 /**
- * Open deals a storm just hit — a call list. Reads what the storm-alert cron already matched
+ * Open deals and sold customers a storm just hit — a call list. Reads what the storm-alert cron already matched
  * (`storm_opportunity_alerts`); nothing is re-matched here. One line per deal (its biggest hit), newest storm first.
- * Won/lost deals drop off. Inside-sales routing is untouched; this only lists them.
+ * Lost deals drop off; sold customers are listed as "past customer". Inside-sales routing is untouched; this only lists.
  */
 export async function loadStormHitsQueue(admin: SupabaseClient, orgId: string, now = new Date(), cap = LIST_CAP): Promise<Queue> {
   const since = new Date(now.getTime() - STORM_HIT_DAYS * 86_400_000).toISOString()
@@ -289,7 +289,7 @@ export async function loadStormHitsQueue(admin: SupabaseClient, orgId: string, n
     opps.push(...((res.data ?? []) as Opp[]))
   }
   const open = opps
-    .filter((o) => o.status !== 'won' && o.status !== 'lost')
+    .filter((o) => o.status !== 'lost')
     .map((o) => ({ opp: o, alert: best.get(o.id)! }))
     // Newest storm first; same day → bigger hit first; then id, so the list never reshuffles between emails.
     .sort(
@@ -300,9 +300,9 @@ export async function loadStormHitsQueue(admin: SupabaseClient, orgId: string, n
     )
   return {
     id: 'storm-hits',
-    title: 'Storm hits on open deals',
+    title: 'Storm hits on open deals and customers',
     count: open.length,
-    empty: 'No new storm hits on open deals.',
+    empty: 'No new storm hits on open deals or customers.',
     items: open.slice(0, cap).map(({ opp, alert }) => {
       const lead = Array.isArray(opp.leads) ? opp.leads[0] : opp.leads
       const name = lead?.homeowner_name?.trim() || 'Customer'
@@ -314,7 +314,7 @@ export async function loadStormHitsQueue(admin: SupabaseClient, orgId: string, n
         formatStormMagnitudeLabel((alert.layer === 'hail' ? 'hail' : 'wind') as StormAlertLayer, { magnitude: Number(alert.magnitude ?? 0), damage: Boolean(alert.damage) }),
         formatStormEventDateLabel(alert.event_date),
         where,
-        routed.has(opp.id) ? null : 'a rep is already working this deal',
+        opp.status === 'won' ? 'past customer' : routed.has(opp.id) ? null : 'a rep is already working this deal',
       ]
         .filter(Boolean)
         .join(' · ')
