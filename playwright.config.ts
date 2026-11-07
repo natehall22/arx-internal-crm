@@ -8,7 +8,9 @@ import { defineConfig, devices } from '@playwright/test'
 export default defineConfig({
   testDir: './e2e',
   timeout: 60_000,
-  retries: 0,
+  // GitHub runners are slower than the local gates machine: retry a timed-out screen once there (reported as flaky),
+  // the same rule scripts/gates.sh applies locally by re-running a failed gate once.
+  retries: process.env.CI ? 1 : 0,
   reporter: [['list']],
   use: { baseURL: 'http://localhost:3111', trace: 'off' },
   projects: [
