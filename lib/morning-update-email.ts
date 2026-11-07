@@ -163,7 +163,7 @@ export async function loadMorningTodayQueues(
     loadStormHitsQueue(supabase, orgId, now, STORM_EMAIL_ROWS).catch((error): Queue => {
       console.error('morning update: storm hits failed', error)
       stormFailed = true
-      return { id: 'storm-hits', title: 'Storm hits on open deals', count: 0, empty: 'Storm hits couldn’t load today.', items: [] }
+      return { id: 'storm-hits', title: 'Storm hits on open deals and customers', count: 0, empty: 'Storm hits couldn’t load today.', items: [] }
     }),
     loadOwnerExceptions(supabase, orgId, now, { money: false }),
   ])

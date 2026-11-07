@@ -180,7 +180,15 @@ export function formatStormEventDateLabel(eventDate: string): string {
 
 export function isEligibleStormOpportunityStatus(status: string | null | undefined): boolean {
   const normalized = String(status || '').trim().toLowerCase()
-  return normalized === 'open' || normalized === 'in_progress' || normalized === 'lost'
+  return normalized === 'open' || normalized === 'in_progress' || normalized === 'lost' || normalized === 'won'
+}
+
+/**
+ * A sold customer (Nathan, 2026-11-06): a storm over a roof we sold is a warranty / new-claim call. Customers are
+ * listed and noted, but never routed — their deal is never moved to an inside-sales stage, reassigned or reopened.
+ */
+export function isStormCustomer(status: string | null | undefined): boolean {
+  return String(status || '').trim().toLowerCase() === 'won'
 }
 
 export function isLostStormCandidate(
@@ -293,6 +301,8 @@ export function isStormOpportunityEligible(
 
   const status = String(opportunity.status || '').trim().toLowerCase()
   if (status === 'lost' && !isLostStormCandidate(opportunity)) return false
+  // We sold this roof, so we know it — some sold deals have no inspection on the calendar (9 of 47 on 2026-11-07).
+  if (isStormCustomer(status)) return true
 
   return hasQualifyingInspectionHistory(appointments)
 }
@@ -382,6 +392,13 @@ export function buildStormActivityNote(match: StormMatchResult): string {
   const dateLabel = formatStormEventDateLabel(match.eventDate)
   const mag = formatStormMagnitudeLabel(match.layer, match)
   return `Recent storm activity (${mag}) on ${dateLabel} — ${formatStormProximityLabel(match)}. Property may have been impacted — free inspection available (est.).`
+}
+
+/** Note on a sold customer's deal: a service call, not a sales pitch. */
+export function buildStormCustomerNote(match: StormMatchResult): string {
+  const dateLabel = formatStormEventDateLabel(match.eventDate)
+  const mag = formatStormMagnitudeLabel(match.layer, match)
+  return `Storm over this customer's roof (${mag}) on ${dateLabel} — ${formatStormProximityLabel(match)}. Check for damage or a new claim.`
 }
 
 export function buildStormNotificationBody(match: StormMatchResult, customerName: string): string {

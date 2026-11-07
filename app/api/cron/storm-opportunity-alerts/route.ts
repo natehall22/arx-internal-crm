@@ -5,10 +5,12 @@ import { isInsideSalesRoleLike } from '@/lib/inside-sales-follow-up'
 import { footprintFromEnv } from '@/lib/weather-footprint'
 import {
   buildStormActivityNote,
+  buildStormCustomerNote,
   buildStormNotificationBody,
   buildStormNotificationTitle,
   filterStormReportsForAlerts,
   filterStormSwathsForAlerts,
+  isStormCustomer,
   isStormOpportunityEligible,
   isOnUnresolvedStormPipelineStage,
   matchStormReportsToOpportunity,
@@ -48,7 +50,6 @@ async function loadStormOpportunityCandidates(admin: any): Promise<any[]> {
       .select(
         'id, org_id, lead_id, status, lat, lng, pipeline_stage, assigned_user_id, address_text, leads(homeowner_name, phone, lat, lng, installation_agreement_signed_at)'
       )
-      .neq('status', 'won')
       .order('id', { ascending: true })
       .range(from, from + QUERY_PAGE_SIZE - 1)
 
@@ -190,6 +191,7 @@ export async function GET(request: NextRequest) {
     let inserted = 0
     let routed = 0
     let notedOnly = 0
+    let customers = 0
     let skippedCloserMidDeal = 0
     const routedOpportunityIds = new Set<string>()
     const notifiedOpportunityIds = new Set<string>()
@@ -214,7 +216,8 @@ export async function GET(request: NextRequest) {
 
     for (const match of matches) {
       const appointments = appointmentsByOpportunityId.get(match.opportunity.id) || []
-      if (shouldSkipStormAlertEntirely(match.opportunity, appointments, now)) {
+      // A close on the calendar hides open deals (the closer has it), never a sold customer.
+      if (!isStormCustomer(match.opportunity.status) && shouldSkipStormAlertEntirely(match.opportunity, appointments, now)) {
         skippedCloserMidDeal += 1
         continue
       }
@@ -278,7 +281,9 @@ export async function GET(request: NextRequest) {
       if (!alertId) continue
 
       const customerName = match.opportunity.homeowner_name || 'Customer'
-      const skipRouting = shouldSkipStormRouting(match.opportunity.pipeline_stage, appointments, now)
+      // Sold customers are listed and noted, never routed: no stage change, no reassignment, no inside-sales ping.
+      const isCustomer = isStormCustomer(match.opportunity.status)
+      const skipRouting = isCustomer || shouldSkipStormRouting(match.opportunity.pipeline_stage, appointments, now)
       let didRoute = alertWasRouted
 
       if (!skipRouting && !didRoute) {
@@ -317,7 +322,8 @@ export async function GET(request: NextRequest) {
           }
         }
       } else if (isNewAlert) {
-        notedOnly += 1
+        if (isCustomer) customers += 1
+        else notedOnly += 1
       }
 
       // Only note/notify when we routed successfully or intentionally skipped routing
@@ -325,18 +331,20 @@ export async function GET(request: NextRequest) {
       const allowSideEffects = skipRouting || didRoute
 
       if (!processedAt && allowSideEffects) {
-        const activityBody = buildStormActivityNote(match)
+        // A customer's note is a system note for the sales side: a status_change would read as progress on their job
+        // (job catch-up counts status changes as movement) and the sales copy ("free inspection") doesn't fit a sold roof.
         const { error: activityError } = await admin.from('activities').insert({
           org_id: match.opportunity.org_id,
           opportunity_id: match.opportunity.id,
           lead_id: match.opportunity.lead_id,
           user_id: null,
-          type: 'status_change',
-          body: activityBody,
+          ...(isCustomer
+            ? { type: 'note', origin: 'system', audience: 'sales', body: buildStormCustomerNote(match) }
+            : { type: 'status_change', body: buildStormActivityNote(match) }),
         })
 
         let notificationError: unknown = null
-        if (!activityError && !notifiedOpportunityIds.has(match.opportunity.id)) {
+        if (!activityError && !isCustomer && !notifiedOpportunityIds.has(match.opportunity.id)) {
           let insideSalesUsers = insideSalesUsersByOrgId.get(match.opportunity.org_id)
           if (insideSalesUsers === undefined) {
             const { data: fetchedInsideSalesUsers, error: usersError } = await admin
@@ -411,7 +419,7 @@ export async function GET(request: NextRequest) {
     }
 
     console.log(
-      `storm-opportunity-alerts: inserted ${inserted}, routed ${routed}, noted ${notedOnly}, skippedCloserMidDeal ${skippedCloserMidDeal}`
+      `storm-opportunity-alerts: inserted ${inserted}, routed ${routed}, noted ${notedOnly}, customers ${customers}, skippedCloserMidDeal ${skippedCloserMidDeal}`
     )
 
     return NextResponse.json({
@@ -422,6 +430,7 @@ export async function GET(request: NextRequest) {
       inserted,
       routed,
       notedOnly,
+      customers,
       skippedCloserMidDeal,
     })
   } catch (err) {
