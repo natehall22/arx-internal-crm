@@ -25,7 +25,7 @@ const updateUserById = jest.fn(async (..._args: unknown[]) => ({ error: null }))
 const createUser = jest.fn(async (..._args: unknown[]) => ({ data: { user: { id: 'u-new' } }, error: null }))
 let db: ReturnType<typeof createFakeDb>
 jest.mock('@/lib/supabase/service', () => ({
-  createServiceClient: () => ({ ...db.client, auth: { admin: { updateUserById, createUser, deleteUser: jest.fn() } } }),
+  createServiceClient: () => ({ ...(db.client as object), auth: { admin: { updateUserById, createUser, deleteUser: jest.fn() } } }),
 }))
 
 import { POST, PUT } from '@/app/api/admin/users/route'

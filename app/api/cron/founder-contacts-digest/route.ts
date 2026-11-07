@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { sendFounderContactsDigests } from '@/lib/founder-contacts'
 import { createServiceClient } from '@/lib/supabase/service'
+import { verifyCronSecret } from '@/lib/cron-auth'
 
 /**
  * Nightly email of contacts added on the founder calendar (vercel.json: 01:00 UTC =
@@ -10,14 +11,8 @@ import { createServiceClient } from '@/lib/supabase/service'
 export const dynamic = 'force-dynamic'
 
 export async function GET(request: NextRequest) {
-  const cronSecret = process.env.CRON_SECRET
-  if (!cronSecret) {
-    console.error('CRON_SECRET env var not set — founder-contacts-digest cron will not run')
-    return NextResponse.json({ error: 'Cron endpoint not configured' }, { status: 503 })
-  }
-  if (request.headers.get('authorization') !== `Bearer ${cronSecret}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const denied = verifyCronSecret(request, 'founder-contacts-digest cron')
+  if (denied) return denied
 
   try {
     const result = await sendFounderContactsDigests(createServiceClient())

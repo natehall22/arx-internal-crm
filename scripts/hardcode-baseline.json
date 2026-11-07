@@ -259,9 +259,6 @@
   "components/Nav.tsx": {
     "brand": 2
   },
-  "components/RequestMeasurementModal.tsx": {
-    "brand": 1
-  },
   "components/RoofMeasurementCard.tsx": {
     "brand": 2
   },
