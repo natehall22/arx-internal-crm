@@ -249,7 +249,7 @@ type StormAlertRow = {
 /**
  * Open deals and sold customers a storm just hit — a call list. Reads what the storm-alert cron already matched
  * (`storm_opportunity_alerts`); nothing is re-matched here. One line per deal (its biggest hit), newest storm first.
- * Lost deals drop off; sold customers are listed as "past customer". Inside-sales routing is untouched; this only lists.
+ * Lost deals drop off; sold deals are listed as "customer" (installed or not). Inside-sales routing is untouched; this only lists.
  */
 export async function loadStormHitsQueue(admin: SupabaseClient, orgId: string, now = new Date(), cap = LIST_CAP): Promise<Queue> {
   const since = new Date(now.getTime() - STORM_HIT_DAYS * 86_400_000).toISOString()
@@ -314,7 +314,7 @@ export async function loadStormHitsQueue(admin: SupabaseClient, orgId: string, n
         formatStormMagnitudeLabel((alert.layer === 'hail' ? 'hail' : 'wind') as StormAlertLayer, { magnitude: Number(alert.magnitude ?? 0), damage: Boolean(alert.damage) }),
         formatStormEventDateLabel(alert.event_date),
         where,
-        opp.status === 'won' ? 'past customer' : routed.has(opp.id) ? null : 'a rep is already working this deal',
+        opp.status === 'won' ? 'customer' : routed.has(opp.id) ? null : 'a rep is already working this deal',
       ]
         .filter(Boolean)
         .join(' · ')

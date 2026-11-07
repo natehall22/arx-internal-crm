@@ -107,7 +107,7 @@ describe('Storm hits call list', () => {
     const q = await loadStormHitsQueue(admin, 'org', new Date('2026-11-06T11:00:00Z'))
     expect(q.count).toBe(3)
     expect(q.items.map((i) => i.ref)).toEqual(['Won Deal', 'Pat Doe', 'Sam Roe'])
-    expect(q.items[0].note).toContain('past customer')
+    expect(q.items[0].note).toContain('customer')
     expect(q.items[0].note).not.toContain('already working')
     expect(q.items[1].note).toContain('1.25 in hail')
     expect(q.items[1].note).toContain('inside the storm area')

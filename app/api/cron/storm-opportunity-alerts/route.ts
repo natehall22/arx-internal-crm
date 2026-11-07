@@ -190,6 +190,7 @@ export async function GET(request: NextRequest) {
     let inserted = 0
     let routed = 0
     let notedOnly = 0
+    let customers = 0
     let skippedCloserMidDeal = 0
     const routedOpportunityIds = new Set<string>()
     const notifiedOpportunityIds = new Set<string>()
@@ -214,7 +215,8 @@ export async function GET(request: NextRequest) {
 
     for (const match of matches) {
       const appointments = appointmentsByOpportunityId.get(match.opportunity.id) || []
-      if (shouldSkipStormAlertEntirely(match.opportunity, appointments, now)) {
+      // A close on the calendar hides open deals (the closer has it), never a sold customer.
+      if (!isStormCustomer(match.opportunity.status) && shouldSkipStormAlertEntirely(match.opportunity, appointments, now)) {
         skippedCloserMidDeal += 1
         continue
       }
@@ -319,7 +321,8 @@ export async function GET(request: NextRequest) {
           }
         }
       } else if (isNewAlert) {
-        notedOnly += 1
+        if (isCustomer) customers += 1
+        else notedOnly += 1
       }
 
       // Only note/notify when we routed successfully or intentionally skipped routing
@@ -413,7 +416,7 @@ export async function GET(request: NextRequest) {
     }
 
     console.log(
-      `storm-opportunity-alerts: inserted ${inserted}, routed ${routed}, noted ${notedOnly}, skippedCloserMidDeal ${skippedCloserMidDeal}`
+      `storm-opportunity-alerts: inserted ${inserted}, routed ${routed}, noted ${notedOnly}, customers ${customers}, skippedCloserMidDeal ${skippedCloserMidDeal}`
     )
 
     return NextResponse.json({
@@ -424,6 +427,7 @@ export async function GET(request: NextRequest) {
       inserted,
       routed,
       notedOnly,
+      customers,
       skippedCloserMidDeal,
     })
   } catch (err) {
