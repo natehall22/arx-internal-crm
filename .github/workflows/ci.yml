@@ -47,6 +47,9 @@ jobs:
             run: npx playwright test
     env:
       NEXT_TELEMETRY_DISABLED: '1'
+      # The machine time zone the gates run in locally and the golden PDFs / date tests were recorded in.
+      # GitHub runners default to UTC, which fails date-ranges and the brand-document hashes.
+      TZ: America/New_York
       NODE_OPTIONS: --max-old-space-size=8192
       # Placeholders only (never real values): enough for `next build` to compile and prerender.
       NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:9
