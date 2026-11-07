@@ -40,7 +40,8 @@ fail() { echo "" >&2; echo "gates: $1 failed on $SHA. Nothing was stamped; the p
 
 run_gate "hardcode ratchet" node scripts/hardcode-ratchet.mjs         || fail "hardcode ratchet"
 run_gate "jest"       npx jest --silent                              || fail "jest"
-run_gate "typescript" npx tsc --noEmit -p .                           || fail "typescript"
+rm -rf .next/types  # stale route types from an earlier build fail tsc after a route is deleted
+run_gate "typescript" env NODE_OPTIONS=--max-old-space-size=4096 npx tsc --noEmit -p .|| fail "typescript"
 run_gate "lint"       npx next lint                                   || fail "lint"
 # Next 14.1 can exit 0 after its compiler is killed (e.g. out of memory) without producing a build, so start from a clean
 # .next and require the BUILD_ID it writes only on success.
