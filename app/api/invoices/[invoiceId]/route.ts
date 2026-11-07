@@ -105,7 +105,7 @@ export async function PATCH(
         if (!item_id) {
           return NextResponse.json({ error: 'item_id required' }, { status: 400 })
         }
-        const item = await updateInvoiceItem(adminClient, item_id, {
+        const item = await updateInvoiceItem(adminClient, params.invoiceId, item_id, {
           description,
           qty,
           unit_price_cents,
@@ -120,7 +120,7 @@ export async function PATCH(
         if (!item_id) {
           return NextResponse.json({ error: 'item_id required' }, { status: 400 })
         }
-        await deleteInvoiceItem(adminClient, item_id)
+        await deleteInvoiceItem(adminClient, params.invoiceId, item_id)
         const invoice = await getInvoiceWithDetails(adminClient, params.invoiceId)
         return NextResponse.json({ success: true, invoice })
       }

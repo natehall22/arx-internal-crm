@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { hasUnsupportedBonusTier } from '@/lib/calculate-commission-from-plan'
 import { requireAuthApi } from '@/lib/auth'
+import { isTeamAdminRoleSlug } from '@/lib/org-role-constants'
 import { createServiceClient } from '@/lib/supabase/service'
 import { isPayrollAdminRole } from '@/lib/payroll-admin-access'
 import { compPlanBodyChanged, COMP_PLAN_VERSION_FLOOR_DATE } from '@/lib/comp-plan-version'
@@ -24,7 +25,7 @@ async function getAuthenticatedUser(_req: NextRequest) {
   try {
     const { authUser: user, profile } = await requireAuthApi()
     const adminClient = createServiceClient()
-    const isAdmin = ['admin', 'regional_manager', 'sales_manager'].includes(profile.role)
+    const isAdmin = isTeamAdminRoleSlug(profile.role)
     return { user, profile, adminClient, isAdmin }
   } catch {
     return { error: 'Unauthorized', status: 401 }

@@ -497,10 +497,12 @@ export async function addInvoiceItem(
 }
 
 /**
- * Update a line item on a draft invoice.
+ * Update a line item on a draft invoice. `invoiceId` must be an invoice the caller already verified
+ * (job_invoice_items has no org_id; the invoice is the tenant anchor).
  */
 export async function updateInvoiceItem(
   supabase: SupabaseClient,
+  invoiceId: string,
   itemId: string,
   updates: Partial<InvoiceItemInput>
 ): Promise<JobInvoiceItem> {
@@ -509,7 +511,8 @@ export async function updateInvoiceItem(
     .from('job_invoice_items')
     .select('*, job_invoices!inner(status)')
     .eq('id', itemId)
-    .single()
+    .eq('invoice_id', invoiceId)
+    .maybeSingle()
 
   if (!currentItem) {
     throw new Error('Invoice item not found')
@@ -533,6 +536,7 @@ export async function updateInvoiceItem(
       sort_order: updates.sort_order ?? currentItem.sort_order,
     })
     .eq('id', itemId)
+    .eq('invoice_id', invoiceId)
     .select()
     .single()
 
@@ -547,17 +551,19 @@ export async function updateInvoiceItem(
 }
 
 /**
- * Delete a line item from a draft invoice.
+ * Delete a line item from a draft invoice. `invoiceId` must be an invoice the caller already verified.
  */
 export async function deleteInvoiceItem(
   supabase: SupabaseClient,
+  invoiceId: string,
   itemId: string
 ): Promise<void> {
   const { data: item } = await supabase
     .from('job_invoice_items')
     .select('invoice_id, job_invoices!inner(status)')
     .eq('id', itemId)
-    .single()
+    .eq('invoice_id', invoiceId)
+    .maybeSingle()
 
   if (!item) {
     throw new Error('Invoice item not found')
@@ -571,6 +577,7 @@ export async function deleteInvoiceItem(
     .from('job_invoice_items')
     .delete()
     .eq('id', itemId)
+    .eq('invoice_id', invoiceId)
 
   if (error) {
     throw new Error(`Failed to delete invoice item: ${error.message}`)
