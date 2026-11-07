@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import nodemailer from 'nodemailer'
 import { getCrmEmailFrom } from '@/lib/crm-email-from'
+import { escapeHtml } from '@/lib/html'
+
+// Public form: every field is escaped before it goes into the HTML email (security audit M4).
+const esc = (v: unknown) => escapeHtml(v == null ? '' : String(v))
+const PLAIN_EMAIL = /^[^\s@<>,;"]+@[^\s@<>,;"]+\.[^\s@<>,;"]+$/
 
 export async function POST(request: NextRequest) {
   try {
@@ -16,11 +21,15 @@ export async function POST(request: NextRequest) {
       howDidYouHear,
     } = body
 
+    if (![firstName, lastName, email, phone, companyName].every((v) => typeof v === 'string')) {
+      return NextResponse.json({ error: 'Invalid request' }, { status: 400 })
+    }
+
     if (!firstName?.trim() || !lastName?.trim()) {
       return NextResponse.json({ error: 'Name is required' }, { status: 400 })
     }
 
-    if (!email?.trim()) {
+    if (!email?.trim() || !PLAIN_EMAIL.test(email.trim())) {
       return NextResponse.json({ error: 'Email is required' }, { status: 400 })
     }
 
@@ -56,38 +65,38 @@ export async function POST(request: NextRequest) {
           <table style="width: 100%; border-collapse: collapse;">
             <tr>
               <td style="padding: 12px 0; border-bottom: 1px solid #e5e7eb; font-weight: 600; color: #6b7280; width: 140px;">Name:</td>
-              <td style="padding: 12px 0; border-bottom: 1px solid #e5e7eb; color: #1f2937;">${firstName} ${lastName}</td>
+              <td style="padding: 12px 0; border-bottom: 1px solid #e5e7eb; color: #1f2937;">${esc(firstName)} ${esc(lastName)}</td>
             </tr>
             <tr>
               <td style="padding: 12px 0; border-bottom: 1px solid #e5e7eb; font-weight: 600; color: #6b7280;">Email:</td>
               <td style="padding: 12px 0; border-bottom: 1px solid #e5e7eb;">
-                <a href="mailto:${email}" style="color: #4f46e5; text-decoration: none;">${email}</a>
+                <a href="mailto:${esc(email.trim())}" style="color: #4f46e5; text-decoration: none;">${esc(email.trim())}</a>
               </td>
             </tr>
             <tr>
               <td style="padding: 12px 0; border-bottom: 1px solid #e5e7eb; font-weight: 600; color: #6b7280;">Phone:</td>
               <td style="padding: 12px 0; border-bottom: 1px solid #e5e7eb;">
-                <a href="tel:${phone}" style="color: #4f46e5; text-decoration: none;">${phone}</a>
+                <a href="tel:${esc(phone)}" style="color: #4f46e5; text-decoration: none;">${esc(phone)}</a>
               </td>
             </tr>
             <tr>
               <td style="padding: 12px 0; border-bottom: 1px solid #e5e7eb; font-weight: 600; color: #6b7280;">Company:</td>
-              <td style="padding: 12px 0; border-bottom: 1px solid #e5e7eb; color: #1f2937; font-weight: 600;">${companyName}</td>
+              <td style="padding: 12px 0; border-bottom: 1px solid #e5e7eb; color: #1f2937; font-weight: 600;">${esc(companyName)}</td>
             </tr>
             <tr>
               <td style="padding: 12px 0; border-bottom: 1px solid #e5e7eb; font-weight: 600; color: #6b7280;">Team Size:</td>
-              <td style="padding: 12px 0; border-bottom: 1px solid #e5e7eb; color: #1f2937;">${teamSize}</td>
+              <td style="padding: 12px 0; border-bottom: 1px solid #e5e7eb; color: #1f2937;">${esc(teamSize)}</td>
             </tr>
             ${currentCrm ? `
             <tr>
               <td style="padding: 12px 0; border-bottom: 1px solid #e5e7eb; font-weight: 600; color: #6b7280;">Current CRM:</td>
-              <td style="padding: 12px 0; border-bottom: 1px solid #e5e7eb; color: #1f2937;">${currentCrm}</td>
+              <td style="padding: 12px 0; border-bottom: 1px solid #e5e7eb; color: #1f2937;">${esc(currentCrm)}</td>
             </tr>
             ` : ''}
             ${howDidYouHear ? `
             <tr>
               <td style="padding: 12px 0; border-bottom: 1px solid #e5e7eb; font-weight: 600; color: #6b7280;">How they heard:</td>
-              <td style="padding: 12px 0; border-bottom: 1px solid #e5e7eb; color: #1f2937;">${howDidYouHear}</td>
+              <td style="padding: 12px 0; border-bottom: 1px solid #e5e7eb; color: #1f2937;">${esc(howDidYouHear)}</td>
             </tr>
             ` : ''}
           </table>
@@ -114,7 +123,7 @@ export async function POST(request: NextRequest) {
       to: 'nathan@arxroofing.com',
       subject,
       html: htmlContent,
-      replyTo: email,
+      replyTo: email.trim(),
     })
 
     return NextResponse.json({ success: true })

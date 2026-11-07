@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { timingSafeEqual } from 'node:crypto'
 import nodemailer from 'nodemailer'
+import { profileAllowedOnThisDeployment } from '@/lib/auth'
+import { escapeHtml } from '@/lib/html'
 import { getCrmEmailFrom } from '@/lib/crm-email-from'
 import { createServiceClient } from '@/lib/supabase/service'
 
@@ -53,6 +56,35 @@ type LeadSourceConfig = {
   auto_assign_user_id: string | null
   webhook_enabled: boolean
   is_active: boolean
+}
+
+function secretMatches(given: string | null | undefined, expected: string): boolean {
+  const a = Buffer.from(given ?? '')
+  const b = Buffer.from(expected)
+  return a.length === b.length && timingSafeEqual(a, b)
+}
+
+/**
+ * Which org a request may write to (security audit C5, 2026-11-07). Fails closed:
+ * - A lead source token (`?token=` / `x-webhook-token`, `lead_sources.webhook_token`) is the normal way; the org is
+ *   the token's org and the body cannot change it.
+ * - Without a token, the shared key (`WEBHOOK_SECRET` / `LEADS_WEBHOOK_SECRET`, Bearer or x-api-key) only works on a
+ *   copy that sets `DEPLOYMENT_ORG_ID`, and only writes to that org. No key configured → 503; never open.
+ */
+function resolveSharedKeyOrg(
+  providedKey: string | null | undefined,
+  bodyOrgId: unknown
+): { orgId: string } | { status: 401 | 403 | 503; error: string } {
+  const webhookSecret = process.env.WEBHOOK_SECRET || process.env.LEADS_WEBHOOK_SECRET
+  const deploymentOrgId = process.env.DEPLOYMENT_ORG_ID?.trim()
+  if (!webhookSecret || !deploymentOrgId) {
+    return { status: 503, error: 'Use a lead source webhook URL (with ?token=) for this endpoint.' }
+  }
+  if (!secretMatches(providedKey, webhookSecret)) return { status: 401, error: 'Unauthorized' }
+  if (bodyOrgId != null && bodyOrgId !== '' && bodyOrgId !== deploymentOrgId) {
+    return { status: 403, error: 'org_id does not match this deployment' }
+  }
+  return { orgId: deploymentOrgId }
 }
 
 function pickMappedField(body: Record<string, any>, mapping: Record<string, string> | null | undefined, target: string) {
@@ -203,7 +235,6 @@ export async function POST(request: NextRequest) {
     const authHeader = request.headers.get('authorization')
     const apiKey = request.headers.get('x-api-key')
     const sourceToken = request.nextUrl.searchParams.get('token') || request.headers.get('x-webhook-token')
-    const webhookSecret = process.env.WEBHOOK_SECRET || process.env.LEADS_WEBHOOK_SECRET
 
     let leadSource: LeadSourceConfig | null = null
     if (sourceToken) {
@@ -223,32 +254,24 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'Webhook is disabled for this lead source' }, { status: 403, headers: cors })
       }
 
+      if (!profileAllowedOnThisDeployment(data.org_id)) {
+        return NextResponse.json({ error: 'Invalid webhook token' }, { status: 401, headers: cors })
+      }
+
       leadSource = data as LeadSourceConfig
     }
 
-    const providedKey = authHeader?.replace('Bearer ', '') || apiKey
-    if (webhookSecret && !leadSource && (!providedKey || providedKey !== webhookSecret)) {
-      console.error('Invalid or missing API key')
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: cors })
-    }
-    
-    // Extract org_id first (required)
-    const org_id = leadSource?.org_id || body.org_id || body.orgId || body.organization_id
-
-    if (!org_id) {
-      console.error('Missing org_id in payload')
-      return NextResponse.json({
-        error: 'org_id is required unless using a lead source webhook token.'
-      }, { status: 400, headers: cors })
-    }
-
-    // Validate org_id format (should be a UUID)
-    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-    if (!uuidRegex.test(org_id)) {
-      console.error('Invalid org_id format:', org_id)
-      return NextResponse.json({
-        error: 'Invalid org_id format. Must be a valid UUID.'
-      }, { status: 400, headers: cors })
+    let org_id: string
+    if (leadSource) {
+      org_id = leadSource.org_id
+    } else {
+      const providedKey = authHeader?.replace(/^Bearer\s+/i, '') || apiKey
+      const shared = resolveSharedKeyOrg(providedKey, body.org_id ?? body.orgId ?? body.organization_id)
+      if ('status' in shared) {
+        console.error('Lead webhook rejected:', shared.status)
+        return NextResponse.json({ error: shared.error }, { status: shared.status, headers: cors })
+      }
+      org_id = shared.orgId
     }
 
     // Verify org exists
@@ -258,16 +281,9 @@ export async function POST(request: NextRequest) {
       .eq('id', org_id)
       .single()
 
-    if (orgError) {
-      console.error('Org lookup error:', orgError)
-      return NextResponse.json({
-        error: `Failed to verify org: ${orgError.message}`
-      }, { status: 500, headers: cors })
-    }
-
-    if (!org) {
-      console.error('Org not found for id:', org_id)
-      return NextResponse.json({ error: 'Invalid org_id - organization not found' }, { status: 400, headers: cors })
+    if (orgError || !org) {
+      console.error('Org lookup error:', org_id, orgError)
+      return NextResponse.json({ error: 'Failed to verify organization' }, { status: 500, headers: cors })
     }
 
     console.log('Found org:', org.id)
@@ -397,9 +413,7 @@ export async function POST(request: NextRequest) {
 
     if (leadError) {
       console.error('Lead creation error:', leadError)
-      return NextResponse.json({
-        error: `Failed to create lead: ${leadError.message}`
-      }, { status: 500, headers: cors })
+      return NextResponse.json({ error: 'Failed to create lead' }, { status: 500, headers: cors })
     }
 
     if (!lead) {
@@ -468,6 +482,7 @@ export async function POST(request: NextRequest) {
       const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://arx-internal-crm.vercel.app'
       const leadUrl = `${appUrl}/leads/${lead.id}`
       const sourceLabel = String(source || 'web')
+      const h = (v: unknown, fallback: string) => escapeHtml(String(v || fallback))
 
       const transporter = getMailTransport()
       await transporter.sendMail({
@@ -478,12 +493,12 @@ export async function POST(request: NextRequest) {
         html: `
           <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto; padding: 20px;">
             <h2 style="margin: 0 0 12px; color: #111827;">New Inbound Lead</h2>
-            <p style="color: #374151; margin: 0 0 10px;"><strong>Source:</strong> ${sourceLabel}</p>
-            <p style="color: #374151; margin: 0 0 6px;"><strong>Lead Name:</strong> ${fullName || 'Unknown'}</p>
-            <p style="color: #374151; margin: 0 0 6px;"><strong>Address:</strong> ${fullAddress || 'TBD'}</p>
-            <p style="color: #374151; margin: 0 0 10px;"><strong>Phone:</strong> ${phone || 'N/A'}</p>
+            <p style="color: #374151; margin: 0 0 10px;"><strong>Source:</strong> ${h(sourceLabel, 'web')}</p>
+            <p style="color: #374151; margin: 0 0 6px;"><strong>Lead Name:</strong> ${h(fullName, 'Unknown')}</p>
+            <p style="color: #374151; margin: 0 0 6px;"><strong>Address:</strong> ${h(fullAddress, 'TBD')}</p>
+            <p style="color: #374151; margin: 0 0 10px;"><strong>Phone:</strong> ${h(phone, 'N/A')}</p>
             <p style="margin: 0;">
-              <a href="${leadUrl}" style="color: #4f46e5; text-decoration: none;">Open lead in CRM</a>
+              <a href="${escapeHtml(leadUrl)}" style="color: #4f46e5; text-decoration: none;">Open lead in CRM</a>
             </p>
           </div>
         `,
@@ -500,11 +515,7 @@ export async function POST(request: NextRequest) {
     }, { headers: cors })
   } catch (error) {
     console.error('Webhook error:', error)
-    const errorMessage = error instanceof Error ? error.message : 'Failed to process lead'
-    return NextResponse.json({
-      error: errorMessage,
-      details: error instanceof Error ? error.stack : undefined
-    }, { status: 500, headers: cors })
+    return NextResponse.json({ error: 'Failed to process lead' }, { status: 500, headers: cors })
   }
 }
 
@@ -515,10 +526,8 @@ export async function GET(request: NextRequest) {
     endpoint: '/api/webhooks/leads',
     method: 'POST',
     description: 'Webhook endpoint for receiving leads from external sources',
-    authentication: 'Use a lead source URL with ?token=..., or Bearer/x-api-key when WEBHOOK_SECRET is configured. If no secret is configured, org_id payload intake is allowed.',
-    required_fields: ['org_id unless using a lead source token'],
+    authentication: 'Use the lead source URL with ?token=... (Settings > Campaigns & lead sources). A shared Bearer/x-api-key works only on a single-company copy (DEPLOYMENT_ORG_ID) and writes to that company.',
     field_mappings: {
-      org_id: ['org_id', 'orgId', 'organization_id'],
       name: ['name', 'full_name', 'fullName', 'homeowner_name', 'customer_name', 'first_name + last_name'],
       first_name: ['first_name', 'firstName', 'firstname', 'fname', 'given_name'],
       last_name: ['last_name', 'lastName', 'lastname', 'lname', 'family_name', 'surname'],
@@ -534,7 +543,6 @@ export async function GET(request: NextRequest) {
     },
     example_payloads: {
       with_full_name: {
-        org_id: 'your-org-uuid',
         name: 'John Smith',
         phone: '555-123-4567',
         email: 'john@example.com',
@@ -542,7 +550,6 @@ export async function GET(request: NextRequest) {
         message: 'I need a roof inspection',
       },
       with_separate_names: {
-        org_id: 'your-org-uuid',
         first_name: 'John',
         last_name: 'Smith',
         phone: '555-123-4567',
@@ -554,7 +561,6 @@ export async function GET(request: NextRequest) {
         message: 'I need a roof inspection',
       },
       camelCase_format: {
-        orgId: 'your-org-uuid',
         firstName: 'John',
         lastName: 'Smith',
         phoneNumber: '555-123-4567',
