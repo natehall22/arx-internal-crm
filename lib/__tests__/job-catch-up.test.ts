@@ -6,6 +6,7 @@ import {
   catchUpAgeLabel,
   deriveNextStep,
   jobEvents,
+  noteIsMovement,
   tradeEvents,
   type CatchUpFacts,
   type CatchUpNote,
@@ -21,6 +22,7 @@ import { deriveMaterialsState } from '@/lib/job-materials-state'
 import { tradeLabel } from '@/lib/org-trades'
 import type { HealthProblem } from '@/lib/data-health'
 import { workingDaysBetweenDateOnly } from '@/lib/schedule-window'
+import { noteSource } from '@/lib/job-catch-up-db'
 
 // 2026-11-06 15:00 UTC = 10:00 Eastern, Friday.
 const NOW = new Date('2026-11-06T15:00:00Z')
@@ -142,6 +144,17 @@ describe('buildJobCatchUp', () => {
   it('owner is only the explicit owner: never the crew, never the last writer', () => {
     expect(buildJobCatchUp(facts({ job: { id: 'j', status: 'scheduled', created_at: '2026-11-05T12:00:00Z', owner_user_id: null }, trades: [trade()], notes: [note()] })).owner).toBe('No owner')
   })
+  it('a storm note on a sold customer is not job movement and is not shown', () => {
+    // Exactly what the storm cron writes on a won deal (type note, origin system, no user).
+    const from = noteSource({ origin: 'system', type: 'note', user_id: null })
+    expect(from).toBe('automated')
+    const storm: CatchUpNote = { id: 's1', at: '2026-11-06T10:15:00Z', who: null, type: 'note', text: 'Storm over this customer\'s roof', from } as CatchUpNote
+    expect(noteIsMovement(storm)).toBe(false)
+    const c = buildJobCatchUp(facts({ job: { id: 'j', status: 'materials', created_at: '2026-10-28T16:00:00Z' }, notes: [storm] }))
+    expect(c.stuck).toBe(true)
+    expect(c.idleWorkingDays).toBe(7)
+  })
+
   it('stuck when nothing moved for N WORKING days (inclusive), amber reason says how long', () => {
     // Wed Oct 28 → Fri Nov 6 = 7 working days (9 calendar days).
     const idle = buildJobCatchUp(facts({ job: { id: 'j', status: 'materials', created_at: '2026-10-28T16:00:00Z' } }))

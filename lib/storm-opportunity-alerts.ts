@@ -394,6 +394,13 @@ export function buildStormActivityNote(match: StormMatchResult): string {
   return `Recent storm activity (${mag}) on ${dateLabel} — ${formatStormProximityLabel(match)}. Property may have been impacted — free inspection available (est.).`
 }
 
+/** Note on a sold customer's deal: a service call, not a sales pitch. */
+export function buildStormCustomerNote(match: StormMatchResult): string {
+  const dateLabel = formatStormEventDateLabel(match.eventDate)
+  const mag = formatStormMagnitudeLabel(match.layer, match)
+  return `Storm over this customer's roof (${mag}) on ${dateLabel} — ${formatStormProximityLabel(match)}. Check for damage or a new claim.`
+}
+
 export function buildStormNotificationBody(match: StormMatchResult, customerName: string): string {
   const dateLabel = formatStormEventDateLabel(match.eventDate)
   const mag = formatStormMagnitudeLabel(match.layer, match)

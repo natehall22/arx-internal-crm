@@ -6,6 +6,7 @@ import {
   filterStormSwathsForAlerts,
   isLostStormCandidate,
   isRepWorkingStormGrace,
+  buildStormCustomerNote,
   isStormCustomer,
   isStormOpportunityEligible,
   isStormReportWithinEtLookback,
@@ -182,6 +183,17 @@ describe('storm opportunity eligibility', () => {
     expect(isStormCustomer('open')).toBe(false)
     expect(isStormOpportunityEligible(candidate, coords, DEFAULT_WEATHER_FOOTPRINT, [])).toBe(true)
     expect(isStormOpportunityEligible(candidate, { lat: 0, lng: 0 }, DEFAULT_WEATHER_FOOTPRINT, [])).toBe(false)
+  })
+
+  it('customer note is a service call, not sales copy', () => {
+    const note = buildStormCustomerNote({
+      opportunity: baseCandidate({ status: 'won' }),
+      layer: 'hail', magnitude: 1.25, damage: false, eventDate: '2026-11-05',
+      distanceMiles: 0.4, source: 'report', stormLat: 35.4, stormLng: -80.6,
+    } as any)
+    expect(note).toContain("Storm over this customer's roof")
+    expect(note).toContain('new claim')
+    expect(note).not.toContain('free inspection')
   })
 
   it('rejects lost opportunities that already signed installation agreement', () => {

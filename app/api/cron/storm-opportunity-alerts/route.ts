@@ -5,6 +5,7 @@ import { isInsideSalesRoleLike } from '@/lib/inside-sales-follow-up'
 import { footprintFromEnv } from '@/lib/weather-footprint'
 import {
   buildStormActivityNote,
+  buildStormCustomerNote,
   buildStormNotificationBody,
   buildStormNotificationTitle,
   filterStormReportsForAlerts,
@@ -330,14 +331,16 @@ export async function GET(request: NextRequest) {
       const allowSideEffects = skipRouting || didRoute
 
       if (!processedAt && allowSideEffects) {
-        const activityBody = buildStormActivityNote(match)
+        // A customer's note is a system note for the sales side: a status_change would read as progress on their job
+        // (job catch-up counts status changes as movement) and the sales copy ("free inspection") doesn't fit a sold roof.
         const { error: activityError } = await admin.from('activities').insert({
           org_id: match.opportunity.org_id,
           opportunity_id: match.opportunity.id,
           lead_id: match.opportunity.lead_id,
           user_id: null,
-          type: 'status_change',
-          body: activityBody,
+          ...(isCustomer
+            ? { type: 'note', origin: 'system', audience: 'sales', body: buildStormCustomerNote(match) }
+            : { type: 'status_change', body: buildStormActivityNote(match) }),
         })
 
         let notificationError: unknown = null
