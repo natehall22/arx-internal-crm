@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { requireAuthApi, type AuthContext } from '@/lib/auth'
 import { isOrgSuperuserRoleSlug } from '@/lib/permissions'
 import { getCrmEmailFrom, getMailTransport } from '@/lib/setter-email'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -9,78 +9,41 @@ export const dynamic = 'force-dynamic'
 export const revalidate = 0
 export const fetchCache = 'force-no-store'
 
-function getSessionFromRequest(req: NextRequest) {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const projectRef = supabaseUrl.match(/https:\/\/([^.]+)\./)?.[1] || ''
-  const cookieName = `sb-${projectRef}-auth-token`
-  
-  const singleCookie = req.cookies.get(cookieName)
-  if (singleCookie?.value) {
-    try {
-      const decoded = decodeURIComponent(singleCookie.value)
-      return JSON.parse(decoded)
-    } catch {
-      return null
-    }
-  }
-  
-  const chunks: string[] = []
-  let i = 0
-  while (true) {
-    const chunk = req.cookies.get(`${cookieName}.${i}`)
-    if (!chunk?.value) break
-    chunks.push(chunk.value)
-    i++
-  }
-  
-  if (chunks.length > 0) {
-    try {
-      const decoded = decodeURIComponent(chunks.join(''))
-      return JSON.parse(decoded)
-    } catch {
-      return null
-    }
-  }
-  
-  return null
-}
+type OrgRefs = { custom_role_id?: unknown; team_id?: unknown; region_id?: unknown; manager_user_id?: unknown }
+const ORG_REF_TABLES: Array<[keyof OrgRefs, string]> = [
+  ['custom_role_id', 'custom_roles'],
+  ['team_id', 'teams'],
+  ['region_id', 'regions'],
+  ['manager_user_id', 'users'],
+]
 
-function getAuthClient(req: NextRequest) {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  const sessionData = getSessionFromRequest(req)
-  
-  return {
-    client: createClient(supabaseUrl, supabaseKey, {
-      auth: { autoRefreshToken: false, persistSession: false },
-      global: sessionData?.access_token
-        ? { headers: { Authorization: `Bearer ${sessionData.access_token}` } }
-        : undefined,
-    }),
-    accessToken: sessionData?.access_token,
+/** Every role/team/region/manager id in a user write must be a row of the caller's org (security audit H1). */
+async function foreignOrgRef(
+  adminClient: ReturnType<typeof createServiceClient>,
+  orgId: string,
+  refs: OrgRefs
+): Promise<string | null> {
+  for (const [field, table] of ORG_REF_TABLES) {
+    const value = refs[field]
+    if (!value) continue
+    if (typeof value !== 'string') return field
+    const { data } = await adminClient.from(table).select('id').eq('id', value).eq('org_id', orgId).maybeSingle()
+    if (!data) return field
   }
+  return null
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const { client: authClient, accessToken } = getAuthClient(request)
-    
-    if (!accessToken) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-    
-    const { data: { user } } = await authClient.auth.getUser(accessToken)
-    if (!user) {
+    let user: AuthContext['authUser']
+    let profile: AuthContext['profile']
+    try {
+      ;({ authUser: user, profile } = await requireAuthApi())
+    } catch {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
     const adminClient = createServiceClient()
-
-    const { data: profile } = await adminClient
-      .from('users')
-      .select('role, org_id')
-      .eq('id', user.id)
-      .single()
 
     if (
       !profile ||
@@ -120,6 +83,15 @@ export async function POST(request: NextRequest) {
     
     if (targetOrgId !== profile.org_id) {
       return NextResponse.json({ error: 'Cannot create users in a different organization' }, { status: 403 })
+    }
+
+    if (isOrgSuperuserRoleSlug(role) && !isOrgSuperuserRoleSlug(profile.role)) {
+      return NextResponse.json({ error: 'Only an admin can create an admin' }, { status: 403 })
+    }
+
+    const badRef = await foreignOrgRef(adminClient, profile.org_id, { custom_role_id, team_id, region_id, manager_user_id })
+    if (badRef) {
+      return NextResponse.json({ error: `Invalid ${badRef}` }, { status: 400 })
     }
 
     const { data: authData, error: authError } = await adminClient.auth.admin.createUser({
@@ -203,28 +175,15 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
-    const { client: authClient, accessToken } = getAuthClient(request)
-    
-    if (!accessToken) {
-      return NextResponse.json({ error: 'Unauthorized - no token' }, { status: 401 })
-    }
-    
-    const { data: { user }, error: userError } = await authClient.auth.getUser(accessToken)
-    if (userError || !user) {
-      return NextResponse.json({ error: `Unauthorized - ${userError?.message || 'no user'}` }, { status: 401 })
+    let user: AuthContext['authUser']
+    let profile: AuthContext['profile']
+    try {
+      ;({ authUser: user, profile } = await requireAuthApi())
+    } catch {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
     const adminClient = createServiceClient()
-
-    const { data: profile, error: profileError } = await adminClient
-      .from('users')
-      .select('role, org_id')
-      .eq('id', user.id)
-      .single()
-
-    if (profileError || !profile) {
-      return NextResponse.json({ error: `Profile not found: ${profileError?.message || 'no data'}` }, { status: 404 })
-    }
 
     // Get users with all related data (without self-join for manager)
     const { data: users, error } = await adminClient
@@ -295,24 +254,15 @@ export async function GET(request: NextRequest) {
 
 // PUT - Update a user
 export async function PUT(request: NextRequest) {
-  const { client: authClient, accessToken } = getAuthClient(request)
-  
-  if (!accessToken) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-  
-  const { data: { user } } = await authClient.auth.getUser(accessToken)
-  if (!user) {
+  let user: AuthContext['authUser']
+  let profile: AuthContext['profile']
+  try {
+    ;({ authUser: user, profile } = await requireAuthApi())
+  } catch {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
   const adminClient = createServiceClient()
-
-  const { data: profile } = await adminClient
-    .from('users')
-    .select('role, org_id')
-    .eq('id', user.id)
-    .single()
 
   if (
     !profile ||
@@ -334,12 +284,38 @@ export async function PUT(request: NextRequest) {
   // Verify target user is in same org
   const { data: targetUser } = await adminClient
     .from('users')
-    .select('org_id, email')
+    .select('org_id, email, role, custom_role_id')
     .eq('id', id)
     .single()
 
   if (!targetUser || targetUser.org_id !== profile.org_id) {
     return NextResponse.json({ error: 'User not found' }, { status: 404 })
+  }
+
+  // Security audit H1 (2026-11-07): managers may edit users, but not admins/owners, not roles, and nobody
+  // changes their own role or switches themselves off.
+  const callerIsSuperuser = isOrgSuperuserRoleSlug(profile.role)
+  const isSelf = id === user.id
+  if (!callerIsSuperuser && isOrgSuperuserRoleSlug(targetUser.role)) {
+    return NextResponse.json({ error: 'Only an admin can edit an admin' }, { status: 403 })
+  }
+  if (role !== undefined && role !== targetUser.role) {
+    if (!callerIsSuperuser) {
+      return NextResponse.json({ error: 'Only an admin can change roles' }, { status: 403 })
+    }
+    if (isSelf) {
+      return NextResponse.json({ error: 'You cannot change your own role' }, { status: 403 })
+    }
+  }
+  if (isSelf && custom_role_id !== undefined && (custom_role_id || null) !== (targetUser.custom_role_id ?? null)) {
+    return NextResponse.json({ error: 'You cannot change your own role' }, { status: 403 })
+  }
+  if (isSelf && active === false) {
+    return NextResponse.json({ error: 'You cannot deactivate yourself' }, { status: 403 })
+  }
+  const badRef = await foreignOrgRef(adminClient, profile.org_id, { custom_role_id, team_id, region_id, manager_user_id })
+  if (badRef) {
+    return NextResponse.json({ error: `Invalid ${badRef}` }, { status: 400 })
   }
 
   // Handle email change - requires updating Supabase Auth
@@ -369,7 +345,8 @@ export async function PUT(request: NextRequest) {
 
     if (authUpdateError) {
       console.error('Auth email update error:', authUpdateError)
-      return NextResponse.json({ error: `Failed to update email: ${authUpdateError.message}` }, { status: 500 })
+      console.error('admin/users: email update failed:', authUpdateError.message)
+      return NextResponse.json({ error: 'Failed to update email' }, { status: 500 })
     }
   }
 
@@ -392,9 +369,11 @@ export async function PUT(request: NextRequest) {
     .from('users')
     .update(updateData)
     .eq('id', id)
+    .eq('org_id', profile.org_id)
 
   if (updateError) {
-    return NextResponse.json({ error: updateError.message }, { status: 500 })
+    console.error('Update user error:', updateError)
+    return NextResponse.json({ error: 'Failed to update user' }, { status: 500 })
   }
 
   if (active !== undefined) {
@@ -421,24 +400,15 @@ export async function PUT(request: NextRequest) {
 // DELETE - Delete a user
 export async function DELETE(request: NextRequest) {
   try {
-    const { client: authClient, accessToken } = getAuthClient(request)
-    
-    if (!accessToken) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-    
-    const { data: { user } } = await authClient.auth.getUser(accessToken)
-    if (!user) {
+    let user: AuthContext['authUser']
+    let profile: AuthContext['profile']
+    try {
+      ;({ authUser: user, profile } = await requireAuthApi())
+    } catch {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
     const adminClient = createServiceClient()
-
-    const { data: profile } = await adminClient
-      .from('users')
-      .select('role, org_id')
-      .eq('id', user.id)
-      .single()
 
     if (!profile || !isOrgSuperuserRoleSlug(profile.role)) {
       return NextResponse.json({ error: 'Forbidden - Admin access required' }, { status: 403 })
@@ -503,24 +473,15 @@ export async function DELETE(request: NextRequest) {
 // PATCH - Send password reset email
 export async function PATCH(request: NextRequest) {
   try {
-    const { client: authClient, accessToken } = getAuthClient(request)
-    
-    if (!accessToken) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-    
-    const { data: { user } } = await authClient.auth.getUser(accessToken)
-    if (!user) {
+    let user: AuthContext['authUser']
+    let profile: AuthContext['profile']
+    try {
+      ;({ authUser: user, profile } = await requireAuthApi())
+    } catch {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
     const adminClient = createServiceClient()
-
-    const { data: profile } = await adminClient
-      .from('users')
-      .select('role, org_id')
-      .eq('id', user.id)
-      .single()
 
     if (
       !profile ||

@@ -1,8 +1,37 @@
 /** @type {import('next').NextConfig} */
 const payWeekOn = String(process.env.PAYROLL_PAY_WEEK_ENABLED || '').toLowerCase().trim() === 'true'
 
+// Security headers (audit M3, 2026-11-07). No script CSP on purpose (Maps, PDFs, inline styles); framing is limited to
+// our own origin because job sheets, supplier orders and signed contracts preview same-origin PDFs in an iframe.
+const BASE_SECURITY_HEADERS = [
+  { key: 'X-Content-Type-Options', value: 'nosniff' },
+  { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+  { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
+  { key: 'Content-Security-Policy', value: "frame-ancestors 'self'" },
+]
+// Pages opened from a secret link (signing, customer report, crew photos): the token must never leave in a Referer
+// header, and nothing may frame them (clickjacking a signature). Later entries override the base for the same key.
+const TOKEN_PAGE_HEADERS = [
+  { key: 'Referrer-Policy', value: 'no-referrer' },
+  { key: 'X-Frame-Options', value: 'DENY' },
+  { key: 'Content-Security-Policy', value: "frame-ancestors 'none'" },
+]
+const TOKEN_PAGE_SOURCES = [
+  '/contracts/:path*', // /contracts/sign/<token>, /contracts/<token>, /contracts/<token>/rep
+  '/change-orders/sign/:path*',
+  '/comp-agreements/:path*', // sign/<token>, receipt/<token>
+  '/r/:path*',
+  '/crew/:path*',
+]
+
 const nextConfig = {
   reactStrictMode: true,
+  async headers() {
+    return [
+      { source: '/:path*', headers: BASE_SECURITY_HEADERS },
+      ...TOKEN_PAGE_SOURCES.map((source) => ({ source, headers: TOKEN_PAGE_HEADERS })),
+    ]
+  },
   async redirects() {
     return [
       // Payroll is one screen now ("Pay this week"); the old pages were folded into it. Only once PAYROLL_PAY_WEEK_ENABLED is on — until then the old pages stay.

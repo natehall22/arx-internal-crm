@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 import { isOrgSuperuserRoleSlug } from '@/lib/permissions'
-import { actorIsOwner, isMoneyPermissionName, lockMoneyPermissions, moneyPermissionIds } from '@/lib/money-permission-guard'
+import { actorIsOwner, isMoneyPermissionName } from '@/lib/money-permission-guard'
 
 // GET - Check if current user has a specific permission
 export async function GET(request: NextRequest) {
@@ -49,12 +48,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  // Deliberately the RLS-bound client, not the service client: 029_user_permissions.sql
-  // gates writes to this table on `org_id = get_user_org_id(auth.uid())` AND the caller's
-  // role, and that policy is the backstop for the grant/revoke path. A service client
-  // would bypass it — and would also silently widen access, since the app check above
-  // admits `owner` while the DB policy does not.
-  const supabase = createClient()
+  // Service client (2026-11-07): RLS writes to user_permissions are being narrowed to admin/owner, so this
+  // route's own checks are the gate — role above, owner-only money permissions, same-org target user.
+  const supabase = createServiceClient()
 
   const body = await request.json()
   const { user_id, permission_name, notes } = body
@@ -75,7 +71,7 @@ export async function POST(request: NextRequest) {
   }
 
   // The two money permissions are owner-only (Settings > Money access).
-  if (isMoneyPermissionName(permission_name) && !(await actorIsOwner(createServiceClient(), profile.id))) {
+  if (isMoneyPermissionName(permission_name) && !(await actorIsOwner(supabase, profile.id))) {
     return NextResponse.json({ error: 'Only an owner can change money access' }, { status: 403 })
   }
 
@@ -104,7 +100,8 @@ export async function POST(request: NextRequest) {
     })
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    console.error('Permission write failed:', error)
+    return NextResponse.json({ error: 'Failed to update permission' }, { status: 500 })
   }
 
   return NextResponse.json({ success: true })
@@ -124,12 +121,9 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  // Deliberately the RLS-bound client, not the service client: 029_user_permissions.sql
-  // gates writes to this table on `org_id = get_user_org_id(auth.uid())` AND the caller's
-  // role, and that policy is the backstop for the grant/revoke path. A service client
-  // would bypass it — and would also silently widen access, since the app check above
-  // admits `owner` while the DB policy does not.
-  const supabase = createClient()
+  // Service client (2026-11-07): RLS writes to user_permissions are being narrowed to admin/owner, so this
+  // route's own checks are the gate — role above, owner-only money permissions, same-org target user.
+  const supabase = createServiceClient()
 
   const userId = request.nextUrl.searchParams.get('user_id')
   const permissionName = request.nextUrl.searchParams.get('permission_name')
@@ -150,13 +144,11 @@ export async function DELETE(request: NextRequest) {
   }
 
   // The two money permissions are owner-only (Settings > Money access).
-  if (isMoneyPermissionName(permissionName) && !(await actorIsOwner(createServiceClient(), profile.id))) {
+  if (isMoneyPermissionName(permissionName) && !(await actorIsOwner(supabase, profile.id))) {
     return NextResponse.json({ error: 'Only an owner can change money access' }, { status: 403 })
   }
 
-  // Verify target user is in the same org. RLS already confines the delete below to the
-  // caller's org, so this is defence in depth plus a clear 404 instead of a silent no-op;
-  // the grant path (POST) makes the same check.
+  // Verify target user is in the same org (the delete below is also org-filtered).
   const { data: targetUser } = await supabase
     .from('users')
     .select('org_id')
@@ -176,7 +168,8 @@ export async function DELETE(request: NextRequest) {
     .eq('permission_id', permissionData.id)
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    console.error('Permission write failed:', error)
+    return NextResponse.json({ error: 'Failed to update permission' }, { status: 500 })
   }
 
   return NextResponse.json({ success: true })

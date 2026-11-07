@@ -3,8 +3,23 @@ import { createClient } from '@supabase/supabase-js'
 import { createServiceClient } from '@/lib/supabase/service'
 import { stripPricebookCosts } from '@/lib/pricebook-costs'
 import { canSeeFinancials } from '@/lib/financials-access'
+import { mergeOrgSettings } from '@/lib/org-settings'
 
 export const dynamic = 'force-dynamic'
+
+// Body fields an edit may change. Never id, org_id or pricebook_id (security audit C2, 2026-11-07).
+const PRICEBOOK_EDITABLE = ['name'] as const
+const PRICEBOOK_ITEM_EDITABLE = [
+  'category', 'item_type', 'name', 'unit', 'unit_price', 'cost_price', 'is_labor', 'is_taxable', 'active',
+  'price_type', 'is_commissionable', 'commission_percent', 'commission_cap', 'material_cost', 'labor_cost',
+  'profit_margin_percent',
+] as const
+
+function pickEditable(data: Record<string, unknown>, keys: readonly string[]): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  for (const k of keys) if (k in data) out[k] = data[k]
+  return out
+}
 
 function getSessionFromRequest(req: NextRequest) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -217,6 +232,16 @@ export async function POST(request: NextRequest) {
     }
 
     if (type === 'item') {
+      const { data: pricebook } = await adminClient
+        .from('pricebooks')
+        .select('id')
+        .eq('id', data.pricebook_id)
+        .eq('org_id', profile.org_id)
+        .maybeSingle()
+      if (!pricebook) {
+        return NextResponse.json({ error: 'Pricebook not found' }, { status: 404 })
+      }
+
       const { data: item, error } = await adminClient
         .from('pricebook_items')
         .insert({
@@ -280,9 +305,13 @@ export async function PATCH(request: NextRequest) {
     const { type, id, ...data } = body
 
     if (type === 'pricebook') {
+      const updates = pickEditable(data, PRICEBOOK_EDITABLE)
+      if (Object.keys(updates).length === 0) {
+        return NextResponse.json({ error: 'Nothing to update' }, { status: 400 })
+      }
       const { error } = await adminClient
         .from('pricebooks')
-        .update(data)
+        .update(updates)
         .eq('id', id)
         .eq('org_id', profile.org_id)
 
@@ -313,10 +342,15 @@ export async function PATCH(request: NextRequest) {
     }
 
     if (type === 'item') {
+      const updates = pickEditable(data, PRICEBOOK_ITEM_EDITABLE)
+      if (Object.keys(updates).length === 0) {
+        return NextResponse.json({ error: 'Nothing to update' }, { status: 400 })
+      }
       const { error } = await adminClient
         .from('pricebook_items')
-        .update(data)
+        .update(updates)
         .eq('id', id)
+        .eq('org_id', profile.org_id)
 
       if (error) {
         return NextResponse.json({ error: error.message }, { status: 400 })
@@ -325,26 +359,14 @@ export async function PATCH(request: NextRequest) {
     }
 
     if (type === 'org_settings') {
-      const { data: org } = await adminClient
-        .from('orgs')
-        .select('settings')
-        .eq('id', profile.org_id)
-        .single()
-
-      const currentSettings = org?.settings || {}
-      
-      const { error } = await adminClient
-        .from('orgs')
-        .update({
-          settings: {
-            ...currentSettings,
-            ...data,
-          }
-        })
-        .eq('id', profile.org_id)
+      // Only the `pricing` key: the body used to be spread over every org setting (incl. super-admin-only brand).
+      if (data.pricing === undefined) {
+        return NextResponse.json({ error: 'Nothing to update' }, { status: 400 })
+      }
+      const { error } = await mergeOrgSettings(adminClient, profile.org_id, { pricing: data.pricing })
 
       if (error) {
-        return NextResponse.json({ error: error.message }, { status: 400 })
+        return NextResponse.json({ error: 'Failed to save pricing settings' }, { status: 400 })
       }
 
       // Auto-create/update default pricebook items based on pricing settings
@@ -503,6 +525,7 @@ export async function DELETE(request: NextRequest) {
         .from('pricebook_items')
         .delete()
         .eq('id', id)
+        .eq('org_id', profile.org_id)
 
       if (error) {
         return NextResponse.json({ error: error.message }, { status: 400 })
