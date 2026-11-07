@@ -386,9 +386,12 @@ export default function UsersPage() {
 
       if (response.ok) {
         await loadData()
+      } else {
+        const err = await response.json().catch(() => ({}))
+        toast.error(err.error || `Could not ${action} this user`)
       }
     } catch {
-      // Ignore errors
+      toast.error(`Could not ${action} this user`)
     }
   }
 

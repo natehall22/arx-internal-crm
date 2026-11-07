@@ -345,7 +345,8 @@ export async function PUT(request: NextRequest) {
 
     if (authUpdateError) {
       console.error('Auth email update error:', authUpdateError)
-      return NextResponse.json({ error: `Failed to update email: ${authUpdateError.message}` }, { status: 500 })
+      console.error('admin/users: email update failed:', authUpdateError.message)
+      return NextResponse.json({ error: 'Failed to update email' }, { status: 500 })
     }
   }
 
