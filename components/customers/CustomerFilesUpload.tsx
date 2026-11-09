@@ -94,10 +94,15 @@ export default function CustomerFilesUpload({ customerId }: { customerId: string
       try {
         await postJson(`${base}/finalize`, { fileId: uploaded.fileId, fileName: file.name })
       } catch (e) {
-        // Finalize removes the stored object on every failure it reports (400 missing/no size, 413 too big, 500 save failed),
-        // so the next retry must upload again. Only 401/404 (signed out / no access) and network errors leave it in place.
-        const keep = !(e instanceof UploadHttpError) || e.status === 401 || e.status === 404
-        if (!keep) patch(item.key, { uploaded: undefined })
+        // 409: a row with this id already exists — an earlier attempt saved it.
+        if (e instanceof UploadHttpError && e.status === 409) {
+          patch(item.key, { status: 'done' })
+          return
+        }
+        // 400 / 413 / 500 come from our finalize, which has removed the stored object: the next retry uploads again.
+        // Anything else (502/504 from the host, network drop, 401/404) may mean the save worked or nothing ran: keep
+        // `uploaded`, so the retry calls finalize again, which is idempotent (same id → same row).
+        if (e instanceof UploadHttpError && (e.status === 400 || e.status === 413 || e.status === 500)) patch(item.key, { uploaded: undefined })
         throw e
       }
       patch(item.key, { status: 'done' })

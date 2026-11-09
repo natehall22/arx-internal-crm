@@ -13,8 +13,9 @@ import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 import { isReferralManagerRole } from '@/lib/referral-links'
 import { projectStatusLabelForJobStatus } from '@/lib/job-status'
 import CustomerFilesList from '@/components/customers/CustomerFilesList'
-import { loadCustomerFiles } from '@/lib/customer-file/customer-files-access'
-import { resolveFieldOrSalesDocBarred } from '@/lib/sales-doc-access'
+import { customerFileUploadAccess, loadCustomerFilesForViewer } from '@/lib/customer-file/customer-files-access'
+import { resolveThreadViewer } from '@/lib/threads/viewer'
+import { isFieldRole } from '@/lib/threads/visibility'
 
 
 function resolveProjectDisplayStatus(project: any) {
@@ -137,17 +138,20 @@ export default async function CustomerDetailPage({
   const projectIds = (projects || []).map((project) => project.id)
   const opportunityIds = (opportunities || []).map((opportunity) => opportunity.id)
 
-  // THE customer file list (shared with the Customer File's Files tab); same scope as before: this customer plus its
-  // visible projects, deals and leads, through the viewer's RLS client.
-  const files = await loadCustomerFiles(supabase, {
-    orgId: profile.org_id,
-    customerId: params.id,
-    projectIds,
-    opportunityIds,
-    leadIds: leadIdsForCustomer,
-  })
-  // Same rule as the upload routes: field roles never add customer files (the page itself already needs customers:view).
-  const canAddFiles = activeTab === 'files' && !(await resolveFieldOrSalesDocBarred(createServiceClient(), profile))
+  // Customer files: the same viewer-based scope as the Customer File's Files tab (loadCustomerFilesForViewer), so a rep sees
+  // exactly the deals/projects/leads they can open there — never another rep's lead that happens to carry this customer_id.
+  // Field roles (incl. by custom-role name) and anyone barred from sales docs get no Files tab and no file query at all.
+  const admin = createServiceClient()
+  const fileViewer = await resolveThreadViewer(admin, profile)
+  const filesBarred = isFieldRole(fileViewer)
+  const visibleTabs = filesBarred ? tabs.filter((t) => t.id !== 'files') : tabs
+  const files = filesBarred
+    ? []
+    : await loadCustomerFilesForViewer(admin, fileViewer, params.id, { extraProjectIds: projectIds })
+  const canAddFiles =
+    activeTab === 'files' &&
+    !filesBarred &&
+    (await customerFileUploadAccess(admin, profile, params.id, { barred: filesBarred })).ok
 
   let activitiesQuery = supabase
     .from('activities')
@@ -193,7 +197,7 @@ export default async function CustomerDetailPage({
 
         <div className="mb-6 border-b border-gray-200">
           <nav className="-mb-px flex flex-wrap gap-4">
-            {tabs.map((tab) => (
+            {visibleTabs.map((tab) => (
               <Link
                 key={tab.id}
                 href={`/customers/${params.id}?tab=${tab.id}`}
@@ -251,10 +255,12 @@ export default async function CustomerDetailPage({
                   {opportunities?.length || 0}
                 </p>
               </div>
-              <div className="bg-white shadow rounded-lg p-6">
-                <h2 className="text-sm font-medium text-gray-500">Files</h2>
-                <p className="mt-2 text-2xl font-semibold text-gray-900">{files?.length || 0}</p>
-              </div>
+              {!filesBarred && (
+                <div className="bg-white shadow rounded-lg p-6">
+                  <h2 className="text-sm font-medium text-gray-500">Files</h2>
+                  <p className="mt-2 text-2xl font-semibold text-gray-900">{files.length}</p>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -407,7 +413,7 @@ export default async function CustomerDetailPage({
           </div>
         )}
 
-        {activeTab === 'files' && (
+        {activeTab === 'files' && !filesBarred && (
           <div className="bg-white shadow rounded-lg p-4 sm:p-6">
             <CustomerFilesList customerId={params.id} files={files} canAdd={canAddFiles} />
           </div>

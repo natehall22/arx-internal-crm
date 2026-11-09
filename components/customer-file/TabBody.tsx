@@ -13,8 +13,8 @@ import { loadCheckups } from '@/lib/checkups'
 import { formatDate } from '@/lib/format'
 import { isFileTab, type FileTab } from '@/lib/customer-file/access'
 import { loadFile } from '@/lib/customer-file/load'
-import { customerFileUploadAccess, loadCustomerFilesForDeals } from '@/lib/customer-file/customer-files-access'
-import { resolveFieldOrSalesDocBarred } from '@/lib/sales-doc-access'
+import { customerFileUploadAccess, loadCustomerFilesForViewer } from '@/lib/customer-file/customer-files-access'
+import { isFieldRole } from '@/lib/threads/visibility'
 import { createServiceClient } from '@/lib/supabase/service'
 import PhoneLink from '@/components/PhoneLink'
 
@@ -139,8 +139,8 @@ async function Overview({ customerId, dealId }: { customerId: string; dealId: st
 async function Files({ customerId, dealId }: { customerId: string; dealId: string }) {
   const ctx = await loadFile(customerId, dealId)
   const admin = createServiceClient()
-  // Field roles (incl. by custom-role name) never see customer files, even if a custom grant opened this tab: skip the card.
-  const fieldBarred = await resolveFieldOrSalesDocBarred(admin, ctx.profile)
+  // tabsFor already 404s the Files tab for field roles; this is the second lock, from the viewer we already have (no new lookups).
+  const fieldBarred = isFieldRole(ctx.viewer)
   const [{ data: contracts }, customerFiles, uploadAccess] = await Promise.all([
     admin
       .from('order_form_contracts')
@@ -148,11 +148,10 @@ async function Files({ customerId, dealId }: { customerId: string; dealId: strin
       .eq('opportunity_id', dealId)
       .eq('org_id', ctx.viewer.orgId)
       .order('created_at', { ascending: false }),
-    // Same list as the customer account page: customer-level files plus files on every deal this viewer can open
-    // (ctx.deals is already filtered by canOpenDeal) and on those deals' projects and leads.
-    fieldBarred ? Promise.resolve([]) : loadCustomerFilesForDeals(admin, ctx.viewer.orgId, customerId, ctx.deals.map((d) => d.id)),
+    // Same scope as the customer account page (loadCustomerFilesForViewer); ctx.deals is already the deals this viewer can open.
+    fieldBarred ? Promise.resolve([]) : loadCustomerFilesForViewer(admin, ctx.viewer, customerId, { openableDealIds: ctx.deals.map((d) => d.id) }),
     // Same rule as the upload routes, so the box only shows when an upload would be accepted.
-    fieldBarred ? Promise.resolve({ ok: false as const }) : customerFileUploadAccess(admin, ctx.profile, customerId),
+    fieldBarred ? Promise.resolve({ ok: false as const }) : customerFileUploadAccess(admin, ctx.profile, customerId, { barred: false }),
   ])
   return (
     <div className="space-y-4">

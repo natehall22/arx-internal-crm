@@ -7,7 +7,8 @@
  */
 import { createFakeDb } from '@/lib/test-helpers/fake-db'
 import { classifyFilesPath, fieldRoleMayReadFilesPath, filesObjectHref } from '@/lib/files/files-object'
-import { loadCustomerFiles, loadCustomerFilesForDeals } from '@/lib/customer-file/customer-files-access'
+import { loadCustomerFiles, loadCustomerFilesForViewer } from '@/lib/customer-file/customer-files-access'
+import type { ThreadViewer } from '@/lib/threads/visibility'
 import {
   CUSTOMER_FILE_MAX_BYTES,
   customerFileStoragePath,
@@ -245,11 +246,49 @@ describe('POST /api/customers/[id]/files/finalize', () => {
     expect(db.tables.files).toHaveLength(1)
   })
 
+  it('a duplicate-key insert never removes the stored object, even when the existing row cannot be read back', async () => {
+    as('u-admin', 'admin')
+    storageObjects.push({ folder, name: `${FID}_a.pdf`, size: 10, mimetype: 'application/pdf' })
+    // The row exists in another customer (so the read-back, scoped to this customer, finds nothing).
+    db.tables.files.push({ id: FID, org_id: ORG, customer_id: CUST_NOT_MINE, storage_path: 'x' })
+    const realFrom = (db.client as any).from
+    jest.spyOn(db.client as any, 'from').mockImplementation((t: unknown) => {
+      const b = realFrom(t)
+      if (t !== 'files') return b
+      const origInsert = b.insert
+      b.insert = (p: unknown) => {
+        origInsert(p)
+        b.single = async () => ({ data: null, error: { code: '23505', message: 'duplicate key' } })
+        return b
+      }
+      return b
+    })
+    const res = await finalize(req({ fileId: FID }), ctx(CUST))
+    expect(res.status).toBe(409)
+    expect(removed).toEqual([])
+  })
+
+  it('an unexpected error after the object is found removes it (every 500 means "upload again")', async () => {
+    as('u-admin', 'admin')
+    storageObjects.push({ folder, name: `${FID}_a.pdf`, size: 10, mimetype: 'application/pdf' })
+    const realFrom = (db.client as any).from
+    jest.spyOn(db.client as any, 'from').mockImplementation((t: unknown) => {
+      if (t === 'files') throw new Error('boom')
+      return realFrom(t)
+    })
+    const res = await finalize(req({ fileId: FID }), ctx(CUST))
+    expect(res.status).toBe(500)
+    expect(removed).toEqual([`files:${folder}/${FID}_a.pdf`])
+  })
+
   it('400 on a non-uuid fileId', async () => {
     as('u-admin', 'admin')
     expect((await finalize(req({ fileId: '../x' }), ctx(CUST))).status).toBe(400)
   })
 })
+
+const viewerBase: ThreadViewer = { userId: 'u', orgId: ORG, ownerLike: false, jobBoard: false, jobEdit: false, jobFinancials: false, managerLike: false, closerLike: false, setterLike: false, pricingBarred: false }
+const closerA: ThreadViewer = { ...viewerBase, userId: 'u-closer', closerLike: true }
 
 describe('loadCustomerFiles (the one list both customer pages read)', () => {
   it('returns the customer\'s own files plus files on the given deals, newest first, org-scoped', async () => {
@@ -282,11 +321,53 @@ describe('loadCustomerFiles (the one list both customer pages read)', () => {
       { id: 'lead-A', org_id: ORG, customer_id: null, lead_id: 'a1000000-0000-4000-8000-00000000000a', file_name: 'la.jpg', tag: 'photo', storage_path: 'p/6', created_at: '2026-11-06' },
     )
     // The Customer File passes only the deals this closer can open (ctx.deals = [DEAL_A]).
-    const rows = await loadCustomerFilesForDeals(db.client as any, ORG, CUST, [DEAL_A])
+    const rows = await loadCustomerFilesForViewer(db.client as any, closerA, CUST, { openableDealIds: [DEAL_A] })
     expect(rows.map((r) => r.id)).toEqual(['lead-A', 'project-A', 'contract-A', 'cust-level'])
     expect(rows.map((r) => r.id)).not.toContain('contract-B')
     expect(rows.map((r) => r.id)).not.toContain('lead-B')
     // The account page shape (no deal ids) only gets the customer-level file.
     expect((await loadCustomerFiles(db.client as any, { orgId: ORG, customerId: CUST })).map((r) => r.id)).toEqual(['cust-level'])
+  })
+
+  describe('account page scope (loadCustomerFilesForViewer with no deal list): closer A vs closer B on one customer', () => {
+    const DEAL_A = 'd0000000-0000-4000-8000-0000000000a1'
+    const DEAL_B = 'd0000000-0000-4000-8000-0000000000b1'
+    const LEAD_A = 'a1000000-0000-4000-8000-0000000000a1'
+    const LEAD_B = 'a1000000-0000-4000-8000-0000000000b1' // closer B's lead, ALSO carrying customer_id (set at contract sign)
+    const LEAD_LOOSE = 'a1000000-0000-4000-8000-0000000000c1' // customer's lead with no deal at all
+    const PROJ_A = 'b1000000-0000-4000-8000-0000000000a1'
+    beforeEach(() => {
+      ;(db.tables.opportunities ??= []).push(
+        { id: DEAL_A, org_id: ORG, customer_id: CUST, lead_id: LEAD_A, owner_user_id: 'u-closer', setter_user_id: null },
+        { id: DEAL_B, org_id: ORG, customer_id: CUST, lead_id: LEAD_B, owner_user_id: 'u-closer-b', setter_user_id: null },
+      )
+      ;(db.tables.leads ??= []).push(
+        { id: LEAD_A, org_id: ORG, customer_id: CUST },
+        { id: LEAD_B, org_id: ORG, customer_id: CUST },
+        { id: LEAD_LOOSE, org_id: ORG, customer_id: CUST },
+      )
+      db.tables.projects.push({ id: PROJ_A, org_id: ORG, customer_id: CUST, opportunity_id: DEAL_A, owner_user_id: 'u-closer', lead_id: LEAD_A })
+      db.tables.files.push(
+        { id: 'lead-B-photo', org_id: ORG, customer_id: null, lead_id: LEAD_B, file_name: 'b.jpg', tag: 'photo', storage_path: 'p/b', created_at: '2026-11-05' },
+        { id: 'lead-A-photo', org_id: ORG, customer_id: null, lead_id: LEAD_A, file_name: 'a.jpg', tag: 'photo', storage_path: 'p/a', created_at: '2026-11-04' },
+        { id: 'loose-lead', org_id: ORG, customer_id: null, lead_id: LEAD_LOOSE, file_name: 'l.jpg', tag: 'photo', storage_path: 'p/l', created_at: '2026-11-03' },
+      )
+    })
+
+    it('closer A gets their own lead\'s file, never closer B\'s lead file or the deal-less lead', async () => {
+      const rows = await loadCustomerFilesForViewer(db.client as any, closerA, CUST, { extraProjectIds: [PROJ_A] })
+      expect(rows.map((r) => r.id)).toEqual(['lead-A-photo'])
+    })
+
+    it('an owner (opens every deal) gets all three', async () => {
+      const rows = await loadCustomerFilesForViewer(db.client as any, { ...viewerBase, ownerLike: true }, CUST)
+      expect(rows.map((r) => r.id).sort()).toEqual(['lead-A-photo', 'lead-B-photo', 'loose-lead'])
+    })
+
+    it('the account page and the Customer File give a closer the same list', async () => {
+      const account = await loadCustomerFilesForViewer(db.client as any, closerA, CUST, { extraProjectIds: [PROJ_A] })
+      const file = await loadCustomerFilesForViewer(db.client as any, closerA, CUST, { openableDealIds: [DEAL_A] })
+      expect(file.map((r) => r.id)).toEqual(account.map((r) => r.id))
+    })
   })
 })
