@@ -141,12 +141,13 @@ export default function SupplierOrdersCard({ jobId, onChanged, onState }: { jobI
         const res = await fetch(`/api/ops/jobs/${jobId}/supplier-orders`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ trade, material_source: 'supplier', vendor_id: vendorId }),
+          body: JSON.stringify({ trade, material_source: null, vendor_id: vendorId }),
         })
         if (!res.ok) {
           const json = await res.json().catch(() => ({}))
           setError(json.error || 'Could not change the supplier. Try again.')
           await load()
+          onChanged?.()
           return
         }
       }
@@ -198,7 +199,7 @@ export default function SupplierOrdersCard({ jobId, onChanged, onState }: { jobI
           return (
             <li key={c.vendorId} className="rounded-lg border border-[#d3d1c7] bg-white p-3 sm:p-4">
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                {view.canSend && shown === 'draft' && c.lines.length > 0 && !view.jobCancelled && view.suppliers.length > 1 ? (
+                {view.canSend && shown === 'draft' && c.orderStatus == null && c.lines.length > 0 && !view.jobCancelled && view.suppliers.length > 1 ? (
                   <label className="min-w-0">
                     <span className="sr-only">Supplier</span>
                     <select
@@ -212,6 +213,7 @@ export default function SupplierOrdersCard({ jobId, onChanged, onState }: { jobI
                         <option key={s.id} value={s.id}>{s.name}</option>
                       ))}
                     </select>
+                    {busy && <span className="ml-2 text-sm" aria-live="polite">Saving…</span>}
                   </label>
                 ) : (
                   <strong className="text-base">{c.supplierName}</strong>
