@@ -15,10 +15,10 @@ function isCanvassPath(pathname: string | null): boolean {
 }
 
 /**
- * Gate the FAB on cookie-auth `/api/settings`, not `supabase.auth.getUser()`.
+ * Gate the assistant (and Nav's launcher) on cookie-auth `/api/settings`, not `supabase.auth.getUser()`.
  * CRM login writes the session cookie only; the browser Supabase client often
- * has no local session, so getUser() returns null and previously hid the FAB
- * even for allowlisted users who can open Settings → AI.
+ * has no local session, so getUser() returns null and previously hid the
+ * assistant even for allowlisted users who can open Settings → AI.
  *
  * The sessionStorage "latch" that lets a known-good user skip the loading
  * flicker on repeat visits must only be applied in an effect, never read

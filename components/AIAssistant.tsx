@@ -482,7 +482,7 @@ export default function AIAssistant({ context }: AIAssistantProps) {
   }
 
   return (
-    <div className="fixed right-3 sm:right-6 top-[calc(4rem+var(--safe-area-inset-top))] w-[calc(100vw-1.5rem-var(--safe-area-inset-left)-var(--safe-area-inset-right))] sm:w-96 max-w-md h-[min(560px,calc(100dvh-4rem-5rem-var(--safe-area-inset-top)-var(--safe-area-inset-bottom)))] bg-white rounded-2xl shadow-2xl flex flex-col z-[9999] overflow-hidden border border-gray-200">
+    <div className="print:hidden fixed right-3 sm:right-6 top-[calc(4rem+var(--safe-area-inset-top))] w-[calc(100vw-1.5rem-var(--safe-area-inset-left)-var(--safe-area-inset-right))] sm:w-96 max-w-md h-[min(560px,calc(100dvh-4rem-5rem-var(--safe-area-inset-top)-var(--safe-area-inset-bottom)))] bg-white rounded-2xl shadow-2xl flex flex-col z-[45] overflow-hidden border border-gray-200">
       {/* Header */}
       <div className="bg-gradient-to-r from-indigo-500 to-purple-600 text-white p-4 flex items-center justify-between">
         <div className="flex items-center gap-3">

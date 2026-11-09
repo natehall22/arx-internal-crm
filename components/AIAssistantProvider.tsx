@@ -135,3 +135,8 @@ export function useAIAssistantPageContext() {
 export function useAIAssistantShell() {
   return useAIAssistantContext()
 }
+
+/** For Nav: null outside the provider (tests, harnesses) instead of throwing, so the launcher just isn't shown. */
+export function useOptionalAIAssistantShell() {
+  return useContext(AIAssistantContext)
+}
