@@ -55,6 +55,8 @@ export default function CustomerFilesUpload({ customerId }: { customerId: string
   const inputRef = useRef<HTMLInputElement>(null)
   const [items, setItems] = useState<Item[]>([])
   const [addedNote, setAddedNote] = useState<string | null>(null)
+  // Bumped when a run ends, so a file added while the last one was finishing still gets picked up.
+  const [runEnded, setRunEnded] = useState(0)
   const running = useRef(false)
   const seq = useRef(0)
 
@@ -100,6 +102,7 @@ export default function CustomerFilesUpload({ customerId }: { customerId: string
         }
       } finally {
         running.current = false
+        setRunEnded((n) => n + 1)
         if (added > 0) {
           // The refreshed list below now shows them; keep only failures (and anything still queued) up here.
           setItems((prev) => prev.filter((i) => i.status !== 'done'))
@@ -124,7 +127,7 @@ export default function CustomerFilesUpload({ customerId }: { customerId: string
 
   useEffect(() => {
     if (items.some((i) => i.status === 'waiting' && !claimed.current.has(i.key))) void pump(nextWaiting)
-  }, [items, pump, nextWaiting])
+  }, [items, runEnded, pump, nextWaiting])
 
   const addFiles = useCallback((files: File[]) => {
     const fresh = files.filter((f) => f.size > 0).map((file) => ({ key: `f${++seq.current}`, file, status: 'waiting' as Status }))
