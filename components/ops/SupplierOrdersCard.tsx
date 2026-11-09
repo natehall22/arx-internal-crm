@@ -131,6 +131,33 @@ export default function SupplierOrdersCard({ jobId, onChanged, onState }: { jobI
   const when = (iso: string) => new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
   const pdfUrl = (vendorId: string) => `/api/ops/jobs/${jobId}/supplier-orders/preview?vendorId=${vendorId}&kind=order&deliveryDate=${deliveryDate}&format=pdf`
 
+  // One tap: where this card's trade(s) buy materials on this job. Saves at once, never sends.
+  const changeSupplier = async (card: SupplierCard, vendorId: string) => {
+    if (!vendorId || vendorId === card.vendorId) return
+    const trades = Array.from(new Set(card.lines.map((l) => l.trade)))
+    setBusy(true)
+    try {
+      for (const trade of trades) {
+        const res = await fetch(`/api/ops/jobs/${jobId}/supplier-orders`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ trade, material_source: 'supplier', vendor_id: vendorId }),
+        })
+        if (!res.ok) {
+          const json = await res.json().catch(() => ({}))
+          setError(json.error || 'Could not change the supplier. Try again.')
+          await load()
+          return
+        }
+      }
+      setError(null)
+      await load()
+      onChanged?.()
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const markReceived = async (card: SupplierCard, received: boolean) => {
     setBusy(true)
     try {
@@ -171,7 +198,24 @@ export default function SupplierOrdersCard({ jobId, onChanged, onState }: { jobI
           return (
             <li key={c.vendorId} className="rounded-lg border border-[#d3d1c7] bg-white p-3 sm:p-4">
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                <strong className="text-base">{c.supplierName}</strong>
+                {view.canSend && shown === 'draft' && c.lines.length > 0 && !view.jobCancelled && view.suppliers.length > 1 ? (
+                  <label className="min-w-0">
+                    <span className="sr-only">Supplier</span>
+                    <select
+                      value={c.vendorId}
+                      disabled={busy}
+                      onChange={(e) => void changeSupplier(c, e.target.value)}
+                      className="min-h-[44px] max-w-full rounded-lg border border-[#8a877d] bg-white px-3 py-2 text-base font-semibold text-[#2c2c2a]"
+                    >
+                      {!view.suppliers.some((s) => s.id === c.vendorId) && <option value={c.vendorId}>{c.supplierName}</option>}
+                      {view.suppliers.map((s) => (
+                        <option key={s.id} value={s.id}>{s.name}</option>
+                      ))}
+                    </select>
+                  </label>
+                ) : (
+                  <strong className="text-base">{c.supplierName}</strong>
+                )}
                 <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${chip}`}>{SHOWN_LABEL[shown]}</span>
                 <span className="text-xs text-[#57574f]">{c.poNumber}</span>
               </div>
