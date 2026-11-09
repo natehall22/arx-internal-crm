@@ -44,6 +44,9 @@ type AIAssistantContextValue = {
   setInput: Dispatch<SetStateAction<string>>
   feedbackRatings: Record<number, AIAssistantFeedbackRating>
   setFeedbackRatings: Dispatch<SetStateAction<Record<number, AIAssistantFeedbackRating>>>
+  /** True once AIAssistantWrapper has confirmed this user may use the assistant; Nav shows its launcher only then. */
+  launcherReady: boolean
+  setLauncherReady: (ready: boolean) => void
 }
 
 const AIAssistantContext = createContext<AIAssistantContextValue | null>(null)
@@ -60,6 +63,7 @@ export function AIAssistantProvider({ children }: { children: ReactNode }) {
     Record<number, AIAssistantFeedbackRating>
   >({})
   const [shellHydrated, setShellHydrated] = useState(false)
+  const [launcherReady, setLauncherReady] = useState(false)
 
   useEffect(() => {
     const stored = readAiAssistantShellStorage()
@@ -95,6 +99,8 @@ export function AIAssistantProvider({ children }: { children: ReactNode }) {
       setInput,
       feedbackRatings,
       setFeedbackRatings,
+      launcherReady,
+      setLauncherReady,
     }),
     [
       pageContext,
@@ -104,6 +110,7 @@ export function AIAssistantProvider({ children }: { children: ReactNode }) {
       conversationId,
       input,
       feedbackRatings,
+      launcherReady,
     ]
   )
 

@@ -45,11 +45,13 @@ interface AIAssistantProps {
     type: 'lead' | 'opportunity' | 'project' | 'job' | 'general'
     id?: string
   }
-  /** Lift FAB when another bottom-right action button is present (e.g. ops orders +). */
-  stackedFab?: boolean
 }
 
-export default function AIAssistant({ context, stackedFab = false }: AIAssistantProps) {
+/**
+ * The chat panel only. Its launcher is the AI button in Nav's top bar, so nothing
+ * floats over page content while the panel is closed or minimized.
+ */
+export default function AIAssistant({ context }: AIAssistantProps) {
   const {
     panelMode,
     setPanelMode,
@@ -78,13 +80,17 @@ export default function AIAssistant({ context, stackedFab = false }: AIAssistant
   const contextKey = `${context?.type ?? 'general'}:${context?.id ?? ''}`
 
   useEffect(() => {
-    checkAIEnabled()
-  }, [])
-
-  useEffect(() => {
     suggestionsGenerationRef.current += 1
     loadSuggestions()
   }, [contextKey])
+
+  // Opened from Nav's top-bar button: refresh the enabled check and suggestions,
+  // as the old floating button's click handler did.
+  useEffect(() => {
+    if (panelMode !== 'open') return
+    checkAIEnabled()
+    loadSuggestions()
+  }, [panelMode])
 
   useEffect(() => {
     if (panelMode !== 'open') return
@@ -454,12 +460,6 @@ export default function AIAssistant({ context, stackedFab = false }: AIAssistant
     }
   }
 
-  const openAssistant = () => {
-    checkAIEnabled()
-    loadSuggestions()
-    setPanelMode('open')
-  }
-
   const minimizeAssistant = () => {
     setPanelMode('minimized')
   }
@@ -468,10 +468,6 @@ export default function AIAssistant({ context, stackedFab = false }: AIAssistant
     setPanelMode('closed')
   }
 
-  const fabBottomClass = stackedFab
-    ? 'bottom-[calc(8.5rem+var(--safe-area-inset-bottom))]'
-    : 'bottom-[calc(5rem+var(--safe-area-inset-bottom))]'
-
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
@@ -479,68 +475,14 @@ export default function AIAssistant({ context, stackedFab = false }: AIAssistant
     }
   }
 
-  // Floating button when closed
-  if (panelMode === 'closed') {
-    return (
-      <button
-        onClick={openAssistant}
-        className={`fixed right-6 w-14 h-14 bg-gradient-to-br from-indigo-500 to-purple-600 text-white rounded-full shadow-lg hover:shadow-xl transition-all hover:scale-105 flex items-center justify-center z-[9999] ${fabBottomClass}`}
-        title="AI Assistant"
-      >
-        <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-        </svg>
-      </button>
-    )
-  }
-
-  if (panelMode === 'minimized') {
-    return (
-      <div
-        className={`fixed right-3 sm:right-6 z-[9999] flex items-center gap-2 pl-4 pr-2 py-2 bg-white border border-gray-200 rounded-full shadow-lg max-w-[min(100vw-1.5rem,20rem)] ${fabBottomClass}`}
-        role="region"
-        aria-label="AI Assistant minimized"
-      >
-        <button
-          type="button"
-          onClick={openAssistant}
-          className="flex items-center gap-2 min-w-0 flex-1 text-left"
-        >
-          <span className="w-8 h-8 shrink-0 bg-gradient-to-br from-indigo-500 to-purple-600 text-white rounded-full flex items-center justify-center">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-            </svg>
-          </span>
-          <span className="text-sm font-medium text-[#2c2c2a] truncate">AI Assistant</span>
-        </button>
-        <button
-          type="button"
-          onClick={openAssistant}
-          className="p-2 text-[#2c2c2a] hover:bg-indigo-50 rounded-full transition-colors shrink-0"
-          title="Expand"
-          aria-label="Expand AI Assistant"
-        >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
-          </svg>
-        </button>
-        <button
-          type="button"
-          onClick={closeAssistant}
-          className="p-2 text-[#2c2c2a] hover:bg-gray-100 rounded-full transition-colors shrink-0"
-          title="Close"
-          aria-label="Close AI Assistant"
-        >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
-      </div>
-    )
+  // Closed or minimized: nothing on the page. Nav's top-bar button reopens it
+  // (minimized keeps the conversation; the button shows a dot).
+  if (panelMode !== 'open') {
+    return null
   }
 
   return (
-    <div className={`fixed right-3 sm:right-6 w-[calc(100vw-1.5rem-var(--safe-area-inset-left)-var(--safe-area-inset-right))] sm:w-96 max-w-md h-[min(500px,calc(100vh-6rem-var(--safe-area-inset-bottom)))] bg-white rounded-2xl shadow-2xl flex flex-col z-[9999] overflow-hidden border border-gray-200 ${fabBottomClass}`}>
+    <div className="fixed right-3 sm:right-6 top-[calc(4rem+var(--safe-area-inset-top))] w-[calc(100vw-1.5rem-var(--safe-area-inset-left)-var(--safe-area-inset-right))] sm:w-96 max-w-md h-[min(560px,calc(100dvh-4rem-5rem-var(--safe-area-inset-top)-var(--safe-area-inset-bottom)))] bg-white rounded-2xl shadow-2xl flex flex-col z-[9999] overflow-hidden border border-gray-200">
       {/* Header */}
       <div className="bg-gradient-to-r from-indigo-500 to-purple-600 text-white p-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
