@@ -54,6 +54,7 @@ export default function CustomerFilesUpload({ customerId }: { customerId: string
   const supabase = useMemo(() => createClientBrowser(), [])
   const inputRef = useRef<HTMLInputElement>(null)
   const [items, setItems] = useState<Item[]>([])
+  const [addedNote, setAddedNote] = useState<string | null>(null)
   const running = useRef(false)
   const seq = useRef(0)
 
@@ -99,7 +100,12 @@ export default function CustomerFilesUpload({ customerId }: { customerId: string
         }
       } finally {
         running.current = false
-        if (added > 0) router.refresh()
+        if (added > 0) {
+          // The refreshed list below now shows them; keep only failures (and anything still queued) up here.
+          setItems((prev) => prev.filter((i) => i.status !== 'done'))
+          setAddedNote(`${added} file${added === 1 ? '' : 's'} added`)
+          router.refresh()
+        }
       }
     },
     [uploadOne, router, patch]
@@ -123,6 +129,7 @@ export default function CustomerFilesUpload({ customerId }: { customerId: string
   const addFiles = useCallback((files: File[]) => {
     const fresh = files.filter((f) => f.size > 0).map((file) => ({ key: `f${++seq.current}`, file, status: 'waiting' as Status }))
     if (fresh.length === 0) return
+    setAddedNote(null)
     setItems((prev) => [...prev.filter((i) => i.status !== 'done'), ...fresh])
   }, [])
 
@@ -166,6 +173,12 @@ export default function CustomerFilesUpload({ customerId }: { customerId: string
           }}
         />
       </div>
+
+      {addedNote && !busy && (
+        <p className="mt-2 text-ui-sm font-medium text-ink" role="status">
+          ✓ {addedNote}
+        </p>
+      )}
 
       {items.length > 0 && (
         <ul className="mt-3 space-y-2" aria-live="polite" aria-busy={busy || undefined}>

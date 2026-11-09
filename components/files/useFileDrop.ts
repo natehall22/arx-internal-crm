@@ -47,10 +47,11 @@ export function useFileDrop(onFiles: (files: File[]) => void, opts: { disabled?:
 
   const onDragOver = useCallback(
     (e: DragEvent<HTMLElement>) => {
-      if (disabled || !dragHasFiles(e)) return
+      if (!dragHasFiles(e)) return
+      // Always take the dragover (even while busy): otherwise the browser's default drop opens the file and leaves the page.
       e.preventDefault()
       e.stopPropagation()
-      e.dataTransfer.dropEffect = 'copy'
+      e.dataTransfer.dropEffect = disabled ? 'none' : 'copy'
     },
     [disabled]
   )
