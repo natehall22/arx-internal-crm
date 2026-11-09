@@ -14,7 +14,8 @@ const customJestConfig = {
     '^d3-contour$': '<rootDir>/node_modules/d3-contour/dist/d3-contour.js',
     '^d3-array$': '<rootDir>/node_modules/d3-array/dist/d3-array.js',
   },
-  testPathIgnorePatterns: ['/node_modules/', '/.next/', '/.claude/', '/.worktrees/', '<rootDir>/e2e/'],
+  // Anchored to <rootDir> so the suite still runs when the checkout itself lives under .claude/worktrees/.
+  testPathIgnorePatterns: ['/node_modules/', '/.next/', '<rootDir>/.claude/', '<rootDir>/.worktrees/', '<rootDir>/e2e/'],
 }
 
 // createJestConfig is exported this way to ensure that next/jest can load the Next.js config which is async
