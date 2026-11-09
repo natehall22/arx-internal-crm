@@ -8,7 +8,7 @@ import ReferralsSection from '@/components/ReferralsSection'
 import CustomerInfoCard from '@/components/customers/CustomerInfoCard'
 import LinkProjectToCustomerButton from '@/components/customers/LinkProjectToCustomerButton'
 import CreateAddOnOpportunityButton from '@/components/customers/CreateAddOnOpportunityButton'
-import { canAccessCustomerRecordsFromPermissionNames, isBarredFromSalesDocAccess, isFieldRoleLike, isRepLikeCustomerRecordRole } from '@/lib/permissions'
+import { canAccessCustomerRecordsFromPermissionNames, isRepLikeCustomerRecordRole } from '@/lib/permissions'
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 import { isReferralManagerRole } from '@/lib/referral-links'
 import { projectStatusLabelForJobStatus } from '@/lib/job-status'
@@ -145,23 +145,21 @@ export default async function CustomerDetailPage({
   //  - field roles (incl. by custom-role name) and anyone barred from sales docs — isFilesBarred(viewer), the same answer
   //    as resolveFieldOrSalesDocBarred in the routes, from the already-resolved viewer, and
   //  - viewers the thread rules don't recognize (setter managers, custom-only roles) — the Customer File shows them nothing.
-  // Only resolved on the tabs that show files (overview count, files list). On the other tabs the Files link is decided
-  // from the role alone (no lookups) and the Files tab itself re-checks and redirects, so a link never leads to data.
+  // The viewer is resolved on every tab so the Files link follows the same rule everywhere; the file list itself
+  // only loads on the tabs that show it (overview count, files list).
   const needsFiles = activeTab === 'overview' || activeTab === 'files'
   const admin = createServiceClient()
-  const fileViewer = needsFiles ? await resolveThreadViewer(admin, profile) : null
-  const filesBarred = fileViewer
-    ? isFilesBarred(fileViewer) || !isRecognizedViewer(fileViewer)
-    : isFieldRoleLike({ role: profile.role }) || isBarredFromSalesDocAccess(profile.role)
+  const fileViewer = await resolveThreadViewer(admin, profile)
+  const filesBarred = isFilesBarred(fileViewer) || !isRecognizedViewer(fileViewer)
   if (filesBarred && activeTab === 'files') redirect(`/customers/${params.id}?tab=overview`)
   const visibleTabs = filesBarred ? tabs.filter((t) => t.id !== 'files') : tabs
   const files =
-    filesBarred || !fileViewer
+    filesBarred || !needsFiles
       ? []
       : await loadCustomerFilesForViewer(admin, fileViewer, params.id, {
-          // A project can exist with no deal: reps get the ones they own (their project list above). Everyone else reaches
-          // projects through the deals they can open.
-          extraProjectIds: isRepLikeCustomerRecordRole(profile.role) ? projectIds : [],
+          // Reps: projectIds is already only their own projects. Everyone else: every project on this customer (the same
+          // list the Projects tab shows), so files on projects with no deal still reach owners, ops and managers.
+          extraProjectIds: projectIds,
         })
   const canAddFiles =
     activeTab === 'files' &&
