@@ -20,7 +20,10 @@ jest.mock('next/navigation', () => ({
 jest.mock('@/components/Nav', () => () => null)
 jest.mock('@/components/ReferralsSection', () => () => null)
 jest.mock('@/components/customers/CustomerInfoCard', () => () => null)
-jest.mock('@/components/customers/CustomerFilesUpload', () => () => <div>ADD-FILES-BOX</div>)
+jest.mock('@/components/customers/CustomerFilesUpload', () => {
+  const AddFilesBox = () => <div>ADD-FILES-BOX</div>
+  return AddFilesBox
+})
 jest.mock('@/lib/effective-permissions', () => ({
   resolveEffectivePermissionNames: jest.fn(async () => ({ fullAccess: false, permissionNames: new Set<string>(['customers:view']) })),
 }))
