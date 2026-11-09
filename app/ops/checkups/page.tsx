@@ -8,7 +8,7 @@ import Nav from '@/components/Nav'
 import { PageHeader } from '@/components/ui/page-header'
 import { requireAuth } from '@/lib/auth'
 import { ymdInBusinessTz } from '@/lib/calendar-business-tz'
-import { ensureCheckups, loadCheckups, loadCheckupSettings, OPEN_CHECKUP_STATUSES } from '@/lib/checkups'
+import { ensureCheckups, loadCheckups, loadCheckupSettings } from '@/lib/checkups'
 import { CHECKUP_LEAD_DAYS } from '@/lib/checkups-settings'
 import { addDaysToDateOnly } from '@/lib/install-calendar'
 import { resolveOpsAccess } from '@/lib/ops-access'
@@ -29,16 +29,18 @@ export default async function CheckupsPage() {
       loadError = true
     })
   }
-  const all = await loadCheckups(admin, profile.org_id).catch((e) => {
+  const today = ymdInBusinessTz(new Date())
+  const soon = addDaysToDateOnly(today, CHECKUP_LEAD_DAYS)
+  const closedSince = new Date(Date.now() - 90 * 86_400_000).toISOString()
+  const fail = (e: unknown) => {
     console.error('checkups: load failed', e)
     loadError = true
     return []
-  })
-
-  const today = ymdInBusinessTz(new Date())
-  const soon = addDaysToDateOnly(today, CHECKUP_LEAD_DAYS)
-  const closedSince = addDaysToDateOnly(today, -90)
-  const open = all.filter((c) => OPEN_CHECKUP_STATUSES.includes(c.status))
+  }
+  const [open, closed] = await Promise.all([
+    loadCheckups(admin, profile.org_id, { open: true }).catch(fail),
+    loadCheckups(admin, profile.org_id, { closedSince, limit: 200 }).catch(fail),
+  ])
   const sections = [
     { id: 'overdue', title: 'Due now', empty: 'Nothing due right now.', rows: open.filter((c) => c.status === 'due' && c.due_on <= today) },
     { id: 'booked', title: 'Booked', empty: 'No visits booked.', rows: open.filter((c) => c.status === 'booked') },
@@ -47,7 +49,7 @@ export default async function CheckupsPage() {
       id: 'closed',
       title: 'Done in the last 90 days',
       empty: 'Nothing closed yet.',
-      rows: all.filter((c) => !OPEN_CHECKUP_STATUSES.includes(c.status) && (c.done_at ?? '').slice(0, 10) >= closedSince).sort((a, b) => (b.done_at ?? '').localeCompare(a.done_at ?? '')),
+      rows: closed,
     },
   ]
 

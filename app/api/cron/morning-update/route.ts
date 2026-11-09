@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getOrgEmailBlastSettings } from '@/lib/admin-email-blasts'
+import { ensureCheckups } from '@/lib/checkups'
 import { getBlastSendDate, runClaimedBlast, type BlastResult } from '@/lib/email-blast-ledger'
 import { sendMorningUpdateEmail } from '@/lib/morning-update-email'
 import { sendSetterFieldUpdateEmail } from '@/lib/setter-field-update-email'
@@ -58,6 +59,11 @@ export async function GET(request: NextRequest) {
     // Saved reports on a schedule go out with the morning update; independent of the blast switches.
     await sendScheduledReports(admin, orgId).catch((error) => {
       console.error(`[cron/morning-update] scheduled reports failed for org ${orgId}:`, error)
+    })
+    // Customer checkups coming due are created here, every morning, whether or not any email goes out
+    // (idempotent; the assignee is told once about new ones). Off unless the org turned checkups on.
+    await ensureCheckups(admin, orgId).catch((error) => {
+      console.error(`[cron/morning-update] checkups failed for org ${orgId}:`, error)
     })
     const settings = getOrgEmailBlastSettings(org.settings)
     if (!settings.morning_update?.enabled && !settings.setter_field_update?.enabled) {

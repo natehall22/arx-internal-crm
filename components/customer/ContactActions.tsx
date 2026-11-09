@@ -89,6 +89,8 @@ export default function ContactActions({
   const [note, setNote] = useState('')
   const [saving, setSaving] = useState(false)
   const clientId = useRef<string | null>(null)
+  // A ref, not state: two taps in the same frame both see the old state and would log twice.
+  const savingRef = useRef(false)
 
   const tel = phone ? telHref(phone) ?? `tel:${phone}` : null
   const sms = tel ? tel.replace(/^tel:/, 'sms:') : null
@@ -101,7 +103,8 @@ export default function ContactActions({
   }
 
   const save = async (outcome: ContactOutcome) => {
-    if (!dealId || !kind || saving) return
+    if (!dealId || !kind || savingRef.current) return
+    savingRef.current = true
     setSaving(true)
     try {
       const res = await fetch(`/api/threads/${dealId}/messages`, {
@@ -119,6 +122,7 @@ export default function ContactActions({
       setKind(null)
       router.refresh()
     } finally {
+      savingRef.current = false
       setSaving(false)
     }
   }

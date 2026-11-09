@@ -109,12 +109,20 @@ export async function ensureCheckups(admin: SupabaseClient, orgId: string, now =
   const settings = await loadCheckupSettings(admin, orgId)
   if (!settings.enabled) return { created: 0 }
 
-  const { data: jobRows, error } = await admin
-    .from('production_jobs')
-    .select('id, customer_id, project_id, address_text, completed_at, scheduled_date')
-    .eq('org_id', orgId)
-    .in('status', INSTALLED_STATUSES)
-  if (error) throw error
+  // Paged: PostgREST returns at most 1000 rows a request, and a missing job would silently never get a schedule.
+  const jobRows: unknown[] = []
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await admin
+      .from('production_jobs')
+      .select('id, customer_id, project_id, address_text, completed_at, scheduled_date')
+      .eq('org_id', orgId)
+      .in('status', INSTALLED_STATUSES)
+      .order('id')
+      .range(from, from + 999)
+    if (error) throw error
+    jobRows.push(...(data ?? []))
+    if ((data ?? []).length < 1000) break
+  }
   const jobs = anchorJobs(
     ((jobRows ?? []) as Array<Omit<InstalledJob, 'completed_at'> & { completed_at: string | null; scheduled_date: string | null }>)
       .map((j) => ({ ...j, completed_at: installInstantOf(j) }))
@@ -167,16 +175,18 @@ export async function ensureCheckups(admin: SupabaseClient, orgId: string, now =
   return { created }
 }
 
-/** Checkups with their job/customer, oldest due first. Optionally one customer's or only open ones. */
+/** Checkups with their job/customer, oldest due first. Optionally one customer's, only open ones, or only ones closed since a moment (newest first). */
 export async function loadCheckups(
   admin: SupabaseClient,
   orgId: string,
-  opts: { customerId?: string; jobId?: string; open?: boolean; limit?: number } = {}
+  opts: { customerId?: string; jobId?: string; open?: boolean; closedSince?: string; limit?: number } = {}
 ): Promise<CheckupView[]> {
-  let q = admin.from('job_checkups').select(COLS).eq('org_id', orgId).order('due_on', { ascending: true }).limit(opts.limit ?? 500)
+  // Closed lists read newest first so old history never crowds out recent rows under the limit.
+  let q = admin.from('job_checkups').select(COLS).eq('org_id', orgId).order(opts.closedSince ? 'done_at' : 'due_on', { ascending: !opts.closedSince }).limit(opts.limit ?? 1000)
   if (opts.customerId) q = q.eq('customer_id', opts.customerId)
   if (opts.jobId) q = q.eq('production_job_id', opts.jobId)
   if (opts.open) q = q.in('status', OPEN_CHECKUP_STATUSES as string[])
+  if (opts.closedSince) q = q.not('status', 'in', `(${OPEN_CHECKUP_STATUSES.join(',')})`).gte('done_at', opts.closedSince)
   const { data, error } = await q
   if (error) throw error
   const rows = (data ?? []) as CheckupRow[]
@@ -294,4 +304,14 @@ export async function applyCheckupAction(
   if (error) return { ok: false, status: 409, error: 'Could not save' }
   if (!updated || updated.length === 0) return { ok: false, status: 409, error: 'Someone just changed this checkup — refresh and try again' }
   return { ok: true }
+}
+
+/** A new assignee in Settings takes over every open checkup (closed ones keep who did them). */
+export async function reassignOpenCheckups(admin: SupabaseClient, orgId: string, userId: string | null): Promise<void> {
+  const { error } = await admin
+    .from('job_checkups')
+    .update({ assigned_user_id: userId, updated_at: new Date().toISOString() })
+    .eq('org_id', orgId)
+    .in('status', OPEN_CHECKUP_STATUSES as string[])
+  if (error) throw error
 }

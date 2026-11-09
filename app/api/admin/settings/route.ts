@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import { createServiceClient } from '@/lib/supabase/service'
 import { brandPatchFromGeneral, saveBrandSettings } from '@/lib/org-brand'
 import { isSuperAdmin } from '@/lib/super-admin'
+import { reassignOpenCheckups } from '@/lib/checkups'
 import { CHECKUPS_ASSIGNEE_KEY, CHECKUPS_SETTINGS_KEYS, canEditCheckupSettings, parseCheckupPatch } from '@/lib/checkups-settings'
 import { JOB_CATCH_UP_SETTINGS_KEYS, canEditJobCatchUpSettings, parseJobCatchUpPatch } from '@/lib/job-catch-up-settings'
 import { mergeOrgSettings } from '@/lib/org-settings'
@@ -164,6 +165,9 @@ export async function PATCH(request: NextRequest) {
       }
       const { error } = await mergeOrgSettings(adminClient, profile.org_id, parsed.set)
       if (error) return NextResponse.json({ error }, { status: 400 })
+      if (CHECKUPS_ASSIGNEE_KEY in parsed.set) {
+        await reassignOpenCheckups(adminClient, profile.org_id, (assignee as string | null) ?? null).catch((e) => console.error('checkups: reassign failed', e))
+      }
       return NextResponse.json({ success: true })
     }
 

@@ -44,11 +44,9 @@ CREATE TABLE IF NOT EXISTS public.job_checkups (
 CREATE INDEX IF NOT EXISTS job_checkups_org_due_idx ON public.job_checkups (org_id, status, due_on);
 CREATE INDEX IF NOT EXISTS job_checkups_customer_idx ON public.job_checkups (customer_id);
 
+-- RLS on with NO policies: only the service role reads or writes (lib/checkups.ts, behind the job-board check).
+-- Results and notes are job-side; field roles must not read them with their own token.
 ALTER TABLE public.job_checkups ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Org can view checkups" ON public.job_checkups;
-CREATE POLICY "Org can view checkups" ON public.job_checkups FOR SELECT
-  USING (org_id = (SELECT u.org_id FROM public.users u WHERE u.id = auth.uid()));
--- No INSERT/UPDATE/DELETE policies: writes are service-role only (lib/checkups.ts).
 
 ALTER TABLE public.activities
   ADD COLUMN IF NOT EXISTS contact_outcome text NULL

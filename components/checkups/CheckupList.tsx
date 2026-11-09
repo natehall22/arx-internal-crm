@@ -45,7 +45,7 @@ function CheckupCard({ c, today }: { c: CheckupView; today: string }) {
   const [date, setDate] = useState(c.booked_for ?? today)
   const [notes, setNotes] = useState(c.notes ?? '')
   const open = c.status === 'due' || c.status === 'booked'
-  const overdue = open && c.status === 'due' && c.due_on < today
+  const overdue = open && (c.status === 'due' ? c.due_on < today : !!c.booked_for && c.booked_for < today)
   const fileHref = c.customer_id && c.opportunity_id ? `/c/${c.customer_id}/d/${c.opportunity_id}` : `/ops/jobs/${c.production_job_id}`
 
   const run = async (payload: Record<string, unknown>, done: string) => {
@@ -73,7 +73,7 @@ function CheckupCard({ c, today }: { c: CheckupView; today: string }) {
           <p className="break-words text-ui-sm text-[#2c2c2a]">{c.address || '—'}{c.jobNumber ? ` · Job ${c.jobNumber}` : ''}</p>
         </div>
         <span className={`rounded-full px-3 py-1 text-ui-sm font-semibold ${overdue ? 'bg-red-700 text-white' : open ? 'bg-gray-100 text-[#2c2c2a]' : 'bg-gray-200 text-[#2c2c2a]'}`}>
-          {c.status === 'booked' ? `Booked ${fmt(c.booked_for)}` : open ? (overdue ? `Overdue · ${fmt(c.due_on)}` : `Due ${fmt(c.due_on)}`) : STATUS_TEXT[c.status]}
+          {c.status === 'booked' ? (overdue ? `Visit was ${fmt(c.booked_for)} — record result` : `Booked ${fmt(c.booked_for)}`) : open ? (overdue ? `Overdue · ${fmt(c.due_on)}` : `Due ${fmt(c.due_on)}`) : STATUS_TEXT[c.status]}
         </span>
       </div>
 

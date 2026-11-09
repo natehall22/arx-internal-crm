@@ -355,13 +355,14 @@ export async function loadOwnerExceptions(admin: SupabaseClient, orgId: string, 
 }
 
 /**
- * Customer checkups due now (lib/checkups.ts): open checkups whose due date has come, plus visits booked for today.
+ * Customer checkups due now (lib/checkups.ts): open checkups whose due date has come, plus visits booked for today or
+ * earlier that still have no result.
  * Email-safe like every other queue here — job number and plain facts, no customer name or address.
  */
 export async function loadCheckupsDueQueue(admin: SupabaseClient, orgId: string, now = new Date(), cap = LIST_CAP): Promise<Queue> {
   const todayYmd = new Intl.DateTimeFormat('en-CA', { timeZone: NY }).format(now)
   const rows = (await loadCheckups(admin, orgId, { open: true })).filter(
-    (c) => (c.status === 'due' && c.due_on <= todayYmd) || (c.status === 'booked' && c.booked_for === todayYmd)
+    (c) => (c.status === 'due' && c.due_on <= todayYmd) || (c.status === 'booked' && !!c.booked_for && c.booked_for <= todayYmd)
   )
   return {
     id: 'checkups-due',
@@ -369,7 +370,7 @@ export async function loadCheckupsDueQueue(admin: SupabaseClient, orgId: string,
     count: rows.length,
     empty: 'No customer checkups due.',
     items: rows.slice(0, cap).map((c) => {
-      const when = c.status === 'booked' ? 'visit booked today' : c.due_on < todayYmd ? `overdue since ${formatDateShort(c.due_on)}` : 'due today'
+      const when = c.status === 'booked' ? (c.booked_for === todayYmd ? 'visit booked today' : `visit was booked ${formatDateShort(c.booked_for)}, no result yet`) : c.due_on < todayYmd ? `overdue since ${formatDateShort(c.due_on)}` : 'due today'
       const note = [c.label, when, c.attempts > 0 ? `tried ${c.attempts}×` : null].filter(Boolean).join(' · ')
       return {
         id: c.id,
