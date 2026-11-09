@@ -94,8 +94,10 @@ export default function CustomerFilesUpload({ customerId }: { customerId: string
       try {
         await postJson(`${base}/finalize`, { fileId: uploaded.fileId, fileName: file.name })
       } catch (e) {
-        // 400 = the stored object is gone or unusable (finalize removed it): the next retry must upload again.
-        if (e instanceof UploadHttpError && e.status === 400) patch(item.key, { uploaded: undefined })
+        // Finalize removes the stored object on every failure it reports (400 missing/no size, 413 too big, 500 save failed),
+        // so the next retry must upload again. Only 401/404 (signed out / no access) and network errors leave it in place.
+        const keep = !(e instanceof UploadHttpError) || e.status === 401 || e.status === 404
+        if (!keep) patch(item.key, { uploaded: undefined })
         throw e
       }
       patch(item.key, { status: 'done' })

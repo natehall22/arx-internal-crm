@@ -13,7 +13,8 @@ import { loadCheckups } from '@/lib/checkups'
 import { formatDate } from '@/lib/format'
 import { isFileTab, type FileTab } from '@/lib/customer-file/access'
 import { loadFile } from '@/lib/customer-file/load'
-import { customerFileUploadAccess, loadCustomerFiles } from '@/lib/customer-file/customer-files-access'
+import { customerFileUploadAccess, loadCustomerFilesForDeals } from '@/lib/customer-file/customer-files-access'
+import { resolveFieldOrSalesDocBarred } from '@/lib/sales-doc-access'
 import { createServiceClient } from '@/lib/supabase/service'
 import PhoneLink from '@/components/PhoneLink'
 
@@ -138,6 +139,8 @@ async function Overview({ customerId, dealId }: { customerId: string; dealId: st
 async function Files({ customerId, dealId }: { customerId: string; dealId: string }) {
   const ctx = await loadFile(customerId, dealId)
   const admin = createServiceClient()
+  // Field roles (incl. by custom-role name) never see customer files, even if a custom grant opened this tab: skip the card.
+  const fieldBarred = await resolveFieldOrSalesDocBarred(admin, ctx.profile)
   const [{ data: contracts }, customerFiles, uploadAccess] = await Promise.all([
     admin
       .from('order_form_contracts')
@@ -145,16 +148,11 @@ async function Files({ customerId, dealId }: { customerId: string; dealId: strin
       .eq('opportunity_id', dealId)
       .eq('org_id', ctx.viewer.orgId)
       .order('created_at', { ascending: false }),
-    // Same list as the customer account page: files on the customer, plus this viewer's openable deals and this deal's project/lead.
-    loadCustomerFiles(admin, {
-      orgId: ctx.viewer.orgId,
-      customerId,
-      opportunityIds: ctx.deals.map((d) => d.id),
-      projectIds: ctx.projectId ? [ctx.projectId] : [],
-      leadIds: ctx.deal.lead_id ? [ctx.deal.lead_id] : [],
-    }),
+    // Same list as the customer account page: customer-level files plus files on every deal this viewer can open
+    // (ctx.deals is already filtered by canOpenDeal) and on those deals' projects and leads.
+    fieldBarred ? Promise.resolve([]) : loadCustomerFilesForDeals(admin, ctx.viewer.orgId, customerId, ctx.deals.map((d) => d.id)),
     // Same rule as the upload routes, so the box only shows when an upload would be accepted.
-    customerFileUploadAccess(admin, ctx.profile, customerId),
+    fieldBarred ? Promise.resolve({ ok: false as const }) : customerFileUploadAccess(admin, ctx.profile, customerId),
   ])
   return (
     <div className="space-y-4">
@@ -166,12 +164,17 @@ async function Files({ customerId, dealId }: { customerId: string; dealId: strin
           )}
         </CardContent>
       </Card>
-      <Card>
-        <CardHeader><CardTitle>Customer files</CardTitle></CardHeader>
-        <CardContent>
-          <CustomerFilesList customerId={customerId} files={customerFiles} canAdd={uploadAccess.ok} />
-        </CardContent>
-      </Card>
+      {!fieldBarred && (
+        <Card>
+          <CardHeader><CardTitle>Customer files (not tied to a job)</CardTitle></CardHeader>
+          <CardContent>
+            {ctx.job && (
+              <p className="mb-3 text-ui-sm text-ink-muted">For this customer in general, on every deal. Job documents and photos go in the job&apos;s files below.</p>
+            )}
+            <CustomerFilesList customerId={customerId} files={customerFiles} canAdd={uploadAccess.ok} />
+          </CardContent>
+        </Card>
+      )}
       {ctx.job && (
         <FilesPanel jobId={ctx.job.id} userRole={ctx.profile.role} canSeeFinancials={ctx.viewer.jobFinancials || ctx.viewer.ownerLike} jobStatus={ctx.job.status} customerEmail={ctx.customer.email} />
       )}

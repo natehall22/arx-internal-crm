@@ -39,6 +39,11 @@ export type ThreadViewer = {
   pricingBarred: boolean
   /** Inside-sales / call-center worker: works the whole queue, never production or pricing. */
   insideSales?: boolean
+  /**
+   * isFieldRoleLike: setter / canvasser / inside sales / call center by role slug OR custom-role name (e.g. base role "rep"
+   * with a custom role named "Canvasser"). Mirrors SQL arx_private.is_field_role(role, crname).
+   */
+  fieldRole?: boolean
 }
 
 /** A role the thread rules positively know. Anyone else (sub, custom-only roles) reads nothing: fail closed. */
@@ -81,7 +86,7 @@ function ownsDealAsCloser(v: ThreadViewer, deal: DealRef): boolean {
  * mirrors it).
  */
 export function isFieldRole(v: ThreadViewer): boolean {
-  return !v.ownerLike && (v.setterLike || v.insideSales === true || v.pricingBarred)
+  return !v.ownerLike && (v.fieldRole === true || v.setterLike || v.insideSales === true || v.pricingBarred)
 }
 
 /** True when the viewer may see the Production/Crew sides of this deal. */

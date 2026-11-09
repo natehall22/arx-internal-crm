@@ -18,7 +18,7 @@ export { FILES_OBJECT_BUCKET as CUSTOMER_FILES_BUCKET }
 
 /**
  * Per file. Checked in the browser, at register, and at finalize from the stored object's size. Migration
- * 202611100030_files_bucket_size_limit.sql sets the same limit on the bucket itself.
+ * 202611100040_files_bucket_size_limit.sql sets the same limit on the bucket itself.
  */
 export const CUSTOMER_FILE_MAX_BYTES = 50 * 1024 * 1024
 

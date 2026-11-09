@@ -32,8 +32,9 @@ export function tabsFor(v: ThreadViewer, input: FileAccessInput): FileTab[] {
   const field = isFieldRole(v)
   if (input.hasJob && !field && (v.ownerLike || v.jobBoard)) tabs.push('job')
   if (input.hasJob && !field && (v.ownerLike || v.jobFinancials)) tabs.push('money')
-  // Contracts and pricing PDFs live in Files: pricing-barred roles (setters, inside sales) don't get it.
-  if (!v.pricingBarred) tabs.push('files')
+  // Contracts, pricing PDFs and customer files live in Files: field roles (incl. by custom-role name) and pricing-barred
+  // roles don't get it — the same people GET /api/files/object refuses those files to.
+  if (!v.pricingBarred && !field) tabs.push('files')
   tabs.push('notes')
   return tabs
 }

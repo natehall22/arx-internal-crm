@@ -55,3 +55,15 @@ describe('stage stepper', () => {
     expect(nextAction(s, true)).toBeNull()
   })
 })
+
+describe('field role by custom-role name (base role rep + custom role "Canvasser")', () => {
+  it('gets no Files tab (nor Job/Money) even though the base role is a closer role', () => {
+    const repAsCanvasser = { ...base, closerLike: true, fieldRole: true }
+    expect(tabsFor(repAsCanvasser, { hasJob: true })).toEqual(['overview', 'sales', 'notes'])
+    expect(defaultTab(repAsCanvasser, { hasJob: true }, 'files')).not.toBe('files')
+  })
+  it('a real closer and ops keep the Files tab', () => {
+    expect(tabsFor(closer, { hasJob: false })).toContain('files')
+    expect(tabsFor(ops, { hasJob: true })).toContain('files')
+  })
+})

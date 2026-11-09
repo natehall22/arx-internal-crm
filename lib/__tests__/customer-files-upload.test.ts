@@ -7,7 +7,7 @@
  */
 import { createFakeDb } from '@/lib/test-helpers/fake-db'
 import { classifyFilesPath, fieldRoleMayReadFilesPath, filesObjectHref } from '@/lib/files/files-object'
-import { loadCustomerFiles } from '@/lib/customer-file/customer-files-access'
+import { loadCustomerFiles, loadCustomerFilesForDeals } from '@/lib/customer-file/customer-files-access'
 import {
   CUSTOMER_FILE_MAX_BYTES,
   customerFileStoragePath,
@@ -263,5 +263,30 @@ describe('loadCustomerFiles (the one list both customer pages read)', () => {
     )
     const rows = await loadCustomerFiles(db.client as any, { orgId: ORG, customerId: CUST, opportunityIds: [D1, 'not-a-uuid'] })
     expect(rows.map((r) => r.id)).toEqual(['b', 'a'])
+  })
+
+  it('a closer on deal A does not see the contract on deal B of the same customer (customer_id alone is not enough)', async () => {
+    const DEAL_A = 'd0000000-0000-4000-8000-00000000000a' // closer's own deal
+    const DEAL_B = 'd0000000-0000-4000-8000-00000000000b' // another closer's deal, same customer
+    ;(db.tables.opportunities ??= []).push(
+      { id: DEAL_A, org_id: ORG, customer_id: CUST, lead_id: 'a1000000-0000-4000-8000-00000000000a', owner_user_id: 'u-closer' },
+      { id: DEAL_B, org_id: ORG, customer_id: CUST, lead_id: 'a1000000-0000-4000-8000-00000000000b', owner_user_id: 'u-other' },
+    )
+    db.tables.projects.push({ id: 'b1000000-0000-4000-8000-00000000000a', org_id: ORG, opportunity_id: DEAL_A, customer_id: CUST })
+    db.tables.files.push(
+      { id: 'cust-level', org_id: ORG, customer_id: CUST, opportunity_id: null, project_id: null, lead_id: null, job_id: null, file_name: 'w9.pdf', tag: 'document', storage_path: 'p/1', created_at: '2026-11-01' },
+      { id: 'contract-A', org_id: ORG, customer_id: CUST, opportunity_id: DEAL_A, file_name: 'a.pdf', tag: 'contract', storage_path: 'p/2', created_at: '2026-11-02' },
+      { id: 'contract-B', org_id: ORG, customer_id: CUST, opportunity_id: DEAL_B, project_id: null, file_name: 'b.pdf', tag: 'contract', storage_path: 'p/3', created_at: '2026-11-03' },
+      { id: 'project-A', org_id: ORG, customer_id: null, project_id: 'b1000000-0000-4000-8000-00000000000a', file_name: 'pa.pdf', tag: 'document', storage_path: 'p/4', created_at: '2026-11-04' },
+      { id: 'lead-B', org_id: ORG, customer_id: CUST, lead_id: 'a1000000-0000-4000-8000-00000000000b', file_name: 'lb.jpg', tag: 'photo', storage_path: 'p/5', created_at: '2026-11-05' },
+      { id: 'lead-A', org_id: ORG, customer_id: null, lead_id: 'a1000000-0000-4000-8000-00000000000a', file_name: 'la.jpg', tag: 'photo', storage_path: 'p/6', created_at: '2026-11-06' },
+    )
+    // The Customer File passes only the deals this closer can open (ctx.deals = [DEAL_A]).
+    const rows = await loadCustomerFilesForDeals(db.client as any, ORG, CUST, [DEAL_A])
+    expect(rows.map((r) => r.id)).toEqual(['lead-A', 'project-A', 'contract-A', 'cust-level'])
+    expect(rows.map((r) => r.id)).not.toContain('contract-B')
+    expect(rows.map((r) => r.id)).not.toContain('lead-B')
+    // The account page shape (no deal ids) only gets the customer-level file.
+    expect((await loadCustomerFiles(db.client as any, { orgId: ORG, customerId: CUST })).map((r) => r.id)).toEqual(['cust-level'])
   })
 })

@@ -42,9 +42,12 @@ export async function customerFileUploadAccess(admin: SupabaseClient, profile: U
 }
 
 /**
- * THE customer file list, for both customer pages (`/customers/[id]?tab=files` and the Customer File's Files tab): files on the
- * customer itself plus files on the given projects / deals / leads, newest first. Callers pass only the records the viewer
- * may see (the account page its rep-scoped projects and deals; the Customer File the deals the viewer can open).
+ * THE customer file list, for both customer pages (`/customers/[id]?tab=files` and the Customer File's Files tab), newest first:
+ *  - customer-level files: `customer_id` = this customer AND attached to nothing else (no deal, project, lead or job). A row
+ *    with `customer_id` plus a deal/project/lead/job — e.g. a signed contract — belongs to that record, so it is NOT let in by
+ *    its customer_id; otherwise a closer would see the contract on another closer's deal for the same customer.
+ *  - files on the given projects / deals / leads. Callers pass only the records the viewer may see (the account page its
+ *    rep-scoped projects and deals; the Customer File the deals the viewer can open and their projects and leads).
  */
 export async function loadCustomerFiles(
   client: SupabaseClient,
@@ -56,7 +59,7 @@ export async function loadCustomerFiles(
   const opportunityIds = ids(args.opportunityIds)
   const leadIds = ids(args.leadIds)
   const filters = [
-    `customer_id.eq.${args.customerId}`,
+    `and(customer_id.eq.${args.customerId},opportunity_id.is.null,project_id.is.null,lead_id.is.null,job_id.is.null)`,
     projectIds.length > 0 ? `project_id.in.(${projectIds.join(',')})` : null,
     opportunityIds.length > 0 ? `opportunity_id.in.(${opportunityIds.join(',')})` : null,
     leadIds.length > 0 ? `lead_id.in.(${leadIds.join(',')})` : null,
@@ -68,4 +71,29 @@ export async function loadCustomerFiles(
     .or(filters.join(','))
     .order('created_at', { ascending: false })
   return (data ?? []) as CustomerFileRow[]
+}
+
+/**
+ * The Customer File's list: customer-level files plus files on the given deals (already filtered to the ones the viewer can
+ * open) and on those deals' projects and leads — the same scope the account page builds from its own project/deal/lead lists.
+ */
+export async function loadCustomerFilesForDeals(
+  admin: SupabaseClient,
+  orgId: string,
+  customerId: string,
+  dealIds: string[]
+): Promise<CustomerFileRow[]> {
+  const deals = dealIds.filter((id) => isUuid(id))
+  if (!isUuid(customerId) || !orgId) return []
+  let projectIds: string[] = []
+  let leadIds: string[] = []
+  if (deals.length > 0) {
+    const [projects, opps] = await Promise.all([
+      admin.from('projects').select('id').eq('org_id', orgId).in('opportunity_id', deals),
+      admin.from('opportunities').select('lead_id').eq('org_id', orgId).eq('customer_id', customerId).in('id', deals),
+    ])
+    projectIds = ((projects.data ?? []) as Array<{ id: string }>).map((p) => p.id)
+    leadIds = ((opps.data ?? []) as Array<{ lead_id: string | null }>).map((o) => o.lead_id).filter((x): x is string => !!x)
+  }
+  return loadCustomerFiles(admin, { orgId, customerId, opportunityIds: deals, projectIds, leadIds })
 }
