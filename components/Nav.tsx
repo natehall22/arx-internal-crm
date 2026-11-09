@@ -22,7 +22,9 @@ import { COMMISSION_ROLES } from '@/lib/comp-plan-defaults'
 import { activeSectionId, visibleNav } from '@/lib/nav-config'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import GlobalSearch from '@/components/search/GlobalSearch'
-import { BarChart3, DollarSign, Filter, Hammer, Home, MapPin, MoreHorizontal, Search, Users, type LucideIcon } from 'lucide-react'
+import { BarChart3, DollarSign, Filter, Hammer, Home, Lightbulb, MapPin, MoreHorizontal, Search, Users, type LucideIcon } from 'lucide-react'
+import { useOptionalAIAssistantShell } from '@/components/AIAssistantProvider'
+import { clearAiAssistantShellStorage, writeAiAssistantAllowlistLatch } from '@/lib/ai/assistant-shell-storage'
 import NotificationBell from './NotificationBell'
 import FeedbackButton from './FeedbackButton'
 import AnnouncementBanner from './AnnouncementBanner'
@@ -200,6 +202,9 @@ export default function Nav() {
   }, [pathname])
 
   const handleLogout = async () => {
+    // Don't hand the next person in this tab the AI launcher or this user's chat.
+    writeAiAssistantAllowlistLatch(false)
+    clearAiAssistantShellStorage()
     try {
       if (!supabaseRef.current) {
         supabaseRef.current = createClientBrowser()
@@ -243,6 +248,9 @@ export default function Nav() {
   const activeId = activeSectionId(pathname, nav)
   const activeSection = nav.sections.find((s) => s.id === activeId) ?? null
   const [moreOpen, setMoreOpen] = useState(false)
+  const ai = useOptionalAIAssistantShell()
+  const aiReady = ai?.launcherReady ?? false
+  const aiPanelMode = ai?.panelMode ?? 'closed'
   const canAddPartner = hasFullNavAccess || effectivePermissionNames.has('referral_partners:view')
 
   // The shell is fixed (sidebar / bottom bar), so pages — which each render <Nav /> themselves — get room via body classes.
@@ -315,7 +323,7 @@ export default function Nav() {
       {/* Top bar: search, quick actions, bell (all sizes) */}
       <header className="bg-gray-800 text-white print:hidden">
         <div className="flex h-14 items-center justify-between gap-2 px-3 sm:px-6">
-          <Link href={homeHref} className="flex min-h-[44px] items-center gap-2 md:hidden">
+          <Link href={homeHref} className="flex min-h-[44px] min-w-0 shrink items-center gap-2 md:hidden">
             {logo}
           </Link>
           <button
@@ -332,9 +340,24 @@ export default function Nav() {
               <Search className="h-5 w-5" aria-hidden />
             </button>
             {canAddPartner && (
-              <Link href="/referral-partners?add=1" className="inline-flex min-h-[44px] items-center rounded-md bg-amber-400 px-3 text-sm font-semibold text-gray-900 hover:bg-amber-300" title="Add a Referral Partner">
-                + Partner
+              <Link href="/referral-partners?add=1" aria-label="Add a Referral Partner" className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md bg-amber-400 px-3 text-sm font-semibold text-gray-900 hover:bg-amber-300" title="Add a Referral Partner">
+                +<span className="hidden sm:inline">&nbsp;Partner</span>
               </Link>
+            )}
+            {aiReady && (
+              <button
+                type="button"
+                onClick={() => ai?.setPanelMode(aiPanelMode === 'open' ? 'minimized' : 'open')}
+                aria-label="AI Assistant"
+                aria-pressed={aiPanelMode === 'open'}
+                title="AI Assistant"
+                className={`relative inline-flex h-11 w-11 items-center justify-center rounded-full transition-colors ${aiPanelMode === 'open' ? 'bg-indigo-600 text-white' : 'text-gray-200 hover:bg-gray-700 hover:text-white'}`}
+              >
+                <Lightbulb className="h-5 w-5" aria-hidden />
+                {aiPanelMode === 'minimized' && (
+                  <span className="absolute right-2 top-2 h-2.5 w-2.5 rounded-full bg-indigo-400 ring-2 ring-gray-800" aria-hidden />
+                )}
+              </button>
             )}
             <FeedbackButton />
             <NotificationBell />

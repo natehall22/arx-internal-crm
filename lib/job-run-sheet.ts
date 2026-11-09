@@ -34,7 +34,9 @@ import {
   resolveJobProposalId,
   type JobSoldScope,
 } from '@/lib/job-sold-scope'
-import { buildMaterialsOrderList } from '@/lib/materials-order-list'
+import { buildMaterialsOrderList, jobIncludesRoofListTrade } from '@/lib/materials-order-list'
+import { isTradeActive } from '@/lib/job-trades'
+import { loadOrgTrades, primaryTradeForJobType } from '@/lib/org-trades'
 import {
   applyMaterialOrderOverrides,
   type DisplayMaterialsOrderItem,
@@ -365,7 +367,7 @@ export async function buildJobRunSheet(
     ? `job_id.eq.${job.id},and(job_id.is.null,project_id.eq.${job.project_id})`
     : `job_id.eq.${job.id}`
 
-  const [orgRes, scope, overrides, orderOverridesRes, notesRes, changeOrdersRes] = await Promise.all([
+  const [orgRes, scope, overrides, orderOverridesRes, notesRes, changeOrdersRes, tradeRowsRes, orgTrades] = await Promise.all([
     admin
       .from('orgs')
       .select(
@@ -387,6 +389,13 @@ export async function buildJobRunSheet(
       .eq('status', 'completed')
       .or(coFilter)
       .order('created_at', { ascending: true }),
+    admin
+      .from('work_orders')
+      .select('trade, status')
+      .eq('org_id', orgId)
+      .eq('job_id', jobId)
+      .not('trade', 'is', null),
+    loadOrgTrades(admin, orgId),
   ])
 
   const coverage = resolveMaterialsCoverageOverrides(orgRes.data as OrgMaterialsCoverageRow | null)
@@ -400,7 +409,14 @@ export async function buildJobRunSheet(
     proposalId: contractProposalId,
     opportunityId: contractOpportunityId,
   })
-  const materialOrder = applyMaterialOrderOverrides(
+  // Roof materials only for a job with a roofing crew (gutters/siding-only jobs order none).
+  const includesRoofList = jobIncludesRoofListTrade({
+    activeTrades: ((tradeRowsRes.data ?? []) as { trade: string; status: string | null }[])
+      .filter((r) => isTradeActive({ status: String(r.status ?? '') }))
+      .map((r) => String(r.trade)),
+    primaryTrade: primaryTradeForJobType(job.job_type, orgTrades),
+  })
+  const materialOrder = !includesRoofList ? [] : applyMaterialOrderOverrides(
     buildMaterialsOrderList({
       totalSquaresWithWaste: scope?.total_squares ?? null,
       linear: scope?.roof_measurement_linear ?? null,

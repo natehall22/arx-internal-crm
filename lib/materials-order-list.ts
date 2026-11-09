@@ -25,6 +25,22 @@ export type MaterialsOrderItemStatus = 'ready' | 'confirm' | 'manual'
  */
 export const MATERIALS_ORDER_LIST_TRADE = 'roofing'
 
+/**
+ * Does this job get the roof materials list? Only when it has a roofing crew.
+ * The job's trade rows (work_orders, created by ensureJobTrades) are the truth;
+ * before any exist, fall back to the job's primary trade from its job_type.
+ * A gutters- or siding-only job therefore orders no shingles or pipe boots.
+ */
+export function jobIncludesRoofListTrade(input: {
+  /** Active (not cancelled) trade slugs on the job's crews. */
+  activeTrades: readonly string[]
+  /** primaryTradeForJobType(job.job_type, orgTrades) */
+  primaryTrade: string
+}): boolean {
+  if (input.activeTrades.length > 0) return input.activeTrades.includes(MATERIALS_ORDER_LIST_TRADE)
+  return input.primaryTrade === MATERIALS_ORDER_LIST_TRADE
+}
+
 export type MaterialsOrderItem = {
   key: string
   label: string
