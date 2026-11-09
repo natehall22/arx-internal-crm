@@ -87,6 +87,7 @@ export async function PATCH(
       return NextResponse.json({ error: 'No valid fields to update' }, { status: 400 })
     }
 
+
     // Cancelling also voids the sale agreement and cancels the project, all
     // atomically (the opportunity is deliberately left alone) — a bare status
     // write here would do none of that.

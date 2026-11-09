@@ -251,6 +251,10 @@ export async function GET(request: NextRequest) {
         .select('opportunity_id, type, created_at')
         .in('opportunity_id', retireIds)
         .in('type', ['call', 'text'])
+        // Deleted rows aren't attempts, and a logged contact where we got through (lib/customer-contact.ts) means the
+        // customer is not unresponsive. Needs activities.contact_outcome (migration 202611100030).
+        .is('deleted_at', null)
+        .or('contact_outcome.is.null,contact_outcome.not.in.(reached,replied)')
         .order('created_at', { ascending: false })
 
       for (const row of attemptRows || []) {

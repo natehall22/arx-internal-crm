@@ -529,3 +529,19 @@ export const HARNESS_CATCH_UP_JOBS = HARNESS_OPS_JOBS.map((j, i) =>
         ? { ...j, catch_up: catchUp({ jobId: 'job-4', stage: 'Scheduled', nextStep: 'Roofing crew Nov 12', ageLabel: 'today', ageDays: 0, idleWorkingDays: 0, owner: 'Dana', ownerKind: 'assigned', ownerUserId: HARNESS_VIEWER_ID, line: 'Dana · Roofing crew Nov 12 · today' }) }
         : j
 )
+
+/** Customer checkups list (components/checkups/CheckupList.tsx). */
+export const HARNESS_CHECKUPS = [
+  {
+    id: 'ck-1', production_job_id: 'job-1', customer_id: 'cust-1', opportunity_id: 'opp-1', month_offset: 6, kind: 'inspection', due_on: '2026-09-09',
+    status: 'due', booked_for: null, result: null, notes: null, attempts: 2, last_attempt_at: '2026-11-02T15:00:00Z', assigned_user_id: 'u1', done_at: null,
+    label: '6-month inspection', jobNumber: '26-0003', address: '1840 Featherstonehaugh Crossing Ln NW, Concord NC 28025', installedOn: '2026-03-09',
+    customerName: 'Bartholomew Featherstonehaugh-Montgomery', phone: '7045550142', email: 'bart.featherstonehaugh@example.com', assigneeName: 'Nathan Hall',
+  },
+  {
+    id: 'ck-2', production_job_id: 'job-2', customer_id: 'cust-2', opportunity_id: 'opp-2', month_offset: 24, kind: 'touch', due_on: '2026-11-01',
+    status: 'due', booked_for: null, result: null, notes: null, attempts: 0, last_attempt_at: null, assigned_user_id: 'u1', done_at: null,
+    label: '2-year check-in call', jobNumber: '24-0110', address: '22 Oak St, Concord NC 28025', installedOn: '2024-11-01',
+    customerName: 'Pat Customer', phone: '7045550100', email: null, assigneeName: 'Nathan Hall',
+  },
+]

@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 
 import { dealRefOf } from '@/lib/threads/get-thread'
 
+import { parseContact } from '@/lib/customer-contact'
 import { getTimeline } from '@/lib/threads/get-thread'
 import { threadAuth, threadDeal, type ThreadCtx } from '@/lib/threads/api'
 import { notifyMessage } from '@/lib/threads/notify'
@@ -63,6 +64,9 @@ async function handlePOST(request: Request, { params }: { params: { dealId: stri
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
   }
+  if (body.contact !== undefined && !parseContact(body.contact)) {
+    return NextResponse.json({ error: 'Pick how the contact went' }, { status: 400 })
+  }
   const res = await postMessage(ctx.admin, ctx.profile, deal, {
     body: typeof body.body === 'string' ? body.body : '',
     surface: body.surface === 'sales' || body.surface === 'job' || body.surface === 'overview' ? body.surface : 'other',
@@ -73,6 +77,7 @@ async function handlePOST(request: Request, { params }: { params: { dealId: stri
     allowSetters: body.allowSetters === true,
     clientId: typeof body.clientId === 'string' ? body.clientId : null,
     source: 'web',
+    contact: body.contact === undefined ? null : parseContact(body.contact),
   }, { viewer: ctx.viewer })
   if (!res.ok) return NextResponse.json({ error: res.error }, { status: res.status })
 

@@ -11,6 +11,8 @@ import CompleteJobModal from '@/components/ops/CompleteJobModal'
 import JobDocumentsBanner from '@/components/ops/JobDocumentsBanner'
 import JobMaterialsCard from '@/components/ops/JobMaterialsCard'
 import NeedsYouList from '@/components/ops/NeedsYouList'
+import CheckupList from '@/components/checkups/CheckupList'
+import { HARNESS_CHECKUPS } from '@/e2e/fixtures'
 import WhatsNewView from '@/components/WhatsNewView'
 import { ROLE_GROUPS } from '@/lib/announcements'
 import { WHATS_NEW_SHOTS } from '@/lib/whats-new-shots'
@@ -115,6 +117,12 @@ export default function Harness({ params }: { params: { screen: string } }) {
           projectAddress="12 Elm Street, Concord NC 28025"
           projectCost={16325}
         />
+      )
+    case 'checkups':
+      return (
+        <div className="p-3">
+          <CheckupList today="2026-11-09" sections={[{ id: 'overdue', title: 'Due now', empty: 'Nothing due right now.', rows: HARNESS_CHECKUPS as never }, { id: 'soon', title: 'Coming up', empty: 'Nothing coming up.', rows: [] }]} />
+        </div>
       )
     case 'needs-you':
       return <div className="p-3"><NeedsYouList report={HARNESS_NEEDS_YOU as never} canFixPayPlans /></div>

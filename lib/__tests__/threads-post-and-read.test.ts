@@ -30,6 +30,19 @@ async function post(db: ReturnType<typeof fresh>, who: keyof typeof V, draft: Re
 }
 
 describe('postMessage', () => {
+  it('a logged contact is written as that contact type with its outcome, logged as team, never sales or crew', async () => {
+    const db = fresh()
+    const r = await post(db, 'owner', { body: ' Happy with the roof ', contact: { kind: 'call', outcome: 'reached' }, audience: 'sales' })
+    expect(r.ok).toBe(true)
+    const row = db.tables.activities.find((a) => r.ok && a.id === r.message.id)
+    expect(row).toMatchObject({ type: 'call', contact_outcome: 'reached', body: 'Call — Talked to them: Happy with the roof', audience: 'team', user_id: 'owner' })
+    const empty = await post(db, 'ops', { body: '', contact: { kind: 'text', outcome: 'sent' }, surface: 'job' })
+    expect(empty.ok && empty.message.body).toBe('Text — Sent')
+    expect(empty.ok && empty.message.audience).toBe('production')
+    const crew = await post(db, 'owner', { body: 'x', contact: { kind: 'call', outcome: 'reached' }, audience: 'crew' })
+    expect(crew.ok && crew.message.audience).toBe('team')
+  })
+
   it('setter posts as Team and can never write Production or Crew', async () => {
     const db = fresh()
     const ok = await post(db, 'setter', { body: 'Homeowner works nights' })

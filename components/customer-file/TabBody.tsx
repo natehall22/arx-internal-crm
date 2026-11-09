@@ -8,6 +8,8 @@ import ContractListItem from '@/components/contracts/ContractListItem'
 import { Card, CardContent, CardHeader, CardTitle, StatusPill } from '@/components/ui'
 import JobView from '@/app/ops/jobs/[id]/JobView'
 import OpportunityView from '@/app/opportunities/[id]/OpportunityView'
+import { loadCheckups } from '@/lib/checkups'
+import { formatDate } from '@/lib/format'
 import { isFileTab, type FileTab } from '@/lib/customer-file/access'
 import { loadFile } from '@/lib/customer-file/load'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -50,6 +52,10 @@ async function Overview({ customerId, dealId }: { customerId: string; dealId: st
   const ctx = await loadFile(customerId, dealId)
   const base = `/c/${customerId}/d/${dealId}`
   const { job, deal, customer } = ctx
+  // Checkups are job-side: only people with the job board see them (field roles never do).
+  const checkups = ctx.viewer.jobBoard || ctx.viewer.ownerLike
+    ? await loadCheckups(createServiceClient(), ctx.viewer.orgId, { customerId: customer.id }).catch(() => null)
+    : null
   return (
     <div className="space-y-4">
       <Card>
@@ -80,6 +86,33 @@ async function Overview({ customerId, dealId }: { customerId: string; dealId: st
               <dt className="text-ink-muted">Materials</dt><dd>{job.materials_status || '—'}{job.materials_eta ? ` · ETA ${job.materials_eta}` : ''}</dd>
             </dl>
             {ctx.tabs.includes('job') && <Link href={`${base}/job`} className="mt-3 inline-flex min-h-tap items-center text-ui-sm font-semibold text-brand-800 underline">Open the job ▸</Link>}
+          </CardContent>
+        </Card>
+      )}
+
+      {checkups && checkups.length > 0 && (
+        <Card>
+          <CardHeader><CardTitle>Checkups</CardTitle><Link href="/ops/checkups" className="text-ui-sm font-semibold text-brand-800 underline">All checkups ▸</Link></CardHeader>
+          <CardContent>
+            <ul className="divide-y divide-surface-line">
+              {checkups.map((c) => (
+                <li key={c.id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-ui-base text-ink">
+                  <span className="font-medium">{c.label}</span>
+                  <span>
+                    {c.status === 'done'
+                      ? `Done ${c.done_at ? formatDate(c.done_at) : ''}${c.result ? ` · ${c.result === 'green' ? 'Green' : c.result === 'yellow' ? 'Yellow' : 'Red'}` : ''}`
+                      : c.status === 'booked'
+                        ? `Booked ${formatDate(c.booked_for)}`
+                        : c.status === 'declined'
+                          ? 'Customer declined'
+                          : c.status === 'unreachable'
+                            ? 'Couldn’t reach'
+                            : `Due ${formatDate(c.due_on)}`}
+                  </span>
+                  {c.notes && <p className="w-full whitespace-pre-wrap text-ui-sm">{c.notes}</p>}
+                </li>
+              ))}
+            </ul>
           </CardContent>
         </Card>
       )}

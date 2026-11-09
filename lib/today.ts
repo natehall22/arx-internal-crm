@@ -9,6 +9,7 @@ import { getDateRangeForTimeFrame } from '@/lib/date-ranges'
 import { formatDateShort, formatDateWeekday, formatMoney, formatPhone, formatTime } from '@/lib/format'
 import { formatStormEventDateLabel, formatStormMagnitudeLabel, type StormAlertLayer } from '@/lib/storm-opportunity-alerts'
 import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
+import { loadCheckups } from '@/lib/checkups'
 import { addDaysToDateOnly } from '@/lib/install-calendar'
 import { loadOrgTrades, tradeLabel } from '@/lib/org-trades'
 
@@ -351,4 +352,34 @@ export async function loadOwnerExceptions(admin: SupabaseClient, orgId: string, 
     jobQueue('unscheduled-jobs', 'Sold jobs with no install date', (unscheduled.data ?? []) as JobRow[], unscheduled.count ?? 0, ''),
   ]
   return queues.filter((q) => q.count > 0)
+}
+
+/**
+ * Customer checkups due now (lib/checkups.ts): open checkups whose due date has come, plus visits booked for today or
+ * earlier that still have no result.
+ * Email-safe like every other queue here — job number and plain facts, no customer name or address.
+ */
+export async function loadCheckupsDueQueue(admin: SupabaseClient, orgId: string, now = new Date(), cap = LIST_CAP): Promise<Queue> {
+  const todayYmd = new Intl.DateTimeFormat('en-CA', { timeZone: NY }).format(now)
+  const rows = (await loadCheckups(admin, orgId, { open: true })).filter(
+    (c) => (c.status === 'due' && c.due_on <= todayYmd) || (c.status === 'booked' && !!c.booked_for && c.booked_for <= todayYmd)
+  )
+  return {
+    id: 'checkups-due',
+    title: 'Customer checkups due',
+    count: rows.length,
+    empty: 'No customer checkups due.',
+    items: rows.slice(0, cap).map((c) => {
+      const when = c.status === 'booked' ? (c.booked_for === todayYmd ? 'visit booked today' : `visit was booked ${formatDateShort(c.booked_for)}, no result yet`) : c.due_on < todayYmd ? `overdue since ${formatDateShort(c.due_on)}` : 'due today'
+      const note = [c.label, when, c.attempts > 0 ? `tried ${c.attempts}×` : null].filter(Boolean).join(' · ')
+      return {
+        id: c.id,
+        title: c.customerName || c.label,
+        detail: note,
+        href: '/ops/checkups',
+        ref: c.jobNumber ? `Job ${c.jobNumber}` : 'Checkup',
+        note,
+      }
+    }),
+  }
 }
