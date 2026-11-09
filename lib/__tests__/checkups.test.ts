@@ -1,4 +1,4 @@
-import { anchorJobs, checkupPatch, parseCheckupAction, plannedCheckups } from '@/lib/checkups'
+import { anchorJobs, checkupPatch, installInstantOf, parseCheckupAction, plannedCheckups } from '@/lib/checkups'
 import {
   addMonthsYmd,
   checkupLabel,
@@ -50,6 +50,12 @@ describe('checkup schedule', () => {
   it('a job brought in late gets only its newest missed checkup, not a pile', () => {
     const p = plannedCheckups('2022-01-10', '2026-11-09', DEFAULTS)
     expect(p.map((x) => [x.month, x.kind])).toEqual([[48, 'touch']])
+  })
+
+  it('counts from completion, else the install day for a job moved straight to collected', () => {
+    expect(installInstantOf({ completed_at: '2026-03-09T20:00:00Z', scheduled_date: '2026-03-01' })).toBe('2026-03-09T20:00:00Z')
+    expect(installInstantOf({ completed_at: null, scheduled_date: '2026-03-01' })).toBe('2026-03-01T12:00:00Z')
+    expect(installInstantOf({ completed_at: null, scheduled_date: null })).toBeNull()
   })
 
   it('a second job at the same home within 180 days does not start its own schedule; a later re-roof does', () => {

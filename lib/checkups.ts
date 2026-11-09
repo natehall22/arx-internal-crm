@@ -1,8 +1,9 @@
 /**
  * Customer checkups — THE server module (Nathan, 2026-11-09). One row per post-install touchpoint in `job_checkups`:
  * inspections at the org's months (default 6 and 12), then a call/text every N months (default 12). The clock is the
- * job's install date (`production_jobs.completed_at`, Eastern calendar day); only installed jobs (complete /
- * collected) get checkups, never cancelled ones.
+ * job's install date (`installDateOf`: `completed_at` as an Eastern calendar day, else the scheduled install day for a
+ * job moved straight to collected); only installed jobs (complete / collected) get checkups, never cancelled ones.
+ * Nothing here writes `completed_at` — payroll eligibility reads it.
  *
  * Rows are created lazily — `ensureCheckups` runs from the daily morning-update cron and when the Checkups page opens —
  * and only once a checkup is within CHECKUP_LEAD_DAYS of due. Nothing is ever deleted: declined / can't reach are
@@ -59,6 +60,15 @@ const COLS =
 
 type InstalledJob = { id: string; customer_id: string | null; project_id: string | null; address_text: string | null; completed_at: string }
 
+/**
+ * The install moment a schedule counts from: `completed_at`, else the scheduled install day (noon UTC, so its Eastern
+ * calendar day is that date) for a job moved straight to collected, which never got a completion time. Null = unknown.
+ */
+export function installInstantOf(j: { completed_at: string | null; scheduled_date?: string | null }): string | null {
+  if (j.completed_at) return j.completed_at
+  return j.scheduled_date && /^\d{4}-\d{2}-\d{2}$/.test(j.scheduled_date) ? `${j.scheduled_date}T12:00:00Z` : null
+}
+
 /** Pure: which installed jobs start a schedule — per home (customer, else address), a job within SAME_HOME_DAYS of the previous anchor rides along with it. */
 export function anchorJobs(jobs: InstalledJob[]): InstalledJob[] {
   const sorted = [...jobs].sort((a, b) => a.completed_at.localeCompare(b.completed_at) || a.id.localeCompare(b.id))
@@ -101,12 +111,15 @@ export async function ensureCheckups(admin: SupabaseClient, orgId: string, now =
 
   const { data: jobRows, error } = await admin
     .from('production_jobs')
-    .select('id, customer_id, project_id, address_text, completed_at')
+    .select('id, customer_id, project_id, address_text, completed_at, scheduled_date')
     .eq('org_id', orgId)
     .in('status', INSTALLED_STATUSES)
-    .not('completed_at', 'is', null)
   if (error) throw error
-  const jobs = anchorJobs((jobRows ?? []) as InstalledJob[])
+  const jobs = anchorJobs(
+    ((jobRows ?? []) as Array<Omit<InstalledJob, 'completed_at'> & { completed_at: string | null; scheduled_date: string | null }>)
+      .map((j) => ({ ...j, completed_at: installInstantOf(j) }))
+      .filter((j): j is InstalledJob & { scheduled_date: string | null } => j.completed_at != null)
+  )
   if (jobs.length === 0) return { created: 0 }
 
   const projectIds = Array.from(new Set(jobs.map((j) => j.project_id).filter((x): x is string => !!x)))
@@ -173,11 +186,11 @@ export async function loadCheckups(
   const custIds = Array.from(new Set(rows.map((r) => r.customer_id).filter((x): x is string => !!x)))
   const userIds = Array.from(new Set(rows.map((r) => r.assigned_user_id).filter((x): x is string => !!x)))
   const [jobsRes, custRes, usersRes] = await Promise.all([
-    admin.from('production_jobs').select('id, job_number, address_text, completed_at').eq('org_id', orgId).in('id', jobIds),
+    admin.from('production_jobs').select('id, job_number, address_text, completed_at, scheduled_date').eq('org_id', orgId).in('id', jobIds),
     custIds.length ? admin.from('customers').select('id, name, phone, email').eq('org_id', orgId).in('id', custIds) : Promise.resolve({ data: [] }),
     userIds.length ? admin.from('users').select('id, full_name').eq('org_id', orgId).in('id', userIds) : Promise.resolve({ data: [] }),
   ])
-  const jobs = new Map(((jobsRes.data ?? []) as Array<{ id: string; job_number: string | null; address_text: string | null; completed_at: string | null }>).map((j) => [j.id, j]))
+  const jobs = new Map(((jobsRes.data ?? []) as Array<{ id: string; job_number: string | null; address_text: string | null; completed_at: string | null; scheduled_date: string | null }>).map((j) => [j.id, j]))
   const custs = new Map(((custRes.data ?? []) as Array<{ id: string; name: string | null; phone: string | null; email: string | null }>).map((c) => [c.id, c]))
   const users = new Map(((usersRes.data ?? []) as Array<{ id: string; full_name: string | null }>).map((u) => [u.id, u.full_name]))
   return rows.map((r) => {
@@ -188,7 +201,7 @@ export async function loadCheckups(
       label: checkupLabel(r),
       jobNumber: j?.job_number ?? null,
       address: j?.address_text ?? null,
-      installedOn: j?.completed_at ? ymdInBusinessTz(new Date(j.completed_at)) : null,
+      installedOn: j && installInstantOf(j) ? ymdInBusinessTz(new Date(installInstantOf(j) as string)) : null,
       customerName: c?.name ?? null,
       phone: c?.phone ?? null,
       email: c?.email ?? null,
