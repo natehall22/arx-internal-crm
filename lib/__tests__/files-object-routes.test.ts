@@ -19,9 +19,25 @@ jest.mock('@/lib/auth', () => ({
     return authResult
   }),
 }))
-jest.mock('@/lib/sales-doc-access', () => ({
-  resolveSalesDocAccessBarred: jest.fn(async (_a: unknown, _id: string, p: { role: string }) => p.role === 'inside_sales'),
-}))
+// The real field-role check (isFieldRoleLike + the custom role lookup) runs; only the permission-grant half is stubbed.
+jest.mock('@/lib/sales-doc-access', () => {
+  const { isFieldRoleLike } = jest.requireActual('@/lib/permissions')
+  const resolveSalesDocAccessBarred = jest.fn(async (_a: unknown, _id: string, p: { role: string }) => p.role === 'inside_sales')
+  return {
+    resolveSalesDocAccessBarred,
+    resolveFieldOrSalesDocBarred: async (admin: any, p: { id: string; role: string; custom_role_id?: string | null }) => {
+      let customRoleName: string | null = null
+      let customRoleDisplayName: string | null = null
+      if (p.custom_role_id) {
+        const { data } = await admin.from('custom_roles').select('name, display_name').eq('id', p.custom_role_id).maybeSingle()
+        customRoleName = data?.name ?? null
+        customRoleDisplayName = data?.display_name ?? null
+      }
+      if (isFieldRoleLike({ role: p.role, customRoleName, customRoleDisplayName })) return true
+      return resolveSalesDocAccessBarred(admin, p.id, p)
+    },
+  }
+})
 
 let db: ReturnType<typeof createFakeDb>
 const signed: string[] = []

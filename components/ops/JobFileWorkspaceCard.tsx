@@ -1,9 +1,10 @@
 'use client'
 
-import type { DragEvent, FormEvent } from 'react'
+import type { FormEvent } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { multipartFilenameForUpload } from '@/lib/files/storage'
 import PhotoQueueNotice from '@/components/job/PhotoQueueNotice'
+import { useFileDrop } from '@/components/files/useFileDrop'
 import { useJobPhotoQueue } from '@/components/job/useJobPhotoQueue'
 import { createClientBrowser } from '@/lib/supabase/client'
 import { pickValidEmail } from '@/lib/email-address'
@@ -112,10 +113,6 @@ function isImageFile(file: File) {
   return /\.(heic|heif|jpg|jpeg|png|gif|webp|bmp|tiff?)$/i.test(file.name)
 }
 
-function hasFilePayload(e: DragEvent) {
-  return e.dataTransfer.types.includes('Files')
-}
-
 /**
  * Upload routes return JSON; reverse proxies (e.g. Vercel) may respond with plain text on limits
  * (e.g. "413 Request Entity Too Large") before the handler runs — `response.json()` then throws
@@ -189,12 +186,6 @@ export default function JobFileWorkspaceCard({
   const photoInputRef = useRef<HTMLInputElement>(null)
   const documentInputRef = useRef<HTMLInputElement>(null)
   const costAttachmentInputRef = useRef<HTMLInputElement>(null)
-  const photoDragDepth = useRef(0)
-  const documentDragDepth = useRef(0)
-  const costDragDepth = useRef(0)
-  const [photoDropActive, setPhotoDropActive] = useState(false)
-  const [documentDropActive, setDocumentDropActive] = useState(false)
-  const [costDropActive, setCostDropActive] = useState(false)
   const [showAddCostForm, setShowAddCostForm] = useState(false)
   const [savingCostLine, setSavingCostLine] = useState(false)
   const [newCostDescription, setNewCostDescription] = useState('')
@@ -718,134 +709,36 @@ export default function JobFileWorkspaceCard({
     return dt.files
   }
 
-  const resetPhotoDrag = () => {
-    photoDragDepth.current = 0
-    setPhotoDropActive(false)
-  }
-
-  const onPhotoDragEnter = (e: DragEvent<HTMLDivElement>) => {
-    if (!hasFilePayload(e) || tableUnavailable || uploadingPhoto) return
-    e.preventDefault()
-    e.stopPropagation()
-    photoDragDepth.current += 1
-    setPhotoDropActive(true)
-  }
-
-  const onPhotoDragLeave = (e: DragEvent<HTMLDivElement>) => {
-    e.preventDefault()
-    e.stopPropagation()
-    photoDragDepth.current -= 1
-    if (photoDragDepth.current <= 0) {
-      photoDragDepth.current = 0
-      setPhotoDropActive(false)
-    }
-  }
-
-  const onPhotoDragOver = (e: DragEvent<HTMLDivElement>) => {
-    if (!hasFilePayload(e) || tableUnavailable || uploadingPhoto) return
-    e.preventDefault()
-    e.stopPropagation()
-    e.dataTransfer.dropEffect = 'copy'
-  }
-
-  const onPhotoDrop = (e: DragEvent<HTMLDivElement>) => {
-    if (!hasFilePayload(e) || tableUnavailable || uploadingPhoto) return
-    e.preventDefault()
-    e.stopPropagation()
-    resetPhotoDrag()
-    const images = Array.from(e.dataTransfer.files).filter(isImageFile)
-    if (images.length === 0) {
-      setStatusMessage({ type: 'error', text: 'Drop image files only for photos.' })
-      return
-    }
-    void handlePhotosSelected(fileListFromFiles(images))
-  }
-
-  const resetDocumentDrag = () => {
-    documentDragDepth.current = 0
-    setDocumentDropActive(false)
-  }
-
-  const onDocumentDragEnter = (e: DragEvent<HTMLDivElement>) => {
-    if (!hasFilePayload(e) || tableUnavailable || uploadingDocument) return
-    e.preventDefault()
-    e.stopPropagation()
-    documentDragDepth.current += 1
-    setDocumentDropActive(true)
-  }
-
-  const onDocumentDragLeave = (e: DragEvent<HTMLDivElement>) => {
-    e.preventDefault()
-    e.stopPropagation()
-    documentDragDepth.current -= 1
-    if (documentDragDepth.current <= 0) {
-      documentDragDepth.current = 0
-      setDocumentDropActive(false)
-    }
-  }
-
-  const onDocumentDragOver = (e: DragEvent<HTMLDivElement>) => {
-    if (!hasFilePayload(e) || tableUnavailable || uploadingDocument) return
-    e.preventDefault()
-    e.stopPropagation()
-    e.dataTransfer.dropEffect = 'copy'
-  }
-
-  const onDocumentDrop = (e: DragEvent<HTMLDivElement>) => {
-    if (!hasFilePayload(e) || tableUnavailable || uploadingDocument) return
-    e.preventDefault()
-    e.stopPropagation()
-    resetDocumentDrag()
-    const files = Array.from(e.dataTransfer.files).filter((f) => f.size > 0)
-    if (files.length === 0) return
-    handleDocumentsSelected(fileListFromFiles(files))
-  }
-
-  const resetCostDrag = () => {
-    costDragDepth.current = 0
-    setCostDropActive(false)
-  }
-
   const hasAttachableCostLines = costLines.some((line) => !isSystemCostLine(line))
 
-  const onCostDragEnter = (e: DragEvent<HTMLDivElement>) => {
-    if (!hasFilePayload(e) || tableUnavailable || uploadingCostAttachment || !hasAttachableCostLines) return
-    e.preventDefault()
-    e.stopPropagation()
-    costDragDepth.current += 1
-    setCostDropActive(true)
-  }
-
-  const onCostDragLeave = (e: DragEvent<HTMLDivElement>) => {
-    e.preventDefault()
-    e.stopPropagation()
-    costDragDepth.current -= 1
-    if (costDragDepth.current <= 0) {
-      costDragDepth.current = 0
-      setCostDropActive(false)
-    }
-  }
-
-  const onCostDragOver = (e: DragEvent<HTMLDivElement>) => {
-    if (!hasFilePayload(e) || tableUnavailable || uploadingCostAttachment || !hasAttachableCostLines) return
-    e.preventDefault()
-    e.stopPropagation()
-    e.dataTransfer.dropEffect = 'copy'
-  }
-
-  const onCostDrop = (e: DragEvent<HTMLDivElement>) => {
-    if (!hasFilePayload(e) || tableUnavailable || uploadingCostAttachment || !hasAttachableCostLines) return
-    e.preventDefault()
-    e.stopPropagation()
-    resetCostDrag()
-    if (!selectedCostLineId) {
-      setStatusMessage({ type: 'error', text: 'Select a cost line before dropping attachments.' })
-      return
-    }
-    const files = Array.from(e.dataTransfer.files).filter((f) => f.size > 0)
-    if (files.length === 0) return
-    void handleCostAttachmentsSelected(fileListFromFiles(files))
-  }
+  // Drag and drop: one shared hook (components/files/useFileDrop) for every upload area in the app.
+  const photoDrop = useFileDrop(
+    (files) => {
+      const images = files.filter(isImageFile)
+      if (images.length === 0) {
+        setStatusMessage({ type: 'error', text: 'Drop image files only for photos.' })
+        return
+      }
+      void handlePhotosSelected(fileListFromFiles(images))
+    },
+    { disabled: tableUnavailable || uploadingPhoto }
+  )
+  const documentDrop = useFileDrop((files) => handleDocumentsSelected(fileListFromFiles(files)), {
+    disabled: tableUnavailable || uploadingDocument,
+  })
+  const costDrop = useFileDrop(
+    (files) => {
+      if (!selectedCostLineId) {
+        setStatusMessage({ type: 'error', text: 'Select a cost line before dropping attachments.' })
+        return
+      }
+      void handleCostAttachmentsSelected(fileListFromFiles(files))
+    },
+    { disabled: tableUnavailable || uploadingCostAttachment || !hasAttachableCostLines }
+  )
+  const photoDropActive = photoDrop.active
+  const documentDropActive = documentDrop.active
+  const costDropActive = costDrop.active
 
   const legacyRoleFinancialAmountAccess =
     isOrgSuperuserRoleSlug(userRole) || userRole === 'operations'
@@ -1005,10 +898,7 @@ export default function JobFileWorkspaceCard({
             className={`rounded-lg border-2 border-dashed transition-colors ${
               photoDropActive ? 'border-indigo-500 bg-indigo-50/90' : 'border-gray-200'
             }`}
-            onDragEnter={onPhotoDragEnter}
-            onDragLeave={onPhotoDragLeave}
-            onDragOver={onPhotoDragOver}
-            onDrop={onPhotoDrop}
+            {...photoDrop.bind}
             role="region"
             aria-label="Photo drop zone"
           >
@@ -1294,10 +1184,7 @@ export default function JobFileWorkspaceCard({
             className={`rounded-lg border-2 border-dashed transition-colors ${
               documentDropActive ? 'border-indigo-500 bg-indigo-50/90' : 'border-gray-200'
             }`}
-            onDragEnter={onDocumentDragEnter}
-            onDragLeave={onDocumentDragLeave}
-            onDragOver={onDocumentDragOver}
-            onDrop={onDocumentDrop}
+            {...documentDrop.bind}
             role="region"
             aria-label="Document drop zone"
           >
@@ -1434,10 +1321,7 @@ export default function JobFileWorkspaceCard({
             className={`rounded-lg border-2 border-dashed transition-colors ${
               costDropActive ? 'border-indigo-500 bg-indigo-50/90' : 'border-gray-200'
             }`}
-            onDragEnter={onCostDragEnter}
-            onDragLeave={onCostDragLeave}
-            onDragOver={onCostDragOver}
-            onDrop={onCostDrop}
+            {...costDrop.bind}
             role="region"
             aria-label="Cost attachment drop zone"
           >

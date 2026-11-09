@@ -40,6 +40,7 @@ import AppointmentsList from '@/components/appointments/AppointmentsList'
 import { HARNESS_OPS_JOBS, HARNESS_WORK_ORDERS, HARNESS_CUSTOMERS, HARNESS_PROFIT_ROWS } from '@/e2e/fixtures'
 import WorkOrdersClient from '@/app/work-orders/WorkOrdersClient'
 import CustomersPageClient from '@/components/customers/CustomersPageClient'
+import CustomerFilesUpload from '@/components/customers/CustomerFilesUpload'
 import JobProfitTable from '@/components/admin/JobProfitTable'
 import ProposalsPage from '@/app/proposals/page'
 import LeadsClient from '@/app/leads/LeadsClient'
@@ -300,6 +301,15 @@ export default function Harness({ params }: { params: { screen: string } }) {
       )
     case 'work-orders':
       return <WorkOrdersClient initialWorkOrders={HARNESS_WORK_ORDERS as never} />
+    case 'customer-files-upload':
+      return (
+        <div className="mx-auto max-w-7xl p-4">
+          <div className="bg-white shadow rounded-lg p-4 sm:p-6">
+            <CustomerFilesUpload customerId="c1" />
+            <p className="text-[#4b4b48] text-sm">No files yet for this customer.</p>
+          </div>
+        </div>
+      )
     case 'customers':
       return <div className="mx-auto max-w-7xl p-4"><CustomersPageClient customers={HARNESS_CUSTOMERS} query="" /></div>
     case 'proposals':

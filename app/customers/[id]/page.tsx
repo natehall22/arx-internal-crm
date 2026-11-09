@@ -13,6 +13,8 @@ import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 import { isReferralManagerRole } from '@/lib/referral-links'
 import { projectStatusLabelForJobStatus } from '@/lib/job-status'
 import { filesObjectHref } from '@/lib/files/files-object'
+import CustomerFilesUpload from '@/components/customers/CustomerFilesUpload'
+import { resolveFieldOrSalesDocBarred } from '@/lib/sales-doc-access'
 
 
 function resolveProjectDisplayStatus(project: any) {
@@ -154,6 +156,8 @@ export default async function CustomerDetailPage({
   }
 
   const { data: files } = await filesQuery
+  // Same rule as the upload routes (lib/customer-file/customer-files-access.ts): field roles never add customer files.
+  const canAddFiles = activeTab === 'files' && !(await resolveFieldOrSalesDocBarred(createServiceClient(), profile))
 
   let activitiesQuery = supabase
     .from('activities')
@@ -414,21 +418,22 @@ export default async function CustomerDetailPage({
         )}
 
         {activeTab === 'files' && (
-          <div className="bg-white shadow rounded-lg p-6">
+          <div className="bg-white shadow rounded-lg p-4 sm:p-6">
+            {canAddFiles && <CustomerFilesUpload customerId={params.id} />}
             <div className="space-y-2">
               {files && files.length > 0 ? (
                 files.map((file: any) => (
-                  <div key={file.id} className="flex items-center justify-between p-2 border rounded">
+                  <div key={file.id} className="flex items-center justify-between gap-3 p-2 border rounded">
                     <div className="min-w-0">
-                      <p className="text-sm text-gray-900 truncate">{file.file_name}</p>
-                      <p className="text-xs text-gray-500 capitalize">{file.tag}</p>
+                      <p className="text-sm text-[#2c2c2a] truncate">{file.file_name}</p>
+                      <p className="text-sm text-[#4b4b48] capitalize">{file.tag}</p>
                     </div>
                     {filesObjectHref(file.storage_path) ? (
                       <a
                         href={filesObjectHref(file.storage_path) ?? undefined}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-indigo-600 hover:text-indigo-800 text-sm font-medium"
+                        className="inline-flex min-h-[44px] shrink-0 items-center px-2 text-indigo-700 hover:text-indigo-900 text-sm font-medium"
                       >
                         Open
                       </a>
@@ -438,7 +443,7 @@ export default async function CustomerDetailPage({
                   </div>
                 ))
               ) : (
-                <p className="text-gray-500 text-sm">No files found for this customer.</p>
+                <p className="text-[#4b4b48] text-sm">No files yet for this customer.</p>
               )}
             </div>
           </div>

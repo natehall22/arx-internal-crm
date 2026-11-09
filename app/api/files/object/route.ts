@@ -9,8 +9,7 @@ import {
   signFilesObject,
   type FilesPathClass,
 } from '@/lib/files/files-object'
-import { isFieldRoleLike } from '@/lib/permissions'
-import { resolveSalesDocAccessBarred } from '@/lib/sales-doc-access'
+import { resolveFieldOrSalesDocBarred } from '@/lib/sales-doc-access'
 import { createServiceClient } from '@/lib/supabase/service'
 import type { User } from '@/lib/types/database'
 
@@ -27,20 +26,6 @@ const PRIVATE = { 'Cache-Control': 'private, no-store, max-age=0' }
 
 function notFound() {
   return NextResponse.json({ error: 'Not found' }, { status: 404, headers: PRIVATE })
-}
-
-/** Field role by role slug or custom-role name (isFieldRoleLike), or barred from sales docs (resolveSalesDocAccessBarred). */
-async function isFieldOrSalesDocBarred(admin: SupabaseClient, profile: User): Promise<boolean> {
-  const p = profile
-  let customRoleName: string | null = null
-  let customRoleDisplayName: string | null = null
-  if (p.custom_role_id) {
-    const { data } = await admin.from('custom_roles').select('name, display_name').eq('id', p.custom_role_id).maybeSingle()
-    customRoleName = data?.name ?? null
-    customRoleDisplayName = data?.display_name ?? null
-  }
-  if (isFieldRoleLike({ role: p.role, customRoleName, customRoleDisplayName })) return true
-  return resolveSalesDocAccessBarred(admin, p.id, { role: p.role, custom_role_id: p.custom_role_id ?? null })
 }
 
 async function staffMayRead(admin: SupabaseClient, profile: User, path: string, c: FilesPathClass): Promise<boolean> {
@@ -73,7 +58,7 @@ async function staffMayRead(admin: SupabaseClient, profile: User, path: string, 
   if (!inOrg) return false
 
   if (fieldRoleMayReadFilesPath(c)) return true
-  return !(await isFieldOrSalesDocBarred(admin, profile))
+  return !(await resolveFieldOrSalesDocBarred(admin, profile))
 }
 
 /** Subs read only what the sub job page shows them: shared/final files and the packet of a job assigned to their company. */

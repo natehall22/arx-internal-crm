@@ -178,6 +178,17 @@ const SCREENS: Screen[] = [
       { name: 'pricing-guard', run: async (p) => { await p.getByLabel('Message').fill('Signed at $18,400 today'); await p.waitForSelector("text=Looks like pricing") } },
       { name: 'mention-picker', run: async (p) => { await p.getByLabel('Message').fill('@Ril'); await p.waitForSelector('text=Riley Ops') } },
     ] },
+  { name: 'customer-files-upload', path: '/dev-harness/customer-files-upload', ready: 'text=Add files',
+    states: [
+      { name: 'upload-failed', run: async (p) => {
+        await p.route('**/api/customers/*/files/register', (route) => route.fulfill(json({ error: 'Your role cannot add customer files' }, 403)))
+        await p.getByLabel('Choose files to add').setInputFiles([
+          { name: 'inspection-photo-with-a-very-long-file-name-from-the-phone-camera-roll.jpg', mimeType: 'image/jpeg', buffer: Buffer.from('x'.repeat(2048)) },
+          { name: 'permit.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4') },
+        ])
+        await p.waitForSelector('text=Retry')
+      } },
+    ] },
   { name: 'list-work-orders', path: '/dev-harness/work-orders', ready: 'text=WO-0015 >> visible=true',
     states: [{ name: 'done-view', run: async (p) => { await expect(async () => { await p.getByLabel('Saved views').selectOption({ label: 'Done' }); await expect(p.getByText('WO-0012', { exact: true }).locator('visible=true').first()).toBeVisible({ timeout: 2_000 }) }).toPass({ timeout: 30_000 }) } }] },
   { name: 'list-customers', path: '/dev-harness/customers', ready: 'text=Ashley Gaines >> visible=true',
