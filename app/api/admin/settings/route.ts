@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import { createServiceClient } from '@/lib/supabase/service'
 import { brandPatchFromGeneral, saveBrandSettings } from '@/lib/org-brand'
 import { isSuperAdmin } from '@/lib/super-admin'
+import { CHECKUPS_ASSIGNEE_KEY, CHECKUPS_SETTINGS_KEYS, canEditCheckupSettings, parseCheckupPatch } from '@/lib/checkups-settings'
 import { JOB_CATCH_UP_SETTINGS_KEYS, canEditJobCatchUpSettings, parseJobCatchUpPatch } from '@/lib/job-catch-up-settings'
 import { mergeOrgSettings } from '@/lib/org-settings'
 
@@ -151,6 +152,21 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ success: true })
     }
 
+    // Customer checkup schedule + who it's assigned to: same gate and per-key write as job catch-up.
+    if (type === 'checkups') {
+      if (!profile?.org_id || !canEditCheckupSettings(profile)) return NextResponse.json({ error: 'Access denied' }, { status: 403 })
+      const parsed = parseCheckupPatch(data)
+      if ('error' in parsed) return NextResponse.json({ error: parsed.error }, { status: 400 })
+      const assignee = parsed.set[CHECKUPS_ASSIGNEE_KEY]
+      if (typeof assignee === 'string') {
+        const { data: u } = await adminClient.from('users').select('id').eq('id', assignee).eq('org_id', profile.org_id).eq('active', true).maybeSingle()
+        if (!u) return NextResponse.json({ error: 'That person is not an active user in this company' }, { status: 400 })
+      }
+      const { error } = await mergeOrgSettings(adminClient, profile.org_id, parsed.set)
+      if (error) return NextResponse.json({ error }, { status: 400 })
+      return NextResponse.json({ success: true })
+    }
+
     if (!profile?.org_id || !['admin', 'regional_manager', 'sales_manager'].includes(profile.role)) {
       return NextResponse.json({ error: 'Access denied' }, { status: 403 })
     }
@@ -236,7 +252,7 @@ export async function PATCH(request: NextRequest) {
       // `job_catch_up` save writes them (managers can reach this path). Any OTHER key is still accepted from
       // managers — pre-existing; Known Redundancy #25 (should become an allow-list).
       const { brand: _brand, ...rest } = data
-      const settingsData = Object.fromEntries(Object.entries(rest).filter(([k]) => !JOB_CATCH_UP_SETTINGS_KEYS.includes(k)))
+      const settingsData = Object.fromEntries(Object.entries(rest).filter(([k]) => !JOB_CATCH_UP_SETTINGS_KEYS.includes(k) && !CHECKUPS_SETTINGS_KEYS.includes(k)))
       const { error } = await adminClient
         .from('orgs')
         .update({

@@ -7,7 +7,8 @@ import {
 } from '@/lib/admin-email-blasts'
 import { fetchMorningUpdateMetrics, type MorningUpdateMetrics } from '@/lib/morning-update-metrics'
 import { loadDataHealth, needsYouForEmailRecipient, shapeNeedsYou, type DataHealthReport } from '@/lib/data-health'
-import { loadCrewWeekQueue, loadOpsQueues, loadOwnerExceptions, loadStormHitsQueue, type Queue } from '@/lib/today'
+import { ensureCheckups, loadCheckupSettings } from '@/lib/checkups'
+import { loadCheckupsDueQueue, loadCrewWeekQueue, loadOpsQueues, loadOwnerExceptions, loadStormHitsQueue, type Queue } from '@/lib/today'
 import { resolveAppUrl } from '@/lib/job-trades'
 import { formatPhone, telHref } from '@/lib/format'
 import { getCrmEmailFrom, getMailTransport } from '@/lib/setter-email'
@@ -159,15 +160,32 @@ export async function loadMorningTodayQueues(
   // Storm hits lead: they are the most time-sensitive, and only this version carries them (ops don't need them).
   // A storm lookup failure drops only the storm list (and says so), never the rest of Today.
   let stormFailed = false
-  const [storm, owner] = await Promise.all([
+  let checkupsFailed = false
+  const [storm, owner, checkups] = await Promise.all([
     loadStormHitsQueue(supabase, orgId, now, STORM_EMAIL_ROWS).catch((error): Queue => {
       console.error('morning update: storm hits failed', error)
       stormFailed = true
       return { id: 'storm-hits', title: 'Storm hits on open deals and customers', count: 0, empty: 'Storm hits couldn’t load today.', items: [] }
     }),
     loadOwnerExceptions(supabase, orgId, now, { money: false }),
+    // Customer checkups: the daily email run is also what creates the ones coming due (off unless the org turned them on).
+    loadCheckupSettings(supabase, orgId)
+      .then(async (s): Promise<Queue | null> => {
+        if (!s.enabled) return null
+        await ensureCheckups(supabase, orgId, now)
+        return loadCheckupsDueQueue(supabase, orgId, now)
+      })
+      .catch((error): Queue => {
+        console.error('morning update: checkups failed', error)
+        checkupsFailed = true
+        return { id: 'checkups-due', title: 'Customer checkups due', count: 0, empty: 'Checkups couldn’t load today.', items: [] }
+      }),
   ])
-  return [...(storm.count > 0 || stormFailed ? [storm] : []), ...owner.filter((q) => q.id !== 'no-outcome')]
+  return [
+    ...(storm.count > 0 || stormFailed ? [storm] : []),
+    ...owner.filter((q) => q.id !== 'no-outcome'),
+    ...(checkups && (checkups.count > 0 || checkupsFailed) ? [checkups] : []),
+  ]
 }
 
 /**

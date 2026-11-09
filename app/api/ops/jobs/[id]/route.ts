@@ -45,7 +45,7 @@ export async function PATCH(
     // 124 is not applied, referencing that column makes the whole query fail with a false "not found".)
     const { data: existingJob, error: fetchError } = await adminClient
       .from('production_jobs')
-      .select('id, org_id, project_id, status')
+      .select('id, org_id, project_id, status, completed_at')
       .eq('id', params.id)
       .eq('org_id', profile.org_id)
       .single()
@@ -85,6 +85,16 @@ export async function PATCH(
     }
     if (Object.keys(updateData).length === 0) {
       return NextResponse.json({ error: 'No valid fields to update' }, { status: 400 })
+    }
+
+    // The install date drives customer checkups (lib/checkups.ts), so a job reaching complete/collected always gets
+    // one: the browser sends it on "Mark complete", but a job moved straight to collected never did.
+    if (
+      (updateData.status === 'complete' || updateData.status === 'collected') &&
+      !existingJob.completed_at &&
+      !('completed_at' in updateData)
+    ) {
+      updateData.completed_at = new Date().toISOString()
     }
 
     // Cancelling also voids the sale agreement and cancels the project, all

@@ -1,6 +1,7 @@
 import { isThreadSchemaMissing, SCHEMA_PENDING_MESSAGE } from '@/lib/threads/schema-guard'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
+import { contactBody, type ContactKind, type ContactOutcome } from '@/lib/customer-contact'
 import { mentionCandidates, resolveNoteMentions } from '@/lib/note-mentions'
 import { jobIdForDeal } from '@/lib/threads/job-notes'
 import { toMessage, type ThreadMessage } from '@/lib/threads/get-thread'
@@ -38,6 +39,8 @@ export type MessageDraft = {
   allowSetters?: boolean
   clientId?: string | null
   source?: string | null
+  /** A logged call/text/email/visit: the row is written as that type with its outcome, and `body` becomes the optional note. */
+  contact?: { kind: ContactKind; outcome: ContactOutcome } | null
 }
 
 export type PostResult =
@@ -78,7 +81,8 @@ export async function postMessage(
   draft: MessageDraft,
   opts: { viewer?: ThreadViewer; now?: Date; resolveViewer?: (u: OrgUser) => Promise<ThreadViewer> } = {}
 ): Promise<PostResult> {
-  const body = String(draft.body ?? '').trim()
+  const contact = draft.contact ?? null
+  const body = contact ? contactBody(contact, draft.body) : String(draft.body ?? '').trim()
   if (!body) return { ok: false, status: 400, error: 'Message is required' }
   if (body.length > MAX_MESSAGE_LENGTH) return { ok: false, status: 400, error: `Message is too long (max ${MAX_MESSAGE_LENGTH} characters)` }
 
@@ -120,6 +124,12 @@ export async function postMessage(
     audience = draft.audience
   } else {
     audience = defaultAudience(viewer, { surface: draft.surface ?? 'other', replyTo: parent }, dealRef)
+  }
+  // A customer contact is never crew talk, and job catch-up does not read sales-audience rows: log it as team
+  // (or production when that was picked) so it always shows as the job's "last customer contact".
+  if (contact && audience !== 'team' && audience !== 'production') {
+    if (!allowed.includes('team')) return { ok: false, status: 403, error: 'You cannot log a contact on this deal' }
+    audience = 'team'
   }
 
   // Pricing guard: flagged by default when it looks like pricing; an author who may
@@ -180,7 +190,8 @@ export async function postMessage(
       thread_id: thread?.id ?? null,
       production_job_id: audience === 'production' || audience === 'crew' ? await jobIdForDeal(admin, viewer.orgId, deal.id) : null,
       user_id: viewer.userId,
-      type: 'note',
+      type: contact ? contact.kind : 'note',
+      ...(contact ? { contact_outcome: contact.outcome } : {}),
       body,
       origin: 'human',
       audience,

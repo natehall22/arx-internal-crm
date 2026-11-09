@@ -1982,7 +1982,7 @@ export default function JobDetailClient({
         {catchUp && <JobCatchUpBox catchUp={catchUp} canSetOwner={canEditJobs} />}
 
         {v2 ? (
-          <JobCustomerRow jobId={job.id} customer={job.customer ?? null} />
+          <JobCustomerRow jobId={job.id} dealId={job.opportunity_id ?? null} customer={job.customer ?? null} />
         ) : (
           <>
         {/* CUSTOMER CONTACT — promoted next to the identity block. Ops calls customers

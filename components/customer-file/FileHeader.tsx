@@ -1,5 +1,6 @@
 import Link from 'next/link'
 
+import ContactActions from '@/components/customer/ContactActions'
 import { StatusPill } from '@/components/ui'
 import type { FileContext } from '@/lib/customer-file/load'
 import { TAB_LABELS } from '@/lib/customer-file/access'
@@ -8,7 +9,6 @@ import { TAB_LABELS } from '@/lib/customer-file/access'
 export default function FileHeader({ ctx }: { ctx: FileContext }) {
   const { customer, deal, deals, job, stages, next, pinned } = ctx
   const base = `/c/${customer.id}/d/${deal.id}`
-  const tel = customer.phone?.replace(/[^\d+]/g, '')
   const maps = deal.address_text || customer.address_text
   return (
     <div className="border-b border-surface-line bg-surface">
@@ -23,8 +23,7 @@ export default function FileHeader({ ctx }: { ctx: FileContext }) {
             )}
           </div>
           <div className="flex flex-wrap gap-2">
-            {tel && <a href={`tel:${tel}`} className="inline-flex min-h-tap items-center rounded-ui bg-brand-700 px-4 text-ui-sm font-semibold text-white">Call</a>}
-            {tel && <a href={`sms:${tel}`} className="inline-flex min-h-tap items-center rounded-ui border border-surface-line px-4 text-ui-sm font-semibold text-ink">Text</a>}
+            <ContactActions dealId={deal.id} phone={customer.phone} email={customer.email} surface={job ? 'job' : 'overview'} />
             <Link href={`${base}/notes`} className="inline-flex min-h-tap items-center rounded-ui border border-surface-line px-4 text-ui-sm font-semibold text-ink lg:hidden">+ Note</Link>
           </div>
         </div>

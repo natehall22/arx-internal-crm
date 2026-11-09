@@ -70,6 +70,11 @@ const SCREENS: Screen[] = [
       await p.waitForSelector('text=Sale credit')
     } }] },
   { name: 'needs-you', path: '/dev-harness/needs-you', ready: 'text=Needs you' },
+  { name: 'checkups', path: '/dev-harness/checkups', ready: 'text=6-month inspection',
+    states: [
+      { name: 'result-sheet', run: async (p) => { await p.getByRole('button', { name: 'Record result' }).first().click(); await p.waitForSelector('text=How did the roof look?') } },
+      { name: 'contact-sheet', run: async (p) => { await p.getByRole('button', { name: '+ Log contact' }).first().click(); await p.waitForSelector('text=How did it go?') } },
+    ] },
   { name: 'job-documents-banner', path: '/dev-harness/job-documents', ready: 'text=Job documents' },
   { name: 'pay-banners', path: '/dev-harness/pay-banners', ready: 'text=Mark' },
   { name: 'suppliers-admin', path: '/dev-harness/suppliers-admin', ready: 'text=Suppliers',

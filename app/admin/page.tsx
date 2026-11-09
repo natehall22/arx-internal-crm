@@ -10,7 +10,10 @@ import { canOpenSettingsHub, visibleSettingsGroups } from '@/lib/settings-regist
 
 import SettingsHub from './SettingsHub'
 import { isOwnerProfile, isSuperAdmin } from '@/lib/super-admin'
+import CheckupSettingsCard from '@/components/admin/CheckupSettingsCard'
 import JobCatchUpSettingsCard from '@/components/admin/JobCatchUpSettingsCard'
+import { loadCheckupSettings } from '@/lib/checkups'
+import { canEditCheckupSettings } from '@/lib/checkups-settings'
 import { loadJobCatchUpSettings } from '@/lib/job-catch-up-db'
 import { canEditJobCatchUpSettings } from '@/lib/job-catch-up-settings'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -29,7 +32,13 @@ export default async function SettingsPage() {
     canSuperAdmin: isSuperAdmin(profile),
   })
   // Small org switches live as cards right here (the hub's "Job catch-up" entry links to #job-catch-up).
-  const catchUp = await loadJobCatchUpSettings(createServiceClient(), profile.org_id)
+  const admin = createServiceClient()
+  const [catchUp, checkups, { data: activeUsers }] = await Promise.all([
+    loadJobCatchUpSettings(admin, profile.org_id),
+    loadCheckupSettings(admin, profile.org_id),
+    admin.from('users').select('id, full_name').eq('org_id', profile.org_id).eq('active', true).order('full_name'),
+  ])
+  const userOptions = ((activeUsers ?? []) as Array<{ id: string; full_name: string | null }>).map((u) => ({ id: u.id, name: u.full_name || 'Unnamed user' }))
 
   return (
     <div className="min-h-screen bg-surface-subtle">
@@ -37,8 +46,9 @@ export default async function SettingsPage() {
       <main className="mx-auto max-w-6xl px-4 py-4 sm:px-6">
         <PageHeader title="Settings" subtitle="Everything you can set up, in one place." />
         <SettingsHub groups={groups} />
-        <div className="mt-4 max-w-2xl">
+        <div className="mt-4 flex max-w-2xl flex-col gap-4">
           <JobCatchUpSettingsCard initial={{ ...catchUp, canEdit: canEditJobCatchUpSettings(profile) }} />
+          <CheckupSettingsCard initial={{ ...checkups, canEdit: canEditCheckupSettings(profile) }} users={userOptions} />
         </div>
       </main>
     </div>

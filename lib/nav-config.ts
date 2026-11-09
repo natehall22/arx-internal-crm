@@ -68,6 +68,7 @@ export const NAV_SECTIONS: NavSection[] = [
     children: [
       { href: '/ops', label: 'Job Board', show: (c) => c.flags.canSeeJobBoard && gated('jobs:view', 'jobs:edit')(c) },
       { href: '/ops/schedule', label: 'Schedule', show: (c) => c.flags.canSeeJobBoard && gated('jobs:view', 'jobs:edit')(c) },
+      { href: '/ops/checkups', label: 'Checkups', show: (c) => c.flags.canSeeJobBoard && gated('jobs:view', 'jobs:edit')(c) },
       { href: '/ops/dashboard', label: 'Needs you', show: (c) => c.flags.canSeeOpsDashboard && gated('ops:dashboard:view', 'jobs:view', 'jobs:edit')(c) },
       { href: '/projects', label: 'Projects', show: (c) => !c.flags.projectsBarred && gated('projects:view', 'projects:edit')(c) },
     ],
