@@ -1,4 +1,4 @@
-import { buildMaterialsOrderList } from '@/lib/materials-order-list'
+import { buildMaterialsOrderList, jobIncludesRoofListTrade } from '@/lib/materials-order-list'
 
 // Numbers from job 26-0028 (Randy Hart): 19.1 sq sold total (waste incl.),
 // hip 81 LF, valley 27 LF, eave 168 LF, no ridge/rakes.
@@ -102,5 +102,25 @@ describe('buildMaterialsOrderList', () => {
   it('flags missing squares instead of guessing', () => {
     const noSq = buildMaterialsOrderList({ totalSquaresWithWaste: null, linear: hartLinear })
     expect(noSq.find((i) => i.key === 'field_shingles')!.status).toBe('confirm')
+  })
+})
+
+describe('jobIncludesRoofListTrade', () => {
+  it('gutters-only job (job 26-0051 shape) gets no roof list', () => {
+    expect(jobIncludesRoofListTrade({ activeTrades: ['gutters'], primaryTrade: 'gutters' })).toBe(false)
+  })
+  it('siding-only job gets no roof list', () => {
+    expect(jobIncludesRoofListTrade({ activeTrades: ['siding'], primaryTrade: 'siding' })).toBe(false)
+  })
+  it('roofing crew present gets the roof list, even alongside other trades', () => {
+    expect(jobIncludesRoofListTrade({ activeTrades: ['roofing', 'gutters'], primaryTrade: 'roofing' })).toBe(true)
+    expect(jobIncludesRoofListTrade({ activeTrades: ['gutters', 'roofing'], primaryTrade: 'gutters' })).toBe(true)
+  })
+  it('trade rows win over job_type: roofing crew removed means no roof list', () => {
+    expect(jobIncludesRoofListTrade({ activeTrades: ['gutters'], primaryTrade: 'roofing' })).toBe(false)
+  })
+  it('no crews yet falls back to the job type', () => {
+    expect(jobIncludesRoofListTrade({ activeTrades: [], primaryTrade: 'roofing' })).toBe(true)
+    expect(jobIncludesRoofListTrade({ activeTrades: [], primaryTrade: 'gutters' })).toBe(false)
   })
 })
