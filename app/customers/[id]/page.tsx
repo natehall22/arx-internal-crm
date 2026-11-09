@@ -12,8 +12,8 @@ import { canAccessCustomerRecordsFromPermissionNames, isRepLikeCustomerRecordRol
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 import { isReferralManagerRole } from '@/lib/referral-links'
 import { projectStatusLabelForJobStatus } from '@/lib/job-status'
-import { filesObjectHref } from '@/lib/files/files-object'
-import CustomerFilesUpload from '@/components/customers/CustomerFilesUpload'
+import CustomerFilesList from '@/components/customers/CustomerFilesList'
+import { loadCustomerFiles } from '@/lib/customer-file/customer-files-access'
 import { resolveFieldOrSalesDocBarred } from '@/lib/sales-doc-access'
 
 
@@ -137,26 +137,16 @@ export default async function CustomerDetailPage({
   const projectIds = (projects || []).map((project) => project.id)
   const opportunityIds = (opportunities || []).map((opportunity) => opportunity.id)
 
-  let filesQuery = supabase
-    .from('files')
-    .select('*')
-    .eq('org_id', profile.org_id)
-    .order('created_at', { ascending: false })
-
-  if (projectIds.length > 0 || opportunityIds.length > 0 || leadIdsForCustomer.length > 0) {
-    const filters = [
-      `customer_id.eq.${params.id}`,
-      projectIds.length > 0 ? `project_id.in.(${projectIds.join(',')})` : null,
-      opportunityIds.length > 0 ? `opportunity_id.in.(${opportunityIds.join(',')})` : null,
-      leadIdsForCustomer.length > 0 ? `lead_id.in.(${leadIdsForCustomer.join(',')})` : null,
-    ].filter(Boolean)
-    filesQuery = filesQuery.or(filters.join(','))
-  } else {
-    filesQuery = filesQuery.eq('customer_id', params.id)
-  }
-
-  const { data: files } = await filesQuery
-  // Same rule as the upload routes (lib/customer-file/customer-files-access.ts): field roles never add customer files.
+  // THE customer file list (shared with the Customer File's Files tab); same scope as before: this customer plus its
+  // visible projects, deals and leads, through the viewer's RLS client.
+  const files = await loadCustomerFiles(supabase, {
+    orgId: profile.org_id,
+    customerId: params.id,
+    projectIds,
+    opportunityIds,
+    leadIds: leadIdsForCustomer,
+  })
+  // Same rule as the upload routes: field roles never add customer files (the page itself already needs customers:view).
   const canAddFiles = activeTab === 'files' && !(await resolveFieldOrSalesDocBarred(createServiceClient(), profile))
 
   let activitiesQuery = supabase
@@ -419,33 +409,7 @@ export default async function CustomerDetailPage({
 
         {activeTab === 'files' && (
           <div className="bg-white shadow rounded-lg p-4 sm:p-6">
-            {canAddFiles && <CustomerFilesUpload customerId={params.id} />}
-            <div className="space-y-2">
-              {files && files.length > 0 ? (
-                files.map((file: any) => (
-                  <div key={file.id} className="flex items-center justify-between gap-3 p-2 border rounded">
-                    <div className="min-w-0">
-                      <p className="text-sm text-[#2c2c2a] truncate">{file.file_name}</p>
-                      <p className="text-sm text-[#4b4b48] capitalize">{file.tag}</p>
-                    </div>
-                    {filesObjectHref(file.storage_path) ? (
-                      <a
-                        href={filesObjectHref(file.storage_path) ?? undefined}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex min-h-[44px] shrink-0 items-center px-2 text-indigo-700 hover:text-indigo-900 text-sm font-medium"
-                      >
-                        Open
-                      </a>
-                    ) : (
-                      <span className="text-sm text-[#4b4b48]">No link</span>
-                    )}
-                  </div>
-                ))
-              ) : (
-                <p className="text-[#4b4b48] text-sm">No files yet for this customer.</p>
-              )}
-            </div>
+            <CustomerFilesList customerId={params.id} files={files} canAdd={canAddFiles} />
           </div>
         )}
 

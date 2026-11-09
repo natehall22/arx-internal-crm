@@ -7,6 +7,7 @@
  */
 import { createFakeDb } from '@/lib/test-helpers/fake-db'
 import { classifyFilesPath, fieldRoleMayReadFilesPath, filesObjectHref } from '@/lib/files/files-object'
+import { loadCustomerFiles } from '@/lib/customer-file/customer-files-access'
 import {
   CUSTOMER_FILE_MAX_BYTES,
   customerFileStoragePath,
@@ -28,26 +29,16 @@ jest.mock('@/lib/auth', () => ({
   }),
 }))
 
+// Only the permission resolver is stubbed; the real lib/sales-doc-access (field-role + sales-doc rules) runs.
 jest.mock('@/lib/effective-permissions', () => ({
   resolveEffectivePermissionNames: jest.fn(async (_a: unknown, _id: string, p: { role: string }) => {
     if (p.role === 'admin') return { fullAccess: true, permissionNames: new Set<string>() }
     if (p.role === 'no_customers') return { fullAccess: false, permissionNames: new Set<string>(['leads:view']) }
+    // The Inside Sales preset by grant (no inside-sales role name): barred from sales docs.
+    if (p.role === 'grant_inside_sales') return { fullAccess: false, permissionNames: new Set<string>(['customers:view', 'opportunities:view', 'leads:claim_inbound']) }
     return { fullAccess: false, permissionNames: new Set<string>(['customers:view']) }
   }),
 }))
-jest.mock('@/lib/sales-doc-access', () => {
-  const { isFieldRoleLike } = jest.requireActual('@/lib/permissions')
-  return {
-    resolveFieldOrSalesDocBarred: jest.fn(async (admin: any, p: { role: string; custom_role_id?: string | null }) => {
-      let customRoleName: string | null = null
-      if (p.custom_role_id) {
-        const { data } = await admin.from('custom_roles').select('name, display_name').eq('id', p.custom_role_id).maybeSingle()
-        customRoleName = data?.name ?? null
-      }
-      return isFieldRoleLike({ role: p.role, customRoleName }) || p.role === 'sales_doc_barred'
-    }),
-  }
-})
 
 let db: ReturnType<typeof createFakeDb>
 let storageObjects: Array<{ folder: string; name: string; size: number; mimetype: string }>
@@ -98,6 +89,7 @@ beforeEach(() => {
     ],
     projects: [{ id: 'p1', org_id: ORG, customer_id: CUST, owner_user_id: 'u-closer' }],
     custom_roles: [{ id: 'cr-canvass', name: 'Door Canvasser', display_name: null }],
+    permission_denials: [],
     files: [],
   })
 })
@@ -165,11 +157,14 @@ describe('POST /api/customers/[id]/files/register', () => {
     ['setter', {}],
     ['canvasser', {}],
     ['inside_sales', {}],
+    ['call_center', {}],
     ['office_staff', { custom_role_id: 'cr-canvass' }],
-    ['sales_doc_barred', {}],
-  ])('403 for field role %s', async (role, extra) => {
+    ['grant_inside_sales', {}],
+  ])('404 for field / sales-doc-barred role %s, decided before the customer is looked up', async (role, extra) => {
     as('u-field', role, extra)
-    expect((await register(req({ fileName: 'a.pdf', size: 10 }), ctx(CUST))).status).toBe(403)
+    const tracked = jest.spyOn(db.client, 'from')
+    expect((await register(req({ fileName: 'a.pdf', size: 10 }), ctx(CUST))).status).toBe(404)
+    expect(tracked.mock.calls.map((c) => c[0])).not.toContain('customers')
     expect(signedFor).toEqual([])
   })
 
@@ -229,14 +224,44 @@ describe('POST /api/customers/[id]/files/finalize', () => {
   it('applies the same access rule as register', async () => {
     storageObjects.push({ folder, name: `${FID}_a.pdf`, size: 10, mimetype: 'application/pdf' })
     as('u-field', 'setter')
-    expect((await finalize(req({ fileId: FID }), ctx(CUST))).status).toBe(403)
+    expect((await finalize(req({ fileId: FID }), ctx(CUST))).status).toBe(404)
     as('u-x', 'admin')
     expect((await finalize(req({ fileId: FID }), ctx(CUST_OTHER_ORG))).status).toBe(404)
     expect(db.tables.files).toEqual([])
   })
 
+  it('refuses (and removes) an object storage reports no size for', async () => {
+    as('u-admin', 'admin')
+    storageObjects.push({ folder, name: `${FID}_a.pdf`, size: undefined as unknown as number, mimetype: 'application/pdf' })
+    expect((await finalize(req({ fileId: FID }), ctx(CUST))).status).toBe(400)
+    expect(removed).toEqual([`files:${folder}/${FID}_a.pdf`])
+    expect(db.tables.files).toEqual([])
+  })
+
+  it('a repeated finalize for the same fileId returns the row instead of a second one', async () => {
+    as('u-admin', 'admin')
+    storageObjects.push({ folder, name: `${FID}_a.pdf`, size: 10, mimetype: 'application/pdf' })
+    expect((await finalize(req({ fileId: FID }), ctx(CUST))).status).toBe(200)
+    expect(db.tables.files).toHaveLength(1)
+  })
+
   it('400 on a non-uuid fileId', async () => {
     as('u-admin', 'admin')
     expect((await finalize(req({ fileId: '../x' }), ctx(CUST))).status).toBe(400)
+  })
+})
+
+describe('loadCustomerFiles (the one list both customer pages read)', () => {
+  it('returns the customer\'s own files plus files on the given deals, newest first, org-scoped', async () => {
+    const D1 = 'd0000000-0000-4000-8000-000000000001'
+    const D2 = 'd0000000-0000-4000-8000-000000000002'
+    db.tables.files.push(
+      { id: 'a', org_id: ORG, customer_id: CUST, file_name: 'a.pdf', tag: 'document', storage_path: 'p/a', created_at: '2026-11-01' },
+      { id: 'b', org_id: ORG, customer_id: null, opportunity_id: D1, file_name: 'b.pdf', tag: 'contract', storage_path: 'p/b', created_at: '2026-11-03' },
+      { id: 'c', org_id: ORG, customer_id: null, opportunity_id: D2, file_name: 'c.pdf', tag: 'contract', storage_path: 'p/c', created_at: '2026-11-04' },
+      { id: 'd', org_id: OTHER_ORG, customer_id: CUST, file_name: 'd.pdf', tag: 'document', storage_path: 'p/d', created_at: '2026-11-05' },
+    )
+    const rows = await loadCustomerFiles(db.client as any, { orgId: ORG, customerId: CUST, opportunityIds: [D1, 'not-a-uuid'] })
+    expect(rows.map((r) => r.id)).toEqual(['b', 'a'])
   })
 })

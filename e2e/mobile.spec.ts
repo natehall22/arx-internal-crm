@@ -181,7 +181,7 @@ const SCREENS: Screen[] = [
   { name: 'customer-files-upload', path: '/dev-harness/customer-files-upload', ready: 'text=Add files',
     states: [
       { name: 'upload-failed', run: async (p) => {
-        await p.route('**/api/customers/*/files/register', (route) => route.fulfill(json({ error: 'Your role cannot add customer files' }, 403)))
+        await p.route('**/api/customers/*/files/register', (route) => route.fulfill(json({ error: 'Customer not found' }, 404)))
         await p.getByLabel('Choose files to add').setInputFiles([
           { name: 'inspection-photo-with-a-very-long-file-name-from-the-phone-camera-roll.jpg', mimeType: 'image/jpeg', buffer: Buffer.from('x'.repeat(2048)) },
           { name: 'permit.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4') },

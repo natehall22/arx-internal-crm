@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 
 import FilesPanel from '@/components/customer-file/FilesPanel'
+import CustomerFilesList from '@/components/customers/CustomerFilesList'
 import MoneyCards from '@/components/customer-file/MoneyCards'
 import ThreadPanel from '@/components/customer-file/ThreadPanel'
 import ContractListItem from '@/components/contracts/ContractListItem'
@@ -12,6 +13,7 @@ import { loadCheckups } from '@/lib/checkups'
 import { formatDate } from '@/lib/format'
 import { isFileTab, type FileTab } from '@/lib/customer-file/access'
 import { loadFile } from '@/lib/customer-file/load'
+import { customerFileUploadAccess, loadCustomerFiles } from '@/lib/customer-file/customer-files-access'
 import { createServiceClient } from '@/lib/supabase/service'
 import PhoneLink from '@/components/PhoneLink'
 
@@ -136,12 +138,24 @@ async function Overview({ customerId, dealId }: { customerId: string; dealId: st
 async function Files({ customerId, dealId }: { customerId: string; dealId: string }) {
   const ctx = await loadFile(customerId, dealId)
   const admin = createServiceClient()
-  const { data: contracts } = await admin
-    .from('order_form_contracts')
-    .select('id, status, signing_token, customer_signed_at, pdf_url, created_at, agreement_type')
-    .eq('opportunity_id', dealId)
-    .eq('org_id', ctx.viewer.orgId)
-    .order('created_at', { ascending: false })
+  const [{ data: contracts }, customerFiles, uploadAccess] = await Promise.all([
+    admin
+      .from('order_form_contracts')
+      .select('id, status, signing_token, customer_signed_at, pdf_url, created_at, agreement_type')
+      .eq('opportunity_id', dealId)
+      .eq('org_id', ctx.viewer.orgId)
+      .order('created_at', { ascending: false }),
+    // Same list as the customer account page: files on the customer, plus this viewer's openable deals and this deal's project/lead.
+    loadCustomerFiles(admin, {
+      orgId: ctx.viewer.orgId,
+      customerId,
+      opportunityIds: ctx.deals.map((d) => d.id),
+      projectIds: ctx.projectId ? [ctx.projectId] : [],
+      leadIds: ctx.deal.lead_id ? [ctx.deal.lead_id] : [],
+    }),
+    // Same rule as the upload routes, so the box only shows when an upload would be accepted.
+    customerFileUploadAccess(admin, ctx.profile, customerId),
+  ])
   return (
     <div className="space-y-4">
       <Card>
@@ -150,6 +164,12 @@ async function Files({ customerId, dealId }: { customerId: string; dealId: strin
           {(contracts ?? []).length === 0 ? <p className="text-ui-base text-ink-muted">No contracts yet.</p> : (
             <div className="space-y-3">{(contracts ?? []).map((c) => <ContractListItem key={c.id} contract={c as never} />)}</div>
           )}
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader><CardTitle>Customer files</CardTitle></CardHeader>
+        <CardContent>
+          <CustomerFilesList customerId={customerId} files={customerFiles} canAdd={uploadAccess.ok} />
         </CardContent>
       </Card>
       {ctx.job && (

@@ -28,7 +28,7 @@ export type FileJob = {
 
 export type FileContext = {
   viewer: ThreadViewer
-  profile: { id: string; org_id: string; role: string; full_name: string | null; ui_prefs?: Record<string, unknown> | null }
+  profile: { id: string; org_id: string; role: string; custom_role_id: string | null; full_name: string | null; ui_prefs?: Record<string, unknown> | null }
   customer: FileCustomer
   deal: { id: string; owner_user_id: string | null; setter_user_id: string | null; customer_id: string | null; lead_id: string | null; address_text: string | null; status: string | null }
   deals: FileDealSummary[]
@@ -113,7 +113,7 @@ export const loadFile = cache(async (customerId: string, dealId: string): Promis
 
   return {
     viewer,
-    profile: { id: profile.id, org_id: profile.org_id, role: profile.role, full_name: profile.full_name ?? null, ui_prefs: prefs },
+    profile: { id: profile.id, org_id: profile.org_id, role: profile.role, custom_role_id: profile.custom_role_id ?? null, full_name: profile.full_name ?? null, ui_prefs: prefs },
     customer: customerRes.data as FileCustomer,
     deal: dealRow,
     deals,

@@ -1,24 +1,26 @@
 import { FILES_OBJECT_BUCKET, isSafeFilesPath, storageSafeFileName } from '@/lib/files/files-object'
 
 /**
- * Files added straight to a customer (Customer account → Files tab). Pure and client-safe; the server access check is
- * ./customer-files-access.ts. Upload is browser → private `files` bucket through a
- * one-time signed upload URL (same pattern as job documents and photos, so big PDFs skip the server body limit), then a
- * `files` row that stores the storage PATH, never a URL. Reads go through GET /api/files/object like every other file.
+ * Files added straight to a customer (Customer account → Files tab, and the Customer File's Files tab). Pure and client-safe;
+ * the server access check and list loader are ./customer-files-access.ts.
  *
+ * Store: the `files` table (customer_id) + the private `files` bucket — the store both customer pages already list, and the one
+ * GET /api/files/object authorizes (field roles kept off non-opportunity paths). Not `documents`: that is the job file
+ * workspace's versioned store (job_id + category, read by job routes in the `project-files` bucket); a customer with no job
+ * has no place there today.
+ *
+ * Upload is browser → bucket through a one-time signed upload URL (same pattern as job documents and photos, so big PDFs skip
+ * the server body limit), then a `files` row that stores the storage PATH, never a URL.
  * Path: org/<orgId>/customers/<customerId>/<fileId>_<safe name>. `classifyFilesPath` files it under area "customers", which
  * field roles may not read (fieldRoleMayReadFilesPath), so the read rule and the upload rule agree.
  */
 export { FILES_OBJECT_BUCKET as CUSTOMER_FILES_BUCKET }
 
-/** Per file. Checked in the browser before upload and again on finalize from the stored object's size. */
+/**
+ * Per file. Checked in the browser, at register, and at finalize from the stored object's size. Migration
+ * 202611100030_files_bucket_size_limit.sql sets the same limit on the bucket itself.
+ */
 export const CUSTOMER_FILE_MAX_BYTES = 50 * 1024 * 1024
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-
-export function isUuid(v: unknown): v is string {
-  return typeof v === 'string' && UUID_RE.test(v)
-}
 
 export function customerFilesFolder(orgId: string, customerId: string): string {
   return `org/${orgId}/customers/${customerId}`
@@ -46,3 +48,6 @@ export function customerFileDisplayName(name: unknown): string {
   const s = String(name ?? '').replace(/[\u0000-\u001f\u007f]/g, '').trim()
   return (s || 'file').slice(0, 255)
 }
+
+/** One row of the customer's file list, as both customer pages render it. */
+export type CustomerFileRow = { id: string; file_name: string; tag: string | null; storage_path: string; created_at: string }

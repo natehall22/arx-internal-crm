@@ -16,8 +16,12 @@ export function createFakeDb(
   let autoId = 1
   const rel = opts.relations ?? {}
 
+  // Split on top-level commas only, so `col.in.(a,b)` stays one condition.
+  const orParts = (expr: string) => expr.split(/,(?![^()]*\))/)
   const matchOr = (row: Row, expr: string) =>
-    expr.split(',').some((part) => {
+    orParts(expr).some((part) => {
+      const inM = part.trim().match(/^([a-z_]+)\.in\.\((.*)\)$/i)
+      if (inM) return inM[2].split(',').map((v) => v.replace(/^"|"$/g, '')).includes(String(row[inM[1]]))
       const m = part.trim().match(/^([a-z_]+)\.(is|gte|lte|gt|lt|eq|neq)\.(.*)$/i)
       if (!m) return true
       const [, col, op, rawVal] = m

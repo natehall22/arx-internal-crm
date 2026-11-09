@@ -9,7 +9,14 @@ import { CUSTOMER_FILE_MAX_BYTES } from '@/lib/customer-file/customer-files'
 import { createClientBrowser } from '@/lib/supabase/client'
 
 type Status = 'waiting' | 'uploading' | 'saving' | 'done' | 'error'
-type Item = { key: string; file: File; status: Status; error?: string }
+/** `uploaded` is set once the bytes are in storage: a retry then only re-runs finalize (no second object, no second register). */
+type Item = { key: string; file: File; status: Status; error?: string; uploaded?: { fileId: string; storagePath: string } }
+
+class UploadHttpError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message)
+  }
+}
 
 const MAX_MB = Math.round(CUSTOMER_FILE_MAX_BYTES / 1024 / 1024)
 
@@ -35,7 +42,7 @@ async function postJson(url: string, body: unknown): Promise<Record<string, unkn
   } catch {
     data = { error: text.slice(0, 160) }
   }
-  if (!res.ok) throw new Error(String(data.error || `Upload failed (HTTP ${res.status})`))
+  if (!res.ok) throw new UploadHttpError(String(data.error || `Upload failed (HTTP ${res.status})`), res.status)
   return data
 }
 
@@ -69,17 +76,28 @@ export default function CustomerFilesUpload({ customerId }: { customerId: string
     async (item: Item) => {
       const { file } = item
       if (file.size > CUSTOMER_FILE_MAX_BYTES) throw new Error(`Too large — files must be ${MAX_MB} MB or smaller`)
-      patch(item.key, { status: 'uploading', error: undefined })
       const base = `/api/customers/${encodeURIComponent(customerId)}/files`
-      const reg = await postJson(`${base}/register`, { fileName: file.name, size: file.size })
-      const { error } = await supabase.storage
-        .from(String(reg.bucket))
-        .uploadToSignedUrl(String(reg.storagePath), String(reg.signedUploadToken), file, {
-          contentType: file.type || 'application/octet-stream',
-        })
-      if (error) throw new Error(error.message || 'Upload failed')
-      patch(item.key, { status: 'saving' })
-      await postJson(`${base}/finalize`, { fileId: reg.fileId, fileName: file.name })
+      let uploaded = item.uploaded
+      if (!uploaded) {
+        patch(item.key, { status: 'uploading', error: undefined })
+        const reg = await postJson(`${base}/register`, { fileName: file.name, size: file.size })
+        const { error } = await supabase.storage
+          .from(String(reg.bucket))
+          .uploadToSignedUrl(String(reg.storagePath), String(reg.signedUploadToken), file, {
+            contentType: file.type || 'application/octet-stream',
+          })
+        if (error) throw new Error(error.message || 'Upload failed')
+        uploaded = { fileId: String(reg.fileId), storagePath: String(reg.storagePath) }
+        patch(item.key, { uploaded })
+      }
+      patch(item.key, { status: 'saving', error: undefined })
+      try {
+        await postJson(`${base}/finalize`, { fileId: uploaded.fileId, fileName: file.name })
+      } catch (e) {
+        // 400 = the stored object is gone or unusable (finalize removed it): the next retry must upload again.
+        if (e instanceof UploadHttpError && e.status === 400) patch(item.key, { uploaded: undefined })
+        throw e
+      }
       patch(item.key, { status: 'done' })
     },
     [customerId, supabase, patch]
@@ -201,7 +219,7 @@ export default function CustomerFilesUpload({ customerId }: { customerId: string
               {it.status === 'error' && (
                 <>
                   <Button type="button" variant="secondary" size="sm" onClick={() => retry(it.key)}>Retry</Button>
-                  <Button type="button" variant="ghost" size="sm" onClick={() => dismiss(it.key)} aria-label={`Dismiss ${it.file.name}`}>✕</Button>
+                  <Button type="button" variant="ghost" size="icon" onClick={() => dismiss(it.key)} aria-label={`Dismiss ${it.file.name}`}>✕</Button>
                 </>
               )}
             </li>

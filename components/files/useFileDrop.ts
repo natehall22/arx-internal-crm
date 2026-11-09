@@ -1,7 +1,7 @@
 'use client'
 
 import type { DragEvent } from 'react'
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 /** True when the drag carries files from the desktop (not text or a link dragged inside the page). */
 export function dragHasFiles(e: { dataTransfer: DataTransfer | null }): boolean {
@@ -9,9 +9,30 @@ export function dragHasFiles(e: { dataTransfer: DataTransfer | null }): boolean 
 }
 
 /**
+ * The files in a drop, minus folders (webkitGetAsEntry().isDirectory) and empty entries. A dropped folder shows up as a
+ * 0-byte (or 4096-byte on some systems) "file" that fails to upload, so it is skipped rather than reported as an error.
+ */
+export function droppedFiles(dt: DataTransfer): File[] {
+  const items = Array.from(dt.items ?? [])
+  if (items.length > 0) {
+    const out: File[] = []
+    for (const item of items) {
+      if (item.kind !== 'file') continue
+      const entry = typeof item.webkitGetAsEntry === 'function' ? item.webkitGetAsEntry() : null
+      if (entry?.isDirectory) continue
+      const f = item.getAsFile()
+      if (f && f.size > 0) out.push(f)
+    }
+    return out
+  }
+  return Array.from(dt.files ?? []).filter((f) => f.size > 0)
+}
+
+/**
  * THE drag-and-drop behaviour for every "add files" area (Nathan's rule: any upload option takes drops as well as the picker).
  * Spread `bind` on the drop area; `active` is true while files hover over it. Nested children don't flicker the highlight
- * (enter/leave are depth-counted). Empty (0-byte) entries — folders dropped by some browsers — are skipped.
+ * (enter/leave are depth-counted). Folders and empty entries are skipped. While mounted, a file dropped anywhere else on the
+ * page is swallowed, so a near miss never makes the browser open the file and leave the page mid-upload.
  */
 export function useFileDrop(onFiles: (files: File[]) => void, opts: { disabled?: boolean } = {}) {
   const depth = useRef(0)
@@ -63,11 +84,26 @@ export function useFileDrop(onFiles: (files: File[]) => void, opts: { disabled?:
       e.stopPropagation()
       reset()
       if (disabled) return
-      const files = Array.from(e.dataTransfer.files).filter((f) => f.size > 0)
+      const files = droppedFiles(e.dataTransfer)
       if (files.length > 0) onFiles(files)
     },
     [disabled, onFiles, reset]
   )
+
+  useEffect(() => {
+    const swallow = (e: globalThis.DragEvent) => {
+      // A real drop zone already took it (preventDefault): leave its dropEffect alone, or 'none' here would cancel its drop.
+      if (!dragHasFiles(e) || e.defaultPrevented) return
+      e.preventDefault()
+      if (e.type === 'dragover' && e.dataTransfer) e.dataTransfer.dropEffect = 'none'
+    }
+    window.addEventListener('dragover', swallow)
+    window.addEventListener('drop', swallow)
+    return () => {
+      window.removeEventListener('dragover', swallow)
+      window.removeEventListener('drop', swallow)
+    }
+  }, [])
 
   return { active, bind: { onDragEnter, onDragLeave, onDragOver, onDrop } }
 }

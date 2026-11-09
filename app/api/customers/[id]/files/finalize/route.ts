@@ -8,11 +8,11 @@ import {
   customerFileTag,
   customerFilesFolder,
   isCustomerFilePathFor,
-  isUuid,
 } from '@/lib/customer-file/customer-files'
 import { customerFileUploadAccess } from '@/lib/customer-file/customer-files-access'
 import { findStorageObjectByRecordPrefix } from '@/lib/files/direct-upload-utils'
 import { createServiceClient } from '@/lib/supabase/service'
+import { isUuid } from '@/lib/uuid'
 import type { User } from '@/lib/types/database'
 
 export const runtime = 'nodejs'
@@ -46,9 +46,12 @@ export async function POST(request: Request, { params }: { params: { id: string 
     if (!found || !isCustomerFilePathFor(found.storagePath, { orgId: profile.org_id, customerId: params.id, fileId })) {
       return NextResponse.json({ error: 'The upload did not arrive — try again' }, { status: 400 })
     }
-    if (found.size != null && found.size > CUSTOMER_FILE_MAX_BYTES) {
+    // Storage's own size is the only one trusted; no size reported means it can't be checked, so it isn't kept.
+    if (found.size == null || found.size <= 0 || found.size > CUSTOMER_FILE_MAX_BYTES) {
       await admin.storage.from(CUSTOMER_FILES_BUCKET).remove([found.storagePath])
-      return NextResponse.json({ error: 'File is too large' }, { status: 413 })
+      return found.size == null || found.size <= 0
+        ? NextResponse.json({ error: 'Could not check the upload — try again' }, { status: 400 })
+        : NextResponse.json({ error: 'File is too large' }, { status: 413 })
     }
 
     const fileName = customerFileDisplayName(body?.fileName ?? found.displayFilename)
