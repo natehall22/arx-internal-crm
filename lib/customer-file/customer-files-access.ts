@@ -24,14 +24,14 @@ export async function customerFileUploadAccess(
   admin: SupabaseClient,
   profile: UploadProfile,
   customerId: string,
-  /** Pass when the caller already knows (e.g. isFieldRole(viewer)), to skip resolving it again. */
-  precomputed: { barred?: boolean } = {}
+  /** Pass what the caller already resolved (isFieldRole(viewer), the page's permission set) to skip resolving it again. */
+  precomputed: { barred?: boolean; permissions?: { fullAccess: boolean; permissionNames: Set<string> } } = {}
 ): Promise<CustomerFileUploadAccess> {
   const no: CustomerFileUploadAccess = { ok: false, status: 404, error: 'Customer not found' }
   if (!profile.org_id || !isUuid(customerId)) return no
 
   if (precomputed.barred ?? (await resolveFieldOrSalesDocBarred(admin, profile))) return no
-  const perms = await resolveEffectivePermissionNames(admin, profile.id, profile)
+  const perms = precomputed.permissions ?? (await resolveEffectivePermissionNames(admin, profile.id, profile))
   if (!canAccessCustomerRecordsFromPermissionNames(perms)) return no
 
   const { data: customer } = await admin.from('customers').select('id').eq('id', customerId).eq('org_id', profile.org_id).maybeSingle()

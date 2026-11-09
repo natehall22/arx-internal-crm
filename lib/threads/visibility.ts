@@ -89,6 +89,16 @@ export function isFieldRole(v: ThreadViewer): boolean {
   return !v.ownerLike && (v.fieldRole === true || v.setterLike || v.insideSales === true || v.pricingBarred)
 }
 
+/**
+ * Barred from staff files (contracts, customer files, pricing PDFs) — the SAME answer as resolveFieldOrSalesDocBarred
+ * (lib/sales-doc-access), which the files read/upload routes use: field role by slug or custom-role name, OR barred from sales
+ * docs. Unlike isFieldRole there is no owner exemption, because the routes have none: the UI must never show a list or box the
+ * server will refuse. Computed from the already-resolved viewer, so it costs no lookups.
+ */
+export function isFilesBarred(v: ThreadViewer): boolean {
+  return v.fieldRole === true || v.pricingBarred
+}
+
 /** True when the viewer may see the Production/Crew sides of this deal. */
 export function canSeeProduction(v: ThreadViewer, deal: DealRef): boolean {
   if (isFieldRole(v)) return false

@@ -14,7 +14,7 @@ import { formatDate } from '@/lib/format'
 import { isFileTab, type FileTab } from '@/lib/customer-file/access'
 import { loadFile } from '@/lib/customer-file/load'
 import { customerFileUploadAccess, loadCustomerFilesForViewer } from '@/lib/customer-file/customer-files-access'
-import { isFieldRole } from '@/lib/threads/visibility'
+import { isFilesBarred } from '@/lib/threads/visibility'
 import { createServiceClient } from '@/lib/supabase/service'
 import PhoneLink from '@/components/PhoneLink'
 
@@ -139,8 +139,9 @@ async function Overview({ customerId, dealId }: { customerId: string; dealId: st
 async function Files({ customerId, dealId }: { customerId: string; dealId: string }) {
   const ctx = await loadFile(customerId, dealId)
   const admin = createServiceClient()
-  // tabsFor already 404s the Files tab for field roles; this is the second lock, from the viewer we already have (no new lookups).
-  const fieldBarred = isFieldRole(ctx.viewer)
+  // tabsFor already 404s the Files tab for these viewers; this is the second lock — the same rule the files routes use
+  // (isFilesBarred = resolveFieldOrSalesDocBarred), from the viewer we already have (no new lookups).
+  const fieldBarred = isFilesBarred(ctx.viewer)
   const [{ data: contracts }, customerFiles, uploadAccess] = await Promise.all([
     admin
       .from('order_form_contracts')

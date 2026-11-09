@@ -13,7 +13,8 @@ type Status = 'waiting' | 'uploading' | 'saving' | 'done' | 'error'
 type Item = { key: string; file: File; status: Status; error?: string; uploaded?: { fileId: string; storagePath: string } }
 
 class UploadHttpError extends Error {
-  constructor(message: string, readonly status: number) {
+  /** `removed`: the server says it deleted the stored object (finalize sets it only when that really happened). */
+  constructor(message: string, readonly status: number, readonly removed = false) {
     super(message)
   }
 }
@@ -42,7 +43,7 @@ async function postJson(url: string, body: unknown): Promise<Record<string, unkn
   } catch {
     data = { error: text.slice(0, 160) }
   }
-  if (!res.ok) throw new UploadHttpError(String(data.error || `Upload failed (HTTP ${res.status})`), res.status)
+  if (!res.ok) throw new UploadHttpError(String(data.error || `Upload failed (HTTP ${res.status})`), res.status, data.removed === true)
   return data
 }
 
@@ -99,10 +100,11 @@ export default function CustomerFilesUpload({ customerId }: { customerId: string
           patch(item.key, { status: 'done' })
           return
         }
-        // 400 / 413 / 500 come from our finalize, which has removed the stored object: the next retry uploads again.
-        // Anything else (502/504 from the host, network drop, 401/404) may mean the save worked or nothing ran: keep
-        // `uploaded`, so the retry calls finalize again, which is idempotent (same id → same row).
-        if (e instanceof UploadHttpError && (e.status === 400 || e.status === 413 || e.status === 500)) patch(item.key, { uploaded: undefined })
+        // Upload again only when finalize SAYS the stored object is gone: `removed: true` (413 always), or a plain 400
+        // "did not arrive" (no object for this id, so retrying finalize could never succeed). Everything else — a 500 or
+        // 503 without the flag, a 502/504 from the host, a network drop, 401/404 — keeps `uploaded`, so the retry calls
+        // finalize again, which is idempotent (same id → same row).
+        if (e instanceof UploadHttpError && (e.removed || e.status === 413 || e.status === 400)) patch(item.key, { uploaded: undefined })
         throw e
       }
       patch(item.key, { status: 'done' })

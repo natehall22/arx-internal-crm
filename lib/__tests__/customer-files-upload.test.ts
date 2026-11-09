@@ -43,6 +43,8 @@ jest.mock('@/lib/effective-permissions', () => ({
 
 let db: ReturnType<typeof createFakeDb>
 let storageObjects: Array<{ folder: string; name: string; size: number; mimetype: string }>
+let listFails = false
+let removeFails = false
 const signedFor: string[] = []
 const removed: string[] = []
 jest.mock('@/lib/supabase/service', () => ({
@@ -54,13 +56,14 @@ jest.mock('@/lib/supabase/service', () => ({
           signedFor.push(`${bucket}:${path}`)
           return { data: { token: 'tok', path, signedUrl: 'x' }, error: null }
         },
-        list: async (folder: string, opts: { search?: string }) => ({
+        list: async (folder: string, opts: { search?: string }) => listFails ? { data: null, error: { message: 'storage down' } } : ({
           data: storageObjects
             .filter((o) => o.folder === folder && (!opts?.search || o.name.startsWith(opts.search)))
             .map((o) => ({ name: o.name, metadata: { size: o.size, mimetype: o.mimetype } })),
           error: null,
         }),
         remove: async (paths: string[]) => {
+          if (removeFails) return { data: null, error: { message: 'remove failed' } }
           removed.push(...paths.map((p) => `${bucket}:${p}`))
           return { data: [], error: null }
         },
@@ -82,6 +85,8 @@ beforeEach(() => {
   signedFor.length = 0
   removed.length = 0
   storageObjects = []
+  listFails = false
+  removeFails = false
   db = createFakeDb({
     customers: [
       { id: CUST, org_id: ORG },
@@ -268,17 +273,92 @@ describe('POST /api/customers/[id]/files/finalize', () => {
     expect(removed).toEqual([])
   })
 
-  it('an unexpected error after the object is found removes it (every 500 means "upload again")', async () => {
+  /** Make inserts into `files` fail with `error` (and optionally make every later `files` read throw). */
+  const failInsert = (error: { code?: string; message: string }, opts: { readsThrow?: boolean; commitAnyway?: boolean } = {}) => {
+    const realFrom = (db.client as any).from
+    let inserted = false
+    jest.spyOn(db.client as any, 'from').mockImplementation((t: unknown) => {
+      const b = realFrom(t)
+      if (t !== 'files') return b
+      if (inserted && opts.readsThrow) throw new Error('db down')
+      const origInsert = b.insert
+      b.insert = (p: unknown) => {
+        inserted = true
+        if (opts.commitAnyway) origInsert(p)
+        b.single = async () => {
+          if (opts.commitAnyway) await Promise.resolve(b.then((x: unknown) => x))
+          return { data: null, error }
+        }
+        return b
+      }
+      return b
+    })
+  }
+
+  it('insert error, no row exists: the object is removed and the 500 says removed: true', async () => {
     as('u-admin', 'admin')
     storageObjects.push({ folder, name: `${FID}_a.pdf`, size: 10, mimetype: 'application/pdf' })
-    const realFrom = (db.client as any).from
-    jest.spyOn(db.client as any, 'from').mockImplementation((t: unknown) => {
-      if (t === 'files') throw new Error('boom')
-      return realFrom(t)
-    })
+    failInsert({ message: 'check constraint' })
     const res = await finalize(req({ fileId: FID }), ctx(CUST))
     expect(res.status).toBe(500)
+    expect((await res.json()).removed).toBe(true)
     expect(removed).toEqual([`files:${folder}/${FID}_a.pdf`])
+  })
+
+  it('insert error but the row did commit: answers 200 with the row and keeps the object', async () => {
+    as('u-admin', 'admin')
+    storageObjects.push({ folder, name: `${FID}_a.pdf`, size: 10, mimetype: 'application/pdf' })
+    failInsert({ message: 'connection reset after commit' }, { commitAnyway: true })
+    const res = await finalize(req({ fileId: FID }), ctx(CUST))
+    expect(res.status).toBe(200)
+    expect((await res.json()).file.id).toBe(FID)
+    expect(removed).toEqual([])
+  })
+
+  it('insert error and the row check itself fails: 500 WITHOUT removed, object kept (client retries finalize)', async () => {
+    as('u-admin', 'admin')
+    storageObjects.push({ folder, name: `${FID}_a.pdf`, size: 10, mimetype: 'application/pdf' })
+    failInsert({ message: 'timeout' }, { readsThrow: true })
+    const res = await finalize(req({ fileId: FID }), ctx(CUST))
+    expect(res.status).toBe(500)
+    expect((await res.json()).removed).toBeUndefined()
+    expect(removed).toEqual([])
+  })
+
+  it('no row and remove() fails: 500 WITHOUT removed', async () => {
+    as('u-admin', 'admin')
+    storageObjects.push({ folder, name: `${FID}_a.pdf`, size: 10, mimetype: 'application/pdf' })
+    failInsert({ message: 'check constraint' })
+    removeFails = true
+    const res = await finalize(req({ fileId: FID }), ctx(CUST))
+    expect(res.status).toBe(500)
+    expect((await res.json()).removed).toBeUndefined()
+  })
+
+  it('duplicate key with a failing read-back: 409, never removes', async () => {
+    as('u-admin', 'admin')
+    storageObjects.push({ folder, name: `${FID}_a.pdf`, size: 10, mimetype: 'application/pdf' })
+    failInsert({ code: '23505', message: 'duplicate key' }, { readsThrow: true })
+    const res = await finalize(req({ fileId: FID }), ctx(CUST))
+    expect(res.status).toBe(409)
+    expect(removed).toEqual([])
+  })
+
+  it('storage cannot be listed: 503 (not "did not arrive"), nothing removed', async () => {
+    as('u-admin', 'admin')
+    storageObjects.push({ folder, name: `${FID}_a.pdf`, size: 10, mimetype: 'application/pdf' })
+    listFails = true
+    const res = await finalize(req({ fileId: FID }), ctx(CUST))
+    expect(res.status).toBe(503)
+    expect((await res.json()).removed).toBeUndefined()
+    expect(removed).toEqual([])
+  })
+
+  it('413 and the no-size 400 both carry removed: true', async () => {
+    as('u-admin', 'admin')
+    storageObjects.push({ folder, name: `${FID}_big.mov`, size: CUSTOMER_FILE_MAX_BYTES + 1, mimetype: 'video/quicktime' })
+    const big = await finalize(req({ fileId: FID }), ctx(CUST))
+    expect([big.status, (await big.json()).removed]).toEqual([413, true])
   })
 
   it('400 on a non-uuid fileId', async () => {

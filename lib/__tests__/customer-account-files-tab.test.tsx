@@ -16,6 +16,9 @@ jest.mock('next/navigation', () => ({
   notFound: () => {
     throw new Error('NOT_FOUND')
   },
+  redirect: (to: string) => {
+    throw new Error(`REDIRECT ${to}`)
+  },
 }))
 jest.mock('@/components/Nav', () => () => null)
 jest.mock('@/components/ReferralsSection', () => () => null)
@@ -55,7 +58,10 @@ beforeEach(() => {
     activities: [],
     scheduled_appointments: [],
     permission_denials: [],
-    custom_roles: [{ id: 'cr-canvasser', name: 'Canvasser', display_name: 'Canvasser' }],
+    custom_roles: [
+      { id: 'cr-canvasser', name: 'Canvasser', display_name: 'Canvasser' },
+      { id: 'cr-office', name: 'Office Helper', display_name: 'Office Helper' },
+    ],
     files: [{ id: 'f1', org_id: ORG, customer_id: CUST, opportunity_id: null, project_id: null, lead_id: null, job_id: null, file_name: 'w9.pdf', tag: 'document', storage_path: `org/${ORG}/customers/${CUST}/f1_w9.pdf`, created_at: '2026-11-01' }],
   })
 })
@@ -70,12 +76,24 @@ describe('customer account page: field roles get no Files tab', () => {
     ['setter', { role: 'setter', custom_role_id: null }],
     ['canvasser', { role: 'canvasser', custom_role_id: null }],
     ['rep + custom role "Canvasser"', { role: 'rep', custom_role_id: 'cr-canvasser' }],
-  ])('%s with customers:view: no Files tab link, no file list, no file query', async (_n, p) => {
+    // Not recognized by the thread rules: the Customer File shows them nothing, so neither does this page (fail closed).
+    ['setter_manager', { role: 'setter_manager', custom_role_id: null }],
+    ['custom-only role', { role: 'custom', custom_role_id: 'cr-office' }],
+  ])('%s with customers:view: overview has no Files tab link, no Files count, no file query', async (_n, p) => {
     profile = { id: 'u-rep', org_id: ORG, ...p }
-    const html = await render('files')
+    const html = await render('overview')
     expect(html).not.toContain('?tab=files')
-    expect(html).not.toContain('w9.pdf')
-    expect(html).not.toContain('ADD-FILES-BOX')
+    expect(html).not.toContain('>Files<')
+    expect(fileQueries).toEqual([])
+  })
+
+  it.each([
+    ['canvasser', { role: 'canvasser', custom_role_id: null }],
+    ['rep + custom role "Canvasser"', { role: 'rep', custom_role_id: 'cr-canvasser' }],
+    ['setter_manager', { role: 'setter_manager', custom_role_id: null }],
+  ])('%s opening ?tab=files is redirected to the overview tab', async (_n, p) => {
+    profile = { id: 'u-rep', org_id: ORG, ...p }
+    await expect(render('files')).rejects.toThrow(`REDIRECT /customers/${CUST}?tab=overview`)
     expect(fileQueries).toEqual([])
   })
 
@@ -85,5 +103,12 @@ describe('customer account page: field roles get no Files tab', () => {
     expect(html).toContain('?tab=files')
     expect(html).toContain('w9.pdf')
     expect(html).toContain('ADD-FILES-BOX')
+  })
+
+  it('on a tab that shows no files (leads) nothing about files is loaded', async () => {
+    profile = { id: 'u-rep', org_id: ORG, role: 'rep', custom_role_id: null }
+    const html = await render('leads')
+    expect(html).toContain('?tab=files')
+    expect(fileQueries).toEqual([])
   })
 })

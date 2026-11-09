@@ -3,19 +3,19 @@ import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
-import { notFound } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
 import ReferralsSection from '@/components/ReferralsSection'
 import CustomerInfoCard from '@/components/customers/CustomerInfoCard'
 import LinkProjectToCustomerButton from '@/components/customers/LinkProjectToCustomerButton'
 import CreateAddOnOpportunityButton from '@/components/customers/CreateAddOnOpportunityButton'
-import { canAccessCustomerRecordsFromPermissionNames, isRepLikeCustomerRecordRole } from '@/lib/permissions'
+import { canAccessCustomerRecordsFromPermissionNames, isBarredFromSalesDocAccess, isFieldRoleLike, isRepLikeCustomerRecordRole } from '@/lib/permissions'
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 import { isReferralManagerRole } from '@/lib/referral-links'
 import { projectStatusLabelForJobStatus } from '@/lib/job-status'
 import CustomerFilesList from '@/components/customers/CustomerFilesList'
 import { customerFileUploadAccess, loadCustomerFilesForViewer } from '@/lib/customer-file/customer-files-access'
 import { resolveThreadViewer } from '@/lib/threads/viewer'
-import { isFieldRole } from '@/lib/threads/visibility'
+import { isFilesBarred, isRecognizedViewer } from '@/lib/threads/visibility'
 
 
 function resolveProjectDisplayStatus(project: any) {
@@ -140,18 +140,33 @@ export default async function CustomerDetailPage({
 
   // Customer files: the same viewer-based scope as the Customer File's Files tab (loadCustomerFilesForViewer), so a rep sees
   // exactly the deals/projects/leads they can open there — never another rep's lead that happens to carry this customer_id.
-  // Field roles (incl. by custom-role name) and anyone barred from sales docs get no Files tab and no file query at all.
+  // Barred (no Files tab, no count, no query), from the SAME rule the upload and read routes use, so the page never shows a
+  // list or box the server would refuse:
+  //  - field roles (incl. by custom-role name) and anyone barred from sales docs — isFilesBarred(viewer), the same answer
+  //    as resolveFieldOrSalesDocBarred in the routes, from the already-resolved viewer, and
+  //  - viewers the thread rules don't recognize (setter managers, custom-only roles) — the Customer File shows them nothing.
+  // Only resolved on the tabs that show files (overview count, files list). On the other tabs the Files link is decided
+  // from the role alone (no lookups) and the Files tab itself re-checks and redirects, so a link never leads to data.
+  const needsFiles = activeTab === 'overview' || activeTab === 'files'
   const admin = createServiceClient()
-  const fileViewer = await resolveThreadViewer(admin, profile)
-  const filesBarred = isFieldRole(fileViewer)
+  const fileViewer = needsFiles ? await resolveThreadViewer(admin, profile) : null
+  const filesBarred = fileViewer
+    ? isFilesBarred(fileViewer) || !isRecognizedViewer(fileViewer)
+    : isFieldRoleLike({ role: profile.role }) || isBarredFromSalesDocAccess(profile.role)
+  if (filesBarred && activeTab === 'files') redirect(`/customers/${params.id}?tab=overview`)
   const visibleTabs = filesBarred ? tabs.filter((t) => t.id !== 'files') : tabs
-  const files = filesBarred
-    ? []
-    : await loadCustomerFilesForViewer(admin, fileViewer, params.id, { extraProjectIds: projectIds })
+  const files =
+    filesBarred || !fileViewer
+      ? []
+      : await loadCustomerFilesForViewer(admin, fileViewer, params.id, {
+          // A project can exist with no deal: reps get the ones they own (their project list above). Everyone else reaches
+          // projects through the deals they can open.
+          extraProjectIds: isRepLikeCustomerRecordRole(profile.role) ? projectIds : [],
+        })
   const canAddFiles =
     activeTab === 'files' &&
     !filesBarred &&
-    (await customerFileUploadAccess(admin, profile, params.id, { barred: filesBarred })).ok
+    (await customerFileUploadAccess(admin, profile, params.id, { barred: false, permissions: customerPermissions })).ok
 
   let activitiesQuery = supabase
     .from('activities')

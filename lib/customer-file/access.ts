@@ -1,4 +1,4 @@
-import { isFieldRole, type ThreadViewer } from '@/lib/threads/visibility'
+import { isFieldRole, isFilesBarred, type ThreadViewer } from '@/lib/threads/visibility'
 
 /**
  * Customer File tabs + who lands where. Pure and client-safe; permission-shaped (no role-slug
@@ -34,7 +34,7 @@ export function tabsFor(v: ThreadViewer, input: FileAccessInput): FileTab[] {
   if (input.hasJob && !field && (v.ownerLike || v.jobFinancials)) tabs.push('money')
   // Contracts, pricing PDFs and customer files live in Files: field roles (incl. by custom-role name) and pricing-barred
   // roles don't get it — the same people GET /api/files/object refuses those files to.
-  if (!v.pricingBarred && !field) tabs.push('files')
+  if (!field && !isFilesBarred(v)) tabs.push('files')
   tabs.push('notes')
   return tabs
 }
