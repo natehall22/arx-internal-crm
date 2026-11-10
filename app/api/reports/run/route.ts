@@ -6,11 +6,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 import { requireAuthApi } from '@/lib/auth'
-import { loadOrgFeatures, reportDatasetHidden } from '@/lib/org-features'
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 import { canAccessReportsFromPermissionNames } from '@/lib/permissions'
 import { DATASETS } from '@/lib/reporting/catalog'
-import { ReportAccessError, buildReportContext, resultToCsv, runReport, visibleColumns } from '@/lib/reporting/run'
+import { ReportAccessError, buildReportContext, datasetOffered, resultToCsv, runReport, visibleColumns } from '@/lib/reporting/run'
 import { parseSpec } from '@/lib/reporting/report-spec'
 import { REPORT_TEMPLATES, specTouchesFinancials, templateByKey } from '@/lib/reporting/templates'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -67,10 +66,10 @@ export async function GET() {
   const perms = await resolveEffectivePermissionNames(admin, profile.id, profile)
   if (!canAccessReportsFromPermissionNames(perms)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   const ctx = await buildReportContext(admin, profile)
-  // Datasets of a feature the company switched off (Settings → Features) are not offered (Reports home + Explore).
-  const features = await loadOrgFeatures(admin, profile.org_id)
+  // Datasets of a feature the company switched off (Settings → Features) are not offered (Reports home + Explore);
+  // runReport refuses them by the same rule (datasetOffered), so a direct POST or a saved schedule can't run them either.
   const datasets = Object.values(DATASETS)
-    .filter((d) => !reportDatasetHidden(d.key, features))
+    .filter((d) => datasetOffered(ctx, d.key))
     .filter((d) => ctx.finance || (!d.financeOnly && (d.ownerColumn || ctx.scope === 'all')))
     .map((d) => ({ key: d.key, label: d.label, description: d.description, columns: visibleColumns(ctx, d) }))
   const allowed = new Set(datasets.map((d) => d.key))

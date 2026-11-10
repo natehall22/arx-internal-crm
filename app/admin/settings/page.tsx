@@ -1362,10 +1362,15 @@ export default function AdminSettingsPage() {
                       <p className="text-sm text-gray-500">In-house satellite measurement tool</p>
                     </div>
                   </div>
-                  {/* On/off is the "Roof measuring" feature switch (one switch: lib/org-features.ts), owners only. */}
-                  <a href="/admin#features" className="inline-flex min-h-[44px] items-center text-sm font-semibold text-indigo-700 hover:underline">
-                    Turn on/off in Settings → Features
-                  </a>
+                  {/* On/off is the "Roof measuring" feature switch (one switch: lib/org-features.ts), owners only.
+                      canEditBrand = isSuperAdmin from GET /api/admin/settings — the same people who see Settings → Features. */}
+                  {canEditBrand ? (
+                    <a href="/admin#features" className="inline-flex min-h-[44px] items-center text-sm font-semibold text-indigo-700 hover:underline">
+                      Turn on/off in Settings → Features
+                    </a>
+                  ) : (
+                    <p className="text-sm text-[#2c2c2a]">An owner can turn this on or off.</p>
+                  )}
                 </div>
                 <div className="text-sm text-gray-600 bg-gray-50 rounded-lg p-4">
                   <p className="mb-2"><strong>Features:</strong></p>

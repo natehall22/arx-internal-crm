@@ -15,6 +15,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
+import { orgFeatureOffResponse } from '@/lib/org-features-server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { loadExteriorMeasure, resolveOpportunityMeasureContext } from '@/lib/exterior-measure-api'
 import { ingestLidarPayload, type LidarMeasurePayload } from '@/lib/lidar-measure-ingest'
@@ -28,6 +29,8 @@ export async function POST(
 ) {
   try {
     const { profile, authUser } = await requireAuthApi()
+    const roofMeasureOff = await orgFeatureOffResponse(profile.org_id, 'roofMeasure')
+    if (roofMeasureOff) return roofMeasureOff
     const supabase = createServiceClient()
 
     const context = await resolveOpportunityMeasureContext(supabase, profile.org_id, params.id)

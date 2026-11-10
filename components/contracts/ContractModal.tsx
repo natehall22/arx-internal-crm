@@ -5,6 +5,7 @@ import SignaturePad from './SignaturePad'
 import { parseDraftFloat, previewNumber } from '@/lib/numeric-input-draft'
 import { formatPhone } from '@/lib/format'
 import { useOrgFeatures } from '@/hooks/useOrgFeatures'
+import type { OrgFeatures } from '@/lib/org-features'
 
 interface ContractModalProps {
   isOpen: boolean
@@ -20,6 +21,8 @@ interface ContractModalProps {
   defaultFinanceCompany?: string | null
   totalSquares?: number
   scopeOfWork?: string
+  /** Server-resolved company feature switches (optional; otherwise the shared client fetch). */
+  orgFeatures?: OrgFeatures | null
 }
 
 interface ContractFormData {
@@ -61,10 +64,11 @@ export default function ContractModal({
   defaultFinanceCompany,
   totalSquares,
   scopeOfWork,
+  orgFeatures,
 }: ContractModalProps) {
   const [step, setStep] = useState(1)
   /** Insurance switched off for the company (Settings → Features): no contingency agreement, no insurance payment. */
-  const insuranceOn = useOrgFeatures().insurance
+  const insuranceOn = useOrgFeatures(orgFeatures).insurance
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)

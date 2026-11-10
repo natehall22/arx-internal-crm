@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import { requireAuthApi } from '@/lib/auth'
+import { orgFeatureOffResponse } from '@/lib/org-features-server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { resolveOpsAccess } from '@/lib/ops-access'
 import { FILES_BUCKET } from '@/lib/files/storage'
@@ -69,6 +70,8 @@ Return ONLY valid JSON — no markdown fences, no extra text:
 export async function POST(request: NextRequest) {
   try {
     const { authUser, profile } = await requireAuthApi()
+    const roofMeasureOff = await orgFeatureOffResponse(profile.org_id, 'roofMeasure')
+    if (roofMeasureOff) return roofMeasureOff
     const supabase = createServiceClient()
     const { canJobBoard } = await resolveOpsAccess(supabase, authUser.id, profile)
     if (!canJobBoard) {

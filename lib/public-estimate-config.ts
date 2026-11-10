@@ -220,11 +220,12 @@ export function isPublicRoofEstimateEnabled(): boolean {
 }
 
 /**
- * The estimate org's "Roof measuring" feature switch (lib/org-features.ts) — off turns the website estimate off too,
- * on top of the env switch above. No org configured → true (the routes report "misconfigured" themselves).
- * Loaded lazily so this config module stays free of server-only imports.
+ * THE "is the website instant estimate live" rule — config, preview and unlock all ask this: the env switch above AND
+ * the estimate org's "Roof measuring" feature switch (lib/org-features.ts). No org configured → env only (the routes
+ * report "misconfigured" themselves). The feature module is loaded lazily so this config stays free of server imports.
  */
-export async function isPublicEstimateOrgFeatureOn(): Promise<boolean> {
+export async function isPublicEstimateLive(): Promise<boolean> {
+  if (!isPublicRoofEstimateEnabled()) return false
   const orgId = process.env.PUBLIC_ESTIMATE_ORG_ID?.trim()
   if (!orgId) return true
   const { isOrgFeatureOn } = await import('@/lib/org-features-server')

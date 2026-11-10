@@ -11,12 +11,18 @@ import { ALL_FEATURES_ON, coerceOrgFeatures, type OrgFeatures } from '@/lib/org-
  */
 const REUSE_MS = 5000
 let shared: { at: number; promise: Promise<{ ok: boolean; status: number; data: unknown }> } | null = null
+/** The last feature map the server returned in this tab, so a component mounted later starts with it (no flash). */
+let lastKnown: OrgFeatures | null = null
 
 export function fetchEffectivePermissions(): Promise<{ ok: boolean; status: number; data: unknown }> {
   const now = Date.now()
   if (shared && now - shared.at < REUSE_MS) return shared.promise
   const promise = fetch('/api/me/effective-permissions', { cache: 'no-store', credentials: 'same-origin' })
-    .then(async (res) => ({ ok: res.ok, status: res.status, data: await res.json().catch(() => null) }))
+    .then(async (res) => {
+      const out = { ok: res.ok, status: res.status, data: await res.json().catch(() => null) }
+      if (out.ok) lastKnown = featuresFromEffectivePermissions(out.data)
+      return out
+    })
     .catch(() => ({ ok: false, status: 0, data: null }))
   shared = { at: now, promise }
   return promise
@@ -29,11 +35,13 @@ export function featuresFromEffectivePermissions(data: unknown): OrgFeatures {
 }
 
 /**
- * Company feature switches for client components. Starts with every feature ON (what any org with nothing
- * stored has) and settles once the shared fetch returns; pages behind a switch are also gated server-side.
+ * Company feature switches for client components. First render uses, in order: `initial` (the server-resolved map a
+ * server page passes down — no flash), else the last map this tab already loaded (Nav loads it on every page), else
+ * every feature ON (what any org with nothing stored has). It then settles on the shared fetch. Pages and APIs behind a
+ * switch are gated server-side regardless, so a first-paint guess can only show an entry point, never data.
  */
-export function useOrgFeatures(): OrgFeatures {
-  const [features, setFeatures] = useState<OrgFeatures>(ALL_FEATURES_ON)
+export function useOrgFeatures(initial?: OrgFeatures | null): OrgFeatures {
+  const [features, setFeatures] = useState<OrgFeatures>(() => initial ?? lastKnown ?? ALL_FEATURES_ON)
   useEffect(() => {
     let cancelled = false
     void fetchEffectivePermissions().then((r) => {
@@ -44,4 +52,10 @@ export function useOrgFeatures(): OrgFeatures {
     }
   }, [])
   return features
+}
+
+/** Tests only: forget the shared fetch and the last-known map. */
+export function resetOrgFeaturesCacheForTests(): void {
+  shared = null
+  lastKnown = null
 }

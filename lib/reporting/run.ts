@@ -13,6 +13,7 @@ import { canExportReportsFromPermissionNames, getReportScopeFromPermissionNames 
 import { DATASETS, columnOf, type Dataset, type DatasetColumn } from '@/lib/reporting/catalog'
 import { MAX_ROWS_RETURNED, MAX_ROWS_SCANNED, dateBounds, type ReportSpec } from '@/lib/reporting/report-spec'
 import { hasFinancials } from '@/lib/financials-access'
+import { loadOrgFeatures, reportDatasetHidden, type OrgFeatures } from '@/lib/org-features'
 
 export type ReportContext = {
   orgId: string
@@ -22,6 +23,8 @@ export type ReportContext = {
   canExport: boolean
   /** Users whose rows this viewer may see; null = everyone (scope 'all'). */
   scopedUserIds: string[] | null
+  /** Company feature switches (lib/org-features.ts); a dataset of a switched-off feature is refused. Missing = all on. */
+  features?: OrgFeatures
 }
 
 type Viewer = { id: string; org_id: string; role: string; custom_role_id?: string | null; team_id?: string | null; region_id?: string | null }
@@ -54,6 +57,7 @@ export async function buildReportContext(admin: SupabaseClient, profile: Viewer)
     finance: hasFinancials(perms),
     canExport: canExportReportsFromPermissionNames(perms),
     scopedUserIds,
+    features: await loadOrgFeatures(admin, profile.org_id),
   }
 }
 
@@ -80,7 +84,13 @@ export function needsFinancials(ctx: Pick<ReportContext, 'finance' | 'scope'>, c
   return !(col.own && ctx.scope === 'own')
 }
 
+/** The ONE "is this dataset offered to this viewer" rule for feature switches: the list (GET) and every run use it. */
+export function datasetOffered(ctx: Pick<ReportContext, 'features'>, datasetKey: string): boolean {
+  return !ctx.features || !reportDatasetHidden(datasetKey, ctx.features)
+}
+
 export function checkAccess(ctx: ReportContext, ds: Dataset, spec: ReportSpec): void {
+  if (!datasetOffered(ctx, ds.key)) throw new ReportAccessError('That report is for a feature your company has turned off.')
   if (ds.financeOnly && !ctx.finance) throw new ReportAccessError('That report is for owners and finance only.')
   if (!ds.ownerColumn && ctx.scope !== 'all' && !ctx.finance) throw new ReportAccessError('That report covers the whole company, which your role cannot see.')
   const used = [

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 
 import { requireAuthApi } from '@/lib/auth'
+import { orgFeatureOffResponse } from '@/lib/org-features-server'
 
 export const dynamic = 'force-dynamic'
 
@@ -23,11 +24,14 @@ function distanceM(aLat: number, aLng: number, bLat: number, bLng: number): numb
  * Google has no building there or picks one too far from the point.
  */
 export async function GET(request: Request) {
+  let orgId: string | null = null
   try {
-    await requireAuthApi()
+    orgId = (await requireAuthApi()).profile.org_id
   } catch {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+  const roofMeasureOff = await orgFeatureOffResponse(orgId, 'roofMeasure')
+  if (roofMeasureOff) return roofMeasureOff
 
   const url = new URL(request.url)
   const lat = Number(url.searchParams.get('lat'))

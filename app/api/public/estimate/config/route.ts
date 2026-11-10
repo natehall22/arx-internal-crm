@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server'
 import {
   getPublicTurnstileSiteKey,
-  isPublicRoofEstimateEnabled,
+  isPublicEstimateLive,
 } from '@/lib/public-estimate-config'
 import { publicEstimateJson, publicEstimateOptionsResponse } from '@/lib/public-estimate-cors'
 
@@ -23,7 +23,8 @@ export async function GET(request: NextRequest) {
   return publicEstimateJson(
     {
       turnstile_site_key: getPublicTurnstileSiteKey(),
-      enabled: isPublicRoofEstimateEnabled(),
+      // Off when the env switch is off OR the company switched Roof measuring off (Settings → Features).
+      enabled: await isPublicEstimateLive(),
     },
     200,
     origin

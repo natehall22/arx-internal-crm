@@ -34,6 +34,33 @@ function metrics(): MorningUpdateMetrics {
   }
 }
 
+describe('company feature switches in the morning email', () => {
+  const withGoals = (): MorningUpdateMetrics => ({
+    ...metrics(),
+    lastWeekVsGoals: {
+      monthGoalLabel: 'August', rangeLabel: 'Aug 2–8', proposalsShown: 1,
+      doors: { actual: 1, goal: 2, shareOfMonthPct: 50 }, sets: { actual: 1, goal: 2, shareOfMonthPct: 50 },
+      sales: { actual: 1, goal: 2, shareOfMonthPct: 50 }, revenue: { actual: 1, goal: 2, shareOfMonthPct: 50 },
+    } as never,
+  })
+  it('every switch on / nothing stored: unchanged (doors + insurance rows in all three sections)', () => {
+    for (const html of [buildMorningUpdateHtml(withGoals()), buildMorningUpdateHtml(withGoals(), { features: { canvassing: true, insurance: true, roofMeasure: true, incentives: true, stormAlerts: true, squaresPricing: true } })]) {
+      expect(html.match(/Doors knocked<\/td>/g)).toHaveLength(3)
+      expect(html.match(/Inspections going through insurance<\/td>/g)).toHaveLength(3)
+      expect(html).toContain('>Doors</td>')
+      expect(html).toContain('Insurance inspections are counted')
+    }
+  })
+  it('door knocking off drops every doors row; insurance off drops the insurance rows and footnote', () => {
+    const html = buildMorningUpdateHtml(withGoals(), { features: { canvassing: false, insurance: false, roofMeasure: true, incentives: true, stormAlerts: true, squaresPricing: true } })
+    expect(html).not.toContain('Doors knocked')
+    expect(html).not.toContain('>Doors</td>')
+    expect(html).not.toContain('going through insurance')
+    expect(html).not.toContain('Insurance inspections are counted')
+    expect(html.match(/Proposals shown<\/td>/g)?.length).toBeGreaterThanOrEqual(3)
+  })
+})
+
 describe('daily morning proposal reporting', () => {
   it('deduplicates generated proposals by opportunity and keeps unlinked proposals distinct', () => {
     expect(

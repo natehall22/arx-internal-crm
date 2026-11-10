@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import ContractModal from './ContractModal'
+import type { OrgFeatures } from '@/lib/org-features'
 
 interface CreateContractButtonProps {
   opportunityId: string
@@ -16,6 +17,8 @@ interface CreateContractButtonProps {
   defaultFinanceCompany?: string | null
   totalSquares?: number
   scopeOfWork?: string
+  /** Company feature switches resolved on the server, when the page has them (no flash of switched-off options). */
+  orgFeatures?: OrgFeatures | null
 }
 
 export default function CreateContractButton({
@@ -29,6 +32,7 @@ export default function CreateContractButton({
   defaultFinanceCompany,
   totalSquares,
   scopeOfWork,
+  orgFeatures,
 }: CreateContractButtonProps) {
   const [isModalOpen, setIsModalOpen] = useState(false)
 
@@ -57,6 +61,7 @@ export default function CreateContractButton({
         defaultFinanceCompany={defaultFinanceCompany}
         totalSquares={totalSquares}
         scopeOfWork={scopeOfWork}
+        orgFeatures={orgFeatures}
       />
     </>
   )

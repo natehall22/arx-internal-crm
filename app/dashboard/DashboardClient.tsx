@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import Link from 'next/link'
 import InspectionStatusCard from '@/components/InspectionStatusCard'
 import { useOrgFeatures } from '@/hooks/useOrgFeatures'
+import type { OrgFeatures } from '@/lib/org-features'
 import { isPromptEscalated } from '@/lib/inspection-feedback-prompt'
 import type { CloseScheduleConfirm } from '@/components/appointments/CloseScheduleModal'
 import CommissionWidget from '@/components/CommissionWidget'
@@ -358,6 +359,7 @@ interface DashboardClientProps {
   closerTeamStats?: TeamMemberStat[]
   canViewTeamLeaderboard?: boolean
   badgeCount?: number
+  orgFeatures?: OrgFeatures | null
 }
 
 // ─── My Goals Widget ──────────────────────────────────────────────────────────
@@ -525,9 +527,10 @@ export default function DashboardClient({
   closerTeamStats = [],
   canViewTeamLeaderboard = false,
   badgeCount = 0,
+  orgFeatures: serverOrgFeatures = null,
 }: DashboardClientProps) {
-  /** Company feature switches (Settings → Features): hides Start Canvassing / Incentives links when off. */
-  const orgFeatures = useOrgFeatures()
+  /** Company feature switches (Settings → Features), resolved on the server: hides Start Canvassing / badges when off. */
+  const orgFeatures = useOrgFeatures(serverOrgFeatures)
   const [promptQueue, setPromptQueue] = useState<any[]>(pendingPrompts)
   const [activePrompt, setActivePrompt] = useState<any>(
     pendingPrompts.length > 0 ? pendingPrompts[0] : null

@@ -27,8 +27,8 @@ export const ORG_FEATURE_DEFS = {
     description: 'Insurance job source, claim stage and claim number on jobs, insurance agreements, and the Insurance call list.',
   },
   roofMeasure: {
-    label: 'Roof measuring',
-    description: 'The satellite roof measure tool, “Load roof”, and the website instant roof estimate.',
+    label: 'Roof & exterior measuring',
+    description: 'The satellite roof measure tool, “Load roof”, exterior measure (phone LiDAR and photos), and the website instant roof estimate.',
   },
   incentives: {
     label: 'Sisu incentives',

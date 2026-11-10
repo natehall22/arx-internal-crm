@@ -60,6 +60,7 @@ import { confirmDialog } from '@/components/ui/confirm-dialog'
 import { formatPhone, telHref } from '@/lib/format'
 import { filesDocHref } from '@/lib/files/files-object'
 import { useOrgFeatures } from '@/hooks/useOrgFeatures'
+import type { OrgFeatures } from '@/lib/org-features'
 
 
 interface Job {
@@ -383,6 +384,8 @@ interface JobDetailClientProps {
   notesSlot?: React.ReactNode
   /** "Where this stands" (lib/job-catch-up.ts). Null/absent = the org has it off: nothing renders. */
   catchUp?: JobCatchUpResult | null
+  /** Company feature switches resolved on the server (lib/org-features.ts), so a switched-off card never flashes. */
+  orgFeatures?: OrgFeatures | null
 }
 
 /** Old six-tab keys -> the five job tabs, so every "jump to X" in this file works on both pages. */
@@ -611,11 +614,12 @@ export default function JobDetailClient({
   initialTab = null,
   notesSlot,
   catchUp = null,
+  orgFeatures: serverOrgFeatures = null,
 }: JobDetailClientProps) {
   const router = useRouter()
   const [job, setJob] = useState<Job>(initialJob)
   /** Company feature switches (Settings → Features): Insurance off hides the Job Source / claim card. */
-  const orgFeatures = useOrgFeatures()
+  const orgFeatures = useOrgFeatures(serverOrgFeatures)
   /** The job cost ledger summary (`lib/job-cost-ledger.ts`), reported by the Materials card. */
   const [costSummary, setCostSummary] = useState<JobCostSummary | null>(null)
   /** Bumped when either card changes the ledger so the other card reloads. */
@@ -1611,6 +1615,7 @@ export default function JobDetailClient({
                 <p className="text-gray-500 mt-1 text-sm">No address</p>
               )}
 
+              {orgFeatures.roofMeasure && (
               <div className="mt-3 flex flex-wrap gap-2">
                 <Link
                   href={`/ops/jobs/${job.id}/measure`}
@@ -1619,6 +1624,7 @@ export default function JobDetailClient({
                   Exterior Measure
                 </Link>
               </div>
+              )}
 
               {isCancelled && (
                 <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2">

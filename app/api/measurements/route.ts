@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { requireAuthApi } from '@/lib/auth'
+import { orgFeatureOffResponse } from '@/lib/org-features-server'
 import { resolveSalesDocAccessBarred } from '@/lib/sales-doc-access'
 import { isConfirmedPitchSource } from '@/lib/roof-measure-solar-pitch'
 
@@ -15,6 +16,8 @@ export async function GET(request: NextRequest) {
     } catch {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+    const roofMeasureOff = await orgFeatureOffResponse(authContext.profile.org_id, 'roofMeasure')
+    if (roofMeasureOff) return roofMeasureOff
 
     const adminClient = createServiceClient()
     const profile = authContext.profile
@@ -68,6 +71,8 @@ export async function POST(request: NextRequest) {
     } catch {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+    const roofMeasureOff = await orgFeatureOffResponse(authContext.profile.org_id, 'roofMeasure')
+    if (roofMeasureOff) return roofMeasureOff
 
     const adminClient = createServiceClient()
     const profile = authContext.profile
