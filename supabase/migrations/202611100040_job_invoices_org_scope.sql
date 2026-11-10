@@ -9,13 +9,16 @@
 -- only unique per org (production_jobs UNIQUE (org_id, job_number)), so company B's first invoice on its job 26-0001 would
 -- collide with company A's INV-26-26-0001-001 and fail to insert.
 --
+-- RUN AT A QUIET MOMENT (not mid-day): adding the org_id FK takes a lock on `orgs` that blocks writes to orgs (settings
+-- saves, logo uploads) until the transaction commits. The whole file runs in seconds on today's data.
+--
 -- Steps (one transaction; job_invoices is small, so the plain CREATE INDEX lock is brief):
 --   1. add nullable org_id (FK to orgs)
 --   2. trigger: org_id is ALWAYS the parent job's org (filled on insert, re-derived if job_id/org_id is changed; a caller
 --      that passes a different org is overwritten, not trusted)
 --   3. backfill org_id from production_jobs
 --   4. add UNIQUE (org_id, invoice_number) BEFORE dropping the global unique, so uniqueness is never off
---   5. drop the global unique on invoice_number (looked up by definition: its name differs between 053 and 053b installs)
+--   5. drop the global unique on invoice_number, as a constraint or a bare unique index (found by definition, not name)
 --   6. number generator: per job (unchanged format), serialized per job, skips any number already used in the org
 --   7. job_invoices RLS reads/writes on org_id (same answer as the old production_jobs join, since step 2 keeps them equal)
 -- org_id stays NULLABLE (live-schema rule). Every row has one after step 3 and the trigger keeps it that way; making it
@@ -86,6 +89,22 @@ begin
                               where attrelid = 'public.job_invoices'::regclass and attname = 'invoice_number')]::int2[]
   loop
     execute format('alter table public.job_invoices drop constraint %I', c.conname);
+  end loop;
+
+  -- A bare unique INDEX (e.g. made in the dashboard, no constraint behind it) enforces the same global rule.
+  -- Any unique index whose only column is invoice_number goes; the new (org_id, invoice_number) one has 2 columns.
+  for c in
+    select ic.relname as idxname
+    from pg_index i
+    join pg_class ic on ic.oid = i.indexrelid
+    where i.indrelid = 'public.job_invoices'::regclass
+      and i.indisunique
+      and i.indnatts = 1
+      and i.indkey[0] = (select attnum from pg_attribute
+                         where attrelid = 'public.job_invoices'::regclass and attname = 'invoice_number')
+      and not exists (select 1 from pg_constraint con where con.conindid = i.indexrelid)
+  loop
+    execute format('drop index public.%I', c.idxname);
   end loop;
 end $$;
 
