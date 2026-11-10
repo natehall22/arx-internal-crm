@@ -31,7 +31,7 @@ nothing ARX customers or reps see unless the slice says so. Gate on every slice:
    the fix (golden tests + `org-brand-documents.test.ts` "ARX after the data fix"). The `brandDocument()` special case is
    gone: contract spellings are data (`settings.brand.documentLegalName` / `documentAddress`; a General save that changes
    the legal name or address clears them). `getCrmEmailFrom` = env `SMTP_FROM`, else `SMTP_USER` on a fenced copy.
-   Out-of-area estimate text reads `serviceArea` (ARX now sees "Charlotte / Kannapolis" instead of "Charlotte metro").
+   Out-of-area estimate text reads `settings.brand.serviceRegion` (else `serviceArea` minus its state); ARX keeps "Charlotte metro" (legacy fallback + data fix).
    **ARX order:** apply `supabase/data-fixes/2026-11-10_arx_brand_into_org_row.sql` → set Vercel `SMTP_FROM=ARX Roofing <info@arxroofing.com>`
    → then (and only then) set ARX's `DEPLOYMENT_ORG_ID` → delete `LEGACY_ORG_BRAND`, `legacyBrandFallback` and the legacy
    branch of `getCrmEmailFrom`. Original note: `DEFAULT_ORG_BRAND` held ARX's identity, so any fallback on another company's copy
@@ -77,10 +77,11 @@ nothing ARX customers or reps see unless the slice says so. Gate on every slice:
   (`planOrgTradesSeed`: input trades added/updated by label; standard trades not listed are turned OFF, never deleted;
   trades added later in Settings are left alone; no `trades` = standard list), first owner = role `admin` +
   `is_super_admin` (new login password from env `SEED_OWNER_PASSWORD`, else random, printed once).
-- Refuses (before any write): a new org whose name another org has; an `org.id` that does not exist; an org other than
+- Refuses (before any write): an org that already has jobs, opportunities or customers unless `--allow-existing` (prints the counts); a
+  second super admin unless `--add-owner`; a new org whose name another org has; an `org.id` that does not exist; an org other than
   this env's `DEPLOYMENT_ORG_ID`; an owner email already in another org. Updating an existing org needs its `org.id`.
 - Re-run: writes only differences. Renaming a trade in the input ADDS a new one (match is by label) — rename in Settings.
-  A new owner email adds a second super admin; the first is not demoted. Removing a brand key leaves it; `""` clears it.
+  A new owner email needs `--add-owner` and adds a second super admin; the first is not demoted. Removing a brand key leaves it; `""` clears it.
 - Afterwards, on that company's Vercel project: `DEPLOYMENT_ORG_ID=<printed id>` and `SMTP_FROM="Company <info@…>"`
   (+ its own SMTP_* creds). Without `DEPLOYMENT_ORG_ID` blank brand fields fall back to ARX's strings.
 - Not covered (known): `orgs.timezone` is stored but most code still uses `DEFAULT_TIMEZONE` (slices 4–5); the iOS app is

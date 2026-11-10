@@ -6,7 +6,8 @@
  *
  * Uses NEXT_PUBLIC_SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY from .env.local (point it at another env file with
  * `npx tsx --env-file=.env.company scripts/seed-company.ts …`). If that env sets DEPLOYMENT_ORG_ID, the run refuses any
- * other org. A new owner login gets SEED_OWNER_PASSWORD from the environment, else a random password printed once.
+ * other org. An org that already has jobs, deals or customers needs --allow-existing; a second super admin needs
+ * --add-owner. A new owner login gets SEED_OWNER_PASSWORD from the environment, else a random password printed once.
  * Input shape: scripts/seed-company.example.json. Safe to re-run; put the printed org id into org.id after the first run.
  */
 import { readFileSync } from 'fs'
@@ -19,8 +20,10 @@ async function main() {
   const args = process.argv.slice(2)
   const file = args.find((a) => !a.startsWith('--'))
   const apply = args.includes('--apply')
+  const allowExisting = args.includes('--allow-existing')
+  const addOwner = args.includes('--add-owner')
   if (!file) {
-    console.error('usage: seed-company <input.json> [--apply]')
+    console.error('usage: seed-company <input.json> [--apply] [--allow-existing] [--add-owner]')
     process.exit(2)
   }
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -43,6 +46,8 @@ async function main() {
       apply,
       deploymentOrgId: process.env.DEPLOYMENT_ORG_ID,
       ownerPassword: process.env.SEED_OWNER_PASSWORD,
+      allowExisting,
+      addOwner,
     })
     for (const line of report.lines) console.log(`  ${line}`)
     if (report.generatedOwnerPassword) {

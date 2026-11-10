@@ -243,9 +243,9 @@ export function misconfiguredMessage(phone: string): string {
   return `Public roof estimate is not configured.${phone ? ` Please call ${phone}.` : ''}`
 }
 
-/** Error copy for an address outside the geofence: the service area and phone come from the org brand. */
-export function outOfServiceAreaMessage(brand: Pick<OrgBrand, 'serviceArea' | 'phone'>): string {
-  const region = brandServiceRegion(brand)
+/** Error copy for an address outside the geofence: region (`serviceRegion`, else the service area minus its state) and phone from the org brand. */
+export function outOfServiceAreaMessage(brand: Pick<OrgBrand, 'serviceArea' | 'serviceRegion' | 'phone'>): string {
+  const region = brand.serviceRegion || brandServiceRegion(brand)
   const area = region ? ` (${region} and nearby)` : ''
   const call = brand.phone ? ` Call ${brand.phone} and we can still help.` : ''
   return `That address looks outside our service area${area}.${call}`

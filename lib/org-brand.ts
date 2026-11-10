@@ -41,6 +41,8 @@ export interface OrgBrand {
   documentLegalName?: string
   /** Office address as contracts spell it, when that differs from `address` (`settings.brand`, multi-line). */
   documentAddress?: string
+  /** Short region name for sentences ("outside our service area (… and nearby)"), when it differs from serviceArea. */
+  serviceRegion?: string
 }
 
 /** Neutral fallback: nothing about any real company. A seeded org (scripts/seed-company.ts) never needs it. */
@@ -75,6 +77,7 @@ const LEGACY_ORG_BRAND: Readonly<Required<OrgBrand>> = (() => {
     // contracts: "…Exteriors LLC" with no comma, "Terrace" written out
     documentLegalName: base.legalName.replace(/, (LLC)$/, ' $1'),
     documentAddress: '4101 Woodbury Terrace NW\nConcord, NC 28027',
+    serviceRegion: 'Charlotte metro',
   })
 })()
 
@@ -88,7 +91,7 @@ export function legacyBrandFallback(): boolean {
 }
 
 /** The always-present fields (the optional contract spellings are resolved separately). */
-type CoreBrandKey = Exclude<keyof OrgBrand, 'documentLegalName' | 'documentAddress'>
+type CoreBrandKey = Exclude<keyof OrgBrand, 'documentLegalName' | 'documentAddress' | 'serviceRegion'>
 const ORG_BRAND_KEYS = Object.keys(DEFAULT_ORG_BRAND) as CoreBrandKey[]
 
 /** Fields that are real `orgs` columns (edited as Company Name / Phone / Email / Address). The column always wins. */
@@ -96,7 +99,7 @@ const COLUMN_BACKED = ['name', 'phone', 'email', 'address'] as const
 type ColumnBackedKey = (typeof COLUMN_BACKED)[number]
 
 /** The only keys stored under `orgs.settings.brand` — fields with no `orgs` column. */
-export const BRAND_SETTINGS_KEYS = ['legalName', 'shortName', 'website', 'serviceArea', 'documentLegalName', 'documentAddress'] as const
+export const BRAND_SETTINGS_KEYS = ['legalName', 'shortName', 'website', 'serviceArea', 'documentLegalName', 'documentAddress', 'serviceRegion'] as const
 export type BrandSettingsKey = (typeof BRAND_SETTINGS_KEYS)[number]
 
 /** Longest value a brand field may hold (characters, after trimming). */
@@ -147,8 +150,12 @@ export function resolveOrgBrand(row: OrgBrandRow | null | undefined): OrgBrand {
   const documentAddress =
     present(stored.documentAddress) ??
     (legacy && out.address === LEGACY_ORG_BRAND.address ? LEGACY_ORG_BRAND.documentAddress : null)
+  const serviceRegion =
+    present(stored.serviceRegion) ??
+    (legacy && out.serviceArea === LEGACY_ORG_BRAND.serviceArea ? LEGACY_ORG_BRAND.serviceRegion : null)
   if (documentLegalName) out.documentLegalName = documentLegalName
   if (documentAddress) out.documentAddress = documentAddress
+  if (serviceRegion) out.serviceRegion = serviceRegion
   return out
 }
 
@@ -270,13 +277,14 @@ export function brandPatchFromGeneral(data: Record<string, unknown>): BrandPatch
 }
 
 /**
- * Pure: the contract spellings a General save makes stale — a new legal name (sent in the brand patch) clears
- * `documentLegalName`; a changed address column clears `documentAddress`. Null when nothing is stale. Without this a
+ * Pure: the derived spellings a General save makes stale — a new legal name (sent in the brand patch) clears
+ * `documentLegalName`, a new service area clears `serviceRegion`; a changed address column clears `documentAddress`. Null when nothing is stale. Without this a
  * stored contract spelling would keep printing the old name/address after an owner edits it.
  */
 export function staleDocumentSpellings(brandPatch: BrandPatch | null, newAddress: unknown, currentAddress: unknown): BrandPatch | null {
   const patch: BrandPatch = {}
   if (brandPatch && 'legalName' in brandPatch) patch.documentLegalName = ''
+  if (brandPatch && 'serviceArea' in brandPatch) patch.serviceRegion = ''
   if (newAddress !== undefined && present(newAddress) !== present(currentAddress)) patch.documentAddress = ''
   return Object.keys(patch).length ? patch : null
 }

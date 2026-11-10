@@ -11,6 +11,8 @@
 --     plus the contract spellings, each only while the value it replaces is still the original:
 --       documentLegalName 'ARX Roofing & Exteriors LLC'   (only if legalName is 'ARX Roofing & Exteriors, LLC')
 --       documentAddress   '4101 Woodbury Terrace NW\nConcord, NC 28027' (only if address is '4101 Woodbury Ter NW\nConcord, NC 28027')
+--       serviceRegion     'Charlotte metro'               (only if serviceArea is 'Charlotte / Kannapolis, NC'; website-estimate
+--                                                        out-of-area message, which said "Charlotte metro" in code before)
 --     — exactly the rule brandDocument() applied in code before.
 --   Every other settings key is untouched (jsonb merge of settings.brand only).
 --
@@ -81,6 +83,10 @@ BEGIN
   IF coalesce(v_brand ->> 'shortName', '') ~ blank THEN v_add := v_add || jsonb_build_object('shortName', 'ARX'); END IF;
   IF coalesce(v_brand ->> 'website', '') ~ blank THEN v_add := v_add || jsonb_build_object('website', 'arxroofing.com'); END IF;
   IF coalesce(v_brand ->> 'serviceArea', '') ~ blank THEN v_add := v_add || jsonb_build_object('serviceArea', 'Charlotte / Kannapolis, NC'); END IF;
+  IF coalesce(v_brand ->> 'serviceRegion', '') ~ blank
+     AND coalesce(NULLIF(btrim(v_brand ->> 'serviceArea'), ''), 'Charlotte / Kannapolis, NC') = 'Charlotte / Kannapolis, NC' THEN
+    v_add := v_add || jsonb_build_object('serviceRegion', 'Charlotte metro');
+  END IF;
 
   v_legal := btrim(coalesce(NULLIF(btrim(v_brand ->> 'legalName'), ''), c_legal));
   IF coalesce(v_brand ->> 'documentLegalName', '') ~ blank AND v_legal = c_legal THEN

@@ -130,6 +130,10 @@ export interface CompanySeedOptions {
   deploymentOrgId?: string | null
   /** First password for a NEW owner login (else a random one is generated and reported once). Never stored in the input. */
   ownerPassword?: string | null
+  /** Allow changing an org that already has jobs, deals or customers (a live company). */
+  allowExisting?: boolean
+  /** Allow making this owner a super admin when the org already has another one. */
+  addOwner?: boolean
 }
 
 export interface CompanySeedReport {
@@ -193,6 +197,21 @@ export async function runCompanySeed(client: SupabaseClient, input: CompanySeedI
     throw new SeedStop(`This env's DEPLOYMENT_ORG_ID is ${deploymentOrgId}; a new org can only be created from an env without it.`)
   }
 
+  if (org) {
+    const counts: Record<string, number> = {}
+    for (const table of ['production_jobs', 'opportunities', 'customers']) {
+      const { count, error } = await client.from(table).select('id', { count: 'exact', head: true }).eq('org_id', org.id)
+      if (error) throw new Error(`count ${table}: ${error.message ?? 'failed'}`)
+      counts[table] = count ?? 0
+    }
+    const live = Object.values(counts).some((n) => n > 0)
+    const summary = Object.entries(counts).map(([t, n]) => `${n} ${t}`).join(', ')
+    if (live && !opts.allowExisting) {
+      throw new SeedStop(`Org ${org.id} is in use (${summary}). Re-run with --allow-existing only if you mean to change it; nothing was written.`)
+    }
+    if (live) say(`org ${org.id} is in use (${summary}) — continuing (--allow-existing)`)
+  }
+
   const ownerRows = await must(
     client.from('users').select('id, org_id, email, role, is_super_admin, active, full_name').ilike('email', input.owner.email.replace(/[%_\\]/g, '\\$&')),
     'read owner'
@@ -200,6 +219,21 @@ export async function runCompanySeed(client: SupabaseClient, input: CompanySeedI
   const ownerRow = ((ownerRows ?? []) as UserRow[])[0] ?? null
   if (ownerRow && ownerRow.org_id !== (org?.id ?? null)) {
     throw new SeedStop(`${input.owner.email} already belongs to another org (${ownerRow.org_id}); nothing was written.`)
+  }
+
+  if (org) {
+    const supers = (await must(
+      client.from('users').select('id, email').eq('org_id', org.id).eq('is_super_admin', true),
+      'read super admins'
+    )) as { id: string; email: string | null }[]
+    const others = (supers ?? []).filter((u) => u.id !== ownerRow?.id)
+    const becomesSuper = !ownerRow || ownerRow.is_super_admin !== true
+    if (becomesSuper && others.length && !opts.addOwner) {
+      throw new SeedStop(
+        `Org ${org.id} already has a super admin (${others.map((u) => u.email ?? u.id).join(', ')}); ` +
+          `re-run with --add-owner to make ${input.owner.email} another one. Nothing was written.`
+      )
+    }
   }
 
   // ---- org row ----

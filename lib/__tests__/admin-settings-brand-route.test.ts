@@ -81,7 +81,7 @@ it('super admin: columns saved without settings; brand goes through the atomic m
   expect('settings' in updates[0]).toBe(false)
   expect(updates[0].name).toBe('ARX Roofing & Exteriors')
   expect(rpcs).toEqual([
-    { fn: 'merge_org_settings', args: { p_org_id: 'org-1', p_path: ['brand'], p_set: { shortName: 'ZZ', website: 'w'.repeat(120) }, p_remove: ['serviceArea'] } },
+    { fn: 'merge_org_settings', args: { p_org_id: 'org-1', p_path: ['brand'], p_set: { shortName: 'ZZ', website: 'w'.repeat(120) }, p_remove: ['serviceArea', 'serviceRegion'] } },
   ])
 })
 

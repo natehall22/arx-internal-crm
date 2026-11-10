@@ -320,6 +320,7 @@ const ARX_AFTER_FIX_ROW = {
       serviceArea: 'Charlotte / Kannapolis, NC',
       documentLegalName: 'ARX Roofing & Exteriors LLC',
       documentAddress: '4101 Woodbury Terrace NW\nConcord, NC 28027',
+      serviceRegion: 'Charlotte metro',
     },
   },
 }
@@ -407,10 +408,19 @@ describe('legacy gate (unfenced = ARX prod today) keeps the old strings', () => 
     if (saved !== undefined) process.env.SMTP_FROM = saved
     expect(misconfiguredMessage(resolveOrgBrand(null).phone)).toBe('Public roof estimate is not configured. Please call (704) 313-8834.')
   })
-  it('out-of-area copy now names the service area from the brand (was "Charlotte metro")', () => {
-    expect(outOfServiceAreaMessage(PROD_ARX)).toBe(
-      'That address looks outside our service area (Charlotte / Kannapolis and nearby). Call (704) 313-8834 and we can still help.'
-    )
+  it('out-of-area copy is byte-identical for ARX (serviceRegion "Charlotte metro"), before and after the data fix', () => {
+    const OLD = 'That address looks outside our service area (Charlotte metro and nearby). Call (704) 313-8834 and we can still help.'
+    expect(outOfServiceAreaMessage(PROD_ARX)).toBe(OLD)
+    expect(outOfServiceAreaMessage(resolveOrgBrand(ARX_AFTER_FIX_ROW))).toBe(OLD)
+    process.env.DEPLOYMENT_ORG_ID = 'x'
+    try {
+      expect(outOfServiceAreaMessage(resolveOrgBrand(ARX_AFTER_FIX_ROW))).toBe(OLD)
+    } finally {
+      delete process.env.DEPLOYMENT_ORG_ID
+    }
+  })
+  it('an edited service area drops the legacy region wording', () => {
+    expect(resolveOrgBrand({ ...PROD_ROW, settings: { brand: { serviceArea: 'Raleigh, NC' } } }).serviceRegion).toBeUndefined()
   })
 })
 
@@ -420,5 +430,6 @@ describe('staleDocumentSpellings', () => {
     expect(staleDocumentSpellings(null, '1 New St', '4101 Woodbury Ter NW')).toEqual({ documentAddress: '' })
     expect(staleDocumentSpellings(null, ' 1 New St ', '1 New St')).toBeNull()
     expect(staleDocumentSpellings({ website: 'x.example' }, undefined, 'a')).toBeNull()
+    expect(staleDocumentSpellings({ serviceArea: 'Raleigh, NC' }, undefined, 'a')).toEqual({ serviceRegion: '' })
   })
 })

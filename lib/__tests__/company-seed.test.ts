@@ -86,7 +86,7 @@ function fakeClient(tables: Record<string, Record<string, unknown>[]>, authUsers
     b.eq = (col: string, v: unknown) => ((rows = rows.filter((r) => r[col] === v)), b)
     b.ilike = (col: string, v: string) => ((rows = rows.filter((r) => String(r[col]).toLowerCase() === v.replace(/\\(.)/g, '$1').toLowerCase())), b)
     b.maybeSingle = () => Promise.resolve({ data: rows[0] ?? null, error: null })
-    b.then = (res: (v: unknown) => unknown) => Promise.resolve({ data: rows, error: null }).then(res)
+    b.then = (res: (v: unknown) => unknown) => Promise.resolve({ data: rows, count: rows.length, error: null }).then(res)
     for (const w of ['insert', 'update', 'upsert', 'delete']) b[w] = () => (writes.push(`${w} ${table}`), b)
     return b
   }
@@ -134,6 +134,46 @@ describe('runCompanySeed (dry run)', () => {
       runCompanySeed(client, { ...input, org: { ...input.org, id } }, { apply: true, deploymentOrgId: '22222222-2222-4222-8222-222222222222' })
     ).rejects.toThrow(/DEPLOYMENT_ORG_ID/)
     expect(writes).toEqual([])
+  })
+
+  const liveId = '33333333-3333-4333-8333-333333333333'
+  const liveOrg = (extra: Record<string, Record<string, unknown>[]> = {}) =>
+    fakeClient({
+      orgs: [{ ...input.org, id: liveId, timezone: null }],
+      production_jobs: [{ id: 'j1', org_id: liveId }, { id: 'j2', org_id: liveId }],
+      opportunities: [{ id: 'o1', org_id: liveId }],
+      customers: [],
+      users: [{ id: 'boss', org_id: liveId, email: 'boss@x.example', role: 'admin', is_super_admin: true, active: true }],
+      ...extra,
+    })
+
+  it('refuses an org already in use (jobs / deals / customers) without --allow-existing, printing the counts', async () => {
+    const { client, writes } = liveOrg()
+    await expect(runCompanySeed(client, { ...input, org: { ...input.org, id: liveId } }, { apply: true })).rejects.toThrow(
+      /in use \(2 production_jobs, 1 opportunities, 0 customers\).*--allow-existing/
+    )
+    expect(writes).toEqual([])
+  })
+
+  it('refuses a second super admin without --add-owner, even with --allow-existing', async () => {
+    const { client, writes } = liveOrg()
+    await expect(
+      runCompanySeed(client, { ...input, org: { ...input.org, id: liveId } }, { apply: true, allowExisting: true })
+    ).rejects.toThrow(/already has a super admin \(boss@x.example\).*--add-owner/)
+    expect(writes).toEqual([])
+  })
+
+  it('with both flags it goes ahead (dry run shows the plan)', async () => {
+    const { client, writes } = liveOrg()
+    const report = await runCompanySeed(client, { ...input, org: { ...input.org, id: liveId } }, { apply: false, allowExisting: true, addOwner: true })
+    expect(writes).toEqual([])
+    expect(report.lines.join('\n')).toContain('is in use (2 production_jobs, 1 opportunities, 0 customers)')
+    expect(report.lines.join('\n')).toContain('create login + profile (admin, super admin)')
+  })
+
+  it('the existing super admin re-running the seed is not "a second owner"', async () => {
+    const { client } = liveOrg({ users: [{ id: 'u1', org_id: liveId, email: 'owner@landscapes.example', role: 'admin', is_super_admin: true, active: true }] })
+    await expect(runCompanySeed(client, { ...input, org: { ...input.org, id: liveId } }, { apply: false, allowExisting: true })).resolves.toBeTruthy()
   })
 
   it('an already-seeded org: nothing to do', async () => {
