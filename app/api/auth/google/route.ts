@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireAuthApi } from '@/lib/auth'
-import { classifyHost } from '@/lib/company-host'
+import { CompanyLookupUnavailableError, requireAuthApi } from '@/lib/auth'
+import { COMPANY_LOOKUP_UNAVAILABLE, classifyHost } from '@/lib/company-host'
 import { getGoogleAuthUrl } from '@/lib/google-calendar'
 import { issueOAuthState } from '@/lib/google-oauth-state'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -27,7 +27,10 @@ export async function GET(request: NextRequest) {
     let auth
     try {
       auth = await requireAuthApi()
-    } catch {
+    } catch (e) {
+      if (e instanceof CompanyLookupUnavailableError) {
+        return NextResponse.json({ error: 'Temporarily unavailable', code: COMPANY_LOOKUP_UNAVAILABLE }, { status: 503 })
+      }
       return NextResponse.redirect(new URL('/login', request.url))
     }
 

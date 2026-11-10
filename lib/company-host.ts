@@ -211,9 +211,13 @@ export type CompanyFence =
   | { kind: 'org'; orgId: string; source: 'deployment' | 'host' | 'header' }
   | { kind: 'closed'; reason: 'unknown_company' | 'apex' | 'lookup_error' | 'conflict' }
 
+/** Lookups middleware already did for this request (see `signResolvedLookups`); skip the DB for these. */
+export type ResolvedLookups = { host?: CompanyLookup; code?: CompanyLookup }
+
 export async function resolveCompanyFence(input: {
   host: string | null | undefined
   companyCode?: string | null
+  resolved?: ResolvedLookups | null
 }): Promise<CompanyFence> {
   const candidates: Array<{ orgId: string; source: 'deployment' | 'host' | 'header' }> = []
 
@@ -225,7 +229,7 @@ export async function resolveCompanyFence(input: {
   if (host.kind === 'apex') return { kind: 'closed', reason: 'apex' }
   if (host.kind === 'invalid') return { kind: 'closed', reason: 'unknown_company' }
   if (host.kind === 'company') {
-    const found = await lookupCompanyBySubdomain(host.subdomain)
+    const found = input.resolved?.host ?? (await lookupCompanyBySubdomain(host.subdomain))
     if (found.status === 'error') return { kind: 'closed', reason: 'lookup_error' }
     if (found.status === 'not_found') return { kind: 'closed', reason: 'unknown_company' }
     candidates.push({ orgId: found.orgId, source: 'host' })
@@ -236,7 +240,7 @@ export async function resolveCompanyFence(input: {
   if (code && base) {
     const sub = normalizeSubdomain(code)
     if (!sub) return { kind: 'closed', reason: 'unknown_company' }
-    const found = await lookupCompanyBySubdomain(sub)
+    const found = input.resolved?.code ?? (await lookupCompanyBySubdomain(sub))
     if (found.status === 'error') return { kind: 'closed', reason: 'lookup_error' }
     if (found.status === 'not_found') return { kind: 'closed', reason: 'unknown_company' }
     candidates.push({ orgId: found.orgId, source: 'header' })
@@ -253,4 +257,90 @@ export function fenceAllowsOrg(fence: CompanyFence, orgId: string | null | undef
   if (fence.kind === 'open') return true
   if (fence.kind === 'closed') return false
   return !!orgId && orgId === fence.orgId
+}
+
+/* ------------------------------------------------------------------------ *
+ * Middleware → route hand-off (so a route never repeats a lookup middleware already did)
+ *
+ * Middleware runs on every page and /api request (matcher), strips any client-sent RESOLVED_LOOKUPS_HEADER, does
+ * the host / company-code lookups once, answers a failed one itself (503 company_lookup_unavailable) and passes the
+ * results on in this header, HMAC-signed and bound to the exact host + code of the request. resolveAuth then uses
+ * them instead of looking up again — so a lookup failure can only ever surface as middleware's 503, never as a
+ * route's catch-all 401. A missing / forged / mismatched header is ignored (the route does its own lookup).
+ * Web Crypto only (edge + Node).
+ * ------------------------------------------------------------------------ */
+
+export const RESOLVED_LOOKUPS_HEADER = 'x-company-resolved'
+
+type ResolvedWire = { h: string; c: string | null; ho?: CompanyLookup; co?: CompanyLookup }
+
+let routingKey: Promise<CryptoKey | null> | null = null
+let routingKeySource: string | undefined
+
+function routingHmacKey(): Promise<CryptoKey | null> {
+  const service = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (routingKey && routingKeySource === service) return routingKey
+  routingKeySource = service
+  routingKey = (async () => {
+    if (!service) return null
+    const enc = new TextEncoder()
+    const base = await crypto.subtle.importKey('raw', enc.encode(service), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
+    const derived = await crypto.subtle.sign('HMAC', base, enc.encode('company-routing-v1'))
+    return crypto.subtle.importKey('raw', derived, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify'])
+  })()
+  return routingKey
+}
+
+function toB64Url(bytes: ArrayBuffer | Uint8Array): string {
+  const arr = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes)
+  let bin = ''
+  for (let i = 0; i < arr.length; i++) bin += String.fromCharCode(arr[i])
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+}
+
+function fromB64Url(s: string): Uint8Array {
+  const bin = atob(s.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((s.length + 3) % 4))
+  const out = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i)
+  return out
+}
+
+function normCode(code: string | null | undefined): string | null {
+  return code?.trim().toLowerCase() || null
+}
+
+/** Signed header value carrying middleware's lookups for this exact host + code; null when no key is configured. */
+export async function signResolvedLookups(
+  host: string | null | undefined,
+  companyCode: string | null | undefined,
+  resolved: ResolvedLookups
+): Promise<string | null> {
+  const key = await routingHmacKey()
+  if (!key) return null
+  const wire: ResolvedWire = { h: hostnameFromHeader(host), c: normCode(companyCode), ho: resolved.host, co: resolved.code }
+  const body = toB64Url(new TextEncoder().encode(JSON.stringify(wire)))
+  const mac = toB64Url(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(body)))
+  return `${body}.${mac}`
+}
+
+/** The lookups from a header middleware signed for THIS host + code, or null (missing, forged or for another request). */
+export async function verifyResolvedLookups(
+  value: string | null | undefined,
+  host: string | null | undefined,
+  companyCode: string | null | undefined
+): Promise<ResolvedLookups | null> {
+  if (!value) return null
+  const [body, mac, extra] = value.split('.')
+  if (!body || !mac || extra !== undefined) return null
+  const key = await routingHmacKey()
+  if (!key) return null
+  try {
+    const ok = await crypto.subtle.verify('HMAC', key, fromB64Url(mac), new TextEncoder().encode(body))
+    if (!ok) return null
+    const wire = JSON.parse(new TextDecoder().decode(fromB64Url(body))) as ResolvedWire
+    if (wire.h !== hostnameFromHeader(host) || wire.c !== normCode(companyCode)) return null
+    return { host: wire.ho, code: wire.co }
+  } catch {
+    return null
+  }
 }

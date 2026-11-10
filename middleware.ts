@@ -1,6 +1,17 @@
 import { type NextRequest, NextResponse } from 'next/server'
 import { isPublicPath } from '@/lib/public-paths'
-import { COMPANY_LOOKUP_UNAVAILABLE, classifyHost, deploymentOrgId, lookupCompanyBySubdomain } from '@/lib/company-host'
+import {
+  COMPANY_CODE_HEADER,
+  COMPANY_LOOKUP_UNAVAILABLE,
+  RESOLVED_LOOKUPS_HEADER,
+  appBaseDomain,
+  classifyHost,
+  deploymentOrgId,
+  lookupCompanyBySubdomain,
+  normalizeSubdomain,
+  signResolvedLookups,
+  type ResolvedLookups,
+} from '@/lib/company-host'
 import { getSupabaseSessionFromCookieStore } from '@/lib/supabase/session-cookie'
 import {
   isExpired,
@@ -16,25 +27,27 @@ export async function middleware(request: NextRequest) {
   // API — public or not — so it can never show another company's login; a failed lookup is 503 with
   // code company_lookup_unavailable (never 401, so clients keep their session). Off while APP_BASE_DOMAIN is unset.
   const gate = await companyHostGate(request)
-  if (gate) return gate
+  if (gate.response) return gate.response
+  // Every pass-through carries the gate's lookups (signed) and never a client-sent copy of that header.
+  const pass = () => NextResponse.next({ request: { headers: gate.requestHeaders } })
 
   // API routes handle their own auth (no HTML redirects to API calls).
   if (pathname.startsWith('/api/')) {
-    return NextResponse.next()
+    return pass()
   }
 
   // Dev-only test harness for the mobile checks (e2e/mobile.spec.ts). Never reachable in a production build.
   if (process.env.NODE_ENV !== 'production' && pathname.startsWith('/dev-harness')) {
-    return NextResponse.next()
+    return pass()
   }
 
   // Public paths - no auth required
   if (isPublicPath(pathname)) {
-    return NextResponse.next()
+    return pass()
   }
 
   if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
-    return NextResponse.next()
+    return pass()
   }
 
   const sessionData = getSupabaseSessionFromCookieStore(request.cookies)
@@ -52,7 +65,7 @@ export async function middleware(request: NextRequest) {
   if (isExpiringSoon(sessionData.expires_at) && sessionData.refresh_token) {
     const refreshed = await refreshSupabaseSession(sessionData.refresh_token)
     if (refreshed) {
-      const res = NextResponse.next()
+      const res = pass()
       writeSessionCookies(
         res,
         request.cookies.getAll().map((c) => c.name),
@@ -74,7 +87,7 @@ export async function middleware(request: NextRequest) {
   }
 
   // User has a valid session cookie - let them through
-  return NextResponse.next()
+  return pass()
 }
 
 const NOT_FOUND_HTML =
@@ -104,14 +117,42 @@ function companyOnlyPages(request: NextRequest): NextResponse | null {
   return NextResponse.redirect(to)
 }
 
-async function companyHostGate(request: NextRequest): Promise<NextResponse | null> {
+type GateResult = { response: NextResponse | null; requestHeaders: Headers }
+
+async function companyHostGate(request: NextRequest): Promise<GateResult> {
+  const requestHeaders = new Headers(request.headers)
+  requestHeaders.delete(RESOLVED_LOOKUPS_HEADER)
+  const done = (response: NextResponse | null): GateResult => ({ response, requestHeaders })
+
   const isApi = request.nextUrl.pathname.startsWith('/api/')
-  const host = classifyHost(request.headers.get('host') ?? request.nextUrl.host)
-  if (host.kind === 'invalid') return notFound(isApi)
-  if (host.kind !== 'company') return deploymentOrgId() ? companyOnlyPages(request) : null
-  const found = await lookupCompanyBySubdomain(host.subdomain)
-  if (found.status === 'found') return companyOnlyPages(request)
-  if (found.status === 'not_found') return notFound(isApi)
+  const rawHost = request.headers.get('host') ?? request.nextUrl.host
+  const host = classifyHost(rawHost)
+  if (host.kind === 'invalid') return done(notFound(isApi))
+
+  const resolved: ResolvedLookups = {}
+  if (host.kind === 'company') {
+    resolved.host = await lookupCompanyBySubdomain(host.subdomain)
+    if (resolved.host.status === 'not_found') return done(notFound(isApi))
+    if (resolved.host.status === 'error') return done(unavailable(isApi))
+  }
+  // iPhone company code (any host, routing on): a failed lookup is 503 here too; an unknown code is left to
+  // resolveAuth (401 — a wrong code is an auth answer, not an outage).
+  const code = request.headers.get(COMPANY_CODE_HEADER)
+  const codeSub = code && appBaseDomain() ? normalizeSubdomain(code) : null
+  if (codeSub) {
+    resolved.code = await lookupCompanyBySubdomain(codeSub)
+    if (resolved.code.status === 'error') return done(unavailable(isApi))
+  }
+  if (resolved.host || resolved.code) {
+    const signed = await signResolvedLookups(rawHost, code, resolved)
+    if (signed) requestHeaders.set(RESOLVED_LOOKUPS_HEADER, signed)
+  }
+
+  if (host.kind === 'company' || (host.kind !== 'apex' && deploymentOrgId())) return done(companyOnlyPages(request))
+  return done(null)
+}
+
+function unavailable(isApi: boolean): NextResponse {
   const headers = { 'cache-control': 'no-store', 'retry-after': '30' }
   return isApi
     ? NextResponse.json({ error: 'Temporarily unavailable', code: COMPANY_LOOKUP_UNAVAILABLE }, { status: 503, headers })

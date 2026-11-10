@@ -1,5 +1,4 @@
-import { resolveCompanyFence } from '@/lib/company-host'
-import { currentRequestCompanyInput } from '@/lib/company-host-server'
+import { getRequestHostFence } from '@/lib/company-host-server'
 import { orgLogoHref } from '@/lib/files/files-object'
 import { createServiceClient } from '@/lib/supabase/service'
 
@@ -17,7 +16,7 @@ export type LoginCompany =
   | { state: 'company'; orgId: string; name: string; email: string; logoSrc: string | null }
 
 export async function loadLoginCompany(): Promise<LoginCompany> {
-  const fence = await resolveCompanyFence({ host: currentRequestCompanyInput().host })
+  const fence = await getRequestHostFence()
   if (fence.kind === 'open') return { state: 'legacy' }
   if (fence.kind === 'closed') {
     if (fence.reason === 'apex') return { state: 'apex' }
