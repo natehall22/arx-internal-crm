@@ -36,7 +36,7 @@ export async function loadLoginCompany(): Promise<LoginCompany> {
     orgId: fence.orgId,
     name: String(row.name ?? '').trim(),
     email: String(row.email ?? '').trim(),
-    logoSrc: orgLogoHref(fence.orgId, row),
+    logoSrc: companyLogoSrc(orgLogoHref(fence.orgId, row)),
   }
 }
 
@@ -45,4 +45,14 @@ export function authShellCompanyFor(login: LoginCompany): { name: string | null;
   if (login.state === 'legacy') return null
   if (login.state === 'company') return { name: login.name || null, logoSrc: login.logoSrc }
   return { name: null, logoSrc: null }
+}
+
+/**
+ * Signed-out pages never carry the company's internal id: the logo goes through the host-scoped `/api/company-logo`
+ * (bytes, no redirect), keeping only the cache-busting `v` of the org's stored logo.
+ */
+function companyLogoSrc(orgHref: string | null): string | null {
+  if (!orgHref) return null
+  const v = new URL(orgHref, 'http://x').searchParams.get('v')
+  return v ? `/api/company-logo?v=${encodeURIComponent(v)}` : '/api/company-logo'
 }

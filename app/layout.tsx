@@ -32,14 +32,16 @@ const LEGACY_METADATA: Metadata = {
 
 /**
  * Per address (lib/company-host.ts, host only): unfenced legacy address → the original metadata, unchanged. Any
- * company copy (company address or DEPLOYMENT_ORG_ID) → neutral title/description, the company's own logo as icon,
+ * company copy (company address or DEPLOYMENT_ORG_ID) → neutral title/description, the company's own logo as icon
+ * (via the host-scoped /api/company-logo, never the org id),
  * and no root manifest (the static manifests still carry the original name; a per-company manifest is a follow-up).
  * Cheap: the fence comes from middleware's signed lookup (or the cached one) — no org row read.
  */
 export async function generateMetadata(): Promise<Metadata> {
   const fence = await getRequestHostFence()
   if (fence.kind === 'open') return LEGACY_METADATA
-  const icon = fence.kind === 'org' ? `/api/org-logo/${encodeURIComponent(fence.orgId)}` : null
+  // Host-scoped logo route: no company id in the page (signed-out visitors see this metadata too).
+  const icon = fence.kind === 'org' ? '/api/company-logo' : null
   return {
     title: 'CRM',
     description: 'CRM and estimating',
