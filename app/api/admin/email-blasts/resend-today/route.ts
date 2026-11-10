@@ -5,6 +5,7 @@ import { getBlastSendDate, runClaimedBlast } from '@/lib/email-blast-ledger'
 import { sendMorningUpdateEmail } from '@/lib/morning-update-email'
 import { sendSetterFieldUpdateEmail } from '@/lib/setter-field-update-email'
 import { createServiceClient } from '@/lib/supabase/service'
+import { loadOrgTimeZone } from '@/lib/cron-orgs'
 
 export const dynamic = 'force-dynamic'
 
@@ -24,7 +25,8 @@ export async function POST(request: NextRequest) {
 
     const supabase = createServiceClient()
     const orgId = profile.org_id
-    const sendDate = getBlastSendDate()
+    // Same calendar day the cron claims for this company (its own time zone), so a resend can't double up.
+    const sendDate = getBlastSendDate(new Date(), await loadOrgTimeZone(supabase, orgId))
 
     const [morningUpdate, setterFieldUpdate] = await Promise.all([
       runClaimedBlast(supabase, {

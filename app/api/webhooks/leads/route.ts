@@ -5,6 +5,7 @@ import { profileAllowedOnThisDeployment } from '@/lib/auth'
 import { escapeHtml } from '@/lib/html'
 import { getCrmEmailFrom } from '@/lib/crm-email-from'
 import { createServiceClient } from '@/lib/supabase/service'
+import { resolveCompanyRecipient } from '@/lib/company-recipient'
 
 export const dynamic = 'force-dynamic'
 
@@ -15,13 +16,19 @@ const ALLOWED_ORIGINS = [
   'http://localhost:3001',
 ]
 
+/**
+ * Any company's own website may post here from the browser: the request is authorised by the lead source token
+ * (or the shared key), never by cookies, and no `Allow-Credentials` is sent — so the browser origin is not a
+ * security boundary and an allow-list of one company's domains only blocked every other company's site.
+ */
 function corsHeaders(origin: string | null) {
-  const allowed = origin && ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0]
+  const allowed = origin && (ALLOWED_ORIGINS.includes(origin) || /^https:\/\/[a-z0-9.-]+(:\d+)?$/i.test(origin)) ? origin : ALLOWED_ORIGINS[0]
   return {
     'Access-Control-Allow-Origin': allowed,
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-api-key, x-webhook-token',
     'Access-Control-Max-Age': '86400',
+    Vary: 'Origin',
   }
 }
 
@@ -365,24 +372,13 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Find the user assigned to web leads (if configured in org settings)
-    let ownerUserId: string | null = null
-    if (leadSource?.auto_assign_user_id) {
-      ownerUserId = leadSource.auto_assign_user_id
-    } else if (org.settings?.web_leads_owner_id) {
-      ownerUserId = org.settings.web_leads_owner_id
-    } else {
-      // Default to first admin user in the org
-      const { data: adminUser } = await adminClient
-        .from('users')
-        .select('id')
-        .eq('org_id', org_id)
-        .eq('role', 'admin')
-        .limit(1)
-        .single()
-      
-      ownerUserId = adminUser?.id || null
-    }
+    // Owner = the lead source's auto-assign user, else the company's web-leads owner, else its longest-standing
+    // active admin — each only if an ACTIVE user of THIS company (lib/company-recipient). The same person gets the email.
+    const owner = await resolveCompanyRecipient(adminClient, org_id, [
+      leadSource?.auto_assign_user_id,
+      org.settings?.web_leads_owner_id,
+    ], 'web_lead')
+    const ownerUserId: string | null = owner?.id ?? null
 
     const campaignId = await resolveCampaignId(
       adminClient,
@@ -477,8 +473,8 @@ export async function POST(request: NextRequest) {
 
     console.log('Lead created successfully:', lead.id)
 
-    // Notify internal team about inbound lead creation.
-    try {
+    // Email the lead's owner (same company, active). It used to go to one hardcoded ARX inbox for every company.
+    if (owner?.email) try {
       const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://arx-internal-crm.vercel.app'
       const leadUrl = `${appUrl}/leads/${lead.id}`
       const sourceLabel = String(source || 'web')
@@ -487,7 +483,7 @@ export async function POST(request: NextRequest) {
       const transporter = getMailTransport()
       await transporter.sendMail({
         from: getCrmEmailFrom(),
-        to: 'nathan@arxroofing.com',
+        to: owner.email,
         subject: `${sourceLabel} (inbound lead)`,
         text: `A new inbound lead was created.\n\nSource: ${sourceLabel}\nLead Name: ${fullName || 'Unknown'}\nAddress: ${fullAddress || 'TBD'}\nPhone: ${phone || 'N/A'}\nLead URL: ${leadUrl}`,
         html: `

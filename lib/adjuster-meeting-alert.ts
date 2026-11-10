@@ -11,15 +11,19 @@
  * scheduling path.
  */
 
+import type { SupabaseClient } from '@supabase/supabase-js'
+import { resolveCompanyRecipient } from '@/lib/company-recipient'
 import { getCrmEmailFrom, getMailTransport } from '@/lib/setter-email'
+import { createServiceClient } from '@/lib/supabase/service'
 import { formatDateTimeInTimezone } from '@/lib/timezone'
 
 /**
- * Where the alert goes. Env-overridable with a default — one named place to change
- * the recipient instead of an address buried in the scheduling path.
+ * Where the alert goes: the booking company's longest-standing active admin (lib/company-recipient). It used to be
+ * one hardcoded inbox (env-overridable) for every company — with many companies in one app that sent each company's
+ * customer details to someone else. Null → no email.
  */
-export function adjusterMeetingAlertEmailTo(): string {
-  return (process.env.ADJUSTER_MEETING_ALERT_EMAIL_TO || 'nathan@arxroofing.com').trim()
+export async function adjusterMeetingAlertEmailTo(admin: SupabaseClient, orgId: string): Promise<string | null> {
+  return (await resolveCompanyRecipient(admin, orgId, [], 'adjuster_meeting_sync_failure'))?.email ?? null
 }
 
 /**
@@ -151,17 +155,20 @@ export function buildAdjusterMeetingAlertHtml(input: AdjusterMeetingAlertInput):
  * booking.
  */
 export async function sendAdjusterMeetingSyncAlert(
-  input: AdjusterMeetingAlertInput
+  input: AdjusterMeetingAlertInput & { orgId: string },
+  admin?: SupabaseClient
 ): Promise<{ sent: boolean; skippedReason?: string }> {
   try {
     if (!process.env.SMTP_HOST) {
       return { sent: false, skippedReason: 'smtp_not_configured' }
     }
+    const to = await adjusterMeetingAlertEmailTo(admin ?? createServiceClient(), input.orgId)
+    if (!to) return { sent: false, skippedReason: 'no_recipient' }
 
     const transporter = getMailTransport()
     await transporter.sendMail({
       from: getCrmEmailFrom(),
-      to: adjusterMeetingAlertEmailTo(),
+      to,
       subject: buildAdjusterMeetingAlertSubject(input),
       text: buildAdjusterMeetingAlertText(input),
       html: buildAdjusterMeetingAlertHtml(input),

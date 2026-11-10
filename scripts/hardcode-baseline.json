@@ -1,7 +1,4 @@
 {
-  "app/(canvass-app)/canvass/components/CanvassReportIssue.tsx": {
-    "brand": 1
-  },
   "app/(canvass-app)/canvass/components/LeadModal.tsx": {
     "timezone": 2
   },
@@ -314,7 +311,6 @@
     "timezone": 2
   },
   "lib/adjuster-meeting-alert.ts": {
-    "brand": 1,
     "timezone": 1
   },
   "lib/admin-sale-email.ts": {
@@ -356,6 +352,9 @@
   "lib/crm-email-from.ts": {
     "brand": 2
   },
+  "lib/cron-orgs.ts": {
+    "brand": 1
+  },
   "lib/date-ranges.ts": {
     "timezone": 2
   },
@@ -371,9 +370,6 @@
   "lib/founder-calendar/page-html.ts": {
     "address": 2,
     "brand": 3
-  },
-  "lib/founder-contacts.ts": {
-    "brand": 1
   },
   "lib/goals-period.ts": {
     "timezone": 1
@@ -427,9 +423,6 @@
   "lib/morning-update-email.ts": {
     "brand": 3
   },
-  "lib/morning-update-schedule.ts": {
-    "timezone": 3
-  },
   "lib/org-brand.ts": {
     "address": 7,
     "brand": 5
@@ -450,7 +443,7 @@
     "timezone": 1
   },
   "lib/public-estimate-config.ts": {
-    "brand": 4
+    "brand": 3
   },
   "lib/push-apns.ts": {
     "brand": 4

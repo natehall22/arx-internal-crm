@@ -22,7 +22,7 @@
     },
     {
       "path": "/api/cron/morning-update",
-      "schedule": "30 9,10,11,12 * * 1-6"
+      "schedule": "30 9,10,11,12,13 * * 1-6"
     },
     {
       "path": "/api/cron/storm-opportunity-alerts",

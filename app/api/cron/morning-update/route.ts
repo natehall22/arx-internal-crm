@@ -8,6 +8,7 @@ import { sendSetterFieldUpdateEmail } from '@/lib/setter-field-update-email'
 import { isMorningUpdateSendWindow } from '@/lib/morning-update-schedule'
 import { createServiceClient } from '@/lib/supabase/service'
 import { verifyCronSecret } from '@/lib/cron-auth'
+import { loadCronOrgs, type CronOrg } from '@/lib/cron-orgs'
 import { sendScheduledReports } from '@/lib/reporting/scheduled'
 
 export const dynamic = 'force-dynamic'
@@ -17,16 +18,18 @@ type SupabaseAdmin = ReturnType<typeof createServiceClient>
 /**
  * The orgs fetch is the single call that takes the whole blast down when Postgres blips,
  * so it gets a few in-request attempts before we fall back to the next cron fire.
+ * Only companies a background job may run for (lib/cron-orgs: active users, inside the deployment fence).
  */
-async function fetchOrgsWithRetry(admin: SupabaseAdmin, attempts = 3) {
+async function fetchOrgsWithRetry(admin: SupabaseAdmin, attempts = 3): Promise<{ data: CronOrg[] | null; error: { message: string } | null }> {
   let lastError: { message: string } | null = null
 
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
-    const { data, error } = await admin.from('orgs').select('id, settings')
-    if (!error) return { data, error: null }
-
-    lastError = error
-    console.error(`[cron/morning-update] orgs fetch attempt ${attempt} failed:`, error.message)
+    try {
+      return { data: await loadCronOrgs(admin), error: null }
+    } catch (error) {
+      lastError = { message: error instanceof Error ? error.message : String(error) }
+    }
+    console.error(`[cron/morning-update] orgs fetch attempt ${attempt} failed:`, lastError.message)
     if (attempt < attempts) {
       await new Promise((resolve) => setTimeout(resolve, attempt * 750))
     }
@@ -39,17 +42,13 @@ export async function GET(request: NextRequest) {
   const authFailure = verifyCronSecret(request, 'morning-update')
   if (authFailure) return authFailure
 
-  if (!isMorningUpdateSendWindow()) {
-    return NextResponse.json({ skipped: true, reason: 'outside_send_window' })
-  }
-
+  const now = new Date()
   const admin = createServiceClient()
-  const sendDate = getBlastSendDate()
   const { data: orgRows, error: orgError } = await fetchOrgsWithRetry(admin)
 
   if (orgError) {
     console.error('[cron/morning-update] Failed to fetch orgs:', orgError.message)
-    return NextResponse.json({ error: orgError.message, sendDate }, { status: 500 })
+    return NextResponse.json({ error: orgError.message }, { status: 500 })
   }
 
   const results: Array<{ org_id: string; sent: number; skipped: boolean; reason?: string }> = []
@@ -57,7 +56,14 @@ export async function GET(request: NextRequest) {
 
   const canvassingOn = orgFeatureChecker('canvassing')
   for (const org of orgRows || []) {
-    const orgId = org.id as string
+    const orgId = org.id
+    // Each company's morning is its own: 5:30am in `orgs.timezone`, and the once-a-day claim is keyed to
+    // that company's calendar date (the manual resend uses the same date, see resend-today).
+    if (!isMorningUpdateSendWindow(now, org.timezone)) {
+      results.push({ org_id: orgId, sent: 0, skipped: true, reason: 'outside_send_window' })
+      continue
+    }
+    const sendDate = getBlastSendDate(now, org.timezone)
     // Saved reports on a schedule go out with the morning update; independent of the blast switches.
     await sendScheduledReports(admin, orgId).catch((error) => {
       console.error(`[cron/morning-update] scheduled reports failed for org ${orgId}:`, error)
@@ -114,7 +120,7 @@ export async function GET(request: NextRequest) {
 
   const sentTotal = results.reduce((sum, row) => sum + row.sent, 0)
   return NextResponse.json(
-    { orgs: results.length, sentTotal, sendDate, results },
+    { orgs: results.length, sentTotal, results },
     // Surface failures as a failed cron run in Vercel rather than a silent 200.
     { status: hadError ? 500 : 200 }
   )

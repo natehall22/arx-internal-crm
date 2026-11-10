@@ -413,6 +413,7 @@ async function pushAdjusterMeetingToGoogle(
           // Never awaited into the booking's success path in a way that could throw —
           // sendAdjusterMeetingSyncAlert swallows everything internally.
           await sendAdjusterMeetingSyncAlert({
+            orgId,
             appointmentId,
             customerName: params.customerName,
             address: params.address ?? null,
@@ -421,7 +422,7 @@ async function pushAdjusterMeetingToGoogle(
             bookedByName: params.bookedByName ?? null,
             error: message,
             isRetry: Boolean(params.isRetry),
-          })
+          }, adminClient)
         }
       },
     },
