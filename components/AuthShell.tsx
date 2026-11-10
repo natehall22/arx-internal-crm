@@ -19,16 +19,25 @@ export const authNoticeClass = {
   success: 'rounded-lg border border-emerald-400/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100',
 }
 
+/**
+ * Whose sign-in page this is. Omitted = the original company's page (legacy address, unchanged). On a
+ * company web address the login page passes that company's name + logo; on the bare product domain it
+ * passes `{ name: null, logoSrc: null }` so no company is shown.
+ */
+export type AuthShellCompany = { name: string | null; logoSrc: string | null }
+
 export default function AuthShell({
   title,
   subtitle,
   children,
   footer,
+  company,
 }: {
   title: string
   subtitle?: string
   children: ReactNode
   footer?: ReactNode
+  company?: AuthShellCompany
 }) {
   return (
     <div className="login-dark relative min-h-screen overflow-hidden bg-[#1A1917] text-[#F6F1E7] antialiased">
@@ -42,11 +51,25 @@ export default function AuthShell({
       />
       <div className="relative mx-auto flex min-h-screen max-w-md flex-col justify-center px-5 py-10">
         <div className="mb-8 flex flex-col items-center text-center">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/brand/arx-mark-cream.png" alt="" width={48} height={60} className="h-[60px] w-auto" />
-          <p className="mt-4 text-[11px] font-semibold uppercase tracking-[0.22em] text-[#E2BF73]">
-            ARX Roofing &amp; Exteriors
-          </p>
+          {company ? (
+            <>
+              {company.logoSrc ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={company.logoSrc} alt="" className="h-[64px] w-auto max-w-[220px] rounded-md bg-white/95 object-contain p-1.5" />
+              ) : null}
+              {company.name ? (
+                <p className="mt-4 text-sm font-semibold uppercase tracking-[0.16em] text-[#E2BF73]">{company.name}</p>
+              ) : null}
+            </>
+          ) : (
+            <>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/brand/arx-mark-cream.png" alt="" width={48} height={60} className="h-[60px] w-auto" />
+              <p className="mt-4 text-[11px] font-semibold uppercase tracking-[0.22em] text-[#E2BF73]">
+                ARX Roofing &amp; Exteriors
+              </p>
+            </>
+          )}
         </div>
 
         <div className="rounded-2xl border border-white/[0.08] bg-[#211F1D] p-6 shadow-2xl shadow-black/40 sm:p-8">

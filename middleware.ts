@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from 'next/server'
 import { isPublicPath } from '@/lib/public-paths'
+import { classifyHost, lookupCompanyBySubdomain } from '@/lib/company-host'
 import { getSupabaseSessionFromCookieStore } from '@/lib/supabase/session-cookie'
 import {
   isExpired,
@@ -16,6 +17,11 @@ export async function middleware(request: NextRequest) {
   if (pathname.startsWith('/api/')) {
     return NextResponse.next()
   }
+
+  // Company web address (<company>.<APP_BASE_DOMAIN>): a name that is no company gets a plain 404 on EVERY
+  // page — public or not — so it can never show another company's login. Off while APP_BASE_DOMAIN is unset.
+  const gate = await companyHostGate(request)
+  if (gate) return gate
 
   // Dev-only test harness for the mobile checks (e2e/mobile.spec.ts). Never reachable in a production build.
   if (process.env.NODE_ENV !== 'production' && pathname.startsWith('/dev-harness')) {
@@ -69,6 +75,39 @@ export async function middleware(request: NextRequest) {
 
   // User has a valid session cookie - let them through
   return NextResponse.next()
+}
+
+const NOT_FOUND_HTML =
+  '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
+  '<title>Not found</title></head><body style="font-family:system-ui,sans-serif;color:#1a1917;padding:48px 20px;text-align:center">' +
+  '<h1 style="font-size:22px">This address is not in use</h1>' +
+  '<p style="font-size:16px">Check the web address your company gave you.</p></body></html>'
+
+/** null = carry on; otherwise the response to send (404 unknown company, 503 lookup failure). */
+async function companyHostGate(request: NextRequest): Promise<NextResponse | null> {
+  const host = classifyHost(request.headers.get('host') ?? request.nextUrl.host)
+  if (host.kind === 'invalid') {
+    return new NextResponse(NOT_FOUND_HTML, { status: 404, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } })
+  }
+  if (host.kind !== 'company') return null
+  const found = await lookupCompanyBySubdomain(host.subdomain)
+  if (found.status === 'found') {
+    // The root of a company address is the CRM, not the original company's marketing page (app/page.tsx).
+    if (request.nextUrl.pathname === '/') {
+      const today = request.nextUrl.clone()
+      today.pathname = '/today'
+      today.search = ''
+      return NextResponse.redirect(today)
+    }
+    return null
+  }
+  if (found.status === 'not_found') {
+    return new NextResponse(NOT_FOUND_HTML, { status: 404, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } })
+  }
+  return new NextResponse('Temporarily unavailable. Please try again in a minute.', {
+    status: 503,
+    headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store', 'retry-after': '30' },
+  })
 }
 
 export const config = {

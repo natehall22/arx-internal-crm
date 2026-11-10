@@ -191,9 +191,6 @@
   "app/leads/[id]/LeadView.tsx": {
     "timezone": 6
   },
-  "app/login/page.tsx": {
-    "brand": 1
-  },
   "app/opportunities/[id]/OpportunityView.tsx": {
     "brand": 2,
     "timezone": 1

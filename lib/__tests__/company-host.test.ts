@@ -1,0 +1,203 @@
+/** @jest-environment node */
+/**
+ * Company web address → company (lib/company-host.ts): host parsing, subdomain rules, the lookup cache and the
+ * fence precedence DEPLOYMENT_ORG_ID > host > company-code header, with every disagreement failing closed.
+ */
+import fs from 'fs'
+import path from 'path'
+
+import {
+  RESERVED_SUBDOMAINS,
+  SUBDOMAIN_RE,
+  __resetCompanyHostCacheForTests,
+  classifyHost,
+  fenceAllowsOrg,
+  hostnameFromHeader,
+  lookupCompanyBySubdomain,
+  normalizeSubdomain,
+  resolveCompanyFence,
+} from '@/lib/company-host'
+
+const BASE = 'crm-product.test'
+const ORGS: Record<string, string> = { acme: 'org-acme', roofco: 'org-roofco' }
+let fetchMock: jest.Mock
+let lookupFails = false
+
+const ENV_KEYS = ['APP_BASE_DOMAIN', 'SUPABASE_SERVICE_ROLE_KEY', 'DEPLOYMENT_ORG_ID', 'NEXT_PUBLIC_SUPABASE_URL', 'NEXT_PUBLIC_SUPABASE_ANON_KEY'] as const
+const saved: Record<string, string | undefined> = {}
+
+beforeEach(() => {
+  for (const k of ENV_KEYS) saved[k] = process.env[k]
+  process.env.APP_BASE_DOMAIN = BASE
+  delete process.env.DEPLOYMENT_ORG_ID
+  process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://proj.supabase.co'
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'anon'
+  lookupFails = false
+  __resetCompanyHostCacheForTests()
+  fetchMock = jest.fn(async (_url: string, init: { body: string }) => {
+    if (lookupFails) return { ok: false, status: 500, json: async () => ({}) }
+    const { p_subdomain } = JSON.parse(init.body)
+    return { ok: true, status: 200, json: async () => ORGS[p_subdomain] ?? null }
+  })
+  ;(global as unknown as { fetch: unknown }).fetch = fetchMock
+  jest.spyOn(console, 'error').mockImplementation(() => {})
+})
+afterEach(() => {
+  for (const k of ENV_KEYS) {
+    if (saved[k] === undefined) delete process.env[k]
+    else process.env[k] = saved[k]
+  }
+  jest.restoreAllMocks()
+  jest.useRealTimers()
+})
+
+describe('hostnameFromHeader / classifyHost', () => {
+  test('strips port, case and trailing dot', () => {
+    expect(hostnameFromHeader('ACME.Crm-Product.test:443')).toBe('acme.crm-product.test')
+    expect(hostnameFromHeader('acme.crm-product.test.')).toBe('acme.crm-product.test')
+    expect(hostnameFromHeader('[::1]:3000')).toBe('[::1]')
+    expect(hostnameFromHeader(null)).toBe('')
+  })
+
+  test('routing off when APP_BASE_DOMAIN is unset or not a domain', () => {
+    delete process.env.APP_BASE_DOMAIN
+    expect(classifyHost('acme.crm-product.test')).toEqual({ kind: 'off' })
+    process.env.APP_BASE_DOMAIN = 'localhost'
+    expect(classifyHost('acme.localhost')).toEqual({ kind: 'off' })
+  })
+
+  test('company, apex, www, legacy, nested, reserved, look-alike', () => {
+    expect(classifyHost('acme.crm-product.test')).toEqual({ kind: 'company', subdomain: 'acme' })
+    expect(classifyHost('crm-product.test')).toEqual({ kind: 'apex' })
+    expect(classifyHost('www.crm-product.test')).toEqual({ kind: 'apex' })
+    expect(classifyHost('old-app.vercel.app')).toEqual({ kind: 'legacy' })
+    expect(classifyHost('localhost:3000')).toEqual({ kind: 'legacy' })
+    expect(classifyHost('a.b.crm-product.test')).toEqual({ kind: 'invalid' })
+    expect(classifyHost('api.crm-product.test')).toEqual({ kind: 'invalid' })
+    expect(classifyHost('-x.crm-product.test')).toEqual({ kind: 'invalid' })
+    // A different domain that merely ENDS with the base text is not under it.
+    expect(classifyHost('evilcrm-product.test')).toEqual({ kind: 'legacy' })
+  })
+
+  test('normalizeSubdomain (the write-side rule)', () => {
+    expect(normalizeSubdomain(' Acme ')).toBe('acme')
+    expect(normalizeSubdomain('green-lawns2')).toBe('green-lawns2')
+    expect(normalizeSubdomain('www')).toBeNull()
+    expect(normalizeSubdomain('a_b')).toBeNull()
+    expect(normalizeSubdomain('ends-')).toBeNull()
+    expect(normalizeSubdomain('x'.repeat(64))).toBeNull()
+    expect(normalizeSubdomain(42)).toBeNull()
+  })
+})
+
+describe('lookup cache', () => {
+  test('caches hits and misses for a short time; never caches errors', async () => {
+    jest.useFakeTimers({ now: 1_000_000 })
+    expect(await lookupCompanyBySubdomain('acme')).toEqual({ status: 'found', orgId: 'org-acme' })
+    expect(await lookupCompanyBySubdomain('acme')).toEqual({ status: 'found', orgId: 'org-acme' })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    jest.setSystemTime(1_000_000 + 61_000)
+    await lookupCompanyBySubdomain('acme')
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+
+    expect(await lookupCompanyBySubdomain('nobody')).toEqual({ status: 'not_found' })
+    await lookupCompanyBySubdomain('nobody')
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+
+    lookupFails = true
+    expect(await lookupCompanyBySubdomain('roofco')).toEqual({ status: 'error' })
+    lookupFails = false
+    expect(await lookupCompanyBySubdomain('roofco')).toEqual({ status: 'found', orgId: 'org-roofco' })
+  })
+
+  test('anon key only — never the service role key', async () => {
+    process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-secret'
+    await lookupCompanyBySubdomain('acme')
+    const init = fetchMock.mock.calls[0][1] as { headers: Record<string, string> }
+    expect(JSON.stringify(init.headers)).not.toContain('service-secret')
+    expect(fetchMock.mock.calls[0][0]).toBe('https://proj.supabase.co/rest/v1/rpc/org_id_for_subdomain')
+  })
+
+  test('malformed names never reach the database', async () => {
+    expect(await lookupCompanyBySubdomain('a.b')).toEqual({ status: 'not_found' })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('resolveCompanyFence precedence', () => {
+  test('legacy host, routing off, no deployment id → open (unchanged behavior)', async () => {
+    expect(await resolveCompanyFence({ host: 'old-app.vercel.app' })).toEqual({ kind: 'open' })
+    delete process.env.APP_BASE_DOMAIN
+    expect(await resolveCompanyFence({ host: 'acme.crm-product.test' })).toEqual({ kind: 'open' })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  test('host company fences to that org', async () => {
+    const f = await resolveCompanyFence({ host: 'acme.crm-product.test' })
+    expect(f).toEqual({ kind: 'org', orgId: 'org-acme', source: 'host' })
+    expect(fenceAllowsOrg(f, 'org-acme')).toBe(true)
+    expect(fenceAllowsOrg(f, 'org-roofco')).toBe(false)
+    expect(fenceAllowsOrg(f, null)).toBe(false)
+  })
+
+  test('unknown / reserved / nested company address and the bare domain refuse', async () => {
+    expect(await resolveCompanyFence({ host: 'nobody.crm-product.test' })).toEqual({ kind: 'closed', reason: 'unknown_company' })
+    expect(await resolveCompanyFence({ host: 'admin.crm-product.test' })).toEqual({ kind: 'closed', reason: 'unknown_company' })
+    expect(await resolveCompanyFence({ host: 'a.acme.crm-product.test' })).toEqual({ kind: 'closed', reason: 'unknown_company' })
+    expect(await resolveCompanyFence({ host: 'crm-product.test' })).toEqual({ kind: 'closed', reason: 'apex' })
+  })
+
+  test('lookup failure refuses (never falls back to open)', async () => {
+    lookupFails = true
+    const f = await resolveCompanyFence({ host: 'acme.crm-product.test' })
+    expect(f).toEqual({ kind: 'closed', reason: 'lookup_error' })
+    expect(fenceAllowsOrg(f, 'org-acme')).toBe(false)
+  })
+
+  test('DEPLOYMENT_ORG_ID alone fences on the legacy host', async () => {
+    process.env.DEPLOYMENT_ORG_ID = ' org-acme \n'
+    expect(await resolveCompanyFence({ host: 'old-app.vercel.app' })).toEqual({ kind: 'org', orgId: 'org-acme', source: 'deployment' })
+  })
+
+  test('DEPLOYMENT_ORG_ID wins and a host naming another company is refused', async () => {
+    process.env.DEPLOYMENT_ORG_ID = 'org-acme'
+    expect(await resolveCompanyFence({ host: 'acme.crm-product.test' })).toEqual({ kind: 'org', orgId: 'org-acme', source: 'deployment' })
+    expect(await resolveCompanyFence({ host: 'roofco.crm-product.test' })).toEqual({ kind: 'closed', reason: 'conflict' })
+  })
+
+  test('company-code header narrows on the legacy host, must agree with the host, ignored while routing is off', async () => {
+    expect(await resolveCompanyFence({ host: 'old-app.vercel.app', companyCode: 'ACME' })).toEqual({
+      kind: 'org',
+      orgId: 'org-acme',
+      source: 'header',
+    })
+    expect(await resolveCompanyFence({ host: 'acme.crm-product.test', companyCode: 'acme' })).toEqual({
+      kind: 'org',
+      orgId: 'org-acme',
+      source: 'host',
+    })
+    expect(await resolveCompanyFence({ host: 'acme.crm-product.test', companyCode: 'roofco' })).toEqual({
+      kind: 'closed',
+      reason: 'conflict',
+    })
+    expect(await resolveCompanyFence({ host: 'old-app.vercel.app', companyCode: 'nobody' })).toEqual({
+      kind: 'closed',
+      reason: 'unknown_company',
+    })
+    expect(await resolveCompanyFence({ host: 'old-app.vercel.app', companyCode: 'bad code!' })).toEqual({
+      kind: 'closed',
+      reason: 'unknown_company',
+    })
+    delete process.env.APP_BASE_DOMAIN
+    expect(await resolveCompanyFence({ host: 'old-app.vercel.app', companyCode: 'acme' })).toEqual({ kind: 'open' })
+  })
+})
+
+test('SQL migration mirrors the TS subdomain rule and reserved list', () => {
+  const sql = fs.readFileSync(path.join(process.cwd(), 'supabase/migrations/202611100070_org_subdomain.sql'), 'utf8')
+  expect(sql).toContain(`subdomain ~ '^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$'`)
+  expect(SUBDOMAIN_RE.source).toBe('^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$')
+  const list = sql.match(/subdomain not in \(([\s\S]*?)\)/)?.[1] ?? ''
+  const sqlReserved = Array.from(list.matchAll(/'([a-z0-9-]+)'/g), (m) => m[1]).sort()
+  expect(sqlReserved).toEqual(Array.from(RESERVED_SUBDOMAINS).sort())
+})
