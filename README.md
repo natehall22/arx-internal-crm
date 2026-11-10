@@ -74,26 +74,15 @@ NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=your_google_maps_api_key
 
 ### 4. Seed Database
 
-Run the seed script to create default org and pricebook:
+Create the company's org, brand, roles, trades and first owner (super admin) from a JSON file — see
+`scripts/seed-company.example.json` and "Seeding a new company" in `docs/multi-company-plan.md`:
 
 ```bash
-npx tsx scripts/seed.ts
+npm run seed:company -- company.json           # dry run, writes nothing
+npm run seed:company -- company.json --apply
 ```
 
-**Important**: After seeding, you must:
-1. Create an admin user in Supabase Auth dashboard (Authentication → Users → Add User)
-2. Insert a user record in the `users` table:
-   ```sql
-   INSERT INTO users (id, org_id, role, full_name, email, active)
-   VALUES (
-     'auth-user-id-from-step-1',
-     'org-id-from-seed-output',
-     'admin',
-     'Your Name',
-     'your-email@example.com',
-     true
-   );
-   ```
+The pricebook is created on first visit to Pricing.
 
 ### 5. Run Development Server
 
