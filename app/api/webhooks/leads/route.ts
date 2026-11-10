@@ -377,7 +377,7 @@ export async function POST(request: NextRequest) {
     const owner = await resolveCompanyRecipient(adminClient, org_id, [
       leadSource?.auto_assign_user_id,
       org.settings?.web_leads_owner_id,
-    ])
+    ], 'web_lead')
     const ownerUserId: string | null = owner?.id ?? null
 
     const campaignId = await resolveCampaignId(

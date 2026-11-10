@@ -47,9 +47,8 @@ export async function POST(request: NextRequest) {
         : '')
 
     // The company's own office inbox (orgs.email), else its longest-standing active admin.
-    const to = await resolveCompanyInboxEmail(createServiceClient(), auth.profile.org_id)
+    const to = await resolveCompanyInboxEmail(createServiceClient(), auth.profile.org_id, 'feedback')
     if (!to) {
-      console.error('feedback: company has no inbox or active admin; not sent', auth.profile.org_id)
       return NextResponse.json({ error: 'Your company has no office email set up to receive feedback' }, { status: 503 })
     }
 

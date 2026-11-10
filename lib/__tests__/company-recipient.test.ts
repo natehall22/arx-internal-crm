@@ -39,3 +39,14 @@ test('company inbox = orgs.email column, else longest-standing active admin, els
   expect(await resolveCompanyInboxEmail(seed(), B)).toBe('old@b.test')
   expect(await resolveCompanyInboxEmail(seed(), C)).toBeNull()
 })
+
+test('nobody to email → a warning with org id + purpose only (no customer details), never silent', async () => {
+  const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+  expect(await resolveCompanyRecipient(seed(), C, [], 'web_lead')).toBeNull()
+  expect(await resolveCompanyInboxEmail(seed(), C, 'feedback')).toBeNull()
+  expect(warn.mock.calls.map((c) => c[1])).toEqual([{ orgId: C, purpose: 'web_lead' }, { orgId: C, purpose: 'feedback' }])
+  warn.mockClear()
+  await resolveCompanyRecipient(seed(), B, [], 'adjuster_meeting_sync_failure') // found → no warning
+  expect(warn).not.toHaveBeenCalled()
+  warn.mockRestore()
+})

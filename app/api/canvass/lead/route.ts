@@ -1328,7 +1328,7 @@ export async function POST(request: Request) {
       if (!closerUserId) {
         // Goes to this company's longest-standing active admin (lib/company-recipient) — it used to be one hardcoded
         // ARX inbox for every company. No such person → no email.
-        const alertTo = (await resolveCompanyRecipient(supabase, profile.org_id, []).catch(() => null))?.email
+        const alertTo = (await resolveCompanyRecipient(supabase, profile.org_id, [], 'inspection_without_closer').catch(() => null))?.email
         if (alertTo) try {
           const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://arx-internal-crm.vercel.app'
           const leadUrl = `${appUrl}/leads/${leadRow.id}`

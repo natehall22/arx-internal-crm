@@ -23,7 +23,7 @@ import { formatDateTimeInTimezone } from '@/lib/timezone'
  * customer details to someone else. Null → no email.
  */
 export async function adjusterMeetingAlertEmailTo(admin: SupabaseClient, orgId: string): Promise<string | null> {
-  return (await resolveCompanyRecipient(admin, orgId, []))?.email ?? null
+  return (await resolveCompanyRecipient(admin, orgId, [], 'adjuster_meeting_sync_failure'))?.email ?? null
 }
 
 /**

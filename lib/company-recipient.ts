@@ -13,7 +13,9 @@ export type CompanyRecipient = { id: string; email: string | null }
 export async function resolveCompanyRecipient(
   admin: SupabaseClient,
   orgId: string,
-  configuredIds: Array<string | null | undefined>
+  configuredIds: Array<string | null | undefined>,
+  /** What it's for (e.g. 'web_lead'), logged when nobody can be emailed so an alert never vanishes silently. */
+  purpose = 'alert'
 ): Promise<CompanyRecipient | null> {
   for (const id of configuredIds) {
     if (typeof id !== 'string' || !id.trim()) continue
@@ -24,7 +26,11 @@ export async function resolveCompanyRecipient(
       .eq('org_id', orgId)
       .eq('active', true)
       .maybeSingle()
-    if (data?.id) return { id: data.id as string, email: emailOrNull(data.email) }
+    if (data?.id) {
+      const email = emailOrNull(data.email)
+      if (!email) warnNoRecipient(orgId, purpose)
+      return { id: data.id as string, email }
+    }
     console.error('company recipient: configured user is not an active user of this company, skipped', { orgId, userId: id })
   }
 
@@ -37,7 +43,14 @@ export async function resolveCompanyRecipient(
     .order('created_at', { ascending: true })
     .limit(1)
     .maybeSingle()
-  return fallback?.id ? { id: fallback.id as string, email: emailOrNull(fallback.email) } : null
+  const found = fallback?.id ? { id: fallback.id as string, email: emailOrNull(fallback.email) } : null
+  if (!found?.email) warnNoRecipient(orgId, purpose)
+  return found
+}
+
+/** Org id + purpose only — never customer details. */
+function warnNoRecipient(orgId: string, purpose: string): void {
+  console.warn('company recipient: nobody to email (no active admin with an email) — not sent', { orgId, purpose })
 }
 
 function emailOrNull(v: unknown): string | null {
@@ -48,9 +61,9 @@ function emailOrNull(v: unknown): string | null {
  * The company's own office inbox: `orgs.email` (the column, never a built-in default — a default belongs to another
  * company), else its longest-standing active admin's email. Null when neither exists.
  */
-export async function resolveCompanyInboxEmail(admin: SupabaseClient, orgId: string): Promise<string | null> {
+export async function resolveCompanyInboxEmail(admin: SupabaseClient, orgId: string, purpose = 'inbox'): Promise<string | null> {
   const { data } = await admin.from('orgs').select('email').eq('id', orgId).maybeSingle()
   const column = emailOrNull(data?.email)
   if (column) return column
-  return (await resolveCompanyRecipient(admin, orgId, []))?.email ?? null
+  return (await resolveCompanyRecipient(admin, orgId, [], purpose))?.email ?? null
 }
