@@ -151,7 +151,7 @@ test('tampered payload or MAC is refused', async () => {
   const [body, mac] = state.split('.')
   const evil = Buffer.from(JSON.stringify({ ...JSON.parse(Buffer.from(body, 'base64url').toString()), u: 'u-other' })).toString('base64url')
   expect(await acceptOAuthCallback(fakeAdmin(), `${evil}.${mac}`, 'c')).toEqual({ ok: false, reason: 'bad_signature' })
-  expect(await acceptOAuthCallback(fakeAdmin(), `${body}.x${mac.slice(1)}`, 'c')).toEqual({ ok: false, reason: 'bad_signature' })
+  expect(await acceptOAuthCallback(fakeAdmin(), `${body}.${mac[0] === 'x' ? 'y' : 'x'}${mac.slice(1)}`, 'c')).toEqual({ ok: false, reason: 'bad_signature' })
   expect(await acceptOAuthCallback(fakeAdmin(), `${body}.${mac}.extra`, 'c')).toEqual({ ok: false, reason: 'bad_signature' })
   process.env.OAUTH_STATE_SECRET = 'rotated'
   expect(await acceptOAuthCallback(fakeAdmin(), state, 'c')).toEqual({ ok: false, reason: 'bad_signature' })
