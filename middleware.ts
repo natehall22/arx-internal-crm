@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from 'next/server'
 import { isPublicPath } from '@/lib/public-paths'
-import { COMPANY_LOOKUP_UNAVAILABLE, classifyHost, lookupCompanyBySubdomain } from '@/lib/company-host'
+import { COMPANY_LOOKUP_UNAVAILABLE, classifyHost, deploymentOrgId, lookupCompanyBySubdomain } from '@/lib/company-host'
 import { getSupabaseSessionFromCookieStore } from '@/lib/supabase/session-cookie'
 import {
   isExpired,
@@ -90,22 +90,27 @@ function notFound(isApi: boolean): NextResponse {
     : new NextResponse(NOT_FOUND_HTML, { status: 404, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } })
 }
 
+/**
+ * A company's own copy (company address, or DEPLOYMENT_ORG_ID): the product home page and the product trial sign-up
+ * are not that company's pages — `/` goes to the CRM, `/trial` to sign-in. Everywhere else (legacy unfenced, bare
+ * product domain) they stay as they are.
+ */
+function companyOnlyPages(request: NextRequest): NextResponse | null {
+  const p = request.nextUrl.pathname
+  if (p !== '/' && p !== '/trial') return null
+  const to = request.nextUrl.clone()
+  to.pathname = p === '/' ? '/today' : '/login'
+  to.search = ''
+  return NextResponse.redirect(to)
+}
+
 async function companyHostGate(request: NextRequest): Promise<NextResponse | null> {
   const isApi = request.nextUrl.pathname.startsWith('/api/')
   const host = classifyHost(request.headers.get('host') ?? request.nextUrl.host)
   if (host.kind === 'invalid') return notFound(isApi)
-  if (host.kind !== 'company') return null
+  if (host.kind !== 'company') return deploymentOrgId() ? companyOnlyPages(request) : null
   const found = await lookupCompanyBySubdomain(host.subdomain)
-  if (found.status === 'found') {
-    // The root of a company address is the CRM, not the original company's marketing page (app/page.tsx).
-    if (request.nextUrl.pathname === '/') {
-      const today = request.nextUrl.clone()
-      today.pathname = '/today'
-      today.search = ''
-      return NextResponse.redirect(today)
-    }
-    return null
-  }
+  if (found.status === 'found') return companyOnlyPages(request)
   if (found.status === 'not_found') return notFound(isApi)
   const headers = { 'cache-control': 'no-store', 'retry-after': '30' }
   return isApi

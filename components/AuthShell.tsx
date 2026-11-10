@@ -20,9 +20,10 @@ export const authNoticeClass = {
 }
 
 /**
- * Whose sign-in page this is. Omitted = the original company's page (legacy address, unchanged). On a
- * company web address the login page passes that company's name + logo; on the bare product domain it
- * passes `{ name: null, logoSrc: null }` so no company is shown.
+ * Whose signed-out page this is — always from `authShellCompanyFor(loadLoginCompany())` (lib/company-login.ts).
+ * `null` = the original company's look, which that helper returns ONLY on an unfenced legacy address; a fenced
+ * request gets its own company's name + logo, or `{ name: null, logoSrc: null }` (no company shown). Required, so
+ * a new signed-out page can't fall into the original company's look by forgetting the prop.
  */
 export type AuthShellCompany = { name: string | null; logoSrc: string | null }
 
@@ -37,7 +38,7 @@ export default function AuthShell({
   subtitle?: string
   children: ReactNode
   footer?: ReactNode
-  company?: AuthShellCompany
+  company: AuthShellCompany | null
 }) {
   return (
     <div className="login-dark relative min-h-screen overflow-hidden bg-[#1A1917] text-[#F6F1E7] antialiased">

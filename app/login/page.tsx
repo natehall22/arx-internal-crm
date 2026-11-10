@@ -6,9 +6,8 @@ import AuthShell, {
   authInputClass,
   authLabelClass,
   authNoticeClass,
-  type AuthShellCompany,
 } from '@/components/AuthShell'
-import { loadLoginCompany } from '@/lib/company-login'
+import { authShellCompanyFor, loadLoginCompany } from '@/lib/company-login'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -32,12 +31,7 @@ export default async function LoginPage({
   // Whose login this is comes from the web address only (lib/company-login.ts).
   const login = await loadLoginCompany()
   if (login.state === 'unknown') notFound()
-  const company: AuthShellCompany | undefined =
-    login.state === 'company'
-      ? { name: login.name, logoSrc: login.logoSrc }
-      : login.state === 'legacy'
-        ? undefined
-        : { name: null, logoSrc: null }
+  const company = authShellCompanyFor(login)
 
   if (login.state === 'apex' || login.state === 'unavailable') {
     return (
