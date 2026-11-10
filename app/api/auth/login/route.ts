@@ -101,20 +101,21 @@ export async function POST(req: NextRequest) {
 
   // One profile read for both checks. On a fenced address it must succeed (fail closed); on the legacy address a
   // failed read lets the sign-in through, as before.
-  let profile: { org_id: string | null; active: boolean | null } | null = null
-  let profileReadFailed = false
-  try {
-    const { data: row, error: rowError } = await createServiceClient()
-      .from('users')
-      .select('org_id, active')
-      .eq('id', data.session.user.id)
-      .maybeSingle()
-    if (rowError) throw rowError
-    profile = (row as typeof profile) ?? null
-  } catch (e) {
-    console.error('LOGIN profile check:', e)
-    profileReadFailed = true
-  }
+  type ProfileCheck = { org_id: string | null; active: boolean | null }
+  const { profile, profileReadFailed } = await (async (): Promise<{ profile: ProfileCheck | null; profileReadFailed: boolean }> => {
+    try {
+      const { data: row, error: rowError } = await createServiceClient()
+        .from('users')
+        .select('org_id, active')
+        .eq('id', data.session!.user.id)
+        .maybeSingle()
+      if (rowError) throw rowError
+      return { profile: (row as ProfileCheck | null) ?? null, profileReadFailed: false }
+    } catch (e) {
+      console.error('LOGIN profile check:', e)
+      return { profile: null, profileReadFailed: true }
+    }
+  })()
 
   const refuse = async (why: string) => {
     console.log('LOGIN refused:', why, data.session!.user.id)
