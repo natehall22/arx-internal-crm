@@ -44,7 +44,7 @@ export default function CanvassReportIssue({
             </svg>
             <div>
               <p className="font-medium text-[#2c2c2a]">Report an Issue</p>
-              <p className="text-xs text-gray-600">Sent to info@arxroofing.com</p>
+              <p className="text-xs text-gray-600">Sent to your company’s office inbox</p>
             </div>
           </div>
           <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">

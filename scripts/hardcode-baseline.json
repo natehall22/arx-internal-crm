@@ -1,7 +1,4 @@
 {
-  "app/(canvass-app)/canvass/components/CanvassReportIssue.tsx": {
-    "brand": 1
-  },
   "app/(canvass-app)/canvass/components/LeadModal.tsx": {
     "timezone": 2
   },
@@ -317,7 +314,6 @@
     "timezone": 2
   },
   "lib/adjuster-meeting-alert.ts": {
-    "brand": 1,
     "timezone": 1
   },
   "lib/admin-sale-email.ts": {

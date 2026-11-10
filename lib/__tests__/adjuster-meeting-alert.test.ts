@@ -1,4 +1,7 @@
+import { createFakeDb } from '@/lib/test-helpers/fake-db'
+
 const sendMail = jest.fn()
+jest.mock('@/lib/supabase/service', () => ({ createServiceClient: () => { throw new Error('tests pass a client') } }))
 
 jest.mock('@/lib/setter-email', () => ({
   getMailTransport: jest.fn(() => ({ sendMail })),
@@ -18,7 +21,19 @@ import {
 // The live example: Saturday 8am ET, stored as noon UTC.
 const SATURDAY_8AM_ET_AS_UTC = '2026-08-08T12:00:00.000Z'
 
+const ORG = 'eeeeeeee-0000-4000-8000-000000000001'
+const OTHER = 'eeeeeeee-0000-4000-8000-000000000002'
+const db = () =>
+  createFakeDb({
+    users: [
+      { id: 'o-new', org_id: ORG, role: 'admin', active: true, email: 'second@co.test', created_at: '2026-03-01T00:00:00Z' },
+      { id: 'o-old', org_id: ORG, role: 'admin', active: true, email: 'owner@co.test', created_at: '2026-02-10T00:00:00Z' },
+      { id: 'x', org_id: OTHER, role: 'admin', active: true, email: 'other@else.test', created_at: '2020-01-01T00:00:00Z' },
+    ],
+  }).client as never
+
 const input = {
+  orgId: ORG,
   appointmentId: '229e623a-8003-4f56-b823-8894d63657b6',
   customerName: 'Author Jones',
   address: '540 Acorn Oaks Dr, Salisbury, NC 28146',
@@ -36,10 +51,19 @@ beforeEach(() => {
 })
 
 describe('recipient', () => {
-  it('defaults to the owner and is overridable by env', () => {
-    expect(adjusterMeetingAlertEmailTo()).toBe('nathan@arxroofing.com')
-    process.env.ADJUSTER_MEETING_ALERT_EMAIL_TO = 'ops@arxroofing.com'
-    expect(adjusterMeetingAlertEmailTo()).toBe('ops@arxroofing.com')
+  it("is the booking company's longest-standing active admin — never another company's, never a fixed inbox", async () => {
+    expect(await adjusterMeetingAlertEmailTo(db(), ORG)).toBe('owner@co.test')
+    process.env.ADJUSTER_MEETING_ALERT_EMAIL_TO = 'ops@elsewhere.test' // the retired global override is ignored
+    expect(await adjusterMeetingAlertEmailTo(db(), ORG)).toBe('owner@co.test')
+    expect(await adjusterMeetingAlertEmailTo(db(), 'no-such-company')).toBeNull()
+  })
+
+  it('a company with no active admin gets no email (no fallback inbox)', async () => {
+    await expect(sendAdjusterMeetingSyncAlert({ ...input, orgId: 'no-such-company' }, db())).resolves.toEqual({
+      sent: false,
+      skippedReason: 'no_recipient',
+    })
+    expect(sendMail).not.toHaveBeenCalled()
   })
 })
 
@@ -120,15 +144,15 @@ describe('anti-spam rule', () => {
 
 describe('sending never breaks the booking', () => {
   it('sends to the configured recipient on a failure', async () => {
-    const result = await sendAdjusterMeetingSyncAlert(input)
+    const result = await sendAdjusterMeetingSyncAlert(input, db())
     expect(result.sent).toBe(true)
     expect(sendMail).toHaveBeenCalledTimes(1)
-    expect(sendMail.mock.calls[0][0]).toMatchObject({ to: 'nathan@arxroofing.com' })
+    expect(sendMail.mock.calls[0][0]).toMatchObject({ to: 'owner@co.test' })
   })
 
   it('does not throw when the mail transport throws', async () => {
     sendMail.mockRejectedValue(new Error('SMTP down'))
-    await expect(sendAdjusterMeetingSyncAlert(input)).resolves.toEqual({
+    await expect(sendAdjusterMeetingSyncAlert(input, db())).resolves.toEqual({
       sent: false,
       skippedReason: 'send_failed',
     })
@@ -139,7 +163,7 @@ describe('sending never breaks the booking', () => {
     ;(getMailTransport as jest.Mock).mockImplementationOnce(() => {
       throw new Error('no transport')
     })
-    await expect(sendAdjusterMeetingSyncAlert(input)).resolves.toEqual({
+    await expect(sendAdjusterMeetingSyncAlert(input, db())).resolves.toEqual({
       sent: false,
       skippedReason: 'send_failed',
     })
@@ -147,7 +171,7 @@ describe('sending never breaks the booking', () => {
 
   it('skips quietly when SMTP is not configured', async () => {
     delete process.env.SMTP_HOST
-    await expect(sendAdjusterMeetingSyncAlert(input)).resolves.toEqual({
+    await expect(sendAdjusterMeetingSyncAlert(input, db())).resolves.toEqual({
       sent: false,
       skippedReason: 'smtp_not_configured',
     })

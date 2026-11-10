@@ -5,7 +5,7 @@ import { profileAllowedOnThisDeployment } from '@/lib/auth'
 import { escapeHtml } from '@/lib/html'
 import { getCrmEmailFrom } from '@/lib/crm-email-from'
 import { createServiceClient } from '@/lib/supabase/service'
-import { resolveWebLeadOwner } from '@/lib/web-lead-owner'
+import { resolveCompanyRecipient } from '@/lib/company-recipient'
 
 export const dynamic = 'force-dynamic'
 
@@ -373,8 +373,8 @@ export async function POST(request: NextRequest) {
     }
 
     // Owner = the lead source's auto-assign user, else the company's web-leads owner, else its longest-standing
-    // active admin — each only if an ACTIVE user of THIS company (lib/web-lead-owner). The same person gets the email.
-    const owner = await resolveWebLeadOwner(adminClient, org_id, [
+    // active admin — each only if an ACTIVE user of THIS company (lib/company-recipient). The same person gets the email.
+    const owner = await resolveCompanyRecipient(adminClient, org_id, [
       leadSource?.auto_assign_user_id,
       org.settings?.web_leads_owner_id,
     ])

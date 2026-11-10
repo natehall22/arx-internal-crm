@@ -26,6 +26,7 @@ import { ensureLeadHasMapPinOrThrow } from '@/lib/lead-map-pin'
 import { isOrgSuperuserRoleSlug } from '@/lib/org-role-constants'
 import { deleteCanvassLeadWithDependencies } from '@/lib/canvass-lead-delete'
 import { createServiceClient } from '@/lib/supabase/service'
+import { resolveCompanyRecipient } from '@/lib/company-recipient'
 import { isCanvassDoorEligible } from '@/lib/canvass-lead-attribution'
 import { isContactScoped, LEAD_CONTACT_FIELDS, myLeadIds } from '@/lib/contact-scope'
 
@@ -1325,7 +1326,10 @@ export async function POST(request: Request) {
 
       // Alert if an inspection is scheduled without an assigned closer.
       if (!closerUserId) {
-        try {
+        // Goes to this company's longest-standing active admin (lib/company-recipient) — it used to be one hardcoded
+        // ARX inbox for every company. No such person → no email.
+        const alertTo = (await resolveCompanyRecipient(supabase, profile.org_id, []).catch(() => null))?.email
+        if (alertTo) try {
           const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://arx-internal-crm.vercel.app'
           const leadUrl = `${appUrl}/leads/${leadRow.id}`
           const scheduledTime = formatInspectionTimeEt(inspectionScheduledFor)
@@ -1333,7 +1337,7 @@ export async function POST(request: Request) {
           const transporter = getMailTransport()
           await transporter.sendMail({
             from: getCrmEmailFrom(),
-            to: 'nathan@arxroofing.com',
+            to: alertTo,
             subject: '!!!!!ATERT!!!!! Usassigned closer',
             text: `An inspection was scheduled without an assigned closer.\n\nLead: ${leadRow.homeowner_name || 'Unknown'}\nAddress: ${leadRow.address_text || 'TBD'}\nScheduled: ${scheduledTime}\nLead URL: ${leadUrl}`,
             html: `

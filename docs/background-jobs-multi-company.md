@@ -19,7 +19,7 @@ only that company. Leftover test orgs (0 active users) are therefore never proce
 | instant-estimate-accuracy | nightly | the one website-estimate company (`PUBLIC_ESTIMATE_ORG_ID`) | Explicit env only (no built-in company id); must equal `DEPLOYMENT_ORG_ID` on a fenced copy. |
 | cleanup-inspection-photos / cleanup-report-photos | nightly | all companies | Same retention for everyone (30 days result photos; report photos 30 days after PDF / 90 without). |
 | weather-refresh, weather-swaths-ingest (Actions), lidar-ingest (Actions) | daily / hourly | global | Shared public data; rows have `org_id` NULL. Never company-owned. |
-| `POST /api/webhooks/leads` | website / lead tools | the lead source token's company | Owner and email = the source's auto-assign user, else `web_leads_owner_id`, else the company's longest-standing active admin — each only if an active user of that company (`lib/web-lead-owner.ts`). |
+| `POST /api/webhooks/leads` | website / lead tools | the lead source token's company | Owner and email = the source's auto-assign user, else `web_leads_owner_id`, else the company's longest-standing active admin — each only if an active user of that company (`resolveCompanyRecipient`, `lib/company-recipient.ts`). |
 | `POST /api/webhooks/abc-supply` | ABC | the company whose send carries the confirmation number | Zero or ambiguous matches are ignored. |
 | `/api/public/estimate/*` | website estimate | `PUBLIC_ESTIMATE_ORG_ID` | One company per deployment today. |
 
@@ -31,3 +31,11 @@ only that company. Leftover test orgs (0 active users) are therefore never proce
    the browser or its server. The token alone decides the company — a body `org_id` is ignored. Any `https://` site
    may call it from the browser (no cookies are used).
 The shared `WEBHOOK_SECRET` key only works on a fenced copy and only for that copy's company; don't hand it out.
+
+## Internal alert recipients
+No email goes to a hardcoded address (guarded by `lib/__tests__/no-hardcoded-recipients.test.ts`). Person-level
+alerts (web lead, canvass "inspection booked with no closer", adjuster-meeting calendar failure) go to
+`resolveCompanyRecipient` (`lib/company-recipient.ts`): a configured active user of the record's company, else its
+longest-standing active admin, else nobody. In-app feedback goes to `resolveCompanyInboxEmail` (`orgs.email`, else that
+admin) and requires sign-in. Exception: trial-signup (a CRM prospect with no company yet) goes to the product owner.
+The retired env `ADJUSTER_MEETING_ALERT_EMAIL_TO` is no longer read.

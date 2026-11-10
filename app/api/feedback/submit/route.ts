@@ -1,57 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import nodemailer from 'nodemailer'
 import { getCrmEmailFrom } from '@/lib/crm-email-from'
-import { createClient } from '@supabase/supabase-js'
+import { requireAuthApi } from '@/lib/auth'
+import { resolveCompanyInboxEmail } from '@/lib/company-recipient'
 import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
-
-function getSessionFromRequest(req: NextRequest) {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const projectRef = supabaseUrl.match(/https:\/\/([^.]+)\./)?.[1] || ''
-  const cookieName = `sb-${projectRef}-auth-token`
-  const singleCookie = req.cookies.get(cookieName)
-  if (singleCookie?.value) {
-    try {
-      const decoded = decodeURIComponent(singleCookie.value)
-      return JSON.parse(decoded)
-    } catch {
-      return null
-    }
-  }
-  const chunks: string[] = []
-  let i = 0
-  while (true) {
-    const chunk = req.cookies.get(`${cookieName}.${i}`)
-    if (!chunk?.value) break
-    chunks.push(chunk.value)
-    i++
-  }
-  if (chunks.length > 0) {
-    try {
-      const decoded = decodeURIComponent(chunks.join(''))
-      return JSON.parse(decoded)
-    } catch {
-      return null
-    }
-  }
-  return null
-}
-
-function getAuthClient(req: NextRequest) {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  const sessionData = getSessionFromRequest(req)
-  return {
-    client: createClient(supabaseUrl, supabaseKey, {
-      auth: { autoRefreshToken: false, persistSession: false },
-      global: sessionData?.access_token
-        ? { headers: { Authorization: `Bearer ${sessionData.access_token}` } }
-        : undefined,
-    }),
-    accessToken: sessionData?.access_token,
-  }
-}
 
 function escapeHtml(text: string): string {
   return text
@@ -63,6 +17,15 @@ function escapeHtml(text: string): string {
 }
 
 export async function POST(request: NextRequest) {
+  // Signed in only: the sender's company decides where the feedback goes (it used to be one ARX inbox for every
+  // company, and anyone could post). Every caller (FeedbackModal via Nav and the canvass app) is signed in.
+  let auth: Awaited<ReturnType<typeof requireAuthApi>>
+  try {
+    auth = await requireAuthApi()
+  } catch {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   try {
     const body = await request.json()
     const { type, description, severity, page_url } = body
@@ -75,29 +38,19 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid feedback type' }, { status: 400 })
     }
 
-    // Resolve reporter name and email from authenticated session (more reliable than client-provided)
-    let rep_name = body.rep_name || ''
-    let rep_email = body.rep_email || ''
-    const { client: authClient, accessToken } = getAuthClient(request)
-    if (accessToken) {
-      const { data: { user }, error } = await authClient.auth.getUser(accessToken)
-      if (!error && user) {
-        rep_email = user.email || rep_email
-        const adminClient = createServiceClient()
-        const { data: profile } = await adminClient
-          .from('users')
-          .select('full_name')
-          .eq('id', user.id)
-          .single()
-        if (profile?.full_name) {
-          rep_name = profile.full_name
-        } else if (rep_email) {
-          const emailName = rep_email.split('@')[0]
-            .replace(/[._]/g, ' ')
-            .replace(/\b\w/g, (c: string) => c.toUpperCase())
-          rep_name = emailName
-        }
-      }
+    // Reporter name and email come from the session, never the client.
+    const rep_email = auth.authUser.email || auth.profile.email || ''
+    const rep_name =
+      auth.profile.full_name ||
+      (rep_email
+        ? rep_email.split('@')[0].replace(/[._]/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())
+        : '')
+
+    // The company's own office inbox (orgs.email), else its longest-standing active admin.
+    const to = await resolveCompanyInboxEmail(createServiceClient(), auth.profile.org_id)
+    if (!to) {
+      console.error('feedback: company has no inbox or active admin; not sent', auth.profile.org_id)
+      return NextResponse.json({ error: 'Your company has no office email set up to receive feedback' }, { status: 503 })
     }
 
     const transporter = nodemailer.createTransport({
@@ -196,7 +149,7 @@ ${escapeHtml(description.trim())}
 
     await transporter.sendMail({
       from: getCrmEmailFrom(),
-      to: 'info@arxroofing.com',
+      to,
       subject,
       html: htmlContent,
     })
