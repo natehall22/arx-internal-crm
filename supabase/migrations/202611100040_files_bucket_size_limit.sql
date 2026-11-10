@@ -6,7 +6,7 @@
 -- 50 MB). Existing objects are not touched; the limit applies to new uploads only. Applies to every writer of this bucket
 -- (contracts, change orders, proposal images, logo, job packets, customer files) — all far below 50 MB.
 --
--- NOT APPLIED by the PR that adds it. Rollback: UPDATE storage.buckets SET file_size_limit = NULL WHERE id = 'files';
+-- Applied to prod 2026-11-10 (Nathan's go), ahead of the PR merge. Rollback: UPDATE storage.buckets SET file_size_limit = NULL WHERE id = 'files';
 
 UPDATE storage.buckets
 SET file_size_limit = 52428800
