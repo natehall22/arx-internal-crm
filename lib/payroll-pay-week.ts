@@ -123,8 +123,7 @@ const ROLE_WORDS: Record<string, string> = {
 }
 export const payoutRoleWord = (role: string) => ROLE_WORDS[role] ?? role.replace(/_/g, ' ')
 
-/** A real UUID (8-4-4-4-12 hex), not just 36 hex-or-dash characters. */
-export const isUuid = (v: unknown): v is string => typeof v === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v)
+export { isUuid } from '@/lib/uuid'
 
 const fmtMoney = (n: number) => `${n < 0 ? '-' : ''}$${Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: n % 1 === 0 ? 0 : 2, maximumFractionDigits: 2 })}`
 

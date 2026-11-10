@@ -10,7 +10,9 @@ export async function findStorageObjectByRecordPrefix(
   supabase: SupabaseClient,
   bucket: string,
   folderPath: string,
-  recordId: string
+  recordId: string,
+  /** Optional: told when storage could not be LISTED (vs. listed and the object is not there). Both still return null. */
+  opts: { onListError?: (message: string) => void } = {}
 ): Promise<{
   storagePath: string
   objectName: string
@@ -19,19 +21,18 @@ export async function findStorageObjectByRecordPrefix(
   displayFilename: string
 } | null> {
   const keyPrefix = `${recordId}_`
-  let items =
-    (
-      await supabase.storage.from(bucket).list(folderPath, {
-        search: keyPrefix,
-        limit: 50,
-      })
-    ).data ?? null
+  const first = await supabase.storage.from(bucket).list(folderPath, {
+    search: keyPrefix,
+    limit: 50,
+  })
+  const items = first.data ?? null
   let obj = items?.find((i) => i.name.startsWith(keyPrefix)) ?? null
   // Some storage backends ignore `search` for UUID-like prefixes; fall back to a bounded scan.
   if (!obj) {
     const { data: wide, error: wideErr } = await supabase.storage.from(bucket).list(folderPath, {
       limit: 1000,
     })
+    if (wideErr || (first.error && !wide)) opts.onListError?.((wideErr ?? first.error)?.message || 'storage list failed')
     if (wideErr || !wide?.length) return null
     obj = wide.find((i) => i.name.startsWith(keyPrefix)) ?? null
   }

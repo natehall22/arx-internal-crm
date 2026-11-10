@@ -40,6 +40,7 @@ import AppointmentsList from '@/components/appointments/AppointmentsList'
 import { HARNESS_OPS_JOBS, HARNESS_WORK_ORDERS, HARNESS_CUSTOMERS, HARNESS_PROFIT_ROWS } from '@/e2e/fixtures'
 import WorkOrdersClient from '@/app/work-orders/WorkOrdersClient'
 import CustomersPageClient from '@/components/customers/CustomersPageClient'
+import CustomerFilesList from '@/components/customers/CustomerFilesList'
 import JobProfitTable from '@/components/admin/JobProfitTable'
 import ProposalsPage from '@/app/proposals/page'
 import LeadsClient from '@/app/leads/LeadsClient'
@@ -300,6 +301,18 @@ export default function Harness({ params }: { params: { screen: string } }) {
       )
     case 'work-orders':
       return <WorkOrdersClient initialWorkOrders={HARNESS_WORK_ORDERS as never} />
+    case 'customer-files-upload':
+      return (
+        <div className="mx-auto max-w-7xl p-4">
+          <div className="bg-white shadow rounded-lg p-4 sm:p-6">
+            <CustomerFilesList
+              customerId="c1"
+              canAdd
+              files={[{ id: 'f1', file_name: 'Signed permit from Cabarrus County with a long file name.pdf', tag: 'document', storage_path: 'org/org-1/customers/c1/f1_permit.pdf', created_at: '2026-11-08T12:00:00Z' }]}
+            />
+          </div>
+        </div>
+      )
     case 'customers':
       return <div className="mx-auto max-w-7xl p-4"><CustomersPageClient customers={HARNESS_CUSTOMERS} query="" /></div>
     case 'proposals':

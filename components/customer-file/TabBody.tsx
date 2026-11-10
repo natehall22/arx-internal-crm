@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 
 import FilesPanel from '@/components/customer-file/FilesPanel'
+import CustomerFilesList from '@/components/customers/CustomerFilesList'
 import MoneyCards from '@/components/customer-file/MoneyCards'
 import ThreadPanel from '@/components/customer-file/ThreadPanel'
 import ContractListItem from '@/components/contracts/ContractListItem'
@@ -12,6 +13,8 @@ import { loadCheckups } from '@/lib/checkups'
 import { formatDate } from '@/lib/format'
 import { isFileTab, type FileTab } from '@/lib/customer-file/access'
 import { loadFile } from '@/lib/customer-file/load'
+import { customerFileUploadAccess, loadCustomerFilesForViewer } from '@/lib/customer-file/customer-files-access'
+import { isFilesBarred } from '@/lib/threads/visibility'
 import { createServiceClient } from '@/lib/supabase/service'
 import PhoneLink from '@/components/PhoneLink'
 
@@ -136,12 +139,21 @@ async function Overview({ customerId, dealId }: { customerId: string; dealId: st
 async function Files({ customerId, dealId }: { customerId: string; dealId: string }) {
   const ctx = await loadFile(customerId, dealId)
   const admin = createServiceClient()
-  const { data: contracts } = await admin
-    .from('order_form_contracts')
-    .select('id, status, signing_token, customer_signed_at, pdf_url, created_at, agreement_type')
-    .eq('opportunity_id', dealId)
-    .eq('org_id', ctx.viewer.orgId)
-    .order('created_at', { ascending: false })
+  // tabsFor already 404s the Files tab for these viewers; this is the second lock — the same rule the files routes use
+  // (isFilesBarred = resolveFieldOrSalesDocBarred), from the viewer we already have (no new lookups).
+  const fieldBarred = isFilesBarred(ctx.viewer)
+  const [{ data: contracts }, customerFiles, uploadAccess] = await Promise.all([
+    admin
+      .from('order_form_contracts')
+      .select('id, status, signing_token, customer_signed_at, pdf_url, created_at, agreement_type')
+      .eq('opportunity_id', dealId)
+      .eq('org_id', ctx.viewer.orgId)
+      .order('created_at', { ascending: false }),
+    // Same scope as the customer account page (loadCustomerFilesForViewer); ctx.deals is already the deals this viewer can open.
+    fieldBarred ? Promise.resolve([]) : loadCustomerFilesForViewer(admin, ctx.viewer, customerId, { openableDealIds: ctx.deals.map((d) => d.id) }),
+    // Same rule as the upload routes, so the box only shows when an upload would be accepted.
+    fieldBarred ? Promise.resolve({ ok: false as const }) : customerFileUploadAccess(admin, ctx.profile, customerId, { barred: false }),
+  ])
   return (
     <div className="space-y-4">
       <Card>
@@ -152,6 +164,17 @@ async function Files({ customerId, dealId }: { customerId: string; dealId: strin
           )}
         </CardContent>
       </Card>
+      {!fieldBarred && (
+        <Card>
+          <CardHeader><CardTitle>Customer files (not tied to a job)</CardTitle></CardHeader>
+          <CardContent>
+            {ctx.job && (
+              <p className="mb-3 text-ui-sm text-ink-muted">For this customer in general, on every deal. Job documents and photos go in the job&apos;s files below.</p>
+            )}
+            <CustomerFilesList customerId={customerId} files={customerFiles} canAdd={uploadAccess.ok} />
+          </CardContent>
+        </Card>
+      )}
       {ctx.job && (
         <FilesPanel jobId={ctx.job.id} userRole={ctx.profile.role} canSeeFinancials={ctx.viewer.jobFinancials || ctx.viewer.ownerLike} jobStatus={ctx.job.status} customerEmail={ctx.customer.email} />
       )}

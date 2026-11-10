@@ -69,16 +69,6 @@ export function buildJobDocumentStoragePath(args: {
   return `${args.orgId}/jobs/${args.jobId}/${folder}/${finalName}`
 }
 
-export function buildCustomerDocumentStoragePath(args: {
-  orgId: string
-  customerId: string
-  documentId: string
-  filename: string
-}) {
-  const finalName = buildStoredFileName(args.documentId, args.filename)
-  return `${args.orgId}/customers/${args.customerId}/documents/${finalName}`
-}
-
 export function buildCostAttachmentStoragePath(args: {
   orgId: string
   jobId: string

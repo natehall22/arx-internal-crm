@@ -5,6 +5,7 @@ import { isOrgSuperuserRoleSlug } from '@/lib/org-role-constants'
 import { resolveSalesDocAccessBarred } from '@/lib/sales-doc-access'
 import { isSuperAdmin } from '@/lib/super-admin'
 import { isInsideSalesRoleLike } from '@/lib/inside-sales-follow-up'
+import { isFieldRoleLike } from '@/lib/permissions'
 import type { ThreadViewer } from '@/lib/threads/visibility'
 
 export type ViewerProfile = {
@@ -48,5 +49,6 @@ export async function resolveThreadViewer(admin: SupabaseClient, profile: Viewer
     setterLike: (role === 'setter' || role === 'canvasser') && !insideSales,
     pricingBarred,
     insideSales,
+    fieldRole: isFieldRoleLike({ role, customRoleName, customRoleDisplayName }),
   }
 }

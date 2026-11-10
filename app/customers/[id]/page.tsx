@@ -3,7 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
-import { notFound } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
 import ReferralsSection from '@/components/ReferralsSection'
 import CustomerInfoCard from '@/components/customers/CustomerInfoCard'
 import LinkProjectToCustomerButton from '@/components/customers/LinkProjectToCustomerButton'
@@ -12,7 +12,10 @@ import { canAccessCustomerRecordsFromPermissionNames, isRepLikeCustomerRecordRol
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 import { isReferralManagerRole } from '@/lib/referral-links'
 import { projectStatusLabelForJobStatus } from '@/lib/job-status'
-import { filesObjectHref } from '@/lib/files/files-object'
+import CustomerFilesList from '@/components/customers/CustomerFilesList'
+import { customerFileUploadAccess, loadCustomerFilesForViewer } from '@/lib/customer-file/customer-files-access'
+import { resolveThreadViewer } from '@/lib/threads/viewer'
+import { isFilesBarred, isRecognizedViewer } from '@/lib/threads/visibility'
 
 
 function resolveProjectDisplayStatus(project: any) {
@@ -135,25 +138,33 @@ export default async function CustomerDetailPage({
   const projectIds = (projects || []).map((project) => project.id)
   const opportunityIds = (opportunities || []).map((opportunity) => opportunity.id)
 
-  let filesQuery = supabase
-    .from('files')
-    .select('*')
-    .eq('org_id', profile.org_id)
-    .order('created_at', { ascending: false })
-
-  if (projectIds.length > 0 || opportunityIds.length > 0 || leadIdsForCustomer.length > 0) {
-    const filters = [
-      `customer_id.eq.${params.id}`,
-      projectIds.length > 0 ? `project_id.in.(${projectIds.join(',')})` : null,
-      opportunityIds.length > 0 ? `opportunity_id.in.(${opportunityIds.join(',')})` : null,
-      leadIdsForCustomer.length > 0 ? `lead_id.in.(${leadIdsForCustomer.join(',')})` : null,
-    ].filter(Boolean)
-    filesQuery = filesQuery.or(filters.join(','))
-  } else {
-    filesQuery = filesQuery.eq('customer_id', params.id)
-  }
-
-  const { data: files } = await filesQuery
+  // Customer files: the same viewer-based scope as the Customer File's Files tab (loadCustomerFilesForViewer), so a rep sees
+  // exactly the deals/projects/leads they can open there — never another rep's lead that happens to carry this customer_id.
+  // Barred (no Files tab, no count, no query), from the SAME rule the upload and read routes use, so the page never shows a
+  // list or box the server would refuse:
+  //  - field roles (incl. by custom-role name) and anyone barred from sales docs — isFilesBarred(viewer), the same answer
+  //    as resolveFieldOrSalesDocBarred in the routes, from the already-resolved viewer, and
+  //  - viewers the thread rules don't recognize (setter managers, custom-only roles) — the Customer File shows them nothing.
+  // The viewer is resolved on every tab so the Files link follows the same rule everywhere; the file list itself
+  // only loads on the tabs that show it (overview count, files list).
+  const needsFiles = activeTab === 'overview' || activeTab === 'files'
+  const admin = createServiceClient()
+  const fileViewer = await resolveThreadViewer(admin, profile)
+  const filesBarred = isFilesBarred(fileViewer) || !isRecognizedViewer(fileViewer)
+  if (filesBarred && activeTab === 'files') redirect(`/customers/${params.id}?tab=overview`)
+  const visibleTabs = filesBarred ? tabs.filter((t) => t.id !== 'files') : tabs
+  const files =
+    filesBarred || !needsFiles
+      ? []
+      : await loadCustomerFilesForViewer(admin, fileViewer, params.id, {
+          // Reps: projectIds is already only their own projects. Everyone else: every project on this customer (the same
+          // list the Projects tab shows), so files on projects with no deal still reach owners, ops and managers.
+          extraProjectIds: projectIds,
+        })
+  const canAddFiles =
+    activeTab === 'files' &&
+    !filesBarred &&
+    (await customerFileUploadAccess(admin, profile, params.id, { barred: false, permissions: customerPermissions })).ok
 
   let activitiesQuery = supabase
     .from('activities')
@@ -199,7 +210,7 @@ export default async function CustomerDetailPage({
 
         <div className="mb-6 border-b border-gray-200">
           <nav className="-mb-px flex flex-wrap gap-4">
-            {tabs.map((tab) => (
+            {visibleTabs.map((tab) => (
               <Link
                 key={tab.id}
                 href={`/customers/${params.id}?tab=${tab.id}`}
@@ -257,10 +268,12 @@ export default async function CustomerDetailPage({
                   {opportunities?.length || 0}
                 </p>
               </div>
-              <div className="bg-white shadow rounded-lg p-6">
-                <h2 className="text-sm font-medium text-gray-500">Files</h2>
-                <p className="mt-2 text-2xl font-semibold text-gray-900">{files?.length || 0}</p>
-              </div>
+              {!filesBarred && (
+                <div className="bg-white shadow rounded-lg p-6">
+                  <h2 className="text-sm font-medium text-gray-500">Files</h2>
+                  <p className="mt-2 text-2xl font-semibold text-gray-900">{files.length}</p>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -413,34 +426,9 @@ export default async function CustomerDetailPage({
           </div>
         )}
 
-        {activeTab === 'files' && (
-          <div className="bg-white shadow rounded-lg p-6">
-            <div className="space-y-2">
-              {files && files.length > 0 ? (
-                files.map((file: any) => (
-                  <div key={file.id} className="flex items-center justify-between p-2 border rounded">
-                    <div className="min-w-0">
-                      <p className="text-sm text-gray-900 truncate">{file.file_name}</p>
-                      <p className="text-xs text-gray-500 capitalize">{file.tag}</p>
-                    </div>
-                    {filesObjectHref(file.storage_path) ? (
-                      <a
-                        href={filesObjectHref(file.storage_path) ?? undefined}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-indigo-600 hover:text-indigo-800 text-sm font-medium"
-                      >
-                        Open
-                      </a>
-                    ) : (
-                      <span className="text-sm text-[#4b4b48]">No link</span>
-                    )}
-                  </div>
-                ))
-              ) : (
-                <p className="text-gray-500 text-sm">No files found for this customer.</p>
-              )}
-            </div>
+        {activeTab === 'files' && !filesBarred && (
+          <div className="bg-white shadow rounded-lg p-4 sm:p-6">
+            <CustomerFilesList customerId={params.id} files={files} canAdd={canAddFiles} />
           </div>
         )}
 

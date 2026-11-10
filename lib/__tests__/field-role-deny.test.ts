@@ -2,6 +2,8 @@ import { defaultTab, tabsFor } from '@/lib/customer-file/access'
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 import { resolveOpsAccess } from '@/lib/ops-access'
 import { canReadMessage, canSeeProduction, writableAudiences, type ThreadViewer } from '@/lib/threads/visibility'
+import { resolveThreadViewer } from '@/lib/threads/viewer'
+import { resolveFieldOrSalesDocBarred } from '@/lib/sales-doc-access'
 
 /**
  * Field roles — setters, canvassers, inside sales — never see Production/Crew threads, the Job tab, pricing, profit or
@@ -97,5 +99,24 @@ describe('the permission resolver strips job/ops grants from field roles', () =>
   it('an admin is unaffected', async () => {
     const access = await resolveOpsAccess(adminWith({}), 'a1', { role: 'admin' })
     expect(access).toMatchObject({ canJobBoard: true, canEditJobs: true, canViewJobFinancials: true })
+  })
+})
+
+describe('base role rep + custom role named "Canvasser" (customer files)', () => {
+  const admin = () => adminWith({ roleGrants: ['customers:view', 'opportunities:view'], customRole: { name: 'Canvasser', display_name: 'Canvasser' } })
+  const profile = { id: 'u-rc', org_id: 'o', role: 'rep', custom_role_id: 'cr-c' }
+
+  it('is a field role for customer files: no Files tab, and the files read/upload rule bars them', async () => {
+    const v = await resolveThreadViewer(admin(), profile)
+    expect(v.fieldRole).toBe(true)
+    expect(tabsFor(v, { hasJob: true })).not.toContain('files')
+    expect(tabsFor(v, { hasJob: false })).not.toContain('files')
+    expect(await resolveFieldOrSalesDocBarred(admin(), profile)).toBe(true)
+  })
+
+  it('a plain rep (no custom role) keeps the Files tab', async () => {
+    const v = await resolveThreadViewer(adminWith({ roleGrants: ['customers:view'] }), { id: 'u-r', org_id: 'o', role: 'rep' })
+    expect(v.fieldRole).toBe(false)
+    expect(tabsFor(v, { hasJob: false })).toContain('files')
   })
 })

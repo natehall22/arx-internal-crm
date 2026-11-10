@@ -16,6 +16,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { resolveAppUrl } from '@/lib/job-trades'
+import { isUuid } from '@/lib/uuid'
 
 /** NOTE: not `FILES_BUCKET` in lib/files/storage.ts — that one is the private `project-files` bucket. */
 export const FILES_OBJECT_BUCKET = 'files'
@@ -224,12 +225,11 @@ export function isSignedDocKind(v: string): v is SignedDocKind {
   return (SIGNED_DOC_KINDS as readonly string[]).includes(v)
 }
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const HEX64_RE = /^[0-9a-f]{64}$/i
 
 /** Cheap shape check before any DB query: contract tokens are UUIDs, change-order tokens 32 random bytes as hex. */
 export function isPlausibleSigningToken(kind: SignedDocKind, token: string): boolean {
-  return kind === 'contract' ? UUID_RE.test(token) : HEX64_RE.test(token)
+  return kind === 'contract' ? isUuid(token) : HEX64_RE.test(token)
 }
 
 export function customerSignedDocPath(kind: SignedDocKind, token: string): string {

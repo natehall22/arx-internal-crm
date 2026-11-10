@@ -19,8 +19,9 @@ jest.mock('@/lib/auth', () => ({
     return authResult
   }),
 }))
-jest.mock('@/lib/sales-doc-access', () => ({
-  resolveSalesDocAccessBarred: jest.fn(async (_a: unknown, _id: string, p: { role: string }) => p.role === 'inside_sales'),
+// Only the permission resolver is stubbed; the real lib/sales-doc-access (field-role + sales-doc rules) runs.
+jest.mock('@/lib/effective-permissions', () => ({
+  resolveEffectivePermissionNames: jest.fn(async () => ({ fullAccess: false, permissionNames: new Set<string>() })),
 }))
 
 let db: ReturnType<typeof createFakeDb>
