@@ -1,4 +1,4 @@
-import { getAppUrl } from '@/lib/app-url'
+import { orgAppUrl } from '@/lib/company-links'
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi, type AuthContext } from '@/lib/auth'
 import { isOrgSuperuserRoleSlug } from '@/lib/permissions'
@@ -515,7 +515,7 @@ export async function PATCH(request: NextRequest) {
     // docs/domain-cutover.md). Checked before a recovery token is minted.
     let appUrl: string
     try {
-      appUrl = getAppUrl()
+      appUrl = await orgAppUrl(adminClient, targetUser.org_id)
     } catch {
       return NextResponse.json({ error: 'The app address is not configured, so a reset link cannot be built.' }, { status: 500 })
     }

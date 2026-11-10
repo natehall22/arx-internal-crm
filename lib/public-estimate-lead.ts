@@ -1,5 +1,5 @@
 import nodemailer from 'nodemailer'
-import { getAppUrl } from '@/lib/app-url'
+import { orgAppUrl } from '@/lib/company-links'
 import { getCrmEmailFrom } from '@/lib/crm-email-from'
 import {
   getPublicEstimateDisclaimerForPath,
@@ -1327,7 +1327,7 @@ async function sendNewPublicEstimateLeadAlerts(options: {
       // Nobody to tell yet (company inbox unknown) → fail the channel so a later unlock retries it.
       if (!emailRecipients.size) throw new Error('No alert recipients: org brand lookup failed')
       // Built inside the delivery: a missing app address fails (and later retries) this channel, never the unlock itself.
-      const leadUrl = `${getAppUrl()}/leads/${leadId}`
+      const leadUrl = `${await orgAppUrl(adminClient, orgId)}/leads/${leadId}`
       const alert = buildOpsAlertEmailContent({
         customerPath,
         name,

@@ -1,5 +1,5 @@
 'use client'
-import { tryGetAppUrl } from '@/lib/app-url'
+import { clientLinkBase } from '@/lib/app-url'
 import { toast as notify } from '@/components/ui/toast'
 
 /**
@@ -692,7 +692,7 @@ export default function ReportBuilder(props: Props) {
   }, [viewPdf])
 
   const copyShareLink = useCallback(async () => {
-    const url = `${(tryGetAppUrl('copied link') ?? window.location.origin)}/r/${props.shareToken}`
+    const url = `${clientLinkBase()}/r/${props.shareToken}`
     try {
       await navigator.clipboard.writeText(url)
       showToast('Share link copied')

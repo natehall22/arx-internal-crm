@@ -2,7 +2,7 @@ import nodemailer from 'nodemailer'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { getCrmEmailFrom } from '@/lib/crm-email-from'
-import { getAppUrl } from '@/lib/app-url'
+import { orgAppUrl } from '@/lib/company-links'
 import { sendPushToUserBackground } from '@/lib/push-apns'
 import type { ThreadMessage } from '@/lib/threads/get-thread'
 import type { Priority } from '@/lib/threads/visibility'
@@ -71,7 +71,7 @@ export async function notifyMessage(admin: SupabaseClient, input: NotifyInput): 
   // Email: mentions and needs-reply/urgent only. Blind mentions carry no text.
   try {
     if (!process.env.SMTP_HOST) return
-    const link = `${getAppUrl()}${path}`
+    const link = `${await orgAppUrl(admin, input.orgId)}${path}`
     const { data: users } = await admin.from('users').select('id, email, full_name').in('id', rows.map((r) => r.userId))
     const transporter = nodemailer.createTransport({
       host: process.env.SMTP_HOST,

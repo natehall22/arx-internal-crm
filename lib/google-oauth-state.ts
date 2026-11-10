@@ -23,6 +23,7 @@ import { createCipheriv, createDecipheriv, createHmac, randomBytes, randomUUID, 
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { appBaseDomain, companyAppUrl, hostnameFromHeader } from '@/lib/company-host'
+import { readOrgSubdomain } from '@/lib/company-links'
 
 export const OAUTH_STATE_TTL_MS = 10 * 60_000
 /** httpOnly, host-only cookie that binds a connect to the browser that started it. */
@@ -153,9 +154,10 @@ async function verifyState(admin: SupabaseClient, state: string, now: number): P
   if (!user || user.org_id !== p.o || user.active === false) return { ok: false, reason: 'wrong_user' }
 
   // The return host must be that org's own address — never a host taken from the request.
-  const { data: org, error: orgError } = await admin.from('orgs').select('subdomain').eq('id', p.o).maybeSingle()
-  if (orgError) return { ok: false, reason: 'unavailable' }
-  const origin = companyAppUrl((org as { subdomain?: string | null } | null)?.subdomain ?? null, appBaseDomain())
+  // Uncached on purpose (security check): the one subdomain reader, lib/company-links.
+  const org = await readOrgSubdomain(admin, p.o)
+  if (!org.ok) return { ok: false, reason: 'unavailable' }
+  const origin = companyAppUrl(org.subdomain, appBaseDomain())
   if (!origin || new URL(origin).hostname !== p.h) return { ok: false, reason: 'wrong_host' }
 
   return { ok: true, nonce: p.n, userId: p.u, orgId: p.o, returnOrigin: origin }

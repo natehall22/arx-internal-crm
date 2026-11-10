@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getAppUrl } from '@/lib/app-url'
+import { orgAppUrl } from '@/lib/company-links'
 import { timingSafeEqual } from 'node:crypto'
 import nodemailer from 'nodemailer'
 import { profileAllowedOnThisDeployment } from '@/lib/auth'
@@ -477,7 +477,7 @@ export async function POST(request: NextRequest) {
 
     // Email the lead's owner (same company, active). It used to go to one hardcoded ARX inbox for every company.
     if (owner?.email) try {
-      const appUrl = getAppUrl()
+      const appUrl = await orgAppUrl(adminClient, org_id)
       const leadUrl = `${appUrl}/leads/${lead.id}`
       const sourceLabel = String(source || 'web')
       const h = (v: unknown, fallback: string) => escapeHtml(String(v || fallback))

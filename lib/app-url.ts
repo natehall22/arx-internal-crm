@@ -14,7 +14,7 @@
  *
  * Never type a host literal anywhere else: the hardcode ratchet's `host` group blocks new ones.
  */
-import { companyAppUrl } from '@/lib/company-host'
+import { classifyHost, companyAppUrl, hostnameFromHeader } from '@/lib/company-host'
 
 /** Anything that may carry a company's own app address (an org row with `subdomain`, or an explicit address). */
 export type AppUrlOrg = { appUrl?: string | null; subdomain?: string | null } | null | undefined
@@ -67,6 +67,23 @@ export function tryGetAppUrl(context: string, org?: AppUrlOrg): string | null {
     console.error(`[app-url] ${context}: link left out because the app address is not configured`)
     return null
   }
+}
+
+/**
+ * Browser copy-link buttons: the origin a link for a record on screen should use. A signed-in user only ever sees their
+ * own company's records, so when the page is open on a company address (`<sub>.<host of NEXT_PUBLIC_APP_URL>`, i.e.
+ * the shared app address is the base domain) that address is the record's company's address — use it. Anywhere else
+ * (the shared/legacy address, previews, localhost) keep today's rule: NEXT_PUBLIC_APP_URL, else the current origin.
+ */
+export function clientLinkBase(
+  context = 'copied link',
+  location: { host: string; origin: string } | null = typeof window !== 'undefined' ? window.location : null
+): string {
+  const configured = configuredAppHost()
+  if (location && configured && classifyHost(location.host, hostnameFromHeader(configured)).kind === 'company') {
+    return location.origin
+  }
+  return tryGetAppUrl(context) ?? location?.origin ?? ''
 }
 
 /** Host (with port) of an app address, default the deployment's; null when not configured. Never throws. */

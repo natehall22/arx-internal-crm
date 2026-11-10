@@ -1,6 +1,6 @@
 'use client'
 
-import { tryGetAppUrl } from '@/lib/app-url'
+import { clientLinkBase } from '@/lib/app-url'
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import ChangeOrderModal from './ChangeOrderModal'
@@ -159,7 +159,7 @@ export default function ChangeOrdersSection({
                 <button
                   type="button"
                   onClick={() => {
-                    const url = `${(tryGetAppUrl('copied link') ?? window.location.origin)}/change-orders/sign/${co.signing_token}`
+                    const url = `${clientLinkBase()}/change-orders/sign/${co.signing_token}`
                     navigator.clipboard.writeText(url)
                     toast.success('Signing link copied to clipboard.')
                   }}

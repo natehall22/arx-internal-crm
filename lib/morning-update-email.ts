@@ -11,6 +11,7 @@ import { loadCheckupSettings } from '@/lib/checkups'
 import { loadCheckupsDueQueue, loadCrewWeekQueue, loadOpsQueues, loadOwnerExceptions, loadStormHitsQueue, type Queue } from '@/lib/today'
 import { loadOrgFeatures, resolveOrgFeatures, type OrgFeatures } from '@/lib/org-features'
 import { getAppUrl } from '@/lib/app-url'
+import { tryOrgAppUrl } from '@/lib/company-links'
 import { formatPhone, telHref } from '@/lib/format'
 import { getCrmEmailFrom, getMailTransport } from '@/lib/setter-email'
 
@@ -239,7 +240,14 @@ export function buildTodayHtml(queues: Queue[] | null, appUrl?: string | null): 
 export function buildMorningUpdateHtml(
   metrics: MorningUpdateMetrics,
   /** `today`: undefined = no Today block; null = it failed to load (says so). */
-  options?: { test?: boolean; needsYou?: DataHealthReport | null; today?: Queue[] | null; features?: OrgFeatures }
+  options?: {
+    test?: boolean
+    needsYou?: DataHealthReport | null
+    today?: Queue[] | null
+    features?: OrgFeatures
+    /** The company's own app address (lib/company-links); unset = NEXT_PUBLIC_APP_URL. */
+    appUrl?: string | null
+  }
 ): string {
   const period = activityLabelPrefix(metrics.activityPeriodKind)
   // Missing = every feature on (the email is unchanged for a company that switched nothing off).
@@ -302,7 +310,7 @@ export function buildMorningUpdateHtml(
         ${options?.test ? '<p style="margin: 0 0 16px; padding: 10px 12px; background: #fef3c7; color: #92400e; border-radius: 8px; font-size: 13px; font-weight: 600;">Test email — not sent on the daily schedule.</p>' : ''}
         <h1 style="margin: 0 0 8px; color: #111827; font-size: 22px;">ARX Morning Update</h1>
         <p style="margin: 0 0 4px; color: #111827; font-size: 14px; font-weight: 600;">${escapeHtml(metrics.sentDateLabel)}</p>
-        ${options?.today !== undefined ? buildTodayHtml(options.today) : ''}
+        ${options?.today !== undefined ? buildTodayHtml(options.today, options.appUrl) : ''}
         ${metricSection(period, activitySubline, {
           doors: metrics.doorsKnockedPeriod,
           inspections: metrics.inspectionsScheduledPeriod,
@@ -328,7 +336,7 @@ export function buildMorningUpdateHtml(
           insurance: metrics.insuranceInspectionsMonthToDate,
         }, show)}
         ${lastWeekSection}
-        ${options?.needsYou ? buildNeedsYouHtml(options.needsYou) : ''}
+        ${options?.needsYou ? buildNeedsYouHtml(options.needsYou, options?.appUrl) : ''}
         <p style="color: #6B7280; font-size: 12px; margin-top: 20px;">
           Automated owner morning update from ARX CRM. Proposals shown is based on unique opportunities with a generated proposal PDF during the period. Revenue reflects signed installation and repair agreements.${show.insurance ? ' Insurance inspections are counted when feedback is recorded as Insurance Follow Up or Waiting on Insurance.' : ''}
         </p>
@@ -437,13 +445,15 @@ export async function sendMorningUpdateEmail(
     }
   }
 
+  // Links open on this company's own address. Null (logged) = the builders fall back to / fail on NEXT_PUBLIC_APP_URL as before.
+  const appUrl = await tryOrgAppUrl(supabase, params.orgId, 'morning update links')
   const htmlFor = (to: string): string => {
     const focus = focusFor(to)
     const today = todayByFocus.get(focus) ?? null
     let shaped = needsYou ? needsYouForEmailRecipient(needsYou, viewerByEmail.get(to.trim().toLowerCase())) : null
     // Crews focus only narrows: an owner on 'crews' gets the operational rows (no dollars), never more than their role allows.
     if (shaped && needsYou && focus === 'crews') shaped = shapeNeedsYou(needsYou, 'ops')
-    return buildMorningUpdateHtml(metrics, { test: isTest, needsYou: shaped, today, features })
+    return buildMorningUpdateHtml(metrics, { test: isTest, needsYou: shaped, today, features, appUrl })
   }
 
   let sent = 0

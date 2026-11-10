@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { getAppUrl } from '@/lib/app-url'
+import { orgAppUrl } from '@/lib/company-links'
 import { requireAuthApi } from '@/lib/auth'
 import { resolveSalesDocAccessBarred } from '@/lib/sales-doc-access'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -35,7 +35,7 @@ export async function POST(
     return NextResponse.redirect(new URL('/projects', request.url), { status: 303 })
   }
 
-  const signingUrl = `${getAppUrl()}/contracts/${contract.token}`
+  const signingUrl = `${await orgAppUrl(admin, contract.org_id)}/contracts/${contract.token}`
 
   const transporter = nodemailer.createTransport({
     host: process.env.SMTP_HOST,

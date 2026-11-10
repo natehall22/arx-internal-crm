@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getAppUrl } from '@/lib/app-url'
+import { orgAppUrl } from '@/lib/company-links'
 import { requireAuthApi } from '@/lib/auth'
 import { orgFeatureOffResponse } from '@/lib/org-features-server'
 import { resolveSalesDocAccessBarred } from '@/lib/sales-doc-access'
@@ -198,7 +198,7 @@ export async function POST(request: NextRequest) {
                      'unknown'
 
     // Checked before the row is written: a contract with no working signing link must not be created.
-    const appUrl = getAppUrl()
+    const appUrl = await orgAppUrl(supabase, profile.org_id)
 
     const { data: contract, error: insertError } = await supabase
       .from('order_form_contracts')

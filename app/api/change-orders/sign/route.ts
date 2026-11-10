@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { tryOrgAppUrl } from '@/lib/company-links'
 import { generateChangeOrderPdf } from '@/lib/contracts/generateChangeOrderPdf'
 import { syncJobSaleForProjectOrJob } from '@/lib/job-commission-base'
 import nodemailer from 'nodemailer'
@@ -120,7 +121,9 @@ export async function POST(request: NextRequest) {
     }
 
     // The customer's link to their signed copy goes through the token route, never the bucket's public URL.
-    const customerPdfUrl = pdfUrl ? customerSignedDocUrl('change-order', String(changeOrder.signing_token)) : null
+    const customerPdfUrl = pdfUrl
+      ? customerSignedDocUrl('change-order', String(changeOrder.signing_token), await tryOrgAppUrl(supabase, changeOrder.org_id, 'signed change-order link'))
+      : null
 
     if (changeOrder.customer_email) {
       try {

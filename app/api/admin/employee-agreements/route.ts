@@ -1,5 +1,5 @@
 import { createHash, randomBytes, randomUUID } from 'crypto'
-import { getAppUrl } from '@/lib/app-url'
+import { orgAppUrl } from '@/lib/company-links'
 import nodemailer from 'nodemailer'
 import { getCrmEmailFrom } from '@/lib/crm-email-from'
 import { NextRequest, NextResponse } from 'next/server'
@@ -35,9 +35,9 @@ function errorResponse(error: unknown) {
   return NextResponse.json({ error: 'Unable to process compensation agreement' }, { status: 500 })
 }
 
-async function sendAgreementEmail(input: { to: string; name: string; roleName: string; effectiveDate: string; token: string }) {
+async function sendAgreementEmail(input: { to: string; name: string; roleName: string; effectiveDate: string; token: string; appUrl: string }) {
   if (!process.env.SMTP_HOST) throw new Error('smtp_not_configured')
-  const url = `${getAppUrl()}/comp-agreements/sign/${input.token}`
+  const url = `${input.appUrl}/comp-agreements/sign/${input.token}`
   const transport = nodemailer.createTransport({
     host: process.env.SMTP_HOST, port: parseInt(process.env.SMTP_PORT || '587', 10), secure: process.env.SMTP_SECURE === 'true',
     auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }, connectionTimeout: 10_000, greetingTimeout: 10_000, socketTimeout: 60_000,
@@ -61,7 +61,9 @@ async function claimAndSend(admin: ReturnType<typeof createServiceClient>, input
     const snapshot = claimed.agreement_snapshot as { employeeEmail?: string; employeeName?: string; effectiveDate?: string }
     const agreementKey = claimed.agreement_key
     if (!isEmployeeAgreementKey(agreementKey) || !snapshot.employeeEmail || !snapshot.employeeName || !snapshot.effectiveDate) throw new Error('invalid_agreement_snapshot')
-    await sendAgreementEmail({ to: snapshot.employeeEmail, name: snapshot.employeeName, roleName: EMPLOYEE_AGREEMENT_TEMPLATES[agreementKey].roleName, effectiveDate: snapshot.effectiveDate, token })
+    // The rep signs on their own company's address (the agreement row's org).
+    const appUrl = await orgAppUrl(admin, claimed.org_id as string)
+    await sendAgreementEmail({ to: snapshot.employeeEmail, name: snapshot.employeeName, roleName: EMPLOYEE_AGREEMENT_TEMPLATES[agreementKey].roleName, effectiveDate: snapshot.effectiveDate, token, appUrl })
   } catch (mailError) {
     console.error('employee agreement send failed', mailError)
     const { error: failureError } = await admin.rpc('fail_employee_agreement_send', { p_agreement_id: input.agreementId, p_attempt_id: attemptId, p_actor_user_id: input.actorId, p_actor_name: input.actorName, p_actor_email: input.actorEmail })
