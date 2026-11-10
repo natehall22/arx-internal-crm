@@ -20,28 +20,35 @@ import type { SupabaseClient } from '@supabase/supabase-js'
  * `scripts/org-scope-check.mjs` (first gates after the hardcode ratchet) treats `orgDb(...).from(...)` as scoped by
  * construction. Use it for new code on company tables; raw `client.from(...)` needs its own `.eq('org_id', …)`.
  */
+// The client is schema-less, so rows are untyped either way. The builder is kept loose on purpose: run through the
+// client's generic select-string parser, every orgDb call site made `tsc` run out of memory.
+type LooseBuilder = any
+type CountOpt = { count?: 'exact' | 'planned' | 'estimated' }
+
 export function orgDb(client: SupabaseClient, orgId: string) {
   if (typeof orgId !== 'string' || !orgId.trim()) throw new Error('orgDb: orgId is required')
   return {
     orgId,
     from(table: string) {
-      const q = client.from(table)
+      const q = client.from(table) as LooseBuilder
       return {
-        // Generic on the column string, like the client's own select, so row types come out the same as a raw query.
-        select<Q extends string = '*'>(columns?: Q, options?: Parameters<typeof q.select>[1]) {
-          return q.select<Q>(columns, options).eq('org_id', orgId)
+        select(columns?: string, options?: CountOpt & { head?: boolean }): LooseBuilder {
+          return q.select(columns, options).eq('org_id', orgId)
         },
-        update(values: Record<string, unknown>, options?: Parameters<typeof q.update>[1]) {
+        update(values: Record<string, unknown>, options?: CountOpt): LooseBuilder {
           return q.update(refuseOtherOrg(values, orgId, table), options).eq('org_id', orgId)
         },
-        delete(options?: Parameters<typeof q.delete>[0]) {
+        delete(options?: CountOpt): LooseBuilder {
           return q.delete(options).eq('org_id', orgId)
         },
-        insert(values: Record<string, unknown> | Record<string, unknown>[], options?: Parameters<typeof q.insert>[1]) {
+        insert(values: Record<string, unknown> | Record<string, unknown>[], options?: CountOpt & { defaultToNull?: boolean }): LooseBuilder {
           const rows = Array.isArray(values) ? values.map((v) => stampOrg(v, orgId, table)) : stampOrg(values, orgId, table)
           return q.insert(rows, options)
         },
-        upsert(values: Record<string, unknown> | Record<string, unknown>[], options: NonNullable<Parameters<typeof q.upsert>[1]>) {
+        upsert(
+          values: Record<string, unknown> | Record<string, unknown>[],
+          options: CountOpt & { onConflict: string; ignoreDuplicates?: boolean; defaultToNull?: boolean }
+        ): LooseBuilder {
           const cols = (options?.onConflict ?? '').split(',').map((c) => c.trim())
           if (!cols.includes('org_id')) throw new Error(`orgDb(${table}).upsert: onConflict must include org_id`)
           const rows = Array.isArray(values) ? values.map((v) => stampOrg(v, orgId, table)) : stampOrg(values, orgId, table)

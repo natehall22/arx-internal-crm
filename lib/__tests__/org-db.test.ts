@@ -17,7 +17,7 @@ test('select / update / delete only ever see the given company', async () => {
   const { data: foreign } = await a.from('customers').select('id, name').eq('id', 'c-b').maybeSingle()
   expect(foreign).toBeNull()
   const { data: all } = await a.from('customers').select('id')
-  expect((all ?? []).map((r) => (r as { id: string }).id)).toEqual(['c-a'])
+  expect((all ?? []).map((r: { id: string }) => r.id)).toEqual(['c-a'])
 
   await a.from('customers').update({ name: 'hacked' }).eq('id', 'c-b')
   await a.from('customers').delete().eq('id', 'c-b')
