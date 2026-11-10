@@ -10,7 +10,7 @@
  *   2. the host's company, when the host is `<sub>.<APP_BASE_DOMAIN>`.
  *   3. header `X-Company-Code` (iPhone app), only while host routing is on (APP_BASE_DOMAIN set).
  *   Every one that is present must name the SAME org, or the request is refused (fail closed). None present
- *   (APP_BASE_DOMAIN unset, the legacy *.vercel.app address, localhost) = unfenced, exactly as before.
+ *   (APP_BASE_DOMAIN unset, the legacy hosting address, localhost) = unfenced, exactly as before.
  * A company-shaped host that names no company, a reserved/nested name, the bare base domain and a lookup
  * failure all refuse — never fall back to "unfenced" or to another company.
  *
@@ -61,7 +61,7 @@ export function companyAppUrl(subdomain: string | null | undefined, baseDomain: 
 
 export type HostKind =
   | { kind: 'off' } // APP_BASE_DOMAIN unset: routing disabled
-  | { kind: 'legacy' } // any other address (legacy *.vercel.app, localhost, previews): unfenced during the overlap
+  | { kind: 'legacy' } // any other address (legacy hosting address, localhost, previews): unfenced during the overlap
   | { kind: 'apex' } // the bare product domain or www.: no company
   | { kind: 'company'; subdomain: string }
   | { kind: 'invalid' } // under the base domain but not a usable company name (nested, reserved, malformed)

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getAppUrl } from '@/lib/app-url'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import { getCrmEmailFrom, getMailTransport } from '@/lib/setter-email'
@@ -11,10 +12,6 @@ import { escapeHtml } from '@/lib/html'
 // Attachments are base64-encoded over SMTP (+33%); most relays reject messages much past
 // 25MB total, so attach only up to 15MB of PDF and fall back to the share link above that.
 const MAX_ATTACH_BYTES = 15 * 1024 * 1024
-
-function appBaseUrl(): string {
-  return (process.env.NEXT_PUBLIC_APP_URL || 'https://arx-internal-crm.vercel.app').replace(/\/$/, '')
-}
 
 // POST — { to, message? } → email the report (attachment when small enough, share link always)
 export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
@@ -47,7 +44,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
 
     const { doc, brand } = await normalizeReportDocForOrg(admin, report.doc, report)
     const address = doc.propertyAddressHeader || 'your property'
-    const shareUrl = `${appBaseUrl()}/r/${report.share_token}`
+    const shareUrl = `${getAppUrl()}/r/${report.share_token}`
 
     // Attach the PDF when it's email-sized (size unknown → download and check for real;
     // the buf.length check below is the actual gate)

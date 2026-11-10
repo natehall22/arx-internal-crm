@@ -7,21 +7,11 @@ import {
   buildTrackedReviewLink,
   isReviewEligibleStatus,
 } from '@/lib/review-requests'
+import { getAppUrl } from '@/lib/app-url'
 import { getDocumentBrand } from '@/lib/org-brand'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
-
-/** Base origin used to build the absolute tracked link inside the SMS body. */
-function baseUrlFrom(request: Request): string {
-  const envUrl = process.env.NEXT_PUBLIC_APP_URL
-  if (envUrl) return envUrl
-  const origin = request.headers.get('origin')
-  if (origin) return origin
-  const host = request.headers.get('host')
-  const proto = request.headers.get('x-forwarded-proto') || 'https'
-  return host ? `${proto}://${host}` : ''
-}
 
 function firstOrSelf<T>(v: T | T[] | null | undefined): T | null {
   if (Array.isArray(v)) return v[0] ?? null
@@ -52,6 +42,14 @@ export async function POST(
   const supabase = createServiceClient()
   const body = await request.json().catch(() => ({}))
   const action: 'prepare' | 'sent' = body?.action === 'sent' ? 'sent' : 'prepare'
+
+  // The SMS carries an absolute tracked link: check the app address before minting or stamping anything.
+  let appUrl: string
+  try {
+    appUrl = getAppUrl()
+  } catch {
+    return NextResponse.json({ error: 'The app address is not configured, so a review link cannot be built.' }, { status: 500 })
+  }
 
   const { data: job } = await supabase
     .from('production_jobs')
@@ -168,7 +166,7 @@ export async function POST(
     }
   }
 
-  const link = buildTrackedReviewLink(baseUrlFrom(request), row!.token)
+  const link = buildTrackedReviewLink(appUrl, row!.token)
   const message = composeReviewMessage({
     template,
     customerName: customer?.name,

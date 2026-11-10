@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Hardcode ratchet: blocks NEW company-specific literals (company name, time zone, address/phone) so the backlog can only shrink.
+// Hardcode ratchet: blocks NEW company-specific literals (company name, time zone, address/phone, app host) so the backlog can only shrink.
 // It changes no runtime code. Existing literals are grandfathered in scripts/hardcode-baseline.json (per file, for the report).
 // The rule is per GROUP across the repo: a group's total may never exceed its baseline total, so moving code between files or
 // renaming a file is fine, adding a literal is not. The baseline itself may never be higher than the one on origin/main.
@@ -28,6 +28,8 @@ const GROUPS = {
     /\bE[SD]T\b/g, // 'EST' / 'EDT' abbreviations
     /[-+]0[45]:00\b/g, // hand-written Eastern UTC offsets (the classic double-shift bug)
   ],
+  // App host literals (2026-11-10, domain cutover): every link comes from getAppUrl (lib/app-url.ts), never a typed host.
+  host: [/vercel\.app/gi, /arxcapitol\.com/gi],
   address: [/Kannapolis/gi, /Dale Earnhardt/gi, /Woodbury Ter/gi, /\b(28027|28083)\b/g, /\(?704\)?[-. ]?313[-. ]8834/g, /\(?360\)?[-. ]?485[-. ]9413/g],
 }
 

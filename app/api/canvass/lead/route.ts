@@ -1,4 +1,5 @@
 import { requireAuthApi } from '@/lib/auth'
+import { getAppUrl } from '@/lib/app-url'
 import { NextResponse } from 'next/server'
 import { customerIdForLead } from '@/lib/customer-file/ensure-customer'
 import { assignNextAvailableCloser, getDefaultTeam } from '@/lib/round-robin'
@@ -1330,7 +1331,7 @@ export async function POST(request: Request) {
         // ARX inbox for every company. No such person → no email.
         const alertTo = (await resolveCompanyRecipient(supabase, profile.org_id, [], 'inspection_without_closer').catch(() => null))?.email
         if (alertTo) try {
-          const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://arx-internal-crm.vercel.app'
+          const appUrl = getAppUrl()
           const leadUrl = `${appUrl}/leads/${leadRow.id}`
           const scheduledTime = formatInspectionTimeEt(inspectionScheduledFor)
 
@@ -1399,7 +1400,7 @@ export async function POST(request: Request) {
             closerProfile?.email &&
             (await isUserActiveForTransactionalEmail(createServiceClient(), closerUserId))
           ) {
-            const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://arx-internal-crm.vercel.app'
+            const appUrl = getAppUrl()
             const recordUrl = opportunityId ? `${appUrl}/opportunities/${opportunityId}` : `${appUrl}/leads/${leadRow.id}`
             const closerName = closerProfile.full_name || 'Closer'
 

@@ -148,3 +148,22 @@ export function writeSessionCookies(
     }
   }
 }
+
+/**
+ * Every session cookie name to expire on logout: the single cookie and any chunk (`<name>.0`, `<name>.1`, …) present on the
+ * request. The single name is always included so a logout with no cookie still answers with a clearing header.
+ */
+export function sessionCookieNamesToClear(existingCookieNames: string[], cookieName: string = getSessionCookieName()): string[] {
+  const names = new Set<string>([cookieName])
+  for (const name of existingCookieNames) {
+    if (name === cookieName || name.startsWith(`${cookieName}.`)) names.add(name)
+  }
+  return Array.from(names)
+}
+
+/** Expire the session cookie (single or chunked) on a response, with the same path/flags the login route set it with. */
+export function clearSessionCookies(res: NextResponse, existingCookieNames: string[], isSecure: boolean): void {
+  for (const name of sessionCookieNamesToClear(existingCookieNames)) {
+    res.cookies.set(name, '', { path: '/', httpOnly: true, secure: isSecure, sameSite: 'lax', maxAge: 0 })
+  }
+}

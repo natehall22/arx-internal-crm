@@ -7,7 +7,7 @@ and atomic swath-replace (final batch per day). Skips days with no MRMS files.
 
 Usage:
   export CRON_SECRET=...
-  export WEATHER_SWATHS_INGEST_URL=https://arx-internal-crm.vercel.app/api/cron/weather-swaths-ingest
+  export WEATHER_SWATHS_INGEST_URL=https://<crm address>/api/cron/weather-swaths-ingest   # required, no default
   export WEATHER_FOOTPRINT_N=35.60 WEATHER_FOOTPRINT_S=35.00 WEATHER_FOOTPRINT_E=-80.30 WEATHER_FOOTPRINT_W=-81.10
   python3 scripts/weather-mrms-worker/backfill_swaths.py --days 730
 
@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from datetime import date, datetime, timedelta, timezone
@@ -52,6 +53,10 @@ def main() -> int:
         help="Continue after a day fails (log and move on)",
     )
     args = parser.parse_args()
+    if not args.dry_run and not os.environ.get("WEATHER_SWATHS_INGEST_URL", "").strip():
+        # Checked once up front: with --skip-errors every day would otherwise fail and be skipped quietly.
+        print("WEATHER_SWATHS_INGEST_URL is required unless --dry-run", file=sys.stderr)
+        return 1
 
     days = min(max(1, args.days), MAX_BACKFILL_DAYS)
     if args.end_date:

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getAppUrl } from '@/lib/app-url'
 import { requireAuthApi } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -116,6 +117,9 @@ export async function POST(request: NextRequest) {
       tokenExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
     }
 
+    // Checked before the row is written: a change order sent for signature needs a working signing link.
+    const appUrl = isSendToCustomer ? getAppUrl() : null
+
     // Insert change order record
     const { data: changeOrder, error: insertError } = await supabase
       .from('job_change_orders')
@@ -172,9 +176,8 @@ export async function POST(request: NextRequest) {
     console.log('[Change Order] Record created:', changeOrder.id)
 
     let signingUrl: string | null = null
-    if (isSendToCustomer && signingToken) {
-      const baseUrl = (process.env.NEXT_PUBLIC_APP_URL || request.nextUrl.origin || '').replace(/\/$/, '')
-      signingUrl = `${baseUrl}/change-orders/sign/${signingToken}`
+    if (appUrl && signingToken) {
+      signingUrl = `${appUrl}/change-orders/sign/${signingToken}`
     }
     if (isSendToCustomer && signingUrl && customerEmail) {
       try {

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getAppUrl } from '@/lib/app-url'
 import { createClient } from '@/lib/supabase/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -249,7 +250,7 @@ export async function POST(
             },
           })
 
-          const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://arx-internal-crm.vercel.app'
+          const appUrl = getAppUrl()
 
           await transporter.sendMail({
             from: getCrmEmailFrom(),

@@ -2,7 +2,7 @@ import nodemailer from 'nodemailer'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { getCrmEmailFrom } from '@/lib/crm-email-from'
-import { resolveAppUrl } from '@/lib/job-trades'
+import { getAppUrl } from '@/lib/app-url'
 import { sendPushToUserBackground } from '@/lib/push-apns'
 import type { ThreadMessage } from '@/lib/threads/get-thread'
 import type { Priority } from '@/lib/threads/visibility'
@@ -34,9 +34,9 @@ export type NotifyInput = {
  * Push/email never carry more than the recipient may read.
  */
 export async function notifyMessage(admin: SupabaseClient, input: NotifyInput): Promise<void> {
-  const appUrl = resolveAppUrl()
-  const link = messageLink(appUrl, { customerId: input.deal.customerId, dealId: input.deal.id, leadId: input.deal.leadId }, input.message.id)
-  const path = link.replace(appUrl.replace(/\/+$/, ''), '')
+  // In-app rows and push carry the path only; the absolute link is built inside the email try, so a missing app address
+  // costs the email (logged), never the notification rows.
+  const path = messageLink('', { customerId: input.deal.customerId, dealId: input.deal.id, leadId: input.deal.leadId }, input.message.id)
   const rows = [
     ...input.recipients.map((r) => ({ ...r, blind: false })),
     ...input.blindMentions.map((userId) => ({ userId, priority: 'fyi' as Priority, reason: 'mention', blind: true })),
@@ -71,6 +71,7 @@ export async function notifyMessage(admin: SupabaseClient, input: NotifyInput): 
   // Email: mentions and needs-reply/urgent only. Blind mentions carry no text.
   try {
     if (!process.env.SMTP_HOST) return
+    const link = `${getAppUrl()}${path}`
     const { data: users } = await admin.from('users').select('id, email, full_name').in('id', rows.map((r) => r.userId))
     const transporter = nodemailer.createTransport({
       host: process.env.SMTP_HOST,

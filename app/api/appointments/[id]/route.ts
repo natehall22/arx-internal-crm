@@ -1,4 +1,5 @@
 import { appointmentCalendarTitleLabel, canCompleteAdjusterMeeting } from '@/lib/adjuster-meeting'
+import { getAppUrl } from '@/lib/app-url'
 import { resolveCanReassignAppointment } from '@/lib/permissions'
 import { formatDateTimeInTimezone } from '@/lib/timezone'
 import { getCrmEmailFrom, getMailTransport } from '@/lib/setter-email'
@@ -366,7 +367,7 @@ export async function PATCH(
       // Email both assignees when SMTP is configured (in-app notifications alone are not email).
       try {
         if (process.env.SMTP_HOST) {
-        const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://arx-internal-crm.vercel.app'
+        const appUrl = getAppUrl()
         const recordUrl = appointment.opportunity_id
           ? `${appUrl}/opportunities/${appointment.opportunity_id}`
           : `${appUrl}/leads/${appointment.lead_id}`

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getAppUrl } from '@/lib/app-url'
 import { requireAuthApi } from '@/lib/auth'
 import { orgFeatureOffResponse } from '@/lib/org-features-server'
 import { resolveSalesDocAccessBarred } from '@/lib/sales-doc-access'
@@ -196,6 +197,9 @@ export async function POST(request: NextRequest) {
                      request.headers.get('x-real-ip') || 
                      'unknown'
 
+    // Checked before the row is written: a contract with no working signing link must not be created.
+    const appUrl = getAppUrl()
+
     const { data: contract, error: insertError } = await supabase
       .from('order_form_contracts')
       .insert({
@@ -246,7 +250,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const signingUrl = `${process.env.NEXT_PUBLIC_APP_URL}/contracts/sign/${contract.signing_token}`
+    const signingUrl = `${appUrl}/contracts/sign/${contract.signing_token}`
 
     if (customerEmail) {
       try {

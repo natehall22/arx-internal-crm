@@ -1,3 +1,4 @@
+import { getAppUrl } from '@/lib/app-url'
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi, type AuthContext } from '@/lib/auth'
 import { isOrgSuperuserRoleSlug } from '@/lib/permissions'
@@ -509,6 +510,15 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
     }
 
+    // The emailed link lands on the configured app address (it must be on Supabase Auth's redirect allow-list,
+    // docs/domain-cutover.md). Checked before a recovery token is minted.
+    let appUrl: string
+    try {
+      appUrl = getAppUrl()
+    } catch {
+      return NextResponse.json({ error: 'The app address is not configured, so a reset link cannot be built.' }, { status: 500 })
+    }
+
     // Generate password reset link using Supabase Admin API
     const { data: linkData, error: linkError } = await adminClient.auth.admin.generateLink({
       type: 'recovery',
@@ -521,9 +531,6 @@ export async function PATCH(request: NextRequest) {
     }
 
     const resetLink = linkData.properties.action_link
-    // Use the origin the admin is actually on: a stale/missing NEXT_PUBLIC_APP_URL
-    // sent the emailed link to a host that doesn't serve this app.
-    const appUrl = new URL(request.url).origin
     // Replace Supabase redirect with our app's reset-password page
     const finalLink = resetLink.replace(
       /redirect_to=[^&]*/,

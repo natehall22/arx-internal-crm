@@ -23,6 +23,7 @@ import SuppliersClient from '@/app/admin/suppliers/SuppliersClient'
 import ContractSigningForm from '@/app/contracts/sign/[token]/CustomerSigningForm'
 import ChangeOrderSigningForm from '@/app/change-orders/sign/[token]/CustomerSigningForm'
 import CrewPhotoCapture from '@/app/crew/[token]/CrewPhotoCapture'
+import MovedHostNotice, { type HandoffDeps } from '@/app/(canvass-app)/canvass/components/MovedHostNotice'
 import { HARNESS_CONTRACT } from '@/e2e/fixtures'
 import { DEFAULT_DOCUMENT_BRAND } from '@/lib/org-brand'
 import { noticeOfCancellation } from '@/lib/contracts/terms'
@@ -96,6 +97,14 @@ function GeneralSettingsHarness({ canEditBrand }: { canEditBrand: boolean }) {
     </div>
   )
 }
+
+const HANDOFF_TARGET = 'https://crm.example.test/canvass'
+const handoffDeps = (knocks: number, jobPhotos: number, reportPhotos: number): HandoffDeps => ({
+  flush: async () => undefined,
+  count: async () => ({ knocks, jobPhotos, reportPhotos }),
+})
+const HANDOFF_PENDING = handoffDeps(3, 1, 1)
+const HANDOFF_DONE = handoffDeps(0, 0, 0)
 
 export default function Harness({ params }: { params: { screen: string } }) {
   if (process.env.NODE_ENV === 'production') notFound()
@@ -333,6 +342,10 @@ export default function Harness({ params }: { params: { screen: string } }) {
       return <div className="mx-auto max-w-3xl p-4"><h1 className="text-ui-xl font-bold text-ink">Job setup</h1><JobSetupClient /></div>
     case 'pay-week':
       return <div className="mx-auto max-w-3xl p-4"><PayWeekClient /></div>
+    case 'moved-host-pending':
+      return <div className="h-screen bg-gray-100"><MovedHostNotice target={HANDOFF_TARGET} deps={HANDOFF_PENDING} /></div>
+    case 'moved-host-ready':
+      return <div className="h-screen bg-gray-100"><MovedHostNotice target={HANDOFF_TARGET} deps={HANDOFF_DONE} /></div>
     default:
       notFound()
   }

@@ -202,6 +202,8 @@ export default function Nav() {
 
   const handleLogout = async () => {
     try {
+      // The session lives in an httpOnly cookie the browser client cannot clear: the server route expires it.
+      await fetch('/api/auth/logout', { method: 'POST' })
       if (!supabaseRef.current) {
         supabaseRef.current = createClientBrowser()
       }

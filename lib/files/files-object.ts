@@ -15,7 +15,7 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 
-import { resolveAppUrl } from '@/lib/job-trades'
+import { getAppUrl, tryGetAppUrl } from '@/lib/app-url'
 
 /** NOTE: not `FILES_BUCKET` in lib/files/storage.ts — that one is the private `project-files` bucket. */
 export const FILES_OBJECT_BUCKET = 'files'
@@ -210,7 +210,7 @@ export function orgLogoHref(
 ): string | null {
   if (!orgLogoPath(orgId, org)) return null
   const rel = `/api/org-logo/${encodeURIComponent(String(orgId))}?v=${logoVersion(storedOrgLogo(org) ?? '')}`
-  return opts.absolute || opts.appUrl ? `${resolveAppUrl(opts.appUrl).replace(/\/$/, '')}${rel}` : rel
+  return opts.absolute || opts.appUrl ? `${getAppUrl({ appUrl: opts.appUrl })}${rel}` : rel
 }
 
 /* ------------------------------------------------------------------------ *
@@ -236,9 +236,13 @@ export function customerSignedDocPath(kind: SignedDocKind, token: string): strin
   return `/api/files/signed/${kind}/${encodeURIComponent(token)}`
 }
 
-/** Absolute form for customer emails. */
-export function customerSignedDocUrl(kind: SignedDocKind, token: string, appUrl?: string | null): string {
-  return `${resolveAppUrl(appUrl).replace(/\/$/, '')}${customerSignedDocPath(kind, token)}`
+/**
+ * Absolute form for customer emails. Null (logged) when the app address is not configured: it is built right after a
+ * customer signs, and a missing link must never turn their signature into an error page.
+ */
+export function customerSignedDocUrl(kind: SignedDocKind, token: string, appUrl?: string | null): string | null {
+  const base = appUrl ? getAppUrl({ appUrl }) : tryGetAppUrl(`signed ${kind} link`)
+  return base ? `${base}${customerSignedDocPath(kind, token)}` : null
 }
 
 /* ------------------------------------------------------------------------ *
