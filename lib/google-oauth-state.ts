@@ -106,6 +106,7 @@ export async function issueOAuthState(
   }
   // Housekeeping: expired tickets are useless; drop them (best effort, never blocks a connect).
   try {
+    // org-scope-ok: housekeeping across companies on purpose — deletes only expired single-use tickets, returns nothing
     await admin.from('oauth_states').delete().lt('expires_at', new Date(now).toISOString())
   } catch (e) {
     console.error('oauth-state: prune failed', e instanceof Error ? e.message : e)
@@ -209,6 +210,7 @@ export async function finishOAuthConnect(
   const nowIso = new Date(now).toISOString()
   // Consume first (one winner), then wipe the sealed code at once — before any check can refuse — so no path leaves
   // a usable code at rest.
+  // org-scope-ok: keyed by the ticket's random single-use nonce (a secret from the signed ticket + host-only cookie); the returned user_id/org_id are checked against the signed-in user below
   const { data, error } = await admin
     .from('oauth_states')
     .update({ used_at: nowIso })
@@ -231,6 +233,7 @@ export async function finishOAuthConnect(
 export async function discardOAuthTicket(admin: SupabaseClient, nonce: string | null, now = Date.now()): Promise<void> {
   if (!nonce || !isNonce(nonce)) return
   try {
+    // org-scope-ok: keyed by the ticket's random single-use nonce (secret); only burns that ticket
     await admin
       .from('oauth_states')
       .update({ used_at: new Date(now).toISOString(), code_ciphertext: null })
@@ -248,6 +251,7 @@ function isNonce(v: string): boolean {
 
 async function wipeCode(admin: SupabaseClient, nonce: string): Promise<void> {
   try {
+    // org-scope-ok: keyed by the ticket's random single-use nonce (secret); only wipes that ticket's sealed code
     await admin.from('oauth_states').update({ code_ciphertext: null }).eq('nonce', nonce)
   } catch (e) {
     console.error('oauth-state: wipe failed', e instanceof Error ? e.message : e)

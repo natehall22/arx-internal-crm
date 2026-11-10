@@ -33,6 +33,7 @@ export function orgTimeZone(raw: unknown): string {
 async function orgIdsWithActiveUsers(admin: SupabaseClient): Promise<Set<string>> {
   const ids = new Set<string>()
   for (let from = 0; ; from += PAGE) {
+    // org-scope-ok: cross-company on purpose — this IS the list of companies a background job may run for (fenced below)
     const { data, error } = await admin
       .from('users')
       .select('org_id')

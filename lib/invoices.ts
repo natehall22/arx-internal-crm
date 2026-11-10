@@ -24,6 +24,7 @@ export async function findOrgInvoice(
   orgId: string
 ): Promise<{ id: string; job_id: string; status: InvoiceStatus } | null> {
   if (!invoiceId || !orgId) return null
+  // org-scope-ok: company filter is .eq('production_jobs.org_id', orgId) on the !inner parent-job join (works before migration 202611100040)
   const { data } = await supabase
     .from('job_invoices')
     .select('id, job_id, status, production_jobs!inner(org_id)')
@@ -43,6 +44,7 @@ export async function getActiveInvoices(
   supabase: SupabaseClient,
   jobId: string
 ): Promise<JobInvoice[]> {
+  // org-scope-ok: jobId was verified in the caller's company (app/api/ops/jobs/[id]/invoices: production_jobs id + org_id); job_invoices.org_id filter after migration 202611100040
   const { data, error } = await supabase
     .from('job_invoices')
     .select('*')
@@ -64,6 +66,7 @@ export async function hasActiveDepositInvoice(
   supabase: SupabaseClient,
   jobId: string
 ): Promise<boolean> {
+  // org-scope-ok: jobId was verified in the caller's company (app/api/ops/jobs/[id]/invoices: production_jobs id + org_id); job_invoices.org_id filter after migration 202611100040
   const { data, error } = await supabase
     .from('job_invoices')
     .select('id')
@@ -88,6 +91,7 @@ export async function getDepositInfo(
   jobId: string
 ): Promise<DepositInfo> {
   // Get job sale amount and deposit percent
+  // org-scope-ok: jobId was verified in the caller's company (app/api/ops/jobs/[id]/invoices: production_jobs id + org_id); job_invoices.org_id filter after migration 202611100040
   const { data: job } = await supabase
     .from('production_jobs')
     .select('sale_amount, deposit_required_percent')
@@ -109,6 +113,7 @@ export async function getDepositInfo(
   const totalDepositCents = depositPayments.reduce((sum, p) => sum + p.amount_cents, 0)
 
   // Check for active deposit invoice
+  // org-scope-ok: jobId was verified in the caller's company (app/api/ops/jobs/[id]/invoices: production_jobs id + org_id); job_invoices.org_id filter after migration 202611100040
   const { data: depositInvoices } = await supabase
     .from('job_invoices')
     .select('id, total_cents')
@@ -168,6 +173,7 @@ export async function createInvoiceForJob(
 
   // If requested, add default line item from job total
   if (defaultFromJobTotal) {
+    // org-scope-ok: jobId was verified in the caller's company (app/api/ops/jobs/[id]/invoices: production_jobs id + org_id); job_invoices.org_id filter after migration 202611100040
     const { data: job } = await supabase
       .from('production_jobs')
       .select('sale_amount, job_type, job_source')
@@ -206,6 +212,7 @@ export async function getTotalInvoicedCentsForJob(
   supabase: SupabaseClient,
   jobId: string
 ): Promise<number> {
+  // org-scope-ok: jobId was verified in the caller's company (app/api/ops/jobs/[id]/invoices: production_jobs id + org_id); job_invoices.org_id filter after migration 202611100040
   const { data: rows } = await supabase
     .from('job_invoices')
     .select('total_cents')
@@ -230,6 +237,7 @@ export async function createCustomAmountInvoice(
     throw new Error('Amount must be greater than zero')
   }
 
+  // org-scope-ok: jobId was verified in the caller's company (app/api/ops/jobs/[id]/invoices: production_jobs id + org_id); job_invoices.org_id filter after migration 202611100040
   const { data: job } = await supabase
     .from('production_jobs')
     .select('sale_amount, job_type, job_source')
@@ -468,6 +476,7 @@ export async function addInvoiceItem(
   item: InvoiceItemInput
 ): Promise<JobInvoiceItem> {
   // Verify invoice is draft
+  // org-scope-ok: invoiceId was verified in the caller's company by findOrgInvoice (app/api/invoices/[invoiceId]/*); job_invoices.org_id filter after migration 202611100040
   const { data: invoice } = await supabase
     .from('job_invoices')
     .select('status')
@@ -624,6 +633,7 @@ async function recalculateInvoiceTotals(
   const subtotalCents = (items || []).reduce((sum, item) => sum + item.line_total_cents, 0)
   const totalCents = subtotalCents // No tax for now, can add later
 
+  // org-scope-ok: invoiceId was verified in the caller's company by findOrgInvoice (app/api/invoices/[invoiceId]/*); job_invoices.org_id filter after migration 202611100040
   await supabase
     .from('job_invoices')
     .update({
@@ -645,6 +655,7 @@ export async function finalizeAndSendInvoice(
   email: string
 ): Promise<JobInvoice> {
   // Verify invoice exists and is draft
+  // org-scope-ok: invoiceId was verified in the caller's company by findOrgInvoice (app/api/invoices/[invoiceId]/*); job_invoices.org_id filter after migration 202611100040
   const { data: invoice } = await supabase
     .from('job_invoices')
     .select('*, job_invoice_items(*)')
@@ -670,6 +681,7 @@ export async function finalizeAndSendInvoice(
   const now = new Date().toISOString()
   const today = now.split('T')[0]
 
+  // org-scope-ok: invoiceId was verified in the caller's company by findOrgInvoice (app/api/invoices/[invoiceId]/*); job_invoices.org_id filter after migration 202611100040
   const { data: updated, error } = await supabase
     .from('job_invoices')
     .update({
@@ -709,6 +721,7 @@ export async function applyPaymentToInvoice(
   }
 
   // Verify invoice exists and is not void/draft
+  // org-scope-ok: invoiceId was verified in the caller's company by findOrgInvoice (app/api/invoices/[invoiceId]/*); job_invoices.org_id filter after migration 202611100040
   const { data: invoice } = await supabase
     .from('job_invoices')
     .select('status, total_cents, job_id')
@@ -794,6 +807,7 @@ async function updateInvoicePaymentStatus(
   }
 
   // Only update if status would change (and not void)
+  // org-scope-ok: invoiceId was verified in the caller's company by findOrgInvoice (app/api/invoices/[invoiceId]/*); job_invoices.org_id filter after migration 202611100040
   const { data: current } = await supabase
     .from('job_invoices')
     .select('status')
@@ -801,6 +815,7 @@ async function updateInvoicePaymentStatus(
     .single()
 
   if (current && current.status !== 'void' && current.status !== newStatus) {
+    // org-scope-ok: invoiceId was verified in the caller's company by findOrgInvoice (app/api/invoices/[invoiceId]/*); job_invoices.org_id filter after migration 202611100040
     await supabase
       .from('job_invoices')
       .update({ status: newStatus })
@@ -815,6 +830,7 @@ export async function computeInvoiceBalance(
   supabase: SupabaseClient,
   invoiceId: string
 ): Promise<InvoiceBalance> {
+  // org-scope-ok: invoiceId was verified in the caller's company by findOrgInvoice (app/api/invoices/[invoiceId]/*); job_invoices.org_id filter after migration 202611100040
   const { data: invoice } = await supabase
     .from('job_invoices')
     .select('total_cents')
@@ -848,6 +864,7 @@ export async function getInvoiceWithDetails(
   supabase: SupabaseClient,
   invoiceId: string
 ): Promise<InvoiceWithItems | null> {
+  // org-scope-ok: invoiceId was verified in the caller's company by findOrgInvoice (app/api/invoices/[invoiceId]/*); job_invoices.org_id filter after migration 202611100040
   const { data: invoice } = await supabase
     .from('job_invoices')
     .select('*')
@@ -886,6 +903,7 @@ export async function getInvoicesForJob(
   supabase: SupabaseClient,
   jobId: string
 ): Promise<JobInvoice[]> {
+  // org-scope-ok: jobId was verified in the caller's company (app/api/ops/jobs/[id]/invoices: production_jobs id + org_id); job_invoices.org_id filter after migration 202611100040
   const { data, error } = await supabase
     .from('job_invoices')
     .select('*')
@@ -911,6 +929,7 @@ export async function voidInvoice(
     throw new Error('Void reason is required')
   }
 
+  // org-scope-ok: invoiceId was verified in the caller's company by findOrgInvoice (app/api/invoices/[invoiceId]/*); job_invoices.org_id filter after migration 202611100040
   const { data: invoice } = await supabase
     .from('job_invoices')
     .select('status')
@@ -929,6 +948,7 @@ export async function voidInvoice(
     throw new Error('Cannot void a paid invoice. Refund payments first.')
   }
 
+  // org-scope-ok: invoiceId was verified in the caller's company by findOrgInvoice (app/api/invoices/[invoiceId]/*); job_invoices.org_id filter after migration 202611100040
   const { data: updated, error } = await supabase
     .from('job_invoices')
     .update({

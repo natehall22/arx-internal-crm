@@ -210,59 +210,15 @@ export async function POST(request: NextRequest) {
     }
 
     // Service role: same as /api/inspections/status — RLS + missing public.users rows caused "Profile not found".
-    let { data: profile } = await admin
+    const { data: profile } = await admin
       .from('users')
       .select('org_id, full_name, google_calendar_id, google_refresh_token')
       .eq('id', user.id)
       .maybeSingle()
 
-    if (!profile?.org_id) {
-      const { data: apptOrg } = await admin
-        .from('scheduled_appointments')
-        .select('org_id')
-        .eq('id', original_appointment_id)
-        .maybeSingle()
-      const derivedOrgId = apptOrg?.org_id ?? null
-      if (!derivedOrgId) {
-        return NextResponse.json({ error: 'Profile not found' }, { status: 400 })
-      }
-
-      const fallbackName =
-        (typeof user.user_metadata?.full_name === 'string' && user.user_metadata.full_name.trim()) ||
-        user.email ||
-        'User'
-
-      const { data: recoveredProfile } = await admin
-        .from('users')
-        .upsert(
-          {
-            id: user.id,
-            org_id: derivedOrgId,
-            role: 'rep',
-            full_name: fallbackName,
-            email: user.email || null,
-            active: true,
-          },
-          { onConflict: 'id' }
-        )
-        .select('org_id, full_name, google_calendar_id, google_refresh_token')
-        .maybeSingle()
-
-      profile =
-        recoveredProfile ||
-        ({
-          org_id: derivedOrgId,
-          full_name: fallbackName,
-          google_calendar_id: null,
-          google_refresh_token: null,
-        } as {
-          org_id: string
-          full_name: string | null
-          google_calendar_id: string | null
-          google_refresh_token: string | null
-        })
-    }
-
+    // No profile row = no company. The old "self-heal" here took the company from whatever appointment/lead id the
+    // request named and acted (and tried to create a user) inside THAT company — a cross-company hole on a shared
+    // database. A user without a profile is now refused, like everywhere requireAuth runs.
     if (!profile?.org_id) {
       return NextResponse.json({ error: 'Profile not found' }, { status: 400 })
     }
@@ -272,6 +228,7 @@ export async function POST(request: NextRequest) {
       .from('scheduled_appointments')
       .select('*, leads(*)')
       .eq('id', original_appointment_id)
+      .eq('org_id', profile.org_id)
       .single()
 
     if (appointmentError || !originalAppointment) {

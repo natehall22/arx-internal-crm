@@ -213,6 +213,7 @@ export async function runCompanySeed(client: SupabaseClient, input: CompanySeedI
   }
 
   const ownerRows = await must(
+    // org-scope-ok: cross-company on purpose — finds the owner's email in ANY company so the seed refuses one that belongs to another org
     client.from('users').select('id, org_id, email, role, is_super_admin, active, full_name').ilike('email', input.owner.email.replace(/[%_\\]/g, '\\$&')),
     'read owner'
   )

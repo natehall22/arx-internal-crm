@@ -242,6 +242,7 @@ export async function POST(request: NextRequest) {
           .from('proposal_templates')
           .update(templateData)
           .eq('id', data.id)
+          .eq('org_id', profile.org_id)
           .select()
           .single()
 

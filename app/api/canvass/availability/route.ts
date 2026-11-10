@@ -87,7 +87,7 @@ async function getTimezoneForUser(adminClient: any, userId: string): Promise<str
 
 export async function GET(request: NextRequest) {
   try {
-    await requireAuthApi()
+    const { profile } = await requireAuthApi()
     const adminClient = createServiceClient()
 
     const closerId = request.nextUrl.searchParams.get('closer_id')
@@ -110,11 +110,16 @@ export async function GET(request: NextRequest) {
 
     const durationMinutes = parseInt(durationStr || '60', 10)
 
+    // The closer must be in the caller's company: this route reads their calendar and booked times.
     const { data: closerOrg } = await adminClient
       .from('users')
       .select('org_id')
       .eq('id', closerId)
+      .eq('org_id', profile.org_id)
       .maybeSingle()
+    if (!closerOrg) {
+      return NextResponse.json({ error: 'Closer not found', slots: [], hasCalendar: false }, { status: 404 })
+    }
     const orgDefaultGap = closerOrg?.org_id
       ? await getOrgDefaultSchedulingGapMinutes(adminClient, closerOrg.org_id)
       : 15

@@ -20,7 +20,7 @@ type LegacyNote = { id: string; note: string; created_at: string; user: { full_n
 
 /** The deal (opportunity) a job belongs to: job → project → opportunity. */
 async function dealForJob(admin: ReturnType<typeof createServiceClient>, orgId: string, jobId: string) {
-  const { data: job } = await admin.from('production_jobs').select('id, org_id, project_id').eq('id', jobId).maybeSingle()
+  const { data: job } = await admin.from('production_jobs').select('id, org_id, project_id').eq('id', jobId).eq('org_id', orgId).maybeSingle()
   const j = job as { id: string; org_id: string; project_id: string | null } | null
   if (!j || j.org_id !== orgId) return { job: null, deal: null }
   const { data: project } = j.project_id ? await admin.from('projects').select('opportunity_id').eq('id', j.project_id).eq('org_id', orgId).maybeSingle() : { data: null }

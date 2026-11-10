@@ -55,6 +55,7 @@ export async function ensureProductionJobForContract(
     .from('production_jobs')
     .select('id, job_number')
     .eq('project_id', projectId)
+    .eq('org_id', orgId)
     .maybeSingle()
 
   if (existingJob?.id) {
@@ -91,7 +92,7 @@ export async function ensureProductionJobForContract(
   // Sale amount + commission base from the signed contract (+ signed COs) — the one writer.
   await syncJobSaleAndCommissionBase(supabase, { orgId, jobId: newJob.id })
 
-  await supabase.from('projects').update({ status: 'in_progress' }).eq('id', projectId)
+  await supabase.from('projects').update({ status: 'in_progress' }).eq('id', projectId).eq('org_id', orgId)
 
   await supabase.from('activities').insert({
     org_id: orgId,

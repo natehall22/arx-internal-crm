@@ -634,6 +634,7 @@ export async function getAvailableSlots(
  */
 export async function saveGoogleConnection(admin: SupabaseClient, code: string, userId: string, orgId: string): Promise<boolean> {
   const tokens = await exchangeCodeForTokens(code)
+  // org-scope-ok: upsert key user_id is the signed-in user (both callers: callback + finish) and orgId is that user's own profile org; a user belongs to one company, so the row cannot be re-homed
   const { error } = await admin.from('user_google_tokens').upsert(
     {
       user_id: userId,

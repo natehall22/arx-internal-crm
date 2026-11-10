@@ -101,6 +101,24 @@ async function getValidAccessToken(adminClient: any, userId: string): Promise<st
   return tokenData.access_token
 }
 
+/** The closer must be an active user in the caller's own company: this route writes to / reads their Google calendar. */
+async function closerInCallersOrg(
+  adminClient: ReturnType<typeof createServiceClient>,
+  callerUserId: string,
+  closerUserId: string
+): Promise<boolean> {
+  // org-scope-ok: callerUserId is the signed-in user's own id (token-verified by the caller)
+  const { data: caller } = await adminClient.from('users').select('org_id').eq('id', callerUserId).maybeSingle()
+  if (!caller?.org_id) return false
+  const { data: closer } = await adminClient
+    .from('users')
+    .select('id')
+    .eq('id', closerUserId)
+    .eq('org_id', caller.org_id)
+    .maybeSingle()
+  return !!closer
+}
+
 // POST - Create a calendar event for an appointment
 export async function POST(request: NextRequest) {
   try {
@@ -134,6 +152,9 @@ export async function POST(request: NextRequest) {
     if (!closer_user_id || !scheduled_for) {
       return NextResponse.json({ error: 'closer_user_id and scheduled_for are required' }, { status: 400 })
     }
+    if (!(await closerInCallersOrg(adminClient, user.id, closer_user_id))) {
+      return NextResponse.json({ error: 'Closer not found' }, { status: 404 })
+    }
 
     // Get closer's Google token
     const googleAccessToken = await getValidAccessToken(adminClient, closer_user_id)
@@ -153,6 +174,7 @@ export async function POST(request: NextRequest) {
     if (!providedTimezone) {
       // Try to get timezone from closer's team
       const { data: closerProfile } = await adminClient
+        // org-scope-ok: closer_user_id was checked by closerInCallersOrg above
         .from('users')
         .select('team_id')
         .eq('id', closer_user_id)
@@ -254,6 +276,9 @@ export async function GET(request: NextRequest) {
     if (!closerUserId) {
       return NextResponse.json({ error: 'closer_user_id is required' }, { status: 400 })
     }
+    if (!(await closerInCallersOrg(adminClient, user.id, closerUserId))) {
+      return NextResponse.json({ error: 'Closer not found' }, { status: 404 })
+    }
 
     // Get closer's Google token
     const googleAccessToken = await getValidAccessToken(adminClient, closerUserId)
@@ -268,6 +293,7 @@ export async function GET(request: NextRequest) {
     }
 
     const { data: closerProfile } = await adminClient
+      // org-scope-ok: closerUserId was checked by closerInCallersOrg above
       .from('users')
       .select('org_id')
       .eq('id', closerUserId)

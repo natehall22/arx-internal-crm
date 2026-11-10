@@ -89,7 +89,7 @@ async function handlePOST(request: Request, { params }: { params: { dealId: stri
     senderId: ctx.viewer.userId,
     senderName: ctx.profile.full_name || 'ARX Team',
     message: res.message,
-    deal: { id: deal.id, customerId: deal.customer_id, leadId: deal.lead_id, label: await dealLabel(ctx.admin, deal.id) },
+    deal: { id: deal.id, customerId: deal.customer_id, leadId: deal.lead_id, label: await dealLabel(ctx.admin, ctx.viewer.orgId, deal.id) },
     recipients: res.recipients,
     blindMentions: res.blindMentions,
   }).catch((e) => console.error('notifyMessage', e))
@@ -97,8 +97,8 @@ async function handlePOST(request: Request, { params }: { params: { dealId: stri
   return NextResponse.json({ message: res.message, pricingNotice: res.pricingNotice })
 }
 
-async function dealLabel(admin: ThreadCtx['admin'], dealId: string) {
-  const { data } = await admin.from('opportunities').select('address_text').eq('id', dealId).maybeSingle()
+async function dealLabel(admin: ThreadCtx['admin'], orgId: string, dealId: string) {
+  const { data } = await admin.from('opportunities').select('address_text').eq('id', dealId).eq('org_id', orgId).maybeSingle()
   return (data as { address_text?: string | null } | null)?.address_text || 'Job'
 }
 

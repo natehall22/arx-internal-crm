@@ -148,6 +148,7 @@ export async function PATCH(
         if (public_note !== undefined) updateData.public_note = public_note
         if (internal_note !== undefined) updateData.internal_note = internal_note
         
+        // org-scope-ok: params.invoiceId was verified in the caller's company by findOrgInvoice above; job_invoices.org_id filter after migration 202611100040
         const { data: updated, error } = await adminClient
           .from('job_invoices')
           .update(updateData)

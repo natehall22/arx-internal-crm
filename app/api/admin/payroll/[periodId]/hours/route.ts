@@ -243,6 +243,7 @@ export async function POST(
       }
 
       const { data: saved, error: saveErr } = await supabase
+        // org-scope-ok: the period was loaded company-scoped above; the row keys on that period
         .from('payroll_rep_hours')
         .upsert(upsertPayload, { onConflict: 'payroll_period_id,user_id' })
         .select('id')
