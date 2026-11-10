@@ -1,5 +1,6 @@
 'use client'
 
+import { tryGetAppUrl } from '@/lib/app-url'
 import { useState } from 'react'
 
 /** Copies the public /r/{token} share URL for a generated inspection report. */
@@ -9,7 +10,7 @@ export default function CopyShareLinkButton({ shareToken }: { shareToken: string
     <button
       type="button"
       onClick={async () => {
-        const url = `${window.location.origin}/r/${shareToken}`
+        const url = `${(tryGetAppUrl('copied link') ?? window.location.origin)}/r/${shareToken}`
         try {
           await navigator.clipboard.writeText(url)
           setCopied(true)

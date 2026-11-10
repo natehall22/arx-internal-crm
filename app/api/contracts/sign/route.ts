@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { tryGetAppUrl } from '@/lib/app-url'
 import { customerSignedDocUrl } from '@/lib/files/files-object'
 import nodemailer from 'nodemailer'
 import { getCrmEmailFrom } from '@/lib/crm-email-from'
@@ -241,8 +242,9 @@ export async function POST(request: NextRequest) {
         contract.project_cost != null && Number.isFinite(Number(contract.project_cost))
           ? Number(contract.project_cost)
           : null
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://arx-internal-crm.vercel.app'
-      const recordUrl = contract.opportunity_id
+      // Optional links: this block also marks the canvass pin sold, which must not depend on the app address.
+      const appUrl = tryGetAppUrl('contract signed: admin sale email')
+      const recordUrl = appUrl && contract.opportunity_id
         ? `${appUrl}/opportunities/${contract.opportunity_id}`
         : undefined
 
@@ -254,7 +256,7 @@ export async function POST(request: NextRequest) {
           .eq('org_id', contract.org_id)
           .eq('opportunity_id', contract.opportunity_id)
           .maybeSingle()
-        if (projectRow?.id) {
+        if (projectRow?.id && appUrl) {
           projectUrl = `${appUrl}/projects/${projectRow.id}`
         }
       }

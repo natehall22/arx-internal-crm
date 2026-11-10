@@ -272,6 +272,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = "ARX Sales/ARX Sales.entitlements";
 				CODE_SIGN_STYLE = Automatic;
+				CRM_BASE_URL = "https://arx-internal-crm.vercel.app";
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = UZ9HX8V7LN;
 				ENABLE_PREVIEWS = YES;
@@ -310,6 +311,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = "ARX Sales/ARX Sales.entitlements";
 				CODE_SIGN_STYLE = Automatic;
+				CRM_BASE_URL = "https://arx-internal-crm.vercel.app";
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = UZ9HX8V7LN;
 				ENABLE_PREVIEWS = YES;

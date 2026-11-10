@@ -1,4 +1,5 @@
 'use client'
+import { tryGetAppUrl } from '@/lib/app-url'
 import { toast as notify } from '@/components/ui/toast'
 
 /**
@@ -25,6 +26,7 @@ import {
   listPendingPhotos,
   removePendingPhoto,
   stashPendingPhoto,
+  uploadReportPhoto,
 } from '@/lib/inspection-report/pending-store'
 import { confirmDialog } from '@/components/ui/confirm-dialog'
 
@@ -210,14 +212,11 @@ export default function ReportBuilder(props: Props) {
           continue
         }
         try {
-          const fd = new FormData()
-          fd.set('id', next.id)
-          fd.set('file', new Blob([bytes as BlobPart], { type: 'image/jpeg' }), `${next.id}.jpg`)
-          if (next.width) fd.set('width', String(next.width))
-          if (next.height) fd.set('height', String(next.height))
-          const res = await fetch(`/api/inspection-reports/${props.reportId}/photos`, {
-            method: 'POST',
-            body: fd,
+          const res = await uploadReportPhoto(props.reportId, {
+            photoId: next.id,
+            bytes,
+            width: next.width,
+            height: next.height,
           })
           if (!res.ok) throw new Error(`upload ${res.status}`)
           void removePendingPhoto(props.reportId, next.id)
@@ -693,7 +692,7 @@ export default function ReportBuilder(props: Props) {
   }, [viewPdf])
 
   const copyShareLink = useCallback(async () => {
-    const url = `${window.location.origin}/r/${props.shareToken}`
+    const url = `${(tryGetAppUrl('copied link') ?? window.location.origin)}/r/${props.shareToken}`
     try {
       await navigator.clipboard.writeText(url)
       showToast('Share link copied')

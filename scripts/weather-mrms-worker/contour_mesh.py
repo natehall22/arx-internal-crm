@@ -376,10 +376,8 @@ def main() -> int:
     parser.add_argument("--event-date", help="YYYY-MM-DD (default: yesterday UTC)")
     parser.add_argument(
         "--ingest-url",
-        default=os.environ.get(
-            "WEATHER_SWATHS_INGEST_URL",
-            "https://arx-internal-crm.vercel.app/api/cron/weather-swaths-ingest",
-        ),
+        # No default host: the CRM's address changes per deployment (domain cutover). Required unless --dry-run.
+        default=os.environ.get("WEATHER_SWATHS_INGEST_URL", "").strip(),
     )
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
@@ -387,6 +385,13 @@ def main() -> int:
     cron_secret = os.environ.get("CRON_SECRET", "")
     if not args.dry_run and not cron_secret:
         print("CRON_SECRET is required unless --dry-run", file=sys.stderr)
+        return 1
+    if not args.dry_run and not args.ingest_url:
+        print(
+            "WEATHER_SWATHS_INGEST_URL (or --ingest-url) is required unless --dry-run, "
+            "e.g. https://<crm address>/api/cron/weather-swaths-ingest",
+            file=sys.stderr,
+        )
         return 1
 
     event_date = prior_day(args.event_date)

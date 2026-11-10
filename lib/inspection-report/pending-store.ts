@@ -92,3 +92,42 @@ export async function listPendingPhotos(
     return []
   }
 }
+
+/** Every stashed photo on this phone, any report (the domain hand-off sends them all before leaving this address). */
+export async function listAllPendingPhotos(): Promise<
+  { reportId: string; photoId: string; bytes: Uint8Array; width: number | null; height: number | null }[]
+> {
+  if (typeof indexedDB === 'undefined') return []
+  const db = await open()
+  return await new Promise((res, rej) => {
+    const tx = db.transaction(STORE, 'readonly')
+    const rq = tx.objectStore(STORE).getAll()
+    rq.onsuccess = () =>
+      res(
+        (rq.result as PendingPhoto[]).map((p) => ({
+          reportId: p.reportId,
+          photoId: p.photoId,
+          bytes: p.bytes,
+          width: p.width,
+          height: p.height,
+        }))
+      )
+    rq.onerror = () => rej(rq.error)
+  })
+}
+
+/**
+ * The ONE upload request for a report photo (the builder's queue and the domain hand-off both use it). The server is
+ * idempotent on the photo id, so a re-send after a dropped response returns the photo that already landed.
+ */
+export function uploadReportPhoto(
+  reportId: string,
+  photo: { photoId: string; bytes: Uint8Array; width: number | null; height: number | null }
+): Promise<Response> {
+  const fd = new FormData()
+  fd.set('id', photo.photoId)
+  fd.set('file', new Blob([photo.bytes as BlobPart], { type: 'image/jpeg' }), `${photo.photoId}.jpg`)
+  if (photo.width) fd.set('width', String(photo.width))
+  if (photo.height) fd.set('height', String(photo.height))
+  return fetch(`/api/inspection-reports/${reportId}/photos`, { method: 'POST', body: fd })
+}

@@ -1,5 +1,6 @@
 'use client'
 
+import { tryGetAppUrl } from '@/lib/app-url'
 import { useEffect, useState } from 'react'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
@@ -376,7 +377,7 @@ export default function CampaignsPage() {
   }
 
   const copyWebhookUrl = (source: LeadSource) => {
-    const url = `${window.location.origin}/api/webhooks/leads?token=${source.webhook_token}`
+    const url = `${(tryGetAppUrl('copied link') ?? window.location.origin)}/api/webhooks/leads?token=${source.webhook_token}`
     navigator.clipboard.writeText(url)
     toast.success('Webhook URL copied to clipboard!')
   }
@@ -627,7 +628,7 @@ export default function CampaignsPage() {
                         <div>
                           <p className="text-xs font-medium text-gray-500 uppercase mb-1">Webhook URL</p>
                           <code className="text-sm text-gray-700 break-all">
-                            {typeof window !== 'undefined' && `${window.location.origin}/api/webhooks/leads?token=${source.webhook_token}`}
+                            {typeof window !== 'undefined' && `${(tryGetAppUrl('copied link') ?? window.location.origin)}/api/webhooks/leads?token=${source.webhook_token}`}
                           </code>
                         </div>
                         <div className="flex items-center gap-2 ml-4">

@@ -1,5 +1,7 @@
 // Google Calendar Integration
 // Requires GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI in env
+import { getAppUrl } from '@/lib/app-url'
+
 
 const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth'
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token'
@@ -87,12 +89,17 @@ export function isMissingEventError(error: unknown): boolean {
   return error instanceof GoogleCalendarError && (error.status === 404 || error.status === 410)
 }
 
+/** The OAuth callback Google redirects to. Must be listed exactly in the Google OAuth client (see docs/domain-cutover.md). */
+function googleRedirectUri(): string {
+  return process.env.GOOGLE_REDIRECT_URI || `${getAppUrl()}/api/auth/google/callback`
+}
+
 /**
  * Generate Google OAuth URL for user authorization
  */
 export function getGoogleAuthUrl(state?: string): string {
   const clientId = process.env.GOOGLE_CLIENT_ID
-  const redirectUri = process.env.GOOGLE_REDIRECT_URI || `${process.env.NEXT_PUBLIC_APP_URL}/api/auth/google/callback`
+  const redirectUri = googleRedirectUri()
 
   if (!clientId) {
     throw new Error('GOOGLE_CLIENT_ID not configured')
@@ -117,7 +124,7 @@ export function getGoogleAuthUrl(state?: string): string {
 export async function exchangeCodeForTokens(code: string): Promise<GoogleTokens> {
   const clientId = process.env.GOOGLE_CLIENT_ID
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET
-  const redirectUri = process.env.GOOGLE_REDIRECT_URI || `${process.env.NEXT_PUBLIC_APP_URL}/api/auth/google/callback`
+  const redirectUri = googleRedirectUri()
 
   if (!clientId || !clientSecret) {
     throw new Error('Google OAuth credentials not configured')

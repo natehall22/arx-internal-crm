@@ -10,6 +10,7 @@ import LeadModal from './components/LeadModal'
 import StormPeekSheet from './components/StormPeekSheet'
 import SolarVerifySheet, { type SolarCandidatePeek } from './components/SolarVerifySheet'
 import SyncStatus from './components/SyncStatus'
+import MovedHostNotice from './components/MovedHostNotice'
 import { lookupPinStorm } from './lib/weather-overlay'
 import { recordSuccessfulInspectionSubmit } from './lib/inspectionSubmitCooldown'
 import { useOfflineStore } from './lib/offlineStore'
@@ -692,6 +693,9 @@ export default function CanvassPage() {
         </div>
         <SyncStatus pendingCount={pendingLeads.length} isOnline={isOnline} isSyncing={isSyncing} />
       </header>
+
+      {/* Only on an old app address: sends what is saved on this phone, then links to the new address. */}
+      <MovedHostNotice />
 
       {/* Main Content */}
       <main className="flex-1 relative overflow-hidden">

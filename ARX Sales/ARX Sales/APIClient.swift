@@ -712,7 +712,19 @@ enum OrgConfig {
 // MARK: - API Client
 
 struct APIClient {
-    static let baseURL = "https://arx-internal-crm.vercel.app"
+    /// The CRM's address, from the `CRM_BASE_URL` build setting (Info.plist key `CRMBaseURL`). No address is typed in
+    /// code: change it per build configuration in the project's Build Settings. A missing or malformed value stops the
+    /// app at launch instead of quietly talking to the wrong server.
+    static let baseURL: String = {
+        let raw = (Bundle.main.object(forInfoDictionaryKey: "CRMBaseURL") as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !raw.isEmpty, !raw.hasPrefix("$("),
+              let url = URL(string: raw), let scheme = url.scheme, scheme == "https" || scheme == "http",
+              url.host != nil else {
+            fatalError("CRM_BASE_URL build setting is missing or not a URL (Info.plist CRMBaseURL = \(raw))")
+        }
+        return raw.hasSuffix("/") ? String(raw.dropLast()) : raw
+    }()
 
     static func bearerToken() async -> String? {
         return try? await supabase.auth.session.accessToken

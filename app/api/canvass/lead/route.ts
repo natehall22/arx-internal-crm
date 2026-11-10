@@ -1,4 +1,5 @@
 import { requireAuthApi } from '@/lib/auth'
+import { getAppUrl } from '@/lib/app-url'
 import { NextResponse } from 'next/server'
 import { customerIdForLead } from '@/lib/customer-file/ensure-customer'
 import { assignNextAvailableCloser, getDefaultTeam } from '@/lib/round-robin'
@@ -1326,7 +1327,7 @@ export async function POST(request: Request) {
       // Alert if an inspection is scheduled without an assigned closer.
       if (!closerUserId) {
         try {
-          const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://arx-internal-crm.vercel.app'
+          const appUrl = getAppUrl()
           const leadUrl = `${appUrl}/leads/${leadRow.id}`
           const scheduledTime = formatInspectionTimeEt(inspectionScheduledFor)
 
@@ -1395,7 +1396,7 @@ export async function POST(request: Request) {
             closerProfile?.email &&
             (await isUserActiveForTransactionalEmail(createServiceClient(), closerUserId))
           ) {
-            const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://arx-internal-crm.vercel.app'
+            const appUrl = getAppUrl()
             const recordUrl = opportunityId ? `${appUrl}/opportunities/${opportunityId}` : `${appUrl}/leads/${leadRow.id}`
             const closerName = closerProfile.full_name || 'Closer'
 

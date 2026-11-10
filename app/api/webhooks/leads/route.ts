@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getAppUrl } from '@/lib/app-url'
 import { timingSafeEqual } from 'node:crypto'
 import nodemailer from 'nodemailer'
 import { profileAllowedOnThisDeployment } from '@/lib/auth'
@@ -479,7 +480,7 @@ export async function POST(request: NextRequest) {
 
     // Notify internal team about inbound lead creation.
     try {
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://arx-internal-crm.vercel.app'
+      const appUrl = getAppUrl()
       const leadUrl = `${appUrl}/leads/${lead.id}`
       const sourceLabel = String(source || 'web')
       const h = (v: unknown, fallback: string) => escapeHtml(String(v || fallback))

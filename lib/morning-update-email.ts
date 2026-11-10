@@ -9,7 +9,7 @@ import { fetchMorningUpdateMetrics, type MorningUpdateMetrics } from '@/lib/morn
 import { loadDataHealth, needsYouForEmailRecipient, shapeNeedsYou, type DataHealthReport } from '@/lib/data-health'
 import { loadCheckupSettings } from '@/lib/checkups'
 import { loadCheckupsDueQueue, loadCrewWeekQueue, loadOpsQueues, loadOwnerExceptions, loadStormHitsQueue, type Queue } from '@/lib/today'
-import { resolveAppUrl } from '@/lib/job-trades'
+import { getAppUrl } from '@/lib/app-url'
 import { formatPhone, telHref } from '@/lib/format'
 import { getCrmEmailFrom, getMailTransport } from '@/lib/setter-email'
 
@@ -101,7 +101,7 @@ const NEEDS_YOU_EMAIL_JOB_ROWS = 20
  * Exported for tests.
  */
 export function buildNeedsYouHtml(report: DataHealthReport, appUrl?: string | null): string {
-  const base = resolveAppUrl(appUrl)
+  const base = getAppUrl({ appUrl })
   const dashboardUrl = `${base}/ops/dashboard`
   if (report.count === 0) {
     return `
@@ -189,7 +189,7 @@ export async function loadMorningTodayQueues(
  * storm-hits call list (name + tap-to-call), which only the "Everything" version loads.
  */
 export function buildTodayHtml(queues: Queue[] | null, appUrl?: string | null): string {
-  const base = resolveAppUrl(appUrl)
+  const base = getAppUrl({ appUrl })
   const heading = '<h2 style="margin: 24px 0 6px; color: #111827; font-size: 18px;">Today</h2>'
   // A failed load must never read as "nothing to do".
   if (queues === null) {

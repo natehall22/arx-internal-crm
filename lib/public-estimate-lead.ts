@@ -1,4 +1,5 @@
 import nodemailer from 'nodemailer'
+import { getAppUrl } from '@/lib/app-url'
 import { getCrmEmailFrom } from '@/lib/crm-email-from'
 import {
   getPublicEstimateDisclaimerForPath,
@@ -1287,8 +1288,6 @@ async function sendNewPublicEstimateLeadAlerts(options: {
     )
   }
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://arx-internal-crm.vercel.app'
-  const leadUrl = `${appUrl}/leads/${leadId}`
   // Primary internal alert inbox. Live lead_sources has no notification_emails column —
   // do not select/insert that field. Owner email is still added when auto-assigned (auto path only).
   // The company's own inbox (org brand email) gets the alert — only when the brand really loaded; the
@@ -1327,6 +1326,8 @@ async function sendNewPublicEstimateLeadAlerts(options: {
       }
       // Nobody to tell yet (company inbox unknown) → fail the channel so a later unlock retries it.
       if (!emailRecipients.size) throw new Error('No alert recipients: org brand lookup failed')
+      // Built inside the delivery: a missing app address fails (and later retries) this channel, never the unlock itself.
+      const leadUrl = `${getAppUrl()}/leads/${leadId}`
       const alert = buildOpsAlertEmailContent({
         customerPath,
         name,

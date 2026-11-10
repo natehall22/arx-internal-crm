@@ -1,4 +1,5 @@
 import type { OrgBrand } from '@/lib/org-brand'
+import { getAppUrl } from '@/lib/app-url'
 import type { PayrollStatementPayload } from '@/lib/payroll-statement'
 import { formatPayrollMoney } from '@/lib/payroll-format'
 import {
@@ -17,8 +18,7 @@ function escapeHtml(s: string): string {
 }
 
 export function buildPayrollStatementEmailUrl(periodId: string): string {
-  const base = process.env.NEXT_PUBLIC_APP_URL || 'https://arx-internal-crm.vercel.app'
-  return `${base.replace(/\/$/, '')}/commissions/statement/${periodId}`
+  return `${getAppUrl()}/commissions/statement/${periodId}`
 }
 
 export function buildPayrollStatementEmailSubject(statement: PayrollStatementPayload): string {

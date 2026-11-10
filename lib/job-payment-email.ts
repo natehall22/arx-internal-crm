@@ -1,4 +1,5 @@
 import { PAID_IN_FULL_TOLERANCE_CENTS } from '@/lib/job-collection'
+import { getAppUrl } from '@/lib/app-url'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getOrgEmailBlastSettings, resolveEmailBlastRecipients } from '@/lib/admin-email-blasts'
 import { getCrmEmailFrom, getMailTransport } from '@/lib/setter-email'
@@ -62,8 +63,7 @@ export async function notifyAdminOpsOfJobPayment(
     return
   }
 
-  const appUrl = (process.env.NEXT_PUBLIC_APP_URL || '').replace(/\/$/, '')
-  const jobLink = `${appUrl || 'https://arx-internal-crm.vercel.app'}/ops/jobs/${params.jobId}`
+  const jobLink = `${getAppUrl()}/ops/jobs/${params.jobId}`
 
   const saleStr =
     params.saleAmountCents > 0 ? formatMoney(params.saleAmountCents) : '—'

@@ -26,6 +26,7 @@
  * reads/writes live in `lib/job-trades-db.ts`.
  */
 
+import { getAppUrl } from '@/lib/app-url'
 import type { Trade } from '@/lib/org-trades'
 
 /* ------------------------------------------------------------------------ *
@@ -92,12 +93,6 @@ export function formatWallClock12h(time: string | null | undefined): string {
  * Crew photo link
  * ------------------------------------------------------------------------ */
 
-const DEFAULT_APP_URL = 'https://arx-internal-crm.vercel.app'
-
-export function resolveAppUrl(appUrl?: string | null): string {
-  return appUrl || process.env.NEXT_PUBLIC_APP_URL || DEFAULT_APP_URL
-}
-
 /**
  * 192 bits, URL-safe. Stored as-is: it only grants photo upload to one trade.
  * Web Crypto (not node:crypto) so this module stays importable from client
@@ -112,7 +107,7 @@ export function newCrewLinkToken(): string {
 }
 
 export function crewLinkUrl(token: string, appUrl?: string | null): string {
-  return `${resolveAppUrl(appUrl)}/crew/${token}`
+  return `${getAppUrl({ appUrl })}/crew/${token}`
 }
 
 /** A link keeps working this long after the crew's last scheduled day (return trips, late photos). */

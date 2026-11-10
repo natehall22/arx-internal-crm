@@ -54,12 +54,13 @@ export default function SubJobsClient({ jobs, companyName }: SubJobsClientProps)
             </div>
             <div className="flex items-center gap-4">
               <LanguageToggle />
-              <Link
-                href="/api/auth/signout"
-                className="text-sm text-gray-600 hover:text-gray-900"
+              {/* Plain link, not next/link: a prefetch of a logout URL would sign the person out. */}
+              <a
+                href="/api/auth/logout"
+                className="inline-flex min-h-[44px] items-center text-sm text-gray-600 hover:text-gray-900"
               >
                 {t('signOut')}
-              </Link>
+              </a>
             </div>
           </div>
         </div>

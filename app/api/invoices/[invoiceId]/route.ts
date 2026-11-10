@@ -131,13 +131,7 @@ export async function PATCH(
           return NextResponse.json({ error: 'email required' }, { status: 400 })
         }
         const invoice = await finalizeAndSendInvoice(adminClient, params.invoiceId, email)
-        
-        // Generate PDF after sending (fire and forget, don't block response)
-        fetch(`${process.env.NEXT_PUBLIC_APP_URL || ''}/api/invoices/${params.invoiceId}/pdf`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-        }).catch(err => console.error('PDF generation error:', err))
-        
+
         return NextResponse.json({ success: true, invoice })
       }
 

@@ -7,6 +7,7 @@ Contours prior-day NOAA MRMS MESH hail grids for the Cabarrus canvass footprint 
 - GDAL CLI (`gdal_translate`, `gdal_calc.py`, `gdal_polygonize.py`)
 - AWS CLI (public `noaa-mrms-pds` bucket, `--no-sign-request`)
 - `CRON_SECRET` matching the CRM deployment
+- `WEATHER_SWATHS_INGEST_URL` — the CRM's ingest route on its current address (GitHub repo variable for the Action). No default: the worker exits with an error when it is missing (except `--dry-run`).
 
 ## GitHub Action
 
@@ -16,7 +17,7 @@ Contours prior-day NOAA MRMS MESH hail grids for the Cabarrus canvass footprint 
 
 ```bash
 export CRON_SECRET=...
-export WEATHER_SWATHS_INGEST_URL=https://your-app.vercel.app/api/cron/weather-swaths-ingest
+export WEATHER_SWATHS_INGEST_URL=https://<crm address>/api/cron/weather-swaths-ingest   # required, no default
 python3 scripts/weather-mrms-worker/contour_mesh.py --event-date 2026-06-21
 ```
 
@@ -45,7 +46,7 @@ One-off historical swath load after expanding the footprint:
 
 ```bash
 export CRON_SECRET=...
-export WEATHER_SWATHS_INGEST_URL=https://arx-internal-crm.vercel.app/api/cron/weather-swaths-ingest
+export WEATHER_SWATHS_INGEST_URL=https://<crm address>/api/cron/weather-swaths-ingest
 export WEATHER_FOOTPRINT_N=35.60 WEATHER_FOOTPRINT_S=35.00 WEATHER_FOOTPRINT_E=-80.30 WEATHER_FOOTPRINT_W=-81.10
 python3 scripts/weather-mrms-worker/backfill_swaths.py --days 730 --skip-errors
 ```

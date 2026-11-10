@@ -62,6 +62,7 @@ import {
   updateCalendarEvent,
   type CalendarEvent,
 } from '@/lib/google-calendar'
+import { getAppUrl } from '@/lib/app-url'
 import { getValidAccessToken } from '@/lib/appointment-calendar-sync'
 import { CALENDAR_BUSINESS_TZ } from '@/lib/calendar-business-tz'
 import { DEFAULT_ORG_BRAND } from '@/lib/org-brand'
@@ -72,7 +73,6 @@ import {
   formatWallClock12h,
   halfDayStartMinutes,
   installDaysOrDefault,
-  resolveAppUrl,
 } from '@/lib/job-trades'
 import { DEFAULT_ORG_TRADES, loadOrgTrades, tradeLabel, type Trade } from '@/lib/org-trades'
 
@@ -84,7 +84,7 @@ import { DEFAULT_ORG_TRADES, loadOrgTrades, tradeLabel, type Trade } from '@/lib
 export const INSTALL_SEND_UPDATES = 'all' as const
 
 export function installJobPageUrl(jobId: string, appUrl?: string | null): string {
-  return `${resolveAppUrl(appUrl)}/ops/jobs/${jobId}`
+  return `${getAppUrl({ appUrl })}/ops/jobs/${jobId}`
 }
 
 /**
@@ -443,29 +443,30 @@ export async function syncInstallToCalendar(
   }
 
   const orgTrades = await loadOrgTrades(adminClient, trade.org_id)
-  const event = buildInstallEvent({
-    jobId: trade.job_id,
-    jobNumber: trade.job_number,
-    customerName: params.customerName,
-    addressText: trade.address_text,
-    trade: trade.trade,
-    tradeLabel: tradeLabel(trade.trade, orgTrades),
-    scheduledDate: trade.scheduled_date,
-    installDays: trade.install_days,
-    scheduledTimeStart: trade.scheduled_time_start,
-    totalSquares: params.totalSquares,
-    schedulingEmail: params.schedulingEmail,
-    orgPhone: params.orgPhone,
-    orgShortName: params.orgShortName,
-    crewLinkToken: trade.crew_link_token,
-    appUrl: params.appUrl,
-  })
 
   // The trade's own stored calendar wins so an update or delete finds the event
   // it actually created, even if the org setting has changed since.
   const calendarId = trade.install_calendar_id || defaultCalendarId
 
   try {
+    // Built inside the try: a missing app address (crew link) is recorded as this trade's sync failure, not a 500.
+    const event = buildInstallEvent({
+      jobId: trade.job_id,
+      jobNumber: trade.job_number,
+      customerName: params.customerName,
+      addressText: trade.address_text,
+      trade: trade.trade,
+      tradeLabel: tradeLabel(trade.trade, orgTrades),
+      scheduledDate: trade.scheduled_date,
+      installDays: trade.install_days,
+      scheduledTimeStart: trade.scheduled_time_start,
+      totalSquares: params.totalSquares,
+      schedulingEmail: params.schedulingEmail,
+      orgPhone: params.orgPhone,
+      orgShortName: params.orgShortName,
+      crewLinkToken: trade.crew_link_token,
+      appUrl: params.appUrl,
+    })
     let eventId = trade.install_google_event_id
     if (eventId) {
       try {
