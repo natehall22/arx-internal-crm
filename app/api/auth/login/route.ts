@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { createServiceClient } from '@/lib/supabase/service'
+import { waitForFailureTarget } from '@/lib/login-refusal-timing'
 import {
   COMPANY_CODE_HEADER,
   RESOLVED_LOOKUPS_HEADER,
@@ -28,20 +29,6 @@ const GENERIC_LOGIN_ERROR = 'Invalid login credentials'
 const UNAVAILABLE_LOGIN_ERROR = 'Sign-in is unavailable right now. Please try again.'
 const RATE_LIMITED_LOGIN_ERROR = 'Too many attempts. Please wait a minute and try again.'
 
-/**
- * Every refused sign-in (wrong password, unknown company address, account in another company) answers no sooner than
- * this after the request started, plus jitter, so the wrong-company path (extra profile read + session revoke) can't
- * be told from a wrong password by timing. Successful sign-ins are not delayed.
- */
-const LOGIN_FAILURE_FLOOR_MS = 1200
-const LOGIN_FAILURE_JITTER_MS = 250
-
-async function waitForFailureFloor(startedAt: number): Promise<void> {
-  const target = startedAt + LOGIN_FAILURE_FLOOR_MS + Math.floor(Math.random() * LOGIN_FAILURE_JITTER_MS)
-  const wait = target - Date.now()
-  if (wait > 0) await new Promise((r) => setTimeout(r, wait))
-}
-
 export async function POST(req: NextRequest) {
   const startedAt = Date.now()
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -63,7 +50,7 @@ export async function POST(req: NextRequest) {
       : '/dashboard'
 
   const loginError = async (message: string) => {
-    await waitForFailureFloor(startedAt)
+    await waitForFailureTarget(startedAt)
     const errorUrl = new URL(req.url)
     errorUrl.pathname = '/login'
     errorUrl.searchParams.set('error', message)

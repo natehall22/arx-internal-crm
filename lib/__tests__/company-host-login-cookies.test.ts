@@ -55,6 +55,7 @@ import { POST as loginPost } from '@/app/api/auth/login/route'
 import { middleware } from '@/middleware'
 import { __resetCompanyHostCacheForTests, verifyResolvedLookups } from '@/lib/company-host'
 import { writeSessionCookies } from '@/lib/supabase/session-refresh'
+import { __resetLoginRefusalTimingForTests, refusalTargetMs } from '@/lib/login-refusal-timing'
 
 const ORGS: Record<string, string> = { acme: 'org-acme', roofco: 'org-roofco' }
 const ENV_KEYS = ['APP_BASE_DOMAIN', 'DEPLOYMENT_ORG_ID'] as const
@@ -295,5 +296,16 @@ describe('cookie scope', () => {
     }
     for (const r of roots) walk(path.join(process.cwd(), r))
     expect(offenders).toEqual([])
+  })
+})
+
+describe('refusal timing target', () => {
+  test('relative: rises above a slow refusal path and is shared by fast ones; floor and cap hold', () => {
+    __resetLoginRefusalTimingForTests()
+    expect(refusalTargetMs(200)).toBe(1200) // floor
+    expect(refusalTargetMs(2000)).toBe(2500) // slow path seen → target above it
+    expect(refusalTargetMs(100)).toBeGreaterThan(2400) // a fast wrong-password now waits as long
+    expect(refusalTargetMs(60_000)).toBe(6000) // capped
+    __resetLoginRefusalTimingForTests()
   })
 })
