@@ -11,6 +11,7 @@ import {
   SUBDOMAIN_RE,
   __resetCompanyHostCacheForTests,
   classifyHost,
+  companyAppUrl,
   fenceAllowsOrg,
   hostnameFromHeader,
   lookupCompanyBySubdomain,
@@ -200,4 +201,12 @@ test('SQL migration mirrors the TS subdomain rule and reserved list', () => {
   const list = sql.match(/subdomain not in \(([\s\S]*?)\)/)?.[1] ?? ''
   const sqlReserved = Array.from(list.matchAll(/'([a-z0-9-]+)'/g), (m) => m[1]).sort()
   expect(sqlReserved).toEqual(Array.from(RESERVED_SUBDOMAINS).sort())
+})
+
+test('companyAppUrl: stored address → link origin; nothing when unset or routing off', () => {
+  expect(companyAppUrl('Acme')).toBe('https://acme.crm-product.test')
+  expect(companyAppUrl(null)).toBeNull()
+  expect(companyAppUrl('www')).toBeNull()
+  delete process.env.APP_BASE_DOMAIN
+  expect(companyAppUrl('acme')).toBeNull()
 })

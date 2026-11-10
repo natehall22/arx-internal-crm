@@ -49,6 +49,16 @@ export function appBaseDomain(): string | null {
   return raw
 }
 
+/**
+ * A company's own app address, `https://<subdomain>.<APP_BASE_DOMAIN>`, or null (no subdomain, or routing off).
+ * Merge point with lib/app-url.ts (feat/app-domain-cutover): server code that loads an org fills
+ * `getAppUrl({ appUrl: companyAppUrl(org.subdomain) })` — the one place the stored address becomes a link.
+ */
+export function companyAppUrl(subdomain: string | null | undefined, baseDomain: string | null = appBaseDomain()): string | null {
+  const sub = normalizeSubdomain(subdomain)
+  return sub && baseDomain ? `https://${sub}.${baseDomain}` : null
+}
+
 export type HostKind =
   | { kind: 'off' } // APP_BASE_DOMAIN unset: routing disabled
   | { kind: 'legacy' } // any other address (legacy *.vercel.app, localhost, previews): unfenced during the overlap
