@@ -55,7 +55,6 @@
   "lib/money-permission-guard.ts": 1,
   "lib/ops-board-sold-squares.ts": 1,
   "lib/payroll-hours.ts": 1,
-  "lib/payroll-period-lock.ts": 1,
   "lib/payroll-statement.ts": 2,
   "lib/project-review.ts": 2,
   "lib/public-estimate-lead.ts": 7,

@@ -9,24 +9,36 @@
 //   node scripts/org-scope-check.mjs --list     print every finding (file:line table op)
 //   node scripts/org-scope-check.mjs --update   shrink the baseline after you fixed findings
 //
-// THE RULE (read by the TypeScript parser, not regex). A query chain `<x>.from('<company table>')` passes when ANY of:
-//   1. it filters the company: .eq('org_id', …) | .in('org_id', …) | .filter('org_id', …) | .match({ org_id: … }),
-//      anywhere in the chain or on the same builder variable later in the same function (`q = q.eq('org_id', …)`);
-//   2. it goes through the scoped helper: orgDb(client, orgId).from(…) (lib/supabase/org-db.ts) — scoped by construction;
+// THE RULE (read by the TypeScript parser, not regex). A query chain `<x>.from(<company table>)` — also x['from'](…), a
+// destructured `from(…)`, and a table name held in a const — passes when ANY of:
+//   1. it filters the company with a TRUSTED value: .eq('org_id', v) | .in('org_id', v) | .filter('org_id', 'eq'|'in', v)
+//      | .match({ org_id: v }), in the chain or on the same builder variable later in the same function, but only until
+//      the query runs (await / .then / passed on) — a filter added after that filters nothing. Trusted (trustedOrg):
+//      NOT from the request (URL params, query, body, form, headers, cookies — followed through aliases), not a literal,
+//      and resolvable: the signed-in caller's profile / auth context, a database row, a function parameter (the caller
+//      supplies the company and is checked where it reads the request), a local derived from those, a server-side call
+//      result or an imported constant;
+//   2. it goes through orgDb(client, orgId).from(…) — only the real one imported from lib/supabase/org-db (a local
+//      function of that name does not count) and only with a trusted orgId;
 //   3. it filters by a value that was itself loaded company-scoped in the same function: the value's root variable is
 //      `{ data: x }` from a chain that passes this rule, an alias / for-of item / array-callback item of such a variable,
 //      or the signed-in caller (`await requireAuth()` / `requireAuthApi()` / `getAuthContext()`). A filter by a URL id,
-//      a request body field or a function parameter does NOT pass — that is the hole this check exists for;
-//   4. it is an insert: org_id is NOT NULL on every listed table, so the database already refuses a row with no company
-//      (which company is set is the writer's job; this check cannot see it);
-//   6. it filters by a secret-token column (token, signing_token, *_token_hash, webhook_token): a public link or webhook
-//      reaches exactly the row its secret names, in whichever company owns it — that is the design;
-//   5. it carries a reason: `// org-scope-ok: <why>` on the .from(…) line, or between the line above the statement and it (e.g. a cron that works
-//      every company on purpose, or a row reached by a signed token). The reason must say why.
+//      a request body field or a function parameter does NOT pass — that is the hole this check exists for.
+//      3b: the same value was matched by an EARLIER scoped load that bails when empty; 3c: load by id, then
+//      `if (!x || x.org_id !== org) return` before anything else touches x;
+//   4. it is an insert whose org_id (if the payload shows one) is trusted and not overwritten by a request spread:
+//      org_id is NOT NULL on every listed table, so a row with no company is refused by the database anyway;
+//   5. it carries a reason: `// org-scope-ok: <why>` on the .from(…) line, or between the line above the statement and
+//      it (e.g. a cron that works every company on purpose). The reason must say why;
+//   6. it filters (eq) by a secret-token column named in SECRET_TOKEN_COLUMNS (explicit table → column list): a public
+//      link or webhook reaches exactly the row its secret names, in whichever company owns it — that is the design.
 // An upsert (INSERT … ON CONFLICT DO UPDATE) can overwrite and re-home another company's row on its conflict key, so it
-// passes only when its literal onConflict includes org_id, or with 5 (say how the key was checked first).
-// .rpc(…) calls are not checked (SQL functions must scope themselves). Client components ('use client') are skipped:
-// they only have the browser client, which row-level security limits.
+// passes only when its literal onConflict includes org_id, when a conflict-key value in a literal payload is itself
+// company-checked (rule 3/3b), or with 5. .rpc(…) calls are not checked (SQL functions must scope themselves).
+// Not checked: 'use client' files (browser client, RLS) and chains on a user-token client — a lib factory imported from
+// its module (RLS_IMPORTS), supabase-js createClient whose key is the ANON key by value flow, or a local wrapper that
+// only builds those. Storage calls are skipped only when they really are storage (`x.storage.from(…)`, a variable
+// holding `x.storage`, or a storage method right after .from), never because of a variable's name.
 //
 // Company tables = every table with an org_id column in supabase/migrations (numbered files only) plus EXTRA_TABLES
 // below (tables that exist in the live database but were created outside the migration files; checked against
@@ -44,13 +56,34 @@ const FILTER_METHODS = new Set(['eq', 'in', 'filter', 'match'])
 const OPS = ['select', 'insert', 'update', 'upsert', 'delete']
 // Calls that return the signed-in caller's own identity (lib/auth.ts, lib/supabase-api-request-auth.ts, lib/threads/api.ts).
 const AUTH_CALLS = new Set(['requireAuth', 'requireAuthApi', 'getAuthContext', 'resolveApiRequestAuthUser', 'threadAuth'])
-// Columns that hold a random secret handed to one outside party (signing links, review links, webhooks).
-const SECRET_TOKEN_COLUMN = /^(token|[a-z_]*_token|[a-z_]*_token_hash)$/
+// Columns that hold a random secret handed to ONE outside party (signing links, review links, crew links, webhooks).
+// Explicit (table → columns): a new token column must be added here on purpose.
+const SECRET_TOKEN_COLUMNS = {
+  contracts: ['token'],
+  review_requests: ['token'],
+  inspection_reports: ['share_token'],
+  work_orders: ['crew_link_token'],
+  order_form_contracts: ['signing_token'],
+  job_change_orders: ['signing_token'],
+  employee_comp_agreements: ['signing_token_hash', 'receipt_token_hash'],
+  lead_sources: ['webhook_token'],
+}
+// Storage API methods: `<client>.storage.from(bucket).<these>` is a file bucket, not a table.
+const STORAGE_METHODS = new Set(['upload', 'download', 'remove', 'list', 'createSignedUrl', 'createSignedUrls', 'getPublicUrl', 'move', 'copy', 'createSignedUploadUrl', 'uploadToSignedUrl', 'info', 'exists'])
+// Where a value is the request (URL params, query, body, form, headers, cookies).
+const REQUEST_ROOTS = /^(params|body|searchParams|query|request|req|formData|headers|cookies)$/
+const REQUEST_INIT = /\.json\(\)|searchParams|formData\(\)|\.headers\b|\.cookies\b|\bnew URL\(\s*(request|req)\.url/
 const ALLOW = /org-scope-ok:\s*\S.{2,}/
-// Factories that return a client carrying the signed-in user's token (row-level security applies). A chain on one of
-// these is not checked; RLS policies are their own audit. Anything else (the service client, a function parameter of
-// unknown origin) IS checked. Ignored in a file that reads the service key, where createClient may be service-role.
-const RLS_FACTORIES = new Set(['createClient', 'createServerClient', 'createClientBrowser', 'getClientBrowser', 'createRequestScopedClient', 'createAnonClient', 'getAuthClient'])
+// Factories that return a client carrying the signed-in user's token (row-level security applies), by the module they
+// come from. A chain on one of these is not checked; RLS policies are their own audit. `createClient` from
+// '@supabase/supabase-js' counts only when its key argument is the ANON key by value flow. Anything else (the service
+// client, a function parameter of unknown origin) IS checked.
+const RLS_IMPORTS = {
+  '@/lib/supabase/server': ['createClient', 'createServerClient'],
+  '@/lib/supabase/client': ['createClient', 'createClientBrowser', 'getClientBrowser'],
+  '@/lib/supabase/request-client': ['createRequestScopedClient'],
+}
+const ORG_DB_MODULE = /(^@\/|\/)lib\/supabase\/org-db$|^\.\.?\/(.*\/)?org-db$/
 
 // ---------- company tables from migrations ----------
 export function orgTablesFromMigrations(dir = 'supabase/migrations') {
@@ -156,6 +189,7 @@ function analyzeFile(file, text, orgTables) {
     decls.set(nameNode.text, arr)
   }
   const fromCalls = []
+  const candidates = []
   ;(function visit(n) {
     if (ts.isVariableDeclaration(n)) {
       if (ts.isIdentifier(n.name)) addDecl(n.name, 'var', n.initializer, n)
@@ -194,6 +228,17 @@ function analyzeFile(file, text, orgTables) {
         const arr = decls.get(n.name.text) || []
         arr.push(d)
         decls.set(n.name.text, arr)
+      } else if (ts.isObjectBindingPattern(n.name) && !recv) {
+        // ({ orgId, jobId }) / ({ params }): destructured parameters. A route handler's context ({ params }) stays
+        // unresolved on purpose so `params` reads as the request.
+        const isRouteCtx = n.name.elements.some((el) => ts.isIdentifier(el.name) && /^(params|searchParams)$/.test(el.name.text))
+        if (!isRouteCtx)
+          for (const el of n.name.elements)
+            if (ts.isIdentifier(el.name)) {
+              const arr = decls.get(el.name.text) || []
+              arr.push({ nameNode: el.name, kind: 'param', init: null, scope: fn, decl: n })
+              decls.set(el.name.text, arr)
+            }
       }
     }
     if (ts.isForOfStatement(n) && ts.isVariableDeclarationList(n.initializer))
@@ -202,12 +247,14 @@ function analyzeFile(file, text, orgTables) {
         arr.push({ nameNode: d.name, kind: 'item', init: n.expression, scope: n, decl: d })
         decls.set(d.name.text, arr)
       }
-    if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression) && n.expression.name.text === 'from') {
-      const table = strLit(n.arguments[0])
-      const recv = n.expression.expression
-      const storage = (ts.isPropertyAccessExpression(recv) && recv.name.text === 'storage') || (ts.isIdentifier(recv) && /storage|bucket/i.test(recv.text))
-      if (table && orgTables.has(table) && !storage) fromCalls.push({ call: n, table })
-    }
+    // x.from(t) | x['from'](t) | from(t) (a destructured / bound `from`)
+    if (
+      ts.isCallExpression(n) &&
+      ((ts.isPropertyAccessExpression(n.expression) && n.expression.name.text === 'from') ||
+        (ts.isElementAccessExpression(n.expression) && strLit(n.expression.argumentExpression) === 'from') ||
+        (ts.isIdentifier(n.expression) && n.expression.text === 'from'))
+    )
+      candidates.push(n)
     ts.forEachChild(n, visit)
   })(sf)
 
@@ -217,21 +264,84 @@ function analyzeFile(file, text, orgTables) {
     return cands[0] || null
   }
 
-  const readsServiceKey = text.includes('SUPABASE_SERVICE_ROLE_KEY')
-  const callName = (n) => {
+  // imports: local name -> { module, imported }
+  const imports = new Map()
+  for (const st of sf.statements) {
+    if (!ts.isImportDeclaration(st) || !st.importClause) continue
+    const mod = strLit(st.moduleSpecifier)
+    const nb = st.importClause.namedBindings
+    if (nb && ts.isNamedImports(nb)) for (const el of nb.elements) imports.set(el.name.text, { module: mod, imported: (el.propertyName || el.name).text })
+  }
+  // a name declared locally (function / variable) shadows any import of it
+  const localFn = (name) => sf.statements.some((st) => ts.isFunctionDeclaration(st) && st.name && st.name.text === name) || (decls.get(name) || []).length > 0
+  const importedFrom = (name, modRe) => {
+    const im = imports.get(name)
+    return !!im && (typeof modRe === 'string' ? im.module === modRe : modRe.test(im.module || '')) && !localFn(name)
+  }
+
+  // table name: a literal, or a const identifier holding one
+  const tableName = (arg) => {
+    const lit = strLit(arg)
+    if (lit) return lit
+    const a = strip(arg)
+    if (a && ts.isIdentifier(a)) {
+      const d = resolve(a)
+      if (d && d.kind === 'var' && d.init) return strLit(strip(d.init))
+    }
+    return null
+  }
+  const storageReceiver = (recv) => {
+    recv = recv && strip(recv)
+    if (!recv) return false
+    if (ts.isPropertyAccessExpression(recv) && recv.name.text === 'storage') return true
+    if (ts.isIdentifier(recv)) {
+      const d = resolve(recv)
+      const init = d && d.init && strip(d.init)
+      return !!init && ts.isPropertyAccessExpression(init) && init.name.text === 'storage'
+    }
+    return false
+  }
+  for (const n of candidates) {
+    const table = tableName(n.arguments[0])
+    if (!table || !orgTables.has(table)) continue
+    const recv = ts.isIdentifier(n.expression) ? null : n.expression.expression
+    if (storageReceiver(recv)) continue
+    const first = chainUp(n).calls[0]
+    if (first && STORAGE_METHODS.has(first.name) && !OPS.includes(first.name)) continue
+    fromCalls.push({ call: n, table })
+  }
+  const tableOf = new Map(fromCalls.map(({ call, table }) => [call, table]))
+  const receiverOf = (call) => (ts.isIdentifier(call.expression) ? null : strip(call.expression.expression))
+
+  // process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY, directly or through local consts
+  function isAnonKey(expr, depth = 0) {
+    const e = strip(expr)
+    if (!e || depth > 4) return false
+    if (ts.isPropertyAccessExpression(e)) return e.name.text === 'NEXT_PUBLIC_SUPABASE_ANON_KEY' && /process\.env$/.test(e.expression.getText(sf))
+    if (ts.isIdentifier(e)) {
+      const d = resolve(e)
+      return !!d && d.kind === 'var' && !!d.init && isAnonKey(d.init, depth + 1)
+    }
+    return false
+  }
+  // A call that builds a user-token client: a lib factory imported from its module, or supabase-js createClient with the
+  // anon key.
+  function rlsFactoryCall(n) {
     n = strip(n)
-    if (!n || !ts.isCallExpression(n)) return null
-    const e = n.expression
-    return ts.isIdentifier(e) ? e.text : ts.isPropertyAccessExpression(e) ? e.name.text : null
+    if (!n || !ts.isCallExpression(n) || !ts.isIdentifier(n.expression)) return false
+    const name = n.expression.text
+    for (const [mod, names] of Object.entries(RLS_IMPORTS)) if (names.includes(name) && importedFrom(name, mod)) return true
+    if (imports.get(name)?.module === '@supabase/supabase-js' && imports.get(name)?.imported === 'createClient' && !localFn(name)) return isAnonKey(n.arguments[1])
+    return false
   }
   function rlsClient(recv) {
-    if (readsServiceKey) return false
-    if (RLS_FACTORIES.has(callName(recv))) return true
+    if (!recv) return false
+    if (rlsFactoryCall(recv)) return true
     let id = ts.isPropertyAccessExpression(recv) ? null : recv
     for (let i = 0; id && ts.isIdentifier(id) && i < 4; i++) {
       const d = resolve(id)
       if (!d || !d.init || d.kind === 'param' || d.kind === 'item') return false
-      if (RLS_FACTORIES.has(callName(d.init))) return true
+      if (rlsFactoryCall(d.init)) return true
       const init = strip(d.init)
       if (ts.isCallExpression(init) && ts.isIdentifier(init.expression)) return rlsWrapper(init.expression)
       id = init
@@ -243,7 +353,6 @@ function analyzeFile(file, text, orgTables) {
   // another such local function: what it returns is the caller's own identity. Same idea for local functions that only
   // ever build a user-token client (RLS) and never the service client.
   const AUTH_BODY = new RegExp(`\\b(${[...AUTH_CALLS].join('|')})\\s*\\(|\\.auth\\.getUser\\s*\\(`)
-  const RLS_BODY = new RegExp(`\\b(${[...RLS_FACTORIES].join('|')})\\s*\\(`)
   function localFnText(id) {
     if (!id || !ts.isIdentifier(id)) return null
     const fn = sf.statements.find((st) => ts.isFunctionDeclaration(st) && st.name && st.name.text === id.text)
@@ -265,9 +374,28 @@ function analyzeFile(file, text, orgTables) {
     return false
   }
   const authWrapper = (id) => bodyMatches(id, AUTH_BODY)
+  // A local function (e.g. getAuthClient) that builds ONLY user-token clients: every client factory call in it is an RLS
+  // factory by the rules above, and nothing in it touches the service client or key.
   const rlsWrapper = (id) => {
     const text = localFnText(id)
-    return !!text && !/createServiceClient|admin|service/i.test(text) && bodyMatches(id, RLS_BODY)
+    if (!text || /createServiceClient|SERVICE_ROLE|admin|service/i.test(text)) return false
+    const fnNode =
+      sf.statements.find((st) => ts.isFunctionDeclaration(st) && st.name && st.name.text === id.text) ||
+      (() => {
+        const d = resolve(id)
+        return d && d.init && strip(d.init)
+      })()
+    if (!fnNode) return false
+    let found = 0
+    let bad = 0
+    ;(function walk(n) {
+      if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && /createClient|ServerClient|ClientBrowser|RequestScopedClient/.test(n.expression.text)) {
+        if (rlsFactoryCall(n)) found++
+        else bad++
+      }
+      ts.forEachChild(n, walk)
+    })(fnNode)
+    return found > 0 && bad === 0
   }
 
   // `let profile; … profile = x.profile` / `;({ profile } = await requireAuthApi())`: every assignment must be org-loaded.
@@ -332,17 +460,62 @@ function analyzeFile(file, text, orgTables) {
     return false
   }
 
-  function isScopeFilter(c, depth) {
+  // Does this value come from the request (URL params, query, body, form, headers, cookies)? Followed through local
+  // aliases and destructuring. `params` counts only as the route's `{ params }` (a helper's own `params` argument is not).
+  function requestSourced(expr, depth = 0) {
+    let id = rootIdent(expr)
+    for (let i = 0; id && i < 8; i++) {
+      const d = resolve(id)
+      if (REQUEST_ROOTS.test(id.text)) {
+        if (!d) return true // e.g. destructured from the handler's context: ({ params }) / ({ searchParams })
+        if (d.kind === 'param') return id.text !== 'params'
+        if (!d.init || REQUEST_INIT.test(d.init.getText(sf)) || REQUEST_ROOTS.test(rootIdent(d.init)?.text || '')) return true
+      }
+      if (!d || !d.init) return false
+      if (REQUEST_INIT.test(d.init.getText(sf).slice(0, 300))) return true
+      id = rootIdent(d.init)
+    }
+    return false
+  }
+  // A company id the server can trust (org filters, orgDb's orgId, an insert's org_id). It must NOT come from the request
+  // and must not be a literal or something unresolvable: it has to resolve to a variable in scope — the signed-in
+  // caller's profile / auth context, a row loaded from the database, a function parameter (the caller supplies the
+  // company and is checked where it reads the request), or a local derived from those — or a server-side call result
+  // or imported constant. `.filter('org_id', op, v)` counts only for op eq / in.
+  function trustedOrg(expr, depth = 0) {
+    const e = strip(expr)
+    if (!e || depth > 6) return false
+    if (ts.isArrayLiteralExpression(e)) return e.elements.length > 0 && e.elements.every((x) => trustedOrg(x, depth + 1))
+    if (strLit(e) !== null || ts.isNumericLiteral(e) || ts.isObjectLiteralExpression(e) || ts.isTemplateExpression(e)) return false
+    if (requestSourced(e)) return false
+    const r = rootIdent(e)
+    if (!r) return ts.isCallExpression(e) // e.g. getPublicEstimateOrgId(): server config, not the request
+    const d = resolve(r)
+    if (!d) return imports.has(r.text) // an imported constant / helper result; unresolvable globals are not trusted
+    return true
+  }
+
+  function isScopeFilter(c, depth, table) {
     if (!FILTER_METHODS.has(c.name)) return false
     if (c.name === 'match') {
       const o = strip(c.args[0])
-      return !!o && ts.isObjectLiteralExpression(o) && o.properties.some((p) => p.name && p.name.getText(sf).replace(/['"]/g, '') === 'org_id')
+      if (!o || !ts.isObjectLiteralExpression(o)) return false
+      const p = o.properties.find((p) => p.name && p.name.getText(sf).replace(/['"]/g, '') === 'org_id')
+      if (!p) return false
+      const v = ts.isShorthandPropertyAssignment(p) ? p.name : ts.isPropertyAssignment(p) ? p.initializer : null
+      return !!v && trustedOrg(v, depth)
     }
     const col = strLit(c.args[0])
-    if (col === 'org_id') return true
-    // rule 6: reached by an unguessable secret (signing / review / webhook token or its hash): the token IS the access
-    if (col && SECRET_TOKEN_COLUMN.test(col)) return true
-    const val = c.name === 'filter' ? c.args[2] : c.args[1]
+    if (col === 'org_id') {
+      if (c.name === 'filter') {
+        const op = strLit(c.args[1])
+        return (op === 'eq' || op === 'in') && !!c.args[2] && trustedOrg(c.args[2], depth)
+      }
+      return !!c.args[1] && trustedOrg(c.args[1], depth)
+    }
+    // rule 6: reached by an unguessable secret named in SECRET_TOKEN_COLUMNS: the token IS the access
+    if (col && table && (SECRET_TOKEN_COLUMNS[table] || []).includes(col) && c.name === 'eq') return true
+    const val = c.name === 'filter' ? (strLit(c.args[1]) === 'eq' || strLit(c.args[1]) === 'in' ? c.args[2] : null) : c.args[1]
     return !!val && (orgLoaded(rootIdent(val), depth) || verifiedEarlier(val, c.node, depth))
   }
 
@@ -511,33 +684,81 @@ function analyzeFile(file, text, orgTables) {
     if (name) {
       let fn = fromCall.parent
       while (fn && !isFn(fn) && !ts.isSourceFile(fn)) fn = fn.parent
+      const uses = []
       ;(function walk(n) {
-        if (ts.isIdentifier(n) && n.text === name.text && n !== name) all.push(...chainUp(n).calls)
+        if (ts.isIdentifier(n) && n.text === name.text && n !== name && n.pos > name.pos) uses.push(n)
         ts.forEachChild(n, walk)
       })(fn)
+      uses.sort((a, b) => a.pos - b.pos)
+      // Filters count only until the query runs: the first use that is awaited, .then()'d, or handed elsewhere
+      // (an argument / array element, e.g. Promise.all([q])) runs it; anything chained after that filters nothing.
+      for (const u of uses) {
+        const { calls: more, top: t } = chainUp(u)
+        all.push(...more)
+        let h = t
+        while (h.parent && ts.isParenthesizedExpression(h.parent)) h = h.parent
+        const p = h.parent
+        const runs =
+          (p && (ts.isAwaitExpression(p) || ts.isArrayLiteralExpression(p) || (ts.isCallExpression(p) && p.arguments.includes(h)) || ts.isReturnStatement(p))) ||
+          more.some((c) => c.name === 'then')
+        if (runs) break
+      }
     }
     return { all, own: calls }
+  }
+
+  // orgDb(client, orgId) — only the real one (imported from lib/supabase/org-db, not shadowed), with a trusted orgId
+  function isOrgDbCall(n, depth) {
+    n = strip(n)
+    return (
+      !!n && ts.isCallExpression(n) && ts.isIdentifier(n.expression) && imports.get(n.expression.text)?.imported === 'orgDb' &&
+      importedFrom(n.expression.text, ORG_DB_MODULE) && !!n.arguments[1] && trustedOrg(n.arguments[1], depth)
+    )
+  }
+  // An insert passes unless a row it writes names its company from somewhere untrusted (the request, a literal…).
+  // Rows built elsewhere (not visible here) pass: org_id is NOT NULL, so a row with no company is refused by the database.
+  function insertOrgTrusted(c, depth) {
+    if (!c) return true
+    let payload = strip(c.args[0])
+    if (payload && ts.isIdentifier(payload)) {
+      const d = resolve(payload)
+      if (d && d.kind === 'var' && d.init) payload = strip(d.init)
+    }
+    const objs = payload && ts.isArrayLiteralExpression(payload) ? payload.elements.map(strip) : [payload]
+    for (const o of objs) {
+      if (!o || !ts.isObjectLiteralExpression(o)) continue
+      // the LAST writer of org_id wins: an explicit org_id, or a spread that may carry one
+      let verdict = true
+      for (const p of o.properties) {
+        if (ts.isSpreadAssignment(p)) {
+          if (requestSourced(p.expression)) verdict = false
+          continue
+        }
+        if (!p.name || p.name.getText(sf).replace(/['"]/g, '') !== 'org_id') continue
+        const v = ts.isShorthandPropertyAssignment(p) ? p.name : ts.isPropertyAssignment(p) ? p.initializer : null
+        verdict = !!v && trustedOrg(v, depth)
+      }
+      if (!verdict) return false
+    }
+    return true
   }
 
   function chainScoped(fromCall, depth = 0) {
     if (memo.has(fromCall)) return memo.get(fromCall)
     memo.set(fromCall, false) // cycle guard
-    const recv = strip(fromCall.expression.expression)
+    const recv = receiverOf(fromCall)
     let ok = rlsClient(recv)
-    if (ok) {
-      // user-token client: RLS applies
-    } else if (ts.isCallExpression(recv) && ts.isIdentifier(recv.expression) && recv.expression.text === 'orgDb') ok = true
-    else if (ts.isIdentifier(recv)) {
+    if (!ok && recv) ok = isOrgDbCall(recv, depth)
+    if (!ok && recv && ts.isIdentifier(recv)) {
       const d = resolve(recv)
-      const init = d && d.init && strip(d.init)
-      if (init && ts.isCallExpression(init) && ts.isIdentifier(init.expression) && init.expression.text === 'orgDb') ok = true
+      if (d && d.kind === 'var' && d.init) ok = isOrgDbCall(strip(d.init), depth)
     }
     if (!ok) {
       const { all } = builderCalls(fromCall)
       const op = all.find((c) => OPS.includes(c.name))?.name
-      if (op === 'insert') ok = true
+      if (op === 'insert') ok = insertOrgTrusted(all.find((c) => c.name === 'insert'), depth)
       else if (op === 'upsert') ok = upsertConflictHasOrg(all.find((c) => c.name === 'upsert')) || upsertKeysVerified(all.find((c) => c.name === 'upsert'), depth)
-      else ok = all.some((c) => isScopeFilter(c, depth)) || (op === 'select' && orgCheckedAfterLoad(fromCall))
+      else ok = all.some((c) => isScopeFilter(c, depth, tableOf.get(fromCall))) || (op === 'select' && orgCheckedAfterLoad(fromCall))
     }
     memo.set(fromCall, ok)
     return ok
@@ -567,7 +788,7 @@ function analyzeFile(file, text, orgTables) {
   const findings = []
   for (const { call, table } of fromCalls) {
     if (chainScoped(call)) continue
-    const line = sf.getLineAndCharacterOfPosition(call.expression.name.getStart(sf)).line
+    const line = sf.getLineAndCharacterOfPosition((call.expression.name || call.expression).getStart(sf)).line
     // the reason may sit on the .from(…) line, or anywhere from the line above the statement down to it
     let stmt = call
     while (stmt.parent && !ts.isBlock(stmt.parent) && !ts.isSourceFile(stmt.parent) && !ts.isCaseClause(stmt.parent)) stmt = stmt.parent

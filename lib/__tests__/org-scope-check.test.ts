@@ -12,7 +12,7 @@ const SCRIPT = path.join(process.cwd(), 'scripts/org-scope-check.mjs')
 function findings(source: string, file = 'app/api/x/route.ts'): Array<{ line: number; table: string; op: string }> {
   const code = `
     import { analyzeFile } from ${JSON.stringify(SCRIPT)}
-    const tables = new Set(['leads', 'customers', 'scheduled_appointments', 'users', 'thread_members', 'production_jobs', 'job_files'])
+    const tables = new Set(['leads', 'customers', 'scheduled_appointments', 'users', 'thread_members', 'production_jobs', 'job_files', 'order_form_contracts'])
     const out = analyzeFile(process.env.F, process.env.SRC, tables).map((f) => ({ line: f.line, table: f.table, op: f.op }))
     process.stdout.write(JSON.stringify(out))
   `
@@ -205,11 +205,11 @@ describe('accepts', () => {
     ).toEqual([])
   })
 
-  test('rule 6: secret token lookups', () => {
+  test('rule 6: secret token lookups (allow-listed table + column only)', () => {
     expect(
       findings(head + `export async function GET(_r, { params }) {
         const admin = createServiceClient()
-        const { data: c } = await admin.from('customers').select('id').eq('signing_token', params.token).single()
+        const { data: c } = await admin.from('order_form_contracts').select('id').eq('signing_token', params.token).single()
         return c
       }`)
     ).toEqual([])
@@ -224,5 +224,99 @@ describe('accepts', () => {
       }`)
     ).toEqual([])
     expect(findings(`'use client'\nexport function A({ supabase, id }) { return supabase.from('leads').select('*').eq('id', id) }`)).toEqual([])
+  })
+})
+
+describe('trusted company values (review 2026-11-10)', () => {
+  const wrap = (body: string) =>
+    head + `import { orgDb } from '@/lib/supabase/org-db'
+    export async function POST(req, { params }) {
+      const { profile } = await requireAuthApi()
+      const admin = createServiceClient()
+      const body = await req.json()
+      ${body}
+    }`
+
+  test('an org filter whose value comes from the request is flagged', () => {
+    expect(findings(wrap(`await admin.from('leads').select('*').eq('org_id', body.org_id)`))).toHaveLength(1)
+    expect(findings(wrap(`await admin.from('leads').select('*').eq('org_id', params.orgId)`))).toHaveLength(1)
+    expect(findings(wrap(`const ids = body.orgIds; await admin.from('leads').select('*').in('org_id', ids)`))).toHaveLength(1)
+    expect(findings(wrap(`await admin.from('leads').select('*').match({ org_id: body.org })`))).toHaveLength(1)
+    expect(findings(wrap(`await admin.from('leads').select('*').eq('org_id', 'b3c1e2a0-0000-0000-0000-000000000000')`))).toHaveLength(1)
+  })
+
+  test(".filter('org_id', op, …) counts only for eq / in", () => {
+    expect(findings(wrap(`await admin.from('leads').select('*').filter('org_id', 'neq', profile.org_id)`))).toHaveLength(1)
+    expect(findings(wrap(`await admin.from('leads').select('*').filter('org_id', 'eq', profile.org_id)`))).toEqual([])
+  })
+
+  test('a trusted org value passes: profile, a local derived from it, a function parameter', () => {
+    expect(findings(wrap(`const orgId = profile.org_id; await admin.from('leads').select('*').eq('org_id', orgId)`))).toEqual([])
+    expect(findings(head + `export async function load(admin, orgId) { return admin.from('leads').select('*').eq('org_id', orgId) }`)).toEqual([])
+    expect(findings(head + `export async function load(admin, { orgId, leadId }) { return admin.from('leads').select('*').eq('org_id', orgId).eq('id', leadId) }`)).toEqual([])
+  })
+
+  test('orgDb counts only when imported from lib/supabase/org-db, and only with a trusted orgId', () => {
+    expect(findings(wrap(`await orgDb(admin, profile.org_id).from('leads').select('*').eq('id', params.id)`))).toEqual([])
+    expect(findings(wrap(`await orgDb(admin, body.org_id).from('leads').select('*').eq('id', params.id)`))).toHaveLength(1)
+    expect(
+      findings(head + `function orgDb(c, o) { return c }
+      export async function GET(_r, { params }) {
+        const { profile } = await requireAuthApi()
+        return orgDb(createServiceClient(), profile.org_id).from('leads').select('*').eq('id', params.id)
+      }`)
+    ).toHaveLength(1)
+  })
+
+  test('inserts: org_id from the request (or overwritten by a request spread) is flagged', () => {
+    expect(findings(wrap(`await admin.from('leads').insert({ org_id: body.org_id, x: 1 })`))).toHaveLength(1)
+    expect(findings(wrap(`await admin.from('leads').insert({ org_id: profile.org_id, ...body })`))).toHaveLength(1)
+    expect(findings(wrap(`const row = { org_id: body.org_id }; await admin.from('leads').insert(row)`))).toHaveLength(1)
+    expect(findings(wrap(`await admin.from('leads').insert({ ...body, org_id: profile.org_id })`))).toEqual([])
+  })
+
+  test('filters added after the query already ran do not count', () => {
+    expect(
+      findings(wrap(`let q = admin.from('leads').select('*').eq('id', params.id)
+      const { data } = await q
+      q = q.eq('org_id', profile.org_id)
+      return data`))
+    ).toHaveLength(1)
+    expect(
+      findings(wrap(`let q = admin.from('leads').select('*').eq('id', params.id)
+      q = q.eq('org_id', profile.org_id)
+      const { data } = await q
+      return data`))
+    ).toEqual([])
+  })
+
+  test('const table names and a destructured `from` are still checked', () => {
+    expect(findings(wrap(`const T = 'leads'; await admin.from(T).select('*').eq('id', params.id)`))).toHaveLength(1)
+    expect(findings(wrap(`const { from } = admin; await from('leads').select('*').eq('id', params.id)`))).toHaveLength(1)
+  })
+
+  test('only real storage API calls are skipped, not variables that happen to be named storage / bucket', () => {
+    expect(findings(wrap(`const storage = createServiceClient(); await storage.from('leads').select('*').eq('id', params.id)`))).toHaveLength(1)
+    expect(findings(wrap(`const bucket = createServiceClient(); await bucket.from('leads').delete().eq('id', params.id)`))).toHaveLength(1)
+    expect(findings(wrap(`await admin.storage.from('leads').download('x'); const b = admin.storage; await b.from('leads').upload('p', 'x')`))).toEqual([])
+  })
+
+  test('supabase-js createClient is a user-token client only with the ANON key (by value flow)', () => {
+    const src = (key: string) => `import { createClient } from '@supabase/supabase-js'
+      const KEY = ${key}
+      export async function GET(_r, { params }) {
+        const c = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, KEY)
+        return c.from('leads').select('*').eq('id', params.id)
+      }`
+    expect(findings(src('process.env.SUPABASE_SERVICE_ROLE_KEY'))).toHaveLength(1)
+    expect(findings(src('process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY'))).toEqual([])
+    // a local function that happens to be called createClient is not trusted
+    expect(findings(`function createClient() { return null as any }
+      export async function GET(_r, { params }) { return createClient().from('leads').select('*').eq('id', params.id) }`)).toHaveLength(1)
+  })
+
+  test('token columns outside the allow-list do not exempt a lookup', () => {
+    expect(findings(wrap(`await admin.from('customers').select('*').eq('signing_token', params.token)`))).toHaveLength(1)
+    expect(findings(wrap(`await admin.from('leads').select('*').eq('lock_claim_token', params.t)`))).toHaveLength(1)
   })
 })
