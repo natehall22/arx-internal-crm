@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from 'next/server'
 import { isPublicPath } from '@/lib/public-paths'
-import { classifyHost, lookupCompanyBySubdomain } from '@/lib/company-host'
+import { COMPANY_LOOKUP_UNAVAILABLE, classifyHost, lookupCompanyBySubdomain } from '@/lib/company-host'
 import { getSupabaseSessionFromCookieStore } from '@/lib/supabase/session-cookie'
 import {
   isExpired,
@@ -12,16 +12,16 @@ import {
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
-  // Skip middleware entirely for API routes - they handle their own auth
-  // This prevents any chance of returning HTML to API calls
+  // Company web address (<company>.<APP_BASE_DOMAIN>): a name that is no company gets a 404 on EVERY page and
+  // API — public or not — so it can never show another company's login; a failed lookup is 503 with
+  // code company_lookup_unavailable (never 401, so clients keep their session). Off while APP_BASE_DOMAIN is unset.
+  const gate = await companyHostGate(request)
+  if (gate) return gate
+
+  // API routes handle their own auth (no HTML redirects to API calls).
   if (pathname.startsWith('/api/')) {
     return NextResponse.next()
   }
-
-  // Company web address (<company>.<APP_BASE_DOMAIN>): a name that is no company gets a plain 404 on EVERY
-  // page — public or not — so it can never show another company's login. Off while APP_BASE_DOMAIN is unset.
-  const gate = await companyHostGate(request)
-  if (gate) return gate
 
   // Dev-only test harness for the mobile checks (e2e/mobile.spec.ts). Never reachable in a production build.
   if (process.env.NODE_ENV !== 'production' && pathname.startsWith('/dev-harness')) {
@@ -84,11 +84,16 @@ const NOT_FOUND_HTML =
   '<p style="font-size:16px">Check the web address your company gave you.</p></body></html>'
 
 /** null = carry on; otherwise the response to send (404 unknown company, 503 lookup failure). */
+function notFound(isApi: boolean): NextResponse {
+  return isApi
+    ? NextResponse.json({ error: 'Not found' }, { status: 404, headers: { 'cache-control': 'no-store' } })
+    : new NextResponse(NOT_FOUND_HTML, { status: 404, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } })
+}
+
 async function companyHostGate(request: NextRequest): Promise<NextResponse | null> {
+  const isApi = request.nextUrl.pathname.startsWith('/api/')
   const host = classifyHost(request.headers.get('host') ?? request.nextUrl.host)
-  if (host.kind === 'invalid') {
-    return new NextResponse(NOT_FOUND_HTML, { status: 404, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } })
-  }
+  if (host.kind === 'invalid') return notFound(isApi)
   if (host.kind !== 'company') return null
   const found = await lookupCompanyBySubdomain(host.subdomain)
   if (found.status === 'found') {
@@ -101,16 +106,17 @@ async function companyHostGate(request: NextRequest): Promise<NextResponse | nul
     }
     return null
   }
-  if (found.status === 'not_found') {
-    return new NextResponse(NOT_FOUND_HTML, { status: 404, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } })
-  }
-  return new NextResponse('Temporarily unavailable. Please try again in a minute.', {
-    status: 503,
-    headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store', 'retry-after': '30' },
-  })
+  if (found.status === 'not_found') return notFound(isApi)
+  const headers = { 'cache-control': 'no-store', 'retry-after': '30' }
+  return isApi
+    ? NextResponse.json({ error: 'Temporarily unavailable', code: COMPANY_LOOKUP_UNAVAILABLE }, { status: 503, headers })
+    : new NextResponse('Temporarily unavailable. Please try again in a minute.', {
+        status: 503,
+        headers: { ...headers, 'content-type': 'text/plain; charset=utf-8' },
+      })
 }
 
 export const config = {
-  // Exclude API routes and static files from middleware entirely
-  matcher: ['/((?!api|_next/static|_next/image|favicon.ico).*)'],
+  // API routes run through the company gate only (see the /api/ early return); static files are excluded.
+  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
 }

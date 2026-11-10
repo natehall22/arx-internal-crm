@@ -97,17 +97,35 @@ export function classifyHost(host: string | null | undefined, baseDomain: string
 export type CompanyLookup = { status: 'found'; orgId: string } | { status: 'not_found' } | { status: 'error' }
 
 const FOUND_TTL_MS = 60_000
+/** Unknown names are remembered too, so a flood of random names costs one DB call per name per 30 s at most. */
 const NOT_FOUND_TTL_MS = 30_000
+/** A known company stays usable this long through a DB blip (stale-on-error) instead of logging everyone out. */
+const STALE_ON_ERROR_MS = 10 * 60_000
 const MAX_CACHE_ENTRIES = 500
-const cache = new Map<string, { orgId: string | null; expires: number }>()
+/** LRU: Map keeps insertion order; every hit re-inserts the key, so the first key is the least recently used. */
+const cache = new Map<string, { orgId: string | null; fresh: number; storedAt: number }>()
+const inFlight = new Map<string, Promise<CompanyLookup>>()
 
 export function __resetCompanyHostCacheForTests(): void {
   cache.clear()
+  inFlight.clear()
+}
+
+function remember(sub: string, orgId: string | null, now: number): void {
+  cache.delete(sub)
+  while (cache.size >= MAX_CACHE_ENTRIES) {
+    const lru = cache.keys().next().value
+    if (lru === undefined) break
+    cache.delete(lru)
+  }
+  cache.set(sub, { orgId, fresh: now + (orgId ? FOUND_TTL_MS : NOT_FOUND_TTL_MS), storedAt: now })
 }
 
 /**
  * Org id for a company address via `public.org_id_for_subdomain` (anon-callable, returns only the id; a
- * subdomain's existence is public anyway — DNS answers for every name). Errors are never cached.
+ * subdomain's existence is public anyway — DNS answers for every name). Malformed / reserved names are refused
+ * before any DB call. Concurrent lookups of one name share one request. A failed lookup is never cached; it falls
+ * back to a known company's last answer (≤ 10 min old) and otherwise reports `error` (→ 503, never 401).
  */
 export async function lookupCompanyBySubdomain(subdomain: string): Promise<CompanyLookup> {
   const sub = normalizeSubdomain(subdomain)
@@ -115,13 +133,34 @@ export async function lookupCompanyBySubdomain(subdomain: string): Promise<Compa
 
   const now = Date.now()
   const hit = cache.get(sub)
-  if (hit && hit.expires > now) return hit.orgId ? { status: 'found', orgId: hit.orgId } : { status: 'not_found' }
-  if (hit) cache.delete(sub)
+  if (hit && hit.fresh > now) {
+    cache.delete(sub)
+    cache.set(sub, hit)
+    return hit.orgId ? { status: 'found', orgId: hit.orgId } : { status: 'not_found' }
+  }
 
+  const pending = inFlight.get(sub)
+  if (pending) return pending
+  const p = fetchCompany(sub)
+    .then((r): CompanyLookup => {
+      const at = Date.now()
+      if (r.status === 'found') remember(sub, r.orgId, at)
+      else if (r.status === 'not_found') remember(sub, null, at)
+      else {
+        const last = cache.get(sub)
+        if (last?.orgId && at - last.storedAt <= STALE_ON_ERROR_MS) return { status: 'found', orgId: last.orgId }
+      }
+      return r
+    })
+    .finally(() => inFlight.delete(sub))
+  inFlight.set(sub, p)
+  return p
+}
+
+async function fetchCompany(sub: string): Promise<CompanyLookup> {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
   if (!url || !key) return { status: 'error' }
-
   try {
     const res = await fetch(`${url.replace(/\/$/, '')}/rest/v1/rpc/org_id_for_subdomain`, {
       method: 'POST',
@@ -134,18 +173,15 @@ export async function lookupCompanyBySubdomain(subdomain: string): Promise<Compa
       return { status: 'error' }
     }
     const body: unknown = await res.json()
-    const orgId = typeof body === 'string' && body ? body : null
-    if (cache.size >= MAX_CACHE_ENTRIES) {
-      const oldest = cache.keys().next().value
-      if (oldest !== undefined) cache.delete(oldest)
-    }
-    cache.set(sub, { orgId, expires: now + (orgId ? FOUND_TTL_MS : NOT_FOUND_TTL_MS) })
-    return orgId ? { status: 'found', orgId } : { status: 'not_found' }
+    return typeof body === 'string' && body ? { status: 'found', orgId: body } : { status: 'not_found' }
   } catch (e) {
     console.error('company-host: lookup threw', e instanceof Error ? e.message : e)
     return { status: 'error' }
   }
 }
+
+/** Machine code on every response refused because the company lookup failed (503, never 401: clients must not sign out). */
+export const COMPANY_LOOKUP_UNAVAILABLE = 'company_lookup_unavailable'
 
 /* ------------------------------------------------------------------------ *
  * Fence
