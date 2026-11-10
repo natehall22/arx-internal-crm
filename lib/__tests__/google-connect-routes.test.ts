@@ -2,9 +2,12 @@
 /** Google connect routes: legacy address unchanged; company address uses the signed state and returns home. */
 import { NextRequest } from 'next/server'
 
-class CompanyLookupUnavailableError extends Error {}
 const requireAuthApi = jest.fn()
-jest.mock('@/lib/auth', () => ({ requireAuthApi: () => requireAuthApi(), CompanyLookupUnavailableError }))
+// The factory is hoisted above every declaration, so the error class must be defined inside it.
+jest.mock('@/lib/auth', () => {
+  class CompanyLookupUnavailableError extends Error {}
+  return { requireAuthApi: () => requireAuthApi(), CompanyLookupUnavailableError }
+})
 const saved: unknown[] = []
 jest.mock('@/lib/google-calendar', () => ({
   getGoogleAuthUrl: (state: string) => `https://accounts.google.test/auth?state=${encodeURIComponent(state)}`,
@@ -18,6 +21,7 @@ const NONCE = '11111111-2222-4333-8444-555555555555'
 const issueOAuthState = jest.fn(async () => ({ state: 'signed.payload', nonce: NONCE }))
 const acceptOAuthCallback = jest.fn()
 const finishOAuthConnect = jest.fn()
+const discardOAuthTicket = jest.fn(async () => undefined)
 jest.mock('@/lib/google-oauth-state', () => ({
   GOOGLE_CONNECT_COOKIE: 'gcal_connect_nonce',
   GOOGLE_CONNECT_COOKIE_PATH: '/api/auth/google',
@@ -25,9 +29,11 @@ jest.mock('@/lib/google-oauth-state', () => ({
   issueOAuthState: (...a: unknown[]) => issueOAuthState(...(a as [])),
   acceptOAuthCallback: (...a: unknown[]) => acceptOAuthCallback(...(a as [])),
   finishOAuthConnect: (...a: unknown[]) => finishOAuthConnect(...(a as [])),
+  discardOAuthTicket: (...a: unknown[]) => discardOAuthTicket(...(a as [])),
   isSignedOAuthState: (s: string) => s.includes('.'),
 }))
 
+import { CompanyLookupUnavailableError } from '@/lib/auth'
 import { GET as start } from '@/app/api/auth/google/route'
 import { GET as callback } from '@/app/api/auth/google/callback/route'
 import { GET as finishRoute } from '@/app/api/auth/google/finish/route'
@@ -43,6 +49,7 @@ beforeEach(() => {
   issueOAuthState.mockClear()
   acceptOAuthCallback.mockReset()
   finishOAuthConnect.mockReset()
+  discardOAuthTicket.mockClear()
   saved.length = 0
   jest.spyOn(console, 'error').mockImplementation(() => {})
 })
@@ -131,11 +138,28 @@ test('ATTACK via routes: the victim’s browser (other user, no cookie) gets not
   expect(res.headers.get('location')).toBe('https://acme.crm-product.test/settings?error=invalid_state')
 })
 
-test('finish signed out → ticket burned, nothing saved; finish off a company address → 404', async () => {
+test('finish signed out → ticket burned (code wiped), nothing saved; finish off a company address → 404', async () => {
   requireAuthApi.mockRejectedValueOnce(new Error('Unauthorized'))
-  finishOAuthConnect.mockResolvedValue({ ok: false, reason: 'no_cookie' })
-  await finishRoute(at('acme.crm-product.test', `/api/auth/google/finish?nonce=${NONCE}`))
-  expect(finishOAuthConnect).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ cookieNonce: null, userId: '' }))
+  const res = await finishRoute(at('acme.crm-product.test', `/api/auth/google/finish?nonce=${NONCE}`))
+  expect(discardOAuthTicket).toHaveBeenCalledWith(expect.anything(), NONCE)
+  expect(finishOAuthConnect).not.toHaveBeenCalled()
   expect(saved).toEqual([])
+  expect(res.headers.get('location')).toBe('https://acme.crm-product.test/settings?error=invalid_state')
   expect((await finishRoute(at('old-app.vercel.app', `/api/auth/google/finish?nonce=${NONCE}`))).status).toBe(404)
+})
+
+test('finish during a company lookup outage → ticket burned BEFORE the 503', async () => {
+  requireAuthApi.mockRejectedValueOnce(new CompanyLookupUnavailableError())
+  const res = await finishRoute(at('acme.crm-product.test', `/api/auth/google/finish?nonce=${NONCE}`, `gcal_connect_nonce=${NONCE}`))
+  expect(res.status).toBe(503)
+  expect(await res.json()).toMatchObject({ code: 'company_lookup_unavailable' })
+  expect(discardOAuthTicket).toHaveBeenCalledWith(expect.anything(), NONCE)
+  expect(saved).toEqual([])
+})
+
+test('finish throws while saving → ticket burned, error shown', async () => {
+  finishOAuthConnect.mockRejectedValueOnce(new Error('db down'))
+  const res = await finishRoute(at('acme.crm-product.test', `/api/auth/google/finish?nonce=${NONCE}`, `gcal_connect_nonce=${NONCE}`))
+  expect(discardOAuthTicket).toHaveBeenCalledWith(expect.anything(), NONCE)
+  expect(res.headers.get('location')).toBe('https://acme.crm-product.test/settings?error=callback_failed')
 })

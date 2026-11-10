@@ -2,7 +2,12 @@ import { NextRequest, NextResponse } from 'next/server'
 import { CompanyLookupUnavailableError, requireAuthApi } from '@/lib/auth'
 import { COMPANY_LOOKUP_UNAVAILABLE, classifyHost } from '@/lib/company-host'
 import { saveGoogleConnection } from '@/lib/google-calendar'
-import { GOOGLE_CONNECT_COOKIE, GOOGLE_CONNECT_COOKIE_PATH, finishOAuthConnect } from '@/lib/google-oauth-state'
+import {
+  GOOGLE_CONNECT_COOKIE,
+  GOOGLE_CONNECT_COOKIE_PATH,
+  discardOAuthTicket,
+  finishOAuthConnect,
+} from '@/lib/google-oauth-state'
 import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
@@ -23,27 +28,25 @@ export async function GET(request: NextRequest) {
     return res
   }
 
+  const nonce = request.nextUrl.searchParams.get('nonce')
   let auth
   try {
     auth = await requireAuthApi()
   } catch (e) {
+    // Can't prove who this is: burn the ticket (and its sealed code) on every path, then answer.
+    await discardOAuthTicket(createServiceClient(), nonce)
     if (e instanceof CompanyLookupUnavailableError) {
-      return NextResponse.json({ error: 'Temporarily unavailable', code: COMPANY_LOOKUP_UNAVAILABLE }, { status: 503 })
+      const res = NextResponse.json({ error: 'Temporarily unavailable', code: COMPANY_LOOKUP_UNAVAILABLE }, { status: 503 })
+      res.cookies.set(GOOGLE_CONNECT_COOKIE, '', { path: GOOGLE_CONNECT_COOKIE_PATH, httpOnly: true, maxAge: 0 })
+      return res
     }
-    // Not signed in here: this browser didn't start the connect. Burn the ticket.
-    await finishOAuthConnect(createServiceClient(), {
-      nonce: request.nextUrl.searchParams.get('nonce'),
-      cookieNonce: null,
-      userId: '',
-      orgId: '',
-    }).catch(() => undefined)
     return done('error=invalid_state')
   }
 
   try {
     const admin = createServiceClient()
     const result = await finishOAuthConnect(admin, {
-      nonce: request.nextUrl.searchParams.get('nonce'),
+      nonce,
       cookieNonce: request.cookies.get(GOOGLE_CONNECT_COOKIE)?.value,
       userId: auth.authUser.id,
       orgId: auth.profile.org_id,
@@ -56,6 +59,7 @@ export async function GET(request: NextRequest) {
     return done(saved ? 'success=calendar_connected' : 'error=token_storage')
   } catch (e) {
     console.error('Google connect finish error:', e)
+    await discardOAuthTicket(createServiceClient(), nonce)
     return done('error=callback_failed')
   }
 }

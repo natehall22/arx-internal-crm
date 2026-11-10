@@ -8,6 +8,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import {
   OAUTH_STATE_TTL_MS,
   acceptOAuthCallback,
+  discardOAuthTicket,
   finishOAuthConnect,
   isSignedOAuthState,
   issueOAuthState,
@@ -117,6 +118,7 @@ test('ATTACK: a consent link started by someone else never attaches the clickerâ
   expect((await acceptOAuthCallback(fakeAdmin(), t.state, 'victims-google-code')).ok).toBe(true)
   // Victim's browser lands on finish: signed in as u-2, and without the attacker's nonce cookie.
   expect(await finish(t.nonce, { cookieNonce: null, userId: 'u-2' })).toEqual({ ok: false, reason: 'no_cookie' })
+  expect(db.oauth_states[0].code_ciphertext).toBeNull() // the victim's code is wiped, not left at rest
   // The ticket is burned: the attacker can't finish it afterwards either.
   expect(await finish(t.nonce)).toEqual({ ok: false, reason: 'used' })
 })
@@ -194,4 +196,13 @@ test('derived key from the service-role key when OAUTH_STATE_SECRET is unset', a
   const t = (await issue())!
   expect((await acceptOAuthCallback(fakeAdmin(), t.state, 'c')).ok).toBe(true)
   expect(await finish(t.nonce)).toEqual({ ok: true, code: 'c' })
+})
+
+test('discard burns an unused ticket and wipes its parked code', async () => {
+  const t = (await issue())!
+  await acceptOAuthCallback(fakeAdmin(), t.state, 'code')
+  await discardOAuthTicket(fakeAdmin(), t.nonce)
+  expect(db.oauth_states[0]).toMatchObject({ code_ciphertext: null })
+  expect(db.oauth_states[0].used_at).toBeTruthy()
+  expect(await finish(t.nonce)).toEqual({ ok: false, reason: 'used' })
 })

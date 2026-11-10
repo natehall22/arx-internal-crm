@@ -205,9 +205,10 @@ export async function finishOAuthConnect(
   now = Date.now()
 ): Promise<OAuthFinish> {
   const nonce = input.nonce ?? ''
-  if (!/^[0-9a-f-]{36}$/i.test(nonce)) return { ok: false, reason: 'used' }
+  if (!isNonce(nonce)) return { ok: false, reason: 'used' }
   const nowIso = new Date(now).toISOString()
-  // Consume first (one winner), decide after: a refused finish still burns the ticket.
+  // Consume first (one winner), then wipe the sealed code at once — before any check can refuse — so no path leaves
+  // a usable code at rest.
   const { data, error } = await admin
     .from('oauth_states')
     .update({ used_at: nowIso })
@@ -215,6 +216,7 @@ export async function finishOAuthConnect(
     .is('used_at', null)
     .gt('expires_at', nowIso)
     .select('user_id, org_id, code_ciphertext')
+  await wipeCode(admin, nonce)
   if (error) return { ok: false, reason: 'unavailable' }
   const row = (data as Array<{ user_id: string; org_id: string; code_ciphertext: string | null }> | null)?.[0]
   if (!row || !row.code_ciphertext) return { ok: false, reason: 'used' }
@@ -222,7 +224,32 @@ export async function finishOAuthConnect(
   if (row.user_id !== input.userId || row.org_id !== input.orgId) return { ok: false, reason: 'wrong_user' }
   const code = openCode(row.code_ciphertext)
   if (!code) return { ok: false, reason: 'unavailable' }
-  // The code is spent either way; don't leave it at rest.
-  await admin.from('oauth_states').update({ code_ciphertext: null }).eq('nonce', nonce)
   return { ok: true, code }
+}
+
+/** Burn a ticket without using it (signed out, outage, any early refusal): marks it used and wipes the sealed code. */
+export async function discardOAuthTicket(admin: SupabaseClient, nonce: string | null, now = Date.now()): Promise<void> {
+  if (!nonce || !isNonce(nonce)) return
+  try {
+    await admin
+      .from('oauth_states')
+      .update({ used_at: new Date(now).toISOString(), code_ciphertext: null })
+      .eq('nonce', nonce)
+      .is('used_at', null)
+    await wipeCode(admin, nonce)
+  } catch (e) {
+    console.error('oauth-state: discard failed', e instanceof Error ? e.message : e)
+  }
+}
+
+function isNonce(v: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v)
+}
+
+async function wipeCode(admin: SupabaseClient, nonce: string): Promise<void> {
+  try {
+    await admin.from('oauth_states').update({ code_ciphertext: null }).eq('nonce', nonce)
+  } catch (e) {
+    console.error('oauth-state: wipe failed', e instanceof Error ? e.message : e)
+  }
 }
