@@ -140,6 +140,7 @@ export async function GET(request: NextRequest) {
         .from('pricebook_items')
         .select('*')
         .eq('pricebook_id', pricebookId)
+        .eq('org_id', profile.org_id)
         .order('category')
         .order('name')
       items = itemsData || []

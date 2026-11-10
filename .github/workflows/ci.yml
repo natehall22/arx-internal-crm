@@ -29,6 +29,9 @@ jobs:
           - gate: hardcode ratchet
             timeout: 5
             run: node scripts/hardcode-ratchet.mjs
+          - gate: org scope
+            timeout: 10
+            run: node scripts/org-scope-check.mjs
           - gate: jest
             timeout: 20
             run: npx jest --silent
@@ -60,10 +63,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # The ratchet compares the committed baseline with origin/main's and silently skips that check
+      # Both ratchets compare the committed baseline with origin/main's and silently skip that check
       # when origin/main is missing, so fetch it and fail if it still isn't there.
       - name: Fetch origin/main
-        if: matrix.gate == 'hardcode ratchet'
+        if: matrix.gate == 'hardcode ratchet' || matrix.gate == 'org scope'
         run: |
           git fetch --no-tags --depth=1 origin +refs/heads/main:refs/remotes/origin/main
           git rev-parse --verify origin/main

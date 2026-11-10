@@ -1258,6 +1258,7 @@ export async function POST(request: Request) {
               .from('users')
               .select('full_name')
               .eq('id', resolvedCloserUserId)
+              .eq('org_id', profile.org_id)
               .maybeSingle()
 
             const closerName = closerProfile?.full_name || 'Unassigned'

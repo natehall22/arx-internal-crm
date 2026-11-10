@@ -238,63 +238,15 @@ export async function POST(request: NextRequest) {
       ? new Date(insuranceCallAtMs).toISOString()
       : null
 
-    let { data: profile } = await supabase
+    const { data: profile } = await supabase
       .from('users')
       .select('org_id, full_name, role, custom_role_id')
       .eq('id', user.id)
       .single()
 
-    // Self-heal environments where auth user exists but public.users row is missing.
-    if (!profile?.org_id) {
-      let derivedOrgId: string | null = null
-
-      if (appointment_id) {
-        const { data: apptOrg } = await supabase
-          .from('scheduled_appointments')
-          .select('org_id')
-          .eq('id', appointment_id)
-          .maybeSingle()
-        derivedOrgId = apptOrg?.org_id || null
-      }
-
-      if (!derivedOrgId && directLeadId) {
-        const { data: leadOrg } = await supabase
-          .from('leads')
-          .select('org_id')
-          .eq('id', directLeadId)
-          .maybeSingle()
-        derivedOrgId = leadOrg?.org_id || null
-      }
-
-      if (!derivedOrgId) {
-        console.log('=== AUTH FAILED: No profile and unable to derive org ===')
-        return NextResponse.json({ error: 'Profile not found' }, { status: 400 })
-      }
-
-      const fallbackName =
-        (typeof user.user_metadata?.full_name === 'string' && user.user_metadata.full_name.trim()) ||
-        user.email ||
-        'User'
-
-      const { data: recoveredProfile } = await supabase
-        .from('users')
-        .upsert(
-          {
-            id: user.id,
-            org_id: derivedOrgId,
-            role: 'rep',
-            full_name: fallbackName,
-            email: user.email || null,
-            active: true,
-          },
-          { onConflict: 'id' }
-        )
-        .select('org_id, full_name, role, custom_role_id')
-        .single()
-
-      profile = recoveredProfile || { org_id: derivedOrgId, full_name: fallbackName, role: 'rep', custom_role_id: null }
-    }
-
+    // No profile row = no company. The old "self-heal" here took the company from whatever appointment/lead id the
+    // request named and acted (and tried to create a user) inside THAT company — a cross-company hole on a shared
+    // database. A user without a profile is now refused, like everywhere requireAuth runs.
     if (!profile?.org_id) {
       return NextResponse.json({ error: 'Profile not found' }, { status: 400 })
     }
@@ -320,6 +272,7 @@ export async function POST(request: NextRequest) {
         .from('scheduled_appointments')
         .select('*, leads(*)')
         .eq('id', appointment_id)
+        .eq('org_id', profile.org_id)
         .single()
 
       if (appointmentError || !appointmentData) {
@@ -468,6 +421,7 @@ export async function POST(request: NextRequest) {
         .from('scheduled_appointments')
         .select('lead_id')
         .eq('id', appointment_id)
+        .eq('org_id', profile.org_id)
         .maybeSingle()
       leadId = apptOnly?.lead_id ?? null
     }

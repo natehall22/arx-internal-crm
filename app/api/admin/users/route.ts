@@ -326,6 +326,7 @@ export async function PUT(request: NextRequest) {
     }
 
     // Check if email is already in use
+    // org-scope-ok: sign-in emails are unique across every company (one auth.users table), so this check is global on purpose
     const { data: existingUser } = await adminClient
       .from('users')
       .select('id')

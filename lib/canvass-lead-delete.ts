@@ -96,6 +96,7 @@ export async function deleteCanvassLeadWithDependencies(args: {
     .from('leads')
     .select('id, org_id, owner_user_id, pin_attributed_user_id, ownership_reassigned_at, installation_agreement_signed_at')
     .eq('id', leadId)
+    .eq('org_id', orgId)
     .single()
 
   if (fetchError || !lead) {

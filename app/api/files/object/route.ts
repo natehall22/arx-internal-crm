@@ -82,6 +82,7 @@ async function subMayRead(admin: SupabaseClient, profile: User, path: string, c:
   if (!subId) return false
 
   if (c.kind === 'job_packet') {
+    // org-scope-ok: a sub reads only rows on jobs assigned to its own sub company (assigned_sub_id = subId)
     const { data } = await admin
       .from('production_jobs')
       .select('id')
@@ -93,6 +94,7 @@ async function subMayRead(admin: SupabaseClient, profile: User, path: string, c:
   }
 
   // Same shape as GET /api/subs/jobs/[id]: files on the job or its project, shared with the sub or a final_* photo.
+  // org-scope-ok: a sub reads only rows on jobs assigned to its own sub company (assigned_sub_id = subId)
   const { data: rows } = await admin
     .from('files')
     .select('job_id, project_id, share_with_sub, photo_tag')
@@ -106,10 +108,12 @@ async function subMayRead(admin: SupabaseClient, profile: User, path: string, c:
   const jobIds = Array.from(new Set(candidates.map((r) => r.job_id).filter((v): v is string => !!v)))
   const projectIds = Array.from(new Set(candidates.map((r) => r.project_id).filter((v): v is string => !!v)))
   if (jobIds.length > 0) {
+    // org-scope-ok: a sub reads only rows on jobs assigned to its own sub company (assigned_sub_id = subId)
     const { data } = await admin.from('production_jobs').select('id').in('id', jobIds).eq('assigned_sub_id', subId).limit(1)
     if ((data?.length ?? 0) > 0) return true
   }
   if (projectIds.length > 0) {
+    // org-scope-ok: a sub reads only rows on jobs assigned to its own sub company (assigned_sub_id = subId)
     const { data } = await admin
       .from('production_jobs')
       .select('id')

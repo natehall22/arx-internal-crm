@@ -284,6 +284,7 @@ export async function DELETE(request: NextRequest) {
       .from('production_jobs')
       .select('id')
       .eq('assigned_crew_id', id)
+      .eq('org_id', profile.org_id)
       .limit(1)
 
     if (assignedJobs && assignedJobs.length > 0) {

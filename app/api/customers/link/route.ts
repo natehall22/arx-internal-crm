@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
+import { orgDb } from '@/lib/supabase/org-db'
 import { createServiceClient } from '@/lib/supabase/service'
 import { upsertCustomer } from '@/lib/customers'
 import { canEditCustomerRecordsFromPermissionNames } from '@/lib/permissions'
@@ -35,6 +36,13 @@ export async function POST(request: Request) {
     if (link_target_type && !validSourceTypes.includes(link_target_type)) {
       return NextResponse.json({ error: 'Invalid link_target_type' }, { status: 400 })
     }
+
+    // Only the three actions below exist. Anything else used to fall through with the body's customer_id unchecked,
+    // which linked our records to (and returned) a customer from ANOTHER company.
+    if (action !== 'link' && action !== 'create_from_source' && action !== 'create_manual') {
+      return NextResponse.json({ error: 'Invalid action' }, { status: 400 })
+    }
+    const db = orgDb(adminClient, profile.org_id)
 
     let finalCustomerId = customer_id
 
@@ -318,7 +326,7 @@ export async function POST(request: Request) {
 
         // If linking to job, also update the parent project + its directly-linked opportunity/lead.
         if (targetSourceType === 'job') {
-          const { data: job } = await adminClient
+          const { data: job } = await db
             .from('production_jobs')
             .select('project_id')
             .eq('id', targetSourceId)
@@ -359,7 +367,7 @@ export async function POST(request: Request) {
     }
 
     // Get the final customer data
-    const { data: customer } = await adminClient
+    const { data: customer } = await db
       .from('customers')
       .select('*')
       .eq('id', finalCustomerId)

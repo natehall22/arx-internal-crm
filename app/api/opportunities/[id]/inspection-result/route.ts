@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
+import { orgDb } from '@/lib/supabase/org-db'
 import { sendCloserBriefingEmail, type BriefingPhoto } from '@/lib/closer-briefing-email'
 
 const PHOTO_BUCKET = 'inspection-photos'
@@ -49,6 +50,16 @@ export async function POST(
     }
 
     const admin = createServiceClient()
+    // The opportunity must be this company's. The upsert below is keyed on opportunity_id alone, so a foreign id used to
+    // overwrite another company's inspection result and re-home it into this company.
+    const { data: ownOpp } = await orgDb(admin, profile.org_id)
+      .from('opportunities')
+      .select('id')
+      .eq('id', params.id)
+      .maybeSingle()
+    if (!ownOpp) {
+      return NextResponse.json({ error: 'Opportunity not found' }, { status: 404 })
+    }
     const rawBody = await request.json()
 
     const ALLOWED_FIELDS = new Set([
@@ -77,6 +88,7 @@ export async function POST(
     }
 
     const { data: result, error } = await admin
+      // org-scope-ok: opportunity params.id was checked to be this company's (ownOpp) above
       .from('inspection_results')
       .upsert(upsertData, { onConflict: 'opportunity_id' })
       .select()

@@ -220,7 +220,7 @@ export async function getOrCreateReport(
       .maybeSingle()
     ownerName = lead?.homeowner_name || ''
   }
-  const { data: me } = await admin.from('users').select('full_name, phone').eq('id', userId).maybeSingle()
+  const { data: me } = await admin.from('users').select('full_name, phone').eq('id', userId).eq('org_id', orgId).maybeSingle()
 
   const brand = await getOrgBrand(admin, orgId)
   const doc = seedReportDoc(

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Runs every gate on the EXACT commit you are about to push, and records that it passed.
-#   hardcode ratchet -> jest -> tsc -> lint -> next build -> phone suite (Playwright)
+#   hardcode ratchet -> org scope -> jest -> tsc -> lint -> next build -> phone suite (Playwright)
 # A gate that fails is run once more. If the rerun passes it is reported as FLAKY (so it gets fixed) and the gate counts as passed;
 # if the rerun fails too, nothing is stamped and the push hook refuses. The working tree must be clean: the stamp is for HEAD, not for
 # "HEAD plus whatever is on disk". Run with: npm run gates
@@ -39,6 +39,7 @@ run_gate() {
 fail() { echo "" >&2; echo "gates: $1 failed on $SHA. Nothing was stamped; the push will be refused." >&2; exit 1; }
 
 run_gate "hardcode ratchet" node scripts/hardcode-ratchet.mjs         || fail "hardcode ratchet"
+run_gate "org scope"   node scripts/org-scope-check.mjs              || fail "org scope"
 run_gate "jest"       npx jest --silent                              || fail "jest"
 rm -rf .next/types  # stale route types from an earlier build fail tsc after a route is deleted
 run_gate "typescript" env NODE_OPTIONS=--max-old-space-size=4096 npx tsc --noEmit -p .|| fail "typescript"

@@ -103,6 +103,7 @@ export async function POST(request: NextRequest) {
       .from('scheduled_appointments')
       .select('*, leads(homeowner_name, phone, address_text)')
       .eq('id', original_appointment_id)
+      .eq('org_id', profile.org_id)
       .single()
 
     if (appointmentError || !originalAppointment) {
@@ -117,6 +118,7 @@ export async function POST(request: NextRequest) {
         notes: (originalAppointment.notes || '') + '\nRescheduled to new appointment.'
       })
       .eq('id', original_appointment_id)
+      .eq('org_id', profile.org_id)
 
     // Get the timezone for proper conversion
     const timezone = originalAppointment.closer_user_id 

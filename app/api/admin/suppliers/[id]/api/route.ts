@@ -65,6 +65,7 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
       updated_at: new Date().toISOString(),
     }
     const { data: before } = await a.admin.from('supplier_api_settings').select('environment, ordering_enabled, ship_to_number, branch_number, delivery_service').eq('vendor_id', params.id).maybeSingle()
+    // org-scope-ok: the vendor (conflict key) was checked to be this company's at the top of PUT
     const { error } = await a.admin.from('supplier_api_settings').upsert(row, { onConflict: 'vendor_id' })
     if (error) return NextResponse.json({ error: 'Could not save the connection settings' }, { status: 500 })
     await logApiEvent(a.admin, { orgId: org, vendorId: params.id, jobId: null, actorUserId: a.profile.id, event: 'settings_changed', environment: row.environment, detail: { before, after: { environment: row.environment, ordering_enabled: row.ordering_enabled, ship_to_number: row.ship_to_number, branch_number: row.branch_number, delivery_service: row.delivery_service } } })
@@ -80,6 +81,7 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
       rows.push({ org_id: org, vendor_id: params.id, line_key: lineKey, item_number: itemNumber, uom: uom.toUpperCase(), qty_unit_word: word.toLowerCase(), est_unit_price_cents: price, updated_by: a.profile.id, updated_at: new Date().toISOString() })
     }
     if (rows.length > 0) {
+      // org-scope-ok: the vendor (conflict key) was checked to be this company's at the top of PUT
       const { error } = await a.admin.from('supplier_item_map').upsert(rows, { onConflict: 'vendor_id,line_key' })
       if (error) return NextResponse.json({ error: 'Could not save the item map' }, { status: 500 })
     }

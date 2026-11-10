@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
+import { orgDb } from '@/lib/supabase/org-db'
 
 export const dynamic = 'force-dynamic'
 
@@ -71,6 +72,14 @@ export async function PUT(request: NextRequest) {
     if (targetUserId !== profile.id && !isManager(profile.role)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
+    // A manager may set goals only for someone in their own company. The upsert below is keyed on user_id alone, so a
+    // foreign user id used to overwrite that person's goals in their company and re-home the row into this one.
+    if (targetUserId !== profile.id) {
+      const { data: target } = await orgDb(supabase, profile.org_id).from('users').select('id').eq('id', targetUserId).maybeSingle()
+      if (!target) {
+        return NextResponse.json({ error: 'User not found' }, { status: 404 })
+      }
+    }
 
     const payload = {
       org_id: profile.org_id,
@@ -86,6 +95,7 @@ export async function PUT(request: NextRequest) {
       updated_at: new Date().toISOString(),
     }
 
+    // org-scope-ok: user_id is the caller or a user just checked to be in the caller's company
     const { data, error } = await supabase
       .from('coaching_goals')
       .upsert(payload, { onConflict: 'user_id' })

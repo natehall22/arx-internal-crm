@@ -34,7 +34,10 @@
     "test:mobile": "playwright test",
     "gates": "bash scripts/gates.sh",
     "hardcode:check": "node scripts/hardcode-ratchet.mjs",
-    "hardcode:update": "node scripts/hardcode-ratchet.mjs --update"
+    "hardcode:update": "node scripts/hardcode-ratchet.mjs --update",
+    "org-scope:check": "node scripts/org-scope-check.mjs",
+    "org-scope:list": "node scripts/org-scope-check.mjs --list",
+    "org-scope:update": "node scripts/org-scope-check.mjs --update"
   },
   "dependencies": {
     "@radix-ui/react-alert-dialog": "^1.2.1",
