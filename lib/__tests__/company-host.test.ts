@@ -111,6 +111,35 @@ describe('lookup cache', () => {
     expect(await lookupCompanyBySubdomain('roofco')).toEqual({ status: 'found', orgId: 'org-roofco' })
   })
 
+  test('stale-on-error: a known company survives a DB blip for up to 10 minutes; unknown names do not', async () => {
+    jest.useFakeTimers({ now: 5_000_000 })
+    await lookupCompanyBySubdomain('acme')
+    jest.setSystemTime(5_000_000 + 120_000)
+    lookupFails = true
+    expect(await lookupCompanyBySubdomain('acme')).toEqual({ status: 'found', orgId: 'org-acme' })
+    jest.setSystemTime(5_000_000 + 11 * 60_000)
+    expect(await lookupCompanyBySubdomain('acme')).toEqual({ status: 'error' })
+    expect(await lookupCompanyBySubdomain('nobody')).toEqual({ status: 'error' })
+  })
+
+  test('concurrent lookups of one name share one DB call', async () => {
+    await Promise.all([lookupCompanyBySubdomain('acme'), lookupCompanyBySubdomain('acme'), lookupCompanyBySubdomain('acme')])
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  test('cache is LRU and bounded: a hot company is not evicted by a flood of unknown names', async () => {
+    await lookupCompanyBySubdomain('acme')
+    for (let i = 0; i < 600; i++) {
+      if (i % 50 === 0) await lookupCompanyBySubdomain('acme') // keep it recently used
+      await lookupCompanyBySubdomain(`junk${i}`)
+    }
+    const calls = fetchMock.mock.calls.length
+    await lookupCompanyBySubdomain('acme')
+    expect(fetchMock.mock.calls.length).toBe(calls) // still cached
+    await lookupCompanyBySubdomain('junk0') // evicted long ago
+    expect(fetchMock.mock.calls.length).toBe(calls + 1)
+  })
+
   test('anon key only — never the service role key', async () => {
     process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-secret'
     await lookupCompanyBySubdomain('acme')

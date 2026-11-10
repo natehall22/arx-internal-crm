@@ -124,6 +124,26 @@ describe('middleware company gate', () => {
     expect((await middleware(pageReq('acme.crm-product.test', '/login'))).status).toBe(503)
   })
 
+  test('API on a company address: unknown → 404 JSON, lookup failure → 503 company_lookup_unavailable (not 401)', async () => {
+    const unknown = await middleware(pageReq('nobody.crm-product.test', '/api/leads'))
+    expect(unknown.status).toBe(404)
+    fetchMock.mockImplementation(async () => ({ ok: false, status: 500, json: async () => ({}) }))
+    const down = await middleware(pageReq('acme.crm-product.test', '/api/leads'))
+    expect(down.status).toBe(503)
+    expect(await down.json()).toMatchObject({ code: 'company_lookup_unavailable' })
+  })
+
+  test('company copies: /trial → /login; DEPLOYMENT_ORG_ID on the legacy host too; legacy unfenced keeps them', async () => {
+    const trial = await middleware(pageReq('acme.crm-product.test', '/trial'))
+    expect(new URL(trial.headers.get('location')!).pathname).toBe('/login')
+    process.env.DEPLOYMENT_ORG_ID = 'org-acme'
+    const pinnedRoot = await middleware(pageReq('old-app.vercel.app', '/'))
+    expect(new URL(pinnedRoot.headers.get('location')!).pathname).toBe('/today')
+    delete process.env.DEPLOYMENT_ORG_ID
+    expect((await middleware(pageReq('old-app.vercel.app', '/trial'))).status).toBe(200)
+    expect((await middleware(pageReq('crm-product.test', '/trial'))).status).toBe(200)
+  })
+
   test('legacy address and routing-off make no lookup and behave as before', async () => {
     expect((await middleware(pageReq('old-app.vercel.app', '/login'))).status).toBe(200)
     delete process.env.APP_BASE_DOMAIN

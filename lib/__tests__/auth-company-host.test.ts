@@ -113,3 +113,9 @@ test('a disabled user from another company gets the same answer as any outsider 
   profileRow = { id: 'u-1', org_id: 'org-acme', role: 'admin', active: false }
   await expect(requireAuth()).rejects.toThrow('REDIRECT:/login')
 })
+
+test('company lookup failure is not a sign-out: distinct error with code company_lookup_unavailable', async () => {
+  ;(global as unknown as { fetch: unknown }).fetch = jest.fn(async () => ({ ok: false, status: 500, json: async () => ({}) }))
+  req('acme.crm-product.test')
+  await expect(requireAuthApi()).rejects.toMatchObject({ name: 'CompanyLookupUnavailableError', code: 'company_lookup_unavailable' })
+})
