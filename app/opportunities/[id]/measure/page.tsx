@@ -5,6 +5,7 @@ import Nav from '@/components/Nav'
 import { requireAuth } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import { resolveOpsAccess } from '@/lib/ops-access'
+import { isOrgFeatureOn } from '@/lib/org-features-server'
 import ExteriorMeasureClient from '@/app/ops/jobs/[id]/measure/ExteriorMeasureClient'
 
 export default async function OpportunityMeasurePage({ params }: { params: { id: string } }) {
@@ -34,7 +35,7 @@ export default async function OpportunityMeasurePage({ params }: { params: { id:
         backHref={`/opportunities/${params.id}`}
         backLabel="Back to opportunity"
         printHref={`/opportunities/${params.id}/measure/print`}
-        roofMeasureHref={`/tools/roof-measure?opportunity_id=${params.id}&address=${encodeURIComponent(opportunity.address_text || '')}`}
+        roofMeasureHref={(await isOrgFeatureOn(profile.org_id, 'roofMeasure')) ? `/tools/roof-measure?opportunity_id=${params.id}&address=${encodeURIComponent(opportunity.address_text || '')}` : null}
       />
     </div>
   )

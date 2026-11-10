@@ -1,6 +1,7 @@
 import { requireAuth } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import Nav from '@/components/Nav'
+import { isOrgFeatureOn } from '@/lib/org-features-server'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
@@ -380,7 +381,9 @@ export default async function OpportunityView({
     (inspectionReport?.inspection_report_photos as { count: number }[] | undefined)?.[0]?.count ?? 0
 
   // Org settings (measure tool + inspection outcomes for inside-sales eligibility)
-  const measureToolEnabled = orgSettings?.settings?.measure_tool_enabled !== false // Default to enabled
+  // Also off when the company switched Roof measuring off (Settings → Features). The older Company settings checkbox
+  // `measure_tool_enabled` only ever hid these links; both are honored until it is folded into the feature switch.
+  const measureToolEnabled = orgSettings?.settings?.measure_tool_enabled !== false && (await isOrgFeatureOn(profile.org_id, 'roofMeasure'))
 
   // Fetch the most recent inspection appointment linked to this opportunity
   const { data: inspectionAppointment } = await supabase
