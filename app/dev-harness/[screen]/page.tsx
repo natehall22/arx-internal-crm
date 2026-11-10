@@ -208,7 +208,7 @@ export default function Harness({ params }: { params: { screen: string } }) {
     case 'org-features':
       return (
         <div className="mx-auto max-w-2xl p-4">
-          <OrgFeaturesCard initial={{ canvassing: false, insurance: false, roofMeasure: true, incentives: false, squaresPricing: true }} />
+          <OrgFeaturesCard initial={{ canvassing: false, insurance: false, roofMeasure: true, incentives: false, stormAlerts: false, squaresPricing: true }} />
         </div>
       )
     case 'job-page':

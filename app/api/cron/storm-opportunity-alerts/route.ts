@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { orgFeatureChecker } from '@/lib/org-features-server'
 import { getRecentStormReportsInBbox } from '@/lib/roofradar-open-data'
 import { createServiceClient } from '@/lib/supabase/service'
 import { isInsideSalesRoleLike } from '@/lib/inside-sales-follow-up'
@@ -159,8 +160,11 @@ export async function GET(request: NextRequest) {
 
     const insideSalesUsersByOrgId = new Map<string, any[]>()
     const matches: StormMatchResult[] = []
+    // Companies with Storm alerts switched off (Settings → Features) get no alerts, notes or routing.
+    const stormAlertsOn = orgFeatureChecker('stormAlerts')
 
     for (const raw of rawOpportunities) {
+      if (!(await stormAlertsOn(raw.org_id))) continue
       const lead = Array.isArray(raw.leads) ? raw.leads[0] : raw.leads
       const candidate: StormOpportunityCandidate = {
         id: raw.id,

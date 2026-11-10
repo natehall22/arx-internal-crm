@@ -32,7 +32,11 @@ export const ORG_FEATURE_DEFS = {
   },
   incentives: {
     label: 'Sisu incentives',
-    description: 'Heats, badges, the 444 program, setter ramp, accountability and the Incentives page.',
+    description: 'Heats, badges, leaderboard, accountability goals and the Incentives page. Setter ramp and bonus approval (pay) stay.',
+  },
+  stormAlerts: {
+    label: 'Storm alerts',
+    description: 'Hail and wind hits matched to your deals and customers, the Storm call list, and the storm list in the morning email.',
   },
   squaresPricing: {
     label: 'Roof squares pricing',
@@ -129,4 +133,15 @@ export function insuranceFieldsSetInPatch(body: unknown): string[] {
   const hits = INSURANCE_PATCH_FIELDS.filter((k) => k in b && b[k] !== null && b[k] !== '')
   if (b.job_source === 'insurance') hits.unshift('job_source')
   return hits
+}
+
+/** Report datasets that belong to one feature (lib/reporting/catalog.ts keys): hidden from Reports when it is off. */
+export const FEATURE_REPORT_DATASETS: Readonly<Partial<Record<OrgFeature, readonly string[]>>> = {
+  canvassing: ['canvass_doors'],
+  roofMeasure: ['instant_estimate_accuracy'],
+}
+
+/** Pure: is this report dataset hidden because the company switched its feature off? */
+export function reportDatasetHidden(datasetKey: string, features: OrgFeatures): boolean {
+  return ORG_FEATURE_KEYS.some((f) => !features[f] && (FEATURE_REPORT_DATASETS[f] ?? []).includes(datasetKey))
 }

@@ -6,6 +6,7 @@ import {
   insuranceFieldsSetInPatch,
   loadOrgFeatures,
   parseOrgFeaturesPatch,
+  reportDatasetHidden,
   resolveOrgFeatures,
 } from '@/lib/org-features'
 import { visibleNav, type NavContext } from '@/lib/nav-config'
@@ -14,24 +15,26 @@ import { featuresFromEffectivePermissions } from '@/hooks/useOrgFeatures'
 
 let storedFeatures: unknown = undefined
 let readError: { message: string } | null = null
+let reads = 0
 jest.mock('@/lib/supabase/service', () => ({
   createServiceClient: () => ({
     from: () => {
       const q: Record<string, unknown> = {
         select: () => q,
         eq: () => q,
-        maybeSingle: async () => (readError ? { data: null, error: readError } : { data: { features: storedFeatures }, error: null }),
+        maybeSingle: async () => (reads++, readError ? { data: null, error: readError } : { data: { features: storedFeatures }, error: null }),
       }
       return q
     },
   }),
 }))
 
-import { orgFeatureOffResponse } from '@/lib/org-features-server'
+import { orgFeatureChecker, orgFeatureOffResponse } from '@/lib/org-features-server'
 
 beforeEach(() => {
   storedFeatures = undefined
   readError = null
+  reads = 0
 })
 
 describe('resolveOrgFeatures (pure)', () => {
@@ -116,13 +119,30 @@ describe('entry points hide when a feature is off', () => {
     expect(leaves(off)).toEqual(leaves(owner()).filter((h) => h !== '/sisu'))
     expect(visibleNav(owner({ insurance: false, roofMeasure: false, squaresPricing: false }))).toEqual(on)
   })
-  it('settings hub: Work areas / Roof measure tool / Incentives links hide; Features shows to super admins only', () => {
+  it('settings hub: Work areas / Roof measure tool links hide (Incentives stays — it holds pay tools); Features is super admins only', () => {
     const all = { canCost: true, canPayroll: true, canSuperuser: true, canWorkAreas: true, canOwner: true, canSuperAdmin: true }
     const hrefs = (g: ReturnType<typeof visibleSettingsGroups>) => g.flatMap((x) => x.items.map((i) => i.href))
     const on = hrefs(visibleSettingsGroups(all))
     expect(on).toEqual(expect.arrayContaining(['/canvass?areas=1', '/tools/roof-measure', '/admin/sisu/incentives', '/admin#features']))
     const off = hrefs(visibleSettingsGroups({ ...all, features: { canvassing: false, roofMeasure: false, incentives: false } }))
-    expect(off).toEqual(on.filter((h) => !['/canvass?areas=1', '/tools/roof-measure', '/admin/sisu/incentives'].includes(h)))
+    expect(off).toEqual(on.filter((h) => !['/canvass?areas=1', '/tools/roof-measure'].includes(h)))
     expect(hrefs(visibleSettingsGroups({ ...all, canSuperAdmin: false }))).not.toContain('/admin#features')
+  })
+})
+
+describe('crons and reports', () => {
+  it('orgFeatureChecker reads each org once, however many rows a cron walks', async () => {
+    storedFeatures = { stormAlerts: false }
+    const on = orgFeatureChecker('stormAlerts')
+    expect(await Promise.all([on('org-1'), on('org-1'), on('org-1')])).toEqual([false, false, false])
+    expect(reads).toBe(1)
+    storedFeatures = undefined
+    expect(await orgFeatureChecker('insurance')('org-2')).toBe(true)
+  })
+  it('report datasets of a switched-off feature are hidden; others never', () => {
+    expect(reportDatasetHidden('canvass_doors', ALL_FEATURES_ON)).toBe(false)
+    expect(reportDatasetHidden('canvass_doors', { ...ALL_FEATURES_ON, canvassing: false })).toBe(true)
+    expect(reportDatasetHidden('instant_estimate_accuracy', { ...ALL_FEATURES_ON, roofMeasure: false })).toBe(true)
+    expect(reportDatasetHidden('sales', { ...ALL_FEATURES_ON, canvassing: false, roofMeasure: false, insurance: false })).toBe(false)
   })
 })

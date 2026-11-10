@@ -9,6 +9,7 @@ import { fetchMorningUpdateMetrics, type MorningUpdateMetrics } from '@/lib/morn
 import { loadDataHealth, needsYouForEmailRecipient, shapeNeedsYou, type DataHealthReport } from '@/lib/data-health'
 import { loadCheckupSettings } from '@/lib/checkups'
 import { loadCheckupsDueQueue, loadCrewWeekQueue, loadOpsQueues, loadOwnerExceptions, loadStormHitsQueue, type Queue } from '@/lib/today'
+import { loadOrgFeatures } from '@/lib/org-features'
 import { resolveAppUrl } from '@/lib/job-trades'
 import { formatPhone, telHref } from '@/lib/format'
 import { getCrmEmailFrom, getMailTransport } from '@/lib/setter-email'
@@ -161,8 +162,11 @@ export async function loadMorningTodayQueues(
   // A storm lookup failure drops only the storm list (and says so), never the rest of Today.
   let stormFailed = false
   let checkupsFailed = false
+  // Storm alerts switched off (Settings → Features): no storm list, even while older alert rows are still recent.
+  const stormAlertsOn = (await loadOrgFeatures(supabase, orgId)).stormAlerts
+  const noStorm: Queue = { id: 'storm-hits', title: 'Storm hits on open deals and customers', count: 0, empty: '', items: [] }
   const [storm, owner, checkups] = await Promise.all([
-    loadStormHitsQueue(supabase, orgId, now, STORM_EMAIL_ROWS).catch((error): Queue => {
+    (stormAlertsOn ? loadStormHitsQueue(supabase, orgId, now, STORM_EMAIL_ROWS) : Promise.resolve(noStorm)).catch((error): Queue => {
       console.error('morning update: storm hits failed', error)
       stormFailed = true
       return { id: 'storm-hits', title: 'Storm hits on open deals and customers', count: 0, empty: 'Storm hits couldn’t load today.', items: [] }

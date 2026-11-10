@@ -29,7 +29,8 @@ export default function SisuHubNav({ showBonusApproval = false, showIncentives =
   const searchParams = useSearchParams()
   const searchTab = searchParams.get('tab')
   const visibleTabs = TABS.filter(
-    (tab) => (tab.href === '/admin/sisu/bonus-approval' ? showBonusApproval : showIncentives),
+    // Setter Ramp and Bonus Approval are pay: they stay when incentives are switched off.
+    (tab) => (tab.href === '/admin/sisu/bonus-approval' ? showBonusApproval : tab.href === '/admin/sisu/setter-ramp' || showIncentives),
   )
 
   return (

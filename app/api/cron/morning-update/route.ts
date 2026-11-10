@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { orgFeatureChecker } from '@/lib/org-features-server'
 import { getOrgEmailBlastSettings } from '@/lib/admin-email-blasts'
 import { ensureCheckups } from '@/lib/checkups'
 import { getBlastSendDate, runClaimedBlast, type BlastResult } from '@/lib/email-blast-ledger'
@@ -54,6 +55,7 @@ export async function GET(request: NextRequest) {
   const results: Array<{ org_id: string; sent: number; skipped: boolean; reason?: string }> = []
   let hadError = false
 
+  const canvassingOn = orgFeatureChecker('canvassing')
   for (const org of orgRows || []) {
     const orgId = org.id as string
     // Saved reports on a schedule go out with the morning update; independent of the blast switches.
@@ -81,7 +83,8 @@ export async function GET(request: NextRequest) {
             send: () => sendMorningUpdateEmail(admin, { orgId }),
           })
         : Promise.resolve<BlastResult>({ sent: 0, skipped: true, reason: 'morning_update_disabled' }),
-      settings.setter_field_update?.enabled
+      // The setter field update is canvass knock data: not sent when door knocking is switched off.
+      settings.setter_field_update?.enabled && (await canvassingOn(orgId))
         ? runClaimedBlast(admin, {
             orgId,
             blastType: 'setter_field_update',

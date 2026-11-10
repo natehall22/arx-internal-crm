@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
+import { orgFeatureOffResponse } from '@/lib/org-features-server'
 import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
@@ -20,6 +21,8 @@ export async function GET() {
     const admin = createServiceClient()
     const profile = authContext.profile
     const userId = authContext.authUser.id
+    const featureOff = await orgFeatureOffResponse(profile.org_id, 'canvassing')
+    if (featureOff) return featureOff
 
     const { data: me } = await admin
       .from('users')

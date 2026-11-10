@@ -2,6 +2,7 @@
  * Server-side gates for per-company feature switches. Reads ONLY through `loadOrgFeatures` (lib/org-features.ts).
  * - Pages / layouts: `requireOrgFeaturePage(orgId, feature)` → notFound() when the feature is off.
  * - API routes: `orgFeatureOffResponse(orgId, feature)` → a 403 NextResponse when off, else null.
+ * - Crons that loop over many orgs: `orgFeatureChecker(feature)` → a memoized `(orgId) => Promise<boolean>`.
  */
 import * as React from 'react'
 import { notFound } from 'next/navigation'
@@ -39,4 +40,21 @@ export async function requireOrgFeaturePage(orgId: string | null | undefined, fe
 export async function orgFeatureOffResponse(orgId: string | null | undefined, feature: OrgFeature): Promise<NextResponse | null> {
   if (await isOrgFeatureOn(orgId, feature)) return null
   return NextResponse.json({ error: `${ORG_FEATURE_DEFS[feature].label} is turned off for this company`, code: 'feature_off' }, { status: 403 })
+}
+
+/**
+ * For crons / batch jobs that walk rows from many orgs: one read per org for the life of the checker (React's
+ * per-request cache does not apply outside a render).
+ */
+export function orgFeatureChecker(feature: OrgFeature): (orgId: string | null | undefined) => Promise<boolean> {
+  const byOrg = new Map<string, Promise<boolean>>()
+  return (orgId) => {
+    const key = orgId ?? ''
+    let hit = byOrg.get(key)
+    if (!hit) {
+      hit = isOrgFeatureOn(orgId, feature)
+      byOrg.set(key, hit)
+    }
+    return hit
+  }
 }

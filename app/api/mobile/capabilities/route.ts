@@ -5,6 +5,7 @@ import { weatherOverlayFeatureEnabled } from '@/lib/weather-footprint'
 import { hasInsideSalesQueuePermissionGrant } from '@/lib/inside-sales-follow-up'
 import { canSetReferredBy, getPartnerAccess } from '@/lib/referral-partners'
 import { createServiceClient } from '@/lib/supabase/service'
+import { loadOrgFeatures } from '@/lib/org-features'
 
 export const dynamic = 'force-dynamic'
 
@@ -36,15 +37,19 @@ export async function GET() {
 
     const canViewOpportunities = effectiveHasPermission(effective, 'opportunities:view') && !isInsideSalesQueueWorker
     // v1: LiDAR measure flow is part of the closer opportunity workflow; keep aligned with list access.
-    const canUseMeasure = canViewOpportunities
+    // Company feature switches (Settings → Features): Roof measuring off hides Measure; door knocking off hides the
+    // weather layer. `features` is the full map for app builds that read it (older builds ignore unknown keys).
+    const features = await loadOrgFeatures(admin, profile.org_id)
+    const canUseMeasure = canViewOpportunities && features.roofMeasure
 
     return NextResponse.json({
       app_access: !isInsideSalesQueueWorker,
       opportunities_tab: canViewOpportunities,
       measure_tab: canUseMeasure,
-      weather_overlay: weatherOverlayFeatureEnabled(),
+      weather_overlay: weatherOverlayFeatureEnabled() && features.canvassing,
       // Referred By decides who is paid on a deal: only payroll-attribution roles / partner managers set it.
       referred_by_edit: canSetReferredBy(profile.role, await getPartnerAccess(admin, authContext.authUser.id, profile)),
+      features,
     })
   } catch (error) {
     console.error('Mobile capabilities error:', error)

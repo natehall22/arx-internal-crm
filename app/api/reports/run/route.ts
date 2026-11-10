@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 import { requireAuthApi } from '@/lib/auth'
+import { loadOrgFeatures, reportDatasetHidden } from '@/lib/org-features'
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 import { canAccessReportsFromPermissionNames } from '@/lib/permissions'
 import { DATASETS } from '@/lib/reporting/catalog'
@@ -66,7 +67,10 @@ export async function GET() {
   const perms = await resolveEffectivePermissionNames(admin, profile.id, profile)
   if (!canAccessReportsFromPermissionNames(perms)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   const ctx = await buildReportContext(admin, profile)
+  // Datasets of a feature the company switched off (Settings → Features) are not offered (Reports home + Explore).
+  const features = await loadOrgFeatures(admin, profile.org_id)
   const datasets = Object.values(DATASETS)
+    .filter((d) => !reportDatasetHidden(d.key, features))
     .filter((d) => ctx.finance || (!d.financeOnly && (d.ownerColumn || ctx.scope === 'all')))
     .map((d) => ({ key: d.key, label: d.label, description: d.description, columns: visibleColumns(ctx, d) }))
   const allowed = new Set(datasets.map((d) => d.key))

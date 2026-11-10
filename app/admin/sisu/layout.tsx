@@ -19,7 +19,7 @@ export default async function SisuAdminLayout({ children }: { children: ReactNod
     redirect('/dashboard')
   }
 
-  // Incentives switched off (Settings → Features): only Bonus Approval (payroll bonus lines) stays.
+  // Incentives switched off (Settings → Features): only the pay tools stay (Setter Ramp, Bonus Approval).
   const incentivesOn = await isOrgFeatureOn(profile.org_id, 'incentives')
   const canAccessBonusApproval =
     isPayrollAdminRole(profile.role) || isRegionalBonusApproverRole(profile.role)

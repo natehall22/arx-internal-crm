@@ -1,5 +1,4 @@
 import { requireAuth } from '@/lib/auth'
-import { requireOrgFeaturePage } from '@/lib/org-features-server'
 import { createClient } from '@/lib/supabase/server'
 import SetterRampClient from './SetterRampClient'
 
@@ -8,7 +7,6 @@ export const revalidate = 0
 
 export default async function SetterRampPage() {
   const { profile } = await requireAuth()
-  await requireOrgFeaturePage(profile.org_id, 'incentives')
   const supabase = createClient()
 
   const { data: orgRow } = await supabase
