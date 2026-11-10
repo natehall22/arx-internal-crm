@@ -37,6 +37,15 @@ describe('parseCompanySeedInput', () => {
     }
   })
 
+  it('org.subdomain: optional, normalized, same rule as sign-in routing (reserved / malformed refused)', () => {
+    expect(parsed(example).org.subdomain).toBeNull()
+    expect(parsed({ ...example, org: { ...example.org, subdomain: ' GreenAcres ' } }).org.subdomain).toBe('greenacres')
+    for (const bad of ['www', 'a.b', '-x', 'has space', 3]) {
+      const r = parseCompanySeedInput({ ...example, org: { ...example.org, subdomain: bad } })
+      expect(r.ok ? '' : r.errors.join('\n')).toContain('org.subdomain')
+    }
+  })
+
   it('no trades → null (the standard list); an empty list is refused', () => {
     expect(parsed({ ...example, trades: undefined }).trades).toBeNull()
     expect(parseCompanySeedInput({ ...example, trades: [] }).ok).toBe(false)
@@ -125,6 +134,17 @@ describe('runCompanySeed (dry run)', () => {
     const { client, writes } = fakeClient({ orgs: [], users: [{ id: 'u1', org_id: 'arx', email: 'owner@landscapes.example' }] })
     await expect(runCompanySeed(client, input, { apply: true })).rejects.toThrow(/another org/)
     expect(writes).toEqual([])
+  })
+
+  it('refuses a web address another org already holds, before any write; plans it for a new org', async () => {
+    const withSub = { ...input, org: { ...input.org, subdomain: 'greenacres' } }
+    const taken = fakeClient({ orgs: [{ id: 'other', name: 'Other Co', subdomain: 'greenacres' }], users: [] })
+    await expect(runCompanySeed(taken.client, withSub, { apply: true })).rejects.toThrow(/web address "greenacres"/)
+    expect(taken.writes).toEqual([])
+    const free = fakeClient({ orgs: [{ id: 'other', name: 'Other Co', subdomain: 'other' }], users: [] })
+    const report = await runCompanySeed(free.client, withSub, { apply: false })
+    expect(free.writes).toEqual([])
+    expect(report.lines.join('\n')).toContain('create org "Example Landscapes & Hardscapes"')
   })
 
   it('refuses an org that is not this deployment’s DEPLOYMENT_ORG_ID', async () => {

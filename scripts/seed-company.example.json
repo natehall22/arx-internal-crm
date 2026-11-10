@@ -5,7 +5,8 @@
     "phone": "(555) 010-0100",
     "email": "office@landscapes.example",
     "address": "100 Example Rd\nAnytown, ST 00000",
-    "timezone": null
+    "timezone": null,
+    "subdomain": null
   },
   "brand": {
     "legalName": "Example Landscapes & Hardscapes, LLC",

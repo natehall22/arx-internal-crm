@@ -1,5 +1,6 @@
 /** Public website roof-estimate funnel config (not the internal measure tool). */
 import { brandServiceRegion, shortNameArticle, type OrgBrand } from '@/lib/org-brand'
+import { deploymentOrgId } from '@/lib/company-host'
 
 /**
  * The company inbound website-estimate leads (and the nightly accuracy check) belong to. Always explicit — env
@@ -13,8 +14,8 @@ export function getPublicEstimateOrgId(): string {
       'PUBLIC_ESTIMATE_ORG_ID must be set when PUBLIC_ROOF_ESTIMATE_ENABLED=true (do not rely on implicit prod defaults on preview/staging).'
     )
   }
-  const deploymentOrgId = process.env.DEPLOYMENT_ORG_ID?.trim()
-  if (deploymentOrgId && deploymentOrgId !== orgId) {
+  const pinnedOrgId = deploymentOrgId()
+  if (pinnedOrgId && pinnedOrgId !== orgId) {
     throw new Error('PUBLIC_ESTIMATE_ORG_ID does not match DEPLOYMENT_ORG_ID on this copy')
   }
   return orgId

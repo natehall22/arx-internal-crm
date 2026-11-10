@@ -19,6 +19,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { mergeOrgSettings } from '@/lib/org-settings'
 
 import { formatPhone, formatPhoneDashed, telHref } from '@/lib/format'
+import { deploymentOrgId } from '@/lib/company-host'
 
 export interface OrgBrand {
   /** Display name, e.g. report footers and email headers. */
@@ -87,7 +88,7 @@ const LEGACY_ORG_BRAND: Readonly<Required<OrgBrand>> = (() => {
  * Server env only: in browser bundles it is always true, so client code must not resolve a brand itself.
  */
 export function legacyBrandFallback(): boolean {
-  return !process.env.DEPLOYMENT_ORG_ID?.trim()
+  return !deploymentOrgId()
 }
 
 /** The always-present fields (the optional contract spellings are resolved separately). */

@@ -28,6 +28,24 @@ describe('parseAppUrl', () => {
 })
 
 describe('getAppUrl', () => {
+  it("builds the company's address from its stored subdomain only while host routing is on", () => {
+    const oldBase = process.env.APP_BASE_DOMAIN
+    try {
+      process.env.NEXT_PUBLIC_APP_URL = 'https://crm.example.test'
+      delete process.env.APP_BASE_DOMAIN
+      expect(getAppUrl({ subdomain: 'acme' })).toBe('https://crm.example.test')
+      process.env.APP_BASE_DOMAIN = 'product.example.test'
+      expect(getAppUrl({ subdomain: 'Acme' })).toBe('https://acme.product.example.test')
+      // An explicit address wins; a reserved or malformed name never becomes a link (falls back to the deployment's).
+      expect(getAppUrl({ appUrl: 'https://own.example.test', subdomain: 'acme' })).toBe('https://own.example.test')
+      expect(getAppUrl({ subdomain: 'www' })).toBe('https://crm.example.test')
+      expect(getAppUrl({ subdomain: 'a.b' })).toBe('https://crm.example.test')
+      expect(getAppUrl({ subdomain: null })).toBe('https://crm.example.test')
+    } finally {
+      if (oldBase === undefined) delete process.env.APP_BASE_DOMAIN
+      else process.env.APP_BASE_DOMAIN = oldBase
+    }
+  })
   it('reads NEXT_PUBLIC_APP_URL', () => {
     process.env.NEXT_PUBLIC_APP_URL = 'https://crm.example.test/'
     expect(getAppUrl()).toBe('https://crm.example.test')

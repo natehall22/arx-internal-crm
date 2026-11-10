@@ -3,9 +3,9 @@
  * crew photo links, calendar invites, the Google OAuth callback. Client-safe: NEXT_PUBLIC_ values are inlined into the
  * browser bundle at build time.
  *
- * Order: the company's own address when the caller has one (`org.appUrl`, e.g. https://<company>.<product domain>), else
- * the deployment's NEXT_PUBLIC_APP_URL. Nothing stores a per-company address yet: when the one-app/many-companies routing
- * lands, its reader fills `appUrl` on the org object passed here and every caller already threads it through.
+ * Order: an explicit company address (`org.appUrl`), else the company's own address from its stored web name
+ * (`org.subdomain` -> https://<subdomain>.<APP_BASE_DOMAIN> via companyAppUrl in lib/company-host.ts; null while host
+ * routing is off or on the client, where APP_BASE_DOMAIN is not set), else the deployment's NEXT_PUBLIC_APP_URL.
  *
  * There is deliberately NO fallback host. A missing value used to send customers and staff to the old hosting address
  * (or to "undefined/contracts/…"); now it fails loudly instead. Server code that needs a link calls `getAppUrl()` and lets
@@ -14,9 +14,10 @@
  *
  * Never type a host literal anywhere else: the hardcode ratchet's `host` group blocks new ones.
  */
+import { companyAppUrl } from '@/lib/company-host'
 
-/** Anything that may carry a company's own app address (an org row, or a caller handed an address explicitly). */
-export type AppUrlOrg = { appUrl?: string | null } | null | undefined
+/** Anything that may carry a company's own app address (an org row with `subdomain`, or an explicit address). */
+export type AppUrlOrg = { appUrl?: string | null; subdomain?: string | null } | null | undefined
 
 export class AppUrlNotConfiguredError extends Error {
   constructor(message: string) {
@@ -49,7 +50,7 @@ export function parseAppUrl(raw: string | null | undefined): string | null {
  * that is set but malformed throws too: falling back would quietly send that company's customers to another address.
  */
 export function getAppUrl(org?: AppUrlOrg): string {
-  const own = org?.appUrl?.trim()
+  const own = org?.appUrl?.trim() || companyAppUrl(org?.subdomain) || ''
   const source = own ? "the company's app address" : 'NEXT_PUBLIC_APP_URL'
   const url = parseAppUrl(own || process.env.NEXT_PUBLIC_APP_URL)
   if (url) return url

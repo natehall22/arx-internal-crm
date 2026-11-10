@@ -8,13 +8,14 @@
  * `npx tsx --env-file=.env.company scripts/seed-company.ts …`). If that env sets DEPLOYMENT_ORG_ID, the run refuses any
  * other org. An org that already has jobs, deals or customers needs --allow-existing; a second super admin needs
  * --add-owner. A new owner login gets SEED_OWNER_PASSWORD from the environment, else a random password printed once.
- * Input shape: scripts/seed-company.example.json. Safe to re-run; put the printed org id into org.id after the first run.
+ * Optional org.subdomain sets the company web address (needs migration 202611100070). Input shape: scripts/seed-company.example.json. Safe to re-run; put the printed org id into org.id after the first run.
  */
 import { readFileSync } from 'fs'
 
 import { createClient } from '@supabase/supabase-js'
 
 import { parseCompanySeedInput, runCompanySeed, SeedStop } from '@/lib/company-seed'
+import { deploymentOrgId } from '@/lib/company-host'
 
 async function main() {
   const args = process.argv.slice(2)
@@ -44,7 +45,7 @@ async function main() {
   try {
     const report = await runCompanySeed(client, parsed.input, {
       apply,
-      deploymentOrgId: process.env.DEPLOYMENT_ORG_ID,
+      deploymentOrgId: deploymentOrgId(),
       ownerPassword: process.env.SEED_OWNER_PASSWORD,
       allowExisting,
       addOwner,

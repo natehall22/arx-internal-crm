@@ -3,6 +3,7 @@ import { getAppUrl } from '@/lib/app-url'
 import { timingSafeEqual } from 'node:crypto'
 import nodemailer from 'nodemailer'
 import { profileAllowedOnThisDeployment } from '@/lib/auth'
+import { deploymentOrgId } from '@/lib/company-host'
 import { escapeHtml } from '@/lib/html'
 import { getCrmEmailFrom } from '@/lib/crm-email-from'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -84,15 +85,15 @@ function resolveSharedKeyOrg(
   bodyOrgId: unknown
 ): { orgId: string } | { status: 401 | 403 | 503; error: string } {
   const webhookSecret = process.env.WEBHOOK_SECRET || process.env.LEADS_WEBHOOK_SECRET
-  const deploymentOrgId = process.env.DEPLOYMENT_ORG_ID?.trim()
-  if (!webhookSecret || !deploymentOrgId) {
+  const pinnedOrgId = deploymentOrgId()
+  if (!webhookSecret || !pinnedOrgId) {
     return { status: 503, error: 'Use a lead source webhook URL (with ?token=) for this endpoint.' }
   }
   if (!secretMatches(providedKey, webhookSecret)) return { status: 401, error: 'Unauthorized' }
-  if (bodyOrgId != null && bodyOrgId !== '' && bodyOrgId !== deploymentOrgId) {
+  if (bodyOrgId != null && bodyOrgId !== '' && bodyOrgId !== pinnedOrgId) {
     return { status: 403, error: 'org_id does not match this deployment' }
   }
-  return { orgId: deploymentOrgId }
+  return { orgId: pinnedOrgId }
 }
 
 function pickMappedField(body: Record<string, any>, mapping: Record<string, string> | null | undefined, target: string) {

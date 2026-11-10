@@ -51,8 +51,8 @@ export function appBaseDomain(): string | null {
 
 /**
  * A company's own app address, `https://<subdomain>.<APP_BASE_DOMAIN>`, or null (no subdomain, or routing off).
- * Merge point with lib/app-url.ts (feat/app-domain-cutover): server code that loads an org fills
- * `getAppUrl({ appUrl: companyAppUrl(org.subdomain) })` — the one place the stored address becomes a link.
+ * lib/app-url.ts `getAppUrl(org)` calls this when the org it is handed carries `subdomain`: server code that loads an
+ * org passes `getAppUrl({ subdomain: org.subdomain })` — the one place the stored address becomes a link.
  */
 export function companyAppUrl(subdomain: string | null | undefined, baseDomain: string | null = appBaseDomain()): string | null {
   const sub = normalizeSubdomain(subdomain)

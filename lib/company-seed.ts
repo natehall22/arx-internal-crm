@@ -16,10 +16,20 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { brandPatchOps, saveBrandSettings, BRAND_SETTINGS_KEYS, type BrandPatch } from '@/lib/org-brand'
 import { cleanTradeLabel } from '@/lib/org-trades'
+import { normalizeSubdomain } from '@/lib/company-host'
 import { applyOrgTradesSeed, planOrgTradesSeed, readOrgTradesForSeed, type OrgTradeSeed } from '@/lib/org-trades-admin'
 
 export interface CompanySeedInput {
-  org: { id: string | null; name: string; phone: string; email: string; address: string; timezone: string | null }
+  org: {
+    id: string | null
+    name: string
+    phone: string
+    email: string
+    address: string
+    timezone: string | null
+    /** Company web address label (<subdomain>.<APP_BASE_DOMAIN>), normalized by lib/company-host normalizeSubdomain. null = leave as is. */
+    subdomain: string | null
+  }
   brand: BrandPatch
   /** null → the standard trades list. */
   trades: OrgTradeSeed[] | null
@@ -67,6 +77,13 @@ export function parseCompanySeedInput(raw: unknown): { ok: true; input: CompanyS
   if (email && !EMAIL_RE.test(email)) errors.push('org.email is not an email address')
   const timezone = str(org.timezone)
   if (timezone && !validTimeZone(timezone)) errors.push(`org.timezone "${timezone}" is not an IANA time zone`)
+  // Same rule as sign-in routing and the orgs_subdomain_format check (lib/company-host.ts normalizeSubdomain).
+  const rawSubdomain = org.subdomain
+  let subdomain: string | null = null
+  if (rawSubdomain !== undefined && rawSubdomain !== null) {
+    subdomain = normalizeSubdomain(rawSubdomain)
+    if (!subdomain) errors.push('org.subdomain must be one lowercase web-address label (a-z, 0-9, inner hyphens, up to 63) and not a reserved name')
+  }
 
   const brandIn = obj(root.brand)
   const brand: BrandPatch = {}
@@ -116,7 +133,7 @@ export function parseCompanySeedInput(raw: unknown): { ok: true; input: CompanyS
   return {
     ok: true,
     input: {
-      org: { id, name, phone, email, address, timezone },
+      org: { id, name, phone, email, address, timezone, subdomain },
       brand,
       trades,
       owner: { email: ownerEmail, fullName, phone: str(owner.phone) },
@@ -144,7 +161,7 @@ export interface CompanySeedReport {
   generatedOwnerPassword?: string
 }
 
-type OrgRow = { id: string; name: string | null; phone: string | null; email: string | null; address: string | null; timezone?: string | null; brand?: unknown }
+type OrgRow = { id: string; name: string | null; phone: string | null; email: string | null; address: string | null; timezone?: string | null; subdomain?: string | null; brand?: unknown }
 type UserRow = { id: string; org_id: string | null; email: string | null; role: string | null; is_super_admin: boolean | null; active: boolean | null; full_name: string | null }
 
 class SeedStop extends Error {}
@@ -176,7 +193,11 @@ export async function runCompanySeed(client: SupabaseClient, input: CompanySeedI
   let org: OrgRow | null = null
   if (input.org.id) {
     org = await must(
-      client.from('orgs').select('id, name, phone, email, address, timezone, brand:settings->brand').eq('id', input.org.id).maybeSingle(),
+      client
+        .from('orgs')
+        .select(`id, name, phone, email, address, timezone, ${input.org.subdomain ? 'subdomain, ' : ''}brand:settings->brand`)
+        .eq('id', input.org.id)
+        .maybeSingle(),
       'read org'
     )
     if (!org) throw new SeedStop(`No org with id ${input.org.id}. Leave org.id out to create a new company.`)
@@ -187,6 +208,14 @@ export async function runCompanySeed(client: SupabaseClient, input: CompanySeedI
         `An org named "${input.org.name}" already exists (${(same as { id: string }[]).map((o) => o.id).join(', ')}). ` +
           'If it is this company, put its id in org.id and re-run; nothing was written.'
       )
+    }
+  }
+  if (input.org.subdomain) {
+    // Needs migration 202611100070 (orgs.subdomain); before it the read fails here, before anything is written.
+    const taken = await must(client.from('orgs').select('id').eq('subdomain', input.org.subdomain), 'read company addresses (is migration 202611100070 applied?)')
+    const others = ((taken ?? []) as { id: string }[]).filter((o) => o.id !== org?.id)
+    if (others.length) {
+      throw new SeedStop(`The web address "${input.org.subdomain}" already belongs to org ${others.map((o) => o.id).join(', ')}; nothing was written.`)
     }
   }
   const deploymentOrgId = opts.deploymentOrgId?.trim() || null
@@ -239,7 +268,11 @@ export async function runCompanySeed(client: SupabaseClient, input: CompanySeedI
 
   // ---- org row ----
   const columns = { name: input.org.name, phone: input.org.phone, email: input.org.email, address: input.org.address }
-  const wantColumns: Record<string, string> = { ...columns, ...(input.org.timezone ? { timezone: input.org.timezone } : {}) }
+  const wantColumns: Record<string, string> = {
+    ...columns,
+    ...(input.org.timezone ? { timezone: input.org.timezone } : {}),
+    ...(input.org.subdomain ? { subdomain: input.org.subdomain } : {}),
+  }
   let orgId: string
   if (!org) {
     say(`create org "${input.org.name}"`)
