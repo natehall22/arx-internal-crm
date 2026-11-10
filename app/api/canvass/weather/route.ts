@@ -12,6 +12,7 @@ import {
 } from '@/lib/weather-storage'
 import { getRecentStormReportsInBbox } from '@/lib/roofradar-open-data'
 import { NextRequest, NextResponse } from 'next/server'
+import { orgFeatureOffResponse } from '@/lib/org-features-server'
 
 export const dynamic = 'force-dynamic'
 
@@ -94,11 +95,14 @@ function warningFeaturesForResponse(
 }
 
 export async function GET(request: NextRequest) {
+  let orgId: string | null = null
   try {
-    await requireAuthApi()
+    orgId = (await requireAuthApi()).profile.org_id
   } catch {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+  const featureOff = await orgFeatureOffResponse(orgId, 'canvassing')
+  if (featureOff) return featureOff
 
   const searchParams = request.nextUrl.searchParams
   const bbox = parseBbox(searchParams)

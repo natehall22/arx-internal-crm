@@ -12,6 +12,8 @@ import SettingsHub from './SettingsHub'
 import { isOwnerProfile, isSuperAdmin } from '@/lib/super-admin'
 import CheckupSettingsCard from '@/components/admin/CheckupSettingsCard'
 import JobCatchUpSettingsCard from '@/components/admin/JobCatchUpSettingsCard'
+import OrgFeaturesCard from '@/components/admin/OrgFeaturesCard'
+import { getOrgFeatures } from '@/lib/org-features-server'
 import { loadCheckupSettings } from '@/lib/checkups'
 import { canEditCheckupSettings } from '@/lib/checkups-settings'
 import { loadJobCatchUpSettings } from '@/lib/job-catch-up-db'
@@ -23,7 +25,10 @@ export default async function SettingsPage() {
   const { profile } = await requireAuth()
   if (!canOpenSettingsHub(profile.role)) redirect('/today')
 
+  const features = await getOrgFeatures(profile.org_id)
+  const canEditFeatures = isSuperAdmin(profile)
   const groups = visibleSettingsGroups({
+    features,
     canCost: ['admin', 'operations'].includes(profile.role),
     canPayroll: ['admin', 'owner', 'operations'].includes(profile.role),
     canSuperuser: ['admin', 'owner'].includes(profile.role),
@@ -47,6 +52,8 @@ export default async function SettingsPage() {
         <PageHeader title="Settings" subtitle="Everything you can set up, in one place." />
         <SettingsHub groups={groups} />
         <div className="mt-4 flex max-w-2xl flex-col gap-4">
+          {/* Owners only: turn whole parts of the app on/off for this company (lib/org-features.ts). */}
+          {canEditFeatures && <OrgFeaturesCard initial={features} />}
           <JobCatchUpSettingsCard initial={{ ...catchUp, canEdit: canEditJobCatchUpSettings(profile) }} />
           <CheckupSettingsCard initial={{ ...checkups, canEdit: canEditCheckupSettings(profile) }} users={userOptions} />
         </div>

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
+import { orgFeatureOffResponse } from '@/lib/org-features-server'
 import { getDateRangeForTimeFrame } from '@/lib/date-ranges'
 import { getEasternTodayIso } from '@/lib/eastern-datetime'
 import { countUserDoors, countUserInspectionsSet } from '@/lib/reporting/period-metrics'
@@ -50,6 +51,8 @@ export async function GET() {
     } catch {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+    const featureOff = await orgFeatureOffResponse(authContext.profile.org_id, 'incentives')
+    if (featureOff) return featureOff
 
     const admin = createServiceClient()
     const profile: UserProfile = {

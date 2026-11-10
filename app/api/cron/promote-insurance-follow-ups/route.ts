@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { orgFeatureChecker } from '@/lib/org-features-server'
 import { createServiceClient } from '@/lib/supabase/service'
 import {
   DIDNT_SIT_PIPELINE_PREFIX,
@@ -36,6 +37,8 @@ export async function GET(request: NextRequest) {
   const nowIso = new Date().toISOString()
   const orgSettingsByOrgId = new Map<string, any>()
   const insideSalesUsersByOrgId = new Map<string, any[]>()
+  // Companies with Insurance switched off (Settings → Features) get no insurance follow-up promotion.
+  const insuranceOn = orgFeatureChecker('insurance')
 
   try {
     const { data: candidates, error: fetchError } = await admin
@@ -85,6 +88,7 @@ export async function GET(request: NextRequest) {
       )
       const outcomeId = normalizeInspectionOutcomeId(opportunity.inspection_outcome)
       if (!outcomeId || outcomeId === 'sale') continue
+      if (!(await insuranceOn(opportunity.org_id))) continue
       let orgSettings = orgSettingsByOrgId.get(opportunity.org_id)
       if (orgSettings === undefined) {
         const { data: orgRow } = await admin

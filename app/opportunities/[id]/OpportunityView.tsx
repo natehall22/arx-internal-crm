@@ -1,6 +1,7 @@
 import { requireAuth } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import Nav from '@/components/Nav'
+import { getOrgFeatures, isOrgFeatureOn } from '@/lib/org-features-server'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
@@ -379,8 +380,8 @@ export default async function OpportunityView({
   const inspectionReportPhotoCount =
     (inspectionReport?.inspection_report_photos as { count: number }[] | undefined)?.[0]?.count ?? 0
 
-  // Org settings (measure tool + inspection outcomes for inside-sales eligibility)
-  const measureToolEnabled = orgSettings?.settings?.measure_tool_enabled !== false // Default to enabled
+  // The company's Roof measuring switch (Settings → Features) — the one answer (the old measure_tool_enabled is retired).
+  const measureToolEnabled = await isOrgFeatureOn(profile.org_id, 'roofMeasure')
 
   // Fetch the most recent inspection appointment linked to this opportunity
   const { data: inspectionAppointment } = await supabase
@@ -866,7 +867,7 @@ export default async function OpportunityView({
             </div>
 
             <div className="mt-4 pt-3 border-t flex flex-wrap gap-2">
-              {canJobBoard && (
+              {canJobBoard && measureToolEnabled && (
                 <Link
                   href={`/opportunities/${params.id}/measure`}
                   className="inline-flex min-h-[44px] items-center justify-center rounded-lg bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-800"
@@ -1354,6 +1355,7 @@ export default async function OpportunityView({
               defaultFinanceCompany={acceptedProposal?.financing_lender_name}
               totalSquares={contractTotalSquares}
               scopeOfWork={acceptedProposal?.scope_of_work || ''}
+              orgFeatures={await getOrgFeatures(profile.org_id)}
             />
           </div>
 

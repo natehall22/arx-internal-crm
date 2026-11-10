@@ -19,6 +19,7 @@
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import { NextRequest, NextResponse } from 'next/server'
+import { orgFeatureOffResponse } from '@/lib/org-features-server'
 
 export const dynamic = 'force-dynamic'
 
@@ -32,6 +33,8 @@ export async function POST(request: NextRequest) {
   } catch {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+  const featureOff = await orgFeatureOffResponse(auth.profile.org_id, 'canvassing')
+  if (featureOff) return featureOff
 
   let body: { candidateId?: unknown; hasSolar?: unknown }
   try {

@@ -9,6 +9,7 @@ import { fetchMorningUpdateMetrics, type MorningUpdateMetrics } from '@/lib/morn
 import { loadDataHealth, needsYouForEmailRecipient, shapeNeedsYou, type DataHealthReport } from '@/lib/data-health'
 import { loadCheckupSettings } from '@/lib/checkups'
 import { loadCheckupsDueQueue, loadCrewWeekQueue, loadOpsQueues, loadOwnerExceptions, loadStormHitsQueue, type Queue } from '@/lib/today'
+import { loadOrgFeatures, resolveOrgFeatures, type OrgFeatures } from '@/lib/org-features'
 import { resolveAppUrl } from '@/lib/job-trades'
 import { formatPhone, telHref } from '@/lib/format'
 import { getCrmEmailFrom, getMailTransport } from '@/lib/setter-email'
@@ -69,15 +70,17 @@ function metricSection(
     sales: number
     revenue: number
     insurance: number
-  }
+  },
+  /** Company feature switches (Settings → Features): door and insurance rows only while those features are on. */
+  show: { doors: boolean; insurance: boolean } = { doors: true, insurance: true }
 ): string {
   const rows = [
-    { label: 'Doors knocked', value: formatInteger(metrics.doors) },
+    ...(show.doors ? [{ label: 'Doors knocked', value: formatInteger(metrics.doors) }] : []),
     { label: 'Inspections scheduled', value: formatInteger(metrics.inspections) },
     { label: 'Proposals shown', value: formatOptionalInteger(metrics.proposals) },
     { label: 'Sales', value: formatInteger(metrics.sales) },
     { label: 'Revenue sold', value: formatCurrency(metrics.revenue) },
-    { label: 'Inspections going through insurance', value: formatInteger(metrics.insurance) },
+    ...(show.insurance ? [{ label: 'Inspections going through insurance', value: formatInteger(metrics.insurance) }] : []),
   ]
     .map(
       (row) =>
@@ -161,8 +164,11 @@ export async function loadMorningTodayQueues(
   // A storm lookup failure drops only the storm list (and says so), never the rest of Today.
   let stormFailed = false
   let checkupsFailed = false
+  // Storm alerts switched off (Settings → Features): no storm list, even while older alert rows are still recent.
+  const stormAlertsOn = (await loadOrgFeatures(supabase, orgId)).stormAlerts
+  const noStorm: Queue = { id: 'storm-hits', title: 'Storm hits on open deals and customers', count: 0, empty: '', items: [] }
   const [storm, owner, checkups] = await Promise.all([
-    loadStormHitsQueue(supabase, orgId, now, STORM_EMAIL_ROWS).catch((error): Queue => {
+    (stormAlertsOn ? loadStormHitsQueue(supabase, orgId, now, STORM_EMAIL_ROWS) : Promise.resolve(noStorm)).catch((error): Queue => {
       console.error('morning update: storm hits failed', error)
       stormFailed = true
       return { id: 'storm-hits', title: 'Storm hits on open deals and customers', count: 0, empty: 'Storm hits couldn’t load today.', items: [] }
@@ -233,9 +239,11 @@ export function buildTodayHtml(queues: Queue[] | null, appUrl?: string | null): 
 export function buildMorningUpdateHtml(
   metrics: MorningUpdateMetrics,
   /** `today`: undefined = no Today block; null = it failed to load (says so). */
-  options?: { test?: boolean; needsYou?: DataHealthReport | null; today?: Queue[] | null }
+  options?: { test?: boolean; needsYou?: DataHealthReport | null; today?: Queue[] | null; features?: OrgFeatures }
 ): string {
   const period = activityLabelPrefix(metrics.activityPeriodKind)
+  // Missing = every feature on (the email is unchanged for a company that switched nothing off).
+  const show = { doors: options?.features?.canvassing !== false, insurance: options?.features?.insurance !== false }
 
   const activitySubline =
     metrics.activityPeriodKind === 'weekend'
@@ -250,10 +258,12 @@ export function buildMorningUpdateHtml(
         label: 'Proposals shown',
         value: formatOptionalInteger(w.proposalsShown),
       },
-      {
-        label: 'Doors',
-        value: formatGoalShareValue(w.doors.actual, w.doors.goal, w.doors.shareOfMonthPct, 'integer'),
-      },
+      ...(show.doors
+        ? [{
+            label: 'Doors',
+            value: formatGoalShareValue(w.doors.actual, w.doors.goal, w.doors.shareOfMonthPct, 'integer'),
+          }]
+        : []),
       {
         label: 'Inspections set',
         value: formatGoalShareValue(w.sets.actual, w.sets.goal, w.sets.shareOfMonthPct, 'integer'),
@@ -300,7 +310,7 @@ export function buildMorningUpdateHtml(
           sales: metrics.salesPeriod,
           revenue: metrics.revenuePeriod,
           insurance: metrics.insuranceInspectionsPeriod,
-        })}
+        }, show)}
         ${metricSection('Week to date', 'Sunday through yesterday', {
           doors: metrics.doorsKnockedWeekToDate,
           inspections: metrics.inspectionsScheduledWeekToDate,
@@ -308,7 +318,7 @@ export function buildMorningUpdateHtml(
           sales: metrics.salesWeekToDate,
           revenue: metrics.revenueWeekToDate,
           insurance: metrics.insuranceInspectionsWeekToDate,
-        })}
+        }, show)}
         ${metricSection('Month to date', 'First of the month through yesterday', {
           doors: metrics.doorsKnockedMonthToDate,
           inspections: metrics.inspectionsScheduledMonthToDate,
@@ -316,11 +326,11 @@ export function buildMorningUpdateHtml(
           sales: metrics.salesMonthToDate,
           revenue: metrics.revenueMonthToDate,
           insurance: metrics.insuranceInspectionsMonthToDate,
-        })}
+        }, show)}
         ${lastWeekSection}
         ${options?.needsYou ? buildNeedsYouHtml(options.needsYou) : ''}
         <p style="color: #6B7280; font-size: 12px; margin-top: 20px;">
-          Automated owner morning update from ARX CRM. Proposals shown is based on unique opportunities with a generated proposal PDF during the period. Revenue reflects signed installation and repair agreements. Insurance inspections are counted when feedback is recorded as Insurance Follow Up or Waiting on Insurance.
+          Automated owner morning update from ARX CRM. Proposals shown is based on unique opportunities with a generated proposal PDF during the period. Revenue reflects signed installation and repair agreements.${show.insurance ? ' Insurance inspections are counted when feedback is recorded as Insurance Follow Up or Waiting on Insurance.' : ''}
         </p>
         <p style="color: #9CA3AF; font-size: 12px; font-style: italic; margin: 12px 0 0;">
           ${escapeHtml(MORNING_UPDATE_FOOTER_QUOTE)}
@@ -360,6 +370,8 @@ export async function sendMorningUpdateEmail(
   }
 
   const settings = getOrgEmailBlastSettings(orgRow?.settings)
+  // Same settings row: the company's feature switches (Settings → Features) decide the door / insurance rows.
+  const features = resolveOrgFeatures(orgRow?.settings)
 
   if (isTest) {
     emails = Array.from(
@@ -431,7 +443,7 @@ export async function sendMorningUpdateEmail(
     let shaped = needsYou ? needsYouForEmailRecipient(needsYou, viewerByEmail.get(to.trim().toLowerCase())) : null
     // Crews focus only narrows: an owner on 'crews' gets the operational rows (no dollars), never more than their role allows.
     if (shaped && needsYou && focus === 'crews') shaped = shapeNeedsYou(needsYou, 'ops')
-    return buildMorningUpdateHtml(metrics, { test: isTest, needsYou: shaped, today })
+    return buildMorningUpdateHtml(metrics, { test: isTest, needsYou: shaped, today, features })
   }
 
   let sent = 0

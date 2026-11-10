@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import Link from 'next/link'
 import InspectionStatusCard from '@/components/InspectionStatusCard'
+import { useOrgFeatures } from '@/hooks/useOrgFeatures'
+import type { OrgFeatures } from '@/lib/org-features'
 import { isPromptEscalated } from '@/lib/inspection-feedback-prompt'
 import type { CloseScheduleConfirm } from '@/components/appointments/CloseScheduleModal'
 import CommissionWidget from '@/components/CommissionWidget'
@@ -357,6 +359,7 @@ interface DashboardClientProps {
   closerTeamStats?: TeamMemberStat[]
   canViewTeamLeaderboard?: boolean
   badgeCount?: number
+  orgFeatures?: OrgFeatures | null
 }
 
 // ─── My Goals Widget ──────────────────────────────────────────────────────────
@@ -524,7 +527,10 @@ export default function DashboardClient({
   closerTeamStats = [],
   canViewTeamLeaderboard = false,
   badgeCount = 0,
+  orgFeatures: serverOrgFeatures = null,
 }: DashboardClientProps) {
+  /** Company feature switches (Settings → Features), resolved on the server: hides Start Canvassing / badges when off. */
+  const orgFeatures = useOrgFeatures(serverOrgFeatures)
   const [promptQueue, setPromptQueue] = useState<any[]>(pendingPrompts)
   const [activePrompt, setActivePrompt] = useState<any>(
     pendingPrompts.length > 0 ? pendingPrompts[0] : null
@@ -1024,7 +1030,7 @@ export default function DashboardClient({
                 ? `Organization-wide performance overview for ${timeFrameLabel[timeFrame]}`
                 : `Here's your performance overview for ${timeFrameLabel[timeFrame]}`}
             </p>
-            {badgeCount > 0 && !isDashboardPersonalKpiOrgWide(profile.role) && (
+            {orgFeatures.incentives && badgeCount > 0 && !isDashboardPersonalKpiOrgWide(profile.role) && (
               <a
                 href="/sisu"
                 className="inline-flex items-center gap-1.5 mt-2 text-xs font-medium text-indigo-600 hover:text-indigo-800 transition-colors"
@@ -2015,6 +2021,7 @@ export default function DashboardClient({
             <div className="bg-white rounded-xl shadow-sm p-4 sm:p-6 border border-gray-100">
               <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-3 sm:mb-4">Quick Actions</h2>
               <div className="space-y-2">
+                {orgFeatures.canvassing && (
                 <Link
                   href="/canvass"
                   className="flex items-center gap-3 p-2 sm:p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
@@ -2027,6 +2034,7 @@ export default function DashboardClient({
                   </div>
                   <span className="font-medium text-gray-900 text-sm sm:text-base">Start Canvassing</span>
                 </Link>
+                )}
                 <Link
                   href="/leads/new"
                   className="flex items-center gap-3 p-2 sm:p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"

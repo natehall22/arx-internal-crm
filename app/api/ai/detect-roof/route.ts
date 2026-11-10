@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { orgFeatureOffResponse } from '@/lib/org-features-server'
 import OpenAI from 'openai'
 import { requireAuthApi } from '@/lib/auth'
 import { resolveSalesDocAccessBarred } from '@/lib/sales-doc-access'
@@ -1281,6 +1282,8 @@ Rules:
 export async function POST(request: Request) {
   try {
     const authContext = await requireAuthApi()
+    const featureOff = await orgFeatureOffResponse(authContext.profile.org_id, 'roofMeasure')
+    if (featureOff) return featureOff
     const admin = createServiceClient()
     if (await resolveSalesDocAccessBarred(admin, authContext.authUser.id, authContext.profile)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })

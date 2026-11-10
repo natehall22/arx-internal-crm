@@ -4,7 +4,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
  * THE per-key writer for `orgs.settings` (Known Redundancy #25). One SQL function, `merge_org_settings` (migration
  * 202611060010), changes only the given keys at one place in settings — the top level (`path: []`) or one nested
  * object (`path: ['brand']`) — inside a single UPDATE, so a concurrent save of another key is never lost.
- * Users: job catch-up (top level), pricing (`/api/admin/pricing` org_settings, top level), brand (`lib/org-brand.ts` saveBrandSettings, path ['brand']).
+ * Users: job catch-up (top level), pricing (`/api/admin/pricing` org_settings, top level), brand (`lib/org-brand.ts` saveBrandSettings, path ['brand']), feature switches (`/api/admin/settings` type 'features', path ['features']).
  * Until the migration is applied, ONLY a missing function (PGRST202 / 42883) falls back to read → merge → write of
  * the same keys; any other error (permission denied, no such org) is returned.
  */
@@ -39,6 +39,8 @@ export async function mergeOrgSettings(
   if (path.length > 1) return { error: 'Settings path is deeper than one key' }
   // Brand has validated fields; it is only ever written at path ['brand'] by saveBrandSettings.
   if (path.length === 0 && ('brand' in set || remove.includes('brand'))) return { error: 'brand is saved through saveBrandSettings' }
+  // Feature switches are only ever written per key at path ['features'] (owner-only save, lib/org-features.ts).
+  if (path.length === 0 && ('features' in set || remove.includes('features'))) return { error: 'features are saved per key at path [features]' }
   if (Object.keys(set).length === 0 && remove.length === 0) return { error: null }
 
   const { error } = await client.rpc('merge_org_settings', { p_org_id: orgId, p_path: path, p_set: set, p_remove: remove })

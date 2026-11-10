@@ -19,6 +19,8 @@ import {
 } from '@/lib/opportunity-list-filters'
 import { type OpportunityListRow as Opportunity } from '@/components/opportunities/opportunity-list-shared'
 import { formatPhone } from '@/lib/format'
+import { useOrgFeatures } from '@/hooks/useOrgFeatures'
+import { insideSalesFeatureTabs } from '@/lib/inside-sales-follow-up'
 
 type InsideSalesActivity = {
   id: string
@@ -56,6 +58,8 @@ type InsideSalesItem = {
 }
 
 export default function OpportunitiesPage() {
+  /** Storm alerts switched off (Settings → Features): no Storm filter or count card (same rule as /inside-sales). */
+  const featureTabs = insideSalesFeatureTabs(useOrgFeatures())
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -417,7 +421,7 @@ export default function OpportunitiesPage() {
                     <option value="didnt_sit">Didn&apos;t sit only</option>
                     <option value="handoff">Inspection handoff only</option>
                     <option value="knockback">Knockback only</option>
-                    <option value="storm">Storm only (est.)</option>
+                    {featureTabs.showStorm && <option value="storm">Storm only (est.)</option>}
                   </>
                 ) : (
                   <>
@@ -507,10 +511,12 @@ export default function OpportunitiesPage() {
                     <p className="text-sm font-medium text-orange-800">Knockback</p>
                     <p className="mt-2 text-3xl font-bold text-orange-950">{insideSalesCounts.knockback}</p>
                   </div>
+                  {featureTabs.showStorm && (
                   <div className="rounded-xl border border-sky-200 bg-sky-50 p-4 shadow-sm">
                     <p className="text-sm font-medium text-sky-800">Storm (est.)</p>
                     <p className="mt-2 text-3xl font-bold text-sky-950">{insideSalesCounts.storm}</p>
                   </div>
+                  )}
                 </div>
 
                 {filteredInsideSalesItems.map((item) => {

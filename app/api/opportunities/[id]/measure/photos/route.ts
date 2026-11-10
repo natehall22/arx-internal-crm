@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
+import { orgFeatureOffResponse } from '@/lib/org-features-server'
 import { createServiceClient } from '@/lib/supabase/service'
 import {
   canAccessOpportunityMeasure,
@@ -13,6 +14,8 @@ export const runtime = 'nodejs'
 export async function POST(request: Request, { params }: { params: { id: string } }) {
   try {
     const { profile } = await requireAuthApi()
+    const roofMeasureOff = await orgFeatureOffResponse(profile.org_id, 'roofMeasure')
+    if (roofMeasureOff) return roofMeasureOff
     const supabase = createServiceClient()
     const context = await resolveOpportunityMeasureContext(supabase, profile.org_id, params.id)
     if (!context) return NextResponse.json({ error: 'Opportunity not found' }, { status: 404 })

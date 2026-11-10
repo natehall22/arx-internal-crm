@@ -170,4 +170,23 @@ describe('Storm hits call list', () => {
     await loadMorningTodayQueues(spyAdmin, 'org', 'crews', new Date('2026-11-06T11:00:00Z'))
     expect(tables).not.toContain('storm_opportunity_alerts')
   })
+
+  it('Storm alerts switched off (Settings → Features): the Everything version never reads storm rows, even recent ones', async () => {
+    const tables: string[] = []
+    const spyAdmin = {
+      from(table: string) {
+        tables.push(table)
+        const q: any = {
+          select: () => q, eq: () => q, gte: () => q, lt: () => q, is: () => q, order: () => q, limit: () => q, in: () => q, not: () => q, lte: () => q, neq: () => q,
+          maybeSingle: async () => ({ data: table === 'orgs' ? { features: { stormAlerts: false } } : null, error: null }),
+          then: (resolve: (v: unknown) => void) => resolve({ data: [], count: 0, error: null }),
+        }
+        return q
+      },
+    } as any
+    const queues = await loadMorningTodayQueues(spyAdmin, 'org', 'all', new Date('2026-11-06T11:00:00Z'))
+    expect(tables).toContain('orgs')
+    expect(tables).not.toContain('storm_opportunity_alerts')
+    expect(queues.some((q) => q.id === 'storm-hits')).toBe(false)
+  })
 })

@@ -3,6 +3,7 @@ import type { Metadata, Viewport } from 'next'
 import { redirect } from 'next/navigation'
 
 import { requireAuth } from '@/lib/auth'
+import { requireOrgFeaturePage } from '@/lib/org-features-server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { effectiveHasPermission, resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 
@@ -32,6 +33,8 @@ export default async function CanvassAppLayout({
   children: React.ReactNode
 }) {
   const { profile, authUser } = await requireAuth()
+  // Company switched door knocking off (Settings → Features): the whole canvass app is gone.
+  await requireOrgFeaturePage(profile.org_id, 'canvassing')
   const admin = createServiceClient()
   const effective = await resolveEffectivePermissionNames(admin, authUser.id, {
     role: profile.role as string,

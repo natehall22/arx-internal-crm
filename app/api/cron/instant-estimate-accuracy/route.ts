@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { isOrgFeatureOn } from '@/lib/org-features-server'
 
 import { verifyCronSecret } from '@/lib/cron-auth'
 import { DEFAULT_ACCURACY_CHECK_LIMIT, runAccuracyChecks } from '@/lib/instant-estimate-accuracy'
@@ -26,6 +27,10 @@ export async function GET(request: NextRequest) {
   } catch (e) {
     console.error('instant-estimate-accuracy: no org', e)
     return NextResponse.json({ error: 'PUBLIC_ESTIMATE_ORG_ID not set' }, { status: 503 })
+  }
+
+  if (!(await isOrgFeatureOn(orgId, 'roofMeasure'))) {
+    return NextResponse.json({ skipped: true, reason: 'roof measuring is turned off for this company' })
   }
 
   const envLimit = Number(process.env.INSTANT_ESTIMATE_ACCURACY_LIMIT)

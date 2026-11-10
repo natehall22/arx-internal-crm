@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
+import { insuranceFieldsSetInPatch } from '@/lib/org-features'
+import { orgFeatureOffResponse } from '@/lib/org-features-server'
 import { saveDealSaleCredit, SALE_CREDIT_EDIT_ROLES, type SaleCreditChange } from '@/lib/deal-sale-credit'
 import { isSuperAdmin } from '@/lib/super-admin'
 import { canSetReferredBy, getPartnerAccess } from '@/lib/referral-partners'
@@ -121,6 +123,11 @@ export async function PATCH(
     }
     if (Object.keys(updateData).length === 0) {
       return NextResponse.json({ error: 'No valid fields to update' }, { status: 400 })
+    }
+    // Insurance switched off for the company (Settings → Features): no new claim data (clearing is still fine).
+    if (insuranceFieldsSetInPatch(updateData).length > 0) {
+      const featureOff = await orgFeatureOffResponse(profile.org_id, 'insurance')
+      if (featureOff) return featureOff
     }
 
     const touchesPayrollAttribution =

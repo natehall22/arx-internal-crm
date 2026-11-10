@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useOrgFeatures } from '@/hooks/useOrgFeatures'
 import { createClientBrowser } from '@/lib/supabase/client'
 import Link from 'next/link'
 
@@ -22,6 +23,8 @@ interface WeeklyStats {
 }
 
 export default function CanvassStatsPage() {
+  /** Sisu incentives switched off for the company (Settings → Features): no Sisu tab. */
+  const incentivesOn = useOrgFeatures().incentives
   const [loading, setLoading] = useState(true)
   const [profile, setProfile] = useState<any>(null)
   const [todayStats, setTodayStats] = useState<DailyStats | null>(null)
@@ -305,6 +308,7 @@ export default function CanvassStatsPage() {
             </svg>
             <span className="text-[11px] font-medium leading-tight">Map</span>
           </Link>
+          {incentivesOn && (
           <Link
             href="/sisu"
             className="flex flex-1 basis-0 flex-col items-center gap-1 rounded-2xl py-2 text-gray-500 transition-all duration-150 hover:text-indigo-600 active:scale-[0.96] select-none"
@@ -323,6 +327,7 @@ export default function CanvassStatsPage() {
             </svg>
             <span className="text-[11px] font-medium leading-tight">Sisu</span>
           </Link>
+          )}
           <Link
             href="/canvass/settings"
             className="flex flex-1 basis-0 flex-col items-center gap-1 rounded-2xl py-2 text-gray-500 transition-all duration-150 hover:text-indigo-600 active:scale-[0.96] select-none"

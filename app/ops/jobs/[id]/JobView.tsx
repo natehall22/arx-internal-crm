@@ -1,5 +1,6 @@
 import { sumCollectedCents } from '@/lib/job-collection'
 import { requireAuth } from '@/lib/auth'
+import { getOrgFeatures } from '@/lib/org-features-server'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { notFound, redirect } from 'next/navigation'
@@ -583,6 +584,7 @@ export default async function JobView({ params, embedded = false, initialTab = n
 
   return (
     <JobDetailClient
+      orgFeatures={await getOrgFeatures(profile.org_id)}
       catchUp={catchUp}
       embedded={embedded}
       v2={(profile as { ui_prefs?: { jobPageV2?: unknown } | null }).ui_prefs?.jobPageV2 === true}

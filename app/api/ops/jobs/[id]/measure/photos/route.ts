@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
+import { orgFeatureOffResponse } from '@/lib/org-features-server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { resolveOpsAccess } from '@/lib/ops-access'
 import {
@@ -13,6 +14,8 @@ export const runtime = 'nodejs'
 export async function POST(request: Request, { params }: { params: { id: string } }) {
   try {
     const { authUser, profile } = await requireAuthApi()
+    const roofMeasureOff = await orgFeatureOffResponse(profile.org_id, 'roofMeasure')
+    if (roofMeasureOff) return roofMeasureOff
     const supabase = createServiceClient()
     const { canJobBoard } = await resolveOpsAccess(supabase, authUser.id, profile)
     if (!canJobBoard) {

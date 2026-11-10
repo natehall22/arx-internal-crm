@@ -72,6 +72,7 @@ import EmailBlastsPage from '@/app/admin/email-blasts/page'
 import GeneralSettingsCard, { type GeneralSettingsValues } from '@/components/admin/GeneralSettingsCard'
 import { DEFAULT_TIMEZONE } from '@/lib/timezone'
 import JobCatchUpSettingsCard from '@/components/admin/JobCatchUpSettingsCard'
+import OrgFeaturesCard from '@/components/admin/OrgFeaturesCard'
 import { HARNESS_CATCH_UP_JOBS, HARNESS_CATCH_UP_STUCK, HARNESS_VIEWER_ID } from '@/e2e/fixtures'
 
 function GeneralSettingsHarness({ canEditBrand }: { canEditBrand: boolean }) {
@@ -202,6 +203,12 @@ export default function Harness({ params }: { params: { screen: string } }) {
       return (
         <div className="mx-auto max-w-2xl p-4">
           <JobCatchUpSettingsCard initial={{ enabled: false, stuckDays: 7, canEdit: true }} />
+        </div>
+      )
+    case 'org-features':
+      return (
+        <div className="mx-auto max-w-2xl p-4">
+          <OrgFeaturesCard initial={{ canvassing: false, insurance: false, roofMeasure: true, incentives: false, stormAlerts: false, squaresPricing: true }} />
         </div>
       )
     case 'job-page':

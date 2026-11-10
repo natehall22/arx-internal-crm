@@ -7,10 +7,13 @@ import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { resolveJobMeasureContext } from '@/lib/exterior-measure-api'
 import { resolveOpsAccess } from '@/lib/ops-access'
+import { requireOrgFeaturePage } from '@/lib/org-features-server'
 import ExteriorMeasureClient from './ExteriorMeasureClient'
 
 export default async function ExteriorMeasurePage({ params }: { params: { id: string } }) {
   const { authUser, profile } = await requireAuth()
+  // Roof & exterior measuring switched off (Settings → Features): 404.
+  await requireOrgFeaturePage(profile.org_id, 'roofMeasure')
   const admin = createServiceClient()
   const { canJobBoard } = await resolveOpsAccess(admin, authUser.id, profile)
   if (!canJobBoard) redirect('/dashboard')

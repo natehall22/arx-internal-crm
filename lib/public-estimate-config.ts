@@ -220,6 +220,19 @@ export function isPublicRoofEstimateEnabled(): boolean {
 }
 
 /**
+ * THE "is the website instant estimate live" rule — config, preview and unlock all ask this: the env switch above AND
+ * the estimate org's "Roof measuring" feature switch (lib/org-features.ts). No org configured → env only (the routes
+ * report "misconfigured" themselves). The feature module is loaded lazily so this config stays free of server imports.
+ */
+export async function isPublicEstimateLive(): Promise<boolean> {
+  if (!isPublicRoofEstimateEnabled()) return false
+  const orgId = process.env.PUBLIC_ESTIMATE_ORG_ID?.trim()
+  if (!orgId) return true
+  const { isOrgFeatureOn } = await import('@/lib/org-features-server')
+  return isOrgFeatureOn(orgId, 'roofMeasure')
+}
+
+/**
  * Public Cloudflare Turnstile site key for the website funnel widget.
  * Browser-safe — never confuse with TURNSTILE_SECRET_KEY.
  * Website fetches this via GET /api/public/estimate/config (holds no keys itself).

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { orgFeatureOffResponse } from '@/lib/org-features-server'
 import { requireAuthApi } from '@/lib/auth'
 import { createServerClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -15,6 +16,8 @@ export async function POST(request: NextRequest) {
     if (!profile.org_id) {
       return NextResponse.json({ error: 'User profile not found' }, { status: 400 })
     }
+    const featureOff = await orgFeatureOffResponse(profile.org_id, 'canvassing')
+    if (featureOff) return featureOff
 
     // RLS-bound client: the dedup read and the bulk insert below both go through the
     // caller's own policies on `leads`, which is what keeps this endpoint from writing

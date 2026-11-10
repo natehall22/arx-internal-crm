@@ -1,5 +1,7 @@
+import { requireAuth } from '@/lib/auth'
 import { redirect } from 'next/navigation'
-import { createClient } from '@/lib/supabase/server'
+
+import { isOrgFeatureOn } from '@/lib/org-features-server'
 import AdminIncentivesClient from './AdminIncentivesClient'
 
 type PageProps = {
@@ -7,20 +9,17 @@ type PageProps = {
 }
 
 export default async function SisuIncentivesPage({ searchParams }: PageProps) {
-  const supabase = createClient()
-  const {
-    data: { user },
-    error: authError,
-  } = await supabase.auth.getUser()
-
-  if (authError || !user) redirect('/login')
+  // requireAuth (not raw auth.getUser): same login redirect, plus the deployment-org fence.
+  const { authUser, profile } = await requireAuth()
+  // Sisu incentives switched off (Settings → Features): the hub keeps only pay tools (Setter Ramp, Bonus Approval).
+  if (!(await isOrgFeatureOn(profile.org_id, 'incentives'))) redirect('/admin/sisu/setter-ramp')
 
   const params = await searchParams
   const initialTab = params.tab === 'badges' ? 'badges' : 'heats'
 
   return (
     <div className="rounded-xl border border-slate-800 bg-gray-50 p-6 shadow-2xl shadow-black/20">
-      <AdminIncentivesClient currentUserId={user.id} initialTab={initialTab} />
+      <AdminIncentivesClient currentUserId={authUser.id} initialTab={initialTab} />
     </div>
   )
 }

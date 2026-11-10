@@ -32,6 +32,7 @@ import {
   type RoofAgeFeature,
 } from '@/app/(canvass-app)/canvass/lib/roof-age-overlay'
 import { NextRequest, NextResponse } from 'next/server'
+import { orgFeatureOffResponse } from '@/lib/org-features-server'
 
 export const dynamic = 'force-dynamic'
 
@@ -233,11 +234,14 @@ async function fetchCabarrusFallback(bbox: Bbox): Promise<SourceResult> {
 }
 
 export async function GET(request: NextRequest) {
+  let orgId: string | null = null
   try {
-    await requireAuthApi()
+    orgId = (await requireAuthApi()).profile.org_id
   } catch {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+  const featureOff = await orgFeatureOffResponse(orgId, 'canvassing')
+  if (featureOff) return featureOff
 
   const bbox = parseBbox(request.nextUrl.searchParams)
   if (!bbox) {

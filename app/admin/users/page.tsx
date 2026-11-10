@@ -1,5 +1,6 @@
 'use client'
 
+import { useOrgFeatures } from '@/hooks/useOrgFeatures'
 import { useEffect, useState } from 'react'
 import Nav from '@/components/Nav'
 import Link from 'next/link'
@@ -61,6 +62,8 @@ type PermissionPreset = {
 }
 
 export default function UsersPage() {
+  /** Door knocking switched off (Settings → Features): no canvass pin-visibility settings. */
+  const canvassingOn = useOrgFeatures().canvassing
   const [users, setUsers] = useState<UserWithDetails[]>([])
   const [teams, setTeams] = useState<Team[]>([])
   const [regions, setRegions] = useState<Region[]>([])
@@ -1188,6 +1191,7 @@ export default function UsersPage() {
                   </div>
 
                   {/* Canvass Pin Visibility */}
+                  {canvassingOn && (
                   <div className="border-t pt-4">
                     <h3 className="text-sm font-medium text-gray-900 mb-2">Canvass Map Pin Visibility</h3>
                     <p className="text-xs text-gray-500 mb-3">
@@ -1234,6 +1238,7 @@ export default function UsersPage() {
                       , then set visibility to Work areas here.
                     </p>
                   </div>
+                  )}
 
                   {/* Permissions */}
                   <div className="border-t pt-4">
@@ -1570,6 +1575,7 @@ export default function UsersPage() {
                 </div>
 
                 {/* Canvass Pin Visibility */}
+                {canvassingOn && (
                 <div className="border-t pt-4 mt-4">
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Canvass Map Pin Visibility
@@ -1607,6 +1613,7 @@ export default function UsersPage() {
                     </p>
                   )}
                 </div>
+                )}
 
                 {/* Show in Reports Toggle */}
                 <div className="border-t pt-4 mt-4">

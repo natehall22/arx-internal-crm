@@ -12,6 +12,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { orgFeatureOffResponse } from '@/lib/org-features-server'
 import { createClient } from '@supabase/supabase-js'
 import {
   fetchExteriorRingsForUser,
@@ -237,6 +238,8 @@ export async function GET(request: NextRequest) {
     if (profileError || !profile) {
       return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
     }
+    const featureOff = await orgFeatureOffResponse(profile.org_id, 'canvassing')
+    if (featureOff) return featureOff
 
     await repairScheduledInspectionPinsForOrg(adminClient, profile.org_id)
 
@@ -428,6 +431,8 @@ export async function POST(request: NextRequest) {
     if (!profile) {
       return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
     }
+    const featureOff = await orgFeatureOffResponse(profile.org_id, 'canvassing')
+    if (featureOff) return featureOff
 
     const isManager = ['owner', 'admin', 'regional_manager', 'sales_manager', 'operations'].includes(profile.role)
     const territoryMode = !isManager && (profile.canvass_pin_visibility || 'org') === 'territory'

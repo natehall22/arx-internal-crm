@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { orgFeatureOffResponse } from '@/lib/org-features-server'
 import { createClient } from '@supabase/supabase-js'
 import { isValidBoundaryGeoJSON } from '@/lib/canvass-territory-geometry'
 import { isCanvassTerritoryAssigneeEligible } from '@/lib/canvass-territory-assignee-filter'
@@ -75,6 +76,8 @@ async function requireManager(req: NextRequest) {
   if (!profile || !CANVASS_TERRITORY_MANAGER_ROLES.includes(profile.role as (typeof CANVASS_TERRITORY_MANAGER_ROLES)[number])) {
     return { error: NextResponse.json({ error: 'Forbidden' }, { status: 403 }) }
   }
+  const featureOff = await orgFeatureOffResponse(profile.org_id, 'canvassing')
+  if (featureOff) return { error: featureOff }
   return { user, profile, admin }
 }
 

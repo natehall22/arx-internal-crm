@@ -23,6 +23,7 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { resolveThreadViewer } from '@/lib/threads/viewer'
 import { listWaiting } from '@/lib/threads/waiting'
 import { loadCloserQueues, loadOpsQueues, loadOwnerExceptions, todayKindFor, type TodayKind } from '@/lib/today'
+import { isOrgFeatureOn } from '@/lib/org-features-server'
 
 const TITLE: Record<TodayKind, string> = {
   closer: 'Today',
@@ -37,8 +38,9 @@ export default async function TodayPage() {
   const perms = await resolveEffectivePermissionNames(admin, authUser.id, profile)
   const kind = todayKindFor({ role: profile.role, isSuperuser: isOrgSuperuserRoleSlug(profile.role), canJobBoard: canAccessJobBoardFromPermissionNames(perms) })
 
-  // Setters work in the field: on a phone, Today IS the canvass app.
-  if (kind === 'setter' && /iPhone|Android|Mobile/i.test(headers().get('user-agent') ?? '')) redirect('/canvass')
+  // Setters work in the field: on a phone, Today IS the canvass app (unless the company switched door knocking off).
+  const canvassOn = kind === 'setter' && (await isOrgFeatureOn(profile.org_id, 'canvassing'))
+  if (canvassOn && /iPhone|Android|Mobile/i.test(headers().get('user-agent') ?? '')) redirect('/canvass')
 
   const { start, end } = getDateRangeForTimeFrame('week', 'America/New_York')
   const rows = await fetchPeriodMetricRows(admin, { orgId: profile.org_id, startIso: start.toISOString(), endIso: end.toISOString() })
@@ -76,7 +78,7 @@ export default async function TodayPage() {
         <PageHeader
           title={TITLE[kind]}
           subtitle={`Hi ${profile.full_name?.split(' ')[0] ?? 'there'} — here's what needs you.`}
-          actions={kind === 'setter' ? <Button asChild><Link href="/canvass">Open Canvass</Link></Button> : undefined}
+          actions={canvassOn ? <Button asChild><Link href="/canvass">Open Canvass</Link></Button> : undefined}
         />
         <WaitingOnYou items={waiting} />
         {needsYou && needsYou.count > 0 ? <NeedsYouList report={needsYou} canFixPayPlans={isOwnerProfile(profile)} audience={needsYouAudience} /> : null}

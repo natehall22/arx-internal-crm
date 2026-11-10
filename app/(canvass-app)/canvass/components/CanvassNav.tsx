@@ -1,5 +1,7 @@
 'use client'
 
+import { useOrgFeatures } from '@/hooks/useOrgFeatures'
+
 interface Props {
   viewMode: 'map' | 'list'
   onViewModeChange: (mode: 'map' | 'list') => void
@@ -42,6 +44,8 @@ export default function CanvassNav({
   workAreasActive = false,
   onWorkAreas,
 }: Props) {
+  /** Sisu incentives switched off for the company (Settings → Features): no Sisu tab. */
+  const incentivesOn = useOrgFeatures().incentives
   const mapActive = viewMode !== 'list' && !workAreasActive
 
   const areasIcon = (
@@ -103,10 +107,12 @@ export default function CanvassNav({
             </a>
           ))}
 
-        <a href="/sisu" className={`${tabBase} ${tabIdle}`}>
-          <SisuMark />
-          <span className="text-[11px] font-medium leading-tight">Sisu</span>
-        </a>
+        {incentivesOn && (
+          <a href="/sisu" className={`${tabBase} ${tabIdle}`}>
+            <SisuMark />
+            <span className="text-[11px] font-medium leading-tight">Sisu</span>
+          </a>
+        )}
 
         <a href="/canvass/settings" className={`${tabBase} ${tabIdle}`}>
           <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">

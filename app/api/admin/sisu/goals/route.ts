@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
+import { orgFeatureOffResponse } from '@/lib/org-features-server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { getEasternTodayIso } from '@/lib/eastern-datetime'
 import { isPayrollAdminRole } from '@/lib/payroll-admin-access'
@@ -21,6 +22,8 @@ export async function PUT(request: NextRequest) {
   if (!isSisuAdminRole(profile.role) || !profile.org_id) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
+  const featureOff = await orgFeatureOffResponse(profile.org_id, 'incentives')
+  if (featureOff) return featureOff
 
   const admin = createServiceClient()
 

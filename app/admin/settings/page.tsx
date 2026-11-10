@@ -155,7 +155,6 @@ export default function AdminSettingsPage() {
     bi_weekly_start_date: '', // Reference date for bi-weekly periods
   })
   const [measurementSettings, setMeasurementSettings] = useState({
-    measure_tool_enabled: true,
     preferred_provider: 'in_house', // 'in_house', 'eagleview', 'roofr', 'solo', 'aurora'
     eagleview_enabled: false,
     roofr_enabled: false,
@@ -557,11 +556,10 @@ export default function AdminSettingsPage() {
         }))
       }
       
-      // Load measurement settings
-      if (data.settings?.measure_tool_enabled !== undefined) {
+      // Load measurement settings (the in-house tool's on/off is the Roof measuring feature switch, Settings → Features)
+      if (data.settings?.external_integrations) {
         setMeasurementSettings(prev => ({
           ...prev,
-          measure_tool_enabled: data.settings.measure_tool_enabled,
           ...(data.settings.external_integrations || {}),
         }))
       }
@@ -1360,19 +1358,19 @@ export default function AdminSettingsPage() {
                       </svg>
                     </div>
                     <div>
-                      <h3 className="font-semibold text-gray-900">ARX Roof Measure</h3>
+                      <h3 className="font-semibold text-gray-900">Roof Measure</h3>
                       <p className="text-sm text-gray-500">In-house satellite measurement tool</p>
                     </div>
                   </div>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={measurementSettings.measure_tool_enabled}
-                      onChange={(e) => setMeasurementSettings(prev => ({ ...prev, measure_tool_enabled: e.target.checked }))}
-                      className="sr-only peer"
-                    />
-                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-indigo-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
-                  </label>
+                  {/* On/off is the "Roof measuring" feature switch (one switch: lib/org-features.ts), owners only.
+                      canEditBrand = isSuperAdmin from GET /api/admin/settings — the same people who see Settings → Features. */}
+                  {canEditBrand ? (
+                    <a href="/admin#features" className="inline-flex min-h-[44px] items-center text-sm font-semibold text-indigo-700 hover:underline">
+                      Turn on/off in Settings → Features
+                    </a>
+                  ) : (
+                    <p className="text-sm text-[#2c2c2a]">An owner can turn this on or off.</p>
+                  )}
                 </div>
                 <div className="text-sm text-gray-600 bg-gray-50 rounded-lg p-4">
                   <p className="mb-2"><strong>Features:</strong></p>
@@ -1520,7 +1518,6 @@ export default function AdminSettingsPage() {
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
                           type: 'measurement_tools',
-                          measure_tool_enabled: measurementSettings.measure_tool_enabled,
                           external_integrations: {
                             eagleview: measurementSettings.eagleview_enabled,
                             roofr: measurementSettings.roofr_enabled,

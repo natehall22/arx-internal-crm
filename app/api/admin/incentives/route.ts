@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
+import { isOrgFeatureOn, orgFeatureOffResponse } from '@/lib/org-features-server'
 import { isSisuAdminRole } from '@/lib/sisu-admin-access'
 import { createServiceClient } from '@/lib/supabase/service'
 
@@ -26,8 +27,12 @@ async function requireIncentivesAdmin(): Promise<AdminContext | NextResponse> {
   if (!profile.org_id) {
     return NextResponse.json({ error: 'No org found' }, { status: 400 })
   }
-
   return { userId: profile.id, orgId: profile.org_id }
+}
+
+/** Sisu incentives switched off (Settings → Features): heats/badges/payout reads and every write are refused. */
+async function incentivesOffResponse(orgId: string): Promise<NextResponse | null> {
+  return orgFeatureOffResponse(orgId, 'incentives')
 }
 
 // ─── GET /api/admin/incentives ────────────────────────────────────────────────
@@ -41,6 +46,14 @@ export async function GET(req: NextRequest) {
 
   const admin = createServiceClient()
   const orgId = authResult.orgId
+
+  // Incentives off: only the active-user list stays (Setter Ramp — pay — uses it to pick who to enroll).
+  if (!(await isOrgFeatureOn(orgId, 'incentives'))) {
+    if (resource) return (await incentivesOffResponse(orgId))!
+    const { data: users, error } = await admin.from('users').select('id, full_name, role').eq('org_id', orgId).eq('active', true).order('full_name')
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ heats: [], cycles: [], badges: [], users: users ?? [] })
+  }
 
   // payout queue for a specific cycle — scoped to caller's org + cycle date range
   if (resource === 'payout_queue') {
@@ -96,6 +109,8 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const authResult = await requireIncentivesAdmin()
   if (authResult instanceof NextResponse) return authResult
+  const featureOff = await incentivesOffResponse(authResult.orgId)
+  if (featureOff) return featureOff
 
   const admin = createServiceClient()
 
@@ -182,6 +197,8 @@ export async function POST(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   const authResult = await requireIncentivesAdmin()
   if (authResult instanceof NextResponse) return authResult
+  const featureOff = await incentivesOffResponse(authResult.orgId)
+  if (featureOff) return featureOff
 
   const admin = createServiceClient()
   // org_id scopes every update query below to prevent cross-org modification

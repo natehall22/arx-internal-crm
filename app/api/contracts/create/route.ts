@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
+import { orgFeatureOffResponse } from '@/lib/org-features-server'
 import { resolveSalesDocAccessBarred } from '@/lib/sales-doc-access'
 import { createServiceClient } from '@/lib/supabase/service'
 import {
@@ -67,6 +68,11 @@ export async function POST(request: NextRequest) {
         : agreementType === 'repair'
           ? 'repair'
           : 'installation'
+    // Insurance switched off for the company (Settings → Features): no contingency agreement, no insurance payment.
+    if (safeAgreementType === 'contingency' || paymentMethod === 'insurance') {
+      const featureOff = await orgFeatureOffResponse(profile.org_id, 'insurance')
+      if (featureOff) return featureOff
+    }
     const safeProjectCost = safeAgreementType === 'contingency' ? 0 : Number(projectCost || 0)
     const safeDepositAmount = safeAgreementType === 'contingency' ? 0 : Number(depositAmount || 0)
     const safePaymentMethod = safeAgreementType === 'contingency' ? 'insurance' : (paymentMethod || 'cash')

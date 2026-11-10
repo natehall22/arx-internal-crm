@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { getJobPaymentSummary } from '@/lib/job-payments'
 import { requireAuthApi } from '@/lib/auth'
+import { insuranceFieldsSetInPatch } from '@/lib/org-features'
+import { orgFeatureOffResponse } from '@/lib/org-features-server'
 import { resolveOpsAccess, redactProductionJobFinancialSummaryFields } from '@/lib/ops-access'
 import { CANCELLED_JOB_STATUS, projectStatusForJobStatus } from '@/lib/job-status'
 
@@ -85,6 +87,11 @@ export async function PATCH(
     }
     if (Object.keys(updateData).length === 0) {
       return NextResponse.json({ error: 'No valid fields to update' }, { status: 400 })
+    }
+    // Insurance switched off for the company (Settings → Features): no new claim data (clearing is still fine).
+    if (insuranceFieldsSetInPatch(updateData).length > 0) {
+      const featureOff = await orgFeatureOffResponse(profile.org_id, 'insurance')
+      if (featureOff) return featureOff
     }
 
 

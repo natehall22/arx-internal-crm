@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic'
 import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
 import { requireAuth } from '@/lib/auth'
+import { requireOrgFeaturePage } from '@/lib/org-features-server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { resolveOpsAccess } from '@/lib/ops-access'
 import { calculateElevationMeasure, calculateExteriorMeasureTotals } from '@/lib/exterior-measure'
@@ -20,6 +21,8 @@ function fmt(value: number) {
 
 export default async function ExteriorMeasurePrintPage({ params }: { params: { id: string } }) {
   const { authUser, profile } = await requireAuth()
+  // Roof & exterior measuring switched off (Settings → Features): 404.
+  await requireOrgFeaturePage(profile.org_id, 'roofMeasure')
 
   const supabase = createServiceClient()
   const { canJobBoard } = await resolveOpsAccess(supabase, authUser.id, profile)

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { requireAuthApi } from '@/lib/auth'
+import { orgFeatureOffResponse } from '@/lib/org-features-server'
 import { resolveSalesDocAccessBarred } from '@/lib/sales-doc-access'
 
 export const dynamic = 'force-dynamic'
@@ -17,6 +18,8 @@ export async function GET(
     } catch {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+    const roofMeasureOff = await orgFeatureOffResponse(authContext.profile.org_id, 'roofMeasure')
+    if (roofMeasureOff) return roofMeasureOff
 
     const adminClient = createServiceClient()
 
@@ -62,6 +65,8 @@ export async function DELETE(
     } catch {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+    const roofMeasureOff = await orgFeatureOffResponse(authContext.profile.org_id, 'roofMeasure')
+    if (roofMeasureOff) return roofMeasureOff
 
     const adminClient = createServiceClient()
 

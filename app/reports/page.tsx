@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import Nav from '@/components/Nav'
+import { useOrgFeatures } from '@/hooks/useOrgFeatures'
 import Link from 'next/link'
 import type { ReportResult } from '@/lib/reporting/run'
 import type { ReportSpec, DatePreset } from '@/lib/reporting/report-spec'
@@ -165,6 +166,7 @@ type ForecastData = {
 }
 
 function ForecastTab({ currentUser }: { currentUser: any }) {
+  const insuranceOn = useOrgFeatures().insurance
   const [period, setPeriod] = useState<ForecastPeriod>('quarter')
   const [data, setData] = useState<ForecastData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -337,7 +339,8 @@ function ForecastTab({ currentUser }: { currentUser: any }) {
             </div>
           </div>
 
-          {/* Insurance */}
+          {/* Insurance (hidden when the company switched Insurance off — Settings → Features) */}
+          {insuranceOn && (
           <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-5">
             <div className="flex items-center justify-between mb-3">
               <h3 className="font-semibold text-gray-900 text-sm">Insurance Pipeline</h3>
@@ -363,6 +366,7 @@ function ForecastTab({ currentUser }: { currentUser: any }) {
               </div>
             )}
           </div>
+          )}
         </div>
       )}
     </div>

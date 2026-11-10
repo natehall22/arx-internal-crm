@@ -3,6 +3,7 @@ export const revalidate = 0
 export const fetchCache = 'force-no-store'
 
 import { requireAuth } from '@/lib/auth'
+import { getOrgFeatures } from '@/lib/org-features-server'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import Nav from '@/components/Nav'
@@ -416,6 +417,7 @@ export default async function DashboardPage() {
     <div className="min-h-screen bg-gray-50">
       <Nav />
       <DashboardClient
+        orgFeatures={await getOrgFeatures(profile.org_id)}
         profile={profile}
         stats={stats}
         progress={progress}

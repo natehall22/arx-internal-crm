@@ -7,6 +7,7 @@ import Link from 'next/link'
 import { getManagerSpoRoleSummary } from '@/lib/manager-commission-roles'
 import { toast } from '@/components/ui/toast'
 import { confirmDialog } from '@/components/ui/confirm-dialog'
+import { useOrgFeatures } from '@/hooks/useOrgFeatures'
 
 interface PricebookItem {
   id: string
@@ -68,6 +69,8 @@ const adderCategories = [
 
 export default function AdminProposalsPage() {
   const router = useRouter()
+  /** Roof squares pricing switched off (Settings → Features): no roof-square add-on units. */
+  const squaresOn = useOrgFeatures().squaresPricing
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<Tab>('pricing')
   const [pricebookItems, setPricebookItems] = useState<PricebookItem[]>([])
@@ -804,9 +807,9 @@ export default function AdminProposalsPage() {
                       >
                         <option value="each">Each</option>
                         <option value="lf">Linear Foot</option>
-                        <option value="square">Square (roof)</option>
+                        {(squaresOn || adderForm.unit === 'square') && <option value="square">Square (roof)</option>}
                         <option value="per_sqft">Per sq ft (manual quantity)</option>
-                        <option value="sqft">Sq ft (from roof — auto)</option>
+                        {(squaresOn || adderForm.unit === 'sqft') && <option value="sqft">Sq ft (from roof — auto)</option>}
                         <option value="job">Per Job</option>
                       </select>
                       {adderForm.unit === 'per_sqft' && (

@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server'
-import { getPublicEstimateOrgId, getPublicEstimateDisclaimerForPath, getPublicEstimateUnlockNextStepForPath, isPublicRoofEstimateEnabled, misconfiguredMessage } from '@/lib/public-estimate-config'
+import { isPublicEstimateLive } from '@/lib/public-estimate-config'
+import { getPublicEstimateOrgId, getPublicEstimateDisclaimerForPath, getPublicEstimateUnlockNextStepForPath, misconfiguredMessage } from '@/lib/public-estimate-config'
 import { publicEstimateJson, publicEstimateOptionsResponse } from '@/lib/public-estimate-cors'
 import {
   clientIpFromRequest,
@@ -46,7 +47,8 @@ function resolveName(body: Record<string, unknown>): string {
 export async function POST(request: NextRequest) {
   const origin = request.headers.get('origin')
 
-  if (!isPublicRoofEstimateEnabled()) {
+  // Env switch AND the company's Roof measuring switch (Settings → Features): one rule, isPublicEstimateLive.
+  if (!(await isPublicEstimateLive())) {
     return publicEstimateJson(
       { error: 'Public roof estimate is not enabled', code: 'disabled' },
       503,

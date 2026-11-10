@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
+import { orgFeatureOffResponse } from '@/lib/org-features-server'
 import { formatReward } from '@/lib/incentive-metrics'
 import { countDoorsKnockedForBadgeAward } from '@/lib/sisu-weekly-doors'
 import { countClosedSalesForBadgeAward } from '@/lib/sisu-monthly-closed-sales'
@@ -247,6 +248,8 @@ export async function POST(request: NextRequest) {
     } catch {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+    const featureOff = await orgFeatureOffResponse(profile.org_id, 'incentives')
+    if (featureOff) return featureOff
 
     const rawBody = (await request.json().catch(() => ({}))) as SyncRequestBody
     const bodyUserId = requestedUserId(rawBody)

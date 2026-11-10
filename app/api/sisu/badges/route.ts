@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
+import { orgFeatureOffResponse } from '@/lib/org-features-server'
 import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
@@ -21,6 +22,8 @@ export async function GET(request: NextRequest) {
     } catch {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+    const featureOff = await orgFeatureOffResponse(authContext.profile.org_id, 'incentives')
+    if (featureOff) return featureOff
 
     const userId = request.nextUrl.searchParams.get('userId')
     // Validate format before any DB access — prevents UUID cast errors leaking schema info.

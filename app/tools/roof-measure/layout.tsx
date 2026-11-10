@@ -5,9 +5,11 @@ import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 import { isBarredFromRoofMeasureAccess } from '@/lib/permissions'
 import { createServiceClient } from '@/lib/supabase/service'
 import { notFound } from 'next/navigation'
+import { requireOrgFeaturePage } from '@/lib/org-features-server'
 
 export default async function RoofMeasureLayout({ children }: { children: React.ReactNode }) {
   const { authUser, profile } = await requireAuth()
+  await requireOrgFeaturePage(profile.org_id, 'roofMeasure')
   const supabase = createServiceClient()
 
   let customRoleName: string | null = null

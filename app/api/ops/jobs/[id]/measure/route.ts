@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
+import { orgFeatureOffResponse } from '@/lib/org-features-server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { resolveOpsAccess } from '@/lib/ops-access'
 import {
@@ -15,6 +16,8 @@ export const dynamic = 'force-dynamic'
 export async function GET(_request: Request, { params }: { params: { id: string } }) {
   try {
     const { authUser, profile } = await requireAuthApi()
+    const roofMeasureOff = await orgFeatureOffResponse(profile.org_id, 'roofMeasure')
+    if (roofMeasureOff) return roofMeasureOff
     const supabase = createServiceClient()
     const { canJobBoard } = await resolveOpsAccess(supabase, authUser.id, profile)
     if (!canJobBoard) {
@@ -34,6 +37,8 @@ export async function GET(_request: Request, { params }: { params: { id: string 
 export async function PUT(request: Request, { params }: { params: { id: string } }) {
   try {
     const { profile, authUser } = await requireAuthApi()
+    const roofMeasureOff = await orgFeatureOffResponse(profile.org_id, 'roofMeasure')
+    if (roofMeasureOff) return roofMeasureOff
     const supabase = createServiceClient()
     const { canJobBoard } = await resolveOpsAccess(supabase, authUser.id, profile)
     if (!canJobBoard) {

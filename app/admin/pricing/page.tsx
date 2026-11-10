@@ -6,6 +6,7 @@ import Nav from '@/components/Nav'
 import Link from 'next/link'
 import { toast } from '@/components/ui/toast'
 import { confirmDialog } from '@/components/ui/confirm-dialog'
+import { useOrgFeatures } from '@/hooks/useOrgFeatures'
 
 interface RoofingType {
   id: string
@@ -54,6 +55,9 @@ export default function AdminPricingPage() {
     sub_dump_run_flat: null,
   })
   
+  /** Roof squares pricing switched off (Settings → Features): no "Per Square" choice, no per-square sub labor. */
+  const squaresOn = useOrgFeatures().squaresPricing
+
   // Modal state
   const [showAddType, setShowAddType] = useState(false)
   const [editingType, setEditingType] = useState<RoofingType | null>(null)
@@ -201,7 +205,7 @@ export default function AdminPricingPage() {
     setEditingType(null)
     setTypeForm({
       name: '',
-      pricing_unit: 'square',
+      pricing_unit: squaresOn ? 'square' : 'sqft',
       unit_price: '',
       material_cost: '',
       labor_cost: '',
@@ -407,6 +411,7 @@ export default function AdminPricingPage() {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {squaresOn && (<>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Install Labor</label>
               <div className="relative">
@@ -444,6 +449,7 @@ export default function AdminPricingPage() {
               </div>
               <p className="text-xs text-gray-500 mt-1">Per square</p>
             </div>
+            </>)}
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Dump Run</label>
@@ -552,12 +558,15 @@ export default function AdminPricingPage() {
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   How do you price this?
                 </label>
-                <div className="grid grid-cols-3 gap-2">
+                <div className={`grid gap-2 ${squaresOn || typeForm.pricing_unit === 'square' ? 'grid-cols-3' : 'grid-cols-2'}`}>
                   {[
                     { value: 'square', label: 'Per Square', desc: '100 sq ft' },
                     { value: 'sqft', label: 'Per Sq Ft', desc: 'square foot' },
                     { value: 'lf', label: 'Per Linear Ft', desc: 'linear foot' },
-                  ].map((option) => (
+                  ]
+                    // an existing per-square type keeps showing its own choice
+                    .filter((option) => squaresOn || option.value !== 'square' || typeForm.pricing_unit === 'square')
+                    .map((option) => (
                     <button
                       key={option.value}
                       type="button"
