@@ -101,24 +101,42 @@ const FOUND_TTL_MS = 60_000
 const NOT_FOUND_TTL_MS = 30_000
 /** A known company stays usable this long through a DB blip (stale-on-error) instead of logging everyone out. */
 const STALE_ON_ERROR_MS = 10 * 60_000
-const MAX_CACHE_ENTRIES = 500
-/** LRU: Map keeps insertion order; every hit re-inserts the key, so the first key is the least recently used. */
-const cache = new Map<string, { orgId: string | null; fresh: number; storedAt: number }>()
+/**
+ * Two separate LRU caches (Map insertion order; a hit re-inserts the key, so the first key is least recently used):
+ * real companies and unknown names never share capacity, so a flood of random names can't evict a real company.
+ */
+const MAX_FOUND_ENTRIES = 500
+const MAX_NOT_FOUND_ENTRIES = 1000
+type CacheEntry = { orgId: string | null; fresh: number; storedAt: number }
+const foundCache = new Map<string, CacheEntry>()
+const notFoundCache = new Map<string, CacheEntry>()
 const inFlight = new Map<string, Promise<CompanyLookup>>()
 
 export function __resetCompanyHostCacheForTests(): void {
-  cache.clear()
+  foundCache.clear()
+  notFoundCache.clear()
   inFlight.clear()
 }
 
-function remember(sub: string, orgId: string | null, now: number): void {
-  cache.delete(sub)
-  while (cache.size >= MAX_CACHE_ENTRIES) {
-    const lru = cache.keys().next().value
+function putLru(map: Map<string, CacheEntry>, max: number, key: string, entry: CacheEntry): void {
+  map.delete(key)
+  while (map.size >= max) {
+    const lru = map.keys().next().value
     if (lru === undefined) break
-    cache.delete(lru)
+    map.delete(lru)
   }
-  cache.set(sub, { orgId, fresh: now + (orgId ? FOUND_TTL_MS : NOT_FOUND_TTL_MS), storedAt: now })
+  map.set(key, entry)
+}
+
+function remember(sub: string, orgId: string | null, now: number): void {
+  if (orgId) {
+    notFoundCache.delete(sub)
+    putLru(foundCache, MAX_FOUND_ENTRIES, sub, { orgId, fresh: now + FOUND_TTL_MS, storedAt: now })
+  } else {
+    // A company that was deleted / renamed stops resolving; keep its stale entry out of the error fallback.
+    foundCache.delete(sub)
+    putLru(notFoundCache, MAX_NOT_FOUND_ENTRIES, sub, { orgId: null, fresh: now + NOT_FOUND_TTL_MS, storedAt: now })
+  }
 }
 
 /**
@@ -132,12 +150,13 @@ export async function lookupCompanyBySubdomain(subdomain: string): Promise<Compa
   if (!sub) return { status: 'not_found' }
 
   const now = Date.now()
-  const hit = cache.get(sub)
-  if (hit && hit.fresh > now) {
-    cache.delete(sub)
-    cache.set(sub, hit)
-    return hit.orgId ? { status: 'found', orgId: hit.orgId } : { status: 'not_found' }
+  const known = foundCache.get(sub)
+  if (known && known.fresh > now) {
+    putLru(foundCache, MAX_FOUND_ENTRIES, sub, known)
+    return { status: 'found', orgId: known.orgId as string }
   }
+  const unknown = notFoundCache.get(sub)
+  if (unknown && unknown.fresh > now) return { status: 'not_found' }
 
   const pending = inFlight.get(sub)
   if (pending) return pending
@@ -147,7 +166,7 @@ export async function lookupCompanyBySubdomain(subdomain: string): Promise<Compa
       if (r.status === 'found') remember(sub, r.orgId, at)
       else if (r.status === 'not_found') remember(sub, null, at)
       else {
-        const last = cache.get(sub)
+        const last = foundCache.get(sub)
         if (last?.orgId && at - last.storedAt <= STALE_ON_ERROR_MS) return { status: 'found', orgId: last.orgId }
       }
       return r

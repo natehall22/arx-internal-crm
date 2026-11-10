@@ -127,16 +127,15 @@ describe('lookup cache', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
-  test('cache is LRU and bounded: a hot company is not evicted by a flood of unknown names', async () => {
+  test('separate bounded caches: a flood of unknown names never evicts a real company', async () => {
     await lookupCompanyBySubdomain('acme')
-    for (let i = 0; i < 600; i++) {
-      if (i % 50 === 0) await lookupCompanyBySubdomain('acme') // keep it recently used
-      await lookupCompanyBySubdomain(`junk${i}`)
-    }
+    for (let i = 0; i < 1200; i++) await lookupCompanyBySubdomain(`junk${i}`)
     const calls = fetchMock.mock.calls.length
     await lookupCompanyBySubdomain('acme')
-    expect(fetchMock.mock.calls.length).toBe(calls) // still cached
-    await lookupCompanyBySubdomain('junk0') // evicted long ago
+    expect(fetchMock.mock.calls.length).toBe(calls) // still cached, untouched by the flood
+    await lookupCompanyBySubdomain('junk1199') // most recent unknown: cached
+    expect(fetchMock.mock.calls.length).toBe(calls)
+    await lookupCompanyBySubdomain('junk0') // oldest unknown: evicted (cap 1000)
     expect(fetchMock.mock.calls.length).toBe(calls + 1)
   })
 
