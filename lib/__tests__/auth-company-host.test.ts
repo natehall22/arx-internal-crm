@@ -32,7 +32,7 @@ jest.mock('@supabase/supabase-js', () => ({
 }))
 
 import { getAuthContext, requireAuth, requireAuthApi } from '@/lib/auth'
-import { __resetCompanyHostCacheForTests } from '@/lib/company-host'
+import { __resetCompanyHostCacheForTests, signResolvedLookups } from '@/lib/company-host'
 
 const ORGS: Record<string, string> = { acme: 'org-acme', roofco: 'org-roofco' }
 const ENV_KEYS = ['APP_BASE_DOMAIN', 'DEPLOYMENT_ORG_ID'] as const
@@ -118,4 +118,26 @@ test('company lookup failure is not a sign-out: distinct error with code company
   ;(global as unknown as { fetch: unknown }).fetch = jest.fn(async () => ({ ok: false, status: 500, json: async () => ({}) }))
   req('acme.crm-product.test')
   await expect(requireAuthApi()).rejects.toMatchObject({ name: 'CompanyLookupUnavailableError', code: 'company_lookup_unavailable' })
+})
+
+test("with middleware's signed lookup, a DB outage at the route can't turn into 401", async () => {
+  const signed = await signResolvedLookups('acme.crm-product.test', null, { host: { status: 'found', orgId: 'org-acme' } })
+  ;(global as unknown as { fetch: unknown }).fetch = jest.fn(async () => ({ ok: false, status: 500, json: async () => ({}) }))
+  req('acme.crm-product.test', { 'x-company-resolved': signed! })
+  await expect(requireAuthApi()).resolves.toMatchObject({ profile: { org_id: 'org-acme' } })
+})
+
+test('a signed lookup for another host is ignored (route looks up itself)', async () => {
+  const signed = await signResolvedLookups('roofco.crm-product.test', null, { host: { status: 'found', orgId: 'org-roofco' } })
+  req('acme.crm-product.test', { 'x-company-resolved': signed! })
+  profileRow = { id: 'u-1', org_id: 'org-roofco', role: 'admin', active: true }
+  await expect(requireAuthApi()).rejects.toThrow('Unauthorized')
+})
+
+test('iPhone code on the legacy address via signed lookup', async () => {
+  const signed = await signResolvedLookups('old-app.vercel.app', 'acme', { code: { status: 'found', orgId: 'org-acme' } })
+  req('old-app.vercel.app', { 'x-company-code': 'acme', 'x-company-resolved': signed! })
+  await expect(requireAuthApi()).resolves.toBeTruthy()
+  profileRow = { id: 'u-1', org_id: 'org-roofco', role: 'admin', active: true }
+  await expect(requireAuthApi()).rejects.toThrow('Unauthorized')
 })

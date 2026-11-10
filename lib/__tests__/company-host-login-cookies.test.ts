@@ -10,6 +10,7 @@ import { NextRequest, NextResponse } from 'next/server'
 
 const signOut = jest.fn(async () => ({ error: null }))
 let profileOrg: string | null = 'org-acme'
+let profileActive = true
 let signInOk = true
 
 jest.mock('@supabase/supabase-js', () => ({
@@ -41,7 +42,7 @@ jest.mock('@/lib/supabase/service', () => ({
       select: (cols: string) => ({
         eq: () => ({
           maybeSingle: async () => ({
-            data: cols.includes('org_id') ? { org_id: profileOrg } : { active: true },
+            data: cols.includes('org_id') ? { org_id: profileOrg, active: profileActive } : { active: profileActive },
             error: null,
           }),
         }),
@@ -52,7 +53,7 @@ jest.mock('@/lib/supabase/service', () => ({
 
 import { POST as loginPost } from '@/app/api/auth/login/route'
 import { middleware } from '@/middleware'
-import { __resetCompanyHostCacheForTests } from '@/lib/company-host'
+import { __resetCompanyHostCacheForTests, verifyResolvedLookups } from '@/lib/company-host'
 import { writeSessionCookies } from '@/lib/supabase/session-refresh'
 
 const ORGS: Record<string, string> = { acme: 'org-acme', roofco: 'org-roofco' }
@@ -70,7 +71,9 @@ beforeEach(() => {
   delete process.env.DEPLOYMENT_ORG_ID
   __resetCompanyHostCacheForTests()
   profileOrg = 'org-acme'
+  profileActive = true
   signInOk = true
+  process.env.SUPABASE_SERVICE_ROLE_KEY = 'service'
   signOut.mockClear()
   fetchMock = jest.fn(async (_u: string, init: { body: string }) => ({
     ok: true,
@@ -205,14 +208,64 @@ describe('login route', () => {
     const unknown = await loginPost(loginReq('nobody.crm-product.test'))
     expect(errorOf(unknown)).toBe('Invalid login credentials')
     const apex = await loginPost(loginReq('crm-product.test'))
-    expect(errorOf(apex)).toMatch(/company's web address/)
+    expect(errorOf(apex)).toBe('Invalid login credentials')
     expect(apex.headers.get('set-cookie')).toBeNull()
+  })
+
+  test('disabled account → the same generic error, the same floor, session revoked', async () => {
+    profileActive = false
+    const t = Date.now()
+    const res = await loginPost(loginReq('acme.crm-product.test'))
+    expect(Date.now() - t).toBeGreaterThanOrEqual(1190)
+    expect(errorOf(res)).toBe('Invalid login credentials')
+    expect(res.headers.get('set-cookie')).toBeNull()
+    expect(signOut).toHaveBeenCalledWith({ scope: 'local' })
   })
 
   test('legacy address unchanged: any company signs in', async () => {
     profileOrg = 'org-roofco'
     const res = await loginPost(loginReq('old-app.vercel.app'))
     expect(res.headers.get('set-cookie')).toContain('sb-proj-auth-token')
+  })
+})
+
+describe('middleware → route hand-off', () => {
+  test('signed lookups ride on the request; a client-forged copy is stripped; they verify only for that host + code', async () => {
+    const forged = new NextRequest('https://acme.crm-product.test/api/leads', {
+      headers: { host: 'acme.crm-product.test', 'x-company-resolved': 'forged.value' },
+    })
+    const res = await middleware(forged)
+    const passed = res.headers.get('x-middleware-request-x-company-resolved')
+    expect(passed).toBeTruthy()
+    expect(passed).not.toBe('forged.value')
+    expect(await verifyResolvedLookups(passed, 'acme.crm-product.test', null)).toEqual({
+      host: { status: 'found', orgId: 'org-acme' },
+      code: undefined,
+    })
+    expect(await verifyResolvedLookups(passed, 'roofco.crm-product.test', null)).toBeNull()
+    expect(await verifyResolvedLookups(passed, 'acme.crm-product.test', 'acme')).toBeNull()
+    expect(await verifyResolvedLookups('forged.value', 'acme.crm-product.test', null)).toBeNull()
+  })
+
+  test('iPhone on the legacy address: company code resolved by middleware; a lookup outage is 503, an unknown code passes to auth', async () => {
+    const ok = await middleware(
+      new NextRequest('https://old-app.vercel.app/api/leads', { headers: { host: 'old-app.vercel.app', 'x-company-code': 'ACME' } })
+    )
+    const passed = ok.headers.get('x-middleware-request-x-company-resolved')
+    expect(await verifyResolvedLookups(passed, 'old-app.vercel.app', 'ACME')).toEqual({
+      host: undefined,
+      code: { status: 'found', orgId: 'org-acme' },
+    })
+    const unknown = await middleware(
+      new NextRequest('https://old-app.vercel.app/api/leads', { headers: { host: 'old-app.vercel.app', 'x-company-code': 'nobody' } })
+    )
+    expect(unknown.status).toBe(200)
+    fetchMock.mockImplementation(async () => ({ ok: false, status: 500, json: async () => ({}) }))
+    __resetCompanyHostCacheForTests()
+    const down = await middleware(
+      new NextRequest('https://old-app.vercel.app/api/leads', { headers: { host: 'old-app.vercel.app', 'x-company-code': 'acme' } })
+    )
+    expect(down.status).toBe(503)
   })
 })
 
