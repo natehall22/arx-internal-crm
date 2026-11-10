@@ -37,26 +37,46 @@ export function handoffTarget(input: {
 }
 
 export type PendingCounts = {
-  /** Knocks waiting in the canvass offline queue. */
+  /** Knocks waiting in the canvass offline queue that can still be sent. */
   knocks: number
+  /** Knocks the server refused for good (a 4xx that a retry will not fix). Kept on the phone; shown, never blocking. */
+  knocksNeedingAttention: number
   /** Job photos waiting in IndexedDB, including ones that stopped retrying. */
   jobPhotos: number
   /** Inspection-report photos stashed on the phone and not confirmed by the server. */
   reportPhotos: number
+  /** The phone's photo storage could not be read (blocked, private mode, timed out): photos are unknown. */
+  photosUnreadable: boolean
 }
+
+/** After this many runs that still left something unsent (while online), the rep may leave anyway. */
+export const HANDOFF_LEAVE_AFTER_RUNS = 3
 
 export type HandoffView =
   | { kind: 'checking' }
   | { kind: 'sending'; pending: number; detail: string }
-  | { kind: 'stuck'; pending: number; detail: string; offline: boolean }
+  | {
+      kind: 'stuck'
+      pending: number
+      /** What is still waiting to send ('' when nothing is). */
+      detail: string
+      offline: boolean
+      /** Knocks the server refused; '' when none. */
+      attention: string
+      photosUnreadable: boolean
+      /** Offer "Continue anyway": everything left either cannot be sent from here, or we tried enough times. */
+      canLeave: boolean
+      /** What stays behind on this address if the rep leaves now. */
+      leftBehind: string
+    }
   | { kind: 'ready' }
 
 function plural(n: number, one: string, many: string): string {
   return `${n} ${n === 1 ? one : many}`
 }
 
-/** "3 knocks, 2 photos" — what is still on this phone. */
-export function describePending(c: PendingCounts): string {
+/** "3 knocks, 2 photos" — what is still waiting to send. */
+export function describePending(c: Pick<PendingCounts, 'knocks' | 'jobPhotos' | 'reportPhotos'>): string {
   const parts: string[] = []
   if (c.knocks > 0) parts.push(plural(c.knocks, 'knock', 'knocks'))
   const photos = c.jobPhotos + c.reportPhotos
@@ -64,19 +84,49 @@ export function describePending(c: PendingCounts): string {
   return parts.join(', ')
 }
 
-export function totalPending(c: PendingCounts): number {
+export function totalPending(c: Pick<PendingCounts, 'knocks' | 'jobPhotos' | 'reportPhotos'>): number {
   return c.knocks + c.jobPhotos + c.reportPhotos
 }
 
 /**
- * The one rule for what the screen shows. The continue link appears ONLY when a count was taken and nothing is left;
- * a failed count (null) is treated as "not sure" and keeps the link hidden.
+ * The one rule for what the screen shows. The plain continue link appears ONLY when a count was taken and nothing is
+ * left; "Continue anyway" appears when what is left cannot be sent from here (refused knocks, unreadable photo storage)
+ * or after HANDOFF_LEAVE_AFTER_RUNS tries, always saying what stays behind.
  */
-export function handoffView(input: { counts: PendingCounts | null; flushing: boolean; online: boolean }): HandoffView {
-  if (!input.counts) return { kind: 'checking' }
-  const pending = totalPending(input.counts)
-  if (pending === 0) return { kind: 'ready' }
-  const detail = describePending(input.counts)
-  if (input.flushing && input.online) return { kind: 'sending', pending, detail }
-  return { kind: 'stuck', pending, detail, offline: !input.online }
+export function handoffView(input: { counts: PendingCounts | null; flushing: boolean; online: boolean; failedRuns?: number }): HandoffView {
+  const c = input.counts
+  if (!c) return { kind: 'checking' }
+  const pending = totalPending(c)
+  if (pending === 0 && c.knocksNeedingAttention === 0 && !c.photosUnreadable) return { kind: 'ready' }
+  const detail = describePending(c)
+  if (pending > 0 && input.flushing && input.online) return { kind: 'sending', pending, detail }
+  const attention = c.knocksNeedingAttention > 0 ? plural(c.knocksNeedingAttention, 'knock', 'knocks') : ''
+  const leftBehind = [detail, attention, c.photosUnreadable ? 'any photos saved on this phone' : ''].filter(Boolean).join(', ')
+  const canLeave = pending === 0 || (input.online && (input.failedRuns ?? 0) >= HANDOFF_LEAVE_AFTER_RUNS)
+  return { kind: 'stuck', pending, detail, offline: !input.online, attention, photosUnreadable: c.photosUnreadable, canLeave, leftBehind }
+}
+
+/**
+ * A knock the server answered with a 4xx that retrying will not fix (bad data, forbidden, gone). 401 (signed out),
+ * 408 / 425 / 429 (timing) and every 5xx are worth retrying, so they stay plain pending.
+ */
+export function isPermanentKnockFailure(status: number): boolean {
+  return status >= 400 && status < 500 && ![401, 408, 425, 429].includes(status)
+}
+
+/** Resolve within `ms` or reject: a blocked IndexedDB open can otherwise hang forever and pin the screen on "Checking". */
+export function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error('timed out')), ms)
+    p.then(
+      (v) => {
+        clearTimeout(t)
+        resolve(v)
+      },
+      (e) => {
+        clearTimeout(t)
+        reject(e)
+      }
+    )
+  })
 }

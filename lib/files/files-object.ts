@@ -245,6 +245,15 @@ export function customerSignedDocUrl(kind: SignedDocKind, token: string, appUrl?
   return base ? `${base}${customerSignedDocPath(kind, token)}` : null
 }
 
+/**
+ * The download link handed back to the signing page right after a signature: absolute when the app address is
+ * configured, else the site-relative path (the page is on this app, so it still works). Emails use
+ * customerSignedDocUrl instead — a relative link means nothing in an inbox.
+ */
+export function customerSignedDocLinkForPage(kind: SignedDocKind, token: string): string {
+  return customerSignedDocUrl(kind, token) ?? customerSignedDocPath(kind, token)
+}
+
 /* ------------------------------------------------------------------------ *
  * Server: sign
  * ------------------------------------------------------------------------ */

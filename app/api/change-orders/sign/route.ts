@@ -6,7 +6,7 @@ import { getCrmEmailFrom } from '@/lib/crm-email-from'
 import { buildChangeOrderSignedEmail } from '@/lib/contracts/customer-emails'
 import { getDocumentBrand } from '@/lib/org-brand'
 import { createServiceClient } from '@/lib/supabase/service'
-import { customerSignedDocUrl } from '@/lib/files/files-object'
+import { customerSignedDocLinkForPage, customerSignedDocUrl } from '@/lib/files/files-object'
 
 export async function POST(request: NextRequest) {
   try {
@@ -151,7 +151,11 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    return NextResponse.json({ success: true, pdfUrl: customerPdfUrl })
+    return NextResponse.json({
+      success: true,
+      // Relative fallback: the signing page still gets its download link with no app address configured.
+      pdfUrl: pdfUrl ? customerPdfUrl ?? customerSignedDocLinkForPage('change-order', String(changeOrder.signing_token)) : null,
+    })
   } catch (error) {
     console.error('[Change Order Sign] error:', error)
     return NextResponse.json({ error: 'Failed to sign change order' }, { status: 500 })

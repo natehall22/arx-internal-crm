@@ -1,5 +1,5 @@
 /** @jest-environment node */
-import { describePending, handoffTarget, handoffView } from '@/lib/host-handoff'
+import { describePending, HANDOFF_LEAVE_AFTER_RUNS, handoffTarget, handoffView, isPermanentKnockFailure, withTimeout, type PendingCounts } from '@/lib/host-handoff'
 
 const APP = 'https://crm.example.test'
 
@@ -26,7 +26,7 @@ describe('handoffTarget', () => {
 })
 
 describe('handoffView', () => {
-  const none = { knocks: 0, jobPhotos: 0, reportPhotos: 0 }
+  const none: PendingCounts = { knocks: 0, jobPhotos: 0, reportPhotos: 0, knocksNeedingAttention: 0, photosUnreadable: false }
   it('shows the link only after a count found nothing left', () => {
     expect(handoffView({ counts: null, flushing: false, online: true }).kind).toBe('checking')
     expect(handoffView({ counts: none, flushing: false, online: true }).kind).toBe('ready')
@@ -41,11 +41,50 @@ describe('handoffView', () => {
     }
   })
   it('says what is left and whether it is waiting for signal', () => {
-    const v = handoffView({ counts: { knocks: 3, jobPhotos: 1, reportPhotos: 1 }, flushing: false, online: false })
-    expect(v).toEqual({ kind: 'stuck', pending: 5, detail: '3 knocks, 2 photos', offline: true })
-    expect(handoffView({ counts: { knocks: 1, jobPhotos: 0, reportPhotos: 0 }, flushing: true, online: true })).toEqual({ kind: 'sending', pending: 1, detail: '1 knock' })
+    const v = handoffView({ counts: { ...none, knocks: 3, jobPhotos: 1, reportPhotos: 1 }, flushing: false, online: false })
+    expect(v).toMatchObject({ kind: 'stuck', pending: 5, detail: '3 knocks, 2 photos', offline: true, canLeave: false })
+    expect(handoffView({ counts: { ...none, knocks: 1 }, flushing: true, online: true })).toEqual({ kind: 'sending', pending: 1, detail: '1 knock' })
   })
   it('describePending', () => {
     expect(describePending({ knocks: 0, jobPhotos: 0, reportPhotos: 1 })).toBe('1 photo')
+  })
+})
+
+describe('leaving with something left behind', () => {
+  const none: PendingCounts = { knocks: 0, jobPhotos: 0, reportPhotos: 0, knocksNeedingAttention: 0, photosUnreadable: false }
+  it('offers Continue anyway only after enough tries while online, and says what stays behind', () => {
+    const counts = { ...none, knocks: 2 }
+    expect(handoffView({ counts, flushing: false, online: true, failedRuns: HANDOFF_LEAVE_AFTER_RUNS - 1 })).toMatchObject({ kind: 'stuck', canLeave: false })
+    expect(handoffView({ counts, flushing: false, online: true, failedRuns: HANDOFF_LEAVE_AFTER_RUNS })).toMatchObject({ kind: 'stuck', canLeave: true, leftBehind: '2 knocks' })
+    // Offline is never "failed": the rep waits for signal.
+    expect(handoffView({ counts, flushing: false, online: false, failedRuns: 99 })).toMatchObject({ canLeave: false })
+  })
+  it('refused knocks need attention, never block forever and are named in what stays behind', () => {
+    const v = handoffView({ counts: { ...none, knocksNeedingAttention: 2 }, flushing: false, online: true })
+    expect(v).toMatchObject({ kind: 'stuck', pending: 0, attention: '2 knocks', canLeave: true, leftBehind: '2 knocks' })
+  })
+  it('unreadable photo storage does not hang on Checking and lets the rep leave knowingly', () => {
+    const v = handoffView({ counts: { ...none, photosUnreadable: true }, flushing: false, online: true })
+    expect(v).toMatchObject({ kind: 'stuck', photosUnreadable: true, canLeave: true, leftBehind: 'any photos saved on this phone' })
+  })
+})
+
+describe('isPermanentKnockFailure', () => {
+  it('retries sign-out, timing and server errors; marks the rest', () => {
+    for (const s of [400, 403, 404, 410, 413, 422]) expect(isPermanentKnockFailure(s)).toBe(true)
+    for (const s of [401, 408, 425, 429, 500, 502, 503, 200]) expect(isPermanentKnockFailure(s)).toBe(false)
+  })
+})
+
+describe('withTimeout', () => {
+  it('rejects a promise that never settles (a blocked IndexedDB open)', async () => {
+    jest.useFakeTimers()
+    const p = withTimeout(new Promise(() => undefined), 5000)
+    jest.advanceTimersByTime(5000)
+    await expect(p).rejects.toThrow('timed out')
+    jest.useRealTimers()
+  })
+  it('passes a value through', async () => {
+    await expect(withTimeout(Promise.resolve(3), 1000)).resolves.toBe(3)
   })
 })
