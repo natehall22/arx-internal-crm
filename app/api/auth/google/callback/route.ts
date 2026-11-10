@@ -3,8 +3,26 @@ export const revalidate = 0
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { exchangeCodeForTokens } from '@/lib/google-calendar'
+import { saveGoogleConnection } from '@/lib/google-calendar'
+import { acceptOAuthCallback, isSignedOAuthState } from '@/lib/google-oauth-state'
 import { createServiceClient } from '@/lib/supabase/service'
+
+/**
+ * Connect started on a company web address: check the signed ticket and park the code on it (no cookie here, no
+ * connection stored yet), then send the browser to its company's own finish step, which only completes in the
+ * browser that started the connect and for the ticket's own user (lib/google-oauth-state.ts).
+ */
+async function handleSignedState(request: NextRequest, state: string, code: string | null): Promise<NextResponse> {
+  const check = await acceptOAuthCallback(createServiceClient(), state, code)
+  if (!check.ok) {
+    console.error('Google OAuth signed state refused:', check.reason)
+    return NextResponse.redirect(new URL(`/settings?error=${check.reason === 'unavailable' ? 'callback_failed' : 'invalid_state'}`, request.url))
+  }
+  if (!code) return NextResponse.redirect(new URL('/settings?error=oauth_denied', check.returnOrigin))
+  const finish = new URL('/api/auth/google/finish', check.returnOrigin)
+  finish.searchParams.set('nonce', check.nonce)
+  return NextResponse.redirect(finish)
+}
 
 function getSessionFromRequest(req: NextRequest) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -62,17 +80,21 @@ export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams
     const code = searchParams.get('code')
-    const state = searchParams.get('state') // User ID
+    const state = searchParams.get('state') // legacy: user id; company address: signed ticket
     const error = searchParams.get('error')
 
     if (error) {
       console.error('Google OAuth error:', error)
+      // Signed ticket: burn it and send the user back to their own company address (the cookie lives there).
+      if (state && isSignedOAuthState(state)) return await handleSignedState(request, state, null)
       return NextResponse.redirect(new URL('/settings?error=oauth_denied', request.url))
     }
 
     if (!code || !state) {
       return NextResponse.redirect(new URL('/settings?error=missing_params', request.url))
     }
+
+    if (isSignedOAuthState(state)) return await handleSignedState(request, state, code)
 
     const { client: authClient, accessToken } = getAuthClient(request)
     const adminClient = createServiceClient()
@@ -94,26 +116,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.redirect(new URL('/settings?error=no_profile', request.url))
     }
 
-    // Exchange code for tokens
-    const tokens = await exchangeCodeForTokens(code)
-
-    // Store tokens in database using admin client (bypass RLS)
-    const { error: upsertError } = await adminClient
-      .from('user_google_tokens')
-      .upsert({
-        user_id: user.id,
-        org_id: profile.org_id,
-        access_token: tokens.access_token,
-        refresh_token: tokens.refresh_token,
-        token_type: tokens.token_type,
-        expires_at: tokens.expires_at.toISOString(),
-        scope: tokens.scope,
-      }, {
-        onConflict: 'user_id'
-      })
-
-    if (upsertError) {
-      console.error('Failed to store tokens:', upsertError)
+    if (!(await saveGoogleConnection(adminClient, code, user.id, profile.org_id))) {
       return NextResponse.redirect(new URL('/settings?error=token_storage', request.url))
     }
 

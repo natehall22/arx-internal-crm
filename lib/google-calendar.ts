@@ -1,5 +1,6 @@
 // Google Calendar Integration
 // Requires GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI in env
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth'
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token'
@@ -619,4 +620,29 @@ export async function getAvailableSlots(
   }
 
   return slots
+}
+
+/**
+ * Exchange a connect's one-time code and store the user's Google tokens — the ONE writer of a new connection, used by
+ * the legacy callback and the company-address finish step. Returns false when storing failed.
+ */
+export async function saveGoogleConnection(admin: SupabaseClient, code: string, userId: string, orgId: string): Promise<boolean> {
+  const tokens = await exchangeCodeForTokens(code)
+  const { error } = await admin.from('user_google_tokens').upsert(
+    {
+      user_id: userId,
+      org_id: orgId,
+      access_token: tokens.access_token,
+      refresh_token: tokens.refresh_token,
+      token_type: tokens.token_type,
+      expires_at: tokens.expires_at.toISOString(),
+      scope: tokens.scope,
+    },
+    { onConflict: 'user_id' }
+  )
+  if (error) {
+    console.error('Failed to store Google tokens:', error)
+    return false
+  }
+  return true
 }

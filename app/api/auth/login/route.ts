@@ -1,6 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { createServiceClient } from '@/lib/supabase/service'
+import { waitForFailureTarget } from '@/lib/login-refusal-timing'
+import {
+  COMPANY_CODE_HEADER,
+  RESOLVED_LOOKUPS_HEADER,
+  fenceAllowsOrg,
+  resolveCompanyFence,
+  verifyResolvedLookups,
+} from '@/lib/company-host'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -12,7 +20,17 @@ export async function GET(req: NextRequest) {
   return NextResponse.redirect(url, { status: 302 })
 }
 
+/**
+ * Same words Supabase uses for a wrong password, so a right password for an account in ANOTHER company is
+ * indistinguishable from a wrong one (no account / company enumeration).
+ */
+const GENERIC_LOGIN_ERROR = 'Invalid login credentials'
+/** The only other answers: an outage and a rate limit. Neither says anything about the account. */
+const UNAVAILABLE_LOGIN_ERROR = 'Sign-in is unavailable right now. Please try again.'
+const RATE_LIMITED_LOGIN_ERROR = 'Too many attempts. Please wait a minute and try again.'
+
 export async function POST(req: NextRequest) {
+  const startedAt = Date.now()
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
   const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 
@@ -31,6 +49,24 @@ export async function POST(req: NextRequest) {
       ? String(formData.get('next'))
       : '/dashboard'
 
+  const loginError = async (message: string) => {
+    await waitForFailureTarget(startedAt)
+    const errorUrl = new URL(req.url)
+    errorUrl.pathname = '/login'
+    errorUrl.searchParams.set('error', message)
+    errorUrl.searchParams.set('next', nextPath)
+    return NextResponse.redirect(errorUrl, { status: 303 })
+  }
+
+  // Which company this address belongs to (lib/company-host.ts; middleware's signed lookup when present). Web sign-in
+  // reads the host only — no company-code header. Every refusal below waits out the same floor and says the same thing.
+  const host = req.headers.get('host') ?? req.nextUrl.host
+  const resolved = await verifyResolvedLookups(req.headers.get(RESOLVED_LOOKUPS_HEADER), host, req.headers.get(COMPANY_CODE_HEADER))
+  const fence = await resolveCompanyFence({ host, resolved: resolved ? { host: resolved.host } : null })
+  if (fence.kind === 'closed') {
+    return await loginError(fence.reason === 'lookup_error' ? UNAVAILABLE_LOGIN_ERROR : GENERIC_LOGIN_ERROR)
+  }
+
   // Use regular supabase-js client for auth (not SSR)
   const supabase = createClient(supabaseUrl, supabaseKey, {
     auth: {
@@ -47,33 +83,37 @@ export async function POST(req: NextRequest) {
 
   if (error || !data.session) {
     console.log('LOGIN error:', error?.message || 'No session')
-    const errorUrl = new URL(req.url)
-    errorUrl.pathname = '/login'
-    errorUrl.searchParams.set('error', error?.message || 'Authentication failed')
-    errorUrl.searchParams.set('next', nextPath)
-    return NextResponse.redirect(errorUrl, { status: 303 })
+    return await loginError(error?.status === 429 ? RATE_LIMITED_LOGIN_ERROR : GENERIC_LOGIN_ERROR)
   }
 
-  try {
-    const admin = createServiceClient()
-    const { data: profileRow } = await admin
-      .from('users')
-      .select('active')
-      .eq('id', data.session.user.id)
-      .maybeSingle()
-    if (profileRow && profileRow.active === false) {
-      const errorUrl = new URL(req.url)
-      errorUrl.pathname = '/login'
-      errorUrl.searchParams.set(
-        'error',
-        'This account has been disabled. Contact your administrator.'
-      )
-      errorUrl.searchParams.set('next', nextPath)
-      return NextResponse.redirect(errorUrl, { status: 303 })
+  // One profile read for both checks. On a fenced address it must succeed (fail closed); on the legacy address a
+  // failed read lets the sign-in through, as before.
+  type ProfileCheck = { org_id: string | null; active: boolean | null }
+  const { profile, profileReadFailed } = await (async (): Promise<{ profile: ProfileCheck | null; profileReadFailed: boolean }> => {
+    try {
+      const { data: row, error: rowError } = await createServiceClient()
+        .from('users')
+        .select('org_id, active')
+        .eq('id', data.session!.user.id)
+        .maybeSingle()
+      if (rowError) throw rowError
+      return { profile: (row as ProfileCheck | null) ?? null, profileReadFailed: false }
+    } catch (e) {
+      console.error('LOGIN profile check:', e)
+      return { profile: null, profileReadFailed: true }
     }
-  } catch (e) {
-    console.error('LOGIN active check:', e)
+  })()
+
+  const refuse = async (why: string) => {
+    console.log('LOGIN refused:', why, data.session!.user.id)
+    // Revoke only the session just created (scope 'local'), never the user's other devices.
+    await supabase.auth.signOut({ scope: 'local' }).catch(() => undefined)
+    return await loginError(GENERIC_LOGIN_ERROR)
   }
+  if (fence.kind === 'org' && (profileReadFailed || !fenceAllowsOrg(fence, profile?.org_id))) {
+    return await refuse('account is not in this company')
+  }
+  if (profile?.active === false) return await refuse('account disabled')
 
   // Build redirect URL
   const redirectUrl = new URL(req.url)

@@ -59,6 +59,26 @@ nothing ARX customers or reps see unless the slice says so. Gate on every slice:
 10. **Company web address + login**: each company gets its own address (company.<product-domain>) with its logo on
     the login page; iPhone app asks for a company code once and remembers it; shared-database later = email login
     with a company picker only for people in two companies. Product domain TBD (Nathan).
+    **Host routing BUILT (feat/host-company-routing, OFF until env `APP_BASE_DOMAIN` is set).** ONE module
+    `lib/company-host.ts`: `orgs.subdomain` (migration 202611100070, not applied; unique lowercase DNS label,
+    reserved names refused) → org id via anon RPC `org_id_for_subdomain`, cached 60 s (misses 30 s, errors never,
+    ≤ 500 names; key/value are public facts, no per-user data). Fence precedence: `DEPLOYMENT_ORG_ID` > the host's
+    company > header `X-Company-Code`; every one present must name the same org or the request is refused;
+    none present (legacy *.vercel.app / localhost / routing off) = unfenced as before. Unknown/nested/reserved
+    company name → middleware 404 on every page (public ones too); bare product domain → no sign-in ("open your
+    company's web address"); lookup failure → 503 / refused, never open. Used by `resolveAuth` (`lib/auth.ts`),
+    `middleware.ts` and `POST /api/auth/login` (refuses another company's account with Supabase's own
+    "Invalid login credentials", sets no cookie, revokes that one session with `signOut({scope:'local'})`).
+    Login page shows the host company's name + logo (`lib/company-login.ts` → `resolveOrgBrand` + `orgLogoHref`).
+    Cookies are host-only (no Domain) — test-enforced. Company root `/` → `/today` (not the marketing page).
+    **iPhone app contract:** after the user enters the company code once, either call
+    `https://<code>.<APP_BASE_DOMAIN>` (preferred) or keep the old base URL and send `X-Company-Code: <code>` on
+    every request; the header only narrows and is ignored while `APP_BASE_DOMAIN` is unset. Supabase sign-in in
+    the app is unchanged (the token is the same); the fence runs on every API call.
+    **Not fenced by host (same as `DEPLOYMENT_ORG_ID` today):** the 40 #3b hand-rolled-cookie routes and the raw
+    `auth.getUser` paths. With host-only cookies a web session there is always that address's own login, so the
+    remaining gap is a Bearer token sent to another company's address — those routes still scope to the
+    token's own org, so it shows the user their OWN company's data, not the host's.
 
 ## Open after slice 2a
 - ~~`getCrmEmailFrom` hardcoded~~ — per deployment (`SMTP_FROM`) since slice 9; one SMTP account per copy, so no org is passed.

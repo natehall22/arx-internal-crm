@@ -1,100 +1,70 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { CompanyLookupUnavailableError, requireAuthApi } from '@/lib/auth'
+import { COMPANY_LOOKUP_UNAVAILABLE, classifyHost } from '@/lib/company-host'
 import { getGoogleAuthUrl } from '@/lib/google-calendar'
+import {
+  GOOGLE_CONNECT_COOKIE,
+  GOOGLE_CONNECT_COOKIE_PATH,
+  OAUTH_STATE_TTL_MS,
+  issueOAuthState,
+} from '@/lib/google-oauth-state'
+import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
 export const fetchCache = 'force-no-store'
 
-function getSessionFromRequest(req: NextRequest) {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const projectRef = supabaseUrl.match(/https:\/\/([^.]+)\./)?.[1] || ''
-  const cookieName = `sb-${projectRef}-auth-token`
-  
-  const singleCookie = req.cookies.get(cookieName)
-  if (singleCookie?.value) {
-    try {
-      const decoded = decodeURIComponent(singleCookie.value)
-      return JSON.parse(decoded)
-    } catch {
-      return null
-    }
-  }
-  
-  const chunks: string[] = []
-  let i = 0
-  while (true) {
-    const chunk = req.cookies.get(`${cookieName}.${i}`)
-    if (!chunk?.value) break
-    chunks.push(chunk.value)
-    i++
-  }
-  
-  if (chunks.length > 0) {
-    try {
-      const decoded = decodeURIComponent(chunks.join(''))
-      return JSON.parse(decoded)
-    } catch {
-      return null
-    }
-  }
-  
-  return null
-}
-
-function getAuthClient(req: NextRequest) {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  const sessionData = getSessionFromRequest(req)
-  
-  return {
-    client: createClient(supabaseUrl, supabaseKey, {
-      auth: { autoRefreshToken: false, persistSession: false },
-      global: sessionData?.access_token
-        ? { headers: { Authorization: `Bearer ${sessionData.access_token}` } }
-        : undefined,
-    }),
-    accessToken: sessionData?.access_token,
-  }
-}
-
+/**
+ * Start Google Calendar connect. Legacy address: state = user id, the callback checks the session cookie (unchanged).
+ * Company address: Google returns to the one fixed GOOGLE_REDIRECT_URI where this address's host-only cookie isn't
+ * sent, so the state is a signed, single-use ticket instead (lib/google-oauth-state.ts).
+ */
 export async function GET(request: NextRequest) {
   try {
-    // Check if Google OAuth is configured
-    if (!process.env.GOOGLE_CLIENT_ID) {
-      console.error('Google Calendar integration not configured: GOOGLE_CLIENT_ID missing')
+    if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
+      console.error('Google Calendar integration not configured: GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET missing')
       return NextResponse.json(
         { error: 'Google Calendar integration is not configured. Please contact your administrator.' },
         { status: 503 }
       )
     }
 
-    if (!process.env.GOOGLE_CLIENT_SECRET) {
-      console.error('Google Calendar integration not configured: GOOGLE_CLIENT_SECRET missing')
-      return NextResponse.json(
-        { error: 'Google Calendar integration is not configured. Please contact your administrator.' },
-        { status: 503 }
-      )
-    }
-
-    const { client: authClient, accessToken } = getAuthClient(request)
-    
-    // Get current user
-    const { data: { user } } = await authClient.auth.getUser(accessToken || '')
-    if (!user) {
+    let auth
+    try {
+      auth = await requireAuthApi()
+    } catch (e) {
+      if (e instanceof CompanyLookupUnavailableError) {
+        return NextResponse.json({ error: 'Temporarily unavailable', code: COMPANY_LOOKUP_UNAVAILABLE }, { status: 503 })
+      }
       return NextResponse.redirect(new URL('/login', request.url))
     }
 
-    // Generate OAuth URL with user ID as state
-    const authUrl = getGoogleAuthUrl(user.id)
-    
-    return NextResponse.redirect(authUrl)
+    const host = request.headers.get('host') ?? request.nextUrl.host
+    if (classifyHost(host).kind !== 'company') {
+      return NextResponse.redirect(getGoogleAuthUrl(auth.authUser.id))
+    }
+
+    // requireAuthApi already proved this user belongs to the company at this address.
+    const ticket = await issueOAuthState(createServiceClient(), {
+      userId: auth.authUser.id,
+      orgId: auth.profile.org_id,
+      returnHost: host,
+    })
+    if (!ticket) {
+      return NextResponse.json({ error: 'Google Calendar connect is unavailable right now. Please try again.' }, { status: 503 })
+    }
+    const res = NextResponse.redirect(getGoogleAuthUrl(ticket.state))
+    // Binds this connect to THIS browser: the finish step refuses without it. Host-only (no Domain), httpOnly.
+    res.cookies.set(GOOGLE_CONNECT_COOKIE, ticket.nonce, {
+      path: GOOGLE_CONNECT_COOKIE_PATH,
+      httpOnly: true,
+      secure: request.url.startsWith('https'),
+      sameSite: 'lax',
+      maxAge: Math.floor(OAUTH_STATE_TTL_MS / 1000),
+    })
+    return res
   } catch (error) {
     console.error('Google auth error:', error)
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error'
-    return NextResponse.json(
-      { error: `Failed to initiate Google authentication: ${errorMessage}` },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: 'Failed to initiate Google authentication' }, { status: 500 })
   }
 }

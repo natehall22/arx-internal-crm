@@ -1,6 +1,13 @@
 import { type Metadata } from 'next'
 import Link from 'next/link'
-import AuthShell, { authButtonClass, authInputClass, authLabelClass, authNoticeClass } from '@/components/AuthShell'
+import { notFound } from 'next/navigation'
+import AuthShell, {
+  authButtonClass,
+  authInputClass,
+  authLabelClass,
+  authNoticeClass,
+} from '@/components/AuthShell'
+import { authShellCompanyFor, loadLoginCompany } from '@/lib/company-login'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -10,7 +17,7 @@ export const metadata: Metadata = {
   title: 'Sign in',
 }
 
-export default function LoginPage({
+export default async function LoginPage({
   searchParams,
 }: {
   searchParams?: { next?: string; error?: string; inactive?: string }
@@ -21,16 +28,36 @@ export default function LoginPage({
   const inactiveSession =
     searchParams?.inactive === '1' || searchParams?.inactive === 'true'
 
+  // Whose login this is comes from the web address only (lib/company-login.ts).
+  const login = await loadLoginCompany()
+  if (login.state === 'unknown') notFound()
+  const company = authShellCompanyFor(login)
+
+  if (login.state === 'apex' || login.state === 'unavailable') {
+    return (
+      <AuthShell title="Sign in" company={company}>
+        <div role="alert" className={authNoticeClass.warning}>
+          {login.state === 'apex'
+            ? "Open your company's web address to sign in. Ask your administrator if you don't have it."
+            : 'Sign-in is unavailable right now. Please try again in a minute.'}
+        </div>
+      </AuthShell>
+    )
+  }
+
   return (
     <AuthShell
       title="Sign in"
       subtitle="Your CRM and estimating tools."
+      company={company}
       footer={
         <>
           <p>Forgot your password? Ask your administrator for a reset link.</p>
-          <Link href="/" className="mt-3 inline-block text-[#E2BF73] hover:text-[#EBCD8B]">
-            ← Back to home
-          </Link>
+          {login.state === 'legacy' ? (
+            <Link href="/" className="mt-3 inline-block text-[#E2BF73] hover:text-[#EBCD8B]">
+              ← Back to home
+            </Link>
+          ) : null}
         </>
       }
     >
@@ -62,7 +89,7 @@ export default function LoginPage({
             autoCapitalize="none"
             required
             className={authInputClass}
-            placeholder="you@arxroofing.com"
+            placeholder="you@company.com"
           />
         </div>
 

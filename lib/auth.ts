@@ -3,6 +3,8 @@ import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import { cookies, headers } from 'next/headers'
 import type { User } from '@/lib/types/database'
 import { getSupabaseSessionFromCookieStore } from '@/lib/supabase/session-cookie'
+import { COMPANY_LOOKUP_UNAVAILABLE, deploymentOrgId, fenceAllowsOrg } from '@/lib/company-host'
+import { getRequestCompanyFence } from '@/lib/company-host-server'
 
 export type AuthContext = {
   authUser: {
@@ -19,6 +21,7 @@ type AuthResolution =
   | { status: 'no_profile' }
   | { status: 'inactive' }
   | { status: 'config_error' }
+  | { status: 'company_unavailable' }
 
 function getSessionFromCookies() {
   return getSupabaseSessionFromCookieStore(cookies())
@@ -40,14 +43,15 @@ function getAccessToken(): string | null {
 }
 
 /**
- * Per-copy fence. Each company's copy of the CRM sets env DEPLOYMENT_ORG_ID to its own org id; a
- * signed-in user whose profile belongs to any other org is treated as having no profile. Unset (or
- * blank) = no fence, so a copy keeps working until the variable is set.
+ * Per-copy fence (env only). Each company's copy of the CRM sets env DEPLOYMENT_ORG_ID to its own org id.
+ * Unset (or blank) = no fence. Used where there is no request host to consult (e.g. the leads webhook's
+ * token check). resolveAuth uses the full company fence (`lib/company-host.ts`: DEPLOYMENT_ORG_ID, then the
+ * company web address, then the iPhone company code), which includes this rule.
  */
 export function profileAllowedOnThisDeployment(orgId: string | null | undefined): boolean {
-  const deploymentOrgId = process.env.DEPLOYMENT_ORG_ID?.trim()
-  if (!deploymentOrgId) return true
-  return orgId === deploymentOrgId
+  const pinned = deploymentOrgId()
+  if (!pinned) return true
+  return orgId === pinned
 }
 
 async function resolveAuth(): Promise<AuthResolution> {
@@ -104,8 +108,16 @@ async function resolveAuth(): Promise<AuthResolution> {
   }
 
   const row = profile as User
-  if (!profileAllowedOnThisDeployment(row.org_id)) {
-    console.error('requireAuth: user belongs to another company copy', user.id)
+  // Company fence: DEPLOYMENT_ORG_ID > the company web address > the iPhone company code (lib/company-host.ts).
+  // A profile from any other company — or any request on an unknown company address — is treated as no profile.
+  const fence = await getRequestCompanyFence()
+  if (fence.kind === 'closed' && fence.reason === 'lookup_error') {
+    // Not "signed out": the company lookup failed. Surfaced as 503 so clients keep the session and retry.
+    console.error('requireAuth: company lookup unavailable', user.id)
+    return { status: 'company_unavailable' }
+  }
+  if (!fenceAllowsOrg(fence, row.org_id)) {
+    console.error('requireAuth: user not allowed on this company address', user.id, fence.kind === 'closed' ? fence.reason : 'other_org')
     return { status: 'no_profile' }
   }
   if (row.active === false) {
@@ -123,6 +135,19 @@ async function resolveAuth(): Promise<AuthResolution> {
 }
 
 /**
+ * Thrown by requireAuth / requireAuthApi when the company behind the web address could not be looked up. Not an
+ * auth failure: API callers should answer 503 + `code: 'company_lookup_unavailable'` (middleware already does so
+ * for /api on company addresses before the route runs), never 401.
+ */
+export class CompanyLookupUnavailableError extends Error {
+  readonly code = COMPANY_LOOKUP_UNAVAILABLE
+  constructor() {
+    super('Service unavailable')
+    this.name = 'CompanyLookupUnavailableError'
+  }
+}
+
+/**
  * Optional auth for layouts — returns null if not signed in or disabled.
  */
 export async function getAuthContext(): Promise<AuthContext | null> {
@@ -136,6 +161,7 @@ export async function getAuthContext(): Promise<AuthContext | null> {
 export async function requireAuth(): Promise<AuthContext> {
   const r = await resolveAuth()
   if (r.status === 'ok') return r.context
+  if (r.status === 'company_unavailable') throw new CompanyLookupUnavailableError()
   if (r.status === 'inactive') {
     redirect('/login?inactive=1')
   }
@@ -149,6 +175,7 @@ export async function requireAuth(): Promise<AuthContext> {
 export async function requireAuthApi(): Promise<AuthContext> {
   const r = await resolveAuth()
   if (r.status === 'ok') return r.context
+  if (r.status === 'company_unavailable') throw new CompanyLookupUnavailableError()
   if (r.status === 'inactive') {
     throw new Error('Account disabled')
   }

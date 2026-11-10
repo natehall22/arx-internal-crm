@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 
-import { orgLogoPath, signFilesObject } from '@/lib/files/files-object'
+import { LOGO_CACHE, signedOrgLogoUrl } from '@/lib/org-logo-serve'
 import { createServiceClient } from '@/lib/supabase/service'
 
 export const runtime = 'nodejs'
@@ -13,8 +13,6 @@ export const dynamic = 'force-dynamic'
  * other object, and 302s to that signed URL. The redirect is cached briefly; the signed URL outlives the cache.
  * Readers build the link with `orgLogoHref` (lib/files/files-object.ts), whose `?v=` changes when a new logo is uploaded.
  */
-const LOGO_SIGNED_URL_TTL_SECONDS = 60 * 60
-const LOGO_CACHE = 'public, max-age=300, s-maxage=300'
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 function notFound() {
@@ -26,12 +24,7 @@ export async function GET(_request: Request, { params }: { params: { orgId: stri
   if (!UUID_RE.test(orgId)) return notFound()
 
   try {
-    const admin = createServiceClient()
-    const { data: org } = await admin.from('orgs').select('logo_url, settings').eq('id', orgId).maybeSingle()
-    const path = orgLogoPath(orgId, org)
-    if (!path) return notFound()
-
-    const signedUrl = await signFilesObject(admin, path, LOGO_SIGNED_URL_TTL_SECONDS)
+    const signedUrl = await signedOrgLogoUrl(createServiceClient(), orgId)
     if (!signedUrl) return notFound()
     return NextResponse.redirect(signedUrl, { status: 302, headers: { 'Cache-Control': LOGO_CACHE } })
   } catch (error) {
