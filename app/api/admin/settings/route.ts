@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { createServiceClient } from '@/lib/supabase/service'
-import { brandPatchFromGeneral, saveBrandSettings } from '@/lib/org-brand'
+import { brandPatchFromGeneral, saveBrandSettings, staleDocumentSpellings } from '@/lib/org-brand'
 import { isSuperAdmin } from '@/lib/super-admin'
 import { reassignOpenCheckups } from '@/lib/checkups'
 import { CHECKUPS_ASSIGNEE_KEY, CHECKUPS_SETTINGS_KEYS, canEditCheckupSettings, parseCheckupPatch } from '@/lib/checkups-settings'
@@ -188,7 +188,11 @@ export async function PATCH(request: NextRequest) {
       // Brand fields (settings.brand, lib/org-brand): only super admins may change them; anyone else's brand_*
       // keys are ignored and the rest of the save goes ahead. Written after the columns, touching only the
       // keys sent (the page sends a brand field only when the user changed it).
-      const brandPatch = isSuperAdmin(profile) ? brandPatchFromGeneral(data) : null
+      const sentBrand = isSuperAdmin(profile) ? brandPatchFromGeneral(data) : null
+      // A changed legal name / address also clears its stored contract spelling (settings.brand.document*), whoever saves.
+      const { data: addressRow } = await adminClient.from('orgs').select('address').eq('id', profile.org_id).maybeSingle()
+      const stale = staleDocumentSpellings(sentBrand, data.company_address, addressRow?.address)
+      const brandPatch = sentBrand || stale ? { ...stale, ...sentBrand } : null
       const saveBrand = async () => {
         if (!brandPatch) return NextResponse.json({ success: true })
         const { error: brandError } = await saveBrandSettings(adminClient, profile.org_id, brandPatch)

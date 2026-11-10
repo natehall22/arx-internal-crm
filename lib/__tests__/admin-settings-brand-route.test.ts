@@ -6,6 +6,7 @@ let superAdmin = true
 let active: boolean | null = true
 let storedSettings: Record<string, unknown> = {}
 let rpcMissing = false
+let storedAddress: string | null = 'a'
 const updates: Array<Record<string, unknown>> = []
 const rpcs: Array<{ fn: string; args: Record<string, unknown> }> = []
 
@@ -27,6 +28,7 @@ jest.mock('@/lib/supabase/service', () => ({
           table === 'users'
             ? { data: { org_id: 'org-1', role, is_super_admin: superAdmin, active }, error: null }
             : { data: { settings: storedSettings }, error: null },
+        maybeSingle: async () => ({ data: { address: storedAddress }, error: null }),
         update: (row: Record<string, unknown>) => {
           updates.push(row)
           return { eq: async () => ({ error: null }) }
@@ -66,6 +68,7 @@ beforeEach(() => {
   superAdmin = true
   active = true
   rpcMissing = false
+  storedAddress = 'a'
   updates.length = 0
   rpcs.length = 0
   storedSettings = { pricing: { p: 1 }, logo_url: 'org/x/logo.png', brand: { futureKey: 'keep', website: 'old.test', serviceArea: 'Old, NC' } }
@@ -90,6 +93,21 @@ it('before the migration: falls back to read-merge-write and keeps the logo and 
   expect(updates[1]).toEqual({
     settings: { pricing: { p: 1 }, logo_url: 'org/x/logo.png', brand: { futureKey: 'keep', website: 'new.test', serviceArea: 'Old, NC' } },
   })
+})
+
+it('a changed address clears its stored contract spelling, whoever saves (a manager too)', async () => {
+  role = 'sales_manager'
+  superAdmin = false
+  storedAddress = '4101 Woodbury Ter NW'
+  expect((await patch({ ...general, brand_website: 'ignored' })).status).toBe(200)
+  expect(rpcs).toEqual([{ fn: 'merge_org_settings', args: { p_org_id: 'org-1', p_path: ['brand'], p_set: {}, p_remove: ['documentAddress'] } }])
+})
+
+it('a new legal name (super admin) clears the stored contract legal name in the same merge', async () => {
+  expect((await patch({ ...general, brand_legal_name: 'New Co, LLC' })).status).toBe(200)
+  expect(rpcs).toEqual([
+    { fn: 'merge_org_settings', args: { p_org_id: 'org-1', p_path: ['brand'], p_set: { legalName: 'New Co, LLC' }, p_remove: ['documentLegalName'] } },
+  ])
 })
 
 it('general save with no brand fields does not touch settings', async () => {

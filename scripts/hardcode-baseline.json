@@ -357,7 +357,7 @@
     "brand": 47
   },
   "lib/crm-email-from.ts": {
-    "brand": 3
+    "brand": 2
   },
   "lib/date-ranges.ts": {
     "timezone": 2
@@ -435,7 +435,7 @@
   },
   "lib/org-brand.ts": {
     "address": 7,
-    "brand": 12
+    "brand": 5
   },
   "lib/payroll-period-week.ts": {
     "timezone": 1

@@ -64,7 +64,7 @@ import {
 } from '@/lib/google-calendar'
 import { getValidAccessToken } from '@/lib/appointment-calendar-sync'
 import { CALENDAR_BUSINESS_TZ } from '@/lib/calendar-business-tz'
-import { DEFAULT_ORG_BRAND } from '@/lib/org-brand'
+import { resolveOrgBrand } from '@/lib/org-brand'
 import {
   HALF_DAY_HOURS,
   calendarDaySpan,
@@ -261,7 +261,7 @@ export function buildInstallEvent(input: BuildInstallEventInput): CalendarEvent 
       : null
 
   const photoUrl = input.crewLinkToken ? crewLinkUrl(input.crewLinkToken, input.appUrl) : null
-  const company = input.orgShortName?.trim() || DEFAULT_ORG_BRAND.shortName
+  const company = input.orgShortName?.trim() || resolveOrgBrand(null).shortName
 
   const descriptionLines = [
     input.addressText ? `📍 ${input.addressText}` : null,

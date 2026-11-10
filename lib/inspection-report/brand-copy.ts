@@ -9,7 +9,8 @@ import { escapeHtml } from '@/lib/html'
 import { brandNameRest, type OrgBrand } from '@/lib/org-brand'
 
 function footerParts(brand: OrgBrand, phone: string): string[] {
-  return [brand.name, brand.serviceArea, phone, brand.website]
+  // blank parts (a company with no website / service area yet) are left out, never printed as an empty slot
+  return [brand.name, brand.serviceArea, phone, brand.website].filter(Boolean)
 }
 
 /** Page footer printed on every report page (seeded once; the rep can edit it per report). */
@@ -19,7 +20,7 @@ export function reportFooterLine(brand: OrgBrand, phone: string): string {
 
 /** Contact line on the report cover (seeded once; editable per report). */
 export function reportFooterContact(brand: OrgBrand, phone: string): string {
-  return [brand.website, phone, brand.email].join('   |   ')
+  return [brand.website, phone, brand.email].filter(Boolean).join('   |   ')
 }
 
 /** Email header wordmark: short name plain, the rest of the name in gold (falls back to the whole name). */

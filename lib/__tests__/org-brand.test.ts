@@ -3,7 +3,6 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 
 import {
-  DEFAULT_ORG_BRAND,
   isMissingFunction,
   brandNameRest,
   brandPatchFromGeneral,
@@ -141,10 +140,10 @@ describe('resolveOrgBrand precedence', () => {
     expect(b.name).toBe('Column Co')
     expect(b.phone).toBe('(111) 222-3333')
     // a column-backed key in settings.brand never fills in, even when the column is empty
-    expect(b.email).toBe(DEFAULT_ORG_BRAND.email)
-    expect(b.address).toBe(DEFAULT_ORG_BRAND.address)
+    expect(b.email).toBe(defaults.email)
+    expect(b.address).toBe(defaults.address)
     expect(b.website).toBe('brand.example')
-    expect(b.serviceArea).toBe(DEFAULT_ORG_BRAND.serviceArea)
+    expect(b.serviceArea).toBe(defaults.serviceArea)
   })
 
   it('accepts the brand selected directly as `brand`', () => {
@@ -153,15 +152,15 @@ describe('resolveOrgBrand precedence', () => {
 
   it('blank and whitespace strings count as missing', () => {
     const b = resolveOrgBrand({ name: '   ', settings: { brand: { name: '', website: ' \t ', phone: null } } })
-    expect(b.name).toBe(DEFAULT_ORG_BRAND.name)
-    expect(b.website).toBe(DEFAULT_ORG_BRAND.website)
-    expect(b.phone).toBe(DEFAULT_ORG_BRAND.phone)
+    expect(b.name).toBe(defaults.name)
+    expect(b.website).toBe(defaults.website)
+    expect(b.phone).toBe(defaults.phone)
   })
 
   it('ignores junk brand values', () => {
     expect(resolveOrgBrand({ settings: { brand: 'nope' } })).toEqual(defaults)
     expect(resolveOrgBrand({ settings: { brand: [1, 2] } })).toEqual(defaults)
-    expect(resolveOrgBrand({ settings: { brand: { name: 42 } } }).name).toBe(DEFAULT_ORG_BRAND.name)
+    expect(resolveOrgBrand({ settings: { brand: { name: 42 } } }).name).toBe(defaults.name)
   })
 
   it('a second company gets its own footer and header', () => {
@@ -317,7 +316,7 @@ describe('getOrgBrand never throws', () => {
   })
   it('a client that returns {error} → defaults without throwing', async () => {
     const { c, calls } = client([{ data: null, error: { message: 'timeout' } }])
-    expect(await getOrgBrand(c, 'org-1')).toEqual(DEFAULT_ORG_BRAND)
+    expect(await getOrgBrand(c, 'org-1')).toEqual(defaults)
     expect(calls()).toBe(2)
   })
   it('a transient error then success → the real row', async () => {

@@ -30,7 +30,10 @@ import {
   payrollStatementPdfFilename,
 } from '@/lib/pdf/payroll-statement'
 import type { PayrollStatementPayload } from '@/lib/payroll-statement'
-import { DEFAULT_ORG_BRAND } from '@/lib/org-brand'
+import { resolveOrgBrand } from '@/lib/org-brand'
+
+/** The fallback brand on an unfenced deployment (the original company's strings — legacy gate). */
+const LEGACY_BRAND = resolveOrgBrand(null)
 
 const sampleStatement: PayrollStatementPayload = {
   period: {
@@ -141,7 +144,7 @@ describe('payroll-statement PDF', () => {
   })
 
   it('generates a non-empty PDF buffer', () => {
-    const buf = buildPayrollStatementPdfBuffer(sampleStatement, { brand: DEFAULT_ORG_BRAND })
+    const buf = buildPayrollStatementPdfBuffer(sampleStatement, { brand: LEGACY_BRAND })
     expect(buf.length).toBeGreaterThan(0)
     expect(buf.subarray(0, 4).toString()).toBe('%PDF')
   })

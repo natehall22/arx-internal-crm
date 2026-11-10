@@ -8,6 +8,8 @@ import {
   getPublicEstimateTokenSecret,
   isInPublicEstimateServiceArea,
   isPublicRoofEstimateEnabled,
+  misconfiguredMessage,
+  outOfServiceAreaMessage,
 } from '@/lib/public-estimate-config'
 import { publicEstimateJson, publicEstimateOptionsResponse } from '@/lib/public-estimate-cors'
 import {
@@ -108,7 +110,7 @@ export async function POST(request: NextRequest) {
     // Not configured → no org row to read; the default brand.
     return publicEstimateJson(
       {
-        error: `Public roof estimate is not configured. Please call ${resolveOrgBrand(null).phone}.`,
+        error: misconfiguredMessage(resolveOrgBrand(null).phone),
         code: 'misconfigured',
       },
       503,
@@ -146,7 +148,7 @@ export async function POST(request: NextRequest) {
     return publicEstimateJson(
       {
         error:
-          `That address looks outside our service area (Charlotte metro and nearby). Call ${(await orgBrand()).phone} and we can still help.`,
+          outOfServiceAreaMessage(await orgBrand()),
         code: 'out_of_service_area',
       },
       422,
