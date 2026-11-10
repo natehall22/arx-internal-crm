@@ -459,7 +459,6 @@ export async function PATCH(request: NextRequest) {
         .update({
           settings: {
             ...currentSettings,
-            measure_tool_enabled: data.measure_tool_enabled,
             external_integrations: data.external_integrations,
           }
         })

@@ -28,7 +28,7 @@
     "brand": 1
   },
   "app/admin/settings/page.tsx": {
-    "brand": 2
+    "brand": 1
   },
   "app/admin/sisu/setter-ramp/SetterRampClient.tsx": {
     "timezone": 1
@@ -257,9 +257,6 @@
     "timezone": 1
   },
   "components/Nav.tsx": {
-    "brand": 2
-  },
-  "components/RoofMeasurementCard.tsx": {
     "brand": 2
   },
   "components/SetterFeedbackPrompt.tsx": {

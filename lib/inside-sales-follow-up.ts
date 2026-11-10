@@ -635,3 +635,12 @@ export function getInsideSalesQueueState(
     callability: getInsideSalesCallability(opportunity, orgInspectionOutcomes),
   }
 }
+
+/**
+ * Inside-sales list tabs that depend on company feature switches (lib/org-features.ts). The handoff tab holds every
+ * inspection-outcome handoff, so it is never hidden: "Insurance" while Insurance is on (unchanged), "Follow-ups" when
+ * off. The Storm tab shows only while Storm alerts is on.
+ */
+export function insideSalesFeatureTabs(features: { insurance: boolean; stormAlerts: boolean }): { handoffLabel: string; showStorm: boolean } {
+  return { handoffLabel: features.insurance ? 'Insurance' : 'Follow-ups', showStorm: features.stormAlerts }
+}

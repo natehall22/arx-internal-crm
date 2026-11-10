@@ -12,6 +12,7 @@ import {
 import { visibleNav, type NavContext } from '@/lib/nav-config'
 import { visibleSettingsGroups } from '@/lib/settings-registry'
 import { featuresFromEffectivePermissions } from '@/hooks/useOrgFeatures'
+import { insideSalesFeatureTabs } from '@/lib/inside-sales-follow-up'
 
 let storedFeatures: unknown = undefined
 let readError: { message: string } | null = null
@@ -144,5 +145,15 @@ describe('crons and reports', () => {
     expect(reportDatasetHidden('canvass_doors', { ...ALL_FEATURES_ON, canvassing: false })).toBe(true)
     expect(reportDatasetHidden('instant_estimate_accuracy', { ...ALL_FEATURES_ON, roofMeasure: false })).toBe(true)
     expect(reportDatasetHidden('sales', { ...ALL_FEATURES_ON, canvassing: false, roofMeasure: false, insurance: false })).toBe(false)
+  })
+})
+
+describe('inside sales tabs', () => {
+  it('Insurance ON (the original company): the tab still says Insurance and Storm shows — unchanged', () => {
+    expect(insideSalesFeatureTabs(ALL_FEATURES_ON)).toEqual({ handoffLabel: 'Insurance', showStorm: true })
+  })
+  it('Insurance OFF: the handoff tab stays (every handoff lives there), renamed Follow-ups; Storm hides with Storm alerts', () => {
+    expect(insideSalesFeatureTabs({ ...ALL_FEATURES_ON, insurance: false })).toEqual({ handoffLabel: 'Follow-ups', showStorm: true })
+    expect(insideSalesFeatureTabs({ ...ALL_FEATURES_ON, stormAlerts: false })).toEqual({ handoffLabel: 'Insurance', showStorm: false })
   })
 })

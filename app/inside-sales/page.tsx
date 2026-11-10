@@ -10,6 +10,7 @@ import { suggestedNextAttemptDays, type HandoffContext } from '@/lib/inside-sale
 import { formatInTimeZone } from 'date-fns-tz'
 import { formatPhone } from '@/lib/format'
 import { useOrgFeatures } from '@/hooks/useOrgFeatures'
+import { insideSalesFeatureTabs } from '@/lib/inside-sales-follow-up'
 
 type ActivityRow = {
   id: string
@@ -155,7 +156,7 @@ export default function InsideSalesPage() {
    * Company feature switches (Settings → Features). The "Insurance" tab is really every inspection-outcome handoff
    * (followUpKind 'handoff'), so with Insurance off it stays, renamed "Follow-ups"; the Storm tab hides with Storm alerts.
    */
-  const orgFeatures = useOrgFeatures()
+  const featureTabs = insideSalesFeatureTabs(useOrgFeatures())
   // Inside-sales reps get the one-lead conveyor as the whole page; managers get the list.
   const [viewerIsRep, setViewerIsRep] = useState(false)
   const [workMode, setWorkMode] = useState(false)
@@ -678,12 +679,12 @@ export default function InsideSalesPage() {
 
   const allTabDefs: Array<{ id: TabId; label: string; count: number; alert?: number }> = [
     { id: 'up_next', label: 'Up Next', count: upNextItems.length, alert: counts?.dueNow || 0 },
-    { id: 'insurance', label: orgFeatures.insurance ? 'Insurance' : 'Follow-ups', count: insuranceItems.length },
+    { id: 'insurance', label: featureTabs.handoffLabel, count: insuranceItems.length },
     { id: 'didnt_sit', label: "Didn't Sit", count: didntSitItems.length },
     { id: 'knockback', label: 'Knockbacks', count: knockbackItems.length },
     { id: 'storm', label: 'Storm (est.)', count: stormItems.length },
   ]
-  const tabDefs = allTabDefs.filter((t) => orgFeatures.stormAlerts || t.id !== 'storm')
+  const tabDefs = allTabDefs.filter((t) => featureTabs.showStorm || t.id !== 'storm')
 
   const tabItems: Record<TabId, QueueItem[]> = {
     up_next: upNextItems,
