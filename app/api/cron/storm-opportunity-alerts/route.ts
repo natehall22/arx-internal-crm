@@ -26,6 +26,7 @@ import {
   type StormSwathCandidate,
 } from '@/lib/storm-opportunity-alerts'
 import { verifyCronSecret } from '@/lib/cron-auth'
+import { loadCronOrgIds } from '@/lib/cron-orgs'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -153,7 +154,10 @@ export async function GET(request: NextRequest) {
     const windReports = filterStormReportsForAlerts(windRaw, 'wind', now)
     const swaths = filterStormSwathsForAlerts(swathRaw, now)
 
-    const rawOpportunities = await loadStormOpportunityCandidates(admin)
+    // Only companies a background job may run for (lib/cron-orgs: active users, inside the deployment fence).
+    // Every write below carries the deal's own org_id.
+    const cronOrgIds = await loadCronOrgIds(admin)
+    const rawOpportunities = (await loadStormOpportunityCandidates(admin)).filter((row: any) => cronOrgIds.has(row.org_id))
     const opportunityIds = rawOpportunities.map((row: any) => row.id)
     const appointmentsByOpportunityId = await loadAppointmentsByOpportunityId(admin, opportunityIds)
 

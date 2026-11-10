@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { syncOrgSetterRampGates, syncSetterFloorBonuses } from '@/lib/sync-setter-ramp-core'
 import { verifyCronSecret } from '@/lib/cron-auth'
+import { loadCronOrgIds } from '@/lib/cron-orgs'
 
 export const dynamic = 'force-dynamic'
 
@@ -21,7 +22,15 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: orgError.message }, { status: 500 })
   }
 
-  const orgIds = Array.from(new Set((orgRows ?? []).map((r) => r.org_id as string)))
+  // Only companies a background job may run for (lib/cron-orgs: active users, inside the deployment fence).
+  let cronOrgIds: Set<string>
+  try {
+    cronOrgIds = await loadCronOrgIds(admin)
+  } catch (err) {
+    console.error('[cron/sync-setter-ramp] Failed to load orgs:', err instanceof Error ? err.message : err)
+    return NextResponse.json({ error: 'orgs fetch failed' }, { status: 500 })
+  }
+  const orgIds = Array.from(new Set((orgRows ?? []).map((r) => r.org_id as string))).filter((id) => cronOrgIds.has(id))
   if (orgIds.length === 0) {
     return NextResponse.json({ orgs: 0, gates: null, floorBonuses: null })
   }

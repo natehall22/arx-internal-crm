@@ -35,6 +35,12 @@ beforeEach(() => {
     lead_sources: [
       { id: 'ls-b', org_id: ORG_B, name: 'Site B', webhook_token: 'tok-b', webhook_enabled: true, is_active: true },
     ],
+    users: [
+      { id: 'a-admin', org_id: ORG_A, role: 'admin', active: true, email: 'owner@a.test', created_at: '2026-01-01T00:00:00Z' },
+      { id: 'b-admin-new', org_id: ORG_B, role: 'admin', active: true, email: 'new@b.test', created_at: '2026-06-01T00:00:00Z' },
+      { id: 'b-admin-old', org_id: ORG_B, role: 'admin', active: true, email: 'first@b.test', created_at: '2026-02-01T00:00:00Z' },
+      { id: 'b-admin-gone', org_id: ORG_B, role: 'admin', active: false, email: 'gone@b.test', created_at: '2025-01-01T00:00:00Z' },
+    ],
   })
 })
 afterAll(() => {
@@ -71,4 +77,46 @@ test("a token's org wins over the body, and email fields are escaped", async () 
 
 test('unknown token → 401', async () => {
   expect((await post({ name: 'x' }, { token: 'nope' })).status).toBe(401)
+})
+
+describe('owner + inbound-lead email stay inside the lead\'s company', () => {
+  test('no configured owner → the company\'s longest-standing ACTIVE admin owns it and alone gets the email', async () => {
+    expect((await post({ name: 'x', phone: '555' }, { token: 'tok-b' })).status).toBe(200)
+    expect(db.tables.leads).toEqual([expect.objectContaining({ org_id: ORG_B, owner_user_id: 'b-admin-old' })])
+    expect(sendMail).toHaveBeenCalledTimes(1)
+    expect(sendMail.mock.calls[0][0]).toEqual(expect.objectContaining({ to: 'first@b.test' }))
+  })
+
+  test('a configured owner from ANOTHER company is ignored (no cross-company assignment or email)', async () => {
+    db.tables.lead_sources[0].auto_assign_user_id = 'a-admin'
+    db.tables.orgs[1].settings = { web_leads_owner_id: 'a-admin' }
+    expect((await post({ name: 'x' }, { token: 'tok-b' })).status).toBe(200)
+    expect(db.tables.leads[0].owner_user_id).toBe('b-admin-old')
+    expect(sendMail.mock.calls.map((c) => (c[0] as unknown as { to: string }).to)).toEqual(['first@b.test'])
+    expect((db.tables.notifications ?? []).every((n) => n.recipient_user_id !== 'a-admin')).toBe(true)
+  })
+
+  test('a configured owner in the same company wins', async () => {
+    db.tables.lead_sources[0].auto_assign_user_id = 'b-admin-new'
+    expect((await post({ name: 'x' }, { token: 'tok-b' })).status).toBe(200)
+    expect(db.tables.leads[0].owner_user_id).toBe('b-admin-new')
+    expect((sendMail.mock.calls[0][0] as unknown as { to: string }).to).toBe('new@b.test')
+  })
+
+  test('company with no active admin → lead saved, nobody emailed (never a fallback inbox)', async () => {
+    db.tables.users = db.tables.users.filter((u) => u.org_id !== ORG_B)
+    expect((await post({ name: 'x' }, { token: 'tok-b' })).status).toBe(200)
+    expect(db.tables.leads).toHaveLength(1)
+    expect(sendMail).not.toHaveBeenCalled()
+  })
+})
+
+test('CORS: any company\'s https site may post (token-authorised, no credentials); http non-local origins are not reflected', async () => {
+  const { OPTIONS } = await import('@/app/api/webhooks/leads/route')
+  const pre = (origin: string) =>
+    OPTIONS(new NextRequest('https://crm.example/api/webhooks/leads?token=tok-b', { method: 'OPTIONS', headers: { origin } }))
+  expect((await pre('https://www.second-company.com')).headers.get('access-control-allow-origin')).toBe('https://www.second-company.com')
+  expect((await pre('http://evil.test')).headers.get('access-control-allow-origin')).not.toBe('http://evil.test')
+  expect((await pre('https://x.test')).headers.get('access-control-allow-credentials')).toBeNull()
+  expect((await pre('https://x.test')).headers.get('vary')).toBe('Origin')
 })

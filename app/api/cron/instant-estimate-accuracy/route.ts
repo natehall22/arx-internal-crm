@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
     orgId = getPublicEstimateOrgId()
   } catch (e) {
     console.error('instant-estimate-accuracy: no org', e)
-    return NextResponse.json({ error: 'PUBLIC_ESTIMATE_ORG_ID not set' }, { status: 503 })
+    return NextResponse.json({ error: e instanceof Error ? e.message : 'PUBLIC_ESTIMATE_ORG_ID not set' }, { status: 503 })
   }
 
   const envLimit = Number(process.env.INSTANT_ESTIMATE_ACCURACY_LIMIT)

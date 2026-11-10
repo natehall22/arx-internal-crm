@@ -1,7 +1,11 @@
 /** Public website roof-estimate funnel config (not the internal measure tool). */
 import { shortNameArticle } from '@/lib/org-brand'
 
-/** ARX org for inbound website estimate leads — must be set explicitly when funnel is enabled. */
+/**
+ * The company inbound website-estimate leads (and the nightly accuracy check) belong to. Always explicit — env
+ * PUBLIC_ESTIMATE_ORG_ID, never a built-in default company id. On a fenced copy (DEPLOYMENT_ORG_ID) it must be that
+ * copy's own company, so an env copied from another company's deployment can't write leads into that company.
+ */
 export function getPublicEstimateOrgId(): string {
   const orgId = process.env.PUBLIC_ESTIMATE_ORG_ID?.trim()
   if (!orgId) {
@@ -9,12 +13,12 @@ export function getPublicEstimateOrgId(): string {
       'PUBLIC_ESTIMATE_ORG_ID must be set when PUBLIC_ROOF_ESTIMATE_ENABLED=true (do not rely on implicit prod defaults on preview/staging).'
     )
   }
+  const deploymentOrgId = process.env.DEPLOYMENT_ORG_ID?.trim()
+  if (deploymentOrgId && deploymentOrgId !== orgId) {
+    throw new Error('PUBLIC_ESTIMATE_ORG_ID does not match DEPLOYMENT_ORG_ID on this copy')
+  }
   return orgId
 }
-
-/** @deprecated Use getPublicEstimateOrgId() — kept for tests that mock env. */
-export const PUBLIC_ESTIMATE_ORG_ID =
-  process.env.PUBLIC_ESTIMATE_ORG_ID || '9089d4ad-f46c-405b-9798-6751d45a7051'
 
 /**
  * Fallback consumer shingle rate per square (squares INCLUDING waste) when the pricebook

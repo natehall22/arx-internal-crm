@@ -73,10 +73,10 @@ describe('CSV and email body', () => {
 describe('sendFounderContactsDigests (per user)', () => {
   type R = FounderContactRow & { org_id: string; created_by: string | null }
   const stamped: string[][] = []
-  function fakeDb(rows: R[], users: Array<{ id: string; email: string | null; active: boolean }>) {
+  function fakeDb(rows: R[], users: Array<{ id: string; email: string | null; active: boolean; org_id?: string }>) {
     return {
       from: (table: string) => {
-        if (table === 'users') return { select: () => ({ in: async () => ({ data: users, error: null }) }) }
+        if (table === 'users') return { select: () => ({ in: async () => ({ data: users.map((u) => ({ org_id: 'org-1', ...u })), error: null }) }) }
         const f: Array<(r: R) => boolean> = []
         const q: Record<string, unknown> = {
           select: () => q,
@@ -109,7 +109,8 @@ describe('sendFounderContactsDigests (per user)', () => {
     const res = await sendFounderContactsDigests(db, new Date('2026-10-14T01:00:00Z'))
     expect(res).toEqual({ sent: 2, skipped: false })
     const toNathan = sendMail.mock.calls.find((c) => c[0].to === 'nathan@x.com')![0]
-    expect(toNathan.subject).toBe('ARX contacts — 1 new (Tuesday, October 13)')
+    expect(toNathan.subject).toBe('Your contacts — 1 new (Tuesday, October 13)')
+    expect(toNathan.attachments[0].filename).toBe('contacts-2026-10-13.csv')
     expect(toNathan.attachments[0].content.split('\r\n').filter(Boolean)).toHaveLength(3) // header + a1 + a-old
     expect(toNathan.html).not.toContain('Rob')
     expect(stamped.flat().sort()).toEqual(['a1', 'b1'])
@@ -125,6 +126,44 @@ describe('sendFounderContactsDigests (per user)', () => {
 
   it('inactive users / no email: no email sent, rows marked handled so they are not reloaded nightly', async () => {
     const db = fakeDb([r({ id: 'a1' })], [{ id: 'u1', email: 'n@x.com', active: false }])
+    expect((await sendFounderContactsDigests(db)).sent).toBe(0)
+    expect(sendMail).not.toHaveBeenCalled()
+    expect(stamped.flat()).toEqual(['a1'])
+  })
+})
+
+describe('sendFounderContactsDigests stays inside each company', () => {
+  type R = FounderContactRow & { org_id: string; created_by: string | null }
+  const stamped: string[][] = []
+  const fake = (rows: R[], users: Array<{ id: string; email: string; active: boolean; org_id: string }>) => ({
+    from: (table: string) => {
+      if (table === 'users') return { select: () => ({ in: async () => ({ data: users, error: null }) }) }
+      const f: Array<(r: R) => boolean> = []
+      const q: Record<string, unknown> = {
+        select: () => q,
+        is: (c: string) => { f.push((r) => (r as Record<string, unknown>)[c] == null); return q },
+        not: (c: string) => { f.push((r) => (r as Record<string, unknown>)[c] != null); return q },
+        eq: (c: string, v: unknown) => { f.push((r) => (r as Record<string, unknown>)[c] === v); return q },
+        order: () => q,
+        range: async (from: number) => ({ data: from === 0 ? rows.filter((r) => f.every((fn) => fn(r))) : [], error: null }),
+        update: () => ({ in: async (_c: string, ids: string[]) => { stamped.push(ids); return { error: null } } }),
+      }
+      return q
+    },
+  }) as never
+  const r = (over: Partial<R>): R => ({ ...row({}), org_id: 'org-1', created_by: 'u1', ...over })
+  beforeEach(() => { sendMail.mockReset().mockResolvedValue({}); stamped.length = 0; process.env.SMTP_HOST = 'smtp.test' })
+
+  it('contacts of a company outside the run (test org / other copy) are not sent and not stamped', async () => {
+    const db = fake([r({ id: 'a1' }), r({ id: 't1', org_id: 'test-org', created_by: 'u9' })],
+      [{ id: 'u1', email: 'a@x.com', active: true, org_id: 'org-1' }, { id: 'u9', email: 't@x.com', active: true, org_id: 'test-org' }])
+    expect(await sendFounderContactsDigests(db, new Date(), new Set(['org-1']))).toEqual({ sent: 1, skipped: false })
+    expect(sendMail.mock.calls.map((c) => c[0].to)).toEqual(['a@x.com'])
+    expect(stamped.flat()).toEqual(['a1'])
+  })
+
+  it('a person now in another company never receives the old company\'s contacts (marked handled)', async () => {
+    const db = fake([r({ id: 'a1' })], [{ id: 'u1', email: 'moved@x.com', active: true, org_id: 'org-2' }])
     expect((await sendFounderContactsDigests(db)).sent).toBe(0)
     expect(sendMail).not.toHaveBeenCalled()
     expect(stamped.flat()).toEqual(['a1'])

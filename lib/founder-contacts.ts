@@ -168,7 +168,9 @@ async function stampEmailed(supabase: SupabaseClient, ids: string[], now: Date):
  */
 export async function sendFounderContactsDigests(
   supabase: SupabaseClient,
-  now: Date = new Date()
+  now: Date = new Date(),
+  /** Companies a background job may run for (lib/cron-orgs). Contacts of any other company are left for later, unsent. */
+  allowedOrgIds?: Set<string>
 ): Promise<FounderContactsDigestResult> {
   if (!process.env.SMTP_HOST) {
     console.error('[founder-contacts] SMTP_HOST not set — contacts digest not sent')
@@ -179,25 +181,32 @@ export async function sendFounderContactsDigests(
     supabase.from('founder_contacts').select(COLUMNS).is('emailed_at', null).not('created_by', 'is', null)
       .order('created_at', { ascending: true }).order('id', { ascending: true }).range(from, to)
   )
-  if (fresh.length === 0) return { sent: 0, skipped: true, reason: 'nothing_new' }
+  const inScope = allowedOrgIds ? fresh.filter((r) => allowedOrgIds.has(r.org_id as string)) : fresh
+  if (inScope.length === 0) return { sent: 0, skipped: true, reason: 'nothing_new' }
 
+  // Grouped per person AND company, so one email never mixes two companies' contacts.
   const byUser = new Map<string, DigestRow[]>()
-  for (const r of fresh) byUser.set(r.created_by as string, [...(byUser.get(r.created_by as string) || []), r])
+  for (const r of inScope) {
+    const key = `${r.created_by}|${r.org_id}`
+    byUser.set(key, [...(byUser.get(key) || []), r])
+  }
 
   const { data: users, error: usersError } = await supabase
     .from('users')
-    .select('id, email, active')
-    .in('id', Array.from(byUser.keys()))
+    .select('id, email, active, org_id')
+    .in('id', Array.from(new Set(inScope.map((r) => r.created_by as string))))
   if (usersError) throw new Error(usersError.message)
 
   const dateLabel = now.toLocaleDateString('en-US', { timeZone: EASTERN_TZ, weekday: 'long', month: 'long', day: 'numeric' })
   const fileDate = now.toLocaleDateString('en-CA', { timeZone: EASTERN_TZ })
   let sent = 0
 
-  for (const [userId, rows] of Array.from(byUser.entries())) {
-    const user = (users || []).find((u: { id: string }) => u.id === userId) as { email: string | null; active: boolean } | undefined
-    if (!user?.email || user.active === false) {
-      // Nobody to send to (deactivated or no email): mark them handled so they aren't reloaded nightly.
+  for (const rows of Array.from(byUser.values())) {
+    const userId = rows[0].created_by as string
+    const user = (users || []).find((u: { id: string }) => u.id === userId) as { email: string | null; active: boolean; org_id: string | null } | undefined
+    // Only to a person who is still in the company the contacts belong to.
+    if (!user?.email || user.active === false || user.org_id !== rows[0].org_id) {
+      // Nobody to send to (deactivated, no email, or now in another company): mark them handled so they aren't reloaded nightly.
       console.error('[founder-contacts] no active email for user; their contacts are marked handled', userId)
       await stampEmailed(supabase, rows.map((r) => r.id), now)
       continue
@@ -210,9 +219,9 @@ export async function sendFounderContactsDigests(
       await getMailTransport().sendMail({
         from: getCrmEmailFrom(),
         to: user.email,
-        subject: `ARX contacts — ${rows.length} new (${dateLabel})`,
+        subject: `Your contacts — ${rows.length} new (${dateLabel})`,
         html: founderContactsDigestHtml(rows, all.length, dateLabel),
-        attachments: [{ filename: `arx-contacts-${fileDate}.csv`, content: founderContactsCsv(all), contentType: 'text/csv' }],
+        attachments: [{ filename: `contacts-${fileDate}.csv`, content: founderContactsCsv(all), contentType: 'text/csv' }],
       })
       sent += 1
     } catch (error) {
