@@ -3,6 +3,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type { CanvassPin } from '../page'
+import { isPermanentKnockFailure } from '@/lib/host-handoff'
 
 const SYNC_LOCK_TTL_MS = 5 * 60 * 1000
 const PERSIST_KEY = 'canvass-offline-store'
@@ -122,6 +123,13 @@ export const useOfflineStore = create<OfflineState>()(
               } else {
                 const errText = await res.text().catch(() => '')
                 console.error('Failed to sync lead:', res.status, errText)
+                // Kept on the phone either way; a refusal retrying will not fix is marked so it reads as
+                // "needs attention" instead of pending forever. A later success removes the lead as usual.
+                updateLead(lead.id, {
+                  sync_error: isPermanentKnockFailure(res.status)
+                    ? { status: res.status, message: errText.slice(0, 200), at: new Date().toISOString() }
+                    : null,
+                })
               }
             } catch (e) {
               console.error('Failed to sync lead:', e)

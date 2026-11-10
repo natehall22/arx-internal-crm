@@ -15,6 +15,10 @@ The old address keeps **serving** (no redirect) for the whole overlap.
   "We've moved": it sends the knock queue (localStorage), job photos (`arx-job-photos`) and report photos
   (`arx-report-pending`) saved on that phone — they belong to the old address and can't be read from the new one — and
   only when the count is zero shows "Tap to continue at arxcapitol.com" (same path). It never redirects by itself.
+  "Continue anyway" appears (naming what stays behind on the old address) when the only things left cannot be sent
+  from there — knocks the server refused with a permanent 4xx (kept, marked "needs attention"), or photo storage that
+  can't be read — or after 3 tries online. Crew links on the Crews list, the signing page's download link and morning
+  email links degrade (no link / relative link) instead of failing when the address is missing.
 - Nothing redirects: `/api/*`, `/r`, `/crew`, signing pages, everything keeps working on the old address.
 - Logout clears the real session cookie (single and chunked) and redirects relatively, so it stays on whichever host it
   was opened on. Sessions are per host: **everyone signs in once on the new address.**

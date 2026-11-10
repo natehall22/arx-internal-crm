@@ -57,6 +57,8 @@ export type CanvassPin = {
   rep_lng?:             number | null
   rep_geo_accuracy?:    number | null
   rep_geo_captured_at?: string | null
+  /** Set when the server refused this queued knock with a 4xx a retry will not fix (lib/host-handoff.ts). */
+  sync_error?: { status: number; message: string; at: string } | null
 }
 
 // Union type for display

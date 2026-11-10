@@ -98,12 +98,13 @@ function GeneralSettingsHarness({ canEditBrand }: { canEditBrand: boolean }) {
 }
 
 const HANDOFF_TARGET = 'https://crm.example.test/canvass'
-const handoffDeps = (knocks: number, jobPhotos: number, reportPhotos: number): HandoffDeps => ({
+const handoffDeps = (knocks: number, jobPhotos: number, reportPhotos: number, knocksNeedingAttention = 0): HandoffDeps => ({
   flush: async () => undefined,
-  count: async () => ({ knocks, jobPhotos, reportPhotos }),
+  count: async () => ({ knocks, jobPhotos, reportPhotos, knocksNeedingAttention, photosUnreadable: false }),
 })
 const HANDOFF_PENDING = handoffDeps(3, 1, 1)
 const HANDOFF_DONE = handoffDeps(0, 0, 0)
+const HANDOFF_ATTENTION = handoffDeps(0, 0, 0, 2)
 
 export default function Harness({ params }: { params: { screen: string } }) {
   if (process.env.NODE_ENV === 'production') notFound()
@@ -337,6 +338,8 @@ export default function Harness({ params }: { params: { screen: string } }) {
       return <div className="mx-auto max-w-3xl p-4"><PayWeekClient /></div>
     case 'moved-host-pending':
       return <div className="h-screen bg-gray-100"><MovedHostNotice target={HANDOFF_TARGET} deps={HANDOFF_PENDING} /></div>
+    case 'moved-host-attention':
+      return <div className="h-screen bg-gray-100"><MovedHostNotice target={HANDOFF_TARGET} deps={HANDOFF_ATTENTION} /></div>
     case 'moved-host-ready':
       return <div className="h-screen bg-gray-100"><MovedHostNotice target={HANDOFF_TARGET} deps={HANDOFF_DONE} /></div>
     default:

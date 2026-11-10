@@ -108,6 +108,27 @@ describe.each([
     expect(c.orgTrades.map((t: { label: string }) => t.label)).toEqual(['Roofing', 'Gutters', 'Siding', 'Windows', 'Other'])
   })
 
+  it('the crews list still loads with no app address — crew links are left out, not a 500', async () => {
+    const route = await import('@/app/api/ops/jobs/[id]/trades/route')
+    const call = () => route.GET(new Request('http://localhost'), { params: { id: 'j1' } })
+    await call()
+    const row = db.tables.work_orders.find((w) => w.job_id === 'j1')!
+    row.crew_link_token = 'tok'
+    const saved = process.env.NEXT_PUBLIC_APP_URL
+    const spy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+    try {
+      delete process.env.NEXT_PUBLIC_APP_URL
+      const res = await call()
+      expect(res.status).toBe(200)
+      expect((await res.json()).trades.map((t: { crew_link_url: string | null }) => t.crew_link_url)).not.toContain(expect.stringContaining('/crew/'))
+    } finally {
+      process.env.NEXT_PUBLIC_APP_URL = saved
+      spy.mockRestore()
+    }
+    const ok = await (await call()).json()
+    expect(ok.trades.map((t: { crew_link_url: string | null }) => t.crew_link_url)).toContain(`${saved}/crew/tok`)
+  })
+
   it('adding a trade by hand accepts the five standard trades and nothing else', async () => {
     const { POST } = await import('@/app/api/ops/jobs/[id]/trades/route')
     const add = (trade: string) => POST(new Request('http://localhost', { method: 'POST', body: JSON.stringify({ trade }) }), { params: { id: 'j1' } })

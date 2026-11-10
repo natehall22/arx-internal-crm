@@ -9,7 +9,7 @@ import { fetchMorningUpdateMetrics, type MorningUpdateMetrics } from '@/lib/morn
 import { loadDataHealth, needsYouForEmailRecipient, shapeNeedsYou, type DataHealthReport } from '@/lib/data-health'
 import { loadCheckupSettings } from '@/lib/checkups'
 import { loadCheckupsDueQueue, loadCrewWeekQueue, loadOpsQueues, loadOwnerExceptions, loadStormHitsQueue, type Queue } from '@/lib/today'
-import { getAppUrl } from '@/lib/app-url'
+import { getAppUrl, tryGetAppUrl } from '@/lib/app-url'
 import { formatPhone, telHref } from '@/lib/format'
 import { getCrmEmailFrom, getMailTransport } from '@/lib/setter-email'
 
@@ -100,8 +100,25 @@ const NEEDS_YOU_EMAIL_JOB_ROWS = 20
  * dashboard. Job numbers and plain-English problems only, no customer details.
  * Exported for tests.
  */
+/**
+ * Links in the morning email are a convenience: with no app address configured the email still goes out, and every link
+ * renders as plain text (an <a> with no href) instead of failing the whole email.
+ */
+function morningEmailBase(appUrl?: string | null): string {
+  return appUrl ? getAppUrl({ appUrl }) : tryGetAppUrl('morning email links') ?? ''
+}
+
+/** With no base, the builders produced site-relative hrefs, which mean nothing in an inbox: drop them. */
+function withoutRelativeLinks(html: string, base: string): string {
+  return base ? html : html.replace(/<a href="\/[^"]*"/g, '<a')
+}
+
 export function buildNeedsYouHtml(report: DataHealthReport, appUrl?: string | null): string {
-  const base = getAppUrl({ appUrl })
+  const base = morningEmailBase(appUrl)
+  return withoutRelativeLinks(needsYouHtml(report, base), base)
+}
+
+function needsYouHtml(report: DataHealthReport, base: string): string {
   const dashboardUrl = `${base}/ops/dashboard`
   if (report.count === 0) {
     return `
@@ -189,7 +206,11 @@ export async function loadMorningTodayQueues(
  * storm-hits call list (name + tap-to-call), which only the "Everything" version loads.
  */
 export function buildTodayHtml(queues: Queue[] | null, appUrl?: string | null): string {
-  const base = getAppUrl({ appUrl })
+  const base = morningEmailBase(appUrl)
+  return withoutRelativeLinks(todayHtml(queues, base), base)
+}
+
+function todayHtml(queues: Queue[] | null, base: string): string {
   const heading = '<h2 style="margin: 24px 0 6px; color: #111827; font-size: 18px;">Today</h2>'
   // A failed load must never read as "nothing to do".
   if (queues === null) {

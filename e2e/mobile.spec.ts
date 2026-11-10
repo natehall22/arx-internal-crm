@@ -228,6 +228,7 @@ const SCREENS: Screen[] = [
     states: [{ name: 'editing-brand', run: async (p) => { await p.getByLabel('Website').fill('example.test/roofing'); await p.waitForTimeout(200) } }] },
   { name: 'admin-settings-readonly', path: '/dev-harness/admin-settings-readonly', ready: 'text=Only an owner can change these' },
   { name: 'moved-host-pending', path: '/dev-harness/moved-host-pending', ready: 'text=Try again' },
+  { name: 'moved-host-attention', path: '/dev-harness/moved-host-attention', ready: 'text=Continue anyway to crm.example.test' },
   { name: 'moved-host-ready', path: '/dev-harness/moved-host-ready', ready: 'text=Tap to continue at crm.example.test' },
   { name: 'pay-week', path: '/dev-harness/pay-week', ready: 'text=Needs you (3)',
     states: [

@@ -1,3 +1,4 @@
+import { tryGetAppUrl } from '@/lib/app-url'
 import { NextResponse } from 'next/server'
 
 import { requireAuthApi } from '@/lib/auth'
@@ -94,6 +95,8 @@ export async function GET(_request: Request, { params }: { params: { id: string 
     tagsByTrade.set(p.work_order_id, list)
   }
 
+  // Crew links are extra on this list: a missing app address leaves them out (logged) instead of failing the Crews tab.
+  const appUrl = tryGetAppUrl('crews list: crew photo links')
   return NextResponse.json({
     canEdit: canEditJobs,
     /** The company's trades (labels for every row; active ones are what "+ Add trade" offers). */
@@ -118,7 +121,7 @@ export async function GET(_request: Request, { params }: { params: { id: string 
         has_calendar_event: Boolean(t.install_google_event_id),
         missing_photo_tags: missingRequiredPhotoTags(tags),
         photo_count: tags.length,
-        crew_link_url: t.crew_link_token ? crewLinkUrl(t.crew_link_token) : null,
+        crew_link_url: t.crew_link_token && appUrl ? crewLinkUrl(t.crew_link_token, appUrl) : null,
       }
     }),
   })
