@@ -1,0 +1,27 @@
+{
+  "org": {
+    "id": null,
+    "name": "Example Landscapes & Hardscapes",
+    "phone": "(555) 010-0100",
+    "email": "office@landscapes.example",
+    "address": "100 Example Rd\nAnytown, ST 00000",
+    "timezone": null
+  },
+  "brand": {
+    "legalName": "Example Landscapes & Hardscapes, LLC",
+    "shortName": "Example",
+    "website": "landscapes.example",
+    "serviceArea": "Anytown, ST"
+  },
+  "trades": [
+    { "label": "Landscaping", "matchKeywords": ["landscap", "mulch", "sod", "planting"] },
+    { "label": "Hardscape", "matchKeywords": ["hardscap", "paver", "retaining wall", "patio"] },
+    { "label": "Pressure washing", "matchKeywords": ["pressure wash", "power wash"] },
+    { "label": "Other" }
+  ],
+  "owner": {
+    "email": "owner@landscapes.example",
+    "fullName": "Example Owner",
+    "phone": null
+  }
+}

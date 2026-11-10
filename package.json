@@ -33,6 +33,7 @@
     "solar-permits:ingest-candidates": "tsx --env-file=.env.local scripts/solar-permits/ingest-candidates.ts",
     "test:mobile": "playwright test",
     "gates": "bash scripts/gates.sh",
+    "seed:company": "tsx --env-file=.env.local scripts/seed-company.ts",
     "hardcode:check": "node scripts/hardcode-ratchet.mjs",
     "hardcode:update": "node scripts/hardcode-ratchet.mjs --update"
   },

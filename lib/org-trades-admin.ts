@@ -1,5 +1,6 @@
 /**
- * The one writer of `org_trades` (Settings → Job setup → Trades, via /api/admin/job-setup/trades).
+ * The one writer of `org_trades`: Settings → Job setup → Trades (via /api/admin/job-setup/trades) and the new-company seed
+ * (scripts/seed-company.ts → planOrgTradesSeed / applyOrgTradesSeed).
  * Owner-only is enforced by the route; this module only enforces the list's own rules:
  *   - slugs are created from the label once and never change (rows reference them);
  *   - no deletes — deactivate instead (existing work orders and jobs keep the slug);
@@ -134,4 +135,92 @@ export async function saveOrgTradeChange(
   const after = await readRows(client, orgId)
   if ('error' in after) return after.error
   return { ok: true, trades: after.trades }
+}
+
+/* ------------------------------------------------------------------------ *
+ * New-company seed (scripts/seed-company.ts) — same table rules: no deletes, slugs never change.
+ * ------------------------------------------------------------------------ */
+
+/** A trade a new company wants: its label and optional line-item auto-detection keywords (regex alternatives). */
+export type OrgTradeSeed = { label: string; matchKeywords: string[] | null }
+
+export type OrgTradesSeedPlan = {
+  insert: Array<{ slug: string; label: string; sort: number; match_keywords: string[] | null }>
+  update: Array<{ slug: string; set: { label?: string; sort?: number; active?: boolean; match_keywords?: string[] | null } }>
+  /** Standard trades (DEFAULT_ORG_TRADES slugs, e.g. added by the orgs insert trigger) the company did not ask for. */
+  deactivate: string[]
+}
+
+const sameKeywords = (a: string[] | null, b: string[] | null) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null)
+
+/**
+ * Pure: what makes an org's trades match the seed input. `wanted` null → the standard list, inserted only when the
+ * org has no rows at all. A wanted trade matches an existing one by label (case-insensitive) and is turned on, renamed to
+ * the exact label, re-sorted to its input position and given the input keywords. Trades the company added itself (not
+ * standard slugs) and not in the input are left alone, so a re-run never undoes Settings → Job setup work.
+ */
+export function planOrgTradesSeed(existing: readonly OrgTrade[], wanted: readonly OrgTradeSeed[] | null): OrgTradesSeedPlan {
+  const plan: OrgTradesSeedPlan = { insert: [], update: [], deactivate: [] }
+  if (!wanted) {
+    if (existing.length === 0) {
+      plan.insert = DEFAULT_ORG_TRADES.map((t) => ({ slug: t.slug, label: t.label, sort: t.sort, match_keywords: t.matchKeywords }))
+    }
+    return plan
+  }
+  const taken = existing.map((t) => t.slug)
+  const matched = new Set<string>()
+  wanted.forEach((w, i) => {
+    const sort = (i + 1) * 10
+    const keywords = w.matchKeywords?.length ? [...w.matchKeywords] : null
+    const hit = existing.find((t) => !matched.has(t.slug) && t.label.toLowerCase() === w.label.toLowerCase())
+    if (hit) {
+      matched.add(hit.slug)
+      const set: OrgTradesSeedPlan['update'][number]['set'] = {}
+      if (hit.label !== w.label) set.label = w.label
+      if (hit.sort !== sort) set.sort = sort
+      if (!hit.active) set.active = true
+      if (!sameKeywords(hit.matchKeywords, keywords)) set.match_keywords = keywords
+      if (Object.keys(set).length) plan.update.push({ slug: hit.slug, set })
+      return
+    }
+    const slug = slugForNewTrade(w.label, taken)
+    if (!slug) throw new Error(`Trade "${w.label}" needs letters or numbers in its name`)
+    taken.push(slug)
+    plan.insert.push({ slug, label: w.label, sort, match_keywords: keywords })
+  })
+  const standard = new Set(DEFAULT_ORG_TRADES.map((t) => t.slug))
+  plan.deactivate = existing.filter((t) => t.active && standard.has(t.slug) && !matched.has(t.slug)).map((t) => t.slug)
+  return plan
+}
+
+/** Read an org's trades for the seed (`null` when the org_trades table is not there yet). */
+export async function readOrgTradesForSeed(client: SupabaseClient, orgId: string): Promise<OrgTrade[] | null> {
+  const loaded = await readRows(client, orgId)
+  if ('error' in loaded) {
+    if (loaded.error.ok === false && loaded.error.status === 503) return null
+    throw new Error(loaded.error.ok === false ? loaded.error.error : 'Could not load trades')
+  }
+  return loaded.trades
+}
+
+/** Write a seed plan (inserts first, so at least one trade is on before any standard trade is turned off). */
+export async function applyOrgTradesSeed(client: SupabaseClient, orgId: string, userId: string | null, plan: OrgTradesSeedPlan): Promise<void> {
+  const check = (error: { message?: string } | null, what: string) => {
+    if (error) throw new Error(`org_trades ${what}: ${error.message ?? 'failed'}`)
+  }
+  if (plan.insert.length) {
+    const { error } = await client
+      .from('org_trades')
+      .upsert(plan.insert.map((t) => ({ org_id: orgId, ...t, active: true, updated_by: userId })), { onConflict: 'org_id,slug', ignoreDuplicates: true })
+    check(error, 'insert')
+  }
+  for (const u of plan.update) {
+    const { error } = await client.from('org_trades').update({ ...u.set, updated_by: userId }).eq('org_id', orgId).eq('slug', u.slug)
+    check(error, `update ${u.slug}`)
+  }
+  for (const slug of plan.deactivate) {
+    const { error } = await client.from('org_trades').update({ active: false, updated_by: userId }).eq('org_id', orgId).eq('slug', slug)
+    check(error, `deactivate ${slug}`)
+  }
+  forgetOrgTrades(client, orgId)
 }

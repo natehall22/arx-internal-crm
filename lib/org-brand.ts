@@ -1,15 +1,16 @@
 /**
  * Company identity (name, phone, website, service area…) — the ONE reader.
  *
- * Precedence per field: name/phone/email/address come from their `orgs` column; shortName/website/serviceArea
- * (no column) from `orgs.settings.brand`; either way a missing value → DEFAULT_ORG_BRAND. Blank /
- * whitespace-only strings count as missing.
+ * Precedence per field: name/phone/email/address come from their `orgs` column; legalName/shortName/website/serviceArea
+ * and the two contract spellings (no column) from `orgs.settings.brand`; either way a missing value → the fallback.
+ * Blank / whitespace-only strings count as missing.
  *
- * DEFAULT_ORG_BRAND holds the exact strings the CRM printed before identity moved onto the org row, so an
- * org with empty settings renders byte-identical output. They are the original company's values and stay in
- * this .ts file on purpose (the hardcode ratchet counts them). A second company must set its org row /
- * `settings.brand` (Admin → Settings → General) or it shows these. Do not add another copy of these strings
- * anywhere — read them through this module.
+ * Fallback: DEFAULT_ORG_BRAND is NEUTRAL (blank; a missing legal/short name falls back to the company name). Until
+ * the original company's identity is stored on its org row (data fix supabase/data-fixes/2026-11-10_arx_brand_into_org_row.sql),
+ * a deployment WITHOUT the `DEPLOYMENT_ORG_ID` fence (= the original company's prod today) keeps its strings as the
+ * fallback (`legacyBrandFallback`), so its output stays byte-identical. Every other company's copy sets
+ * DEPLOYMENT_ORG_ID (docs/multi-company-plan.md slice 8) and never sees them. Delete LEGACY_ORG_BRAND and the gate once
+ * the data fix is applied and that deployment sets DEPLOYMENT_ORG_ID. Do not add another copy of these strings anywhere.
  *
  * Customer documents show the owning rep's phone when it is dialable, else the company phone (`contactPhone`).
  */
@@ -36,33 +37,75 @@ export interface OrgBrand {
   serviceArea: string
   /** Office address (multi-line). */
   address: string
+  /** Legal name as contracts / change orders spell it, when that differs from `legalName` (`settings.brand`). */
+  documentLegalName?: string
+  /** Office address as contracts spell it, when that differs from `address` (`settings.brand`, multi-line). */
+  documentAddress?: string
+  /** Short region name for sentences ("outside our service area (… and nearby)"), when it differs from serviceArea. */
+  serviceRegion?: string
 }
 
+/** Neutral fallback: nothing about any real company. A seeded org (scripts/seed-company.ts) never needs it. */
 export const DEFAULT_ORG_BRAND: Readonly<OrgBrand> = Object.freeze({
-  name: 'ARX Roofing & Exteriors',
-  legalName: 'ARX Roofing & Exteriors, LLC',
-  shortName: 'ARX',
-  phone: '(704) 313-8834',
-  email: 'info@arxroofing.com',
-  website: 'arxroofing.com',
-  serviceArea: 'Charlotte / Kannapolis, NC',
-  address: '4101 Woodbury Ter NW\nConcord, NC 28027',
+  name: '',
+  legalName: '',
+  shortName: '',
+  phone: '',
+  email: '',
+  website: '',
+  serviceArea: '',
+  address: '',
 })
 
-const ORG_BRAND_KEYS = Object.keys(DEFAULT_ORG_BRAND) as Array<keyof OrgBrand>
+/**
+ * LEGACY — the exact strings the CRM printed before identity moved onto the org row (the original company's), plus the
+ * spellings its contracts used. Only the fallback while `legacyBrandFallback()` is on. Delete with the gate.
+ */
+const LEGACY_ORG_BRAND: Readonly<Required<OrgBrand>> = (() => {
+  const base = {
+    name: 'ARX Roofing & Exteriors',
+    legalName: 'ARX Roofing & Exteriors, LLC',
+    shortName: 'ARX',
+    phone: '(704) 313-8834',
+    email: 'info@arxroofing.com',
+    website: 'arxroofing.com',
+    serviceArea: 'Charlotte / Kannapolis, NC',
+    address: '4101 Woodbury Ter NW\nConcord, NC 28027',
+  }
+  return Object.freeze({
+    ...base,
+    // contracts: "…Exteriors LLC" with no comma, "Terrace" written out
+    documentLegalName: base.legalName.replace(/, (LLC)$/, ' $1'),
+    documentAddress: '4101 Woodbury Terrace NW\nConcord, NC 28027',
+    serviceRegion: 'Charlotte metro',
+  })
+})()
+
+/**
+ * True while this deployment has no `DEPLOYMENT_ORG_ID` fence — today only the original company's prod (and local dev/tests). Then a
+ * missing brand field falls back to the original company's strings, exactly as before; with the fence it is neutral.
+ * Server env only: in browser bundles it is always true, so client code must not resolve a brand itself.
+ */
+export function legacyBrandFallback(): boolean {
+  return !process.env.DEPLOYMENT_ORG_ID?.trim()
+}
+
+/** The always-present fields (the optional contract spellings are resolved separately). */
+type CoreBrandKey = Exclude<keyof OrgBrand, 'documentLegalName' | 'documentAddress' | 'serviceRegion'>
+const ORG_BRAND_KEYS = Object.keys(DEFAULT_ORG_BRAND) as CoreBrandKey[]
 
 /** Fields that are real `orgs` columns (edited as Company Name / Phone / Email / Address). The column always wins. */
 const COLUMN_BACKED = ['name', 'phone', 'email', 'address'] as const
 type ColumnBackedKey = (typeof COLUMN_BACKED)[number]
 
 /** The only keys stored under `orgs.settings.brand` — fields with no `orgs` column. */
-export const BRAND_SETTINGS_KEYS = ['legalName', 'shortName', 'website', 'serviceArea'] as const
+export const BRAND_SETTINGS_KEYS = ['legalName', 'shortName', 'website', 'serviceArea', 'documentLegalName', 'documentAddress', 'serviceRegion'] as const
 export type BrandSettingsKey = (typeof BRAND_SETTINGS_KEYS)[number]
 
 /** Longest value a brand field may hold (characters, after trimming). */
 export const BRAND_FIELD_MAX = 120
 
-function isColumnBacked(key: keyof OrgBrand): key is ColumnBackedKey {
+function isColumnBacked(key: CoreBrandKey): key is ColumnBackedKey {
   return (COLUMN_BACKED as readonly string[]).includes(key)
 }
 
@@ -84,15 +127,35 @@ function brandObject(v: unknown): Record<string, unknown> {
   return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {}
 }
 
-/** Pure: resolve every identity field for an org row (null row → defaults). */
+/** Pure: resolve every identity field for an org row (null row → the fallback). */
 export function resolveOrgBrand(row: OrgBrandRow | null | undefined): OrgBrand {
+  const legacy = legacyBrandFallback()
+  const fallback: Readonly<OrgBrand> = legacy ? LEGACY_ORG_BRAND : DEFAULT_ORG_BRAND
   const stored = brandObject(row?.brand ?? row?.settings?.brand)
   const out = {} as OrgBrand
   for (const key of ORG_BRAND_KEYS) {
     // column-backed fields never read settings.brand (a stale copy there must not override the column)
     const value = isColumnBacked(key) ? present(row?.[key]) : present(stored[key])
-    out[key] = value ?? DEFAULT_ORG_BRAND[key]
+    out[key] = value ?? (fallback[key] as string)
   }
+  if (!legacy) {
+    // neutral: a company that stored only its name still prints its name, not a blank
+    if (!present(stored.legalName)) out.legalName = out.name
+    if (!present(stored.shortName)) out.shortName = out.name
+  }
+  // Contract spellings: stored ones win; the legacy fallback keeps the original company's while its value is the default.
+  const documentLegalName =
+    present(stored.documentLegalName) ??
+    (legacy && out.legalName === LEGACY_ORG_BRAND.legalName ? LEGACY_ORG_BRAND.documentLegalName : null)
+  const documentAddress =
+    present(stored.documentAddress) ??
+    (legacy && out.address === LEGACY_ORG_BRAND.address ? LEGACY_ORG_BRAND.documentAddress : null)
+  const serviceRegion =
+    present(stored.serviceRegion) ??
+    (legacy && out.serviceArea === LEGACY_ORG_BRAND.serviceArea ? LEGACY_ORG_BRAND.serviceRegion : null)
+  if (documentLegalName) out.documentLegalName = documentLegalName
+  if (documentAddress) out.documentAddress = documentAddress
+  if (serviceRegion) out.serviceRegion = serviceRegion
   return out
 }
 
@@ -213,6 +276,19 @@ export function brandPatchFromGeneral(data: Record<string, unknown>): BrandPatch
   return Object.keys(patch).length ? patch : null
 }
 
+/**
+ * Pure: the derived spellings a General save makes stale — a new legal name (sent in the brand patch) clears
+ * `documentLegalName`, a new service area clears `serviceRegion`; a changed address column clears `documentAddress`. Null when nothing is stale. Without this a
+ * stored contract spelling would keep printing the old name/address after an owner edits it.
+ */
+export function staleDocumentSpellings(brandPatch: BrandPatch | null, newAddress: unknown, currentAddress: unknown): BrandPatch | null {
+  const patch: BrandPatch = {}
+  if (brandPatch && 'legalName' in brandPatch) patch.documentLegalName = ''
+  if (brandPatch && 'serviceArea' in brandPatch) patch.serviceRegion = ''
+  if (newAddress !== undefined && present(newAddress) !== present(currentAddress)) patch.documentAddress = ''
+  return Object.keys(patch).length ? patch : null
+}
+
 /** Pure: whole new `orgs.settings` with a brand patch applied; every other settings key is kept. */
 /** Only "the function does not exist yet" falls back (lives with the one settings writer, lib/org-settings.ts). */
 export { isMissingFunction } from '@/lib/org-settings'
@@ -243,16 +319,18 @@ export function brandServiceRegion(brand: Pick<OrgBrand, 'serviceArea'>): string
   return brand.serviceArea.replace(/,\s*[A-Z]{2}\s*$/, '')
 }
 
-/** Absolute URL for the website field (stored with or without a protocol). */
+/** Absolute URL for the website field (stored with or without a protocol); '' when there is no website. */
 export function brandWebsiteHref(brand: Pick<OrgBrand, 'website'>): string {
-  return /^https?:\/\//i.test(brand.website) ? brand.website : `https://${brand.website}`
+  const site = brand.website.trim()
+  if (!site) return ''
+  return /^https?:\/\//i.test(site) ? site : `https://${site}`
 }
 
 /**
- * Contract / change-order / signing-page letterhead spellings, derived from the brand. ARX's documents used their own
- * spellings before slice 2a ("…Exteriors LLC" with no comma, "Terrace" written out, dashed phone); while the org still
- * holds the DEFAULT value of a field, that spelling is kept so ARX's documents stay byte-identical. Any edited value
- * prints as stored (address lines joined with ", ", phone dashed when it is a 10-digit US number).
+ * Contract / change-order / signing-page letterhead spellings, derived from the brand. A company whose contracts spell
+ * its legal name or address differently from its other documents stores that under `settings.brand.documentLegalName`
+ * / `documentAddress` (e.g. "…Exteriors LLC" with no comma, "Terrace" written out). Otherwise the brand prints as
+ * stored (address lines joined with ", ", phone dashed when it is a 10-digit US number).
  */
 export interface DocumentBrand {
   /** "Company Name" — signature blocks, greetings. */
@@ -263,9 +341,9 @@ export interface DocumentBrand {
   legalName: string
   /** "COMPANY NAME LLC" — letterhead title. */
   legalNameUpper: string
-  /** Conversational name: the display name up to " & " ("ARX Roofing"). */
+  /** Conversational name: the display name up to " & " ("Summit Roofing"). */
   casualName: string
-  /** Wordmark ("ARX") — "call ARX", "an ARX team member". */
+  /** Wordmark ("Summit") — "call Summit", "a Summit team member". */
   shortName: string
   /** Company phone, dashed ("704-313-8834"). */
   phone: string
@@ -277,14 +355,10 @@ export interface DocumentBrand {
   addressLine: string
 }
 
-/** The office address as contracts have always spelled it (USPS "Ter" written out), for the default address only. */
-const DEFAULT_DOCUMENT_ADDRESS = '4101 Woodbury Terrace NW\nConcord, NC 28027'
-
 /** Pure: the letterhead spellings for a resolved brand. Plain data, safe to pass to client components. */
 export function brandDocument(brand: OrgBrand): DocumentBrand {
-  const legalName =
-    brand.legalName === DEFAULT_ORG_BRAND.legalName ? brand.legalName.replace(/, (LLC)$/, ' $1') : brand.legalName
-  const address = brand.address === DEFAULT_ORG_BRAND.address ? DEFAULT_DOCUMENT_ADDRESS : brand.address
+  const legalName = brand.documentLegalName || brand.legalName
+  const address = brand.documentAddress || brand.address
   const addressLines = address
     .split(/\r?\n/)
     .map((l) => l.trim())
@@ -309,5 +383,5 @@ export async function getDocumentBrand(client: SupabaseClient, orgId: string | n
   return brandDocument(await getOrgBrand(client, orgId))
 }
 
-/** Letterhead spellings for an org with no stored identity (ARX's exact pre-slice-2a strings). */
+/** Letterhead spellings for an org with no stored identity (the fallback at module load; dev harness only). */
 export const DEFAULT_DOCUMENT_BRAND: Readonly<DocumentBrand> = Object.freeze(brandDocument(resolveOrgBrand(null)))

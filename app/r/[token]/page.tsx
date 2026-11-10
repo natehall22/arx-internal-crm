@@ -52,6 +52,7 @@ export default async function SharedReportPage({ params }: { params: { token: st
   const phone = contactPhone(brand, repPhone)
   const nameRest = brandNameRest(brand)
   const phoneHref = telHref(phone)
+  const websiteHref = brandWebsiteHref(brand)
   const address = doc.propertyAddressHeader
   // Count snapshotted at PDF-finalize time so later doc edits can't disagree with the file;
   // fall back to the doc for reports finalized before the snapshot column existed.
@@ -142,15 +143,17 @@ export default async function SharedReportPage({ params }: { params: { token: st
                 Call {phone}
               </a>
             ) : null}
-            <a
-              href={brandWebsiteHref(brand)}
-              target="_blank"
-              rel="noopener"
-              className={`${phoneHref ? 'ml-3 ' : ''}mt-3 inline-block rounded-lg px-5 py-2.5 text-sm font-bold`}
-              style={{ border: '1px solid #2B2A28', color: '#2c2c2a' }}
-            >
-              {brand.website}
-            </a>
+            {websiteHref ? (
+              <a
+                href={websiteHref}
+                target="_blank"
+                rel="noopener"
+                className={`${phoneHref ? 'ml-3 ' : ''}mt-3 inline-block rounded-lg px-5 py-2.5 text-sm font-bold`}
+                style={{ border: '1px solid #2B2A28', color: '#2c2c2a' }}
+              >
+                {brand.website}
+              </a>
+            ) : null}
           </div>
         </div>
 

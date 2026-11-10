@@ -1,5 +1,5 @@
 import { loadJobNotes } from '@/lib/threads/job-notes'
-import { DEFAULT_ORG_BRAND } from '@/lib/org-brand'
+import { resolveOrgBrand } from '@/lib/org-brand'
 /**
  * Job Run Sheet — the one-page "everything you need to run this job" hand-off.
  *
@@ -470,7 +470,7 @@ export async function buildJobRunSheet(
 
   return {
     jobId,
-    orgName: clean(orgRes.data?.name) || DEFAULT_ORG_BRAND.name,
+    orgName: clean(orgRes.data?.name) || resolveOrgBrand(null).name,
     orgPhone: clean(orgRes.data?.phone),
     jobNumber: job.job_number,
     jobType: job.job_type,

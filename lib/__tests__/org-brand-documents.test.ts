@@ -25,7 +25,9 @@ import { buildHomeownerEstimateEmailContent, buildHomeownerManualDesignEmailCont
 import { composeReviewMessage } from '@/lib/review-requests'
 import { getPublicEstimateUnlockNextStepForPath } from '@/lib/public-estimate-config'
 import { buildInstallEvent } from '@/lib/install-calendar'
-import { brandDocument, DEFAULT_DOCUMENT_BRAND, DEFAULT_ORG_BRAND, resolveOrgBrand, type OrgBrand } from '@/lib/org-brand'
+import { brandDocument, DEFAULT_DOCUMENT_BRAND, DEFAULT_ORG_BRAND, resolveOrgBrand, staleDocumentSpellings, type OrgBrand } from '@/lib/org-brand'
+import { getCrmEmailFrom } from '@/lib/crm-email-from'
+import { misconfiguredMessage, outOfServiceAreaMessage } from '@/lib/public-estimate-config'
 import { formatPhoneDashed } from '@/lib/format'
 
 const sha = (b: Buffer) =>
@@ -34,13 +36,14 @@ const sha = (b: Buffer) =>
     .digest('hex')
 
 /** ARX's prod org row today: columns set, settings.brand null. */
-const PROD_ARX = resolveOrgBrand({
+const PROD_ROW = {
   name: 'ARX Roofing & Exteriors',
   phone: '(704) 313-8834',
   email: 'info@arxroofing.com',
   address: '4101 Woodbury Ter NW\nConcord, NC 28027',
   settings: { brand: null },
-})
+}
+const PROD_ARX = resolveOrgBrand(PROD_ROW)
 const PROD_DOC = brandDocument(PROD_ARX)
 
 const OTHER: OrgBrand = resolveOrgBrand({
@@ -85,7 +88,9 @@ describe('brandDocument (letterhead spellings)', () => {
   })
 
   it('an edited legal name or address stops using the historical spelling', () => {
-    const edited = brandDocument({ ...DEFAULT_ORG_BRAND, legalName: 'ARX Roofing & Exteriors, LLC.', address: '1 New St\nConcord, NC 28025' })
+    const edited = brandDocument(
+      resolveOrgBrand({ ...PROD_ROW, address: '1 New St\nConcord, NC 28025', settings: { brand: { legalName: 'ARX Roofing & Exteriors, LLC.' } } })
+    )
     expect(edited.legalName).toBe('ARX Roofing & Exteriors, LLC.')
     expect(edited.addressLine).toBe('1 New St, Concord, NC 28025')
   })
@@ -301,5 +306,130 @@ describe('slice-2a files carry no company literals', () => {
     expect(src).not.toMatch(/(?<![A-Za-z0-9])ARX(?![a-z0-9])(?! CRM)/)
     expect(src).not.toMatch(/arxroofing\.com/i)
     expect(src).not.toMatch(/313[-. ]8834|Woodbury/)
+  })
+})
+
+/** ARX's row once supabase/data-fixes/2026-11-10_arx_brand_into_org_row.sql is applied (the values it writes). */
+const ARX_AFTER_FIX_ROW = {
+  ...PROD_ROW,
+  settings: {
+    brand: {
+      legalName: 'ARX Roofing & Exteriors, LLC',
+      shortName: 'ARX',
+      website: 'arxroofing.com',
+      serviceArea: 'Charlotte / Kannapolis, NC',
+      documentLegalName: 'ARX Roofing & Exteriors LLC',
+      documentAddress: '4101 Woodbury Terrace NW\nConcord, NC 28027',
+      serviceRegion: 'Charlotte metro',
+    },
+  },
+}
+
+describe('neutral fallback on a fenced deployment (DEPLOYMENT_ORG_ID set)', () => {
+  const saved = { ...process.env }
+  beforeEach(() => {
+    process.env.DEPLOYMENT_ORG_ID = '00000000-0000-4000-8000-000000000001'
+  })
+  afterEach(() => {
+    process.env = { ...saved }
+  })
+
+  it('DEFAULT_ORG_BRAND carries no company at all', () => {
+    for (const v of Object.values(DEFAULT_ORG_BRAND)) expect(v).toBe('')
+    expect(resolveOrgBrand(null)).toEqual({ ...DEFAULT_ORG_BRAND })
+  })
+
+  it('an org with nothing but its columns prints only its own identity', () => {
+    const b = resolveOrgBrand({ name: 'Green Leaf Landscapes', phone: '555-010-0100', email: 'a@green.example', address: '1 Oak St\nTown, ST 00000' })
+    expect(b.legalName).toBe('Green Leaf Landscapes')
+    expect(b.shortName).toBe('Green Leaf Landscapes')
+    expect(b.website).toBe('')
+    expect(b.documentLegalName).toBeUndefined()
+    const flat = JSON.stringify([b, brandDocument(b)])
+    for (const re of ARX_IDENTITY) expect(flat).not.toMatch(re)
+  })
+
+  it('ARX after the data fix resolves exactly as ARX does today (unfenced, settings.brand null)', () => {
+    const fenced = resolveOrgBrand(ARX_AFTER_FIX_ROW)
+    delete process.env.DEPLOYMENT_ORG_ID
+    const today = resolveOrgBrand(PROD_ROW)
+    expect(fenced).toEqual(today)
+    expect(brandDocument(fenced)).toEqual(brandDocument(today))
+  })
+
+  it('ARX after the data fix, still unfenced: identical too (stored values equal the legacy ones)', () => {
+    delete process.env.DEPLOYMENT_ORG_ID
+    expect(resolveOrgBrand(ARX_AFTER_FIX_ROW)).toEqual(resolveOrgBrand(PROD_ROW))
+  })
+
+  it('partial brand: stored fields win, a missing short/legal name is the company name, blanks stay blank', () => {
+    const b = resolveOrgBrand({ name: 'Green Leaf', phone: '555-010-0100', settings: { brand: { shortName: 'Green', website: '  ' } } })
+    expect([b.shortName, b.legalName, b.website, b.serviceArea, b.email]).toEqual(['Green', 'Green Leaf', '', '', ''])
+  })
+
+  it('ARX after the data fix: contract PDFs keep their golden hashes', async () => {
+    jest.useFakeTimers({ now: new Date(pdfGolden.now), doNotFake: ['nextTick', 'setImmediate'] })
+    try {
+      const doc = brandDocument(resolveOrgBrand(ARX_AFTER_FIX_ROW))
+      for (const t of ['installation', 'contingency', 'repair']) {
+        const buf = await generateContractPdf({ ...pdfGolden.contractBase, agreement_type: t } as never, doc)
+        expect(sha(buf)).toBe((pdfGolden.sha256 as Record<string, string>)[`contract_${t}`])
+      }
+      expect(sha(await generateChangeOrderPdf(pdfGolden.coInput as never, doc))).toBe(pdfGolden.sha256.change_order)
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  it('the From header comes from this deployment’s SMTP env, never a company literal', () => {
+    process.env.SMTP_FROM = 'Green Leaf <office@green.example>'
+    expect(getCrmEmailFrom()).toBe('Green Leaf <office@green.example>')
+    delete process.env.SMTP_FROM
+    process.env.SMTP_USER = 'mailer@green.example'
+    expect(getCrmEmailFrom()).toBe('mailer@green.example')
+    delete process.env.SMTP_USER
+    expect(getCrmEmailFrom()).toBe('')
+  })
+
+  it('website-estimate errors read the org brand and drop blank parts', () => {
+    expect(misconfiguredMessage(resolveOrgBrand(null).phone)).toBe('Public roof estimate is not configured.')
+    expect(outOfServiceAreaMessage({ serviceArea: 'Anytown, ST', phone: '555-010-0100' })).toBe(
+      'That address looks outside our service area (Anytown and nearby). Call 555-010-0100 and we can still help.'
+    )
+    expect(outOfServiceAreaMessage(resolveOrgBrand(null))).toBe('That address looks outside our service area.')
+  })
+})
+
+describe('legacy gate (unfenced = ARX prod today) keeps the old strings', () => {
+  it('From header and estimate errors are unchanged', () => {
+    const saved = process.env.SMTP_FROM
+    delete process.env.SMTP_FROM
+    expect(getCrmEmailFrom()).toBe('ARX Roofing <info@arxroofing.com>')
+    if (saved !== undefined) process.env.SMTP_FROM = saved
+    expect(misconfiguredMessage(resolveOrgBrand(null).phone)).toBe('Public roof estimate is not configured. Please call (704) 313-8834.')
+  })
+  it('out-of-area copy is byte-identical for ARX (serviceRegion "Charlotte metro"), before and after the data fix', () => {
+    const OLD = 'That address looks outside our service area (Charlotte metro and nearby). Call (704) 313-8834 and we can still help.'
+    expect(outOfServiceAreaMessage(PROD_ARX)).toBe(OLD)
+    expect(outOfServiceAreaMessage(resolveOrgBrand(ARX_AFTER_FIX_ROW))).toBe(OLD)
+    process.env.DEPLOYMENT_ORG_ID = 'x'
+    try {
+      expect(outOfServiceAreaMessage(resolveOrgBrand(ARX_AFTER_FIX_ROW))).toBe(OLD)
+    } finally {
+      delete process.env.DEPLOYMENT_ORG_ID
+    }
+  })
+  it('an edited service area drops the legacy region wording', () => {
+    expect(resolveOrgBrand({ ...PROD_ROW, settings: { brand: { serviceArea: 'Raleigh, NC' } } }).serviceRegion).toBeUndefined()
+  })
+})
+
+describe('staleDocumentSpellings', () => {
+  it('a new legal name clears the stored contract legal name; a changed address clears the contract address', () => {
+    expect(staleDocumentSpellings({ legalName: 'New Co, LLC' }, undefined, 'x')).toEqual({ documentLegalName: '' })
+    expect(staleDocumentSpellings(null, '1 New St', '4101 Woodbury Ter NW')).toEqual({ documentAddress: '' })
+    expect(staleDocumentSpellings(null, ' 1 New St ', '1 New St')).toBeNull()
+    expect(staleDocumentSpellings({ website: 'x.example' }, undefined, 'a')).toBeNull()
+    expect(staleDocumentSpellings({ serviceArea: 'Raleigh, NC' }, undefined, 'a')).toEqual({ serviceRegion: '' })
   })
 })

@@ -1,4 +1,5 @@
-import { DEFAULT_ORG_BRAND } from '@/lib/org-brand'
+import { resolveOrgBrand } from '@/lib/org-brand'
+
 import { getCrmEmailFrom } from '@/lib/crm-email-from'
 import {
   PUBLIC_ESTIMATE_DISCLAIMER,
@@ -55,6 +56,9 @@ import {
   consumePublicEstimateRateLimit,
   resetPublicEstimateRateLimitForTests,
 } from '@/lib/public-estimate-rate-limit'
+
+/** The fallback brand on an unfenced deployment (the original company's strings — legacy gate). */
+const LEGACY_BRAND = resolveOrgBrand(null)
 
 const previewRows = new Map<string, Record<string, unknown>>()
 
@@ -691,7 +695,7 @@ describe('homeowner estimate email', () => {
 
   it('escapes user-controlled fields and uses estimate language', () => {
     const { subject, html, text } = buildHomeownerEstimateEmailContent({
-      brand: DEFAULT_ORG_BRAND,
+      brand: LEGACY_BRAND,
       name: 'Jane <script>',
       email: 'jane@example.com',
       address: '123 Main & Co, Charlotte, NC',
@@ -724,7 +728,7 @@ describe('homeowner estimate email', () => {
 
   it('uses request-received copy for manual design path (no dollars)', () => {
     const { subject, html, text } = buildHomeownerManualDesignEmailContent({
-      brand: DEFAULT_ORG_BRAND,
+      brand: LEGACY_BRAND,
       name: 'Jane Doe',
       address: '123 Main St, Charlotte, NC',
     })
@@ -736,7 +740,7 @@ describe('homeowner estimate email', () => {
 
   it('uses hybrid fallback copy with dollars and manual-measure language', () => {
     const { html, text } = buildHomeownerEstimateEmailContent({
-      brand: DEFAULT_ORG_BRAND,
+      brand: LEGACY_BRAND,
       name: 'Jane Doe',
       email: 'jane@example.com',
       address: 'Heritage Dr, Charlotte, NC',
@@ -771,8 +775,8 @@ describe('public estimate hybrid customer copy', () => {
       PUBLIC_ESTIMATE_FALLBACK_PREVIEW_MESSAGE
     )
     expect(getPublicEstimatePreviewMessageForPath('fallback_complex')).toMatch(/complex/i)
-    expect(getPublicEstimateUnlockNextStepForPath('fallback_unreliable', DEFAULT_ORG_BRAND.shortName)).toMatch(/manual roof measure/i)
-    expect(getPublicEstimateUnlockNextStepForPath('auto', DEFAULT_ORG_BRAND.shortName)).not.toMatch(/manual roof measure/i)
+    expect(getPublicEstimateUnlockNextStepForPath('fallback_unreliable', LEGACY_BRAND.shortName)).toMatch(/manual roof measure/i)
+    expect(getPublicEstimateUnlockNextStepForPath('auto', LEGACY_BRAND.shortName)).not.toMatch(/manual roof measure/i)
   })
 
   it('uses fallback disclaimer with under-read and manual-measure language', () => {
@@ -1038,7 +1042,7 @@ describe('Instant Estimate path scorecard (synthetic)', () => {
     ).toBe('inside-sales-user')
     expect(hybridLanguage(getPublicEstimateGateCopyForPath(path))).toBe(false)
     const email = buildHomeownerEstimateEmailContent({
-      brand: DEFAULT_ORG_BRAND,
+      brand: LEGACY_BRAND,
       name: 'Jane',
       email: 'j@example.com',
       address: '1 Main',
@@ -1066,9 +1070,9 @@ describe('Instant Estimate path scorecard (synthetic)', () => {
     expect(pricing.price_high).toBe(22053)
     expect(hybridLanguage(getPublicEstimateGateCopyForPath(path))).toBe(true)
     expect(hybridLanguage(getPublicEstimatePreviewMessageForPath(path))).toBe(true)
-    expect(getPublicEstimateUnlockNextStepForPath(path, DEFAULT_ORG_BRAND.shortName)).toMatch(/manual roof measure/i)
+    expect(getPublicEstimateUnlockNextStepForPath(path, LEGACY_BRAND.shortName)).toMatch(/manual roof measure/i)
     const email = buildHomeownerEstimateEmailContent({
-      brand: DEFAULT_ORG_BRAND,
+      brand: LEGACY_BRAND,
       name: 'Jane',
       email: 'j@example.com',
       address: 'Heritage Ct',
@@ -1154,7 +1158,7 @@ describe('Instant Estimate path scorecard (synthetic)', () => {
       })
     ).toBeNull()
     const email = buildHomeownerManualDesignEmailContent({
-      brand: DEFAULT_ORG_BRAND, name: 'Jane', address: '1 Main' })
+      brand: LEGACY_BRAND, name: 'Jane', address: '1 Main' })
     expect(email.text).not.toMatch(/\$/)
     expect(email.text).toMatch(/design team/i)
     const ops = buildOpsAlertEmailContent({

@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server'
-import { getPublicEstimateOrgId, getPublicEstimateDisclaimerForPath, getPublicEstimateUnlockNextStepForPath, isPublicRoofEstimateEnabled } from '@/lib/public-estimate-config'
+import { getPublicEstimateOrgId, getPublicEstimateDisclaimerForPath, getPublicEstimateUnlockNextStepForPath, isPublicRoofEstimateEnabled, misconfiguredMessage } from '@/lib/public-estimate-config'
 import { publicEstimateJson, publicEstimateOptionsResponse } from '@/lib/public-estimate-cors'
 import {
   clientIpFromRequest,
@@ -61,7 +61,7 @@ export async function POST(request: NextRequest) {
     // No org configured → no org row to read; the default brand.
     return publicEstimateJson(
       {
-        error: `Public roof estimate is not configured. Please call ${resolveOrgBrand(null).phone}.`,
+        error: misconfiguredMessage(resolveOrgBrand(null).phone),
         code: 'misconfigured',
       },
       503,

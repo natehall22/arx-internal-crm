@@ -1,5 +1,5 @@
 /** Public website roof-estimate funnel config (not the internal measure tool). */
-import { shortNameArticle } from '@/lib/org-brand'
+import { brandServiceRegion, shortNameArticle, type OrgBrand } from '@/lib/org-brand'
 
 /** ARX org for inbound website estimate leads — must be set explicitly when funnel is enabled. */
 export function getPublicEstimateOrgId(): string {
@@ -236,6 +236,19 @@ export function getPublicTurnstileSiteKey(): string | null {
     process.env.VITE_TURNSTILE_SITE_KEY?.trim() ||
     ''
   return key || null
+}
+
+/** Error copy when the estimate isn't configured (no org row to read): the call line only when a phone is known. */
+export function misconfiguredMessage(phone: string): string {
+  return `Public roof estimate is not configured.${phone ? ` Please call ${phone}.` : ''}`
+}
+
+/** Error copy for an address outside the geofence: region (`serviceRegion`, else the service area minus its state) and phone from the org brand. */
+export function outOfServiceAreaMessage(brand: Pick<OrgBrand, 'serviceArea' | 'serviceRegion' | 'phone'>): string {
+  const region = brand.serviceRegion || brandServiceRegion(brand)
+  const area = region ? ` (${region} and nearby)` : ''
+  const call = brand.phone ? ` Call ${brand.phone} and we can still help.` : ''
+  return `That address looks outside our service area${area}.${call}`
 }
 
 export function isInPublicEstimateServiceArea(lat: number, lng: number): boolean {

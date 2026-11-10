@@ -25,7 +25,16 @@ nothing ARX customers or reps see unless the slice says so. Gate on every slice:
    notice text, shared by the PDF and the signing screen; `ContractModal.tsx` attestation; report seed text in
    `lib/inspection-report/types.ts`; door-drop / appointment-card print kits; employee comp agreements) becomes
    each company's own template — never string interpolation into ARX's contract.
-   **PRE-COMPANY-2 BLOCKER:** `DEFAULT_ORG_BRAND` holds ARX's identity, so any fallback on another company's copy
+   **PRE-COMPANY-2 BLOCKER — DONE in code (feat/company-seed-neutral-brand), data fix NOT applied.** `DEFAULT_ORG_BRAND`
+   is now blank; a missing legal/short name falls back to the company name. ARX's strings survive only as
+   `LEGACY_ORG_BRAND`, used while `DEPLOYMENT_ORG_ID` is unset (= ARX prod), so ARX is byte-identical with or without
+   the fix (golden tests + `org-brand-documents.test.ts` "ARX after the data fix"). The `brandDocument()` special case is
+   gone: contract spellings are data (`settings.brand.documentLegalName` / `documentAddress`; a General save that changes
+   the legal name or address clears them). `getCrmEmailFrom` = env `SMTP_FROM`, else `SMTP_USER` on a fenced copy.
+   Out-of-area estimate text reads `settings.brand.serviceRegion` (else `serviceArea` minus its state); ARX keeps "Charlotte metro" (legacy fallback + data fix).
+   **ARX order:** apply `supabase/data-fixes/2026-11-10_arx_brand_into_org_row.sql` → set Vercel `SMTP_FROM=ARX Roofing <info@arxroofing.com>`
+   → then (and only then) set ARX's `DEPLOYMENT_ORG_ID` → delete `LEGACY_ORG_BRAND`, `legacyBrandFallback` and the legacy
+   branch of `getCrmEmailFrom`. Original note: `DEFAULT_ORG_BRAND` held ARX's identity, so any fallback on another company's copy
    shows ARX. In 2b: write ARX's brand fields (legalName, shortName, website, serviceArea, and its contract spellings
    via its v1 template) into ARX's org row/template, then make `DEFAULT_ORG_BRAND` neutral and delete the
    `brandDocument()` ARX-spelling special case. Also 2b/2c: the "Charlotte metro" out-of-area text
@@ -46,15 +55,35 @@ nothing ARX customers or reps see unless the slice says so. Gate on every slice:
    Unset = no fence (how ARX prod runs until it is set). Routes still on hand-rolled cookie auth (Known
    Redundancy #3b, 42 files) and other raw `auth.getUser` paths (`appointments/[id]` via `resolveApiRequestAuthUser`, `inspections/status`,
    `inspections/schedule-close`, `whoami`, and browser-client pages that rely on RLS alone) are not fenced until they move onto `requireAuthApi`.
-9. **Idempotent seed-new-company script**: org row, settings.brand, roles, defaults; safe to re-run.
+9. **Idempotent seed-new-company script — DONE (feat/company-seed-neutral-brand).** See "Seeding a new company" below.
 10. **Company web address + login**: each company gets its own address (company.<product-domain>) with its logo on
     the login page; iPhone app asks for a company code once and remembers it; shared-database later = email login
     with a company picker only for people in two companies. Product domain TBD (Nathan).
 
 ## Open after slice 2a
-- `getCrmEmailFrom` (From header "ARX Roofing <info@…>") still hardcoded; per-org From needs the org passed to every sender.
+- ~~`getCrmEmailFrom` hardcoded~~ — per deployment (`SMTP_FROM`) since slice 9; one SMTP account per copy, so no org is passed.
 - Static ARX logo files (`public/brand/arx-shield.png`) on the completion certificate, payroll PDF and appointment
   cards, and `arx-report-logo.png` in the report builder — move to the org logo (`orgLogoHref`) with a golden update.
 - "ARX CRM" on the customer-facing completion-certificate footer → slice 3 product constant (Nathan to decide wording).
 - Hardcoded certificate signer name; public-estimate service-area geofence.
-- A new org with no `settings.brand` shows ARX's defaults. Slice 9 must seed `settings.brand`.
+- ~~A new org with no `settings.brand` shows ARX's defaults.~~ Neutral since slice 9 on any fenced copy; the seed writes `settings.brand`.
+
+## Seeding a new company (slice 9)
+`npm run seed:company -- company.json` (dry run, writes nothing) then `-- company.json --apply`. Input shape:
+`scripts/seed-company.example.json`; logic `lib/company-seed.ts`. Uses `.env.local`'s service key (another env:
+`npx tsx --env-file=.env.x scripts/seed-company.ts …`).
+- Writes: `orgs` name/phone/email/address(/timezone), `settings.brand` via `saveBrandSettings`, default permission presets
+  via SQL `create_default_permission_presets` (only if the org has none), trades via `lib/org-trades-admin.ts`
+  (`planOrgTradesSeed`: input trades added/updated by label; standard trades not listed are turned OFF, never deleted;
+  trades added later in Settings are left alone; no `trades` = standard list), first owner = role `admin` +
+  `is_super_admin` (new login password from env `SEED_OWNER_PASSWORD`, else random, printed once).
+- Refuses (before any write): an org that already has jobs, opportunities or customers unless `--allow-existing` (prints the counts); a
+  second super admin unless `--add-owner`; a new org whose name another org has; an `org.id` that does not exist; an org other than
+  this env's `DEPLOYMENT_ORG_ID`; an owner email already in another org. Updating an existing org needs its `org.id`.
+- Re-run: writes only differences. Renaming a trade in the input ADDS a new one (match is by label) — rename in Settings.
+  A new owner email needs `--add-owner` and adds a second super admin; the first is not demoted. Removing a brand key leaves it; `""` clears it.
+- Afterwards, on that company's Vercel project: `DEPLOYMENT_ORG_ID=<printed id>` and `SMTP_FROM="Company <info@…>"`
+  (+ its own SMTP_* creds). Without `DEPLOYMENT_ORG_ID` blank brand fields fall back to ARX's strings.
+- Not covered (known): `orgs.timezone` is stored but most code still uses `DEFAULT_TIMEZONE` (slices 4–5); the iOS app is
+  hard-wired to ARX's Vercel URL + Supabase project (`ARX Sales/ARX Sales/APIClient.swift:715`, `Supabase.swift:7`);
+  roofing wording in templates (report title, contract terms) is slice 2b.
