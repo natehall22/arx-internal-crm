@@ -14,6 +14,29 @@ import { formatCurrency } from './job-payments'
 import { normalizeDepositFraction } from './job-pipeline'
 
 /**
+ * The ONE org check for an invoice id: returns the invoice only when its job belongs to `orgId`.
+ * Scopes through the parent job (production_jobs.org_id, the tenant anchor that job_invoices.org_id mirrors), so it
+ * works with or without migration 202611100040. Use it before any other lib/invoices call that takes an invoice id.
+ */
+export async function findOrgInvoice(
+  supabase: SupabaseClient,
+  invoiceId: string,
+  orgId: string
+): Promise<{ id: string; job_id: string; status: InvoiceStatus } | null> {
+  if (!invoiceId || !orgId) return null
+  const { data } = await supabase
+    .from('job_invoices')
+    .select('id, job_id, status, production_jobs!inner(org_id)')
+    .eq('id', invoiceId)
+    .eq('production_jobs.org_id', orgId)
+    .maybeSingle()
+  const row = data as { id: string; job_id: string; status: InvoiceStatus; production_jobs?: { org_id?: string } | null } | null
+  // Re-check in code too: the embedded filter is the guard, this keeps a mis-shaped response from passing.
+  if (!row || row.production_jobs?.org_id !== orgId) return null
+  return { id: row.id, job_id: row.job_id, status: row.status }
+}
+
+/**
  * Get all active (non-void) invoices for a job
  */
 export async function getActiveInvoices(
@@ -688,7 +711,7 @@ export async function applyPaymentToInvoice(
   // Verify invoice exists and is not void/draft
   const { data: invoice } = await supabase
     .from('job_invoices')
-    .select('status, total_cents')
+    .select('status, total_cents, job_id')
     .eq('id', invoiceId)
     .single()
 
@@ -711,7 +734,9 @@ export async function applyPaymentToInvoice(
     .eq('id', jobPaymentId)
     .single()
 
-  if (!payment) {
+  // The payment id comes from the request body: it must be a payment on THIS invoice's job (otherwise any job's,
+  // including another company's, payment could be applied here).
+  if (!payment || payment.job_id !== invoice.job_id) {
     throw new Error('Payment not found')
   }
 

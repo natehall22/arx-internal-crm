@@ -58,12 +58,18 @@ export function createFakeDb(
 
     const embed = (r: Row): Row => {
       const out = { ...r }
-      for (const m of Array.from(selectCols.matchAll(/([a-z_]+)\(([^)]*)\)/g))) {
+      for (const m of Array.from(selectCols.matchAll(/([a-z_]+)(?:![a-z_]+)?\(([^)]*)\)/g))) {
         const name = m[1]
         const rl = rel[table]?.[name]
         if (rl) out[name] = (tables[rl.table] ?? []).find((x) => x.id === r[rl.fk]) ?? null
       }
       return out
+    }
+    const embeddedValue = (r: Row, path: string): unknown => {
+      const [name, col] = path.split('.')
+      const rl = rel[table]?.[name]
+      const parent = rl ? (tables[rl.table] ?? []).find((x) => x.id === r[rl.fk]) : undefined
+      return parent?.[col]
     }
     const run = () => {
       let data: Row[]
@@ -106,7 +112,8 @@ export function createFakeDb(
       upsert(p: Row | Row[], o?: { onConflict?: string }) { op = 'upsert'; payload = Array.isArray(p) ? p : [p]; onConflict = o?.onConflict ?? null; return api },
       update(p: Row) { op = 'update'; patch = p; return api },
       delete() { op = 'delete'; return api },
-      eq(c: string, v: unknown) { filters.push((r) => r[c] === v); return api },
+      // `rel.col` filters an embedded parent (e.g. `.eq('production_jobs.org_id', org)` with `production_jobs!inner(...)`).
+      eq(c: string, v: unknown) { filters.push((r) => (c.includes('.') ? embeddedValue(r, c) : r[c]) === v); return api },
       neq(c: string, v: unknown) { filters.push((r) => r[c] !== v); return api },
       in(c: string, v: unknown[]) { filters.push((r) => v.includes(r[c])); return api },
       is(c: string, v: unknown) { filters.push((r) => (v === null ? r[c] == null : r[c] === v)); return api },

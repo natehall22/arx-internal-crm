@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server'
+import { requireAuth } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import { formatCurrency, formatInvoiceDisplayDate } from '@/lib/job-payments'
 import { redirect } from 'next/navigation'
@@ -78,29 +78,16 @@ export default async function PrintInvoicePage({
 }: {
   params: { invoiceId: string }
 }) {
-  const supabase = createClient()
+  // requireAuth redirects to /login and enforces the DEPLOYMENT_ORG_ID fence (the old raw Supabase user lookup skipped it).
+  const { profile } = await requireAuth()
   const adminClient = createServiceClient()
-
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) {
-    redirect('/login')
-  }
-
-  const { data: profile } = await adminClient
-    .from('users')
-    .select('id, org_id, role, custom_role_id')
-    .eq('id', user.id)
-    .single()
-
-  if (!profile) {
-    redirect('/login')
-  }
   // Printing an invoice is part of the job's books: money:record (it had no check at all before).
   if (!(await callerCanAccessJobBilling(adminClient, profile))) {
     redirect('/dashboard')
   }
 
-  // Fetch invoice by UUID id, fallback to invoice_number
+  // Fetch invoice by UUID id, fallback to invoice_number. Both are scoped to the caller's org through the job:
+  // invoice numbers are unique per company only (migration 202611100040), so the same number can exist in two orgs.
   let { data: invoice } = await adminClient
     .from('job_invoices')
     .select(`
@@ -113,7 +100,8 @@ export default async function PrintInvoicePage({
       )
     `)
     .eq('id', params.invoiceId)
-    .single()
+    .eq('production_jobs.org_id', profile.org_id)
+    .maybeSingle()
 
   // Fallback: try by invoice_number
   if (!invoice) {
@@ -129,7 +117,8 @@ export default async function PrintInvoicePage({
         )
       `)
       .eq('invoice_number', params.invoiceId)
-      .single()
+      .eq('production_jobs.org_id', profile.org_id)
+      .maybeSingle()
     
     if (invoiceByNumber) {
       invoice = invoiceByNumber

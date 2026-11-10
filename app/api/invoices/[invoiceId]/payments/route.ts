@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
-import { applyPaymentToInvoice, computeInvoiceBalance } from '@/lib/invoices'
+import { applyPaymentToInvoice, computeInvoiceBalance, findOrgInvoice } from '@/lib/invoices'
 import { callerCanAccessJobBilling } from '@/lib/finance-access'
 
 // GET - Get invoice balance and applied payments
@@ -23,14 +23,8 @@ export async function GET(
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
-    // Verify invoice belongs to user's org
-    const { data: invoiceCheck } = await adminClient
-      .from('job_invoices')
-      .select('id, job_id, production_jobs!inner(org_id)')
-      .eq('id', params.invoiceId)
-      .single()
-
-    if (!invoiceCheck || (invoiceCheck as any).production_jobs?.org_id !== profile.org_id) {
+    const invoiceCheck = await findOrgInvoice(adminClient, params.invoiceId, profile.org_id)
+    if (!invoiceCheck) {
       return NextResponse.json({ error: 'Invoice not found' }, { status: 404 })
     }
 
@@ -105,14 +99,8 @@ export async function POST(
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
-    // Verify invoice belongs to user's org
-    const { data: invoiceCheck } = await adminClient
-      .from('job_invoices')
-      .select('id, production_jobs!inner(org_id)')
-      .eq('id', params.invoiceId)
-      .single()
-
-    if (!invoiceCheck || (invoiceCheck as any).production_jobs?.org_id !== profile.org_id) {
+    const invoiceCheck = await findOrgInvoice(adminClient, params.invoiceId, profile.org_id)
+    if (!invoiceCheck) {
       return NextResponse.json({ error: 'Invoice not found' }, { status: 404 })
     }
 

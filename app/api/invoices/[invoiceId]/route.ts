@@ -3,6 +3,7 @@ import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import { callerCanAccessJobBilling } from '@/lib/finance-access'
 import {
+  findOrgInvoice,
   getInvoiceWithDetails,
   addInvoiceItem,
   updateInvoiceItem,
@@ -31,14 +32,8 @@ export async function GET(
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
-    // Verify invoice belongs to user's org via job
-    const { data: invoiceCheck } = await adminClient
-      .from('job_invoices')
-      .select('id, production_jobs!inner(org_id)')
-      .eq('id', params.invoiceId)
-      .single()
-
-    if (!invoiceCheck || (invoiceCheck as any).production_jobs?.org_id !== profile.org_id) {
+    const invoiceCheck = await findOrgInvoice(adminClient, params.invoiceId, profile.org_id)
+    if (!invoiceCheck) {
       return NextResponse.json({ error: 'Invoice not found' }, { status: 404 })
     }
 
@@ -70,14 +65,8 @@ export async function PATCH(
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
-    // Verify invoice belongs to user's org
-    const { data: invoiceCheck } = await adminClient
-      .from('job_invoices')
-      .select('id, status, production_jobs!inner(org_id)')
-      .eq('id', params.invoiceId)
-      .single()
-
-    if (!invoiceCheck || (invoiceCheck as any).production_jobs?.org_id !== profile.org_id) {
+    const invoiceCheck = await findOrgInvoice(adminClient, params.invoiceId, profile.org_id)
+    if (!invoiceCheck) {
       return NextResponse.json({ error: 'Invoice not found' }, { status: 404 })
     }
 
@@ -131,13 +120,6 @@ export async function PATCH(
           return NextResponse.json({ error: 'email required' }, { status: 400 })
         }
         const invoice = await finalizeAndSendInvoice(adminClient, params.invoiceId, email)
-        
-        // Generate PDF after sending (fire and forget, don't block response)
-        fetch(`${process.env.NEXT_PUBLIC_APP_URL || ''}/api/invoices/${params.invoiceId}/pdf`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-        }).catch(err => console.error('PDF generation error:', err))
-        
         return NextResponse.json({ success: true, invoice })
       }
 
