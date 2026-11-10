@@ -31,6 +31,7 @@ import { PUT as putCoachingGoals } from '@/app/api/coaching/goals/route'
 import { POST as postInspectionResult } from '@/app/api/opportunities/[id]/inspection-result/route'
 import { POST as postReschedule } from '@/app/api/inspections/reschedule/route'
 import { GET as getAvailability } from '@/app/api/canvass/availability/route'
+import { POST as postPayrollHours } from '@/app/api/admin/payroll/[periodId]/hours/route'
 
 const as = (role: string) => ({
   authUser: { id: 'u-a', email: null },
@@ -43,9 +44,9 @@ beforeEach(() => {
   authResult = as('admin')
   db = createFakeDb({
     users: [
-      { id: 'u-a', org_id: 'org-a', role: 'admin' },
-      { id: 'u-a2', org_id: 'org-a', role: 'sales_rep' },
-      { id: 'u-b', org_id: 'org-b', role: 'sales_rep' },
+      { id: 'u-a', org_id: 'org-a', role: 'admin', active: true },
+      { id: 'u-a2', org_id: 'org-a', role: 'sales_rep', active: true },
+      { id: 'u-b', org_id: 'org-b', role: 'sales_rep', active: true },
       { id: '00000000-0000-4000-8000-00000000000b', org_id: 'org-b', role: 'closer' },
     ],
     customers: [
@@ -59,6 +60,7 @@ beforeEach(() => {
     ],
     inspection_results: [{ id: 'ir-b', org_id: 'org-b', opportunity_id: 'opp-b', outcome: 'moving_to_close' }],
     coaching_goals: [{ id: 'g-b', org_id: 'org-b', user_id: 'u-b', annual_income_goal: 100000 }],
+    payroll_periods: [{ id: 'pp-a', org_id: 'org-a', status: 'open', locked_at: null, cutoff_at: '2026-11-14T05:00:00Z' }],
     scheduled_appointments: [
       { id: 'appt-b', org_id: 'org-b', lead_id: 'lead-b', closer_user_id: 'u-b', status: 'scheduled', scheduled_for: '2026-11-20T15:00:00Z' },
     ],
@@ -149,5 +151,34 @@ describe('canvass/availability GET', () => {
       nextUrl: new URL('https://crm.example/api/canvass/availability?closer_id=00000000-0000-4000-8000-00000000000b&date=2026-11-20'),
     } as never)
     expect(res.status).toBe(404)
+  })
+})
+
+describe('admin/payroll/[periodId]/hours POST', () => {
+  test("hours for a user from another company are refused; nothing written", async () => {
+    const res = await postPayrollHours(
+      json('https://crm.example/api/admin/payroll/pp-a/hours', { entries: [{ user_id: 'u-b', regular_hours: 0, overtime_hours: 0 }] }),
+      { params: { periodId: 'pp-a' } }
+    )
+    expect(res.status).toBe(400)
+    expect(db.writes).toEqual([])
+  })
+
+  test('an inactive teammate is refused too (the sheet only lists active users)', async () => {
+    db.tables.users.push({ id: 'u-a3', org_id: 'org-a', role: 'sales_rep', active: false })
+    const res = await postPayrollHours(
+      json('https://crm.example/api/admin/payroll/pp-a/hours', { entries: [{ user_id: 'u-a3', regular_hours: 0, overtime_hours: 0 }] }),
+      { params: { periodId: 'pp-a' } }
+    )
+    expect(res.status).toBe(400)
+  })
+
+  test('an active teammate with zero hours still saves', async () => {
+    const res = await postPayrollHours(
+      json('https://crm.example/api/admin/payroll/pp-a/hours', { entries: [{ user_id: 'u-a2', regular_hours: 0, overtime_hours: 0 }] }),
+      { params: { periodId: 'pp-a' } }
+    )
+    expect(res.status).toBe(200)
+    expect(db.writes.find((w) => w.table === 'payroll_rep_hours')?.rows[0]).toMatchObject({ org_id: 'org-a', user_id: 'u-a2' })
   })
 })

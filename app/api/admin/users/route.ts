@@ -78,12 +78,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Password must be at least 6 characters' }, { status: 400 })
     }
 
-    // Use the admin's org_id if not provided
-    const targetOrgId = org_id || profile.org_id
-    
-    if (targetOrgId !== profile.org_id) {
+    // New users always join the admin's own company. A body org_id may only repeat it.
+    if (org_id && org_id !== profile.org_id) {
       return NextResponse.json({ error: 'Cannot create users in a different organization' }, { status: 403 })
     }
+    const targetOrgId: string = profile.org_id
 
     if (isOrgSuperuserRoleSlug(role) && !isOrgSuperuserRoleSlug(profile.role)) {
       return NextResponse.json({ error: 'Only an admin can create an admin' }, { status: 403 })
