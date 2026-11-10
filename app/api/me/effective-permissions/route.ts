@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 import { requireAuthApi } from '@/lib/auth'
+import { loadOrgFeatures } from '@/lib/org-features'
 import { isPayWeekEnabled } from '@/lib/payroll-flag'
 import { createServiceClient } from '@/lib/supabase/service'
 
@@ -12,17 +13,21 @@ export async function GET() {
     const { authUser, profile } = await requireAuthApi()
     const admin = createServiceClient()
 
-    const { fullAccess, permissionNames } = await resolveEffectivePermissionNames(admin, authUser.id, {
-      role: profile.role as string,
-      custom_role_id: profile.custom_role_id,
-    })
+    const [{ fullAccess, permissionNames }, features] = await Promise.all([
+      resolveEffectivePermissionNames(admin, authUser.id, {
+        role: profile.role as string,
+        custom_role_id: profile.custom_role_id,
+      }),
+      loadOrgFeatures(admin, profile.org_id),
+    ])
 
     return NextResponse.json({
       role: profile.role,
       fullAccess,
       permissions: Array.from(permissionNames).sort(),
-      // Server-side feature flags the client navigation needs (the new payroll screens ship OFF).
-      flags: { payWeek: isPayWeekEnabled() },
+      // Server-side feature flags the client needs (the new payroll screens ship OFF; company feature switches,
+      // lib/org-features.ts — read client-side through hooks/useOrgFeatures.ts).
+      flags: { payWeek: isPayWeekEnabled(), features },
     })
   } catch (e) {
     if (e instanceof Error && (e.message === 'Unauthorized' || e.message === 'Account disabled')) {

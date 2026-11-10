@@ -20,6 +20,7 @@ import {
   type SolarFeature,
 } from '@/app/(canvass-app)/canvass/lib/solar-overlay'
 import { NextRequest, NextResponse } from 'next/server'
+import { orgFeatureOffResponse } from '@/lib/org-features-server'
 
 export const dynamic = 'force-dynamic'
 
@@ -65,11 +66,14 @@ function parseBbox(searchParams: URLSearchParams): Bbox | null {
 }
 
 export async function GET(request: NextRequest) {
+  let orgId: string | null = null
   try {
-    await requireAuthApi()
+    orgId = (await requireAuthApi()).profile.org_id
   } catch {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+  const featureOff = await orgFeatureOffResponse(orgId, 'canvassing')
+  if (featureOff) return featureOff
 
   const bbox = parseBbox(request.nextUrl.searchParams)
   if (!bbox) {

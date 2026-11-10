@@ -59,6 +59,7 @@ import { toast } from '@/components/ui/toast'
 import { confirmDialog } from '@/components/ui/confirm-dialog'
 import { formatPhone, telHref } from '@/lib/format'
 import { filesDocHref } from '@/lib/files/files-object'
+import { useOrgFeatures } from '@/hooks/useOrgFeatures'
 
 
 interface Job {
@@ -613,6 +614,8 @@ export default function JobDetailClient({
 }: JobDetailClientProps) {
   const router = useRouter()
   const [job, setJob] = useState<Job>(initialJob)
+  /** Company feature switches (Settings → Features): Insurance off hides the Job Source / claim card. */
+  const orgFeatures = useOrgFeatures()
   /** The job cost ledger summary (`lib/job-cost-ledger.ts`), reported by the Materials card. */
   const [costSummary, setCostSummary] = useState<JobCostSummary | null>(null)
   /** Bumped when either card changes the ledger so the other card reloads. */
@@ -2610,6 +2613,7 @@ export default function JobDetailClient({
             {/* OVERVIEW TAB — Insurance, Permit, Related (all conditional / miscellaneous) */}
             <div className={v2 ? 'contents' : mobileTab !== 'overview' ? 'hidden lg:block' : undefined}>
 
+            {orgFeatures.insurance && (
             <div className={v2 && jobTab !== 'money' ? 'hidden' : undefined} style={ord(10)}>
             <InsuranceCard job={job} onUpdate={(fields) => {
               setJob(j => ({ ...j, ...fields }))
@@ -2620,6 +2624,7 @@ export default function JobDetailClient({
               })
             }} />
             </div>
+            )}
 
             {/* Permit — recorded with one tap at each real step (needs one → applied → approved).
                 Before this the status had no way to be set, so every job said "Not needed". */}

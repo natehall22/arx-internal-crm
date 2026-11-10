@@ -4,12 +4,16 @@
  * exactly the permission test the old flat nav used — so nobody gains or loses a page, they just find it in one place.
  * Pure (no React, no fetching): Nav.tsx builds the context from the same permission helpers it always used.
  */
+import type { OrgFeature, OrgFeatures } from '@/lib/org-features'
+
 export type NavContext = {
   /** Permissions loaded and (for non-superusers) known. While false, permission-gated items stay hidden (fail closed). */
   permsReady: boolean
   role: string | null
   fullAccess: boolean
   permissionNames: ReadonlySet<string>
+  /** Company feature switches (lib/org-features.ts). Missing = every feature on. */
+  features?: Partial<OrgFeatures>
   /** Helper results computed with lib/permissions (kept out of this file so there is one definition of each). */
   flags: {
     isOpsOnly: boolean
@@ -27,6 +31,9 @@ export type NavContext = {
     payWeek: boolean
   }
 }
+
+/** A company feature switch is on (missing / unknown = on, like lib/org-features.ts). */
+const featureOn = (c: NavContext, f: OrgFeature) => c.features?.[f] !== false
 
 export type NavLeaf = { href: string; label: string; show: (c: NavContext) => boolean }
 export type NavSection = {
@@ -96,12 +103,12 @@ export const NAV_SECTIONS: NavSection[] = [
     children: [
       { href: '/dashboard', label: 'Dashboard', show: (c) => !c.flags.isOpsOnly },
       { href: '/reports', label: 'Reports', show: (c) => c.permsReady && (has(c, ...REPORTS) || c.flags.reports) },
-      { href: '/sisu', label: 'Incentives', show: gated('leads:view') },
+      { href: '/sisu', label: 'Incentives', show: (c) => featureOn(c, 'incentives') && gated('leads:view')(c) },
     ],
   },
 ]
 
-export const CANVASS_ITEM: NavLeaf = { href: '/canvass', label: 'Canvass', show: gated('canvass:view') }
+export const CANVASS_ITEM: NavLeaf = { href: '/canvass', label: 'Canvass', show: (c) => featureOn(c, 'canvassing') && gated('canvass:view')(c) }
 export const ADMIN_ITEM: NavLeaf = {
   href: '/admin',
   label: 'Admin',

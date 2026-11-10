@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
+import { orgFeatureOffResponse } from '@/lib/org-features-server'
 import { DEFAULT_BADGES } from '@/lib/sisu-default-badges'
 import { isSisuAdminRole } from '@/lib/sisu-admin-access'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -17,6 +18,8 @@ export async function POST() {
   if (!isSisuAdminRole(profile.role) || !profile.org_id) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
+  const featureOff = await orgFeatureOffResponse(profile.org_id, 'incentives')
+  if (featureOff) return featureOff
 
   const admin = createServiceClient()
 

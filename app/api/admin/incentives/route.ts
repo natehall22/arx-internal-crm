@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
+import { orgFeatureOffResponse } from '@/lib/org-features-server'
 import { isSisuAdminRole } from '@/lib/sisu-admin-access'
 import { createServiceClient } from '@/lib/supabase/service'
 
@@ -26,6 +27,8 @@ async function requireIncentivesAdmin(): Promise<AdminContext | NextResponse> {
   if (!profile.org_id) {
     return NextResponse.json({ error: 'No org found' }, { status: 400 })
   }
+  const featureOff = await orgFeatureOffResponse(profile.org_id, 'incentives')
+  if (featureOff) return featureOff
 
   return { userId: profile.id, orgId: profile.org_id }
 }

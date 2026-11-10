@@ -3,6 +3,7 @@ export const revalidate = 0
 export const fetchCache = 'force-no-store'
 
 import { requireAuth } from '@/lib/auth'
+import { requireOrgFeaturePage } from '@/lib/org-features-server'
 import { createClient } from '@/lib/supabase/server'
 import Nav from '@/components/Nav'
 import IncentivesClient from './IncentivesClient'
@@ -27,6 +28,7 @@ import type {
 
 export default async function IncentivesPage() {
   const { profile } = await requireAuth()
+  await requireOrgFeaturePage(profile.org_id, 'incentives')
   const supabase = createClient()
 
   const { start: weekStart, end: weekEnd } = getDateRangeForTimeFrame('week', 'America/New_York')

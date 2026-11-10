@@ -9,6 +9,7 @@ import { EASTERN_TZ, easternDatetimeLocalToUtcIso } from '@/lib/eastern-datetime
 import { suggestedNextAttemptDays, type HandoffContext } from '@/lib/inside-sales-priority'
 import { formatInTimeZone } from 'date-fns-tz'
 import { formatPhone } from '@/lib/format'
+import { useOrgFeatures } from '@/hooks/useOrgFeatures'
 
 type ActivityRow = {
   id: string
@@ -150,6 +151,8 @@ export default function InsideSalesPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<TabId>('up_next')
+  /** Insurance switched off for the company (Settings → Features): no Insurance tab. */
+  const insuranceOn = useOrgFeatures().insurance
   // Inside-sales reps get the one-lead conveyor as the whole page; managers get the list.
   const [viewerIsRep, setViewerIsRep] = useState(false)
   const [workMode, setWorkMode] = useState(false)
@@ -670,13 +673,14 @@ export default function InsideSalesPage() {
     )
   }
 
-  const tabDefs: Array<{ id: TabId; label: string; count: number; alert?: number }> = [
+  const allTabDefs: Array<{ id: TabId; label: string; count: number; alert?: number }> = [
     { id: 'up_next', label: 'Up Next', count: upNextItems.length, alert: counts?.dueNow || 0 },
     { id: 'insurance', label: 'Insurance', count: insuranceItems.length },
     { id: 'didnt_sit', label: "Didn't Sit", count: didntSitItems.length },
     { id: 'knockback', label: 'Knockbacks', count: knockbackItems.length },
     { id: 'storm', label: 'Storm (est.)', count: stormItems.length },
   ]
+  const tabDefs = allTabDefs.filter((t) => insuranceOn || t.id !== 'insurance')
 
   const tabItems: Record<TabId, QueueItem[]> = {
     up_next: upNextItems,

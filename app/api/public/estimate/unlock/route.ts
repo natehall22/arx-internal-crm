@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server'
+import { isPublicEstimateOrgFeatureOn } from '@/lib/public-estimate-config'
 import { getPublicEstimateOrgId, getPublicEstimateDisclaimerForPath, getPublicEstimateUnlockNextStepForPath, isPublicRoofEstimateEnabled } from '@/lib/public-estimate-config'
 import { publicEstimateJson, publicEstimateOptionsResponse } from '@/lib/public-estimate-cors'
 import {
@@ -52,6 +53,11 @@ export async function POST(request: NextRequest) {
       503,
       origin
     )
+  }
+
+  // The company switched roof measuring off (Settings → Features): the website estimate is off too.
+  if (!(await isPublicEstimateOrgFeatureOn())) {
+    return publicEstimateJson({ error: 'Public roof estimate is not enabled', code: 'disabled' }, 503, origin)
   }
 
   let orgId: string

@@ -6,6 +6,7 @@ import Nav from '@/components/Nav'
 import { requireAuth } from '@/lib/auth'
 import { isPayrollAdminRole, isRegionalBonusApproverRole } from '@/lib/payroll-admin-access'
 import { isSisuAdminRole } from '@/lib/sisu-admin-access'
+import { isOrgFeatureOn } from '@/lib/org-features-server'
 import SisuHubNav from './SisuHubNav'
 
 export const dynamic = 'force-dynamic'
@@ -18,6 +19,8 @@ export default async function SisuAdminLayout({ children }: { children: ReactNod
     redirect('/dashboard')
   }
 
+  // Incentives switched off (Settings → Features): only Bonus Approval (payroll bonus lines) stays.
+  const incentivesOn = await isOrgFeatureOn(profile.org_id, 'incentives')
   const canAccessBonusApproval =
     isPayrollAdminRole(profile.role) || isRegionalBonusApproverRole(profile.role)
 
@@ -47,7 +50,7 @@ export default async function SisuAdminLayout({ children }: { children: ReactNod
         </div>
 
         <Suspense fallback={<div className="h-11 rounded-xl border border-slate-800 bg-slate-900/70" />}>
-          <SisuHubNav showBonusApproval={canAccessBonusApproval} />
+          <SisuHubNav showBonusApproval={canAccessBonusApproval} showIncentives={incentivesOn} />
         </Suspense>
 
         <div className="mt-6">{children}</div>

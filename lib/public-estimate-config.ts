@@ -220,6 +220,18 @@ export function isPublicRoofEstimateEnabled(): boolean {
 }
 
 /**
+ * The estimate org's "Roof measuring" feature switch (lib/org-features.ts) — off turns the website estimate off too,
+ * on top of the env switch above. No org configured → true (the routes report "misconfigured" themselves).
+ * Loaded lazily so this config module stays free of server-only imports.
+ */
+export async function isPublicEstimateOrgFeatureOn(): Promise<boolean> {
+  const orgId = process.env.PUBLIC_ESTIMATE_ORG_ID?.trim()
+  if (!orgId) return true
+  const { isOrgFeatureOn } = await import('@/lib/org-features-server')
+  return isOrgFeatureOn(orgId, 'roofMeasure')
+}
+
+/**
  * Public Cloudflare Turnstile site key for the website funnel widget.
  * Browser-safe — never confuse with TURNSTILE_SECRET_KEY.
  * Website fetches this via GET /api/public/estimate/config (holds no keys itself).

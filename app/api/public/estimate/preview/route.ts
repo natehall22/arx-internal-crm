@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server'
+import { isPublicEstimateOrgFeatureOn } from '@/lib/public-estimate-config'
 import {
   PUBLIC_ESTIMATE_MANUAL_MEASURE_MESSAGE,
   getPublicEstimateDisclaimerForPath,
@@ -49,6 +50,11 @@ export async function POST(request: NextRequest) {
       503,
       origin
     )
+  }
+
+  // The company switched roof measuring off (Settings → Features): the website estimate is off too.
+  if (!(await isPublicEstimateOrgFeatureOn())) {
+    return publicEstimateJson({ error: 'Public roof estimate is not enabled', code: 'disabled' }, 503, origin)
   }
 
   const ip = clientIpFromRequest(request)

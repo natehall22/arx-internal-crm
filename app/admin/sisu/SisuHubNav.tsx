@@ -24,12 +24,12 @@ function isTabActive(pathname: string, tab: string, searchTab: string | null): b
   return pathname === tab
 }
 
-export default function SisuHubNav({ showBonusApproval = false }: { showBonusApproval?: boolean }) {
+export default function SisuHubNav({ showBonusApproval = false, showIncentives = true }: { showBonusApproval?: boolean; showIncentives?: boolean }) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const searchTab = searchParams.get('tab')
   const visibleTabs = TABS.filter(
-    (tab) => tab.href !== '/admin/sisu/bonus-approval' || showBonusApproval,
+    (tab) => (tab.href === '/admin/sisu/bonus-approval' ? showBonusApproval : showIncentives),
   )
 
   return (

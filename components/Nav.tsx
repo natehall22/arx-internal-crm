@@ -20,6 +20,8 @@ import { canViewInsideSalesFollowUp } from '@/lib/inside-sales-follow-up'
 import { isPayrollAdminRole } from '@/lib/payroll-admin-access'
 import { COMMISSION_ROLES } from '@/lib/comp-plan-defaults'
 import { activeSectionId, visibleNav } from '@/lib/nav-config'
+import { ALL_FEATURES_ON, type OrgFeatures } from '@/lib/org-features'
+import { featuresFromEffectivePermissions, fetchEffectivePermissions } from '@/hooks/useOrgFeatures'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import GlobalSearch from '@/components/search/GlobalSearch'
 import { BarChart3, DollarSign, Filter, Hammer, Home, MapPin, MoreHorizontal, Search, Users, type LucideIcon } from 'lucide-react'
@@ -36,6 +38,7 @@ export default function Nav() {
   const [effectivePermsReady, setEffectivePermsReady] = useState(false)
   const [effectiveFullAccess, setEffectiveFullAccess] = useState(false)
   const [payWeekEnabled, setPayWeekEnabled] = useState(false)
+  const [orgFeatures, setOrgFeatures] = useState<OrgFeatures>(ALL_FEATURES_ON)
   const [effectivePermissionNames, setEffectivePermissionNames] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
   const [companyName, setCompanyName] = useState<string>('ARX CRM')
@@ -58,11 +61,8 @@ export default function Nav() {
       // null even for authenticated users. The server API reads cookies directly and
       // is the single authoritative source for role + permissions.
       try {
-        const res = await fetch('/api/me/effective-permissions', {
-          cache: 'no-store',
-          credentials: 'same-origin',
-        })
-        const data = await res.json().catch(() => null)
+        const res = await fetchEffectivePermissions()
+        const data = res.data
         if (
           res.ok &&
           data &&
@@ -81,6 +81,7 @@ export default function Nav() {
             : []
           setEffectiveFullAccess(apiFullAccess)
           setPayWeekEnabled((data as { flags?: { payWeek?: unknown } }).flags?.payWeek === true)
+          setOrgFeatures(featuresFromEffectivePermissions(data))
           if (!apiFullAccess) {
             setEffectivePermissionNames(new Set(serverPerms))
           }
@@ -226,6 +227,7 @@ export default function Nav() {
     role: userRole,
     fullAccess: hasFullNavAccess,
     permissionNames: effectivePermissionNames,
+    features: orgFeatures,
     flags: {
       isOpsOnly,
       canSeeOpsDashboard: canAccessOpsDashboardFromPermissionNames(navPermInput),

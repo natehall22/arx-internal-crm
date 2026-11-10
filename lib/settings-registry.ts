@@ -2,10 +2,13 @@
  * The one list of everything an admin can configure, grouped, for the Settings page (app/admin/page.tsx).
  * Access mirrors what each card's own gate has always been (the hub only hides what the page itself would refuse).
  */
+import type { OrgFeature, OrgFeatures } from '@/lib/org-features'
+
 /** `superAdmin` = `isSuperAdmin` (users.is_super_admin) — stricter than `owner`, which also lets the owner role in. */
 export type SettingsAccess = 'leadership' | 'cost' | 'payroll' | 'superuser' | 'workAreas' | 'owner' | 'superAdmin'
 
-export type SettingsItem = { title: string; description: string; href: string; access: SettingsAccess; keywords?: string }
+/** `feature` = hidden when the company has that feature switched off (lib/org-features.ts). */
+export type SettingsItem = { title: string; description: string; href: string; access: SettingsAccess; keywords?: string; feature?: OrgFeature }
 export type SettingsGroup = { id: string; title: string; items: SettingsItem[] }
 
 export const SETTINGS_GROUPS: SettingsGroup[] = [
@@ -30,11 +33,11 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
       { title: 'Financing programs', description: 'Lenders, APR, term and the dealer fee', href: '/admin/financing-programs', access: 'leadership' },
       { title: 'Appointment scheduling', description: 'Round-robin and appointment settings', href: '/admin/scheduling', access: 'leadership', keywords: 'calendar google' },
       { title: 'Campaigns & lead sources', description: 'Marketing campaigns and inbound lead webhooks', href: '/admin/campaigns', access: 'leadership' },
-      { title: 'Work areas', description: 'Draw canvass areas and assign reps or teams', href: '/canvass?areas=1', access: 'workAreas', keywords: 'territories' },
+      { title: 'Work areas', description: 'Draw canvass areas and assign reps or teams', href: '/canvass?areas=1', access: 'workAreas', keywords: 'territories', feature: 'canvassing' },
       { title: 'Print Kit', description: 'Door-drop kit, appointment cards and print tools', href: '/admin/print-kit', access: 'leadership' },
       { title: 'Door drops', description: 'Door-drop campaigns', href: '/admin/door-drop', access: 'leadership' },
       { title: 'Inspection feedback', description: 'Pending feedback and reminders to closers', href: '/admin/inspection-feedback', access: 'leadership' },
-      { title: 'Roof measure tool', description: 'In-house satellite roof measurement', href: '/tools/roof-measure', access: 'leadership' },
+      { title: 'Roof measure tool', description: 'In-house satellite roof measurement', href: '/tools/roof-measure', access: 'leadership', feature: 'roofMeasure' },
       { title: 'Email blasts', description: 'Who gets sale, payment and funding emails', href: '/admin/email-blasts', access: 'leadership' },
     ],
   },
@@ -52,7 +55,7 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
     id: 'incentives',
     title: 'Incentives',
     items: [
-      { title: 'Incentives', description: 'Heats, badges, setter ramp, bonus approval and accountability', href: '/admin/sisu/incentives', access: 'leadership', keywords: 'sisu bonus ramp heats badges' },
+      { title: 'Incentives', description: 'Heats, badges, setter ramp, bonus approval and accountability', href: '/admin/sisu/incentives', access: 'leadership', keywords: 'sisu bonus ramp heats badges', feature: 'incentives' },
     ],
   },
   {
@@ -72,6 +75,7 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
     title: 'System',
     items: [
       { title: 'Company settings', description: 'Workflows, fields, dispositions and system options', href: '/admin/settings', access: 'leadership' },
+      { title: 'Features', description: 'Turn whole parts of the app on or off for your company (owners only)', href: '/admin#features', access: 'superAdmin', keywords: 'canvass insurance roof measure sisu incentives squares switch hide' },
       { title: 'Dashboard settings', description: 'What shows on each dashboard', href: '/admin/dashboard-settings', access: 'leadership' },
       { title: 'Announcements', description: "What's-new banners shown to the team", href: '/admin/announcements', access: 'leadership' },
       { title: 'My settings', description: 'Your profile, notifications and Google Calendar', href: '/settings', access: 'leadership' },
@@ -87,10 +91,11 @@ export function canOpenSettingsHub(role: string): boolean {
   return LEADERSHIP.includes(role)
 }
 
-export function visibleSettingsGroups(flags: { canCost: boolean; canPayroll: boolean; canSuperuser: boolean; canWorkAreas: boolean; canOwner?: boolean; canSuperAdmin?: boolean }): SettingsGroup[] {
+export function visibleSettingsGroups(flags: { canCost: boolean; canPayroll: boolean; canSuperuser: boolean; canWorkAreas: boolean; canOwner?: boolean; canSuperAdmin?: boolean; features?: Partial<OrgFeatures> }): SettingsGroup[] {
+  const featureOn = (i: SettingsItem) => !i.feature || flags.features?.[i.feature] !== false
   const ok = (a: SettingsAccess) =>
     a === 'leadership' || (a === 'cost' && flags.canCost) || (a === 'payroll' && flags.canPayroll) || (a === 'superuser' && flags.canSuperuser) || (a === 'workAreas' && flags.canWorkAreas) || (a === 'owner' && !!flags.canOwner) || (a === 'superAdmin' && !!flags.canSuperAdmin)
-  return SETTINGS_GROUPS.map((g) => ({ ...g, items: g.items.filter((i) => ok(i.access)) })).filter((g) => g.items.length > 0)
+  return SETTINGS_GROUPS.map((g) => ({ ...g, items: g.items.filter((i) => ok(i.access) && featureOn(i)) })).filter((g) => g.items.length > 0)
 }
 
 /** Case-insensitive match on title, description and keywords; every word must match somewhere. */

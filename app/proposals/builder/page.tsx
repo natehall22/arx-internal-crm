@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import Nav from '@/components/Nav'
 import { ridgeHipCapOrderSummary } from '@/lib/hip-ridge-cap-squares'
 import { BUNDLES_PER_SQUARE, CAP_LF_PER_BUNDLE } from '@/lib/roof-shingle-constants'
+import { useOrgFeatures } from '@/hooks/useOrgFeatures'
 import { formatNumericDraft, parseDraftFloat, previewNumber } from '@/lib/numeric-input-draft'
 import { toast } from '@/components/ui/toast'
 import { formatPhone } from '@/lib/format'
@@ -147,6 +148,11 @@ export default function ProposalBuilderPage() {
   const [measurementData, setMeasurementData] = useState<any>(null)
   const [saving, setSaving] = useState(false)
   const [step, setStep] = useState(1)
+  /** Roof squares pricing switched off (Settings → Features): no waste-factor (squares) step, no Squares figure. */
+  const squaresOn = useOrgFeatures().squaresPricing
+  useEffect(() => {
+    if (!squaresOn && step === 2) setStep(3)
+  }, [squaresOn, step])
   const [form, setForm] = useState<ProposalForm>(defaultForm)
   const [lineItems, setLineItems] = useState<LineItem[]>([])
   const [pricebookItems, setPricebookItems] = useState<PricebookItem[]>([])
@@ -1098,10 +1104,12 @@ export default function ProposalBuilderPage() {
                 <p className="text-indigo-100 text-sm">{measurementData.address_text}</p>
               </div>
               <div className="flex gap-6 text-center">
+                {squaresOn && (
                 <div>
                   <div className="text-3xl font-bold">{measurementData.total_squares?.toFixed(1) || urlSquares}</div>
                   <div className="text-xs text-indigo-200 uppercase tracking-wider">Squares</div>
                 </div>
+                )}
                 <div>
                   <div className="text-3xl font-bold">{measurementData.total_area_sqft?.toLocaleString() || '-'}</div>
                   <div className="text-xs text-indigo-200 uppercase tracking-wider">Sq Ft</div>
@@ -1189,7 +1197,7 @@ export default function ProposalBuilderPage() {
 
             <div className="mt-8 flex justify-end">
               <button
-                onClick={() => setStep(2)}
+                onClick={() => setStep(squaresOn ? 2 : 3)}
                 disabled={!form.customer_name?.trim() || !form.customer_address?.trim() || !form.customer_phone?.trim() || !form.customer_email?.trim()}
                 className="px-8 py-3 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
@@ -1200,7 +1208,7 @@ export default function ProposalBuilderPage() {
         )}
 
         {/* Step 2: Waste Factor */}
-        {step === 2 && (
+        {step === 2 && squaresOn && (
           <div className="bg-white rounded-2xl shadow-sm p-6 md:p-8">
             <h2 className="text-2xl font-bold text-gray-900 mb-2">Material Waste Factor</h2>
             <p className="text-gray-500 mb-6">
@@ -1599,7 +1607,7 @@ export default function ProposalBuilderPage() {
 
             <div className="flex justify-between">
               <button
-                onClick={() => setStep(2)}
+                onClick={() => setStep(squaresOn ? 2 : 1)}
                 className="px-6 py-3 border border-gray-300 rounded-xl font-medium hover:bg-gray-50"
               >
                 Back

@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import SignaturePad from './SignaturePad'
 import { parseDraftFloat, previewNumber } from '@/lib/numeric-input-draft'
 import { formatPhone } from '@/lib/format'
+import { useOrgFeatures } from '@/hooks/useOrgFeatures'
 
 interface ContractModalProps {
   isOpen: boolean
@@ -62,6 +63,8 @@ export default function ContractModal({
   scopeOfWork,
 }: ContractModalProps) {
   const [step, setStep] = useState(1)
+  /** Insurance switched off for the company (Settings → Features): no contingency agreement, no insurance payment. */
+  const insuranceOn = useOrgFeatures().insurance
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
@@ -331,7 +334,7 @@ export default function ContractModal({
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Agreement Type *
                   </label>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div className={`grid grid-cols-1 gap-3 ${insuranceOn ? 'md:grid-cols-3' : 'md:grid-cols-2'}`}>
                     <button
                       type="button"
                       onClick={() => handleInputChange('agreementType', 'installation')}
@@ -359,6 +362,7 @@ export default function ContractModal({
                       <p className="font-semibold text-gray-900">Repair Agreement</p>
                       <p className="text-sm text-gray-600 mt-1">Small jobs: roof, gutters, siding, etc.—only what you list.</p>
                     </button>
+                    {insuranceOn && (
                     <button
                       type="button"
                       onClick={() => handleInputChange('agreementType', 'contingency')}
@@ -371,6 +375,7 @@ export default function ContractModal({
                       <p className="font-semibold text-gray-900">Insurance Contingency</p>
                       <p className="text-sm text-gray-600 mt-1">Early claim agreement before insurance approval.</p>
                     </button>
+                    )}
                   </div>
                 </div>
 
@@ -663,6 +668,7 @@ export default function ContractModal({
                       />
                       <span className="text-sm">Cash</span>
                     </label>
+                    {insuranceOn && (
                     <label className="flex items-center gap-2">
                       <input
                         type="radio"
@@ -674,6 +680,7 @@ export default function ContractModal({
                       />
                       <span className="text-sm">Insurance Claim</span>
                     </label>
+                    )}
                     <label className="flex items-center gap-2">
                       <input
                         type="radio"

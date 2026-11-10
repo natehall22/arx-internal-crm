@@ -7,6 +7,7 @@ import { reassignOpenCheckups } from '@/lib/checkups'
 import { CHECKUPS_ASSIGNEE_KEY, CHECKUPS_SETTINGS_KEYS, canEditCheckupSettings, parseCheckupPatch } from '@/lib/checkups-settings'
 import { JOB_CATCH_UP_SETTINGS_KEYS, canEditJobCatchUpSettings, parseJobCatchUpPatch } from '@/lib/job-catch-up-settings'
 import { mergeOrgSettings } from '@/lib/org-settings'
+import { ORG_FEATURES_SETTINGS_KEY, parseOrgFeaturesPatch } from '@/lib/org-features'
 
 export const dynamic = 'force-dynamic'
 
@@ -153,6 +154,16 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ success: true })
     }
 
+    // Company feature switches (lib/org-features.ts): owners (super admins) only, written per key under settings.features.
+    if (type === 'features') {
+      if (!profile?.org_id || !isSuperAdmin(profile)) return NextResponse.json({ error: 'Only an owner can turn features on or off' }, { status: 403 })
+      const parsed = parseOrgFeaturesPatch(data)
+      if ('error' in parsed) return NextResponse.json({ error: parsed.error }, { status: 400 })
+      const { error } = await mergeOrgSettings(adminClient, profile.org_id, parsed.set, { path: [ORG_FEATURES_SETTINGS_KEY] })
+      if (error) return NextResponse.json({ error }, { status: 400 })
+      return NextResponse.json({ success: true })
+    }
+
     // Customer checkup schedule + who it's assigned to: same gate and per-key write as job catch-up.
     if (type === 'checkups') {
       if (!profile?.org_id || !canEditCheckupSettings(profile)) return NextResponse.json({ error: 'Access denied' }, { status: 403 })
@@ -255,7 +266,8 @@ export async function PATCH(request: NextRequest) {
       // above (super admins only, saveBrandSettings). Nor are the job catch-up keys: only the admin-gated
       // `job_catch_up` save writes them (managers can reach this path). Any OTHER key is still accepted from
       // managers — pre-existing; Known Redundancy #25 (should become an allow-list).
-      const { brand: _brand, ...rest } = data
+      // Feature switches (settings.features) are owner-only and written only by the `features` save above.
+      const { brand: _brand, [ORG_FEATURES_SETTINGS_KEY]: _features, ...rest } = data
       const settingsData = Object.fromEntries(Object.entries(rest).filter(([k]) => !JOB_CATCH_UP_SETTINGS_KEYS.includes(k) && !CHECKUPS_SETTINGS_KEYS.includes(k)))
       const { error } = await adminClient
         .from('orgs')
