@@ -2,7 +2,12 @@ import { NextRequest, NextResponse } from 'next/server'
 import { CompanyLookupUnavailableError, requireAuthApi } from '@/lib/auth'
 import { COMPANY_LOOKUP_UNAVAILABLE, classifyHost } from '@/lib/company-host'
 import { getGoogleAuthUrl } from '@/lib/google-calendar'
-import { issueOAuthState } from '@/lib/google-oauth-state'
+import {
+  GOOGLE_CONNECT_COOKIE,
+  GOOGLE_CONNECT_COOKIE_PATH,
+  OAUTH_STATE_TTL_MS,
+  issueOAuthState,
+} from '@/lib/google-oauth-state'
 import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
@@ -40,15 +45,24 @@ export async function GET(request: NextRequest) {
     }
 
     // requireAuthApi already proved this user belongs to the company at this address.
-    const state = await issueOAuthState(createServiceClient(), {
+    const ticket = await issueOAuthState(createServiceClient(), {
       userId: auth.authUser.id,
       orgId: auth.profile.org_id,
       returnHost: host,
     })
-    if (!state) {
+    if (!ticket) {
       return NextResponse.json({ error: 'Google Calendar connect is unavailable right now. Please try again.' }, { status: 503 })
     }
-    return NextResponse.redirect(getGoogleAuthUrl(state))
+    const res = NextResponse.redirect(getGoogleAuthUrl(ticket.state))
+    // Binds this connect to THIS browser: the finish step refuses without it. Host-only (no Domain), httpOnly.
+    res.cookies.set(GOOGLE_CONNECT_COOKIE, ticket.nonce, {
+      path: GOOGLE_CONNECT_COOKIE_PATH,
+      httpOnly: true,
+      secure: request.url.startsWith('https'),
+      sameSite: 'lax',
+      maxAge: Math.floor(OAUTH_STATE_TTL_MS / 1000),
+    })
+    return res
   } catch (error) {
     console.error('Google auth error:', error)
     return NextResponse.json({ error: 'Failed to initiate Google authentication' }, { status: 500 })
