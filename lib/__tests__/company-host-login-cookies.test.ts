@@ -133,6 +133,7 @@ describe('middleware company gate', () => {
 })
 
 describe('login route', () => {
+  jest.setTimeout(15000)
   function errorOf(res: Response) {
     return new URL(res.headers.get('location') ?? 'http://x').searchParams.get('error')
   }
@@ -158,6 +159,20 @@ describe('login route', () => {
     const wrongPw = await loginPost(loginReq('acme.crm-product.test'))
     expect(errorOf(wrongPw)).toBe(errorOf(res))
   })
+
+  test('wrong company and wrong password both wait out the same failure floor (no timing tell)', async () => {
+    profileOrg = 'org-roofco'
+    let t = Date.now()
+    await loginPost(loginReq('acme.crm-product.test'))
+    const wrongCompanyMs = Date.now() - t
+    signInOk = false
+    t = Date.now()
+    await loginPost(loginReq('acme.crm-product.test'))
+    const wrongPasswordMs = Date.now() - t
+    expect(wrongCompanyMs).toBeGreaterThanOrEqual(1190)
+    expect(wrongPasswordMs).toBeGreaterThanOrEqual(1190)
+    expect(Math.abs(wrongCompanyMs - wrongPasswordMs)).toBeLessThan(400)
+  }, 15000)
 
   test('profile unreadable on a company address → refused (fail closed)', async () => {
     profileOrg = null

@@ -19,7 +19,22 @@ export async function GET(req: NextRequest) {
  */
 const GENERIC_LOGIN_ERROR = 'Invalid login credentials'
 
+/**
+ * Every refused sign-in (wrong password, unknown company address, account in another company) answers no sooner than
+ * this after the request started, plus jitter, so the wrong-company path (extra profile read + session revoke) can't
+ * be told from a wrong password by timing. Successful sign-ins are not delayed.
+ */
+const LOGIN_FAILURE_FLOOR_MS = 1200
+const LOGIN_FAILURE_JITTER_MS = 250
+
+async function waitForFailureFloor(startedAt: number): Promise<void> {
+  const target = startedAt + LOGIN_FAILURE_FLOOR_MS + Math.floor(Math.random() * LOGIN_FAILURE_JITTER_MS)
+  const wait = target - Date.now()
+  if (wait > 0) await new Promise((r) => setTimeout(r, wait))
+}
+
 export async function POST(req: NextRequest) {
+  const startedAt = Date.now()
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
   const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 
@@ -38,7 +53,8 @@ export async function POST(req: NextRequest) {
       ? String(formData.get('next'))
       : '/dashboard'
 
-  const loginError = (message: string) => {
+  const loginError = async (message: string) => {
+    await waitForFailureFloor(startedAt)
     const errorUrl = new URL(req.url)
     errorUrl.pathname = '/login'
     errorUrl.searchParams.set('error', message)
@@ -50,9 +66,9 @@ export async function POST(req: NextRequest) {
   // an unknown company address never signs anyone in. Web sign-in reads the host only — no company-code header.
   const fence = await resolveCompanyFence({ host: req.headers.get('host') ?? req.nextUrl.host })
   if (fence.kind === 'closed') {
-    if (fence.reason === 'apex') return loginError("Open your company's web address to sign in.")
-    if (fence.reason === 'lookup_error') return loginError('Sign-in is unavailable right now. Please try again.')
-    return loginError(GENERIC_LOGIN_ERROR)
+    if (fence.reason === 'apex') return await loginError("Open your company's web address to sign in.")
+    if (fence.reason === 'lookup_error') return await loginError('Sign-in is unavailable right now. Please try again.')
+    return await loginError(GENERIC_LOGIN_ERROR)
   }
 
   // Use regular supabase-js client for auth (not SSR)
@@ -71,11 +87,7 @@ export async function POST(req: NextRequest) {
 
   if (error || !data.session) {
     console.log('LOGIN error:', error?.message || 'No session')
-    const errorUrl = new URL(req.url)
-    errorUrl.pathname = '/login'
-    errorUrl.searchParams.set('error', error?.message || 'Authentication failed')
-    errorUrl.searchParams.set('next', nextPath)
-    return NextResponse.redirect(errorUrl, { status: 303 })
+    return await loginError(error?.message || 'Authentication failed')
   }
 
   if (fence.kind === 'org') {
@@ -98,7 +110,7 @@ export async function POST(req: NextRequest) {
       console.log('LOGIN refused: account is not in this company', data.session.user.id)
       // Revoke only the session just created (scope 'local'), never the user's other devices.
       await supabase.auth.signOut({ scope: 'local' }).catch(() => undefined)
-      return loginError(GENERIC_LOGIN_ERROR)
+      return await loginError(GENERIC_LOGIN_ERROR)
     }
   }
 
