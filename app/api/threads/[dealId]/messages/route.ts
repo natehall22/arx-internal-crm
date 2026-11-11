@@ -7,6 +7,7 @@ import { parseContact } from '@/lib/customer-contact'
 import { getTimeline } from '@/lib/threads/get-thread'
 import { threadAuth, threadDeal, type ThreadCtx } from '@/lib/threads/api'
 import { notifyMessage } from '@/lib/threads/notify'
+import { sendCustomerReply } from '@/lib/customer-messages-db'
 import { loadMessage, postMessage } from '@/lib/threads/post-message'
 import { resolveByReply } from '@/lib/threads/waiting'
 import { AUDIENCES, canReadMessage, defaultAudience, writableAudiences, type Audience } from '@/lib/threads/visibility'
@@ -94,7 +95,10 @@ async function handlePOST(request: Request, { params }: { params: { dealId: stri
     blindMentions: res.blindMentions,
   }).catch((e) => console.error('notifyMessage', e))
 
-  return NextResponse.json({ message: res.message, pricingNotice: res.pricingNotice })
+  // "To customer": the customer also gets it by email (company From); the portal shows it either way.
+  const emailed = res.message.audience === 'customer' && deal.customer_id ? await sendCustomerReply(ctx.admin, ctx.viewer.orgId, deal.customer_id, res.message.id, res.message.body) : undefined
+
+  return NextResponse.json({ message: res.message, pricingNotice: res.pricingNotice, ...(emailed ? { emailed } : {}) })
 }
 
 async function dealLabel(admin: ThreadCtx['admin'], orgId: string, dealId: string) {

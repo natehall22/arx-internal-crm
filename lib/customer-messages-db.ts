@@ -42,6 +42,7 @@ import {
   renderInvoiceReminder,
   renderOnTheWay,
   renderQuoteFollowUp,
+  renderCustomerReply,
   renderVisitDone,
   renderVisitReminder,
   visitReminderRange,
@@ -1055,4 +1056,46 @@ export async function setCustomerMessages(
   await db.from('customers').update({ messages_off_at: null, messages_off_by: null }).eq('id', customerId)
   if (state.email && state.suppressed) await db.from('customer_message_suppressions').delete().eq('channel', 'email').eq('address', state.email)
   return { ok: true }
+}
+
+
+// ── A staff reply "To customer" (Customer File thread) ──────────────────────────────────────────────────────────────
+
+/**
+ * Email the customer a reply a staff member wrote "To customer" — the company's own From and Reply-To, the same
+ * recipient rules as every other customer email (office "don't email", suppression list). Not an automatic message, so it
+ * does not need the automatic-emails switch; the portal still shows it either way. Never throws.
+ */
+export async function sendCustomerReply(
+  admin: SupabaseClient,
+  orgId: string,
+  customerId: string,
+  activityId: string,
+  body: string
+): Promise<'sent' | 'skipped' | 'not_ready' | 'failed'> {
+  try {
+    const channel = channelSender('email')
+    if (!channel.available()) return 'not_ready'
+    const { data: org } = await admin.from('orgs').select('id, name, address, phone, email, settings, timezone, logo_url').eq('id', orgId).maybeSingle()
+    if (!org) return 'not_ready'
+    const appUrl = await tryOrgAppUrl(orgId, 'customer-reply')
+    const id = companyIdentity(org as OrgRow, appUrl)
+    if (id.missing.length > 0) return 'not_ready'
+    const customer = await loadCustomer(admin, orgId, customerId)
+    const to = channel.addressFor({ email: customer?.email ?? null, phone: null })
+    if (!to || customer?.off || (await suppressionOf(admin, orgId, 'email', to))) return 'skipped'
+    const portalOn = (await loadOrgFeatures(admin, orgId)).customerPortal
+    const rendered = renderCustomerReply({ company: id.company, customerName: customer?.name ?? null, unsubscribeUrl: null }, { body, accountUrl: portalOn && appUrl ? `${appUrl}/portal` : null })
+    let host = 'localhost'
+    try {
+      host = appUrl ? new URL(appUrl).hostname || host : host
+    } catch {
+      /* keep localhost */
+    }
+    const out = await channel.send(to, rendered, { from: id.from, replyTo: id.company.email || null, messageId: `<cr-${activityId}@${host}>`, unsubscribeUrl: null, unsubscribePostUrl: null })
+    return out.ok ? 'sent' : 'failed'
+  } catch (e) {
+    console.error('[customer-messages] reply email failed', { orgId, e })
+    return 'failed'
+  }
 }

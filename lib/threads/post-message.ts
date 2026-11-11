@@ -125,6 +125,8 @@ export async function postMessage(
   } else {
     audience = defaultAudience(viewer, { surface: draft.surface ?? 'other', replyTo: parent }, dealRef)
   }
+  // "To customer" needs a customer to send it to (it is emailed and shown in their portal).
+  if (audience === 'customer' && !deal.customer_id) return { ok: false, status: 409, error: 'This deal has no customer on file yet, so there is nobody to send it to.' }
   // A customer contact is never crew talk, and job catch-up does not read sales-audience rows: log it as team
   // (or production when that was picked) so it always shows as the job's "last customer contact".
   if (contact && audience !== 'team' && audience !== 'production') {
@@ -280,4 +282,56 @@ export async function ensureThread(
     return (again as { id: string } | null) ?? null
   }
   return created as { id: string }
+}
+
+/** What the portal may write: ONE customer's message, on their latest deal (or, with no deal, on the customer alone). */
+export type CustomerPortalPost = { orgId: string; customerId: string; body: string; clientId?: string | null }
+
+/**
+ * The customer wrote to the company from their portal. Written through THIS module (the one write path for conversations)
+ * as an ordinary team-audience row — `origin: 'customer_portal'`, no user, type 'text' so job catch-up reads it as the
+ * customer's own contact. Staff see it in the Customer File thread like any other message; the customer sees only
+ * their own rows (audience 'customer' or origin 'customer_portal') through `loadPortalThread`.
+ */
+export async function postCustomerMessage(admin: SupabaseClient, p: CustomerPortalPost): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+  const body = String(p.body ?? '').trim()
+  if (!body) return { ok: false, error: 'Message is required' }
+  if (body.length > 2000) return { ok: false, error: 'Message is too long' }
+  // The customer's most recent deal, if any (org- and customer-scoped).
+  const { data: deal } = await admin
+    .from('opportunities')
+    .select('id, customer_id, lead_id')
+    .eq('org_id', p.orgId)
+    .eq('customer_id', p.customerId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  const d = deal as { id: string; customer_id: string | null; lead_id: string | null } | null
+  const thread = d ? await ensureThread(admin, p.orgId, d) : null
+  const { data, error } = await admin
+    .from('activities')
+    .insert({
+      org_id: p.orgId,
+      opportunity_id: d?.id ?? null,
+      customer_id: p.customerId,
+      lead_id: d?.lead_id ?? null,
+      thread_id: thread?.id ?? null,
+      user_id: null,
+      type: 'text',
+      contact_outcome: 'replied',
+      body,
+      origin: 'customer_portal',
+      audience: 'team',
+      restricted_pricing: false,
+      priority: 'fyi',
+      mentioned_user_ids: [],
+      client_id: p.clientId ?? null,
+      source: 'customer_portal',
+    })
+    .select('id, created_at')
+    .single()
+  if (error || !data) return { ok: false, error: error?.message ?? 'insert failed' }
+  const row = data as { id: string; created_at: string }
+  if (thread) await admin.from('threads').update({ last_message_at: row.created_at }).eq('id', thread.id)
+  return { ok: true, id: row.id }
 }

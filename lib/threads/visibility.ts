@@ -8,12 +8,13 @@
  *
  * Audiences: team (everyone on the deal), sales (selling talk; ops reads it), production
  * (how to build it — never setters/inside sales), crew (leaves the building on the crew
- * link; only ops/owners write it). `restricted_pricing` hides a message from anyone
+ * link; only ops/owners write it), customer (said TO the customer: shown in their portal and emailed to them; read like
+ * team by staff, written only by non-field roles). `restricted_pricing` hides a message from anyone
  * barred from sales docs (setters, canvassers, inside sales), whatever its audience.
  * `audience = null` is a legacy row: unchanged behaviour (anyone in the org).
  */
 
-export const AUDIENCES = ['team', 'sales', 'production', 'crew'] as const
+export const AUDIENCES = ['team', 'sales', 'production', 'crew', 'customer'] as const
 export type Audience = (typeof AUDIENCES)[number]
 
 export type Priority = 'fyi' | 'needs_reply' | 'urgent'
@@ -97,7 +98,7 @@ export function canReadMessage(v: ThreadViewer, deal: DealRef, m: MessageGate): 
   if (!isRecognizedViewer(v)) return false
   if (m.restricted_pricing && v.pricingBarred) return false
   if (m.audience === 'production' || m.audience === 'crew') return canSeeProduction(v, deal)
-  // team | sales
+  // team | sales | customer
   // Setters/canvassers and closers read team/sales talk on their own deals only.
   if (v.setterLike || v.closerLike) return deal === null ? true : ownsDeal(v, deal)
   return true
@@ -118,6 +119,8 @@ export function writableAudiences(v: ThreadViewer, deal: DealRef): Audience[] {
   out.push('sales')
   if (canSeeProduction(v, deal) && (v.ownerLike || v.jobEdit || v.jobBoard || ownsDealAsCloser(v, deal))) out.push('production')
   if (!isFieldRole(v) && (v.ownerLike || v.jobEdit)) out.push('crew')
+  // "To customer": an email the customer also sees in their portal. Field roles (setters, canvassers, inside sales) do not write it.
+  if (!isFieldRole(v)) out.push('customer')
   return out
 }
 

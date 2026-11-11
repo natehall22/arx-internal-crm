@@ -15,6 +15,7 @@ import { loadOnlinePayments } from '@/lib/online-payments/accounts'
 import { cardExpired, cardLabel, loadCardOnFile } from '@/lib/online-payments/cards'
 import { isOrgFeatureOn } from '@/lib/org-features-server'
 import { BILLING_BASIS_LABELS, scheduleSummary, ymdInZone, type BillingBasis, type Season } from '@/lib/service-plans'
+import { loadPortalThread } from '@/lib/threads/portal-thread'
 import { orgDb } from '@/lib/supabase/org-db'
 import type { PortalSession } from '@/lib/portal/server'
 
@@ -190,11 +191,7 @@ export async function loadPortalHome(admin: SupabaseClient, s: PortalSession): P
     card = { available: op.ready && op.settings.autopay, label: c ? cardLabel(c) : null, autopay: !!c?.autopay, expired: c ? cardExpired(c, new Date()) : false }
   }
 
-  const messages = (
-    await soft<{ id: string; direction: string; body: string; created_at: string }>('messages', () =>
-      db.from('portal_messages').select('id, direction, body, created_at').eq('customer_id', customerId).order('created_at', { ascending: false }).limit(MAX.messages)
-    )
-  ).reverse().map((m) => ({ id: m.id, fromCustomer: m.direction === 'from_customer', body: m.body, date: m.created_at }))
+  const messages = (await loadPortalThread(admin, orgId, customerId, MAX.messages)).map((m) => ({ id: m.id, fromCustomer: m.fromCustomer, body: m.body, date: m.date }))
 
   return { customerName: (cust as { name?: string | null }).name || '', today, visits: { upcoming, recent }, invoices, contracts, documents, plans, card, messages }
 }
