@@ -12,11 +12,11 @@ import { invoiceHasBilledHours, liveBilledHoursInvoices, saveJobHourlySetup } fr
 /** Postgres `round(qty::numeric(10,2) * cents)`: exact decimal, half away from zero (BigInt reference). */
 function pgRound(qtyText: string, cents: number): number {
   const [w, f = ''] = qtyText.split('.')
-  const hundredths = BigInt(w) * 100n + BigInt((f + '00').slice(0, 2))
+  const hundredths = BigInt(w) * BigInt(100) + BigInt((f + '00').slice(0, 2))
   const p = hundredths * BigInt(cents) // in 1/100 cent
-  const q = p / 100n
-  const r = p % 100n
-  return Number(r >= 50n ? q + 1n : q)
+  const q = p / BigInt(100)
+  const r = p % BigInt(100)
+  return Number(r >= BigInt(50) ? q + BigInt(1) : q)
 }
 
 describe('line amount = what Postgres writes', () => {
