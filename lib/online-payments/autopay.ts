@@ -21,8 +21,8 @@ import { applicationFeeCents, MAX_RETRIES } from '@/lib/online-payments/settings
 
 export type AutopayOutcome = { charged: false; reason: string } | { charged: true; outcome: RecordOutcome | 'failed' }
 
-type AttemptRow = { id: string; kind: 'autopay'; invoice_id: string; amount_cents: number; application_fee_cents: number; attempt: number; payment_intent_id: string | null; status: string; created_at: string }
-const ATTEMPT_COLS = 'id, kind, invoice_id, amount_cents, application_fee_cents, attempt, payment_intent_id, status, created_at'
+type AttemptRow = { id: string; kind: 'autopay'; invoice_id: string; amount_cents: number; application_fee_cents: number; currency: string; attempt: number; payment_intent_id: string | null; status: string; created_at: string }
+const ATTEMPT_COLS = 'id, kind, invoice_id, amount_cents, application_fee_cents, currency, attempt, payment_intent_id, status, created_at'
 
 export async function chargeInvoiceAutopay(
   admin: SupabaseClient,
@@ -106,7 +106,8 @@ async function chargeAttempt(admin: SupabaseClient, op: OnlinePayments, orgId: s
       '/v1/payment_intents',
       {
         amount: row.amount_cents,
-        currency: op.settings.currency,
+        // The attempt's OWN currency (saved when it started) — a resend with the same key must be the same request.
+        currency: row.currency,
         customer: card.stripe_customer_id,
         payment_method: card.payment_method_id,
         payment_method_types: ['card'],
@@ -120,17 +121,30 @@ async function chargeAttempt(admin: SupabaseClient, op: OnlinePayments, orgId: s
       { account: op.account!.account_id, idempotencyKey: `autopay:${row.invoice_id}:${row.attempt}` }
     )
   } catch (e) {
-    if (e instanceof StripeApiError && (e.type === 'card_error' || e.status === 402)) {
-      if (e.paymentIntent?.id) await orgDb(admin, orgId).from('online_payments').update({ payment_intent_id: String(e.paymentIntent.id) }).eq('id', row.id)
-      await failRow(admin, orgId, row, { code: e.declineCode ?? e.code, message: e.message }, now)
+    if (!noAnswer(e)) {
+      // Stripe answered "no" (a decline, a removed / detached card, a bad request): it did NOT charge. The attempt fails
+      // like any decline — customer + office told, the normal retry schedule (a retry is a NEW attempt).
+      const se = e as StripeApiError
+      if (se.paymentIntent?.id) await orgDb(admin, orgId).from('online_payments').update({ payment_intent_id: String(se.paymentIntent.id) }).eq('id', row.id)
+      await failRow(admin, orgId, row, { code: se.declineCode ?? se.code ?? `http_${se.status}`, message: se.message }, now)
       return { charged: true, outcome: 'failed' }
     }
-    // No answer (network, timeout, Stripe 5xx): Stripe MAY have charged. The attempt stays open and is finished later
-    // (next send / morning cron) by asking Stripe first, then re-sending the SAME key — never a second charge.
+    // No answer (network, timeout, Stripe 5xx / 429, or 409 "the same key is still being processed"): Stripe MAY have
+    // charged. The attempt stays open and is finished later (next send / morning cron) by asking Stripe first, then
+    // re-sending the SAME key — never a second charge.
     await orgDb(admin, orgId).from('online_payments').update({ failure_message: `No answer from Stripe yet: ${(e as Error).message}`.slice(0, 300), updated_at: now.toISOString() }).eq('id', row.id)
     throw e
   }
   return settle(admin, op, orgId, row, pi, now)
+}
+
+/**
+ * Pure: did Stripe NOT give a definite answer? Only then may it have charged without telling us. Anything else from
+ * Stripe (a 4xx, including card errors) is a definite "not charged".
+ */
+export function noAnswer(e: unknown): boolean {
+  if (!(e instanceof StripeApiError)) return true
+  return e.status >= 500 || e.status === 409 || e.status === 429
 }
 
 async function settle(admin: SupabaseClient, op: OnlinePayments, orgId: string, row: AttemptRow, pi: StripeObject, now: Date): Promise<AutopayOutcome> {

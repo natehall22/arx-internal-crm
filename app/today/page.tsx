@@ -23,6 +23,7 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { resolveThreadViewer } from '@/lib/threads/viewer'
 import { listWaiting } from '@/lib/threads/waiting'
 import { loadOpenShiftsQueue } from '@/lib/time-tracking-db'
+import { loadPaymentReversalsQueue } from '@/lib/online-payments/summary'
 import { isPayrollAdminRole } from '@/lib/payroll-admin-access'
 import { loadCloserQueues, loadOpsQueues, loadOwnerExceptions, loadServiceVisitQueues, todayKindFor, type TodayKind } from '@/lib/today'
 import { applyTodayProfile, loadOrgProfile } from '@/lib/org-profile'
@@ -56,6 +57,9 @@ export default async function TodayPage() {
   // Crew time clock: shifts the system stopped with no finish time (may be paying 0 h) — payroll admins (ops / owners).
   const clockOn = (kind === 'ops' || kind === 'owner') && isPayrollAdminRole(profile.role) && orgProfile.features.timeTracking
   const shiftsQueue = clockOn ? await loadOpenShiftsQueue(admin, profile.org_id).catch((e) => { console.error('today: open shifts failed', e); return null }) : null
+  // Online payments: a lost dispute on a job already collected / paid in payroll — payroll admins review commission.
+  const reversalsOn = (kind === 'ops' || kind === 'owner') && isPayrollAdminRole(profile.role) && orgProfile.features.onlinePayments
+  const reversals = reversalsOn ? await loadPaymentReversalsQueue(admin, profile.org_id).catch((e) => { console.error('today: payment reversals failed', e); return null }) : null
   const [visitQueues, closerQueues, opsQueues, ownerQueues, report] = await Promise.all([
     visitsOn ? loadServiceVisitQueues(admin, profile.org_id).catch((e) => { console.error('today: visits failed', e); return [] }) : Promise.resolve([]),
     kind === 'closer' ? loadCloserQueues(admin, profile.org_id, profile.id, new Date(), { money: true }) : Promise.resolve([]),
@@ -79,7 +83,7 @@ export default async function TodayPage() {
             { label: 'Appointments', value: mine.calendar },
           ]
   const waiting = await resolveThreadViewer(admin, profile).then((viewer) => listWaiting(admin, viewer)).catch(() => [])
-  const queues = applyTodayProfile([...(shiftsQueue ? [shiftsQueue] : []), ...visitQueues, ...closerQueues, ...opsQueues, ...ownerQueues], orgProfile.today, orgProfile.terms)
+  const queues = applyTodayProfile([...(reversals && reversals.count > 0 ? [reversals] : []), ...(shiftsQueue ? [shiftsQueue] : []), ...visitQueues, ...closerQueues, ...opsQueues, ...ownerQueues], orgProfile.today, orgProfile.terms)
 
   return (
     <div className="min-h-screen bg-surface-subtle">

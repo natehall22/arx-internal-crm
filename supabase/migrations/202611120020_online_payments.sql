@@ -305,6 +305,9 @@ grant execute on function public.record_customer_invoice_refund(uuid, uuid, inte
 
 -- ---- 10. Disputes, link attempt limit -----------------------------------------------------------------------------
 alter table public.online_payments add column if not exists disputed_cents integer not null default 0;
+-- A lost dispute on a job already collected / in an approved payroll week: shown on Today + the morning email to review commission.
+alter table public.online_payments add column if not exists reversal_flag text null, add column if not exists reversed_at timestamptz null;
+create index if not exists online_payments_reversal_idx on public.online_payments (org_id, reversed_at) where reversal_flag is not null;
 do $$ begin
   alter table public.online_payments add constraint online_payments_disputed_nonneg check (disputed_cents >= 0);
 exception when duplicate_object then null; end $$;

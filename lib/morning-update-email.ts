@@ -9,6 +9,7 @@ import { fetchMorningUpdateMetrics, type MorningUpdateMetrics } from '@/lib/morn
 import { loadDataHealth, needsYouForEmailRecipient, shapeNeedsYou, type DataHealthReport } from '@/lib/data-health'
 import { loadCheckupSettings } from '@/lib/checkups'
 import { loadOpenShiftsQueue } from '@/lib/time-tracking-db'
+import { loadPaymentReversalsQueue } from '@/lib/online-payments/summary'
 import { loadCheckupsDueQueue, loadCrewWeekQueue, loadOpsQueues, loadOwnerExceptions, loadServiceVisitQueues, loadStormHitsQueue, type Queue } from '@/lib/today'
 import { resolveOrgFeatures, type OrgFeatures } from '@/lib/org-features'
 import { applyTodayProfile, loadOrgProfile } from '@/lib/org-profile'
@@ -222,7 +223,17 @@ export async function loadMorningTodayQueues(
         return { id: 'checkups-due', title: 'Customer checkups due', count: 0, empty: 'Checkups couldn’t load today.', items: [] }
       }),
   ])
+  // Online payments: lost disputes on jobs already collected / in an approved payroll week (Everything version only).
+  let reversalsFailed = false
+  const reversals = orgProfile.features.onlinePayments
+    ? await loadPaymentReversalsQueue(supabase, orgId, now).catch((error): Queue => {
+        console.error('morning update: payment reversals failed', error)
+        reversalsFailed = true
+        return { id: 'payment-reversals', title: 'Payment reversed — review', count: 0, empty: 'Reversed payments couldn’t load today.', items: [] }
+      })
+    : null
   return asProfile([
+    ...(reversals && (reversals.count > 0 || reversalsFailed) ? [reversals] : []),
     ...(storm.count > 0 || stormFailed ? [storm] : []),
     ...visits,
     ...owner.filter((q) => q.id !== 'no-outcome'),

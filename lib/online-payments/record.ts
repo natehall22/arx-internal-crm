@@ -45,6 +45,7 @@ export type OnlinePaymentRow = {
   checkout_session_id: string | null
   payment_intent_id: string | null
   amount_cents: number
+  currency: string | null
   status: 'open' | 'processing' | 'succeeded' | 'failed' | 'expired' | 'needs_review'
   job_payment_id: string | null
   refunded_cents: number
@@ -53,7 +54,7 @@ export type OnlinePaymentRow = {
 }
 
 export const ONLINE_PAYMENT_COLS =
-  'id, org_id, account_id, kind, invoice_id, customer_id, link_id, checkout_session_id, payment_intent_id, amount_cents, status, job_payment_id, refunded_cents, attempt, recording_at'
+  'id, org_id, account_id, kind, invoice_id, customer_id, link_id, checkout_session_id, payment_intent_id, amount_cents, currency, status, job_payment_id, refunded_cents, attempt, recording_at'
 
 /** A recorder that died mid-way frees its claim after this long. */
 const RECORDING_LEASE_MS = 2 * 60_000
@@ -195,7 +196,8 @@ export async function recordSucceededIntent(
     return 'needs_review' as const
   }
   if (!invoice || !Number.isInteger(amount) || amount <= 0) return review('the invoice was not found.')
-  const currency = await companyCurrency(admin, orgId)
+  // The attempt's own currency (saved when it started), else the company's: anything else is never recorded.
+  const currency = row.currency || (await companyCurrency(admin, orgId))
   if (String(pi.currency ?? '').toLowerCase() !== currency) return review(`it was paid in ${String(pi.currency ?? '?').toUpperCase()}, but the company takes ${currency.toUpperCase()}.`)
 
   let jobPaymentId: string
@@ -377,12 +379,27 @@ export async function syncReversals(admin: SupabaseClient, account: PaymentAccou
   // What THIS payment put on THIS invoice (its own positive application).
   const { data: apps } = await admin.from('invoice_payments').select('applied_cents').eq('invoice_id', invoice.id).eq('job_payment_id', row.job_payment_id)
   const applied = ((apps ?? []) as Array<{ applied_cents: number }>).reduce((t, a) => t + Number(a.applied_cents), 0)
-  let previous = 0
+  // NOT incremental: the target is worked out from ALL reversals of this payment at once, so the order Stripe tells us
+  // about them in (or a retry) never changes the answer. Already taken back = this payment's reversal rows already on
+  // the invoice; what is still owed back off the invoice is shared over the reversals not yet on it.
+  const total = reversals.reduce((t, r) => t + r.amount, 0)
+  const target = refundTakeBack(row.amount_cents, applied, 0, total)
+  const keys = reversals.map((r) => r.key)
+  const existing = keys.length === 0 ? [] : ((await (invoice.job_id
+    ? // org-scope-ok: the job is this invoice's, found in orgId by findOrgInvoice above
+      admin.from('job_payments').select('id, idempotency_key').eq('job_id', invoice.job_id).in('idempotency_key', keys)
+    : admin.from('job_payments').select('id, idempotency_key').eq('org_id', orgId).is('job_id', null).in('idempotency_key', keys))).data ?? []) as Array<{ id: string; idempotency_key: string }>
+  const onInvoice = existing.length === 0 ? [] : ((await admin.from('invoice_payments').select('job_payment_id, applied_cents').eq('invoice_id', invoice.id).in('job_payment_id', existing.map((e) => e.id))).data ?? []) as Array<{ job_payment_id: string; applied_cents: number }>
+  const appliedByPayment = new Map(onInvoice.map((x) => [x.job_payment_id, -Number(x.applied_cents)]))
+  const keyToPayment = new Map(existing.map((e) => [e.idempotency_key, e.id]))
+  let remaining = Math.max(0, target - onInvoice.reduce((t, x) => t + -Number(x.applied_cents), 0))
   let problems = 0
   const newlyLost: Reversal[] = []
   for (const r of reversals) {
-    const take = refundTakeBack(row.amount_cents, applied, previous, r.amount)
-    previous += r.amount
+    const known = keyToPayment.get(r.key)
+    const alreadyOn = known != null && appliedByPayment.has(known)
+    const take = alreadyOn ? 0 : Math.min(r.amount, remaining)
+    remaining -= take
     const paidAt = ymdInZone(new Date(r.created * 1000), tz)
     const note = `${r.kind === 'refund' ? 'Refund' : 'Dispute lost'} (Stripe ${r.key.split(':')[1]})`
     if (invoice.job_id) {
@@ -402,7 +419,7 @@ export async function syncReversals(admin: SupabaseClient, account: PaymentAccou
       if (!res.ok) throw new Error(`syncReversals: job reversal not written (${res.error})`)
       if (!res.duplicate && r.kind === 'dispute') newlyLost.push(r)
       if (take > 0) await applyRefundToInvoice(admin, orgId, invoice.id, res.payment.id, take)
-    } else {
+    } else if (!known) {
       const res = await recordCustomerInvoiceRefund(admin, orgId, invoice.id, { amountCents: r.amount, paidAt, method, note, idempotencyKey: r.key, unapplyCents: take })
       if (!res.ok) problems++
       else if (!res.duplicate && r.kind === 'dispute') newlyLost.push(r)
@@ -413,13 +430,41 @@ export async function syncReversals(admin: SupabaseClient, account: PaymentAccou
     disputed_cents: reversals.filter((r) => r.kind === 'dispute').reduce((t, r) => t + r.amount, 0),
   })
   for (const r of newlyLost) {
-    await notifyOfficeOfPaymentProblem(admin, orgId, { problem: 'dispute', invoiceId: row.invoice_id, amountCents: r.amount, detail: 'The dispute was lost: the bank took the money back. It is recorded as a negative payment and the invoice is open again for that amount.' })
+    // A job already collected or already in a payroll week: commissions were (or will be) paid on money that is gone.
+    const paidOut = invoice.job_id ? await jobAlreadyPaidOut(admin, orgId, invoice.job_id) : null
+    if (paidOut) {
+      await orgDb(admin, orgId).from('online_payments').update({ reversal_flag: `Dispute lost ${(r.amount / 100).toFixed(2)} — ${paidOut}: check commission`, reversed_at: new Date().toISOString() }).eq('id', row.id)
+    }
+    await notifyOfficeOfPaymentProblem(admin, orgId, {
+      problem: 'dispute',
+      invoiceId: row.invoice_id,
+      amountCents: r.amount,
+      detail: `The dispute was lost: the bank took the money back. It is recorded as a negative payment and the invoice is open again for that amount.${paidOut ? ` The job was ${paidOut} — review commission (Payroll → Fix a mistake).` : ''}`,
+    })
   }
   if (problems > 0) {
     await notifyOfficeOfPaymentProblem(admin, orgId, { problem: 'needs_review', invoiceId: row.invoice_id, amountCents: previous, detail: 'A refund or dispute in Stripe could not be matched to this invoice in the CRM. Check the invoice.' })
     return 'needs_review'
   }
   return 'recorded'
+}
+
+/**
+ * Was this job's money already counted for pay? Collected / complete, or its commission is in a payroll week that is
+ * locked or paid. Returns the plain reason, or null. (Reading the payroll tables is best effort: a failure = not known.)
+ */
+async function jobAlreadyPaidOut(admin: SupabaseClient, orgId: string, jobId: string): Promise<string | null> {
+  const { data: job } = await orgDb(admin, orgId).from('production_jobs').select('status').eq('id', jobId).maybeSingle()
+  const status = (job as { status?: string } | null)?.status
+  // org-scope-ok: jobId is this company's job (its invoice was found in orgId); snapshots hang off it
+  const { data: snaps } = await admin.from('payroll_job_snapshots').select('payroll_period_id').eq('job_id', jobId)
+  const periodIds = ((snaps ?? []) as Array<{ payroll_period_id: string }>).map((x) => x.payroll_period_id)
+  if (periodIds.length > 0) {
+    const { data: periods } = await orgDb(admin, orgId).from('payroll_periods').select('status').in('id', periodIds)
+    if (((periods ?? []) as Array<{ status: string }>).some((p) => p.status === 'locked' || p.status === 'paid')) return 'already in an approved payroll week'
+  }
+  if (status === 'collected' || status === 'complete') return 'already collected'
+  return null
 }
 
 /** The currency the company takes (settings; US companies = usd). A payment in any other currency is never recorded. */
