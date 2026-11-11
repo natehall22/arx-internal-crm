@@ -15,6 +15,7 @@ import { loadOnlinePayments } from '@/lib/online-payments/accounts'
 import { cardExpired, cardLabel, loadCardOnFile } from '@/lib/online-payments/cards'
 import { isOrgFeatureOn } from '@/lib/org-features-server'
 import { BILLING_BASIS_LABELS, scheduleSummary, ymdInZone, type BillingBasis, type Season } from '@/lib/service-plans'
+import { customerVisitIds, loadCustomerVisitPhotos } from '@/lib/customer-visit-photos'
 import { loadPortalThread } from '@/lib/threads/portal-thread'
 import { orgDb } from '@/lib/supabase/org-db'
 import type { PortalSession } from '@/lib/portal/server'
@@ -155,14 +156,8 @@ export async function loadPortalHome(admin: SupabaseClient, s: PortalSession): P
     for (const part of chunk(ids.jobIds)) {
       for (const r of await soft<DocRow>('job documents', () => base().in('job_id', part))) if (!documents.some((d) => d.id === r.id)) documents.push({ id: r.id, title: r.title || r.filename, kind: 'document', date: r.created_at })
     }
-    const photoCols = 'id, caption, filename, created_at'
-    type PhotoRow = { id: string; caption: string | null; filename: string; created_at: string }
-    const photoBase = () => db.from('photos').select(photoCols).eq('shared_with_customer', true).is('deleted_at', null).order('created_at', { ascending: false }).limit(MAX.documents)
-    for (const part of chunk(ids.jobIds)) for (const r of await soft<PhotoRow>('job photos', () => photoBase().in('job_id', part))) documents.push({ id: r.id, title: r.caption || r.filename, kind: 'photo', date: r.created_at })
-    if (planIds.length) {
-      const woIds = (await soft<{ id: string }>('visit ids', () => db.from('work_orders').select('id').in('service_plan_id', planIds).order('scheduled_date', { ascending: false }).limit(300))).map((r) => r.id)
-      for (const part of chunk(woIds)) for (const r of await soft<PhotoRow>('visit photos', () => photoBase().in('work_order_id', part))) if (!documents.some((d) => d.id === r.id)) documents.push({ id: r.id, title: r.caption || r.filename, kind: 'photo', date: r.created_at })
-    }
+    // Photos: this customer's own service visits only (the rule shared with the "done" email page).
+    for (const r of await loadCustomerVisitPhotos(admin, orgId, await customerVisitIds(admin, orgId, customerId), { limit: MAX.documents })) documents.push({ id: r.id, title: r.caption || r.filename || 'Visit photo', kind: 'photo', date: r.created_at })
     documents.sort((a, b) => b.date.localeCompare(a.date))
     documents.length = Math.min(documents.length, MAX.documents)
   }
@@ -219,21 +214,14 @@ export async function findPortalInvoice(admin: SupabaseClient, s: PortalSession,
 /** A shared document or photo of THIS customer: its storage path, or null. */
 export async function findPortalFile(admin: SupabaseClient, s: PortalSession, kind: 'document' | 'photo', id: string): Promise<{ storagePath: string; filename: string } | null> {
   if (!/^[0-9A-Za-z_-]{1,64}$/.test(id)) return null
-  const db = orgDb(admin, s.orgId)
-  const ids = await ownIds(admin, s.orgId, s.customerId)
   if (kind === 'document') {
+    const db = orgDb(admin, s.orgId)
+    const ids = await ownIds(admin, s.orgId, s.customerId)
     const { data } = await db.from('documents').select('storage_path, filename, customer_id, job_id').eq('id', id).eq('shared_with_customer', true).eq('status', 'active').is('deleted_at', null).maybeSingle()
     const d = data as { storage_path: string; filename: string; customer_id: string | null; job_id: string | null } | null
     if (!d || !(d.customer_id === s.customerId || (d.job_id && ids.jobIds.includes(d.job_id)))) return null
     return { storagePath: d.storage_path, filename: d.filename }
   }
-  const { data } = await db.from('photos').select('storage_path, filename, job_id, work_order_id').eq('id', id).eq('shared_with_customer', true).is('deleted_at', null).maybeSingle()
-  const p = data as { storage_path: string; filename: string; job_id: string | null; work_order_id: string | null } | null
-  if (!p) return null
-  let mine = !!p.job_id && ids.jobIds.includes(p.job_id)
-  if (!mine && p.work_order_id && ids.plans.length) {
-    const { data: w } = await db.from('work_orders').select('id').eq('id', p.work_order_id).in('service_plan_id', ids.plans.map((x) => x.id)).maybeSingle()
-    mine = !!w
-  }
-  return mine ? { storagePath: p.storage_path, filename: p.filename } : null
+  const [p] = await loadCustomerVisitPhotos(admin, s.orgId, await customerVisitIds(admin, s.orgId, s.customerId), { limit: 1, photoId: id })
+  return p ? { storagePath: p.storage_path, filename: p.filename || 'photo' } : null
 }

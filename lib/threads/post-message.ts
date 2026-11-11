@@ -327,6 +327,7 @@ export async function postCustomerMessage(admin: SupabaseClient, p: CustomerPort
       mentioned_user_ids: [],
       client_id: p.clientId ?? null,
       source: 'customer_portal',
+      created_at: new Date().toISOString(),
     })
     .select('id, created_at')
     .single()

@@ -6,13 +6,13 @@ import { threadAuth } from '@/lib/threads/api'
 
 export const dynamic = 'force-dynamic'
 
-/** PATCH { kind: 'document' | 'photo', id, shared } — staff: show (or stop showing) one file in the customer's portal. */
+/** PATCH { id, shared } — staff: show (or stop showing) one document in the customer's portal. */
 export async function PATCH(request: Request) {
   if (crossSiteWrite(request)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   const ctx = await threadAuth()
   if (ctx instanceof NextResponse) return ctx
-  const b = (await request.json().catch(() => ({}))) as { kind?: unknown; id?: unknown; shared?: unknown }
-  if ((b.kind !== 'document' && b.kind !== 'photo') || typeof b.shared !== 'boolean') return NextResponse.json({ error: 'Bad request' }, { status: 400 })
-  const r = await setSharedWithCustomer(ctx.admin, ctx.viewer, b.kind, String(b.id ?? ''), b.shared)
+  const b = (await request.json().catch(() => ({}))) as { id?: unknown; shared?: unknown }
+  if (typeof b.shared !== 'boolean') return NextResponse.json({ error: 'Bad request' }, { status: 400 })
+  const r = await setSharedWithCustomer(ctx.admin, ctx.viewer, String(b.id ?? ''), b.shared)
   return r.ok ? NextResponse.json({ shared: r.shared }) : NextResponse.json({ error: r.error }, { status: r.status })
 }

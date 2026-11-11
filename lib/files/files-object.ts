@@ -262,10 +262,11 @@ export function customerSignedDocLinkForPage(kind: SignedDocKind, token: string)
 export async function signFilesObject(
   admin: SupabaseClient,
   path: string,
-  ttlSeconds: number = FILES_SIGNED_URL_TTL_SECONDS
+  ttlSeconds: number = FILES_SIGNED_URL_TTL_SECONDS,
+  options?: { download?: boolean }
 ): Promise<string | null> {
   if (!isSafeFilesPath(path)) return null
-  const { data, error } = await admin.storage.from(FILES_OBJECT_BUCKET).createSignedUrl(path, ttlSeconds)
+  const { data, error } = await admin.storage.from(FILES_OBJECT_BUCKET).createSignedUrl(path, ttlSeconds, options?.download ? { download: true } : undefined)
   if (error || !data?.signedUrl) return null
   return data.signedUrl
 }

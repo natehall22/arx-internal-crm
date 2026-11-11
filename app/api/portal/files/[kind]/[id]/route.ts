@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 
-import { FILES_BUCKET } from '@/lib/files/storage'
+import { signFilesObject } from '@/lib/files/files-object'
 import { PORTAL_NO_STORE, portalJson, requirePortalApi } from '@/lib/portal/api'
 import { findPortalFile } from '@/lib/portal/data'
 
@@ -14,7 +14,8 @@ export async function GET(request: Request, { params }: { params: { kind: string
   const kind = params.kind === 'photo' ? 'photo' : params.kind === 'document' ? 'document' : null
   const file = kind ? await findPortalFile(c.admin, c.session, kind, params.id) : null
   if (!file) return portalJson({ error: 'Not found' }, 404)
-  const { data, error } = await c.admin.storage.from(FILES_BUCKET).createSignedUrl(file.storagePath, 60 * 10, { download: kind === 'document' })
-  if (error || !data?.signedUrl) return portalJson({ error: 'Not found' }, 404)
-  return NextResponse.redirect(data.signedUrl, { status: 302, headers: PORTAL_NO_STORE })
+  // signFilesObject refuses an unsafe path (traversal, encoded dots) before anything is signed.
+  const url = await signFilesObject(c.admin, file.storagePath, 60 * 10, { download: kind === 'document' })
+  if (!url) return portalJson({ error: 'Not found' }, 404)
+  return NextResponse.redirect(url, { status: 302, headers: PORTAL_NO_STORE })
 }

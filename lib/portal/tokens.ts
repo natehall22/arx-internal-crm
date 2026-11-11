@@ -4,7 +4,8 @@
  */
 import { createHash, randomBytes } from 'crypto'
 
-export const PORTAL_COOKIE = 'portal_session'
+/** `__Host-` in production: the browser then only accepts it Secure, on this exact host, path /, no Domain. (Plain over http in development.) */
+export const PORTAL_COOKIE = process.env.NODE_ENV === 'production' ? '__Host-portal_session' : 'portal_session'
 /** A sign-in link works once, for this long. */
 export const LOGIN_LINK_MINUTES = 20
 export const SESSION_DAYS = 14
@@ -25,6 +26,11 @@ export function isWellFormedPortalToken(token: unknown): token is string {
 /** Keyed hash of an address / identifier for the audit log and rate limits (never the raw value). */
 export function opaqueKey(orgId: string, value: string): string {
   return createHash('sha256').update(`${orgId}|${value}`, 'utf8').digest('hex').slice(0, 32)
+}
+
+/** The customer's email as the portal tells it apart: a session / link is tied to this, so changing the address on file ends them. */
+export function customerEmailKey(orgId: string, email: string | null | undefined): string {
+  return opaqueKey(orgId, `email:${(email ?? '').trim().toLowerCase()}`)
 }
 
 export type PortalIdentifier = { kind: 'email'; email: string } | { kind: 'phone'; phone10: string }

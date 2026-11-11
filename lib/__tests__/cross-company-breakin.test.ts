@@ -718,13 +718,13 @@ describe('middleware + route: company web address', () => {
  * body) and with another customer's of the SAME company, and A's address / A's links are tried with B's session.
  */
 describe('customer portal: B1 cannot see A1 (same company or another)', () => {
-  const { hashPortalToken } = require(join(ROOT, 'lib/portal/tokens.ts')) as typeof import('@/lib/portal/tokens')
+  const { hashPortalToken, customerEmailKey } = require(join(ROOT, 'lib/portal/tokens.ts')) as typeof import('@/lib/portal/tokens')
   const TOKEN = 'p'.repeat(43)
   const B2 = '0b0b0b0b-0000-4000-8000-0000000000b2' // a second customer of company B
   const future = new Date(Date.now() + 86_400_000).toISOString()
   const world = () => {
     mockWorld = createWorld(TABLES, ORG_TABLES, 'admin', undefined, (seed) => {
-      seed.portal_sessions = [{ id: 'sess-b1', org_id: ORG_B, customer_id: BRAVO_ROW_ID, token_hash: hashPortalToken(TOKEN), expires_at: future, revoked_at: null, last_seen_at: new Date().toISOString() }]
+      seed.portal_sessions = [{ id: 'sess-b1', org_id: ORG_B, customer_id: BRAVO_ROW_ID, token_hash: hashPortalToken(TOKEN), email_key: customerEmailKey(ORG_B, String(((seed.customers ?? []).find((c) => c.id === BRAVO_ROW_ID) as { email?: unknown } | undefined)?.email ?? '')), expires_at: future, revoked_at: null, last_seen_at: new Date().toISOString() }]
       seed.customers = [...(seed.customers ?? []), { id: B2, org_id: ORG_B, name: 'Bravo Two', email: 'two@bravo.test', phone: null }]
       seed.job_invoices = [...(seed.job_invoices ?? []), { id: 'b2b2b2b2-0000-4000-8000-0000000000e2', org_id: ORG_B, customer_id: B2, job_id: null, invoice_number: 'INV-B2', status: 'sent', total_cents: 700, created_at: new Date().toISOString() }]
       seed.documents = [...(seed.documents ?? []), { id: 'b2b2b2b2-0000-4000-8000-0000000000d2', org_id: ORG_B, customer_id: B2, job_id: null, title: 'Bravo Two private', filename: 'two.pdf', storage_path: 'org/b/two.pdf', shared_with_customer: true, status: 'active', deleted_at: null, created_at: new Date().toISOString() }]
@@ -793,9 +793,9 @@ describe('customer portal: B1 cannot see A1 (same company or another)', () => {
     as('bravo.crm.test', TOKEN)
     const m = await call(MSG, 'POST', 'bravo.crm.test', '/api/portal/messages', {}, { body: 'hello', customer_id: VICTIM_ID, org_id: ORG_A, customerId: VICTIM_ID })
     expect(m.status).toBe(200)
-    const rows = mockWorld.db.tables.portal_messages.filter((r) => r.body === 'hello')
+    const rows = mockWorld.db.tables.activities.filter((r) => r.body === 'hello')
     expect(rows).toHaveLength(1)
-    expect(rows[0]).toMatchObject({ org_id: ORG_B, customer_id: BRAVO_ROW_ID, direction: 'from_customer' })
+    expect(rows[0]).toMatchObject({ org_id: ORG_B, customer_id: BRAVO_ROW_ID, origin: 'customer_portal', audience: 'team' })
     for (const action of ['autopay_off', 'remove', 'save']) await call(CARD, 'POST', 'bravo.crm.test', '/api/portal/card', {}, { action, customer_id: VICTIM_ID, org_id: ORG_A })
     expect(findings(mockWorld, m.text)).toEqual([])
     expect(mockWorld.readsOfA).toEqual([])
@@ -815,7 +815,7 @@ describe('customer portal: B1 cannot see A1 (same company or another)', () => {
       const r = await call(file, method, 'alpha.crm.test', url, params as Record<string, string>, body)
       expect([file, r.status]).toEqual([file, 401])
     }
-    expect(mockWorld.db.tables.portal_messages.filter((r) => r.body === 'hi')).toEqual([])
+    expect(mockWorld.db.tables.activities.filter((r) => r.body === 'hi')).toEqual([])
     expect(findings(mockWorld, '')).toEqual([])
   })
 
@@ -823,7 +823,7 @@ describe('customer portal: B1 cannot see A1 (same company or another)', () => {
     world()
     const link = 'r'.repeat(43)
     const t = mockWorld.db.tables as Record<string, Array<Record<string, unknown>>>
-    ;(t.portal_login_tokens ??= []).push({ id: 'lt-a', org_id: ORG_A, customer_id: VICTIM_ID, token_hash: hashPortalToken(link), expires_at: new Date(Date.now() + 600_000).toISOString(), used_at: null })
+    ;(t.portal_login_tokens ??= []).push({ id: 'lt-a', org_id: ORG_A, customer_id: VICTIM_ID, token_hash: hashPortalToken(link), sent_to: String(((t.customers ?? []).find((c) => c.id === VICTIM_ID) as { email?: unknown } | undefined)?.email ?? ''), expires_at: new Date(Date.now() + 600_000).toISOString(), used_at: null })
     as('bravo.crm.test', null)
     const fd = () => { const f = new FormData(); f.set('t', link); return f }
     const mod = require(join(ROOT, ENTER)) as { POST: (r: NextRequest) => Promise<Response> }

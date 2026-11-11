@@ -55,7 +55,7 @@ export default function CustomerDocumentsCard({
 
   async function toggleShared(id: string, shared: boolean) {
     setDocs((list) => list.map((d) => (d.id === id ? { ...d, shared_with_customer: shared } : d)))
-    const res = await fetch('/api/portal-sharing', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kind: 'document', id, shared }) }).catch(() => null)
+    const res = await fetch('/api/portal-sharing', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, shared }) }).catch(() => null)
     if (!res?.ok) {
       setDocs((list) => list.map((d) => (d.id === id ? { ...d, shared_with_customer: !shared } : d)))
       const data = (res ? await res.json().catch(() => ({})) : {}) as { error?: string }

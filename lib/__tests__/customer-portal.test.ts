@@ -44,7 +44,7 @@ jest.mock('@/lib/org-trades', () => ({ loadOrgTrades: async () => [], tradeLabel
 
 import { findPortalFile, findPortalInvoice, loadPortalHome } from '@/lib/portal/data'
 import {
-  consumeLoginLink, endPortalSession, getPortalSession, portalOrgForRequest, requestLoginLink, startPortalSession, PORTAL_LIMITS, type PortalSession,
+  consumeLoginLink, endPortalSession, revokeCustomerPortalAccess, getPortalSession, portalOrgForRequest, requestLoginLink, startPortalSession, PORTAL_LIMITS, type PortalSession,
 } from '@/lib/portal/server'
 import { hashPortalToken, isWellFormedPortalToken, newPortalToken, parsePortalIdentifier } from '@/lib/portal/tokens'
 import { POST as requestLinkPOST } from '@/app/api/portal/request-link/route'
@@ -91,10 +91,10 @@ function seed() {
       { id: 'plan-a2', org_id: A, customer_id: 'a2', name: 'Bob Mowing', status: 'active', property_id: 'prop-a2', seasons: [{ from: '04-01', to: '10-31', frequency: 'weekly' }], price: 40, billing_basis: 'per_visit', steps: [], description: 'INTERNAL-NOTE' },
     ],
     work_orders: [
-      { id: 'wo-a1', org_id: A, service_plan_id: 'plan-a1', scheduled_date: day(2), status: 'scheduled', trade: 'lawn', work_order_type: 'service_visit', property_id: 'prop-a1', service_price: 'CREW-COST' },
-      { id: 'wo-a2', org_id: A, service_plan_id: 'plan-a2', scheduled_date: day(3), status: 'scheduled', trade: 'lawn', work_order_type: 'service_visit', property_id: 'prop-a2', service_price: 'CREW-COST' },
-      { id: 'wo-a2-done', org_id: A, service_plan_id: 'plan-a2', scheduled_date: day(-3), status: 'completed', trade: 'lawn', work_order_type: 'service_visit', property_id: 'prop-a2' },
-      { id: 'wo-a2-skip', org_id: A, service_plan_id: 'plan-a2', scheduled_date: day(5), status: 'skipped', trade: 'lawn', work_order_type: 'service_visit', property_id: 'prop-a2' },
+      { id: 'wo-a1', org_id: A, customer_id: 'a1', service_plan_id: 'plan-a1', scheduled_date: day(2), status: 'scheduled', trade: 'lawn', work_order_type: 'service_visit', property_id: 'prop-a1', service_price: 'CREW-COST' },
+      { id: 'wo-a2', org_id: A, customer_id: 'a2', service_plan_id: 'plan-a2', scheduled_date: day(3), status: 'scheduled', trade: 'lawn', work_order_type: 'service_visit', property_id: 'prop-a2', service_price: 'CREW-COST' },
+      { id: 'wo-a2-done', org_id: A, customer_id: 'a2', service_plan_id: 'plan-a2', scheduled_date: day(-3), status: 'completed', trade: 'lawn', work_order_type: 'service_visit', property_id: 'prop-a2' },
+      { id: 'wo-a2-skip', org_id: A, customer_id: 'a2', service_plan_id: 'plan-a2', scheduled_date: day(5), status: 'skipped', trade: 'lawn', work_order_type: 'service_visit', property_id: 'prop-a2' },
     ],
     job_invoices: [
       inv('inv-a1', A, 'a1', null, 'INV-1'),
@@ -117,13 +117,24 @@ function seed() {
       { id: 'doc-b1', org_id: B, customer_id: 'b1', job_id: null, title: 'OTHER-CUSTOMER-SECRET', filename: 'b1.pdf', storage_path: 'B/b1.pdf', shared_with_customer: true, status: 'active', deleted_at: null, created_at: iso(-2) },
     ],
     photos: [
-      { id: 'ph-a2', org_id: A, job_id: null, work_order_id: 'wo-a2-done', caption: 'After mow', filename: 'x.jpg', storage_path: 'A/x.jpg', shared_with_customer: true, deleted_at: null, created_at: iso(-3) },
-      { id: 'ph-a2-private', org_id: A, job_id: null, work_order_id: 'wo-a2-done', caption: 'INTERNAL-NOTE', filename: 'y.jpg', storage_path: 'A/y.jpg', shared_with_customer: false, deleted_at: null, created_at: iso(-3) },
-      { id: 'ph-a1', org_id: A, job_id: null, work_order_id: 'wo-a1', caption: 'OTHER-CUSTOMER-SECRET', filename: 'z.jpg', storage_path: 'A/z.jpg', shared_with_customer: true, deleted_at: null, created_at: iso(-3) },
+      { id: 'ph-a2', org_id: A, job_id: null, work_order_id: 'wo-a2-done', caption: 'After mow', filename: 'x.jpg', mime_type: 'image/jpeg', storage_path: 'A/x.jpg', deleted_at: null, created_at: iso(-3) },
+      { id: 'ph-a2-deleted', org_id: A, job_id: null, work_order_id: 'wo-a2-done', caption: 'INTERNAL-NOTE', filename: 'y.jpg', mime_type: 'image/jpeg', storage_path: 'A/y.jpg', deleted_at: iso(-1), created_at: iso(-3) },
+      { id: 'ph-a2-pdf', org_id: A, job_id: null, work_order_id: 'wo-a2-done', caption: 'INTERNAL-NOTE', filename: 'y.pdf', mime_type: 'application/pdf', storage_path: 'A/y.pdf', deleted_at: null, created_at: iso(-3) },
+      { id: 'ph-a2-job', org_id: A, job_id: 'job-a2', work_order_id: null, caption: 'INTERNAL-NOTE', filename: 'job.jpg', mime_type: 'image/jpeg', storage_path: 'A/job.jpg', deleted_at: null, created_at: iso(-3) },
+      { id: 'ph-a1', org_id: A, job_id: null, work_order_id: 'wo-a1', caption: 'OTHER-CUSTOMER-SECRET', filename: 'z.jpg', mime_type: 'image/jpeg', storage_path: 'A/z.jpg', deleted_at: null, created_at: iso(-3) },
     ],
-    portal_messages: [
-      { id: 'm-a1', org_id: A, customer_id: 'a1', direction: 'from_customer', body: 'OTHER-CUSTOMER-SECRET', created_at: iso(-1) },
-      { id: 'm-a2', org_id: A, customer_id: 'a2', direction: 'from_company', body: 'See you Tuesday', created_at: iso(-1) },
+    threads: [],
+    activities: [
+      { id: 'm-a2-in', org_id: A, customer_id: 'a2', opportunity_id: 'opp-a2', type: 'text', origin: 'customer_portal', audience: 'team', user_id: null, body: 'Is Tuesday ok?', deleted_at: null, created_at: iso(-2) },
+      { id: 'm-a2', org_id: A, customer_id: 'a2', opportunity_id: 'opp-a2', type: 'note', origin: 'human', audience: 'customer', user_id: 'staff-1', body: 'See you Tuesday', deleted_at: null, created_at: iso(-1) },
+      { id: 'n1', org_id: A, customer_id: 'a2', opportunity_id: 'opp-a2', type: 'note', origin: 'human', audience: 'team', user_id: 'staff-1', body: 'INTERNAL-NOTE team', deleted_at: null, created_at: iso(-1) },
+      { id: 'n2', org_id: A, customer_id: 'a2', opportunity_id: 'opp-a2', type: 'note', origin: 'human', audience: 'sales', user_id: 'staff-1', body: 'INTERNAL-NOTE sales', deleted_at: null, created_at: iso(-1) },
+      { id: 'n3', org_id: A, customer_id: 'a2', opportunity_id: 'opp-a2', type: 'note', origin: 'human', audience: 'production', user_id: 'staff-1', body: 'INTERNAL-NOTE production', deleted_at: null, created_at: iso(-1) },
+      { id: 'n4', org_id: A, customer_id: 'a2', opportunity_id: 'opp-a2', type: 'note', origin: 'human', audience: null, user_id: 'staff-1', body: 'INTERNAL-NOTE legacy', deleted_at: null, created_at: iso(-1) },
+      { id: 'n5', org_id: A, customer_id: 'a2', opportunity_id: 'opp-a2', type: 'call', origin: 'human', audience: 'team', user_id: 'staff-1', body: 'INTERNAL-NOTE call', deleted_at: null, created_at: iso(-1) },
+      { id: 'n6', org_id: A, customer_id: 'a2', opportunity_id: 'opp-a2', type: 'note', origin: 'human', audience: 'customer', user_id: 'staff-1', body: 'INTERNAL-NOTE removed', deleted_at: iso(-1), created_at: iso(-1) },
+      { id: 'm-a1', org_id: A, customer_id: 'a1', opportunity_id: 'opp-a1', type: 'text', origin: 'customer_portal', audience: 'team', user_id: null, body: 'OTHER-CUSTOMER-SECRET', deleted_at: null, created_at: iso(-1) },
+      { id: 'm-a1-reply', org_id: A, customer_id: 'a1', opportunity_id: 'opp-a1', type: 'note', origin: 'human', audience: 'customer', user_id: 'staff-1', body: 'OTHER-CUSTOMER-SECRET', deleted_at: null, created_at: iso(-1) },
     ],
     payment_links: [],
   }
@@ -261,7 +272,7 @@ describe('asking for a link', () => {
 describe('the link: once, on its own company address', () => {
   async function linkFor(org: string, cust: string) {
     const t = newPortalToken()
-    ;(db.tables.portal_login_tokens ??= []).push({ id: `t-${t.slice(0, 4)}`, org_id: org, customer_id: cust, token_hash: hashPortalToken(t), expires_at: iso(0.01), used_at: null })
+    ;(db.tables.portal_login_tokens ??= []).push({ id: `t-${t.slice(0, 4)}`, org_id: org, customer_id: cust, token_hash: hashPortalToken(t), sent_to: String(db.tables.customers.find((c) => c.id === cust)?.email ?? ''), expires_at: iso(0.01), used_at: null })
     return t
   }
   test('works once; a second use fails', async () => {
@@ -302,7 +313,7 @@ describe('the link: once, on its own company address', () => {
 describe('sessions', () => {
   test('scoped to one customer of one company; the cookie holds only the random token', async () => {
     const s = await sessionFor(A, 'a2')
-    expect(s).toMatchObject({ orgId: A, customerId: 'a2', full: true })
+    expect(s).toMatchObject({ orgId: A, customerId: 'a2' })
     expect(JSON.stringify(db.tables.portal_sessions)).not.toContain(mockCookie as string)
   })
   test('refused on another company address, expired, revoked, feature off, customer gone, junk cookie', async () => {
@@ -347,7 +358,7 @@ describe('isolation: customer a2 sees only a2', () => {
     expect(home.contracts.map((c) => c.id)).toEqual(['c-a2'])
     expect(home.documents.map((d) => d.id).sort()).toEqual(['doc-a2', 'doc-a2-job', 'ph-a2'])
     expect(home.plans.map((p) => p.id)).toEqual(['plan-a2'])
-    expect(home.messages.map((m) => m.id)).toEqual(['m-a2'])
+    expect(home.messages.map((m) => [m.id, m.fromCustomer])).toEqual([['m-a2-in', true], ['m-a2', false]])
     const all = JSON.stringify(home)
     for (const marker of SECRET_MARKERS) expect(all).not.toContain(marker)
     for (const id of ['a1', 'b1', 'inv-a1', 'inv-b1', 'c-a1', 'c-b1', 'doc-a1', 'doc-b1', 'ph-a1', 'plan-a1', 'wo-a1', 'm-a1', 'Alice', 'Bea']) expect(all).not.toContain(id)
@@ -365,7 +376,7 @@ describe('isolation: customer a2 sees only a2', () => {
     for (const id of ['inv-a1', 'inv-b1', 'inv-a2-draft', 'nope', '../x']) expect(await findPortalInvoice(admin(), s, id)).toBeNull()
     expect(await findPortalInvoice(admin(), s, 'inv-a2')).toMatchObject({ id: 'inv-a2' })
     expect(await findPortalInvoice(admin(), s, 'inv-a2-job')).toMatchObject({ job_id: 'job-a2' })
-    for (const [k, id] of [['document', 'doc-a1'], ['document', 'doc-b1'], ['document', 'doc-a2-private'], ['photo', 'ph-a1'], ['photo', 'ph-a2-private'], ['document', 'ph-a2'], ['photo', 'doc-a2']] as const) {
+    for (const [k, id] of [['document', 'doc-a1'], ['document', 'doc-b1'], ['document', 'doc-a2-private'], ['photo', 'ph-a1'], ['photo', 'ph-a2-deleted'], ['photo', 'ph-a2-pdf'], ['photo', 'ph-a2-job'], ['document', 'ph-a2'], ['photo', 'doc-a2']] as const) {
       expect(await findPortalFile(admin(), s, k, id)).toBeNull()
     }
     expect(await findPortalFile(admin(), s, 'document', 'doc-a2')).toEqual({ storagePath: 'A/a2.pdf', filename: 'a2.pdf' })
@@ -391,12 +402,14 @@ describe('isolation: customer a2 sees only a2', () => {
     expect((await payPOST(post('/api/portal/invoices/inv-a2/pay', {}), { params: { id: 'inv-a2' } })).status).toBe(401)
     expect((await messagesPOST(post('/api/portal/messages', { body: 'hi' }))).status).toBe(401)
   })
-  test('a message is saved for the portal customer only (a body naming another customer is ignored) and the company is emailed', async () => {
+  test('a message is written to the customer’s own thread (postCustomerMessage) for the portal customer only (a body naming another customer is ignored) and the company is emailed', async () => {
     await sessionFor(A, 'a2')
     const r = await messagesPOST(post('/api/portal/messages', { body: '  Can you come Friday?  ', customer_id: 'a1', org_id: B, direction: 'from_company' }))
     expect(r.status).toBe(200)
-    const row = db.tables.portal_messages.find((m) => m.body === 'Can you come Friday?')!
-    expect(row).toMatchObject({ org_id: A, customer_id: 'a2', direction: 'from_customer' })
+    const row = db.tables.activities.find((m) => m.body === 'Can you come Friday?')!
+    expect(row).toMatchObject({ org_id: A, customer_id: 'a2', opportunity_id: 'opp-a2', origin: 'customer_portal', audience: 'team', user_id: null, type: 'text' })
+    // staff read it in the Customer File thread like any team message; the customer's own thread shows it back to them
+    expect((await loadPortalHome(admin(), (await getPortalSession(admin()))!))!.messages.map((m) => m.body)).toContain('Can you come Friday?')
     expect(mails.some((m) => m.to === 'office@green.test' && m.subject.includes('Bob Two'))).toBe(true)
     expect((await messagesPOST(post('/api/portal/messages', { body: '   ' }))).status).toBe(400)
     expect((await messagesPOST(post('/api/portal/messages', { body: 'x'.repeat(2001) }))).status).toBe(400)
@@ -433,5 +446,39 @@ describe('forwardable links are never a key to the portal', () => {
     db.tables.portal_login_tokens = [{ id: 'x', org_id: A, customer_id: 'a2', token_hash: hashPortalToken(t), expires_at: iso(1), used_at: null }]
     const e = await enterPOST(form('/api/portal/enter', { t }))
     expect(e.headers.get('set-cookie')).toBeNull()
+  })
+})
+
+describe('a changed email or a staff sign-out ends portal access', () => {
+  test('changing the email on file ends every open session and kills links sent to the old address', async () => {
+    const s1 = await sessionFor(A, 'a2')
+    expect(await getPortalSession(admin())).not.toBeNull()
+    const link = newPortalToken()
+    db.tables.portal_login_tokens = [{ id: 'old', org_id: A, customer_id: 'a2', token_hash: hashPortalToken(link), sent_to: 'Bob@x.test', expires_at: iso(1), used_at: null }]
+    db.tables.customers.find((c) => c.id === 'a2')!.email = 'new@x.test'
+    expect(await getPortalSession(admin())).toBeNull()
+    expect(await consumeLoginLink(admin(), link, A)).toBeNull()
+    expect(db.tables.portal_login_tokens[0].used_at).toBeNull() // not burned by the wrong-address refusal
+    void s1
+  })
+  test('a different casing of the same email changes nothing', async () => {
+    await sessionFor(A, 'a2')
+    db.tables.customers.find((c) => c.id === 'a2')!.email = '  BOB@x.TEST '
+    expect(await getPortalSession(admin())).not.toBeNull()
+  })
+  test('staff “Sign out of portal” revokes only that customer’s sessions and unused links', async () => {
+    await sessionFor(A, 'a2')
+    const tokA1 = newPortalToken()
+    db.tables.portal_login_tokens = [
+      { id: 't-a2', org_id: A, customer_id: 'a2', token_hash: hashPortalToken(newPortalToken()), sent_to: 'Bob@x.test', expires_at: iso(1), used_at: null },
+      { id: 't-a1', org_id: A, customer_id: 'a1', token_hash: hashPortalToken(tokA1), sent_to: 'alice@x.test', expires_at: iso(1), used_at: null },
+    ]
+    const other = (await startPortalSession(admin(), A, 'a1')).token
+    await revokeCustomerPortalAccess(admin(), A, 'a2')
+    expect(await getPortalSession(admin())).toBeNull()
+    expect(db.tables.portal_login_tokens.find((t) => t.id === 't-a2')!.used_at).not.toBeNull()
+    expect(db.tables.portal_login_tokens.find((t) => t.id === 't-a1')!.used_at).toBeNull()
+    mockCookie = other
+    expect(await getPortalSession(admin())).not.toBeNull()
   })
 })
