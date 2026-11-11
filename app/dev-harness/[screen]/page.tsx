@@ -74,6 +74,8 @@ import GeneralSettingsCard, { type GeneralSettingsValues } from '@/components/ad
 import { DEFAULT_TIMEZONE } from '@/lib/timezone'
 import JobCatchUpSettingsCard from '@/components/admin/JobCatchUpSettingsCard'
 import OrgFeaturesCard from '@/components/admin/OrgFeaturesCard'
+import OrgProfileCard from '@/components/admin/OrgProfileCard'
+import { INDUSTRY_PROFILE_IDS, INDUSTRY_PROFILES } from '@/lib/industry-profiles'
 import { HARNESS_CATCH_UP_JOBS, HARNESS_CATCH_UP_STUCK, HARNESS_VIEWER_ID } from '@/e2e/fixtures'
 
 function GeneralSettingsHarness({ canEditBrand }: { canEditBrand: boolean }) {
@@ -219,6 +221,15 @@ export default function Harness({ params }: { params: { screen: string } }) {
       return (
         <div className="mx-auto max-w-2xl p-4">
           <OrgFeaturesCard initial={{ canvassing: false, insurance: false, roofMeasure: true, incentives: false, stormAlerts: false, squaresPricing: true }} />
+        </div>
+      )
+    case 'org-profile':
+      return (
+        <div className="mx-auto max-w-2xl p-4">
+          <OrgProfileCard
+            current={{ id: 'roofing', label: INDUSTRY_PROFILES.roofing.label, description: INDUSTRY_PROFILES.roofing.description }}
+            profiles={INDUSTRY_PROFILE_IDS.map((id) => ({ id, label: INDUSTRY_PROFILES[id].label, description: INDUSTRY_PROFILES[id].description }))}
+          />
         </div>
       )
     case 'job-page':
