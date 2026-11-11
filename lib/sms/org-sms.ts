@@ -129,13 +129,13 @@ export async function findOrgByNumber(admin: SupabaseClient, e164: string): Prom
 export function smsNotReadyReason(row: OrgSmsRow | null): string | null {
   if (!row) return 'Your texting number isn’t set up yet (Settings → Texting).'
   if (!row.e164) return 'Your texting number isn’t set up yet (Settings → Texting).'
-  if (row.status !== 'active') return `Texting isn’t ready yet: ${SMS_STATUS_TEXT[row.status].toLowerCase()}.`
+  if (row.status !== 'active') return `Texting isn’t ready yet: ${(SMS_STATUS_TEXT[row.status] ?? 'not active').toLowerCase()}.`
   return null
 }
 
 export async function saveRegistration(admin: SupabaseClient, orgId: string, set: Registration, userId: string | null): Promise<{ ok: true } | { ok: false; error: string }> {
   const current = await loadOrgSms(admin, orgId)
-  const merged = { ...(current?.registration ?? {}), ...set }
+  const merged: Record<string, unknown> = { ...(current?.registration ?? {}), ...set }
   // An empty string clears a field.
   for (const k of Object.keys(merged)) if (merged[k] === '') delete merged[k]
   const status: SmsStatus = current?.status && current.status !== 'not_started' ? current.status : registrationMissing(merged).length === 0 ? 'details_saved' : 'not_started'

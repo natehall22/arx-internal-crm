@@ -1,3 +1,4 @@
+/** @jest-environment node */
 /**
  * Texts through the one send door (deliver) on a fake database: consent, opt-out, quiet hours across DST, the caps, one
  * text per key, the first-text STOP line, unknown outcomes, bad numbers and the STOP answer.
@@ -135,7 +136,7 @@ describe('staff text', () => {
     expect((await sendStaffText(admin(off), ORG, 'c1', 'a1', 'u1', NOON)).status).toBe('off')
     const none = seed({ org_sms: [] })
     expect((await sendStaffText(admin(none), ORG, 'c1', 'a1', 'u1', NOON)).status).toBe('not_ready')
-    const pending = seed({ org_sms: [{ org_id: ORG, e164: '+18505550199', status: 'registering', daily_cap: 300, registration: {} }] })
+    const pending = seed({ org_sms: [{ org_id: ORG, e164: '+18505550199', status: 'brand_pending', daily_cap: 300, registration: {} }] })
     expect((await sendStaffText(admin(pending), ORG, 'c1', 'a1', 'u1', NOON)).status).toBe('not_ready')
     expect(testSmsOutbox()).toHaveLength(0)
   })

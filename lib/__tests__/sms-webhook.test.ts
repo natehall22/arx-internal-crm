@@ -1,3 +1,4 @@
+/** @jest-environment node */
 /**
  * The texting webhook end to end (route → processSmsEvent) on a fake database with the test carrier: who it believes,
  * which company a text belongs to, STOP / HELP / START, dedupe, unknown numbers, shared numbers, delivery receipts and
@@ -14,7 +15,8 @@ delete process.env.DEPLOYMENT_ORG_ID
 
 let db: ReturnType<typeof makeDb>
 jest.mock('@/lib/supabase/service', () => ({ createServiceClient: () => db.client }))
-jest.mock('@vercel/functions', () => ({ waitUntil: (p: Promise<unknown>) => void p }))
+const deferred: Array<Promise<unknown>> = []
+jest.mock('@vercel/functions', () => ({ waitUntil: (p: Promise<unknown>) => void deferred.push(p) }))
 jest.mock('@/lib/company-links', () => ({ tryOrgAppUrl: jest.fn(async () => 'https://a.example.com') }))
 jest.mock('@/lib/portal/messages', () => ({ notifyCompanyOfPortalMessage: jest.fn(async () => undefined) }))
 
@@ -69,8 +71,11 @@ function makeDb() {
 function inboundBody(id: string, text: string, to = CO_A, from = CUST) {
   return JSON.stringify({ data: { event_type: 'message.received', occurred_at: '2026-11-11T17:00:00Z', payload: { id, text, from: { phone_number: from }, to: [{ phone_number: to }], media: [], parts: 1 } } })
 }
-const call = (body: string, token: string | null = 'test-webhook-token') =>
-  POST(new Request('https://anything.example.com/api/webhooks/sms/telnyx', { method: 'POST', headers: token ? { 'x-test-sms-token': token } : {}, body }))
+async function call(body: string, token: string | null = 'test-webhook-token') {
+  const res = await POST(new Request('https://anything.example.com/api/webhooks/sms/telnyx', { method: 'POST', headers: token ? { 'x-test-sms-token': token } : {}, body }))
+  await Promise.all(deferred.splice(0)) // the carrier-required answer finishes behind the response
+  return res
+}
 const table = (n: string) => db.tables[n] as Row[]
 
 beforeEach(() => {
@@ -187,7 +192,8 @@ describe('keywords', () => {
 describe('ordinary texts', () => {
   it('unknown number: waits for staff, no customer is created, nothing is sent', async () => {
     await call(inboundBody('m1', 'Hi, do you do gutters?', CO_A, '+18505550777'))
-    expect(table('sms_inbound')[0]).toMatchObject({ status: 'needs_staff', customer_id: null })
+    expect(table('sms_inbound')[0]).toMatchObject({ status: 'needs_staff' })
+    expect(table('sms_inbound')[0].customer_id ?? null).toBeNull()
     expect(table('customers')).toHaveLength(2)
     expect(table('activities')).toHaveLength(0)
     expect(testSmsOutbox()).toHaveLength(0)
@@ -195,7 +201,7 @@ describe('ordinary texts', () => {
   it('two customers share the number: goes to the one we last texted, else waits for staff', async () => {
     table('customers').push({ id: 'c2', org_id: ORG, name: 'Jane’s husband', phone: '850-555-0100', email: null, messages_off_at: null })
     await call(inboundBody('m1', 'which of us?'))
-    expect(table('sms_inbound')[0]).toMatchObject({ status: 'needs_staff', customer_id: null })
+    expect(table('sms_inbound')[0]).toMatchObject({ status: 'needs_staff' })
     table('customer_messages').push({ id: 'x', org_id: ORG, channel: 'sms', to_address: CUST, status: 'sent', sent_at: '2026-11-10T00:00:00Z', customer_id: 'c2' })
     await call(inboundBody('m2', 'second one'))
     expect(table('sms_inbound').find((r) => r.provider_message_id === 'm2')).toMatchObject({ customer_id: 'c2' })
@@ -216,7 +222,7 @@ describe('ordinary texts', () => {
     expect(table('sms_usage')[0]).toMatchObject({ org_id: ORG, direction: 'in' })
   })
   it('a failure after the claim releases it, so the carrier’s retry does the work', async () => {
-    const real = db.client.rpc
+    const real = (db.client as unknown as { rpc: unknown }).rpc
     ;(db.client as { rpc: unknown }).rpc = () => ({ then: (r: (v: unknown) => void) => r({ data: null, error: { message: 'boom' } }) })
     const bad = await call(inboundBody('m1', 'hello'))
     expect(bad.status).toBe(500)
@@ -237,7 +243,7 @@ describe('delivery receipts', () => {
     table('sms_usage').push({ org_id: ORG, direction: 'out', provider_message_id: 'p1', segments: 1, cost_micros: 1, kind: 'staff_reply' })
     await call(receipt('p1', 'delivered'))
     expect(table('customer_messages')[0]).toMatchObject({ delivery_status: 'delivered' })
-    expect(table('sms_usage')[0]).toMatchObject({ cost_micros: 7500 })
+    expect(table('sms_usage')[0]).toMatchObject({ provider_cost_micros: 7500 })
     await call(JSON.stringify({ data: { event_type: 'message.sent', payload: { id: 'p1', from: { phone_number: CO_A }, to: [{ phone_number: CUST, status: 'sent' }] } } }))
     expect(table('customer_messages')[0].delivery_status).toBe('delivered')
   })

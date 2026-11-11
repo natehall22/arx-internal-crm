@@ -1,7 +1,8 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui'
+import { formatDateShort } from '@/lib/format'
 import type { CustomerTextingState } from '@/lib/sms/customer-state'
 
-const day = (iso: string): string => new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+const day = (iso: string): string => formatDateShort(iso)
 
 /** Customer File → Texting: can we text them, the proof of their OK, and the last texts. Read-only (server rendered). */
 export default function TextingCard({ state }: { state: CustomerTextingState }) {

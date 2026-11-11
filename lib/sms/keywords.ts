@@ -27,14 +27,14 @@ export function normalizeKeyword(text: string): string {
 
 const FILLER = '(?:please |pls |plz |kindly |just |now |i said |i said to |i want you to |i need you to |you need to |you must |can you |could you |would you |will you )*'
 const TEXT_NOUN = "(?:text|texts|texting|textings|message|messages|messaging|sms|sending|contacting|reminders?|notifications?|alerts?)"
-const TAIL = '(?: me| us| my phone| my number| this number| these| those| them| all| now| already| again| anymore| any more| please| pls| thanks| thank you)*'
+const TAIL = `(?: me| us| my phone| my number| this number| these| those| them| all| now| already| again| anymore| any more| please| pls| thanks| thank you| ${TEXT_NOUN})*`
 
 const OPTOUT_PHRASES: RegExp[] = [
   new RegExp(`^${FILLER}(?:stop|quit|cease|end)(?: all| the| these| those| this| that| your| automated| auto)* ${TEXT_NOUN}${TAIL}$`),
   new RegExp(`^${FILLER}(?:do not|dont|don't|do nt|never) (?:text|message|contact|send)${TAIL}(?: any more| anymore| again| ever)?${TAIL}$`),
   new RegExp(`^${FILLER}(?:no more|no further) (?:${TEXT_NOUN})${TAIL}$`),
   new RegExp(`^${FILLER}(?:remove|delete|take|drop) (?:me|us|my number|this number) (?:from|off|of)(?: the| your| this| all)* (?:list|lists|texts|text|messages|messaging|sms)${TAIL}$`),
-  new RegExp(`^${FILLER}(?:unsubscribe|opt out|opt me out|opt us out)(?: me| us)?(?: from| of)?(?: the| your| this| all)*(?: list| texts| messages| text messages)?${TAIL}$`),
+  new RegExp(`^${FILLER}(?:unsubscribe|opt out|opt me out|opt us out)(?: me| us)?(?: from| of)?(?: the| your| this| these| those| all)*(?: list| texts| messages| text messages)?${TAIL}$`),
   new RegExp(`^${FILLER}i (?:want to |would like to |wish to |need to )?(?:opt out|unsubscribe|revoke)(?: of| from)?(?: the| your| this| all)*(?: texts| messages| text messages| list)?${TAIL}$`),
   new RegExp(`^${FILLER}(?:leave me alone|quit bothering me|stop bothering me|stop contacting me)${TAIL}$`),
 ]

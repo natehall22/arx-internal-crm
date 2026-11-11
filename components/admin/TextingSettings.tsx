@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 
+import { formatDateTime } from '@/lib/format'
 import { Button, Card, CardContent, Input, confirmDialog, toast } from '@/components/ui'
 
 type Totals = { texts: number; segments: number; costMicros: number }
@@ -22,8 +23,8 @@ type View = {
   inbox: Array<{ id: string; from: string; body: string; kind: string; at: string }>
 }
 
-const monthName = (ym: string) => new Date(`${ym}-01T12:00:00Z`).toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' })
-const when = (iso: string) => new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+const monthName = (ym: string) => new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${ym}-01T12:00:00Z`))
+const when = (iso: string) => formatDateTime(iso)
 
 /**
  * Settings → Texting (owners). Where the company's texting stands in one sentence, its number, the business details the
