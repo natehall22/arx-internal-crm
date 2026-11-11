@@ -7,7 +7,8 @@
  *
  * A route that cannot be exercised here is listed in NOT_EXERCISED with the reason and the code-read verdict.
  */
-import { join } from 'node:path'
+import fs from 'node:fs'
+import { join, sep } from 'node:path'
 import { NextRequest } from 'next/server'
 import { __resetCompanyHostCacheForTests } from '@/lib/company-host'
 import {
@@ -117,6 +118,8 @@ jest.mock('@supabase/supabase-js', () => {
   }
 })
 
+// React's server-only `cache` is missing from the client build jest loads; per-request memo is irrelevant here.
+jest.mock('react', () => ({ ...jest.requireActual('react'), cache: (fn: unknown) => fn }))
 // ESM-only or native packages jest cannot load; none of them decides who may see what.
 jest.mock('jose', () => ({ SignJWT: class { setProtectedHeader() { return this } setIssuedAt() { return this } setIssuer() { return this } async sign() { return 'jwt' } }, importPKCS8: async () => ({}) }))
 jest.mock('geotiff', () => ({ fromArrayBuffer: async () => { throw new Error('geotiff disabled in test') } }))
@@ -431,6 +434,78 @@ describeUnlessSelf('crons keep each company to itself', () => {
     }, 60_000)
   }
 })
+
+/**
+ * Server pages with an id in the address (any `[param]` folder under app, e.g. app/leads/[id]/page.tsx). The page function runs as company B's owner with
+ * A's ids; the element tree it returns is rendered shallowly (async server children are awaited, client components
+ * are not run) and every prop is searched for A's data — a server page hands its data to client components as props.
+ * redirect / notFound count as refusals. 'use client' pages load their data from /api (covered above).
+ */
+const pageFiles = walk(join(ROOT, 'app'))
+  .filter((f) => f.endsWith(`${sep}page.tsx`) && f.includes('[') && !f.includes(`${sep}api${sep}`) && !f.includes('dev-harness'))
+  .sort()
+
+async function renderShallow(node: unknown, depth = 0): Promise<unknown> {
+  if (depth > 12 || node == null || typeof node !== 'object') return node
+  if (Array.isArray(node)) return Promise.all(node.map((n) => renderShallow(n, depth + 1)))
+  const el = node as { type?: unknown; props?: Record<string, unknown> }
+  if (!('$$typeof' in (node as object))) return node
+  const props = el.props ?? {}
+  // An async function component is a server component: run it (that is where its data comes from).
+  if (typeof el.type === 'function' && el.type.constructor?.name === 'AsyncFunction') {
+    return renderShallow(await (el.type as (p: unknown) => Promise<unknown>)(props), depth + 1)
+  }
+  return { type: typeof el.type === 'string' ? el.type : (el.type as { name?: string })?.name ?? 'C', props: await renderShallow(Object.fromEntries(Object.entries(props)), depth + 1) }
+}
+
+function safeJson(v: unknown): string {
+  const seen = new WeakSet()
+  return JSON.stringify(v, (_k, x) => {
+    if (typeof x === 'object' && x !== null) {
+      if (seen.has(x)) return '[circular]'
+      seen.add(x)
+    }
+    return typeof x === 'function' ? undefined : x
+  }) ?? ''
+}
+
+for (const m of MODES) {
+  describe(`company B (${m.name}) cannot open company A's records through a server page`, () => {
+    beforeAll(() => {
+      mode = m
+      if (m.baseDomain) process.env.APP_BASE_DOMAIN = m.baseDomain
+      else delete process.env.APP_BASE_DOMAIN
+      __resetCompanyHostCacheForTests()
+    })
+    for (const file of pageFiles) {
+      const rel = file.slice(ROOT.length)
+      const client = /^\s*['"]use client['"]/.test(fs.readFileSync(file, 'utf8'))
+      ;(client ? test.skip : test)(rel, async () => {
+        const routePath = routePathOf(ROOT, file).replace(/\/page\.tsx$/, '')
+        const page = (require(file) as { default: (p: unknown) => unknown }).default
+        mockWorld = createWorld(TABLES, ORG_TABLES)
+        const { params } = urlFor(routePath)
+        const searchParams = Object.fromEntries(new URL(urlFor(routePath).url).searchParams)
+        const cookieValue = encodeURIComponent(JSON.stringify({ access_token: ATTACKER_TOKEN }))
+        const headers = new Headers({ authorization: `Bearer ${ATTACKER_TOKEN}`, host: mode.host, cookie: `sb-proj-auth-token=${cookieValue}` })
+        if (mode.code) headers.set('x-company-code', mode.code)
+        mockReq = { headers, cookies: [{ name: 'sb-proj-auth-token', value: cookieValue }] }
+        let text = ''
+        let status = 'rendered'
+        try {
+          text = safeJson(await renderShallow(await page({ params, searchParams })))
+        } catch (e) {
+          const d = String((e as { digest?: string }).digest ?? (e as Error).message)
+          status = /NEXT_REDIRECT|NEXT_NOT_FOUND/.test(d) ? d.split(';')[0] : `threw ${d.slice(0, 120)}`
+        }
+        const f = findings(mockWorld, text)
+        const xref = crossReferences(mockWorld)
+        outcomes.push({ mode: m.name, route: rel, method: 'PAGE', status: status === 'rendered' ? 200 : 'threw', error: status, findings: f, xref, readA: mockWorld.readsOfA.length > 0, rpcA: [], reached: mockWorld.readsOfBRecord.length > 0 || text.includes('Bravo') })
+        expect([...f.map((x) => `${x.kind}: ${x.detail}`), ...xref.map((x) => `cross-reference ${x}`)]).toEqual([])
+      }, 60_000)
+    }
+  })
+}
 
 afterAll(() => {
   if (!process.env.BREAKIN_REPORT) return
