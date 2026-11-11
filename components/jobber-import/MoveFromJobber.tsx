@@ -275,7 +275,7 @@ export default function MoveFromJobber() {
             }
           }}
         >
-          Start another import (new or updated files — nothing is duplicated)
+          Start another import
         </Button>
       ) : null}
 
@@ -526,7 +526,7 @@ function ImportView({ state, busy, onContinue, onReload }: { state: State; busy:
               <ul className="mt-2 space-y-2">
                 {state.reviewPlans.slice(0, 200).map((p) => (
                   <li key={p.planId} className="text-ui-base text-ink">
-                    <Link className="font-semibold text-brand-700 underline" href={`/c/${p.customerId}`}>
+                    <Link className="inline-flex min-h-tap items-center font-semibold text-brand-700 underline" href={`/c/${p.customerId}`}>
                       {p.name}
                     </Link>
                     {p.review.length ? <span className="block text-ui-sm">{p.review.join(' ')}</span> : null}
