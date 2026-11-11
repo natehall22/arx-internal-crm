@@ -106,3 +106,12 @@ needs entries #5–#7 (the wildcards above cover them).
 - Hourly billing: `202611120030_hourly_billing.sql` after 202611110060 (it writes `job_invoice_items.unit` / `work_order_id`
   and the per-hour plan basis on 202611110030's tables); also needs 202611100090 for price-book items priced "per hour".
   Then the code. DB test: `supabase/tests/run-hourly-billing.sh`.
+
+## Full migration apply order (integration/multi-company, round 6)
+Apply in this order, then the code: 202610280010, 202611100040, 202611110010, 202611110020, 202611110030, 202611110040,
+202611110060, 202611110070, 202611120010, 202611120020 (online payments), 202611120030 (hourly billing),
+202611120040 (Jobber import), 202611120050 (customer messages), 202611120060 (portal), 202611120080 (project tools),
+202611120090 (purchase orders), 202611130010, 202611130020 (AI connector), 202611130050 (QuickBooks),
+202611130070 (quote approval), 202611140010 (rpt_invoices), 202611140070 (payroll advances / approval links),
+202611150010 (portal roofing), 202611150070 (AI connector writes), 202611170010 (texting).
+All numbers are unique. The signing-safety migrations (202611160010, 202611160020) are not merged yet; apply them before their code.

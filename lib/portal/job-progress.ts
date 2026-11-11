@@ -89,11 +89,11 @@ export async function loadPortalJobs(
     const materials = early ? await ctx.materialsOf(j.id, j.materials_status).catch(() => deriveMaterialsState({ stored: j.materials_status })) : deriveMaterialsState({ stored: j.materials_status })
     const jobFacts = facts.get(j.id)
     const collection = evaluateJobCollection({
+      ...collectionInvoiceFields(jobFacts),
       saleAmount: j.sale_amount,
       payments: payments.filter((p) => p.job_id === j.id).map((p) => ({ amount_cents: p.amount_cents, funding_status: p.funding_status })),
       allowCloseWithBalance: j.allow_close_with_balance,
       closeBalanceBy: j.close_balance_by,
-      ...(jobFacts ? collectionInvoiceFields(jobFacts) : {}),
     })
     out.push({
       ...base,
