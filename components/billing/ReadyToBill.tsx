@@ -127,11 +127,15 @@ export default function ReadyToBill() {
     setProgress({ done: 0, total: keys.length })
     for (let i = 0; i < keys.length; i += data.maxPerRequest) {
       const part = keys.slice(i, i + data.maxPerRequest)
+      // Exactly what this screen shows for these invoices: the server bills these units / visits and nothing newer.
+      const shown = drafts.filter((d) => part.includes(d.key)).flatMap((d) => d.units)
+      const unitKeys = shown.map((u) => u.key)
+      const visitIds = shown.flatMap((u) => u.visits.map((v) => v.visitId))
       try {
         const res = await fetch('/api/ops/billing', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ keys: part, grouping, includeCurrentMonth: includeThisMonth, lookbackDays: data.lookbackDays, send }),
+          body: JSON.stringify({ keys: part, unitKeys, visitIds, grouping, includeCurrentMonth: includeThisMonth, lookbackDays: data.lookbackDays, send }),
         })
         const body = await res.json().catch(() => ({}))
         if (!res.ok) {
@@ -260,7 +264,7 @@ export default function ReadyToBill() {
                           <span className="block text-ui-base font-semibold text-ink">{c?.name ?? 'Customer'}</span>
                           <span className="block text-ui-sm text-ink">
                             {grouping === 'month' ? `${monthLabel(d.month)} · ` : ''}
-                            {visits} visit{visits === 1 ? '' : 's'}
+                            {visits === 0 ? 'monthly fee' : `${visits} visit${visits === 1 ? '' : 's'}`}
                             {send && !c?.email ? ' · no email' : ''}
                           </span>
                         </span>

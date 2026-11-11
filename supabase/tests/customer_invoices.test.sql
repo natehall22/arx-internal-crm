@@ -18,7 +18,7 @@ CREATE FUNCTION is_admin_or_manager(u uuid) RETURNS boolean LANGUAGE sql AS $$ S
 CREATE TABLE customers (id uuid PRIMARY KEY, org_id uuid NOT NULL REFERENCES orgs(id) ON DELETE CASCADE, name text);
 CREATE TABLE opportunities (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), org_id uuid NOT NULL, customer_id uuid REFERENCES customers(id), address_text text, lat numeric, lng numeric);
 CREATE TABLE projects (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), org_id uuid NOT NULL, opportunity_id uuid);
-CREATE TABLE production_jobs (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), org_id uuid NOT NULL, job_number text, project_id uuid, customer_id uuid, address_text text, lat numeric, lng numeric);
+CREATE TABLE production_jobs (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), org_id uuid NOT NULL, job_number text, sale_date date, project_id uuid, customer_id uuid, address_text text, lat numeric, lng numeric);
 CREATE TABLE documents (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), org_id uuid NOT NULL, job_id uuid, customer_id uuid, deleted_at timestamptz);
 CREATE TABLE proposals (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), org_id uuid);
 CREATE TABLE proposal_line_items (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), proposal_id uuid);
@@ -38,6 +38,7 @@ CREATE TABLE work_orders (
 CREATE TABLE photos (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), org_id uuid NOT NULL, job_id uuid NOT NULL, work_order_id uuid REFERENCES work_orders(id) ON DELETE SET NULL, storage_path text NOT NULL DEFAULT 'x', deleted_at timestamptz);
 
 \i supabase/migrations/049_job_payments.sql
+ALTER TABLE job_payments ADD COLUMN funding_status text; -- 121_weekly_sales_payroll_foundation
 \i supabase/migrations/053_job_invoices.sql
 \i supabase/migrations/057_invoice_kind.sql
 \i supabase/migrations/058_invoice_notes.sql
@@ -48,6 +49,14 @@ CREATE TABLE photos (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), org_id uuid 
 \i supabase/migrations/202611110060_customer_invoices.sql
 -- Idempotent: a second apply changes nothing and does not fail.
 \i supabase/migrations/202611110060_customer_invoices.sql
+
+-- Test helper: totals as the app sends them (no tax here; lib/sales-tax.ts is tested in jest).
+CREATE FUNCTION bill(o uuid, c uuid, p uuid, u uuid, lines jsonb, tax int DEFAULT 0) RETURNS jsonb LANGUAGE sql AS $$
+  SELECT create_service_invoice(o, c, p, u, lines, jsonb_build_object(
+    'subtotal_cents', (SELECT coalesce(sum(round(coalesce((l->>'qty')::numeric, 1) * (l->>'unit_price_cents')::int)), 0) FROM jsonb_array_elements(lines) l),
+    'tax_cents', tax, 'taxable_subtotal_cents', 0, 'tax_lines', '[]'::jsonb,
+    'total_cents', tax + (SELECT coalesce(sum(round(coalesce((l->>'qty')::numeric, 1) * (l->>'unit_price_cents')::int)), 0) FROM jsonb_array_elements(lines) l)))
+$$;
 
 INSERT INTO orgs VALUES ('00000000-0000-0000-0000-000000000001', 'A'), ('00000000-0000-0000-0000-000000000002', 'B');
 INSERT INTO users VALUES ('90000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001');
@@ -106,7 +115,7 @@ BEGIN
   INSERT INTO work_orders (org_id, work_order_type, visit_step, status, service_plan_id, service_planned_date, scheduled_date, trade, customer_id, property_id, completed_at)
     VALUES (o1, 'service_visit', 'service', 'completed', plan_m, '2026-10-21', '2026-10-21', 'lawn', ca, pa, now()) RETURNING id INTO vm2;
 
-  r := create_service_invoice(o1, ca, pa, u1, jsonb_build_array(
+  r := bill(o1, ca, pa, u1, jsonb_build_array(
     jsonb_build_object('description', 'Mowing — Oct 6', 'qty', 1, 'unit_price_cents', 4500, 'taxable', false, 'work_order_id', v1, 'service_date', '2026-10-06', 'service_plan_id', plan_v),
     jsonb_build_object('description', 'Mowing — Oct 13', 'qty', 1, 'unit_price_cents', 4500, 'taxable', false, 'work_order_id', v2, 'service_date', '2026-10-13', 'service_plan_id', plan_v),
     jsonb_build_object('description', 'Care — October', 'qty', 1, 'unit_price_cents', 12000, 'taxable', true, 'service_plan_id', plan_m, 'billing_month', '2026-10-01'),
@@ -120,11 +129,12 @@ BEGIN
   ASSERT (SELECT invoice_kind FROM job_invoices WHERE id = inv) = 'service', 'T3 kind';
   ASSERT (SELECT status FROM job_invoices WHERE id = inv) = 'draft', 'T3 draft';
   ASSERT (SELECT sum(line_total_cents) FROM job_invoice_items WHERE invoice_id = inv) = 21000, 'T3 line totals';
+  ASSERT (SELECT total_cents FROM job_invoices WHERE id = inv) = 21000 AND (SELECT subtotal_cents FROM job_invoices WHERE id = inv) = 21000, 'T3 totals written with the invoice';
   ASSERT (SELECT taxable FROM job_invoice_items WHERE invoice_id = inv AND billing_month IS NOT NULL), 'T3 taxable carried';
   ASSERT (SELECT array_agg(sort_order ORDER BY sort_order) FROM job_invoice_items WHERE invoice_id = inv) = ARRAY[0,1,2,3,4], 'T3 order kept';
 
   -- T4 idempotent: the same batch again bills nothing and reports every unit skipped
-  r := create_service_invoice(o1, ca, pa, u1, jsonb_build_array(
+  r := bill(o1, ca, pa, u1, jsonb_build_array(
     jsonb_build_object('description', 'x', 'qty', 1, 'unit_price_cents', 4500, 'work_order_id', v1, 'service_plan_id', plan_v),
     jsonb_build_object('description', 'x', 'qty', 1, 'unit_price_cents', 12000, 'service_plan_id', plan_m, 'billing_month', '2026-10-01'),
     jsonb_build_object('description', 'x', 'qty', 1, 'unit_price_cents', 0, 'work_order_id', vm1, 'service_date', '2026-10-07', 'service_plan_id', plan_m)
@@ -133,26 +143,33 @@ BEGIN
   ASSERT jsonb_array_length(r->'skipped') = 3, 'T4 skipped visits + month: ' || (r->'skipped')::text;
   SELECT count(*) INTO n FROM job_invoices WHERE customer_id = ca; ASSERT n = 1, 'T4 still one invoice';
 
-  -- T5 a partly billed batch keeps only the new units; a $0 monthly visit never rides without its month
+  -- T5 all or nothing: a batch holding anything already billed writes nothing; the new visit alone bills
   INSERT INTO work_orders (org_id, work_order_type, visit_step, status, service_plan_id, service_planned_date, scheduled_date, trade, customer_id, property_id, completed_at)
     VALUES (o1, 'service_visit', 'service', 'completed', plan_v, '2026-10-27', '2026-10-27', 'lawn', ca, pa, now()) RETURNING id INTO v3;
-  r := create_service_invoice(o1, ca, pa, u1, jsonb_build_array(
+  r := bill(o1, ca, pa, u1, jsonb_build_array(
     jsonb_build_object('description', 'old', 'qty', 1, 'unit_price_cents', 4500, 'work_order_id', v1, 'service_plan_id', plan_v),
-    jsonb_build_object('description', 'new', 'qty', 1, 'unit_price_cents', 4500, 'work_order_id', v3, 'service_date', '2026-10-27', 'service_plan_id', plan_v),
-    jsonb_build_object('description', 'month', 'qty', 1, 'unit_price_cents', 12000, 'service_plan_id', plan_m, 'billing_month', '2026-10-01'),
-    jsonb_build_object('description', 'late care visit', 'qty', 1, 'unit_price_cents', 0, 'work_order_id', vm2, 'service_date', '2026-10-21', 'service_plan_id', plan_m)
+    jsonb_build_object('description', 'new', 'qty', 1, 'unit_price_cents', 4500, 'work_order_id', v3, 'service_date', '2026-10-27', 'service_plan_id', plan_v)
+  ));
+  ASSERT r->>'invoice_id' IS NULL AND jsonb_array_length(r->'skipped') = 1, 'T5 nothing written ' || r::text;
+  SELECT count(*) INTO n FROM job_invoices WHERE customer_id = ca; ASSERT n = 1, 'T5 still one invoice';
+  r := bill(o1, ca, pa, u1, jsonb_build_array(
+    jsonb_build_object('description', 'new', 'qty', 1, 'unit_price_cents', 4500, 'work_order_id', v3, 'service_date', '2026-10-27', 'service_plan_id', plan_v)
   ));
   inv2 := (r->>'invoice_id')::uuid;
   ASSERT inv2 IS NOT NULL, 'T5 invoice for the new visit';
   ASSERT (SELECT array_agg(description ORDER BY sort_order) FROM job_invoice_items WHERE invoice_id = inv2) = ARRAY['new'], 'T5 only the new line';
-  ASSERT (SELECT sort_order FROM job_invoice_items WHERE invoice_id = inv2) = 0, 'T5 renumbered';
+  -- a $0 monthly visit never rides without its month; totals must match the lines
+  ok := false; BEGIN PERFORM bill(o1, ca, pa, u1, jsonb_build_array(
+    jsonb_build_object('description', 'p', 'qty', 1, 'unit_price_cents', 100),
+    jsonb_build_object('description', 'z', 'qty', 1, 'unit_price_cents', 0, 'work_order_id', vm2, 'service_date', '2026-10-21', 'service_plan_id', plan_m))); EXCEPTION WHEN invalid_parameter_value THEN ok := true; END; ASSERT ok, 'T5 $0 visit alone';
+  ok := false; BEGIN PERFORM create_service_invoice(o1, ca, pa, u1, jsonb_build_array(jsonb_build_object('description', 'p', 'qty', 1, 'unit_price_cents', 100)), '{"subtotal_cents":0,"tax_cents":0,"total_cents":0}'::jsonb); EXCEPTION WHEN invalid_parameter_value THEN ok := true; END; ASSERT ok, 'T5 totals mismatch';
 
   -- T6 refusals: an open visit, another customer's visit, another company's customer, an empty batch
-  ok := false; BEGIN PERFORM create_service_invoice(o1, ca, pa, u1, jsonb_build_array(jsonb_build_object('description', 'x', 'unit_price_cents', 100, 'work_order_id', vopen))); EXCEPTION WHEN invalid_parameter_value THEN ok := true; END; ASSERT ok, 'T6 open visit';
-  ok := false; BEGIN PERFORM create_service_invoice(o1, cb, pb, u1, jsonb_build_array(jsonb_build_object('description', 'x', 'unit_price_cents', 100, 'work_order_id', v3))); EXCEPTION WHEN invalid_parameter_value THEN ok := true; END; ASSERT ok, 'T6 other customer visit';
-  ok := false; BEGIN PERFORM create_service_invoice(o2, ca, null, u1, jsonb_build_array(jsonb_build_object('description', 'x', 'unit_price_cents', 100))); EXCEPTION WHEN insufficient_privilege THEN ok := true; END; ASSERT ok, 'T6 other company';
-  ok := false; BEGIN PERFORM create_service_invoice(o1, cb, null, u1, jsonb_build_array(jsonb_build_object('description', 'x', 'unit_price_cents', 100, 'service_plan_id', plan_m, 'billing_month', '2026-11-01'))); EXCEPTION WHEN insufficient_privilege THEN ok := true; END; ASSERT ok, 'T6 other customer plan';
-  ok := false; BEGIN PERFORM create_service_invoice(o1, ca, pa, u1, '[]'::jsonb); EXCEPTION WHEN invalid_parameter_value THEN ok := true; END; ASSERT ok, 'T6 empty';
+  ok := false; BEGIN PERFORM bill(o1, ca, pa, u1, jsonb_build_array(jsonb_build_object('description', 'x', 'unit_price_cents', 100, 'work_order_id', vopen))); EXCEPTION WHEN invalid_parameter_value THEN ok := true; END; ASSERT ok, 'T6 open visit';
+  ok := false; BEGIN PERFORM bill(o1, cb, pb, u1, jsonb_build_array(jsonb_build_object('description', 'x', 'unit_price_cents', 100, 'work_order_id', v3))); EXCEPTION WHEN invalid_parameter_value THEN ok := true; END; ASSERT ok, 'T6 other customer visit';
+  ok := false; BEGIN PERFORM bill(o2, ca, null, u1, jsonb_build_array(jsonb_build_object('description', 'x', 'unit_price_cents', 100))); EXCEPTION WHEN insufficient_privilege THEN ok := true; END; ASSERT ok, 'T6 other company';
+  ok := false; BEGIN PERFORM bill(o1, cb, null, u1, jsonb_build_array(jsonb_build_object('description', 'x', 'unit_price_cents', 100, 'service_plan_id', plan_m, 'billing_month', '2026-11-01'))); EXCEPTION WHEN insufficient_privilege THEN ok := true; END; ASSERT ok, 'T6 other customer plan';
+  ok := false; BEGIN PERFORM bill(o1, ca, pa, u1, '[]'::jsonb); EXCEPTION WHEN invalid_parameter_value THEN ok := true; END; ASSERT ok, 'T6 empty';
   ok := false; BEGIN INSERT INTO job_invoice_items (invoice_id, description, unit_price_cents, line_total_cents, service_plan_id, billing_month) VALUES (inv, 'x', 1, 1, plan_m, '2026-10-15'); EXCEPTION WHEN check_violation THEN ok := true; END; ASSERT ok, 'T6 month is the 1st';
   ok := false; BEGIN INSERT INTO job_invoice_items (invoice_id, description, unit_price_cents, line_total_cents, unit) VALUES (inv, 'x', 1, 1, 'day'); EXCEPTION WHEN check_violation THEN ok := true; END; ASSERT ok, 'T6 unit list';
   -- hours line: 2.5 h × $80
@@ -160,7 +177,7 @@ BEGIN
 
   -- T7 voiding frees the units; a monthly visit then rides with its month again
   UPDATE job_invoices SET status = 'void', void_reason = 'wrong price', voided_at = now() WHERE id = inv;
-  r := create_service_invoice(o1, ca, pa, u1, jsonb_build_array(
+  r := bill(o1, ca, pa, u1, jsonb_build_array(
     jsonb_build_object('description', 'month', 'qty', 1, 'unit_price_cents', 12500, 'service_plan_id', plan_m, 'billing_month', '2026-10-01'),
     jsonb_build_object('description', 'care visit', 'qty', 1, 'unit_price_cents', 0, 'work_order_id', vm1, 'service_date', '2026-10-07', 'service_plan_id', plan_m),
     jsonb_build_object('description', 'v1 again', 'qty', 1, 'unit_price_cents', 4500, 'work_order_id', v1, 'service_plan_id', plan_v)
@@ -181,8 +198,7 @@ BEGIN
   ok := false; BEGIN DELETE FROM customers WHERE id = ca; EXCEPTION WHEN foreign_key_violation THEN ok := true; END; ASSERT ok, 'T9 customer delete refused';
 
   -- T10 record_customer_invoice_payment: draft issued on the spot, partial then full, never over, never void / job
-  r := create_service_invoice(o1, cb, pb, u1, jsonb_build_array(jsonb_build_object('description', 'x', 'qty', 1, 'unit_price_cents', 0)));
-  ASSERT r->>'invoice_id' IS NULL, 'T10 a plain line alone makes no invoice';
+  ok := false; BEGIN PERFORM bill(o1, cb, pb, u1, jsonb_build_array(jsonb_build_object('description', 'x', 'qty', 1, 'unit_price_cents', 0))); EXCEPTION WHEN invalid_parameter_value THEN ok := true; END; ASSERT ok, 'T10 nothing to bill';
   INSERT INTO job_invoices (org_id, customer_id, property_id, invoice_kind, total_cents, subtotal_cents) VALUES (o1, cb, pb, 'service', 10000, 10000) RETURNING id INTO inv;
   r := record_customer_invoice_payment(o1, inv, 4000, '2026-11-05', 'cash', ' at the door ', u1);
   ASSERT r->>'status' = 'partially_paid' AND (r->>'balance_cents')::int = 6000, 'T10 partial ' || r::text;
@@ -199,8 +215,25 @@ BEGIN
   ASSERT (SELECT status FROM job_invoices WHERE id = inv) = 'paid', 'T10 status stored';
   ASSERT (SELECT sum(applied_cents) FROM invoice_payments WHERE invoice_id = inv) = 10000, 'T10 applied';
   ok := false; BEGIN PERFORM record_customer_invoice_payment(o1, inv, 1, '2026-11-05', 'cash', null, u1); EXCEPTION WHEN invalid_parameter_value THEN ok := true; END; ASSERT ok, 'T10 nothing left';
-  UPDATE job_invoices SET status = 'void', void_reason = 'x' WHERE id = inv2;
-  ok := false; BEGIN PERFORM record_customer_invoice_payment(o1, inv2, 1, '2026-11-05', 'cash', null, u1); EXCEPTION WHEN invalid_parameter_value THEN ok := true; END; ASSERT ok, 'T10 void';
+  -- T11 an invoice without a job that has a payment can't be voided; a job invoice still can
+  ok := false; BEGIN UPDATE job_invoices SET status = 'void', void_reason = 'x' WHERE id = inv2; EXCEPTION WHEN check_violation THEN ok := true; END; ASSERT ok, 'T11 paid service invoice void refused';
+  UPDATE job_invoices SET status = 'sent' WHERE id = ji;
+  UPDATE job_invoices SET status = 'void', void_reason = 'x' WHERE id = ji;
+  ASSERT (SELECT status FROM job_invoices WHERE id = ji) = 'void', 'T11 job invoice void unchanged';
+  SELECT id INTO inv FROM job_invoices WHERE customer_id = ca AND status = 'void' LIMIT 1;
+  ok := false; BEGIN PERFORM record_customer_invoice_payment(o1, inv, 1, '2026-11-05', 'cash', null, u1); EXCEPTION WHEN invalid_parameter_value THEN ok := true; END; ASSERT ok, 'T10 void';
+
+  -- T12 a billed visit can't be reopened; an unbilled done visit can
+  ok := false; BEGIN UPDATE work_orders SET status = 'scheduled', completed_at = null WHERE id = v3; EXCEPTION WHEN check_violation THEN ok := true; END; ASSERT ok, 'T12 billed visit reopen refused';
+  INSERT INTO work_orders (org_id, work_order_type, visit_step, status, service_plan_id, service_planned_date, scheduled_date, trade, customer_id, property_id, completed_at)
+    VALUES (o1, 'service_visit', 'service', 'completed', plan_v, '2026-11-02', '2026-11-02', 'lawn', ca, pa, now()) RETURNING id INTO vb;
+  UPDATE work_orders SET status = 'scheduled', completed_at = null WHERE id = vb;
+  ASSERT (SELECT status FROM work_orders WHERE id = vb) = 'scheduled', 'T12 unbilled reopen';
+
+  -- T13 reports: payments without a job are in rpt_payments for their company; job payments unchanged
+  ASSERT (SELECT count(*) FROM rpt_payments WHERE org_id = o1 AND job_id IS NULL) = 3, 'T13 service payments reported';
+  ASSERT (SELECT count(*) FROM rpt_payments WHERE org_id = o1 AND job_id = j1) = 1, 'T13 job payment reported';
+  ASSERT (SELECT count(*) FROM rpt_payments WHERE org_id = o2) = 0, 'T13 other company';
 
   RAISE NOTICE 'REPORT: all assertions passed';
 END $t$;

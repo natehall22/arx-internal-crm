@@ -1465,7 +1465,8 @@ export async function applyVisitAction(
   const patch = visitPatch({ ...r, results }, a, by, opts.now ?? new Date())
   if ('error' in patch) return { ok: false, status: 400, error: patch.error as string }
   const { data: updated, error } = await db.from('work_orders').update(patch).eq('id', visitId).eq('updated_at', r.updated_at).select('id')
-  if (error) return { ok: false, status: 409, error: 'Could not save' }
+  // 23514 from work_orders_billed_visit_guard: billed between the check above and this save (same lock as billing).
+  if (error) return { ok: false, status: 409, error: error.code === '23514' ? 'This visit is on an invoice — void that invoice first' : 'Could not save' }
   if (!updated || updated.length === 0)
     return {
       ok: false,

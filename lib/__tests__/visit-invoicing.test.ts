@@ -11,7 +11,7 @@ jest.mock('@/lib/setter-email', () => ({ getMailTransport: () => ({ sendMail }),
 jest.mock('@/lib/cron-orgs', () => ({ loadOrgTimeZone: async () => 'America/New_York' }))
 
 import { createFakeDb } from '@/lib/test-helpers/fake-db'
-import { applyPaymentToInvoice, computeInvoiceBalance, findOrgInvoice, recordCustomerInvoicePayment } from '@/lib/invoices'
+import { applyPaymentToInvoice, computeInvoiceBalance, duplicateInvoiceAsDraft, findOrgInvoice, recordCustomerInvoicePayment, voidInvoice } from '@/lib/invoices'
 import { createServiceInvoices, loadReadyToBill, visitInvoiceNumber } from '@/lib/service-billing-db'
 import { findPrintableInvoice, loadInvoiceDocument } from '@/lib/invoice-document'
 import { renderInvoiceEmail } from '@/lib/invoice-email'
@@ -89,13 +89,19 @@ function seed() {
       relations,
       rpc: {
         // Shape only (the real rules are SQL, tested in Postgres): one invoice + its lines.
+        // Shape + the all-or-nothing skip (the real rules are SQL, tested in Postgres): one invoice + lines + totals.
         create_service_invoice: (args, t) => {
           rpcCalls.push(String(args.p_customer))
-          const id = `00000000-0000-4000-8000-${String(++n).padStart(12, '0')}`
-          t.job_invoices.push({ id, org_id: args.p_org, customer_id: args.p_customer, property_id: args.p_property, job_id: null, status: 'draft', invoice_kind: 'service', invoice_number: `INV-26-0000${n}`, subtotal_cents: 0, total_cents: 0, created_at: NOW.toISOString(), due_at: null })
-          ;(args.p_lines as Array<Record<string, unknown>>).forEach((l, i) =>
-            t.job_invoice_items.push({ id: `${id}-l${i}`, invoice_id: id, ...l, line_total_cents: Math.round(Number(l.qty) * Number(l.unit_price_cents)), sort_order: i })
+          const lines = args.p_lines as Array<Record<string, unknown>>
+          const live = (invId: unknown) => t.job_invoices.some((i) => i.id === invId && i.status !== 'void')
+          const held = lines.some((l) =>
+            t.job_invoice_items.some((it) => live(it.invoice_id) && ((l.work_order_id && it.work_order_id === l.work_order_id) || (l.billing_month && it.service_plan_id === l.service_plan_id && it.billing_month === l.billing_month)))
           )
+          if (held) return { invoice_id: null, skipped: [{}] }
+          const totals = args.p_totals as Record<string, unknown>
+          const id = `00000000-0000-4000-8000-${String(++n).padStart(12, '0')}`
+          t.job_invoices.push({ id, org_id: args.p_org, customer_id: args.p_customer, property_id: args.p_property, job_id: null, status: 'draft', invoice_kind: 'service', invoice_number: `INV-26-0000${n}`, subtotal_cents: totals.subtotal_cents, tax_cents: totals.tax_cents, tax_lines: totals.tax_lines, total_cents: totals.total_cents, created_at: NOW.toISOString(), due_at: null, public_note: args.p_public_note ?? null })
+          lines.forEach((l, i) => t.job_invoice_items.push({ id: `${id}-l${i}`, invoice_id: id, ...l, line_total_cents: Math.round(Number(l.qty) * Number(l.unit_price_cents)), sort_order: i }))
           return { invoice_id: id, skipped: [] }
         },
         record_customer_invoice_payment: (args, t) => {
@@ -116,6 +122,13 @@ function seed() {
   return { ...db, rpcCalls }
 }
 
+/** What the screen would send: every unit / visit it shows right now. */
+async function shown(d: ReturnType<typeof seed>) {
+  const ready = await loadReadyToBill(d.client, ORG, { now: NOW })
+  if (!ready.ready) throw new Error('not ready')
+  return { unitKeys: ready.units.map((u) => u.key), visitIds: ready.units.flatMap((u) => u.visits.map((v) => v.visitId)) }
+}
+
 beforeEach(() => {
   sendMail.mockClear()
   process.env.SMTP_HOST = 'smtp.example'
@@ -129,7 +142,7 @@ describe('Ready to bill → monthly batch', () => {
     expect(ready.currentMonth).toBe('2026-11')
     expect(ready.units.map((u) => u.key).sort()).toEqual(['m:care:2026-10', 'v:nov', 'v:s1', 'v:v1', 'v:v2'])
 
-    const res = await createServiceInvoices(d.client, ORG, 'u1', { keys: ['c:c1:2026-10', 'c:c2:2026-10'], grouping: 'month', includeCurrentMonth: false, send: true }, NOW)
+    const res = await createServiceInvoices(d.client, ORG, 'u1', { ...(await shown(d)), keys: ['c:c1:2026-10', 'c:c2:2026-10'], grouping: 'month', includeCurrentMonth: false, send: true }, NOW)
     if ('error' in res) throw new Error(res.error)
     expect(res.failed).toEqual([])
     expect(res.created.map((c) => [c.customerName, c.totalCents, c.sent, c.sendError])).toEqual([
@@ -150,14 +163,14 @@ describe('Ready to bill → monthly batch', () => {
 
   it('is idempotent: a second run bills nothing and never calls the writer again', async () => {
     const d = seed()
-    await createServiceInvoices(d.client, ORG, 'u1', { keys: ['c:c1:2026-10'], grouping: 'month', includeCurrentMonth: false, send: false }, NOW)
+    await createServiceInvoices(d.client, ORG, 'u1', { ...(await shown(d)), keys: ['c:c1:2026-10'], grouping: 'month', includeCurrentMonth: false, send: false }, NOW)
     expect(d.rpcCalls).toEqual(['c1'])
-    const again = await createServiceInvoices(d.client, ORG, 'u1', { keys: ['c:c1:2026-10'], grouping: 'month', includeCurrentMonth: false, send: false }, NOW)
+    const again = await createServiceInvoices(d.client, ORG, 'u1', { ...(await shown(d)), keys: ['c:c1:2026-10'], grouping: 'month', includeCurrentMonth: false, send: false }, NOW)
     if ('error' in again) throw new Error(again.error)
     expect(again).toEqual({ created: [], alreadyBilled: ['c:c1:2026-10'], failed: [] })
     expect(d.rpcCalls).toEqual(['c1'])
     // the same visits asked for one-by-one are billed too
-    const perVisit = await createServiceInvoices(d.client, ORG, 'u1', { keys: ['v:v1', 'm:care:2026-10'], grouping: 'visit', includeCurrentMonth: false, send: false }, NOW)
+    const perVisit = await createServiceInvoices(d.client, ORG, 'u1', { ...(await shown(d)), keys: ['v:v1', 'm:care:2026-10'], grouping: 'visit', includeCurrentMonth: false, send: false }, NOW)
     if ('error' in perVisit) throw new Error(perVisit.error)
     expect(perVisit.alreadyBilled).toEqual(['v:v1', 'm:care:2026-10'])
     expect(await visitInvoiceNumber(d.client, ORG, 'v1')).toBe('INV-26-00001')
@@ -166,7 +179,7 @@ describe('Ready to bill → monthly batch', () => {
 
   it('voiding the invoice makes its visits billable again', async () => {
     const d = seed()
-    await createServiceInvoices(d.client, ORG, 'u1', { keys: ['c:c1:2026-10'], grouping: 'month', includeCurrentMonth: false, send: false }, NOW)
+    await createServiceInvoices(d.client, ORG, 'u1', { ...(await shown(d)), keys: ['c:c1:2026-10'], grouping: 'month', includeCurrentMonth: false, send: false }, NOW)
     d.tables.job_invoices[0].status = 'void'
     const ready = await loadReadyToBill(d.client, ORG, { now: NOW })
     if (!ready.ready) throw new Error('not ready')
@@ -175,14 +188,14 @@ describe('Ready to bill → monthly batch', () => {
 
   it('this month only when included; per-request cap; nothing picked', async () => {
     const d = seed()
-    const waiting = await createServiceInvoices(d.client, ORG, 'u1', { keys: ['c:c1:2026-11'], grouping: 'month', includeCurrentMonth: false, send: false }, NOW)
+    const waiting = await createServiceInvoices(d.client, ORG, 'u1', { ...(await shown(d)), keys: ['c:c1:2026-11'], grouping: 'month', includeCurrentMonth: false, send: false }, NOW)
     expect(waiting).toEqual({ created: [], alreadyBilled: ['c:c1:2026-11'], failed: [] })
-    const inc = await createServiceInvoices(d.client, ORG, 'u1', { keys: ['c:c1:2026-11'], grouping: 'month', includeCurrentMonth: true, send: false }, NOW)
+    const inc = await createServiceInvoices(d.client, ORG, 'u1', { ...(await shown(d)), keys: ['c:c1:2026-11'], grouping: 'month', includeCurrentMonth: true, send: false }, NOW)
     if ('error' in inc) throw new Error(inc.error)
     expect(inc.created).toHaveLength(1)
-    expect(await createServiceInvoices(d.client, ORG, 'u1', { keys: [], grouping: 'month', includeCurrentMonth: false, send: false }, NOW)).toMatchObject({ status: 400 })
+    expect(await createServiceInvoices(d.client, ORG, 'u1', { ...(await shown(d)), keys: [], grouping: 'month', includeCurrentMonth: false, send: false }, NOW)).toMatchObject({ status: 400 })
     const many = Array.from({ length: 26 }, (_, i) => `v:${i}`)
-    expect(await createServiceInvoices(d.client, ORG, 'u1', { keys: many, grouping: 'visit', includeCurrentMonth: false, send: false }, NOW)).toMatchObject({ status: 400 })
+    expect(await createServiceInvoices(d.client, ORG, 'u1', { ...(await shown(d)), keys: many, grouping: 'visit', includeCurrentMonth: false, send: false }, NOW)).toMatchObject({ status: 400 })
   })
 
   it('another company sees none of these visits', async () => {
@@ -195,7 +208,7 @@ describe('Ready to bill → monthly batch', () => {
 describe('invoices without a job: company fence, payments, paid in full', () => {
   async function billed() {
     const d = seed()
-    await createServiceInvoices(d.client, ORG, 'u1', { keys: ['v:s1'], grouping: 'visit', includeCurrentMonth: false, send: false }, NOW)
+    await createServiceInvoices(d.client, ORG, 'u1', { ...(await shown(d)), keys: ['v:s1'], grouping: 'visit', includeCurrentMonth: false, send: false }, NOW)
     return { d, id: d.tables.job_invoices[0].id as string }
   }
 
@@ -242,5 +255,61 @@ describe('invoices without a job: company fence, payments, paid in full', () => 
       error: 'This visit is on invoice INV-26-00001 — void that invoice first',
     })
     expect(await applyVisitAction(d.client, ORG, 'v1', { action: 'reopen' }, { userId: 'u1', subId: null }, { now: NOW })).toEqual({ ok: true })
+  })
+})
+
+describe('review fixes', () => {
+  it('bills only what was previewed: a visit finished after the screen loaded waits', async () => {
+    const d = seed()
+    const preview = await shown(d)
+    d.tables.work_orders.push(visit('late', 'mow', 'c1', 'p1', '2026-10-27'))
+    d.tables.service_visit_charges.push({ work_order_id: 'late', org_id: ORG, price: 45, taxable: false })
+    const res = await createServiceInvoices(d.client, ORG, 'u1', { ...preview, keys: ['c:c1:2026-10'], grouping: 'month', includeCurrentMonth: false, send: false }, NOW)
+    if ('error' in res) throw new Error(res.error)
+    expect(d.tables.job_invoice_items.map((i) => i.work_order_id).filter(Boolean)).not.toContain('late')
+    const next = await loadReadyToBill(d.client, ORG, { now: NOW })
+    expect(next.ready && next.units.map((u) => u.key)).toEqual(expect.arrayContaining(['v:late']))
+  })
+
+  it('totals (with tax) are written with the invoice in the one call', async () => {
+    const d = seed()
+    await createServiceInvoices(d.client, ORG, 'u1', { ...(await shown(d)), keys: ['c:c1:2026-10'], grouping: 'month', includeCurrentMonth: false, send: false }, NOW)
+    expect(d.tables.job_invoices[0]).toMatchObject({ subtotal_cents: 19000, tax_cents: 600, total_cents: 19600 })
+    expect(d.writes.filter((w) => w.table === 'job_invoices' && w.op === 'update')).toEqual([])
+  })
+
+  it('copying a live service invoice is refused (double billing); after void the copy holds the visits', async () => {
+    const d = seed()
+    await createServiceInvoices(d.client, ORG, 'u1', { ...(await shown(d)), keys: ['c:c1:2026-10'], grouping: 'month', includeCurrentMonth: false, send: false }, NOW)
+    const orig = d.tables.job_invoices[0]
+    await expect(duplicateInvoiceAsDraft(d.client, String(orig.id), 'u1')).rejects.toThrow(`Void ${orig.invoice_number} first`)
+    expect(d.tables.job_invoices).toHaveLength(1)
+    await voidInvoice(d.client, String(orig.id), 'wrong price')
+    const copy = await duplicateInvoiceAsDraft(d.client, String(orig.id), 'u1')
+    expect(copy).toMatchObject({ customer_id: 'c1', status: 'draft', total_cents: 19600 })
+    expect(d.tables.job_invoice_items.filter((i) => i.invoice_id === copy.id).map((i) => i.work_order_id ?? i.billing_month)).toEqual(['2026-10-01', 'g1', 'v1', 'v2'])
+    expect(await visitInvoiceNumber(d.client, ORG, 'v1')).toBe(copy.invoice_number)
+  })
+
+  it('a service invoice with a payment cannot be voided', async () => {
+    const d = seed()
+    await createServiceInvoices(d.client, ORG, 'u1', { ...(await shown(d)), keys: ['v:s1'], grouping: 'visit', includeCurrentMonth: false, send: false }, NOW)
+    const id = String(d.tables.job_invoices[0].id)
+    await recordCustomerInvoicePayment(d.client, ORG, id, { amountCents: 1000, paidAt: '2026-11-05', method: 'cash', createdBy: 'u1' })
+    await expect(voidInvoice(d.client, id, 'oops')).rejects.toThrow("This invoice has a payment on it, so it can't be voided.")
+  })
+
+  it('a monthly-fee plan bills a month whose visits were all skipped; a per-visit plan bills nothing for skips', async () => {
+    const d = seed()
+    d.tables.work_orders.push({ ...visit('k1', 'care', 'c1', 'p1', '2026-09-15', 'skipped'), skip_reason: 'weather' })
+    d.tables.work_orders.push({ ...visit('k2', 'mow', 'c1', 'p1', '2026-09-16', 'skipped'), skip_reason: 'weather' })
+    const ready = await loadReadyToBill(d.client, ORG, { now: NOW })
+    if (!ready.ready) throw new Error('not ready')
+    const sep = ready.units.filter((u) => u.month === '2026-09')
+    expect(sep.map((u) => [u.key, u.amountCents, u.visits])).toEqual([['m:care:2026-09', 10000, []]])
+    const res = await createServiceInvoices(d.client, ORG, 'u1', { ...(await shown(d)), keys: ['c:c1:2026-09'], grouping: 'month', includeCurrentMonth: false, send: false }, NOW)
+    if ('error' in res) throw new Error(res.error)
+    expect(res.created).toHaveLength(1)
+    expect(d.tables.job_invoice_items.map((i) => i.description)).toEqual(['Gutter care — September 2026'])
   })
 })

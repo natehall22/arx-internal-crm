@@ -323,21 +323,28 @@ Built on the single send door in `lib/suppliers/send-order.ts`; **OFF by default
 
 ## Invoicing recurring service — invoices without a job (2026-11-11)
 ONE invoice system: `job_invoices` (+ items, `invoice_payments`, `job_payments`). Migration `202611110060_customer_invoices.sql`
-(NOT applied; after 202611100040, 202611110030, 202611110040; DB test `supabase/tests/run-customer-invoices.sh` on local PG16).
+(NOT applied; **202611100040 MUST be applied first** — 0060 replaces its trigger and needs `org_id`; then after 202611110030,
+202611110040; order also in docs/domain-cutover.md; DB test `supabase/tests/run-customer-invoices.sh` on local PG16).
 - **Shape:** `job_invoices.job_id` nullable; a row has a job (exactly as before) OR `customer_id` (+ `property_id`) with its own
   `org_id` (writer sets it; trigger `job_invoices_set_org` checks customer/property are that company's). Kind `'service'`.
   Numbers `INV-<YY>-<5-digit seq per company per year>`. Lines gain `work_order_id` (the visit), `service_date`,
   `service_plan_id` + `billing_month` (a monthly plan's month, 1st), `unit` ('hour' = time & materials: qty hours × rate).
-- **ONE writer of billed lines:** SQL `create_service_invoice` (per-company advisory lock; a visit or plan-month already on a
-  non-void invoice is skipped; void frees it). App side `lib/service-billing-db.ts` (`loadReadyToBill`,
-  `createServiceInvoices` — recomputes from the DB, the browser only names draft keys, ≤ 25 per request), rules
+- **ONE writer of billed lines:** SQL `create_service_invoice` (per-company advisory lock; ALL OR NOTHING — if a visit or
+  plan-month on it is already on a non-void invoice nothing is written; void frees it). Lines AND totals (tax from
+  `computeCustomerSalesTax`, same rule as every invoice) go in the same call via `createServiceInvoiceFromLines`
+  (`lib/invoices.ts`) — no $0 invoice can hold visits. Used by billing AND by "Duplicate" of an invoice without a job
+  (refused while the original is live: void it first, then copy — the copy keeps the visits). App side
+  `lib/service-billing-db.ts` (`loadReadyToBill`, `createServiceInvoices` — recomputes from the DB and bills EXACTLY the
+  units / visits the screen previewed (`unitKeys`, `visitIds`; a visit finished since waits for the next run), ≤ 25
+  per request), rules
   `lib/service-billing.ts` (units: per-visit plan → each visit at its `service_visit_charges` snapshot = its own price as of
-  its slot day; per-month plan → one plan-month at `planPriceOn(plan, 1st)`, its visits listed at $0; yearly / unpriced /
-  follow-on steps not billed here). Grouping: one per customer per month (the current month waits unless included) or
+  its slot day; per-month plan → one plan-month at `planPriceOn(plan, 1st)` for any month with a done OR skipped visit (the
+  fee follows the plan's billing basis; a paused month has no visits so doesn't bill), its done visits listed at $0;
+  per-visit plans bill nothing for skips; yearly / unpriced / follow-on steps not billed here). Grouping: one per customer per month (the current month waits unless included) or
   one per visit. Screen: Jobs → Schedule → **Ready to bill** (`components/billing/ReadyToBill.tsx`).
 - **Who:** `lib/service-billing-access.ts` — `servicePlans` switch on + `callerCanAccessJobBilling` (money:record).
-- **Tax:** `recalculateInvoiceTotals` (now exported) taxes an invoice without a job by ITS customer; the preview uses the same
-  `computeDocumentSalesTax`. Plan / charge `taxable` → line `taxable`.
+- **Tax:** `recalculateInvoiceTotals` (draft edits) taxes an invoice without a job by ITS customer and now throws if its
+  total write fails; creation and the preview use the same `computeDocumentSalesTax`. Plan / charge `taxable` → line `taxable`.
 - **Customer document:** `lib/invoice-document.ts` is THE invoice model for the print page AND the email
   (`lib/invoice-email.ts`); `findPrintableInvoice` is the id-or-number lookup (both scoped). Only invoices without a job are
   really emailed (`sendCustomerInvoice`: email first, then mark sent); job invoices keep the old "mark sent" stub — the
@@ -348,7 +355,14 @@ ONE invoice system: `job_invoices` (+ items, `invoice_payments`, `job_payments`)
   `job_payments` by job id (and the SQL views join jobs), so these rows never touch job totals, paid-in-full
   (`lib/job-collection.ts`), payroll or `rpt_payments`. `applyPaymentToInvoice` refuses invoices without a job.
   Paid in full for these invoices = `computeInvoiceBalance(...).is_paid` / status `paid`.
-- **A billed visit can't be reopened** (`applyVisitAction` → 409 naming the invoice; void it first).
+- **A billed visit can't be reopened** (`applyVisitAction` → 409 naming the invoice; DB trigger
+  `work_orders_billed_visit_guard` takes the same lock as billing, so they can't cross).
+- **An invoice without a job with a payment on it can't be voided** (`voidInvoice` message + DB trigger
+  `job_invoices_void_guard`; the payment writer locks the invoice row). There is no refund flow yet — a wrong partly-paid
+  invoice is corrected on the next invoice.
+- **Reports:** `rpt_payments` (redefined in 0060, LEFT JOIN) includes payments without a job under their own company (no
+  job number); job payment rows unchanged. Follow-up: an `rpt_invoices` view (billed service revenue by month/customer)
+  — no invoice dataset exists in the catalog today (`lib/reporting/catalog.ts`).
 - **Not built:** auto-invoice when a crew marks a visit done (the office bills from Ready to bill, one tap per visit or a
   batch); yearly-plan billing; the `unpaid-invoices` Today card; QuickBooks for these invoices (the outbox design is per
   job); an "Hours to bill" UI (the item model + `add_item` accept `unit:'hour'` + `service_date` for the time-tracking builder).

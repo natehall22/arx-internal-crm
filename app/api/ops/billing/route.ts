@@ -27,7 +27,8 @@ export async function GET(request: Request) {
 }
 
 /**
- * POST /api/ops/billing { keys, grouping, includeCurrentMonth, lookbackDays?, send } — make those invoices (≤ 25 per call;
+ * POST /api/ops/billing { keys, unitKeys, visitIds, grouping, includeCurrentMonth, lookbackDays?, send } — unitKeys / visitIds
+ * are what the screen previewed: only those are billed (a visit finished since waits for the next run) — make those invoices (≤ 25 per call;
  * the screen sends a big batch in pieces). Safe to repeat: anything already billed is skipped and reported.
  */
 export async function POST(request: Request) {
@@ -39,6 +40,8 @@ export async function POST(request: Request) {
   if (!grouping) return NextResponse.json({ error: 'Pick how to group the invoices' }, { status: 400 })
   const result = await createServiceInvoices(ctx.admin, ctx.orgId, ctx.userId, {
     keys: body.keys.filter((k): k is string => typeof k === 'string'),
+    unitKeys: Array.isArray(body.unitKeys) ? body.unitKeys.filter((k): k is string => typeof k === 'string').slice(0, 5000) : [],
+    visitIds: Array.isArray(body.visitIds) ? body.visitIds.filter((k): k is string => typeof k === 'string').slice(0, 20000) : [],
     grouping,
     includeCurrentMonth: body.includeCurrentMonth === true,
     lookbackDays: lookbackParam(body.lookbackDays),

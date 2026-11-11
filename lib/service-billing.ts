@@ -5,8 +5,9 @@
  *
  * Units of billing (from the plan's billing basis, as the visit was priced when planned — service_visit_charges):
  *   - a VISIT of a per-visit plan, at its price snapshot;
- *   - a PLAN-MONTH of a monthly plan (any month with at least one done visit), at the plan's price on the 1st of that month
- *     ("new price starts on" honoured); its done visits are listed on the invoice at $0.
+ *   - a PLAN-MONTH of a monthly plan (any month with at least one done OR skipped visit — the fee follows the plan, not the
+ *     weather), at the plan's price on the 1st of that month ("new price starts on" honoured); its done visits are listed
+ *     on the invoice at $0. A paused plan has no visits in its paused weeks, so a paused month doesn't bill.
  * Not billed here: yearly plans (billed once a year — not built), visits with no price, follow-on step visits (an
  * inspection after a cleaning is part of the plan), anything already on a non-void invoice.
  *
@@ -34,6 +35,8 @@ export type DoneVisit = {
   visitStep: string
   price: number | null
   taxable: boolean
+  /** A skipped visit (not done): bills nothing itself, but shows a monthly-fee plan ran that month. */
+  skipped?: boolean
 }
 
 export type BillingPlanFacts = {
@@ -123,7 +126,10 @@ export function buildBillingUnits(
     const customerId = v.customerId ?? plan?.customer_id ?? null
     if (!plan || !customerId) continue // a plan that no longer loads (deleted customer) never bills by accident
     const month = monthOf(v.servedOn)
-    if (v.price != null && v.price > 0) {
+    // A skipped visit bills nothing on a per-visit plan; on a monthly-fee plan the month still bills (the plan's own
+    // billing basis decides). A paused plan has no visits in its paused weeks, so a paused month never bills.
+    if (v.skipped && plan.billing_basis !== 'per_month') continue
+    if (!v.skipped && v.price != null && v.price > 0) {
       units.push({
         key: `v:${v.visitId}`,
         kind: 'visit',
@@ -160,7 +166,7 @@ export function buildBillingUnits(
         }
         months.set(mkey, unit)
       }
-      unit.visits.push({ visitId: v.visitId, date: v.servedOn })
+      if (!v.skipped) unit.visits.push({ visitId: v.visitId, date: v.servedOn })
       continue
     }
     notBillable.push({ visitId: v.visitId, customerId, planName: plan.name, date: v.servedOn, reason: plan.billing_basis === 'per_year' ? 'yearly' : 'no_price' })
@@ -171,6 +177,7 @@ export function buildBillingUnits(
       units.push(u)
     } else {
       for (const v of u.visits) notBillable.push({ visitId: v.visitId, customerId: u.customerId, planName: u.planName, date: v.date, reason: 'no_price' })
+      if (u.visits.length === 0) notBillable.push({ visitId: u.key, customerId: u.customerId, planName: u.planName, date: u.date, reason: 'no_price' })
     }
   }
   units.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.key < b.key ? -1 : 1))
@@ -181,6 +188,21 @@ export function buildBillingUnits(
 export function unitWaits(u: BillingUnit, grouping: BillingGrouping, currentMonth: string, includeCurrentMonth: boolean): boolean {
   if (includeCurrentMonth || u.month < currentMonth) return false
   return grouping === 'month' || u.kind === 'month'
+}
+
+/**
+ * Bill exactly what the office saw: keep only units it previewed (by key) and, inside a month, only the visits it saw.
+ * A visit finished after the screen loaded waits for the next run (it is not on any invoice, so it shows again).
+ */
+export function onlyPreviewed(units: readonly BillingUnit[], unitKeys: ReadonlySet<string>, visitIds: ReadonlySet<string>): BillingUnit[] {
+  const out: BillingUnit[] = []
+  for (const u of units) {
+    if (!unitKeys.has(u.key)) continue
+    if (u.kind === 'visit') {
+      if (visitIds.has(u.visits[0].visitId)) out.push(u)
+    } else out.push({ ...u, visits: u.visits.filter((v) => visitIds.has(v.visitId)) })
+  }
+  return out
 }
 
 /** Pure: the invoice lines for a set of units (one customer). `address` names a line's property when they differ. */

@@ -504,9 +504,7 @@ export async function createFinalInvoice(
 export async function addInvoiceItem(
   supabase: SupabaseClient,
   invoiceId: string,
-  item: InvoiceItemInput,
-  /** Service-line links, copied only by duplicateInvoiceAsDraft (billing writes them through create_service_invoice). */
-  links?: Pick<JobInvoiceItem, 'work_order_id' | 'service_plan_id' | 'billing_month'>
+  item: InvoiceItemInput
 ): Promise<JobInvoiceItem> {
   const lineFields = invoiceItemLineFields(item)
   if ('error' in lineFields) throw new Error(lineFields.error)
@@ -553,9 +551,6 @@ export async function addInvoiceItem(
       ...(item.taxable === true ? { taxable: true } : {}),
       // Hours / service day / visit links: only sent when set, so a plain line saves before migration 202611110060.
       ...lineFields.value,
-      ...(links?.work_order_id ? { work_order_id: links.work_order_id } : {}),
-      ...(links?.service_plan_id ? { service_plan_id: links.service_plan_id } : {}),
-      ...(links?.billing_month ? { billing_month: links.billing_month } : {}),
     })
     .select()
     .single()
@@ -717,10 +712,12 @@ export async function recalculateInvoiceTotals(
   }
 
   // org-scope-ok: invoiceId was verified in the caller's company by findOrgInvoice (app/api/invoices/[invoiceId]/*); job_invoices.org_id filter after migration 202611100040
-  await supabase
+  const { error: updateError } = await supabase
     .from('job_invoices')
     .update(update)
     .eq('id', invoiceId)
+  // A failed total write must not leave the invoice showing old totals silently.
+  if (updateError) throw new Error(`Failed to save invoice totals: ${updateError.message}`)
 }
 
 /**
@@ -1034,6 +1031,15 @@ export async function voidInvoice(
     throw new Error('Cannot void a paid invoice. Refund payments first.')
   }
 
+  // An invoice without a job with money on it stays (the DB refuses too: job_invoices_void_guard).
+  // org-scope-ok: invoiceId was verified in the caller's company by findOrgInvoice; invoice_payments hang off it
+  const { data: applied } = await supabase.from('invoice_payments').select('id').eq('invoice_id', invoiceId).limit(1)
+  // org-scope-ok: same verified invoice
+  const { data: owner } = await supabase.from('job_invoices').select('job_id').eq('id', invoiceId).maybeSingle()
+  if (owner && !owner.job_id && (applied ?? []).length > 0) {
+    throw new Error("This invoice has a payment on it, so it can't be voided.")
+  }
+
   // org-scope-ok: invoiceId was verified in the caller's company by findOrgInvoice (app/api/invoices/[invoiceId]/*); job_invoices.org_id filter after migration 202611100040
   const { data: updated, error } = await supabase
     .from('job_invoices')
@@ -1067,14 +1073,39 @@ export async function duplicateInvoiceAsDraft(
     throw new Error('Invoice not found')
   }
 
-  // Create new invoice: on the same job, or — for an invoice without a job — for the same customer in the same company.
-  const owner = original.job_id
-    ? { job_id: original.job_id }
-    : { org_id: original.org_id, customer_id: original.customer_id, property_id: original.property_id ?? null, invoice_kind: original.invoice_kind }
+  // An invoice without a job holds visits / plan-months: its copy goes through the ONE writer of billed lines, which
+  // refuses while the original (or any other live invoice) still holds them — void the original first, then copy it.
+  if (!original.job_id) {
+    if (!original.org_id || !original.customer_id) throw new Error('Invoice not found')
+    const made = await createServiceInvoiceFromLines(supabase, original.org_id, {
+      customerId: original.customer_id,
+      propertyId: original.property_id ?? null,
+      createdBy,
+      publicNote: original.public_note,
+      internalNote: original.internal_note,
+      lines: original.items.map((item) => ({
+        description: item.description,
+        qty: Number(item.qty),
+        unit_price_cents: item.unit_price_cents,
+        taxable: item.taxable === true,
+        ...(item.work_order_id ? { work_order_id: item.work_order_id } : {}),
+        ...(item.service_date ? { service_date: item.service_date } : {}),
+        ...(item.service_plan_id ? { service_plan_id: item.service_plan_id } : {}),
+        ...(item.billing_month ? { billing_month: item.billing_month } : {}),
+        ...(item.unit ? { unit: item.unit } : {}),
+      })),
+    })
+    if (!made.invoiceId) throw new Error(`Void ${original.invoice_number} first — its visits are still billed on it. Then make the copy.`)
+    // org-scope-ok: the invoice was just created in original.org_id by create_service_invoice
+    const { data: copy } = await supabase.from('job_invoices').select().eq('id', made.invoiceId).eq('org_id', original.org_id).single()
+    return copy as JobInvoice
+  }
+
+  // Create new invoice on the same job.
   const { data: newInvoice, error: invoiceError } = await supabase
     .from('job_invoices')
     .insert({
-      ...owner,
+      job_id: original.job_id,
       created_by: createdBy,
       status: 'draft',
       notes: original.notes,
@@ -1089,22 +1120,17 @@ export async function duplicateInvoiceAsDraft(
     throw new Error(`Failed to duplicate invoice: ${invoiceError?.message || 'Unknown error'}`)
   }
 
-  // Copy line items. Service links come along so a revised invoice still holds its visits (void the original to free them).
+  // Copy line items (job invoices: never visit links — those only exist on invoices without a job).
   for (const item of original.items) {
-    await addInvoiceItem(
-      supabase,
-      newInvoice.id,
-      {
-        description: item.description,
-        qty: item.qty,
-        unit_price_cents: item.unit_price_cents,
-        sort_order: item.sort_order,
-        taxable: item.taxable === true,
-        ...(item.unit ? { unit: item.unit } : {}),
-        ...(item.service_date ? { service_date: item.service_date } : {}),
-      },
-      { work_order_id: item.work_order_id ?? null, service_plan_id: item.service_plan_id ?? null, billing_month: item.billing_month ?? null }
-    )
+    await addInvoiceItem(supabase, newInvoice.id, {
+      description: item.description,
+      qty: item.qty,
+      unit_price_cents: item.unit_price_cents,
+      sort_order: item.sort_order,
+      taxable: item.taxable === true,
+      ...(item.unit ? { unit: item.unit } : {}),
+      ...(item.service_date ? { service_date: item.service_date } : {}),
+    })
   }
 
   // Refresh to get updated totals
@@ -1115,6 +1141,56 @@ export async function duplicateInvoiceAsDraft(
     .single()
 
   return (refreshed || newInvoice) as JobInvoice
+}
+
+/** A line on an invoice without a job, as create_service_invoice takes it. */
+export type ServiceInvoiceLine = {
+  description: string
+  qty: number
+  unit_price_cents: number
+  taxable: boolean
+  work_order_id?: string
+  service_date?: string
+  service_plan_id?: string
+  billing_month?: string
+  unit?: 'hour'
+}
+
+/**
+ * THE way an invoice without a job is made (Ready to bill, a copy of a voided one): the lines + their totals (the ONE tax
+ * calculation, lib/sales-tax.ts, by this customer) go to SQL create_service_invoice in ONE call — all or nothing, so no
+ * $0 invoice ever holds visits. `invoiceId: null` = something on it is already billed on a live invoice (`skipped`).
+ */
+export async function createServiceInvoiceFromLines(
+  supabase: SupabaseClient,
+  orgId: string,
+  p: { customerId: string; propertyId: string | null; createdBy: string | null; lines: ServiceInvoiceLine[]; publicNote?: string | null; internalNote?: string | null }
+): Promise<{ invoiceId: string | null; skipped: unknown[] }> {
+  const tax = await computeCustomerSalesTax(
+    supabase,
+    orgId,
+    p.customerId,
+    p.lines.map((l) => ({ amountCents: Math.round(l.qty * l.unit_price_cents), taxable: l.taxable === true }))
+  )
+  const { data, error } = await supabase.rpc('create_service_invoice', {
+    p_org: orgId,
+    p_customer: p.customerId,
+    p_property: p.propertyId,
+    p_created_by: p.createdBy,
+    p_lines: p.lines,
+    p_totals: {
+      subtotal_cents: tax.subtotalCents,
+      taxable_subtotal_cents: tax.taxableCents,
+      tax_cents: tax.taxCents,
+      tax_lines: tax.taxLines,
+      total_cents: tax.subtotalCents + tax.taxCents,
+    },
+    p_public_note: p.publicNote ?? null,
+    p_internal_note: p.internalNote ?? null,
+  })
+  if (error) throw new Error(`Failed to create invoice: ${error.message}`)
+  const r = (data ?? {}) as { invoice_id?: string | null; skipped?: unknown[] }
+  return { invoiceId: r.invoice_id ?? null, skipped: r.skipped ?? [] }
 }
 
 export type CustomerInvoicePayment = {

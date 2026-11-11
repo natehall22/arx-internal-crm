@@ -1,8 +1,10 @@
 -- Invoices without a job: recurring service (lawn visits, a roof & gutter care plan) billed on the ONE invoice system,
 -- job_invoices (+ items, payments). Additive / nullable only; every job invoice keeps working exactly as today.
 --
--- APPLY ORDER: after 202611100040 (job_invoices.org_id), 202611110030 (service plans) and 202611110040 (sales tax:
--- job_invoice_items.taxable). Before the code that bills visits (the code reads "not ready" until then and offers nothing).
+-- APPLY ORDER — REQUIRED: 202611100040 (job_invoices.org_id + its trigger/number generator) MUST be applied first; this file
+-- replaces that trigger and relies on org_id (it fails on `org_id` otherwise). Also after 202611110030 (service plans) and
+-- 202611110040 (sales tax: job_invoice_items.taxable). Before the code that bills visits (the code reads "not ready" until
+-- then and offers nothing). Order is also listed in docs/domain-cutover.md ("Database migrations — apply order").
 --
 -- 1. job_invoices.job_id becomes NULLABLE. A row has a job (as today) OR a customer (+ optional property) — CHECK.
 --    For a job invoice nothing changes: org_id from the job (trigger), INV-<YY>-<job_number>-<seq>.
@@ -15,12 +17,17 @@
 --    org_id + customer_id (CHECK + trigger: customer in that company). Every existing reader filters job_payments by
 --    job id (verified 2026-11-11: 16 app files, rpt_* views join production_jobs), so these rows never reach a job total,
 --    payroll or the paid-in-full rule (lib/job-collection.ts). Browser RLS joins the job, so they are service-role only.
--- 4. create_service_invoice(): THE writer of billed service lines. One transaction under a per-company advisory lock:
---    a visit (work_order_id) or a plan-month (service_plan_id + billing_month) already on a non-void invoice is skipped,
---    so a double tap, two office people, or a retried batch can never bill it twice. Voiding the invoice frees them.
+-- 4. create_service_invoice(): THE writer of billed service lines + the invoice totals, one transaction under a
+--    per-company advisory lock, all or nothing: if a visit (work_order_id) or plan-month (service_plan_id + billing_month)
+--    is already on a non-void invoice, nothing is written — a double tap, two office people, a retried batch or a revised
+--    copy of a live invoice can never bill it twice. Voiding the invoice frees them. Guards: a billed visit can't be
+--    reopened (same lock), an invoice without a job with a payment on it can't be voided. rpt_payments includes payments
+--    without a job.
 --
 -- ROLLBACK (only while no customer invoice / payment exists):
---   drop function public.create_service_invoice(uuid, uuid, uuid, uuid, jsonb);
+--   restore rpt_payments from 202610220010; drop trigger work_orders_billed_visit_guard / job_invoices_void_guard + functions;
+--   drop function public.create_service_invoice(uuid, uuid, uuid, uuid, jsonb, jsonb, text, text);
+--   drop function public.record_customer_invoice_payment(uuid, uuid, integer, date, text, text, uuid);
 --   drop function public.generate_customer_invoice_number(uuid); drop function public.job_payments_customer_guard() cascade;
 --   restore set_invoice_number (053b) and job_invoices_set_org (202611100040) bodies, the trigger column list, the kind CHECK;
 --   alter table job_invoice_items drop column work_order_id, service_date, service_plan_id, billing_month, unit;
@@ -176,10 +183,17 @@ create trigger job_payments_customer_guard
   for each row execute function public.job_payments_customer_guard();
 
 -- ---- 4. THE writer of billed service lines ---------------------------------------------------------------------------
--- p_lines: [{ description, qty, unit_price_cents, taxable, work_order_id?, service_date?, service_plan_id?, billing_month?, unit? }]
--- Returns { invoice_id (null when nothing is left to bill), skipped: [ { work_order_id } | { service_plan_id, billing_month } ] }.
+-- p_lines:  [{ description, qty, unit_price_cents, taxable, work_order_id?, service_date?, service_plan_id?, billing_month?, unit? }]
+-- p_totals: { subtotal_cents, taxable_subtotal_cents, tax_cents, tax_lines, total_cents } — computed by the app's ONE tax
+--           calculation (lib/sales-tax.ts) for EXACTLY these lines and written in the same insert, so an invoice is never
+--           left at $0 holding visits if a later step fails.
+-- ALL OR NOTHING: if any visit / plan-month on these lines is already on a non-void invoice (a double tap, two office
+-- people, a revised copy of an invoice that is not void), nothing is written and they are listed in `skipped`.
+-- Returns { invoice_id (null when skipped), skipped: [ { work_order_id } | { service_plan_id, billing_month } ] }.
+drop function if exists public.create_service_invoice(uuid, uuid, uuid, uuid, jsonb);
 create or replace function public.create_service_invoice(
-  p_org uuid, p_customer uuid, p_property uuid, p_created_by uuid, p_lines jsonb
+  p_org uuid, p_customer uuid, p_property uuid, p_created_by uuid, p_lines jsonb, p_totals jsonb,
+  p_public_note text default null, p_internal_note text default null
 ) returns jsonb
 language plpgsql
 set search_path = public, pg_temp
@@ -189,10 +203,10 @@ declare
   v_wo uuid;
   v_plan uuid;
   v_month date;
-  v_kept jsonb := '[]'::jsonb;
   v_skipped jsonb := '[]'::jsonb;
-  v_billed_months jsonb := '[]'::jsonb; -- plan-months kept on THIS invoice ("<plan>|<month>")
+  v_months jsonb := '[]'::jsonb; -- plan-months on THIS call ("<plan>|<month>")
   v_priced integer := 0;
+  v_subtotal bigint := 0;
   v_inv uuid;
 begin
   if jsonb_typeof(p_lines) is distinct from 'array' or jsonb_array_length(p_lines) = 0 or jsonb_array_length(p_lines) > 500 then
@@ -204,25 +218,26 @@ begin
 
   perform pg_advisory_xact_lock(hashtextextended('service_invoice:' || p_org::text, 0));
 
-  -- Pass 1: plan-month lines and priced visit lines.
   for v_line in select * from jsonb_array_elements(p_lines) loop
     v_wo := nullif(v_line->>'work_order_id', '')::uuid;
     v_plan := nullif(v_line->>'service_plan_id', '')::uuid;
     v_month := nullif(v_line->>'billing_month', '')::date;
+    if coalesce((v_line->>'unit_price_cents')::integer, -1) < 0 then
+      raise exception 'create_service_invoice: a line needs a price of 0 or more' using errcode = '22023';
+    end if;
+    v_subtotal := v_subtotal + round(coalesce((v_line->>'qty')::numeric, 1) * (v_line->>'unit_price_cents')::integer);
+    if (v_line->>'unit_price_cents')::integer > 0 then v_priced := v_priced + 1; end if;
     if v_plan is not null and not exists (
       select 1 from public.service_plans sp where sp.id = v_plan and sp.org_id = p_org and sp.customer_id = p_customer) then
       raise exception 'create_service_invoice: plan is not this customer''s' using errcode = '42501';
     end if;
     if v_month is not null then
       if v_plan is null then raise exception 'create_service_invoice: a month line needs its plan' using errcode = '22023'; end if;
+      v_months := v_months || to_jsonb(v_plan::text || '|' || v_month::text);
       if exists (select 1 from public.job_invoice_items it join public.job_invoices ji on ji.id = it.invoice_id
                  where it.service_plan_id = v_plan and it.billing_month = v_month and ji.status <> 'void') then
         v_skipped := v_skipped || jsonb_build_array(jsonb_build_object('service_plan_id', v_plan, 'billing_month', v_month));
-        continue;
       end if;
-      v_billed_months := v_billed_months || to_jsonb(v_plan::text || '|' || v_month::text);
-      v_kept := v_kept || jsonb_build_array(v_line);
-      v_priced := v_priced + 1;
     elsif v_wo is not null then
       if not exists (select 1 from public.work_orders w
                      where w.id = v_wo and w.org_id = p_org and w.customer_id = p_customer
@@ -233,41 +248,38 @@ begin
       if exists (select 1 from public.job_invoice_items it join public.job_invoices ji on ji.id = it.invoice_id
                  where it.work_order_id = v_wo and ji.status <> 'void') then
         v_skipped := v_skipped || jsonb_build_array(jsonb_build_object('work_order_id', v_wo));
-        continue;
       end if;
-      if coalesce((v_line->>'unit_price_cents')::integer, 0) > 0 then
-        v_kept := v_kept || jsonb_build_array(v_line);
-        v_priced := v_priced + 1;
-      end if;
-    else
-      v_kept := v_kept || jsonb_build_array(v_line); -- a plain line (e.g. hours) rides along; it never makes an invoice alone
     end if;
   end loop;
 
-  -- Pass 2: $0 visit lines (a monthly plan's visits, listed) only beside their own plan-month line on this invoice.
+  -- A $0 visit line (a monthly plan's visit, listed) only rides beside its own plan-month line.
   for v_line in select * from jsonb_array_elements(p_lines) loop
     v_wo := nullif(v_line->>'work_order_id', '')::uuid;
     v_plan := nullif(v_line->>'service_plan_id', '')::uuid;
-    if v_wo is null or nullif(v_line->>'billing_month', '') is not null or coalesce((v_line->>'unit_price_cents')::integer, 0) > 0 then
-      continue;
+    if v_wo is not null and coalesce((v_line->>'unit_price_cents')::integer, 0) = 0 and nullif(v_line->>'billing_month', '') is null
+       and (v_plan is null or nullif(v_line->>'service_date', '') is null
+            or not (v_months ? (v_plan::text || '|' || date_trunc('month', (v_line->>'service_date')::date)::date::text))) then
+      raise exception 'create_service_invoice: a $0 visit line needs its month line' using errcode = '22023';
     end if;
-    if v_plan is null or nullif(v_line->>'service_date', '') is null
-       or not (v_billed_months ? (v_plan::text || '|' || date_trunc('month', (v_line->>'service_date')::date)::date::text)) then
-      continue;
-    end if;
-    if exists (select 1 from public.job_invoice_items it join public.job_invoices ji on ji.id = it.invoice_id
-               where it.work_order_id = v_wo and ji.status <> 'void') then
-      continue;
-    end if;
-    v_kept := v_kept || jsonb_build_array(v_line);
   end loop;
 
-  if v_priced = 0 then
+  if jsonb_array_length(v_skipped) > 0 then
     return jsonb_build_object('invoice_id', null, 'skipped', v_skipped);
   end if;
+  if v_priced = 0 then
+    raise exception 'create_service_invoice: nothing to bill' using errcode = '22023';
+  end if;
+  if jsonb_typeof(p_totals) is distinct from 'object'
+     or (p_totals->>'subtotal_cents')::bigint is distinct from v_subtotal
+     or (p_totals->>'total_cents')::bigint is distinct from v_subtotal + coalesce((p_totals->>'tax_cents')::bigint, 0) then
+    raise exception 'create_service_invoice: totals do not match the lines' using errcode = '22023';
+  end if;
 
-  insert into public.job_invoices (org_id, customer_id, property_id, created_by, status, invoice_kind)
-  values (p_org, p_customer, p_property, p_created_by, 'draft', 'service')
+  insert into public.job_invoices (org_id, customer_id, property_id, created_by, status, invoice_kind,
+                                   subtotal_cents, taxable_subtotal_cents, tax_cents, tax_lines, total_cents, public_note, internal_note)
+  values (p_org, p_customer, p_property, p_created_by, 'draft', 'service',
+          v_subtotal, coalesce((p_totals->>'taxable_subtotal_cents')::integer, 0), coalesce((p_totals->>'tax_cents')::integer, 0),
+          coalesce(p_totals->'tax_lines', '[]'::jsonb), (p_totals->>'total_cents')::integer, p_public_note, p_internal_note)
   returning id into v_inv;
 
   insert into public.job_invoice_items (
@@ -285,11 +297,69 @@ begin
          nullif(l->>'service_plan_id', '')::uuid,
          nullif(l->>'billing_month', '')::date,
          nullif(l->>'unit', '')
-  from jsonb_array_elements(v_kept) with ordinality as t(l, ord);
+  from jsonb_array_elements(p_lines) with ordinality as t(l, ord);
 
   return jsonb_build_object('invoice_id', v_inv, 'skipped', v_skipped);
 end;
 $$;
+
+-- A billed visit stays done: reopening it (status away from completed) is refused while any non-void invoice holds it.
+-- Same per-company lock as create_service_invoice, so a reopen and a billing run can't cross.
+create or replace function public.work_orders_billed_visit_guard()
+returns trigger
+language plpgsql
+set search_path = public, pg_temp
+as $$
+begin
+  if old.work_order_type = 'service_visit' and old.status = 'completed' and new.status is distinct from 'completed' then
+    perform pg_advisory_xact_lock(hashtextextended('service_invoice:' || old.org_id::text, 0));
+    if exists (select 1 from public.job_invoice_items it join public.job_invoices ji on ji.id = it.invoice_id
+               where it.work_order_id = old.id and ji.status <> 'void') then
+      raise exception 'This visit is on an invoice — void that invoice first' using errcode = '23514';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+drop trigger if exists work_orders_billed_visit_guard on public.work_orders;
+create trigger work_orders_billed_visit_guard before update of status on public.work_orders
+  for each row execute function public.work_orders_billed_visit_guard();
+
+-- An invoice without a job that has money on it can't be voided (its visits would bill again while the payment stays
+-- applied to a void invoice). The payment writer locks the invoice row, so a void and a payment can't cross.
+create or replace function public.job_invoices_void_guard()
+returns trigger
+language plpgsql
+set search_path = public, pg_temp
+as $$
+begin
+  if new.status = 'void' and old.status is distinct from 'void' and old.job_id is null
+     and exists (select 1 from public.invoice_payments ip where ip.invoice_id = old.id) then
+    raise exception 'This invoice has a payment on it, so it can''t be voided' using errcode = '23514';
+  end if;
+  return new;
+end;
+$$;
+drop trigger if exists job_invoices_void_guard on public.job_invoices;
+create trigger job_invoices_void_guard before update of status on public.job_invoices
+  for each row execute function public.job_invoices_void_guard();
+
+-- Reports (lib/reporting): payments without a job are money in too. Same columns as 202610220010; a job payment's row
+-- is unchanged (LEFT JOIN + the job's org first), a service payment has no job number / sale date.
+create or replace view public.rpt_payments with (security_invoker = true) as
+select coalesce(j.org_id, pm.org_id) as org_id,
+       pm.id                      as payment_id,
+       pm.job_id,
+       j.job_number,
+       pm.paid_at,
+       pm.amount_cents / 100.0    as amount,
+       pm.payment_type,
+       pm.method,
+       pm.funding_status,
+       j.sale_date
+from public.job_payments pm
+left join public.production_jobs j on j.id = pm.job_id
+where pm.job_id is not null or pm.org_id is not null;
 
 -- ---- 5. THE payment writer for an invoice without a job ----------------------------------------------------------------
 -- "Mark paid" today; a card processor's webhook later (lib/invoices.ts recordCustomerInvoicePayment is the one caller).
@@ -346,8 +416,8 @@ $$;
 revoke all on function public.record_customer_invoice_payment(uuid, uuid, integer, date, text, text, uuid) from public, anon, authenticated;
 grant execute on function public.record_customer_invoice_payment(uuid, uuid, integer, date, text, text, uuid) to service_role;
 
-revoke all on function public.create_service_invoice(uuid, uuid, uuid, uuid, jsonb) from public, anon, authenticated;
-grant execute on function public.create_service_invoice(uuid, uuid, uuid, uuid, jsonb) to service_role;
+revoke all on function public.create_service_invoice(uuid, uuid, uuid, uuid, jsonb, jsonb, text, text) from public, anon, authenticated;
+grant execute on function public.create_service_invoice(uuid, uuid, uuid, uuid, jsonb, jsonb, text, text) to service_role;
 revoke all on function public.generate_customer_invoice_number(uuid) from public, anon, authenticated;
 
 comment on column public.job_invoices.customer_id is 'Set on invoices without a job (job_id NULL): recurring service billed to a customer. Job invoices leave it NULL.';

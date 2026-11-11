@@ -1,15 +1,15 @@
 /**
  * Billing recurring service — the DB side (server only). Rules: lib/service-billing.ts. The one writer of billed lines:
  * SQL create_service_invoice (migration 202611110060), which re-checks "already billed" under a per-company lock, so a
- * double tap, two office people or a retried batch never bills a visit twice. Totals and tax: recalculateInvoiceTotals
- * (lib/invoices.ts → lib/sales-tax.ts), the same path every invoice uses. Email: sendCustomerInvoice (lib/invoice-email.ts).
+ * double tap, two office people or a retried batch never bills a visit twice. Totals and tax: computed by the ONE tax
+ * calculation (lib/sales-tax.ts) and written in the same SQL call (lib/invoices.ts createServiceInvoiceFromLines). Email: sendCustomerInvoice (lib/invoice-email.ts).
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { loadOrgTimeZone } from '@/lib/cron-orgs'
 import { isUsableCustomerEmail } from '@/lib/invoice-document'
 import { sendCustomerInvoice } from '@/lib/invoice-email'
-import { recalculateInvoiceTotals } from '@/lib/invoices'
+import { createServiceInvoiceFromLines } from '@/lib/invoices'
 import { loadOrgSalesTax } from '@/lib/sales-tax-server'
 import type { SalesTaxSettings } from '@/lib/sales-tax'
 import {
@@ -18,14 +18,16 @@ import {
   groupDraftInvoices,
   lookbackFrom,
   monthOf,
+  onlyPreviewed,
   unitWaits,
   type BillingGrouping,
   type BillingPlanFacts,
   type BillingUnit,
+  type DoneVisit,
   type NotBillable,
 } from '@/lib/service-billing'
 import { loadCompletedServiceVisits } from '@/lib/service-plans-db'
-import { ymdInZone, addDaysYmd, type BillingBasis } from '@/lib/service-plans'
+import { ymdInZone, addDaysYmd, SERVICE_VISIT_TYPE, type BillingBasis } from '@/lib/service-plans'
 import { orgDb } from '@/lib/supabase/org-db'
 import { isMissingColumn } from '@/lib/job-catch-up-db'
 import type { JobInvoice } from '@/lib/types/invoices'
@@ -159,6 +161,40 @@ async function loadAddresses(admin: SupabaseClient, orgId: string, ids: string[]
   return out
 }
 
+/** Skipped plan visits served in [fromYmd, toYmd] — a monthly-fee plan still bills those months (lib/service-billing.ts). */
+async function loadSkippedServiceVisits(admin: SupabaseClient, orgId: string, fromYmd: string, toYmd: string): Promise<DoneVisit[]> {
+  const out: DoneVisit[] = []
+  const PAGE = 1000
+  for (let page = 0; ; page += PAGE) {
+    const { data, error } = await orgDb(admin, orgId)
+      .from('work_orders')
+      .select('id, service_plan_id, customer_id, property_id, scheduled_date, visit_step')
+      .eq('work_order_type', SERVICE_VISIT_TYPE)
+      .eq('status', 'skipped')
+      .gte('scheduled_date', fromYmd)
+      .lte('scheduled_date', toYmd)
+      .order('id')
+      .range(page, page + PAGE - 1)
+    if (error) throw new Error(`billing: read skipped visits: ${error.message}`)
+    for (const r of (data ?? []) as Array<Record<string, unknown>>) {
+      if (!r.service_plan_id || !r.scheduled_date) continue
+      out.push({
+        visitId: String(r.id),
+        planId: String(r.service_plan_id),
+        customerId: (r.customer_id as string | null) ?? null,
+        propertyId: (r.property_id as string | null) ?? null,
+        servedOn: String(r.scheduled_date),
+        visitStep: (r.visit_step as string | null) ?? 'service',
+        price: null,
+        taxable: false,
+        skipped: true,
+      })
+    }
+    if ((data ?? []).length < PAGE) break
+  }
+  return out
+}
+
 /** Everything the Ready to bill screen needs: done, unbilled units within the look-back, and the facts to preview them. */
 export async function loadReadyToBill(admin: SupabaseClient, orgId: string, opts: { lookbackDays?: number; now?: Date } = {}): Promise<ReadyToBill> {
   const now = opts.now ?? new Date()
@@ -166,9 +202,13 @@ export async function loadReadyToBill(admin: SupabaseClient, orgId: string, opts
   const lookbackDays = Math.round(opts.lookbackDays ?? BILLING_LOOKBACK_DAYS)
   const from = lookbackFrom(today, lookbackDays)
   // completed_at is a timestamp: a day of margin either side; the look-back is a convenience, not a rule.
-  const visits = await loadCompletedServiceVisits(admin, orgId, `${addDaysYmd(from, -1)}T00:00:00Z`, new Date(now.getTime() + 86_400_000).toISOString())
+  const [done, skipped] = await Promise.all([
+    loadCompletedServiceVisits(admin, orgId, `${addDaysYmd(from, -1)}T00:00:00Z`, new Date(now.getTime() + 86_400_000).toISOString()),
+    loadSkippedServiceVisits(admin, orgId, from, today),
+  ])
+  const visits: DoneVisit[] = [...done, ...skipped]
   const planIds = Array.from(new Set(visits.map((v) => v.planId)))
-  const [plans, billed] = await Promise.all([loadPlanFacts(admin, orgId, planIds), loadBilled(admin, orgId, visits.map((v) => v.visitId), planIds)])
+  const [plans, billed] = await Promise.all([loadPlanFacts(admin, orgId, planIds), loadBilled(admin, orgId, done.map((v) => v.visitId), planIds)])
   if (!billed) return { ready: false, error: SERVICE_BILLING_NOT_READY }
   const { units, notBillable } = buildBillingUnits(visits, plans, billed)
   const customerIds = Array.from(new Set([...units.map((u) => u.customerId), ...notBillable.map((n) => n.customerId).filter((x): x is string => !!x)]))
@@ -184,6 +224,9 @@ export async function loadReadyToBill(admin: SupabaseClient, orgId: string, opts
 export type BillRequest = {
   /** Draft keys from groupDraftInvoices (≤ MAX_INVOICES_PER_REQUEST). */
   keys: string[]
+  /** What the screen showed: unit keys ('v:…' / 'm:…') and visit ids. Only these are billed. */
+  unitKeys: string[]
+  visitIds: string[]
   grouping: BillingGrouping
   includeCurrentMonth: boolean
   lookbackDays?: number
@@ -208,7 +251,9 @@ export async function createServiceInvoices(admin: SupabaseClient, orgId: string
   if (keys.length > MAX_INVOICES_PER_REQUEST) return { error: `At most ${MAX_INVOICES_PER_REQUEST} invoices at a time`, status: 400 }
   const data = await loadReadyToBill(admin, orgId, { lookbackDays: req.lookbackDays, now })
   if (!data.ready) return { error: data.error, status: 503 }
-  const open = data.units.filter((u) => !unitWaits(u, req.grouping, data.currentMonth, req.includeCurrentMonth))
+  // Bill exactly what the office previewed; anything newer waits for the next run.
+  const seen = onlyPreviewed(data.units, new Set(req.unitKeys), new Set(req.visitIds))
+  const open = seen.filter((u) => !unitWaits(u, req.grouping, data.currentMonth, req.includeCurrentMonth))
   const drafts = new Map(groupDraftInvoices(open, req.grouping, (id) => (id ? data.addresses[id] ?? null : null)).map((d) => [d.key, d]))
   const result: BillResult = { created: [], alreadyBilled: [], failed: [] }
   for (const key of keys) {
@@ -220,20 +265,17 @@ export async function createServiceInvoices(admin: SupabaseClient, orgId: string
     const customer = data.customers[draft.customerId]
     const customerName = customer?.name ?? 'Customer'
     try {
-      const { data: made, error } = await admin.rpc('create_service_invoice', {
-        p_org: orgId,
-        p_customer: draft.customerId,
-        p_property: draft.propertyId,
-        p_created_by: userId,
-        p_lines: draft.lines,
+      // Lines + totals (tax) in ONE SQL call, all or nothing (lib/invoices.ts createServiceInvoiceFromLines).
+      const { invoiceId } = await createServiceInvoiceFromLines(admin, orgId, {
+        customerId: draft.customerId,
+        propertyId: draft.propertyId,
+        createdBy: userId,
+        lines: draft.lines,
       })
-      if (error) throw new Error(error.message)
-      const invoiceId = (made as { invoice_id?: string | null } | null)?.invoice_id ?? null
       if (!invoiceId) {
         result.alreadyBilled.push(key)
         continue
       }
-      await recalculateInvoiceTotals(admin, invoiceId)
       const { data: row, error: readError } = await orgDb(admin, orgId).from('job_invoices').select('*').eq('id', invoiceId).maybeSingle()
       if (readError || !row) throw new Error(readError?.message ?? 'invoice not readable after create')
       let invoice = row as JobInvoice
