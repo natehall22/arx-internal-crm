@@ -444,6 +444,15 @@ const SCREENS: Screen[] = [
   { name: 'online-payments-settings', path: '/dev-harness/online-payments-settings', ready: 'text=Connected — taking payments', mock: async (p) => {
     await p.route('**/api/admin/online-payments', (route) => route.fulfill(json({ featureOn: true, configured: true, ready: true, testMode: true, settings: { allowPartial: false, bankPayments: true, autopay: true, retryDays: [3, 7] }, account: { status: 'active', chargesEnabled: true, payoutsEnabled: false, detailsSubmitted: true, livemode: false, accountId: 'acct_1' } })))
   } },
+  { name: 'quote-page', path: '/dev-harness/quote-page', ready: 'text=Optional extras — tick what you want',
+    states: [{ name: 'option-ticked', run: async (p) => { await p.getByText('Driveway pressure wash').click(); await p.waitForTimeout(200) } }] },
+  { name: 'quote-page-approved', path: '/dev-harness/quote-page-approved', ready: 'text=Approved — thank you!' },
+  { name: 'quote-send-card', path: '/dev-harness/quote-send-card', ready: 'text=Customer approval link', mock: async (p) => {
+    await p.route('**/api/proposals/harness-proposal/quote-link', (route) => route.fulfill(json({ customerEmail: 'pat@example.test', status: 'draft', optionalCount: 2, totalCents: 180000, deposit: { mode: 'percent', percent: 25, fixedCents: 0, overridden: false, cents: 45000 }, company: { depositMode: 'percent', depositPercent: 25, depositFixedCents: 0 }, problems: [], link: null, approval: null })))
+  } },
+  { name: 'quote-settings', path: '/dev-harness/quote-settings', ready: 'text=Deposit after approval', mock: async (p) => {
+    await p.route('**/api/admin/quote-approval', (route) => route.fulfill(json({ settings: { depositMode: 'percent', depositPercent: 25, depositFixedCents: 0, linkDays: 30, terms: 'Work is scheduled within two weeks.' } })))
+  } },
   { name: 'invoice-online', path: '/dev-harness/invoice-online', ready: 'text=Copy pay link' },
   { name: 'tax-exemption', path: '/dev-harness/tax-exemption', ready: 'text=Tax exempt (no sales tax' },
   { name: 'admin-settings', path: '/dev-harness/admin-settings', ready: 'text=Customer-facing brand',
