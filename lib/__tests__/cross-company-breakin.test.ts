@@ -281,6 +281,21 @@ const FIXTURES: Record<string, Variant[]> = {
   'PATCH /api/admin/time/[id]': [(id, ref) => ({ body: { endedAt: `${TODAY_YMD}T16:00:00.000Z`, jobId: ref, reason: 'Bravo fix' } })],
   'DELETE /api/admin/time/[id]': [() => ({ body: { reason: 'Bravo duplicate' } })],
   'PUT /api/admin/subs/[id]/crew': [(id, ref) => ({ body: { tracksTime: true, members: [{ userId: ref, isLead: true }] } })],
+  // New payroll (flag on for these routes only): every write names a week / person / job by id.
+  'GET /api/admin/payroll/pay-week': [(id, ref) => ({ query: { period: ref } })],
+  'GET /api/admin/payroll/pay-week/csv': [(id, ref) => ({ query: { period: ref } })],
+  'POST /api/admin/payroll/pay-week/approve': [(id, ref) => ({ body: { periodId: ref, expectedTotal: 0 } })],
+  'POST /api/admin/payroll/pay-week/bonus': [(id, ref) => ({ body: { id: ref, periodId: ref, action: 'approve' } })],
+  'POST /api/admin/payroll/pay-week/dispute': [(id, ref) => ({ body: { id: ref, action: 'reply', reply: 'Bravo' } }), (id, ref) => ({ body: { id: ref, action: 'fix', amount: 10, periodId: ref } })],
+  'POST /api/admin/payroll/pay-week/email': [(id, ref) => ({ body: { periodId: ref } })],
+  'POST /api/admin/payroll/pay-week/hours': [(id, ref) => ({ body: { periodId: ref, userId: ref, regularHours: 8, overtimeHours: 0 } })],
+  'GET /api/admin/payroll/pay-week/job-split': [(id, ref) => ({ query: { periodId: ref, jobId: ref } })],
+  'POST /api/admin/payroll/pay-week/job-split': [(id, ref) => ({ body: { periodId: ref, jobId: ref, lines: [], added: [{ userId: ref, percent: 10 }], reason: 'Bravo split' } })],
+  'POST /api/admin/payroll/pay-week/minimum': [(id, ref) => ({ body: { periodId: ref, userId: ref, met: true } })],
+  'POST /api/admin/payroll/pay-week/schedule': [
+    () => ({ body: { preview: true, schedule: { weekStartDay: 1, cutoffTime: '23:59', paydayWeekday: 5, lateFunding: null } } }),
+    () => ({ body: { schedule: { weekStartDay: 1, cutoffTime: '23:59', paydayWeekday: 5, lateFunding: null } } }),
+  ],
   'PATCH /api/service-plans/[id]': [
     () => ({ body: { action: 'pause' } }),
     () => ({ body: { action: 'resume' } }),
@@ -476,7 +491,13 @@ describe('harness catches a planted hole', () => {
 })
 
 /** Upload routes get real multipart first; anything else JSON, falling back to multipart if JSON is refused. */
+const PAY_WEEK_ROUTE = /^\/api\/(admin\/payroll\/pay-week|my-pay)(\/|$)/
+
 async function send(h: never, method: string, routePath: string, shape: RequestShape) {
+  // The new payroll screens sit behind PAYROLL_PAY_WEEK_ENABLED (lib/payroll-flag.ts, default off): on for their own
+  // routes only, so they are attacked past the flag while every other route keeps the shipped (flag off) behaviour.
+  if (PAY_WEEK_ROUTE.test(routePath)) process.env.PAYROLL_PAY_WEEK_ENABLED = 'true'
+  else delete process.env.PAYROLL_PAY_WEEK_ENABLED
   mockWorld = createWorld(TABLES, ORG_TABLES, 'admin', routePath, variant?.seed)
   let r = await attack(h, method, routePath, shape.multipart ? 'form' : 'json', shape)
   if (!shape.multipart && r.status === 'threw' && /Content-Type was not one of/.test(r.text)) {

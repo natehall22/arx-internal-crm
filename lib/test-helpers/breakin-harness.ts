@@ -177,6 +177,13 @@ export function seedForRoute(seed: Record<string, Row[]>, routePath: string) {
   if (/^\/api\/(ops\/visits|crew\/day)\//.test(routePath)) {
     for (const r of seed.work_orders ?? []) Object.assign(r, { work_order_type: 'service_visit', visit_step: 'service', job_id: null, service_planned_date: r.scheduled_date ?? null })
   }
+  // Payroll weeks + time entries: an OPEN week this week, and a finished shift in it, for both companies.
+  if (/^\/api\/(admin\/payroll\/pay-week|my-pay|admin\/time)(\/|$)/.test(routePath)) {
+    const cutoff = new Date(Date.now() + 3 * 86_400_000).toISOString()
+    for (const r of seed.payroll_periods ?? []) Object.assign(r, { status: 'open', cutoff_at: cutoff, lock_at: cutoff, locked_at: null, lock_claimed_at: null, scheduled_pay_date: cutoff.slice(0, 10) })
+    const start = new Date(Date.now() - 3 * 3_600_000).toISOString()
+    for (const r of seed.time_entries ?? []) Object.assign(r, { kind: 'work', started_at: start, ended_at: new Date(Date.now() - 3_600_000).toISOString(), removed_at: null })
+  }
   // Time clock: both companies' crews clock in, and their crew_members rows are leads (lib/time-tracking-db.ts).
   if (/\/clock$/.test(routePath)) {
     for (const r of seed.sub_contractors ?? []) Object.assign(r, { tracks_time: true, active: true })
