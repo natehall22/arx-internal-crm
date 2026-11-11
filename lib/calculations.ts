@@ -1,4 +1,5 @@
 import type { Estimate, EstimateLine } from '@/lib/types/database'
+import { computeSalesTax } from '@/lib/sales-tax'
 
 export interface CalculationResult {
   laborSubtotal: number
@@ -29,17 +30,18 @@ export function calculateEstimateTotals(
   // Calculate subtotal
   const subtotal = laborWithMultipliers + materialsSubtotal - discountAmount
 
-  // Calculate tax on taxable items only
-  const taxableSubtotal = lines
-    .filter((line) => line.is_taxable)
-    .reduce((sum, line) => {
-      if (line.is_labor) {
-        return sum + line.line_total * (1 + steepMultiplierPct + highMultiplierPct)
-      }
-      return sum + line.line_total
-    }, 0) - discountAmount
-
-  const tax = Math.max(0, taxableSubtotal * taxRate)
+  // Tax: THE one calculation (lib/sales-tax.ts) — taxable lines, discount spread over the taxable share, rounded to
+  // the cent once. `taxRate` here is a decimal (0.08 = 8%). The estimates tool has 0 saved estimates in prod (2026-11-10),
+  // so moving it off its own unrounded float math restates nothing.
+  const lineCents = lines.map((line) =>
+    Math.round((line.is_labor ? line.line_total * (1 + steepMultiplierPct + highMultiplierPct) : line.line_total) * 100)
+  )
+  const taxResult = computeSalesTax({
+    lines: lines.map((line, i) => ({ amountCents: lineCents[i], taxable: line.is_taxable })),
+    discountCents: Math.round((Number(discountAmount) || 0) * 100),
+    rates: [{ name: 'Tax', percent: Math.round((Number(taxRate) || 0) * 100 * 1e6) / 1e6 }],
+  })
+  const tax = taxResult.taxCents / 100
 
   // Calculate total
   const total = subtotal + tax

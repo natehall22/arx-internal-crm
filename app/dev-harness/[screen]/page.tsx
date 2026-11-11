@@ -75,6 +75,7 @@ import { DEFAULT_TIMEZONE } from '@/lib/timezone'
 import JobCatchUpSettingsCard from '@/components/admin/JobCatchUpSettingsCard'
 import OrgFeaturesCard from '@/components/admin/OrgFeaturesCard'
 import SalesTaxCard from '@/components/admin/SalesTaxCard'
+import TaxExemptionCard from '@/components/customer/TaxExemptionCard'
 import { HARNESS_CATCH_UP_JOBS, HARNESS_CATCH_UP_STUCK, HARNESS_VIEWER_ID } from '@/e2e/fixtures'
 
 function GeneralSettingsHarness({ canEditBrand }: { canEditBrand: boolean }) {
@@ -234,6 +235,16 @@ export default function Harness({ params }: { params: { screen: string } }) {
               ],
               defaultRateIds: ['state', 'county'],
             }}
+          />
+        </div>
+      )
+    case 'tax-exemption':
+      return (
+        <div className="mx-auto max-w-2xl p-4">
+          <TaxExemptionCard
+            customerId="00000000-0000-0000-0000-000000000001"
+            initial={{ exempt: true, reason: 'Church', certificateNumber: 'FL-85-123', documentId: null }}
+            documents={[{ id: '00000000-0000-0000-0000-000000000002', label: 'Exemption certificate.pdf' }]}
           />
         </div>
       )

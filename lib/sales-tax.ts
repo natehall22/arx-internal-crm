@@ -236,3 +236,32 @@ export function taxLineLabel(line: Pick<TaxLine, 'name' | 'percent'>): string {
 export function invoiceTaxRows(invoice: { tax_lines?: unknown }): Array<{ label: string; amountCents: number }> {
   return (readStoredTaxLines(invoice.tax_lines) ?? []).map((l) => ({ label: taxLineLabel(l), amountCents: l.amount_cents }))
 }
+
+export type TaxExemptionPatch = {
+  tax_exempt: boolean
+  tax_exempt_reason: string | null
+  tax_exempt_certificate_number: string | null
+  tax_exempt_document_id: string | null
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/** Validate a customer exemption save. Turning exemption off clears reason, certificate number and file link. */
+export function parseTaxExemptionPatch(input: unknown): { value: TaxExemptionPatch } | { error: string } {
+  const o = asObject(input)
+  if (!o || typeof o.tax_exempt !== 'boolean') return { error: 'Say whether the customer is tax exempt' }
+  if (!o.tax_exempt) {
+    return { value: { tax_exempt: false, tax_exempt_reason: null, tax_exempt_certificate_number: null, tax_exempt_document_id: null } }
+  }
+  const text = (v: unknown, max: number) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : null)
+  const doc = o.tax_exempt_document_id
+  if (doc != null && doc !== '' && (typeof doc !== 'string' || !UUID.test(doc))) return { error: 'Bad certificate file' }
+  return {
+    value: {
+      tax_exempt: true,
+      tax_exempt_reason: text(o.tax_exempt_reason, 200),
+      tax_exempt_certificate_number: text(o.tax_exempt_certificate_number, 80),
+      tax_exempt_document_id: typeof doc === 'string' && doc ? doc : null,
+    },
+  }
+}

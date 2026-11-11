@@ -5,6 +5,7 @@ import {
   defaultTaxRates,
   lineIsTaxable,
   parseSalesTaxSettings,
+  parseTaxExemptionPatch,
   readSalesTaxSettings,
   readStoredTaxLines,
   taxLineLabel,
@@ -191,5 +192,18 @@ describe('settings', () => {
       { id: 'a', name: 'NC state', percent: 4.75, amount_cents: 475 },
     ])
     expect(taxLineLabel({ name: 'NC state', percent: 4.75 })).toBe('NC state (4.75%)')
+  })
+})
+
+describe('customer exemption save', () => {
+  it('turning it off clears everything; on keeps trimmed fields; bad file id refused', () => {
+    expect(parseTaxExemptionPatch({ tax_exempt: false, tax_exempt_reason: 'x' })).toEqual({
+      value: { tax_exempt: false, tax_exempt_reason: null, tax_exempt_certificate_number: null, tax_exempt_document_id: null },
+    })
+    expect(parseTaxExemptionPatch({ tax_exempt: true, tax_exempt_reason: '  church ', tax_exempt_certificate_number: '', tax_exempt_document_id: '' })).toEqual({
+      value: { tax_exempt: true, tax_exempt_reason: 'church', tax_exempt_certificate_number: null, tax_exempt_document_id: null },
+    })
+    expect(parseTaxExemptionPatch({ tax_exempt: true, tax_exempt_document_id: 'nope' })).toHaveProperty('error')
+    expect(parseTaxExemptionPatch({})).toHaveProperty('error')
   })
 })

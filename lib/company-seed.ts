@@ -10,6 +10,7 @@
  * has that name; an owner email that belongs to another org stops the run before anything is written.
  * Dry run (the default) reads only and returns the same report with nothing written.
  */
+import { NEW_COMPANY_SALES_TAX, SALES_TAX_SETTINGS_KEY } from '@/lib/sales-tax'
 import { randomBytes } from 'crypto'
 
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -275,11 +276,16 @@ export async function runCompanySeed(client: SupabaseClient, input: CompanySeedI
   }
   let orgId: string
   if (!org) {
-    say(`create org "${input.org.name}"`)
+    say(`create org "${input.org.name}" (sales tax: on, no rates until the owner adds them)`)
     if (!opts.apply) {
       orgId = '(new org)'
     } else {
-      const created = await must(client.from('orgs').insert({ ...wantColumns, settings: {} }).select('id').single(), 'create org')
+      // Sales tax starts SET UP with no rates (lib/sales-tax.ts): a new company never inherits the original company's
+      // typed-rate-per-quote default; the owner adds rates in Settings -> Sales tax.
+      const created = await must(
+        client.from('orgs').insert({ ...wantColumns, settings: { [SALES_TAX_SETTINGS_KEY]: { ...NEW_COMPANY_SALES_TAX } } }).select('id').single(),
+        'create org'
+      )
       orgId = (created as { id: string }).id
       say(`org id ${orgId} — put it in org.id for every re-run`)
     }
