@@ -8,7 +8,7 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 
-import { ACCESS_PREFIX, ACCESS_TTL_SECONDS, CODE_PREFIX, CODE_TTL_SECONDS, REFRESH_PREFIX, REFRESH_TTL_SECONDS } from '@/lib/ai-connector/config'
+import { ACCESS_PREFIX, ACCESS_TTL_SECONDS, CODE_PREFIX, CODE_TTL_SECONDS, GRANT_MAX_LIFETIME_SECONDS, REFRESH_PREFIX, REFRESH_TTL_SECONDS } from '@/lib/ai-connector/config'
 import { appLabelForRedirect } from '@/lib/ai-connector/clients'
 import { randomToken, sha256Hex, verifyPkce } from '@/lib/ai-connector/crypto'
 import { orgDb } from '@/lib/supabase/org-db'
@@ -56,9 +56,12 @@ export async function createAuthCode(
   return code
 }
 
-export type OAuthFailure = { error: 'invalid_grant' | 'invalid_request' | 'invalid_target'; description: string }
+export type OAuthFailure = { error: 'invalid_grant' | 'invalid_request' | 'invalid_target'; description: string; /** who the refused key belonged to, when we know (for the audit log) */ audit?: { orgId: string; userId: string; clientId: string } }
 
-function mintTokens(scopes: string[], now: number) {
+/** A connection ends GRANT_MAX_LIFETIME_SECONDS after the person approved it (created_at), however often it refreshes. */
+export const grantAbsoluteExpiryMs = (g: { created_at: string }) => new Date(g.created_at).getTime() + GRANT_MAX_LIFETIME_SECONDS * 1000
+
+function mintTokens(scopes: string[], now: number, endsAt = Infinity) {
   const access = randomToken(ACCESS_PREFIX)
   const refresh = randomToken(REFRESH_PREFIX)
   return {
@@ -66,11 +69,11 @@ function mintTokens(scopes: string[], now: number) {
     refresh,
     row: {
       access_hash: sha256Hex(access),
-      access_expires_at: iso(now + ACCESS_TTL_SECONDS * 1000),
+      access_expires_at: iso(Math.min(now + ACCESS_TTL_SECONDS * 1000, endsAt)),
       refresh_hash: sha256Hex(refresh),
-      refresh_expires_at: iso(now + REFRESH_TTL_SECONDS * 1000),
+      refresh_expires_at: iso(Math.min(now + REFRESH_TTL_SECONDS * 1000, endsAt)),
     },
-    set: { access_token: access, refresh_token: refresh, expires_in: ACCESS_TTL_SECONDS, scope: scopes.join(' '), token_type: 'Bearer' as const },
+    set: { access_token: access, refresh_token: refresh, expires_in: Math.max(1, Math.floor((Math.min(now + ACCESS_TTL_SECONDS * 1000, endsAt) - now) / 1000)), scope: scopes.join(' '), token_type: 'Bearer' as const },
   }
 }
 
@@ -87,9 +90,10 @@ export async function exchangeCode(
   if (!row) {
     // Unknown, or already used: if it was used, take back what it made.
     // org-scope-ok: lookup by the secret code hash; the revoke below is scoped to the grant's own company
-    const { data: grants } = await admin.from('ai_oauth_grants').select('id, org_id').eq('code_hash', codeHash)
-    for (const g of (grants ?? []) as Array<{ id: string; org_id: string }>) await revokeGrant(admin, g.org_id, g.id, 'code_reuse', now)
-    return { ok: false, error: 'invalid_grant', description: 'This code is not valid' }
+    const { data: grants } = await admin.from('ai_oauth_grants').select('id, org_id, user_id, client_id').eq('code_hash', codeHash)
+    const made = (grants ?? []) as Array<{ id: string; org_id: string; user_id: string; client_id: string }>
+    for (const g of made) await revokeGrant(admin, g.org_id, g.id, 'code_reuse', now)
+    return { ok: false, error: 'invalid_grant', description: 'This code is not valid', audit: made[0] ? { orgId: made[0].org_id, userId: made[0].user_id, clientId: made[0].client_id } : undefined }
   }
   if (new Date(row.expires_at).getTime() < now) return { ok: false, error: 'invalid_grant', description: 'This code has expired' }
   if (row.client_id !== input.clientId) return { ok: false, error: 'invalid_grant', description: 'This code was issued to another app' }
@@ -101,7 +105,7 @@ export async function exchangeCode(
   const t = mintTokens(row.scopes, now)
   const { data: made, error } = await orgDb(admin, row.org_id)
     .from('ai_oauth_grants')
-    .insert({ user_id: row.user_id, client_id: row.client_id, scopes: row.scopes, resource: row.resource, code_hash: codeHash, ...t.row })
+    .insert({ user_id: row.user_id, client_id: row.client_id, scopes: row.scopes, resource: row.resource, code_hash: codeHash, created_at: iso(now), ...t.row })
     .select('id')
     .single()
   if (error || !made) throw new Error(`create grant: ${error?.message ?? 'no row'}`)
@@ -124,16 +128,21 @@ export async function refreshTokens(
     const gid = (old as { grant_id?: string } | null)?.grant_id
     if (gid) {
       // org-scope-ok: grant id came from the retired-key row above; org read from the grant itself
-      const { data: g } = await admin.from('ai_oauth_grants').select('id, org_id').eq('id', gid).maybeSingle()
-      if (g) await revokeGrant(admin, (g as { org_id: string }).org_id, gid, 'refresh_reuse', now)
+      const { data: g } = await admin.from('ai_oauth_grants').select('id, org_id, user_id, client_id').eq('id', gid).maybeSingle()
+      const gg = g as { org_id: string; user_id: string; client_id: string } | null
+      if (gg) {
+        await revokeGrant(admin, gg.org_id, gid, 'refresh_reuse', now)
+        return { ok: false, error: 'invalid_grant', description: 'This refresh token is not valid', audit: { orgId: gg.org_id, userId: gg.user_id, clientId: gg.client_id } }
+      }
     }
     return { ok: false, error: 'invalid_grant', description: 'This refresh token is not valid' }
   }
-  if (grant.client_id !== input.clientId) return { ok: false, error: 'invalid_grant', description: 'This token was issued to another app' }
-  if (grant.revoked_at || new Date(grant.refresh_expires_at).getTime() < now) return { ok: false, error: 'invalid_grant', description: 'This token is no longer valid' }
+  const who = { orgId: grant.org_id, userId: grant.user_id, clientId: grant.client_id }
+  if (grant.client_id !== input.clientId) return { ok: false, error: 'invalid_grant', description: 'This token was issued to another app', audit: who }
+  if (grant.revoked_at || new Date(grant.refresh_expires_at).getTime() < now || grantAbsoluteExpiryMs(grant) <= now) return { ok: false, error: 'invalid_grant', description: 'This token is no longer valid', audit: who }
   if (input.resource !== null && input.resource !== grant.resource) return { ok: false, error: 'invalid_target', description: 'resource does not match the original sign-in' }
 
-  const t = mintTokens(grant.scopes, now)
+  const t = mintTokens(grant.scopes, now, grantAbsoluteExpiryMs(grant))
   // The old key must still be the current one: of two racing refreshes only one updates a row.
   const { data: rotated } = await orgDb(admin, grant.org_id)
     .from('ai_oauth_grants')
@@ -144,7 +153,7 @@ export async function refreshTokens(
     .select('id')
   if (!rotated || (rotated as unknown[]).length === 0) {
     await revokeGrant(admin, grant.org_id, grant.id, 'refresh_reuse', now)
-    return { ok: false, error: 'invalid_grant', description: 'This refresh token was already used' }
+    return { ok: false, error: 'invalid_grant', description: 'This refresh token was already used', audit: who }
   }
   // org-scope-ok: retired-key row hangs off a grant just updated company-scoped above (no org_id column on this table)
   await admin.from('ai_oauth_retired_refresh').insert({ refresh_hash: hash, grant_id: grant.id, retired_at: iso(now) })

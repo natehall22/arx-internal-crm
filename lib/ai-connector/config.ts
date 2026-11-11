@@ -10,6 +10,10 @@ export const DEFAULT_SCOPES: readonly AiScope[] = ['crm:read']
 export const CODE_TTL_SECONDS = 10 * 60
 export const ACCESS_TTL_SECONDS = 60 * 60
 export const REFRESH_TTL_SECONDS = 30 * 24 * 60 * 60
+/** A connection ends this long after the person approved it, however often it refreshes. They approve again. */
+export const GRANT_MAX_LIFETIME_SECONDS = 90 * 24 * 60 * 60
+/** Apps that registered but never signed anyone in are deleted after this many days. */
+export const UNUSED_CLIENT_DAYS = 7
 
 /** Token prefixes make a leaked key recognisable in logs and secret scanners. */
 export const ACCESS_PREFIX = 'aat_'
@@ -38,9 +42,17 @@ export const ALLOWED_BROWSER_ORIGINS: readonly string[] = ['https://claude.ai', 
 export const MCP_PROTOCOL_VERSIONS = ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05'] as const
 
 export const MAX_TOOL_RESULT_CHARS = 24_000
+/**
+ * Limits count per app / person / company. The per-address numbers are only a loose backstop: Claude and ChatGPT send
+ * every user's requests from a small shared set of addresses, so a tight per-address limit would lock real people out.
+ */
 export const RATE_LIMITS = {
   userPerMinute: 60,
   orgPerMinute: 300,
-  tokenPerIpPerMinute: 30,
-  registerPerIpPerMinute: 10,
+  clientTokenPerMinute: 120,
+  tokenPerIpPerMinute: 1200,
+  authorizePerIpPerMinute: 1200,
+  registerPerIpPerMinute: 120,
+  registerPerIpPerDay: 500,
+  registerGlobalPerDay: 5000,
 } as const

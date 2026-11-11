@@ -185,10 +185,10 @@ describe('token endpoint', () => {
       expect(w.db.tables.ai_oauth_grants[0].revoked_reason).toBe('principal_unusable')
     }
   })
-  it('rate limits by address', async () => {
+  it('rate limits by app (the hardening test covers shared addresses)', async () => {
     const w = world()
     let last = 200
-    for (let i = 0; i < 31; i++) last = (await handleToken(form({ grant_type: 'x', client_id: 'aic_1' }), { ...w.deps, now: T0 })).status
+    for (let i = 0; i < 121; i++) last = (await handleToken(form({ grant_type: 'x', client_id: 'aic_1' }), { ...w.deps, now: T0 })).status
     expect(last).toBe(429)
   })
   it('revoke always answers 200', async () => {

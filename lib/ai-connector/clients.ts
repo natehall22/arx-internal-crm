@@ -6,6 +6,7 @@
  * addresses the company owner adds. An app that names any other address is refused at registration and again at sign-in.
  */
 import { lookup } from 'node:dns/promises'
+import { request as httpsRequest } from 'node:https'
 import { isIP } from 'node:net'
 
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -104,45 +105,91 @@ export function isPublicIp(ip: string): boolean {
   if (v === 6) {
     const l = ip.toLowerCase()
     if (l === '::' || l === '::1' || l.startsWith('fe8') || l.startsWith('fe9') || l.startsWith('fea') || l.startsWith('feb') || l.startsWith('fc') || l.startsWith('fd') || l.startsWith('ff')) return false
+    // Addresses that wrap an IPv4 address (mapped, NAT64, 6to4, Teredo, deprecated compatible) are judged by what they wrap — or refused.
     const mapped = l.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/)
-    return mapped ? isPublicIp(mapped[1]) : true
+    if (mapped) return isPublicIp(mapped[1])
+    if (l.startsWith('::ffff:') || l.startsWith('64:ff9b:') || l.startsWith('2002:') || l.startsWith('2001:0:') || l.startsWith('2001::') || l.startsWith('::')) return false
+    return true
   }
   return false
 }
 
-export type MetadataFetcher = (url: string) => Promise<{ status: number; body: string } | null>
+export type MetadataFetcher = (url: string, resolver?: Resolver) => Promise<{ status: number; body: string } | null>
 
-/** The real fetcher: https only, port 443, public addresses only (checked before connecting), 5 s, 5 KB, no redirects. */
-export const guardedFetchMetadata: MetadataFetcher = async (url) => {
+export type Resolver = (hostname: string) => Promise<Array<{ address: string; family: number }>>
+const systemResolver: Resolver = (h) => lookup(h, { all: true })
+
+/** Resolve ONCE and return the single address we will connect to — or null if the name is unusable or any answer is private. */
+export async function resolvePublicAddress(hostname: string, resolver: Resolver = systemResolver): Promise<{ address: string; family: 4 | 6 } | null> {
+  if (isIP(hostname) || hostname === 'localhost' || hostname.endsWith('.local') || hostname.endsWith('.internal') || !hostname.includes('.')) return null
+  const addrs = await resolver(hostname).catch(() => [])
+  if (addrs.length === 0 || !addrs.every((a) => isPublicIp(a.address))) return null
+  const first = addrs[0]
+  return { address: first.address, family: isIP(first.address) === 6 ? 6 : 4 }
+}
+
+/** A `lookup` for the socket that ignores DNS and returns the address we already validated (stops DNS-rebinding between check and connect). */
+export function pinnedLookup(pin: { address: string; family: 4 | 6 }) {
+  return (_host: string, opts: { all?: boolean } | undefined, cb: (err: Error | null, address: unknown, family?: number) => void) => {
+    if (opts && opts.all) cb(null, [{ address: pin.address, family: pin.family }])
+    else cb(null, pin.address, pin.family)
+  }
+}
+
+const FETCH_LIMIT_BYTES = 5120
+const FETCH_TIMEOUT_MS = 5000
+
+/**
+ * The real fetcher: https only, port 443, the name is resolved once, every answer must be public, and the connection is
+ * pinned to that checked address (the certificate is still checked against the name). No redirects are followed
+ * (a redirect is a failure), 5 s total, 5 KB.
+ */
+export const guardedFetchMetadata: MetadataFetcher = async (url, resolver: Resolver = systemResolver) => {
   const u = new URL(url)
   if (u.protocol !== 'https:' || (u.port && u.port !== '443') || u.username || u.password) return null
-  if (isIP(u.hostname) || u.hostname === 'localhost' || u.hostname.endsWith('.local') || u.hostname.endsWith('.internal') || !u.hostname.includes('.')) return null
-  const addrs = await lookup(u.hostname, { all: true }).catch(() => [])
-  if (addrs.length === 0 || !addrs.every((a) => isPublicIp(a.address))) return null
-  const ctl = new AbortController()
-  const timer = setTimeout(() => ctl.abort(), 5000)
-  try {
-    const res = await fetch(url, { redirect: 'error', signal: ctl.signal, headers: { accept: 'application/json' } })
-    const reader = res.body?.getReader()
-    if (!reader) return { status: res.status, body: '' }
-    const chunks: Uint8Array[] = []
-    let size = 0
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-      size += value.byteLength
-      if (size > 5120) {
-        ctl.abort()
-        return null
-      }
-      chunks.push(value)
+  const pin = await resolvePublicAddress(u.hostname, resolver)
+  if (!pin) return null
+  return new Promise((resolve) => {
+    let settled = false
+    const done = (v: { status: number; body: string } | null) => {
+      if (settled) return
+      settled = true
+      resolve(v)
     }
-    return { status: res.status, body: Buffer.concat(chunks).toString('utf8') }
-  } catch {
-    return null
-  } finally {
-    clearTimeout(timer)
-  }
+    const req = httpsRequest(
+      { protocol: 'https:', hostname: u.hostname, port: 443, path: `${u.pathname}${u.search}`, method: 'GET', headers: { accept: 'application/json', 'user-agent': 'crm-ai-connector' }, lookup: pinnedLookup(pin) as never, timeout: FETCH_TIMEOUT_MS },
+      (res) => {
+        const status = res.statusCode ?? 0
+        // Redirects are never followed: a 3xx could point at a private address.
+        if (status >= 300 && status < 400) {
+          res.destroy()
+          return done(null)
+        }
+        const chunks: Buffer[] = []
+        let size = 0
+        res.on('data', (c: Buffer) => {
+          size += c.length
+          if (size > FETCH_LIMIT_BYTES) {
+            res.destroy()
+            return done(null)
+          }
+          chunks.push(c)
+        })
+        res.on('end', () => done({ status, body: Buffer.concat(chunks).toString('utf8') }))
+        res.on('error', () => done(null))
+      }
+    )
+    req.on('timeout', () => {
+      req.destroy()
+      done(null)
+    })
+    req.on('error', () => done(null))
+    setTimeout(() => {
+      req.destroy()
+      done(null)
+    }, FETCH_TIMEOUT_MS + 1000).unref?.()
+    req.end()
+  })
 }
 
 export function isMetadataClientId(clientId: string): boolean {

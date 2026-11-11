@@ -7,6 +7,7 @@ import { loadCustomerProperties } from '@/lib/properties-db'
 import { orgDb } from '@/lib/supabase/org-db'
 import { resolveThreadViewer } from '@/lib/threads/viewer'
 import { isFieldRole } from '@/lib/threads/visibility'
+import { ownCustomerIds } from '@/lib/ai-connector/tools/contact-scope'
 import { ID, ToolError, type McpTool } from '@/lib/ai-connector/tools/types'
 
 const schema = z.object({ customer_id: z.string().regex(ID) }).strict()
@@ -22,6 +23,9 @@ export const getCustomer: McpTool = {
     // Same rule as the customer page API: customer-records access, and reps only see customers they own a deal or project for.
     const read = await loadCustomerForCaller(ctx.admin, ctx.profile, args.customer_id)
     if (!read.ok) throw new ToolError('not_found')
+    // Setters / canvassers read only customers that are their own work.
+    const own = await ownCustomerIds(ctx, [args.customer_id])
+    if (own && !own.has(args.customer_id)) throw new ToolError('not_found')
     const c = read.customer as Record<string, unknown>
     const viewer = await resolveThreadViewer(ctx.admin, ctx.profile)
     const access = await resolveCustomerAccess(ctx.admin, viewer, args.customer_id)

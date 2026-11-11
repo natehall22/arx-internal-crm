@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { wrapUntrusted } from '@/lib/ai-connector/untrusted'
 import { cleanQuery, runSearch, type SearchKind } from '@/lib/global-search'
 import { searchGroupsForCaller } from '@/lib/global-search-server'
+import { ownCustomerIds } from '@/lib/ai-connector/tools/contact-scope'
 import { ToolError, type McpTool, type ToolContext } from '@/lib/ai-connector/tools/types'
 
 const schema = z.object({ query: z.string().min(2).max(80) }).strict()
@@ -15,7 +16,12 @@ async function find(ctx: ToolContext, kind: SearchKind, query: string) {
     .map((g) => ({ ...g, kinds: g.kinds.filter((k) => k === kind) }))
     .filter((g) => g.kinds.length > 0)
   if (groups.length === 0) return { data: { results: [] }, recordIds: [] as string[] }
-  const hits = await runSearch(ctx.admin, ctx.orgId, q, groups, 10)
+  let hits = await runSearch(ctx.admin, ctx.orgId, q, groups, 10)
+  if (kind === 'customer') {
+    // Setters / canvassers: only customers that are their own work (a hit on someone else's would reveal their phone or email).
+    const own = await ownCustomerIds(ctx, hits.map((h) => h.id))
+    if (own) hits = hits.filter((h) => own.has(h.id))
+  }
   return {
     data: { results: hits.map((h) => ({ id: h.id, title: wrapUntrusted(h.title, 200), detail: wrapUntrusted(h.subtitle, 300) })) },
     recordIds: hits.map((h) => h.id),

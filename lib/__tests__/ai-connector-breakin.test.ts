@@ -101,6 +101,15 @@ describe("company B's person with company A's ids", () => {
   })
 })
 
+describe('setters and canvassers cannot use find_customer to pull contact details', () => {
+  it.each(['setter', 'canvasser'])('%s: no customer that is not their own work is returned', async (role) => {
+    const { ctx } = build(role)
+    const res = await run(byName('find_customer'), ctx, { query: 'Bravo' })
+    const out = JSON.parse(res.text) as { results?: unknown[] }
+    expect(out.results ?? []).toEqual([])
+  })
+})
+
 describe('control: B reaches its own data (the attack tests are not passing by being blind)', () => {
   it('get_job_summary and get_customer find B’s own records', async () => {
     const { w, ctx } = build('admin')

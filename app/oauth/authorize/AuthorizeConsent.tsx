@@ -29,12 +29,20 @@ export default function AuthorizeConsent({ ticket, companyName, appLabel, claime
 
   return (
     <main className="mx-auto max-w-md px-4 py-8 text-ink">
-      <h1 className="text-2xl font-semibold">{known ? `${appName} wants to connect to ${companyName}` : `Connect an app to ${companyName}?`}</h1>
-      {!known ? (
-        <p className="mt-3 rounded-lg border border-amber-500 bg-amber-50 p-3 text-base">
-          We do not recognize this app{claimedName ? ` (it calls itself “${claimedName}”)` : ''}. It will send you back to <strong>{returnHost}</strong>. Only continue if you set this up yourself.
-        </p>
-      ) : null}
+      <h1 className="text-2xl font-semibold">{`${appName} wants to connect to ${companyName}`}</h1>
+      <p className="mt-3 rounded-lg border border-amber-500 bg-amber-50 p-3 text-base">
+        <strong>Only continue if you started this yourself</strong>, by connecting {companyName} from inside your own AI app just now. If someone sent you here, or you did not ask for this, press Cancel.
+      </p>
+      <dl className="mt-4 rounded-lg border border-black p-3 text-base">
+        <div className="flex flex-wrap gap-x-2">
+          <dt className="font-semibold">App:</dt>
+          <dd>{claimedName && claimedName !== appLabel ? `${appName} (it calls itself “${claimedName}”)` : appName}{known ? '' : ' (not an app we recognize)'}</dd>
+        </div>
+        <div className="flex flex-wrap gap-x-2">
+          <dt className="font-semibold">Sends you back to:</dt>
+          <dd className="break-all">{returnHost}</dd>
+        </div>
+      </dl>
       <section className="mt-5">
         <h2 className="text-base font-semibold">If you allow it, {known ? appName : 'the app'} can, as you:</h2>
         <ul className="mt-2 list-disc space-y-1 pl-5 text-base">

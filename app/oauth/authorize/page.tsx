@@ -4,14 +4,14 @@ import { redirect } from 'next/navigation'
 import { getAuthContext } from '@/lib/auth'
 import { checkAuthorizeRequest } from '@/lib/ai-connector/authorize'
 import { appLabelForRedirect } from '@/lib/ai-connector/clients'
-import { AI_CONNECTOR_FEATURE } from '@/lib/ai-connector/config'
+import { dbRateGate } from '@/lib/ai-connector/rate-limit'
+import { AI_CONNECTOR_FEATURE, RATE_LIMITS } from '@/lib/ai-connector/config'
 import { signConsentTicket } from '@/lib/ai-connector/crypto'
 import { makeConsentTicket } from '@/lib/ai-connector/endpoints'
 import { mcpResource, originFromHeaders } from '@/lib/ai-connector/urls'
 import { getRequestHostFence } from '@/lib/company-host-server'
 import { getOrgBrand } from '@/lib/org-brand'
 import { isOrgFeatureOn } from '@/lib/org-features-server'
-import { consumePublicEstimateRateLimit } from '@/lib/public-estimate-rate-limit'
 import { createServiceClient } from '@/lib/supabase/service'
 
 import AuthorizeConsent from './AuthorizeConsent'
@@ -36,10 +36,14 @@ function Notice({ title, body }: { title: string; body: string }) {
 export default async function AuthorizePage({ searchParams }: { searchParams: Record<string, string | string[] | undefined> }) {
   const h = headers()
   const origin = originFromHeaders(h)
-  // This page can make us fetch a client's metadata document: keep one address from using it as a request cannon.
-  const limited = consumePublicEstimateRateLimit({ key: `oauth:authorize:${h.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown'}`, limit: 60, windowMs: 60_000 })
-  if (!limited.ok) return <Notice title="Too many tries" body="Wait a minute and start again from your AI app." />
   const admin = createServiceClient()
+  // This page can make us fetch a client's metadata document. Loose per-address backstop only (AI apps share addresses),
+  // plus a per-app limit so one app cannot use it as a request cannon.
+  const rate = dbRateGate(admin)
+  const ip = h.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown'
+  const clientParam = typeof searchParams.client_id === 'string' ? searchParams.client_id.slice(0, 200) : 'none'
+  const limits = [await rate(`oauth:authorize:ip:${ip}`, RATE_LIMITS.authorizePerIpPerMinute, 60), await rate(`oauth:authorize:client:${clientParam}`, RATE_LIMITS.clientTokenPerMinute, 60)]
+  if (limits.some((l) => !l.ok)) return <Notice title="Too many tries" body="Wait a minute and start again from your AI app." />
   const auth = await getAuthContext()
   const fence = auth ? null : await getRequestHostFence()
   const orgId = auth?.profile.org_id ?? (fence?.kind === 'org' ? fence.orgId : null)

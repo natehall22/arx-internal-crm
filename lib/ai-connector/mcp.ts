@@ -12,7 +12,7 @@ import { MCP_TOOLS, toolByName } from '@/lib/ai-connector/tools'
 import { ToolError, type ToolContext } from '@/lib/ai-connector/tools/types'
 import { UNTRUSTED_NOTICE } from '@/lib/ai-connector/untrusted'
 import { requestOrigin } from '@/lib/ai-connector/urls'
-import { consumePublicEstimateRateLimit } from '@/lib/public-estimate-rate-limit'
+import { dbRateGate } from '@/lib/ai-connector/rate-limit'
 
 const MAX_BODY_CHARS = 100_000
 const JSON_HEADERS = { 'content-type': 'application/json', 'cache-control': 'no-store' }
@@ -49,7 +49,8 @@ const toolText = (text: string, isError = false) => ({ content: [{ type: 'text',
 export async function handleMcpPost(request: Request, deps: McpAuthDeps & { admin: SupabaseClient }): Promise<Response> {
   if (!originAllowed(request)) return Response.json({ error: 'Origin not allowed' }, { status: 403, headers: JSON_HEADERS })
 
-  const auth = await authenticateMcpRequest(request, deps)
+  const rate = deps.rate ?? dbRateGate(deps.admin, deps.now)
+  const auth = await authenticateMcpRequest(request, { ...deps, rate })
   if (!auth.ok) {
     return Response.json(
       { error: auth.error === 'unavailable' ? 'Temporarily unavailable' : auth.error },
@@ -73,10 +74,9 @@ export async function handleMcpPost(request: Request, deps: McpAuthDeps & { admi
   const isNotification = msg.id === undefined
   if (isNotification) return new Response(null, { status: 202, headers: { 'cache-control': 'no-store' } })
 
-  // Rate limits (memory, per instance — the same pattern as the public estimate): per person, then per company.
-  const now = deps.now
-  const u = consumePublicEstimateRateLimit({ key: `mcp:user:${ctx.userId}`, limit: RATE_LIMITS.userPerMinute, windowMs: 60_000, now })
-  const o = u.ok ? consumePublicEstimateRateLimit({ key: `mcp:org:${ctx.orgId}`, limit: RATE_LIMITS.orgPerMinute, windowMs: 60_000, now }) : u
+  // Rate limits (database counters, so they hold across instances): per person, then per company. Never per address.
+  const u = await rate(`mcp:user:${ctx.userId}`, RATE_LIMITS.userPerMinute, 60)
+  const o = u.ok ? await rate(`mcp:org:${ctx.orgId}`, RATE_LIMITS.orgPerMinute, 60) : u
   if (!o.ok) {
     if (msg.method === 'tools/call') await writeAudit(deps.admin, { orgId: ctx.orgId, userId: ctx.userId, clientId: auth.grant.client_id, tool: String(msg.params?.name ?? 'unknown'), result: 'rate_limited' }).catch(() => undefined)
     return Response.json({ jsonrpc: '2.0', id, error: { code: -32000, message: 'Too many requests. Slow down and try again shortly.' } }, { status: 429, headers: { ...JSON_HEADERS, 'retry-after': String(o.retryAfterSec) } })

@@ -4,13 +4,14 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { writeAudit } from '@/lib/ai-connector/audit'
 import { authorizeRedirect, checkAuthorizeRequest } from '@/lib/ai-connector/authorize'
 import { loadClient, loadExtraRedirectUris, registerClient, validateRegistration, type MetadataFetcher } from '@/lib/ai-connector/clients'
-import { AI_CONNECTOR_FEATURE, RATE_LIMITS } from '@/lib/ai-connector/config'
-import { signConsentTicket, verifyConsentTicket } from '@/lib/ai-connector/crypto'
+import { AI_CONNECTOR_FEATURE, RATE_LIMITS, UNUSED_CLIENT_DAYS } from '@/lib/ai-connector/config'
+import { randomToken, signConsentTicket, verifyConsentTicket } from '@/lib/ai-connector/crypto'
 import { createAuthCode, exchangeCode, refreshTokens, revokeByToken, revokeGrant, type OAuthFailure } from '@/lib/ai-connector/store'
 import { corsHeaders, mcpResource, requestOrigin } from '@/lib/ai-connector/urls'
 import { fenceAllowsOrg, type CompanyFence } from '@/lib/company-host'
 import { isOrgFeatureOn } from '@/lib/org-features-server'
-import { clientIpFromRequest, consumePublicEstimateRateLimit } from '@/lib/public-estimate-rate-limit'
+import { dbOnceGate, dbRateGate, pruneUnusedClients, type OnceGate, type RateGate } from '@/lib/ai-connector/rate-limit'
+import { clientIpFromRequest } from '@/lib/public-estimate-rate-limit'
 
 export type EndpointDeps = {
   admin: SupabaseClient
@@ -18,7 +19,14 @@ export type EndpointDeps = {
   featureOn?: (orgId: string) => Promise<boolean>
   fetcher?: MetadataFetcher
   now?: number
+  /** Counters (default: the database, so limits hold across instances). */
+  rate?: RateGate
+  once?: OnceGate
 }
+
+const rateOf = (d: EndpointDeps): RateGate => d.rate ?? dbRateGate(d.admin, d.now)
+const onceOf = (d: EndpointDeps): OnceGate => d.once ?? dbOnceGate(d.admin, d.now ? () => d.now as number : undefined)
+const tooMany = (r: { retryAfterSec: number }, error = 'slow_down') => oauthError(error, 'Too many requests', 429, { 'retry-after': String(r.retryAfterSec) })
 
 const featureOn = (d: EndpointDeps, orgId: string) => (d.featureOn ?? ((o: string) => isOrgFeatureOn(o, AI_CONNECTOR_FEATURE)))(orgId)
 
@@ -58,14 +66,27 @@ async function principalUsable(d: EndpointDeps, orgId: string, userId: string): 
   return featureOn(d, orgId)
 }
 
+/** Sign-in events in the audit log (never blocks the answer; the tool-call log is the one that fails closed). */
+async function auditEvent(d: EndpointDeps, who: { orgId: string; userId: string | null; clientId: string | null } | null, tool: string, result: 'ok' | 'denied', detail: string) {
+  if (!who) return
+  await writeAudit(d.admin, { orgId: who.orgId, userId: who.userId, clientId: who.clientId, tool, result, detail }).catch(() => undefined)
+}
+
 export async function handleToken(request: Request, d: EndpointDeps): Promise<Response> {
-  const limited = consumePublicEstimateRateLimit({ key: `oauth:token:${clientIpFromRequest(request)}`, limit: RATE_LIMITS.tokenPerIpPerMinute, windowMs: 60_000, now: d.now })
-  if (!limited.ok) return oauthError('slow_down', 'Too many requests', 429, { 'retry-after': String(limited.retryAfterSec) })
+  const rate = rateOf(d)
+  // Loose backstop by address only (shared by every user of an AI app); the real limit is per app, below.
+  const byIp = await rate(`oauth:token:ip:${clientIpFromRequest(request)}`, RATE_LIMITS.tokenPerIpPerMinute, 60)
+  if (!byIp.ok) return tooMany(byIp)
   const p = await readParams(request)
   if (!p) return oauthError('invalid_request', 'Send a form-encoded body')
-  const extra = await loadExtraRedirectUris(d.admin, null)
+  // Redirect addresses the owners added matter at the token step too, so read the company's list for this address.
+  const f = await fenceOrg(d)
+  if ('error' in f) return oauthError('temporarily_unavailable', 'Try again shortly', f.error === 'lookup' ? 503 : 404)
+  const extra = await loadExtraRedirectUris(d.admin, f.orgId)
   const client = await loadClient(d.admin, p.client_id, extra, d.fetcher)
   if (!client) return oauthError('invalid_client', 'Unknown client', 401)
+  const byClient = await rate(`oauth:token:client:${client.client_id}`, RATE_LIMITS.clientTokenPerMinute, 60)
+  if (!byClient.ok) return tooMany(byClient)
   const resource = p.resource ? p.resource : null
   // The resource, when sent, must be THIS address's MCP endpoint.
   if (resource !== null && resource !== mcpResource(requestOrigin(request))) return oauthError('invalid_target', 'resource must be this MCP server address')
@@ -80,18 +101,32 @@ export async function handleToken(request: Request, d: EndpointDeps): Promise<Re
   } else {
     return oauthError('unsupported_grant_type', 'Use authorization_code or refresh_token')
   }
-  if (!outcome.ok) return oauthError(outcome.error, outcome.description)
+  if (!outcome.ok) {
+    await auditEvent(d, outcome.audit ?? null, `oauth.${p.grant_type === 'refresh_token' ? 'refresh' : 'token'}_refused`, 'denied', outcome.description)
+    return oauthError(outcome.error, outcome.description)
+  }
   // A key for another company's address, a person who was turned off, or a switch turned off: no tokens, grant revoked.
   if (!(await principalUsable(d, outcome.grant.orgId, outcome.grant.userId))) {
     await revokeGrant(d.admin, outcome.grant.orgId, outcome.grant.id, 'principal_unusable', d.now)
+    await auditEvent(d, { orgId: outcome.grant.orgId, userId: outcome.grant.userId, clientId: client.client_id }, 'oauth.revoked', 'denied', 'principal_unusable')
     return oauthError('invalid_grant', 'This connection is no longer allowed')
   }
+  await auditEvent(d, { orgId: outcome.grant.orgId, userId: outcome.grant.userId, clientId: client.client_id }, p.grant_type === 'refresh_token' ? 'oauth.refresh' : 'oauth.token_issued', 'ok', outcome.grant.id)
   return Response.json(outcome.tokens, { headers: corsHeaders({ pragma: 'no-cache' }) })
 }
 
 export async function handleRegister(request: Request, d: EndpointDeps): Promise<Response> {
-  const limited = consumePublicEstimateRateLimit({ key: `oauth:register:${clientIpFromRequest(request)}`, limit: RATE_LIMITS.registerPerIpPerMinute, windowMs: 60_000, now: d.now })
-  if (!limited.ok) return oauthError('temporarily_unavailable', 'Too many requests', 429, { 'retry-after': String(limited.retryAfterSec) })
+  const rate = rateOf(d)
+  const ip = clientIpFromRequest(request)
+  // Registration is anonymous, so it is capped per address per minute and per day, and for everyone per day.
+  for (const [key, limit, secs] of [
+    [`oauth:register:ip:${ip}`, RATE_LIMITS.registerPerIpPerMinute, 60],
+    [`oauth:register:ip-day:${ip}`, RATE_LIMITS.registerPerIpPerDay, 86_400],
+    ['oauth:register:global-day', RATE_LIMITS.registerGlobalPerDay, 86_400],
+  ] as const) {
+    const r = await rate(key, limit, secs)
+    if (!r.ok) return tooMany(r, 'temporarily_unavailable')
+  }
   const f = await fenceOrg(d)
   if ('error' in f) return oauthError('temporarily_unavailable', 'Try again shortly', f.error === 'lookup' ? 503 : 404)
   if (f.orgId && !(await featureOn(d, f.orgId))) return oauthError('access_denied', 'The AI connector is not turned on for this company', 403)
@@ -99,6 +134,7 @@ export async function handleRegister(request: Request, d: EndpointDeps): Promise
   const reg = validateRegistration(p, await loadExtraRedirectUris(d.admin, f.orgId))
   if (!reg.ok) return oauthError(reg.error, reg.description)
   const client = await registerClient(d.admin, reg.value)
+  if (Math.random() < 0.05) void pruneUnusedClients(d.admin, UNUSED_CLIENT_DAYS)
   return Response.json(
     { client_id: client.client_id, client_name: client.client_name, redirect_uris: client.redirect_uris, token_endpoint_auth_method: 'none', grant_types: ['authorization_code', 'refresh_token'], response_types: ['code'], client_id_issued_at: Math.floor((d.now ?? Date.now()) / 1000) },
     { status: 201, headers: corsHeaders({ pragma: 'no-cache' }) }
@@ -128,7 +164,9 @@ export const CONSENT_TTL_MS = 10 * 60 * 1000
 
 /** What the consent page signs: exactly the request the person saw. */
 export function makeConsentTicket(params: Record<string, string | null>, userId: string, now = Date.now()): string {
-  return signConsentTicket(Object.fromEntries(Object.entries(params).filter(([, v]) => v !== null)) as Record<string, string>, userId, now + CONSENT_TTL_MS)
+  // `nonce` makes the approval single-use: it is claimed when the person allows, so one approval mints one code.
+  const clean = Object.fromEntries(Object.entries(params).filter(([, v]) => v !== null)) as Record<string, string>
+  return signConsentTicket({ ...clean, nonce: randomToken('aon_', 16) }, userId, now + CONSENT_TTL_MS)
 }
 
 export async function handleConsent(
@@ -149,6 +187,10 @@ export async function handleConsent(
   if (body?.decision !== 'allow') {
     await audit('oauth.deny').catch(() => undefined)
     return Response.json({ redirect: authorizeRedirect(check.params.redirect_uri, origin, { error: 'access_denied', error_description: 'The person declined', state: check.params.state }) })
+  }
+  const nonce = params.nonce
+  if (!nonce || !(await onceOf(d)(`consent:${nonce}`, CONSENT_TTL_MS / 1000 + 60))) {
+    return Response.json({ error: 'This approval was already used. Start again from your AI app.' }, { status: 400 })
   }
   const code = await createAuthCode(d.admin, { clientId: check.client.client_id, orgId: who.orgId, userId: who.userId, redirectUri: check.params.redirect_uri, codeChallenge: check.params.code_challenge, resource: check.resource, scopes: check.scopes }, d.now)
   await audit('oauth.allow')
