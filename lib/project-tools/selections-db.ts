@@ -251,7 +251,7 @@ export async function chooseSelection(
   if (diff <= 0) return { ok: true, state: 'approved', difference: diff, signingUrl: null }
 
   const undo = async (message: string, status = 500): Promise<Fail> => {
-    await db.from('job_selections').update({ status: 'sent', chosen_option_id: null, chosen_label: null, chosen_price: null, chosen_at: null, chosen_by_name: null, chosen_source: null, updated_at: new Date().toISOString() }).eq('id', args.selectionId).eq('status', 'chosen').is('change_order_id', null)
+    await db.from('job_selections').update({ status: sel.status, chosen_option_id: null, chosen_label: null, chosen_price: null, chosen_at: null, chosen_by_name: null, chosen_source: null, updated_at: new Date().toISOString() }).eq('id', args.selectionId).eq('status', 'chosen').is('change_order_id', null)
     return { error: message, status }
   }
 
