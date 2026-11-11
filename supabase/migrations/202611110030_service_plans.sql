@@ -105,7 +105,10 @@ CREATE TRIGGER service_plans_before_write BEFORE INSERT OR UPDATE ON public.serv
   FOR EACH ROW EXECUTE FUNCTION public.service_plans_before_write();
 
 -- ---- Visits on work_orders ------------------------------------------------------------------------------------------
-ALTER TABLE public.work_orders ADD COLUMN IF NOT EXISTS service_plan_id uuid NULL REFERENCES public.service_plans(id) ON DELETE SET NULL;
+-- NO ACTION on delete: plans are never deleted (ended is a status), so a delete that would orphan visit history fails
+-- loudly instead (SET NULL would break work_orders_service_visit_shape; CASCADE would erase visits and their photos).
+-- The only cascading path is a hard customer delete, which the app never does for a customer with a plan.
+ALTER TABLE public.work_orders ADD COLUMN IF NOT EXISTS service_plan_id uuid NULL REFERENCES public.service_plans(id);
 ALTER TABLE public.work_orders ADD COLUMN IF NOT EXISTS service_planned_date date NULL;
 ALTER TABLE public.work_orders ADD COLUMN IF NOT EXISTS service_price numeric(10, 2) NULL;
 ALTER TABLE public.work_orders ADD COLUMN IF NOT EXISTS skip_reason text NULL;

@@ -13,6 +13,7 @@ import JobMaterialsCard from '@/components/ops/JobMaterialsCard'
 import NeedsYouList from '@/components/ops/NeedsYouList'
 import CheckupList from '@/components/checkups/CheckupList'
 import { HARNESS_CHECKUPS } from '@/e2e/fixtures'
+import { HARNESS_CREW_DAY } from '@/e2e/fixtures'
 import WhatsNewView from '@/components/WhatsNewView'
 import { ROLE_GROUPS } from '@/lib/announcements'
 import { WHATS_NEW_SHOTS } from '@/lib/whats-new-shots'
@@ -81,6 +82,10 @@ import GeneralSettingsCard, { type GeneralSettingsValues } from '@/components/ad
 import { DEFAULT_TIMEZONE } from '@/lib/timezone'
 import JobCatchUpSettingsCard from '@/components/admin/JobCatchUpSettingsCard'
 import OrgFeaturesCard from '@/components/admin/OrgFeaturesCard'
+import ServicePlanSettingsCard from '@/components/admin/ServicePlanSettingsCard'
+import ServicePlansCard from '@/components/service-plans/ServicePlansCard'
+import VisitsBoard from '@/components/service-plans/VisitsBoard'
+import CrewDayList, { type CrewDayVisit } from '@/app/crew/day/[token]/CrewDayList'
 import { HARNESS_CATCH_UP_JOBS, HARNESS_CATCH_UP_STUCK, HARNESS_VIEWER_ID } from '@/e2e/fixtures'
 
 function GeneralSettingsHarness({ canEditBrand }: { canEditBrand: boolean }) {
@@ -359,6 +364,19 @@ export default function Harness({ params }: { params: { screen: string } }) {
         </div>
       )
     }
+    case 'service-plans':
+      return (
+        <div className="mx-auto flex max-w-3xl flex-col gap-4 p-4">
+          <h1 className="text-ui-xl font-bold text-ink">Gulf Coast Property Group</h1>
+          <ServicePlansCard customerId="cust-1" />
+        </div>
+      )
+    case 'visits-board':
+      return <VisitsBoard />
+    case 'crew-day':
+      return <CrewDayList token="harness-token-harness-token-harness-1" crewName="Green Team" companyName="Precision Maintenance" today="2026-11-10" visits={HARNESS_CREW_DAY as CrewDayVisit[]} />
+    case 'service-plan-settings':
+      return <div className="mx-auto max-w-2xl p-4"><ServicePlanSettingsCard initial={{ price: 39, billingBasis: 'per_month', maxStories: 3, maxPitchRise: 10 }} /></div>
     case 'customer-records-plain':
       // A one-home customer at a company that doesn't use properties: only the small add links.
       return (

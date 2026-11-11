@@ -582,3 +582,64 @@ export const HARNESS_CUSTOMER_DOCUMENTS = [
   { id: 'doc-1', title: 'Annual maintenance agreement 2027', filename: 'agreement.pdf', category: 'contract', property_id: 'prop-1', created_at: '2026-11-02T15:00:00Z' },
   { id: 'doc-2', title: 'Certificate of insurance', filename: 'coi.pdf', category: 'insurance', property_id: null, created_at: '2026-10-20T15:00:00Z' },
 ]
+
+/** Service plans (lawn company + an ARX Care style plan with a follow-on inspection). */
+export const HARNESS_SERVICE_PLANS = {
+  ready: true,
+  canEdit: true,
+  prices: true,
+  properties: [{ id: 'prop-1', name: 'Main office · 2410 Crawfordville Hwy' }, { id: 'prop-2', name: 'Rental on Oak · 88 Oak Ridge Rd' }],
+  trades: [{ slug: 'lawn', label: 'Lawn care' }, { slug: 'gutters', label: 'Gutters' }],
+  crews: [{ id: 'sub-1', name: 'Green Team' }, { id: 'sub-2', name: 'Blue Team' }],
+  people: [{ id: 'u-insp', name: 'Dana Inspector' }],
+  standardTier: { price: 39, billingBasis: 'per_month', maxStories: 3, maxPitchRise: 10 },
+  plans: [
+    {
+      id: 'plan-1', org_id: 'org-1', customer_id: 'cust-1', property_id: 'prop-1', trade: 'lawn', name: 'Weekly mowing & edging', description: null,
+      price: 55, billing_basis: 'per_visit', price_tier: 'custom', taxable: false, stories: null, pitch_rise: null, follow_up: null, follow_up_days: null, follow_up_user_id: null,
+      status: 'active', start_date: '2026-03-03', end_date: null, paused_until: null, preferred_weekday: 2, default_sub_id: 'sub-1', route_position: 4,
+      seasons: [
+        { from: '03-01', to: '03-31', frequency: 'every_2_weeks' },
+        { from: '04-01', to: '10-31', frequency: 'weekly' },
+        { from: '11-01', to: '11-30', frequency: 'every_2_weeks' },
+        { from: '12-01', to: '02-29', frequency: 'monthly' },
+      ],
+      created_by: 'u1', created_at: '2026-03-01T12:00:00Z', updated_at: '2026-03-01T12:00:00Z', priceHidden: false,
+    },
+    {
+      id: 'plan-2', org_id: 'org-1', customer_id: 'cust-1', property_id: 'prop-2', trade: 'gutters', name: 'Roof & gutter care', description: null,
+      price: 39, billing_basis: 'per_month', price_tier: 'standard', taxable: true, stories: 2, pitch_rise: 6, follow_up: 'inspection', follow_up_days: 2, follow_up_user_id: 'u-insp',
+      status: 'paused', start_date: '2026-04-01', end_date: null, paused_until: '2026-12-01', preferred_weekday: 3, default_sub_id: 'sub-2', route_position: null,
+      seasons: [{ from: '04-01', to: '04-30', frequency: 'monthly' }, { from: '10-01', to: '11-30', frequency: 'monthly' }],
+      created_by: 'u1', created_at: '2026-03-01T12:00:00Z', updated_at: '2026-03-01T12:00:00Z', priceHidden: false,
+    },
+  ],
+}
+
+const visit = (over: Record<string, unknown>) => ({
+  id: 'v', workOrderNumber: 'WO-00100', planId: 'plan-1', planName: 'Weekly mowing & edging', status: 'scheduled', scheduledDate: '2026-11-10', plannedDate: '2026-11-10', moved: false,
+  trade: 'lawn', customerId: 'cust-1', customerName: 'Gulf Coast Property Group', propertyId: 'prop-1', address: '2410 Crawfordville Hwy, Crawfordville, FL 32327', lat: 30.17, lng: -84.37,
+  accessNotes: 'Gate code 4421. Dog in back yard.', subId: 'sub-1', subName: 'Green Team', routePosition: 4, step: 'service', healthResult: null, userId: null, userName: null,
+  skipReason: null, notes: null, completedAt: null, photoCount: 0, updatedAt: '2026-11-09T12:00:00Z', ...over,
+})
+
+export const HARNESS_VISITS = {
+  today: '2026-11-10',
+  from: '2026-11-10',
+  to: '2026-11-16',
+  canEdit: true,
+  crews: [{ id: 'sub-1', name: 'Green Team', hasPhoneLink: true }, { id: 'sub-2', name: 'Blue Team', hasPhoneLink: false }],
+  visits: [
+    visit({ id: 'v1' }),
+    visit({ id: 'v2', planName: 'Biweekly mowing', address: '88 Oak Ridge Rd, Crawfordville, FL 32327', routePosition: 5, status: 'completed', photoCount: 3, accessNotes: null }),
+    visit({ id: 'v3', planName: 'Hedges', status: 'skipped', skipReason: 'rain', routePosition: null, accessNotes: null }),
+    visit({ id: 'v4', planName: 'Roof & gutter care', step: 'inspection', subId: null, subName: null, userId: 'u-insp', userName: 'Dana Inspector', scheduledDate: '2026-11-12', plannedDate: '2026-11-10', routePosition: null }),
+    visit({ id: 'v5', scheduledDate: '2026-11-13', plannedDate: '2026-11-11', moved: true }),
+  ],
+}
+
+export const HARNESS_CREW_DAY = [
+  { id: 'v1', planName: 'Weekly mowing & edging', address: '2410 Crawfordville Hwy, Crawfordville, FL 32327', lat: 30.17, lng: -84.37, accessNotes: 'Gate code 4421. Dog in back yard.', status: 'scheduled', skipReason: null, photoCount: 0, routePosition: 1 },
+  { id: 'v2', planName: 'Biweekly mowing', address: '88 Oak Ridge Rd, Crawfordville, FL 32327', lat: null, lng: null, accessNotes: null, status: 'completed', skipReason: null, photoCount: 2, routePosition: 2 },
+  { id: 'v3', planName: 'Hedges', address: '5 Old Shell Rd, Medart, FL 32327', lat: null, lng: null, accessNotes: null, status: 'scheduled', skipReason: null, photoCount: 0, routePosition: null },
+]

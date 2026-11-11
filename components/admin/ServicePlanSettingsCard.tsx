@@ -6,8 +6,8 @@ import { Button, Card, CardContent, CardHeader, CardTitle, Field, Input, Select,
 import { BILLING_BASIS_LABELS, type BillingBasis, type StandardTierRule } from '@/lib/service-plans'
 
 /**
- * Settings → Service plan pricing (owners): the company's standard plan price and which homes qualify for it (e.g. ARX
- * Care: up to 3 stories, pitch up to 10/12). Plans outside it are priced by hand. PATCH /api/admin/settings
+ * Settings → Service plan pricing (owners): the company's standard plan price and which homes qualify for it (e.g. up
+ * to 3 stories, pitch up to 10/12). Plans outside it are priced by hand. PATCH /api/admin/settings
  * `service_plans` → orgs.settings.servicePlans.standardTier.
  */
 export default function ServicePlanSettingsCard({ initial }: { initial: StandardTierRule | null }) {

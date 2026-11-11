@@ -303,7 +303,7 @@ export async function regenerateFutureVisits(admin: SupabaseClient, orgId: strin
   let updated = 0
   if (keep.length) {
     const address = plan.property_id !== old.property_id ? await propertyAddressFields(admin, orgId, [plan.property_id]) : null
-    const base: Record<string, unknown> = { title: plan.name, service_price: visitPrice(plan), service_taxable: plan.taxable }
+    const base: Record<string, unknown> = { title: plan.name, description: plan.description, service_price: visitPrice(plan), service_taxable: plan.taxable }
     if (address) Object.assign(base, { property_id: plan.property_id, ...(address.get(plan.property_id) ?? {}) })
     // Group by the crew each visit should end up with (one update per crew value).
     const byCrew = new Map<string, string[]>()

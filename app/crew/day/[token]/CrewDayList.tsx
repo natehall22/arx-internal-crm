@@ -2,6 +2,7 @@
 
 import { useRef, useState } from 'react'
 
+import { formatDateWeekday } from '@/lib/format'
 import { SKIP_REASONS, SKIP_REASON_LABELS, type SkipReason } from '@/lib/service-plans'
 import { uploadVisitPhotos } from '@/lib/visit-photo-upload'
 
@@ -39,7 +40,7 @@ export default function CrewDayList({ token, crewName, companyName, today, visit
 
   const base = (id: string) => `/api/crew/day/${token}/visits/${id}`
   const open = visits.filter((v) => v.status === 'scheduled').length
-  const dateLabel = new Date(`${today}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', timeZone: 'UTC' })
+  const dateLabel = formatDateWeekday(today)
 
   async function act(id: string, body: Record<string, unknown>): Promise<boolean> {
     setBusy(id)

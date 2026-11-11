@@ -112,7 +112,7 @@ function MonthDay({ label, value, onChange }: { label: string; value: string; on
 }
 
 /**
- * Customer File → Service plans: recurring work at one of the customer's properties (weekly mowing, ARX Care roof &
+ * Customer File → Service plans: recurring work at one of the customer's properties (weekly mowing, roof &
  * gutter cleaning). Visits go on the calendar by themselves (Jobs → Schedule → Visits). Only shown when the company has
  * service plans switched on; reads and saves through /api/customers/[id]/service-plans and /api/service-plans/[id].
  */

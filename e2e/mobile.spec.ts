@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import { REPORT_TEMPLATES } from '../lib/reporting/templates'
-import { JOB_SETUP_TRADES, HARNESS_TRADES_0037, HARNESS_PAYMENTS_0037, SUPPLIER_VIEW_0037, HARNESS_INCENTIVES, HARNESS_LEADERBOARD, HARNESS_INSIDE_SALES, HARNESS_INSTALL_SCHEDULE, HARNESS_PARTNERS, HARNESS_APPOINTMENTS, HARNESS_THREAD, HARNESS_PROPOSALS, HARNESS_LEADS, ANNOUNCEMENTS, BANNER, DEFAULT_PLANS, COST_LINES, SUPPLIERS, PAY_WEEK, MY_PAY, REPORT_RESULT, SALE_CREDIT, SUPPLIER_PREVIEW, SUPPLIER_VIEW, TEMPLATE_META, USERS, HARNESS_OWNER_CANDIDATES, HARNESS_CUSTOM_FIELDS, HARNESS_PROPERTIES } from './fixtures'
+import { JOB_SETUP_TRADES, HARNESS_TRADES_0037, HARNESS_PAYMENTS_0037, SUPPLIER_VIEW_0037, HARNESS_INCENTIVES, HARNESS_LEADERBOARD, HARNESS_INSIDE_SALES, HARNESS_INSTALL_SCHEDULE, HARNESS_PARTNERS, HARNESS_APPOINTMENTS, HARNESS_THREAD, HARNESS_PROPOSALS, HARNESS_LEADS, ANNOUNCEMENTS, BANNER, DEFAULT_PLANS, COST_LINES, SUPPLIERS, PAY_WEEK, MY_PAY, REPORT_RESULT, SALE_CREDIT, SUPPLIER_PREVIEW, SUPPLIER_VIEW, TEMPLATE_META, USERS, HARNESS_OWNER_CANDIDATES, HARNESS_CUSTOM_FIELDS, HARNESS_PROPERTIES, HARNESS_SERVICE_PLANS, HARNESS_VISITS } from './fixtures'
 
 const json = (body: unknown, status = 200) => ({ status, contentType: 'application/json', body: JSON.stringify(body) })
 
@@ -180,6 +180,27 @@ const SCREENS: Screen[] = [
       { name: 'turned-off', run: async (p) => { await p.getByRole('button', { name: /Show turned-off properties/ }).click(); await p.waitForSelector('text=5 Old Shell Rd, Medart, FL 32327') } },
     ] },
   { name: 'customer-records-plain', path: '/dev-harness/customer-records-plain', ready: 'text=+ Add another property' },
+  { name: 'service-plans', path: '/dev-harness/service-plans', ready: 'text=Weekly mowing & edging', mock: async (p) => {
+    await p.route('**/api/customers/*/service-plans', (route) => route.fulfill(json(HARNESS_SERVICE_PLANS)))
+  },
+    states: [
+      { name: 'editor', run: async (p) => { await p.getByRole('button', { name: 'Edit' }).first().click(); await p.waitForSelector('[role=dialog] >> text=How often, by season') } },
+      { name: 'new-plan', run: async (p) => { await p.getByRole('button', { name: '+ Add plan' }).click(); await p.waitForSelector('[role=dialog] >> text=Send someone to inspect') } },
+      { name: 'pause', run: async (p) => { await p.getByRole('button', { name: 'Pause' }).first().click(); await p.waitForSelector('[role=dialog] >> text=Resume on (optional)') } },
+    ] },
+  { name: 'visits-board', path: '/dev-harness/visits-board', ready: 'text=Gate code 4421. Dog in back yard. >> nth=0', mock: async (p) => {
+    await p.route(/\/api\/ops\/visits(\?.*)?$/, (route) => route.fulfill(json(HARNESS_VISITS)))
+    await p.route('**/api/ops/visits/*/photos', (route) => route.fulfill(json({ photos: [{ id: 'ph1', filename: 'front.jpg', created_at: '2026-11-10T15:00:00Z' }] })))
+  },
+    states: [
+      { name: 'skip-sheet', run: async (p) => { await p.getByRole('button', { name: 'Skip' }).first().click(); await p.waitForSelector('[role=dialog] >> text=Why?') } },
+      { name: 'inspection-result', run: async (p) => { await p.getByRole('button', { name: 'Done', exact: true }).nth(1).click(); await p.waitForSelector('[role=dialog] >> text=Green — looks good') } },
+      { name: 'bulk-move', run: async (p) => { await p.getByRole('button', { name: 'Move a day’s visits' }).click(); await p.waitForSelector('[role=dialog] >> text=Move by (days)') } },
+      { name: 'crew-links', run: async (p) => { await p.getByRole('button', { name: 'Crew phone links' }).click(); await p.waitForSelector('[role=dialog] >> text=Make link') } },
+    ] },
+  { name: 'crew-day', path: '/dev-harness/crew-day', ready: 'text=Gate code 4421. Dog in back yard.',
+    states: [{ name: 'skip-reasons', run: async (p) => { await p.getByRole('button', { name: 'Skip', exact: true }).first().click(); await p.waitForSelector('text=Why skip?') } }] },
+  { name: 'service-plan-settings', path: '/dev-harness/service-plan-settings', ready: 'text=Service plan pricing' },
   { name: 'settings-hub', path: '/dev-harness/settings-hub', ready: 'text=People & access',
     states: [{ name: 'searching', run: async (p) => { await p.getByRole('searchbox').fill('commission'); await p.waitForTimeout(200) } }] },
   { name: 'today-queues', path: '/dev-harness/today', ready: 'text=Proposals waiting for a signature' },

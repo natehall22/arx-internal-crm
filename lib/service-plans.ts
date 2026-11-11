@@ -30,7 +30,7 @@ export const BILLING_BASIS_LABELS: Record<BillingBasis, string> = { per_visit: '
 export const PRICE_TIERS = ['standard', 'custom'] as const
 export type PriceTier = (typeof PRICE_TIERS)[number]
 
-/** Follow-on step after each service visit (ARX Care: a sub cleans, then a staff inspector rates the roof). */
+/** Follow-on step after each service visit (e.g. a roof & gutter care plan: a sub cleans, then a staff inspector rates the roof). */
 export const FOLLOW_UPS = ['inspection'] as const
 export type FollowUp = (typeof FOLLOW_UPS)[number]
 export const VISIT_STEPS = ['service', 'inspection'] as const
@@ -596,7 +596,7 @@ export function redactPlanPrices<T extends Pick<ServicePlan, 'price'>>(p: T, pri
 // ---------------------------------------------------------------------------------------------------------------------
 
 /**
- * The company's standard plan price and which homes qualify (ARX Care: ≤ 3 stories and pitch ≤ 10/12). A home outside
+ * The company's standard plan price and which homes qualify (e.g. ≤ 3 stories and pitch ≤ 10/12). A home outside
  * the rule — or one whose stories / pitch nobody recorded — gets a custom price instead. Null = no standard tier: every
  * plan is priced by hand.
  */
