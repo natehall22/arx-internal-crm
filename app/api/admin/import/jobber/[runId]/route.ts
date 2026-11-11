@@ -65,7 +65,7 @@ export async function POST(request: Request, { params }: { params: { runId: stri
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null
   const action = typeof body?.action === 'string' ? body.action : ''
   const answer = (r: { ok: true } | { ok: false; status: number; error: string }, extra: Record<string, unknown> = {}) =>
-    r.ok ? NextResponse.json({ ok: true, ...extra, ...r }) : NextResponse.json({ error: r.error }, { status: r.status })
+    r.ok ? NextResponse.json({ ...extra, ...r }) : NextResponse.json({ error: r.error }, { status: r.status })
 
   switch (action) {
     case 'addFile': {

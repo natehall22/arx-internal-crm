@@ -425,7 +425,7 @@ async function pricebookId(ctx: Ctx): Promise<string | null> {
   if (hit) return hit
   const db = orgDb(ctx.admin, ctx.orgId)
   const { data } = await db.from('pricebooks').select('id, is_default').order('is_default', { ascending: false }).limit(1)
-  let id = ((data ?? []) as Array<{ id: string }>)[0]?.id ?? null
+  let id: string | null = ((data ?? []) as Array<{ id: string }>)[0]?.id ?? null
   if (!id) {
     // A new company may have no price book yet: make its default one (kept by undo — it is the company's, not the import's).
     const { data: made } = await db.from('pricebooks').insert({ name: 'Price book', is_default: true }).select('id').single()

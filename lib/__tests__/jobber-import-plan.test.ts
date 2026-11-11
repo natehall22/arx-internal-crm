@@ -3,7 +3,7 @@ import { join } from 'path'
 
 import { parseCsv } from '@/lib/csv'
 import { detectFileKind } from '@/lib/jobber-import/columns'
-import { addressesOf, buildPlan, invoiceStatus, readJobberFiles, type ExistingSnapshot, type RunFile } from '@/lib/jobber-import/plan'
+import { addressesOf, buildPlan, invoiceStatus, readJobberFiles, type ExistingSnapshot, type ImportOptions, type RunFile } from '@/lib/jobber-import/plan'
 import { seasonsFromVisits, inferSchedule } from '@/lib/jobber-import/schedule'
 
 function file(name: string): RunFile {
@@ -14,7 +14,7 @@ const ALL = ['clients-1.csv', 'invoices.csv', 'recurring.csv', 'visits.csv', 'qu
 // Test stand-in for SQL property_address_key: lower + letters/digits (the real rule runs in SQL at Check).
 const keys = (addrs: string[]) => new Map(addrs.map((a) => [a, a.toLowerCase().replace(/,?\s*(fl|florida)\s+\d{5}.*$/, '').replace(/[^a-z0-9]+/g, ' ').trim()]))
 const EMPTY: ExistingSnapshot = { customers: [], properties: [], fieldDefs: [], priceItems: [], plans: [], invoices: [], trades: [{ slug: 'lawn', label: 'Lawn care' }] }
-const OPTS = { dateOrder: null, trade: 'lawn', skipArchived: false, today: '2026-11-11' }
+const OPTS: ImportOptions = { dateOrder: null, trade: 'lawn', skipArchived: false, today: '2026-11-11' }
 
 function plan(existing = EMPTY, opts = OPTS, files = ALL) {
   const read = readJobberFiles(files, {}, opts)

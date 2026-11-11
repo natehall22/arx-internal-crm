@@ -129,16 +129,17 @@ export type LineItem = { name: string; qty: number; totalCents: number }
 export function parseLineItems(raw: string | null | undefined): LineItem[] | null {
   const s = (raw ?? '').trim()
   if (!s) return []
-  const re = /\s*(.+?)\s*\(\s*(-?\d+(?:\.\d+)?)\s*[,;]\s*(-?\$?\s*-?[\d,]*\.?\d+)\s*\)\s*(?:[,;\n]|$)/gy
+  // One item at a time from the front of what is left (no sticky regex: the build targets ES5).
+  const one = /^\s*(.+?)\s*\(\s*(-?\d+(?:\.\d+)?)\s*[,;]\s*(-?\$?\s*-?[\d,]*\.?\d+)\s*\)\s*(?:[,;\n]|$)/
   const items: LineItem[] = []
-  let m: RegExpExecArray | null
   let at = 0
-  while ((m = re.exec(s))) {
+  while (at < s.length) {
+    const m = one.exec(s.slice(at))
+    if (!m) break
     const cents = moneyCents(m[3])
     if (cents === null || Number.isNaN(cents)) return null
     items.push({ name: m[1].replace(/^[,;\s]+/, '').trim().slice(0, 500), qty: Number(m[2]), totalCents: cents })
-    at = re.lastIndex
-    if (at >= s.length) break
+    at += m[0].length
   }
   if (!items.length || at < s.length) return null
   return items
