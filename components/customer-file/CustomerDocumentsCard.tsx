@@ -13,6 +13,7 @@ export type CustomerDocumentItem = {
   filename: string
   category: string
   property_id: string | null
+  shared_with_customer?: boolean
   created_at: string
 }
 
@@ -31,11 +32,14 @@ export default function CustomerDocumentsCard({
   initial,
   canUpload,
   properties,
+  portalOn = false,
 }: {
   customerId: string
   initial: CustomerDocumentItem[]
   canUpload: boolean
   properties: PropertyOption[]
+  /** The company's customer portal is on: show the "Show to customer" switch. */
+  portalOn?: boolean
 }) {
   const [docs, setDocs] = React.useState(initial)
   const [open, setOpen] = React.useState(initial.length > 0)
@@ -47,6 +51,16 @@ export default function CustomerDocumentsCard({
     const res = await fetch(`/api/customers/${customerId}/documents`, { cache: 'no-store' }).catch(() => null)
     const data = (res ? await res.json().catch(() => ({})) : {}) as { documents?: CustomerDocumentItem[] }
     if (res?.ok && Array.isArray(data.documents)) setDocs(data.documents)
+  }
+
+  async function toggleShared(id: string, shared: boolean) {
+    setDocs((list) => list.map((d) => (d.id === id ? { ...d, shared_with_customer: shared } : d)))
+    const res = await fetch('/api/portal-sharing', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kind: 'document', id, shared }) }).catch(() => null)
+    if (!res?.ok) {
+      setDocs((list) => list.map((d) => (d.id === id ? { ...d, shared_with_customer: !shared } : d)))
+      const data = (res ? await res.json().catch(() => ({})) : {}) as { error?: string }
+      toast.error(data.error || 'Could not change that. Please try again.')
+    }
   }
 
   async function uploadOne(file: File, i: number): Promise<string | null> {
@@ -100,6 +114,12 @@ export default function CustomerDocumentsCard({
                     {propName(d.property_id) ? ` · ${propName(d.property_id)}` : ''}
                   </p>
                 </div>
+                {portalOn && canUpload ? (
+                  <label className="flex min-h-tap items-center gap-2 text-ui-sm font-semibold text-ink">
+                    <input type="checkbox" className="h-5 w-5" checked={d.shared_with_customer === true} onChange={(e) => void toggleShared(d.id, e.target.checked)} />
+                    Show to customer
+                  </label>
+                ) : null}
                 <a
                   href={`/api/customers/${customerId}/documents/${d.id}/download`}
                   target="_blank"
