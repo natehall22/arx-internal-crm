@@ -196,7 +196,8 @@ follow-on visit). Feature switch `servicePlans` — the first **default-OFF** sw
   `npm run seed:company`, a starter + `tierPrices` or a full template) — after that the company's row is the only source.
 - **A plan copies its template at sale** (`template_id`, `template_version`, its own seasons / pricing / steps / billing / tax).
   Editing a template never changes a sold plan; an owner pushes a new version on purpose (`applyTemplateToPlans`, preview
-  first; a plan whose tier no longer fits keeps its price as custom and is listed). Every plan field stays editable on the plan.
+  first; a plan whose tier no longer fits keeps its price as custom and is listed; each plan saves on its own and
+  failures are listed, the rest still apply). Every plan field stays editable on the plan.
 - **Rules** `lib/service-plans.ts` (client-safe, pure): seasons (`MM-DD`, may wrap the year, no overlaps) with frequencies
   (weekly / every 2 / every 4 weeks from the plan's anchor weekday / monthly = first <weekday> / none); `planVisitDates`
   deterministic for any window; only clock input is "today" in `orgs.timezone`. `resolvePlanPricing` / `tierCheck` (a tier
@@ -206,22 +207,31 @@ follow-on visit). Feature switch `servicePlans` — the first **default-OFF** sw
   `trade` set so browser RLS can't write them, `job_id` NULL) — never `scheduled_appointments`. **ONE generator**
   `ensureServiceVisits`: today → 42 days, idempotent on `(org_id, service_plan_id, service_planned_date, visit_step)`;
   morning cron (switch on only), Visits loads, every plan save; auto-resumes / auto-ends plans (both in history).
+  Inserts go through SQL `service_plan_add_visits` (per-plan `pg_advisory_xact_lock`, refuses with -1 if the plan changed
+  since it was read) — a board load racing a save can't re-add a removed visit.
 - **Edits: preview, then save** (`updateServicePlan` with `preview: true` writes nothing and returns changed fields + visits
   removed / added / updated). Only UNSTARTED FUTURE service visits change; done / skipped / cancelled and anything today or
-  earlier never do; a crew picked by hand stays. **History**: `service_plan_changes` (same `{field,label,old,new}` shape as
+  earlier never do; a crew picked by hand stays; a trade change refreshes them. The save is ONE transaction, SQL
+  `service_plan_save` (same lock; `updated_at` = `clock_timestamp()` is the version, stale → 40001): plan patch + visits
+  removed (cancelled if they have a photo) + refreshed + charges. Seasons are sorted before compare; a true no-op is
+  "Nothing changed". **History**: `service_plan_changes` (same `{field,label,old,new}` shape as
   `supplier_audit_log`; `lib/change-log.ts` is the one `FieldChange`/`describeChange`/`diffFields`), with `visit_effect`;
   plan History button, template "Plans & history".
 - **Statuses** scheduled → completed | skipped (`skip_reason`) | cancelled. A step visit with result options is done only with
   one of the plan's options; done starts the plan's NEXT step (`followUpVisitFields`, chained).
 - **Bulk shift** (`bulkShiftVisits`): a day range, all / one crew / unassigned, ±1–30 days; slots kept.
 - **Screens:** Customer File → Service plans card (start from a template; edit everything; preview; history); Jobs → Schedule →
-  **Visits** tab; crew phone page `/crew/day/<token>` (token in service-role `crew_day_links`, one per crew, **expires after 30
+  **Visits** tab (paged 300 at a time with a total and "Load more"; photo/charge lookups in chunks of 200 ids); crew phone page `/crew/day/<token>` (token in service-role `crew_day_links`, one per crew, **expires after 30
   days** or when replaced or the switch is off; the open page re-checks `/api/crew/day/<token>/status` on focus / return / every
   5 min and wipes addresses and gate codes when dead; gate codes only on visits still to do). Today + morning email
   "Today's visits" / "Visits skipped this week" when on.
 - **Access** `lib/service-plans-access.ts`: view = job board; edit = `jobs:edit`; prices = edit or job financials; templates = owners.
 - **Visit photos**: `photos` with `job_id` NULL + `work_order_id`, via `registerVisitPhotoUpload` / `finalizeVisitPhotoUpload`.
-- **Invoicing hook (not built):** `loadCompletedServiceVisits` (done visits + `service_price` / `service_taxable` snapshots).
+- **Visit prices are not on `work_orders`** (field/sub roles read that table): `service_visit_charges` (price + taxable
+  snapshot per visit, RLS on, no policies, no grants — service role only). Invoicing hook (not built):
+  `loadCompletedServiceVisits`.
+- **Work order numbers** come from `work_order_number_counters` (per company, seeded once from the highest `WO-n`; no
+  table scan); `WO-00001`…`WO-99999`, then `WO-100000` (widened, never truncated).
 - **Readers that must not count visits** exclude `work_order_type = SERVICE_VISIT_TYPE` (Today crews, ops dashboard open WOs,
   sub portal list + complete). `/work-orders` already lists `trade IS NULL` only.
 
@@ -233,6 +243,8 @@ now share the result vocabulary (`lib/health-result.ts`) and the lazy-generator 
 "every N months from an anchor date" and a `production_job_id` anchor on the plan. Do not migrate checkups until then.
 (34) Browser register → upload → finalize is now 5 copies (KR #30 + `lib/visit-photo-upload.ts`, which at least reuses
 `UploadSteps`); crew visit uploads are not on the offline queue yet (`lib/job-photo-queue.ts` keys by job).
+(35) The two service-plan RPCs are mirrored in JS for jest (`lib/test-helpers/fake-service-plan-rpc.ts`) — like KR #15's
+payroll mirror, a rule changed in the SQL must change there too; `supabase/tests/service_plans.test.sql` runs the real SQL.
 
 ## UI Conventions
 - **Text contrast is an ongoing, recurring problem in this build — always verify text stands out.** Use explicit dark text (`#2c2c2a`, not generic gray) on light surfaces; never place text directly on the satellite/photo map — use a solid or opaque-scrim background; aim for WCAG AA. Validate legibility on a cheap Android in direct sun for any field-facing UI.
