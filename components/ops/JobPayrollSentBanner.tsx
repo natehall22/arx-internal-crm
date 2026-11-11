@@ -44,6 +44,7 @@ export default function JobPayrollSentBanner({
   const collection = evaluateJobCollection({
     saleAmount,
     invoiceTaxCents: paymentSummary.invoice_tax_cents,
+    timeAndMaterialsInvoicedCents: paymentSummary.tm_invoiced_cents ?? null,
     collectedCents: paymentSummary.collected_cents ?? 0,
     allowCloseWithBalance,
     closeBalanceBy,

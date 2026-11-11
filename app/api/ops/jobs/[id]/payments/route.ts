@@ -6,7 +6,7 @@ import { JOB_COLLECTION_COLUMNS } from '@/lib/job-collection'
 import { enqueuePaymentRecorded } from '@/lib/integrations'
 import { callerCanAccessJobBilling } from '@/lib/finance-access'
 import { buildJobPaymentSummary, getJobPaymentSummary } from '@/lib/job-payments'
-import { loadInvoiceTaxCentsByJob } from '@/lib/job-invoice-tax'
+import { collectionInvoiceFields, loadJobInvoiceFacts, type JobInvoiceFacts } from '@/lib/job-invoice-tax'
 import { notifyAdminOpsOfJobPayment } from '@/lib/job-payment-email'
 
 // GET - Get all payments for a job with summary
@@ -52,9 +52,9 @@ export async function GET(
       return NextResponse.json({ error: 'Failed to fetch payments' }, { status: 500 })
     }
 
-    const invoiceTax = await loadInvoiceTaxCentsByJob(adminClient, [params.id])
+    const invoiceTax = await loadJobInvoiceFacts(adminClient, [params.id])
     const summary: JobPaymentSummary = buildJobPaymentSummary(
-      { ...(job as unknown as Parameters<typeof buildJobPaymentSummary>[0]), invoice_tax_cents: invoiceTax.get(params.id) ?? 0 },
+      { ...(job as unknown as Parameters<typeof buildJobPaymentSummary>[0]), invoice_tax_cents: invoiceTax.get(params.id)?.taxCents ?? 0, tm_invoiced_cents: collectionInvoiceFields(invoiceTax.get(params.id)).timeAndMaterialsInvoicedCents },
       (payments || []) as JobPayment[]
     )
 

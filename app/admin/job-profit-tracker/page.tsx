@@ -1,5 +1,5 @@
 import { sumCollectedCents } from '@/lib/job-collection'
-import { loadInvoiceTaxCentsByJob } from '@/lib/job-invoice-tax'
+import { collectionInvoiceFields, loadJobInvoiceFacts, type JobInvoiceFacts } from '@/lib/job-invoice-tax'
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import Nav from '@/components/Nav'
@@ -174,7 +174,7 @@ export default async function AdminJobProfitTrackerPage({
   // labor_cost columns and job_product_orders are no longer read (Known Redundancy #11).
   let ledger: JobCostLedger = new Map()
   // Sales tax billed on invoices is owed on top of the sale amount (lib/job-invoice-tax.ts); 0 for most jobs.
-  let invoiceTaxByJob = new Map<string, number>()
+  let invoiceTaxByJob = new Map<string, JobInvoiceFacts>()
 
   if (jobIds.length > 0) {
     const [loadedLedger, { data: payments }, loadedInvoiceTax] = await Promise.all([
@@ -183,7 +183,7 @@ export default async function AdminJobProfitTrackerPage({
         .from('job_payments')
         .select('job_id, amount_cents, funding_status')
         .in('job_id', jobIds),
-      loadInvoiceTaxCentsByJob(supabase, jobIds),
+      loadJobInvoiceFacts(supabase, jobIds),
     ])
     ledger = loadedLedger
     invoiceTaxByJob = loadedInvoiceTax
@@ -222,7 +222,9 @@ export default async function AdminJobProfitTrackerPage({
     const netPercent = saleAmount > 0 ? (netProfit / saleAmount) * 100 : null
     const collected = (collectedCentsByJob.get(job.id) || 0) / 100
     // Balance owed = sale amount + invoice sales tax − collected (tax money collected is not a contract overpayment).
-    const balance = Math.max(0, saleAmount + (invoiceTaxByJob.get(job.id) ?? 0) / 100 - collected)
+    // A time & materials job owes what it was invoiced (tax included), not its estimate (lib/job-collection.ts).
+    const owed = collectionInvoiceFields(invoiceTaxByJob.get(job.id))
+    const balance = Math.max(0, (owed.timeAndMaterialsInvoicedCents != null ? owed.timeAndMaterialsInvoicedCents / 100 : saleAmount + owed.invoiceTaxCents / 100) - collected)
     const customerName = customerNameFor(job)
     const trackerStatus =
       balance <= 0 && saleAmount > 0

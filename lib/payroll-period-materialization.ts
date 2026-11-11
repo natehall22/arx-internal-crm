@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { CompPlanForCalc } from '@/lib/calculate-commission-from-plan'
 import { buildCommissionPayrollSnapshot } from '@/lib/commission-payroll'
-import { loadInvoiceTaxCentsByJob } from './job-invoice-tax'
+import { collectionInvoiceFields, loadJobInvoiceFacts, type JobInvoiceFacts } from './job-invoice-tax'
 import { evaluateJobCollection, sumCollectedCents } from '@/lib/job-collection'
 import { roundMoney } from '@/lib/money'
 import { cutoffYmd } from '@/lib/payroll-week-schedule'
@@ -41,6 +41,8 @@ type PeriodRow = {
 type JobRow = {
   /** Sales tax billed on the job's invoices (lib/job-invoice-tax.ts); owed on top of sale_amount. */
   invoice_tax_cents?: number | null
+  /** A time & materials job's invoiced total (tax included) = what it owes (lib/job-invoice-tax.ts); null = fixed price. */
+  tm_invoiced_cents?: number | null
   id: string
   job_number: string
   status: string
@@ -111,6 +113,7 @@ export function derivePayrollEligibility(input: {
   const collection = evaluateJobCollection({
     saleAmount: input.job.sale_amount,
     invoiceTaxCents: input.job.invoice_tax_cents,
+    timeAndMaterialsInvoicedCents: input.job.tm_invoiced_cents ?? null,
     payments: input.payments,
     allowCloseWithBalance: input.job.allow_close_with_balance,
     closeBalanceBy: input.job.close_balance_by,
@@ -237,11 +240,13 @@ const WAITING_TEXT: Record<string, string> = {
   no_resolvable_participant_plans: 'The people on this job have no pay plan yet',
 }
 
-export function waitingReasonText(reason: string, collectedCents: number, saleAmount: number | null, invoiceTaxCents?: number | null): string {
+export function waitingReasonText(reason: string, collectedCents: number, saleAmount: number | null, invoiceTaxCents?: number | null, tmInvoicedCents?: number | null): string {
   if (reason === 'not_funded') {
-    const saleOnly = Math.round((Number(saleAmount) || 0) * 100)
-    // What the customer owes includes sales tax billed on invoices (lib/job-collection.ts); 0 for most jobs.
-    const sale = saleOnly > 0 ? saleOnly + Math.max(0, Math.round(Number(invoiceTaxCents) || 0)) : 0
+    // What the customer owes — the one rule's requiredCents (lib/job-collection.ts): sale + invoice tax, or for a time &
+    // materials job what it was invoiced.
+    const c = evaluateJobCollection({ saleAmount, invoiceTaxCents, timeAndMaterialsInvoicedCents: tmInvoicedCents ?? null, collectedCents })
+    const sale = c.missingSaleAmount ? 0 : c.requiredCents
+    if (tmInvoicedCents != null && sale === 0) return 'Nothing invoiced yet'
     const owed = Math.max(0, sale - collectedCents) / 100
     const fmt = (n: number) => `$${n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`
     return sale > 0 ? `Customer still owes ${fmt(owed)} of ${fmt(sale / 100)}` : 'No sale amount on file'
@@ -324,8 +329,11 @@ export async function planPayrollPeriod(
   const candidateJobs = (jobData || []) as JobRow[]
   const jobIds = candidateJobs.map((j) => j.id)
   // Invoice sales tax is owed on top of sale_amount (lib/job-invoice-tax.ts); 0 for jobs without it.
-  const invoiceTaxByJob = jobIds.length ? await loadInvoiceTaxCentsByJob(supabase, jobIds) : new Map<string, number>()
-  for (const job of candidateJobs) job.invoice_tax_cents = invoiceTaxByJob.get(job.id) ?? 0
+  const invoiceTaxByJob = jobIds.length ? await loadJobInvoiceFacts(supabase, jobIds) : new Map<string, JobInvoiceFacts>()
+  for (const job of candidateJobs) {
+    job.invoice_tax_cents = invoiceTaxByJob.get(job.id)?.taxCents ?? 0
+    job.tm_invoiced_cents = collectionInvoiceFields(invoiceTaxByJob.get(job.id)).timeAndMaterialsInvoicedCents
+  }
 
   if (jobIds.length === 0) return emptyPlan()
 
@@ -689,7 +697,7 @@ export async function planPayrollPeriod(
         waiting.push({
           job,
           reason: priced.skip,
-          reasonText: waitingReasonText(priced.skip, sumCollectedCents(paymentsByJob.get(job.id) || []), job.sale_amount, job.invoice_tax_cents),
+          reasonText: waitingReasonText(priced.skip, sumCollectedCents(paymentsByJob.get(job.id) || []), job.sale_amount, job.invoice_tax_cents, job.tm_invoiced_cents),
           collectedCents: sumCollectedCents(paymentsByJob.get(job.id) || []),
           rows: [],
         })
@@ -772,7 +780,7 @@ export async function planPayrollPeriod(
     waiting.push({
       job: item.job,
       reason,
-      reasonText: waitingReasonText(reason, collectedCents, item.job.sale_amount, item.job.invoice_tax_cents),
+      reasonText: waitingReasonText(reason, collectedCents, item.job.sale_amount, item.job.invoice_tax_cents, item.job.tm_invoiced_cents),
       collectedCents,
       rows: 'skip' in priced ? [] : priced.rows,
     })
