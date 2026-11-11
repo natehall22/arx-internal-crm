@@ -98,7 +98,7 @@ describe('invoice routes scope through the org', () => {
     expect(src).toMatch(/requireAuth\(\)/)
     expect(src).not.toMatch(/auth\.getUser\(/)
     // The lookups themselves (lib/invoice-document.ts): job invoices through the job, invoices without a job through org_id.
-    const lib = read('lib/invoice-document.ts')
+    const lib = read('lib/invoice-document.ts').split('\n').filter((l) => !l.trim().startsWith('//')).join('\n')
     expect(lib.match(/\.eq\('production_jobs\.org_id', orgId\)/g)).toHaveLength(2)
     expect(lib.match(/\.eq\('org_id', orgId\)\.is\('job_id', null\)/g)).toHaveLength(2)
   })
