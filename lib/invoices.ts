@@ -970,7 +970,8 @@ export async function getInvoiceWithDetails(
     .eq('invoice_id', invoiceId)
     .order('created_at', { ascending: true })
 
-  const appliedCents = (payments || []).reduce((sum, p) => sum + p.applied_cents, 0)
+  // Paid here + paid before an import (invoicePaidCents is the one rule).
+  const appliedCents = invoicePaidCents(invoice, (payments || []).reduce((sum, p) => sum + p.applied_cents, 0))
 
   return {
     ...invoice,
