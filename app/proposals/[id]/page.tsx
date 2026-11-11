@@ -8,6 +8,8 @@ import { pdf } from '@react-pdf/renderer'
 import ProposalPDFv2 from '@/components/ProposalPDFv2'
 import SatelliteImageEditor from '@/components/SatelliteImageEditor'
 import { userCanDeleteProposal } from '@/lib/proposal-delete-access'
+import QuoteLinkCard from '@/components/quotes/QuoteLinkCard'
+import { useOrgFeatures } from '@/hooks/useOrgFeatures'
 import CreateContractButton from '@/components/contracts/CreateContractButton'
 import { getProposalCustomerPricing, formatSelectedFinancingTerms } from '@/lib/proposal-pricing-visibility'
 import { resolveContractTotalSquares } from '@/lib/sold-roof-squares'
@@ -91,6 +93,7 @@ interface LineItem {
 export default function ProposalDetailPage() {
   const router = useRouter()
   const params = useParams()
+  const orgFeatures = useOrgFeatures()
   const proposalId = params.id as string
   
   const [loading, setLoading] = useState(true)
@@ -1116,6 +1119,8 @@ export default function ProposalDetailPage() {
                 </div>
               )}
             </div>
+
+            {orgFeatures.quoteApproval && proposal.status !== 'declined' ? <QuoteLinkCard proposalId={proposal.id} /> : null}
 
             {/* Create Contract / Decline */}
             {proposal.status !== 'declined' && (
