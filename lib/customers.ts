@@ -132,6 +132,34 @@ export async function findExistingCustomer(
   return existingCustomer
 }
 
+export type CustomerIdentityRow = { id: string; name: string | null; email_lower: string | null; phone_normalized: string | null; address_text: string | null; created_at: string }
+
+/**
+ * The SAME rule as `findExistingCustomer`, over rows already loaded (Move from Jobber checks hundreds of people at once
+ * instead of three queries each). Real email first, then the 10-digit phone (stored as 10 digits or 1 + 10), then exact
+ * name + address; oldest row wins at each step. A change to the rule above must be made here too
+ * (lib/__tests__/customer-identity-match.test.ts holds both to the same cases).
+ */
+export function matchExistingCustomer<T extends CustomerIdentityRow>(rows: T[], data: CustomerData): T | null {
+  const oldest = (xs: T[]) => [...xs].sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id))[0] ?? null
+  const email = normalizeIdentityEmail(data.email)
+  if (email) {
+    const hit = oldest(rows.filter((r) => r.email_lower === email))
+    if (hit) return hit
+  }
+  const phone = normalizePhone(data.phone)
+  if (phone && phone.length === 10) {
+    const hit = oldest(rows.filter((r) => r.phone_normalized === phone || r.phone_normalized === `1${phone}`))
+    if (hit) return hit
+  }
+  if (data.name && data.address_text) {
+    const key = normalizeString(data.name) + normalizeString(data.address_text)
+    const hit = rows.find((r) => normalizeString(r.name) + normalizeString(r.address_text) === key)
+    if (hit) return hit
+  }
+  return null
+}
+
 /** The oldest customer row (created_at, id) sharing this real email or 10-digit phone — the row every concurrent creator agrees wins. */
 async function oldestCustomerIdByIdentity(supabase: SupabaseClient, orgId: string, who: { email?: string | null; phone?: string | null }): Promise<string | null> {
   const email = normalizeIdentityEmail(who.email)
