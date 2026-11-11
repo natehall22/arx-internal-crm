@@ -9,10 +9,12 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { roundMoney } from '@/lib/money'
+import { WEEKDAY_NAMES, weekdayOfYmd } from '@/lib/payroll-week-schedule'
 import { loadPeriodAdjustments } from '@/lib/payroll-adjustments'
 import { planPayrollPeriod } from '@/lib/payroll-period-materialization'
 import { COMMISSION_ROLES } from '@/lib/comp-plan-defaults'
-import { composeWeek, findCurrentPayWeekPeriod, loadUnits, payoutRoleWord, type PayWeekLine, type PayWeekPeriod } from '@/lib/payroll-pay-week'
+import { loadPayWeekSchedule } from '@/lib/payroll-week-schedule-server'
+import { composeWeek, findCurrentPayWeekPeriod, loadWeekMinimums, placePeriod, loadUnits, payoutRoleWord, type PayWeekLine, type PayWeekPeriod } from '@/lib/payroll-pay-week'
 
 export type MyPayJob = { key: string; title: string; why: string; amount: number; math: string; jobId?: string; lineKind: string }
 
@@ -31,6 +33,8 @@ export type MyPay = {
   nextWeekFixes: Array<{ id: string; amount: number; reason: string }>
 }
 
+const payWeekdayWord = (ymd: string) => WEEKDAY_NAMES[weekdayOfYmd(ymd)] ?? 'next'
+
 const line = (l: PayWeekLine, why: string, i: number): MyPayJob => ({
   key: `${l.kind}-${l.jobId ?? ''}-${i}`,
   title: l.what || l.kind,
@@ -41,7 +45,7 @@ const line = (l: PayWeekLine, why: string, i: number): MyPayJob => ({
   lineKind: l.kind,
 })
 
-async function myWeekLines(admin: SupabaseClient, orgId: string, userId: string, period: PayWeekPeriod, rows: Parameters<typeof composeWeek>[0]['rows'], name: string) {
+async function myWeekLines(admin: SupabaseClient, orgId: string, userId: string, period: PayWeekPeriod, rows: Parameters<typeof composeWeek>[0]['rows'], name: string, active: boolean) {
   const jobIds = Array.from(new Set(rows.map((r) => r.job_id)))
   const jobs = new Map<string, { id: string; job_number: string; address_text: string | null; commission_comp_base: number | null }>()
   if (jobIds.length) {
@@ -64,6 +68,8 @@ async function myWeekLines(admin: SupabaseClient, orgId: string, userId: string,
     units: await loadUnits(admin, orgId, period, [userId]),
     bonuses: (bonusRows ?? []).map((b) => ({ id: b.id as string, userId, amount: Number(b.amount) || 0, description: (b.description as string) ?? null, bonusType: b.bonus_type as string })),
     adjustments: adjustments.filter((a) => a.userId === userId),
+    // The same weekly-minimum rule as the office's screen (an approved week reads what Approve stored).
+    minimums: (await loadWeekMinimums(admin, orgId, period, [{ id: userId, active }], new Map([[userId, rows.filter((r) => r.user_id === userId).reduce((t, r) => roundMoney(t + roundMoney(Number(r.net_amount) || 0)), 0)]]))).minimums,
   })
   return people.find((p) => p.userId === userId) ?? null
 }
@@ -71,11 +77,12 @@ async function myWeekLines(admin: SupabaseClient, orgId: string, userId: string,
 /** The org-wide plan is the expensive part and identical for every rep: share it for a short while. */
 const PLAN_TTL_MS = 30_000
 const planCache = new Map<string, { at: number; plan: Promise<Awaited<ReturnType<typeof planPayrollPeriod>>> }>()
-function cachedPlan(admin: SupabaseClient, orgId: string, periodId: string) {
-  const key = `${orgId}:${periodId}`
+function cachedPlan(admin: SupabaseClient, orgId: string, period: PayWeekPeriod, now: Date) {
+  const key = `${orgId}:${period.id}`
   const hit = planCache.get(key)
   if (hit && Date.now() - hit.at < PLAN_TTL_MS) return hit.plan
-  const plan = planPayrollPeriod(admin, { orgId, periodId, includeWaiting: true })
+  // Same inputs as the Pay screen (time zone + late-money window), so a rep's number is the office's number.
+  const plan = planPayrollPeriod(admin, { orgId, periodId: period.id, includeWaiting: true, timeZone: period.clock.timeZone, lateFundingUntil: period.lateFundingUntil, now })
   planCache.set(key, { at: Date.now(), plan })
   plan.catch(() => planCache.delete(key))
   return plan
@@ -92,8 +99,10 @@ export async function canSeeMyPay(admin: SupabaseClient, orgId: string, userId: 
 }
 
 export async function loadMyPay(admin: SupabaseClient, orgId: string, userId: string, now: Date): Promise<MyPay> {
-  const { data: me } = await admin.from('users').select('full_name').eq('id', userId).eq('org_id', orgId).maybeSingle()
+  const { data: me } = await admin.from('users').select('full_name, active').eq('id', userId).eq('org_id', orgId).maybeSingle()
+  const active = me?.active !== false
   const name = (me?.full_name as string) || 'You'
+  const schedule = await loadPayWeekSchedule(admin, orgId)
   const period = await findCurrentPayWeekPeriod(admin, orgId, now)
   if (!period) {
     // No week exists yet (nobody has opened Payroll): nothing is on a check.
@@ -104,7 +113,7 @@ export async function loadMyPay(admin: SupabaseClient, orgId: string, userId: st
   let rows: Parameters<typeof composeWeek>[0]['rows'] = []
   const coming: MyPayJob[] = []
   if (draft) {
-    const plan = await cachedPlan(admin, orgId, period.id)
+    const plan = await cachedPlan(admin, orgId, period, now)
     rows = plan.jobs.flatMap((j) => j.rows).filter((r) => r.user_id === userId)
     const waitingIds = plan.waiting.filter((w) => w.rows.some((r) => r.user_id === userId)).map((w) => w.job.id)
     const info = new Map<string, { job_number: string; address_text: string | null }>()
@@ -130,17 +139,17 @@ export async function loadMyPay(admin: SupabaseClient, orgId: string, userId: st
     const { data } = await admin.from('payroll_payout_lines').select('job_id, user_id, participant_role, gross_amount, net_amount, comp_plan_snapshot').eq('org_id', orgId).eq('payroll_period_id', period.id).eq('user_id', userId)
     rows = (data ?? []) as typeof rows
   }
-  const person = await myWeekLines(admin, orgId, userId, period, rows, name)
-  const thisWeek = (person?.lines ?? []).map((l, i) => line(l, draft ? `On Friday's check (${period.payDate}).` : `Approved. Paid ${period.payDate}.`, i))
+  const person = await myWeekLines(admin, orgId, userId, period, rows, name, active)
+  const thisWeek = (person?.lines ?? []).map((l, i) => line(l, draft ? `On the ${payWeekdayWord(period.payDate)} check (${period.payDate}).` : `Approved. Paid ${period.payDate}.`, i))
   const amount = roundMoney(Math.max(0, person?.raw ?? 0))
 
   // Paid history: the last approved weeks (never the open one)
   const { data: past } = await admin.from('payroll_periods').select('id, cutoff_at, scheduled_pay_date, status, period_label, units_frozen_at').eq('org_id', orgId).in('status', ['locked', 'paid']).neq('id', period.id).order('cutoff_at', { ascending: false }).limit(6)
   const paid: MyPay['paid'] = []
   for (const p of past ?? []) {
-    const pp: PayWeekPeriod = { id: p.id as string, label: (p.period_label as string) ?? '', cutoffAt: p.cutoff_at as string, payDate: p.scheduled_pay_date as string, status: p.status as string, unitsFrozen: Boolean(p.units_frozen_at), weekStart: '', weekEnding: '' }
+    const pp: PayWeekPeriod = await placePeriod(admin, orgId, p as never, schedule)
     const { data } = await admin.from('payroll_payout_lines').select('job_id, user_id, participant_role, gross_amount, net_amount, comp_plan_snapshot').eq('org_id', orgId).eq('payroll_period_id', pp.id).eq('user_id', userId)
-    const pers = await myWeekLines(admin, orgId, userId, pp, (data ?? []) as typeof rows, name)
+    const pers = await myWeekLines(admin, orgId, userId, pp, (data ?? []) as typeof rows, name, active)
     if (!pers || (pers.lines.length === 0 && pers.raw === 0)) continue
     paid.push({ periodId: pp.id, payDate: pp.payDate, total: pers.total, lines: pers.lines.map((l, i) => line(l, `Paid ${pp.payDate}.`, i)) })
   }

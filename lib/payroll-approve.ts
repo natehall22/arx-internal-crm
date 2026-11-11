@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { loadOrgForLinks } from '@/lib/company-links'
 
 import { lockPayrollPeriod } from '@/lib/payroll-period-lock'
+import { WEEKDAY_NAMES, weekdayOfYmd } from '@/lib/payroll-week-schedule'
 import { loadPayWeek, resolvePayWeekPeriod, type PayWeek } from '@/lib/payroll-pay-week'
 import { buildPayrollStatement } from '@/lib/payroll-statement'
 import { sendPayrollStatementEmail } from '@/lib/payroll-statement-email'
@@ -30,9 +31,9 @@ export async function approvePayWeek(
   // (which also refuses when its total is not the one the admin was shown).
   const period = await resolvePayWeekPeriod(admin, orgId, now, periodId)
   if (period.status !== 'open') return { ok: false, status: 409, body: { error: 'This week is already approved' } }
-  // A week can only be approved once it has ended (its Wednesday cutoff has passed): never the upcoming week.
+  // A week can only be approved once it has ended (its cutoff has passed): never the upcoming week.
   if (new Date(period.cutoffAt).getTime() > now.getTime()) {
-    return { ok: false, status: 409, body: { error: "This week hasn't ended yet. Approve it after Wednesday night.", code: 'not_ended' } }
+    return { ok: false, status: 409, body: { error: `This week hasn't ended yet. Approve it after ${WEEKDAY_NAMES[weekdayOfYmd(period.weekEnding)]} night.`, code: 'not_ended' } }
   }
 
   const lock = await lockPayrollPeriod(admin, { orgId, periodId, actorUserId: input.actorUserId, status: 'open', expectedTotal: input.expectedTotal, now })

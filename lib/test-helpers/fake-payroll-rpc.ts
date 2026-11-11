@@ -1,9 +1,12 @@
 /**
- * In-memory mirror of the two payroll RPCs (migration 202610280010_atomic_approve_and_field_role_deny.sql + 202610210002). The real
+ * In-memory mirror of the payroll RPCs (migrations 202610280010_atomic_approve_and_field_role_deny.sql, 202610210002 and
+ * 202611120010_payroll_pay_week_minimums_job_split.sql). The person total is NOT re-implemented here: it is
+ * `personTotalsFromTables` from lib/payroll-week-total.ts, the one definition the SQL is parity-tested against. The real
  * SQL is exercised against Postgres in the dress rehearsal; these keep the TypeScript tests honest about what the
  * database does on success and on every refusal (a thrown error rolls the whole fake database back, see fake-db.ts).
  */
-import { addEasternDays, cutoffYmdEt, weeklyPayrollPayDateForCutoff } from '@/lib/weekly-payroll/cutoff'
+import { personTotalsFromTables } from '@/lib/payroll-week-total'
+import { addWeeks, payDateFor, readPayWeekSchedule, weekLabel } from '@/lib/payroll-week-schedule'
 
 type Row = Record<string, unknown>
 type Tables = Record<string, Row[]>
@@ -11,15 +14,7 @@ const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100
 const num = (v: unknown) => Number(v) || 0
 
 export function personTotals(tables: Tables, orgId: string, periodId: string): Map<string, number> {
-  const by = new Map<string, number>()
-  const add = (u: unknown, n: number) => by.set(u as string, r2((by.get(u as string) ?? 0) + r2(n)))
-  const mine = (t: string) => (tables[t] ?? []).filter((r) => r.org_id === orgId && r.payroll_period_id === periodId)
-  for (const l of mine('payroll_payout_lines')) add(l.user_id, num(l.net_amount))
-  for (const h of mine('payroll_rep_hours')) if (num(h.hourly_earnings) > 0) add(h.user_id, num(h.hourly_earnings))
-  for (const u of mine('payroll_unit_earnings')) if (num(u.amount) > 0) add(u.user_id, num(u.amount))
-  for (const b of mine('payroll_bonus_lines')) if (b.status === 'approved' || b.status === 'paid') add(b.user_id, num(b.amount))
-  for (const a of mine('payroll_adjustments')) if (a.status !== 'void') add(a.user_id, num(a.amount))
-  return by
+  return personTotalsFromTables(tables, orgId, periodId)
 }
 
 export const fakePayrollRpcs: Record<string, (args: Record<string, unknown>, tables: Tables) => unknown> = {
@@ -33,7 +28,7 @@ export const fakePayrollRpcs: Record<string, (args: Record<string, unknown>, tab
   payroll_commit_week: (args, tables) => {
     const orgId = args.p_org_id as string
     const periodId = args.p_period_id as string
-    const plan = args.p_plan as { jobs?: Array<{ job_id: string; sale_amount: number | null; commission_comp_base: number | null; snapshot: Row; lines: Row[]; state: Row }>; units?: Array<{ user_id: string; amount: number; detail: unknown }> }
+    const plan = args.p_plan as { jobs?: Array<{ job_id: string; sale_amount: number | null; commission_comp_base: number | null; snapshot: Row; lines: Row[]; state: Row }>; units?: Array<{ user_id: string; amount: number; detail: unknown }>; minimums?: Array<{ user_id: string; amount: number; detail: unknown }> }
     const period = (tables.payroll_periods ?? []).find((p) => p.id === periodId && p.org_id === orgId)
     if (!period) throw new Error('payroll_commit:not_found')
     if (period.status !== 'open' || period.lock_claim_token !== args.p_token) throw new Error('payroll_commit:claim_lost')
@@ -72,6 +67,14 @@ export const fakePayrollRpcs: Record<string, (args: Record<string, unknown>, tab
     }
     tables.payroll_unit_earnings = tables.payroll_unit_earnings.filter((u) => !(u.org_id === orgId && u.payroll_period_id === periodId))
     for (const u of plan.units ?? []) if (u.amount > 0) tables.payroll_unit_earnings.push({ org_id: orgId, payroll_period_id: periodId, user_id: u.user_id, amount: r2(u.amount), detail: u.detail })
+    tables.payroll_week_minimums ??= []
+    for (const m of tables.payroll_week_minimums) if (m.org_id === orgId && m.payroll_period_id === periodId) Object.assign(m, { amount: 0, detail: null })
+    for (const m of plan.minimums ?? []) {
+      if (!(m.amount > 0)) continue
+      const row = tables.payroll_week_minimums.find((x) => x.payroll_period_id === periodId && x.user_id === m.user_id)
+      if (row) Object.assign(row, { amount: r2(m.amount), detail: m.detail })
+      else tables.payroll_week_minimums.push({ id: id('min'), org_id: orgId, payroll_period_id: periodId, user_id: m.user_id, amount: r2(m.amount), detail: m.detail, met: null })
+    }
 
     const totals = personTotals(tables, orgId, periodId)
     const total = r2(Array.from(totals.values()).reduce((s, v) => s + Math.max(0, v), 0))
@@ -79,14 +82,16 @@ export const fakePayrollRpcs: Record<string, (args: Record<string, unknown>, tab
     const negatives = Array.from(totals.entries()).filter(([, v]) => v < 0)
     let carried = 0
     if (negatives.length) {
-      // find-or-create the next OPEN week in the same transaction (Eastern calendar weeks), verify it is not mid-approval
+      // find-or-create the next OPEN week in the same transaction (the company's calendar weeks, arx_private.payroll_org_week), verify it is not mid-approval
+      const org = (tables.orgs ?? []).find((o) => o.id === orgId)
+      const sched = readPayWeekSchedule(org?.settings, (org?.timezone as string) || null)
       let target: Row | null = null
       for (let k = 1; k <= 8 && !target; k++) {
-        const tc = addEasternDays(String(period.cutoff_at), 7 * k)
+        const tc = addWeeks(String(period.cutoff_at), k, sched)
         const near = () => (tables.payroll_periods ?? []).find((p) => p.org_id === orgId && p.status !== 'cancelled' && Math.abs(new Date(String(p.cutoff_at)).getTime() - tc.getTime()) <= 36 * 3_600_000)
         let cand = near()
         if (!cand) {
-          tables.payroll_periods.push({ id: id('wk'), org_id: orgId, period_label: `Week ending ${cutoffYmdEt(tc)}`, cutoff_at: tc.toISOString(), lock_at: tc.toISOString(), scheduled_pay_date: weeklyPayrollPayDateForCutoff(tc), status: 'open', created_at: new Date().toISOString() })
+          tables.payroll_periods.push({ id: id('wk'), org_id: orgId, period_label: weekLabel(tc, sched), cutoff_at: tc.toISOString(), lock_at: tc.toISOString(), scheduled_pay_date: payDateFor(tc, sched), status: 'open', created_at: new Date().toISOString() })
           cand = near()
         }
         if (cand && cand.status === 'open') {

@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requirePayrollAdminApi } from '@/lib/payroll-admin-api'
 import { saveHoursEntries } from '@/lib/payroll-hours'
 import { isUuid } from '@/lib/payroll-pay-week'
+import { loadPayWeekSchedule } from '@/lib/payroll-week-schedule-server'
 
 export const dynamic = 'force-dynamic'
 
@@ -29,6 +30,7 @@ export async function POST(request: NextRequest) {
     orgId: a.profile.org_id,
     periodId,
     cutoffAt: (period.cutoff_at as string) ?? null,
+    clock: { timeZone: (await loadPayWeekSchedule(a.admin, a.profile.org_id)).timeZone },
     actorUserId: a.profile.id,
     entries: [{ user_id: userId, regular_hours: reg, overtime_hours: ot, reason: 'Pay this week' }],
   })

@@ -17,7 +17,7 @@ export function commitSummaryMessage(s: CommitSummary): string {
   return `Period locked with ${s.lines} payout line(s).`
 }
 
-/** What `payroll_commit_week` (migration 202610280010) writes, built from the one plan the screen showed. Pure. */
+/** What `payroll_commit_week` (migration 202611120010) writes, built from the one plan the screen showed. Pure. */
 export function buildCommitPlan(full: PayWeekFull) {
   const jobs = (full.plan?.jobs ?? []).map((j) => ({
     job_id: j.job.id,
@@ -29,7 +29,9 @@ export function buildCommitPlan(full: PayWeekFull) {
     state: j.stateRow,
   }))
   const units = Array.from(full.units.entries()).map(([user_id, v]) => ({ user_id, amount: roundMoney(v.total), detail: v.detail }))
-  return { jobs, units }
+  // Weekly-minimum top-ups (migration 202611120010 stores them in payroll_week_minimums and counts them in the total).
+  const minimums = full.minimums.map((m) => ({ user_id: m.userId, amount: roundMoney(m.amount), detail: m.detail }))
+  return { jobs, units, minimums }
 }
 
 /** Turns a Postgres exception raised by payroll_commit_week into the response the admin sees. Pure. */

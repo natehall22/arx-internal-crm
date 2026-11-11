@@ -1,18 +1,20 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
-import { addEasternDays, weeklyPayrollPayDateForCutoff, ymdEt } from '@/lib/weekly-payroll/cutoff'
+import { addWeeks, payDateFor, weekLabel } from '@/lib/payroll-week-schedule'
+import { loadPayWeekSchedule } from '@/lib/payroll-week-schedule-server'
 
 /**
  * The OPEN weekly period one week after `cutoffAt`, created if it does not exist yet (nothing to set up). An existing
  * period whose cutoff is within 36 hours counts (legacy periods have hand-typed cutoffs). The one place "next week" is made.
  */
 export async function ensureNextOpenPeriod(admin: SupabaseClient, orgId: string, cutoffAt: string): Promise<{ id: string }> {
+  const s = await loadPayWeekSchedule(admin, orgId)
   // Walk forward week by week from the viewed week: the first week that is OPEN takes the line; a week that exists but
   // is already approved is skipped (a fix for an old week lands on the next week that can still change); a week that
   // does not exist yet is created.
   for (let k = 1; k <= 8; k++) {
-    // Eastern calendar weeks, rebuilt with the timezone database (a fixed 7 x 24h is an hour off across a clock change).
-    const target = addEasternDays(cutoffAt, k * 7)
+    // Calendar weeks in the company's zone, rebuilt with the timezone database (a fixed 7 x 24h is an hour off across a clock change).
+    const target = addWeeks(cutoffAt, k, s)
     const from = new Date(target.getTime() - 36 * 3_600_000).toISOString()
     const to = new Date(target.getTime() + 36 * 3_600_000).toISOString()
     const find = async () => {
@@ -24,10 +26,10 @@ export async function ensureNextOpenPeriod(admin: SupabaseClient, orgId: string,
     if (!row) {
       const { error } = await admin.from('payroll_periods').insert({
         org_id: orgId,
-        period_label: `Week ending ${ymdEt(target)}`,
+        period_label: weekLabel(target, s),
         cutoff_at: target.toISOString(),
         lock_at: target.toISOString(),
-        scheduled_pay_date: weeklyPayrollPayDateForCutoff(target),
+        scheduled_pay_date: payDateFor(target, s),
         status: 'open',
       })
       // Two people at once: the loser hits the unique label — just read the winner's row.
