@@ -4,7 +4,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
  * THE per-key writer for `orgs.settings` (Known Redundancy #25). One SQL function, `merge_org_settings` (migration
  * 202611060010), changes only the given keys at one place in settings — the top level (`path: []`) or one nested
  * object (`path: ['brand']`) — inside a single UPDATE, so a concurrent save of another key is never lost.
- * Users: job catch-up (top level), pricing (`/api/admin/pricing` org_settings, top level), brand (`lib/org-brand.ts` saveBrandSettings, path ['brand']), feature switches (`/api/admin/settings` type 'features', path ['features']), industry profile (lib/org-profile-server.ts + company seed, path ['profile']), sales tax (`lib/sales-tax-server.ts` saveSalesTaxSettings, path ['salesTax']), hourly billing rules (`/api/admin/hourly-billing`, path ['hourlyBilling']), online payments (`lib/online-payments/accounts.ts` saveOnlinePaymentSettings, path ['onlinePayments']), customer messages (`/api/admin/customer-messages`, path ['customerMessages']), (the pay week is NOT written here: SQL payroll_set_pay_week via savePayWeekSchedule, so the setting and the closing of old weeks are one transaction).
+ * Users: job catch-up (top level), pricing (`/api/admin/pricing` org_settings, top level), brand (`lib/org-brand.ts` saveBrandSettings, path ['brand']), feature switches (`/api/admin/settings` type 'features', path ['features']), industry profile (lib/org-profile-server.ts + company seed, path ['profile']), sales tax (`lib/sales-tax-server.ts` saveSalesTaxSettings, path ['salesTax']), hourly billing rules (`/api/admin/hourly-billing`, path ['hourlyBilling']), online payments (`lib/online-payments/accounts.ts` saveOnlinePaymentSettings, path ['onlinePayments']), customer messages (`/api/admin/customer-messages`, path ['customerMessages']), quote approval (`/api/admin/quote-approval`, path ['quoteApproval']), (the pay week is NOT written here: SQL payroll_set_pay_week via savePayWeekSchedule, so the setting and the closing of old weeks are one transaction).
  * Until the migration is applied, ONLY a missing function (PGRST202 / 42883) falls back to read → merge → write of
  * the same keys; any other error (permission denied, no such org) is returned.
  */
@@ -63,6 +63,8 @@ export async function mergeOrgSettings(
   if (path.length === 0 && ('paySheet' in set || remove.includes('paySheet'))) return { error: 'paySheet is saved at path [paySheet]' }
   // QuickBooks choices (account mapping, invoice mode, start date — later PRs) are only ever written at path ['quickbooks'] (owners).
   if (path.length === 0 && ('quickbooks' in set || remove.includes('quickbooks'))) return { error: 'quickbooks is saved at path [quickbooks]' }
+  // Quote approval (deposit default, link life, terms) is only ever written at path ['quoteApproval'] (owners, /api/admin/quote-approval).
+  if (path.length === 0 && ('quoteApproval' in set || remove.includes('quoteApproval'))) return { error: 'quoteApproval is saved at path [quoteApproval]' }
   if (Object.keys(set).length === 0 && remove.length === 0) return { error: null }
 
   const { error } = await client.rpc('merge_org_settings', { p_org_id: orgId, p_path: path, p_set: set, p_remove: remove })

@@ -110,6 +110,9 @@ import PortalHomeView from '@/components/portal/PortalHomeView'
 import PortalSignIn from '@/components/portal/PortalSignIn'
 import OnlinePaymentsCard from '@/components/admin/OnlinePaymentsCard'
 import QuickBooksCard from '@/components/admin/QuickBooksCard'
+import QuoteClient from '@/components/quotes/QuoteClient'
+import QuoteLinkCard from '@/components/quotes/QuoteLinkCard'
+import type { QuoteView } from '@/lib/quotes/load'
 import InvoiceOnlinePayments from '@/components/billing/InvoiceOnlinePayments'
 import type { PayPageView } from '@/lib/online-payments/public'
 import CrewDayList, { type CrewDayVisit } from '@/app/crew/day/[token]/CrewDayList'
@@ -194,6 +197,37 @@ const HARNESS_PAY_VIEW: PayPageView = {
   canSaveCard: true,
   consentText: 'I authorize Precision Maintenance to charge this card for my service invoices when they are sent, until I ask them to stop.',
   cardOnFile: null,
+}
+
+/** Quote approval customer page (components/quotes/QuoteClient.tsx): a lawn quote with two options, one ticked to start. */
+const HARNESS_QUOTE_VIEW: QuoteView = {
+  state: 'open',
+  company: { name: 'Precision Maintenance', phone: '555-201-3344', email: 'office@precision.test', logoHref: null },
+  customerName: 'Pat Doe',
+  address: '12 Maple Ct',
+  title: 'Spring lawn and beds',
+  number: 'P-00042',
+  scope: 'Weekly mowing, edging and bed cleanup.',
+  required: [{ id: 'r1', name: 'Mowing, edging and blowing (weekly)', description: 'April to October', cents: 120000 }],
+  hiddenRequiredCents: 0,
+  options: [
+    { id: 'o1', name: 'Mulch refresh (6 yards)', description: 'Hardwood mulch, spread by hand', cents: 48000, defaultOn: true },
+    { id: 'o2', name: 'Driveway pressure wash', description: '', cents: 22000, defaultOn: false },
+  ],
+  lines: [
+    { id: 'r1', line_total: 1200, unit_price: 1200, unit: 'each', price_type: null, taxable: null },
+    { id: 'o1', line_total: 480, unit_price: 480, unit: 'each', price_type: null, taxable: null, is_optional: true, optional_default_on: true },
+    { id: 'o2', line_total: 220, unit_price: 220, unit: 'each', price_type: null, taxable: null, is_optional: true, optional_default_on: false },
+  ],
+  tax: { kind: 'legacy', percent: 7 },
+  discountPercent: 0,
+  discountAmount: 0,
+  depositMode: 'percent',
+  depositPercent: 25,
+  depositFixedCents: 0,
+  terms: 'Work is scheduled within two weeks of approval. Weather may move a visit.',
+  fingerprint: 'harness0',
+  approval: null,
 }
 
 export default function Harness({ params }: { params: { screen: string } }) {
@@ -309,7 +343,7 @@ export default function Harness({ params }: { params: { screen: string } }) {
     case 'org-features':
       return (
         <div className="mx-auto max-w-2xl p-4">
-          <OrgFeaturesCard initial={{ canvassing: false, insurance: false, roofMeasure: true, incentives: false, stormAlerts: false, squaresPricing: true, servicePlans: true, timeTracking: false, hourlyBilling: false, projectTools: false, onlinePayments: false, quickbooks: false, customerMessages: false, aiConnector: false, aiConnectorWrites: false, customerPortal: false }} />
+          <OrgFeaturesCard initial={{ canvassing: false, insurance: false, roofMeasure: true, incentives: false, stormAlerts: false, squaresPricing: true, servicePlans: true, timeTracking: false, hourlyBilling: false, projectTools: false, onlinePayments: false, quickbooks: false, customerMessages: false, aiConnector: false, aiConnectorWrites: false, customerPortal: false, quoteApproval: false }} />
         </div>
       )
     case 'org-profile':
@@ -545,6 +579,14 @@ export default function Harness({ params }: { params: { screen: string } }) {
       return <div className="mx-auto max-w-2xl p-4"><QuickBooksCard /></div>
     case 'online-payments-settings':
       return <div className="mx-auto max-w-2xl p-4"><OnlinePaymentsCard /></div>
+    case 'quote-page':
+      return <QuoteClient token="harness-quote-token-harness-quote-token-ab" view={HARNESS_QUOTE_VIEW} />
+    case 'quote-page-approved':
+      return <QuoteClient token="harness-quote-token-harness-quote-token-ab" view={{ ...HARNESS_QUOTE_VIEW, state: 'approved', approval: { typedName: 'Pat Doe', approvedAt: '2026-11-11T15:00:00.000Z', totalCents: 180000, depositCents: 45000, taxCents: 11800, chosenNames: ['Mulch refresh (6 yards)'], depositState: 'due', canPayOnline: true, copyHref: '/api/files/signed/contract/harness' } }} />
+    case 'quote-send-card':
+      return <div className="mx-auto max-w-2xl p-4"><QuoteLinkCard proposalId="harness-proposal" /></div>
+    case 'quote-settings':
+      return <div className="mx-auto max-w-2xl p-4"><QuoteApprovalCard /></div>
     case 'invoice-online':
       return (
         <div className="mx-auto max-w-2xl p-4">

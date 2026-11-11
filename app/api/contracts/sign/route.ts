@@ -200,11 +200,16 @@ export async function POST(request: NextRequest) {
     const isContingency = rawAgreementType === 'contingency'
     const isRepair = rawAgreementType === 'repair'
     const isSaleAgreement = rawAgreementType === 'installation' || rawAgreementType === 'repair'
-    const agreementLabel = isContingency
-      ? 'Insurance Contingency Agreement'
-      : isRepair
-        ? 'Repair Agreement'
-        : 'Installation Agreement'
+    // A contract made from an online quote approval (lib/quotes/approve.ts): same signing pipeline (deal won, job, commission
+    // base), but no roofing-terms PDF and no "Installation Agreement" email — the quote has its own confirmation.
+    const isQuoteApproval = !!contract.quote_approval_id
+    const agreementLabel = isQuoteApproval
+      ? 'Quote approval'
+      : isContingency
+        ? 'Insurance Contingency Agreement'
+        : isRepair
+          ? 'Repair Agreement'
+          : 'Installation Agreement'
 
     const clientIp = request.headers.get('x-forwarded-for')?.split(',')[0] || 
                      request.headers.get('x-real-ip') || 
@@ -360,7 +365,7 @@ export async function POST(request: NextRequest) {
     let pdfGenerationError: string | null = null
 
     // Try to generate PDF
-    try {
+    if (!isQuoteApproval) try {
       console.log('[Contract Sign] Starting PDF generation for contract:', contract.id)
       
       // Dynamic import to avoid issues with @react-pdf/renderer in edge runtime
@@ -948,7 +953,7 @@ export async function POST(request: NextRequest) {
 
     // Always try to send confirmation email if customer has email
     let emailSent = false
-    if (contract.customer_email) {
+    if (contract.customer_email && !isQuoteApproval) {
       console.log('[Contract Sign] Sending confirmation email to:', contract.customer_email)
       
       const email = buildContractSignedEmail({

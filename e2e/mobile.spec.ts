@@ -504,6 +504,17 @@ const SCREENS: Screen[] = [
   } },
   { name: 'quickbooks-settings', path: '/dev-harness/quickbooks-settings', ready: 'text=Needs to be reconnected', mock: async (p) => {
     await p.route('**/api/admin/quickbooks', (route) => route.fulfill(json({ featureOn: true, configured: true, status: 'needs_reconnect', companyName: 'Sample Lawn Care LLC', environment: 'production', reason: 'QuickBooks stopped accepting this connection. Please reconnect.', expiresSoon: false })))
+    } },
+  { name: 'quote-page', path: '/dev-harness/quote-page', ready: 'text=Optional extras — tick what you want',
+    states: [{ name: 'option-ticked', run: async (p) => { await p.getByText('Driveway pressure wash').click(); await p.waitForTimeout(200) } }] },
+  { name: 'quote-page-approved', path: '/dev-harness/quote-page-approved', ready: 'text=Approved — thank you!' },
+  { name: 'quote-send-card', path: '/dev-harness/quote-send-card', ready: 'text=Customer approval link', mock: async (p) => {
+    await p.route('**/api/proposals/harness-proposal/quote-link', (route) => route.fulfill(json({ opportunityId: 'opp-harness', customerEmail: 'pat@example.test', status: 'draft', optionalCount: 2, totalCents: 180000, deposit: { mode: 'percent', percent: 25, fixedCents: 0, overridden: false, cents: 45000 }, company: { depositMode: 'percent', depositPercent: 25, depositFixedCents: 0 }, problems: [], link: null, approval: null })))
+    await p.route('**/api/opportunities/opp-harness/sale-credit', (route) => route.fulfill(json({ closerUserId: 'u1', setterUserId: '', isSelfGenerated: false, locked: false, canChange: true })))
+    await p.route('**/api/users', (route) => route.fulfill(json({ users: [{ id: 'u1', full_name: 'Sam Closer' }, { id: 'u2', full_name: 'Riley Setter' }] })))
+  } },
+  { name: 'quote-settings', path: '/dev-harness/quote-settings', ready: 'text=Deposit after approval', mock: async (p) => {
+    await p.route('**/api/admin/quote-approval', (route) => route.fulfill(json({ settings: { depositMode: 'percent', depositPercent: 25, depositFixedCents: 0, linkDays: 30, terms: 'Work is scheduled within two weeks.' } })))
   } },
   { name: 'invoice-online', path: '/dev-harness/invoice-online', ready: 'text=Copy pay link' },
   { name: 'tax-exemption', path: '/dev-harness/tax-exemption', ready: 'text=Tax exempt (no sales tax' },

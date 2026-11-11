@@ -302,6 +302,16 @@ const FIXTURES: Record<string, Variant[]> = {
   'GET /api/invoices/[invoiceId]': [() => ({}), withSeed(() => ({}), noJobInvoices)],
   'POST /api/ops/billing': [(id, ref) => ({ body: { keys: [`v:${ref}`], unitKeys: [`v:${ref}`], visitIds: [ref], grouping: 'visit', includeCurrentMonth: true } })],
   // Time clock: taps name people + a stop/job by id (A's in the attack); office edits; crew setup.
+  // Quote approval (default-OFF module; on for both companies in the seed). Public token routes + the staff link route.
+  'POST /api/q/[token]/approve': [(id, ref) => ({ body: { typedName: 'Bravo Customer', selectedIds: [ref], fingerprint: 'x', agreed: true } }), () => ({ body: { typedName: 'Bravo Customer', selectedIds: [], fingerprint: 'x', agreed: true } })],
+  'POST /api/q/[token]/deposit': [() => ({ body: {} })],
+  'POST /api/proposals/[id]/quote-link': [
+    () => ({ body: { action: 'send', email: 'quote@bravo.test' } }),
+    () => ({ body: { action: 'link' } }),
+    () => ({ body: { action: 'revoke' } }),
+    () => ({ body: { action: 'deposit', mode: 'fixed', value: 10 } }),
+    () => ({ body: { action: 'finish' } }),
+  ],
   'POST /api/crew/day/[token]/clock': CLOCK_TAPS,
   'POST /api/time/clock': CLOCK_TAPS,
   'POST /api/admin/time': [(id, ref) => ({ body: { userId: ref, startedAt: `${TODAY_YMD}T12:00:00.000Z`, endedAt: `${TODAY_YMD}T16:00:00.000Z`, kind: 'work', workOrderId: ref, reason: 'Bravo forgot' } })],

@@ -741,6 +741,13 @@ export async function saveJobHourlySetup(admin: SupabaseClient, orgId: string, j
   if (current && currentMode !== patch.mode && (await jobPaidOnApprovedWeek(admin, orgId, jobId))) {
     return { ok: false, status: 409, error: 'This job’s commission was already paid, so how it is billed can’t change now' }
   }
+  if (patch.mode === 'time_materials' && currentMode !== 'time_materials') {
+    // A quote's deposit invoice (or any deposit) is a payment on account of the quoted price. Billing the hours on top of it
+    // would owe the deposit twice (an issued invoice counts in what a by-the-hour job owes). Void or credit it first.
+    // org-scope-ok: the job was read in orgId just above; job_invoices.org_id is set by trigger from the job
+    const { data: dep } = await admin.from('job_invoices').select('id').eq('job_id', jobId).eq('invoice_kind', 'deposit').neq('status', 'void').limit(1)
+    if ((dep ?? []).length > 0) return { ok: false, status: 409, error: 'This job has a deposit invoice. Void or credit the deposit first, then bill by the hour.' }
+  }
   if (patch.mode === 'fixed') {
     const live = await liveBilledHoursInvoices(admin, orgId, jobId)
     if (live.length) return { ok: false, status: 409, error: `Hours are billed on ${live.join(', ')} — void ${live.length === 1 ? 'it' : 'them'} first, then switch back to as sold` }

@@ -97,6 +97,11 @@ export const ORG_FEATURE_DEFS = {
     description: 'Customers sign in with a link emailed to them and see their own visits, invoices, quotes, shared documents and plan, pay, and message you. Nothing internal is ever shown.',
     defaultOn: false,
   },
+  quoteApproval: {
+    label: 'Online quote approval',
+    description: 'Send customers a quote link: they tick the optional items, watch the total and tax update, approve with their name, and pay a deposit by card. An approved quote becomes the signed sale.',
+    defaultOn: false,
+  },
 } as const satisfies Record<string, { label: string; description: string; defaultOn?: boolean }>
 
 export type OrgFeature = keyof typeof ORG_FEATURE_DEFS

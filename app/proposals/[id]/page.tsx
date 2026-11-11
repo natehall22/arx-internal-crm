@@ -8,6 +8,9 @@ import { pdf } from '@react-pdf/renderer'
 import ProposalPDFv2 from '@/components/ProposalPDFv2'
 import SatelliteImageEditor from '@/components/SatelliteImageEditor'
 import { userCanDeleteProposal } from '@/lib/proposal-delete-access'
+import { isCountedLine } from '@/lib/quotes/pricing'
+import QuoteLinkCard from '@/components/quotes/QuoteLinkCard'
+import { useOrgFeatures } from '@/hooks/useOrgFeatures'
 import CreateContractButton from '@/components/contracts/CreateContractButton'
 import { getProposalCustomerPricing, formatSelectedFinancingTerms } from '@/lib/proposal-pricing-visibility'
 import { resolveContractTotalSquares } from '@/lib/sold-roof-squares'
@@ -91,6 +94,7 @@ interface LineItem {
 export default function ProposalDetailPage() {
   const router = useRouter()
   const params = useParams()
+  const orgFeatures = useOrgFeatures()
   const proposalId = params.id as string
   
   const [loading, setLoading] = useState(true)
@@ -305,7 +309,8 @@ export default function ProposalDetailPage() {
           scope_of_work: proposal.scope_of_work,
           created_at: proposal.created_at,
         },
-        lineItems,
+        // An option the customer has not been sold (unticked on a quote) never prints; roofing has none, so no change.
+        lineItems: lineItems.filter((li) => isCountedLine(li as { is_optional?: boolean | null; optional_default_on?: boolean | null })),
         measurement,
         company: companyForPdf,
         rep,
@@ -1116,6 +1121,8 @@ export default function ProposalDetailPage() {
                 </div>
               )}
             </div>
+
+            {orgFeatures.quoteApproval && proposal.status !== 'declined' ? <QuoteLinkCard proposalId={proposal.id} /> : null}
 
             {/* Create Contract / Decline */}
             {proposal.status !== 'declined' && (
