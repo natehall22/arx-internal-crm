@@ -66,7 +66,7 @@ export default function CustomFieldsClient() {
           </p>
         ) : null}
         <Tabs defaultValue="customer">
-          <TabsList aria-label="Record type">
+          <TabsList aria-label="Fields for">
             {CUSTOM_FIELD_ENTITIES.map((e) => (
               <TabsTrigger key={e} value={e}>
                 {CUSTOM_FIELD_ENTITY_LABELS[e]}
@@ -169,7 +169,7 @@ function AddFieldForm({ entity, save }: { entity: CustomFieldEntity; save: (body
       <p className="text-ui-base font-semibold text-ink">Add a field</p>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_12rem]">
         <Field label="Name">{(p) => <Input {...p} value={label} maxLength={CUSTOM_FIELD_LIMITS.label} placeholder="Gate code, Mowing day…" onChange={(e) => setLabel(e.target.value)} className="text-base" />}</Field>
-        <Field label="Type">
+        <Field label="Field type">
           {(p) => (
             <Select {...p} value={type} onChange={(e) => setType(e.target.value as CustomFieldType)} className="text-base">
               {CUSTOM_FIELD_TYPES.map((t) => (
