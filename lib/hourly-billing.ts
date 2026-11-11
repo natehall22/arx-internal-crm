@@ -313,6 +313,8 @@ export type BillLine = {
   name: string
   /** People behind a labor / travel line (description only). */
   people: number | null
+  /** Description only: every person billed the same hours ('each'), billed once for the crew ('crew'), or neither. */
+  split?: 'each' | 'crew' | null
   /** Billable hours (2 decimals), or 1 for a trip charge. */
   hours: number
   rateCents: number | null
@@ -356,6 +358,7 @@ export function billableLines(d: DayClock, ctx: BillContext): BillLine[] {
   if (workers.length > 0) {
     const reasons: string[] = []
     let hours: number
+    let laborSplit: BillLine['split'] = 'crew'
     const clocked = workers.reduce((n, p) => n + p.workSeconds, 0)
     if (s.basis === 'crew') {
       const crewSeconds = unionSeconds('work')
@@ -364,10 +367,13 @@ export function billableLines(d: DayClock, ctx: BillContext): BillLine[] {
     } else {
       const each = workers.map((p) => roundBillableHours(p.workSeconds, s.rounding))
       hours = Math.round(each.reduce((n, h) => n + h, 0) * 100) / 100
+      laborSplit = each.every((h) => h === each[0]) ? 'each' : null
       reasons.push(`Clocked ${formatDuration(clocked)} (${workers.length} ${workers.length === 1 ? 'person' : 'people'})${roundNote ? `, each person ${roundNote}` : ''}`)
     }
-    hours = applyMinimum(hours, s.minimumHours, reasons)
-    if (hours > 0) lines.push({ kind: 'labor', itemId: ctx.labor?.itemId ?? null, name: laborName, people: workers.length, hours, rateCents: ctx.labor?.rateCents ?? null, taxable: ctx.labor?.taxable ?? false, reasons })
+    const raised = applyMinimum(hours, s.minimumHours, reasons)
+    if (raised !== hours && laborSplit === 'each') laborSplit = null
+    hours = raised
+    if (hours > 0) lines.push({ kind: 'labor', itemId: ctx.labor?.itemId ?? null, name: laborName, people: workers.length, split: laborSplit, hours, rateCents: ctx.labor?.rateCents ?? null, taxable: ctx.labor?.taxable ?? false, reasons })
   }
 
   // Drive time
@@ -375,15 +381,18 @@ export function billableLines(d: DayClock, ctx: BillContext): BillLine[] {
   if (s.travel === 'yes' && drivers.length > 0) {
     const reasons: string[] = []
     let hours: number
+    let split: BillLine['split'] = 'crew'
     if (s.basis === 'crew') {
       const sec = unionSeconds('travel')
       hours = roundBillableHours(sec, s.rounding)
       reasons.push(`Drive time ${formatDuration(sec)}${roundNote ? `, ${roundNote}` : ''}`)
     } else {
-      hours = Math.round(drivers.reduce((n, p) => n + roundBillableHours(p.travelSeconds, s.rounding), 0) * 100) / 100
+      const each = drivers.map((p) => roundBillableHours(p.travelSeconds, s.rounding))
+      hours = Math.round(each.reduce((n, h) => n + h, 0) * 100) / 100
+      split = each.every((h) => h === each[0]) ? 'each' : null
       reasons.push(`Drive time ${formatDuration(drivers.reduce((n, p) => n + p.travelSeconds, 0))} (${drivers.length} ${drivers.length === 1 ? 'person' : 'people'})${roundNote ? `, each person ${roundNote}` : ''}`)
     }
-    if (hours > 0) lines.push({ kind: 'travel', itemId: ctx.labor?.itemId ?? null, name: 'Travel time', people: drivers.length, hours, rateCents: ctx.labor?.rateCents ?? null, taxable: ctx.labor?.taxable ?? false, reasons })
+    if (hours > 0) lines.push({ kind: 'travel', itemId: ctx.labor?.itemId ?? null, name: 'Travel time', people: drivers.length, split, hours, rateCents: ctx.labor?.rateCents ?? null, taxable: ctx.labor?.taxable ?? false, reasons })
   }
 
   // Machines
@@ -474,7 +483,7 @@ export function linesFromEdit(edit: DayEdit, ctx: BillContext): { lines: BillLin
   for (const l of edit.lines) {
     if (l.kind === 'labor' || l.kind === 'travel') {
       if (!ctx.labor) return { error: 'Set the labor rate first' }
-      out.push({ kind: l.kind, itemId: ctx.labor.itemId, name: l.kind === 'labor' ? ctx.labor.name : 'Travel time', people: l.people ?? null, hours: l.hours, rateCents: ctx.labor.rateCents, taxable: ctx.labor.taxable, reasons: ['Set by the office'] })
+      out.push({ kind: l.kind, itemId: ctx.labor.itemId, name: l.kind === 'labor' ? ctx.labor.name : 'Travel time', people: l.people ?? null, split: ctx.settings.basis === 'crew' ? 'crew' : 'each', hours: l.hours, rateCents: ctx.labor.rateCents, taxable: ctx.labor.taxable, reasons: ['Set by the office'] })
     } else if (l.kind === 'equipment') {
       const rate = l.itemId ? ctx.equipment.get(l.itemId) : undefined
       if (!rate) return { error: 'That machine is not in your price book (priced per hour)' }
@@ -511,8 +520,9 @@ export type HoursInvoiceLine = {
 /** What the customer reads: "Grading labor — 3 people × 6.25 hrs", "Tractor", "Trip charge". The date is its own column. */
 export function lineDescription(l: BillLine): string {
   if ((l.kind === 'labor' || l.kind === 'travel') && l.people && l.people > 1) {
+    if (l.split === 'crew') return `${l.name} — crew of ${l.people}`
     const each = Math.round((l.hours / l.people) * 100) / 100
-    return Math.round(each * 100) * l.people === Math.round(l.hours * 100) ?`${l.name} — ${l.people} people × ${hoursLabel(each)} hrs` : `${l.name} — ${l.people} people`
+    return l.split === 'each' && Math.round(each * 100) * l.people === Math.round(l.hours * 100) ? `${l.name} — ${l.people} people × ${hoursLabel(each)} hrs` : `${l.name} — ${l.people} people`
   }
   return l.name
 }
@@ -552,6 +562,7 @@ export function linesFromSnapshot(raw: unknown): BillLine[] {
       itemId: typeof x.itemId === 'string' ? x.itemId : null,
       name: typeof x.name === 'string' ? x.name : 'Hours',
       people: typeof x.people === 'number' ? x.people : null,
+      split: x.split === 'each' || x.split === 'crew' ? x.split : null,
       hours: x.hours,
       rateCents: typeof x.rateCents === 'number' ? x.rateCents : null,
       taxable: x.taxable === true,

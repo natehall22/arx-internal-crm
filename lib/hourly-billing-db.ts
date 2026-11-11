@@ -515,7 +515,8 @@ export async function approveHours(admin: SupabaseClient, orgId: string, userId:
       const built = linesFromEdit(parsed.edit, ctx)
       if ('error' in built) return { ok: false, status: 400, error: built.error }
       lines = built.lines
-      const hasClock = !!clock && (clock.people.size > 0 || clock.machines.size > 0)
+      // A running clock is clock time too: typing over it is an edit (needs a reason), not "typed".
+      const hasClock = !!clock && (clock.people.size > 0 || clock.machines.size > 0 || clock.open)
       if (!hasClock) {
         source = 'typed'
         reason = parsed.edit.reason || null
@@ -528,8 +529,8 @@ export async function approveHours(admin: SupabaseClient, orgId: string, userId:
         reason = parsed.edit.reason
       }
     } else {
+      if (clock?.open) return { ok: false, status: 409, error: `Someone is still clocked in on ${d.date} — wait for them to clock out, or type the hours` }
       if (!clock || computed.length === 0) return { ok: false, status: 400, error: `No clock time on ${d.date} — type the hours` }
-      if (clock.open) return { ok: false, status: 409, error: `Someone is still clocked in on ${d.date} — wait for them to clock out, or type the hours` }
       lines = computed
       source = 'clock'
     }
