@@ -72,6 +72,8 @@ export type JobCostLedgerLine = {
   source: JobCostLineSource | null
   vendor_id: string | null
   vendor_name: string | null
+  /** Company cost code (project tools). Only filled when the ledger was loaded with `withCostCodes`; null = by cost_type. */
+  cost_code?: string | null
   created_at: string
   updated_at: string
 }
@@ -216,7 +218,9 @@ const LEDGER_PAGE = 1000
 export async function loadJobCostLedger(
   client: LedgerClient,
   orgId: string,
-  jobIds: ReadonlyArray<string>
+  jobIds: ReadonlyArray<string>,
+  /** `withCostCodes` also selects `cost_code` (needs migration 202611120080) — only the project-tools budget card asks. */
+  opts: { withCostCodes?: boolean } = {}
 ): Promise<JobCostLedger> {
   const ids = Array.from(new Set(jobIds.filter(Boolean)))
   const linesByJob = new Map<string, JobCostLedgerLine[]>()
@@ -230,7 +234,7 @@ export async function loadJobCostLedger(
     for (let from = 0; ; from += LEDGER_PAGE) {
       const { data, error } = await client
         .from('job_cost_lines')
-        .select(JOB_COST_LEDGER_COLUMNS)
+        .select(opts.withCostCodes ? `${JOB_COST_LEDGER_COLUMNS}, cost_code` : JOB_COST_LEDGER_COLUMNS)
         .eq('org_id', orgId)
         .eq('status', 'active')
         .is('deleted_at', null)
@@ -258,6 +262,7 @@ export async function loadJobCostLedger(
           : null,
         vendor_id: (raw.vendor_id as string | null) ?? null,
         vendor_name: vendorNameOf(raw.vendor),
+        ...(opts.withCostCodes ? { cost_code: typeof raw.cost_code === 'string' && raw.cost_code ? raw.cost_code : null } : {}),
         created_at: String(raw.created_at ?? ''),
         updated_at: String(raw.updated_at ?? raw.created_at ?? ''),
       }

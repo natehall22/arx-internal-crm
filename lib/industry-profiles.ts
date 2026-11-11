@@ -13,6 +13,7 @@
  * VERSIONING: bump a profile's `version` whenever its definition changes. A company stores `{ id, version }` of what it
  * applied; defaults always come from the current definition, the stored version only says what the owner last saw.
  */
+import type { ScheduleTemplate } from '@/lib/job-schedule'
 import type { OrgFeature } from '@/lib/org-features'
 import type { OrgTradeSeed } from '@/lib/org-trades-admin'
 
@@ -117,6 +118,8 @@ export type IndustryProfile = {
   pricebook: PricebookProfile
   /** Report template keys offered on Reports (lib/reporting/templates.ts); null = all of them. */
   starterReports: readonly string[] | null
+  /** Schedule stage templates a job can start from (project tools, lib/job-schedule.ts). Left out = none. */
+  scheduleTemplates?: readonly ScheduleTemplate[]
 }
 
 /** Today's add-on units, in the order the add-on form shows them (app/admin/proposals/page.tsx). */
@@ -294,12 +297,49 @@ const exteriorCleaning: IndustryProfile = {
   starterReports: SERVICE_REPORTS,
 }
 
+/** Stage templates for a home builder: a new build and a major remodel. Durations are workdays; trade labels match the profile's trades. */
+const HOME_BUILDER_SCHEDULE_TEMPLATES: readonly ScheduleTemplate[] = [
+  {
+    id: 'new_home',
+    label: 'New home build',
+    stages: [
+      { key: 'permits', name: 'Permits', workdays: 10, dependsOn: [] },
+      { key: 'site_work', name: 'Site work', tradeLabel: 'Site work', workdays: 5, dependsOn: ['permits'] },
+      { key: 'foundation', name: 'Foundation', tradeLabel: 'Foundation', workdays: 7, dependsOn: ['site_work'] },
+      { key: 'framing', name: 'Framing', tradeLabel: 'Framing', workdays: 15, dependsOn: ['foundation'] },
+      { key: 'roofing', name: 'Roofing', tradeLabel: 'Roofing', workdays: 4, dependsOn: ['framing'] },
+      { key: 'plumbing', name: 'Plumbing rough-in', tradeLabel: 'Plumbing', workdays: 5, dependsOn: ['framing'] },
+      { key: 'electrical', name: 'Electrical rough-in', tradeLabel: 'Electrical', workdays: 5, dependsOn: ['framing'] },
+      { key: 'hvac', name: 'HVAC rough-in', tradeLabel: 'HVAC', workdays: 4, dependsOn: ['framing'] },
+      { key: 'rough_inspection', name: 'Rough-in inspection', workdays: 2, dependsOn: ['roofing', 'plumbing', 'electrical', 'hvac'] },
+      { key: 'drywall', name: 'Insulation and drywall', tradeLabel: 'Finishes', workdays: 10, dependsOn: ['rough_inspection'] },
+      { key: 'finishes', name: 'Trim, paint and flooring', tradeLabel: 'Finishes', workdays: 20, dependsOn: ['drywall'] },
+      { key: 'final_inspection', name: 'Final inspection', workdays: 2, dependsOn: ['finishes'] },
+      { key: 'walkthrough', name: 'Customer walkthrough', workdays: 1, dependsOn: ['final_inspection'] },
+    ],
+  },
+  {
+    id: 'remodel',
+    label: 'Major remodel',
+    stages: [
+      { key: 'permits', name: 'Permits', workdays: 7, dependsOn: [] },
+      { key: 'demo', name: 'Demo', workdays: 3, dependsOn: ['permits'] },
+      { key: 'framing', name: 'Framing', tradeLabel: 'Framing', workdays: 5, dependsOn: ['demo'] },
+      { key: 'plumbing', name: 'Plumbing', tradeLabel: 'Plumbing', workdays: 3, dependsOn: ['framing'] },
+      { key: 'electrical', name: 'Electrical', tradeLabel: 'Electrical', workdays: 3, dependsOn: ['framing'] },
+      { key: 'drywall', name: 'Drywall', tradeLabel: 'Finishes', workdays: 6, dependsOn: ['plumbing', 'electrical'] },
+      { key: 'finishes', name: 'Paint, trim and flooring', tradeLabel: 'Finishes', workdays: 10, dependsOn: ['drywall'] },
+      { key: 'punch', name: 'Punch list', workdays: 3, dependsOn: ['finishes'] },
+    ],
+  },
+]
+
 const homeBuilder: IndustryProfile = {
   id: 'home_builder',
-  version: 1,
+  version: 2,
   label: 'Home builder',
   description: 'New homes and major remodels run as projects with many trades and subcontractors.',
-  features: { canvassing: false, incentives: false, ...ROOF_ONLY_OFF },
+  features: { canvassing: false, incentives: false, projectTools: true, ...ROOF_ONLY_OFF },
   trades: [
     { label: 'Site work', matchKeywords: ['site work', 'grading', 'excavat', 'clearing'] },
     { label: 'Foundation', matchKeywords: ['foundation', 'footing', 'slab'] },
@@ -339,6 +379,7 @@ const homeBuilder: IndustryProfile = {
     ],
   },
   starterReports: SERVICE_REPORTS,
+  scheduleTemplates: HOME_BUILDER_SCHEDULE_TEMPLATES,
 }
 
 export const INDUSTRY_PROFILES: Readonly<Record<IndustryProfileId, IndustryProfile>> = Object.freeze({

@@ -10,6 +10,8 @@ import {
   signedCostAmount,
 } from '@/lib/job-cost-ledger'
 import { callerCanAccessJobBilling } from '@/lib/finance-access'
+import { costTypeForCode, isCostCodeSlug } from '@/lib/cost-codes'
+import { loadCostCodes } from '@/lib/project-tools/budget-db'
 
 export const runtime = 'nodejs'
 
@@ -136,6 +138,19 @@ export async function PATCH(request: Request, { params }: RouteParams) {
     }
     if (body.cost_type !== undefined) {
       patch.cost_type = normalizeJobCostType(body.cost_type, existing.cost_type as never)
+    }
+    if (body.cost_code !== undefined) {
+      // Project tools: re-code a line (null clears it back to its cost_type's default code).
+      if (body.cost_code === null || body.cost_code === '') {
+        patch.cost_code = null
+      } else {
+        const codes = await loadCostCodes(supabase, profile.org_id)
+        if (!isCostCodeSlug(body.cost_code) || !codes.some((c) => c.code === body.cost_code)) {
+          return NextResponse.json({ error: 'That cost code is not on your list' }, { status: 400 })
+        }
+        patch.cost_code = body.cost_code
+        patch.cost_type = normalizeJobCostType(costTypeForCode(body.cost_code, codes), 'other')
+      }
     }
     if (Object.keys(patch).length === 0) {
       return NextResponse.json(

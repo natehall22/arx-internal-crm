@@ -14,6 +14,8 @@ import {
   signedCostAmount,
 } from '@/lib/job-cost-ledger'
 import { callerCanAccessJobBilling } from '@/lib/finance-access'
+import { costTypeForCode, isCostCodeSlug } from '@/lib/cost-codes'
+import { loadCostCodes } from '@/lib/project-tools/budget-db'
 
 export const runtime = 'nodejs'
 
@@ -128,7 +130,17 @@ export async function POST(request: Request, { params }: { params: { id: string 
         { status: 400 }
       )
     }
-    const costType = normalizeJobCostType(body.cost_type, 'other')
+    // Project tools: a cost code from the company's list rides on the line; its cost_type keeps the Materials/Labor/Other rollups right.
+    let costCode: string | null = null
+    let costType = normalizeJobCostType(body.cost_type, 'other')
+    if (isCostCodeSlug(body.cost_code)) {
+      const codes = await loadCostCodes(supabase, profile.org_id)
+      if (!codes.some((c) => c.code === body.cost_code && c.active)) {
+        return NextResponse.json({ error: 'That cost code is not on your list' }, { status: 400 })
+      }
+      costCode = body.cost_code
+      costType = normalizeJobCostType(costTypeForCode(body.cost_code, codes), 'other')
+    }
     const amountRaw = body.amount
     const amountParsed =
       typeof amountRaw === 'number' && !Number.isNaN(amountRaw)
@@ -158,6 +170,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
         source: 'manual',
         amount: signedCostAmount(amount, body.credit === true),
         cost_type: costType,
+        ...(costCode ? { cost_code: costCode } : {}),
         status: 'active',
         incurred_on: new Date().toISOString().slice(0, 10),
         created_by: profile.id,
