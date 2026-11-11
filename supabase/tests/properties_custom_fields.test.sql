@@ -19,8 +19,8 @@ CREATE TABLE production_jobs (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), org
   address_text text, lat numeric, lng numeric, updated_at timestamptz NOT NULL DEFAULT now());
 CREATE TABLE work_orders (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), org_id uuid NOT NULL, job_id uuid, customer_id uuid,
   address text, city text, state text, zip text);
-CREATE TABLE files (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), org_id uuid NOT NULL, job_id uuid, opportunity_id uuid, customer_id uuid,
-  storage_path text NOT NULL DEFAULT 'x');
+CREATE TABLE documents (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), org_id uuid NOT NULL, job_id uuid, customer_id uuid,
+  storage_path text NOT NULL DEFAULT 'x', deleted_at timestamptz);
 
 -- Existing data BEFORE the migration (ARX-shaped): A has one home, B has two, C has a blank address, org2 is another company.
 INSERT INTO orgs (id) VALUES ('00000000-0000-0000-0000-000000000001'), ('00000000-0000-0000-0000-000000000002');
@@ -38,7 +38,7 @@ INSERT INTO projects (id, org_id, opportunity_id) VALUES ('40000000-0000-0000-00
 INSERT INTO production_jobs (id, org_id, project_id, customer_id, address_text) VALUES
  ('50000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-00000000000a', '12 Oak Street, Concord NC');
 INSERT INTO work_orders (id, org_id, job_id, customer_id) VALUES ('60000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-00000000000a', NULL);
-INSERT INTO files (id, org_id, job_id) VALUES ('70000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-00000000000a');
+INSERT INTO documents (id, org_id, job_id) VALUES ('70000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-00000000000a');
 
 \i supabase/migrations/202611110010_properties.sql
 \i supabase/migrations/202611110020_custom_fields.sql
@@ -68,7 +68,7 @@ BEGIN
   ASSERT (SELECT lat FROM properties WHERE id = pa) = 35.4, 'T3 coords from deal';
   ASSERT (SELECT property_id FROM production_jobs WHERE id = '50000000-0000-0000-0000-00000000000a') = pa, 'T3 job takes deal property despite spelling';
   ASSERT (SELECT property_id FROM work_orders WHERE id = '60000000-0000-0000-0000-00000000000a') = pa, 'T3 work order takes job property';
-  ASSERT (SELECT property_id FROM files WHERE id = '70000000-0000-0000-0000-00000000000a') = pa, 'T3 file takes job property';
+  ASSERT (SELECT property_id FROM documents WHERE id = '70000000-0000-0000-0000-00000000000a') = pa, 'T3 document takes job property';
   ASSERT (SELECT count(DISTINCT property_id) FROM opportunities WHERE customer_id = cb) = 2, 'T3 B has two properties';
   ASSERT (SELECT property_id FROM opportunities WHERE id = '30000000-0000-0000-0000-00000000000c') IS NULL, 'T3 blank address stays NULL';
   ASSERT (SELECT org_id FROM properties WHERE customer_id = c2) = o2, 'T3 org2 property in org2';
@@ -89,15 +89,19 @@ BEGIN
   ASSERT pid = pb, 'T5 work order inherits';
   INSERT INTO work_orders (org_id, customer_id, address, city, state, zip) VALUES (o1, cb, '9 Lake Dr', 'Kannapolis', 'NC', '28081') RETURNING property_id INTO pid;
   ASSERT pid = (SELECT property_id FROM opportunities WHERE id = '30000000-0000-0000-0000-0000000000b2'), 'T5 work order by parts';
-  INSERT INTO files (org_id, customer_id) VALUES (o1, ca) RETURNING property_id INTO pid;
-  ASSERT pid IS NULL, 'T5 customer-level file gets no property';
+  INSERT INTO documents (org_id, customer_id) VALUES (o1, ca) RETURNING property_id INTO pid;
+  ASSERT pid IS NULL, 'T5 customer-level document gets no property by itself';
+  INSERT INTO documents (org_id, customer_id, property_id) VALUES (o1, ca, pa) RETURNING property_id INTO pid;
+  ASSERT pid = pa, 'T5 customer-level document with its property';
+  INSERT INTO documents (org_id, job_id, customer_id) VALUES (o1, '50000000-0000-0000-0000-0000000000d1', cb) RETURNING property_id INTO pid;
+  ASSERT pid IS NULL, 'T5 document whose customer differs from the job gets none';
   INSERT INTO opportunities (org_id, customer_id, address_text) VALUES (o1, NULL, '1 Nowhere') RETURNING property_id INTO pid;
   ASSERT pid IS NULL, 'T5 no customer no property';
 
   -- T6 company fence: another company's property is refused on insert and update; another customer's too
   ok := false; BEGIN INSERT INTO opportunities (org_id, customer_id, address_text, property_id) VALUES (o2, c2, 'x', pa); EXCEPTION WHEN insufficient_privilege THEN ok := true; END;
   ASSERT ok, 'T6 cross-company insert refused';
-  ok := false; BEGIN UPDATE files SET property_id = (SELECT id FROM properties WHERE customer_id = c2) WHERE id = '70000000-0000-0000-0000-00000000000a'; EXCEPTION WHEN insufficient_privilege THEN ok := true; END;
+  ok := false; BEGIN UPDATE documents SET property_id = (SELECT id FROM properties WHERE customer_id = c2) WHERE id = '70000000-0000-0000-0000-00000000000a'; EXCEPTION WHEN insufficient_privilege THEN ok := true; END;
   ASSERT ok, 'T6 cross-company update refused';
   ok := false; BEGIN INSERT INTO production_jobs (org_id, customer_id, property_id) VALUES (o1, cb, pa); EXCEPTION WHEN insufficient_privilege THEN ok := true; END;
   ASSERT ok, 'T6 other customer refused';

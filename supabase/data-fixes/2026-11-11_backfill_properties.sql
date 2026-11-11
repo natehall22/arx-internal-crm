@@ -1,4 +1,4 @@
--- Backfill properties for existing customers / deals / jobs / crew rows / files (Phase 2 properties).
+-- Backfill properties for existing customers / deals / jobs / crew rows / documents (Phase 2 properties).
 --
 -- HOW THIS FILE RUNS (nothing is written to any existing table by running it as-is):
 --   1. Running the whole file only (re)creates functions + backup tables in the private schema `release_backups` and then
@@ -16,7 +16,7 @@
 --   b. opportunities.property_id    = the customer's property at the deal's address.
 --   c. production_jobs.property_id  = its project's deal's property (same customer), else the customer's property at the job address.
 --   d. work_orders.property_id      = its job's property (same customer or no customer on the work order).
---   e. files.property_id            = its job's property, else its deal's property (only when the file's customer, if set, matches).
+--   e. documents.property_id        = its job's property (only when the document's customer, if set, matches the job's).
 -- NOT changed: any address column, customers, which address any page or PDF shows. Rows with no customer or a blank address
 -- get no property (they are counted in the preview).
 --
@@ -34,7 +34,7 @@ END $$;
 
 CREATE TABLE IF NOT EXISTS release_backups.backfill_properties_rows (
   run_id      uuid        NOT NULL,
-  table_name  text        NOT NULL CHECK (table_name IN ('opportunities', 'production_jobs', 'work_orders', 'files')),
+  table_name  text        NOT NULL CHECK (table_name IN ('opportunities', 'production_jobs', 'work_orders', 'documents')),
   row_id      uuid        NOT NULL,
   org_id      uuid        NOT NULL,
   prev_property_id    uuid NULL,
@@ -93,7 +93,7 @@ LANGUAGE plpgsql AS $$
 DECLARE
   v_run uuid := gen_random_uuid();
   v_plan jsonb;
-  v_created int := 0; v_opp int := 0; v_job int := 0; v_wo int := 0; v_files int := 0;
+  v_created int := 0; v_opp int := 0; v_job int := 0; v_wo int := 0; v_docs int := 0;
 BEGIN
   IF p_mode NOT IN ('preview', 'apply') THEN RAISE EXCEPTION 'mode must be preview or apply'; END IF;
 
@@ -107,7 +107,7 @@ BEGIN
     'jobs_to_link', (SELECT count(*) FROM public.production_jobs WHERE property_id IS NULL AND customer_id IS NOT NULL),
     'jobs_no_customer', (SELECT count(*) FROM public.production_jobs WHERE property_id IS NULL AND customer_id IS NULL),
     'work_orders_with_job', (SELECT count(*) FROM public.work_orders WHERE property_id IS NULL AND job_id IS NOT NULL),
-    'files_on_job_or_deal', (SELECT count(*) FROM public.files WHERE property_id IS NULL AND (job_id IS NOT NULL OR opportunity_id IS NOT NULL)),
+    'documents_on_job', (SELECT count(*) FROM public.documents WHERE property_id IS NULL AND job_id IS NOT NULL),
     'sample', (SELECT coalesce(jsonb_agg(to_jsonb(s) - 'org_id'), '[]'::jsonb) FROM (SELECT * FROM release_backups.property_backfill_sources() ORDER BY customer_id LIMIT 15) s)
   ) INTO v_plan;
 
@@ -171,25 +171,20 @@ BEGIN
   SELECT v_run, 'work_orders', id, org_id, property_id FROM u;
   GET DIAGNOSTICS v_wo = ROW_COUNT;
 
-  -- e. files: job's property, else deal's property
-  WITH m AS (
-    SELECT f.id, coalesce(
-             (SELECT j.property_id FROM public.production_jobs j WHERE j.id = f.job_id AND j.org_id = f.org_id),
-             (SELECT o.property_id FROM public.opportunities o WHERE o.id = f.opportunity_id AND o.org_id = f.org_id)) AS pid,
-           f.customer_id
-      FROM public.files f WHERE f.property_id IS NULL AND (f.job_id IS NOT NULL OR f.opportunity_id IS NOT NULL)
-  ), u AS (
-    UPDATE public.files f SET property_id = m.pid FROM m
-     WHERE f.id = m.id AND m.pid IS NOT NULL AND f.property_id IS NULL
-       AND (m.customer_id IS NULL OR EXISTS (SELECT 1 FROM public.properties p WHERE p.id = m.pid AND p.customer_id = m.customer_id))
-    RETURNING f.id, f.org_id, f.property_id
+  -- e. documents: their job's property
+  WITH u AS (
+    UPDATE public.documents d SET property_id = j.property_id
+      FROM public.production_jobs j
+     WHERE d.property_id IS NULL AND j.id = d.job_id AND j.org_id = d.org_id AND j.property_id IS NOT NULL
+       AND (d.customer_id IS NULL OR d.customer_id = j.customer_id)
+    RETURNING d.id, d.org_id, d.property_id
   )
   INSERT INTO release_backups.backfill_properties_rows (run_id, table_name, row_id, org_id, applied_property_id)
-  SELECT v_run, 'files', id, org_id, property_id FROM u;
-  GET DIAGNOSTICS v_files = ROW_COUNT;
+  SELECT v_run, 'documents', id, org_id, property_id FROM u;
+  GET DIAGNOSTICS v_docs = ROW_COUNT;
 
   RETURN jsonb_build_object('mode', 'apply', 'run_id', v_run, 'plan', v_plan - 'sample',
-    'properties_created', v_created, 'opportunities_linked', v_opp, 'jobs_linked', v_job, 'work_orders_linked', v_wo, 'files_linked', v_files,
+    'properties_created', v_created, 'opportunities_linked', v_opp, 'jobs_linked', v_job, 'work_orders_linked', v_wo, 'documents_linked', v_docs,
     'undo', 'SELECT release_backups.undo_backfill_properties();');
 END;
 $$;
@@ -201,9 +196,9 @@ DECLARE
   r record;
 BEGIN
   -- 1. clear property_id only where it still holds the applied value
-  WITH u AS (UPDATE public.files t SET property_id = NULL FROM release_backups.backfill_properties_rows b
-              WHERE b.undone_at IS NULL AND b.table_name = 'files' AND t.id = b.row_id AND t.property_id = b.applied_property_id RETURNING b.run_id, b.row_id)
-  UPDATE release_backups.backfill_properties_rows b SET undone_at = now() FROM u WHERE b.table_name = 'files' AND b.run_id = u.run_id AND b.row_id = u.row_id;
+  WITH u AS (UPDATE public.documents t SET property_id = NULL FROM release_backups.backfill_properties_rows b
+              WHERE b.undone_at IS NULL AND b.table_name = 'documents' AND t.id = b.row_id AND t.property_id = b.applied_property_id RETURNING b.run_id, b.row_id)
+  UPDATE release_backups.backfill_properties_rows b SET undone_at = now() FROM u WHERE b.table_name = 'documents' AND b.run_id = u.run_id AND b.row_id = u.row_id;
   GET DIAGNOSTICS v_n = ROW_COUNT; v_reverted := v_reverted + v_n;
   WITH u AS (UPDATE public.work_orders t SET property_id = NULL FROM release_backups.backfill_properties_rows b
               WHERE b.undone_at IS NULL AND b.table_name = 'work_orders' AND t.id = b.row_id AND t.property_id = b.applied_property_id RETURNING b.run_id, b.row_id)
@@ -224,7 +219,7 @@ BEGIN
     IF EXISTS (SELECT 1 FROM public.opportunities WHERE property_id = r.property_id)
        OR EXISTS (SELECT 1 FROM public.production_jobs WHERE property_id = r.property_id)
        OR EXISTS (SELECT 1 FROM public.work_orders WHERE property_id = r.property_id)
-       OR EXISTS (SELECT 1 FROM public.files WHERE property_id = r.property_id) THEN
+       OR EXISTS (SELECT 1 FROM public.documents WHERE property_id = r.property_id) THEN
       v_kept := v_kept + 1;
       UPDATE release_backups.backfill_properties_created SET kept_reason = 'in use' WHERE property_id = r.property_id;
     ELSIF EXISTS (SELECT 1 FROM public.properties p WHERE p.id = r.property_id

@@ -5,6 +5,7 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { geocodeAddressToLatLng } from '@/lib/lead-map-pin'
 import { canEditCustomerRecordsFromPermissionNames, isRepLikeCustomerRecordRole } from '@/lib/permissions'
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
+import { loadProperty } from '@/lib/properties-db'
 
 export const dynamic = 'force-dynamic'
 
@@ -59,6 +60,18 @@ export async function POST(
       }
     }
 
+    // Optional property picked in the Customer File (lib/properties.ts). It must be one of THIS customer's active
+    // properties; the deal then uses its address. Without one, the address comes from the customer's latest deal as before
+    // (and the database fills property_id from that address — migration 202611110010).
+    const body = (await request.json().catch(() => null)) as { propertyId?: unknown } | null
+    let pickedProperty: Awaited<ReturnType<typeof loadProperty>> = null
+    if (body?.propertyId != null) {
+      pickedProperty = typeof body.propertyId === 'string' ? await loadProperty(supabase, profile.org_id, body.propertyId, false) : null
+      if (!pickedProperty || pickedProperty.customer_id !== customer.id || !pickedProperty.active) {
+        return NextResponse.json({ error: 'Pick one of this customer’s properties' }, { status: 400 })
+      }
+    }
+
     const [{ data: priorOpportunities }, { data: priorProjects }] = await Promise.all([
       supabase
         .from('opportunities')
@@ -81,16 +94,19 @@ export async function POST(
       const bTime = b.updated_at ? new Date(b.updated_at).getTime() : 0
       return bTime - aTime
     })
+    // null/'' are "no coordinates" (Number(null) is 0, which used to put the new deal at 0,0).
+    const coord = (v: unknown) => (v === null || v === undefined || v === '' ? NaN : Number(v))
     const hasCoords = (row: { lat?: unknown; lng?: unknown }) =>
-      Number.isFinite(Number(row.lat)) && Number.isFinite(Number(row.lng))
+      Number.isFinite(coord(row.lat)) && Number.isFinite(coord(row.lng))
 
-    const sourceLocation =
-      candidateLocations.find(hasCoords) ||
-      candidateLocations.find((row) => row.address_text) ||
-      null
+    const sourceLocation = pickedProperty
+      ? { address_text: pickedProperty.address_text, lat: pickedProperty.lat, lng: pickedProperty.lng }
+      : candidateLocations.find(hasCoords) ||
+        candidateLocations.find((row) => row.address_text) ||
+        null
     const opportunityAddress = sourceLocation?.address_text || customer.address_text || null
-    const opportunityLat = Number(sourceLocation?.lat)
-    const opportunityLng = Number(sourceLocation?.lng)
+    const opportunityLat = coord(sourceLocation?.lat)
+    const opportunityLng = coord(sourceLocation?.lng)
     const hasSourceCoordinates = Number.isFinite(opportunityLat) && Number.isFinite(opportunityLng)
     const geocodedCoords =
       !hasSourceCoordinates && opportunityAddress ? await geocodeAddressToLatLng(opportunityAddress) : null
@@ -108,6 +124,7 @@ export async function POST(
         address_text: opportunityAddress,
         lat: hasSourceCoordinates ? opportunityLat : geocodedCoords?.lat ?? null,
         lng: hasSourceCoordinates ? opportunityLng : geocodedCoords?.lng ?? null,
+        ...(pickedProperty ? { property_id: pickedProperty.id } : {}),
         notes: `Add-on opportunity created from customer file on ${new Date(now).toLocaleDateString()}. Use this for new post-completion scope with a separate proposal and Installation Agreement.`,
       })
       .select('id')

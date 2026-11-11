@@ -5,12 +5,14 @@
 -- 1. public.properties (org_id NOT NULL, customer_id NOT NULL). Never hard-deleted by the app: `active = false` hides it.
 --    `address_key` = public.property_address_key(address_text), set by trigger; ONE place defines "same address".
 --    Unique per (org, customer, address_key) — the same customer cannot have the same address twice.
--- 2. property_id (nullable) on opportunities, production_jobs, work_orders, files. ON DELETE SET NULL.
+-- 2. property_id (nullable) on opportunities, production_jobs, work_orders, documents. ON DELETE SET NULL.
+--    `documents` (bucket project-files) is the live file system (job Files tab, contracts, change orders: 36 rows in prod
+--    2026-11-10); the legacy `files` table holds 1 row and is not extended.
 -- 3. BEFORE INSERT fill: when a new row arrives WITHOUT property_id it is filled, never by the app:
 --      opportunities   -> the customer's property at the deal's address (created if missing)
 --      production_jobs -> its project's deal's property, else the customer's property at the job address (created if missing)
 --      work_orders     -> its job's property, else the customer's property at the work-order address (created if missing)
---      files           -> its job's / deal's property (never creates one)
+--      documents       -> its job's property (never creates one); a customer-level document gets its property from the app
 --    The fill NEVER raises (a failure leaves property_id NULL and logs a WARNING), so contract signing, job creation and
 --    uploads keep working exactly as before. Addresses on those rows are untouched: nothing reads property_id to resolve
 --    an address for ARX's existing flows.
@@ -21,7 +23,7 @@
 -- Existing rows: supabase/data-fixes/2026-11-11_backfill_properties.sql (preview / apply / undo). Run AFTER this file.
 -- Rollback (nothing else depends on it):
 --   DROP TRIGGER properties_fill_opportunities ON public.opportunities; (and the 3 other *_fill triggers)
---   ALTER TABLE public.opportunities DROP COLUMN property_id; (and production_jobs, work_orders, files)
+--   ALTER TABLE public.opportunities DROP COLUMN property_id; (and production_jobs, work_orders, documents)
 --   DROP TABLE public.properties; DROP FUNCTION public.ensure_property, public.property_fill_row, public.property_address_key,
 --   public.properties_before_write;
 
@@ -124,14 +126,14 @@ REVOKE ALL ON FUNCTION public.ensure_property(uuid, uuid, text, numeric, numeric
 ALTER TABLE public.opportunities   ADD COLUMN IF NOT EXISTS property_id uuid NULL REFERENCES public.properties(id) ON DELETE SET NULL;
 ALTER TABLE public.production_jobs ADD COLUMN IF NOT EXISTS property_id uuid NULL REFERENCES public.properties(id) ON DELETE SET NULL;
 ALTER TABLE public.work_orders     ADD COLUMN IF NOT EXISTS property_id uuid NULL REFERENCES public.properties(id) ON DELETE SET NULL;
-ALTER TABLE public.files           ADD COLUMN IF NOT EXISTS property_id uuid NULL REFERENCES public.properties(id) ON DELETE SET NULL;
+ALTER TABLE public.documents       ADD COLUMN IF NOT EXISTS property_id uuid NULL REFERENCES public.properties(id) ON DELETE SET NULL;
 
 CREATE INDEX IF NOT EXISTS opportunities_property_idx   ON public.opportunities (property_id)   WHERE property_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS production_jobs_property_idx ON public.production_jobs (property_id) WHERE property_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS work_orders_property_idx     ON public.work_orders (property_id)     WHERE property_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS files_property_idx           ON public.files (property_id)           WHERE property_id IS NOT NULL;
--- Customer-level documents (Customer File → Files) are read by customer_id.
-CREATE INDEX IF NOT EXISTS files_customer_idx           ON public.files (org_id, customer_id)   WHERE customer_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS documents_property_idx       ON public.documents (property_id)       WHERE property_id IS NOT NULL;
+-- Customer-level documents (Customer File → Files: job_id NULL) are read by customer_id.
+CREATE INDEX IF NOT EXISTS documents_customer_idx       ON public.documents (org_id, customer_id) WHERE customer_id IS NOT NULL AND deleted_at IS NULL;
 
 -- One trigger function for the four tables (TG_TABLE_NAME picks the rule).
 CREATE OR REPLACE FUNCTION public.property_fill_row() RETURNS trigger
@@ -148,11 +150,9 @@ BEGIN
     IF NOT FOUND OR v_prop.org_id IS DISTINCT FROM NEW.org_id THEN
       RAISE EXCEPTION 'property % is not in this company', NEW.property_id USING ERRCODE = '42501';
     END IF;
-    IF TG_TABLE_NAME IN ('opportunities', 'production_jobs', 'work_orders', 'files') THEN
-      v_customer := NEW.customer_id;
-      IF v_customer IS NOT NULL AND v_customer IS DISTINCT FROM v_prop.customer_id THEN
-        RAISE EXCEPTION 'property % belongs to another customer', NEW.property_id USING ERRCODE = '42501';
-      END IF;
+    v_customer := NEW.customer_id;   -- all four tables carry customer_id
+    IF v_customer IS NOT NULL AND v_customer IS DISTINCT FROM v_prop.customer_id THEN
+      RAISE EXCEPTION 'property % belongs to another customer', NEW.property_id USING ERRCODE = '42501';
     END IF;
     RETURN NEW;
   END IF;
@@ -179,17 +179,11 @@ BEGIN
                                    nullif(btrim(concat_ws(' ', nullif(btrim(NEW.state), ''), nullif(btrim(NEW.zip), ''))), '')), '');
         v_id := public.ensure_property(NEW.org_id, NEW.customer_id, v_addr, NULL, NULL, 'auto');
       END IF;
-    ELSIF TG_TABLE_NAME = 'files' THEN
+    ELSIF TG_TABLE_NAME = 'documents' THEN
       IF NEW.job_id IS NOT NULL THEN
-        SELECT j.property_id INTO v_id FROM public.production_jobs j WHERE j.id = NEW.job_id AND j.org_id = NEW.org_id;
-      END IF;
-      IF v_id IS NULL AND NEW.opportunity_id IS NOT NULL THEN
-        SELECT o.property_id INTO v_id FROM public.opportunities o WHERE o.id = NEW.opportunity_id AND o.org_id = NEW.org_id;
-      END IF;
-      -- A file's customer, when set, must match the inherited property's customer; otherwise leave it unset.
-      IF v_id IS NOT NULL AND NEW.customer_id IS NOT NULL
-         AND NOT EXISTS (SELECT 1 FROM public.properties p WHERE p.id = v_id AND p.customer_id = NEW.customer_id) THEN
-        v_id := NULL;
+        SELECT j.property_id INTO v_id FROM public.production_jobs j
+         WHERE j.id = NEW.job_id AND j.org_id = NEW.org_id
+           AND (NEW.customer_id IS NULL OR j.customer_id IS NOT DISTINCT FROM NEW.customer_id);
       END IF;
     END IF;
     NEW.property_id := v_id;
@@ -210,8 +204,8 @@ CREATE TRIGGER properties_fill_production_jobs BEFORE INSERT OR UPDATE OF proper
 DROP TRIGGER IF EXISTS properties_fill_work_orders ON public.work_orders;
 CREATE TRIGGER properties_fill_work_orders BEFORE INSERT OR UPDATE OF property_id ON public.work_orders
   FOR EACH ROW EXECUTE FUNCTION public.property_fill_row();
-DROP TRIGGER IF EXISTS properties_fill_files ON public.files;
-CREATE TRIGGER properties_fill_files BEFORE INSERT OR UPDATE OF property_id ON public.files
+DROP TRIGGER IF EXISTS properties_fill_documents ON public.documents;
+CREATE TRIGGER properties_fill_documents BEFORE INSERT OR UPDATE OF property_id ON public.documents
   FOR EACH ROW EXECUTE FUNCTION public.property_fill_row();
 
 COMMIT;
