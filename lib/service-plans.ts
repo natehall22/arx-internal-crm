@@ -72,6 +72,9 @@ export type ServicePlan = ServicePlanSchedule & {
   name: string
   description: string | null
   price: number | null
+  /** "New price starts on": slots before `price_starts_on` keep `previous_price` (both null = `price` applies now). */
+  previous_price: number | null
+  price_starts_on: string | null
   billing_basis: BillingBasis
   taxable: boolean
   /** Price rules copied from the template at sale; the answers for this home; the tier they matched (null = custom). */
@@ -90,7 +93,7 @@ export type ServicePlan = ServicePlanSchedule & {
 }
 
 export const SERVICE_PLAN_COLUMNS =
-  'id, org_id, customer_id, property_id, template_id, template_version, trade, name, description, price, billing_basis, taxable, pricing, pricing_inputs, tier_key, steps, status, start_date, end_date, paused_until, seasons, preferred_weekday, default_sub_id, route_position, created_by, created_at, updated_at'
+  'id, org_id, customer_id, property_id, template_id, template_version, trade, name, description, price, previous_price, price_starts_on, billing_basis, taxable, pricing, pricing_inputs, tier_key, steps, status, start_date, end_date, paused_until, seasons, preferred_weekday, default_sub_id, route_position, created_by, created_at, updated_at'
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Calendar-day arithmetic
@@ -262,8 +265,29 @@ export function visitHorizon(todayYmd: string): { from: string; to: string } {
 }
 
 /** What a visit row is worth when it is planned: the plan price for per-visit plans, nothing for monthly / yearly ones. */
-export function visitPrice(p: Pick<ServicePlan, 'price' | 'billing_basis'>): number | null {
-  return p.billing_basis === 'per_visit' && p.price != null ? p.price : null
+type PriceFields = Pick<ServicePlan, 'price' | 'billing_basis'> & Partial<Pick<ServicePlan, 'previous_price' | 'price_starts_on'>>
+
+/** The plan's price in effect on a day (`previous_price` before `price_starts_on`, else `price`). No day = today's rule. */
+export function planPriceOn(p: PriceFields, ymd?: string | null): number | null {
+  if (ymd && p.price_starts_on && ymd < p.price_starts_on && p.previous_price != null) return p.previous_price
+  return p.price
+}
+
+/** A visit's price snapshot: per-visit plans only (per-month / per-year bill the plan), as in effect on its slot day. */
+export function visitPrice(p: PriceFields, ymd?: string | null): number | null {
+  const price = planPriceOn(p, ymd)
+  return p.billing_basis === 'per_visit' && price != null ? price : null
+}
+
+/**
+ * Pure: the price-schedule fields a price change writes. `startsOn` after today keeps the price in effect today for
+ * slots before that day; no date (or today / earlier) = the new price for every future visit. No price change = none.
+ */
+export function priceScheduleFor(old: PriceFields, newPrice: number | null, startsOn: string | null | undefined, today: string): { previous_price: number | null; price_starts_on: string | null } | null {
+  const current = planPriceOn(old, today)
+  if (newPrice === old.price && !startsOn) return null
+  if (startsOn && startsOn > today && newPrice !== current) return { previous_price: current, price_starts_on: startsOn }
+  return old.previous_price != null || old.price_starts_on ? { previous_price: null, price_starts_on: null } : null
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -880,6 +904,8 @@ export const PLAN_FIELD_LABELS: Record<string, string> = {
   preferred_weekday: 'Visit day',
   seasons: 'Seasons',
   price: 'Price',
+  previous_price: 'Price until the new one starts',
+  price_starts_on: 'New price starts',
   billing_basis: 'Billed',
   taxable: 'Sales tax',
   pricing: 'Price rules',
@@ -909,7 +935,8 @@ export type VisitEffect = { removed: number; added: number; updated: number }
 
 /** What a kept visit carries from its plan (a change to any of these updates the visit). */
 export type PreviewVisitFields = { title?: string | null; description?: string | null; trade?: string | null; property_id?: string | null; price?: number | null; taxable?: boolean | null }
-export type PreviewPlanFields = Pick<ServicePlan, 'name' | 'description' | 'trade' | 'price' | 'billing_basis' | 'taxable' | 'default_sub_id' | 'property_id'>
+export type PreviewPlanFields = Pick<ServicePlan, 'name' | 'description' | 'trade' | 'price' | 'billing_basis' | 'taxable' | 'default_sub_id' | 'property_id'> &
+  Partial<Pick<ServicePlan, 'previous_price' | 'price_starts_on'>>
 
 /** Pure: does a kept visit need refreshing after an edit (and to what crew)? The one rule the save and the preview share. */
 export function visitNeedsRefresh(v: ExistingVisit & PreviewVisitFields, oldPlan: PreviewPlanFields, newPlan: PreviewPlanFields): boolean {
@@ -920,7 +947,7 @@ export function visitNeedsRefresh(v: ExistingVisit & PreviewVisitFields, oldPlan
     (v.description === undefined ? oldPlan.description : v.description) !== newPlan.description ||
     (v.trade ?? oldPlan.trade) !== newPlan.trade ||
     (v.property_id ?? oldPlan.property_id) !== newPlan.property_id ||
-    (v.price === undefined ? visitPrice(oldPlan) : v.price) !== visitPrice(newPlan) ||
+    (v.price === undefined ? visitPrice(oldPlan, v.service_planned_date) : v.price) !== visitPrice(newPlan, v.service_planned_date) ||
     (v.taxable ?? oldPlan.taxable) !== newPlan.taxable
   )
 }

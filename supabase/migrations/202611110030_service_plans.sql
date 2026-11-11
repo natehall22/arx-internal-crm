@@ -70,6 +70,9 @@ CREATE TABLE IF NOT EXISTS public.service_plans (
   price numeric(10, 2) NULL CHECK (price IS NULL OR (price >= 0 AND price <= 1000000)),
   billing_basis text NOT NULL DEFAULT 'per_visit' CHECK (billing_basis IN ('per_visit', 'per_month', 'per_year')),
   taxable boolean NOT NULL DEFAULT false,
+  -- "New price starts on": visits planned before price_starts_on keep previous_price; from that day on, price.
+  previous_price numeric(10, 2) NULL CHECK (previous_price IS NULL OR (previous_price >= 0 AND previous_price <= 1000000)),
+  price_starts_on date NULL,
   -- The price rules copied from the template, the answers for this home, and the tier they matched (NULL = custom price).
   pricing jsonb NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(pricing) = 'object'),
   pricing_inputs jsonb NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(pricing_inputs) = 'object'),
@@ -263,7 +266,7 @@ BEGIN
   v_new := jsonb_populate_record(v_plan, COALESCE(p_patch, '{}'::jsonb) - 'id' - 'org_id' - 'customer_id' - 'created_by' - 'created_at' - 'updated_at');
   UPDATE public.service_plans SET
     name = v_new.name, description = v_new.description, property_id = v_new.property_id, trade = v_new.trade,
-    price = v_new.price, billing_basis = v_new.billing_basis, taxable = v_new.taxable, pricing = v_new.pricing,
+    price = v_new.price, previous_price = v_new.previous_price, price_starts_on = v_new.price_starts_on, billing_basis = v_new.billing_basis, taxable = v_new.taxable, pricing = v_new.pricing,
     pricing_inputs = v_new.pricing_inputs, tier_key = v_new.tier_key, steps = v_new.steps, status = v_new.status,
     start_date = v_new.start_date, end_date = v_new.end_date, paused_until = v_new.paused_until, seasons = v_new.seasons,
     preferred_weekday = v_new.preferred_weekday, default_sub_id = v_new.default_sub_id, route_position = v_new.route_position,

@@ -29,6 +29,8 @@ import {
   crewAfterEdit,
   describeVisitEffect,
   followUpVisitFields,
+  isYmd,
+  priceScheduleFor,
   planVisitDates,
   previewVisitEffect,
   readPricing,
@@ -95,6 +97,8 @@ export function planFromRow(r: Record<string, unknown>): ServicePlan {
     name: String(r.name ?? ''),
     description: (r.description as string | null) ?? null,
     price: num(r.price),
+    previous_price: num(r.previous_price),
+    price_starts_on: (r.price_starts_on as string | null) ?? null,
     billing_basis: r.billing_basis === 'per_month' || r.billing_basis === 'per_year' ? r.billing_basis : 'per_visit',
     taxable: r.taxable === true,
     pricing: readPricing(r.pricing ?? {}),
@@ -622,8 +626,16 @@ async function planPatch(
   if (!refs.ok) return refs
   const p = priced(v, old)
   if (!p.ok) return p
+  // "New price starts on <day>": slots before it keep today's price (the visits already on the calendar and any made later).
+  const startsRaw = body.price_starts_on
+  if (startsRaw != null && startsRaw !== '' && !(typeof startsRaw === 'string' && isYmd(startsRaw)))
+    return { ok: false, status: 400, error: 'Pick the day the new price starts' }
+  const newPrice = 'price' in p.value ? (p.value.price ?? null) : old.price
+  const schedule = priceScheduleFor(old, newPrice, (startsRaw as string | null | undefined) || null, today)
   // Keep only real changes, so the history and the preview say exactly what moved.
-  const patch = Object.fromEntries(Object.entries(p.value).filter(([k, val]) => !sameValue((old as unknown as Record<string, unknown>)[k], val)))
+  const patch = Object.fromEntries(
+    Object.entries({ ...p.value, ...(schedule ?? {}) }).filter(([k, val]) => !sameValue((old as unknown as Record<string, unknown>)[k], val))
+  )
   return { ok: true, patch, action: 'updated' }
 }
 
@@ -795,7 +807,7 @@ export async function applyTemplateToPlans(
   orgId: string,
   userId: string,
   templateId: string,
-  opts: { preview: boolean; planIds?: string[]; now?: Date }
+  opts: { preview: boolean; planIds?: string[]; now?: Date; priceStartsOn?: string | null }
 ): Promise<
   | {
       ok: true
@@ -838,7 +850,7 @@ export async function applyTemplateToPlans(
         values.price = p.price
         values.billing_basis = p.billing_basis
       }
-      const r = await updateServicePlan(admin, orgId, userId, p.id, { ...values, preview: opts.preview }, null, opts.now, {
+      const r = await updateServicePlan(admin, orgId, userId, p.id, { ...values, price_starts_on: opts.priceStartsOn ?? null, preview: opts.preview }, null, opts.now, {
         action: 'template_applied',
         extraPatch: { template_version },
       })
@@ -908,15 +920,20 @@ async function regenerationSteps(
     property_id: plan.property_id,
     ...address,
   }
-  const byCrew = new Map<string, string[]>()
+  // One update per (crew, price): with "new price starts on" a kept visit's price depends on its slot day.
+  const groups = new Map<string, { crew: string; price: number | null; ids: string[] }>()
   for (const v of refresh) {
     const crew = crewAfterEdit(v.assigned_sub_id, old.default_sub_id, plan.default_sub_id) ?? ''
-    byCrew.set(crew, [...(byCrew.get(crew) ?? []), v.id])
+    const price = visitPrice(plan, v.service_planned_date)
+    const key = `${crew}|${price}`
+    const g = groups.get(key) ?? { crew, price, ids: [] }
+    g.ids.push(v.id)
+    groups.set(key, g)
   }
-  const updates = Array.from(byCrew.entries()).map(([crew, ids]) => ({
-    ids,
-    set: { ...set, assigned_sub_id: crew || null },
-    charge: { price: visitPrice(plan), taxable: plan.taxable },
+  const updates = Array.from(groups.values()).map((g) => ({
+    ids: g.ids,
+    set: { ...set, assigned_sub_id: g.crew || null },
+    charge: { price: g.price, taxable: plan.taxable },
   }))
   return { remove, updates, changed: refresh.length }
 }
@@ -1056,7 +1073,7 @@ export async function ensureServiceVisits(
         assigned_sub_id: plan.default_sub_id,
         title: plan.name,
         description: plan.description,
-        price: visitPrice(plan),
+        price: visitPrice(plan, d),
         taxable: plan.taxable,
         ...(addresses.get(plan.property_id) ?? {}),
       }))
@@ -1587,7 +1604,8 @@ export type BillableVisit = {
   propertyId: string | null
   completedAt: string
   servedOn: string
-  /** Per-visit plans: the price snapshot taken when the visit was planned. Per-month / per-year plans: null (bill the plan). */
+  /** Per-visit plans: the price snapshot taken when the visit was planned. Per-month / per-year plans: null (bill the plan
+   * at `planPriceOn(plan, <first day of the period>)`, which honours "new price starts on"). */
   price: number | null
   taxable: boolean
 }

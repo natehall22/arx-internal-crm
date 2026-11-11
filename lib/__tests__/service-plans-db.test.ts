@@ -454,6 +454,30 @@ describe('review fixes', () => {
     expect((db.tables.service_plans as Array<Record<string, unknown>>).find((p) => p.id === b.plan.id)?.template_version).toBe(1)
   })
 
+  it('"new price starts on" keeps today’s price before that day — on visits made now and made later', async () => {
+    const db = seed()
+    const r = await createServicePlan(db.client, ORG, 'u1', 'c1', weekly, NOW)
+    if (!r.ok) throw new Error(r.error)
+    const pv = await updateServicePlan(db.client, ORG, 'u1', r.plan.id, { price: 50, price_starts_on: '2026-12-01', preview: true }, null, NOW)
+    expect(pv).toMatchObject({ ok: true, effect: { updated: 3 } })
+    const saved = await updateServicePlan(db.client, ORG, 'u1', r.plan.id, { price: 50, price_starts_on: '2026-12-01' }, null, NOW)
+    if (!saved.ok) throw new Error(saved.error)
+    expect(saved.plan).toMatchObject({ price: 50, previous_price: 45, price_starts_on: '2026-12-01' })
+    const priceOn = (ymd: string) => chargeOf(db, String(visitsOf(db, r.plan.id).find((v) => v.service_planned_date === ymd)?.id))?.price
+    expect(priceOn('2026-11-24')).toBe(45)
+    expect(priceOn('2026-12-01')).toBe(50)
+    // Later: the generator gives a new slot the price in effect on its day.
+    const later = new Date('2026-11-24T15:00:00Z')
+    await ensureServiceVisits(db.client, ORG, { now: later, planIds: [r.plan.id] })
+    expect(priceOn('2026-12-29')).toBe(50)
+    // An edit with no date makes the new price apply now (and clears the schedule).
+    const now2 = await updateServicePlan(db.client, ORG, 'u1', r.plan.id, { price: 55 }, null, NOW)
+    if (!now2.ok) throw new Error(now2.error)
+    expect(now2.plan).toMatchObject({ price: 55, previous_price: null, price_starts_on: null })
+    expect(priceOn('2026-11-24')).toBe(55)
+    expect(await updateServicePlan(db.client, ORG, 'u1', r.plan.id, { price: 60, price_starts_on: 'soon' }, null, NOW)).toMatchObject({ ok: false, status: 400 })
+  })
+
   it('the visits list pages instead of silently stopping, and says how many there are', async () => {
     const db = seed()
     for (let i = 0; i < 3; i++) await createServicePlan(db.client, ORG, 'u1', 'c1', { ...weekly, name: `Plan ${i}` }, NOW)

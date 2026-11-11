@@ -137,10 +137,14 @@ BEGIN
   ASSERT (SELECT price FROM service_visit_charges WHERE work_order_id = keep) = 50, 'T6 charge refreshed';
   ASSERT (SELECT org_id FROM service_plans WHERE id = plan) = o1, 'T6 patch cannot move the plan';
   ASSERT (SELECT price FROM service_plans WHERE id = plan) = 50, 'T6 plan saved';
+  ASSERT (SELECT previous_price IS NULL AND price_starts_on IS NULL FROM service_plans WHERE id = plan), 'T6 no price schedule';
   ok := false; BEGIN PERFORM service_plan_save(o1, plan, v_upd, '{"price": 60}', NULL, NULL); EXCEPTION WHEN serialization_failure THEN ok := true; END; ASSERT ok, 'T6 stale save refused';
   ASSERT (SELECT price FROM service_plans WHERE id = plan) = 50, 'T6 stale save wrote nothing';
   ASSERT service_plan_add_visits(o1, plan, v_upd, '[{"service_planned_date":"2026-12-22","scheduled_date":"2026-12-22"}]') = -1, 'T6 stale generator refused';
   ok := false; BEGIN PERFORM service_plan_save(o2, plan, NULL, '{}', NULL, NULL); EXCEPTION WHEN no_data_found THEN ok := true; END; ASSERT ok, 'T6 other company cannot save';
+  SELECT updated_at INTO v_upd FROM service_plans WHERE id = plan;
+  PERFORM service_plan_save(o1, plan, v_upd, '{"price": 60, "previous_price": 50, "price_starts_on": "2027-01-01"}', NULL, NULL);
+  ASSERT (SELECT previous_price = 50 AND price_starts_on = '2027-01-01' AND price = 60 FROM service_plans WHERE id = plan), 'T6 price schedule saved';
   ASSERT NOT has_table_privilege('authenticated', 'service_visit_charges', 'SELECT'), 'T6 charges not readable by users';
   ASSERT NOT has_function_privilege('authenticated', 'service_plan_save(uuid, uuid, timestamptz, jsonb, uuid[], jsonb)', 'EXECUTE'), 'T6 save not callable by users';
 

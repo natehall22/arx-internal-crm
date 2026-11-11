@@ -3,6 +3,8 @@ import { STARTER_TEMPLATES, starterTemplate } from '@/lib/service-plan-starters'
 import {
   DEFAULT_STEP_RESULTS,
   addDaysYmd,
+  planPriceOn,
+  priceScheduleFor,
   cleanPlanInput,
   cleanPricing,
   cleanSeasons,
@@ -307,5 +309,22 @@ describe('regeneration after an edit', () => {
     expect(crewAfterEdit('crewA', 'crewA', 'crewB')).toBe('crewB')
     expect(crewAfterEdit('crewC', 'crewA', 'crewB')).toBe('crewC')
     expect(crewAfterEdit(null, null, 'crewB')).toBe('crewB')
+  })
+})
+
+describe('new price starts on', () => {
+  const plan = { price: 50, previous_price: 45, price_starts_on: '2026-12-01', billing_basis: 'per_visit' as const }
+  it('prices a day by the schedule; per-month plans have no visit price', () => {
+    expect(planPriceOn(plan, '2026-11-30')).toBe(45)
+    expect(planPriceOn(plan, '2026-12-01')).toBe(50)
+    expect(visitPrice({ ...plan, billing_basis: 'per_month' }, '2026-11-30')).toBeNull()
+  })
+  it('a future start keeps today’s price before it; no date or the same price clears it', () => {
+    const old = { price: 45, previous_price: null, price_starts_on: null, billing_basis: 'per_visit' as const }
+    expect(priceScheduleFor(old, 50, '2026-12-01', '2026-11-10')).toEqual({ previous_price: 45, price_starts_on: '2026-12-01' })
+    expect(priceScheduleFor(old, 50, null, '2026-11-10')).toBeNull()
+    expect(priceScheduleFor(old, 50, '2026-11-10', '2026-11-10')).toBeNull() // today = now
+    expect(priceScheduleFor(plan, 45, '2026-12-15', '2026-11-10')).toEqual({ previous_price: null, price_starts_on: null }) // back to today’s price
+    expect(priceScheduleFor(plan, 55, null, '2026-11-10')).toEqual({ previous_price: null, price_starts_on: null })
   })
 })
