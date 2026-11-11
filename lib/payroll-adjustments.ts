@@ -1,16 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { roundMoney } from '@/lib/money'
-import { ensureNextOpenPeriod, isPeriodClaimedError, periodRefusalMessage } from '@/lib/payroll-periods'
-
-const LOCK_CLAIM_STALE_MS = 15 * 60 * 1000
-
-/** A week can take or lose a fix only while it is open AND no approval is mid-flight (a live lock claim). */
-function periodIsEditable(p: { status?: unknown; lock_claimed_at?: unknown }): boolean {
-  if (p.status !== 'open') return false
-  const claimed = p.lock_claimed_at ? new Date(String(p.lock_claimed_at)).getTime() : 0
-  return !(claimed && Date.now() - claimed < LOCK_CLAIM_STALE_MS)
-}
+import { ensureNextOpenPeriod, isPeriodClaimedError, periodIsEditable, periodRefusalMessage } from '@/lib/payroll-periods'
 
 export type PayrollAdjustment = {
   id: string

@@ -6,6 +6,8 @@ import { formatDateWeekday } from '@/lib/format'
 import { RESULT_TONE_CLASS, SKIP_REASONS, SKIP_REASON_LABELS, type SkipReason, type StepResultOption } from '@/lib/service-plans'
 import { uploadVisitPhotos } from '@/lib/visit-photo-upload'
 import { FileDropZone } from '@/components/ui/file-drop-zone'
+import { ClockHereButton, ClockPanel } from '@/components/time/ClockPanel'
+import { useClock, usePresence, type ClockState } from '@/components/time/useClock'
 
 export type CrewDayVisit = {
   id: string
@@ -45,12 +47,15 @@ export default function CrewDayList({
   companyName,
   today,
   visits: initial,
+  clock: initialClock = null,
 }: {
   token: string
   crewName: string
   companyName: string
   today: string
   visits: CrewDayVisit[]
+  /** The crew's time clock (only when the company uses it AND this crew clocks in; subs never get one). */
+  clock?: ClockState | null
 }) {
   const [visits, setVisits] = useState<Array<CrewDayVisit & { resultLabel?: string }>>(initial)
   const [busy, setBusy] = useState<string | null>(null)
@@ -62,6 +67,20 @@ export default function CrewDayList({
   // A skip waits a few seconds so a wrong tap can be undone; it is sent at once if the page is closed or hidden.
   const pendingSkip = useRef<{ id: string; body: Record<string, unknown>; before: CrewDayVisit; timer: number } | null>(null)
   const [undoFor, setUndoFor] = useState<string | null>(null)
+  // Hooks run either way; with no clock the endpoint is never called (the empty state renders nothing).
+  const clock = useClock(`/api/crew/day/${token}/clock`, {
+    tapperKey: token.slice(0, 12),
+    initial: initialClock ?? { ready: true, people: [], equipment: [], equipmentChoices: [], finishQuestions: [], captureLocation: false, timeZone: 'UTC' },
+  })
+  const [present, setPresent] = usePresence(clock)
+  const clockOn = !!initialClock && initialClock.people.length > 0
+  const crewAt = (visitId: string) => (clockOn ? (clock.state?.people ?? []).filter((p) => p.open?.workOrderId === visitId).map((p) => p.userId) : [])
+  const stopLabel = (workOrderId: string | null) => {
+    const i = visits.findIndex((x) => x.id === workOrderId)
+    if (i < 0) return null
+    const x = visits[i]
+    return `Stop ${x.routePosition ?? i + 1}${x.address ? ` — ${x.address}` : ''}`
+  }
 
   // A replaced or expired link must not keep showing addresses and gate codes on a phone that still has the page open:
   // re-check on focus, on return to the tab / back-forward cache, and every few minutes; wipe everything when it's dead.
@@ -208,9 +227,11 @@ export default function CrewDayList({
             {error}
           </p>
         ) : null}
+        {clockOn ? <ClockPanel clock={clock} selected={present} setSelected={setPresent} placeLabel={(o) => stopLabel(o.workOrderId)} title="Crew time" /> : null}
         <ol className="flex flex-col gap-3">
           {visits.map((v, i) => {
             const closed = v.status !== 'scheduled'
+            const crewHere = crewAt(v.id)
             return (
               <li key={v.id} className={`rounded-xl border-2 bg-white p-4 ${closed ? 'border-[#e5e3dc]' : 'border-[#2c2c2a]'}`}>
                 <p className="text-sm font-semibold uppercase tracking-wide">Stop {v.routePosition ?? i + 1}</p>
@@ -231,6 +252,7 @@ export default function CrewDayList({
                   </p>
                 ) : null}
                 <div className="mt-3 grid grid-cols-2 gap-2">
+                  {clockOn && !closed ? <ClockHereButton clock={clock} where={{ workOrderId: v.id }} selected={present} /> : null}
                   {v.address || (v.lat != null && v.lng != null) ? (
                     <a href={directionsHref(v)} target="_blank" rel="noopener noreferrer" className={`${btn} border-2 border-[#2c2c2a] bg-white`}>
                       Directions
@@ -277,16 +299,46 @@ export default function CrewDayList({
                 ) : null}
                 {askPhoto === v.id ? (
                   <div className="mt-3 flex flex-col gap-2 border-t-2 border-[#e5e3dc] pt-3">
-                    <p className="text-base font-bold">Done. Add a photo?</p>
+                    <p className="text-base font-bold">{crewHere.length ? 'Done. Add a photo, then clock the crew out' : 'Done. Add a photo?'}</p>
                     <FileDropZone
                       accept="image/*"
                       disabled={busy === v.id}
-                      label={busy === v.id ? 'Saving…' : 'Take or add a photo'}
-                      onFiles={(files) => void onPhotos(v.id, files).then(() => setAskPhoto(null))}
+                      label={busy === v.id ? 'Saving…' : v.photoCount ? `Add another photo (${v.photoCount} saved)` : 'Take or add a photo'}
+                      // With the crew clocked in here the panel stays for the clock choice; otherwise a photo closes it.
+                      onFiles={(files) => void onPhotos(v.id, files).then(() => !crewHere.length && setAskPhoto(null))}
                     />
-                    <button type="button" className={`${btn} border-2 border-[#2c2c2a] bg-white`} onClick={() => setAskPhoto(null)}>
-                      No thanks
-                    </button>
+                    {crewHere.length ? (
+                      <>
+                        <button
+                          type="button"
+                          className={`${btn} bg-[#2c2c2a] text-white`}
+                          onClick={() => {
+                            setAskPhoto(null)
+                            // Fresh list of who is clocked in here (not the list painted when Done was tapped).
+                            void clock.latestOpen(v.id).then((ids) => { if (ids.length) void clock.tap('clock_out', { userIds: ids }) })
+                          }}
+                        >
+                          Clock out crew — done for the day
+                        </button>
+                        <button
+                          type="button"
+                          className={`${btn} border-2 border-[#2c2c2a] bg-white`}
+                          onClick={() => {
+                            setAskPhoto(null)
+                            void clock.latestOpen(v.id).then((ids) => { if (ids.length) void clock.tap('clock_out', { userIds: ids, forTravel: true }) })
+                          }}
+                        >
+                          Driving to the next stop
+                        </button>
+                        <button type="button" className={`${btn} border-2 border-[#2c2c2a] bg-white`} onClick={() => setAskPhoto(null)}>
+                          Stay clocked in here
+                        </button>
+                      </>
+                    ) : (
+                      <button type="button" className={`${btn} border-2 border-[#2c2c2a] bg-white`} onClick={() => setAskPhoto(null)}>
+                        No thanks
+                      </button>
+                    )}
                   </div>
                 ) : null}
                 {finishing === v.id ? (

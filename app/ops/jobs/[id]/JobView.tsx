@@ -20,6 +20,7 @@ import {
 } from '@/lib/materials-coverage-overrides'
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 import { hasFinancials } from '@/lib/financials-access'
+import JobClockCard from '@/components/time/JobClockCard'
 import { loadJobCatchUpSettings, loadJobCatchUps } from '@/lib/job-catch-up-db'
 import type { JobCatchUpResult } from '@/lib/job-catch-up'
 
@@ -596,6 +597,21 @@ export default async function JobView({ params, embedded = false, initialTab = n
       const access = await customFieldRecordAccess(admin, await resolveThreadViewer(admin, profile), 'job', jobRes.data.id)
       detailsSlot = <CustomFieldsCard entity="job" recordId={jobRes.data.id} definitions={jobFieldDefs} initialValues={values} canEdit={access.edit} title="Job details" />
     }
+  }
+
+  // The time clock card (company switch on): clock yourself / your crew in on this job.
+  const features = await getOrgFeatures(profile.org_id)
+  if (features.timeTracking) {
+    const jobNumber = (jobRes.data as { job_number?: string | null }).job_number
+    const clockCard = <JobClockCard jobId={jobRes.data.id} jobLabel={jobNumber ? `job ${jobNumber}` : 'this job'} />
+    detailsSlot = detailsSlot ? (
+      <div className="flex flex-col gap-4">
+        {clockCard}
+        {detailsSlot}
+      </div>
+    ) : (
+      clockCard
+    )
   }
 
   return (

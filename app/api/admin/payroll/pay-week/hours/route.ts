@@ -33,5 +33,7 @@ export async function POST(request: NextRequest) {
     entries: [{ user_id: userId, regular_hours: reg, overtime_hours: ot, reason: 'Pay this week' }],
   })
   if (!res.ok) return NextResponse.json({ error: res.error }, { status: res.status })
+  // The time clock owns this person's hours this week: what was typed is kept aside, not paid (lib/payroll-hours.ts planHoursWrite).
+  if (res.notes?.some((n) => n.endsWith(':clock_kept'))) return NextResponse.json({ ok: true, warning: 'This person’s hours come from the crew time clock this week. Your typed hours are saved aside; payroll uses the clock. Fix time under Time.' })
   return NextResponse.json({ ok: true })
 }

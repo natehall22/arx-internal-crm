@@ -65,6 +65,7 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
       { title: 'Job setup', description: 'Your trades list (owners only)', href: '/admin/job-setup', access: 'superAdmin', keywords: 'trades crews gutters siding windows' },
       { title: 'Subcontractors', description: 'Sub network, contacts and calendar sharing', href: '/admin/subs', access: 'leadership', keywords: 'subs crews installers' },
       { title: 'Crews', description: 'In-house installation crews', href: '/admin/crews', access: 'leadership' },
+      { title: 'Time clock', description: 'Crew time for the pay week; who clocks in is set on each crew under Subcontractors', href: '/admin/time', access: 'payroll', keywords: 'hours clock in out timesheet lunch overtime', feature: 'timeTracking' },
       { title: 'Suppliers', description: 'Supplier accounts and ordering', href: '/admin/suppliers', access: 'leadership', keywords: 'abc materials' },
       { title: 'Job catch-up', description: 'One line per job: who has it, what’s next, what’s stuck', href: '/admin#job-catch-up', access: 'leadership', keywords: 'asana stuck board status where this stands owner working days' },
       { title: 'Customer checkups', description: 'Inspections and check-in calls after every install', href: '/admin#checkups', access: 'leadership', keywords: 'maintenance mid year annual inspection follow up past customers' },

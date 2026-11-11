@@ -11,6 +11,8 @@ import { toast } from '@/components/ui/toast'
 import { confirmDialog } from '@/components/ui/confirm-dialog'
 import PhoneLink from '@/components/PhoneLink'
 import { DEFAULT_ORG_TRADES, serviceIsTrade, tradeOptions, type OrgTradeOption } from '@/lib/org-trades'
+import CrewTimeSetup from '@/components/time/CrewTimeSetup'
+import { useOrgFeatures } from '@/hooks/useOrgFeatures'
 
 interface SubContractor {
   id: string
@@ -93,6 +95,7 @@ export default function SubContractorsPage() {
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
   const [editingSub, setEditingSub] = useState<SubContractor | null>(null)
+  const orgFeatures = useOrgFeatures()
   const [saving, setSaving] = useState(false)
   const [orgId, setOrgId] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -618,6 +621,8 @@ export default function SubContractorsPage() {
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg"
                   />
                 </div>
+
+                {editingSub && orgFeatures.timeTracking ? <CrewTimeSetup subId={editingSub.id} /> : null}
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Internal Notes</label>
