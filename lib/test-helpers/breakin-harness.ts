@@ -248,13 +248,20 @@ export function findings(w: World, responseText: string): Finding[] {
 
 /** Writes (insert, upsert or update) by company B that leave a B row pointing at company A's record (a column =
  * VICTIM_ID): a cross-company reference. */
-export function crossReferences(w: World): string[] {
+let columnsCache: Map<string, Set<string>> | null = null
+export function crossReferences(w: World, root?: string): string[] {
+  if (root && !columnsCache) columnsCache = tableColumns(root)
   const out: string[] = []
   for (const wr of w.db.writes) {
     if (wr.op === 'delete') continue
+    const cols = columnsCache?.get(wr.table)
     for (const r of wr.rows) {
       if (r.org_id === ORG_A || !('org_id' in r)) continue
-      for (const [k, v] of Object.entries(r)) if (v === VICTIM_ID && k !== 'id' && !GLOBAL_REF_COLUMNS.has(k)) out.push(`${wr.table}.${k}`)
+      for (const [k, v] of Object.entries(r)) {
+        if (v !== VICTIM_ID || k === 'id' || GLOBAL_REF_COLUMNS.has(k)) continue
+        if (cols && !cols.has(k.toLowerCase())) continue // not a real column: the real write would be refused
+        out.push(`${wr.table}.${k}`)
+      }
     }
   }
   return out
@@ -352,4 +359,28 @@ export function guessValue(key: string, id: string, org: string): unknown {
   if (/(settings|config|options|meta|filters|prefs|patch|updates|changes|fields)$/.test(k)) return { id }
   if (/(lat|lng)$/.test(k)) return 35.4
   return 'bravo'
+}
+
+/**
+ * Columns per table, read from the migrations (CREATE TABLE bodies + ALTER TABLE … ADD COLUMN). The fake database
+ * accepts any column, but PostgREST rejects a write naming a column that does not exist — so a cross-reference is only
+ * real when the column is. Tables the parser cannot see are not filtered.
+ */
+export function tableColumns(root: string): Map<string, Set<string>> {
+  const dir = join(root, 'supabase', 'migrations')
+  const out = new Map<string, Set<string>>()
+  const add = (t: string, c: string) => { const s = out.get(t) ?? new Set<string>(); s.add(c.toLowerCase()); out.set(t, s) }
+  for (const f of readdirSync(dir).filter((x) => /^\d.*\.sql$/.test(x)).sort()) {
+    const sql = readFileSync(join(dir, f), 'utf8')
+    for (const m of Array.from(sql.matchAll(/create\s+table\s+(?:if\s+not\s+exists\s+)?(?:public\.)?"?([a-z_0-9]+)"?\s*\(([\s\S]*?)\n\s*\)\s*;/gi))) {
+      for (const line of m[2].split('\n')) {
+        const c = line.trim().match(/^"?([a-z_][a-z_0-9]*)"?\s+[a-z]/i)
+        if (c && !/^(constraint|primary|unique|foreign|check|exclude)$/i.test(c[1])) add(m[1].toLowerCase(), c[1])
+      }
+    }
+    for (const m of Array.from(sql.matchAll(/alter\s+table\s+(?:if\s+exists\s+)?(?:only\s+)?(?:public\.)?"?([a-z_0-9]+)"?([\s\S]*?);/gi))) {
+      for (const c of Array.from(m[2].matchAll(/add\s+column\s+(?:if\s+not\s+exists\s+)?"?([a-z_][a-z_0-9]*)"?/gi))) add(m[1].toLowerCase(), c[1])
+    }
+  }
+  return out
 }

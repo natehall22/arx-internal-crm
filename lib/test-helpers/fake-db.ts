@@ -82,6 +82,9 @@ export function createFakeDb(
     const run = () => {
       let data: Row[]
       if (op === 'insert') {
+        // Postgres refuses an insert whose id already exists (duplicate key), it never overwrites.
+        const dup = payload.find((p) => p.id != null && rows.some((r) => r.id === p.id))
+        if (dup) return { data: null, error: { message: `duplicate key value violates unique constraint "${table}_pkey"`, code: '23505' }, count: null }
         data = payload.map((p) => ({ id: p.id ?? `gen-${autoId++}`, ...p }))
         rows.push(...data)
         writes.push({ table, op, rows: data })

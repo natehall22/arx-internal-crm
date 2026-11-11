@@ -203,12 +203,26 @@ let variant: Variant | null = null
 const each = (field: string, values: string[]): Variant[] => values.map((v) => () => ({ body: { [field]: v }, query: { [field]: v } }))
 const POLYGON = { type: 'Polygon', coordinates: [[[-80.7, 35.4], [-80.6, 35.4], [-80.6, 35.5], [-80.7, 35.4]]] }
 const FIXTURES: Record<string, Variant[]> = {
-  '/api/admin/data': each('resource', ['comp_plans', 'regions', 'teams', 'users', 'campaigns', 'scheduling', 'subs']),
+  'GET /api/admin/data': each('resource', ['comp_plans', 'regions', 'teams', 'users', 'campaigns', 'scheduling']),
+  'POST /api/admin/data': each('resource', ['dashboard_settings', 'proposals', 'region', 'team', 'comp_plan', 'user_comp_plan', 'campaign', 'proposal_template']),
+  'PATCH /api/admin/data': each('resource', ['region', 'team', 'comp_plan', 'user', 'campaign', 'dashboard_settings', 'user_hierarchy', 'proposal_template']),
+  'DELETE /api/admin/data': each('resource', ['region', 'team', 'comp_plan', 'campaign', 'proposal_template']),
   '/api/admin/incentives': each('resource', ['payout_queue', 'heat_program', 'incentive_cycle', 'incentive_badge', 'user_badge']),
   '/api/admin/pricing': each('type', ['pricebook', 'item', 'pricebook_default', 'org_settings']),
   '/api/admin/proposals': each('type', ['adder', 'percentage', 'template', 'visibility', 'toggle_adder']),
   '/api/admin/settings': each('type', ['job_catch_up', 'features', 'checkups', 'general', 'settings', 'canvass_dispositions', 'inspection_outcomes', 'close_outcomes']),
-  'POST /api/admin/announcements': [() => ({ body: { title: 'Bravo news', body: 'Bravo body', starts_at: '2026-11-10T00:00:00.000Z', roles: ['admin'] } })],
+  'POST /api/admin/announcements': [() => ({ body: { slug: 'bravo-news', title: 'Bravo news', body: 'Bravo body', starts_at: '2026-11-10T00:00:00.000Z', roles: ['admin'] } })],
+  'PATCH /api/ops/jobs/[id]/cost-lines/[costLineId]': [() => ({ body: { approved: true } })],
+  'PATCH /api/referrals/[id]/status': [() => ({ body: { status: 'qualified' } })],
+  'POST /api/feedback/submit': [() => ({ body: { type: 'bug', message: 'Bravo bug' } })],
+  'POST /api/founder-week/contacts': [() => ({ body: { kind: 'realtor', category: 'realtor', type: 'realtor' } })],
+  'POST /api/mobile/push-token': [() => ({ body: { device_token: 'bravo-device-token' } })],
+  'POST /api/referrals/for-new-lead': [(id, ref) => ({ body: { referrer_type: 'customer', referrer_id: ref, referred_lead_id: ref } })],
+  'POST /api/canvass/import': [() => ({ body: { leads: [{ address_text: '1 Bravo St', lat: 35.4, lng: -80.6, homeowner_name: 'Bravo Home' }] } })],
+  '/api/canvass/roof-age': [() => ({ query: { n: '35.41', s: '35.40', e: '-80.60', w: '-80.61' } })],
+  '/api/canvass/solar': [() => ({ query: { n: '35.41', s: '35.40', e: '-80.60', w: '-80.61' } })],
+  '/api/canvass/weather': [() => ({ query: { n: '35.41', s: '35.40', e: '-80.60', w: '-80.61' } })],
+  'POST /api/close-appointments/submit': [() => ({ body: { outcome: 'sold' } })],
   'POST /api/admin/comp-rates': [() => ({ body: { inspection_rate: 10, manager_override_rate: 1, self_gen_rate: 1 } })],
   'PATCH /api/admin/payroll/bonus-lines/[bonusLineId]/status': [() => ({ body: { status: 'approved' } })],
   'POST /api/admin/canvass-territories': [() => ({ body: { boundary_geojson: POLYGON } })],
@@ -341,6 +355,7 @@ async function readBody(res: Response): Promise<string> {
 const VERIFIED_RPCS: Record<string, string> = {
   cancel_management_comp_overlay: 'supabase/migrations/202608070001_management_comp_overlays.sql: assignment WHERE id = p_assignment_id AND org_id = p_org_id (route passes auth.profile.org_id)',
   end_management_comp_overlay: 'supabase/migrations/202608070001_management_comp_overlays.sql: assignment WHERE id = p_assignment_id AND org_id = p_org_id',
+  assign_primary_comp_plan: 'supabase/migrations/202608070001_management_comp_overlays.sql: target user AND plan both `org_id = p_org_id` (admin/data passes profile.org_id)',
   save_supplier: 'supabase/migrations/202610220030_supplier_atomic_save.sql: vendors WHERE id = p_id AND org_id = p_org, else supplier_not_found (route passes profile.org_id)',
   cancel_production_job: 'supabase/migrations/202609140001_production_job_cancellation.sql: WHERE id = p_job_id AND org_id = p_org_id, else P0002',
   uncancel_production_job: 'supabase/migrations/202609260001_uncancel_restore_only_this_cancel.sql: WHERE id = p_job_id AND org_id = p_org_id, else P0002',
@@ -364,7 +379,7 @@ describe('harness catches a planted hole', () => {
   const run = async (h: (req: NextRequest, ctx: { params: Record<string, unknown> }) => Promise<Response>) => {
     mockWorld = createWorld(TABLES, ORG_TABLES)
     const r = await attack(h, 'POST', '/api/planted/[id]', 'json')
-    return { kinds: findings(mockWorld, r.text).map((f) => f.kind), xref: crossReferences(mockWorld) }
+    return { kinds: findings(mockWorld, r.text).map((f) => f.kind), xref: crossReferences(mockWorld, ROOT) }
   }
   test('read by id with no org filter → leak', async () => {
     const out = await run(async (_req, { params }) => {
@@ -466,7 +481,8 @@ for (const m of MODES) {
           if (typeof h !== 'function') continue
           const key = `${method} ${routePath}`
           const variants: Array<Variant | null> = FIXTURES[key] ?? FIXTURES[routePath] ?? [null]
-          for (const [vi, v] of variants.entries()) {
+          for (let vi = 0; vi < variants.length; vi++) {
+            const v = variants[vi]
             variant = v
             const tag = variants.length > 1 ? `${key} #${vi + 1}` : key
             // Control (own mode only): the same request with company B's own ids.
@@ -485,7 +501,7 @@ for (const m of MODES) {
                   targetOrg = ORG_A
                   const mixed = await send(h as never, method, routePath, shape)
                   for (const x of findings(mockWorld, mixed.text)) problems.push(`${tag} [own record, A refs: ${mixed.status}] ${x.kind}: ${x.detail}`)
-                  for (const x of crossReferences(mockWorld)) if (!ALLOWED_XREF[x]) problems.push(`${tag} [own record, A refs: ${mixed.status}] cross-reference: company B row ${x} = company A's id`)
+                  for (const x of crossReferences(mockWorld, ROOT)) if (!ALLOWED_XREF[x]) problems.push(`${tag} [own record, A refs: ${mixed.status}] cross-reference: company B row ${x} = company A's id`)
                 }
               } finally {
                 target = refTarget = VICTIM_ID
@@ -495,7 +511,7 @@ for (const m of MODES) {
             const r = await send(h as never, method, routePath, shape)
             const f = findings(mockWorld, r.text)
             const rpcA = mockWorld.rpcs.filter((x) => JSON.stringify(x.args).match(new RegExp(`${VICTIM_ID}|${ORG_A}`))).map((x) => x.name)
-            const xref = crossReferences(mockWorld)
+            const xref = crossReferences(mockWorld, ROOT)
             const readA = Array.from(new Set(mockWorld.readsOfA))
             outcomes.push({
               mode: m.name, route: routePath, method, status: r.status, error: 'error' in r ? r.error : undefined, findings: f, xref,
@@ -517,6 +533,72 @@ for (const m of MODES) {
     }
   })
 }
+
+/**
+ * Middleware (the company web-address fence) run for real, then its forwarded request headers handed to a route —
+ * the production order. B's session on A's address, B's session with a forged "already resolved" header, and an
+ * address that is no company.
+ */
+describe('middleware + route: company web address', () => {
+  const { middleware } = require(join(ROOT, 'middleware.ts')) as { middleware: (r: NextRequest) => Promise<Response> }
+  const route = require(join(ROOT, 'app/api/customers/[id]/route.ts')) as { GET: (r: NextRequest, c: unknown) => Promise<Response> }
+  const cookieValue = encodeURIComponent(JSON.stringify({ access_token: ATTACKER_TOKEN }))
+  beforeAll(() => {
+    mode = { name: 'middleware', host: 'alpha.crm.test', baseDomain: 'crm.test' }
+    process.env.APP_BASE_DOMAIN = 'crm.test'
+    __resetCompanyHostCacheForTests()
+  })
+  afterAll(() => {
+    delete process.env.APP_BASE_DOMAIN
+    __resetCompanyHostCacheForTests()
+  })
+
+  /** Middleware, then (if it passes) the route with the headers middleware forwarded. */
+  async function through(host: string, id: string, extra: Record<string, string> = {}) {
+    mockWorld = createWorld(TABLES, ORG_TABLES)
+    const url = `https://${host}/api/customers/${id}`
+    const headers = new Headers({ host, authorization: `Bearer ${ATTACKER_TOKEN}`, cookie: `sb-proj-auth-token=${cookieValue}`, ...extra })
+    const mw = await middleware(new NextRequest(url, { headers }))
+    if (!mw.headers.get('x-middleware-next')) return { status: mw.status, text: await mw.text(), forwarded: null as Headers | null }
+    const forwarded = new Headers(headers)
+    for (const name of (mw.headers.get('x-middleware-override-headers') ?? '').split(',').filter(Boolean)) {
+      const v = mw.headers.get(`x-middleware-request-${name}`)
+      if (v === null) forwarded.delete(name)
+      else forwarded.set(name, v)
+    }
+    mockReq = { headers: forwarded, cookies: [{ name: 'sb-proj-auth-token', value: cookieValue }] }
+    const res = await route.GET(new NextRequest(url, { headers: forwarded }), { params: { id } })
+    return { status: res.status, text: await res.text(), forwarded }
+  }
+
+  test('control: B on its own address reaches its own customer', async () => {
+    const r = await through('bravo.crm.test', BRAVO_ROW_ID)
+    expect(r.status).toBe(200)
+    expect(r.text).toContain('Bravo')
+  })
+  test('B signed in, on A\'s address: refused, nothing of A', async () => {
+    const r = await through('alpha.crm.test', VICTIM_ID)
+    expect(r.status).toBe(401)
+    expect(findings(mockWorld, r.text)).toEqual([])
+    // Even B's own record is refused on A's address.
+    expect((await through('alpha.crm.test', BRAVO_ROW_ID)).status).toBe(401)
+  })
+  test('a client-sent "already resolved" header is replaced by middleware', async () => {
+    const r = await through('alpha.crm.test', VICTIM_ID, { 'x-company-resolved': 'forged.by.client' })
+    expect(r.forwarded?.get('x-company-resolved')).not.toBe('forged.by.client')
+    expect(r.status).toBe(401)
+  })
+  test('an address that is no company: 404 before any route code', async () => {
+    const r = await through('nobody.crm.test', VICTIM_ID)
+    expect(r.status).toBe(404)
+    expect(mockWorld.readsOfA).toEqual([])
+  })
+  test('B with the iPhone company code of A: refused', async () => {
+    const r = await through('legacy.example', VICTIM_ID, { 'x-company-code': 'alpha' })
+    expect(r.status).toBe(401)
+    expect(findings(mockWorld, r.text)).toEqual([])
+  })
+})
 
 /**
  * Ratchet: how many handlers the control reaches a record with. A route that stops reaching (a fixture broke, a guess no
@@ -646,7 +728,7 @@ for (const m of MODES) {
           status = /NEXT_REDIRECT|NEXT_NOT_FOUND/.test(d) ? d.split(';')[0] : `threw ${d.slice(0, 120)}`
         }
         const f = findings(mockWorld, text)
-        const xref = crossReferences(mockWorld)
+        const xref = crossReferences(mockWorld, ROOT)
         outcomes.push({ mode: m.name, route: rel, method: 'PAGE', status: status === 'rendered' ? 200 : 'threw', error: status, findings: f, xref, readA: mockWorld.readsOfA.length > 0, rpcA: [], reached: mockWorld.readsOfBRecord.length > 0 || text.includes('Bravo') })
         expect([...f.map((x) => `${x.kind}: ${x.detail}`), ...xref.map((x) => `cross-reference ${x}`)]).toEqual([])
       }, 60_000)
