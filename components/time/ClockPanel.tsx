@@ -251,10 +251,11 @@ export function ClockHereButton({ clock, where, selected, selfOnly = false }: { 
       </button>
     )
   }
-  const ids = selected.length ? selected : state.people.map((p) => p.userId)
+  // Only the people ticked as here (a solo person is always "here").
+  const ids = crewWord ? selected.filter((id) => state.people.some((p) => p.userId === id)) : state.people.map((p) => p.userId)
   return (
-    <button type="button" className={`${btn} col-span-2 bg-green-800 text-white`} onClick={() => void tap('clock_in', { ...where, userIds: ids })}>
-      {crewWord ? `Clock in crew here (${ids.length})` : 'Clock in'}
+    <button type="button" className={`${btn} col-span-2 bg-green-800 text-white`} disabled={ids.length === 0} onClick={() => void tap('clock_in', { ...where, userIds: ids })}>
+      {crewWord ? (ids.length ? `Clock in crew here (${ids.length})` : 'Tick who’s here first') : 'Clock in'}
     </button>
   )
 }

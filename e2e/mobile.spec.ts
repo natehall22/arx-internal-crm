@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import { REPORT_TEMPLATES } from '../lib/reporting/templates'
-import { JOB_SETUP_TRADES, HARNESS_TRADES_0037, HARNESS_PAYMENTS_0037, SUPPLIER_VIEW_0037, HARNESS_INCENTIVES, HARNESS_LEADERBOARD, HARNESS_INSIDE_SALES, HARNESS_INSTALL_SCHEDULE, HARNESS_PARTNERS, HARNESS_APPOINTMENTS, HARNESS_THREAD, HARNESS_PROPOSALS, HARNESS_LEADS, ANNOUNCEMENTS, BANNER, DEFAULT_PLANS, COST_LINES, SUPPLIERS, PAY_WEEK, MY_PAY, REPORT_RESULT, SALE_CREDIT, SUPPLIER_PREVIEW, SUPPLIER_VIEW, TEMPLATE_META, USERS, HARNESS_OWNER_CANDIDATES, HARNESS_CUSTOM_FIELDS, HARNESS_PROPERTIES, HARNESS_SERVICE_PLANS, HARNESS_VISITS, HARNESS_PLAN_TEMPLATES, HARNESS_TEMPLATE_DETAIL } from './fixtures'
+import { JOB_SETUP_TRADES, HARNESS_TRADES_0037, HARNESS_PAYMENTS_0037, SUPPLIER_VIEW_0037, HARNESS_INCENTIVES, HARNESS_LEADERBOARD, HARNESS_INSIDE_SALES, HARNESS_INSTALL_SCHEDULE, HARNESS_PARTNERS, HARNESS_APPOINTMENTS, HARNESS_THREAD, HARNESS_PROPOSALS, HARNESS_LEADS, ANNOUNCEMENTS, BANNER, DEFAULT_PLANS, COST_LINES, SUPPLIERS, PAY_WEEK, MY_PAY, REPORT_RESULT, SALE_CREDIT, SUPPLIER_PREVIEW, SUPPLIER_VIEW, TEMPLATE_META, USERS, HARNESS_OWNER_CANDIDATES, HARNESS_CUSTOM_FIELDS, HARNESS_PROPERTIES, HARNESS_SERVICE_PLANS, HARNESS_VISITS, HARNESS_PLAN_TEMPLATES, HARNESS_TEMPLATE_DETAIL, HARNESS_CLOCK_STATE, HARNESS_CLOCK_STATE_IN, HARNESS_JOB_CLOCK_SELF, HARNESS_TIME_WEEK, HARNESS_CREW_SETUP } from './fixtures'
 
 const json = (body: unknown, status = 200) => ({ status, contentType: 'application/json', body: JSON.stringify(body) })
 
@@ -208,6 +208,41 @@ const SCREENS: Screen[] = [
       { name: 'skip-reasons', run: async (p) => { await p.getByRole('button', { name: 'Skip', exact: true }).first().click(); await p.waitForSelector('text=Why skip?') } },
       { name: 'step-results', run: async (p) => { await p.getByRole('button', { name: 'Done', exact: true }).nth(1).click(); await p.waitForSelector('text=Needs a return trip') } },
     ] },
+  { name: 'crew-day-clock', path: '/dev-harness/crew-day-clock', ready: 'text=Crew time',
+    mock: async (p) => {
+      await p.route('**/api/crew/day/*/status', (route) => route.fulfill(json({ active: true })))
+      await p.route('**/api/crew/day/*/clock', (route) => route.fulfill(route.request().method() === 'GET' ? json(HARNESS_CLOCK_STATE) : json({ ok: true, done: 3 })))
+    },
+    states: [
+      { name: 'untick-absent', run: async (p) => { await p.getByRole('button', { name: /Tony Crew/ }).click(); await p.waitForSelector('text=Clock in crew here (2)') } },
+      { name: 'clocked-in', run: async (p) => { await p.getByRole('button', { name: /Clock in crew here/ }).first().click(); await p.waitForSelector('text=Clocked in here') } },
+      { name: 'finish-question', run: async (p) => { await p.waitForSelector('text=What time did Dee Crew finish') } },
+    ] },
+  { name: 'crew-day-clocked-in', path: '/dev-harness/crew-day-clocked-in', ready: 'text=Compact tractor',
+    mock: async (p) => {
+      await p.route('**/api/crew/day/*/status', (route) => route.fulfill(json({ active: true })))
+      await p.route('**/api/crew/day/*/clock', (route) => route.fulfill(route.request().method() === 'GET' ? json(HARNESS_CLOCK_STATE_IN) : json({ ok: true, done: 3 })))
+      await p.route('**/api/crew/day/*/visits/*', (route) => route.fulfill(json({ ok: true })))
+    },
+    states: [
+      { name: 'move-crew', run: async (p) => { await p.getByRole('button', { name: 'Move crew here' }).first().click(); await p.waitForSelector('text=Move the crew to this stop?') } },
+      { name: 'done-clock-out', run: async (p) => { await p.getByRole('button', { name: 'Done', exact: true }).first().click(); await p.waitForSelector('text=No — driving to the next stop') } },
+      { name: 'clock-out', run: async (p) => { await p.getByRole('button', { name: 'Clock out crew' }).click(); await p.waitForSelector('text=Yes — done for the day') } },
+    ] },
+  { name: 'job-clock', path: '/dev-harness/job-clock', ready: 'text=My time',
+    mock: async (p) => { await p.route('**/api/time/clock', (route) => route.fulfill(route.request().method() === 'GET' ? json(HARNESS_JOB_CLOCK_SELF) : json({ ok: true, done: 1 }))) },
+    states: [{ name: 'clocked-in', run: async (p) => { await p.getByRole('button', { name: 'Clock in', exact: true }).click(); await p.waitForSelector('text=Clocked in here') } }] },
+  { name: 'time-week', path: '/dev-harness/time-week', ready: 'text=Dee Crew',
+    mock: async (p) => {
+      await p.route('**/api/admin/time/settings', (route) => route.fulfill(json({ settings: { autoCloseHours: 12, captureLocation: false, overtimeAfterHours: 40, breakWarningAfterHours: 6 } })))
+      await p.route(/\/api\/admin\/time\/[0-9a-f-]{36}$/, (route) => route.fulfill(json({ history: [{ action: 'auto_closed', by: 'System', at: '2026-11-10T10:30:00.000Z', reason: null, changes: [{ field: 'ended_at', label: 'End', old: null, new: '2026-11-09T17:30:00.000Z' }] }] })))
+    },
+    states: [
+      { name: 'edit-sheet', run: async (p) => { await p.getByRole('button', { name: /Forgot to clock out/ }).first().click(); await p.waitForSelector('[role=dialog] >> text=Why? (required)') } },
+      { name: 'add-sheet', run: async (p) => { await p.getByRole('button', { name: '+ Add time', exact: true }).click(); await p.waitForSelector('[role=dialog] >> text=Pick a person') } },
+    ] },
+  { name: 'crew-time-setup', path: '/dev-harness/crew-time-setup', ready: 'text=Crew lead ✓',
+    mock: async (p) => { await p.route('**/api/admin/subs/*/crew', (route) => route.fulfill(json(HARNESS_CREW_SETUP))) } },
   { name: 'plan-templates', path: '/dev-harness/plan-templates', ready: 'text=Roof & gutter care', mock: async (p) => {
     await p.route('**/api/admin/service-plan-templates', (route) => route.fulfill(json(HARNESS_PLAN_TEMPLATES)))
     await p.route('**/api/admin/service-plan-templates/*', (route) => route.fulfill(json(HARNESS_TEMPLATE_DETAIL)))

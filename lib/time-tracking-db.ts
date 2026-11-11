@@ -418,9 +418,11 @@ export async function applyClockTap(admin: SupabaseClient, actor: ClockActor, ta
             if (w) await reopenIfLeft(ctx, w)
           } else done++
         }
-        // The crew's machines stop when the crew leaves a stop.
-        for (const e of await loadOpenEquipment(admin, actor.orgId, crewSubIds, actor.via === 'signed_in' ? actor.userId : null)) {
-          if (e.workOrderId !== where.workOrderId || (!where.workOrderId && e.jobId !== where.jobId)) await closeEntry(ctx, e)
+        // The crew's machines stop when the crew moves to another stop (not when one person clocks only themselves).
+        if (actor.via === 'crew_link' || picked.some((id) => people.get(id)?.subId)) {
+          for (const e of await loadOpenEquipment(admin, actor.orgId, crewSubIds, actor.via === 'signed_in' ? actor.userId : null)) {
+            if (e.workOrderId !== where.workOrderId || (!where.workOrderId && e.jobId !== where.jobId)) await closeEntry(ctx, e)
+          }
         }
         break
       }
@@ -435,7 +437,10 @@ export async function applyClockTap(admin: SupabaseClient, actor: ClockActor, ta
             done++
           }
         }
-        for (const e of await loadOpenEquipment(admin, actor.orgId, crewSubIds, actor.via === 'signed_in' ? actor.userId : null)) await closeEntry(ctx, e)
+        // Machines stop once nobody this tap acts for is still clocked in.
+        if ((await loadOpen(admin, actor.orgId, allIds, 'work')).size === 0) {
+          for (const e of await loadOpenEquipment(admin, actor.orgId, crewSubIds, actor.via === 'signed_in' ? actor.userId : null)) await closeEntry(ctx, e)
+        }
         break
       }
       case 'break_start': {

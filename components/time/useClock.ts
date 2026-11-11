@@ -65,6 +65,17 @@ export function useClock(endpoint: string, opts: { tapperKey?: string; initial?:
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [endpoint])
 
+  // Another phone (or the office) may have tapped: re-read when this one comes back to the page.
+  useEffect(() => {
+    const onShow = () => document.visibilityState === 'visible' && void refresh()
+    window.addEventListener('focus', onShow)
+    document.addEventListener('visibilitychange', onShow)
+    return () => {
+      window.removeEventListener('focus', onShow)
+      document.removeEventListener('visibilitychange', onShow)
+    }
+  }, [refresh])
+
   // When the outbox empties, read the truth back from the server.
   const prevPending = useRef(pending)
   useEffect(() => {
