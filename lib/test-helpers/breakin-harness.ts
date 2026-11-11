@@ -179,6 +179,25 @@ export function seedForRoute(seed: Record<string, Row[]>, routePath: string) {
   }
 }
 
+/**
+ * Parent joins (`production_jobs!inner(org_id)` + `.eq('production_jobs.org_id', org)`) for every table: the embed name
+ * is the parent table, found by the child's `<parent>_id` column. Without these an embedded company filter matched
+ * nothing, so routes scoped that way (invoices via their job) refused B's own records too and were never reached.
+ */
+const PARENT_FK: Record<string, string> = {
+  production_jobs: 'job_id', opportunities: 'opportunity_id', projects: 'project_id', payroll_periods: 'payroll_period_id',
+  job_invoices: 'invoice_id', leads: 'lead_id', customers: 'customer_id', properties: 'property_id',
+  service_plans: 'service_plan_id', sub_contractors: 'sub_id', proposals: 'proposal_id', users: 'user_id',
+}
+const PARENT_JOINS = new Proxy({} as Record<string, Record<string, { table: string; fk: string }>>, {
+  get: () => Object.fromEntries(Object.entries(PARENT_FK).map(([t, fk]) => [t, { table: t, fk }])),
+})
+
+/** Both companies' invoices become no-job service invoices (customer_id + own org_id, lib/invoices.ts findOrgInvoice). */
+export function noJobInvoices(seed: Record<string, Row[]>) {
+  for (const r of seed.job_invoices ?? []) Object.assign(r, { job_id: null, kind: 'service', status: 'sent', total_cents: 10_000, balance_cents: 10_000 })
+}
+
 export type Finding = { kind: 'leak' | 'write' | 'insert_into_a' | 'moved_into_a' | 'storage' | 'auth_admin' | 'exfil'; detail: string }
 
 /** Columns that point at shared reference tables (GLOBAL_TABLES): an id there is nobody's company data. */
@@ -187,13 +206,15 @@ const GLOBAL_REF_COLUMNS = new Set(['permission_id'])
 export type World = ReturnType<typeof createWorld>
 
 /** One fresh database + side-effect logs for one attack request. */
-export function createWorld(tables: string[], orgTables: Set<string>, attackerRole = 'admin', routePath?: string) {
+export function createWorld(tables: string[], orgTables: Set<string>, attackerRole = 'admin', routePath?: string, seedTweak?: (seed: Record<string, Row[]>) => void) {
   const rpcs: Array<{ name: string; args: Row }> = []
   const readsOfA: string[] = []
   const readsOfBRecord: string[] = []
   const seed = seedTables(tables, orgTables, attackerRole)
   if (routePath) seedForRoute(seed, routePath)
+  seedTweak?.(seed)
   const db = createFakeDb(seed, {
+    relations: PARENT_JOINS,
     onRpc: (name, args) => rpcs.push({ name, args }),
     onSelect: (table, rows) => {
       if (rows.some((r) => ownerOf(table, r) === ORG_A)) readsOfA.push(table)

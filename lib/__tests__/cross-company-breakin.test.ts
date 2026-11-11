@@ -13,8 +13,9 @@ import { NextRequest } from 'next/server'
 import { __resetCompanyHostCacheForTests } from '@/lib/company-host'
 import {
   A_STAMP, ATTACKER_TOKEN, requestShape, guessValue, type RequestShape, BRAVO_PUBLIC_TOKEN, BRAVO_ROW_ID, ORG_A, ORG_B, SERVICE_KEY, VICTIM_ID, companyTables, createWorld, reachedB, crossReferences, crossings, findings, routePathOf, tablesInCode, walk,
-  type Finding, type World,
+  type Finding, type World, noJobInvoices,
 } from '@/lib/test-helpers/breakin-harness'
+import type { Row } from '@/lib/test-helpers/fake-db'
 
 const ROOT = join(__dirname, '..', '..')
 process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://proj.supabase.co'
@@ -198,7 +199,11 @@ function bodyFor(routePath: string, method: string, shape: RequestShape): Record
  * resources), keyed `METHOD /route` or `/route`. Each variant is run as its own control + attack. `id` is the record
  * id (B's in the control, A's in the attack); `ref` the id for reference fields.
  */
-type Variant = (id: string, ref: string) => { body?: Record<string, unknown>; query?: Record<string, string> }
+type Variant = ((id: string, ref: string) => { body?: Record<string, unknown>; query?: Record<string, string> }) & {
+  /** Reshape both companies' seed rows for this variant only (before the snapshot), e.g. no-job invoices. */
+  seed?: (seed: Record<string, Row[]>) => void
+}
+const withSeed = (v: Variant, seed: (s: Record<string, Row[]>) => void): Variant => Object.assign(v, { seed })
 let variant: Variant | null = null
 const each = (field: string, values: string[]): Variant[] => values.map((v) => () => ({ body: { [field]: v }, query: { [field]: v } }))
 const TODAY_YMD = new Date().toISOString().slice(0, 10)
@@ -238,6 +243,23 @@ const FIXTURES: Record<string, Variant[]> = {
   ],
   'POST /api/crew/day/[token]/visits/[id]': [() => ({ body: { action: 'done' } }), () => ({ body: { action: 'skip', reason: 'rain' } })],
   'POST /api/ops/visits/shift': [(id, ref) => ({ body: { from: TODAY_YMD, days: 1, subId: ref } }), () => ({ body: { from: TODAY_YMD, days: 1, subId: 'all' } })],
+  // Invoices (job and no-job): every PATCH action, record_payment included.
+  'PATCH /api/invoices/[invoiceId]': [
+    () => ({ body: { action: 'add_item', description: 'Bravo mowing', qty: 1, unit_price_cents: 4500, unit: 'hour', service_date: TODAY_YMD } }),
+    (id, ref) => ({ body: { action: 'update_item', item_id: ref, description: 'Bravo edit', qty: 2, unit_price_cents: 100 } }),
+    (id, ref) => ({ body: { action: 'delete_item', item_id: ref } }),
+    () => ({ body: { action: 'send', email: 'pay@bravo.test' } }),
+    () => ({ body: { action: 'record_payment', amount_cents: 100, paid_at: TODAY_YMD, method: 'check', note: 'Bravo' } }),
+    () => ({ body: { action: 'void', reason: 'Bravo mistake' } }),
+    () => ({ body: { action: 'duplicate' } }),
+    () => ({ body: { action: 'update_notes', notes: 'Bravo', public_note: 'Bravo', internal_note: 'Bravo' } }),
+    // Invoices with no job (service billing): payment + void go through the customer-invoice path.
+    withSeed(() => ({ body: { action: 'record_payment', amount_cents: 100, paid_at: TODAY_YMD, method: 'check', note: 'Bravo' } }), noJobInvoices),
+    withSeed(() => ({ body: { action: 'void', reason: 'Bravo mistake' } }), noJobInvoices),
+    withSeed(() => ({ body: { action: 'send', email: 'pay@bravo.test' } }), noJobInvoices),
+  ],
+  'GET /api/invoices/[invoiceId]': [() => ({}), withSeed(() => ({}), noJobInvoices)],
+  'POST /api/ops/billing': [(id, ref) => ({ body: { keys: [`v:${ref}`], unitKeys: [`v:${ref}`], visitIds: [ref], grouping: 'visit', includeCurrentMonth: true } })],
   'PATCH /api/service-plans/[id]': [
     () => ({ body: { action: 'pause' } }),
     () => ({ body: { action: 'resume' } }),
@@ -434,10 +456,10 @@ describe('harness catches a planted hole', () => {
 
 /** Upload routes get real multipart first; anything else JSON, falling back to multipart if JSON is refused. */
 async function send(h: never, method: string, routePath: string, shape: RequestShape) {
-  mockWorld = createWorld(TABLES, ORG_TABLES, 'admin', routePath)
+  mockWorld = createWorld(TABLES, ORG_TABLES, 'admin', routePath, variant?.seed)
   let r = await attack(h, method, routePath, shape.multipart ? 'form' : 'json', shape)
   if (!shape.multipart && r.status === 'threw' && /Content-Type was not one of/.test(r.text)) {
-    mockWorld = createWorld(TABLES, ORG_TABLES, 'admin', routePath)
+    mockWorld = createWorld(TABLES, ORG_TABLES, 'admin', routePath, variant?.seed)
     r = await attack(h, method, routePath, 'form', shape)
   }
   return r
@@ -467,6 +489,7 @@ const READ_THEN_CHECK: Record<string, string> = {
 /** Successful (2xx) responses may echo company A's id only where listed (the route repeats the request back). */
 const ECHO_OK: Record<string, string> = {
   'POST /api/campaigns': 'echoes the ad-platform campaign ids it was sent (free text, see ALLOWED_XREF); no A row is read',
+  'POST /api/ops/billing': 'echoes request keys it could not bill under `alreadyBilled`; units come only from the caller\'s own ready-to-bill load (no A row is read)',
 }
 
 const reachedByControl = new Set<string>()
