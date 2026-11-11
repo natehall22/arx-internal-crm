@@ -48,6 +48,18 @@ each event id once (`stripe_webhook_events`). The pay page records too on return
 metadata `crm_org_id` equals that company (so neither the event body nor another company's account can pay this
 company's invoice). The company's other Stripe sales (no CRM metadata) are skipped before any Stripe read.
 
+## Money review fixes (2026-11-12)
+
+- Webhook events are only marked done once their payment is recorded (409 while another path holds the recording
+  lease, 500 on any error — Stripe retries). Recording is idempotent by PaymentIntent.
+- Autopay can never charge twice: an unanswered attempt keeps its number, amount and idempotency key; before re-sending,
+  Stripe is searched for its PaymentIntent (`metadata['online_payment_id']`).
+- Refunds and lost disputes reverse the invoice only by what that payment applied (an overpayment refund changes nothing
+  on a paid invoice); disputes: `charge.dispute.closed` lost → negative payment + `payment.disputed`, won → office told.
+- `record_job_payment` (payment + outbox, one transaction) and `apply_job_invoice_payment` (invoice locked) in SQL.
+- Rate limits on the pay page (per address + per link in SQL) and on staff link creation; cross-site writes refused;
+  onboarding refresh changes nothing; payments in another currency are flagged, never recorded.
+
 ## Customer side
 
 - `/pay/<token>` (public, no Nav, company brand only, on the company's own address — a token opened on another company's
@@ -85,7 +97,7 @@ built: there is no job/invoice to hold the money yet (would need a quote-level i
    Connected accounts"**, API version **2024-06-20**, events: `checkout.session.completed`,
    `checkout.session.async_payment_succeeded`, `checkout.session.async_payment_failed`, `checkout.session.expired`,
    `payment_intent.succeeded`, `payment_intent.payment_failed`, `charge.refunded`, `charge.refund.updated`,
-   `charge.dispute.created`, `account.updated`, `account.application.deauthorized` (same list:
+   `charge.dispute.created`, `charge.dispute.closed`, `account.updated`, `account.application.deauthorized` (same list:
    `STRIPE_WEBHOOK_EVENTS` in lib/online-payments/webhook.ts). Signing secret → env `STRIPE_WEBHOOK_SECRET`.
 4. Apply migration `202611120020` (after 0040 → 0060). Deploy.
 5. In the CRM: feature switches → Online payments ON → Settings → Online payments → **Connect Stripe**, finish Stripe's

@@ -465,11 +465,28 @@ Switch `onlinePayments` (default OFF). Migration `202611120020_online_payments.s
   Autopay: no-job invoices charge the card on file on Send (`sendCustomerInvoiceOnline`), retries on the morning cron
   (`runAutopayRetries`), one charge per invoice per attempt (unique index + Stripe idempotency key).
 - Who: owners connect/disconnect/settings; billing staff (`money:record`) make links and manage cards (`lib/online-payments/access.ts`).
+- **Money review (2026-11-12) — rules:** (1) a webhook event is never `done` unless its payment is recorded: a recorder
+  holding the lease → 409, any error → 500 (Stripe retries); the recorder is idempotent by PaymentIntent. (2) Autopay: an
+  attempt that got no answer stays `open` and is finished with the SAME attempt, amount and idempotency key after asking
+  Stripe (search by `online_payment_id` metadata) — never a new charge beside it; the morning cron finishes stale ones.
+  (3) Refunds / lost disputes come back off the invoice only as far as THAT payment applied (`refundTakeBack`: an
+  overpayment is given back first). (4) Applying a payment to a job invoice is ONE locked SQL step,
+  `apply_job_invoice_payment` (never over the payment's rest nor the invoice balance). (5) A job payment and its outbox row
+  are ONE SQL transaction, `record_job_payment` (re-queues a missing outbox row on a repeat). (6) Outbox events:
+  `payment.recorded`, `payment.refunded`, `payment.disputed` (negative amounts) — never a negative `payment.recorded`.
+  (7) Rate limits: `/api/pay/<token>` per address (memory) and per link (SQL `payment_link_take_attempt`, 10 / 15 min);
+  staff links ≤ 20 per invoice / customer per hour. (8) A payment in another currency than the company's
+  (`settings.onlinePayments.currency`, default usd) is never recorded (needs a look). (9) Stripe's onboarding refresh
+  URL is a side-effect-free GET (back to Settings); every staff write refuses a cross-site Origin (`crossSiteWrite`).
+  JS mirrors of the new SQL for jest: `lib/test-helpers/fake-payment-rpc.ts` (Known Redundancy 40).
 
 **Known Redundancy additions (2026-11-12, online payments):** (38) `ymdInZone` is defined twice (`lib/payroll-week-schedule.ts`,
 `lib/service-plans.ts`, identical) — fold into one date helper. (39) Customer-facing "branded email with one button" HTML is
 now hand-built in 4 places (`renderInvoiceEmail`, `notifyCustomerOfFailedPayment`, the save-card email in
 `app/api/customers/[id]/card`, `lib/job-payment-email.ts` office) — one small email layout helper when next touched.
+(40) `record_job_payment` / `apply_job_invoice_payment` are mirrored in JS for jest (`lib/test-helpers/fake-payment-rpc.ts`);
+a rule changed in the SQL must change there too (the real SQL runs in `supabase/tests/online_payments.test.sql`). The old
+unlocked TS paths stay only as a fallback until migration 202611120020 is applied — delete them after.
 
 ## QuickBooks (2026-11-06)
 Not connected yet; design in `docs/quickbooks-sync.md`. Until the worker ships, `integration_outbox` only receives
