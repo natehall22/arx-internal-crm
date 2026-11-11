@@ -7,7 +7,7 @@ import Link from 'next/link'
 import { getManagerSpoRoleSummary } from '@/lib/manager-commission-roles'
 import { toast } from '@/components/ui/toast'
 import { confirmDialog } from '@/components/ui/confirm-dialog'
-import { useOrgFeatures } from '@/hooks/useOrgFeatures'
+import { useOrgFeatures, useOrgProfile } from '@/hooks/useOrgFeatures'
 
 interface PricebookItem {
   id: string
@@ -57,20 +57,12 @@ const visibilityOptions = [
   { value: 'all', label: 'Everyone', description: 'All users' },
 ]
 
-const adderCategories = [
-  'Ventilation',
-  'Gutters',
-  'Skylights',
-  'Chimney',
-  'Decking',
-  'Flashing',
-  'Other',
-]
-
 export default function AdminProposalsPage() {
   const router = useRouter()
   /** Roof squares pricing switched off (Settings → Features): no roof-square add-on units. */
   const squaresOn = useOrgFeatures().squaresPricing
+  /** Add-on categories and units come from the company's industry profile (lib/industry-profiles.ts; roofing = the old lists). */
+  const pricebookProfile = useOrgProfile().pricebook
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<Tab>('pricing')
   const [pricebookItems, setPricebookItems] = useState<PricebookItem[]>([])
@@ -760,7 +752,11 @@ export default function AdminProposalsPage() {
                     onChange={(e) => setAdderForm(prev => ({ ...prev, adder_category: e.target.value }))}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg"
                   >
-                    {adderCategories.map((cat) => (
+                    {/* an existing add-on keeps showing its own category even if the profile's list doesn't have it */}
+                    {(pricebookProfile.adderCategories.includes(adderForm.adder_category) || !adderForm.adder_category
+                      ? pricebookProfile.adderCategories
+                      : [...pricebookProfile.adderCategories, adderForm.adder_category]
+                    ).map((cat) => (
                       <option key={cat} value={cat}>{cat}</option>
                     ))}
                   </select>
@@ -805,12 +801,14 @@ export default function AdminProposalsPage() {
                         onChange={(e) => setAdderForm(prev => ({ ...prev, unit: e.target.value }))}
                         className="w-full px-4 py-2 border border-gray-300 rounded-lg"
                       >
-                        <option value="each">Each</option>
-                        <option value="lf">Linear Foot</option>
-                        {(squaresOn || adderForm.unit === 'square') && <option value="square">Square (roof)</option>}
-                        <option value="per_sqft">Per sq ft (manual quantity)</option>
-                        {(squaresOn || adderForm.unit === 'sqft') && <option value="sqft">Sq ft (from roof — auto)</option>}
-                        <option value="job">Per Job</option>
+                        {pricebookProfile.units
+                          // roof-square units only with squares pricing on, or when this add-on already uses one
+                          .filter((u) => squaresOn || (u.value !== 'square' && u.value !== 'sqft') || adderForm.unit === u.value)
+                          .map((u) => (
+                            <option key={u.value} value={u.value}>{u.label}</option>
+                          ))}
+                        {/* an existing add-on keeps its own unit even if the profile's list doesn't have it */}
+                        {adderForm.unit && !pricebookProfile.units.some((u) => u.value === adderForm.unit) && <option value={adderForm.unit}>{unitLabelForDisplay(adderForm.unit)}</option>}
                       </select>
                       {adderForm.unit === 'per_sqft' && (
                         <p className="text-xs text-gray-500 mt-2">

@@ -270,8 +270,9 @@ export async function PATCH(request: NextRequest) {
       // above (super admins only, saveBrandSettings). Nor are the job catch-up keys: only the admin-gated
       // `job_catch_up` save writes them (managers can reach this path). Any OTHER key is still accepted from
       // managers — pre-existing; Known Redundancy #25 (should become an allow-list).
-      // Feature switches (settings.features) are owner-only and written only by the `features` save above.
-      const { brand: _brand, [ORG_FEATURES_SETTINGS_KEY]: _features, ...rest } = data
+      // Feature switches (settings.features) are owner-only and written only by the `features` save above; the industry
+      // profile (settings.profile) only by /api/admin/industry-profile (owners).
+      const { brand: _brand, [ORG_FEATURES_SETTINGS_KEY]: _features, profile: _profile, ...rest } = data
       const settingsData = Object.fromEntries(Object.entries(rest).filter(([k]) => !JOB_CATCH_UP_SETTINGS_KEYS.includes(k) && !CHECKUPS_SETTINGS_KEYS.includes(k)))
       const { error } = await adminClient
         .from('orgs')

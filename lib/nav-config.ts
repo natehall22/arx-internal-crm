@@ -5,6 +5,7 @@
  * Pure (no React, no fetching): Nav.tsx builds the context from the same permission helpers it always used.
  */
 import type { OrgFeature, OrgFeatures } from '@/lib/org-features'
+import type { NavSectionId, Terms } from '@/lib/industry-profiles'
 
 export type NavContext = {
   /** Permissions loaded and (for non-superusers) known. While false, permission-gated items stay hidden (fail closed). */
@@ -14,6 +15,11 @@ export type NavContext = {
   permissionNames: ReadonlySet<string>
   /** Company feature switches (lib/org-features.ts). Missing = every feature on. */
   features?: Partial<OrgFeatures>
+  /**
+   * The company's industry profile (lib/org-profile.ts): section order, pages it hides and its words. Missing = roofing =
+   * today's order and labels. Hiding only removes a menu entry; the page keeps its own permission gate.
+   */
+  profile?: { nav: { order: readonly NavSectionId[]; hidden: readonly string[] }; terms: Pick<Terms, 'jobs' | 'jobBoard'> }
   /** Helper results computed with lib/permissions (kept out of this file so there is one definition of each). */
   flags: {
     isOpsOnly: boolean
@@ -37,7 +43,7 @@ const featureOn = (c: NavContext, f: OrgFeature) => c.features?.[f] !== false
 
 export type NavLeaf = { href: string; label: string; show: (c: NavContext) => boolean }
 export type NavSection = {
-  id: 'today' | 'pipeline' | 'jobs' | 'customers' | 'money' | 'insights'
+  id: NavSectionId
   label: string
   /** Where the section's own link goes (the first visible child, unless fixed here). */
   href?: string
@@ -117,14 +123,32 @@ export const ADMIN_ITEM: NavLeaf = {
 
 export type VisibleSection = { id: NavSection['id']; label: string; href: string; children: Array<{ href: string; label: string }> }
 
+/** Profile words on the menu: the Jobs section and its board link (roofing = "Jobs" / "Job Board", unchanged). */
+function profileLabel(c: NavContext, key: string, fallback: string): string {
+  const terms = c.profile?.terms
+  if (!terms) return fallback
+  if (key === 'section:jobs') return terms.jobs
+  if (key === '/ops') return terms.jobBoard
+  return fallback
+}
+
 /** Sections this person sees, each with only its visible pages. A section with no visible page disappears. */
 export function visibleNav(c: NavContext): { sections: VisibleSection[]; canvass: boolean; admin: boolean } {
   const sections: VisibleSection[] = []
+  const hidden = new Set(c.profile?.nav.hidden ?? [])
   for (const s of NAV_SECTIONS) {
-    const children = s.children.filter((l) => l.show(c)).map(({ href, label }) => ({ href, label }))
+    const children = s.children
+      .filter((l) => !hidden.has(l.href) && l.show(c))
+      .map(({ href, label }) => ({ href, label: profileLabel(c, href, label) }))
     if (s.children.length > 0 && children.length === 0) continue
-    sections.push({ id: s.id, label: s.label, href: s.href ?? children[0].href, children })
+    sections.push({ id: s.id, label: profileLabel(c, `section:${s.id}`, s.label), href: s.href ?? children[0].href, children })
   }
+  const order = c.profile?.nav.order ?? []
+  const rank = (id: NavSectionId) => {
+    const i = order.indexOf(id)
+    return i === -1 ? order.length : i
+  }
+  sections.sort((a, b) => rank(a.id) - rank(b.id) || NAV_SECTIONS.findIndex((s) => s.id === a.id) - NAV_SECTIONS.findIndex((s) => s.id === b.id))
   return { sections, canvass: CANVASS_ITEM.show(c), admin: ADMIN_ITEM.show(c) }
 }
 

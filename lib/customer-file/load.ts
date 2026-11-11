@@ -4,7 +4,8 @@ import { notFound } from 'next/navigation'
 import { requireAuth } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import { callerCanAccessJobBilling } from '@/lib/finance-access'
-import { defaultTab, tabsFor, type FileTab } from '@/lib/customer-file/access'
+import { defaultTab, tabLabelsFor, tabsFor, type FileTab } from '@/lib/customer-file/access'
+import { loadOrgProfile } from '@/lib/org-profile'
 import { buildStages, nextAction, type StageStep } from '@/lib/customer-file/stage'
 import { dealRefsFor, getPinned, loadDeal, type ThreadMessage } from '@/lib/threads/get-thread'
 import { canOpenDeal } from '@/lib/threads/api'
@@ -37,6 +38,8 @@ export type FileContext = {
   stages: StageStep[]
   next: { label: string; tab: FileTab } | null
   tabs: FileTab[]
+  /** Tab names in the company's words (industry profile). */
+  tabLabels: Record<FileTab, string>
   landing: FileTab
   pinned: ThreadMessage[]
   canViewJobBilling: boolean
@@ -82,9 +85,10 @@ export const loadFile = cache(async (customerId: string, dealId: string): Promis
     job = (data as FileJob | null) ?? null
   }
 
-  const [proposals, contracts] = await Promise.all([
+  const [proposals, contracts, orgProfile] = await Promise.all([
     admin.from('proposals').select('id', { count: 'exact', head: true }).eq('opportunity_id', dealId).eq('org_id', viewer.orgId),
     admin.from('order_form_contracts').select('id', { count: 'exact', head: true }).eq('opportunity_id', dealId).eq('org_id', viewer.orgId).eq('status', 'completed'),
+    loadOrgProfile(admin, viewer.orgId),
   ])
   const proposalCount = proposals.count ?? 0
   const signedContract = (contracts.count ?? 0) > 0
@@ -104,7 +108,7 @@ export const loadFile = cache(async (customerId: string, dealId: string): Promis
           cancelled,
         }
       : null,
-  })
+  }, orgProfile.terms)
 
   const hasJob = !!job
   const prefs = (profile as { ui_prefs?: Record<string, unknown> | null }).ui_prefs ?? null
@@ -120,8 +124,9 @@ export const loadFile = cache(async (customerId: string, dealId: string): Promis
     job,
     projectId,
     stages,
-    next: nextAction(stages, cancelled),
+    next: nextAction(stages, cancelled, orgProfile.terms),
     tabs: tabsFor(viewer, { hasJob }),
+    tabLabels: tabLabelsFor(orgProfile.terms),
     landing: defaultTab(viewer, { hasJob }, remembered),
     pinned,
     canViewJobBilling: await callerCanAccessJobBilling(admin, profile),

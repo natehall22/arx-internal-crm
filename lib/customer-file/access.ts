@@ -16,6 +16,11 @@ export const TAB_LABELS: Record<FileTab, string> = {
   notes: 'Notes',
 }
 
+/** Tab names for this company: the Job tab uses its word for a job (lib/org-profile.ts; default = TAB_LABELS). */
+export function tabLabelsFor(terms?: { job: string } | null): Record<FileTab, string> {
+  return terms ? { ...TAB_LABELS, job: terms.job } : TAB_LABELS
+}
+
 export function isFileTab(v: string): v is FileTab {
   return (FILE_TABS as readonly string[]).includes(v)
 }

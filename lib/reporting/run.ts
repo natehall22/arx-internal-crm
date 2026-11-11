@@ -13,7 +13,8 @@ import { canExportReportsFromPermissionNames, getReportScopeFromPermissionNames 
 import { DATASETS, columnOf, type Dataset, type DatasetColumn } from '@/lib/reporting/catalog'
 import { MAX_ROWS_RETURNED, MAX_ROWS_SCANNED, dateBounds, type ReportSpec } from '@/lib/reporting/report-spec'
 import { hasFinancials } from '@/lib/financials-access'
-import { loadOrgFeatures, reportDatasetHidden, type OrgFeatures } from '@/lib/org-features'
+import { reportDatasetHidden, type OrgFeatures } from '@/lib/org-features'
+import { loadOrgProfile } from '@/lib/org-profile'
 
 export type ReportContext = {
   orgId: string
@@ -25,6 +26,8 @@ export type ReportContext = {
   scopedUserIds: string[] | null
   /** Company feature switches (lib/org-features.ts); a dataset of a switched-off feature is refused. Missing = all on. */
   features?: OrgFeatures
+  /** Report templates the company's industry profile offers (lib/org-profile.ts); null/missing = every template. */
+  starterReports?: readonly string[] | null
 }
 
 type Viewer = { id: string; org_id: string; role: string; custom_role_id?: string | null; team_id?: string | null; region_id?: string | null }
@@ -50,6 +53,7 @@ export async function buildReportContext(admin: SupabaseClient, profile: Viewer)
     } else scopedUserIds = [profile.id]
   }
   if (scopedUserIds && !scopedUserIds.includes(profile.id)) scopedUserIds.push(profile.id)
+  const orgProfile = await loadOrgProfile(admin, profile.org_id)
   return {
     orgId: profile.org_id,
     userId: profile.id,
@@ -57,7 +61,8 @@ export async function buildReportContext(admin: SupabaseClient, profile: Viewer)
     finance: hasFinancials(perms),
     canExport: canExportReportsFromPermissionNames(perms),
     scopedUserIds,
-    features: await loadOrgFeatures(admin, profile.org_id),
+    features: orgProfile.features,
+    starterReports: orgProfile.starterReports,
   }
 }
 

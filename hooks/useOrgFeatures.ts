@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 
 import { ALL_FEATURES_ON, coerceOrgFeatures, type OrgFeatures } from '@/lib/org-features'
+import { coerceClientOrgProfile, type ClientOrgProfile } from '@/lib/org-profile'
 
 /**
  * The ONE client fetch of `/api/me/effective-permissions` (Nav and every `useOrgFeatures` caller share it). Calls made
@@ -13,6 +14,8 @@ const REUSE_MS = 5000
 let shared: { at: number; promise: Promise<{ ok: boolean; status: number; data: unknown }> } | null = null
 /** The last feature map the server returned in this tab, so a component mounted later starts with it (no flash). */
 let lastKnown: OrgFeatures | null = null
+/** Same for the company's industry profile (words, menu order, price book lists). */
+let lastKnownProfile: ClientOrgProfile | null = null
 
 export function fetchEffectivePermissions(): Promise<{ ok: boolean; status: number; data: unknown }> {
   const now = Date.now()
@@ -20,7 +23,10 @@ export function fetchEffectivePermissions(): Promise<{ ok: boolean; status: numb
   const promise = fetch('/api/me/effective-permissions', { cache: 'no-store', credentials: 'same-origin' })
     .then(async (res) => {
       const out = { ok: res.ok, status: res.status, data: await res.json().catch(() => null) }
-      if (out.ok) lastKnown = featuresFromEffectivePermissions(out.data)
+      if (out.ok) {
+        lastKnown = featuresFromEffectivePermissions(out.data)
+        lastKnownProfile = profileFromEffectivePermissions(out.data)
+      }
       return out
     })
     .catch(() => ({ ok: false, status: 0, data: null }))
@@ -32,6 +38,30 @@ export function fetchEffectivePermissions(): Promise<{ ok: boolean; status: numb
 export function featuresFromEffectivePermissions(data: unknown): OrgFeatures {
   const flags = data && typeof data === 'object' ? (data as { flags?: { features?: unknown } }).flags : undefined
   return coerceOrgFeatures(flags?.features)
+}
+
+/** Pure: the company's industry profile out of an effective-permissions response (missing → roofing = today's app). */
+export function profileFromEffectivePermissions(data: unknown): ClientOrgProfile {
+  const flags = data && typeof data === 'object' ? (data as { flags?: { profile?: unknown } }).flags : undefined
+  return coerceClientOrgProfile(flags?.profile)
+}
+
+/**
+ * The company's industry profile for client components (lib/org-profile.ts) — same shared fetch and first-render rule as
+ * useOrgFeatures: `initial` (server-resolved), else what this tab last loaded, else roofing (today's words).
+ */
+export function useOrgProfile(initial?: ClientOrgProfile | null): ClientOrgProfile {
+  const [profile, setProfile] = useState<ClientOrgProfile>(() => initial ?? lastKnownProfile ?? coerceClientOrgProfile(null))
+  useEffect(() => {
+    let cancelled = false
+    void fetchEffectivePermissions().then((r) => {
+      if (!cancelled && r.ok) setProfile(profileFromEffectivePermissions(r.data))
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+  return profile
 }
 
 /**
@@ -58,4 +88,5 @@ export function useOrgFeatures(initial?: OrgFeatures | null): OrgFeatures {
 export function resetOrgFeaturesCacheForTests(): void {
   shared = null
   lastKnown = null
+  lastKnownProfile = null
 }

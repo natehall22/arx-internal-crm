@@ -1,4 +1,8 @@
 import type { FileTab } from '@/lib/customer-file/access'
+import { BASE_TERMS, type Terms } from '@/lib/industry-profiles'
+
+/** The company's words for the steps (lib/org-profile.ts terms; default = today's words). */
+export type StageTerms = Pick<Terms, 'inspection' | 'proposal' | 'install' | 'installed'>
 
 /** The progress stepper in the file header. Clicking a step jumps to the tab that owns it. */
 export type StageInput = {
@@ -17,7 +21,7 @@ export type StageInput = {
 
 export type StageStep = { key: string; label: string; tab: FileTab; state: 'done' | 'current' | 'todo' }
 
-export function buildStages(i: StageInput): StageStep[] {
+export function buildStages(i: StageInput, terms: StageTerms = BASE_TERMS): StageStep[] {
   const j = i.job
   const done = [
     true,
@@ -31,11 +35,11 @@ export function buildStages(i: StageInput): StageStep[] {
   ]
   const defs: Array<[string, string, FileTab]> = [
     ['lead', 'Lead', 'sales'],
-    ['inspection', 'Inspection', 'sales'],
-    ['proposal', 'Proposal', 'sales'],
+    ['inspection', terms.inspection, 'sales'],
+    ['proposal', terms.proposal, 'sales'],
     ['signed', 'Signed', 'sales'],
     ['scheduled', 'Scheduled', 'job'],
-    ['installed', 'Installed', 'job'],
+    ['installed', terms.installed, 'job'],
     ['paid', 'Paid', 'money'],
     ['payroll', 'Payroll', 'money'],
   ]
@@ -50,17 +54,17 @@ export function buildStages(i: StageInput): StageStep[] {
 }
 
 /** "Schedule ▸"-style next action for the header, by what's open. */
-export function nextAction(steps: StageStep[], cancelled: boolean): { label: string; tab: FileTab } | null {
+export function nextAction(steps: StageStep[], cancelled: boolean, terms: StageTerms = BASE_TERMS): { label: string; tab: FileTab } | null {
   if (cancelled) return null
   const cur = steps.find((s) => s.state === 'current')
   if (!cur) return null
   const label: Record<string, string> = {
-    lead: 'Set the inspection',
-    inspection: 'Do the inspection',
-    proposal: 'Build the proposal',
+    lead: `Set the ${terms.inspection.toLowerCase()}`,
+    inspection: `Do the ${terms.inspection.toLowerCase()}`,
+    proposal: `Build the ${terms.proposal.toLowerCase()}`,
     signed: 'Get it signed',
-    scheduled: 'Schedule the install',
-    installed: 'Mark installed',
+    scheduled: `Schedule the ${terms.install.toLowerCase()}`,
+    installed: `Mark ${terms.installed.toLowerCase()}`,
     paid: 'Collect payment',
     payroll: 'Send to payroll',
   }

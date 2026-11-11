@@ -23,7 +23,7 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { resolveThreadViewer } from '@/lib/threads/viewer'
 import { listWaiting } from '@/lib/threads/waiting'
 import { loadCloserQueues, loadOpsQueues, loadOwnerExceptions, todayKindFor, type TodayKind } from '@/lib/today'
-import { isOrgFeatureOn } from '@/lib/org-features-server'
+import { applyTodayProfile, loadOrgProfile } from '@/lib/org-profile'
 
 const TITLE: Record<TodayKind, string> = {
   closer: 'Today',
@@ -38,8 +38,10 @@ export default async function TodayPage() {
   const perms = await resolveEffectivePermissionNames(admin, authUser.id, profile)
   const kind = todayKindFor({ role: profile.role, isSuperuser: isOrgSuperuserRoleSlug(profile.role), canJobBoard: canAccessJobBoardFromPermissionNames(perms) })
 
+  // The company's industry profile (lib/org-profile.ts): feature switches + which Today cards, in what order, with what titles.
+  const orgProfile = await loadOrgProfile(admin, profile.org_id)
   // Setters work in the field: on a phone, Today IS the canvass app (unless the company switched door knocking off).
-  const canvassOn = kind === 'setter' && (await isOrgFeatureOn(profile.org_id, 'canvassing'))
+  const canvassOn = kind === 'setter' && orgProfile.features.canvassing
   if (canvassOn && /iPhone|Android|Mobile/i.test(headers().get('user-agent') ?? '')) redirect('/canvass')
 
   const { start, end } = getDateRangeForTimeFrame('week', 'America/New_York')
@@ -69,7 +71,7 @@ export default async function TodayPage() {
             { label: 'Appointments', value: mine.calendar },
           ]
   const waiting = await resolveThreadViewer(admin, profile).then((viewer) => listWaiting(admin, viewer)).catch(() => [])
-  const queues = [...closerQueues, ...opsQueues, ...ownerQueues]
+  const queues = applyTodayProfile([...closerQueues, ...opsQueues, ...ownerQueues], orgProfile.today)
 
   return (
     <div className="min-h-screen bg-surface-subtle">

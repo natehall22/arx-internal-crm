@@ -604,6 +604,10 @@ export default function ProposalBuilderPage() {
         return 'job'
       case 'hour':
         return 'hours'
+      case 'visit':
+        return 'visits'
+      case 'month':
+        return 'months'
       case 'watt':
         return 'watts'
       case 'bundle':

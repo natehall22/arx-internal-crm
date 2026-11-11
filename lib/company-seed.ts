@@ -18,6 +18,9 @@ import { brandPatchOps, saveBrandSettings, BRAND_SETTINGS_KEYS, type BrandPatch 
 import { cleanTradeLabel } from '@/lib/org-trades'
 import { normalizeSubdomain } from '@/lib/company-host'
 import { applyOrgTradesSeed, planOrgTradesSeed, readOrgTradesForSeed, type OrgTradeSeed } from '@/lib/org-trades-admin'
+import { INDUSTRY_PROFILE_IDS, INDUSTRY_PROFILES, isIndustryProfileId, type IndustryProfileId } from '@/lib/industry-profiles'
+import { ORG_PROFILE_SETTINGS_KEY } from '@/lib/org-profile'
+import { mergeOrgSettings } from '@/lib/org-settings'
 
 export interface CompanySeedInput {
   org: {
@@ -31,8 +34,10 @@ export interface CompanySeedInput {
     subdomain: string | null
   }
   brand: BrandPatch
-  /** null → the standard trades list. */
+  /** null → the profile's trades (roofing / no profile = the standard list). */
   trades: OrgTradeSeed[] | null
+  /** Industry profile (lib/industry-profiles.ts). null = leave as is (a new company with none = roofing defaults). */
+  profile: IndustryProfileId | null
   owner: { email: string; fullName: string; phone: string | null }
 }
 
@@ -125,6 +130,12 @@ export function parseCompanySeedInput(raw: unknown): { ok: true; input: CompanyS
     }
   }
 
+  let profile: IndustryProfileId | null = null
+  if (root.profile !== undefined && root.profile !== null) {
+    if (isIndustryProfileId(root.profile)) profile = root.profile
+    else errors.push(`profile must be one of ${INDUSTRY_PROFILE_IDS.join(', ')}`)
+  }
+
   const ownerEmail = need('owner.email', owner.email).toLowerCase()
   if (ownerEmail && !EMAIL_RE.test(ownerEmail)) errors.push('owner.email is not an email address')
   const fullName = need('owner.fullName', owner.fullName)
@@ -136,6 +147,7 @@ export function parseCompanySeedInput(raw: unknown): { ok: true; input: CompanyS
       org: { id, name, phone, email, address, timezone, subdomain },
       brand,
       trades,
+      profile,
       owner: { email: ownerEmail, fullName, phone: str(owner.phone) },
     },
   }
@@ -161,7 +173,7 @@ export interface CompanySeedReport {
   generatedOwnerPassword?: string
 }
 
-type OrgRow = { id: string; name: string | null; phone: string | null; email: string | null; address: string | null; timezone?: string | null; subdomain?: string | null; brand?: unknown }
+type OrgRow = { id: string; name: string | null; phone: string | null; email: string | null; address: string | null; timezone?: string | null; subdomain?: string | null; brand?: unknown; profile?: unknown }
 type UserRow = { id: string; org_id: string | null; email: string | null; role: string | null; is_super_admin: boolean | null; active: boolean | null; full_name: string | null }
 
 class SeedStop extends Error {}
@@ -195,7 +207,7 @@ export async function runCompanySeed(client: SupabaseClient, input: CompanySeedI
     org = await must(
       client
         .from('orgs')
-        .select(`id, name, phone, email, address, timezone, ${input.org.subdomain ? 'subdomain, ' : ''}brand:settings->brand`)
+        .select(`id, name, phone, email, address, timezone, ${input.org.subdomain ? 'subdomain, ' : ''}brand:settings->brand, profile:settings->profile`)
         .eq('id', input.org.id)
         .maybeSingle(),
       'read org'
@@ -309,6 +321,20 @@ export async function runCompanySeed(client: SupabaseClient, input: CompanySeedI
   } else say('brand: already matches')
   if (!set.shortName && !str(storedBrand.shortName)) say('note: no brand.shortName — documents use the company name as the short name')
 
+  // ---- industry profile (settings.profile; the profile itself only sets defaults) ----
+  if (input.profile) {
+    const want = { id: input.profile, version: INDUSTRY_PROFILES[input.profile].version }
+    const stored = obj(org?.profile)
+    if (stored.id === want.id && stored.version === want.version) say(`profile: already ${INDUSTRY_PROFILES[input.profile].label}`)
+    else {
+      say(`profile: set ${INDUSTRY_PROFILES[input.profile].label} (v${want.version})`)
+      if (opts.apply) {
+        const { error } = await mergeOrgSettings(client, orgId, want, { path: [ORG_PROFILE_SETTINGS_KEY] })
+        if (error) throw new Error(`profile: ${error}`)
+      }
+    }
+  }
+
   // ---- first owner ----
   let ownerId: string | null = ownerRow?.id ?? null
   if (ownerRow) {
@@ -375,7 +401,8 @@ export async function runCompanySeed(client: SupabaseClient, input: CompanySeedI
   } else {
     // a brand-new org (dry run) starts with what the orgs insert trigger seeds: the standard list
     const current = existing ?? planOrgTradesSeed([], null).insert.map((t) => ({ slug: t.slug, label: t.label, sort: t.sort, active: true, matchKeywords: t.match_keywords }))
-    const plan = planOrgTradesSeed(current, input.trades)
+    // Trades in the input win; else the profile's starting trades (roofing / no profile → the standard list).
+    const plan = planOrgTradesSeed(current, input.trades ?? (input.profile ? INDUSTRY_PROFILES[input.profile].trades : null))
     const parts = [
       ...plan.insert.map((t) => `add ${t.label} (${t.slug})`),
       ...plan.update.map((u) => `update ${u.slug} (${Object.keys(u.set).join(', ')})`),

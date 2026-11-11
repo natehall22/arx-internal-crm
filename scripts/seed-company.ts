@@ -8,6 +8,8 @@
  * `npx tsx --env-file=.env.company scripts/seed-company.ts …`). If that env sets DEPLOYMENT_ORG_ID, the run refuses any
  * other org. An org that already has jobs, deals or customers needs --allow-existing; a second super admin needs
  * --add-owner. A new owner login gets SEED_OWNER_PASSWORD from the environment, else a random password printed once.
+ * Optional "profile" (roofing | lawn_landscape | exterior_cleaning | home_builder, lib/industry-profiles.ts) sets the
+ * industry profile and, when "trades" is left out, its starting trades; `--profile=<id>` overrides the file.
  * Optional org.subdomain sets the company web address (needs migration 202611100070). Input shape: scripts/seed-company.example.json. Safe to re-run; put the printed org id into org.id after the first run.
  */
 import { readFileSync } from 'fs'
@@ -23,8 +25,9 @@ async function main() {
   const apply = args.includes('--apply')
   const allowExisting = args.includes('--allow-existing')
   const addOwner = args.includes('--add-owner')
+  const profileArg = args.find((a) => a.startsWith('--profile='))?.slice('--profile='.length)
   if (!file) {
-    console.error('usage: seed-company <input.json> [--apply] [--allow-existing] [--add-owner]')
+    console.error('usage: seed-company <input.json> [--apply] [--allow-existing] [--add-owner] [--profile=<id>]')
     process.exit(2)
   }
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -34,7 +37,8 @@ async function main() {
     process.exit(2)
   }
 
-  const parsed = parseCompanySeedInput(JSON.parse(readFileSync(file, 'utf8')))
+  const raw = JSON.parse(readFileSync(file, 'utf8'))
+  const parsed = parseCompanySeedInput(profileArg ? { ...raw, profile: profileArg } : raw)
   if (!parsed.ok) {
     console.error(`Input problems in ${file}:\n  - ${parsed.errors.join('\n  - ')}`)
     process.exit(2)

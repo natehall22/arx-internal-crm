@@ -3,7 +3,8 @@
  * (`{ canvassing: false, … }`), written ONLY by PATCH /api/admin/settings `type: 'features'` (super admins) through
  * `mergeOrgSettings` with path ['features'].
  *
- * Every feature defaults to ON: only an explicit `false` turns one off, so an org with no `features` key (the
+ * Defaults come from the company's industry profile (`settings.profile`, lib/industry-profiles.ts; a saved switch always
+ * wins). With no profile stored (roofing) every feature defaults to ON: only an explicit `false` turns one off, so an org with no `features` key (the
  * original company today) behaves exactly as before with zero data changes. Turning a feature off hides its entry points (nav,
  * settings links, pages → 404, key API routes → 403); it never deletes data and never changes how anything is
  * computed — turning it back on shows everything as it was.
@@ -13,6 +14,8 @@
  * (`flags.features`, hook `useOrgFeatures`).
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
+
+import { INDUSTRY_PROFILES, storedProfileId } from '@/lib/industry-profiles'
 
 export const ORG_FEATURES_SETTINGS_KEY = 'features'
 
@@ -64,13 +67,21 @@ function asObject(v: unknown): Record<string, unknown> {
 
 /**
  * Pure: the feature map from either the whole `orgs.settings` object or the `features` object itself
- * (`{ features: … }` is unwrapped). Only an explicit `false` turns a feature off; unknown keys are ignored.
+ * (`{ features: … }` / `{ profile: … }` = the whole settings). Order: the company's own saved switch (a boolean) wins,
+ * else the industry profile's default (`settings.profile`, lib/industry-profiles.ts), else ON. With no profile stored the
+ * default is roofing, whose defaults are all ON — so only an explicit `false` turns a feature off, exactly as before.
+ * Unknown keys are ignored.
  */
 export function resolveOrgFeatures(stored: unknown): OrgFeatures {
   const obj = asObject(stored)
-  const features = ORG_FEATURES_SETTINGS_KEY in obj ? asObject(obj[ORG_FEATURES_SETTINGS_KEY]) : obj
+  const whole = ORG_FEATURES_SETTINGS_KEY in obj || 'profile' in obj
+  const features = whole ? asObject(obj[ORG_FEATURES_SETTINGS_KEY]) : obj
+  const defaults = INDUSTRY_PROFILES[storedProfileId(whole ? obj : null)].features
   const out = { ...ALL_FEATURES_ON }
-  for (const k of ORG_FEATURE_KEYS) if (features[k] === false) out[k] = false
+  for (const k of ORG_FEATURE_KEYS) {
+    const own = features[k]
+    out[k] = typeof own === 'boolean' ? own : defaults[k] !== false
+  }
   return out
 }
 
@@ -96,15 +107,24 @@ export function parseOrgFeaturesPatch(body: unknown): { set: Partial<OrgFeatures
 }
 
 /**
+ * The one read of the settings the feature map (and lib/org-profile.ts) needs: `settings.features` + `settings.profile`,
+ * returned as a whole-settings-shaped object. Throws on a read error (callers decide how to fail).
+ */
+export async function readOrgFeatureSettings(client: SupabaseClient, orgId: string): Promise<{ features: unknown; profile?: unknown }> {
+  const { data, error } = await client.from('orgs').select('features:settings->features, profile:settings->profile').eq('id', orgId).maybeSingle()
+  if (error) throw error
+  const row = (data ?? {}) as { features?: unknown; profile?: unknown }
+  return row.profile == null ? { features: row.features ?? {} } : { features: row.features ?? {}, profile: row.profile }
+}
+
+/**
  * Load an org's features. Never throws: a failed read is logged and every feature is ON (fail open — the default
  * an org with nothing stored gets; this only hides UI and never guards money or private data).
  */
 export async function loadOrgFeatures(client: SupabaseClient, orgId: string | null | undefined): Promise<OrgFeatures> {
   if (!orgId) return { ...ALL_FEATURES_ON }
   try {
-    const { data, error } = await client.from('orgs').select('features:settings->features').eq('id', orgId).maybeSingle()
-    if (error) throw error
-    return resolveOrgFeatures((data as { features?: unknown } | null)?.features)
+    return resolveOrgFeatures(await readOrgFeatureSettings(client, orgId))
   } catch (e) {
     console.error('loadOrgFeatures: org features not readable, using all on', orgId, e)
     return { ...ALL_FEATURES_ON }
