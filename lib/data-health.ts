@@ -678,6 +678,7 @@ export async function loadDataHealthWithRows(
           .in('job_id', chunk)
     ),
     selectIn<HealthPaymentRow>(loadedJobIds, (chunk) =>
+      // org-scope-ok: job_payments gained org_id only for payments without a job (202611110060); loadedJobIds are this company's jobs (allJobs loaded org-scoped)
       admin.from('job_payments').select('job_id, amount_cents, funding_status, created_at').in('job_id', chunk)
     ),
     selectIn<{ job_id: string }>(jobIds, (chunk) =>

@@ -1,9 +1,15 @@
 export type InvoiceStatus = 'draft' | 'sent' | 'partially_paid' | 'paid' | 'void'
-export type InvoiceKind = 'deposit' | 'final' | 'standard'
+/** 'service' = recurring service billed to a customer without a job (migration 202611110060). */
+export type InvoiceKind = 'deposit' | 'final' | 'standard' | 'service'
 
 export interface JobInvoice {
   id: string
-  job_id: string
+  /** NULL = an invoice without a job (recurring service): customer_id is set instead (migration 202611110060). */
+  job_id: string | null
+  /** Set by trigger from the job (job invoices) or by the writer (invoices without a job); NULL before migration 202611100040. */
+  org_id?: string | null
+  customer_id?: string | null
+  property_id?: string | null
   invoice_number: string
   invoice_kind: InvoiceKind
   status: InvoiceStatus
@@ -47,8 +53,17 @@ export interface JobInvoiceItem {
   sort_order: number
   /** Sales tax: true = taxed at the company's rates; null/false = not taxed. */
   taxable?: boolean | null
+  /** Service lines (migration 202611110060): the visit billed, the day of the work, a monthly plan's month. */
+  work_order_id?: string | null
+  service_date?: string | null
+  service_plan_id?: string | null
+  billing_month?: string | null
+  /** null = each; 'hour' = time & materials (qty = hours, unit_price_cents = hourly rate). */
+  unit?: InvoiceItemUnit | null
   created_at: string
 }
+
+export type InvoiceItemUnit = 'hour'
 
 export interface InvoicePayment {
   id: string
@@ -72,6 +87,9 @@ export interface InvoiceItemInput {
   unit_price_cents: number
   sort_order?: number
   taxable?: boolean
+  /** Hours line: qty = hours, unit_price_cents = rate; service_date = the day worked. */
+  unit?: InvoiceItemUnit | null
+  service_date?: string | null
 }
 
 export interface InvoiceBalance {
@@ -101,6 +119,7 @@ export const INVOICE_KIND_LABELS: Record<InvoiceKind, string> = {
   deposit: 'Deposit',
   final: 'Final',
   standard: 'Standard',
+  service: 'Service',
 }
 
 export interface DepositInfo {

@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { InvoiceWithItems, INVOICE_STATUS_LABELS, INVOICE_STATUS_COLORS, INVOICE_NOTE_TEMPLATES } from '@/lib/types/invoices'
 import { formatCurrency } from '@/lib/job-payments'
 import { invoiceTaxRows } from '@/lib/sales-tax'
+import { invoiceItemDateLabel, invoiceItemPriceLabel, invoiceItemQtyLabel } from '@/lib/invoice-lines'
 import { toast } from '@/components/ui/toast'
 import { confirmDialog } from '@/components/ui/confirm-dialog'
 
@@ -252,9 +253,10 @@ export default function InvoiceDetailModal({
                       <td className="px-4 py-3 text-gray-900">
                         {item.description}
                         {item.taxable === true && <span className="ml-2 text-sm font-semibold text-[#2c2c2a]">Taxable</span>}
+                        {item.service_date ? <div className="text-sm text-[#2c2c2a]">{invoiceItemDateLabel(item.service_date)}</div> : null}
                       </td>
-                      <td className="px-4 py-3 text-right text-gray-900 font-medium tabular-nums">{item.qty}</td>
-                      <td className="px-4 py-3 text-right text-gray-900 font-medium tabular-nums">{formatCurrency(item.unit_price_cents)}</td>
+                      <td className="px-4 py-3 text-right text-gray-900 font-medium tabular-nums">{invoiceItemQtyLabel(item)}</td>
+                      <td className="px-4 py-3 text-right text-gray-900 font-medium tabular-nums">{invoiceItemPriceLabel(item)}</td>
                       <td className="px-4 py-3 text-right text-gray-900 font-medium tabular-nums">{formatCurrency(item.line_total_cents)}</td>
                       {isDraft && (
                         <td className="px-2 py-3 text-center">

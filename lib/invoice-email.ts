@@ -1,0 +1,131 @@
+/**
+ * Emailing an invoice to the customer, rendered from THE invoice model (lib/invoice-document.ts) — the company's own
+ * name, address, phone and email (never the product's). Today only invoices without a job are emailed for real: job
+ * invoices keep their original "mark sent" behaviour (finalizeAndSendInvoice), so the original company is unchanged.
+ * A card processor's pay link (later) goes where `payUrl` is rendered; nothing else changes.
+ */
+import type { SupabaseClient } from '@supabase/supabase-js'
+
+import { escapeHtml } from '@/lib/html'
+import { formatCurrency } from '@/lib/job-payments'
+import { finalizeAndSendInvoice } from '@/lib/invoices'
+import { invoiceItemDateLabel, invoiceItemPriceLabel, invoiceItemQtyLabel } from '@/lib/invoice-lines'
+import { isUsableCustomerEmail, loadInvoiceDocument, type InvoiceDocument } from '@/lib/invoice-document'
+import { getCrmEmailFrom, getMailTransport } from '@/lib/setter-email'
+import type { JobInvoice } from '@/lib/types/invoices'
+
+const money = formatCurrency
+
+function dateLabel(ymd: string | null | undefined): string {
+  return invoiceItemDateLabel(ymd ?? null)
+}
+
+/** Pure: subject + HTML + plain text for one invoice. `payUrl` is the hook for online payment (null today). */
+export function renderInvoiceEmail(doc: InvoiceDocument, opts: { payUrl?: string | null } = {}): { subject: string; html: string; text: string } {
+  const { invoice, company, billTo } = doc
+  const from = company.legalName || 'us'
+  const subject = `Invoice ${invoice.invoice_number}${company.legalName ? ` from ${company.legalName}` : ''}`
+  const td = 'padding:10px 8px;border-bottom:1px solid #e5e7eb;font-size:14px;color:#111827;'
+  const tdr = `${td}text-align:right;white-space:nowrap;`
+  const rows = doc.items
+    .map((it) => {
+      const day = dateLabel(it.service_date)
+      return `<tr><td style="${td}">${escapeHtml(it.description)}${day ? `<div style="font-size:12px;color:#4b5563;">${escapeHtml(day)}</div>` : ''}</td>`
+        + `<td style="${tdr}">${escapeHtml(invoiceItemQtyLabel(it))}</td><td style="${tdr}">${escapeHtml(invoiceItemPriceLabel(it))}</td>`
+        + `<td style="${tdr}">${escapeHtml(money(it.line_total_cents))}</td></tr>`
+    })
+    .join('')
+  const totalRow = (label: string, value: string, strong = false) =>
+    `<tr><td style="padding:6px 8px;font-size:14px;color:#111827;${strong ? 'font-weight:700;' : ''}">${escapeHtml(label)}</td><td style="padding:6px 8px;font-size:14px;color:#111827;text-align:right;${strong ? 'font-weight:700;' : ''}">${escapeHtml(value)}</td></tr>`
+  const totals = [
+    totalRow('Subtotal', money(invoice.subtotal_cents)),
+    ...doc.taxRows.map((r) => totalRow(r.label, money(r.amountCents))),
+    totalRow('Total', money(invoice.total_cents), true),
+    ...(doc.appliedCents > 0 ? [totalRow('Paid', `(${money(doc.appliedCents)})`)] : []),
+    totalRow('Balance due', doc.isPaid ? 'Paid — thank you' : money(doc.balanceCents), true),
+  ].join('')
+  const contact = [company.phone, company.email].filter(Boolean).map((v) => escapeHtml(v)).join(' · ')
+  const due = invoice.due_at ? `Due ${dateLabel(invoice.due_at)}` : 'Due on receipt'
+  const pay = opts.payUrl
+    ? `<p style="margin:20px 0;"><a href="${escapeHtml(opts.payUrl)}" style="display:inline-block;background:#111827;color:#ffffff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:700;">Pay ${escapeHtml(money(doc.balanceCents))}</a></p>`
+    : ''
+  const html = `<div style="font-family:Arial,Helvetica,sans-serif;max-width:640px;margin:0 auto;padding:20px;color:#111827;">
+  <div style="font-size:20px;font-weight:700;">${escapeHtml(company.legalName)}</div>
+  ${company.address ? `<div style="font-size:13px;color:#374151;white-space:pre-line;">${escapeHtml(company.address)}</div>` : ''}
+  ${contact ? `<div style="font-size:13px;color:#374151;">${contact}</div>` : ''}
+  <h1 style="font-size:22px;margin:24px 0 4px;">Invoice ${escapeHtml(invoice.invoice_number)}</h1>
+  <div style="font-size:14px;color:#374151;">${escapeHtml(billTo.name)}${billTo.address ? ` · ${escapeHtml(billTo.address)}` : ''}</div>
+  <div style="font-size:14px;color:#374151;margin-bottom:16px;">${escapeHtml(due)}</div>
+  ${pay}
+  <table role="presentation" style="width:100%;border-collapse:collapse;margin:8px 0 16px;">
+    <tr><th style="text-align:left;padding:8px;font-size:12px;color:#374151;border-bottom:2px solid #111827;">Description</th><th style="text-align:right;padding:8px;font-size:12px;color:#374151;border-bottom:2px solid #111827;">Qty</th><th style="text-align:right;padding:8px;font-size:12px;color:#374151;border-bottom:2px solid #111827;">Price</th><th style="text-align:right;padding:8px;font-size:12px;color:#374151;border-bottom:2px solid #111827;">Amount</th></tr>
+    ${rows}
+  </table>
+  <table role="presentation" style="width:100%;max-width:320px;margin-left:auto;border-collapse:collapse;">${totals}</table>
+  ${invoice.public_note ? `<p style="font-size:14px;color:#111827;white-space:pre-line;margin-top:20px;">${escapeHtml(invoice.public_note)}</p>` : ''}
+  <p style="font-size:14px;color:#374151;margin-top:24px;">Questions about this invoice? Reply to this email${company.phone ? ` or call ${escapeHtml(company.phone)}` : ''}.</p>
+</div>`
+  const text = [
+    company.legalName,
+    `Invoice ${invoice.invoice_number} — ${due}`,
+    `${billTo.name}${billTo.address ? `, ${billTo.address}` : ''}`,
+    '',
+    ...doc.items.map((it) => `${it.description}${it.service_date ? ` (${dateLabel(it.service_date)})` : ''}: ${invoiceItemQtyLabel(it)} × ${invoiceItemPriceLabel(it)} = ${money(it.line_total_cents)}`),
+    '',
+    `Subtotal ${money(invoice.subtotal_cents)}`,
+    ...doc.taxRows.map((r) => `${r.label} ${money(r.amountCents)}`),
+    `Total ${money(invoice.total_cents)}`,
+    `Balance due ${doc.isPaid ? 'Paid — thank you' : money(doc.balanceCents)}`,
+    ...(opts.payUrl ? ['', `Pay online: ${opts.payUrl}`] : []),
+    ...(invoice.public_note ? ['', invoice.public_note] : []),
+    '',
+    `Questions? Reply to this email${company.phone ? ` or call ${company.phone}` : ''}. — ${from}`,
+  ].join('\n')
+  return { subject, html, text }
+}
+
+export type SendInvoiceResult = { ok: true; invoice: JobInvoice } | { ok: false; status: 400 | 409 | 503; error: string }
+
+/**
+ * Email an invoice without a job to its customer (`to` defaults to the customer's email), then mark it sent. A draft is
+ * issued (finalizeAndSendInvoice); an invoice already sent is simply sent again. Refuses a void or $0 invoice.
+ * Email first, status second: a failed send never leaves an invoice marked "sent" that nobody received.
+ */
+export async function sendCustomerInvoice(
+  admin: SupabaseClient,
+  orgId: string,
+  invoice: JobInvoice,
+  to?: string | null
+): Promise<SendInvoiceResult> {
+  if (invoice.job_id) return { ok: false, status: 400, error: 'Job invoices are sent from the job' }
+  if (invoice.status === 'void') return { ok: false, status: 409, error: 'This invoice is void' }
+  if (!process.env.SMTP_HOST) return { ok: false, status: 503, error: 'Email is not set up for this company yet' }
+  const fromHeader = getCrmEmailFrom()
+  if (!fromHeader) return { ok: false, status: 503, error: 'Email is not set up for this company yet' }
+  const doc = await loadInvoiceDocument(admin, orgId, invoice)
+  const address = (to ?? doc.billTo.email ?? '').trim()
+  if (!isUsableCustomerEmail(address)) return { ok: false, status: 400, error: 'This customer has no email address' }
+  if (doc.items.length === 0 || invoice.total_cents <= 0) return { ok: false, status: 400, error: 'This invoice has nothing to bill' }
+  const mail = renderInvoiceEmail(doc)
+  await getMailTransport().sendMail({
+    from: fromHeader,
+    to: address,
+    ...(doc.company.email ? { replyTo: doc.company.email } : {}),
+    subject: mail.subject,
+    html: mail.html,
+    text: mail.text,
+  })
+  if (invoice.status === 'draft') {
+    return { ok: true, invoice: await finalizeAndSendInvoice(admin, invoice.id, address) }
+  }
+  // org-scope-ok: invoice was found in orgId by the caller (findOrgInvoice); org_id filter added for the no-job anchor
+  const { data, error } = await admin
+    .from('job_invoices')
+    .update({ sent_at: new Date().toISOString(), sent_to_email: address })
+    .eq('id', invoice.id)
+    .eq('org_id', orgId)
+    .select()
+    .single()
+  if (error || !data) throw new Error(`Failed to record the send: ${error?.message ?? 'unknown'}`)
+  return { ok: true, invoice: data as JobInvoice }
+}

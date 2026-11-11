@@ -4,75 +4,9 @@ import { formatCurrency, formatInvoiceDisplayDate } from '@/lib/job-payments'
 import { redirect } from 'next/navigation'
 import PrintButton from './PrintButton'
 import { formatPhone } from '@/lib/format'
-import { resolveOrgBrand } from '@/lib/org-brand'
 import { callerCanAccessJobBilling } from '@/lib/finance-access'
-import { invoiceTaxRows } from '@/lib/sales-tax'
-
-interface ResolvedCustomer {
-  name: string
-  address: string
-  email: string | null
-  phone: string | null
-  isLinked: boolean
-}
-
-function isValidEmail(email: string | null | undefined): boolean {
-  if (!email) return false
-  const trimmed = email.trim().toLowerCase()
-  if (!trimmed) return false
-  if (trimmed.endsWith('@none.com')) return false
-  if (trimmed === 'none' || trimmed === 'n/a') return false
-  return trimmed.includes('@')
-}
-
-function resolveCustomer(
-  jobCustomer: any,
-  projectCustomer: any,
-  proposal: any,
-  jobAddress: string
-): ResolvedCustomer {
-  // Priority 1: Job's linked customer
-  if (jobCustomer?.name) {
-    return {
-      name: jobCustomer.name,
-      address: jobCustomer.address_text || jobAddress,
-      email: isValidEmail(jobCustomer.email) ? jobCustomer.email : null,
-      phone: jobCustomer.phone || null,
-      isLinked: true,
-    }
-  }
-
-  // Priority 2: Project's linked customer
-  if (projectCustomer?.name) {
-    return {
-      name: projectCustomer.name,
-      address: projectCustomer.address_text || jobAddress,
-      email: isValidEmail(projectCustomer.email) ? projectCustomer.email : null,
-      phone: projectCustomer.phone || null,
-      isLinked: true,
-    }
-  }
-
-  // Priority 3: Proposal customer info (fallback name/address from original proposal)
-  if (proposal?.customer_name) {
-    return {
-      name: proposal.customer_name,
-      address: proposal.customer_address || jobAddress,
-      email: isValidEmail(proposal.customer_email) ? proposal.customer_email : null,
-      phone: proposal.customer_phone || null,
-      isLinked: false,
-    }
-  }
-
-  // Priority 4: Generic fallback
-  return {
-    name: 'Customer',
-    address: jobAddress,
-    email: null,
-    phone: null,
-    isLinked: false,
-  }
-}
+import { findPrintableInvoice, loadInvoiceDocument } from '@/lib/invoice-document'
+import { invoiceItemDateLabel, invoiceItemPriceLabel, invoiceItemQtyLabel } from '@/lib/invoice-lines'
 
 export default async function PrintInvoicePage({
   params,
@@ -87,143 +21,23 @@ export default async function PrintInvoicePage({
     redirect('/dashboard')
   }
 
-  // Fetch invoice by UUID id, fallback to invoice_number. Both are scoped to the caller's org through the job:
-  // invoice numbers are unique per company only (migration 202611100040), so the same number can exist in two orgs.
-  let { data: invoice } = await adminClient
-    .from('job_invoices')
-    .select(`
-      *,
-      production_jobs!inner(
-        org_id,
-        job_number,
-        address_text,
-        customer_id
-      )
-    `)
-    .eq('id', params.invoiceId)
-    .eq('production_jobs.org_id', profile.org_id)
-    .maybeSingle()
-
-  // Fallback: try by invoice_number
-  if (!invoice) {
-    const { data: invoiceByNumber } = await adminClient
-      .from('job_invoices')
-      .select(`
-        *,
-        production_jobs!inner(
-          org_id,
-          job_number,
-          address_text,
-          customer_id
-        )
-      `)
-      .eq('invoice_number', params.invoiceId)
-      .eq('production_jobs.org_id', profile.org_id)
-      .maybeSingle()
-    
-    if (invoiceByNumber) {
-      invoice = invoiceByNumber
-    }
-  }
-
-  if (!invoice || (invoice as any).production_jobs?.org_id !== profile.org_id) {
+  // By id, else by invoice_number — both scoped to the caller's company (lib/invoice-document.ts findPrintableInvoice):
+  // job invoices through their job, invoices without a job (recurring service) through their own org.
+  const found = await findPrintableInvoice(adminClient, profile.org_id, params.invoiceId)
+  if (!found) {
     return <div className="p-8 text-center">Invoice not found</div>
   }
 
-  // Get job with project_id
-  const { data: jobData } = await adminClient
-    .from('production_jobs')
-    .select('id, org_id, job_number, address_text, customer_id, project_id')
-    .eq('id', invoice.job_id)
-    .single()
-
-  const job = { production_jobs: jobData }
-
-  // Get job customer
-  let jobCustomer = null
-  if (jobData?.customer_id) {
-    const { data: customer } = await adminClient
-      .from('customers')
-      .select('id, name, email, phone, address_text')
-      .eq('id', jobData.customer_id)
-      .single()
-    jobCustomer = customer
-  }
-
-  // Get project and project customer
-  let project = null
-  let projectCustomer = null
-  if (jobData?.project_id) {
-    const { data: projectData } = await adminClient
-      .from('projects')
-      .select('id, customer_id')
-      .eq('id', jobData.project_id)
-      .single()
-    project = projectData
-
-    if (projectData?.customer_id) {
-      const { data: customer } = await adminClient
-        .from('customers')
-        .select('id, name, email, phone, address_text')
-        .eq('id', projectData.customer_id)
-        .single()
-      projectCustomer = customer
-    }
-  }
-
-  // Get proposal by project_id (proposals.project_id -> projects.id)
-  let proposal = null
-  if (jobData?.project_id) {
-    const { data: proposalData } = await adminClient
-      .from('proposals')
-      .select('customer_name, customer_email, customer_phone, customer_address')
-      .eq('project_id', jobData.project_id)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .single()
-    proposal = proposalData
-  }
-
-  // Get line items
-  const { data: items } = await adminClient
-    .from('job_invoice_items')
-    .select('*')
-    .eq('invoice_id', invoice.id)
-    .order('sort_order', { ascending: true })
-
-  // Get applied payments
-  const { data: applications } = await adminClient
-    .from('invoice_payments')
-    .select('applied_cents')
-    .eq('invoice_id', invoice.id)
-
-  const appliedCents = (applications || []).reduce(
-    (sum: number, a: any) => sum + a.applied_cents,
-    0
-  )
-
-  // Get org settings
-  const { data: org } = await adminClient
-    .from('orgs')
-    .select('name, address, phone, email, settings')
-    .eq('id', profile.org_id)
-    .single()
-
-  // Invoices carry the legal entity name: settings.brand.legalName (owners edit it in Settings), else the default.
-  const brand = resolveOrgBrand(org)
-  const legalName = brand.legalName
-
-  // Resolve customer with priority chain
-  const resolvedCustomer = resolveCustomer(
-    jobCustomer,
-    projectCustomer,
-    proposal,
-    jobData?.address_text || ''
-  )
-
-
-  const balanceCents = invoice.total_cents - appliedCents
-  const isPaid = balanceCents <= 0
+  // THE invoice model, shared with the customer email (lib/invoice-email.ts).
+  const doc = await loadInvoiceDocument(adminClient, profile.org_id, found)
+  const invoice = doc.invoice
+  const items = doc.items
+  const appliedCents = doc.appliedCents
+  const legalName = doc.company.legalName
+  const resolvedCustomer = doc.billTo
+  const balanceCents = doc.balanceCents
+  const isPaid = doc.isPaid
+  const companyContact = doc.company
 
   return (
     <html>
@@ -251,6 +65,7 @@ export default async function PrintInvoicePage({
           table { width: 100%; border-collapse: collapse; margin-bottom: 30px; }
           th { background: #1a365d; color: white; padding: 12px; text-align: left; font-size: 12px; }
           th:nth-child(2), th:nth-child(3), th:nth-child(4) { text-align: right; }
+          .line-date { font-size: 11px; color: #4a5568; margin-top: 2px; }
           td { padding: 12px; border-bottom: 1px solid #e2e8f0; font-size: 13px; }
           td:nth-child(2), td:nth-child(3), td:nth-child(4) { text-align: right; }
           tr:nth-child(even) { background: #f7fafc; }
@@ -289,9 +104,9 @@ export default async function PrintInvoicePage({
             <div>
               <div className="company-name">{legalName}</div>
               <div className="company-address">
-                {brand.address}
-                {org?.phone && `\n${formatPhone(org.phone)}`}
-                {org?.email && `\n${org.email}`}
+                {companyContact.address}
+                {companyContact.phone && `\n${companyContact.phone}`}
+                {companyContact.email && `\n${companyContact.email}`}
               </div>
             </div>
             <div>
@@ -333,11 +148,14 @@ export default async function PrintInvoicePage({
               </tr>
             </thead>
             <tbody>
-              {(items || []).map((item: any) => (
+              {items.map((item) => (
                 <tr key={item.id}>
-                  <td>{item.description}</td>
-                  <td>{item.qty}</td>
-                  <td>{formatCurrency(item.unit_price_cents)}</td>
+                  <td>
+                    {item.description}
+                    {item.service_date ? <div className="line-date">{invoiceItemDateLabel(item.service_date)}</div> : null}
+                  </td>
+                  <td>{invoiceItemQtyLabel(item)}</td>
+                  <td>{invoiceItemPriceLabel(item)}</td>
                   <td>{formatCurrency(item.line_total_cents)}</td>
                 </tr>
               ))}
@@ -350,7 +168,7 @@ export default async function PrintInvoicePage({
                 <span className="total-label">Subtotal</span>
                 <span>{formatCurrency(invoice.subtotal_cents)}</span>
               </div>
-              {invoiceTaxRows(invoice).map((row, i) => (
+              {doc.taxRows.map((row, i) => (
                 <div key={`${i}-${row.label}`} className="total-row">
                   <span className="total-label">{row.label}</span>
                   <span>{formatCurrency(row.amountCents)}</span>
@@ -396,7 +214,7 @@ export default async function PrintInvoicePage({
                 Please make payment by the due date shown above.<br />
                 Accepted payment methods: Check, Credit Card, ACH Bank Transfer<br /><br />
                 For questions about this invoice, please contact us at:<br />
-                {org?.phone ? formatPhone(org.phone) : org?.email || 'our office'}
+                {companyContact.phone || companyContact.email || 'our office'}
               </div>
             </div>
           )}

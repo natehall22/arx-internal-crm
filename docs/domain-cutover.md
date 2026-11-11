@@ -89,3 +89,10 @@ Supabase/Google allow-lists use the wildcard, so nothing else changes.
 `getAppUrl(org)` already takes the company: when a company's own address is stored, pass it as `org.appUrl` and every
 link follows. Host → company routing (which company a request is for) is a separate task. Each new company host also
 needs entries #5–#7 (the wildcards above cover them).
+
+## Database migrations — apply order (invoices)
+- `202611100040_job_invoices_org_scope.sql` MUST be applied before `202611110060_customer_invoices.sql`. 0060 replaces the
+  org trigger 0040 creates and relies on `job_invoices.org_id`; applied alone it fails.
+- Full order for invoicing recurring service: 202611100040 → 202611110010 (properties) → 202611110030 (service plans) →
+  202611110040 (sales tax) → 202611110060 (invoices without a job). Then the code. DB test:
+  `supabase/tests/run-customer-invoices.sh` (throwaway local Postgres only).

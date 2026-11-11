@@ -11,7 +11,12 @@ import {
   finalizeAndSendInvoice,
   voidInvoice,
   duplicateInvoiceAsDraft,
+  recordCustomerInvoicePayment,
+  CUSTOMER_PAYMENT_METHODS,
+  type CustomerPaymentMethod,
 } from '@/lib/invoices'
+import { sendCustomerInvoice } from '@/lib/invoice-email'
+import type { JobInvoice } from '@/lib/types/invoices'
 import { defaultTaxRates } from '@/lib/sales-tax'
 import { loadOrgSalesTax } from '@/lib/sales-tax-server'
 
@@ -42,7 +47,8 @@ export async function GET(
     const invoice = await getInvoiceWithDetails(adminClient, params.invoiceId)
     // Taxable box on lines only when this company charges sales tax with rates (lib/sales-tax.ts).
     const salesTax = await loadOrgSalesTax(adminClient, profile.org_id)
-    return NextResponse.json({ invoice, salesTaxOn: !!salesTax?.enabled && defaultTaxRates(salesTax).length > 0 })
+    // canMarkPaid: invoices without a job are paid right on the invoice (record_payment); job invoices use job payments.
+    return NextResponse.json({ invoice, salesTaxOn: !!salesTax?.enabled && defaultTaxRates(salesTax).length > 0, canMarkPaid: !invoiceCheck.job_id })
 
   } catch (error) {
     console.error('Error in GET /api/invoices/[invoiceId]:', error)
@@ -79,7 +85,7 @@ export async function PATCH(
 
     switch (action) {
       case 'add_item': {
-        const { description, qty, unit_price_cents, sort_order, taxable } = body
+        const { description, qty, unit_price_cents, sort_order, taxable, unit, service_date } = body
         if (!description || unit_price_cents === undefined) {
           return NextResponse.json({ error: 'description and unit_price_cents required' }, { status: 400 })
         }
@@ -89,6 +95,9 @@ export async function PATCH(
           unit_price_cents,
           sort_order,
           taxable: taxable === true,
+          // Hours (time & materials): qty = hours, unit_price_cents = rate; service_date = the day worked.
+          ...(unit === 'hour' ? { unit: 'hour' as const } : {}),
+          ...(typeof service_date === 'string' && service_date ? { service_date } : {}),
         })
         const invoice = await getInvoiceWithDetails(adminClient, params.invoiceId)
         return NextResponse.json({ success: true, item, invoice })
@@ -122,10 +131,37 @@ export async function PATCH(
 
       case 'send': {
         const { email } = body
+        // An invoice without a job (recurring service) is really emailed to the customer (lib/invoice-email.ts); a job
+        // invoice keeps its original behaviour (marked sent, nothing emailed).
+        if (!invoiceCheck.job_id) {
+          const current = await getInvoiceWithDetails(adminClient, params.invoiceId)
+          if (!current) return NextResponse.json({ error: 'Invoice not found' }, { status: 404 })
+          const sent = await sendCustomerInvoice(adminClient, profile.org_id, current as JobInvoice, typeof email === 'string' ? email : null)
+          if (!sent.ok) return NextResponse.json({ error: sent.error }, { status: sent.status })
+          return NextResponse.json({ success: true, invoice: sent.invoice })
+        }
         if (!email) {
           return NextResponse.json({ error: 'email required' }, { status: 400 })
         }
         const invoice = await finalizeAndSendInvoice(adminClient, params.invoiceId, email)
+        return NextResponse.json({ success: true, invoice })
+      }
+
+      case 'record_payment': {
+        // "Mark paid" on an invoice without a job — the one payment writer (a card processor's webhook will use it too).
+        if (invoiceCheck.job_id) {
+          return NextResponse.json({ error: 'Record job payments on the job' }, { status: 400 })
+        }
+        const { amount_cents, paid_at, method, note } = body
+        const result = await recordCustomerInvoicePayment(adminClient, profile.org_id, params.invoiceId, {
+          amountCents: Number(amount_cents),
+          paidAt: typeof paid_at === 'string' ? paid_at : '',
+          method: ((CUSTOMER_PAYMENT_METHODS as readonly string[]).includes(method) ? method : '') as CustomerPaymentMethod,
+          note: typeof note === 'string' ? note : null,
+          createdBy: profile.id,
+        })
+        if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status })
+        const invoice = await getInvoiceWithDetails(adminClient, params.invoiceId)
         return NextResponse.json({ success: true, invoice })
       }
 

@@ -10,6 +10,7 @@ export async function getPaymentsByJob(
   supabase: SupabaseClient,
   jobId: string
 ): Promise<JobPayment[]> {
+  // org-scope-ok: job_payments gained org_id only for payments without a job (202611110060); jobId was verified in the caller's company
   const { data: payments, error } = await supabase
     .from('job_payments')
     .select('*')
@@ -105,26 +106,6 @@ export async function addJobPayment(
   }
 
   return data as JobPayment
-}
-
-/**
- * Delete a payment (admin only)
- */
-export async function deleteJobPayment(
-  supabase: SupabaseClient,
-  paymentId: string
-): Promise<boolean> {
-  const { error } = await supabase
-    .from('job_payments')
-    .delete()
-    .eq('id', paymentId)
-
-  if (error) {
-    console.error('Error deleting payment:', error)
-    return false
-  }
-
-  return true
 }
 
 /**
