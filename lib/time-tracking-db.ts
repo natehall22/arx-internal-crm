@@ -1168,18 +1168,20 @@ async function upsertJobLaborLine(
   const db = orgDb(admin, orgId)
   const { data: job } = await db.from('production_jobs').select('id').eq('id', l.jobId).maybeSingle()
   if (!job) return false
-  const { data: existing, error: readErr } = await db.from('job_cost_lines').select('id, amount, deleted_at, description').eq('job_id', l.jobId).eq('time_week_ending', l.weekEnding).maybeSingle()
+  const { data: existing, error: readErr } = await db.from('job_cost_lines').select('id, amount, deleted_at, description, approved').eq('job_id', l.jobId).eq('time_week_ending', l.weekEnding).maybeSingle()
   if (readErr) {
     if (isTimeTrackingNotReadyError(readErr)) return false
     throw readErr
   }
   const description = `Crew time — week ending ${l.weekEnding} (${formatDuration(l.seconds)})${l.unpricedSeconds ? `; ${formatDuration(l.unpricedSeconds)} not counted: no pay rate` : ''}`
   const live = l.amount > 0 || l.seconds > 0
-  const row = existing as { id: string; amount: number; deleted_at: string | null; description: string } | null
+  const row = existing as { id: string; amount: number; deleted_at: string | null; description: string; approved: boolean | null } | null
   if (row) {
     const patch: Record<string, unknown> = live
       ? { amount: l.amount, description, deleted_at: null, deleted_by: null, status: 'active', updated_at: new Date().toISOString() }
-      : { deleted_at: row.deleted_at ?? new Date().toISOString(), deleted_by: l.actorUserId, updated_at: new Date().toISOString() }
+      : { deleted_at: row.deleted_at ?? new Date().toISOString(), deleted_by: l.actorUserId, status: 'archived', updated_at: new Date().toISOString() }
+    // An approval refers to the number on screen (same rule as the cost-lines PATCH): a new amount goes back for review.
+    if (row.approved && Number(row.amount) !== l.amount) Object.assign(patch, { approved: false, approved_by: null, approved_at: null })
     if (live && Number(row.amount) === l.amount && row.description === description && !row.deleted_at) return false
     if (!live && row.deleted_at) return false
     const { error } = await db.from('job_cost_lines').update(patch).eq('id', row.id)

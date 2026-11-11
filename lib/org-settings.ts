@@ -41,6 +41,7 @@ export async function mergeOrgSettings(
   if (path.length === 0 && ('brand' in set || remove.includes('brand'))) return { error: 'brand is saved through saveBrandSettings' }
   // Feature switches are only ever written per key at path ['features'] (owner-only save, lib/org-features.ts).
   if (path.length === 0 && ('features' in set || remove.includes('features'))) return { error: 'features are saved per key at path [features]' }
+  if (path.length === 0 && ('timeTracking' in set || remove.includes('timeTracking'))) return { error: 'timeTracking is saved per key at path [timeTracking]' }
   if (Object.keys(set).length === 0 && remove.length === 0) return { error: null }
 
   const { error } = await client.rpc('merge_org_settings', { p_org_id: orgId, p_path: path, p_set: set, p_remove: remove })
