@@ -45,7 +45,7 @@ export async function getJobPaymentSummary(
   }
 
   const [payments, invoiceTax] = await Promise.all([getPaymentsByJob(supabase, jobId), loadJobInvoiceFacts(supabase, [jobId])])
-  return buildJobPaymentSummary({ ...(job as JobCollectionJobRow), invoice_tax_cents: invoiceTax.get(jobId)?.taxCents ?? 0, tm_invoiced_cents: collectionInvoiceFields(invoiceTax.get(jobId)).timeAndMaterialsInvoicedCents }, payments)
+  return buildJobPaymentSummary({ ...(job as JobCollectionJobRow), invoice_tax_cents: invoiceTax.get(jobId)?.taxCents ?? 0, tm_invoiced_cents: collectionInvoiceFields(invoiceTax.get(jobId)).timeAndMaterialsInvoicedCents, tm_pending: collectionInvoiceFields(invoiceTax.get(jobId)).timeAndMaterialsPending }, payments)
 }
 
 type JobCollectionJobRow = {
@@ -56,6 +56,8 @@ type JobCollectionJobRow = {
   invoice_tax_cents?: number | null
   /** lib/job-invoice-tax.ts — a time & materials job's invoiced total (tax included) = what it owes; null = fixed price. */
   tm_invoiced_cents?: number | null
+  /** A time & materials job still being billed (draft invoice / clocked days not approved): not paid yet. */
+  tm_pending?: boolean | null
 }
 
 /** Pure: summary from an already-loaded job row + its payments. */
@@ -67,6 +69,7 @@ export function buildJobPaymentSummary(
     saleAmount: job.sale_amount,
     invoiceTaxCents: job.invoice_tax_cents,
     timeAndMaterialsInvoicedCents: job.tm_invoiced_cents ?? null,
+    timeAndMaterialsPending: job.tm_pending ?? null,
     payments,
     allowCloseWithBalance: job.allow_close_with_balance,
     closeBalanceBy: job.close_balance_by,
@@ -79,6 +82,7 @@ export function buildJobPaymentSummary(
     sale_amount_cents: collection.requiredCents,
     invoice_tax_cents: Math.max(0, Math.round(Number(job.invoice_tax_cents) || 0)),
     tm_invoiced_cents: job.tm_invoiced_cents ?? null,
+    tm_pending: job.tm_pending ?? null,
     sale_amount_dollars: collection.requiredCents / 100,
     remaining_cents: collection.remainingCents,
     remaining_dollars: collection.remainingCents / 100,

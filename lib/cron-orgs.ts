@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { profileAllowedOnThisDeployment } from '@/lib/auth'
-import { DEFAULT_TIMEZONE } from '@/lib/timezone'
+import { orgTimeZone } from '@/lib/timezone'
 
 /**
  * The ONE answer to "which companies does a background job (Vercel cron, Actions worker) run for".
@@ -18,16 +18,8 @@ export type CronOrg = { id: string; settings: Record<string, unknown> | null; ti
 
 const PAGE = 1000
 
-/** A valid IANA zone from `orgs.timezone`, else the app default. A bad value must never crash a run. */
-export function orgTimeZone(raw: unknown): string {
-  if (typeof raw !== 'string' || !raw.trim()) return DEFAULT_TIMEZONE
-  try {
-    new Intl.DateTimeFormat('en-US', { timeZone: raw.trim() })
-    return raw.trim()
-  } catch {
-    return DEFAULT_TIMEZONE
-  }
-}
+/** A valid IANA zone from `orgs.timezone`, else the app default — the one rule lives in lib/timezone.ts (client-safe). */
+export { orgTimeZone } from '@/lib/timezone'
 
 /** Org ids with an active user, paged so a large user table is never cut at the API's 1,000-row default. */
 async function orgIdsWithActiveUsers(admin: SupabaseClient): Promise<Set<string>> {

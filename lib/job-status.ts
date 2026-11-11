@@ -137,6 +137,8 @@ export function paymentStatusChip(
     invoice_tax_cents?: number | null
     /** A time & materials job's invoiced total (tax included) = what it owes (lib/job-invoice-tax.ts); null = fixed price. */
     tm_invoiced_cents?: number | null
+    /** A time & materials job still being billed: not paid yet. */
+    tm_pending?: boolean | null
   }
 ): { label: string; className: string } | null {
   // One paid-in-full rule: lib/job-collection.ts ($0.05 tolerance, super-admin override).
@@ -144,6 +146,7 @@ export function paymentStatusChip(
     saleAmount: job.sale_amount,
     invoiceTaxCents: job.invoice_tax_cents,
     timeAndMaterialsInvoicedCents: job.tm_invoiced_cents ?? null,
+    timeAndMaterialsPending: job.tm_pending ?? null,
     collectedCents: job.collected_cents ?? 0,
     allowCloseWithBalance: job.allow_close_with_balance,
     closeBalanceBy: job.close_balance_by,

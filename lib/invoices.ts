@@ -12,6 +12,7 @@ import {
 } from './types/invoices'
 import { formatCurrency } from './job-payments'
 import { isMissingColumn } from '@/lib/supabase/errors'
+import { invoicedPreTaxCents } from './job-invoice-tax'
 import { computeCustomerSalesTax } from './sales-tax-server'
 import { normalizeDepositFraction } from './job-pipeline'
 import { invoiceItemLineFields, lineTotalCents, CUSTOMER_PAYMENT_METHODS, type CustomerPaymentMethod } from './invoice-lines'
@@ -248,10 +249,8 @@ export async function getTotalInvoicedCentsForJob(
   return invoicedPreTaxCents(rows || [])
 }
 
-/** Pure: pre-tax invoiced cents (total − invoice tax) over non-void invoices already filtered by the caller. */
-export function invoicedPreTaxCents(rows: Array<{ total_cents: number | null; tax_cents?: number | null }>): number {
-  return rows.reduce((sum, r) => sum + (r.total_cents || 0) - (r.tax_cents || 0), 0)
-}
+/** Pre-tax invoiced cents (total − invoice tax): the one rule lives in lib/job-invoice-tax.ts. */
+export { invoicedPreTaxCents }
 
 /**
  * Create a standard invoice with a single line at a custom amount (e.g. progress billing).

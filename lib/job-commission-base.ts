@@ -27,7 +27,7 @@
  * every job.
  *
  * Time & materials jobs (`billing_mode = 'time_materials'`, lib/hourly-billing.ts; coordinator decision 2026-11-12): the
- * commission base is what was INVOICED minus its sales tax (non-void job invoices' total − tax_cents) — the hours billed,
+ * commission base is what was INVOICED minus its sales tax (issued job invoices' total − tax_cents; drafts and void out) — the hours billed,
  * not the estimate. The sale amount stays the signed quote (the estimate). Re-synced after hours are approved and after a
  * job invoice changes (`syncTimeAndMaterialsCommissionBase`). Fixed-price jobs: unchanged.
  */
@@ -141,9 +141,9 @@ export function computeJobSaleTotals(input: {
   }
 }
 
-/** Pure: a time & materials job's commission base (dollars) = invoiced − invoice tax, never below 0. */
-export function timeAndMaterialsCommissionBase(facts: Pick<JobInvoiceFacts, 'invoicedPreTaxCents'> | null | undefined): number {
-  return Math.max(0, roundMoney((facts?.invoicedPreTaxCents ?? 0) / 100))
+/** Pure: a time & materials job's commission base (dollars) = ISSUED invoices (not drafts, not void) − their tax, never below 0. */
+export function timeAndMaterialsCommissionBase(facts: Pick<JobInvoiceFacts, 'issuedPreTaxCents'> | null | undefined): number {
+  return Math.max(0, roundMoney((facts?.issuedPreTaxCents ?? 0) / 100))
 }
 
 /** Is this job billed by the hour? Before migration 202611120030 (no column) no job is. */

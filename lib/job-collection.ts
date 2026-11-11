@@ -22,8 +22,10 @@
  *
  * Time & materials jobs (`production_jobs.billing_mode = 'time_materials'`, lib/hourly-billing.ts; coordinator decision
  * 2026-11-12): the contract / estimate is not what is owed — the hours billed are. Pass `timeAndMaterialsInvoicedCents`
- * (non-void job invoices' `total_cents`, tax included, lib/job-invoice-tax.ts `loadJobInvoiceFacts`) and it replaces
- * sale amount + invoice tax as what must be collected; nothing invoiced yet = nothing to collect against (not paid).
+ * (ISSUED job invoices' `total_cents` — not drafts, not void — tax included, lib/job-invoice-tax.ts `loadJobInvoiceFacts`)
+ * and it replaces sale amount + invoice tax as what must be collected; nothing invoiced yet = nothing to collect against
+ * (not paid). `timeAndMaterialsPending` (a draft invoice, or clocked days not billed yet) = still being billed: never
+ * paid in full, whatever has come in (payroll waits; a super admin can still force it).
  * Fixed-price jobs pass null / leave it out: unchanged.
  *
  * Client-safe: used by the job page, the ops board, payroll eligibility and the API guard.
@@ -44,6 +46,8 @@ export type JobCollectionInput = {
   invoiceTaxCents?: number | null
   /** Time & materials job: its non-void invoices' total (tax included) — what is owed. null / omitted = a fixed-price job. */
   timeAndMaterialsInvoicedCents?: number | null
+  /** Time & materials job still being billed (draft invoice / clocked days not approved). */
+  timeAndMaterialsPending?: boolean | null
   /** Either the payment rows, or an already-summed cents figure. */
   payments?: CollectionPayment[]
   collectedCents?: number | null
@@ -66,6 +70,8 @@ export type JobCollection = {
   missingSaleAmount: boolean
   /** Owed = the hours invoiced (a time & materials job), not the contract. */
   timeAndMaterials: boolean
+  /** A time & materials job still being billed: not paid in full yet. */
+  waitingOnBilling: boolean
   /** An old "close with balance" flag with no super admin on record. */
   legacyCloseWithBalance: boolean
 }
@@ -90,7 +96,8 @@ export function evaluateJobCollection(input: JobCollectionInput): JobCollection 
       : Math.round(Number(input.collectedCents) || 0)
   const remainingCents = requiredCents - collectedCents
   const missingSaleAmount = tm ? requiredCents <= 0 : saleCents <= 0
-  const paidByPayments = !missingSaleAmount && remainingCents <= PAID_IN_FULL_TOLERANCE_CENTS
+  const waitingOnBilling = tm && input.timeAndMaterialsPending === true
+  const paidByPayments = !missingSaleAmount && !waitingOnBilling && remainingCents <= PAID_IN_FULL_TOLERANCE_CENTS
   const hasForceFlag = Boolean(input.allowCloseWithBalance)
   const forcedPaidInFull = hasForceFlag && Boolean(input.closeBalanceBy)
   return {
@@ -102,6 +109,7 @@ export function evaluateJobCollection(input: JobCollectionInput): JobCollection 
     paidInFull: paidByPayments || (!missingSaleAmount && forcedPaidInFull),
     missingSaleAmount,
     timeAndMaterials: tm,
+    waitingOnBilling,
     legacyCloseWithBalance: hasForceFlag && !input.closeBalanceBy,
   }
 }

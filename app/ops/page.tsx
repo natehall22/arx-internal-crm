@@ -84,7 +84,7 @@ export default async function OpsPage() {
       ...job,
       collected_cents: collectedByJob[job.id] || 0,
       invoice_tax_cents: invoiceTaxByJob.get(job.id)?.taxCents ?? 0,
-      tm_invoiced_cents: collectionInvoiceFields(invoiceTaxByJob.get(job.id)).timeAndMaterialsInvoicedCents,
+      tm_invoiced_cents: collectionInvoiceFields(invoiceTaxByJob.get(job.id)).timeAndMaterialsInvoicedCents, tm_pending: collectionInvoiceFields(invoiceTaxByJob.get(job.id)).timeAndMaterialsPending,
       assigned_crew: Array.isArray(job.assigned_crew) ? job.assigned_crew[0] : job.assigned_crew,
       assigned_sub: Array.isArray(job.assigned_sub) ? job.assigned_sub[0] : job.assigned_sub,
       customer: customer,

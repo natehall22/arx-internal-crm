@@ -54,7 +54,7 @@ export async function GET(
 
     const invoiceTax = await loadJobInvoiceFacts(adminClient, [params.id])
     const summary: JobPaymentSummary = buildJobPaymentSummary(
-      { ...(job as unknown as Parameters<typeof buildJobPaymentSummary>[0]), invoice_tax_cents: invoiceTax.get(params.id)?.taxCents ?? 0, tm_invoiced_cents: collectionInvoiceFields(invoiceTax.get(params.id)).timeAndMaterialsInvoicedCents },
+      { ...(job as unknown as Parameters<typeof buildJobPaymentSummary>[0]), invoice_tax_cents: invoiceTax.get(params.id)?.taxCents ?? 0, tm_invoiced_cents: collectionInvoiceFields(invoiceTax.get(params.id)).timeAndMaterialsInvoicedCents, tm_pending: collectionInvoiceFields(invoiceTax.get(params.id)).timeAndMaterialsPending },
       (payments || []) as JobPayment[]
     )
 

@@ -43,6 +43,8 @@ type JobRow = {
   invoice_tax_cents?: number | null
   /** A time & materials job's invoiced total (tax included) = what it owes (lib/job-invoice-tax.ts); null = fixed price. */
   tm_invoiced_cents?: number | null
+  /** A time & materials job still being billed (draft invoice / clocked days not approved): not paid yet. */
+  tm_pending?: boolean | null
   id: string
   job_number: string
   status: string
@@ -114,6 +116,7 @@ export function derivePayrollEligibility(input: {
     saleAmount: input.job.sale_amount,
     invoiceTaxCents: input.job.invoice_tax_cents,
     timeAndMaterialsInvoicedCents: input.job.tm_invoiced_cents ?? null,
+    timeAndMaterialsPending: input.job.tm_pending ?? null,
     payments: input.payments,
     allowCloseWithBalance: input.job.allow_close_with_balance,
     closeBalanceBy: input.job.close_balance_by,
@@ -240,11 +243,12 @@ const WAITING_TEXT: Record<string, string> = {
   no_resolvable_participant_plans: 'The people on this job have no pay plan yet',
 }
 
-export function waitingReasonText(reason: string, collectedCents: number, saleAmount: number | null, invoiceTaxCents?: number | null, tmInvoicedCents?: number | null): string {
+export function waitingReasonText(reason: string, collectedCents: number, saleAmount: number | null, invoiceTaxCents?: number | null, tmInvoicedCents?: number | null, tmPending?: boolean | null): string {
   if (reason === 'not_funded') {
     // What the customer owes — the one rule's requiredCents (lib/job-collection.ts): sale + invoice tax, or for a time &
     // materials job what it was invoiced.
-    const c = evaluateJobCollection({ saleAmount, invoiceTaxCents, timeAndMaterialsInvoicedCents: tmInvoicedCents ?? null, collectedCents })
+    const c = evaluateJobCollection({ saleAmount, invoiceTaxCents, timeAndMaterialsInvoicedCents: tmInvoicedCents ?? null, timeAndMaterialsPending: tmPending ?? null, collectedCents })
+    if (c.waitingOnBilling) return 'Hours still being billed (a draft invoice, or clocked days not billed yet)'
     const sale = c.missingSaleAmount ? 0 : c.requiredCents
     if (tmInvoicedCents != null && sale === 0) return 'Nothing invoiced yet'
     const owed = Math.max(0, sale - collectedCents) / 100
@@ -333,6 +337,7 @@ export async function planPayrollPeriod(
   for (const job of candidateJobs) {
     job.invoice_tax_cents = invoiceTaxByJob.get(job.id)?.taxCents ?? 0
     job.tm_invoiced_cents = collectionInvoiceFields(invoiceTaxByJob.get(job.id)).timeAndMaterialsInvoicedCents
+    job.tm_pending = collectionInvoiceFields(invoiceTaxByJob.get(job.id)).timeAndMaterialsPending
   }
 
   if (jobIds.length === 0) return emptyPlan()
@@ -697,7 +702,7 @@ export async function planPayrollPeriod(
         waiting.push({
           job,
           reason: priced.skip,
-          reasonText: waitingReasonText(priced.skip, sumCollectedCents(paymentsByJob.get(job.id) || []), job.sale_amount, job.invoice_tax_cents, job.tm_invoiced_cents),
+          reasonText: waitingReasonText(priced.skip, sumCollectedCents(paymentsByJob.get(job.id) || []), job.sale_amount, job.invoice_tax_cents, job.tm_invoiced_cents, job.tm_pending),
           collectedCents: sumCollectedCents(paymentsByJob.get(job.id) || []),
           rows: [],
         })
@@ -780,7 +785,7 @@ export async function planPayrollPeriod(
     waiting.push({
       job: item.job,
       reason,
-      reasonText: waitingReasonText(reason, collectedCents, item.job.sale_amount, item.job.invoice_tax_cents, item.job.tm_invoiced_cents),
+      reasonText: waitingReasonText(reason, collectedCents, item.job.sale_amount, item.job.invoice_tax_cents, item.job.tm_invoiced_cents, item.job.tm_pending),
       collectedCents,
       rows: 'skip' in priced ? [] : priced.rows,
     })

@@ -343,7 +343,7 @@ export async function GET(request: Request) {
       ...j,
       collected_cents: collectedByJob[j.id] || 0,
       invoice_tax_cents: invoiceTaxByJob.get(j.id)?.taxCents ?? 0,
-      tm_invoiced_cents: collectionInvoiceFields(invoiceTaxByJob.get(j.id)).timeAndMaterialsInvoicedCents,
+      tm_invoiced_cents: collectionInvoiceFields(invoiceTaxByJob.get(j.id)).timeAndMaterialsInvoicedCents, tm_pending: collectionInvoiceFields(invoiceTaxByJob.get(j.id)).timeAndMaterialsPending,
     }))
 
     const safeJobs = redactProductionJobsFinancialSummaryRows(

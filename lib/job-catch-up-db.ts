@@ -265,7 +265,7 @@ export async function loadJobCatchUps(
     })
 
     const chip = opts.showPayment
-      ? paymentStatusChip({ sale_amount: job.sale_amount, collected_cents: sumCollectedCents(jobPayments), allow_close_with_balance: job.allow_close_with_balance, close_balance_by: job.close_balance_by, invoice_tax_cents: invoiceTaxByJob.get(job.id)?.taxCents ?? 0, tm_invoiced_cents: collectionInvoiceFields(invoiceTaxByJob.get(job.id)).timeAndMaterialsInvoicedCents })
+      ? paymentStatusChip({ sale_amount: job.sale_amount, collected_cents: sumCollectedCents(jobPayments), allow_close_with_balance: job.allow_close_with_balance, close_balance_by: job.close_balance_by, invoice_tax_cents: invoiceTaxByJob.get(job.id)?.taxCents ?? 0, tm_invoiced_cents: collectionInvoiceFields(invoiceTaxByJob.get(job.id)).timeAndMaterialsInvoicedCents, tm_pending: collectionInvoiceFields(invoiceTaxByJob.get(job.id)).timeAndMaterialsPending })
       : null
 
     const catchUp = buildJobCatchUp({

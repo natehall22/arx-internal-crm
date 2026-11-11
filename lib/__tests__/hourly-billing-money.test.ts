@@ -78,7 +78,7 @@ function seed() {
 
 describe('commission base for a job billed by the hour = invoiced − tax', () => {
   it('pure', () => {
-    expect(timeAndMaterialsCommissionBase({ invoicedPreTaxCents: 132500 })).toBe(1325)
+    expect(timeAndMaterialsCommissionBase({ issuedPreTaxCents: 132500 })).toBe(1325)
     expect(timeAndMaterialsCommissionBase(null)).toBe(0)
   })
   it('the one writer: non-void invoices, tax out, the estimate (sale amount) left as signed', async () => {

@@ -158,6 +158,8 @@ export async function PATCH(
           return NextResponse.json({ error: 'email required' }, { status: 400 })
         }
         const invoice = await finalizeAndSendInvoice(adminClient, params.invoiceId, email)
+        // Issued now: a time & materials job's commission base counts it (drafts don't).
+        await resyncBase()
         return NextResponse.json({ success: true, invoice })
       }
 

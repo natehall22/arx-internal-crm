@@ -166,3 +166,14 @@ export function formatHourMinute(hour: number, minute: number): string {
   const displayMinute = String(minute).padStart(2, '0')
   return `${displayHour}:${displayMinute} ${ampm}`
 }
+
+/** A valid IANA zone from `orgs.timezone`, else the app default. A bad value must never crash a run. Client-safe. */
+export function orgTimeZone(raw: unknown): string {
+  if (typeof raw !== 'string' || !raw.trim()) return DEFAULT_TIMEZONE
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: raw.trim() })
+    return raw.trim()
+  } catch {
+    return DEFAULT_TIMEZONE
+  }
+}

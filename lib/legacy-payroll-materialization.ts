@@ -40,6 +40,8 @@ type JobRow = {
   invoice_tax_cents?: number | null
   /** A time & materials job's invoiced total (tax included) = what it owes (lib/job-invoice-tax.ts); null = fixed price. */
   tm_invoiced_cents?: number | null
+  /** A time & materials job still being billed (draft invoice / clocked days not approved): not paid yet. */
+  tm_pending?: boolean | null
   id: string
   job_number: string
   status: string
@@ -158,6 +160,7 @@ export function derivePayrollEligibility(input: {
     saleAmount: input.job.sale_amount,
     invoiceTaxCents: input.job.invoice_tax_cents,
     timeAndMaterialsInvoicedCents: input.job.tm_invoiced_cents ?? null,
+    timeAndMaterialsPending: input.job.tm_pending ?? null,
     payments: input.payments,
     allowCloseWithBalance: input.job.allow_close_with_balance,
     closeBalanceBy: input.job.close_balance_by,
@@ -247,6 +250,7 @@ export async function materializePayrollPeriod(
   for (const job of candidateJobs) {
     job.invoice_tax_cents = invoiceTaxByJob.get(job.id)?.taxCents ?? 0
     job.tm_invoiced_cents = collectionInvoiceFields(invoiceTaxByJob.get(job.id)).timeAndMaterialsInvoicedCents
+    job.tm_pending = collectionInvoiceFields(invoiceTaxByJob.get(job.id)).timeAndMaterialsPending
   }
 
   if (jobIds.length === 0) {

@@ -180,21 +180,6 @@ const emptyDay = (): DayClock => ({ people: new Map(), machines: new Map(), open
 
 const ms = (iso: string) => Date.parse(iso)
 
-/** [from, to) cut at the company's local midnights → { day, piece }. */
-export function splitByLocalDay(i: Interval, timeZone: string): Array<{ day: string; piece: Interval }> {
-  const out: Array<{ day: string; piece: Interval }> = []
-  let start = i.start
-  let guard = 0
-  while (start < i.end && guard++ < 400) {
-    const day = localYmd(start, timeZone)
-    const next = localTimeToInstant(addDaysYmd(day, 1), '00:00', timeZone)?.getTime() ?? i.end
-    const end = Math.min(i.end, next > start ? next : i.end)
-    out.push({ day, piece: { start, end } })
-    start = end
-  }
-  return out
-}
-
 /**
  * Every job/visit day from a set of time entries (all of the company's entries in the window — breaks and other stops are
  * needed to know each person's net time and drive time). `targetOf` says which entries are billed by the hour (others
@@ -222,14 +207,13 @@ export function clockedDays(
         dayOf(t, localYmd(startMs, opts.timeZone)).open = true
         continue
       }
-      for (const { day, piece } of splitByLocalDay({ start: startMs, end: ms(e.endedAt) }, opts.timeZone)) {
-        const d = dayOf(t, day)
-        const m = d.machines.get(e.pricebookItemId) ?? { machineSeconds: 0, intervals: [], operators: new Set<string>() }
-        m.intervals.push(piece)
-        if (e.tappedBy) m.operators.add(e.tappedBy)
-        d.machines.set(e.pricebookItemId, m)
-        if (e.needsReview || e.endSource === 'auto_closed') d.needsReview = true
-      }
+      // A run is billed on the day it started (a shift past midnight is one billing day: rounding / minimum once).
+      const d = dayOf(t, localYmd(startMs, opts.timeZone))
+      const m = d.machines.get(e.pricebookItemId) ?? { machineSeconds: 0, intervals: [], operators: new Set<string>() }
+      m.intervals.push({ start: startMs, end: ms(e.endedAt) })
+      if (e.tappedBy) m.operators.add(e.tappedBy)
+      d.machines.set(e.pricebookItemId, m)
+      if (e.needsReview || e.endSource === 'auto_closed') d.needsReview = true
       continue
     }
     if (!e.userId) continue
@@ -242,16 +226,15 @@ export function clockedDays(
     const breaks = mergeIntervals(list.filter((e) => e.kind === 'break' && e.endedAt).map((e) => ({ start: ms(e.startedAt), end: ms(e.endedAt as string) })))
     const works = list.filter((e) => e.kind === 'work').sort((a, b) => ms(a.startedAt) - ms(b.startedAt))
     const allWork = works.filter((e) => e.endedAt).map((e) => ({ start: ms(e.startedAt), end: ms(e.endedAt as string) }))
-    const add = (t: TargetKey, kind: 'work' | 'travel', intervals: Interval[], flagged: boolean) => {
-      for (const i of intervals) {
-        for (const { day, piece } of splitByLocalDay(i, opts.timeZone)) {
-          const d = dayOf(t, day)
-          const p = d.people.get(userId) ?? { workSeconds: 0, travelSeconds: 0, work: [], travel: [] }
-          p[kind].push(piece)
-          d.people.set(userId, p)
-          if (flagged) d.needsReview = true
-        }
-      }
+    // Billed on the local day the stretch STARTED: a shift past midnight is one billing day (rounding and the minimum
+    // apply once), for jobs and visits alike.
+    const add = (t: TargetKey, day: string, kind: 'work' | 'travel', intervals: Interval[], flagged: boolean) => {
+      if (!intervals.length) return
+      const d = dayOf(t, day)
+      const p = d.people.get(userId) ?? { workSeconds: 0, travelSeconds: 0, work: [], travel: [] }
+      p[kind].push(...intervals)
+      d.people.set(userId, p)
+      if (flagged) d.needsReview = true
     }
     for (let i = 0; i < works.length; i++) {
       const e = works[i]
@@ -261,7 +244,7 @@ export function clockedDays(
         dayOf(t, localYmd(ms(e.startedAt), opts.timeZone)).open = true
         continue
       }
-      add(t, 'work', subtractIntervals([{ start: ms(e.startedAt), end: ms(e.endedAt) }], breaks), e.needsReview || e.endSource === 'auto_closed')
+      add(t, localYmd(ms(e.startedAt), opts.timeZone), 'work', subtractIntervals([{ start: ms(e.startedAt), end: ms(e.endedAt) }], breaks), e.needsReview || e.endSource === 'auto_closed')
     }
     // Drive time: the gap after a stop closed "going to the next stop", the same local day, belongs to the next stop.
     for (let i = 0; i < works.length - 1; i++) {
@@ -273,7 +256,7 @@ export function clockedDays(
       if (to <= from || localYmd(from, opts.timeZone) !== localYmd(to, opts.timeZone)) continue
       const t = opts.targetOf(b)
       if (!t) continue
-      add(t, 'travel', subtractIntervals(subtractIntervals([{ start: from, end: to }], allWork), breaks), false)
+      add(t, localYmd(to, opts.timeZone), 'travel', subtractIntervals(subtractIntervals([{ start: from, end: to }], allWork), breaks), false)
     }
   }
 
