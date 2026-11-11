@@ -66,7 +66,6 @@
   "lib/suppliers/abc/send-gate.ts": 1,
   "lib/sync-setter-ramp-core.ts": 1,
   "lib/threads/notify.ts": 2,
-  "lib/threads/post-message.ts": 4,
   "lib/threads/viewer.ts": 1,
   "lib/threads/waiting.ts": 3,
   "lib/user-email-eligibility.ts": 1,

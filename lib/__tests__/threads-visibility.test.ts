@@ -53,9 +53,9 @@ describe('thread visibility — role × audience', () => {
   })
 
   it('only ops/owners write Crew; setters never write Production', () => {
-    expect(writableAudiences(viewers.owner, deal)).toEqual(['team', 'sales', 'production', 'crew', 'customer'])
+    expect(writableAudiences(viewers.owner, deal)).toEqual(['team', 'sales', 'production', 'crew'])
     expect(writableAudiences(viewers.ops, deal)).toContain('crew')
-    expect(writableAudiences(viewers.closer, deal)).toEqual(['team', 'sales', 'production', 'customer'])
+    expect(writableAudiences(viewers.closer, deal)).toEqual(['team', 'sales', 'production'])
     expect(writableAudiences(viewers.setter, deal)).toEqual(['team', 'sales'])
     expect(writableAudiences(viewers.otherSetter, deal)).toEqual([])
     expect(writableAudiences(viewers.manager, deal)).not.toContain('crew')
@@ -109,8 +109,24 @@ describe('the customer audience ("To customer")', () => {
     }
   })
   it('is written by non-field roles only (setters, canvassers, inside sales never email a customer from the thread)', () => {
-    for (const name of ['owner', 'ops', 'manager', 'closer'] as const) expect(writableAudiences(viewers[name], deal)).toContain('customer')
-    for (const name of ['setter', 'insideSales', 'stranger'] as const) expect(writableAudiences(viewers[name], deal)).not.toContain('customer')
+    for (const name of ['owner', 'ops', 'manager', 'closer'] as const) expect(writableAudiences(viewers[name], deal, true)).toContain('customer')
+    for (const name of ['setter', 'insideSales', 'stranger'] as const) expect(writableAudiences(viewers[name], deal, true)).not.toContain('customer')
+  })
+  it('is offered only when the company uses the portal or automatic customer emails', () => {
+    for (const name of ['owner', 'ops', 'manager', 'closer'] as const) expect(writableAudiences(viewers[name], deal, false)).not.toContain('customer')
+  })
+  it('is never moved onto or off after the fact, by anyone (owners included)', () => {
+    for (const v of Object.values(viewers)) {
+      for (const to of AUDIENCES) {
+        expect(canReclassify(v, 'customer')).toBe(false)
+        if (to !== 'customer') expect(canReclassify(v, to, 'customer')).toBe(false)
+      }
+    }
+    expect(canReclassify(viewers.owner, 'production', 'team')).toBe(true) // the rest is unchanged
+  })
+  it('a reply to a customer-audience message starts as Team — never inherited', () => {
+    expect(defaultAudience(viewers.owner, { surface: 'other', replyTo: { audience: 'customer' } }, deal)).toBe('team')
+    expect(defaultAudience(viewers.owner, { surface: 'other', replyTo: { audience: 'production' } }, deal)).toBe('production')
   })
   it('the database rule names the same audience set as the app (migration 202611120060)', () => {
     const fs = require('fs') as typeof import('fs')
