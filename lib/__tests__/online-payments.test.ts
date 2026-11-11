@@ -189,8 +189,8 @@ function seed(extra: Partial<Record<string, Row[]>> = {}) {
   client.from = (t: string) => {
     const b = realFrom(t)
     if (t !== 'stripe_webhook_events') return b
-    const insert = b.insert as (v: Row) => unknown
-    return { ...b, insert: (v: Row) => (db.tables.stripe_webhook_events.some((e) => e.event_id === v.event_id) ? Promise.resolve({ data: null, error: { code: '23505', message: 'duplicate' } }) : insert(v)) }
+    const insert = b.insert
+    return { ...b, insert: (...a: unknown[]) => (db.tables.stripe_webhook_events.some((e) => e.event_id === (a[0] as Row).event_id) ? Promise.resolve({ data: null, error: { code: '23505', message: 'duplicate' } }) : insert(...a)) }
   }
   mockClient = db.client
   return { ...db, rpcCalls }
@@ -248,7 +248,7 @@ describe('pay an invoice without a job (service plan) by card', () => {
     expect(sent.body.getAll('payment_method_types[0]').concat(sent.body.getAll('payment_method_types[1]'))).toEqual(['card', 'us_bank_account'])
     expect(sent.body.get('payment_intent_data[metadata][crm_org_id]')).toBe(ORG)
     expect(sent.body.get('payment_intent_data[application_fee_amount]')).toBeNull() // platform fee off
-    expect([...sent.body.keys()].some((k) => /surcharge|tip/.test(k))).toBe(false)
+    expect(Array.from(sent.body.keys()).some((k) => /surcharge|tip/.test(k))).toBe(false)
     expect(d.tables.online_payments[0]).toMatchObject({ status: 'open', checkout_session_id: 'cs_1', amount_cents: 10000 })
 
     // A part payment is refused unless the company allows it.

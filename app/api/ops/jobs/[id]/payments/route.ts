@@ -4,7 +4,8 @@ import { createServiceClient } from '@/lib/supabase/service'
 import type { JobPayment, JobPaymentSummary } from '@/lib/types/job-payments'
 import { JOB_COLLECTION_COLUMNS } from '@/lib/job-collection'
 import { callerCanAccessJobBilling } from '@/lib/finance-access'
-import { buildJobPaymentSummary, recordJobPayment } from '@/lib/job-payments'
+import { buildJobPaymentSummary } from '@/lib/job-payments'
+import { recordJobPayment } from '@/lib/job-payment-record'
 import { loadInvoiceTaxCentsByJob } from '@/lib/job-invoice-tax'
 
 // GET - Get all payments for a job with summary

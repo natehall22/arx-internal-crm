@@ -4,7 +4,7 @@
  * of rows, from exactly two places:
  *  - customer.upserted — contract signing only (`enrichCustomerFromContract`); booking, the repair-contract project tool,
  *    the customer backfill and customer linking all go through `upsertCustomer`, which never enqueues;
- *  - payment.recorded — recording a job payment (`recordJobPayment`, lib/job-payments.ts).
+ *  - payment.recorded — recording a job payment (`recordJobPayment`, lib/job-payment-record.ts).
  * Invoices (job_invoices) are never queued: the design syncs one QuickBooks invoice per job = sale amount.
  */
 import fs from 'fs'
@@ -47,7 +47,7 @@ describe('QuickBooks outbox: who can enqueue', () => {
   })
 
   it('only recording a job payment queues a payment (the one job payment writer)', () => {
-    expect(callersOf('enqueuePaymentRecorded')).toEqual(['lib/job-payments.ts'])
+    expect(callersOf('enqueuePaymentRecorded')).toEqual(['lib/job-payment-record.ts'])
     // Office "Add payment" and the online-payment webhook both go through recordJobPayment.
     expect(callersOf('recordJobPayment').sort()).toEqual(expect.arrayContaining(['app/api/ops/jobs/[id]/payments/route.ts']))
   })

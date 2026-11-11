@@ -2,7 +2,7 @@
  * THE recorder of online money. Every way Stripe tells us something — the webhook, the customer landing back on the pay
  * page, an automatic charge answering at once — ends here, and every path is safe to run twice or at the same time:
  *
- * - Money in goes to the ONE existing writer for its invoice: a job invoice → `recordJobPayment` (lib/job-payments.ts:
+ * - Money in goes to the ONE existing writer for its invoice: a job invoice → `recordJobPayment` (lib/job-payment-record.ts:
  *   job_payments row, QuickBooks outbox `payment.recorded`, office email) then `applyPaymentToInvoice`; an invoice without
  *   a job → `recordCustomerInvoicePayment` (SQL, invoice locked). Both are keyed by `stripe:<payment intent>`, so a repeat
  *   writes nothing. "Paid in full" is then the usual rule (lib/job-collection.ts / invoice balance) — nothing is stored.
@@ -23,7 +23,7 @@ import {
   recordCustomerInvoicePayment,
   recordCustomerInvoiceRefund,
 } from '@/lib/invoices'
-import { recordJobPayment } from '@/lib/job-payments'
+import { recordJobPayment } from '@/lib/job-payment-record'
 import { ymdInZone } from '@/lib/payroll-week-schedule'
 import { orgDb } from '@/lib/supabase/org-db'
 import { stripeRequest, type StripeObject } from '@/lib/stripe/api'
