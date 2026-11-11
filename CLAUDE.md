@@ -627,11 +627,21 @@ message OFF) — ARX is unchanged unless both. Migration `202611120050_customer_
   SMTP:** later bounces (DSN mail) and spam complaints — needs a provider with webhooks.
 - `/m/<token>` (public) also shows a "done" visit's photos (signed 1 h URLs) for 90 days.
 
-## QuickBooks (2026-11-06)
-Not connected yet; design in `docs/quickbooks-sync.md`. Until the worker ships, `integration_outbox` only receives
-`customer.upserted` (contract signing, `enrichCustomerFromContract`) and `payment.recorded` (job payments, `recordJobPayment` —
-office and Stripe alike) — nothing drains it.
-`lib/__tests__/quickbooks-outbox-guard.test.ts` holds that line.
+## QuickBooks (2026-11-06; connection built 2026-11-13)
+**The CRM is not accounting software (Nathan, 2026-11-11):** it sends customers, invoices (incl. service + tax), payments (gross)
+and APPROVED vendor bills to the company's own QuickBooks, one way. No ledger, chart-of-accounts, reconciliation, bill paying,
+fee/payout bookkeeping or payroll posting (the payroll provider's own QuickBooks sync books payroll). Design: `docs/quickbooks-sync.md`.
+- **Connection (PR 2)** `lib/quickbooks/` (switch `quickbooks`, default OFF; migration `202611130050`, NOT applied): ONE reader/writer
+  `connection.ts` for `qb_connections` (tokens sealed with `lib/secret-seal.ts`, env `SECRETS_ENCRYPTION_KEY`, no fallback key);
+  ONE Intuit door `api.ts`; refresh with rotation under a lease (`getQuickBooksAccess` — the only way to get a token); `qb_links` is the
+  one CRM<->QB map (empty until the worker). Owner-only (`isSuperAdmin`). Connect reuses the Google signed single-use ticket
+  (`lib/google-oauth-state.ts`, now with a `purpose` so a ticket can't cross callbacks; `sameOrigin` only for a company with no address):
+  start `POST /api/admin/quickbooks`, callback `/api/integrations/quickbooks/callback`, finish `.../finish`. Settings card
+  `QuickBooksCard`; Today "QuickBooks needs you" (reconnect). One cron `/api/cron/quickbooks` (keeps tokens warm; PR 4 drains the outbox in it).
+  `settings.quickbooks` is written only at path ['quickbooks'] (later PRs).
+- Until the worker ships, `integration_outbox` only receives `customer.upserted` (contract signing, `enrichCustomerFromContract`) and
+  `payment.recorded` / `payment.refunded` / `payment.disputed` (`recordJobPayment`) — nothing drains it.
+  `lib/__tests__/quickbooks-outbox-guard.test.ts` holds that line.
 
 ## Install Scheduling — crews per trade (2026-09-15)
 A job's crews are **trades**: one `work_orders` row per trade (`trade` = a slug from the company's own

@@ -444,6 +444,9 @@ const SCREENS: Screen[] = [
   { name: 'online-payments-settings', path: '/dev-harness/online-payments-settings', ready: 'text=Connected — taking payments', mock: async (p) => {
     await p.route('**/api/admin/online-payments', (route) => route.fulfill(json({ featureOn: true, configured: true, ready: true, testMode: true, settings: { allowPartial: false, bankPayments: true, autopay: true, retryDays: [3, 7] }, account: { status: 'active', chargesEnabled: true, payoutsEnabled: false, detailsSubmitted: true, livemode: false, accountId: 'acct_1' } })))
   } },
+  { name: 'quickbooks-settings', path: '/dev-harness/quickbooks-settings', ready: 'text=Needs to be reconnected', mock: async (p) => {
+    await p.route('**/api/admin/quickbooks', (route) => route.fulfill(json({ featureOn: true, configured: true, status: 'needs_reconnect', companyName: 'Sample Lawn Care LLC', environment: 'production', reason: 'QuickBooks stopped accepting this connection. Please reconnect.', expiresSoon: false })))
+  } },
   { name: 'invoice-online', path: '/dev-harness/invoice-online', ready: 'text=Copy pay link' },
   { name: 'tax-exemption', path: '/dev-harness/tax-exemption', ready: 'text=Tax exempt (no sales tax' },
   { name: 'admin-settings', path: '/dev-harness/admin-settings', ready: 'text=Customer-facing brand',

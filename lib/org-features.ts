@@ -67,6 +67,11 @@ export const ORG_FEATURE_DEFS = {
     description: 'Customers pay invoices and deposits by card or bank from a link, save a card for automatic payments on service plans, and payments are recorded on their own. Money goes to your own Stripe account.',
     defaultOn: false,
   },
+  quickbooks: {
+    label: 'QuickBooks',
+    description: 'Connect your own QuickBooks Online company so sales, payments and bills can flow to your bookkeeper. Connecting does not send anything by itself.',
+    defaultOn: false,
+  },
   customerMessages: {
     label: 'Automatic customer emails',
     description: 'Visit reminders, “on the way” and “done” emails, quote follow-ups and invoice reminders, sent on their own. Each one is turned on separately in Settings → Customer messages.',

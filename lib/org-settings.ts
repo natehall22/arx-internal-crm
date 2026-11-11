@@ -55,6 +55,8 @@ export async function mergeOrgSettings(
   if (path.length === 0 && ('onlinePayments' in set || remove.includes('onlinePayments'))) return { error: 'onlinePayments is saved at path [onlinePayments]' }
   // Automatic customer messages are only ever written at path ['customerMessages'] (owners, /api/admin/customer-messages).
   if (path.length === 0 && ('customerMessages' in set || remove.includes('customerMessages'))) return { error: 'customerMessages is saved at path [customerMessages]' }
+  // QuickBooks choices (account mapping, invoice mode, start date — later PRs) are only ever written at path ['quickbooks'] (owners).
+  if (path.length === 0 && ('quickbooks' in set || remove.includes('quickbooks'))) return { error: 'quickbooks is saved at path [quickbooks]' }
   if (Object.keys(set).length === 0 && remove.length === 0) return { error: null }
 
   const { error } = await client.rpc('merge_org_settings', { p_org_id: orgId, p_path: path, p_set: set, p_remove: remove })

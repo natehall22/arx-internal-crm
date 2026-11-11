@@ -103,6 +103,7 @@ import HourlyBillingSettingsCard from '@/components/billing/HourlyBillingSetting
 import CustomerInvoicesCard from '@/components/billing/CustomerInvoicesCard'
 import PayClient from '@/components/pay/PayClient'
 import OnlinePaymentsCard from '@/components/admin/OnlinePaymentsCard'
+import QuickBooksCard from '@/components/admin/QuickBooksCard'
 import InvoiceOnlinePayments from '@/components/billing/InvoiceOnlinePayments'
 import type { PayPageView } from '@/lib/online-payments/public'
 import CrewDayList, { type CrewDayVisit } from '@/app/crew/day/[token]/CrewDayList'
@@ -503,6 +504,8 @@ export default function Harness({ params }: { params: { screen: string } }) {
       return <PayClient token="harness-pay-token-harness-pay-token-harness" view={{ ...HARNESS_PAY_VIEW, state: 'paid' }} returned />
     case 'save-card-page':
       return <PayClient token="harness-pay-token-harness-pay-token-harness" view={{ ...HARNESS_PAY_VIEW, kind: 'save_card', state: 'save_card', invoice: null, cardOnFile: 'Visa •••• 4242' }} returned={false} />
+    case 'quickbooks-settings':
+      return <div className="mx-auto max-w-2xl p-4"><QuickBooksCard /></div>
     case 'online-payments-settings':
       return <div className="mx-auto max-w-2xl p-4"><OnlinePaymentsCard /></div>
     case 'invoice-online':
