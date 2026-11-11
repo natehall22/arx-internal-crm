@@ -43,7 +43,9 @@ export function useClock(endpoint: string, opts: { tapperKey?: string; initial?:
   const [state, setState] = useState<ClockState | null>(opts.initial ?? null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const pending = useTimeClockQueue((s) => s.pending.filter((t) => t.endpoint === endpoint).length)
-  const failed = useTimeClockQueue((s) => s.failed.filter((t) => t.endpoint === endpoint))
+  // Select the stored array itself (a new filtered array per render would loop the store subscription).
+  const allFailed = useTimeClockQueue((s) => s.failed)
+  const failed = useMemo(() => allFailed.filter((t) => t.endpoint === endpoint), [allFailed, endpoint])
   const dismissFailed = useTimeClockQueue((s) => s.dismissFailed)
   const enqueue = useTimeClockQueue((s) => s.enqueue)
 

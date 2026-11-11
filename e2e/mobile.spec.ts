@@ -249,7 +249,7 @@ const SCREENS: Screen[] = [
     },
     states: [
       { name: 'edit-sheet', run: async (p) => { await p.getByRole('button', { name: /Forgot to clock out/ }).first().click(); await p.waitForSelector('[role=dialog] >> text=Why? (required)') } },
-      { name: 'add-sheet', run: async (p) => { await p.getByRole('button', { name: '+ Add time', exact: true }).click(); await p.waitForSelector('[role=dialog] >> text=Pick a person') } },
+      { name: 'add-sheet', run: async (p) => { await p.getByRole('button', { name: '+ Add time', exact: true }).click(); await p.waitForSelector('[role=dialog] >> text=Why? (required)') } },
     ] },
   { name: 'crew-time-setup', path: '/dev-harness/crew-time-setup', ready: 'text=Crew lead ✓',
     mock: async (p) => { await p.route('**/api/admin/subs/*/crew', (route) => route.fulfill(json(HARNESS_CREW_SETUP))) } },
