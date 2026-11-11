@@ -4,6 +4,7 @@ import { useState } from 'react'
 
 import { Button, toast } from '@/components/ui'
 import { formatCurrency } from '@/lib/job-payments'
+import { formatDate } from '@/lib/format'
 import type { InvoiceOnlineSummary } from '@/lib/online-payments/summary'
 
 /**
@@ -73,8 +74,8 @@ export default function InvoiceOnlinePayments({
                 <span className={a.status === 'failed' || a.status === 'needs_review' ? 'font-semibold text-red-800' : 'font-semibold'}>{a.label}</span>
                 <span className="tabular-nums">{formatCurrency(a.amountCents)}</span>
               </div>
-              <div className="text-xs text-gray-700">
-                {new Date(a.at).toLocaleDateString()}
+              <div className="text-sm text-gray-700">
+                {formatDate(a.at)}
                 {a.refundedCents > 0 ? ` · ${formatCurrency(a.refundedCents)} refunded` : ''}
                 {a.note ? ` · ${a.note}` : ''}
               </div>

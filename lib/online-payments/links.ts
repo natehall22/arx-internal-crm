@@ -29,9 +29,9 @@ export function hashLinkToken(token: string): string {
   return createHash('sha256').update(token, 'utf8').digest('hex')
 }
 
-/** Pure: a token we could have made (43 url-safe chars). Anything else is refused before a database read. */
+/** Pure: url-safe and token-sized (ours are 43 chars). Anything else is refused before a database read. */
 export function isWellFormedLinkToken(token: unknown): token is string {
-  return typeof token === 'string' && /^[A-Za-z0-9_-]{43}$/.test(token)
+  return typeof token === 'string' && /^[A-Za-z0-9_-]{32,128}$/.test(token)
 }
 
 export async function createPaymentLink(

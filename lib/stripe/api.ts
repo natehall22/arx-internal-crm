@@ -33,7 +33,7 @@ export class StripeApiError extends Error {
   }
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+// Stripe's JSON is read field by field with runtime checks; `any` keeps those reads short.
 export type StripeObject = Record<string, any>
 
 export function stripeSecretKey(): string | null {

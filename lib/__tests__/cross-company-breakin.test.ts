@@ -21,6 +21,10 @@ process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://proj.supabase.co'
 process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'anon-key-test'
 process.env.SUPABASE_SERVICE_ROLE_KEY = SERVICE_KEY
 process.env.CRON_SECRET = 'cron-secret-the-attacker-does-not-have'
+// Online payments: a (test) key so the billing/pay routes run past "Stripe not set up"; every Stripe call is an outbound
+// fetch the suite records. The webhook secret is one the attacker does not have.
+process.env.STRIPE_SECRET_KEY = 'sk_test_breakin'
+process.env.STRIPE_WEBHOOK_SECRET = 'whsec_the_attacker_does_not_have'
 delete process.env.DEPLOYMENT_ORG_ID
 delete process.env.APP_BASE_DOMAIN
 

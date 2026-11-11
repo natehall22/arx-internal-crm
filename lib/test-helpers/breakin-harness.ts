@@ -131,6 +131,10 @@ export function attackerSeed(table: string, hasOrgId = true): Row {
   if (table === 'work_orders') Object.assign(r, { trade: 'roofing', status: 'scheduled', install_days: 1, scheduled_date: new Date().toISOString().slice(0, 10) })
   // A live crew phone link (lib/service-plans-db.ts resolveCrewDay: unexpired), so B's crew day link resolves.
   if (table === 'crew_day_links') r.expires_at = new Date(Date.now() + 7 * 86_400_000).toISOString()
+  // A live pay link (lib/online-payments/links.ts: hashed token, unexpired) and a connected Stripe account that can take
+  // charges, so B's pay page and the billing routes get past "not set up" to B's own invoice.
+  if (table === 'payment_links') Object.assign(r, { token_hash: createHash('sha256').update(BRAVO_PUBLIC_TOKEN).digest('hex'), kind: 'invoice', revoked_at: null, expires_at: new Date(Date.now() + 7 * 86_400_000).toISOString() })
+  if (table === 'payment_accounts') Object.assign(r, { account_id: 'acct_BRAVO', status: 'active', charges_enabled: true, livemode: false, disconnected_at: null })
   Object.assign(r, { user_id: ATTACKER_ID, owner_user_id: ATTACKER_ID, created_at: '2026-11-02T12:00:00.000Z', updated_at: '2026-11-02T12:00:00.000Z' })
   if (hasOrgId) r.org_id = ORG_B
   else r[OWNER_TAG] = ORG_B
