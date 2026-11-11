@@ -283,7 +283,7 @@ export type PayrollExportRow = {
 }
 
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { compPlanAsOf, type CompPlanVersionRow } from '@/lib/comp-plan-version'
+import { compPlanAsOf, COMP_PLAN_VERSION_FLOOR_DATE, normalizeCompPlanBody, type CompPlanVersionRow } from '@/lib/comp-plan-version'
 import { defaultWindowsForUser, selectDefaultForRole, type ActiveHistoryRow, type OrgDefaultCompPlanRow } from '@/lib/comp-plan-defaults'
 
 type UserCompRow = {
@@ -331,6 +331,16 @@ async function loadCompPlanVersions(
   const rows = (data || []) as unknown as CompPlanVersionRow[]
   byOrg.set(orgId, rows)
   return rows
+}
+
+/**
+ * Preview only (lib/payroll-plan-preview.ts): makes THIS client resolve one plan's pay terms as the proposed body on every date,
+ * leaving every other plan as stored. Nothing is written; the cache is per client, so no other request sees it.
+ */
+export async function seedCompPlanVersionsForPreview(supabase: SupabaseClient, orgId: string, planId: string, body: Record<string, unknown>): Promise<void> {
+  const real = await loadCompPlanVersions(supabase, orgId)
+  const hypothetical = { comp_plan_id: planId, effective_from: COMP_PLAN_VERSION_FLOOR_DATE, ...normalizeCompPlanBody(body) } as unknown as CompPlanVersionRow
+  versionCacheByClient.get(supabase)?.set(orgId, [...real.filter((v) => v.comp_plan_id !== planId), hypothetical])
 }
 
 type UserPayFlags = { role: string | null; active: boolean | null; isTestAccount: boolean }

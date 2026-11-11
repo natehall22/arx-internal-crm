@@ -78,3 +78,28 @@ second rule for every job (not only financed ones — see Open questions). It di
 - **Weekly minimum vs. a separate weekly-floor program:** the setter-ramp sync (`lib/sync-setter-ramp-core.ts`) still writes its own
   `setter_weekly_floor` bonus on locked weeks with Sunday–Saturday windows. Do not use both for the same person; retire the ramp
   floor when the plan rule is used (it is a second implementation of the same idea).
+
+## Phase 2 (advances, one-tap approve, provider export, pay sheets, plan preview, multi-state)
+
+Migration `202611140070_payroll_advances_approval_links_provider.sql` (additive; apply AFTER 202611120010; rollback in its header).
+All of it sits on the pay-week path: with `PAYROLL_PAY_WEEK_ENABLED` off nothing changes. Scope guard (Nathan): the CRM computes who
+earns what, approves, and EXPORTS; the provider owns tax, filings and its own QuickBooks sync. No tax math, no loan ledger.
+
+- **Advances.** `payroll_advances` (owner records; `lib/payroll-advances.ts`, `-db.ts`). Outstanding = amount minus recovery lines
+  (derived). Rule: full next week / fixed per week / % of pay; floor = pro-rated weekly minimum unless the owner allows below it;
+  never below $0; oldest first. Recovery is a negative `Adjustment` line (kind `advance_recovery`), planned in `loadPayWeekFull` and
+  written inside `payroll_commit_week`; a trigger refuses over-recovery. Owners only (API + SQL). Negative balances carry as before.
+- **One-tap approve.** `payroll_approval_links` stores only a SHA-256 of the token, bound to one owner, 48 h, single use. The page
+  needs the owner's session and calls the same `approvePayWeek`. Clean weeks only (draft, can approve, no blockers/needs, cutoff
+  passed, no warnings except multi-state). Sent by the morning-update cron (email + APNs). **WebAuthn re-auth is a pre-launch item:
+  the repo has no WebAuthn yet.**
+- **Provider export.** Gusto / ADP CSV from a locked week's stored lines (`lib/payroll-provider-export.ts`). Gusto column headers are
+  unverified against a live import; ADP company code and earning codes are in `orgs.settings.payrollExport` (owner). People without a
+  file number / name are listed before download.
+- **Pay sheets.** Landscape letter PDF per person (`lib/pdf/payroll-person-sheet.ts`); upcoming-week preview carries a "PREVIEW - not
+  final" mark; a locked week reads stored lines. Colors, labels and the math toggle live in `orgs.settings.paySheet`; logo from the org.
+- **Comp plan preview.** Saving an existing plan shows the last 4 weeks old vs new per person (commission + weekly minimum only).
+- **Multi-state.** Warning text only (`multi_state`); home state = `users.payroll_state`, else the company address state.
+- **Finding, "no-double-pay F4".** `payroll_dupfix_fixture.sql` used a timestamp without a time zone, so it only passed on a UTC
+  database session. Fixed with `+00`; the script passes on a New York cluster too.
+- Tests: `supabase/tests/run-payroll-phase2.sh` (local PG), jest `payroll-advances`, `payroll-phase2-pure`, `payroll-pay-sheet`.

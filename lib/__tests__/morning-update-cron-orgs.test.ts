@@ -6,6 +6,7 @@ import { createFakeDb } from '@/lib/test-helpers/fake-db'
 let db: ReturnType<typeof createFakeDb>
 // The real table has UNIQUE (org_id, blast_type, send_date) — the once-a-day claim. The fake db has no constraints,
 // so the claim insert is given that one rule here.
+jest.mock('@/lib/payroll-approve-link', () => ({ notifyPayWeekReady: jest.fn(async () => ({ sent: 0 })) }))
 jest.mock('@/lib/supabase/service', () => ({
   createServiceClient: () => ({
     ...(db.client as unknown as Record<string, unknown>),

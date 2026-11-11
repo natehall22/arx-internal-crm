@@ -10,7 +10,7 @@ export const maxDuration = 300
 
 /**
  * Every 15 minutes: automatic customer messages (visit reminders, "on the way" / "done", quote follow-ups, invoice
- * reminders) for every company a background job runs for (lib/cron-orgs.ts). Each company runs in its own time zone and
+ * reminders; by email, and by text for a company with the `texting` switch and its own number) for every company a background job runs for (lib/cron-orgs.ts). Each company runs in its own time zone and
  * quiet hours; a company with the `customerMessages` switch off, or every message off, costs one settings read.
  * Kill switch: env CUSTOMER_MESSAGES_CRON=false. One company failing never stops the others.
  */
@@ -39,6 +39,6 @@ export async function GET(request: NextRequest) {
       results.push({ orgId: org.id, skipped: 'error' })
     }
   }
-  const sent = results.reduce((n, r) => n + (r.stats?.sent ?? 0), 0)
+  const sent = results.reduce((n, r) => n + (r.stats?.sent ?? 0) + (r.sms?.stats?.sent ?? 0), 0)
   return NextResponse.json({ orgs: results.length, sent, results }, { status: failed ? 500 : 200 })
 }

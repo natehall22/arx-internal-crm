@@ -90,8 +90,9 @@ export async function addAdjustment(
 
 /** Remove a fix that is still on an OPEN week. (Voided, not deleted: the history stays.) */
 export async function voidAdjustment(admin: SupabaseClient, orgId: string, id: string): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
-  const { data: adj } = await admin.from('payroll_adjustments').select('id, payroll_period_id, status').eq('id', id).eq('org_id', orgId).maybeSingle()
+  const { data: adj } = await admin.from('payroll_adjustments').select('id, payroll_period_id, status, kind').eq('id', id).eq('org_id', orgId).maybeSingle()
   if (!adj || adj.status === 'void') return { ok: false, status: 404, error: 'Fix not found' }
+  if (adj.kind === 'advance' || adj.kind === 'advance_recovery') return { ok: false, status: 409, error: 'That line belongs to an advance. Stop the advance from the Advances list instead.' }
   const { data: period } = await admin.from('payroll_periods').select('status, lock_claimed_at').eq('id', adj.payroll_period_id as string).eq('org_id', orgId).maybeSingle()
   if (!period || !periodIsEditable(period)) return { ok: false, status: 409, error: 'That week is already approved (or being approved)' }
   const { error } = await admin.from('payroll_adjustments').update({ status: 'void' }).eq('id', id).eq('org_id', orgId).eq('status', 'pending')

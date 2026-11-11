@@ -54,7 +54,7 @@ JOIN (VALUES
 ) v(job_id, user_id, role, amt) ON v.job_id::uuid = s.job_id;
 
 INSERT INTO job_payroll_state (job_id, org_id, current_payroll_period_id, payroll_cutoff_at, scheduled_pay_date, payroll_eligible_at, updated_at)
-SELECT j.job_id::uuid, '00000000-0000-0000-0000-0000000000e1', p.id, p.cutoff_at, p.scheduled_pay_date, '2026-07-01', '2026-08-20 22:14:12'
+SELECT j.job_id::uuid, '00000000-0000-0000-0000-0000000000e1', p.id, p.cutoff_at, p.scheduled_pay_date, '2026-07-01', '2026-08-20 22:14:12+00'
 FROM (VALUES ('00000000-0000-0000-0000-000000000c14','00000000-0000-0000-0000-0000000000a1'),
              ('00000000-0000-0000-0000-000000000c17','00000000-0000-0000-0000-0000000000a2'),
              ('00000000-0000-0000-0000-000000000c29','00000000-0000-0000-0000-0000000000a2'),

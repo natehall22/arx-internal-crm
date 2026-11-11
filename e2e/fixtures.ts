@@ -210,6 +210,7 @@ export const PAY_WEEK = {
   canApprove: true, blockedBy: null, period: { id: '00000000-0000-4000-8000-000000000001', label: 'Week ending 2026-10-25', cutoffAt: '2026-10-26T03:59:59.999Z', payDate: '2026-10-30', status: 'open', weekStart: '2026-10-19', weekEnding: '2026-10-25' },
   schedule: { words: 'Monday–Sunday · closes Sunday 11:59 PM · paid Friday · money in by Wednesday 11:59 PM still pays that week' },
   viewer: { canApprove: true, canEditSchedule: true },
+  advances: [{ id: 'adv1', userId: 'u-riley', name: 'Riley Moss', amount: 500, givenOn: '2026-10-12', note: 'truck repair', outstanding: 400, rule: '$100 a week', thisWeek: 100, belowMinimumOk: false, limited: false }],
   state: 'draft',
   totals: { amount: 5238.5, people: 5 },
   needs: [

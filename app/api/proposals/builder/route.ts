@@ -424,6 +424,8 @@ function proposalLineItemRow(item: any, index: number, orgId: string, proposalId
     show_to_customer: item.show_to_customer ?? false,
     sort_order: index,
     ...(typeof item.taxable === 'boolean' ? { taxable: item.taxable } : {}),
+    // Quote approval flags: written only when set, so a roofing save sends and stores exactly what it did before.
+    ...(item.is_optional === true ? { is_optional: true, optional_default_on: item.optional_default_on === true } : {}),
   }
 }
 

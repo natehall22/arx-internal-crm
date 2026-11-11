@@ -1,6 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+
+import { consentText } from '@/lib/sms/consent-text'
 
 async function post(url: string, body: unknown): Promise<{ ok: boolean; data: { url?: string; error?: string } }> {
   const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).catch(() => null)
@@ -108,5 +110,33 @@ export function PrintButton() {
     <button type="button" onClick={() => window.print()} className="min-h-[48px] rounded-xl border border-[#a8a69f] bg-white px-4 text-base font-bold text-[#2c2c2a] print:hidden">
       Print or save as PDF
     </button>
+  )
+}
+
+/** "Text me" box: one checkbox with the exact consent words next to it. Only rendered when the company has texting on. */
+export function TextsToggle({ companyName }: { companyName: string }) {
+  const [state, setState] = useState<{ available: boolean; on: boolean; stopped: boolean } | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  useEffect(() => {
+    void fetch('/api/portal/texting').then((r) => r.json()).then((d) => setState({ available: !!d.available, on: !!d.on, stopped: !!d.stopped })).catch(() => setState({ available: false, on: false, stopped: false }))
+  }, [])
+  if (!state?.available) return null
+  async function change(on: boolean) {
+    setBusy(true)
+    setError(null)
+    const r = await post('/api/portal/texting', { on })
+    setBusy(false)
+    if (!r.ok) return setError(r.data.error || 'Something went wrong. Please try again.')
+    setState((s) => (s ? { ...s, on } : s))
+  }
+  return (
+    <label className="flex min-h-[44px] items-start gap-3 text-base text-[#2c2c2a]">
+      <input type="checkbox" className="mt-1 h-6 w-6 shrink-0" checked={state.on} disabled={busy} onChange={(e) => void change(e.target.checked)} />
+      <span>
+        {consentText(companyName)}
+        {error ? <span role="alert" className="mt-1 block font-semibold text-[#9b1c1c]">{error}</span> : null}
+      </span>
+    </label>
   )
 }

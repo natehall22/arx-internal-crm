@@ -17,7 +17,9 @@ import OrgProfileCard from '@/components/admin/OrgProfileCard'
 import { INDUSTRY_PROFILE_IDS, INDUSTRY_PROFILES } from '@/lib/industry-profiles'
 import { loadOrgProfile } from '@/lib/org-profile'
 import SalesTaxCard from '@/components/admin/SalesTaxCard'
+import QuoteApprovalCard from '@/components/admin/QuoteApprovalCard'
 import OnlinePaymentsCard from '@/components/admin/OnlinePaymentsCard'
+import QuickBooksCard from '@/components/admin/QuickBooksCard'
 import { loadOrgSalesTax } from '@/lib/sales-tax-server'
 import ServicePlanTemplatesCard from '@/components/service-plans/ServicePlanTemplatesCard'
 import HourlyBillingSettingsCard from '@/components/billing/HourlyBillingSettingsCard'
@@ -75,12 +77,16 @@ export default async function SettingsPage() {
           {canEditFeatures && <SalesTaxCard initial={salesTax} proposalWord={orgProfile.terms.proposal} />}
           {/* Owners, when the company uses online payments: connect its own Stripe account (lib/online-payments). */}
           {canEditFeatures && features.onlinePayments ? <OnlinePaymentsCard /> : null}
+          {/* Owners, when the company uses QuickBooks: connect its own QuickBooks company (lib/quickbooks). */}
+          {canEditFeatures && features.quickbooks ? <QuickBooksCard /> : null}
           <JobCatchUpSettingsCard initial={{ ...catchUp, canEdit: canEditJobCatchUpSettings(profile) }} />
           <CheckupSettingsCard initial={{ ...checkups, canEdit: canEditCheckupSettings(profile) }} users={userOptions} />
           {/* Owners, when the company uses service plans: what it sells (plan templates). */}
           {features.servicePlans && canEditFeatures ? <ServicePlanTemplatesCard /> : null}
           {/* Owners, when the company bills by the hour: rounding, minimums, drive time (lib/hourly-billing.ts). */}
           {features.hourlyBilling && canEditFeatures ? <HourlyBillingSettingsCard /> : null}
+          {/* Owners, when the company sends quote links: default deposit, link life, terms (lib/quotes/settings.ts). */}
+          {features.quoteApproval && canEditFeatures ? <QuoteApprovalCard /> : null}
         </div>
       </main>
     </div>

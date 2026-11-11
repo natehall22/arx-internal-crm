@@ -19,11 +19,12 @@
  * The legacy address keeps its original flow (state = user id, cookie on the same host). Rows past expiry are pruned
  * on every new ticket.
  */
-import { createCipheriv, createDecipheriv, createHmac, randomBytes, randomUUID, timingSafeEqual } from 'crypto'
+import { createHmac, randomUUID, timingSafeEqual } from 'crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { appBaseDomain, companyAppUrl, hostnameFromHeader } from '@/lib/company-host'
 import { readOrgSubdomain } from '@/lib/company-links'
+import { openWithKey, sealWithKey } from '@/lib/secret-seal'
 
 export const OAUTH_STATE_TTL_MS = 10 * 60_000
 /** httpOnly, host-only cookie that binds a connect to the browser that started it. */
@@ -31,7 +32,10 @@ export const GOOGLE_CONNECT_COOKIE = 'gcal_connect_nonce'
 export const GOOGLE_CONNECT_COOKIE_PATH = '/api/auth/google'
 const VERSION = 1
 
-export type OAuthStatePayload = { v: number; u: string; o: string; h: string; n: string; e: number }
+/** Which connect a ticket is for. Absent in the payload = 'google' (tickets issued before QuickBooks existed). */
+export type OAuthPurpose = 'google' | 'quickbooks'
+
+export type OAuthStatePayload = { v: number; u: string; o: string; h: string; n: string; e: number; p?: OAuthPurpose }
 
 /** OAUTH_STATE_SECRET when set; otherwise a key derived from the service-role key (server-only either way). */
 function rootKey(): Buffer | null {
@@ -61,24 +65,12 @@ function safeEqual(a: string, b: string): boolean {
 
 function sealCode(code: string): string | null {
   const key = subKey('code-seal')
-  if (!key) return null
-  const iv = randomBytes(12)
-  const c = createCipheriv('aes-256-gcm', key, iv)
-  const ct = Buffer.concat([c.update(code, 'utf8'), c.final()])
-  return [b64(iv), b64(ct), b64(c.getAuthTag())].join('.')
+  return key ? sealWithKey(key, code) : null
 }
 
 function openCode(sealed: string): string | null {
   const key = subKey('code-seal')
-  if (!key) return null
-  try {
-    const [iv, ct, tag] = sealed.split('.').map((p) => Buffer.from(p, 'base64url'))
-    const d = createDecipheriv('aes-256-gcm', key, iv)
-    d.setAuthTag(tag)
-    return Buffer.concat([d.update(ct), d.final()]).toString('utf8')
-  } catch {
-    return null
-  }
+  return key ? openWithKey(key, sealed) : null
 }
 
 /** A signed state is `<payload>.<mac>`; the legacy state is a bare user id (no dot). */
@@ -92,7 +84,7 @@ export function isSignedOAuthState(state: string): boolean {
  */
 export async function issueOAuthState(
   admin: SupabaseClient,
-  input: { userId: string; orgId: string; returnHost: string },
+  input: { userId: string; orgId: string; returnHost: string; purpose?: OAuthPurpose },
   now = Date.now()
 ): Promise<{ state: string; nonce: string } | null> {
   const key = subKey('state-mac')
@@ -104,6 +96,8 @@ export async function issueOAuthState(
     h: hostnameFromHeader(input.returnHost),
     n: randomUUID(),
     e: now + OAUTH_STATE_TTL_MS,
+    // Google tickets stay byte-identical to before (no `p`); any other purpose is signed in, so a ticket can't be replayed at another callback.
+    ...(input.purpose && input.purpose !== 'google' ? { p: input.purpose } : {}),
   }
   // Housekeeping: expired tickets are useless; drop them (best effort, never blocks a connect).
   try {
@@ -132,7 +126,17 @@ export type OAuthCallbackCheck =
   | { ok: true; nonce: string; userId: string; orgId: string; returnOrigin: string }
   | { ok: false; reason: Refusal }
 
-async function verifyState(admin: SupabaseClient, state: string, now: number): Promise<OAuthCallbackCheck> {
+export type OAuthAcceptOptions = {
+  /** The connect this callback serves (default 'google'); a ticket issued for another purpose is refused. */
+  purpose?: OAuthPurpose
+  /**
+   * Origin of the callback request itself. Used ONLY for a company with no address of its own (the original company on
+   * the legacy host), where Intuit/Google return to the very host the connect started on: the ticket's host must equal it.
+   */
+  sameOrigin?: string
+}
+
+async function verifyState(admin: SupabaseClient, state: string, now: number, opts: OAuthAcceptOptions = {}): Promise<OAuthCallbackCheck> {
   const key = subKey('state-mac')
   if (!key) return { ok: false, reason: 'unavailable' }
   const [body, mac, extra] = state.split('.')
@@ -148,6 +152,7 @@ async function verifyState(admin: SupabaseClient, state: string, now: number): P
     return { ok: false, reason: 'bad_signature' }
   }
   if (typeof p.e !== 'number' || p.e <= now) return { ok: false, reason: 'expired' }
+  if ((p.p ?? 'google') !== (opts.purpose ?? 'google')) return { ok: false, reason: 'bad_signature' }
 
   const { data: user, error: userError } = await admin.from('users').select('id, org_id, active').eq('id', p.u).maybeSingle()
   if (userError) return { ok: false, reason: 'unavailable' }
@@ -157,7 +162,17 @@ async function verifyState(admin: SupabaseClient, state: string, now: number): P
   // Uncached on purpose (security check): the one subdomain reader, lib/company-links.
   const org = await readOrgSubdomain(p.o)
   if (!org.ok) return { ok: false, reason: 'unavailable' }
-  const origin = companyAppUrl(org.subdomain, appBaseDomain())
+  const companyOrigin = companyAppUrl(org.subdomain, appBaseDomain())
+  let origin = companyOrigin
+  if (!origin && opts.sameOrigin) {
+    // No company address: only the host this very callback arrived on counts (it is where the connect started).
+    try {
+      const same = new URL(opts.sameOrigin)
+      if (hostnameFromHeader(same.host) === p.h) origin = same.origin
+    } catch {
+      origin = null
+    }
+  }
   if (!origin || new URL(origin).hostname !== p.h) return { ok: false, reason: 'wrong_host' }
 
   return { ok: true, nonce: p.n, userId: p.u, orgId: p.o, returnOrigin: origin }
@@ -171,9 +186,10 @@ export async function acceptOAuthCallback(
   admin: SupabaseClient,
   state: string,
   code: string | null,
-  now = Date.now()
+  now = Date.now(),
+  opts: OAuthAcceptOptions = {}
 ): Promise<OAuthCallbackCheck> {
-  const check = await verifyState(admin, state, now)
+  const check = await verifyState(admin, state, now, opts)
   if (!check.ok) return check
   const nowIso = new Date(now).toISOString()
   const sealed = code ? sealCode(code) : null

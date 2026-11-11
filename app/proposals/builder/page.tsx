@@ -80,6 +80,9 @@ interface LineItem {
   price_type?: 'fixed' | 'percentage' | null
   /** Sales tax: null = follow the default (taxed). Set from the price-book item; changeable per line. */
   taxable?: boolean | null
+  /** Quote approval: the customer may tick this line on their quote link. Counts in the stored total only when optional_default_on. */
+  is_optional?: boolean
+  optional_default_on?: boolean
 }
 
 interface ProposalForm {
@@ -164,7 +167,8 @@ export default function ProposalBuilderPage() {
   const [saving, setSaving] = useState(false)
   const [step, setStep] = useState(1)
   /** Roof squares pricing switched off (Settings → Features): no waste-factor (squares) step, no Squares figure. */
-  const squaresOn = useOrgFeatures().squaresPricing
+  const orgFeatures = useOrgFeatures()
+  const squaresOn = orgFeatures.squaresPricing
   useEffect(() => {
     if (!squaresOn && step === 2) setStep(3)
   }, [squaresOn, step])
@@ -408,6 +412,8 @@ export default function ProposalBuilderPage() {
           show_to_customer: Boolean(row.show_to_customer ?? false),
           price_type: (row.price_type as LineItem['price_type']) ?? null,
           taxable: typeof row.taxable === 'boolean' ? row.taxable : null,
+          is_optional: row.is_optional === true,
+          optional_default_on: row.optional_default_on === true,
         }))
         setLineItems(mapped)
         setStep(4)
@@ -865,15 +871,17 @@ export default function ProposalBuilderPage() {
 
   const calculateTotals = () => {
     // One calculation for screen and server (lib/proposal-pricing-visibility → lib/sales-tax), in integer cents.
+    // Optional lines the customer starts with unticked are not in the stored total (lib/quotes/pricing.ts agrees).
+    const counted = lineItems.filter((li) => !li.is_optional || li.optional_default_on)
     const t = computeProposalTotals({
-      items: lineItems,
+      items: counted,
       discountPercent: form.discount_percent,
       discountAmount: form.discount_amount,
       rates: appliedTaxRates,
       legacyRatePercent: form.tax_rate,
       exempt: customerTaxExempt,
     })
-    const baseSubtotalCents = lineItems.reduce((sum, item, i) => sum + (isPercentageItem(item) ? 0 : t.lineCents[i]), 0)
+    const baseSubtotalCents = counted.reduce((sum, item, i) => sum + (isPercentageItem(item) ? 0 : t.lineCents[i]), 0)
     const subtotal = fromCents(t.subtotalCents)
     const baseSubtotal = fromCents(baseSubtotalCents)
     const percentageTotal = fromCents(t.subtotalCents - baseSubtotalCents)
@@ -987,6 +995,7 @@ export default function ProposalBuilderPage() {
         show_to_customer: item.show_to_customer ?? false,  // Include customer visibility
         price_type: item.price_type ?? null, // read by the server's tax/total check, not stored
         ...(appliedTaxRates ? { taxable: item.taxable ?? null } : {}),
+        ...(item.is_optional ? { is_optional: true, optional_default_on: item.optional_default_on === true } : {}),
       }))
 
       const response = await fetch('/api/proposals/builder', {
@@ -2183,6 +2192,40 @@ export default function ProposalBuilderPage() {
                         />
                         <span>{item.name}</span>
                       </label>
+                    ))}
+                  </fieldset>
+                )}
+                {/* Quote approval: lines the customer can tick on their quote link (company switch). */}
+                {orgFeatures.quoteApproval && lineItems.length > 0 && (
+                  <fieldset className="pb-3 border-b border-amber-200">
+                    <legend className="text-sm font-medium text-amber-900 mb-1">Optional for the customer</legend>
+                    {lineItems.map((item) => (
+                      <div key={item.id} className="flex flex-wrap items-center gap-x-4 min-h-[44px] text-base text-[#2c2c2a]">
+                        <label className="flex min-h-[44px] items-center gap-3">
+                          <input
+                            type="checkbox"
+                            className="h-5 w-5"
+                            checked={item.is_optional === true}
+                            onChange={(e) =>
+                              setLineItems(prev => prev.map(li => (li.id === item.id ? { ...li, is_optional: e.target.checked, optional_default_on: e.target.checked ? li.optional_default_on === true : false } : li)))
+                            }
+                          />
+                          <span>{item.name}</span>
+                        </label>
+                        {item.is_optional ? (
+                          <label className="flex min-h-[44px] items-center gap-2 text-sm">
+                            <input
+                              type="checkbox"
+                              className="h-5 w-5"
+                              checked={item.optional_default_on === true}
+                              onChange={(e) =>
+                                setLineItems(prev => prev.map(li => (li.id === item.id ? { ...li, optional_default_on: e.target.checked } : li)))
+                              }
+                            />
+                            <span>Ticked to start</span>
+                          </label>
+                        ) : null}
+                      </div>
                     ))}
                   </fieldset>
                 )}

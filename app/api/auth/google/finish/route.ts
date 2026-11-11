@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { CompanyLookupUnavailableError, requireAuthApi } from '@/lib/auth'
-import { COMPANY_LOOKUP_UNAVAILABLE, classifyHost } from '@/lib/company-host'
+import { COMPANY_LOOKUP_UNAVAILABLE, classifyHost, requestHost } from '@/lib/company-host'
 import { saveGoogleConnection } from '@/lib/google-calendar'
 import {
   GOOGLE_CONNECT_COOKIE,
@@ -19,7 +19,7 @@ export const fetchCache = 'force-no-store'
  * connection only for the signed-in user who started it, in the browser that started it. Anything else discards it.
  */
 export async function GET(request: NextRequest) {
-  const host = request.headers.get('host') ?? request.nextUrl.host
+  const host = requestHost(request)
   if (classifyHost(host).kind !== 'company') return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
   const done = (q: string) => {

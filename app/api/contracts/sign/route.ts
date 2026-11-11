@@ -195,11 +195,16 @@ async function finishSignedContract(
   const isContingency = rawAgreementType === 'contingency'
   const isRepair = rawAgreementType === 'repair'
   const isSaleAgreement = rawAgreementType === 'installation' || rawAgreementType === 'repair'
-  const agreementLabel = isContingency
-    ? 'Insurance Contingency Agreement'
-    : isRepair
-      ? 'Repair Agreement'
-      : 'Installation Agreement'
+  // A contract made from an online quote approval (lib/quotes/approve.ts): same pipeline (deal won, job, commission base), but no
+  // roofing-terms PDF and no "Installation Agreement" email — the quote has its own record and confirmation.
+  const isQuoteApproval = !!contract.quote_approval_id
+  const agreementLabel = isQuoteApproval
+    ? 'Quote approval'
+    : isContingency
+      ? 'Insurance Contingency Agreement'
+      : isRepair
+        ? 'Repair Agreement'
+        : 'Installation Agreement'
   const printName = contract.customer_print_name
   const clientIp = contract.customer_ip
   const customerSignedAt = contract.customer_signed_at
@@ -326,12 +331,14 @@ async function finishSignedContract(
 
     // The signed PDF, made from the row just saved. If it cannot be made the signature still stands (status completed,
     // no pdf_url = "PDF pending") and the same call runs again from the customer's next tap or the office's button.
-    const pdfResult = await ensureContractPdf(supabase, contract.id, contract.org_id)
+    const pdfResult = isQuoteApproval
+      ? { path: null as string | null, created: false, error: null as string | null }
+      : await ensureContractPdf(supabase, contract.id, contract.org_id)
     const pdfStoragePath: string | null = pdfResult.path
     const pdfUrl: string | null = pdfResult.path
     const pdfGenerationError: string | null = pdfResult.error
     if (pdfResult.error) console.error('[Contract Sign] PDF not stored (signature kept, PDF pending):', pdfResult.error)
-    if (pdfResult.path) await mark('pdf')
+    if (pdfResult.path || isQuoteApproval) await mark('pdf')
 
     let projectId = null
     let projectCreateError: string | null = null
@@ -894,7 +901,7 @@ async function finishSignedContract(
 
     // Always try to send confirmation email if customer has email
     let emailSent = false
-    if (contract.customer_email && !(await isDone('customer_email')) && done('pdf')) {
+    if (contract.customer_email && !isQuoteApproval && !(await isDone('customer_email')) && done('pdf')) {
       console.log('[Contract Sign] Sending confirmation email to:', contract.customer_email)
       
       const email = buildContractSignedEmail({
@@ -910,8 +917,8 @@ async function finishSignedContract(
       
       console.log('[Contract Sign] Email sent:', emailSent)
       if (emailSent) await mark('customer_email')
-    } else if (!contract.customer_email) {
-      await mark('customer_email') // nobody to email
+    } else if (!contract.customer_email || isQuoteApproval) {
+      await mark('customer_email') // nobody to email / the quote has its own confirmation
     }
 
     // Everything done → finished for good; anything missing is retried by the next call on this link (see CLAUDE.md).
@@ -999,7 +1006,10 @@ export async function POST(request: NextRequest) {
     if (!printName) {
       return NextResponse.json({ error: 'Please enter your printed name' }, { status: 400 })
     }
-    const signature = cleanSignatureImage(signatureInput)
+    // A quote approval signs its own contract with the typed name ("typed:<name>"); only such a contract (checked on the row
+    // below) may — a customer-facing contract still needs a drawn PNG.
+    const typedSignature = typeof signatureInput === 'string' && /^typed:.{1,200}$/.test(signatureInput) ? signatureInput : null
+    const signature = cleanSignatureImage(signatureInput) ?? typedSignature
     if (!signature) {
       return NextResponse.json({ error: 'Please sign the agreement' }, { status: 400 })
     }
@@ -1037,15 +1047,10 @@ export async function POST(request: NextRequest) {
       return alreadySignedResponse(supabase, contract, token)
     }
 
-    const rawAgreementType = contract.agreement_type || 'installation'
-    const isContingency = rawAgreementType === 'contingency'
-    const isRepair = rawAgreementType === 'repair'
-    const isSaleAgreement = rawAgreementType === 'installation' || rawAgreementType === 'repair'
-    const agreementLabel = isContingency
-      ? 'Insurance Contingency Agreement'
-      : isRepair
-        ? 'Repair Agreement'
-        : 'Installation Agreement'
+    const isQuoteApproval = !!contract.quote_approval_id
+    if (typedSignature && !isQuoteApproval) {
+      return NextResponse.json({ error: 'Please sign the agreement' }, { status: 400 })
+    }
 
     const initialsChangeOrders = cleanInitials(initialsChangeOrdersInput)
     const initialsPropertyCondition = cleanInitials(initialsPropertyConditionInput)
@@ -1057,7 +1062,7 @@ export async function POST(request: NextRequest) {
       landscaping: initialsLandscaping,
       insurance: initialsInsurance,
     })
-    if (initialsProblem) {
+    if (initialsProblem && !isQuoteApproval) {
       return NextResponse.json({ error: initialsProblem }, { status: 400 })
     }
 

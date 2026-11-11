@@ -306,6 +306,7 @@ describe('wiring: each sent link is built on the record company address', () => 
     ['signed contract download', 'app/api/contracts/sign/route.ts', /customerSignedDocUrl\('contract', [^\n]*tryOrgAppUrl\(contract\.org_id,/],
     ['contract signed: admin sale email', 'app/api/contracts/sign/route.ts', /tryOrgAppUrl\(contract\.org_id, 'contract signed: admin sale email'\)/],
     ['signed change-order download', 'app/api/change-orders/sign/route.ts', /tryOrgAppUrl\(changeOrder\.org_id,/],
+    ['quote link', 'lib/quotes/approve.ts', /\$\{await orgAppUrl\(orgId\)\}\/q\//],
     ['/r report link', 'app/api/inspection-reports/[id]/send/route.ts', /\$\{await orgAppUrl\(profile\.org_id\)\}\/r\//],
     ['review link (SMS)', 'app/api/jobs/[id]/review-request/route.ts', /orgAppUrl\(job\.org_id\)/],
     ['password reset', 'app/api/admin/users/route.ts', /orgAppUrl\(targetUser\.org_id\)[\s\S]*\$\{appUrl\}\/reset-password/],

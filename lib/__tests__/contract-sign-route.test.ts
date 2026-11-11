@@ -339,3 +339,23 @@ describe('recovery: failed steps stay retryable', () => {
     expect(db.tables.order_form_contracts[0].status).toBe('completed')
   })
 })
+
+describe('quote approval contracts', () => {
+  it('a typed signature is refused on an ordinary contract', async () => {
+    const res = await post(good({ signature: 'typed:Pat Homeowner' }))
+    expect(res.status).toBe(400)
+    expect(db.writes).toEqual([])
+  })
+
+  it('a quote-approval contract signs with the typed name and no initials: no roofing PDF, no contract email, finished', async () => {
+    seed({ agreement_type: 'installation', quote_approval_id: 'qa1', payment_method: 'other', project_cost: 16000 })
+    const res = await post(good({ signature: 'typed:Pat Homeowner', initialsInsurance: null }))
+    expect(res.status).toBe(200)
+    const row = db.tables.order_form_contracts[0]
+    expect(row).toMatchObject({ status: 'completed', customer_signature_data: 'typed:Pat Homeowner' })
+    expect(generate).not.toHaveBeenCalled()
+    expect(sendMail).not.toHaveBeenCalled()
+    expect(row.signing_finalized_at).toBeTruthy()
+  })
+})
+

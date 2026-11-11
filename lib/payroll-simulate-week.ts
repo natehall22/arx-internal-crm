@@ -31,7 +31,7 @@ export type SimulatedPerson = {
 
 export type SimulatedWeek = Omit<CrmWeek, 'people'> & { payDate: string; people: SimulatedPerson[] }
 
-export async function simulatePayWeek(admin: SupabaseClient, orgId: string, weekEnding: string, now: Date = new Date()): Promise<SimulatedWeek> {
+export async function simulatePayWeek(admin: SupabaseClient, orgId: string, weekEnding: string, now: Date = new Date(), opts: { weeklyMinimumOverride?: { planId: string; value: unknown } } = {}): Promise<SimulatedWeek> {
   if (!isYmd(weekEnding)) throw new Error(`"${weekEnding}" is not a date (YYYY-MM-DD)`)
   const s = await loadPayWeekSchedule(admin, orgId)
   if (weekdayOfYmd(weekEnding) !== cutoffWeekday(s)) throw new Error(`${weekEnding} is not a ${WEEKDAY_NAMES[cutoffWeekday(s)]}: weeks end on ${WEEKDAY_NAMES[cutoffWeekday(s)]} for this company`)
@@ -71,7 +71,9 @@ export async function simulatePayWeek(admin: SupabaseClient, orgId: string, week
   for (const id of ids) {
     const c = byUser.get(id) ?? { commission: 0, jobs: new Set<string>() }
     const a = await loadPlanForWeek(admin, id, orgId, cutoff.toISOString(), { leftOrSaved: true, clock: { timeZone: s.timeZone } })
-    const rule = parseWeeklyMinimum((a?.comp_plans as Record<string, unknown> | null)?.weekly_minimum)
+    const planRow = a?.comp_plans as Record<string, unknown> | null
+    const ov = opts.weeklyMinimumOverride
+    const rule = parseWeeklyMinimum(ov && planRow?.id === ov.planId ? ov.value : planRow?.weekly_minimum)
     const gap = rule ? Math.max(0, roundMoney(rule.amount - c.commission)) : 0
     const auto = rule && !rule.needsCheck ? gap : 0
     const total = roundMoney(c.commission + auto)

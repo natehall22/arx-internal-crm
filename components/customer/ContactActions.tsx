@@ -3,6 +3,7 @@
 import { useRouter } from 'next/navigation'
 import { useRef, useState } from 'react'
 
+import { TextCustomerDialog, useTextStatus } from '@/components/customer/TextCustomer'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { toast } from '@/components/ui/toast'
 import {
@@ -13,12 +14,16 @@ import {
   type ContactOutcome,
 } from '@/lib/customer-contact'
 import { telHref } from '@/lib/format'
+import { useOrgFeatures } from '@/hooks/useOrgFeatures'
 
 const LONG_PRESS_MS = 550
 /** Long enough for the phone/SMS app to take over first, so the question is waiting when they come back. */
 const ASK_AFTER_MS = 700
 
 export type LoggedContact = { kind: ContactKind; outcome: ContactOutcome; activityId: string | null }
+
+/** Reasons the in-app Text dialog still opens for (it explains and offers the fix); anything else keeps the phone's own SMS app. */
+const DIALOG_BLOCKS = new Set(['no_consent', 'opted_out', 'customer_off', 'bad_number'])
 
 /** A 44px button: tap runs the action, press-and-hold copies the value. */
 function ActionLink({ href, label, value, icon, onTap }: { href: string; label: string; value: string; icon: string; onTap: () => void }) {
@@ -85,6 +90,13 @@ export default function ContactActions({
   showLog?: boolean
 }) {
   const router = useRouter()
+  // Texting (switch `texting`): "Text" opens the in-app box that sends from the company number and logs itself. Off, or the
+  // customer can't be texted for a reason staff can't fix here: the phone's own texting app, as before.
+  const features = useOrgFeatures()
+  const textingOn = !!dealId && !!phone && features.texting
+  const { data: textData, reload: reloadText } = useTextStatus(dealId, textingOn)
+  const inAppText = textingOn && !!textData?.status && (textData.status.state === 'ready' || DIALOG_BLOCKS.has(textData.status.code))
+  const [textOpen, setTextOpen] = useState(false)
   const [kind, setKind] = useState<ContactKind | null>(null)
   const [note, setNote] = useState('')
   const [saving, setSaving] = useState(false)
@@ -131,7 +143,18 @@ export default function ContactActions({
     <>
       <div className="flex flex-wrap items-center gap-2">
         {tel && phone && <ActionLink href={tel} label="Call" value={phone} icon="📞" onTap={() => ask('call')} />}
-        {sms && phone && <ActionLink href={sms} label="Text" value={phone} icon="💬" onTap={() => ask('text')} />}
+        {sms && phone && inAppText && dealId && (
+          <button
+            type="button"
+            onClick={() => setTextOpen(true)}
+            aria-label={`Text: ${phone}`}
+            className="inline-flex h-11 min-w-[44px] select-none items-center justify-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium text-[#2c2c2a] hover:bg-gray-50"
+          >
+            <span aria-hidden>💬</span>
+            <span className="sr-only sm:not-sr-only">Text</span>
+          </button>
+        )}
+        {sms && phone && !inAppText && <ActionLink href={sms} label="Text" value={phone} icon="💬" onTap={() => ask('text')} />}
         {email && <ActionLink href={`mailto:${email}`} label="Email" value={email} icon="✉️" onTap={() => ask('email')} />}
         {showLog && dealId && (
           <button
@@ -143,6 +166,18 @@ export default function ContactActions({
           </button>
         )}
       </div>
+
+      {dealId && inAppText ? (
+        <TextCustomerDialog
+          dealId={dealId}
+          open={textOpen}
+          onClose={() => {
+            setTextOpen(false)
+            void reloadText()
+          }}
+          onSent={() => router.refresh()}
+        />
+      ) : null}
 
       <Dialog open={kind !== null} onOpenChange={(o) => !o && setKind(null)}>
         {kind && (

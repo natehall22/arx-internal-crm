@@ -318,6 +318,22 @@ const SCREENS: Screen[] = [
       { name: 'preview', run: async (p) => { await p.getByRole('button', { name: 'See the email' }).first().click(); await p.waitForSelector('[role=dialog] >> text=Subject:') } },
       { name: 'timing-dirty', run: async (p) => { await p.getByPlaceholder('between 8 AM and 5 PM').fill('8 to 5'); await p.waitForSelector('text=Save changes') } },
     ] },
+  { name: 'texting-settings', path: '/dev-harness/texting-settings', ready: 'text=Submit for registration',
+    mock: async (p) => {
+      await p.route('**/api/admin/texting', (route) => route.fulfill(json({
+        companyName: 'Harness Roofing & Exteriors', number: { e164: '+18505550199', display: '(850) 555-0199', kind: 'local', source: 'manual' },
+        status: 'active', statusText: 'Ready to text', notReady: null, rejectionReason: null, dailyCap: 300, blockers: [],
+        registration: { fields: [{ key: 'legalName', label: 'Legal business name', required: true, help: 'As on your tax papers', max: 120 }, { key: 'ein', label: 'EIN', required: true, help: 'Nine digits', max: 20 }], values: { legalName: 'Harness Roofing LLC', ein: '**-***1234' }, missing: [] },
+        submit: { enabled: false, note: 'Submitting from here isn’t available yet. Register your number with the carrier directly, then enter it above.' },
+        usage: { thisMonth: { out: { texts: 12, segments: 14, costMicros: 98000 }, in: { texts: 5, segments: 5, costMicros: 15000 }, cost: '$0.11' }, lastMonth: { out: { texts: 0, segments: 0, costMicros: 0 }, in: { texts: 0, segments: 0, costMicros: 0 }, cost: '$0.00' }, thisMonthLabel: '2026-11', lastMonthLabel: '2026-10' },
+        consent: { version: 'v1-2026-11', text: 'I agree to get text messages from Harness Roofing about my service.' },
+        inbox: [{ id: 'i1', from: '(850) 555-0777', body: 'Hi, do you do gutters? I got your number from a neighbor.', kind: 'message', at: '2026-11-11T15:00:00Z' }],
+      })))
+    } },
+  { name: 'text-customer-dialog', path: '/dev-harness/text-customer', ready: 'text=Text the customer',
+    mock: async (p) => {
+      await p.route('**/api/threads/d1/texting', (route) => route.fulfill(json({ enabled: true, lastCameBy: null, status: { state: 'ready', phone: '+18505550100', masked: '(850) ***-0100', via: 'consent', name: 'Jane Smith' } })))
+    } },
   { name: 'customer-messages-card', path: '/dev-harness/customer-messages-card', ready: 'text=Automatic emails' },
   { name: 'crew-day-clock', path: '/dev-harness/crew-day-clock', ready: 'text=Crew time',
     mock: async (p) => {
@@ -495,12 +511,27 @@ const SCREENS: Screen[] = [
     ] },
   { name: 'portal-signin', path: '/dev-harness/portal-signin', ready: 'text=Email me a link',
     states: [{ name: 'sent', run: async (p) => { await p.route('**/api/portal/request-link', (r) => r.fulfill(json({ ok: true }))); await p.getByLabel('Your email or phone number').fill('dana@example.com'); await p.getByRole('button', { name: 'Email me a link' }).click(); await p.waitForSelector('text=Check your email') } }] },
+  { name: 'portal-roofing', path: '/dev-harness/portal-roofing', ready: 'text=Materials ordered', states: [] },
   { name: 'portal-home', path: '/dev-harness/portal-home', ready: 'text=Upcoming visits',
     states: [{ name: 'message', run: async (p) => { await p.route('**/api/portal/messages', (r) => r.fulfill(json({ ok: true }))); await p.getByLabel('Write to us').fill('Can you come Thursday instead?'); await p.getByRole('button', { name: 'Send message' }).click(); await p.waitForSelector('text=Can you come Thursday instead?') } }] },
   { name: 'pay-page-paid', path: '/dev-harness/pay-page-paid', ready: 'text=Paid — thank you!' },
   { name: 'save-card-page', path: '/dev-harness/save-card-page', ready: 'text=Agree and add card' },
   { name: 'online-payments-settings', path: '/dev-harness/online-payments-settings', ready: 'text=Connected — taking payments', mock: async (p) => {
     await p.route('**/api/admin/online-payments', (route) => route.fulfill(json({ featureOn: true, configured: true, ready: true, testMode: true, settings: { allowPartial: false, bankPayments: true, autopay: true, retryDays: [3, 7] }, account: { status: 'active', chargesEnabled: true, payoutsEnabled: false, detailsSubmitted: true, livemode: false, accountId: 'acct_1' } })))
+  } },
+  { name: 'quickbooks-settings', path: '/dev-harness/quickbooks-settings', ready: 'text=Needs to be reconnected', mock: async (p) => {
+    await p.route('**/api/admin/quickbooks', (route) => route.fulfill(json({ featureOn: true, configured: true, status: 'needs_reconnect', companyName: 'Sample Lawn Care LLC', environment: 'production', reason: 'QuickBooks stopped accepting this connection. Please reconnect.', expiresSoon: false })))
+    } },
+  { name: 'quote-page', path: '/dev-harness/quote-page', ready: 'text=Optional extras — tick what you want',
+    states: [{ name: 'option-ticked', run: async (p) => { await p.getByText('Driveway pressure wash').click(); await p.waitForTimeout(200) } }] },
+  { name: 'quote-page-approved', path: '/dev-harness/quote-page-approved', ready: 'text=Approved — thank you!' },
+  { name: 'quote-send-card', path: '/dev-harness/quote-send-card', ready: 'text=Customer approval link', mock: async (p) => {
+    await p.route('**/api/proposals/harness-proposal/quote-link', (route) => route.fulfill(json({ opportunityId: 'opp-harness', customerEmail: 'pat@example.test', status: 'draft', optionalCount: 2, totalCents: 180000, deposit: { mode: 'percent', percent: 25, fixedCents: 0, overridden: false, cents: 45000 }, company: { depositMode: 'percent', depositPercent: 25, depositFixedCents: 0 }, problems: [], link: null, approval: null })))
+    await p.route('**/api/opportunities/opp-harness/sale-credit', (route) => route.fulfill(json({ closerUserId: 'u1', setterUserId: '', isSelfGenerated: false, locked: false, canChange: true })))
+    await p.route('**/api/users', (route) => route.fulfill(json({ users: [{ id: 'u1', full_name: 'Sam Closer' }, { id: 'u2', full_name: 'Riley Setter' }] })))
+  } },
+  { name: 'quote-settings', path: '/dev-harness/quote-settings', ready: 'text=Deposit after approval', mock: async (p) => {
+    await p.route('**/api/admin/quote-approval', (route) => route.fulfill(json({ settings: { depositMode: 'percent', depositPercent: 25, depositFixedCents: 0, linkDays: 30, terms: 'Work is scheduled within two weeks.' } })))
   } },
   { name: 'invoice-online', path: '/dev-harness/invoice-online', ready: 'text=Copy pay link' },
   { name: 'tax-exemption', path: '/dev-harness/tax-exemption', ready: 'text=Tax exempt (no sales tax' },
@@ -518,6 +549,8 @@ const SCREENS: Screen[] = [
       { name: 'approve-sheet', run: async (p) => { await p.getByRole('button', { name: /^Approve/ }).click(); await p.waitForSelector('text=Email each person their statement') } },
       { name: 'blocked-by-minimum', run: async (p) => { await p.route('**/api/admin/payroll/pay-week', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ...PAY_WEEK, canApprove: false, blockedBy: { code: 'minimum_unanswered', text: 'Answer the weekly minimum for 1 person first.', count: 1 } }) })); await p.reload(); await p.waitForSelector('text=Answer the weekly minimum for 1 person first.') } },
       { name: 'change-sheet', run: async (p) => { await p.getByRole('tab', { name: /By job/ }).click(); await p.getByRole('button', { name: 'Change who gets what' }).first().click(); await p.waitForSelector('text=Total 18% of the base'); await p.getByRole('button', { name: '+ Add someone' }).click() } },
+      { name: 'preview-pay-sheets-button', run: async (p) => { await p.getByRole('link', { name: 'Preview pay sheets' }).scrollIntoViewIfNeeded(); await p.waitForSelector('text=Preview pay sheets') } },
+      { name: 'advances', run: async (p) => { await p.waitForSelector('text=$400 still owed'); await p.getByRole('button', { name: 'Record an advance' }).click(); await p.waitForSelector('text=Take it back') } },
       { name: 'schedule-sheet', run: async (p) => { await p.getByRole('button', { name: 'Change', exact: true }).first().click(); await p.getByLabel('Week starts on').selectOption('1'); await p.waitForSelector('text=First week on it') } },
     ] },
 ]
