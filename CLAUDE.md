@@ -364,10 +364,19 @@ doors `lib/hourly-billing-access.ts` (bill = money:record; job setup = `jobs:edi
   bill refuse each other's visits. Un-approve (`unapprove_billed_time`) only once its invoice is void, with a reason; history kept.
 - **Payroll is never touched:** nothing here writes `time_entries`, `payroll_rep_hours` or `job_cost_lines` (test-locked);
   rounding happens on invoice copies only.
-- **Known gaps (not built):** a T&M job's "paid in full" still compares payments to `sale_amount` (`lib/job-collection.ts`);
-  an invoiced total above the quote is not "owed" there, and T&M invoices count against the contract balance in
-  `createCustomAmountInvoice`. Decide with Nathan before payroll eligibility depends on T&M jobs. No per-plan estimated
-  hours. The office biller still needs job-board access to open Jobs → Schedule (same as Ready to bill).
+- **Money on a T&M job (coordinator decision 2026-11-12):** paid in full = payments vs the total INVOICED, tax included
+  (`evaluateJobCollection({ timeAndMaterialsInvoicedCents })`; nothing invoiced = not paid) and commission base = invoiced
+  minus tax (`syncJobSaleAndCommissionBase` T&M branch; sale amount stays the signed estimate). ONE loader for both:
+  `loadJobInvoiceFacts` + `collectionInvoiceFields` (lib/job-invoice-tax.ts; replaced `loadInvoiceTaxCentsByJob`); the guard
+  test fails on any `evaluateJobCollection` call without the T&M input. Base re-synced after hours are approved, a job
+  invoice is changed / voided / copied / made, and the billing mode changes (`syncTimeAndMaterialsCommissionBase` — no-op for
+  fixed-price jobs). Fixed-price jobs (ARX): unchanged.
+- **Guards:** a T&M job gets no deposit / final / "job total" invoice (custom amounts for extras, not capped by the estimate);
+  no hand-typed hour lines on its invoices; an invoice carrying approved hours can't be copied; back to "as sold" is refused
+  while billed hours sit on a live invoice. Line amounts everywhere = `lineTotalCents` (lib/invoice-lines.ts, integer math =
+  Postgres `round(qty * cents)`). Machine hours = union of time (two operators on one tractor bill it once); a visit past
+  midnight keeps all its time on its first day. Job card rates need money:record or `reports:financials`.
+- **Not built:** per-plan estimated hours. The office biller needs job-board access to open Jobs → Schedule (as Ready to bill).
 
 **Known Redundancy additions (2026-11-12, hourly billing):** (38) `approve_billed_time` / `unapprove_billed_time` are mirrored
 in JS inside `lib/__tests__/hourly-billing-db.test.ts` (KR #35 pattern) — a SQL rule change must change there too; the real SQL

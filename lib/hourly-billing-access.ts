@@ -12,7 +12,6 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { callerCanAccessJobBilling } from '@/lib/finance-access'
 import { canSeeFinancials } from '@/lib/financials-access'
 import { resolveOpsAccess } from '@/lib/ops-access'
-import { isOrgFeatureOn } from '@/lib/org-features-server'
 
 type Profile = { id: string; org_id: string; role: string; custom_role_id?: string | null; is_super_admin?: boolean | null }
 
@@ -26,6 +25,8 @@ export function hourlyAccessFor(feature: boolean, f: { bill: boolean; canEditJob
 }
 
 export async function resolveHourlyAccess(admin: SupabaseClient, profile: Profile): Promise<HourlyAccess> {
+  // Dynamic: org-features-server pulls in next/server (keeps the pure part loadable in tests).
+  const { isOrgFeatureOn } = await import('@/lib/org-features-server')
   const feature = await isOrgFeatureOn(profile.org_id, 'hourlyBilling')
   if (!feature) return hourlyAccessFor(false, { bill: false, canEditJobs: false, financials: false, owner: false })
   const { isSuperAdmin } = await import('@/lib/super-admin')
