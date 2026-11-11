@@ -28,7 +28,7 @@ export default async function ChangeOrderSigningPage({
     )
   }
 
-  if (changeOrder.token_expires_at && new Date(changeOrder.token_expires_at) < new Date()) {
+  if (!changeOrder.token_expires_at || new Date(changeOrder.token_expires_at) < new Date()) {
     const brand = await getDocumentBrand(supabase, changeOrder.org_id)
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
