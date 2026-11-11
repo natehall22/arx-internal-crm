@@ -443,7 +443,7 @@ export async function syncReversals(admin: SupabaseClient, account: PaymentAccou
     })
   }
   if (problems > 0) {
-    await notifyOfficeOfPaymentProblem(admin, orgId, { problem: 'needs_review', invoiceId: row.invoice_id, amountCents: previous, detail: 'A refund or dispute in Stripe could not be matched to this invoice in the CRM. Check the invoice.' })
+    await notifyOfficeOfPaymentProblem(admin, orgId, { problem: 'needs_review', invoiceId: row.invoice_id, amountCents: total, detail: 'A refund or dispute in Stripe could not be matched to this invoice in the CRM. Check the invoice.' })
     return 'needs_review'
   }
   return 'recorded'

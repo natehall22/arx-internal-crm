@@ -479,6 +479,13 @@ Switch `onlinePayments` (default OFF). Migration `202611120020_online_payments.s
   (`settings.onlinePayments.currency`, default usd) is never recorded (needs a look). (9) Stripe's onboarding refresh
   URL is a side-effect-free GET (back to Settings); every staff write refuses a cross-site Origin (`crossSiteWrite`).
   JS mirrors of the new SQL for jest: `lib/test-helpers/fake-payment-rpc.ts` (Known Redundancy 40).
+- **Second review (2026-11-12):** only "no answer" (network, timeout, Stripe 5xx / 429 / 409 in-progress — `noAnswer`) keeps an
+  autopay attempt open; any other Stripe answer (decline, removed card, bad request) fails it normally (customer + office
+  told; the retry is a NEW attempt). An attempt charges in its SAVED currency. Reversals are computed from ALL of a payment's
+  succeeded refunds + lost disputes at once (order-independent). A lost dispute on a job already collected or in an
+  approved payroll week sets `online_payments.reversal_flag` → "Payment reversed — review" on Today (payroll admins) and the
+  owner morning email for 14 days. **Not built (decide first):** automatic negative commission lines for a reversal — the
+  office uses Payroll → Fix a mistake (`addAdjustment`) today.
 
 **Known Redundancy additions (2026-11-12, online payments):** (38) `ymdInZone` is defined twice (`lib/payroll-week-schedule.ts`,
 `lib/service-plans.ts`, identical) — fold into one date helper. (39) Customer-facing "branded email with one button" HTML is

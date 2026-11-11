@@ -36,7 +36,9 @@ import { POST as payPOST } from '@/app/api/pay/[token]/route'
 import { POST as adminPOST } from '@/app/api/admin/online-payments/route'
 import { createInvoiceCheckout } from '@/lib/online-payments/checkout'
 import { handleStripeWebhookEvent } from '@/lib/online-payments/webhook'
-import { chargeInvoiceAutopay, runAutopayRetries } from '@/lib/online-payments/autopay'
+import { chargeInvoiceAutopay, noAnswer, runAutopayRetries } from '@/lib/online-payments/autopay'
+import { loadPaymentReversalsQueue } from '@/lib/online-payments/summary'
+import { StripeApiError } from '@/lib/stripe/api'
 import { POST as webhookPOST } from '@/app/api/webhooks/stripe/route'
 
 const ORG = 'org-acme'
@@ -295,7 +297,7 @@ describe('pay an invoice without a job (service plan) by card', () => {
     await handleStripeWebhookEvent(d.client as never, event('evt_3', 'charge.refunded', { id: 'ch_1', payment_intent: 'pi_1' }), NOW)
     await handleStripeWebhookEvent(d.client as never, event('evt_4', 'charge.refund.updated', { id: 're_1', payment_intent: 'pi_1' }), NOW)
     const refunds = d.rpcCalls.filter((c) => c.name === 'record_customer_invoice_refund')
-    expect(refunds.map((r) => r.args.p_idempotency_key)).toEqual(['stripe-refund:re_1', 'stripe-refund:re_1'])
+    expect(refunds.map((r) => r.args.p_idempotency_key)).toEqual(['stripe-refund:re_1']) // the repeat sees it is already recorded
     expect(d.tables.job_payments.filter((p) => Number(p.amount_cents) < 0)).toHaveLength(1)
     expect(d.tables.invoice_payments.reduce((s, p) => s + Number(p.applied_cents), 0)).toBe(7000)
     expect(d.tables.online_payments[0].refunded_cents).toBe(3000)
@@ -626,5 +628,93 @@ describe('review: rate limits and cross-site writes', () => {
     const src = require('fs').readFileSync(require('path').join(__dirname, '../../app/api/admin/online-payments/onboarding/route.ts'), 'utf8') as string
     expect(src).not.toMatch(/startOnboarding|stripeRequest|insert\(|update\(/)
     expect(src).toMatch(/payments=resume/)
+  })
+})
+
+
+// ------------------------------------------------------------------------------------------- second review (2026-11-12)
+
+describe('second review', () => {
+  const card = { id: 'pm-row', org_id: ORG, customer_id: 'c1', account_id: ACCT, stripe_customer_id: 'cus_1', payment_method_id: 'pm_1', brand: 'visa', last4: '4242', exp_month: 12, exp_year: 2030, autopay: true, consent_at: NOW.toISOString(), removed_at: null }
+
+  test('pure: only "no answer" keeps an attempt open', () => {
+    expect(noAnswer(new Error('socket hang up'))).toBe(true)
+    expect(noAnswer(new StripeApiError(500, null, 'x'))).toBe(true)
+    expect(noAnswer(new StripeApiError(409, { error: { type: 'idempotency_error' } }, 'x'))).toBe(true)
+    expect(noAnswer(new StripeApiError(429, null, 'x'))).toBe(true)
+    expect(noAnswer(new StripeApiError(400, { error: { code: 'resource_missing' } }, 'x'))).toBe(false)
+    expect(noAnswer(new StripeApiError(402, { error: { type: 'card_error' } }, 'x'))).toBe(false)
+  })
+
+  test('card removed at Stripe (400 resource_missing): the attempt FAILS normally — retry scheduled, the next one is a new attempt', async () => {
+    const d = seed({ customer_payment_methods: [card] })
+    const op = await loadOnlinePayments(d.client as never, ORG)
+    stripe['POST /v1/payment_intents'] = () => ({ status: 400, json: { error: { type: 'invalid_request_error', code: 'resource_missing', param: 'payment_method', message: "No such PaymentMethod: 'pm_1'" } } })
+    expect(await chargeInvoiceAutopay(d.client as never, op, ORG, 'inv-svc', null, NOW)).toEqual({ charged: true, outcome: 'failed' })
+    expect(d.tables.online_payments[0]).toMatchObject({ status: 'failed', failure_code: 'resource_missing', attempt: 1, next_retry_at: '2026-11-15T15:00:00.000Z' })
+    // The retry day: a NEW attempt (2) with its own key.
+    stripe['POST /v1/payment_intents'] = (c) => ({ json: pi('pi_new', { crm_org_id: ORG, invoice_id: 'inv-svc', kind: 'autopay', online_payment_id: c.body.get('metadata[online_payment_id]') }) })
+    await runAutopayRetries(d.client as never, ORG, new Date('2026-11-15T16:00:00Z'))
+    expect(d.tables.online_payments.map((r) => [r.attempt, r.status])).toEqual([[1, 'failed'], [2, 'succeeded']])
+    expect(calls.filter((c) => c.method === 'POST').map((c) => c.idem)).toEqual(['autopay:inv-svc:1', 'autopay:inv-svc:2'])
+  })
+
+  test("an unanswered attempt is re-sent in ITS saved currency, even if the company's setting changed since", async () => {
+    const d = seed({ customer_payment_methods: [card], online_payments: [{ id: 'op-cur', org_id: ORG, account_id: ACCT, kind: 'autopay', invoice_id: 'inv-svc', customer_id: 'c1', amount_cents: 10000, application_fee_cents: 0, currency: 'usd', status: 'open', job_payment_id: null, payment_intent_id: null, refunded_cents: 0, attempt: 1, recording_at: null, created_at: NOW.toISOString() }] })
+    d.tables.orgs[0].settings = { features: { onlinePayments: true }, onlinePayments: { currency: 'cad' } }
+    const op = await loadOnlinePayments(d.client as never, ORG)
+    expect(op.settings.currency).toBe('cad')
+    stripe['GET /v1/payment_intents/search'] = () => ({ json: { data: [] } })
+    stripe['POST /v1/payment_intents'] = (c) => ({ json: pi('pi_cur', { crm_org_id: ORG, invoice_id: 'inv-svc', kind: 'autopay', online_payment_id: c.body.get('metadata[online_payment_id]') }) })
+    await chargeInvoiceAutopay(d.client as never, op, ORG, 'inv-svc', null, NOW)
+    const post = calls.find((c) => c.method === 'POST')!
+    expect(post.body.get('currency')).toBe('usd')
+    expect(post.idem).toBe('autopay:inv-svc:1')
+    expect(d.tables.job_payments).toHaveLength(1) // recorded: the payment matches the attempt's currency
+  })
+
+  test('refunds learned about out of order give the same invoice as in order', async () => {
+    const run = async (first: Row[], then: Row[]) => {
+      const d = seed()
+      const meta = { crm_org_id: ORG, invoice_id: 'inv-dep' }
+      stripe['GET /v1/payment_intents/pi_ooo'] = () => ({ json: pi('pi_ooo', meta, { amount: 6000, amount_received: 6000 }) })
+      await handleStripeWebhookEvent(d.client as never, event('evt_ooo', 'payment_intent.succeeded', { id: 'pi_ooo', metadata: meta }), NOW)
+      stripe['GET /v1/disputes'] = () => ({ json: { data: [] } })
+      stripe['GET /v1/refunds'] = () => ({ json: { data: first } })
+      await handleStripeWebhookEvent(d.client as never, event('evt_r1', 'charge.refunded', { id: 'ch_1', payment_intent: 'pi_ooo' }), NOW)
+      stripe['GET /v1/refunds'] = () => ({ json: { data: then } })
+      await handleStripeWebhookEvent(d.client as never, event('evt_r2', 'charge.refunded', { id: 'ch_1', payment_intent: 'pi_ooo' }), NOW)
+      return { net: d.tables.invoice_payments.reduce((t, x) => t + Number(x.applied_cents), 0), money: d.tables.job_payments.reduce((t, x) => t + Number(x.amount_cents), 0), status: d.tables.job_invoices.find((i) => i.id === 'inv-dep')?.status }
+    }
+    const A = { id: 're_A', amount: 1000, status: 'succeeded', created: visaCharge.created + 1 }
+    const B = { id: 're_B', amount: 2000, status: 'succeeded', created: visaCharge.created + 2 }
+    const inOrder = await run([A], [A, B])
+    const outOfOrder = await run([B], [A, B])
+    // $60 paid on a $50 deposit, $30 refunded: $10 was the overpayment, so $20 comes back off the invoice either way.
+    expect(inOrder).toEqual({ net: 3000, money: 3000, status: 'partially_paid' })
+    expect(outOfOrder).toEqual(inOrder)
+  })
+
+  test('a lost dispute on a job already collected → "Payment reversed — review" on Today; not for a job still open', async () => {
+    const d = seed()
+    d.tables.production_jobs[0].status = 'collected'
+    const meta = { crm_org_id: ORG, invoice_id: 'inv-dep' }
+    stripe['GET /v1/payment_intents/pi_rev'] = () => ({ json: pi('pi_rev', meta, { amount: 5000, amount_received: 5000 }) })
+    await handleStripeWebhookEvent(d.client as never, event('evt_rev', 'payment_intent.succeeded', { id: 'pi_rev', metadata: meta }), NOW)
+    stripe['GET /v1/refunds'] = () => ({ json: { data: [] } })
+    stripe['GET /v1/disputes'] = () => ({ json: { data: [{ id: 'dp_r', amount: 5000, status: 'lost', created: visaCharge.created + 5 }] } })
+    await handleStripeWebhookEvent(d.client as never, event('evt_rev_l', 'charge.dispute.closed', { id: 'dp_r', status: 'lost', amount: 5000, payment_intent: 'pi_rev' }), NOW)
+    expect(String(d.tables.online_payments[0].reversal_flag)).toContain('already collected')
+    const q = await loadPaymentReversalsQueue(d.client as never, ORG, new Date())
+    expect(q).toMatchObject({ id: 'payment-reversals', title: 'Payment reversed — review', count: 1 })
+    expect(q.items[0]).toMatchObject({ ref: 'Job 26-0100', href: '/ops/jobs/job1' })
+    expect(q.items[0].note).toContain('check commission')
+
+    const d2 = seed()
+    stripe['GET /v1/payment_intents/pi_rev'] = () => ({ json: pi('pi_rev', meta, { amount: 5000, amount_received: 5000 }) })
+    await handleStripeWebhookEvent(d2.client as never, event('evt_rev2', 'payment_intent.succeeded', { id: 'pi_rev', metadata: meta }), NOW)
+    await handleStripeWebhookEvent(d2.client as never, event('evt_rev2_l', 'charge.dispute.closed', { id: 'dp_r', status: 'lost', amount: 5000, payment_intent: 'pi_rev' }), NOW)
+    expect(d2.tables.online_payments[0].reversal_flag ?? null).toBeNull()
+    expect((await loadPaymentReversalsQueue(d2.client as never, ORG, new Date())).count).toBe(0)
   })
 })

@@ -145,5 +145,10 @@ BEGIN
   ASSERT NOT has_function_privilege('authenticated', 'public.record_job_payment(uuid, uuid, date, integer, text, text, text, text, uuid, text, text)', 'EXECUTE'), 'P7 job writer';
   ASSERT NOT has_function_privilege('anon', 'public.apply_job_invoice_payment(uuid, uuid, uuid, integer, uuid)', 'EXECUTE'), 'P7 apply';
 
+  -- P12 second review columns: saved currency per attempt, reversal flag
+  ASSERT (SELECT data_type FROM information_schema.columns WHERE table_name = 'online_payments' AND column_name = 'currency') = 'text', 'P12 currency column';
+  ASSERT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'online_payments' AND column_name = 'reversal_flag'), 'P12 reversal flag';
+  ASSERT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'online_payments' AND column_name = 'reversed_at'), 'P12 reversed at';
+
   RAISE NOTICE 'REPORT: online payments assertions passed';
 END $t$;

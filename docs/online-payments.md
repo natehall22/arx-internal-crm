@@ -60,6 +60,11 @@ company's invoice). The company's other Stripe sales (no CRM metadata) are skipp
 - Rate limits on the pay page (per address + per link in SQL) and on staff link creation; cross-site writes refused;
   onboarding refresh changes nothing; payments in another currency are flagged, never recorded.
 
+Second review: an autopay attempt stays open only when Stripe gave no answer; any other answer fails it (normal retry,
+new attempt). Attempts charge in their saved currency. Reversals are order-independent. A lost dispute on a collected /
+payroll-approved job shows "Payment reversed — review" on Today + the morning email; automatic commission clawback lines
+are a pending decision (use Payroll → Fix a mistake meanwhile).
+
 ## Customer side
 
 - `/pay/<token>` (public, no Nav, company brand only, on the company's own address — a token opened on another company's
