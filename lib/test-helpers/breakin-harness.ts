@@ -138,6 +138,8 @@ export function attackerSeed(table: string, hasOrgId = true): Row {
   // per-message token; /m/<token> and /api/m/<token>/unsubscribe only open a sent one) — a "done" visit email, so the
   // photos page and the unsubscribe reach B's own message, customer and visit.
   if (table === 'customer_messages') Object.assign(r, { link_token_hash: createHash('sha256').update(BRAVO_PUBLIC_TOKEN).digest('hex'), status: 'sent', kind: 'visit_done', channel: 'email', to_address: 'customer@bravo.test', sent_at: new Date().toISOString(), refs: { visitId: BRAVO_ROW_ID }, customer_id: BRAVO_ROW_ID })
+  // A live quote link (lib/quotes/links.ts: hashed token, unexpired), so B's /q routes resolve B's own quote.
+  if (table === 'quote_links') Object.assign(r, { token_hash: createHash('sha256').update(BRAVO_PUBLIC_TOKEN).digest('hex'), revoked_at: null, expires_at: new Date(Date.now() + 7 * 86_400_000).toISOString() })
   if (table === 'payment_accounts') Object.assign(r, { account_id: 'acct_BRAVO', status: 'active', charges_enabled: true, livemode: false, disconnected_at: null })
   Object.assign(r, { user_id: ATTACKER_ID, owner_user_id: ATTACKER_ID, created_at: '2026-11-02T12:00:00.000Z', updated_at: '2026-11-02T12:00:00.000Z' })
   if (hasOrgId) r.org_id = ORG_B
