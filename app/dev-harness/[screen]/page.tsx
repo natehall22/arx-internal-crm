@@ -109,6 +109,8 @@ import InvoiceOnlinePayments from '@/components/billing/InvoiceOnlinePayments'
 import type { PayPageView } from '@/lib/online-payments/public'
 import CrewDayList, { type CrewDayVisit } from '@/app/crew/day/[token]/CrewDayList'
 import CustomerMessagesSettings from '@/components/admin/CustomerMessagesSettings'
+import TextingSettings from '@/components/admin/TextingSettings'
+import { TextCustomerDialog } from '@/components/customer/TextCustomer'
 import CustomerMessagesCard from '@/components/customer/CustomerMessagesCard'
 import { MESSAGE_KINDS, describeMessages, quietHoursPhrase, readCustomerMessageSettings, sampleMessages } from '@/lib/customer-messages'
 
@@ -123,6 +125,7 @@ const HARNESS_MESSAGES_VIEW = {
   settings: HARNESS_MESSAGE_SETTINGS,
   describe: describeMessages(HARNESS_MESSAGE_SETTINGS),
   quiet: quietHoursPhrase(HARNESS_MESSAGE_SETTINGS),
+  texting: true,
   blockers: ['The database needs an update before any email can go out (migration 202611120050).'],
   samples: Object.fromEntries(MESSAGE_KINDS.map((k) => [k, { subject: HARNESS_MESSAGE_SAMPLES[k].subject, html: HARNESS_MESSAGE_SAMPLES[k].html }])) as Record<(typeof MESSAGE_KINDS)[number], { subject: string; html: string }>,
 }
@@ -490,6 +493,10 @@ export default function Harness({ params }: { params: { screen: string } }) {
       return <div className="mx-auto max-w-md p-4"><JobHourlyCard jobId="dddddddd-0000-4000-8000-000000000001" /></div>
     case 'customer-messages-settings':
       return <div className="mx-auto max-w-3xl p-4"><CustomerMessagesSettings initial={HARNESS_MESSAGES_VIEW} /></div>
+    case 'texting-settings':
+      return <div className="mx-auto max-w-3xl p-4"><TextingSettings /></div>
+    case 'text-customer':
+      return <TextCustomerDialog dealId="d1" open onClose={() => undefined} onSent={() => undefined} />
     case 'customer-messages-card':
       return (
         <div className="mx-auto max-w-2xl p-4">
