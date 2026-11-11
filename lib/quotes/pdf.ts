@@ -18,12 +18,14 @@ export function approvalPdfData(
   customer: { name: string; address: string }
 ): QuoteApprovalPdfData {
   const s = approval.snapshot
+  // The names the customer approved (snapshot); the live proposal's only fills in for an approval made before the snapshot held them.
+  const who = s.customer ?? customer
   return {
     company,
     number: s.proposalNumber,
     title: s.title,
-    customerName: customer.name,
-    customerAddress: customer.address,
+    customerName: who.name,
+    customerAddress: who.address,
     lines: s.lines.map((l) => ({ name: l.name, description: l.description ?? '', quantity: l.quantity ?? null, unit: l.unit ?? '', optional: l.optional, chosen: l.chosen, cents: l.cents })),
     subtotalCents: approval.subtotal_cents,
     discountCents: approval.discount_cents,
@@ -48,12 +50,14 @@ export async function storeApprovalPdf(
   contractId: string,
   customer: { name: string; address: string }
 ): Promise<string> {
+  const path = `org/${orgId}/quotes/${approval.id}.pdf`
+  // A stored approval PDF is evidence: it is never overwritten. upsert:false makes the bucket refuse a second write; when the
+  // file is already there (an earlier attempt stored it before the contract link was saved) it is reused as it is.
   const brand = await getOrgBrand(admin, orgId)
   const data = approvalPdfData(approval, { name: brand.name, phone: brand.phone ?? undefined, email: brand.email ?? undefined, address: brand.address ?? undefined }, customer)
   const buffer = await renderApprovalPdf(data)
-  const path = `org/${orgId}/quotes/${approval.id}.pdf`
-  const { error } = await admin.storage.from('files').upload(path, buffer, { contentType: 'application/pdf', upsert: true })
-  if (error) throw new Error(`quote pdf upload: ${error.message}`)
+  const { error } = await admin.storage.from('files').upload(path, buffer, { contentType: 'application/pdf', upsert: false })
+  if (error && !/already exists|duplicate|resource already/i.test(`${error.message} ${(error as { statusCode?: string }).statusCode ?? ''}`)) throw new Error(`quote pdf upload: ${error.message}`)
   const { error: up } = await admin.from('order_form_contracts').update({ pdf_url: path, pdf_storage_path: path }).eq('id', contractId).eq('org_id', orgId)
   if (up) throw new Error(`quote pdf link: ${up.message}`)
   return path

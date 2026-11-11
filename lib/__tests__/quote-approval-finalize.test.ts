@@ -83,17 +83,33 @@ describe('approval contract', () => {
 })
 
 describe('signing stopped half way', () => {
-  it('a project/job failure is a failure (not a silent finish) and the retry finishes job creation', async () => {
+  it('a project/job failure is a failure; the retry never reopens the completed contract and never makes a 2nd job', async () => {
     const db = setup({})
     signing(db, { projectCreateError: 'boom' })
     expect(await finalizeApproval(db.client, ORG, 'a1', { now: new Date('2026-11-01T12:05:00Z') })).toBe(false)
     expect(db.tables.quote_approvals[0].finalized_at).toBeNull()
-    // The route had marked the contract completed but made no job. The retry reopens it and runs the route again.
-    expect(db.tables.order_form_contracts[0].status).toBe('completed')
-    signing(db)
+    const c = db.tables.order_form_contracts[0]
+    expect(c.status).toBe('completed')
+    c.customer_signed_at = '2026-11-01T12:05:00Z'
+    // Retry: the route's finish step (fix/signing-safety) makes the missing job on the SAME token. Status + signed fields stay.
+    signContract.mockImplementationOnce(async () => {
+      ;(db.tables.production_jobs ??= []).push({ id: 'j1', org_id: ORG, accepted_proposal_id: 'p1', sale_amount: 400 })
+      return ok()
+    })
     expect(await finalizeApproval(db.client, ORG, 'a1', { now: new Date('2026-12-15T12:00:00Z') })).toBe(true)
-    expect(signContract).toHaveBeenCalledTimes(2)
+    expect(db.tables.order_form_contracts[0].status).toBe('completed')
+    expect(db.tables.order_form_contracts[0].customer_signed_at).toBe('2026-11-01T12:05:00Z')
+    expect(db.tables.production_jobs).toHaveLength(1)
     expect(db.tables.quote_approvals[0].job_id).toBe('j1')
+  })
+
+  it('with the route not finishing anything yet (400 already signed) the retry fails cleanly, status untouched', async () => {
+    const db = setup({ order_form_contracts: [{ id: 'c1', org_id: ORG, status: 'completed', signing_token: 't' }] })
+    db.tables.quote_approvals[0].contract_id = 'c1'
+    signContract.mockResolvedValue({ ok: false, json: async () => ({ error: 'Contract has already been signed' }) })
+    expect(await finalizeApproval(db.client, ORG, 'a1', { now: new Date('2026-11-01T12:05:00Z') })).toBe(false)
+    expect(db.tables.order_form_contracts[0].status).toBe('completed')
+    expect(db.tables.production_jobs ?? []).toHaveLength(0)
   })
 
   it('a completed contract whose job exists is not signed again', async () => {

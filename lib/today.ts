@@ -10,6 +10,7 @@ import { formatDateShort, formatDateWeekday, formatMoney, formatCents, formatPho
 import { formatStormEventDateLabel, formatStormMagnitudeLabel, type StormAlertLayer } from '@/lib/storm-opportunity-alerts'
 import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
 import { loadCheckups } from '@/lib/checkups'
+import { listBlockedQuotes } from '@/lib/quotes/blocked'
 import { addDaysToDateOnly } from '@/lib/install-calendar'
 import { loadOrgTrades, tradeLabel } from '@/lib/org-trades'
 import { SERVICE_VISIT_TYPE, SKIP_REASON_LABELS, addDaysYmd, ymdInZone } from '@/lib/service-plans'
@@ -132,6 +133,20 @@ export async function loadUnsignedProposals(
   return { rows: open.slice(0, LIST_CAP), count: open.length }
 }
 /** `money` = the viewer has reports:financials; without it the proposal total is not shown. */
+/** Quotes whose customer tried to approve while the sale credit was never confirmed (lib/quotes/blocked.ts): first in the list. */
+export function withHeldQuotes(queue: Queue, held: Array<{ proposalId: string; customerName: string | null; proposalNumber: string | null }>): Queue {
+  if (held.length === 0) return queue
+  const items = held.map((h) => ({
+    id: `held-${h.proposalId}`,
+    title: h.customerName || 'Quote',
+    detail: 'Customer tried to approve — confirm who gets credit, then send the quote again',
+    href: `/proposals/${h.proposalId}`,
+    ref: h.proposalNumber ? `Proposal #${h.proposalNumber}` : 'Proposal',
+    note: 'approval on hold',
+  }))
+  return { ...queue, count: queue.count + held.length, items: [...items, ...queue.items].slice(0, LIST_CAP) }
+}
+
 export function proposalQueue(rows: ProposalRow[], count: number, money = false): Queue {
   return {
     id: 'unsigned-proposals',
@@ -240,7 +255,7 @@ export async function loadCloserQueues(admin: SupabaseClient, orgId: string, use
   return [
     apptQueue('today-appointments', "Today's appointments", (todayAppts.data ?? []) as ApptRow[], todayAppts.count ?? 0, 'No more appointments today.'),
     apptQueue('outcomes-to-log', 'Outcomes to log', (pastAppts.data ?? []) as ApptRow[], pastAppts.count ?? 0, 'Every past appointment has an outcome.', true),
-    proposalQueue(unsigned.rows, unsigned.count, opts.money),
+    withHeldQuotes(proposalQueue(unsigned.rows, unsigned.count, opts.money), await listBlockedQuotes(admin, orgId, { createdBy: userId })),
   ]
 }
 

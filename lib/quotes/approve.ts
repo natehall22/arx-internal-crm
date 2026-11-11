@@ -26,6 +26,7 @@ import { addInvoiceItem, computeInvoiceBalance, finalizeAndSendInvoice } from '@
 import { loadOnlinePayments } from '@/lib/online-payments/accounts'
 import { createPaymentLink, tooManyLinks } from '@/lib/online-payments/links'
 import { orgDb } from '@/lib/supabase/org-db'
+import { flagApprovalBlocked, NEEDS_DETAIL_MESSAGE } from '@/lib/quotes/blocked'
 import { isOptionalLine } from '@/lib/quotes/pricing'
 import { fingerprintOf, loadQuoteContext, priceForSelection, quoteDeposit, quoteTerms, type QuoteContext } from '@/lib/quotes/load'
 import type { QuoteLinkRow } from '@/lib/quotes/links'
@@ -63,6 +64,8 @@ export type ApprovalRow = {
 export type ApprovalSnapshot = {
   proposalNumber: string | null
   title: string | null
+  /** The customer as the approved quote named them (the PDF reads this, not the live proposal). */
+  customer?: { name: string; address: string }
   terms: string
   /** Everything the customer read, so the stored PDF is exactly what was agreed (description/quantity/unit were added later: optional). */
   lines: Array<{ id: string; name: string; description?: string; quantity?: number | null; unit?: string; optional: boolean; chosen: boolean; cents: number }>
@@ -131,7 +134,11 @@ export async function approveQuote(
   // Who gets credit for the sale is confirmed by the office when the link is sent (see the quote-link route). The signing
   // pipeline falls back to the contract's creator for an opportunity with no closer; never let that be whoever sent the link.
   const { data: oppRow } = await orgDb(admin, orgId).from('opportunities').select('owner_user_id').eq('id', p.opportunity_id).maybeSingle()
-  if (!(oppRow as { owner_user_id?: string | null } | null)?.owner_user_id) return { ok: false, status: 409, error: 'This quote is not ready to approve. Please contact us.' }
+  if (!(oppRow as { owner_user_id?: string | null } | null)?.owner_user_id) {
+    // A link sent before the rule: hold the approval, tell the sender (Needs-you row), and keep the customer's tone friendly.
+    await flagApprovalBlocked(admin, orgId, link.id)
+    return { ok: false, status: 409, error: NEEDS_DETAIL_MESSAGE }
+  }
   const sel = validateSelection(ctx, input.selectedIds)
   if ('error' in sel) return { ok: false, status: 400, error: sel.error }
   if (input.fingerprint !== fingerprintOf(ctx)) return { ok: false, status: 409, changed: true, error: 'This quote was just updated. Please look it over again.' }
@@ -153,6 +160,7 @@ export async function approveQuote(
   const snapshot: ApprovalSnapshot = {
     proposalNumber: p.proposal_number,
     title: p.title,
+    customer: { name: (p.customer_name ?? '').trim(), address: (p.customer_address ?? '').trim() },
     terms: quoteTerms(ctx),
     lines: ctx.lines.map((l) => ({ id: l.id, name: l.name, description: (l.description ?? '').trim(), quantity: l.quantity ?? null, unit: l.unit ?? '', optional: isOptionalLine(l), chosen: !isOptionalLine(l) || picked.has(l.id), cents: price.lineCents[l.id] ?? 0 })),
     declinedIds: ctx.lines.filter((l) => isOptionalLine(l) && !picked.has(l.id)).map((l) => l.id),
@@ -290,21 +298,18 @@ export async function finalizeApproval(admin: SupabaseClient, orgId: string, app
       await setApproval(admin, orgId, approvalId, { contract_id: contractId })
     }
     const { data: ct } = await db.from('order_form_contracts').select('id, status, signing_token, pdf_url').eq('id', contractId).maybeSingle()
-    let contract = ct as { id: string; status: string; signing_token: string; pdf_url: string | null } | null
+    const contract = ct as { id: string; status: string; signing_token: string; pdf_url: string | null } | null
     if (!contract) throw new Error('contract missing')
-    // The signing route marks the contract completed BEFORE it makes the project and job. If it stopped in between (a crash,
-    // a project error), the contract reads completed but there is no job, and skipping the sign step would fail forever.
-    // Our own contract carries no PDF/email side effects, so it is safe to put it back to pending and run the same route
-    // again: its project/job steps find what exists and make what is missing.
-    if (contract.status === 'completed' && !approval.job_id) {
-      const { data: made } = await db.from('production_jobs').select('id').eq('accepted_proposal_id', proposal.id).limit(1)
-      if ((made ?? []).length === 0) {
-        const { error: back } = await db.from('order_form_contracts').update({ status: 'pending_customer' }).eq('id', contract.id).eq('status', 'completed')
-        if (back) throw new Error(`reopen contract for retry: ${back.message}`)
-        contract = { ...contract, status: 'pending_customer' }
-      }
-    }
-    if (contract.status !== 'completed') {
+    // A COMPLETED contract is never reopened (it would drop out of sales and payroll, overwrite customer_signed_at, re-send the
+    // sale email, and a lease expiry could then make a second job). The signing route marks a contract completed BEFORE it
+    // makes the project and job; if it stopped in between, the contract reads completed with no job. The one recovery is the
+    // signing route's own idempotent "finish what is missing" call on the SAME token (fix/signing-safety: project/job, won,
+    // voiding, commission base, PDF, email — never touching status or the signed fields). The per-approval lease taken above
+    // is the lock; the job is re-checked right before the call, so no second job is ever made from here.
+    // TODO(fix/signing-safety): until that route change is merged the route answers 400 "already signed" and finishes
+    // nothing — the retry then fails with "the job was not created" and the office sees it on the approval card.
+    const jobExists = async () => ((await db.from('production_jobs').select('id').eq('accepted_proposal_id', proposal.id).limit(1)).data ?? []).length > 0
+    if (contract.status !== 'completed' || (!approval.job_id && !(await jobExists()))) {
       const res = await signContract(
         new NextRequest('http://internal.invalid/api/contracts/sign', {
           method: 'POST',
@@ -313,7 +318,8 @@ export async function finalizeApproval(admin: SupabaseClient, orgId: string, app
         })
       )
       const body = (await res.json().catch(() => ({}))) as { error?: string; projectCreateError?: string | null }
-      if (!res.ok) throw new Error(`signing: ${body.error ?? res.status}`)
+      const alreadySigned = contract.status === 'completed' && !res.ok && /already been signed/i.test(body.error ?? '')
+      if (!res.ok && !alreadySigned) throw new Error(`signing: ${body.error ?? res.status}`)
       // The route answers 200 even when the project/job step failed; that is a failure here so the retry finishes it.
       if (body.projectCreateError) throw new Error(`job setup: ${body.projectCreateError}`)
     }

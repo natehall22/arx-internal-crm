@@ -55,6 +55,9 @@ create table if not exists public.quote_links (
   sent_to text null,
   sent_at timestamptz null
 );
+-- Set when a customer tried to approve but the office never confirmed the sale credit (a link sent before that rule): the
+-- customer sees a friendly note and the sender gets a Needs-you item. A new link (sent after confirming) starts clean.
+alter table public.quote_links add column if not exists approval_blocked_at timestamptz null;
 create index if not exists quote_links_proposal_idx on public.quote_links (proposal_id, created_at desc);
 
 -- ---- The approval: what the customer agreed to, kept as it was shown -----------------------------------------------------
