@@ -6,6 +6,8 @@ import { formatDateWeekday } from '@/lib/format'
 import { RESULT_TONE_CLASS, SKIP_REASONS, SKIP_REASON_LABELS, type SkipReason, type StepResultOption } from '@/lib/service-plans'
 import { uploadVisitPhotos } from '@/lib/visit-photo-upload'
 import { FileDropZone } from '@/components/ui/file-drop-zone'
+import { ClockHereButton, ClockPanel } from '@/components/time/ClockPanel'
+import { useClock, usePresence, type ClockState } from '@/components/time/useClock'
 
 export type CrewDayVisit = {
   id: string
@@ -36,13 +38,44 @@ const btn = 'inline-flex min-h-[48px] items-center justify-center rounded-lg px-
  * Field UI for one crew's day: big targets, dark text on a light ground (readable in sun), one visit per card in stop
  * order. Done can carry photos; Skip needs a reason. Talks only to /api/crew/day/<token>/…
  */
-export default function CrewDayList({ token, crewName, companyName, today, visits: initial }: { token: string; crewName: string; companyName: string; today: string; visits: CrewDayVisit[] }) {
+export default function CrewDayList({
+  token,
+  crewName,
+  companyName,
+  today,
+  visits: initial,
+  clock: initialClock = null,
+}: {
+  token: string
+  crewName: string
+  companyName: string
+  today: string
+  visits: CrewDayVisit[]
+  /** The crew's time clock (only when the company uses it AND this crew clocks in; subs never get one). */
+  clock?: ClockState | null
+}) {
   const [visits, setVisits] = useState<Array<CrewDayVisit & { resultLabel?: string }>>(initial)
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [skipping, setSkipping] = useState<{ id: string; reason: SkipReason | ''; notes: string } | null>(null)
   const [finishing, setFinishing] = useState<string | null>(null)
   const [dead, setDead] = useState(false)
+  const [askClockOut, setAskClockOut] = useState<string | null>(null)
+  // Hooks run either way; with no clock the endpoint is never called (initial state stays null and nothing renders).
+  const clock = useClock(`/api/crew/day/${token}/clock`, { tapperKey: token.slice(0, 12), initial: initialClock ?? { ready: true, people: [], equipment: [], equipmentChoices: [], finishQuestions: [], captureLocation: false, timeZone: 'UTC' } })
+  const [present, setPresent] = usePresence(clock)
+  const clockOn = !!initialClock && initialClock.people.length > 0
+  const crewHere = (visitId: string) => clockOn && (clock.state?.people ?? []).some((p) => p.open?.workOrderId === visitId)
+  const stopLabel = (workOrderId: string | null) => {
+    const i = visits.findIndex((v) => v.id === workOrderId)
+    if (i < 0) return null
+    const v = visits[i]
+    return `Stop ${v.routePosition ?? i + 1}${v.address ? ` — ${v.address}` : ''}`
+  }
+  const markDone = (id: string, extra: Partial<CrewDayVisit> & { resultLabel?: string } = {}) => {
+    setVisits((vs) => vs.map((x) => (x.id === id ? { ...x, status: 'completed', accessNotes: null, ...extra } : x)))
+    if (crewHere(id)) setAskClockOut(id)
+  }
 
   // A replaced or expired link must not keep showing addresses and gate codes on a phone that still has the page open:
   // re-check on focus, on return to the tab / back-forward cache, and every few minutes; wipe everything when it's dead.
@@ -54,6 +87,7 @@ export default function CrewDayList({ token, crewName, companyName, today, visit
     setVisits([])
     setSkipping(null)
     setFinishing(null)
+    setAskClockOut(null)
     setDead(true)
   }, [token])
   useEffect(() => {
@@ -119,6 +153,7 @@ export default function CrewDayList({ token, crewName, companyName, today, visit
           <p className="text-base">{visits.length === 0 ? 'No visits today.' : open === 0 ? 'All visits finished. Nice work.' : `${open} of ${visits.length} visit${visits.length === 1 ? '' : 's'} left`}</p>
         </header>
         {error ? <p role="alert" className="rounded-lg border-2 border-red-700 bg-white p-3 text-base font-semibold text-red-800">{error}</p> : null}
+        {clockOn ? <ClockPanel clock={clock} selected={present} setSelected={setPresent} placeLabel={(o) => stopLabel(o.workOrderId)} title="Crew time" /> : null}
         <ol className="flex flex-col gap-3">
           {visits.map((v, i) => {
             const closed = v.status !== 'scheduled'
@@ -137,6 +172,7 @@ export default function CrewDayList({ token, crewName, companyName, today, visit
                   <p className="mt-2 text-base font-bold">{v.status === 'completed' ? `Done${v.resultLabel ? ` — ${v.resultLabel}` : ''}` : `Skipped — ${SKIP_REASON_LABELS[v.skipReason as SkipReason] ?? 'other'}`}{v.photoCount ? ` · ${v.photoCount} photo${v.photoCount === 1 ? '' : 's'}` : ''}</p>
                 ) : null}
                 <div className="mt-3 grid grid-cols-2 gap-2">
+                  {clockOn && !closed ? <ClockHereButton clock={clock} where={{ workOrderId: v.id }} selected={present} /> : null}
                   {v.address || (v.lat != null && v.lng != null) ? (
                     <a href={directionsHref(v)} target="_blank" rel="noopener noreferrer" className={`${btn} border-2 border-[#2c2c2a] bg-white`}>
                       Directions
@@ -159,7 +195,7 @@ export default function CrewDayList({ token, crewName, companyName, today, visit
                         onClick={() =>
                           v.resultOptions.length
                             ? setFinishing(v.id)
-                            : void act(v.id, { action: 'done' }).then((ok) => ok && setVisits((vs) => vs.map((x) => (x.id === v.id ? { ...x, status: 'completed', accessNotes: null } : x))))
+                            : void act(v.id, { action: 'done' }).then((ok) => ok && markDone(v.id))
                         }
                       >
                         Done
@@ -170,6 +206,31 @@ export default function CrewDayList({ token, crewName, companyName, today, visit
                     </>
                   ) : null}
                 </div>
+                {askClockOut === v.id && crewHere(v.id) ? (
+                  <div className="mt-3 flex flex-col gap-2 border-t-2 border-[#e5e3dc] pt-3">
+                    <p className="text-base font-bold">Clock out the crew?</p>
+                    <button
+                      type="button"
+                      className={`${btn} bg-[#2c2c2a] text-white`}
+                      onClick={() => {
+                        setAskClockOut(null)
+                        void clock.tap('clock_out', { userIds: (clock.state?.people ?? []).filter((p) => p.open?.workOrderId === v.id).map((p) => p.userId) })
+                      }}
+                    >
+                      Yes — done for the day
+                    </button>
+                    <button
+                      type="button"
+                      className={`${btn} border-2 border-[#2c2c2a] bg-white`}
+                      onClick={() => {
+                        setAskClockOut(null)
+                        void clock.tap('clock_out', { userIds: (clock.state?.people ?? []).filter((p) => p.open?.workOrderId === v.id).map((p) => p.userId), forTravel: true })
+                      }}
+                    >
+                      No — driving to the next stop
+                    </button>
+                  </div>
+                ) : null}
                 {finishing === v.id ? (
                   <div className="mt-3 flex flex-col gap-2 border-t-2 border-[#e5e3dc] pt-3">
                     <p className="text-base font-bold">How did it go?</p>
@@ -182,7 +243,7 @@ export default function CrewDayList({ token, crewName, companyName, today, visit
                         onClick={() =>
                           void act(v.id, { action: 'done', result: r.key }).then((ok) => {
                             if (!ok) return
-                            setVisits((vs) => vs.map((x) => (x.id === v.id ? { ...x, status: 'completed', accessNotes: null, resultLabel: r.label } : x)))
+                            markDone(v.id, { resultLabel: r.label })
                             setFinishing(null)
                           })
                         }

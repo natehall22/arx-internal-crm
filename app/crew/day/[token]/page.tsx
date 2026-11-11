@@ -6,6 +6,8 @@ import { getDocumentBrand } from '@/lib/org-brand'
 import { activeCrewDay } from '@/lib/service-plans-access'
 import { SERVICE_STEP, ymdInZone } from '@/lib/service-plans'
 import { loadVisits } from '@/lib/service-plans-db'
+import { isOrgFeatureOn } from '@/lib/org-features-server'
+import { loadClockState } from '@/lib/time-tracking-db'
 import { createServiceClient } from '@/lib/supabase/service'
 import CrewDayList from './CrewDayList'
 
@@ -42,12 +44,20 @@ export default async function CrewDayPage({ params }: { params: { token: string 
   }
   const today = ymdInZone(new Date(), await loadOrgTimeZone(admin, crew.orgId))
   const visits = (await loadVisits(admin, crew.orgId, { from: today, to: today, subId: crew.subId, accessNotes: true })).filter((v) => v.status !== 'cancelled')
+  // The crew's time clock: only for a company using it and a crew that clocks in (subs never see a clock).
+  const clock = (await isOrgFeatureOn(crew.orgId, 'timeTracking'))
+    ? await loadClockState(admin, { via: 'crew_link', orgId: crew.orgId, subId: crew.subId }).catch((e) => {
+        console.error('[crew-day] clock load failed', e)
+        return null
+      })
+    : null
   return (
     <CrewDayList
       token={params.token}
       crewName={crew.crewName}
       companyName={brand.casualName}
       today={today}
+      clock={clock && clock.people.length > 0 ? clock : null}
       visits={visits.map((v) => ({
         id: v.id,
         planName: v.step !== SERVICE_STEP && v.stepLabel ? `${v.stepLabel} — ${v.planName}` : v.planName,
