@@ -27,10 +27,7 @@ import { confirmDialog } from '@/components/ui/confirm-dialog'
 type BrandInputKey = (typeof GENERAL_BRAND_INPUTS)[number][0]
 
 type SettingsSection = 
-  | 'contact-fields' 
-  | 'job-fields' 
   | 'job-workflows'
-  | 'work-order-fields'
   | 'work-order-workflows'
   | 'canvass-dispositions'
   | 'inspection-outcomes'
@@ -82,34 +79,12 @@ interface InspectionOutcomeType {
   sort_order: number
 }
 
-interface CustomField {
-  id: string
-  name: string
-  field_type: 'text' | 'number' | 'date' | 'select' | 'checkbox' | 'textarea'
-  options?: string[]
-  required: boolean
-  entity_type: 'contact' | 'lead' | 'opportunity' | 'project'
-  sort_order: number
-  active: boolean
-}
-
 interface WorkflowStage {
   id: string
   name: string
   color: string
   sort_order: number
   auto_actions?: string[]
-}
-
-interface WorkOrderField {
-  id: string
-  name: string
-  field_type: 'text' | 'number' | 'date' | 'select' | 'checkbox' | 'textarea'
-  options?: string[]
-  required: boolean
-  applies_to: 'work_order' | 'crew_assignment' | 'both'
-  sort_order: number
-  active: boolean
 }
 
 interface WorkOrderWorkflowStage {
@@ -130,7 +105,6 @@ export default function AdminSettingsPage() {
   const [saving, setSaving] = useState(false)
   
   // Settings state
-  const [customFields, setCustomFields] = useState<CustomField[]>([])
   const [generalSettings, setGeneralSettings] = useState<GeneralSettingsValues>({
     company_name: '',
     company_phone: '',
@@ -212,16 +186,6 @@ export default function AdminSettingsPage() {
   const [editingAppointmentType, setEditingAppointmentType] = useState<AppointmentType | null>(null)
   const [showAddAppointmentType, setShowAddAppointmentType] = useState(false)
   
-  // Work Order Fields state
-  const [workOrderFields, setWorkOrderFields] = useState<WorkOrderField[]>([
-    { id: 'wo_notes', name: 'Special Instructions', field_type: 'textarea', required: false, applies_to: 'work_order', sort_order: 0, active: true },
-    { id: 'wo_access_code', name: 'Gate/Access Code', field_type: 'text', required: false, applies_to: 'work_order', sort_order: 1, active: true },
-    { id: 'wo_permit_number', name: 'Permit Number', field_type: 'text', required: false, applies_to: 'work_order', sort_order: 2, active: true },
-    { id: 'crew_lead', name: 'Crew Lead', field_type: 'text', required: false, applies_to: 'crew_assignment', sort_order: 3, active: true },
-    { id: 'crew_size', name: 'Crew Size', field_type: 'number', required: false, applies_to: 'crew_assignment', sort_order: 4, active: true },
-  ])
-  const [editingWorkOrderField, setEditingWorkOrderField] = useState<WorkOrderField | null>(null)
-  const [showAddWorkOrderField, setShowAddWorkOrderField] = useState(false)
   
   // Work Order Workflow Stages state
   const [workOrderStages, setWorkOrderStages] = useState<WorkOrderWorkflowStage[]>([
@@ -738,10 +702,7 @@ export default function AdminSettingsPage() {
     {
       title: 'WORKFLOWS & FIELDS',
       items: [
-        { id: 'contact-fields', label: 'Contact Fields' },
-        { id: 'job-fields', label: 'Project Fields' },
         { id: 'job-workflows', label: 'Project Workflows' },
-        { id: 'work-order-fields', label: 'Work Order Fields' },
         { id: 'work-order-workflows', label: 'Work Order Workflows' },
         { id: 'canvass-dispositions', label: 'Canvass Dispositions' },
         { id: 'inspection-outcomes', label: 'Inspection outcomes' },
@@ -3185,118 +3146,6 @@ export default function AdminSettingsPage() {
             </div>
           )}
 
-          {/* Contact Fields */}
-          {activeSection === 'contact-fields' && (
-            <div className="max-w-3xl">
-              <div className="flex items-center justify-between mb-6">
-                <h1 className="text-2xl font-bold text-gray-900">Contact Fields</h1>
-                <button className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium">
-                  + Add Field
-                </button>
-              </div>
-              
-              <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
-                <table className="w-full">
-                  <thead className="bg-gray-50 border-b">
-                    <tr>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Field Name</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Required</th>
-                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y">
-                    {[
-                      { name: 'First Name', type: 'text', required: true, system: true },
-                      { name: 'Last Name', type: 'text', required: true, system: true },
-                      { name: 'Email', type: 'text', required: false, system: true },
-                      { name: 'Phone', type: 'text', required: false, system: true },
-                      { name: 'Address', type: 'text', required: false, system: true },
-                      { name: 'Lead Source', type: 'select', required: false, system: false },
-                      { name: 'Preferred Contact Method', type: 'select', required: false, system: false },
-                    ].map((field, idx) => (
-                      <tr key={idx} className="hover:bg-gray-50">
-                        <td className="px-4 py-3">
-                          <span className="font-medium text-gray-900">{field.name}</span>
-                          {field.system && <span className="ml-2 text-xs text-gray-400">(System)</span>}
-                        </td>
-                        <td className="px-4 py-3 text-gray-500 text-sm capitalize">{field.type}</td>
-                        <td className="px-4 py-3">
-                          {field.required ? (
-                            <span className="text-green-600">Yes</span>
-                          ) : (
-                            <span className="text-gray-400">No</span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 text-right">
-                          {!field.system && (
-                            <button className="text-indigo-600 hover:text-indigo-800 text-sm">Edit</button>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {/* Job/Project Fields */}
-          {activeSection === 'job-fields' && (
-            <div className="max-w-3xl">
-              <div className="flex items-center justify-between mb-6">
-                <h1 className="text-2xl font-bold text-gray-900">Project Fields</h1>
-                <button className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium">
-                  + Add Field
-                </button>
-              </div>
-              
-              <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
-                <table className="w-full">
-                  <thead className="bg-gray-50 border-b">
-                    <tr>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Field Name</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Required</th>
-                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y">
-                    {[
-                      { name: 'Project Type', type: 'select', required: true, system: true },
-                      { name: 'Address', type: 'text', required: true, system: true },
-                      { name: 'Contract Value', type: 'number', required: false, system: true },
-                      { name: 'Start Date', type: 'date', required: false, system: true },
-                      { name: 'Roof Type', type: 'select', required: false, system: false },
-                      { name: 'Square Footage', type: 'number', required: false, system: false },
-                      { name: 'Insurance Claim #', type: 'text', required: false, system: false },
-                    ].map((field, idx) => (
-                      <tr key={idx} className="hover:bg-gray-50">
-                        <td className="px-4 py-3">
-                          <span className="font-medium text-gray-900">{field.name}</span>
-                          {field.system && <span className="ml-2 text-xs text-gray-400">(System)</span>}
-                        </td>
-                        <td className="px-4 py-3 text-gray-500 text-sm capitalize">{field.type}</td>
-                        <td className="px-4 py-3">
-                          {field.required ? (
-                            <span className="text-green-600">Yes</span>
-                          ) : (
-                            <span className="text-gray-400">No</span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 text-right">
-                          {!field.system && (
-                            <button className="text-indigo-600 hover:text-indigo-800 text-sm">Edit</button>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
           {/* Job/Project Workflows */}
           {activeSection === 'job-workflows' && (
             <div className="max-w-3xl">
@@ -3334,261 +3183,6 @@ export default function AdminSettingsPage() {
                   ))}
                 </div>
               </div>
-            </div>
-          )}
-
-          {/* Work Order Fields */}
-          {activeSection === 'work-order-fields' && (
-            <div className="max-w-3xl">
-              <div className="flex items-center justify-between mb-6">
-                <h1 className="text-2xl font-bold text-gray-900">Work Order Fields</h1>
-                <button 
-                  onClick={() => {
-                    setEditingWorkOrderField(null)
-                    setShowAddWorkOrderField(true)
-                  }}
-                  className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium"
-                >
-                  + Add Field
-                </button>
-              </div>
-              
-              <div className="bg-white rounded-xl shadow-sm border p-6">
-                <p className="text-gray-500 mb-6">Configure custom fields for work orders and crew assignments.</p>
-                
-                {/* Work Order Fields */}
-                <div className="mb-8">
-                  <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-4">Work Order Fields</h3>
-                  <div className="space-y-3">
-                    {workOrderFields.filter(f => f.applies_to === 'work_order' || f.applies_to === 'both').map((field) => (
-                      <div key={field.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-                        <div className="flex items-center gap-3">
-                          <div className={`w-2 h-2 rounded-full ${field.active ? 'bg-green-500' : 'bg-gray-300'}`} />
-                          <div>
-                            <h4 className="font-medium text-gray-900">{field.name}</h4>
-                            <p className="text-sm text-gray-500">
-                              {field.field_type.charAt(0).toUpperCase() + field.field_type.slice(1)}
-                              {field.required && <span className="text-red-500 ml-1">*</span>}
-                              {field.applies_to === 'both' && <span className="ml-2 text-indigo-600">(Also on crew assignments)</span>}
-                            </p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <button 
-                            onClick={() => {
-                              setEditingWorkOrderField(field)
-                              setShowAddWorkOrderField(true)
-                            }}
-                            className="text-indigo-600 hover:text-indigo-800 text-sm font-medium"
-                          >
-                            Edit
-                          </button>
-                          <button 
-                            onClick={() => {
-                              setWorkOrderFields(prev => prev.map(f => 
-                                f.id === field.id ? { ...f, active: !f.active } : f
-                              ))
-                            }}
-                            className={`text-sm font-medium ${field.active ? 'text-amber-600 hover:text-amber-800' : 'text-green-600 hover:text-green-800'}`}
-                          >
-                            {field.active ? 'Disable' : 'Enable'}
-                          </button>
-                          <button 
-                            onClick={async () => {
-                              if ((await confirmDialog({ title: `Delete field "${field.name}"?`, destructive: true }))) {
-                                setWorkOrderFields(prev => prev.filter(f => f.id !== field.id))
-                              }
-                            }}
-                            className="text-red-600 hover:text-red-800 text-sm font-medium"
-                          >
-                            Delete
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                    {workOrderFields.filter(f => f.applies_to === 'work_order' || f.applies_to === 'both').length === 0 && (
-                      <p className="text-gray-400 text-sm py-4 text-center">No work order fields configured</p>
-                    )}
-                  </div>
-                </div>
-                
-                {/* Crew Assignment Fields */}
-                <div>
-                  <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-4">Crew Assignment Fields</h3>
-                  <div className="space-y-3">
-                    {workOrderFields.filter(f => f.applies_to === 'crew_assignment' || f.applies_to === 'both').map((field) => (
-                      <div key={field.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-                        <div className="flex items-center gap-3">
-                          <div className={`w-2 h-2 rounded-full ${field.active ? 'bg-green-500' : 'bg-gray-300'}`} />
-                          <div>
-                            <h4 className="font-medium text-gray-900">{field.name}</h4>
-                            <p className="text-sm text-gray-500">
-                              {field.field_type.charAt(0).toUpperCase() + field.field_type.slice(1)}
-                              {field.required && <span className="text-red-500 ml-1">*</span>}
-                              {field.applies_to === 'both' && <span className="ml-2 text-indigo-600">(Also on work orders)</span>}
-                            </p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <button 
-                            onClick={() => {
-                              setEditingWorkOrderField(field)
-                              setShowAddWorkOrderField(true)
-                            }}
-                            className="text-indigo-600 hover:text-indigo-800 text-sm font-medium"
-                          >
-                            Edit
-                          </button>
-                          <button 
-                            onClick={() => {
-                              setWorkOrderFields(prev => prev.map(f => 
-                                f.id === field.id ? { ...f, active: !f.active } : f
-                              ))
-                            }}
-                            className={`text-sm font-medium ${field.active ? 'text-amber-600 hover:text-amber-800' : 'text-green-600 hover:text-green-800'}`}
-                          >
-                            {field.active ? 'Disable' : 'Enable'}
-                          </button>
-                          <button 
-                            onClick={async () => {
-                              if ((await confirmDialog({ title: `Delete field "${field.name}"?`, destructive: true }))) {
-                                setWorkOrderFields(prev => prev.filter(f => f.id !== field.id))
-                              }
-                            }}
-                            className="text-red-600 hover:text-red-800 text-sm font-medium"
-                          >
-                            Delete
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                    {workOrderFields.filter(f => f.applies_to === 'crew_assignment' || f.applies_to === 'both').length === 0 && (
-                      <p className="text-gray-400 text-sm py-4 text-center">No crew assignment fields configured</p>
-                    )}
-                  </div>
-                </div>
-              </div>
-              
-              {/* Add/Edit Work Order Field Modal */}
-              {showAddWorkOrderField && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-                  <div className="bg-white rounded-2xl shadow-xl max-w-md w-full">
-                    <div className="p-6 border-b">
-                      <h2 className="text-xl font-bold text-gray-900">
-                        {editingWorkOrderField ? 'Edit Field' : 'Add Field'}
-                      </h2>
-                    </div>
-                    <form onSubmit={(e) => {
-                      e.preventDefault()
-                      const formData = new FormData(e.currentTarget)
-                      const fieldData: WorkOrderField = {
-                        id: editingWorkOrderField?.id || `wo_field_${Date.now()}`,
-                        name: formData.get('name') as string,
-                        field_type: formData.get('field_type') as WorkOrderField['field_type'],
-                        required: formData.get('required') === 'on',
-                        applies_to: formData.get('applies_to') as WorkOrderField['applies_to'],
-                        options: formData.get('field_type') === 'select' 
-                          ? (formData.get('options') as string).split(',').map(o => o.trim()).filter(Boolean)
-                          : undefined,
-                        sort_order: editingWorkOrderField?.sort_order ?? workOrderFields.length,
-                        active: editingWorkOrderField?.active ?? true,
-                      }
-                      
-                      if (editingWorkOrderField) {
-                        setWorkOrderFields(prev => prev.map(f => f.id === editingWorkOrderField.id ? fieldData : f))
-                      } else {
-                        setWorkOrderFields(prev => [...prev, fieldData])
-                      }
-                      setShowAddWorkOrderField(false)
-                      setEditingWorkOrderField(null)
-                    }}>
-                      <div className="p-6 space-y-4">
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">Field Name</label>
-                          <input
-                            type="text"
-                            name="name"
-                            required
-                            defaultValue={editingWorkOrderField?.name || ''}
-                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                            placeholder="e.g., Permit Number"
-                          />
-                        </div>
-                        
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">Field Type</label>
-                          <select
-                            name="field_type"
-                            defaultValue={editingWorkOrderField?.field_type || 'text'}
-                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                          >
-                            <option value="text">Text</option>
-                            <option value="textarea">Text Area</option>
-                            <option value="number">Number</option>
-                            <option value="date">Date</option>
-                            <option value="select">Dropdown</option>
-                            <option value="checkbox">Checkbox</option>
-                          </select>
-                        </div>
-                        
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">Options (for dropdown, comma-separated)</label>
-                          <input
-                            type="text"
-                            name="options"
-                            defaultValue={editingWorkOrderField?.options?.join(', ') || ''}
-                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                            placeholder="Option 1, Option 2, Option 3"
-                          />
-                        </div>
-                        
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">Applies To</label>
-                          <select
-                            name="applies_to"
-                            defaultValue={editingWorkOrderField?.applies_to || 'work_order'}
-                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                          >
-                            <option value="work_order">Work Orders Only</option>
-                            <option value="crew_assignment">Crew Assignments Only</option>
-                            <option value="both">Both</option>
-                          </select>
-                        </div>
-                        
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="checkbox"
-                            name="required"
-                            id="field_required"
-                            defaultChecked={editingWorkOrderField?.required || false}
-                            className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
-                          />
-                          <label htmlFor="field_required" className="text-sm text-gray-700">Required field</label>
-                        </div>
-                      </div>
-                      
-                      <div className="p-6 border-t flex justify-end gap-3">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setShowAddWorkOrderField(false)
-                            setEditingWorkOrderField(null)
-                          }}
-                          className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          type="submit"
-                          className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
-                        >
-                          {editingWorkOrderField ? 'Save Changes' : 'Add Field'}
-                        </button>
-                      </div>
-                    </form>
-                  </div>
-                </div>
-              )}
             </div>
           )}
 
