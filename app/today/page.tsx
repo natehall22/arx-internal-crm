@@ -71,7 +71,7 @@ export default async function TodayPage() {
             { label: 'Appointments', value: mine.calendar },
           ]
   const waiting = await resolveThreadViewer(admin, profile).then((viewer) => listWaiting(admin, viewer)).catch(() => [])
-  const queues = applyTodayProfile([...closerQueues, ...opsQueues, ...ownerQueues], orgProfile.today)
+  const queues = applyTodayProfile([...closerQueues, ...opsQueues, ...ownerQueues], orgProfile.today, orgProfile.terms)
 
   return (
     <div className="min-h-screen bg-surface-subtle">

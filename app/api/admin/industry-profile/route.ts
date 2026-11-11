@@ -33,7 +33,7 @@ export async function GET(request: Request) {
     const { settings, trades } = await loadProfileSwitchInputs(createServiceClient(), profile.org_id)
     const current = resolveOrgProfile(settings)
     return NextResponse.json({
-      current: { id: current.id, label: current.label, version: current.version, storedVersion: current.storedVersion },
+      current: { id: current.id, label: current.label, version: current.version, storedVersion: current.storedVersion, unknownStoredId: current.unknownStoredId },
       profiles: INDUSTRY_PROFILE_IDS.map((id) => ({ id, label: INDUSTRY_PROFILES[id].label, description: INDUSTRY_PROFILES[id].description, version: INDUSTRY_PROFILES[id].version })),
       plan: to ? planProfileSwitch(settings, trades, to, { resetFeatures: url.searchParams.get('resetFeatures') === '1' }) : null,
     })

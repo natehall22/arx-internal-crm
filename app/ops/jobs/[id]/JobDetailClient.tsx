@@ -59,7 +59,7 @@ import { toast } from '@/components/ui/toast'
 import { confirmDialog } from '@/components/ui/confirm-dialog'
 import { formatPhone, telHref } from '@/lib/format'
 import { filesDocHref } from '@/lib/files/files-object'
-import { useOrgFeatures } from '@/hooks/useOrgFeatures'
+import { useOrgFeatures, useOrgProfile } from '@/hooks/useOrgFeatures'
 import type { OrgFeatures } from '@/lib/org-features'
 
 
@@ -620,6 +620,8 @@ export default function JobDetailClient({
   const [job, setJob] = useState<Job>(initialJob)
   /** Company feature switches (Settings → Features): Insurance off hides the Job Source / claim card. */
   const orgFeatures = useOrgFeatures(serverOrgFeatures)
+  /** The company's words (industry profile; server-resolved on first paint by the root layout). */
+  const orgTerms = useOrgProfile().terms
   /** The job cost ledger summary (`lib/job-cost-ledger.ts`), reported by the Materials card. */
   const [costSummary, setCostSummary] = useState<JobCostSummary | null>(null)
   /** Bumped when either card changes the ledger so the other card reloads. */
@@ -1547,7 +1549,7 @@ export default function JobDetailClient({
         {!embedded && (
           <div className="mb-4 sm:mb-6">
             <Link href="/ops" className="text-indigo-600 hover:text-indigo-800 text-sm font-medium min-h-[44px] inline-flex items-center">
-              ← Back to Production Board
+              ← Back to {orgTerms.productionBoard}
             </Link>
           </div>
         )}

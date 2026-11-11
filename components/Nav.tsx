@@ -23,6 +23,7 @@ import { activeSectionId, visibleNav } from '@/lib/nav-config'
 import { ALL_FEATURES_ON, type OrgFeatures } from '@/lib/org-features'
 import { featuresFromEffectivePermissions, fetchEffectivePermissions, profileFromEffectivePermissions } from '@/hooks/useOrgFeatures'
 import { coerceClientOrgProfile, type ClientOrgProfile } from '@/lib/org-profile'
+import { useInitialOrgProfile } from '@/components/OrgProfileProvider'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import GlobalSearch from '@/components/search/GlobalSearch'
 import { BarChart3, DollarSign, Filter, Hammer, Home, MapPin, MoreHorizontal, Search, Users, type LucideIcon } from 'lucide-react'
@@ -39,8 +40,10 @@ export default function Nav() {
   const [effectivePermsReady, setEffectivePermsReady] = useState(false)
   const [effectiveFullAccess, setEffectiveFullAccess] = useState(false)
   const [payWeekEnabled, setPayWeekEnabled] = useState(false)
-  const [orgFeatures, setOrgFeatures] = useState<OrgFeatures>(ALL_FEATURES_ON)
-  const [orgProfile, setOrgProfile] = useState<ClientOrgProfile>(() => coerceClientOrgProfile(null))
+  // First paint from the root layout's server-resolved profile (no menu flash); the effective-permissions fetch refreshes it.
+  const layoutProfile = useInitialOrgProfile()
+  const [orgFeatures, setOrgFeatures] = useState<OrgFeatures>(() => layoutProfile?.features ?? ALL_FEATURES_ON)
+  const [orgProfile, setOrgProfile] = useState<ClientOrgProfile>(() => layoutProfile?.profile ?? coerceClientOrgProfile(null))
   const [effectivePermissionNames, setEffectivePermissionNames] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
   const [companyName, setCompanyName] = useState<string>('ARX CRM')

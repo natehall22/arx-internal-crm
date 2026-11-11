@@ -177,7 +177,7 @@ export async function loadMorningTodayQueues(
   // The company's industry profile renames / hides Today cards the same way as the Today screen (lib/org-profile.ts);
   // the email keeps its own order (storm hits lead). Roofing = unchanged.
   const orgProfile = await loadOrgProfile(supabase, orgId)
-  const asProfile = (queues: Queue[]) => applyTodayProfile(queues, { ...orgProfile.today, order: [] })
+  const asProfile = (queues: Queue[]) => applyTodayProfile(queues, { ...orgProfile.today, order: [] }, orgProfile.terms)
   if (focus === 'crews') {
     const [crews, ops] = await Promise.all([loadCrewWeekQueue(supabase, orgId, now), loadOpsQueues(supabase, orgId)])
     return asProfile([crews, ...ops.filter((q) => q.id === 'jobs-to-schedule')])

@@ -94,7 +94,7 @@ describe('roofing profile = the app as it was (the original company is unchanged
   it('board heading default and the client fallback are today’s words', () => {
     expect(t(null, 'productionBoard')).toBe('Production Board')
     expect(profileFromEffectivePermissions(null)).toEqual(clientOrgProfile(roof))
-    expect(read('app/ops/OpsClient.tsx')).toContain('boardTitle = BASE_TERMS.productionBoard')
+    expect(read('app/ops/OpsClient.tsx')).toContain('{terms.productionBoard}')
   })
 })
 
@@ -110,7 +110,8 @@ describe('lawn & landscape profile (Precision Maintenance)', () => {
   it('words, menu order and hidden pages', () => {
     expect(t(lawn, 'proposal')).toBe('Quote')
     expect(t(lawn, 'inspection')).toBe('Estimate visit')
-    expect(t(lawn, 'subs')).toBe('Crews')
+    // Crews are a job's per-trade crews; subcontractors keep their own word (no clash).
+    expect(t(lawn, 'subs')).toBe('Subcontractors')
     const nav = visibleNav(owner({ features: lawn.features, profile: clientOrgProfile(lawn) }))
     expect(nav.sections.map((s) => s.id)).toEqual(['today', 'jobs', 'customers', 'pipeline', 'money', 'insights'])
     expect(nav.sections.find((s) => s.id === 'jobs')!.label).toBe('Work')
@@ -252,7 +253,11 @@ describe('definitions stay wired to real things (parity)', () => {
   it.each(INDUSTRY_PROFILE_IDS)('%s', (id) => {
     const p = INDUSTRY_PROFILES[id]
     // Today: titles are real lib/today.ts titles; order/hidden are real queue ids; planned ids are not built yet.
-    for (const title of Object.keys(p.today.titles)) expect(todaySrc).toContain(JSON.stringify(title).slice(1, -1).replace(/\\"/g, '"'))
+    for (const text of Object.keys(p.today.texts)) expect([text, todaySrc.includes(text)]).toEqual([text, true])
+    // "Crews" means a job's trade crews: no profile may call subcontractors that.
+    expect(resolveOrgProfile({ profile: { id } }).terms.subs.toLowerCase()).not.toBe('crews')
+    // Service-type units are only roof-measured ones (the builder prices them from squares).
+    for (const u of p.pricebook.serviceTypeUnits) expect(['square', 'sqft', 'lf']).toContain(u.value)
     for (const q of [...p.today.order, ...p.today.hidden]) expect([q, knownQueueIds.has(q)]).toEqual([q, true])
     for (const q of p.today.planned) expect([q.id, knownQueueIds.has(q.id)]).toEqual([q.id, false])
     // Nav: hidden pages exist; order lists every section once.
@@ -292,5 +297,76 @@ describe('seed', () => {
     expect(none.ok && none.input.profile).toBeNull()
     const bad = parseCompanySeedInput({ ...base, profile: 'lawn' })
     expect(bad.ok ? '' : bad.errors.join()).toContain('profile must be one of')
+  })
+})
+
+describe('review fixes', () => {
+  it('unknown stored profile: runs on roofing defaults, flagged, and switching is allowed (never "no change")', () => {
+    const odd = resolveOrgProfile({ profile: { id: 'pool_service', version: 1 } })
+    expect(odd.id).toBe('roofing')
+    expect(odd.unknownStoredId).toBe('pool_service')
+    expect(odd.storedVersion).toBeNull()
+    const plan = planProfileSwitch({ profile: { id: 'pool_service', version: 1 }, features: {} }, [...DEFAULT_ORG_TRADES], 'roofing')
+    expect(plan.noChange).toBe(false)
+    expect(plan.from.unknownStoredId).toBe('pool_service')
+    expect(plan.other.join()).toContain('Replaces the unknown profile "pool_service"')
+    expect(resolveOrgProfile({ profile: 'lawn_landscape' }).unknownStoredId).toBe('"lawn_landscape"')
+    expect(resolveOrgProfile({}).unknownStoredId).toBeNull()
+    expect(resolveOrgProfile(lawnSettings).unknownStoredId).toBeNull()
+  })
+
+  it('Today rows and empty texts follow the profile; roofing rows are untouched', () => {
+    const q = {
+      id: 'jobs-to-schedule',
+      title: 'Jobs to schedule',
+      count: 1,
+      empty: 'Every sold job has an install date.',
+      items: [{ id: 'j', title: 'Job 26-0012', detail: '1 Main St · install 2026-11-12', href: '/ops/jobs/j', ref: 'Job 26-0012', note: 'install Nov 12' }],
+    }
+    const roof = defaultOrgProfile()
+    expect(applyTodayProfile([q], roof.today, roof.terms)[0]).toBe(q)
+    const lawn = resolveOrgProfile(lawnSettings)
+    const out = applyTodayProfile([q], lawn.today, lawn.terms)[0]
+    expect(out.title).toBe('Projects to schedule')
+    expect(out.empty).toBe('Every approved project has a date.')
+    expect(out.items[0]).toMatchObject({ title: 'Project 26-0012', ref: 'Project 26-0012', detail: '1 Main St · work 2026-11-12', note: 'work Nov 12', href: '/ops/jobs/j' })
+    // "Jobless" text and addresses that merely contain the words are not rewritten
+    const other = applyTodayProfile([{ ...q, items: [{ ...q.items[0], title: 'Jobson Rd', detail: '9 Install Way' }] }], lawn.today, lawn.terms)[0]
+    expect(other.items[0].title).toBe('Jobson Rd')
+    expect(other.items[0].detail).toBe('9 Install Way')
+  })
+
+  it('a service unit the database lacks gets a clear message; other errors pass through', () => {
+    const { serviceUnitNotReadyMessage } = jest.requireActual('@/lib/industry-profiles') as typeof import('@/lib/industry-profiles')
+    expect(serviceUnitNotReadyMessage({ code: '22P02', message: 'invalid input value for enum unit: "visit"' }, 'visit')).toContain('migration 202611100090')
+    expect(serviceUnitNotReadyMessage({ code: '22P02' }, 'each')).toBeNull()
+    expect(serviceUnitNotReadyMessage({ code: '23505', message: 'duplicate' }, 'visit')).toBeNull()
+    expect(serviceUnitNotReadyMessage(null, 'visit')).toBeNull()
+    expect(read('app/api/admin/proposals/route.ts').match(/serviceUnitNotReadyMessage\(/g)).toHaveLength(2)
+  })
+
+  it('Settings → Pricing units come from the profile; roofing = the old three, same words and order', () => {
+    expect(defaultOrgProfile().pricebook.serviceTypeUnits).toEqual([
+      { value: 'square', label: 'Per Square', desc: '100 sq ft' },
+      { value: 'sqft', label: 'Per Sq Ft', desc: 'square foot' },
+      { value: 'lf', label: 'Per Linear Ft', desc: 'linear foot' },
+    ])
+    const page = read('app/admin/pricing/page.tsx')
+    expect(page).toContain('useOrgProfile().pricebook.serviceTypeUnits')
+    expect(page).not.toContain("{ value: 'square', label: 'Per Square'")
+  })
+
+  it('proposal builder: visit / month / hour ask for a quantity and read "per visit"', () => {
+    const b = read('app/proposals/builder/page.tsx')
+    const needs = b.slice(b.indexOf('const needsQuantityInput'), b.indexOf('const needsQuantityInput') + 800)
+    for (const u of ["'visit'", "'month'", "'hour'"]) expect(needs).toContain(u)
+    expect(b).not.toMatch(/per \{getUnitLabel\(/)
+  })
+
+  it('board, job page and subs page use the profile words (roofing keeps today’s text)', () => {
+    expect(read('app/ops/OpsClient.tsx')).toContain('Track each {terms.job.toLowerCase()} from sold through payment')
+    expect(read('app/ops/jobs/[id]/JobDetailClient.tsx')).toContain('← Back to {orgTerms.productionBoard}')
+    expect(read('app/admin/subs/page.tsx')).toContain("subsTerm === BASE_TERMS.subs ? 'Sub-Contractors' : subsTerm")
+    expect(BASE_TERMS.job.toLowerCase()).toBe('job')
   })
 })

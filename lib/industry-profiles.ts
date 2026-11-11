@@ -29,7 +29,8 @@ export function isIndustryProfileId(v: unknown): v is IndustryProfileId {
  * - job / jobs: customer file Job tab, Nav "Jobs" section
  * - jobBoard: Nav link to /ops · productionBoard: the /ops page heading
  * - inspection / proposal / install / installed: customer file progress steps + "Next:" button
- * - subs: Settings → Subcontractors
+ * - subs: Settings → Subcontractors + the /admin/subs heading. "Crews" is NOT used for subs: crews are the per-trade
+ *   crews on a job (work_orders), so a profile that renamed subs to "Crews" would clash.
  */
 export const TERM_KEYS = ['job', 'jobs', 'jobBoard', 'productionBoard', 'inspection', 'proposal', 'install', 'installed', 'subs'] as const
 export type TermKey = (typeof TERM_KEYS)[number]
@@ -74,15 +75,26 @@ export type TodayProfile = {
   order: readonly string[]
   /** Card ids never shown for this profile. */
   hidden: readonly string[]
-  /** Card title by today's (roofing) title — exact text match (lib/today.ts titles; parity-tested). */
-  titles: Readonly<Record<string, string>>
+  /**
+   * Card title or empty-state text by today's (roofing) wording — exact text match (lib/today.ts; parity-tested).
+   * Row titles "Job 26-0012" and "install <date>" facts follow the profile's words (applyTodayProfile).
+   */
+  texts: Readonly<Record<string, string>>
   /** Wanted cards with no loader yet (shown nowhere; documented for the build list). */
   planned: ReadonlyArray<{ id: string; title: string; needs: string }>
 }
 
 /** A price book unit choice for add-ons (`pricebook_items.unit`, DB enum `unit`). */
 export type PricebookUnit = { value: string; label: string }
+/** A unit a main service type (`roofing_types.pricing_unit`, Settings → Pricing) can be priced in. */
+export type ServiceTypeUnit = { value: string; label: string; desc: string }
 export type PricebookProfile = {
+  /**
+   * Units for main service types on Settings → Pricing, in order. These are priced off the roof measurement in the
+   * proposal builder (squares × rate; sq ft ×100), so only the roof-measured units belong here; a profile with none
+   * prices its services as price book items instead (the Pricing page says so).
+   */
+  serviceTypeUnits: readonly ServiceTypeUnit[]
   /** Add-on categories (`pricebook_items.adder_category`, free text). */
   adderCategories: readonly string[]
   /** Unit choices for a fixed-price add-on, in order. Roof-square units are still hidden when squaresPricing is off. */
@@ -119,7 +131,17 @@ const BASE_UNITS: readonly PricebookUnit[] = [
 /** Units that need migration 202611100090 (DB enum `unit`): saving one before it is applied fails with a clear error. */
 export const PROFILE_ONLY_UNITS: readonly string[] = ['visit', 'month', 'hour']
 
-const NO_TODAY: TodayProfile = { order: [], hidden: [], titles: {}, planned: [] }
+/**
+ * Pure: a pricebook_items save error caused by a service unit the database doesn't have yet (migration 202611100090 not
+ * applied) → a message an owner can act on; anything else → null (the caller reports its usual error).
+ */
+export function serviceUnitNotReadyMessage(error: { code?: string; message?: string } | null | undefined, unit: unknown): string | null {
+  if (!error || typeof unit !== 'string' || !PROFILE_ONLY_UNITS.includes(unit)) return null
+  const enumError = error.code === '22P02' || /invalid input value for enum/i.test(error.message ?? '')
+  return enumError ? `Pricing “per ${unit}” needs a database update (migration 202611100090) that hasn’t been applied yet. Use “Each” for now, or ask your administrator to apply it.` : null
+}
+
+const NO_TODAY: TodayProfile = { order: [], hidden: [], texts: {}, planned: [] }
 
 const roofing: IndustryProfile = {
   id: 'roofing',
@@ -132,6 +154,12 @@ const roofing: IndustryProfile = {
   nav: { order: BASE_NAV_ORDER, hidden: [] },
   today: NO_TODAY,
   pricebook: {
+    // Settings → Pricing's old three choices, same words and order.
+    serviceTypeUnits: [
+      { value: 'square', label: 'Per Square', desc: '100 sq ft' },
+      { value: 'sqft', label: 'Per Sq Ft', desc: 'square foot' },
+      { value: 'lf', label: 'Per Linear Ft', desc: 'linear foot' },
+    ],
     adderCategories: ['Ventilation', 'Gutters', 'Skylights', 'Chimney', 'Decking', 'Flashing', 'Other'],
     units: BASE_UNITS,
   },
@@ -184,13 +212,12 @@ const lawnLandscape: IndustryProfile = {
     proposal: 'Quote',
     install: 'Work',
     installed: 'Done',
-    subs: 'Crews',
   },
   nav: { order: ['today', 'jobs', 'customers', 'pipeline', 'money', 'insights'], hidden: SERVICE_NAV_HIDDEN },
   today: {
     order: ['unsigned-proposals', 'jobs-to-schedule', 'unscheduled-jobs', 'overdue-installs', 'awaiting-payment', 'today-appointments', 'outcomes-to-log', 'no-outcome'],
     hidden: [],
-    titles: {
+    texts: {
       'Proposals waiting for a signature': 'Quotes awaiting approval',
       'Proposals waiting over a week, still unsigned': 'Quotes waiting over a week',
       'Jobs to schedule': 'Projects to schedule',
@@ -199,6 +226,11 @@ const lawnLandscape: IndustryProfile = {
       'Finished, waiting on payment': 'Finished, not paid yet',
       "Today's appointments": "Today's estimate visits",
       'Appointments with no outcome logged': 'Estimate visits with no outcome logged',
+      'Nothing waiting on a customer.': 'No quotes waiting on a customer.',
+      'No more appointments today.': 'No more estimate visits today.',
+      'Every past appointment has an outcome.': 'Every past estimate visit has an outcome.',
+      'Every sold job has an install date.': 'Every approved project has a date.',
+      'Materials are ordered on every open job.': 'Materials are ordered on every open project.',
     },
     planned: [
       { id: 'todays-visits', title: "Today's visits and routes", needs: 'service plans + visits (Phase 2)' },
@@ -207,6 +239,7 @@ const lawnLandscape: IndustryProfile = {
     ],
   },
   pricebook: {
+    serviceTypeUnits: [],
     adderCategories: ['Lawn care', 'Landscaping', 'Tractor / land work', 'Clean-up', 'Soft wash / pressure washing', 'Materials', 'Other'],
     units: [
       { value: 'visit', label: 'Per visit' },
@@ -233,20 +266,23 @@ const exteriorCleaning: IndustryProfile = {
     { label: 'Window cleaning', matchKeywords: ['\\bwindows?\\b'] },
     { label: 'Gutter cleaning', matchKeywords: ['gutter'] },
   ],
-  terms: { inspection: 'Estimate', proposal: 'Quote', install: 'Service', installed: 'Done', subs: 'Crews' },
+  terms: { inspection: 'Estimate', proposal: 'Quote', install: 'Service', installed: 'Done' },
   nav: { order: ['today', 'jobs', 'customers', 'pipeline', 'money', 'insights'], hidden: SERVICE_NAV_HIDDEN },
   today: {
     order: ['unsigned-proposals', 'jobs-to-schedule', 'awaiting-payment'],
     hidden: [],
-    titles: {
+    texts: {
       'Proposals waiting for a signature': 'Quotes awaiting approval',
       'Proposals waiting over a week, still unsigned': 'Quotes waiting over a week',
       'Sold jobs with no install date': 'Approved jobs with no date',
       'Installs past their date and not started': 'Jobs past their date, not started',
+      'Nothing waiting on a customer.': 'No quotes waiting on a customer.',
+      'Every sold job has an install date.': 'Every approved job has a date.',
     },
     planned: [{ id: 'todays-visits', title: "Today's jobs and routes", needs: 'visits (Phase 2)' }],
   },
   pricebook: {
+    serviceTypeUnits: [],
     adderCategories: ['Pressure washing', 'Soft wash', 'Window cleaning', 'Gutter cleaning', 'Other'],
     units: [
       { value: 'per_sqft', label: 'Per sq ft' },
@@ -276,12 +312,15 @@ const homeBuilder: IndustryProfile = {
     { label: 'HVAC', matchKeywords: ['hvac', 'duct'] },
     { label: 'Finishes', matchKeywords: ['drywall', 'paint', 'trim', 'floor', 'cabinet'] },
   ],
-  terms: { job: 'Project', jobs: 'Projects', jobBoard: 'Project board', productionBoard: 'Project board', inspection: 'Site visit', proposal: 'Bid', install: 'Build', installed: 'Built' },
+  terms: { job: 'Project', jobs: 'Projects', jobBoard: 'Project board', productionBoard: 'Project board', inspection: 'Site visit', proposal: 'Bid', install: 'Build', installed: 'Built', subs: 'Trade partners' },
   nav: { order: ['today', 'jobs', 'customers', 'pipeline', 'money', 'insights'], hidden: ['/inside-sales', '/ops/checkups', '/projects'] },
   today: {
     order: ['jobs-to-schedule', 'overdue-installs', 'unsigned-proposals', 'awaiting-payment'],
     hidden: [],
-    titles: {
+    texts: {
+      'Nothing waiting on a customer.': 'No bids waiting on a customer.',
+      'Every sold job has an install date.': 'Every signed project has a start date.',
+      'Materials are ordered on every open job.': 'Materials are ordered on every open project.',
       'Proposals waiting for a signature': 'Bids waiting for a signature',
       'Proposals waiting over a week, still unsigned': 'Bids waiting over a week, still unsigned',
       'Jobs to schedule': 'Projects to schedule',
@@ -291,6 +330,7 @@ const homeBuilder: IndustryProfile = {
     planned: [],
   },
   pricebook: {
+    serviceTypeUnits: [],
     adderCategories: ['Site work', 'Foundation', 'Framing', 'Roofing', 'Plumbing', 'Electrical', 'HVAC', 'Finishes', 'Allowances', 'Other'],
     units: [
       { value: 'each', label: 'Each' },

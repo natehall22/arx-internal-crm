@@ -17,7 +17,8 @@ import { DEFAULT_ORG_TRADES, type OrgTrade } from '@/lib/org-trades'
 import { applyOrgTradesSeed, planOrgTradesAddOnly, readOrgTradesForSeed, type OrgTradeSeed, type OrgTradesSeedPlan } from '@/lib/org-trades-admin'
 
 export type ProfileSwitchPlan = {
-  from: { id: IndustryProfileId; label: string }
+  /** `unknownStoredId`: the company has a stored profile this build doesn't know (it runs on roofing defaults). */
+  from: { id: IndustryProfileId; label: string; unknownStoredId: string | null }
   to: { id: IndustryProfileId; label: string; version: number; description: string }
   resetFeatures: boolean
   /** Every feature whose on/off changes, plus own switches that keep a feature different from the new profile. */
@@ -77,7 +78,9 @@ export function planProfileSwitch(settings: unknown, trades: readonly OrgTrade[]
 
   const words = TERM_KEYS.filter((k) => now.terms[k] !== after.terms[k]).map((k) => ({ key: k, now: now.terms[k], after: after.terms[k] }))
   const other: string[] = []
-  if (now.id === to && now.storedVersion !== INDUSTRY_PROFILES[to].version) {
+  if (now.unknownStoredId !== null) {
+    other.push(`Replaces the unknown profile "${now.unknownStoredId}" (you have been on ${now.label} defaults)`)
+  } else if (now.id === to && now.storedVersion !== INDUSTRY_PROFILES[to].version) {
     other.push(`Records ${INDUSTRY_PROFILES[to].label} v${INDUSTRY_PROFILES[to].version} on your company${now.storedVersion === null ? '' : ` (you have v${now.storedVersion})`}`)
   }
   if (now.id !== to) {
@@ -92,14 +95,14 @@ export function planProfileSwitch(settings: unknown, trades: readonly OrgTrade[]
   const tradesChange = !!tradePlan && (tradePlan.add.length > 0 || tradePlan.turnOn.length > 0)
   const featureChange = features.some((f) => f.now !== f.after) || (resetFeatures && Object.keys(own).some((k) => (ORG_FEATURE_KEYS as string[]).includes(k)))
   return {
-    from: { id: now.id, label: now.label },
+    from: { id: now.id, label: now.label, unknownStoredId: now.unknownStoredId },
     to: { id: to, label: INDUSTRY_PROFILES[to].label, version: INDUSTRY_PROFILES[to].version, description: INDUSTRY_PROFILES[to].description },
     resetFeatures,
     features,
     trades: tradePlan,
     words,
     other,
-    noChange: now.id === to && now.storedVersion === INDUSTRY_PROFILES[to].version && !tradesChange && !featureChange,
+    noChange: now.id === to && now.unknownStoredId === null && now.storedVersion === INDUSTRY_PROFILES[to].version && !tradesChange && !featureChange,
   }
 }
 

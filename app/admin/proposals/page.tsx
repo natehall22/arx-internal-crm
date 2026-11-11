@@ -260,7 +260,8 @@ export default function AdminProposalsPage() {
         console.log('Data reloaded')
       } else {
         console.error('API error:', result)
-        toast.error(`Failed to save adder: ${result.error || 'Unknown error'}`)
+        // A service unit the database doesn't have yet gets its own plain message (lib/industry-profiles.ts).
+        toast.error(result.code === 'unit_not_ready' ? result.error : `Failed to save adder: ${result.error || 'Unknown error'}`)
       }
     } catch (err) {
       console.error('Error saving adder:', err)

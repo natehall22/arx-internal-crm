@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { serviceUnitNotReadyMessage } from '@/lib/industry-profiles'
 import { createClient } from '@supabase/supabase-js'
 import { createServiceClient } from '@/lib/supabase/service'
 import { stripPricebookCosts } from '@/lib/pricebook-costs'
@@ -216,6 +217,8 @@ export async function POST(request: NextRequest) {
         .single()
 
       if (adderError) {
+        const notReady = serviceUnitNotReadyMessage(adderError, insertData.unit)
+        if (notReady) return NextResponse.json({ error: notReady, code: 'unit_not_ready' }, { status: 409 })
         console.error('Error creating adder:', adderError)
         return NextResponse.json({ error: `Failed to create adder: ${adderError.message}` }, { status: 500 })
       }
@@ -409,6 +412,8 @@ export async function PATCH(request: NextRequest) {
         .single()
 
       if (updateError) {
+        const notReady = serviceUnitNotReadyMessage(updateError, updateData.unit)
+        if (notReady) return NextResponse.json({ error: notReady, code: 'unit_not_ready' }, { status: 409 })
         console.error('Error updating adder:', updateError)
         return NextResponse.json({ error: `Failed to update adder: ${updateError.message}` }, { status: 500 })
       }

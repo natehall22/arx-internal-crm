@@ -1,13 +1,14 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 
 import { Button, Card, CardContent, CardHeader, CardTitle, Field, Select, toast } from '@/components/ui'
 import { TERM_LABELS, type IndustryProfileId } from '@/lib/industry-profiles'
 import type { ProfileSwitchPlan } from '@/lib/org-profile-server'
 
 export type OrgProfileCardProps = {
-  current: { id: IndustryProfileId; label: string; description: string }
+  /** `unknownStoredId`: a stored profile this build doesn't know — the company runs on `label` (roofing) defaults. */
+  current: { id: IndustryProfileId; label: string; description: string; unknownStoredId?: string | null }
   profiles: Array<{ id: IndustryProfileId; label: string; description: string }>
 }
 
@@ -21,27 +22,38 @@ export default function OrgProfileCard({ current, profiles }: OrgProfileCardProp
   const [plan, setPlan] = useState<ProfileSwitchPlan | null>(null)
   const [loading, setLoading] = useState(false)
   const [applying, setApplying] = useState(false)
+  /** Only the newest preview request may set the plan (a slow earlier answer is dropped and its fetch aborted). */
+  const latest = useRef<{ id: number; abort: AbortController | null }>({ id: 0, abort: null })
 
   async function preview(next: IndustryProfileId | '', reset: boolean) {
+    const id = ++latest.current.id
+    latest.current.abort?.abort()
+    const abort = new AbortController()
+    latest.current.abort = abort
     setTo(next)
     setResetFeatures(reset)
     setPlan(null)
-    if (!next) return
+    if (!next) return setLoading(false)
     setLoading(true)
-    const res = await fetch(`/api/admin/industry-profile?to=${encodeURIComponent(next)}${reset ? '&resetFeatures=1' : ''}`, { cache: 'no-store' }).catch(() => null)
+    const res = await fetch(`/api/admin/industry-profile?to=${encodeURIComponent(next)}${reset ? '&resetFeatures=1' : ''}`, { cache: 'no-store', signal: abort.signal }).catch(() => null)
     const data = res ? await res.json().catch(() => ({})) : {}
+    if (id !== latest.current.id) return // a newer choice was made meanwhile
     setLoading(false)
     if (!res || !res.ok) return toast.error((data as { error?: string }).error || 'Could not load what would change')
-    setPlan((data as { plan: ProfileSwitchPlan }).plan)
+    const got = (data as { plan?: ProfileSwitchPlan }).plan
+    // Belt and braces: only a plan for exactly what is on screen.
+    if (!got || got.to.id !== next || got.resetFeatures !== reset) return toast.error('Could not load what would change')
+    setPlan(got)
   }
 
   async function apply() {
-    if (!to) return
+    // Apply exactly what the shown plan was built for — never a selection that changed after it loaded.
+    if (!plan) return
     setApplying(true)
     const res = await fetch('/api/admin/industry-profile', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ profile: to, resetFeatures }),
+      body: JSON.stringify({ profile: plan.to.id, resetFeatures: plan.resetFeatures }),
     }).catch(() => null)
     const data = res ? await res.json().catch(() => ({})) : {}
     if (!res || !res.ok) {
@@ -64,6 +76,11 @@ export default function OrgProfileCard({ current, profiles }: OrgProfileCardProp
         <p className="text-ui-base text-ink">
           Now: <span className="font-semibold">{current.label}</span> — {current.description}
         </p>
+        {current.unknownStoredId && (
+          <p className="text-ui-base font-semibold text-danger" role="status">
+            Your company has a profile this version doesn’t know (“{current.unknownStoredId}”), so it runs on {current.label} defaults. Pick a profile below.
+          </p>
+        )}
         <p className="text-ui-sm text-ink">
           A profile sets the starting point: which features are on, your trades, the words on screens, the menu, Today and the price book. Anything you set yourself stays. Nothing is deleted.
         </p>
@@ -74,7 +91,7 @@ export default function OrgProfileCard({ current, profiles }: OrgProfileCardProp
               {profiles.map((o) => (
                 <option key={o.id} value={o.id}>
                   {o.label}
-                  {o.id === current.id ? ' (current)' : ''}
+                  {o.id === current.id && !current.unknownStoredId ? ' (current)' : ''}
                 </option>
               ))}
             </Select>
@@ -136,7 +153,7 @@ export default function OrgProfileCard({ current, profiles }: OrgProfileCardProp
                 ))}
               </ul>
             )}
-            <Button className="min-h-tap w-full sm:w-auto" loading={applying} disabled={applying || plan.noChange} onClick={() => void apply()}>
+            <Button className="min-h-tap w-full sm:w-auto" loading={applying} disabled={applying || loading || plan.noChange} onClick={() => void apply()}>
               Switch to {plan.to.label}
             </Button>
           </div>

@@ -5,7 +5,6 @@ import { requireAuth } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import OpsClient from './OpsClient'
-import { loadOrgProfile, t } from '@/lib/org-profile'
 import { createServiceClient } from '@/lib/supabase/service'
 import { redactProductionJobFinancialSummaryFields, resolveOpsAccess } from '@/lib/ops-access'
 import { opsBoardJobsSelectEmbedded } from '@/lib/ops-board-query'
@@ -99,7 +98,6 @@ export default async function OpsPage() {
       orgId={profile.org_id}
       canViewProfitability={ops.canViewJobFinancials}
       catchUp={catchUp.enabled ? { ...catchUp, viewerId: profile.id } : undefined}
-      boardTitle={t(await loadOrgProfile(admin, profile.org_id), 'productionBoard')}
     />
   )
 }

@@ -60,7 +60,7 @@ export default async function SettingsPage() {
           {/* Owners only: turn whole parts of the app on/off for this company (lib/org-features.ts). */}
           {canEditFeatures && (
             <OrgProfileCard
-              current={{ id: orgProfile.id, label: orgProfile.label, description: INDUSTRY_PROFILES[orgProfile.id].description }}
+              current={{ id: orgProfile.id, label: orgProfile.label, description: INDUSTRY_PROFILES[orgProfile.id].description, unknownStoredId: orgProfile.unknownStoredId }}
               profiles={INDUSTRY_PROFILE_IDS.map((id) => ({ id, label: INDUSTRY_PROFILES[id].label, description: INDUSTRY_PROFILES[id].description }))}
             />
           )}
