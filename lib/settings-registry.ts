@@ -40,6 +40,7 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
       { title: 'Inspection feedback', description: 'Pending feedback and reminders to closers', href: '/admin/inspection-feedback', access: 'leadership' },
       { title: 'Roof measure tool', description: 'In-house satellite roof measurement', href: '/tools/roof-measure', access: 'leadership', feature: 'roofMeasure' },
       { title: 'Email blasts', description: 'Who gets sale, payment and funding emails', href: '/admin/email-blasts', access: 'leadership' },
+      { title: 'Customer messages', description: 'Visit reminders, “on the way” and “done” emails, quote follow-ups and invoice reminders (owners only)', href: '/admin/customer-messages', access: 'superAdmin', feature: 'customerMessages', keywords: 'reminder email notify customer automatic follow up unsubscribe quiet hours overdue on the way' },
     ],
   },
   {

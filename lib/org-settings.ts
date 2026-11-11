@@ -4,7 +4,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
  * THE per-key writer for `orgs.settings` (Known Redundancy #25). One SQL function, `merge_org_settings` (migration
  * 202611060010), changes only the given keys at one place in settings — the top level (`path: []`) or one nested
  * object (`path: ['brand']`) — inside a single UPDATE, so a concurrent save of another key is never lost.
- * Users: job catch-up (top level), pricing (`/api/admin/pricing` org_settings, top level), brand (`lib/org-brand.ts` saveBrandSettings, path ['brand']), feature switches (`/api/admin/settings` type 'features', path ['features']), industry profile (lib/org-profile-server.ts + company seed, path ['profile']), sales tax (`lib/sales-tax-server.ts` saveSalesTaxSettings, path ['salesTax']), hourly billing rules (`/api/admin/hourly-billing`, path ['hourlyBilling']), online payments (`lib/online-payments/accounts.ts` saveOnlinePaymentSettings, path ['onlinePayments']), (the pay week is NOT written here: SQL payroll_set_pay_week via savePayWeekSchedule, so the setting and the closing of old weeks are one transaction).
+ * Users: job catch-up (top level), pricing (`/api/admin/pricing` org_settings, top level), brand (`lib/org-brand.ts` saveBrandSettings, path ['brand']), feature switches (`/api/admin/settings` type 'features', path ['features']), industry profile (lib/org-profile-server.ts + company seed, path ['profile']), sales tax (`lib/sales-tax-server.ts` saveSalesTaxSettings, path ['salesTax']), hourly billing rules (`/api/admin/hourly-billing`, path ['hourlyBilling']), online payments (`lib/online-payments/accounts.ts` saveOnlinePaymentSettings, path ['onlinePayments']), customer messages (`/api/admin/customer-messages`, path ['customerMessages']), (the pay week is NOT written here: SQL payroll_set_pay_week via savePayWeekSchedule, so the setting and the closing of old weeks are one transaction).
  * Until the migration is applied, ONLY a missing function (PGRST202 / 42883) falls back to read → merge → write of
  * the same keys; any other error (permission denied, no such org) is returned.
  */
@@ -53,6 +53,8 @@ export async function mergeOrgSettings(
   if (path.length === 0 && ('payWeek' in set || remove.includes('payWeek'))) return { error: 'payWeek is saved through savePayWeekSchedule' }
   // Online payments has validated fields; it is only ever written at path ['onlinePayments'] (owners, lib/online-payments/accounts.ts).
   if (path.length === 0 && ('onlinePayments' in set || remove.includes('onlinePayments'))) return { error: 'onlinePayments is saved at path [onlinePayments]' }
+  // Automatic customer messages are only ever written at path ['customerMessages'] (owners, /api/admin/customer-messages).
+  if (path.length === 0 && ('customerMessages' in set || remove.includes('customerMessages'))) return { error: 'customerMessages is saved at path [customerMessages]' }
   if (Object.keys(set).length === 0 && remove.length === 0) return { error: null }
 
   const { error } = await client.rpc('merge_org_settings', { p_org_id: orgId, p_path: path, p_set: set, p_remove: remove })

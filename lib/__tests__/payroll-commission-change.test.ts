@@ -74,8 +74,10 @@ describe('only percentage pay scales', () => {
 
 type Row = Record<string, unknown>
 let claimed = false
+let broken = false
 function fakeAdd(args: Record<string, unknown>, t: Record<string, Row[]>) {
   if (claimed) throw Object.assign(new Error('being approved'), { code: '55006' })
+  if (broken) throw Object.assign(new Error('connection reset'), { code: '08006' })
   const lines = args.p_lines as Row[]
   let n = 0
   for (const l of lines) {
@@ -112,6 +114,7 @@ const pay = (db: ReturnType<typeof seed>, id: string, cents: number) => db.table
 
 beforeEach(() => {
   claimed = false
+  broken = false
   process.env.PAYROLL_PAY_WEEK_ENABLED = 'true'
 })
 afterAll(() => {
@@ -163,6 +166,38 @@ describe('a T&M job billed more after it was paid', () => {
     expect(await retryDueCommissionChanges(db.client, ORG)).toMatchObject({ tried: 1, written: 1 })
     expect(lines(db)).toEqual([[CLOSER, 210, 3000, 'P2'], [SETTER, 150, 3000, 'P2']])
     expect(db.tables.production_jobs[0]).toMatchObject({ commission_change_due_at: null, commission_change_wait: null })
+  })
+
+  it('an unexpected database error: the job is marked for retry (never only logged) and the morning retry writes it', async () => {
+    const db = seed()
+    addInvoice(db, 'i2', 300000)
+    pay(db, 'pay2', 300000)
+    broken = true
+    await expect(syncCommissionChangesForJob(db.client, ORG, JOB)).rejects.toThrow('connection reset')
+    expect(db.tables.production_jobs[0]).toMatchObject({ commission_change_wait: 'retry_error' })
+    expect(db.tables.production_jobs[0].commission_change_due_at).toBeTruthy()
+    expect(await loadCommissionChangesWaitingQueue(db.client, ORG)).toMatchObject({ count: 1 })
+    // The never-throws wrapper (invoice edits, approvals) marks it the same way.
+    db.tables.production_jobs[0].commission_change_wait = null
+    db.tables.production_jobs[0].commission_change_due_at = null
+    await syncTimeAndMaterialsCommissionBase(db.client, ORG, JOB)
+    expect(db.tables.production_jobs[0]).toMatchObject({ commission_change_wait: 'retry_error' })
+    // Still broken in the morning: stays waiting.
+    expect(await retryDueCommissionChanges(db.client, ORG)).toMatchObject({ tried: 1, written: 0, waiting: 1 })
+    expect(db.tables.production_jobs[0]).toMatchObject({ commission_change_wait: 'retry_error' })
+    broken = false
+    expect(await retryDueCommissionChanges(db.client, ORG)).toMatchObject({ tried: 1, written: 1 })
+    expect(lines(db)).toEqual([[CLOSER, 210, 3000, 'P2'], [SETTER, 150, 3000, 'P2']])
+    expect(db.tables.production_jobs[0]).toMatchObject({ commission_change_due_at: null, commission_change_wait: null })
+  })
+
+  it('a fixed-price job marked for retry is only un-marked (its base is never re-synced from the retry)', async () => {
+    const db = seed()
+    db.tables.production_jobs[0].billing_mode = null
+    db.tables.production_jobs[0].commission_change_wait = 'retry_error'
+    db.tables.production_jobs[0].commission_change_due_at = '2026-11-10T10:00:00Z'
+    await retryDueCommissionChanges(db.client, ORG)
+    expect(db.tables.production_jobs[0]).toMatchObject({ commission_comp_base: 1000, commission_change_wait: null, commission_change_due_at: null })
   })
 
   it('new pay week switched off (legacy payroll): no lines written — kept waiting and shown to owners', async () => {

@@ -377,18 +377,26 @@ export async function syncTimeAndMaterialsCommissionBase(admin: SupabaseClient, 
   try {
     if (!(await isTimeAndMaterialsJob(admin, orgId, jobId))) return null
     const r = await syncJobSaleAndCommissionBase(admin, { orgId, jobId })
-    if (r.status === 'error') console.error('[job-commission-base] time & materials sync failed', { orgId, jobId, error: r.error })
+    if (r.status === 'error') {
+      // The base did not move, so commission change lines can't be judged: retried every morning, never only logged.
+      const { markCommissionChangeRetry } = await import('@/lib/payroll-commission-change')
+      await markCommissionChangeRetry(admin, orgId, jobId, r.error)
+    }
     // Already paid on an approved week? The base moved since: the next open week gets the difference (never the paid week).
     // Run on every sync (not only on a change) so a run that failed before catches up; it writes nothing when in step.
     if (r.status === 'time_materials') {
       const { syncCommissionChangesForJob } = await import('@/lib/payroll-commission-change')
+      // On an unexpected error it marks the job for the morning retry itself (lib/payroll-commission-change.ts).
       await syncCommissionChangesForJob(admin, orgId, jobId).catch((error) =>
-        console.error('[job-commission-base] commission change lines failed', { orgId, jobId, error })
+        console.error('[job-commission-base] commission change lines failed (marked for retry)', { orgId, jobId, error })
       )
     }
     return r
   } catch (error) {
-    console.error('[job-commission-base] time & materials sync failed', { orgId, jobId, error })
+    // Could not even tell whether this is a T&M job (a read failed): mark it so the retry decides. A fixed-price job
+    // marked this way is cleared on the retry (syncCommissionChangesForJob writes nothing for it and un-marks it).
+    const { markCommissionChangeRetry } = await import('@/lib/payroll-commission-change')
+    await markCommissionChangeRetry(admin, orgId, jobId, error)
     return null
   }
 }

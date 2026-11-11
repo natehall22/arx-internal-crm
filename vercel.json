@@ -1,4 +1,10 @@
 {
+  "git": {
+    "deploymentEnabled": {
+      "**": false,
+      "main": true
+    }
+  },
   "crons": [
     {
       "path": "/api/cron/promote-insurance-follow-ups",
@@ -39,6 +45,10 @@
     {
       "path": "/api/cron/instant-estimate-accuracy",
       "schedule": "17 7 * * *"
+    },
+    {
+      "path": "/api/cron/customer-messages",
+      "schedule": "*/15 * * * *"
     }
   ]
 }

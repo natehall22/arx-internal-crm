@@ -11,6 +11,7 @@ only that company. Leftover test orgs (0 active users) are therefore never proce
 | Job | Trigger | Runs for | Notes |
 |---|---|---|---|
 | morning-update (+ checkups, scheduled reports, setter field update) | cron `30 9-13 * * 1-6` UTC | `loadCronOrgs` loop | 5:30am in each company's `orgs.timezone`; once-a-day claim keyed to that company's date (resend-today uses the same date). Recipients are the company's own active users. |
+| customer-messages | cron `*/15 * * * *` UTC | `loadCronOrgs` loop | Automatic customer emails (lib/customer-messages-db.ts). A company runs only with the `customerMessages` switch on and at least one message on; its own `orgs.timezone` day + quiet hours; one `customer_messages` row per message key (never twice); ≤ 100 sends per company per run, ≤ 4 per address per day. Kill switch env `CUSTOMER_MESSAGES_CRON=false`. |
 | promote-insurance-follow-ups | hourly | `loadCronOrgs` loop | One pass per company (the 8,000-row cap is per company, not shared); every query is by that company's ids / `org_id`. |
 | storm-opportunity-alerts | daily | deals of `loadCronOrgIds` companies | Writes carry the deal's own `org_id`; dedupe by unique alert row. Storm footprint is still ONE global box (env `WEATHER_FOOTPRINT_*`, Charlotte) — a company elsewhere gets no storm hits until footprints are per company. |
 | sync-setter-ramp | hourly | companies with active enrollments ∩ `loadCronOrgIds` | |

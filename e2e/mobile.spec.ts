@@ -282,6 +282,23 @@ const SCREENS: Screen[] = [
       { name: 'skip-reasons', run: async (p) => { await p.getByRole('button', { name: 'Skip', exact: true }).first().click(); await p.waitForSelector('text=Why skip?') } },
       { name: 'step-results', run: async (p) => { await p.getByRole('button', { name: 'Done', exact: true }).nth(1).click(); await p.waitForSelector('text=Needs a return trip') } },
     ] },
+  { name: 'crew-day-on-the-way', path: '/dev-harness/crew-day-on-the-way', ready: 'text=Gate code 4421. Dog in back yard.',
+    mock: async (p) => {
+      await p.route('**/api/crew/day/*/status', (route) => route.fulfill(json({ active: true })))
+      await p.route('**/api/crew/day/*/visits/*/on-the-way', (route) => route.fulfill(json({ ok: true, status: 'sent', message: 'Customer told you’re on the way' })))
+    },
+    states: [
+      { name: 'told', run: async (p) => { await p.getByRole('button', { name: 'On my way' }).first().click(); await p.waitForSelector('text=Customer told you’re on the way') } },
+    ] },
+  { name: 'customer-messages-settings', path: '/dev-harness/customer-messages-settings', ready: 'text=Visit reminder',
+    mock: async (p) => {
+      await p.route('**/api/admin/customer-messages', (route) => route.fulfill(json({ ok: true })))
+    },
+    states: [
+      { name: 'preview', run: async (p) => { await p.getByRole('button', { name: 'See the email' }).first().click(); await p.waitForSelector('[role=dialog] >> text=Subject:') } },
+      { name: 'timing-dirty', run: async (p) => { await p.getByPlaceholder('between 8 AM and 5 PM').fill('8 to 5'); await p.waitForSelector('text=Save changes') } },
+    ] },
+  { name: 'customer-messages-card', path: '/dev-harness/customer-messages-card', ready: 'text=Automatic emails' },
   { name: 'crew-day-clock', path: '/dev-harness/crew-day-clock', ready: 'text=Crew time',
     mock: async (p) => {
       await p.route('**/api/crew/day/*/status', (route) => route.fulfill(json({ active: true })))
