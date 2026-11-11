@@ -25,9 +25,15 @@
  * the sale amount but not the commission base — the flag existed before this change and
  * is kept. As of 2026-10-21 every CO in prod is commissionable, so base = sale amount on
  * every job.
+ *
+ * Time & materials jobs (`billing_mode = 'time_materials'`, lib/hourly-billing.ts; coordinator decision 2026-11-12): the
+ * commission base is what was INVOICED minus its sales tax (non-void job invoices' total − tax_cents) — the hours billed,
+ * not the estimate. The sale amount stays the signed quote (the estimate). Re-synced after hours are approved and after a
+ * job invoice changes (`syncTimeAndMaterialsCommissionBase`). Fixed-price jobs: unchanged.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { roundMoney } from '@/lib/money'
+import { loadJobInvoiceFacts, type JobInvoiceFacts } from '@/lib/job-invoice-tax'
 
 /** Sale agreements: the contracts a customer pays on. A contingency carries no price. */
 export const SALE_AGREEMENT_TYPES = ['installation', 'repair'] as const
@@ -135,10 +141,23 @@ export function computeJobSaleTotals(input: {
   }
 }
 
+/** Pure: a time & materials job's commission base (dollars) = invoiced − invoice tax, never below 0. */
+export function timeAndMaterialsCommissionBase(facts: Pick<JobInvoiceFacts, 'invoicedPreTaxCents'> | null | undefined): number {
+  return Math.max(0, roundMoney((facts?.invoicedPreTaxCents ?? 0) / 100))
+}
+
+/** Is this job billed by the hour? Before migration 202611120030 (no column) no job is. */
+export async function isTimeAndMaterialsJob(admin: SupabaseClient, orgId: string, jobId: string): Promise<boolean> {
+  const { data, error } = await admin.from('production_jobs').select('billing_mode').eq('id', jobId).eq('org_id', orgId).maybeSingle()
+  if (error) return false
+  return (data as { billing_mode?: string | null } | null)?.billing_mode === 'time_materials'
+}
+
 export type SyncJobSaleResult =
   | { status: 'updated' | 'unchanged'; totals: Extract<JobSaleTotals, { ok: true }> }
   | { status: 'skipped'; totals: Extract<JobSaleTotals, { ok: false }> }
   | { status: 'error'; error: unknown }
+  | { status: 'time_materials'; changed: boolean; commissionBase: number }
 
 /**
  * Loads the job's signed sale contracts and signed change orders, computes the totals,
@@ -162,6 +181,20 @@ export async function syncJobSaleAndCommissionBase(
       .eq('org_id', orgId)
       .maybeSingle()
     if (jobError || !job) return { status: 'error', error: jobError || new Error('Job not found') }
+
+    // Billed by the hour: the base is what was invoiced (pre-tax). The sale amount (the estimate) is left as signed.
+    if (await isTimeAndMaterialsJob(admin, orgId, jobId)) {
+      const commissionBase = timeAndMaterialsCommissionBase((await loadJobInvoiceFacts(admin, [jobId])).get(jobId))
+      const same = job.commission_comp_base != null && roundMoney(Number(job.commission_comp_base)) === commissionBase && job.commission_pre_tax_subtotal == null
+      if (same) return { status: 'time_materials', changed: false, commissionBase }
+      const { error } = await admin
+        .from('production_jobs')
+        .update({ commission_comp_base: commissionBase, commission_pre_tax_subtotal: null })
+        .eq('id', jobId)
+        .eq('org_id', orgId)
+      if (error) return { status: 'error', error }
+      return { status: 'time_materials', changed: true, commissionBase }
+    }
 
     let opportunityId: string | null = null
     if (job.project_id) {
@@ -286,4 +319,22 @@ export async function syncJobSaleForProjectOrJob(
   }
   if (!jobId) return null
   return syncJobSaleAndCommissionBase(admin, { orgId: args.orgId, jobId })
+}
+
+/**
+ * After a job's invoices change (hours approved, an invoice edited / voided / copied / made) or its billing mode changes:
+ * re-sync the base — but only for a job billed by the hour (a fixed-price job's base comes from its contract and is left
+ * exactly as it is). Never throws.
+ */
+export async function syncTimeAndMaterialsCommissionBase(admin: SupabaseClient, orgId: string, jobId: string | null | undefined): Promise<SyncJobSaleResult | null> {
+  if (!jobId) return null
+  try {
+    if (!(await isTimeAndMaterialsJob(admin, orgId, jobId))) return null
+    const r = await syncJobSaleAndCommissionBase(admin, { orgId, jobId })
+    if (r.status === 'error') console.error('[job-commission-base] time & materials sync failed', { orgId, jobId, error: r.error })
+    return r
+  } catch (error) {
+    console.error('[job-commission-base] time & materials sync failed', { orgId, jobId, error })
+    return null
+  }
 }

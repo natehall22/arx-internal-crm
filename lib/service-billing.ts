@@ -20,7 +20,7 @@ import { formatInTimeZone } from 'date-fns-tz'
 
 import { addDaysYmd, planPriceOn, SERVICE_STEP, type BillingBasis } from '@/lib/service-plans'
 import { computeDocumentSalesTax, type SalesTaxSettings } from '@/lib/sales-tax'
-import { invoiceItemDateLabel } from '@/lib/invoice-lines'
+import { invoiceItemDateLabel, lineTotalCents } from '@/lib/invoice-lines'
 
 export type BillingGrouping = 'visit' | 'month'
 export const BILLING_GROUPINGS: readonly BillingGrouping[] = ['month', 'visit']
@@ -274,7 +274,7 @@ export function groupDraftInvoices(
       month: list[0].month,
       units: list,
       lines,
-      subtotalCents: lines.reduce((s, l) => s + Math.round(l.qty * l.unit_price_cents), 0),
+      subtotalCents: lines.reduce((s, l) => s + lineTotalCents(l.qty, l.unit_price_cents), 0),
     })
   }
   return out
@@ -284,7 +284,7 @@ export function groupDraftInvoices(
 export function draftInvoiceTotals(d: Pick<DraftInvoice, 'lines'>, settings: SalesTaxSettings | null, customerExempt: boolean): { subtotalCents: number; taxCents: number; totalCents: number } {
   const tax = computeDocumentSalesTax({
     settings,
-    lines: d.lines.map((l) => ({ amountCents: Math.round(l.qty * l.unit_price_cents), taxable: l.taxable })),
+    lines: d.lines.map((l) => ({ amountCents: lineTotalCents(l.qty, l.unit_price_cents), taxable: l.taxable })),
     customerExempt,
   })
   return { subtotalCents: tax.subtotalCents, taxCents: tax.taxCents, totalCents: tax.totalCents }

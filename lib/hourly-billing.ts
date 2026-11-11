@@ -18,7 +18,7 @@
  */
 import { mergeIntervals, subtractIntervals, totalSeconds, localYmd, localTimeToInstant, formatDuration, type Interval, type TimeEntry } from '@/lib/time-tracking'
 import { addDaysYmd } from '@/lib/service-plans'
-import { MAX_LINE_HOURS, hasAtMost2Decimals, isYmd } from '@/lib/invoice-lines'
+import { MAX_LINE_HOURS, hasAtMost2Decimals, isYmd, lineTotalCents } from '@/lib/invoice-lines'
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Company rules (orgs.settings.hourlyBilling — owners, mergeOrgSettings path ['hourlyBilling'])
@@ -168,8 +168,8 @@ export const visitTarget = (id: string): TargetKey => `visit:${id}`
 export type DayClock = {
   /** userId → net work seconds here (breaks out) and the intervals behind them. */
   people: Map<string, { workSeconds: number; travelSeconds: number; work: Interval[]; travel: Interval[] }>
-  /** pricebook item id → machine on/off seconds, and who switched it on each time. */
-  machines: Map<string, { machineSeconds: number; operators: Set<string> }>
+  /** pricebook item id → machine on/off time (merged: two taps of one machine never count twice) and who switched it on. */
+  machines: Map<string, { machineSeconds: number; intervals: Interval[]; operators: Set<string> }>
   /** A clock (person or machine) is still running here today: the day isn't finished. */
   open: boolean
   /** Some time here was stopped automatically (forgot to clock out) or flagged — worth a look before billing. */
@@ -224,8 +224,8 @@ export function clockedDays(
       }
       for (const { day, piece } of splitByLocalDay({ start: startMs, end: ms(e.endedAt) }, opts.timeZone)) {
         const d = dayOf(t, day)
-        const m = d.machines.get(e.pricebookItemId) ?? { machineSeconds: 0, operators: new Set<string>() }
-        m.machineSeconds += totalSeconds([piece])
+        const m = d.machines.get(e.pricebookItemId) ?? { machineSeconds: 0, intervals: [], operators: new Set<string>() }
+        m.intervals.push(piece)
         if (e.tappedBy) m.operators.add(e.tappedBy)
         d.machines.set(e.pricebookItemId, m)
         if (e.needsReview || e.endSource === 'auto_closed') d.needsReview = true
@@ -277,8 +277,38 @@ export function clockedDays(
     }
   }
 
+  // A visit is billed once (one invoice line set): a visit that ran past midnight keeps ALL its time on its first day, so
+  // no hours are stranded on a second day that could never be approved.
+  for (const [key, days] of Array.from(out.entries())) {
+    if (!key.startsWith('visit:') || days.size < 2) continue
+    const dates = Array.from(days.keys()).sort()
+    const first = days.get(dates[0])!
+    for (const date of dates.slice(1)) {
+      const d = days.get(date)!
+      for (const [u, p] of Array.from(d.people.entries())) {
+        const q = first.people.get(u) ?? { workSeconds: 0, travelSeconds: 0, work: [], travel: [] }
+        q.work.push(...p.work)
+        q.travel.push(...p.travel)
+        first.people.set(u, q)
+      }
+      for (const [item, m] of Array.from(d.machines.entries())) {
+        const q = first.machines.get(item) ?? { machineSeconds: 0, intervals: [], operators: new Set<string>() }
+        q.intervals.push(...m.intervals)
+        for (const o of Array.from(m.operators)) q.operators.add(o)
+        first.machines.set(item, q)
+      }
+      first.open = first.open || d.open
+      first.needsReview = first.needsReview || d.needsReview
+      days.delete(date)
+    }
+  }
+
   for (const days of Array.from(out.values())) {
     for (const d of Array.from(days.values())) {
+      for (const m of Array.from(d.machines.values())) {
+        m.intervals = mergeIntervals(m.intervals)
+        m.machineSeconds = totalSeconds(m.intervals)
+      }
       for (const p of Array.from(d.people.values())) {
         p.work = mergeIntervals(p.work)
         p.travel = subtractIntervals(mergeIntervals(p.travel), p.work)
@@ -332,7 +362,7 @@ export type BillContext = {
   trip: Rate | null
 }
 
-export const lineAmountCents = (l: Pick<BillLine, 'hours' | 'rateCents'>): number => Math.round(l.hours * (l.rateCents ?? 0))
+export const lineAmountCents = (l: Pick<BillLine, 'hours' | 'rateCents'>): number => lineTotalCents(l.hours, l.rateCents ?? 0)
 
 function applyMinimum(hours: number, min: number, reasons: string[]): number {
   if (hours > 0 && min > 0 && hours < min) {
@@ -403,7 +433,8 @@ export function billableLines(d: DayClock, ctx: BillContext): BillLine[] {
     const reasons: string[] = []
     let seconds = m.machineSeconds
     if (s.equipmentFromOperator) {
-      const opSeconds = Array.from(m.operators).reduce((n, u) => n + (d.people.get(u)?.workSeconds ?? 0), 0)
+      // Union of the operators' time at this stop: two people taking turns on one tractor bill the tractor once.
+      const opSeconds = totalSeconds(mergeIntervals(Array.from(m.operators).flatMap((u) => d.people.get(u)?.work ?? [])))
       if (opSeconds > 0) {
         seconds = opSeconds
         reasons.push(`Operator's time ${formatDuration(opSeconds)} (machine ran ${formatDuration(m.machineSeconds)})`)

@@ -16,6 +16,7 @@ import {
   type NotBillable,
 } from '@/lib/service-billing'
 import type { SalesTaxSettings } from '@/lib/sales-tax'
+import { lineTotalCents } from '@/lib/invoice-lines'
 
 type Customer = { name: string; email: string | null; exempt: boolean }
 type Load = {
@@ -279,7 +280,7 @@ export default function ReadyToBill() {
                               {l.description}
                               {l.service_date ? ` — ${visitDateLabel(l.service_date)}` : ''}
                             </span>
-                            <span className="tabular-nums">{formatCurrency(Math.round(l.qty * l.unit_price_cents))}</span>
+                            <span className="tabular-nums">{formatCurrency(lineTotalCents(l.qty, l.unit_price_cents))}</span>
                           </li>
                         ))}
                         {t && t.taxCents > 0 ? (

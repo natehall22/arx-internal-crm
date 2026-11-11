@@ -223,6 +223,14 @@ describe('machines', () => {
     expect(op.rateCents).toBe(9500)
     expect(op.taxable).toBe(true)
   })
+  it('two operators taking turns on one tractor bill it once (union of their time, not the sum)', () => {
+    const entries = [work('ana', '08:00', '12:00'), work('bo', '10:00', '14:00'), machine(TRACTOR, 'ana', '08:00', '11:00'), machine(TRACTOR, 'bo', '11:00', '14:00')]
+    expect(kind(lines(entries), 'equipment')[0].hours).toBe(6) // 08:00–14:00, not 4 + 4
+    expect(kind(lines(entries, { equipmentFromOperator: false }), 'equipment')[0].hours).toBe(6)
+  })
+  it('one machine tapped twice over the same stretch counts once', () => {
+    expect(kind(lines([machine(TRACTOR, null, '09:00', '11:00'), machine(TRACTOR, null, '10:00', '12:00')], { equipmentFromOperator: false }), 'equipment')[0].hours).toBe(3)
+  })
   it('no operator time at that stop → the machine’s own time', () => {
     expect(kind(lines([machine(TRACTOR, 'zed', '09:00', '10:30')]), 'equipment')[0].hours).toBe(1.5)
   })
@@ -246,6 +254,12 @@ describe('days', () => {
     const split = days([overnight])
     expect(split.get(jobTarget(JOB))!.get(D)!.people.get('ana')!.workSeconds).toBe(2 * 3600)
     expect(split.get(jobTarget(JOB))!.get('2026-06-11')!.people.get('ana')!.workSeconds).toBe(2 * 3600)
+  })
+  it('a visit past midnight keeps all its time on its first day (billed once, nothing stranded)', () => {
+    const late = e({ kind: 'work', userId: 'ana', workOrderId: VISIT, startedAt: at('22:00'), endedAt: at('01:30', '2026-06-11') })
+    const m = days([late]).get(visitTarget(VISIT))!
+    expect(Array.from(m.keys())).toEqual([D])
+    expect(m.get(D)!.people.get('ana')!.workSeconds).toBe(3.5 * 3600)
   })
   it('clock change (fall back, Nov 1): a 00:00–04:00 shift is 5 real hours on one day', () => {
     const x = e({ kind: 'work', userId: 'ana', jobId: JOB, startedAt: at('00:00', '2026-11-01'), endedAt: at('04:00', '2026-11-01') })

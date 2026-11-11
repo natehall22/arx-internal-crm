@@ -14,7 +14,7 @@ import { formatCurrency } from './job-payments'
 import { isMissingColumn } from '@/lib/supabase/errors'
 import { computeCustomerSalesTax } from './sales-tax-server'
 import { normalizeDepositFraction } from './job-pipeline'
-import { invoiceItemLineFields, CUSTOMER_PAYMENT_METHODS, type CustomerPaymentMethod } from './invoice-lines'
+import { invoiceItemLineFields, lineTotalCents, CUSTOMER_PAYMENT_METHODS, type CustomerPaymentMethod } from './invoice-lines'
 export { CUSTOMER_PAYMENT_METHODS, CUSTOMER_PAYMENT_METHOD_LABELS, type CustomerPaymentMethod } from './invoice-lines'
 
 /**
@@ -262,7 +262,8 @@ export async function createCustomAmountInvoice(
   jobId: string,
   createdBy: string,
   amountCents: number,
-  lineDescription?: string | null
+  lineDescription?: string | null,
+  opts: { noContractCap?: boolean } = {}
 ): Promise<JobInvoice> {
   if (!Number.isFinite(amountCents) || amountCents <= 0) {
     throw new Error('Amount must be greater than zero')
@@ -278,7 +279,7 @@ export async function createCustomAmountInvoice(
   const saleAmountCents = Math.round((job?.sale_amount || 0) * 100)
   const isInsuranceJob = job?.job_source === 'insurance'
 
-  if (saleAmountCents > 0) {
+  if (saleAmountCents > 0 && !opts.noContractCap) {
     const maxAllowed = isInsuranceJob
       ? saleAmountCents
       : saleAmountCents - (await getTotalInvoicedCentsForJob(supabase, jobId))
@@ -525,7 +526,7 @@ export async function addInvoiceItem(
   }
 
   const qty = item.qty ?? 1
-  const lineTotalCents = Math.round(qty * item.unit_price_cents)
+  const lineCents = lineTotalCents(qty, item.unit_price_cents)
 
   // Get current max sort_order
   const { data: maxOrder } = await supabase
@@ -545,7 +546,7 @@ export async function addInvoiceItem(
       description: item.description,
       qty,
       unit_price_cents: item.unit_price_cents,
-      line_total_cents: lineTotalCents,
+      line_total_cents: lineCents,
       sort_order: sortOrder,
       // Sales tax: only sent when the line is taxable, so an untaxed line still saves before migration 202611110040.
       ...(item.taxable === true ? { taxable: true } : {}),
@@ -595,7 +596,7 @@ export async function updateInvoiceItem(
   if ('error' in lineFields) throw new Error(lineFields.error)
   const qty = updates.qty ?? currentItem.qty
   const unitPriceCents = updates.unit_price_cents ?? currentItem.unit_price_cents
-  const lineTotalCents = Math.round(qty * unitPriceCents)
+  const lineCents = lineTotalCents(qty, unitPriceCents)
 
   const { data: updated, error } = await supabase
     .from('job_invoice_items')
@@ -603,7 +604,7 @@ export async function updateInvoiceItem(
       description: updates.description ?? currentItem.description,
       qty,
       unit_price_cents: unitPriceCents,
-      line_total_cents: lineTotalCents,
+      line_total_cents: lineCents,
       sort_order: updates.sort_order ?? currentItem.sort_order,
       ...(typeof updates.taxable === 'boolean' ? { taxable: updates.taxable } : {}),
       ...(updates.unit !== undefined ? { unit: updates.unit ?? null } : {}),
@@ -1170,7 +1171,7 @@ export async function createServiceInvoiceFromLines(
     supabase,
     orgId,
     p.customerId,
-    p.lines.map((l) => ({ amountCents: Math.round(l.qty * l.unit_price_cents), taxable: l.taxable === true }))
+    p.lines.map((l) => ({ amountCents: lineTotalCents(l.qty, l.unit_price_cents), taxable: l.taxable === true }))
   )
   const { data, error } = await supabase.rpc('create_service_invoice', {
     p_org: orgId,

@@ -34,6 +34,8 @@ import {
   type TargetKey,
 } from '@/lib/hourly-billing'
 import { sendCustomerInvoice } from '@/lib/invoice-email'
+import { syncJobSaleAndCommissionBase, syncTimeAndMaterialsCommissionBase } from '@/lib/job-commission-base'
+import { lineTotalCents } from '@/lib/invoice-lines'
 import { computeCustomerSalesTax, loadOrgSalesTax } from '@/lib/sales-tax-server'
 import type { SalesTaxSettings } from '@/lib/sales-tax'
 import { chunks, loadAddresses, loadBilled, loadCustomers, type BillingCustomer } from '@/lib/service-billing-db'
@@ -546,7 +548,7 @@ export async function approveHours(admin: SupabaseClient, orgId: string, userId:
     admin,
     orgId,
     target.customerId,
-    invoiceLines.map((x) => ({ amountCents: Math.round(x.qty * x.unit_price_cents), taxable: x.taxable }))
+    invoiceLines.map((x) => ({ amountCents: lineTotalCents(x.qty, x.unit_price_cents), taxable: x.taxable }))
   )
   const { data, error } = await admin.rpc('approve_billed_time', {
     p_org: orgId,
@@ -572,6 +574,8 @@ export async function approveHours(admin: SupabaseClient, orgId: string, userId:
   }
   const r = (data ?? {}) as { invoice_id?: string | null; invoice_number?: string | null }
   if (!r.invoice_id) return { ok: false, status: 409, error: 'Those hours are already billed' }
+  // A job's commission base = what it was invoiced, pre-tax (lib/job-commission-base.ts, the one writer).
+  if (target.kind === 'job') await syncTimeAndMaterialsCommissionBase(admin, orgId, target.id)
 
   const { data: inv } = await orgDb(admin, orgId).from('job_invoices').select('*').eq('id', r.invoice_id).maybeSingle()
   let invoice = inv as JobInvoice | null
@@ -698,8 +702,32 @@ export function parseJobHourlyPatch(body: unknown): { patch: JobHourlyPatch } | 
   return { patch: { mode: b.mode, estimatedHours: est, rateItemId: rate as string | null } }
 }
 
-/** Save a job's billing setup. The rate must be this company's price-book item priced per hour. */
+/** Invoice numbers of a job's approved hours that are on a live (not void) invoice. */
+export async function liveBilledHoursInvoices(admin: SupabaseClient, orgId: string, jobId: string): Promise<string[]> {
+  const { data, error } = await orgDb(admin, orgId).from('billed_time_days').select('invoice_id').eq('production_job_id', jobId).eq('status', 'approved').limit(1000)
+  if (error) return []
+  const ids = Array.from(new Set(((data ?? []) as Array<{ invoice_id: string | null }>).map((r) => r.invoice_id).filter((x): x is string => !!x)))
+  if (!ids.length) return []
+  const { data: inv } = await orgDb(admin, orgId).from('job_invoices').select('invoice_number, status').in('id', ids)
+  return ((inv ?? []) as Array<{ invoice_number: string; status: string }>).filter((i) => i.status !== 'void').map((i) => i.invoice_number)
+}
+
+/** Is this invoice carrying hours approved on Hours to bill (any approval, current or un-approved)? */
+export async function invoiceHasBilledHours(admin: SupabaseClient, orgId: string, invoiceId: string): Promise<boolean> {
+  const { data, error } = await orgDb(admin, orgId).from('billed_time_days').select('id').eq('invoice_id', invoiceId).limit(1)
+  if (error) return false // migration 202611120030 not applied: nothing was billed by the hour
+  return (data ?? []).length > 0
+}
+
+/**
+ * Save a job's billing setup. The rate must be this company's price-book item priced per hour. Back to "as sold" is refused
+ * while billed hours sit on a live invoice (void those first). The commission base follows (lib/job-commission-base.ts).
+ */
 export async function saveJobHourlySetup(admin: SupabaseClient, orgId: string, jobId: string, patch: JobHourlyPatch): Promise<{ ok: true } | Fail> {
+  if (patch.mode === 'fixed') {
+    const live = await liveBilledHoursInvoices(admin, orgId, jobId)
+    if (live.length) return { ok: false, status: 409, error: `Hours are billed on ${live.join(', ')} — void ${live.length === 1 ? 'it' : 'them'} first, then switch back to as sold` }
+  }
   if (patch.rateItemId) {
     const items = await loadPriceItems(admin, orgId)
     const item = items.get(patch.rateItemId)
@@ -716,5 +744,8 @@ export async function saveJobHourlySetup(admin: SupabaseClient, orgId: string, j
     throw new Error(`hourly billing: save job: ${error.message}`)
   }
   if (!data) return { ok: false, status: 404, error: 'Not found' }
+  // By the hour: base = invoiced pre-tax; as sold: back to the signed contract (both through the one writer).
+  if (patch.mode === 'time_materials') await syncTimeAndMaterialsCommissionBase(admin, orgId, jobId)
+  else await syncJobSaleAndCommissionBase(admin, { orgId, jobId })
   return { ok: true }
 }

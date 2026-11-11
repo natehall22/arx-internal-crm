@@ -3,12 +3,14 @@
  *   - the company has `hourlyBilling` on (lib/org-features.ts, default OFF), else nobody (404);
  *   - Hours to bill (see, approve, un-approve): people who record money (`callerCanAccessJobBilling`, money:record —
  *     the same people who invoice jobs and run Ready to bill);
- *   - a job's billing setup (job page card): change = `jobs:edit`; see = `jobs:edit` or money:record (rates are prices);
+ *   - a job's billing setup (job page card) shows hourly rates (prices): see = money:record, or `jobs:edit` WITH
+ *     `reports:financials`; change = `jobs:edit` with money:record or `reports:financials`;
  *   - the company's rules (Settings): owners (`isSuperAdmin`).
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { callerCanAccessJobBilling } from '@/lib/finance-access'
+import { canSeeFinancials } from '@/lib/financials-access'
 import { resolveOpsAccess } from '@/lib/ops-access'
 import { isOrgFeatureOn } from '@/lib/org-features-server'
 
@@ -17,17 +19,18 @@ type Profile = { id: string; org_id: string; role: string; custom_role_id?: stri
 export type HourlyAccess = { feature: boolean; bill: boolean; editJob: boolean; viewJob: boolean; owner: boolean }
 
 /** Pure part (tested). */
-export function hourlyAccessFor(feature: boolean, f: { bill: boolean; canEditJobs: boolean; owner: boolean }): HourlyAccess {
+export function hourlyAccessFor(feature: boolean, f: { bill: boolean; canEditJobs: boolean; financials: boolean; owner: boolean }): HourlyAccess {
   if (!feature) return { feature, bill: false, editJob: false, viewJob: false, owner: false }
-  return { feature, bill: f.bill, editJob: f.canEditJobs, viewJob: f.canEditJobs || f.bill, owner: f.owner }
+  const money = f.bill || f.financials
+  return { feature, bill: f.bill, editJob: f.canEditJobs && money, viewJob: f.bill || (f.canEditJobs && f.financials), owner: f.owner }
 }
 
 export async function resolveHourlyAccess(admin: SupabaseClient, profile: Profile): Promise<HourlyAccess> {
   const feature = await isOrgFeatureOn(profile.org_id, 'hourlyBilling')
-  if (!feature) return hourlyAccessFor(false, { bill: false, canEditJobs: false, owner: false })
+  if (!feature) return hourlyAccessFor(false, { bill: false, canEditJobs: false, financials: false, owner: false })
   const { isSuperAdmin } = await import('@/lib/super-admin')
-  const [bill, ops] = await Promise.all([callerCanAccessJobBilling(admin, profile), resolveOpsAccess(admin, profile.id, profile)])
-  return hourlyAccessFor(true, { bill, canEditJobs: ops.canEditJobs, owner: isSuperAdmin(profile as never) })
+  const [bill, ops, financials] = await Promise.all([callerCanAccessJobBilling(admin, profile), resolveOpsAccess(admin, profile.id, profile), canSeeFinancials(admin, profile)])
+  return hourlyAccessFor(true, { bill, canEditJobs: ops.canEditJobs, financials, owner: isSuperAdmin(profile as never) })
 }
 
 /** Route guard: signed in (401), hourly billing on (404), then `need` (403). */

@@ -19,6 +19,20 @@ export const CUSTOMER_PAYMENT_METHOD_LABELS: Record<CustomerPaymentMethod, strin
   other: 'Other',
 }
 
+/**
+ * THE line amount: qty × unit price in cents, the way Postgres computes it (`round(qty * unit_price_cents)` on numeric —
+ * exact, half away from zero; qty is numeric(10,2)). Integer math: qty is taken to the hundredth first, so 0.69 h × $45.50
+ * = 3140 (floating point gives 0.69 * 4550 = 3139.4999… → 3139). Every invoice writer, preview and SQL check agrees.
+ */
+export function lineTotalCents(qty: number | string | null | undefined, unitPriceCents: number | null | undefined): number {
+  const hundredths = Math.round(Number(qty ?? 1) * 100)
+  const cents = Math.round(Number(unitPriceCents) || 0)
+  if (!Number.isFinite(hundredths)) return 0
+  const exact = (hundredths * cents) / 100
+  // Half away from zero (Postgres numeric round), not JavaScript's half-up toward +∞.
+  return Math.sign(exact) * Math.round(Math.abs(exact))
+}
+
 /** Most hours one line may carry (a month of full days); qty is numeric(10,2). */
 export const MAX_LINE_HOURS = 744
 
