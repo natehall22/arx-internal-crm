@@ -276,7 +276,14 @@ const FIXTURES: Record<string, Variant[]> = {
     () => ({ body: { action: 'reopen' } }),
   ],
   'POST /api/crew/day/[token]/visits/[id]': [() => ({ body: { action: 'done' } }), () => ({ body: { action: 'skip', reason: 'rain' } })],
-  'POST /api/ops/visits/shift': [(id, ref) => ({ body: { from: TODAY_YMD, days: 1, subId: ref } }), () => ({ body: { from: TODAY_YMD, days: 1, subId: 'all' } })],
+  'POST /api/ops/visits/shift': [
+    (id, ref) => ({ body: { from: TODAY_YMD, days: 1, subId: ref } }),
+    () => ({ body: { from: TODAY_YMD, days: 1, subId: 'all' } }),
+    // The preview reads the same selection (customer names, crews): it must stay inside the company too.
+    (id, ref) => ({ body: { from: TODAY_YMD, days: 1, subId: ref, preview: true } }),
+    () => ({ body: { from: TODAY_YMD, days: 1, subId: 'all', preview: true } }),
+    () => ({ body: { from: TODAY_YMD, days: 1, subId: 'all', expectKey: 'x' } }),
+  ],
   // Invoices (job and no-job): every PATCH action, record_payment included.
   'PATCH /api/invoices/[invoiceId]': [
     () => ({ body: { action: 'add_item', description: 'Bravo mowing', qty: 1, unit_price_cents: 4500, unit: 'hour', service_date: TODAY_YMD } }),

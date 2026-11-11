@@ -15,6 +15,11 @@ type Supplier = {
   default_delivery_notes: string | null
   default_for_trades: string[] | null
   connection_type: 'email' | 'api' | null
+  vendor_type?: 'supplier' | 'sub' | 'both'
+  phone?: string | null
+  contact_name?: string | null
+  trades?: string[] | null
+  sub_contractor_id?: string | null
   last_order?: { to: string; at: string | null; po: string } | null
   log?: LogEntry[]
 }
@@ -22,7 +27,10 @@ type Supplier = {
 const EMPTY: Supplier = {
   name: '', active: true, order_email: '', order_cc_emails: [], account_number: '', default_branch: '',
   default_delivery_notes: '', default_for_trades: [], connection_type: 'email',
+  vendor_type: 'supplier', phone: '', contact_name: '', trades: [],
 }
+type UnlinkedSub = { id: string; name: string; contact_name: string | null; phone: string | null; email: string | null; services: string[] }
+const TYPE_LABEL = { supplier: 'Supplier', sub: 'Subcontractor', both: 'Supplier + sub' } as const
 
 const EMAIL_RE = /^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]+$/
 const ctl = 'block w-full min-h-[44px] rounded-lg border border-[#8a877d] bg-white px-3 py-2 text-base text-[#2c2c2a]'
@@ -34,6 +42,9 @@ const when = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleDa
 export default function SuppliersClient() {
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [loaded, setLoaded] = useState(false)
+  const [unlinkedSubs, setUnlinkedSubs] = useState<UnlinkedSub[]>([])
+  const [filter, setFilter] = useState<'all' | 'supplier' | 'sub'>('all')
+  const [vendorTradesText, setVendorTradesText] = useState('')
   const [draft, setDraft] = useState<Supplier | null>(null)
   const [ccText, setCcText] = useState('')
   const [tradesText, setTradesText] = useState('')
@@ -49,6 +60,7 @@ export default function SuppliersClient() {
       return setLoaded(true)
     }
     setSuppliers(json.suppliers)
+    setUnlinkedSubs(json.unlinkedSubs ?? [])
     setLoaded(true)
   }, [])
   useEffect(() => { void load() }, [load])
@@ -57,6 +69,7 @@ export default function SuppliersClient() {
     setDraft({ ...s })
     setCcText((s.order_cc_emails ?? []).join(', '))
     setTradesText((s.default_for_trades ?? []).join(', '))
+    setVendorTradesText((s.trades ?? []).join(', '))
     setFormError(null)
   }
 
@@ -78,7 +91,7 @@ export default function SuppliersClient() {
     const res = await fetch('/api/admin/suppliers', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...draft, order_cc_emails: splitList(ccText), default_for_trades: splitList(tradesText) }),
+      body: JSON.stringify({ ...draft, order_cc_emails: splitList(ccText), default_for_trades: splitList(tradesText), trades: splitList(vendorTradesText) }),
     })
     const json = await res.json().catch(() => ({}))
     setSaving(false)
@@ -90,16 +103,21 @@ export default function SuppliersClient() {
 
   return (
     <main className="mx-auto max-w-3xl p-4 pb-24 text-[#2c2c2a]">
-      <h1 className="mb-1 mt-0 text-2xl font-bold">Suppliers</h1>
-      <p className="mb-4 text-sm">Where purchase orders are emailed. Only owners can change this; every change is logged.</p>
+      <h1 className="mb-1 mt-0 text-2xl font-bold">Vendors</h1>
+      <p className="mb-4 text-sm">Everyone you buy from or hire: suppliers and subcontractors. Purchase orders are emailed to them. Only owners can change this; every change is logged.</p>
+      <div className="mb-3 flex gap-2" role="tablist" aria-label="Show">
+        {(["all", "supplier", "sub"] as const).map((f) => (
+          <button key={f} type="button" role="tab" aria-selected={filter === f} onClick={() => setFilter(f)} className={`${btn} ${filter === f ? "!bg-[#2b0a3d] !text-white" : ""}`}>{f === "all" ? "All" : f === "supplier" ? "Suppliers" : "Subs"}</button>
+        ))}
+      </div>
       {message && <p role="status" className="mb-3 rounded-lg border border-[#d3d1c7] bg-white p-3 text-sm">{message}</p>}
       {!loaded && <p>Loading…</p>}
 
       <ul className="m-0 list-none space-y-3 p-0">
-        {suppliers.map((s) => (
+        {suppliers.filter((s) => filter === 'all' || (s.vendor_type ?? 'supplier') === filter || s.vendor_type === 'both').map((s) => (
           <li key={s.id} className="rounded-lg border border-[#d3d1c7] bg-white p-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <strong className="text-base">{s.name}</strong>
+              <strong className="text-base">{s.name} <span className="text-sm font-normal">· {TYPE_LABEL[s.vendor_type ?? 'supplier']}</span></strong>
               <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${s.active ? 'bg-green-100 text-green-900' : 'bg-gray-200 text-gray-900'}`}>
                 {s.active ? 'Active' : 'Inactive'}
               </span>
@@ -132,25 +150,56 @@ export default function SuppliersClient() {
         ))}
       </ul>
 
+      {unlinkedSubs.length > 0 && (
+        <section className="mt-4 rounded-lg border border-[#d3d1c7] bg-white p-4">
+          <h2 className="m-0 text-base font-bold">Add a subcontractor you already schedule</h2>
+          <ul className="m-0 mt-2 list-none space-y-2 p-0">
+            {unlinkedSubs.map((u) => (
+              <li key={u.id}>
+                <button type="button" className={`${btn} w-full justify-start`} onClick={() => openEditor({ ...EMPTY, name: u.name, vendor_type: 'sub', order_email: u.email ?? '', phone: u.phone ?? '', contact_name: u.contact_name ?? '', trades: u.services ?? [], sub_contractor_id: u.id })}>
+                  Add {u.name} to vendors
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       <div className="fixed inset-x-0 bottom-0 z-40 border-t border-[#d3d1c7] bg-white p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:static sm:mt-4 sm:border-0 sm:p-0">
         <button type="button" className="inline-flex min-h-[44px] w-full items-center justify-center rounded-lg bg-[#2b0a3d] px-4 py-2 text-sm font-semibold text-white sm:w-auto" onClick={() => openEditor({ ...EMPTY })}>
-          Add supplier
+          Add vendor
         </button>
       </div>
 
       {draft && (
-        <div className="fixed inset-0 z-[100] flex items-end bg-black/50 sm:items-center sm:justify-center sm:p-4" role="dialog" aria-modal="true" aria-label={draft.id ? 'Edit supplier' : 'Add supplier'}>
+        <div className="fixed inset-0 z-[100] flex items-end bg-black/50 sm:items-center sm:justify-center sm:p-4" role="dialog" aria-modal="true" aria-label={draft.id ? 'Edit vendor' : 'Add vendor'}>
           <div className="flex max-h-[92dvh] w-full flex-col rounded-t-2xl bg-white sm:max-w-lg sm:rounded-xl">
             <div className="flex-1 space-y-3 overflow-y-auto p-4">
-              <h2 className="m-0 text-lg font-bold">{draft.id ? 'Edit supplier' : 'Add supplier'}</h2>
+              <h2 className="m-0 text-lg font-bold">{draft.id ? 'Edit vendor' : 'Add vendor'}</h2>
               <label className="block text-sm font-medium">Name
                 <input className={ctl} value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} autoComplete="off" />
+              </label>
+              <label className="block text-sm font-medium">Type
+                <select className={ctl} value={draft.vendor_type ?? 'supplier'} onChange={(e) => setDraft({ ...draft, vendor_type: e.target.value as 'supplier' | 'sub' | 'both' })}>
+                  <option value="supplier">Supplier (materials)</option>
+                  <option value="sub">Subcontractor (labor)</option>
+                  <option value="both">Both</option>
+                </select>
               </label>
               <label className="block text-sm font-medium">Order email
                 <input className={ctl} type="email" inputMode="email" autoCapitalize="none" value={draft.order_email ?? ''} onChange={(e) => setDraft({ ...draft, order_email: e.target.value })} placeholder="orders@supplier.com" />
               </label>
               <label className="block text-sm font-medium">CC emails (comma separated)
                 <input className={ctl} inputMode="email" autoCapitalize="none" value={ccText} onChange={(e) => setCcText(e.target.value)} />
+              </label>
+              <label className="block text-sm font-medium">Contact name
+                <input className={ctl} value={draft.contact_name ?? ''} onChange={(e) => setDraft({ ...draft, contact_name: e.target.value })} />
+              </label>
+              <label className="block text-sm font-medium">Phone
+                <input className={ctl} type="tel" inputMode="tel" value={draft.phone ?? ''} onChange={(e) => setDraft({ ...draft, phone: e.target.value })} />
+              </label>
+              <label className="block text-sm font-medium">Trades they cover (e.g. landscaping, gutters)
+                <input className={ctl} value={vendorTradesText} onChange={(e) => setVendorTradesText(e.target.value)} />
               </label>
               <label className="block text-sm font-medium">Account number
                 <input className={ctl} value={draft.account_number ?? ''} onChange={(e) => setDraft({ ...draft, account_number: e.target.value })} />

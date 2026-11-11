@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import { REPORT_TEMPLATES } from '../lib/reporting/templates'
-import { JOB_SETUP_TRADES, HARNESS_TRADES_0037, HARNESS_PAYMENTS_0037, SUPPLIER_VIEW_0037, HARNESS_INCENTIVES, HARNESS_LEADERBOARD, HARNESS_INSIDE_SALES, HARNESS_INSTALL_SCHEDULE, HARNESS_PARTNERS, HARNESS_APPOINTMENTS, HARNESS_THREAD, HARNESS_PROPOSALS, HARNESS_LEADS, ANNOUNCEMENTS, BANNER, DEFAULT_PLANS, COST_LINES, SUPPLIERS, PAY_WEEK, MY_PAY, REPORT_RESULT, SALE_CREDIT, SUPPLIER_PREVIEW, SUPPLIER_VIEW, TEMPLATE_META, USERS, HARNESS_OWNER_CANDIDATES, HARNESS_CUSTOM_FIELDS, HARNESS_PROPERTIES, HARNESS_SERVICE_PLANS, HARNESS_VISITS, HARNESS_PLAN_TEMPLATES, HARNESS_TEMPLATE_DETAIL, HARNESS_READY_TO_BILL, HARNESS_HOURS_TO_BILL, HARNESS_JOB_HOURLY, HARNESS_HOURLY_SETTINGS, HARNESS_CUSTOMER_INVOICES, HARNESS_CLOCK_STATE, HARNESS_CLOCK_STATE_IN, HARNESS_JOB_CLOCK_SELF, HARNESS_TIME_WEEK, HARNESS_CREW_SETUP, JOB_SPLIT, PAY_WEEK_SCHEDULE, PAY_WEEK_SCHEDULE_PREVIEW, HARNESS_JOBBER_STATE, HARNESS_JOBBER_DONE, HARNESS_JOBBER_RUN } from './fixtures'
+import { JOB_SETUP_TRADES, HARNESS_TRADES_0037, HARNESS_PAYMENTS_0037, SUPPLIER_VIEW_0037, HARNESS_INCENTIVES, HARNESS_LEADERBOARD, HARNESS_INSIDE_SALES, HARNESS_INSTALL_SCHEDULE, HARNESS_PARTNERS, HARNESS_APPOINTMENTS, HARNESS_THREAD, HARNESS_PROPOSALS, HARNESS_LEADS, ANNOUNCEMENTS, BANNER, DEFAULT_PLANS, COST_LINES, SUPPLIERS, PAY_WEEK, MY_PAY, REPORT_RESULT, SALE_CREDIT, SUPPLIER_PREVIEW, SUPPLIER_VIEW, PO_LIST, PO_PREVIEW, PO_DRAFT_SAVED, TEMPLATE_META, USERS, HARNESS_OWNER_CANDIDATES, HARNESS_CUSTOM_FIELDS, HARNESS_PROPERTIES, HARNESS_SERVICE_PLANS, HARNESS_VISITS, HARNESS_PLAN_TEMPLATES, HARNESS_TEMPLATE_DETAIL, HARNESS_READY_TO_BILL, HARNESS_HOURS_TO_BILL, HARNESS_JOB_HOURLY, HARNESS_HOURLY_SETTINGS, HARNESS_CUSTOMER_INVOICES, HARNESS_CLOCK_STATE, HARNESS_CLOCK_STATE_IN, HARNESS_JOB_CLOCK_SELF, HARNESS_TIME_WEEK, HARNESS_CREW_SETUP, JOB_SPLIT, PAY_WEEK_SCHEDULE, PAY_WEEK_SCHEDULE_PREVIEW, HARNESS_JOBBER_STATE, HARNESS_JOBBER_DONE, HARNESS_JOBBER_RUN, HARNESS_BUDGET, HARNESS_SELECTIONS, HARNESS_SCHEDULE, HARNESS_SCHEDULE_EMPTY, HARNESS_DAILY_LOGS } from './fixtures'
 
 const json = (body: unknown, status = 200) => ({ status, contentType: 'application/json', body: JSON.stringify(body) })
 
@@ -16,6 +16,10 @@ async function mockApi(page: Page) {
     if (/\/api\/ops\/jobs\/[^/]+\/payments$/.test(p)) return route.fulfill(json({ payments: [{ id: 'pay1', job_id: 'job-1', paid_at: '2026-10-10', amount_cents: 1632500, payment_type: 'final', method: 'financing', payer: 'financing', note: null, created_at: '2026-10-10T12:00:00Z', created_by: 'u1', funding_status: 'cleared' }], collected_cents: 1632500, collected_dollars: 16325, sale_amount_cents: 1632500, sale_amount_dollars: 16325, remaining_cents: 0, remaining_dollars: 0, payment_count: 1, paid_in_full: true, paid_by_payments: true }))
     if (/\/api\/ops\/jobs\/[^/]+\/notes$/.test(p)) return route.fulfill(json({ notes: [{ id: 'n1', note: 'Customer asked for the crew to park on the street, not the driveway. @Stevo Potts please confirm the dumpster drop.', is_internal: true, created_at: '2026-10-11T14:00:00Z', user: { full_name: 'Nathan Hall' } }] }))
     if (/\/api\/ops\/jobs\/[^/]+\/trades$/.test(p)) return route.fulfill(json({ trades: [] }))
+    if (p === '/api/ops/purchase-orders/items') return route.fulfill(json({ items: [] }))
+    if (/\/api\/ops\/purchase-orders\/[^/]+\/preview$/.test(p)) return route.fulfill(json(PO_PREVIEW))
+    if (/\/api\/ops\/purchase-orders\/[^/]+\/(send|receive|acknowledge|bills)$/.test(p)) return route.fulfill(json({ ok: true }))
+    if (p === '/api/ops/purchase-orders') return route.fulfill(json(m === 'POST' ? PO_DRAFT_SAVED : PO_LIST))
     if (p.endsWith('/supplier-orders/preview')) return route.fulfill(json(SUPPLIER_PREVIEW))
     if (p.endsWith('/supplier-orders')) return route.fulfill(json(SUPPLIER_VIEW))
     if (p.endsWith('/cost-lines')) return route.fulfill(json(COST_LINES))
@@ -80,7 +84,7 @@ const SCREENS: Screen[] = [
   { name: 'job-documents-banner', path: '/dev-harness/job-documents', ready: 'text=Job documents' },
   { name: 'pay-banners', path: '/dev-harness/pay-banners', ready: 'text=Mark' },
   { name: 'suppliers-admin', path: '/dev-harness/suppliers-admin', ready: 'text=Suppliers',
-    states: [{ name: 'edit', run: async (p) => { await p.getByRole('button', { name: /Edit ABC Supply/ }).click(); await p.waitForSelector('text=Edit supplier') } }] },
+    states: [{ name: 'edit', run: async (p) => { await p.getByRole('button', { name: /Edit ABC Supply/ }).click(); await p.waitForSelector('text=Edit vendor') } }] },
   { name: 'announcement-banner', path: '/dev-harness/announcement-banner', ready: 'text=See what',
     states: [{ name: 'size', run: async (p) => {
       const box = await p.getByRole('region', { name: "What's new" }).boundingBox()
@@ -141,6 +145,20 @@ const SCREENS: Screen[] = [
       name: `tab-${tab.toLowerCase().replace(/[^a-z]+/g, '-')}`,
       run: async (p: Page) => { await p.getByRole('button', { name: tab, exact: true }).click(); await p.waitForTimeout(500) },
     })) },
+  { name: 'purchase-orders', path: '/dev-harness/purchase-orders', ready: 'text=Gravel Guys Hauling',
+    states: [
+      // The 4-tap path: + Purchase order, vendor, Review & send, Send.
+      { name: 'new-order', run: async (p) => { await p.getByRole('button', { name: '+ Purchase order' }).click(); await p.waitForSelector('text=New purchase order') } },
+      { name: 'review-before-sending', run: async (p) => {
+        await p.getByRole('button', { name: '+ Purchase order' }).click()
+        await p.getByRole('radio', { name: /Concord Lumber Supply/ }).click()
+        await p.getByPlaceholder('What are you ordering?').first().fill('2x6 lumber')
+        await p.getByRole('button', { name: 'Review & send' }).click()
+        await p.waitForSelector('text=Send to Concord Lumber Supply')
+      } },
+      { name: 'receive', run: async (p) => { await p.getByRole('button', { name: 'Mark received' }).click(); await p.waitForSelector('role=dialog[name="Mark received"]') } },
+      { name: 'vendor-bill', run: async (p) => { await p.getByRole('button', { name: 'Add vendor bill' }).click(); await p.waitForSelector('role=dialog[name="Add vendor bill"]') } },
+    ] },
   { name: 'supplier-orders', path: '/dev-harness/supplier-orders', ready: 'text=Supplier orders',
     states: [{ name: 'preview-open', run: async (p) => { await p.getByRole('button', { name: /Send order to ABC Supply/ }).click(); await p.waitForSelector('text=Send to ABC Supply') } }] },
   { name: 'reports-home', path: '/dev-harness/reports-home', ready: 'text=Performance at a glance' },
@@ -215,11 +233,13 @@ const SCREENS: Screen[] = [
     await p.route('**/api/ops/visits/*/photos', (route) => route.fulfill(json({ photos: [{ id: 'ph1', filename: 'front.jpg', created_at: '2026-11-10T15:00:00Z' }] })))
     await p.route(/\/api\/service-plans$/, (route) => route.fulfill(json({ ...HARNESS_SERVICE_PLANS, properties: [] })))
     await p.route('**/api/ops/subs/*/crew-day-link', (route) => route.fulfill(json({ path: '/crew/day/tok123' })))
+    await p.route('**/api/ops/visits/shift', (route) => route.fulfill(json({ preview: { selectionKey: 'k1', count: 9, landing: [{ day: '2026-11-18', count: 5 }, { day: '2026-11-19', count: 4 }], sample: [{ id: 'v1', from: '2026-11-17', to: '2026-11-18', what: 'Weekly mowing', customer: 'Pat Lee', crew: 'Green Crew' }], staying: { done: 2, skipped: 1 }, intoPast: 0 } })))
   },
     states: [
       { name: 'skip-sheet', run: async (p) => { await p.getByRole('button', { name: 'Skip' }).first().click(); await p.waitForSelector('[role=dialog] >> text=Why?') } },
       { name: 'step-result', run: async (p) => { await p.getByRole('button', { name: 'Done', exact: true }).nth(1).click(); await p.waitForSelector('[role=dialog] >> text=How did it go?') } },
       { name: 'bulk-move', run: async (p) => { await p.getByRole('button', { name: 'Rain day — move visits' }).click(); await p.waitForSelector('[role=dialog] >> text=Move them to'); await p.getByRole('button', { name: 'Pick a day' }).click(); await p.waitForSelector('[role=dialog] >> text=New day for the first one') } },
+      { name: 'bulk-move-preview', run: async (p) => { await p.getByRole('button', { name: 'Rain day — move visits' }).click(); await p.getByRole('button', { name: 'Preview' }).click(); await p.waitForSelector('[role=dialog] >> text=9 visits will move.'); await p.getByRole('button', { name: 'Move 9 visits' }).waitFor() } },
       { name: 'crew-links', run: async (p) => { await p.getByRole('button', { name: 'Crew phone links' }).click(); await p.getByRole('button', { name: 'Make link' }).first().click(); await p.getByRole('button', { name: 'Copy' }).waitFor() } },
       { name: 'more', run: async (p) => { await p.getByRole('button', { name: 'More', exact: true }).first().click(); await p.waitForSelector('text=Add photos (drop or tap)') } },
       { name: 'new-customer', run: async (p) => { await p.getByRole('button', { name: '+ New customer + plan' }).click(); await p.waitForSelector('[role=dialog] >> text=Customer name *') } },
@@ -362,6 +382,40 @@ const SCREENS: Screen[] = [
   { name: 'ui-kit', path: '/dev-harness/ui-kit', ready: 'text=Pay this week',
     states: [{ name: 'sheet-open', run: async (p) => { await p.getByRole('button', { name: 'Open sheet' }).click(); await p.waitForSelector('text=Save this view') } }] },
   { name: 'default-plans-card', path: '/dev-harness/default-plans', ready: 'text=Default pay plan by role' },
+  { name: 'project-budget-selections', path: '/dev-harness/project-tools-money', ready: 'text=Kitchen faucet',
+    mock: async (p) => {
+      await p.route('**/api/ops/jobs/*/budget', (route) => route.fulfill(json(HARNESS_BUDGET)))
+      await p.route('**/api/ops/jobs/*/selections', (route) => route.fulfill(json(HARNESS_SELECTIONS)))
+    },
+    states: [
+      { name: 'edit-budget', run: async (p) => { await p.getByRole('button', { name: 'Budget for Permit' }).click(); await p.waitForSelector('text=Save') } },
+      { name: 'add-cost', run: async (p) => { await p.getByRole('button', { name: '+ Add a cost' }).click(); await p.waitForSelector('text=Cost code') } },
+      { name: 'budget-history', run: async (p) => { await p.getByRole('button', { name: /budget changes/ }).click(); await p.waitForSelector('text=Added the retaining wall') } },
+      { name: 'add-selection', run: async (p) => { await p.getByRole('button', { name: '+ Add a selection' }).click(); await p.waitForSelector('text=Options (name and price)') } },
+      { name: 'choose-for-them', run: async (p) => { await p.getByRole('button', { name: 'Choose for them' }).first().click(); await p.waitForSelector('text=Matte black') } },
+    ] },
+  { name: 'project-schedule-daily-log', path: '/dev-harness/project-tools-crews', ready: 'text=Framing',
+    mock: async (p) => {
+      await p.route('**/api/ops/jobs/*/schedule', (route) => route.fulfill(json(HARNESS_SCHEDULE)))
+      await p.route('**/api/ops/jobs/*/daily-logs', (route) => route.fulfill(json(HARNESS_DAILY_LOGS)))
+    },
+    states: [
+      { name: 'stage-open', run: async (p) => { await p.getByRole('button', { name: /Foundation, Nov 23/ }).click(); await p.waitForSelector('text=Starts after') } },
+      { name: 'log-open', run: async (p) => { await p.getByRole('button', { name: 'Add today’s log' }).click(); await p.waitForSelector('text=or drop photos here') } },
+    ] },
+  { name: 'project-schedule-empty', path: '/dev-harness/project-tools-crews', ready: 'text=Build the schedule',
+    mock: async (p) => {
+      await p.route('**/api/ops/jobs/*/schedule', (route) => route.fulfill(json(HARNESS_SCHEDULE_EMPTY)))
+      await p.route('**/api/ops/jobs/*/daily-logs', (route) => route.fulfill(json({ ready: true, logs: [] })))
+    } },
+  { name: 'customer-selection', path: '/dev-harness/selection-customer', ready: 'text=Brushed nickel',
+    mock: async (p) => { await p.route('**/api/public/selections/*', (route) => route.fulfill(json({ ok: true, state: 'needs_signature', signingUrl: '/dev-harness/selection-customer?signed=1' }))) },
+    states: [
+      { name: 'over-allowance', run: async (p) => { await p.getByRole('radio', { name: /Matte black/ }).click(); await p.waitForSelector('text=difference is added to your contract') } },
+      { name: 'within-allowance', run: async (p) => { await p.getByRole('radio', { name: /Brushed nickel/ }).click(); await p.waitForSelector('text=under your allowance') } },
+    ] },
+  { name: 'crew-daily-log', path: '/dev-harness/crew-daily-log', ready: 'text=Daily log',
+    states: [{ name: 'log-open', run: async (p) => { await p.getByRole('button', { name: 'Add today’s log' }).click(); await p.waitForSelector('text=or drop photos here') } }] },
   { name: 'my-pay', path: '/dev-harness/my-pay', ready: 'text=My pay',
     states: [
       { name: 'line-open', run: async (p) => { await p.getByRole('button', { name: /26-0141/ }).click(); await p.waitForSelector("text=Something's wrong?") } },

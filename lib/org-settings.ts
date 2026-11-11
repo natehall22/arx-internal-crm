@@ -53,6 +53,8 @@ export async function mergeOrgSettings(
   if (path.length === 0 && ('payWeek' in set || remove.includes('payWeek'))) return { error: 'payWeek is saved through savePayWeekSchedule' }
   // Online payments has validated fields; it is only ever written at path ['onlinePayments'] (owners, lib/online-payments/accounts.ts).
   if (path.length === 0 && ('onlinePayments' in set || remove.includes('onlinePayments'))) return { error: 'onlinePayments is saved at path [onlinePayments]' }
+  // AI connector settings (extra allowed app addresses) are only ever written at path ['aiConnector'] (owners, /api/admin/ai-connector).
+  if (path.length === 0 && ('aiConnector' in set || remove.includes('aiConnector'))) return { error: 'aiConnector is saved at path [aiConnector]' }
   // Automatic customer messages are only ever written at path ['customerMessages'] (owners, /api/admin/customer-messages).
   if (path.length === 0 && ('customerMessages' in set || remove.includes('customerMessages'))) return { error: 'customerMessages is saved at path [customerMessages]' }
   if (Object.keys(set).length === 0 && remove.length === 0) return { error: null }

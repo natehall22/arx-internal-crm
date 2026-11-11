@@ -1,20 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { orgAppUrl } from '@/lib/company-links'
+import { createRemoteChangeOrder } from '@/lib/change-orders-remote'
 import { requireAuthApi } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { firstForeignRef } from '@/lib/supabase/org-db'
 import { generateChangeOrderPdf } from '@/lib/contracts/generateChangeOrderPdf'
 import { syncJobSaleForProjectOrJob } from '@/lib/job-commission-base'
-import nodemailer from 'nodemailer'
-import { getCrmEmailFrom } from '@/lib/crm-email-from'
-import { buildChangeOrderReadyEmail } from '@/lib/contracts/customer-emails'
 import { getDocumentBrand } from '@/lib/org-brand'
-import crypto from 'crypto'
+import { resolveSalesDocAccessBarred } from '@/lib/sales-doc-access'
 
 export async function POST(request: NextRequest) {
   try {
-    const { profile } = await requireAuthApi()
+    const { authUser, profile } = await requireAuthApi()
+    // Field roles (setter, canvasser, inside sales, call center) never touch contract money. The remote path writes with the
+    // service client, so the old field-role RLS deny (202610290020) no longer stops them: check here, before any grant.
+    if (await resolveSalesDocAccessBarred(createServiceClient(), authUser.id, profile)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
     const supabase = createClient()
     const body = await request.json()
 
@@ -64,18 +66,44 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Remote signature: lib/change-orders-remote.ts is the one maker (also used by approved selection overages).
+    if (isSendToCustomer) {
+      const remote = await createRemoteChangeOrder(createServiceClient(), {
+        orgId: profile.org_id,
+        createdBy: profile.id,
+        projectId,
+        jobId: jobId || null,
+        coNumber,
+        description,
+        originalAmount,
+        updatedTotal,
+        updatedRemaining,
+        customerPrintName,
+        customerName,
+        customerEmail: customerEmail || null,
+        projectAddress,
+        repName,
+        repSignature,
+        originalContractId: originalContractId || null,
+        originalContractDate: originalContractDate || null,
+        paymentMethod: paymentMethod || null,
+        isCommissionable: commissionable,
+        activityUserId: profile.id,
+      })
+      if (!remote.ok) return NextResponse.json({ error: remote.error }, { status: remote.status })
+      return NextResponse.json({ success: true, changeOrderId: remote.changeOrderId, pdfUrl: null, signingUrl: remote.signingUrl })
+    }
+
     const signedAt = new Date().toISOString()
     // Company identity for the PDF letterhead and the customer email.
     const documentBrand = await getDocumentBrand(createServiceClient(), profile.org_id)
     const today = new Date().toISOString().split('T')[0]
 
-    // Generate PDF for in-person mode only.
+    // In-person signing: the PDF is made now (a remote change order's PDF is made when the customer signs).
     let pdfUrl: string | null = null
     let pdfStoragePath: string | null = null
-    let signingToken: string | null = null
-    let tokenExpiresAt: string | null = null
 
-    if (!isSendToCustomer) {
+    {
       try {
       console.log('[Change Order] Starting PDF generation for:', coNumber)
       
@@ -120,13 +148,7 @@ export async function POST(request: NextRequest) {
       } catch (pdfError: any) {
         console.error('[Change Order] PDF generation failed:', pdfError?.message || pdfError)
       }
-    } else {
-      signingToken = crypto.randomBytes(32).toString('hex')
-      tokenExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
     }
-
-    // Checked before the row is written: a change order sent for signature needs a working signing link.
-    const appUrl = isSendToCustomer ? await orgAppUrl(profile.org_id) : null
 
     // Insert change order record
     const { data: changeOrder, error: insertError } = await supabase
@@ -141,16 +163,13 @@ export async function POST(request: NextRequest) {
         updated_remaining: updatedRemaining,
         description,
         customer_print_name: customerPrintName,
-        customer_signature_data: isSendToCustomer ? '' : customerSignature,
+        customer_signature_data: customerSignature,
         rep_name: repName,
         rep_signature_data: repSignature,
         signed_at: signedAt,
-        status: isSendToCustomer ? 'pending_customer' : 'completed',
-        signing_token: signingToken,
-        token_expires_at: tokenExpiresAt,
+        status: 'completed',
         customer_email: customerEmail || null,
-        sent_at: isSendToCustomer ? signedAt : null,
-        customer_signed_at: isSendToCustomer ? null : signedAt,
+        customer_signed_at: signedAt,
         pdf_url: pdfUrl,
         pdf_storage_path: pdfStoragePath,
         original_contract_id: originalContractId || null,
@@ -183,49 +202,12 @@ export async function POST(request: NextRequest) {
 
     console.log('[Change Order] Record created:', changeOrder.id)
 
-    let signingUrl: string | null = null
-    if (appUrl && signingToken) {
-      signingUrl = `${appUrl}/change-orders/sign/${signingToken}`
-    }
-    if (isSendToCustomer && signingUrl && customerEmail) {
-      try {
-        const transporter = nodemailer.createTransport({
-          host: process.env.SMTP_HOST,
-          port: Number(process.env.SMTP_PORT || 587),
-          secure: false,
-          auth: {
-            user: process.env.SMTP_USER,
-            pass: process.env.SMTP_PASS,
-          },
-        })
-
-        const email = buildChangeOrderReadyEmail({
-          brand: documentBrand,
-          coNumber,
-          customerName,
-          signingUrl,
-          projectAddress,
-          updatedTotal,
-          repName,
-        })
-        await transporter.sendMail({
-          from: getCrmEmailFrom(),
-          to: customerEmail,
-          subject: email.subject,
-          text: email.text,
-          html: email.html,
-        })
-      } catch (emailError) {
-        console.error('[Change Order] Failed to send signing email:', emailError)
-      }
-    }
-
     // Sync the job's sale amount + commission base now, only for COs that are signed immediately.
     // Remote (send_to_customer) COs aren't binding yet — that sync happens in /api/change-orders/sign
     // once the customer actually signs, so an unsigned CO can't move payroll numbers. Runs on the
     // service client: the recompute reads signed contracts + COs org-scoped, and a request-scoped
     // client could silently update zero rows under RLS.
-    if (!isSendToCustomer) {
+    {
       const result = await syncJobSaleForProjectOrJob(createServiceClient(), {
         orgId: profile.org_id,
         jobId: jobId || null,
@@ -249,18 +231,14 @@ export async function POST(request: NextRequest) {
       project_id: projectId,
       user_id: profile.id,
       type: 'status_change',
-      body: isSendToCustomer
-        ? customerEmail
-          ? `Change Order ${coNumber} created and emailed to the customer for signature. Updated total: $${updatedTotal.toLocaleString()}`
-          : `Change Order ${coNumber} created with a signing link for the customer (no email on file). Updated total: $${updatedTotal.toLocaleString()}`
-        : `Change Order ${coNumber} created. Updated total: $${updatedTotal.toLocaleString()}`,
+      body: `Change Order ${coNumber} created. Updated total: $${updatedTotal.toLocaleString()}`,
     })
 
     return NextResponse.json({
       success: true,
       changeOrderId: changeOrder.id,
       pdfUrl,
-      signingUrl,
+      signingUrl: null,
     })
   } catch (error) {
     console.error('[Change Order] Error:', error)
