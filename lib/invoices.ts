@@ -1200,10 +1200,12 @@ export type CustomerInvoicePayment = {
   method: CustomerPaymentMethod
   note?: string | null
   createdBy: string | null
+  /** A processor's payment id (online payments): a retry with the same key returns the first payment, writes nothing. */
+  idempotencyKey?: string | null
 }
 
 export type RecordPaymentResult =
-  | { ok: true; paymentId: string; status: InvoiceStatus; balanceCents: number }
+  | { ok: true; paymentId: string; status: InvoiceStatus; balanceCents: number; duplicate: boolean }
   | { ok: false; status: 400 | 404; error: string }
 
 /**
@@ -1231,14 +1233,80 @@ export async function recordCustomerInvoicePayment(
     p_method: p.method,
     p_note: note || null,
     p_created_by: p.createdBy,
+    // Only sent when set, so the call shape is unchanged for "Mark paid".
+    ...(p.idempotencyKey ? { p_idempotency_key: p.idempotencyKey } : {}),
   })
   if (error) {
     if (error.code === 'P0002') return { ok: false, status: 404, error: 'Invoice not found' }
     if (error.code === '22023') return { ok: false, status: 400, error: error.message }
     throw new Error(`Failed to record payment: ${error.message}`)
   }
-  const r = (data ?? {}) as { payment_id?: string; status?: InvoiceStatus; balance_cents?: number }
-  return { ok: true, paymentId: String(r.payment_id), status: (r.status ?? 'partially_paid') as InvoiceStatus, balanceCents: Number(r.balance_cents ?? 0) }
+  const r = (data ?? {}) as { payment_id?: string; status?: InvoiceStatus; balance_cents?: number; duplicate?: boolean }
+  return { ok: true, paymentId: String(r.payment_id), status: (r.status ?? 'partially_paid') as InvoiceStatus, balanceCents: Number(r.balance_cents ?? 0), duplicate: !!r.duplicate }
+}
+
+/**
+ * A refund on an invoice without a job (online payments: the processor refunded the customer). One SQL transaction
+ * (record_customer_invoice_refund, migration 202611120020): a NEGATIVE job_payments row + a negative application, so the
+ * invoice balance re-opens by the refund. Never more than the net paid; idempotent by the processor's refund id.
+ */
+export async function recordCustomerInvoiceRefund(
+  supabase: SupabaseClient,
+  orgId: string,
+  invoiceId: string,
+  p: { amountCents: number; paidAt: string; method: CustomerPaymentMethod; note: string | null; idempotencyKey: string }
+): Promise<{ ok: true; paymentId: string; duplicate: boolean } | { ok: false; status: 400 | 404; error: string }> {
+  const { data, error } = await supabase.rpc('record_customer_invoice_refund', {
+    p_org: orgId,
+    p_invoice: invoiceId,
+    p_amount_cents: p.amountCents,
+    p_paid_at: p.paidAt,
+    p_method: p.method,
+    p_note: p.note,
+    p_idempotency_key: p.idempotencyKey,
+  })
+  if (error) {
+    if (error.code === 'P0002') return { ok: false, status: 404, error: 'Invoice not found' }
+    if (error.code === '22023') return { ok: false, status: 400, error: error.message }
+    throw new Error(`Failed to record refund: ${error.message}`)
+  }
+  const r = (data ?? {}) as { payment_id?: string; duplicate?: boolean }
+  return { ok: true, paymentId: String(r.payment_id), duplicate: !!r.duplicate }
+}
+
+/**
+ * Take a refunded job payment back off the job invoice it paid: a negative application for the refund's own
+ * (negative) job payment row, then the invoice status is re-read (paid → partly paid → sent). Idempotent: a refund
+ * payment already applied to this invoice is not applied twice. Never more than the net paid on the invoice.
+ * Returns the cents taken back (0 when nothing was applied).
+ */
+export async function applyRefundToInvoice(
+  supabase: SupabaseClient,
+  invoiceId: string,
+  refundPaymentId: string,
+  refundCents: number,
+  createdBy: string | null = null
+): Promise<number> {
+  if (!(refundCents > 0)) return 0
+  const { data: existing } = await supabase
+    .from('invoice_payments')
+    .select('id')
+    .eq('invoice_id', invoiceId)
+    .eq('job_payment_id', refundPaymentId)
+    .maybeSingle()
+  if (existing) return 0
+  const balance = await computeInvoiceBalance(supabase, invoiceId)
+  const take = Math.min(refundCents, Math.max(0, balance.applied_cents))
+  if (take <= 0) return 0
+  const { error } = await supabase
+    .from('invoice_payments')
+    .insert({ invoice_id: invoiceId, job_payment_id: refundPaymentId, applied_cents: -take, created_by: createdBy })
+  if (error) {
+    if (error.code === '23505') return 0
+    throw new Error(`Failed to apply refund: ${error.message}`)
+  }
+  await updateInvoicePaymentStatus(supabase, invoiceId)
+  return take
 }
 
 /**
