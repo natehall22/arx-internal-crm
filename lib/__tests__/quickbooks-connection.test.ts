@@ -70,7 +70,8 @@ describe('secret seal', () => {
     expect(sealed).not.toContain('refresh-abc')
     expect(openWithKey(k, sealed)).toBe('refresh-abc')
     expect(openWithKey(integrationSecretKey('b')!, sealed)).toBeNull()
-    expect(openWithKey(k, sealed.replace(/.$/, (c) => (c === 'A' ? 'B' : 'A')))).toBeNull()
+    const [iv, ct, tag] = sealed.split('.')
+    expect(openWithKey(k, [iv, (ct[0] === 'A' ? 'B' : 'A') + ct.slice(1), tag].join('.'))).toBeNull()
     expect(openWithKey(k, 'garbage')).toBeNull()
   })
   it('no key, or a short one, means no key (never a silent fallback)', () => {

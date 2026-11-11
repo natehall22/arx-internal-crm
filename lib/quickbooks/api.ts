@@ -83,7 +83,7 @@ export async function refreshTokens(cfg: QbConfig, refreshToken: string): Promis
 }
 
 /** Revoke a token at Intuit (disconnect). Revoking the refresh token ends the whole grant. */
-export async function revokeToken(cfg: QbConfig, token: string): Promise<IntuitResult<Record<string, never>>> {
+export async function revokeToken(cfg: QbConfig, token: string): Promise<IntuitResult<{}>> {
   const r = await post(INTUIT_REVOKE_URL, cfg, { token })
   if (r && r.status === 200) return { ok: true }
   // Already revoked / expired at Intuit's side = what we wanted.
