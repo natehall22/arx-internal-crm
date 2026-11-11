@@ -14,17 +14,20 @@ import { formatCurrency } from './job-payments'
 import { isMissingColumn } from './job-catch-up-db'
 import { computeCustomerSalesTax } from './sales-tax-server'
 import { normalizeDepositFraction } from './job-pipeline'
+import { invoiceItemLineFields } from './invoice-lines'
 
 /**
- * The ONE org check for an invoice id: returns the invoice only when its job belongs to `orgId`.
- * Scopes through the parent job (production_jobs.org_id, the tenant anchor that job_invoices.org_id mirrors), so it
- * works with or without migration 202611100040. Use it before any other lib/invoices call that takes an invoice id.
+ * The ONE org check for an invoice id: returns the invoice only when it belongs to `orgId`.
+ * Job invoices scope through the parent job (production_jobs.org_id, the tenant anchor that job_invoices.org_id mirrors),
+ * so that works with or without migration 202611100040. Invoices without a job (recurring service, migration
+ * 202611110060) carry their own org_id, set by their writer and checked by trigger against the customer; they come back
+ * with `job_id: null` and their `customer_id`. Use it before any other lib/invoices call that takes an invoice id.
  */
 export async function findOrgInvoice(
   supabase: SupabaseClient,
   invoiceId: string,
   orgId: string
-): Promise<{ id: string; job_id: string; status: InvoiceStatus } | null> {
+): Promise<{ id: string; job_id: string | null; status: InvoiceStatus; customer_id?: string | null } | null> {
   if (!invoiceId || !orgId) return null
   // org-scope-ok: company filter is .eq('production_jobs.org_id', orgId) on the !inner parent-job join (works before migration 202611100040)
   const { data } = await supabase
@@ -35,8 +38,19 @@ export async function findOrgInvoice(
     .maybeSingle()
   const row = data as { id: string; job_id: string; status: InvoiceStatus; production_jobs?: { org_id?: string } | null } | null
   // Re-check in code too: the embedded filter is the guard, this keeps a mis-shaped response from passing.
-  if (!row || row.production_jobs?.org_id !== orgId) return null
-  return { id: row.id, job_id: row.job_id, status: row.status }
+  if (row && row.production_jobs?.org_id === orgId) return { id: row.id, job_id: row.job_id, status: row.status }
+  if (row) return null
+  // An invoice without a job. Before migration 202611110060 none exist (and customer_id is not a column): the read errors → null.
+  const { data: own, error } = await supabase
+    .from('job_invoices')
+    .select('id, job_id, status, org_id, customer_id')
+    .eq('id', invoiceId)
+    .eq('org_id', orgId)
+    .is('job_id', null)
+    .maybeSingle()
+  const o = own as { id: string; job_id: string | null; status: InvoiceStatus; org_id?: string; customer_id?: string | null } | null
+  if (error || !o || o.job_id != null || o.org_id !== orgId || !o.customer_id) return null
+  return { id: o.id, job_id: null, status: o.status, customer_id: o.customer_id }
 }
 
 /**
@@ -488,8 +502,12 @@ export async function createFinalInvoice(
 export async function addInvoiceItem(
   supabase: SupabaseClient,
   invoiceId: string,
-  item: InvoiceItemInput
+  item: InvoiceItemInput,
+  /** Service-line links, copied only by duplicateInvoiceAsDraft (billing writes them through create_service_invoice). */
+  links?: Pick<JobInvoiceItem, 'work_order_id' | 'service_plan_id' | 'billing_month'>
 ): Promise<JobInvoiceItem> {
+  const lineFields = invoiceItemLineFields(item)
+  if ('error' in lineFields) throw new Error(lineFields.error)
   // Verify invoice is draft
   // org-scope-ok: invoiceId was verified in the caller's company by findOrgInvoice (app/api/invoices/[invoiceId]/*); job_invoices.org_id filter after migration 202611100040
   const { data: invoice } = await supabase
@@ -531,6 +549,11 @@ export async function addInvoiceItem(
       sort_order: sortOrder,
       // Sales tax: only sent when the line is taxable, so an untaxed line still saves before migration 202611110040.
       ...(item.taxable === true ? { taxable: true } : {}),
+      // Hours / service day / visit links: only sent when set, so a plain line saves before migration 202611110060.
+      ...lineFields.value,
+      ...(links?.work_order_id ? { work_order_id: links.work_order_id } : {}),
+      ...(links?.service_plan_id ? { service_plan_id: links.service_plan_id } : {}),
+      ...(links?.billing_month ? { billing_month: links.billing_month } : {}),
     })
     .select()
     .single()
@@ -571,6 +594,8 @@ export async function updateInvoiceItem(
     throw new Error('Cannot update items on non-draft invoice')
   }
 
+  const lineFields = invoiceItemLineFields({ ...updates, qty: updates.qty ?? currentItem.qty, unit: updates.unit === undefined ? currentItem.unit : updates.unit })
+  if ('error' in lineFields) throw new Error(lineFields.error)
   const qty = updates.qty ?? currentItem.qty
   const unitPriceCents = updates.unit_price_cents ?? currentItem.unit_price_cents
   const lineTotalCents = Math.round(qty * unitPriceCents)
@@ -584,6 +609,8 @@ export async function updateInvoiceItem(
       line_total_cents: lineTotalCents,
       sort_order: updates.sort_order ?? currentItem.sort_order,
       ...(typeof updates.taxable === 'boolean' ? { taxable: updates.taxable } : {}),
+      ...(updates.unit !== undefined ? { unit: updates.unit ?? null } : {}),
+      ...(updates.service_date !== undefined ? { service_date: updates.service_date ?? null } : {}),
     })
     .eq('id', itemId)
     .eq('invoice_id', invoiceId)
@@ -643,7 +670,7 @@ export async function deleteInvoiceItem(
  * contract, deposit and balance lines bill an already tax-included sale amount. Before migration 202611110040 the
  * invoice is totalled exactly as before (no tax).
  */
-async function recalculateInvoiceTotals(
+export async function recalculateInvoiceTotals(
   supabase: SupabaseClient,
   invoiceId: string
 ): Promise<void> {
@@ -665,7 +692,11 @@ async function recalculateInvoiceTotals(
     // org-scope-ok: job_id comes from the invoice verified above; org_id is read off the job itself, not from the request
     const { data: job } = inv?.job_id
       ? await supabase.from('production_jobs').select('org_id, customer_id').eq('id', inv.job_id).maybeSingle()
-      : { data: null }
+      : inv
+        ? // An invoice without a job (migration 202611110060) is its own anchor: its org and customer.
+          // org-scope-ok: invoiceId was verified in the caller's company (findOrgInvoice / create_service_invoice); these are the invoice's own columns
+          await supabase.from('job_invoices').select('org_id, customer_id').eq('id', invoiceId).is('job_id', null).maybeSingle()
+        : { data: null }
     const tax = job?.org_id
       ? await computeCustomerSalesTax(
           supabase,
@@ -785,6 +816,11 @@ export async function applyPaymentToInvoice(
 
   if (invoice.status === 'draft') {
     throw new Error('Cannot apply payment to draft invoice. Send it first.')
+  }
+
+  // An invoice without a job is paid through recordCustomerInvoicePayment (its payment has no job to match on).
+  if (!invoice.job_id) {
+    throw new Error('Payment not found')
   }
 
   // Verify payment exists and belongs to same job
@@ -1028,11 +1064,14 @@ export async function duplicateInvoiceAsDraft(
     throw new Error('Invoice not found')
   }
 
-  // Create new invoice
+  // Create new invoice: on the same job, or — for an invoice without a job — for the same customer in the same company.
+  const owner = original.job_id
+    ? { job_id: original.job_id }
+    : { org_id: original.org_id, customer_id: original.customer_id, property_id: original.property_id ?? null, invoice_kind: original.invoice_kind }
   const { data: newInvoice, error: invoiceError } = await supabase
     .from('job_invoices')
     .insert({
-      job_id: original.job_id,
+      ...owner,
       created_by: createdBy,
       status: 'draft',
       notes: original.notes,
@@ -1047,15 +1086,22 @@ export async function duplicateInvoiceAsDraft(
     throw new Error(`Failed to duplicate invoice: ${invoiceError?.message || 'Unknown error'}`)
   }
 
-  // Copy line items
+  // Copy line items. Service links come along so a revised invoice still holds its visits (void the original to free them).
   for (const item of original.items) {
-    await addInvoiceItem(supabase, newInvoice.id, {
-      description: item.description,
-      qty: item.qty,
-      unit_price_cents: item.unit_price_cents,
-      sort_order: item.sort_order,
-      taxable: item.taxable === true,
-    })
+    await addInvoiceItem(
+      supabase,
+      newInvoice.id,
+      {
+        description: item.description,
+        qty: item.qty,
+        unit_price_cents: item.unit_price_cents,
+        sort_order: item.sort_order,
+        taxable: item.taxable === true,
+        ...(item.unit ? { unit: item.unit } : {}),
+        ...(item.service_date ? { service_date: item.service_date } : {}),
+      },
+      { work_order_id: item.work_order_id ?? null, service_plan_id: item.service_plan_id ?? null, billing_month: item.billing_month ?? null }
+    )
   }
 
   // Refresh to get updated totals
@@ -1066,6 +1112,64 @@ export async function duplicateInvoiceAsDraft(
     .single()
 
   return (refreshed || newInvoice) as JobInvoice
+}
+
+export type CustomerInvoicePayment = {
+  amountCents: number
+  /** YYYY-MM-DD, the day the money came in. */
+  paidAt: string
+  method: CustomerPaymentMethod
+  note?: string | null
+  createdBy: string | null
+}
+
+export const CUSTOMER_PAYMENT_METHODS = ['cash', 'check', 'card', 'ach', 'other'] as const
+export type CustomerPaymentMethod = (typeof CUSTOMER_PAYMENT_METHODS)[number]
+export const CUSTOMER_PAYMENT_METHOD_LABELS: Record<CustomerPaymentMethod, string> = {
+  cash: 'Cash',
+  check: 'Check',
+  card: 'Card',
+  ach: 'Bank transfer',
+  other: 'Other',
+}
+
+export type RecordPaymentResult =
+  | { ok: true; paymentId: string; status: InvoiceStatus; balanceCents: number }
+  | { ok: false; status: 400 | 404; error: string }
+
+/**
+ * THE way money is recorded on an invoice without a job (recurring service): "Mark paid" today; a card processor's
+ * webhook later calls this same function (method 'card', the processor's reference in `note`) — never a second writer.
+ * One SQL transaction (record_customer_invoice_payment, migration 202611110060) with the invoice locked: a job_payments
+ * row (job_id NULL, org + customer) + its invoice_payments application + the invoice status. Never more than the balance;
+ * a draft is issued on the spot (paid at the door). Job invoices keep the job payment flow (applyPaymentToInvoice).
+ */
+export async function recordCustomerInvoicePayment(
+  supabase: SupabaseClient,
+  orgId: string,
+  invoiceId: string,
+  p: CustomerInvoicePayment
+): Promise<RecordPaymentResult> {
+  if (!Number.isInteger(p.amountCents) || p.amountCents <= 0) return { ok: false, status: 400, error: 'Enter an amount above zero' }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(p.paidAt) || Number.isNaN(Date.parse(`${p.paidAt}T12:00:00Z`))) return { ok: false, status: 400, error: 'Pick the day it was paid' }
+  if (!(CUSTOMER_PAYMENT_METHODS as readonly string[]).includes(p.method)) return { ok: false, status: 400, error: 'Pick how it was paid' }
+  const note = typeof p.note === 'string' ? p.note.trim().slice(0, 500) : null
+  const { data, error } = await supabase.rpc('record_customer_invoice_payment', {
+    p_org: orgId,
+    p_invoice: invoiceId,
+    p_amount_cents: p.amountCents,
+    p_paid_at: p.paidAt,
+    p_method: p.method,
+    p_note: note || null,
+    p_created_by: p.createdBy,
+  })
+  if (error) {
+    if (error.code === 'P0002') return { ok: false, status: 404, error: 'Invoice not found' }
+    if (error.code === '22023') return { ok: false, status: 400, error: error.message }
+    throw new Error(`Failed to record payment: ${error.message}`)
+  }
+  const r = (data ?? {}) as { payment_id?: string; status?: InvoiceStatus; balance_cents?: number }
+  return { ok: true, paymentId: String(r.payment_id), status: (r.status ?? 'partially_paid') as InvoiceStatus, balanceCents: Number(r.balance_cents ?? 0) }
 }
 
 /**

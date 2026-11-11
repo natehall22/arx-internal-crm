@@ -180,5 +180,27 @@ BEGIN
   -- T9 a customer with invoices can't be deleted out from under them (financial history)
   ok := false; BEGIN DELETE FROM customers WHERE id = ca; EXCEPTION WHEN foreign_key_violation THEN ok := true; END; ASSERT ok, 'T9 customer delete refused';
 
+  -- T10 record_customer_invoice_payment: draft issued on the spot, partial then full, never over, never void / job
+  r := create_service_invoice(o1, cb, pb, u1, jsonb_build_array(jsonb_build_object('description', 'x', 'qty', 1, 'unit_price_cents', 0)));
+  ASSERT r->>'invoice_id' IS NULL, 'T10 a plain line alone makes no invoice';
+  INSERT INTO job_invoices (org_id, customer_id, property_id, invoice_kind, total_cents, subtotal_cents) VALUES (o1, cb, pb, 'service', 10000, 10000) RETURNING id INTO inv;
+  r := record_customer_invoice_payment(o1, inv, 4000, '2026-11-05', 'cash', ' at the door ', u1);
+  ASSERT r->>'status' = 'partially_paid' AND (r->>'balance_cents')::int = 6000, 'T10 partial ' || r::text;
+  ASSERT (SELECT issued_at FROM job_invoices WHERE id = inv) = current_date, 'T10 draft issued';
+  ASSERT (SELECT note FROM job_payments WHERE id = (r->>'payment_id')::uuid) = 'at the door', 'T10 note trimmed';
+  ASSERT (SELECT customer_id FROM job_payments WHERE id = (r->>'payment_id')::uuid) = cb, 'T10 payment customer';
+  ok := false; BEGIN PERFORM record_customer_invoice_payment(o1, inv, 6001, '2026-11-05', 'cash', null, u1); EXCEPTION WHEN invalid_parameter_value THEN ok := true; END; ASSERT ok, 'T10 over balance';
+  ok := false; BEGIN PERFORM record_customer_invoice_payment(o1, inv, 0, '2026-11-05', 'cash', null, u1); EXCEPTION WHEN invalid_parameter_value THEN ok := true; END; ASSERT ok, 'T10 zero';
+  ok := false; BEGIN PERFORM record_customer_invoice_payment(o1, inv, 1, '2026-11-05', 'bitcoin', null, u1); EXCEPTION WHEN check_violation THEN ok := true; END; ASSERT ok, 'T10 method list';
+  ok := false; BEGIN PERFORM record_customer_invoice_payment(o2, inv, 1, '2026-11-05', 'cash', null, u1); EXCEPTION WHEN no_data_found THEN ok := true; END; ASSERT ok, 'T10 other company';
+  ok := false; BEGIN PERFORM record_customer_invoice_payment(o1, ji, 1, '2026-11-05', 'cash', null, u1); EXCEPTION WHEN no_data_found THEN ok := true; END; ASSERT ok, 'T10 job invoice refused';
+  r := record_customer_invoice_payment(o1, inv, 6000, '2026-11-06', 'check', null, u1);
+  ASSERT r->>'status' = 'paid' AND (r->>'balance_cents')::int = 0, 'T10 paid';
+  ASSERT (SELECT status FROM job_invoices WHERE id = inv) = 'paid', 'T10 status stored';
+  ASSERT (SELECT sum(applied_cents) FROM invoice_payments WHERE invoice_id = inv) = 10000, 'T10 applied';
+  ok := false; BEGIN PERFORM record_customer_invoice_payment(o1, inv, 1, '2026-11-05', 'cash', null, u1); EXCEPTION WHEN invalid_parameter_value THEN ok := true; END; ASSERT ok, 'T10 nothing left';
+  UPDATE job_invoices SET status = 'void', void_reason = 'x' WHERE id = inv2;
+  ok := false; BEGIN PERFORM record_customer_invoice_payment(o1, inv2, 1, '2026-11-05', 'cash', null, u1); EXCEPTION WHEN invalid_parameter_value THEN ok := true; END; ASSERT ok, 'T10 void';
+
   RAISE NOTICE 'REPORT: all assertions passed';
 END $t$;

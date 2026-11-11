@@ -291,6 +291,61 @@ begin
 end;
 $$;
 
+-- ---- 5. THE payment writer for an invoice without a job ----------------------------------------------------------------
+-- "Mark paid" today; a card processor's webhook later (lib/invoices.ts recordCustomerInvoicePayment is the one caller).
+-- One transaction with the invoice row locked: never more than the balance, never on a void invoice, never on a job
+-- invoice (those keep the job payment flow). A draft is issued on the spot (paid at the door, no email).
+-- Returns { payment_id, status, balance_cents }.
+create or replace function public.record_customer_invoice_payment(
+  p_org uuid, p_invoice uuid, p_amount_cents integer, p_paid_at date, p_method text, p_note text, p_created_by uuid
+) returns jsonb
+language plpgsql
+set search_path = public, pg_temp
+as $$
+declare
+  v_inv public.job_invoices%rowtype;
+  v_applied integer;
+  v_balance integer;
+  v_pay uuid;
+  v_status invoice_status;
+begin
+  select * into v_inv from public.job_invoices where id = p_invoice and org_id = p_org for update;
+  if not found or v_inv.job_id is not null then
+    raise exception 'record_customer_invoice_payment: invoice not found' using errcode = 'P0002';
+  end if;
+  if v_inv.status = 'void' then
+    raise exception 'This invoice is void' using errcode = '22023';
+  end if;
+  if v_inv.total_cents <= 0 then
+    raise exception 'This invoice has nothing to pay' using errcode = '22023';
+  end if;
+  select coalesce(sum(applied_cents), 0) into v_applied from public.invoice_payments where invoice_id = p_invoice;
+  v_balance := v_inv.total_cents - v_applied;
+  if p_amount_cents is null or p_amount_cents <= 0 then
+    raise exception 'Enter an amount above zero' using errcode = '22023';
+  end if;
+  if p_amount_cents > v_balance then
+    raise exception 'That is more than the balance due' using errcode = '22023';
+  end if;
+  if v_inv.status = 'draft' then
+    update public.job_invoices
+       set status = 'sent', issued_at = coalesce(issued_at, current_date), due_at = coalesce(due_at, current_date)
+     where id = p_invoice;
+  end if;
+  insert into public.job_payments (job_id, org_id, customer_id, paid_at, amount_cents, payment_type, method, payer, note, created_by)
+  values (null, p_org, v_inv.customer_id, p_paid_at, p_amount_cents, 'other', p_method, 'other', nullif(btrim(p_note), ''), p_created_by)
+  returning id into v_pay;
+  insert into public.invoice_payments (invoice_id, job_payment_id, applied_cents, created_by)
+  values (p_invoice, v_pay, p_amount_cents, p_created_by);
+  v_balance := v_balance - p_amount_cents;
+  v_status := case when v_balance <= 0 then 'paid'::invoice_status else 'partially_paid'::invoice_status end;
+  update public.job_invoices set status = v_status where id = p_invoice;
+  return jsonb_build_object('payment_id', v_pay, 'status', v_status, 'balance_cents', v_balance);
+end;
+$$;
+revoke all on function public.record_customer_invoice_payment(uuid, uuid, integer, date, text, text, uuid) from public, anon, authenticated;
+grant execute on function public.record_customer_invoice_payment(uuid, uuid, integer, date, text, text, uuid) to service_role;
+
 revoke all on function public.create_service_invoice(uuid, uuid, uuid, uuid, jsonb) from public, anon, authenticated;
 grant execute on function public.create_service_invoice(uuid, uuid, uuid, uuid, jsonb) to service_role;
 revoke all on function public.generate_customer_invoice_number(uuid) from public, anon, authenticated;
