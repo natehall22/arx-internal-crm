@@ -4,6 +4,7 @@
  * (lib/customer-email-layout.ts) over the shared email channel — no second sender. A company with no name / email /
  * address on file gets a plain "fix this first" answer and nothing is sent (the staff screen still shows the link to copy).
  */
+import { formatDate } from '@/lib/format'
 import { randomUUID } from 'crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
@@ -42,7 +43,7 @@ export async function sendQuoteLinkEmail(
   orgId: string,
   a: { to: string; customerName: string | null; url: string; title: string; expiresAt: string; proposalWord: string }
 ): Promise<SendResult> {
-  const exp = new Date(a.expiresAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
+  const exp = formatDate(a.expiresAt)
   return send(admin, orgId, a.to, (c) => ({
     subject: `Your ${a.proposalWord.toLowerCase()} from ${c.name}`,
     heading: `Your ${a.proposalWord.toLowerCase()} is ready`,

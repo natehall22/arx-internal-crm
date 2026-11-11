@@ -1,5 +1,6 @@
 'use client'
 
+import { formatDate } from '@/lib/format'
 import { useMemo, useState } from 'react'
 
 import { priceQuote } from '@/lib/quotes/pricing'
@@ -99,7 +100,7 @@ export default function QuoteClient({ token, view }: { token: string; view: Quot
       {a ? (
         <div className="mt-5 rounded-xl border border-[#1f7a3d] bg-[#e8f5ec] p-4">
           <h2 className="text-xl font-bold text-[#2c2c2a]">Approved — thank you!</h2>
-          <p className="mt-1 text-base text-[#2c2c2a]">Approved by {a.typedName} on {new Date(a.approvedAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}.</p>
+          <p className="mt-1 text-base text-[#2c2c2a]">Approved by {a.typedName} on {formatDate(a.approvedAt)}.</p>
           {a.chosenNames.length > 0 ? <p className="mt-2 text-base text-[#2c2c2a]">Included: {a.chosenNames.join(', ')}</p> : null}
           <p className="mt-2 text-lg font-bold text-[#2c2c2a]">Total {money(a.totalCents)}</p>
           {a.depositState === 'paid' ? <p className="mt-1 text-base font-semibold text-[#2c2c2a]">Deposit {money(a.depositCents)} paid. Thank you!</p> : null}
