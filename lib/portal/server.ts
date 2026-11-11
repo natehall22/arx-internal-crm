@@ -13,6 +13,7 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
+import { waitUntil } from '@vercel/functions'
 import type { NextResponse } from 'next/server'
 
 import { orgAppUrl } from '@/lib/company-links'
@@ -159,18 +160,25 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 export async function requestLoginLink(admin: SupabaseClient, orgId: string, raw: unknown, ip: string): Promise<void> {
   const floor = requestFloorMs()
   const work = doRequest(admin, orgId, raw, ip).catch((e) => console.error('portal link request failed', e))
+  // Past the floor the answer goes out and the work finishes behind it — waitUntil keeps the serverless function alive for it, so a slow mail server cannot leave the email frozen half-sent.
+  waitUntil(work)
   await Promise.all([Promise.race([work, sleep(floor)]), sleep(floor)])
 }
 
 async function doRequest(admin: SupabaseClient, orgId: string, raw: unknown, ip: string): Promise<void> {
   const id = parsePortalIdentifier(raw)
-  await logPortalEvent(admin, orgId, { kind: 'link_requested', via: id?.kind ?? 'unreadable', ip })
-  if (!id) return
   if (!(await isOrgFeatureOn(orgId, 'customerPortal'))) return
   const L = PORTAL_LIMITS
-  const idKey = id.kind === 'email' ? id.email : id.phone10
-  if (!(await takePortalAttempt(admin, `req-ip:${opaqueKey(orgId, ip)}`, L.requestPerAddress)) || !(await takePortalAttempt(admin, `req-id:${opaqueKey(orgId, idKey)}`, L.requestPerIdentifier))) {
+  // The per-address limit comes first and the request is logged only after it, so a flood from one address cannot fill the audit table.
+  if (!(await takePortalAttempt(admin, `req-ip:${opaqueKey(orgId, ip)}`, L.requestPerAddress))) {
     await logPortalEvent(admin, orgId, { kind: 'link_blocked', ip, detail: 'too many requests' })
+    return
+  }
+  await logPortalEvent(admin, orgId, { kind: 'link_requested', via: id?.kind ?? 'unreadable', ip })
+  if (!id) return
+  const idKey = id.kind === 'email' ? id.email : id.phone10
+  if (!(await takePortalAttempt(admin, `req-id:${opaqueKey(orgId, idKey)}`, L.requestPerIdentifier))) {
+    await logPortalEvent(admin, orgId, { kind: 'link_blocked', ip, detail: 'too many requests for this address' })
     return
   }
   const { data: found, error } = await admin.rpc('portal_find_customers', { p_org: orgId, p_email: id.kind === 'email' ? id.email : null, p_phone10: id.kind === 'phone' ? id.phone10 : null })
