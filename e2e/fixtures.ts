@@ -914,3 +914,104 @@ export const HARNESS_HOURLY_SETTINGS = {
   settings: { rounding: 'up15', minimumHours: 2, travel: 'trip_charge', tripChargeItemId: 'pb-trip', basis: 'person', equipmentFromOperator: true },
   tripChoices: [{ id: 'pb-trip', name: 'Trip charge', rateCents: 3500 }],
 }
+
+// Purchase orders (components/ops/PurchaseOrdersCard.tsx)
+export const PO_VENDORS = [
+  { id: 'pv1', name: 'Gravel Guys Hauling', vendorType: 'sub', email: 'orders@gravelguys-hauling.example.test', phone: null, trades: ['hauling'], connectionType: 'email', lastUsedAt: '2026-11-01T12:00:00Z' },
+  { id: 'pv2', name: 'Concord Lumber Supply', vendorType: 'supplier', email: 'orders@concord-lumber.example.test', phone: null, trades: [], connectionType: 'email', lastUsedAt: null },
+]
+const PO_LINE = { id: 'pl1', position: 0, description: 'Dumpster haul-off, 30 yd', quantity: 2, unit: 'ea', unitCostCents: 45000, costType: 'dump', costCode: null, pricebookItemId: null, receivedQuantity: 0 }
+export const PO_LIST = {
+  orders: [
+    {
+      id: 'po1', kind: 'general', vendorId: 'pv1', vendorName: 'Gravel Guys Hauling', vendorType: 'sub', poNumber: '26-0042-B', revision: 0, label: '26-0042-B', status: 'sent', title: null,
+      date: '2026-11-20', dateKind: 'start', address: '12 Elm Street, Concord NC 28025', note: null, jobId: 'job-1', workOrderId: null, lines: [PO_LINE], totalCents: 90000, billedCents: 0, bills: [],
+      firstSentAt: '2026-11-10T12:00:00Z', lastSentAt: '2026-11-10T12:00:00Z', lastSentTo: 'orders@gravelguys-hauling.example.test', acknowledgedAt: null, acknowledgedBy: null, receivedAt: null, changedSinceSent: false,
+    },
+  ],
+  vendors: PO_VENDORS,
+  canEdit: true, canBill: true, showMoney: true,
+  target: { reference: '26-0042', address: '12 Elm Street, Concord NC 28025', scheduledDate: '2026-11-20', cancelled: false, jobId: 'job-1', workOrderId: null },
+}
+export const PO_PREVIEW = {
+  preview: {
+    vendorName: 'Concord Lumber Supply', kind: 'order', poLabel: '26-0042-C', to: 'orders@concord-lumber.example.test', cc: ['crm@green.example.test'], subject: 'Purchase order 26-0042-C',
+    body: 'Hi Concord Lumber Supply,\n\nPlease see the attached purchase order 26-0042-C for job 26-0042.\n\nPlease confirm you have it: https://crm.example.test/po/abc', changes: [], totalCents: 12000, lineCount: 1,
+    confirmMessage: null, blockers: [], previewToken: 'tok', sendButtonLabel: 'Send to Concord Lumber Supply', hasPdf: true,
+  },
+}
+export const PO_DRAFT_SAVED = { ok: true, id: 'po2', created: true }
+
+/* ---- Project tools (budget, selections, schedule, daily log) ---- */
+export const HARNESS_BUDGET = {
+  ready: true,
+  canEdit: true,
+  codes: [
+    { code: 'materials', label: 'Materials', costType: 'material', active: true },
+    { code: 'labor', label: 'Labor', costType: 'labor', active: true },
+    { code: 'sub', label: 'Sub', costType: 'subcontractor', active: true },
+    { code: 'permit', label: 'Permit', costType: 'permit', active: true },
+    { code: 'dump', label: 'Dump', costType: 'other', active: true },
+    { code: 'equipment', label: 'Equipment', costType: 'other', active: true },
+    { code: 'other', label: 'Other', costType: 'other', active: true },
+  ],
+  view: {
+    rows: [
+      { code: 'materials', label: 'Materials', budget: 42000, actual: 31000, variance: 11000, state: 'under', active: true },
+      { code: 'labor', label: 'Labor', budget: 18000, actual: 17100, variance: 900, state: 'near', active: true },
+      { code: 'sub', label: 'Sub', budget: 30000, actual: 33500, variance: -3500, state: 'over', active: true },
+      { code: 'permit', label: 'Permit', budget: null, actual: 850, variance: null, state: 'none', active: true },
+    ],
+    totalBudget: 90000,
+    totalActual: 82450,
+    totalVariance: 7550,
+    state: 'near',
+  },
+  history: [{ id: 'h1', cost_code: 'sub', old_amount: 28000, new_amount: 30000, reason: 'Added the retaining wall', changed_at: '2026-11-09T15:00:00Z', changed_by_name: 'Nathan Hall' }],
+}
+
+export const HARNESS_SELECTIONS = {
+  ready: true,
+  canEdit: true,
+  repName: 'Nathan Hall',
+  selections: [
+    { id: 's1', item: 'Kitchen faucet', allowance: 500, options: [{ id: 'o1', label: 'Brushed nickel', price: 450 }, { id: 'o2', label: 'Matte black', price: 750 }], chosen_option_id: null, chosen_label: null, chosen_price: null, difference: null, due_date: '2026-11-20', status: 'sent', state: 'waiting_customer', link: 'https://acme.example.test/s/abcdefghijklmnopqrstuvwx', change_order_number: null, change_order_url: null, chosen_by_name: null, chosen_source: null, needs_attention: false },
+    { id: 's2', item: 'Master bath tile', allowance: 3200, options: [{ id: 'o3', label: 'Porcelain 12x24', price: 4100 }], chosen_option_id: 'o3', chosen_label: 'Porcelain 12x24', chosen_price: 4100, difference: 900, due_date: null, status: 'chosen', state: 'waiting_signature', link: null, change_order_number: 'CO-002', change_order_url: 'https://acme.example.test/change-orders/sign/tok', chosen_by_name: 'Pat Lee', chosen_source: 'customer', needs_attention: false },
+    { id: 's3', item: 'Front door', allowance: 1800, options: [{ id: 'o4', label: 'Fiberglass', price: 1650 }], chosen_option_id: 'o4', chosen_label: 'Fiberglass', chosen_price: 1650, difference: -150, due_date: null, status: 'chosen', state: 'approved', link: null, change_order_number: null, change_order_url: null, chosen_by_name: 'Pat Lee', chosen_source: 'customer', needs_attention: false },
+    { id: 's4', item: 'Interior paint', allowance: 2400, options: [{ id: 'o5', label: 'Sherwin-Williams', price: 2400 }], chosen_option_id: null, chosen_label: null, chosen_price: null, difference: null, due_date: '2026-11-01', status: 'draft', state: 'overdue', link: null, change_order_number: null, change_order_url: null, chosen_by_name: null, chosen_source: null, needs_attention: false },
+    { id: 's5', item: 'Cabinet pulls', allowance: 300, options: [{ id: 'o6', label: 'Black iron', price: 540 }], chosen_option_id: 'o6', chosen_label: 'Black iron', chosen_price: 540, difference: 240, due_date: null, status: 'chosen', state: 'waiting_signature', link: null, change_order_number: 'CO-003', change_order_url: null, chosen_by_name: 'Pat Lee', chosen_source: 'customer', needs_attention: true },
+  ],
+}
+
+const stage = (id: string, key: string, name: string, start: string, workdays: number, dependsOn: string[], extra: Record<string, unknown> = {}) => ({ id, key, name, trade: null, start, workdays, dependsOn, doneAt: null, end: start, tradeName: null, bookedDate: null, bookedStatus: null, ...extra })
+export const HARNESS_SCHEDULE = {
+  ready: true,
+  canEdit: true,
+  templates: [{ id: 'new_home', label: 'New home build', stageCount: 13 }],
+  stages: [
+    stage('g1', 'permits', 'Permits', '2026-11-02', 10, [], { doneAt: '2026-11-13T00:00:00Z' }),
+    stage('g2', 'site_work', 'Site work', '2026-11-16', 5, ['permits'], { tradeName: 'Site work', bookedDate: '2026-11-16', bookedStatus: 'scheduled' }),
+    stage('g3', 'foundation', 'Foundation', '2026-11-23', 7, ['site_work'], { tradeName: 'Foundation' }),
+    stage('g4', 'framing', 'Framing', '2026-12-02', 15, ['foundation']),
+  ],
+}
+export const HARNESS_SCHEDULE_EMPTY = { ...HARNESS_SCHEDULE, stages: [] }
+
+export const HARNESS_DAILY_LOGS = {
+  ready: true,
+  logs: [
+    { id: 'd1', log_date: '2026-11-10', note: 'Framing crew finished the second-floor deck. Rain stopped work at 2.', weather: 'Light rain, 48°F, wind 8 mph', photo_ids: ['p1', 'p2'], author_name: 'Nathan Hall', source: 'staff', summary_sent_at: null, created_at: '2026-11-10T20:00:00Z' },
+    { id: 'd2', log_date: '2026-11-09', note: 'Delivered trusses.', weather: 'Sunny, 61°F', photo_ids: [], author_name: 'Crew', source: 'crew', summary_sent_at: '2026-11-09T22:00:00Z', created_at: '2026-11-09T21:00:00Z' },
+  ],
+}
+
+export const HARNESS_PUBLIC_SELECTION = {
+  state: 'open',
+  company: { name: 'Acme Builders', phone: '(555) 010-2030', email: 'office@acme.example.test', logoHref: null },
+  item: 'Kitchen faucet',
+  allowance: 500,
+  dueDate: '2026-11-20',
+  options: [{ id: 'o1', label: 'Brushed nickel', price: 450 }, { id: 'o2', label: 'Matte black', price: 750 }],
+  chosenLabel: null,
+  signingUrl: null,
+}

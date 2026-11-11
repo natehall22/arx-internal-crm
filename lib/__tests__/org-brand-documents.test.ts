@@ -294,6 +294,7 @@ describe('slice-2a files carry no company literals', () => {
     'app/api/contracts/create/route.ts',
     'app/api/contracts/sign/route.ts',
     'app/api/change-orders/create/route.ts',
+    'lib/change-orders-remote.ts',
     'app/api/change-orders/sign/route.ts',
     'app/api/crew/[token]/photos/finalize/route.ts',
     'app/api/crew/[token]/photos/register/route.ts',

@@ -57,6 +57,7 @@ const MAX_PAGE = 100
 /** System text written as notes by automations carries no author. */
 export function effectiveOrigin(row: { origin: string | null; type: string; user_id: string | null }): 'human' | 'system' {
   if (row.origin === 'human' || row.origin === 'system') return row.origin
+  if (row.origin === 'customer_portal') return 'human' // the customer's own words (shown as "Customer")
   if (row.type !== 'note') return row.type === 'text' || row.type === 'email' ? 'human' : 'system'
   return row.user_id ? 'human' : 'system'
 }
@@ -92,7 +93,7 @@ export function toMessage(row: Row): ThreadMessage {
   return {
     id: row.id,
     user_id: row.user_id,
-    author_name: u?.full_name ?? row.deleted_user_name ?? null,
+    author_name: u?.full_name ?? row.deleted_user_name ?? (row.origin === 'customer_portal' ? 'Customer' : null),
     type: row.type,
     // Tombstone: the text never leaves the server once removed (admins read it in the audit view).
     body: deleted ? '' : row.body ?? '',

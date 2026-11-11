@@ -32,7 +32,7 @@ export type Dataset = {
 }
 
 export const DATASET_KEYS = [
-  'jobs', 'sales', 'payments', 'job_costs', 'payroll_lines', 'canvass_doors', 'appointments', 'leads',
+  'jobs', 'sales', 'payments', 'invoices', 'job_costs', 'payroll_lines', 'canvass_doors', 'appointments', 'leads',
   'opportunities', 'referral_partners', 'inspection_sets', 'sits', 'instant_estimate_accuracy',
 ] as const
 export type DatasetKey = (typeof DATASET_KEYS)[number]
@@ -68,6 +68,15 @@ export const DATASETS: Record<DatasetKey, Dataset> = {
     columns: [
       c('job_number', 'Job #'), c('paid_at', 'Paid', 'date'), c('amount', 'Amount', 'money'), c('payment_type', 'Type'),
       c('method', 'Method'), c('funding_status', 'Funding'),
+    ],
+  },
+  invoices: {
+    idColumn: 'invoice_id', key: 'invoices', label: 'Service invoices', description: 'Issued invoices for recurring and one-off service (not job invoices): billed, paid, owed, how late.',
+    view: 'rpt_invoices', dateColumn: 'invoice_date', ownerColumn: null, financeOnly: true,
+    columns: [
+      c('invoice_number', 'Invoice #'), c('customer', 'Customer'), c('property', 'Property'), c('status', 'Status'), c('invoice_date', 'Invoice date', 'date'),
+      c('due_at', 'Due', 'date'), c('subtotal', 'Subtotal', 'money'), c('tax', 'Sales tax', 'money'), c('total', 'Total', 'money'), c('paid', 'Paid', 'money'),
+      c('balance_due', 'Owed', 'money'), c('days_overdue', 'Days late', 'number'), c('aging_bucket', 'How late'),
     ],
   },
   job_costs: {

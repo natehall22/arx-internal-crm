@@ -302,7 +302,7 @@ describe('wiring: each sent link is built on the record company address', () => 
   const WIRING: Array<[string, string, RegExp]> = [
     ['signing link: contract created', 'app/api/contracts/create/route.ts', /orgAppUrl\(profile\.org_id\)[\s\S]*\$\{appUrl\}\/contracts\/sign\//],
     ['signing link: contract re-sent', 'app/api/contracts/[id]/send/route.ts', /\$\{await orgAppUrl\(contract\.org_id\)\}\/contracts\//],
-    ['signing link: change order', 'app/api/change-orders/create/route.ts', /orgAppUrl\(profile\.org_id\)[\s\S]*\$\{appUrl\}\/change-orders\/sign\//],
+    ['signing link: change order', 'lib/change-orders-remote.ts', /orgAppUrl\(input\.orgId\)[\s\S]*\$\{appUrl\}\/change-orders\/sign\//],
     ['signed contract download', 'app/api/contracts/sign/route.ts', /customerSignedDocUrl\('contract', [^\n]*tryOrgAppUrl\(contract\.org_id,/],
     ['contract signed: admin sale email', 'app/api/contracts/sign/route.ts', /tryOrgAppUrl\(contract\.org_id, 'contract signed: admin sale email'\)/],
     ['signed change-order download', 'app/api/change-orders/sign/route.ts', /tryOrgAppUrl\(changeOrder\.org_id,/],

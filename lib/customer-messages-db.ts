@@ -42,6 +42,7 @@ import {
   renderInvoiceReminder,
   renderOnTheWay,
   renderQuoteFollowUp,
+  renderCustomerReply,
   renderVisitDone,
   renderVisitReminder,
   visitReminderRange,
@@ -53,6 +54,7 @@ import {
   type RenderedMessage,
 } from '@/lib/customer-messages'
 import { orgLogoHref } from '@/lib/files/files-object'
+import { loadCustomerVisitPhotos } from '@/lib/customer-visit-photos'
 import { findOrgInvoice } from '@/lib/invoices'
 import { loadInvoiceDocument } from '@/lib/invoice-document'
 import type { JobInvoice } from '@/lib/types/invoices'
@@ -976,11 +978,11 @@ export async function messagePhotos(admin: SupabaseClient, row: MessageRow, now:
   if (now.getTime() - Date.parse(row.sent_at) > PHOTO_LINK_DAYS * 86_400_000) return []
   const visitId = str(row.refs.visitId)
   if (!visitId) return []
-  const { data } = await orgDb(admin, row.org_id).from('photos').select('storage_path, mime_type').eq('work_order_id', visitId).is('deleted_at', null).order('created_at').limit(40)
+  // The one "what may a customer see" rule (lib/customer-visit-photos.ts), shared with the portal.
+  const photos = await loadCustomerVisitPhotos(admin, row.org_id, [visitId], { limit: 40 })
   const { signFilesObject } = await import('@/lib/files/files-object')
   const out: string[] = []
-  for (const p of (data ?? []) as Array<{ storage_path: string | null; mime_type: string | null }>) {
-    if (!p.storage_path || (p.mime_type && !p.mime_type.startsWith('image/'))) continue
+  for (const p of photos.slice().reverse()) {
     const url = await signFilesObject(admin, p.storage_path, 3600)
     if (url) out.push(url)
   }
@@ -1055,4 +1057,47 @@ export async function setCustomerMessages(
   await db.from('customers').update({ messages_off_at: null, messages_off_by: null }).eq('id', customerId)
   if (state.email && state.suppressed) await db.from('customer_message_suppressions').delete().eq('channel', 'email').eq('address', state.email)
   return { ok: true }
+}
+
+
+// ── A staff reply "To customer" (Customer File thread) ──────────────────────────────────────────────────────────────
+
+/**
+ * Email the customer a reply a staff member wrote "To customer". It goes through the SAME checks as every customer email:
+ * the company's `customerMessages` switch and identity (loadSendContext — name / email / address on file, mail set up),
+ * then the recipient rules (office "don't email", suppression list). With the switch off nothing is emailed; the portal
+ * still shows the reply. Company From / Reply-To. Never throws.
+ */
+export async function sendCustomerReply(
+  admin: SupabaseClient,
+  orgId: string,
+  customerId: string,
+  activityId: string,
+  body: string
+): Promise<'sent' | 'skipped' | 'off' | 'not_ready' | 'failed'> {
+  try {
+    const loaded = await loadSendContext(admin, orgId)
+    if (!loaded.ok) return loaded.reason === 'feature_off' || loaded.reason === 'all_off' ? 'off' : 'not_ready'
+    const ctx = loaded.ctx
+    if (ctx.blocked) return 'not_ready'
+    const customer = await loadCustomer(admin, orgId, customerId)
+    const to = ctx.channel.addressFor({ email: customer?.email ?? null, phone: null })
+    if (await recipientRefusal(ctx, customer, to)) return 'skipped'
+    const portalOn = (await loadOrgFeatures(admin, orgId)).customerPortal
+    const appUrl = ctx.appUrl
+    const id = { company: ctx.company, from: ctx.from }
+    const channel = ctx.channel
+    const rendered = renderCustomerReply({ company: id.company, customerName: customer?.name ?? null, unsubscribeUrl: null }, { body, accountUrl: portalOn && appUrl ? `${appUrl}/portal` : null })
+    let host = 'localhost'
+    try {
+      host = appUrl ? new URL(appUrl).hostname || host : host
+    } catch {
+      /* keep localhost */
+    }
+    const out = await channel.send(to as string, rendered, { from: id.from, replyTo: ctx.replyTo, messageId: `<cr-${activityId}@${host}>`, unsubscribeUrl: null, unsubscribePostUrl: null })
+    return out.ok ? 'sent' : 'failed'
+  } catch (e) {
+    console.error('[customer-messages] reply email failed', { orgId, e })
+    return 'failed'
+  }
 }

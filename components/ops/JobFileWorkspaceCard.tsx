@@ -33,6 +33,8 @@ type DocumentRow = {
   is_protected: boolean
   created_at: string
   updated_at: string
+  /** Customer portal: staff chose to show this document to the customer. */
+  shared_with_customer?: boolean
 }
 
 type CostLineRow = {
@@ -169,6 +171,7 @@ export default function JobFileWorkspaceCard({
   const [loading, setLoading] = useState(true)
   const [photos, setPhotos] = useState<PhotoRow[]>([])
   const [documents, setDocuments] = useState<DocumentRow[]>([])
+  const [portalShare, setPortalShare] = useState<{ on: boolean; canShare: boolean } | null>(null)
   const [costLines, setCostLines] = useState<CostLineRow[]>([])
   const [attachmentCountByLine, setAttachmentCountByLine] = useState<Record<string, number>>({})
   const [tableUnavailable, setTableUnavailable] = useState(false)
@@ -201,6 +204,14 @@ export default function JobFileWorkspaceCard({
   const [newCostAmount, setNewCostAmount] = useState('')
   const [newCostType, setNewCostType] = useState<string>('material')
   const [approvingLineId, setApprovingLineId] = useState<string | null>(null)
+  async function toggleShared(docId: string, shared: boolean) {
+    setDocuments((list) => list.map((d) => (d.id === docId ? { ...d, shared_with_customer: shared } : d)))
+    const res = await fetch('/api/portal-sharing', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: docId, shared }) }).catch(() => null)
+    if (!res?.ok) {
+      setDocuments((list) => list.map((d) => (d.id === docId ? { ...d, shared_with_customer: !shared } : d)))
+      setStatusMessage({ type: 'error', text: 'Could not change what the customer sees. Please try again.' })
+    }
+  }
   const completionCertificate = documents.find((doc) => doc.category === 'completion_certificate')
 
   /** Match API/email route (allows complete | collected); tolerate odd casing/spacing from clients. */
@@ -279,7 +290,7 @@ export default function JobFileWorkspaceCard({
               },
             }
           }
-          return { data: (data?.documents || []) as DocumentRow[], error: null }
+          return { data: (data?.documents || []) as DocumentRow[], error: null, portal: (data?.portal ?? null) as { on: boolean; canShare: boolean } | null }
         })
         .catch((error: any) => ({
           data: null,
@@ -335,6 +346,7 @@ export default function JobFileWorkspaceCard({
 
     setPhotos((photosRes.data || []) as PhotoRow[])
     setDocuments((docsRes.data || []) as DocumentRow[])
+    setPortalShare('portal' in docsRes && docsRes.portal ? docsRes.portal : null)
 
     const normalizedCostLines: CostLineRow[] = ((costRes.data || []) as JobCostLineQueryRow[]).map(
       (row) => ({
@@ -1322,6 +1334,7 @@ export default function JobFileWorkspaceCard({
                       <th className="text-left px-3 py-2 font-medium">Version</th>
                       <th className="text-left px-3 py-2 font-medium">Status</th>
                       <th className="text-left px-3 py-2 font-medium">Updated</th>
+                      {portalShare?.canShare && <th className="text-left px-3 py-2 font-medium">Customer can see</th>}
                       <th className="text-left px-3 py-2 font-medium">Actions</th>
                     </tr>
                   </thead>
@@ -1348,6 +1361,14 @@ export default function JobFileWorkspaceCard({
                         <td className="px-3 py-2 text-gray-700">v{doc.version}</td>
                         <td className="px-3 py-2 text-gray-700">{doc.status}</td>
                         <td className="px-3 py-2 text-gray-700">{formatDate(doc.updated_at || doc.created_at)}</td>
+                        {portalShare?.canShare && (
+                          <td className="px-3 py-2 text-gray-700">
+                            <label className="inline-flex min-h-[44px] items-center gap-2 text-sm">
+                              <input type="checkbox" className="h-5 w-5" checked={doc.shared_with_customer === true} onChange={(e) => void toggleShared(doc.id, e.target.checked)} />
+                              Show to customer
+                            </label>
+                          </td>
+                        )}
                         <td className="px-3 py-2 text-gray-700">
                           {doc.is_protected && !canReplaceProtectedDocuments ? (
                             <span className="text-xs text-gray-500">Restricted (protected doc)</span>

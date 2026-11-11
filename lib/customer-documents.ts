@@ -23,6 +23,8 @@ export type CustomerDocument = {
   mime_type: string | null
   file_size: number | null
   property_id: string | null
+  /** Shown to the customer in their portal (migration 202611120060). */
+  shared_with_customer: boolean
   created_at: string
 }
 
@@ -34,7 +36,9 @@ export async function loadCustomerDocuments(admin: SupabaseClient, orgId: string
     orgDb(admin, orgId).from('documents')
   const run = (cols: string) =>
     base().select(cols).eq('customer_id', customerId).is('job_id', null).is('deleted_at', null).order('created_at', { ascending: false }).limit(200)
-  let { data, error } = await run(`${COLS}, property_id`)
+  // Newest columns first; each older shape is what a database without the later migration answers with.
+  let { data, error } = await run(`${COLS}, property_id, shared_with_customer`)
+  if (error) ({ data, error } = await run(`${COLS}, property_id`))
   if (error && isPropertiesNotReadyError(error)) ({ data, error } = await run(COLS))
   if (error) {
     console.error('[customer-documents] load failed', error)
@@ -48,6 +52,7 @@ export async function loadCustomerDocuments(admin: SupabaseClient, orgId: string
     mime_type: (r.mime_type as string | null) ?? null,
     file_size: typeof r.file_size === 'number' ? r.file_size : null,
     property_id: (r.property_id as string | null) ?? null,
+    shared_with_customer: r.shared_with_customer === true,
     created_at: String(r.created_at ?? ''),
   }))
 }

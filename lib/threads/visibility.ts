@@ -8,12 +8,13 @@
  *
  * Audiences: team (everyone on the deal), sales (selling talk; ops reads it), production
  * (how to build it — never setters/inside sales), crew (leaves the building on the crew
- * link; only ops/owners write it). `restricted_pricing` hides a message from anyone
+ * link; only ops/owners write it), customer (said TO the customer: shown in their portal and emailed to them; read like
+ * team by staff, written only by non-field roles). `restricted_pricing` hides a message from anyone
  * barred from sales docs (setters, canvassers, inside sales), whatever its audience.
  * `audience = null` is a legacy row: unchanged behaviour (anyone in the org).
  */
 
-export const AUDIENCES = ['team', 'sales', 'production', 'crew'] as const
+export const AUDIENCES = ['team', 'sales', 'production', 'crew', 'customer'] as const
 export type Audience = (typeof AUDIENCES)[number]
 
 export type Priority = 'fyi' | 'needs_reply' | 'urgent'
@@ -97,7 +98,7 @@ export function canReadMessage(v: ThreadViewer, deal: DealRef, m: MessageGate): 
   if (!isRecognizedViewer(v)) return false
   if (m.restricted_pricing && v.pricingBarred) return false
   if (m.audience === 'production' || m.audience === 'crew') return canSeeProduction(v, deal)
-  // team | sales
+  // team | sales | customer
   // Setters/canvassers and closers read team/sales talk on their own deals only.
   if (v.setterLike || v.closerLike) return deal === null ? true : ownsDeal(v, deal)
   return true
@@ -110,7 +111,8 @@ export function canReadRowOnDeal(v: ThreadViewer, ref: DealRef | 'none', m: Mess
 }
 
 /** Audiences the viewer may WRITE on this deal, in composer order. Crew is never a default. */
-export function writableAudiences(v: ThreadViewer, deal: DealRef): Audience[] {
+/** `customerChannel` = the company has the customer portal or automatic customer emails on: only then is "To customer" offered. */
+export function writableAudiences(v: ThreadViewer, deal: DealRef, customerChannel = false): Audience[] {
   const out: Audience[] = []
   if (!v.ownerLike && !isRecognizedViewer(v)) return out
   if ((v.setterLike || v.closerLike) && deal && !ownsDeal(v, deal)) return out
@@ -118,6 +120,8 @@ export function writableAudiences(v: ThreadViewer, deal: DealRef): Audience[] {
   out.push('sales')
   if (canSeeProduction(v, deal) && (v.ownerLike || v.jobEdit || v.jobBoard || ownsDealAsCloser(v, deal))) out.push('production')
   if (!isFieldRole(v) && (v.ownerLike || v.jobEdit)) out.push('crew')
+  // "To customer": an email the customer also sees in their portal. Field roles (setters, canvassers, inside sales) do not write it.
+  if (customerChannel && !isFieldRole(v)) out.push('customer')
   return out
 }
 
@@ -131,7 +135,8 @@ export function defaultAudience(
 ): Audience {
   const allowed = writableAudiences(v, deal)
   const pick = (a: Audience): Audience => (allowed.includes(a) ? a : 'team')
-  if (input.replyTo?.audience && allowed.includes(input.replyTo.audience)) return input.replyTo.audience
+  // A reply inherits the thread's audience EXCEPT 'customer': going out to the customer is always picked on purpose, never inherited.
+  if (input.replyTo?.audience && input.replyTo.audience !== 'customer' && allowed.includes(input.replyTo.audience)) return input.replyTo.audience
   if (v.setterLike) return 'team'
   if (input.surface === 'job') return pick('production')
   if (input.surface === 'sales') return v.closerLike && !input.dealSold ? pick('sales') : 'team'
@@ -171,7 +176,9 @@ export function canPin(v: ThreadViewer, m: { user_id: string | null }): boolean 
 }
 
 /** Re-classify someone else's message: owners any; ops to Production/Team (Crew needs jobEdit); sales managers Sales<->Team. */
-export function canReclassify(v: ThreadViewer, to: Audience): boolean {
+export function canReclassify(v: ThreadViewer, to: Audience, from?: Audience | null): boolean {
+  // Nothing is moved onto or off the customer audience after the fact: it is what the customer was (or was not) sent.
+  if (to === 'customer' || from === 'customer') return false
   if (v.ownerLike) return true
   if (to === 'crew' || to === 'production') return v.jobEdit
   if (to === 'team') return v.jobEdit || v.managerLike

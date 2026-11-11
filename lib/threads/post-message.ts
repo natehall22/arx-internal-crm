@@ -3,8 +3,10 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { contactBody, type ContactKind, type ContactOutcome } from '@/lib/customer-contact'
 import { mentionCandidates, resolveNoteMentions } from '@/lib/note-mentions'
+import { orgDb } from '@/lib/supabase/org-db'
 import { jobIdForDeal } from '@/lib/threads/job-notes'
 import { toMessage, type ThreadMessage } from '@/lib/threads/get-thread'
+import { loadOrgFeatures } from '@/lib/org-features'
 import { resolveThreadViewer } from '@/lib/threads/viewer'
 import {
   canReadMessage,
@@ -39,6 +41,8 @@ export type MessageDraft = {
   allowSetters?: boolean
   clientId?: string | null
   source?: string | null
+  /** Text is stored as typed; @names are NOT turned into mentions (nobody is flagged or waiting). Used for text an AI app wrote. */
+  noMentions?: boolean
   /** A logged call/text/email/visit: the row is written as that type with its outcome, and `body` becomes the optional note. */
   contact?: { kind: ContactKind; outcome: ContactOutcome } | null
 }
@@ -49,6 +53,8 @@ export type PostResult =
       message: ThreadMessage
       /** users to notify, already filtered to people who can read the message */
       recipients: { userId: string; priority: Priority; reason: 'mention' | 'reply' | 'urgent' }[]
+      /** true when this is the original of a retried (same clientId) post: nothing new was written, so nothing may be sent */
+      replayed?: boolean
       /** mentioned people who may NOT read it (they get a content-free ping) */
       blindMentions: string[]
       pricingNotice: boolean
@@ -88,7 +94,8 @@ export async function postMessage(
 
   const viewer = opts.viewer ?? (await resolveThreadViewer(admin, profile))
   const dealRef: DealRef = { owner_user_id: deal.owner_user_id, setter_user_id: deal.setter_user_id, closer_user_ids: deal.closer_user_ids ?? [], extra_user_ids: deal.extra_user_ids ?? [] }
-  const allowed = writableAudiences(viewer, dealRef)
+  const features = await loadOrgFeatures(admin, viewer.orgId)
+  const allowed = writableAudiences(viewer, dealRef, features.customerPortal || features.customerMessages)
   if (allowed.length === 0) return { ok: false, status: 403, error: 'You cannot post on this deal' }
 
   // Idempotent retry (offline outbox): the same client_id returns the original message.
@@ -102,7 +109,7 @@ export async function postMessage(
       .maybeSingle()
     if (existing) {
       const prior = await loadMessage(admin, viewer.orgId, (existing as { id: string }).id)
-      if (prior) return { ok: true, message: prior, recipients: [], blindMentions: [], pricingNotice: false }
+      if (prior) return { ok: true, message: prior, recipients: [], blindMentions: [], pricingNotice: false, replayed: true }
     }
   }
 
@@ -117,7 +124,8 @@ export async function postMessage(
   }
 
   let audience: Audience
-  if (parent?.audience && allowed.includes(parent.audience)) {
+  // A reply inherits the parent's audience, never 'customer' (that one is always chosen on purpose).
+  if (parent?.audience && parent.audience !== 'customer' && allowed.includes(parent.audience)) {
     audience = parent.audience
   } else if (draft.audience) {
     if (!allowed.includes(draft.audience)) return { ok: false, status: 403, error: `You cannot write ${draft.audience} messages` }
@@ -125,6 +133,8 @@ export async function postMessage(
   } else {
     audience = defaultAudience(viewer, { surface: draft.surface ?? 'other', replyTo: parent }, dealRef)
   }
+  // "To customer" needs a customer to send it to (it is emailed and shown in their portal).
+  if (audience === 'customer' && !deal.customer_id) return { ok: false, status: 409, error: 'This deal has no customer on file yet, so there is nobody to send it to.' }
   // A customer contact is never crew talk, and job catch-up does not read sales-audience rows: log it as team
   // (or production when that was picked) so it always shows as the job's "last customer contact".
   if (contact && audience !== 'team' && audience !== 'production') {
@@ -154,7 +164,7 @@ export async function postMessage(
     .eq('org_id', viewer.orgId)
     .eq('active', true)
   const candidates = mentionCandidates(((orgUsers ?? []) as OrgUser[]).map((u) => ({ ...u })))
-  const mentioned = resolveNoteMentions(body, candidates, draft.selectedMentionIds ?? [])
+  const mentioned = draft.noMentions ? [] : resolveNoteMentions(body, candidates, draft.selectedMentionIds ?? [])
     .filter((u) => u.id !== viewer.userId)
 
   const parentAuthor = parent?.user_id && parent.user_id !== viewer.userId ? parent.user_id : null
@@ -209,7 +219,7 @@ export async function postMessage(
     if (draft.clientId) {
       const { data: again } = await admin.from('activities').select('id').eq('client_id', draft.clientId).eq('org_id', viewer.orgId).eq('user_id', viewer.userId).maybeSingle()
       const prior = again ? await loadMessage(admin, viewer.orgId, (again as { id: string }).id) : null
-      if (prior) return { ok: true, message: prior, recipients: [], blindMentions: [], pricingNotice: false }
+      if (prior) return { ok: true, message: prior, recipients: [], blindMentions: [], pricingNotice: false, replayed: true }
     }
     // Code live before migration 202610270010: a clear, retryable answer, nothing half-written.
     if (isThreadSchemaMissing(error)) return { ok: false, status: 503, error: SCHEMA_PENDING_MESSAGE }
@@ -218,10 +228,12 @@ export async function postMessage(
 
   const message = (await loadMessage(admin, viewer.orgId, (inserted as { id: string }).id)) as ThreadMessage
   if (thread) {
-    await admin.from('threads').update({ last_message_at: message.created_at }).eq('id', thread.id)
-    await admin
-      .from('thread_members')
-      .upsert({ thread_id: thread.id, user_id: viewer.userId, org_id: viewer.orgId, reason: 'joined', last_read_at: message.created_at }, { onConflict: 'thread_id,user_id' })
+    await admin.from('threads').update({ last_message_at: message.created_at }).eq('id', thread.id).eq('org_id', viewer.orgId)
+    // Membership (thread_id, user_id is its key): update the author's own row, else add it. Every step names the company.
+    const member = orgDb(admin, viewer.orgId).from('thread_members')
+    const { data: have } = await member.select('thread_id').eq('thread_id', thread.id).eq('user_id', viewer.userId).maybeSingle()
+    if (have) await orgDb(admin, viewer.orgId).from('thread_members').update({ last_read_at: message.created_at }).eq('thread_id', thread.id).eq('user_id', viewer.userId)
+    else await orgDb(admin, viewer.orgId).from('thread_members').insert({ thread_id: thread.id, user_id: viewer.userId, reason: 'joined', last_read_at: message.created_at })
   }
 
   // Who hears about it. Content follows the RECIPIENT's rights: a mentioned person who
@@ -267,7 +279,7 @@ export async function ensureThread(
   orgId: string,
   deal: { id: string; customer_id: string | null; lead_id: string | null }
 ): Promise<{ id: string } | null> {
-  const { data: found } = await admin.from('threads').select('id').eq('opportunity_id', deal.id).eq('kind', 'deal').maybeSingle()
+  const { data: found } = await admin.from('threads').select('id').eq('org_id', orgId).eq('opportunity_id', deal.id).eq('kind', 'deal').maybeSingle()
   if (found) return found as { id: string }
   const { data: created, error } = await admin
     .from('threads')
@@ -276,8 +288,61 @@ export async function ensureThread(
     .single()
   if (error) {
     // Lost a race against the unique index — the other writer's row is the thread.
-    const { data: again } = await admin.from('threads').select('id').eq('opportunity_id', deal.id).eq('kind', 'deal').maybeSingle()
+    const { data: again } = await admin.from('threads').select('id').eq('org_id', orgId).eq('opportunity_id', deal.id).eq('kind', 'deal').maybeSingle()
     return (again as { id: string } | null) ?? null
   }
   return created as { id: string }
+}
+
+/** What the portal may write: ONE customer's message, on their latest deal (or, with no deal, on the customer alone). */
+export type CustomerPortalPost = { orgId: string; customerId: string; body: string; clientId?: string | null }
+
+/**
+ * The customer wrote to the company from their portal. Written through THIS module (the one write path for conversations)
+ * as an ordinary team-audience row — `origin: 'customer_portal'`, no user, type 'text' so job catch-up reads it as the
+ * customer's own contact. Staff see it in the Customer File thread like any other message; the customer sees only
+ * their own rows (audience 'customer' or origin 'customer_portal') through `loadPortalThread`.
+ */
+export async function postCustomerMessage(admin: SupabaseClient, p: CustomerPortalPost): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+  const body = String(p.body ?? '').trim()
+  if (!body) return { ok: false, error: 'Message is required' }
+  if (body.length > 2000) return { ok: false, error: 'Message is too long' }
+  // The customer's most recent deal, if any (org- and customer-scoped).
+  const { data: deal } = await admin
+    .from('opportunities')
+    .select('id, customer_id, lead_id')
+    .eq('org_id', p.orgId)
+    .eq('customer_id', p.customerId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  const d = deal as { id: string; customer_id: string | null; lead_id: string | null } | null
+  const thread = d ? await ensureThread(admin, p.orgId, d) : null
+  const { data, error } = await admin
+    .from('activities')
+    .insert({
+      org_id: p.orgId,
+      opportunity_id: d?.id ?? null,
+      customer_id: p.customerId,
+      lead_id: d?.lead_id ?? null,
+      thread_id: thread?.id ?? null,
+      user_id: null,
+      type: 'text',
+      contact_outcome: 'replied',
+      body,
+      origin: 'customer_portal',
+      audience: 'team',
+      restricted_pricing: false,
+      priority: 'fyi',
+      mentioned_user_ids: [],
+      client_id: p.clientId ?? null,
+      source: 'customer_portal',
+      created_at: new Date().toISOString(),
+    })
+    .select('id, created_at')
+    .single()
+  if (error || !data) return { ok: false, error: error?.message ?? 'insert failed' }
+  const row = data as { id: string; created_at: string }
+  if (thread) await admin.from('threads').update({ last_message_at: row.created_at }).eq('id', thread.id).eq('org_id', p.orgId)
+  return { ok: true, id: row.id }
 }

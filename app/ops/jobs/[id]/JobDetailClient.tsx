@@ -41,6 +41,7 @@ import SoldScopeCard from '@/components/ops/SoldScopeCard'
 import { noteMentionHighlightRegex } from '@/lib/note-mentions'
 import JobMaterialsCard from '@/components/ops/JobMaterialsCard'
 import SupplierOrdersCard from '@/components/ops/SupplierOrdersCard'
+import PurchaseOrdersCard from '@/components/ops/PurchaseOrdersCard'
 import JobRoofingBrief from '@/components/ops/JobRoofingBrief'
 import { type JobSoldScope } from '@/components/ops/JobSoldScopeSummary'
 import MaterialsOrderCard from '@/components/ops/MaterialsOrderCard'
@@ -49,6 +50,7 @@ import type { MaterialsCoverageOverrides } from '@/lib/materials-coverage-overri
 import JobFileWorkspaceCard from '@/components/ops/JobFileWorkspaceCard'
 import OperationsSnapshotCard from '@/components/ops/OperationsSnapshotCard'
 import ChangeOrdersSection from '@/components/change-orders/ChangeOrdersSection'
+import JobProjectTools from '@/components/project-tools/JobProjectTools'
 import PayrollAttributionEditor from '@/components/payroll/PayrollAttributionEditor'
 import { JobPaymentSummary } from '@/lib/types/job-payments'
 import { buildCommissionPayrollSnapshot, SALES_COMMISSION_POOL_RATE } from '@/lib/commission-payroll'
@@ -2267,6 +2269,7 @@ export default function JobDetailClient({
                 />
               ) : null}
               <SupplierOrdersCard jobId={job.id} onState={setMaterialsState} onChanged={() => void reloadJob()} />
+              <PurchaseOrdersCard jobId={job.id} onChanged={() => void reloadJob()} />
               {!v2 && jobMaterialsCard}
             </div>
 
@@ -2584,6 +2587,12 @@ export default function JobDetailClient({
               <JobWorkOrdersCard jobId={job.id} projectId={job.project_id} />
             </div>
 
+            {orgFeatures.projectTools && (
+              <div className={v2 && jobTab !== 'crews' ? 'hidden' : undefined} style={ord(6)}>
+                <JobProjectTools part="crews" jobId={job.id} canEdit={canEditJobs} isOwner={isSuperAdmin} />
+              </div>
+            )}
+
             {v2 && (
               <>
                 <div className={jobTab === 'money' ? undefined : 'hidden'} style={ord(7)}>
@@ -2624,6 +2633,11 @@ export default function JobDetailClient({
                 repName={changeOrdersSection.repName}
                 changeOrders={changeOrdersSection.changeOrders}
               />
+              </div>
+            )}
+            {orgFeatures.projectTools && (
+              <div className={v2 && jobTab !== 'money' ? 'hidden' : undefined} style={ord(9)}>
+                <JobProjectTools part="money" jobId={job.id} canEdit={canEditJobs} isOwner={isSuperAdmin} onLedgerMutated={bumpLedgerVersion} />
               </div>
             )}
             </div>{/* end costs tab wrapper */}

@@ -6,6 +6,7 @@ import { crewLinkPhotoCounts, resolveCrewLink } from '@/lib/crew-link'
 import { loadOrgTrades, tradeLabel } from '@/lib/org-trades'
 import { getDocumentBrand } from '@/lib/org-brand'
 import { loadCrewNotes } from '@/lib/threads/crew-notes'
+import { isOrgFeatureOn } from '@/lib/org-features-server'
 import CrewPhotoCapture from './CrewPhotoCapture'
 
 export const dynamic = 'force-dynamic'
@@ -50,6 +51,7 @@ export default async function CrewPhotoPage({ params }: { params: { token: strin
   const counts = await crewLinkPhotoCounts(admin, link.ctx)
   const notes = await loadCrewNotes(admin, link.ctx).catch(() => [])
   const orgTrades = await loadOrgTrades(admin, link.ctx.orgId)
+  const dailyLog = await isOrgFeatureOn(link.ctx.orgId, 'projectTools')
 
   return (
     <CrewPhotoCapture
@@ -60,6 +62,7 @@ export default async function CrewPhotoPage({ params }: { params: { token: strin
       initialCounts={counts}
       brand={{ casualName: brand.casualName, shortName: brand.shortName }}
       crewNotes={notes}
+      dailyLog={dailyLog}
     />
   )
 }

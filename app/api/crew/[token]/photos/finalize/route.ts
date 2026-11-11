@@ -5,6 +5,8 @@ import { CREW_PHOTO_TAGS } from '@/lib/final-photo-tags'
 import { CREW_LINK_MAX_PHOTOS, crewCallName, crewLinkPhotoCounts, resolveCrewLink } from '@/lib/crew-link'
 import { finalizeJobPhotoUpload } from '@/lib/job-photo-upload'
 import { completeTradeFromCrewPhotos } from '@/lib/job-status-events'
+import { isOrgFeatureOn } from '@/lib/org-features-server'
+import { DAILY_LOG_TAG } from '@/lib/project-tools/daily-logs-db'
 
 export const runtime = 'nodejs'
 
@@ -37,7 +39,9 @@ export async function POST(request: Request, { params }: { params: { token: stri
     return NextResponse.json({ error: 'photoId is required' }, { status: 400 })
   }
   const photoTag = typeof body?.photo_tag === 'string' ? body.photo_tag : ''
-  if (!(CREW_PHOTO_TAGS as readonly string[]).includes(photoTag)) {
+  // A daily-log photo (project tools) is a note's picture, not a walk-around angle: it never completes the trade.
+  const isDailyLog = photoTag === DAILY_LOG_TAG && (await isOrgFeatureOn(link.ctx.orgId, 'projectTools'))
+  if (!isDailyLog && !(CREW_PHOTO_TAGS as readonly string[]).includes(photoTag)) {
     return NextResponse.json({ error: 'Invalid photo type' }, { status: 400 })
   }
 
@@ -63,6 +67,7 @@ export async function POST(request: Request, { params }: { params: { token: stri
   if ('error' in result) {
     return NextResponse.json({ error: result.error }, { status: result.status })
   }
+  if (isDailyLog) return NextResponse.json({ ok: true, photoId: result.photo.id, tradeDone: false })
   // The 4th walk-around angle IS "this crew is done" — record it here instead of
   // waiting for ops to tap "mark done". Never completes the job itself.
   let tradeDone = false

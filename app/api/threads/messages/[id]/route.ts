@@ -66,6 +66,8 @@ async function handlePATCH(request: Request, { params }: { params: { id: string 
       break
     }
     case 'edit': {
+      // A message that went to the customer (emailed, shown in their account) cannot be changed afterwards.
+      if (r.audience === 'customer') return NextResponse.json({ error: 'A message sent to the customer cannot be edited' }, { status: 409 })
       if (r.user_id !== viewer.userId) return NextResponse.json({ error: 'Only the author can edit' }, { status: 403 })
       const text = typeof body.body === 'string' ? body.body.trim() : ''
       if (!text || text.length > 5000) return NextResponse.json({ error: 'Invalid message' }, { status: 400 })
@@ -83,7 +85,7 @@ async function handlePATCH(request: Request, { params }: { params: { id: string 
     }
     case 'reclassify': {
       const to = body.audience as Audience
-      if (!(AUDIENCES as readonly string[]).includes(to) || !canReclassify(viewer, to)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+      if (!(AUDIENCES as readonly string[]).includes(to) || !canReclassify(viewer, to, r.audience)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
       // Moving a priced message onto a wider audience (crew leaves the building) flags it; text is re-screened, never un-flagged.
       const flag = r.restricted_pricing === true || looksLikePricing(r.body ?? '')
       await admin.from('activities').update({ audience: to, restricted_pricing: flag ? true : r.restricted_pricing }).eq('id', r.id)

@@ -64,6 +64,9 @@ CREATE TABLE integration_outbox (
 \i supabase/migrations/202611120040_jobber_import.sql
 -- Idempotent: a second apply changes nothing and does not fail.
 \i supabase/migrations/202611120040_jobber_import.sql
+-- Reports view for service revenue (needs paid_outside_cents from the line above); applying twice is fine (create or replace).
+\i supabase/migrations/202611140010_rpt_invoices.sql
+\i supabase/migrations/202611140010_rpt_invoices.sql
 
 INSERT INTO orgs VALUES ('00000000-0000-0000-0000-000000000001', 'A'), ('00000000-0000-0000-0000-000000000002', 'B');
 INSERT INTO users VALUES ('90000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001');
@@ -170,6 +173,20 @@ BEGIN
 
   -- T6 same-address keys for a list, in order
   ASSERT property_address_keys(ARRAY['511 Allison St NW, Concord, NC 28027, USA', '12 Oak Ct']) = ARRAY['511 allison st nw concord', '12 oak ct'], 'T6 keys';
+
+  -- T7 rpt_invoices: issued invoices without a job only; paid = applied (NET) + paid before import; balance and aging match
+  INSERT INTO job_invoices (org_id, customer_id, invoice_kind, invoice_number, status, subtotal_cents, tax_cents, total_cents, paid_outside_cents, due_at, issued_at, import_source, import_source_id, created_by)
+    VALUES (o1, c1, 'service', 'R-1', 'sent', 10000, 500, 10500, 2000, arx_private.org_today(o1) - 40, arx_private.org_today(o1) - 50, 'jobber', 'invoice:R1', u1) RETURNING id INTO inv;
+  INSERT INTO job_invoices (org_id, customer_id, invoice_kind, invoice_number, status, subtotal_cents, total_cents, created_by) VALUES (o1, c1, 'service', 'R-2', 'draft', 100, 100, u1);
+  INSERT INTO job_invoices (org_id, customer_id, invoice_kind, invoice_number, status, subtotal_cents, total_cents, void_reason, created_by) VALUES (o1, c1, 'service', 'R-3', 'void', 100, 100, 'test', u1);
+  ASSERT (SELECT count(*) FROM rpt_invoices WHERE org_id = o1 AND invoice_number IN ('R-2', 'R-3')) = 0, 'T7 draft and void never count';
+  ASSERT (SELECT count(*) FROM rpt_invoices WHERE org_id = o2) = 0, 'T7 other company sees none of A';
+  ASSERT (SELECT total FROM rpt_invoices WHERE invoice_id = inv) = 105.00 AND (SELECT tax FROM rpt_invoices WHERE invoice_id = inv) = 5.00, 'T7 total / tax in dollars';
+  ASSERT (SELECT paid FROM rpt_invoices WHERE invoice_id = inv) = 20.00 AND (SELECT balance_due FROM rpt_invoices WHERE invoice_id = inv) = 85.00, 'T7 paid-before-import counts';
+  ASSERT (SELECT days_overdue FROM rpt_invoices WHERE invoice_id = inv) = 40 AND (SELECT aging_bucket FROM rpt_invoices WHERE invoice_id = inv) = '31-60 days late', 'T7 aging';
+  ASSERT NOT has_table_privilege('anon', 'rpt_invoices', 'select') AND NOT has_table_privilege('authenticated', 'rpt_invoices', 'select'), 'T7 not readable with the anon / user key';
+  j := record_customer_invoice_payment(o1, inv, 8500, current_date, 'cash', null, u1);
+  ASSERT (SELECT balance_due FROM rpt_invoices WHERE invoice_id = inv) = 0 AND (SELECT aging_bucket FROM rpt_invoices WHERE invoice_id = inv) = 'paid' AND (SELECT days_overdue FROM rpt_invoices WHERE invoice_id = inv) IS NULL, 'T7 paid off';
 
   RAISE NOTICE 'REPORT: all assertions passed';
 END $t$;

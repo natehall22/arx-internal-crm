@@ -390,3 +390,18 @@ export function sampleMessages(company: EmailCompany, s: CustomerMessageSettings
     invoice_reminder: renderInvoiceReminder(ctx, { invoiceNumber: 'INV-26-00042', balanceCents: 18500, dueDay: addDaysYmd(today, -(s.invoiceReminderDays.find((d) => d > 0) ?? 7)), daysPastDue: s.invoiceReminderDays.find((d) => d > 0) ?? 7, payUrl: 'https://example.com/pay/sample' }),
   }
 }
+
+/**
+ * A reply a staff member wrote "To customer" in the Customer File thread. The words are the staff member's own; the
+ * frame is the company's (name, logo, address) and a button to the customer's account when the portal is on.
+ */
+export function renderCustomerReply(ctx: MessageContext, v: { body: string; accountUrl: string | null }): RenderedMessage {
+  const subject = `A message from ${ctx.company.name}`
+  return finish(ctx, subject, v.body.slice(0, 280), {
+    preheader: v.body.slice(0, 120),
+    heading: subject,
+    paragraphs: [hi(ctx.customerName), v.body],
+    button: v.accountUrl ? { label: 'Open my account', href: v.accountUrl } : null,
+    footnote: `Reply to this email${ctx.company.phone ? ` or call ${ctx.company.phone}` : ''}.`,
+  })
+}

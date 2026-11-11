@@ -10,6 +10,9 @@ import {
   signedCostAmount,
 } from '@/lib/job-cost-ledger'
 import { callerCanAccessJobBilling } from '@/lib/finance-access'
+import { costTypeForCode, isCostCodeSlug } from '@/lib/cost-codes'
+import { isOrgFeatureOn } from '@/lib/org-features-server'
+import { isMissingProjectToolsSchema, loadCostCodes, PROJECT_TOOLS_NOT_READY } from '@/lib/project-tools/budget-db'
 
 export const runtime = 'nodejs'
 
@@ -36,6 +39,7 @@ async function loadLine(
 }
 
 /** Crew time lines are written by the time clock feed (lib/time-tracking-db.ts); a hand edit would be overwritten. */
+const VENDOR_BILL_LOCKED = 'This cost comes from a vendor bill on a purchase order. Change or void the bill on the order, not here.'
 const TIME_CLOCK_LOCKED = 'This line comes from the crew time clock. Fix the time in Time (it updates this line), not here.'
 
 const DEALER_FEE_LOCKED =
@@ -112,6 +116,9 @@ export async function PATCH(request: Request, { params }: RouteParams) {
     if (existing.source === 'time_entries') {
       return NextResponse.json({ error: TIME_CLOCK_LOCKED }, { status: 409 })
     }
+    if (existing.source === 'vendor_bill') {
+      return NextResponse.json({ error: VENDOR_BILL_LOCKED }, { status: 409 })
+    }
 
     const patch: Record<string, unknown> = {}
     if (body.description !== undefined) {
@@ -137,6 +144,20 @@ export async function PATCH(request: Request, { params }: RouteParams) {
     if (body.cost_type !== undefined) {
       patch.cost_type = normalizeJobCostType(body.cost_type, existing.cost_type as never)
     }
+    // Ignored when the company has project tools off.
+    if (body.cost_code !== undefined && (await isOrgFeatureOn(profile.org_id, 'projectTools'))) {
+      // Project tools: re-code a line (null clears it back to its cost_type's default code).
+      if (body.cost_code === null || body.cost_code === '') {
+        patch.cost_code = null
+      } else {
+        const codes = await loadCostCodes(supabase, profile.org_id)
+        if (!isCostCodeSlug(body.cost_code) || !codes.some((c) => c.code === body.cost_code)) {
+          return NextResponse.json({ error: 'That cost code is not on your list' }, { status: 400 })
+        }
+        patch.cost_code = body.cost_code
+        patch.cost_type = normalizeJobCostType(costTypeForCode(body.cost_code, codes), 'other')
+      }
+    }
     if (Object.keys(patch).length === 0) {
       return NextResponse.json(
         { error: 'Provide at least one of: description, supplier, amount, cost_type' },
@@ -161,6 +182,7 @@ export async function PATCH(request: Request, { params }: RouteParams) {
       .select('id, description, amount, cost_type, status, approved')
       .single()
     if (error) {
+      if (patch.cost_code !== undefined && isMissingProjectToolsSchema(error)) return NextResponse.json({ error: PROJECT_TOOLS_NOT_READY }, { status: 409 })
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
     return NextResponse.json({ cost_line: row })
@@ -196,6 +218,9 @@ export async function DELETE(_request: Request, { params }: RouteParams) {
     }
     if (existing.source === 'time_entries') {
       return NextResponse.json({ error: TIME_CLOCK_LOCKED }, { status: 409 })
+    }
+    if (existing.source === 'vendor_bill') {
+      return NextResponse.json({ error: VENDOR_BILL_LOCKED }, { status: 409 })
     }
     const { error } = await supabase
       .from('job_cost_lines')

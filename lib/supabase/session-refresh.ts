@@ -49,7 +49,8 @@ export function isExpired(expiresAt: number | undefined): boolean {
  * near-simultaneous refreshes from parallel requests.
  */
 export async function refreshSupabaseSession(
-  refreshToken: string
+  refreshToken: string,
+  signal?: AbortSignal
 ): Promise<SupabaseSession | null> {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
   const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
@@ -64,6 +65,7 @@ export async function refreshSupabaseSession(
       },
       body: JSON.stringify({ refresh_token: refreshToken }),
       cache: 'no-store',
+      ...(signal ? { signal } : {}),
     })
 
     if (!res.ok) {
@@ -89,6 +91,51 @@ export async function refreshSupabaseSession(
   } catch (e) {
     console.log('session-refresh: fetch failed', e instanceof Error ? e.message : e)
     return null
+  }
+}
+
+/**
+ * End THIS browser's session on the Supabase side (scope=local: other devices stay signed in), so a copied cookie or
+ * refresh token stops working the moment the person logs out. An expired access token is first refreshed (the refresh keeps
+ * the same session id) because GoTrue refuses to log out with a dead token. Best effort and time-boxed: the caller clears
+ * the cookies whatever this returns. Returns true only when GoTrue confirmed the revoke.
+ */
+export async function revokeSupabaseSession(
+  session: { access_token?: string; refresh_token?: string; expires_at?: number } | null,
+  timeoutMs = 4000
+): Promise<boolean> {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  if (!supabaseUrl || !supabaseKey || !session) return false
+  // ONE deadline around the refresh AND the logout call, and a race on top so a hang that ignores the signal still ends.
+  const signal = AbortSignal.timeout(timeoutMs)
+  const work = async (): Promise<boolean> => {
+    let accessToken = session.access_token
+    if ((!accessToken || isExpired(session.expires_at)) && session.refresh_token) {
+      accessToken = (await refreshSupabaseSession(session.refresh_token, signal))?.access_token
+    }
+    if (!accessToken) return false
+    const res = await fetch(`${supabaseUrl}/auth/v1/logout?scope=local`, {
+      method: 'POST',
+      headers: { apikey: supabaseKey, Authorization: `Bearer ${accessToken}` },
+      cache: 'no-store',
+      signal,
+    })
+    return res.ok
+  }
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      work(),
+      new Promise<boolean>((resolve) => {
+        timer = setTimeout(() => resolve(false), timeoutMs)
+      }),
+    ])
+  } catch (e) {
+    console.log('session-refresh: revoke failed', e instanceof Error ? e.message : e)
+    return false
+  } finally {
+    if (timer) clearTimeout(timer)
   }
 }
 
