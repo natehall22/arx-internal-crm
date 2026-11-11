@@ -141,6 +141,14 @@ listed file, migrate it.
 Fix opportunistically — when a task already touches one of these files, migrate
 that file rather than extending the pattern.
 
+## Industry profiles (2026-11-10, Nathan's per-business customization decision)
+Layers: core → **industry profile** → company settings → roles/people. Definitions (versioned, pure data): `lib/industry-profiles.ts` — `roofing` (= the app before profiles; an org with no `settings.profile` IS roofing, byte-identical, test-locked), `lawn_landscape`, `exterior_cleaning`, `home_builder`. **ONE resolver: `lib/org-profile.ts`** (`resolveOrgProfile` / `loadOrgProfile`, `t(profile, key)`, `applyTodayProfile`, client payload on `/api/me/effective-permissions` `flags.profile` → `useOrgProfile()` in `hooks/useOrgFeatures.ts`).
+- **Feature switches:** `resolveOrgFeatures` is profile-aware — saved switch (boolean in `settings.features`) > profile default > ON. Never read `settings.features` any other way.
+- **Words:** small fixed key set (`TERM_KEYS`: job, jobs, jobBoard, productionBoard, inspection, proposal, install, installed, subs), used by Nav (Jobs section + board link), /ops heading, customer file Job tab + progress steps + "Next" button, Settings → Subcontractors. Not i18n: add a key only where you wire it, and roofing's value must equal today's word.
+- **Profile also sets:** Nav section order + hidden menu entries (pages keep their own gates), Today card order/titles/hidden (titles keyed by today's exact title text, parity-tested against `lib/today.ts`; the morning email gets titles/hidden too, keeps its own order), price book add-on categories + units (`app/admin/proposals`), starter report templates (`/api/reports/run` GET), starting trades.
+- **Stored** `orgs.settings.profile = { id, version }`, written ONLY by `applyIndustryProfile` (`lib/org-profile-server.ts`, owners via `/api/admin/industry-profile`, Settings → Industry profile card: preview then apply) and the company seed (`"profile"` in the input / `--profile=`), through `mergeOrgSettings` path ['profile'] (top-level writes refused; the generic settings save strips it). A switch never deletes: trades are add-only (`planOrgTradesAddOnly`), own feature switches are kept unless the owner ticks "use this profile's switches". Bump a profile's `version` whenever its definition changes.
+- Units `visit`/`month`/`hour` need migration `202611100090` (NOT applied); only non-roofing profiles offer them.
+
 ## Customer File + Job Threads (Phase C, 2026-10) — rules
 - Deal conversations are rows in `activities` with an `audience` (team | sales | production | crew) and `restricted_pricing`.
   **ONE read path** (`lib/threads/get-thread.ts`, rules in `lib/threads/visibility.ts`) and **ONE write path** (`lib/threads/post-message.ts`);

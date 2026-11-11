@@ -77,6 +77,9 @@ export function planProfileSwitch(settings: unknown, trades: readonly OrgTrade[]
 
   const words = TERM_KEYS.filter((k) => now.terms[k] !== after.terms[k]).map((k) => ({ key: k, now: now.terms[k], after: after.terms[k] }))
   const other: string[] = []
+  if (now.id === to && now.storedVersion !== INDUSTRY_PROFILES[to].version) {
+    other.push(`Records ${INDUSTRY_PROFILES[to].label} v${INDUSTRY_PROFILES[to].version} on your company${now.storedVersion === null ? '' : ` (you have v${now.storedVersion})`}`)
+  }
   if (now.id !== to) {
     other.push(`Menu order: ${after.nav.order.map((id) => (id === 'jobs' ? after.terms.jobs : id[0].toUpperCase() + id.slice(1))).join(' · ')}`)
     if (after.nav.hidden.length) other.push(`Menu hides: ${after.nav.hidden.join(', ')} (the pages still work for anyone allowed)`)
