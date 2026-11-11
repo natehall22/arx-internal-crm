@@ -239,6 +239,7 @@ export async function enqueueMessage(admin: SupabaseClient, orgId: string, m: Ne
       kind: m.kind,
       channel: 'email',
       status: 'queued',
+      attempts: 0,
       customer_id: m.customerId,
       refs: m.refs,
       send_after: m.sendAfter.toISOString(),
