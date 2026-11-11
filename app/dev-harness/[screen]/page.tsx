@@ -85,7 +85,11 @@ import OrgFeaturesCard from '@/components/admin/OrgFeaturesCard'
 import ServicePlanTemplatesCard from '@/components/service-plans/ServicePlanTemplatesCard'
 import ServicePlansCard from '@/components/service-plans/ServicePlansCard'
 import VisitsBoard from '@/components/service-plans/VisitsBoard'
+import ReadyToBill from '@/components/billing/ReadyToBill'
+import CustomerInvoicesCard from '@/components/billing/CustomerInvoicesCard'
 import CrewDayList, { type CrewDayVisit } from '@/app/crew/day/[token]/CrewDayList'
+import SalesTaxCard from '@/components/admin/SalesTaxCard'
+import TaxExemptionCard from '@/components/customer/TaxExemptionCard'
 import { HARNESS_CATCH_UP_JOBS, HARNESS_CATCH_UP_STUCK, HARNESS_VIEWER_ID } from '@/e2e/fixtures'
 
 function GeneralSettingsHarness({ canEditBrand }: { canEditBrand: boolean }) {
@@ -233,6 +237,31 @@ export default function Harness({ params }: { params: { screen: string } }) {
           <OrgFeaturesCard initial={{ canvassing: false, insurance: false, roofMeasure: true, incentives: false, stormAlerts: false, squaresPricing: true, servicePlans: true }} />
         </div>
       )
+    case 'sales-tax':
+      return (
+        <div className="mx-auto max-w-2xl p-4">
+          <SalesTaxCard
+            initial={{
+              enabled: true,
+              rates: [
+                { id: 'state', name: 'State', percent: 6, active: true },
+                { id: 'county', name: 'Leon County surtax', percent: 1.5, active: true },
+              ],
+              defaultRateIds: ['state', 'county'],
+            }}
+          />
+        </div>
+      )
+    case 'tax-exemption':
+      return (
+        <div className="mx-auto max-w-2xl p-4">
+          <TaxExemptionCard
+            customerId="00000000-0000-0000-0000-000000000001"
+            initial={{ exempt: true, reason: 'Church', certificateNumber: 'FL-85-123', documentId: null }}
+            documents={[{ id: '00000000-0000-0000-0000-000000000002', label: 'Exemption certificate.pdf' }]}
+          />
+        </div>
+      )
     case 'job-page':
       return (
         <JobDetailClient
@@ -373,6 +402,10 @@ export default function Harness({ params }: { params: { screen: string } }) {
       )
     case 'visits-board':
       return <VisitsBoard />
+    case 'ready-to-bill':
+      return <ReadyToBill />
+    case 'customer-invoices':
+      return <div className="mx-auto max-w-2xl p-4"><CustomerInvoicesCard customerId="c1" /></div>
     case 'crew-day':
       return <CrewDayList token="harness-token-harness-token-harness-1" crewName="Green Team" companyName="Precision Maintenance" today="2026-11-10" visits={HARNESS_CREW_DAY as CrewDayVisit[]} />
     case 'plan-templates':

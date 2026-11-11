@@ -2,6 +2,7 @@ import CustomFieldsCard from '@/components/custom-fields/CustomFieldsCard'
 import CustomerDocumentsCard from '@/components/customer-file/CustomerDocumentsCard'
 import PropertiesCard from '@/components/customer-file/PropertiesCard'
 import ServicePlansCard from '@/components/service-plans/ServicePlansCard'
+import CustomerInvoicesCard from '@/components/billing/CustomerInvoicesCard'
 import { loadCustomerDocuments } from '@/lib/customer-documents'
 import type { CustomerExtras } from '@/lib/customer-file/customer-extras'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -23,6 +24,8 @@ export function CustomerRecords({ customerId, extras }: { customerId: string; ex
         propertyFields={extras.propertyFields}
       />
       {extras.servicePlans ? <ServicePlansCard customerId={customerId} /> : null}
+      {/* Service invoices (no job): only billing staff see it — the card hides itself on 403 (lib/service-billing-access.ts). */}
+      {extras.servicePlans ? <CustomerInvoicesCard customerId={customerId} /> : null}
     </>
   )
 }

@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react'
 import { InvoiceWithItems, INVOICE_STATUS_LABELS, INVOICE_STATUS_COLORS, INVOICE_NOTE_TEMPLATES } from '@/lib/types/invoices'
 import { formatCurrency } from '@/lib/job-payments'
+import { invoiceTaxRows } from '@/lib/sales-tax'
+import { invoiceItemDateLabel, invoiceItemPriceLabel, invoiceItemQtyLabel } from '@/lib/invoice-lines'
 import { toast } from '@/components/ui/toast'
 import { confirmDialog } from '@/components/ui/confirm-dialog'
 
@@ -18,7 +20,9 @@ export default function InvoiceDetailModal({
   const [invoice, setInvoice] = useState<InvoiceWithItems | null>(null)
   const [loading, setLoading] = useState(true)
   const [editingItem, setEditingItem] = useState<string | null>(null)
-  const [newItem, setNewItem] = useState({ description: '', qty: '1', unit_price: '' })
+  const [newItem, setNewItem] = useState({ description: '', qty: '1', unit_price: '', taxable: false })
+  /** This company charges sales tax with rates: show the Taxable box on new lines (lib/sales-tax.ts). */
+  const [salesTaxOn, setSalesTaxOn] = useState(false)
   const [showAddItem, setShowAddItem] = useState(false)
   const [saving, setSaving] = useState(false)
   const [publicNote, setPublicNote] = useState('')
@@ -31,6 +35,7 @@ export default function InvoiceDetailModal({
       if (response.ok) {
         const data = await response.json()
         setInvoice(data.invoice)
+        setSalesTaxOn(data.salesTaxOn === true)
         setPublicNote(data.invoice?.public_note || '')
         setInternalNote(data.invoice?.internal_note || '')
         setNotesChanged(false)
@@ -107,13 +112,14 @@ export default function InvoiceDetailModal({
           description: newItem.description,
           qty: parseFloat(newItem.qty) || 1,
           unit_price_cents: Math.round(parseFloat(newItem.unit_price) * 100),
+          taxable: salesTaxOn && newItem.taxable,
         }),
       })
 
       if (response.ok) {
         const data = await response.json()
         setInvoice(data.invoice)
-        setNewItem({ description: '', qty: '1', unit_price: '' })
+        setNewItem({ description: '', qty: '1', unit_price: '', taxable: false })
         setShowAddItem(false)
       } else {
         const error = await response.json()
@@ -244,9 +250,13 @@ export default function InvoiceDetailModal({
                 <tbody>
                   {invoice.items.map((item, index) => (
                     <tr key={item.id} className={index > 0 ? 'border-t border-gray-100' : ''}>
-                      <td className="px-4 py-3 text-gray-900">{item.description}</td>
-                      <td className="px-4 py-3 text-right text-gray-900 font-medium tabular-nums">{item.qty}</td>
-                      <td className="px-4 py-3 text-right text-gray-900 font-medium tabular-nums">{formatCurrency(item.unit_price_cents)}</td>
+                      <td className="px-4 py-3 text-gray-900">
+                        {item.description}
+                        {item.taxable === true && <span className="ml-2 text-sm font-semibold text-[#2c2c2a]">Taxable</span>}
+                        {item.service_date ? <div className="text-sm text-[#2c2c2a]">{invoiceItemDateLabel(item.service_date)}</div> : null}
+                      </td>
+                      <td className="px-4 py-3 text-right text-gray-900 font-medium tabular-nums">{invoiceItemQtyLabel(item)}</td>
+                      <td className="px-4 py-3 text-right text-gray-900 font-medium tabular-nums">{invoiceItemPriceLabel(item)}</td>
                       <td className="px-4 py-3 text-right text-gray-900 font-medium tabular-nums">{formatCurrency(item.line_total_cents)}</td>
                       {isDraft && (
                         <td className="px-2 py-3 text-center">
@@ -278,6 +288,13 @@ export default function InvoiceDetailModal({
                   <span className="text-gray-900 font-medium tabular-nums w-28 text-right">{formatCurrency(invoice.subtotal_cents)}</span>
                   {isDraft && <span className="w-10"></span>}
                 </div>
+                {invoiceTaxRows(invoice).map((row, i) => (
+                  <div key={`${i}-${row.label}`} className="flex justify-end px-4 py-3 border-b border-gray-100">
+                    <span className="text-gray-600 mr-8">{row.label}:</span>
+                    <span className="text-gray-900 font-medium tabular-nums w-28 text-right">{formatCurrency(row.amountCents)}</span>
+                    {isDraft && <span className="w-10"></span>}
+                  </div>
+                ))}
                 <div className="flex justify-end px-4 py-3">
                   <span className="text-gray-900 font-semibold mr-8">Total:</span>
                   <span className="text-gray-900 font-semibold text-lg tabular-nums w-28 text-right">{formatCurrency(invoice.total_cents)}</span>
@@ -342,6 +359,17 @@ export default function InvoiceDetailModal({
                         </button>
                       </div>
                     </div>
+                    {salesTaxOn && (
+                    <label className="mt-3 flex min-h-[44px] items-center gap-2 text-base text-[#2c2c2a]">
+                      <input
+                        type="checkbox"
+                        className="h-5 w-5"
+                        checked={newItem.taxable}
+                        onChange={(e) => setNewItem({ ...newItem, taxable: e.target.checked })}
+                      />
+                      Taxable (charge sales tax on this line)
+                    </label>
+                    )}
                   </form>
                 ) : (
                   <button

@@ -140,7 +140,9 @@ describe('loadJobCatchUps', () => {
     // Record the number so a regression to per-job queries is obvious in review.
     // 16 here (thread viewer resolution is mocked; live adds its permission reads + proposals when present).
     // Owner names: one more read only when some job has an owner.
-    expect(big.calls.length).toBe(16)
+    // +1 (2026-11-10): invoice sales tax for the paid chip (lib/job-invoice-tax.ts), one read for all jobs.
+    expect(big.calls.length).toBe(17)
+    expect(big.calls.filter((t) => t === 'job_invoices')).toHaveLength(1)
     // The company's trade labels: read once, shared by data health and catch-up (cached per client).
     expect(big.calls.filter((t) => t === 'org_trades')).toHaveLength(1)
     // Crews and payments are read once (by data health) and reused — never a second time by catch-up.

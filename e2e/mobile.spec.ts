@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import { REPORT_TEMPLATES } from '../lib/reporting/templates'
-import { JOB_SETUP_TRADES, HARNESS_TRADES_0037, HARNESS_PAYMENTS_0037, SUPPLIER_VIEW_0037, HARNESS_INCENTIVES, HARNESS_LEADERBOARD, HARNESS_INSIDE_SALES, HARNESS_INSTALL_SCHEDULE, HARNESS_PARTNERS, HARNESS_APPOINTMENTS, HARNESS_THREAD, HARNESS_PROPOSALS, HARNESS_LEADS, ANNOUNCEMENTS, BANNER, DEFAULT_PLANS, COST_LINES, SUPPLIERS, PAY_WEEK, MY_PAY, REPORT_RESULT, SALE_CREDIT, SUPPLIER_PREVIEW, SUPPLIER_VIEW, TEMPLATE_META, USERS, HARNESS_OWNER_CANDIDATES, HARNESS_CUSTOM_FIELDS, HARNESS_PROPERTIES, HARNESS_SERVICE_PLANS, HARNESS_VISITS, HARNESS_PLAN_TEMPLATES, HARNESS_TEMPLATE_DETAIL } from './fixtures'
+import { JOB_SETUP_TRADES, HARNESS_TRADES_0037, HARNESS_PAYMENTS_0037, SUPPLIER_VIEW_0037, HARNESS_INCENTIVES, HARNESS_LEADERBOARD, HARNESS_INSIDE_SALES, HARNESS_INSTALL_SCHEDULE, HARNESS_PARTNERS, HARNESS_APPOINTMENTS, HARNESS_THREAD, HARNESS_PROPOSALS, HARNESS_LEADS, ANNOUNCEMENTS, BANNER, DEFAULT_PLANS, COST_LINES, SUPPLIERS, PAY_WEEK, MY_PAY, REPORT_RESULT, SALE_CREDIT, SUPPLIER_PREVIEW, SUPPLIER_VIEW, TEMPLATE_META, USERS, HARNESS_OWNER_CANDIDATES, HARNESS_CUSTOM_FIELDS, HARNESS_PROPERTIES, HARNESS_SERVICE_PLANS, HARNESS_VISITS, HARNESS_PLAN_TEMPLATES, HARNESS_TEMPLATE_DETAIL, HARNESS_READY_TO_BILL, HARNESS_CUSTOMER_INVOICES } from './fixtures'
 
 const json = (body: unknown, status = 200) => ({ status, contentType: 'application/json', body: JSON.stringify(body) })
 
@@ -207,6 +207,25 @@ const SCREENS: Screen[] = [
       { name: 'more', run: async (p) => { await p.getByRole('button', { name: 'More', exact: true }).first().click(); await p.waitForSelector('text=Add photos (drop or tap)') } },
       { name: 'new-customer', run: async (p) => { await p.getByRole('button', { name: '+ New customer + plan' }).click(); await p.waitForSelector('[role=dialog] >> text=Customer name *') } },
     ] },
+  { name: 'ready-to-bill', path: '/dev-harness/ready-to-bill', ready: 'text=Pat Lee', mock: async (p) => {
+    await p.route(/\/api\/ops\/billing(\?.*)?$/, (route) =>
+      route.request().method() === 'POST'
+        ? route.fulfill(json({ created: [{ key: 'c:c1:2026-10', invoiceId: 'i1', invoiceNumber: 'INV-26-00016', customerName: 'Pat Lee', totalCents: 19700, sent: true, sendError: null }, { key: 'c:c2:2026-10', invoiceId: 'i2', invoiceNumber: 'INV-26-00017', customerName: 'Sam Ortiz', totalCents: 4000, sent: false, sendError: 'No email on file — left as a draft' }], alreadyBilled: [], failed: [] }))
+        : route.fulfill(json(HARNESS_READY_TO_BILL)))
+  },
+    states: [
+      { name: 'lines', run: async (p) => { await p.getByRole('button', { name: /Pat Lee/ }).click(); await p.waitForSelector('text=Sales tax') } },
+      { name: 'per-visit', run: async (p) => { await p.getByRole('button', { name: 'One per visit' }).click(); await p.waitForSelector('text=5 invoices') } },
+      { name: 'confirm', run: async (p) => { await p.getByRole('button', { name: /^Bill 2/ }).click(); await p.waitForSelector('[role=dialog] >> text=1 without an email stay as drafts.') } },
+      { name: 'billed', run: async (p) => { await p.getByRole('button', { name: /^Bill 2/ }).click(); await p.getByRole('button', { name: 'Make and email' }).click(); await p.waitForSelector('text=Made 2 invoices · 1 emailed') } },
+    ] },
+  { name: 'customer-invoices', path: '/dev-harness/customer-invoices', ready: 'text=INV-26-00012', mock: async (p) => {
+    await p.route('**/api/customers/*/invoices', (route) => route.fulfill(json(HARNESS_CUSTOMER_INVOICES)))
+    await p.route('**/api/invoices/*', (route) => route.fulfill(json({ success: true, invoice: { ...HARNESS_CUSTOMER_INVOICES.invoices[0], items: [], payments: [] } })))
+  },
+    states: [
+      { name: 'mark-paid', run: async (p) => { await p.getByRole('button', { name: 'Mark paid' }).first().click(); await p.waitForSelector('[role=dialog] >> text=Amount paid') } },
+    ] },
   { name: 'crew-day', path: '/dev-harness/crew-day', ready: 'text=Gate code 4421. Dog in back yard.',
     mock: async (p) => {
       await p.route('**/api/crew/day/*/status', (route) => route.fulfill(json({ active: true })))
@@ -291,6 +310,8 @@ const SCREENS: Screen[] = [
   { name: 'catch-up-job-v2', path: '/dev-harness/catch-up-job-v2', ready: 'text=Where this stands', mock: mockJob0037 },
   { name: 'catch-up-settings', path: '/dev-harness/catch-up-settings', ready: 'text=Flag a job as stuck' },
   { name: 'org-features', path: '/dev-harness/org-features', ready: 'text=Turn off what your company doesn’t use' },
+  { name: 'sales-tax', path: '/dev-harness/sales-tax', ready: 'text=Rates stack' },
+  { name: 'tax-exemption', path: '/dev-harness/tax-exemption', ready: 'text=Tax exempt (no sales tax' },
   { name: 'admin-settings', path: '/dev-harness/admin-settings', ready: 'text=Customer-facing brand',
     states: [{ name: 'editing-brand', run: async (p) => { await p.getByLabel('Website').fill('example.test/roofing'); await p.waitForTimeout(200) } }] },
   { name: 'admin-settings-readonly', path: '/dev-harness/admin-settings-readonly', ready: 'text=Only an owner can change these' },

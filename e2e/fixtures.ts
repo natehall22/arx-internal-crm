@@ -666,3 +666,35 @@ export const HARNESS_CREW_DAY = [
   { id: 'v2', planName: 'Biweekly mowing', address: '88 Oak Ridge Rd, Crawfordville, FL 32327', lat: null, lng: null, accessNotes: null, status: 'completed', skipReason: null, photoCount: 2, routePosition: 2, resultOptions: [] },
   { id: 'v3', planName: 'Clean-up check — Hedges', address: '5 Old Shell Rd, Medart, FL 32327', lat: null, lng: null, accessNotes: null, status: 'scheduled', skipReason: null, photoCount: 0, routePosition: null, resultOptions: [{ key: 'pass', label: 'Passed', tone: 'good' }, { key: 'fail', label: 'Needs a return trip', tone: 'bad' }] },
 ]
+
+/** Ready to bill (components/billing/ReadyToBill.tsx): October done, November waiting, one unpriced visit. */
+const billUnit = (key: string, kind: 'visit' | 'month', customerId: string, propertyId: string, planName: string, month: string, date: string, cents: number, taxable: boolean, visits: string[]) => ({
+  key, kind, customerId, propertyId, planId: `plan-${planName}`, planName, month, date, amountCents: cents, taxable, visits: visits.map((d, i) => ({ visitId: `${key}-${i}`, date: d })),
+})
+export const HARNESS_READY_TO_BILL = {
+  today: '2026-11-11',
+  currentMonth: '2026-11',
+  lookbackDays: 120,
+  maxPerRequest: 25,
+  units: [
+    billUnit('v:a1', 'visit', 'c1', 'p1', 'Weekly mowing', '2026-10', '2026-10-06', 4500, false, ['2026-10-06']),
+    billUnit('v:a2', 'visit', 'c1', 'p1', 'Weekly mowing', '2026-10', '2026-10-13', 4500, false, ['2026-10-13']),
+    billUnit('m:care:2026-10', 'month', 'c1', 'p1', 'Gutter care', '2026-10', '2026-10-01', 10000, true, ['2026-10-20']),
+    billUnit('v:b1', 'visit', 'c2', 'p2', 'Weekly mowing', '2026-10', '2026-10-07', 4000, false, ['2026-10-07']),
+    billUnit('v:a3', 'visit', 'c1', 'p1', 'Weekly mowing', '2026-11', '2026-11-03', 4500, false, ['2026-11-03']),
+  ],
+  notBillable: [{ visitId: 'z1', customerId: 'c2', planName: 'Shrub trim', date: '2026-10-09', reason: 'no_price' }],
+  customers: { c1: { name: 'Pat Lee', email: 'pat@example.com', exempt: false }, c2: { name: 'Sam Ortiz', email: null, exempt: false } },
+  addresses: { p1: '14 Oak Hollow Rd, Crawfordville', p2: '2 Elm St, Crawfordville' },
+  salesTax: { enabled: true, rates: [{ id: 'fl', name: 'Florida', percent: 6, active: true }, { id: 'wak', name: 'Wakulla', percent: 1, active: true }], defaultRateIds: ['fl', 'wak'] },
+}
+
+export const HARNESS_CUSTOMER_INVOICES = {
+  ready: true,
+  customerEmail: 'pat@example.com',
+  invoices: [
+    { id: 'inv-1', job_id: null, customer_id: 'c1', invoice_number: 'INV-26-00012', invoice_kind: 'service', status: 'sent', issued_at: '2026-11-01', due_at: '2026-11-01', sent_at: '2026-11-01T14:00:00Z', sent_to_email: 'pat@example.com', subtotal_cents: 19000, tax_cents: 700, total_cents: 19700, applied_cents: 0, balance_cents: 19700, created_at: '2026-11-01T14:00:00Z' },
+    { id: 'inv-2', job_id: null, customer_id: 'c1', invoice_number: 'INV-26-00004', invoice_kind: 'service', status: 'paid', issued_at: '2026-10-01', due_at: '2026-10-01', sent_at: '2026-10-01T14:00:00Z', sent_to_email: 'pat@example.com', subtotal_cents: 18000, tax_cents: 0, total_cents: 18000, applied_cents: 18000, balance_cents: 0, created_at: '2026-10-01T14:00:00Z' },
+    { id: 'inv-3', job_id: null, customer_id: 'c1', invoice_number: 'INV-26-00015', invoice_kind: 'service', status: 'draft', issued_at: null, due_at: null, sent_at: null, sent_to_email: null, subtotal_cents: 4500, tax_cents: 0, total_cents: 4500, applied_cents: 0, balance_cents: 4500, created_at: '2026-11-10T14:00:00Z' },
+  ],
+}

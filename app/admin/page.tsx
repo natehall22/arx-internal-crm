@@ -14,6 +14,8 @@ import CheckupSettingsCard from '@/components/admin/CheckupSettingsCard'
 import JobCatchUpSettingsCard from '@/components/admin/JobCatchUpSettingsCard'
 import OrgFeaturesCard from '@/components/admin/OrgFeaturesCard'
 import ServicePlanTemplatesCard from '@/components/service-plans/ServicePlanTemplatesCard'
+import SalesTaxCard from '@/components/admin/SalesTaxCard'
+import { loadOrgSalesTax } from '@/lib/sales-tax-server'
 import { getOrgFeatures } from '@/lib/org-features-server'
 import { loadCheckupSettings } from '@/lib/checkups'
 import { canEditCheckupSettings } from '@/lib/checkups-settings'
@@ -39,10 +41,11 @@ export default async function SettingsPage() {
   })
   // Small org switches live as cards right here (the hub's "Job catch-up" entry links to #job-catch-up).
   const admin = createServiceClient()
-  const [catchUp, checkups, { data: activeUsers }] = await Promise.all([
+  const [catchUp, checkups, { data: activeUsers }, salesTax] = await Promise.all([
     loadJobCatchUpSettings(admin, profile.org_id),
     loadCheckupSettings(admin, profile.org_id),
     admin.from('users').select('id, full_name').eq('org_id', profile.org_id).eq('active', true).order('full_name'),
+    canEditFeatures ? loadOrgSalesTax(admin, profile.org_id) : Promise.resolve(null),
   ])
   const userOptions = ((activeUsers ?? []) as Array<{ id: string; full_name: string | null }>).map((u) => ({ id: u.id, name: u.full_name || 'Unnamed user' }))
 
@@ -55,6 +58,8 @@ export default async function SettingsPage() {
         <div className="mt-4 flex max-w-2xl flex-col gap-4">
           {/* Owners only: turn whole parts of the app on/off for this company (lib/org-features.ts). */}
           {canEditFeatures && <OrgFeaturesCard initial={features} />}
+          {/* Owners only: sales tax rates, default stack, on/off (lib/sales-tax.ts). */}
+          {canEditFeatures && <SalesTaxCard initial={salesTax} />}
           <JobCatchUpSettingsCard initial={{ ...catchUp, canEdit: canEditJobCatchUpSettings(profile) }} />
           <CheckupSettingsCard initial={{ ...checkups, canEdit: canEditCheckupSettings(profile) }} users={userOptions} />
           {/* Owners, when the company uses service plans: what it sells (plan templates). */}

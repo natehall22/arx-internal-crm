@@ -1,4 +1,5 @@
 import { roundMoney } from '@/lib/money'
+import { computeSalesTax, legacyTaxLabel, lineIsTaxable, readStoredTaxLines, taxLineLabel, type TaxRateInput } from '@/lib/sales-tax'
 
 const toCents = (value: number) => Math.round((Number(value) || 0) * 100)
 const fromCents = (cents: number) => cents / 100
@@ -19,6 +20,9 @@ export type ProposalPricingInput = {
   discount_amount?: number | null
   discount_percent?: number | null
   tax_rate?: number | null
+  /** Stored tax snapshot (lib/sales-tax.ts). Absent/null = legacy single `tax_rate` on the whole after-discount amount. */
+  tax_lines?: unknown
+  tax_exempt?: boolean | null
   financing_available?: boolean | null
   financed_contract_total?: number | null
   monthly_payment?: number | null
@@ -32,19 +36,96 @@ export type SelectedProposalFinancing = {
   interest_rate?: number
 }
 
+/** A proposal's discount in cents: percent wins over a dollar amount; 0 ≤ discount ≤ subtotal. */
+export function proposalDiscountCents(subtotalCents: number, discountPercent?: number | null, discountAmount?: number | null): number {
+  const d = Number(discountPercent) > 0
+    ? Math.round(subtotalCents * ((Number(discountPercent) || 0) / 100))
+    : toCents(discountAmount || 0)
+  return Math.min(Math.max(d, 0), subtotalCents)
+}
+
+/** A line priced as a percent of the other lines (e.g. "Overhead 10%"). */
+export function isPercentageLineItem(item: { price_type?: string | null; unit?: string | null }): boolean {
+  return item.price_type === 'percentage' || item.unit === 'percent'
+}
+
+export type ProposalTaxLineItem = {
+  line_total?: number | null
+  unit_price?: number | null
+  price_type?: string | null
+  unit?: string | null
+  /** Per-line override; null/undefined = taxed (see lineIsTaxable). */
+  taxable?: boolean | null
+}
+
+/**
+ * Each line's amount in cents, as the builder prices it: fixed lines = their line total; percentage lines =
+ * unit_price % of the sum of the fixed lines. The sum is the proposal subtotal.
+ */
+export function proposalLineCents(items: readonly ProposalTaxLineItem[]): number[] {
+  const baseCents = items.filter((i) => !isPercentageLineItem(i)).reduce((s, i) => s + toCents(i.line_total || 0), 0)
+  return items.map((i) =>
+    isPercentageLineItem(i) ? Math.round(baseCents * ((Number(i.unit_price) || 0) / 100)) : toCents(i.line_total || 0)
+  )
+}
+
+/**
+ * THE proposal total + tax (builder screen and server save). `rates: null` = legacy single typed rate on every line
+ * (`legacyRatePercent`); otherwise the chosen company rates on the taxable lines, nothing for an exempt customer.
+ */
+export function computeProposalTotals(input: {
+  items: readonly ProposalTaxLineItem[]
+  discountPercent?: number | null
+  discountAmount?: number | null
+  rates: readonly TaxRateInput[] | null
+  legacyRatePercent?: number | null
+  exempt?: boolean
+}) {
+  const cents = proposalLineCents(input.items)
+  const subtotalCents = cents.reduce((s, c) => s + c, 0)
+  const discountCents = proposalDiscountCents(subtotalCents, input.discountPercent, input.discountAmount)
+  const legacy = input.rates === null
+  const result = computeSalesTax({
+    lines: cents.map((amountCents, i) => ({ amountCents, taxable: legacy ? true : lineIsTaxable(input.items[i].taxable) })),
+    discountCents,
+    rates: legacy ? [{ name: 'Tax', percent: Number(input.legacyRatePercent) || 0 }] : input.rates!,
+    exempt: legacy ? false : input.exempt,
+  })
+  return { ...result, lineCents: cents, legacy }
+}
+
+/** Customer-facing tax rows: one per stacked rate, or the legacy "Tax (7%)" row. */
+export type ProposalTaxRow = { label: string; amount: number }
+
 export function getProposalDisplayPricing(proposal: ProposalPricingInput) {
   const subtotalCents = toCents(proposal.subtotal || 0)
-  let discountCents = Number(proposal.discount_percent) > 0
-    ? Math.round(subtotalCents * ((Number(proposal.discount_percent) || 0) / 100))
-    : toCents(proposal.discount_amount || 0)
-  discountCents = Math.min(Math.max(discountCents, 0), subtotalCents)
+  const discountCents = proposalDiscountCents(subtotalCents, proposal.discount_percent, proposal.discount_amount)
   const afterDiscountCents = subtotalCents - discountCents
-  const taxCents = Math.round(afterDiscountCents * ((Number(proposal.tax_rate) || 0) / 100))
+  const snapshot = readStoredTaxLines(proposal.tax_lines)
+
+  let taxCents: number
+  let taxLines: ProposalTaxRow[]
+  if (snapshot) {
+    // Set-up company: the tax was computed per line and per rate at save (lib/sales-tax.ts) and stored.
+    taxCents = snapshot.reduce((s, l) => s + l.amount_cents, 0)
+    taxLines = snapshot.map((l) => ({ label: taxLineLabel(l), amount: fromCents(l.amount_cents) }))
+    if (proposal.tax_exempt && snapshot.length === 0) taxLines = [{ label: 'Sales tax (exempt)', amount: 0 }]
+  } else {
+    // Legacy: ONE hand-typed rate on the whole after-discount amount (byte-identical to the original math).
+    const r = computeSalesTax({
+      lines: [{ amountCents: subtotalCents, taxable: true }],
+      discountCents,
+      rates: [{ name: 'Tax', percent: Number(proposal.tax_rate) || 0 }],
+    })
+    taxCents = r.taxCents
+    taxLines = [{ label: legacyTaxLabel(proposal.tax_rate), amount: fromCents(taxCents) }]
+  }
 
   return {
     subtotal: fromCents(subtotalCents),
     discountAmount: fromCents(discountCents),
     taxAmount: fromCents(taxCents),
+    taxLines,
     total: fromCents(afterDiscountCents + taxCents),
   }
 }
@@ -120,6 +201,7 @@ export function getProposalCustomerPricing(proposal: ProposalPricingInput) {
     subtotal: display.subtotal,
     discountAmount: display.discountAmount,
     taxAmount: display.taxAmount,
+    taxLines: display.taxLines,
     taxRate: Number(proposal.tax_rate) || 0,
     standardTotal: display.total,
     quotedTotal,

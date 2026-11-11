@@ -8,7 +8,19 @@ import { BUNDLES_PER_SQUARE, CAP_LF_PER_BUNDLE } from '@/lib/roof-shingle-consta
 import { useOrgFeatures } from '@/hooks/useOrgFeatures'
 import { formatNumericDraft, parseDraftFloat, previewNumber } from '@/lib/numeric-input-draft'
 import { toast } from '@/components/ui/toast'
+import SalesTaxPicker from '@/components/proposals/SalesTaxPicker'
 import { formatPhone } from '@/lib/format'
+import { computeProposalTotals, isPercentageLineItem } from '@/lib/proposal-pricing-visibility'
+import {
+  LEGACY_MANUAL_DEFAULT_PERCENT,
+  combinedTaxPercent,
+  initialQuoteTaxRateIds,
+  legacyTaxLabel,
+  readStoredTaxLines,
+  taxLineLabel,
+  taxRatesByIds,
+  type SalesTaxSettings,
+} from '@/lib/sales-tax'
 
 interface PricebookItem {
   id: string
@@ -22,6 +34,7 @@ interface PricebookItem {
   show_to_customer?: boolean
   price_type?: 'fixed' | 'percentage' | null
   image_url?: string | null
+  is_taxable?: boolean | null
 }
 
 interface RoofingType {
@@ -65,6 +78,8 @@ interface LineItem {
   is_adder: boolean
   show_to_customer?: boolean
   price_type?: 'fixed' | 'percentage' | null
+  /** Sales tax: null = follow the default (taxed). Set from the price-book item; changeable per line. */
+  taxable?: boolean | null
 }
 
 interface ProposalForm {
@@ -108,7 +123,7 @@ const defaultForm: ProposalForm = {
   warranty_info: '',
   discount_amount: 0,
   discount_percent: 0,
-  tax_rate: 8.25,
+  tax_rate: LEGACY_MANUAL_DEFAULT_PERCENT,
   financing_available: false,
   financing_program_id: null,
   financing_term_months: 60,
@@ -155,6 +170,13 @@ export default function ProposalBuilderPage() {
   }, [squaresOn, step])
   const [form, setForm] = useState<ProposalForm>(defaultForm)
   const [lineItems, setLineItems] = useState<LineItem[]>([])
+  /**
+   * Sales tax (lib/sales-tax.ts). `taxRateIds === null` = legacy: one rate typed on this quote, every line taxed
+   * (company not set up, or an older quote being edited). Otherwise the chosen company rates on the taxable lines.
+   */
+  const [salesTax, setSalesTax] = useState<SalesTaxSettings | null>(null)
+  const [taxRateIds, setTaxRateIds] = useState<string[] | null>(null)
+  const [customerTaxExempt, setCustomerTaxExempt] = useState(false)
   const [pricebookItems, setPricebookItems] = useState<PricebookItem[]>([])
   const [adders, setAdders] = useState<PricebookItem[]>([])
   const [selectedAdderCategory, setSelectedAdderCategory] = useState<string>('all')
@@ -221,6 +243,21 @@ export default function ProposalBuilderPage() {
       const data = await response.json()
       
       setUserRole(data.role)
+      const companyTax: SalesTaxSettings | null = data.salesTax ?? null
+      setSalesTax(companyTax)
+      setCustomerTaxExempt(data.customerTaxExempt === true)
+      const savedTaxLines = data.existingProposal ? readStoredTaxLines(data.existingProposal.proposal?.tax_lines) : null
+      const initialTax = initialQuoteTaxRateIds({
+        settings: companyTax,
+        existing: !!data.existingProposal,
+        savedTaxLines,
+        savedExempt: data.existingProposal?.proposal?.tax_exempt === true,
+        customerExempt: data.customerTaxExempt === true,
+      })
+      if (initialTax.exemptionLifted) {
+        toast('This customer is no longer tax exempt — the company’s sales tax rates were added. Check them before saving.')
+      }
+      setTaxRateIds(initialTax.ids)
       setPricebookItems(data.pricebookItems || [])
       setAdders(data.adders || [])
       setTemplates(data.templates || [])
@@ -341,7 +378,7 @@ export default function ProposalBuilderPage() {
           warranty_info: String(p.warranty_info || ''),
           discount_amount: Number(p.discount_amount) || 0,
           discount_percent: Number(p.discount_percent) || 0,
-          tax_rate: Number(p.tax_rate) || 8.25,
+          tax_rate: p.tax_rate == null || p.tax_rate === '' ? LEGACY_MANUAL_DEFAULT_PERCENT : Number(p.tax_rate) || 0,
           financing_available: Boolean(p.financing_available),
           financing_program_id: p.financing_program_id ? String(p.financing_program_id) : null,
           financing_term_months: Number(p.financing_term_months) || 60,
@@ -370,6 +407,7 @@ export default function ProposalBuilderPage() {
           is_adder: Boolean(row.is_adder),
           show_to_customer: Boolean(row.show_to_customer ?? false),
           price_type: (row.price_type as LineItem['price_type']) ?? null,
+          taxable: typeof row.taxable === 'boolean' ? row.taxable : null,
         }))
         setLineItems(mapped)
         setStep(4)
@@ -733,6 +771,7 @@ export default function ProposalBuilderPage() {
       is_adder: item.is_adder,
       show_to_customer: item.show_to_customer ?? false,
       price_type: item.price_type,
+      taxable: typeof item.is_taxable === 'boolean' ? item.is_taxable : null,
     }
     setLineItems(prev => [...prev, newItem])
     setShowAddItem(false)
@@ -760,6 +799,7 @@ export default function ProposalBuilderPage() {
       is_adder: quantityModalItem.is_adder,
       show_to_customer: quantityModalItem.show_to_customer ?? false,
       price_type: quantityModalItem.price_type,
+      taxable: typeof quantityModalItem.is_taxable === 'boolean' ? quantityModalItem.is_taxable : null,
     }
     setLineItems(prev => [...prev, newItem])
     setQuantityModalItem(null)
@@ -800,36 +840,34 @@ export default function ProposalBuilderPage() {
     })
   }
 
-  const isPercentageItem = (item: LineItem): boolean => {
-    return item.price_type === 'percentage' || item.unit === 'percent'
-  }
+  const isPercentageItem = (item: LineItem): boolean => isPercentageLineItem(item)
+
+  /** Rates applied to this quote: null = legacy single typed rate (form.tax_rate). */
+  const appliedTaxRates = taxRateIds === null ? null : taxRatesByIds(salesTax, taxRateIds)
 
   const calculateTotals = () => {
-    // First calculate base subtotal (non-percentage items) in cents for stable currency math.
-    const baseSubtotalCents = lineItems
-      .filter(item => !isPercentageItem(item))
-      .reduce((sum, item) => sum + toCents(item.line_total || 0), 0)
-    
-    // Then calculate percentage-based items as % of base subtotal (also in cents).
-    const percentageTotalCents = lineItems
-      .filter(item => isPercentageItem(item))
-      .reduce((sum, item) => sum + Math.round(baseSubtotalCents * ((item.unit_price || 0) / 100)), 0)
-    
-    const subtotalCents = baseSubtotalCents + percentageTotalCents
-    let discountCents = form.discount_percent > 0
-      ? Math.round(subtotalCents * ((form.discount_percent || 0) / 100))
-      : toCents(form.discount_amount || 0)
-    discountCents = Math.min(Math.max(discountCents, 0), subtotalCents)
-    const afterDiscountCents = subtotalCents - discountCents
-    const taxAmountCents = Math.round(afterDiscountCents * ((form.tax_rate || 0) / 100))
-    const totalCents = afterDiscountCents + taxAmountCents
-    const subtotal = fromCents(subtotalCents)
+    // One calculation for screen and server (lib/proposal-pricing-visibility → lib/sales-tax), in integer cents.
+    const t = computeProposalTotals({
+      items: lineItems,
+      discountPercent: form.discount_percent,
+      discountAmount: form.discount_amount,
+      rates: appliedTaxRates,
+      legacyRatePercent: form.tax_rate,
+      exempt: customerTaxExempt,
+    })
+    const baseSubtotalCents = lineItems.reduce((sum, item, i) => sum + (isPercentageItem(item) ? 0 : t.lineCents[i]), 0)
+    const subtotal = fromCents(t.subtotalCents)
     const baseSubtotal = fromCents(baseSubtotalCents)
-    const percentageTotal = fromCents(percentageTotalCents)
-    const discountAmount = fromCents(discountCents)
-    const afterDiscount = fromCents(afterDiscountCents)
-    const taxAmount = fromCents(taxAmountCents)
-    const total = fromCents(totalCents)
+    const percentageTotal = fromCents(t.subtotalCents - baseSubtotalCents)
+    const discountAmount = fromCents(t.discountCents)
+    const afterDiscount = fromCents(t.subtotalCents - t.discountCents)
+    const taxAmount = fromCents(t.taxCents)
+    const total = fromCents(t.totalCents)
+    const taxRows = t.legacy
+      ? [{ label: legacyTaxLabel(form.tax_rate), amount: taxAmount }]
+      : t.exempt
+        ? [{ label: 'Sales tax (exempt)', amount: 0 }]
+        : t.taxLines.map((l) => ({ label: taxLineLabel(l), amount: fromCents(l.amount_cents) }))
     const monthlyPayment = form.financing_available 
       ? calculateMonthlyPayment(total, form.financing_rate || 0, form.financing_term_months || 60)
       : 0
@@ -842,7 +880,11 @@ export default function ProposalBuilderPage() {
       afterDiscount: afterDiscount || 0, 
       taxAmount: taxAmount || 0, 
       total: total || 0, 
-      monthlyPayment: monthlyPayment || 0 
+      monthlyPayment: monthlyPayment || 0,
+      taxRows,
+      taxLines: t.legacy ? null : t.taxLines,
+      taxableSubtotal: fromCents(t.taxableCents),
+      taxExempt: !t.legacy && t.exempt,
     }
   }
 
@@ -892,8 +934,12 @@ export default function ProposalBuilderPage() {
         subtotal: totals.subtotal,
         discount_amount: totals.discountAmount,
         discount_percent: form.discount_percent,
-        tax_rate: form.tax_rate,
+        // Legacy quotes keep the typed rate; rate-based quotes store the stacked total plus the per-rate snapshot.
+        tax_rate: appliedTaxRates ? combinedTaxPercent(appliedTaxRates) : form.tax_rate,
         tax_amount: totals.taxAmount,
+        ...(totals.taxLines
+          ? { tax_lines: totals.taxLines, taxable_subtotal: totals.taxableSubtotal, tax_exempt: totals.taxExempt }
+          : {}),
         total: totals.total,
         financing_available: form.financing_available,
         financing_program_id: form.financing_program_id,
@@ -921,6 +967,8 @@ export default function ProposalBuilderPage() {
         line_total: item.line_total,
         is_adder: item.is_adder,
         show_to_customer: item.show_to_customer ?? false,  // Include customer visibility
+        price_type: item.price_type ?? null, // read by the server's tax/total check, not stored
+        ...(appliedTaxRates ? { taxable: item.taxable ?? null } : {}),
       }))
 
       const response = await fetch('/api/proposals/builder', {
@@ -968,6 +1016,10 @@ export default function ProposalBuilderPage() {
     taxAmount: 0,
     total: 0,
     monthlyPayment: 0,
+    taxRows: [] as { label: string; amount: number }[],
+    taxLines: null,
+    taxableSubtotal: 0,
+    taxExempt: false,
   }
 
   const displayMonthlyPayment =
@@ -2049,10 +2101,12 @@ export default function ProposalBuilderPage() {
                         <span>-${(totals.discountAmount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
                       </div>
                     )}
-                    <div className="flex justify-between text-gray-600">
-                      <span>Tax ({form.tax_rate}%)</span>
-                      <span>${(totals.taxAmount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
-                    </div>
+                    {totals.taxRows.map((row, i) => (
+                      <div key={`${i}-${row.label}`} className="flex justify-between text-gray-600">
+                        <span>{row.label}</span>
+                        <span>${(row.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                      </div>
+                    ))}
                     <div className="flex justify-between text-xl font-bold text-gray-900 pt-2 border-t">
                       <span>Total Investment</span>
                       <span>
@@ -2095,6 +2149,25 @@ export default function ProposalBuilderPage() {
               </div>
               
               <div className="space-y-3">
+                {/* Sales tax per line (company rates only): starts from the price-book item's Taxable flag. */}
+                {taxRateIds !== null && salesTax?.enabled && !customerTaxExempt && lineItems.length > 0 && (
+                  <fieldset className="pb-3 border-b border-amber-200">
+                    <legend className="text-sm font-medium text-amber-900 mb-1">Taxable lines</legend>
+                    {lineItems.map((item) => (
+                      <label key={item.id} className="flex min-h-[44px] items-center gap-3 text-base text-[#2c2c2a]">
+                        <input
+                          type="checkbox"
+                          className="h-5 w-5"
+                          checked={item.taxable !== false}
+                          onChange={(e) =>
+                            setLineItems(prev => prev.map(li => (li.id === item.id ? { ...li, taxable: e.target.checked } : li)))
+                          }
+                        />
+                        <span>{item.name}</span>
+                      </label>
+                    ))}
+                  </fieldset>
+                )}
                 {/* Base Price */}
                 <div className="flex justify-between py-2 border-b border-amber-200">
                   <span className="text-amber-900">Base Project Price</span>
@@ -2171,16 +2244,25 @@ export default function ProposalBuilderPage() {
                   </div>
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Tax Rate (%)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={form.tax_rate}
-                    onChange={(e) => setForm(prev => ({ ...prev, tax_rate: parseFloat(e.target.value) || 0 }))}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                {taxRateIds === null ? (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Tax Rate (%)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={form.tax_rate}
+                      onChange={(e) => setForm(prev => ({ ...prev, tax_rate: parseFloat(e.target.value) || 0 }))}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                    />
+                  </div>
+                ) : (
+                  <SalesTaxPicker
+                    settings={salesTax}
+                    selected={taxRateIds}
+                    exempt={customerTaxExempt}
+                    onChange={setTaxRateIds}
                   />
-                </div>
+                )}
 
                 <div className="md:col-span-2">
                   <label className="flex items-center gap-3">
