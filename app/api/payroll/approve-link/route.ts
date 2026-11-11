@@ -45,6 +45,7 @@ export async function GET(request: NextRequest) {
       total: week.totals.amount,
       people: week.totals.people,
       notifiedTotal: a.link.notified_total,
+      changedSinceMessage: Math.round(week.totals.amount * 100) !== Math.round(Number(a.link.notified_total) * 100),
       canApprove: week.canApprove && !week.blockedBy,
       needsCount: week.needs.length,
       warnings: week.warnings.map((w) => w.text),
@@ -63,6 +64,11 @@ export async function POST(request: NextRequest) {
   const a = await authorize(body.token)
   if ('res' in a) return a.res
   try {
+    // The message promised a total. If the live week no longer matches it, the owner must look at the week first (no blind tap).
+    const live = await loadPayWeek(a.admin, a.link.org_id, new Date(), a.link.payroll_period_id)
+    if (Math.round(live.totals.amount * 100) !== Math.round(Number(a.link.notified_total) * 100)) {
+      return NextResponse.json({ error: 'Pay changed since this message. Open the week.', code: 'changed_since_message' }, { status: 409 })
+    }
     const r = await approvePayWeek(a.admin, { orgId: a.link.org_id, actorUserId: a.profile.id, periodId: a.link.payroll_period_id, expectedTotal: expected })
     if (!r.ok) return NextResponse.json(r.body, { status: r.status })
     await consumeApprovalLink(a.admin, a.link.id)

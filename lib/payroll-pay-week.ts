@@ -401,16 +401,17 @@ export async function loadWeekMinimums(
   /** Each person's lines for the week WITHOUT a minimum line (composeWeek), from which the plan's basis is summed. */
   linesByUser: Map<string, PayWeekLine[]>,
   plans: Map<string, Record<string, unknown> | null> = new Map()
-): Promise<{ minimums: WeekMinimum[]; asks: MinimumAsk[] }> {
+): Promise<{ minimums: WeekMinimum[]; asks: MinimumAsk[]; notMet: Set<string> }> {
   const decisions = await loadMinimumDecisions(admin, orgId, period.id)
   if (period.status !== 'open') {
     const minimums = Array.from(decisions.entries())
       .filter(([, d]) => d.amount > 0)
       .map(([userId, d]) => ({ userId, amount: d.amount, detail: d.detail ?? { minimum: d.amount, commission: 0, planName: null } }))
-    return { minimums, asks: [] }
+    return { minimums, asks: [], notMet: new Set() }
   }
   const minimums: WeekMinimum[] = []
   const asks: MinimumAsk[] = []
+  const notMet = new Set<string>()
   const days = periodLength(period)
   for (const p of people) {
     let plan = plans.get(p.id)
@@ -425,8 +426,9 @@ export async function loadWeekMinimums(
     const minimum = weekMinimumFor(rule, days)
     if (out.state === 'pays') minimums.push({ userId: p.id, amount: out.topUp, detail: { minimum, commission, planName: (plan?.name as string) ?? null, weekDays: days, basis: rule.basis } })
     else if (out.state === 'needs_answer') asks.push({ userId: p.id, minimum, commission, topUp: out.topUp })
+    else if (out.state === 'not_met') notMet.add(p.id)
   }
-  return { minimums, asks }
+  return { minimums, asks, notMet }
 }
 
 export async function loadUnits(admin: SupabaseClient, orgId: string, period: PayWeekPeriod, userIds: string[]): Promise<Map<string, number>> {
@@ -597,7 +599,7 @@ export async function loadPayWeekFull(admin: SupabaseClient, orgId: string, now:
   const linesByUser = new Map(before.people.map((p) => [p.userId, p.lines]))
   const minimumPeople = new Map(weekPeople.map((p) => [p.id, { id: p.id, active: p.active }]))
   for (const id of Array.from(linesByUser.keys())) if (!minimumPeople.has(id)) minimumPeople.set(id, { id, active: true })
-  const { minimums, asks: minimumAsks } = await loadWeekMinimums(admin, orgId, period, Array.from(minimumPeople.values()), linesByUser, plansSeen)
+  const { minimums, asks: minimumAsks, notMet: minimumNotMet } = await loadWeekMinimums(admin, orgId, period, Array.from(minimumPeople.values()), linesByUser, plansSeen)
   for (const p of weekPeople) if (!names.has(p.id) && (minimums.some((m) => m.userId === p.id) || minimumAsks.some((m) => m.userId === p.id))) names.set(p.id, { name: p.full_name, role: p.role })
 
   const composeInputs = { rows, jobs, names, hours, units, bonuses: approvedBonuses, minimums }
@@ -615,7 +617,8 @@ export async function loadPayWeekFull(admin: SupabaseClient, orgId: string, now:
       let plan = plansSeen.get(id)
       if (plan === undefined) plan = ((await loadPlanForWeek(admin, id, orgId, period.cutoffAt, { leftOrSaved: true, clock: period.clock }))?.comp_plans as Record<string, unknown> | null) ?? null
       const rule = parseWeeklyMinimum(plan?.weekly_minimum)
-      if (rule) floors.set(id, weekMinimumFor(rule, periodLength(period)))
+      // The minimum only protects the check when it is actually paid this week (the office said "not met" = no minimum, no floor).
+      if (rule && !minimumNotMet.has(id)) floors.set(id, weekMinimumFor(rule, periodLength(period)))
     }
     const plan = planAdvanceRecoveries({ weekEnding: period.weekEnding, advances, pay, floors })
     recoveries = plan.items

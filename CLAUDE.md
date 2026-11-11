@@ -428,6 +428,12 @@ runs in `supabase/tests/hourly_billing.test.sql`. (39) `addDaysYmd` exists in bo
 
 - **Per-page Nav + announcements.** `components/Nav.tsx` is imported by each CRM page (there is no shared layout), so every new CRM page must render `<Nav />` itself — that is also what shows the "What's new" banner (`components/AnnouncementBanner.tsx`, data in `announcements` / `announcement_dismissals`, copy per role group in `lib/announcements.ts`, owner editor at Settings → Announcements). Canvass app, signing, crew and other customer-facing pages deliberately do NOT render Nav. Dismissal is per user in the database, never localStorage.
 
+## Payroll phase 2 — pre-launch list (2026-11-13)
+Advances, one-tap approve and the Gusto/ADP export sit on the pay-week path (`PAYROLL_PAY_WEEK_ENABLED`). Scope (Nathan): the CRM computes who earns what, approves and EXPORTS; the provider owns tax, filings and its own QuickBooks sync. No tax math, no loan ledger, no journal entries.
+- **Advance tax treatment — confirm with the accountant before the first live run.** The export default is: repayment of an advance paid ON a check reduces that week's earnings (not a post-tax deduction); repayment of an advance paid OUTSIDE payroll is a post-tax deduction. An owner can flip either (`orgs.settings.payrollExport.advance`, "Advance export settings" on an approved week). Code never decides tax.
+- Gusto upload headers are unverified against a live import; ADP company code, file numbers and earning codes must be set.
+- One-tap approve has no WebAuthn re-auth (none in the repo): it is a signed one-time link plus the owner's signed-in session.
+
 ## Known Tech Debt
 - Canvass service worker `public/canvass-sw.js` (~line 46) skips `/api/*` — API responses get no SW caching; client-side fetches must handle their own caching/timeouts.
 - Vercel Cron pattern: every cron in `vercel.json` (11 as of 2026-11-12, incl. `instant-estimate-accuracy` and the 15-minute `customer-messages`) is secured by `Authorization: Bearer ${CRON_SECRET}` (503 if secret unset, 401 on mismatch) — always via `verifyCronSecret()` in `lib/cron-auth.ts` (constant-time; the 8 hand-copied checks were folded into it 2026-09-26). Reuse it for any new cron or Actions worker.

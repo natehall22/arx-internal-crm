@@ -23,13 +23,16 @@ export const APPROVAL_LINK_HOURS = 48
 
 export const hashToken = (token: string) => createHash('sha256').update(token).digest('hex')
 
+const INFORMATIONAL_WARNINGS = new Set(['multi_state', 'advance_limited', 'advance_left'])
+
 /** Ready for a one-tap approval: still open, ended, something to pay, and NOTHING for a person to look at first. Pure. */
 export function isCleanWeek(week: PayWeek, now: Date): boolean {
   if (week.state !== 'draft' || !week.canApprove || week.blockedBy || week.needs.length > 0) return false
   if (new Date(week.period.cutoffAt).getTime() > now.getTime()) return false
   if (week.totals.people === 0 || week.totals.amount <= 0) return false
-  // A warning is something to look at, except a heads-up that is the same every week (another state's job).
-  return week.warnings.every((w) => w.code === 'multi_state')
+  // A warning is something to look at, except heads-ups that need no decision: another state's job, and what an advance does to a check
+  // (the amounts are already in the total the message names).
+  return week.warnings.every((w) => INFORMATIONAL_WARNINGS.has(w.code))
 }
 
 export type NewLink = { token: string; expiresAt: Date }

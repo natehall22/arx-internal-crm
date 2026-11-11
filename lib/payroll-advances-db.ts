@@ -1,6 +1,7 @@
 /** Writers for advances (record / cancel): owner only, each one SQL call (migration 202611140070). Rules live in lib/payroll-advances.ts. */
 import type { SupabaseClient } from '@supabase/supabase-js'
 
+import { roundMoney } from '@/lib/money'
 import { ensureNextOpenPeriod } from '@/lib/payroll-periods'
 import { parseAdvanceInput } from '@/lib/payroll-advances'
 import { resolvePayWeekPeriod } from '@/lib/payroll-pay-week'
@@ -76,4 +77,22 @@ export async function setBelowMinimumOk(admin: SupabaseClient, input: { orgId: s
   if (!actor || actor.is_super_admin !== true || actor.active === false) return { ok: false, status: 403, error: 'Only an owner can allow that.' }
   const { error } = await admin.from('payroll_advances').update({ below_minimum_ok: input.ok }).eq('id', input.advanceId).eq('org_id', input.orgId).eq('status', 'active')
   return error ? { ok: false, status: 500, error: 'Could not save' } : { ok: true }
+}
+
+/**
+ * Per person: what this approved week took back for advances that were paid OUTSIDE payroll (no + line on any check). The provider
+ * export maps those differently from advances paid on a check (settings.payrollExport.advance). Positive dollars.
+ */
+export async function loadOffCheckRepaid(admin: SupabaseClient, orgId: string, periodId: string): Promise<Map<string, number>> {
+  const out = new Map<string, number>()
+  const { data: rec } = await admin.from('payroll_adjustments').select('user_id, advance_id, amount').eq('org_id', orgId).eq('payroll_period_id', periodId).eq('kind', 'advance_recovery').neq('status', 'void')
+  const ids = Array.from(new Set((rec ?? []).map((r) => r.advance_id as string).filter(Boolean)))
+  if (ids.length === 0) return out
+  const { data: adv } = await admin.from('payroll_advances').select('id, paid_adjustment_id').eq('org_id', orgId).in('id', ids)
+  const offCheck = new Set((adv ?? []).filter((a) => !a.paid_adjustment_id).map((a) => a.id as string))
+  for (const r of rec ?? []) {
+    if (!offCheck.has(r.advance_id as string)) continue
+    out.set(r.user_id as string, roundMoney((out.get(r.user_id as string) ?? 0) - (Number(r.amount) || 0)))
+  }
+  return out
 }

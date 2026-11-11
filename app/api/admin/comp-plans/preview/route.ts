@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 
 import { requireAuthApi } from '@/lib/auth'
 import { COMP_PLAN_BODY_FIELDS, compPlanBodyChanged } from '@/lib/comp-plan-version'
+import { isPayWeekEnabled } from '@/lib/payroll-flag'
 import { isPayrollAdminRole } from '@/lib/payroll-admin-access'
 import { isUuid } from '@/lib/payroll-pay-week'
 import { previewPlanChange } from '@/lib/payroll-plan-preview'
@@ -13,6 +14,8 @@ export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
 export async function POST(request: NextRequest) {
+  // The preview reads the pay-week model: with the flag off it does not exist (the plan form just saves).
+  if (!isPayWeekEnabled()) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   let profile
   try {
     ;({ profile } = await requireAuthApi())

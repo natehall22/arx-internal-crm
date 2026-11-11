@@ -2,11 +2,12 @@
  * GET  ?period=id&format=gusto|adp — the approved week for the payroll provider (CSV). Pay sheets are pay-week/pay-sheet.
  *      Approved weeks only: the file is built from the stored lines. Returns 409 with `missing` (people without an ADP file number…)
  *      as JSON when `check=1`, so the screen can ask for them before downloading.
- * POST { coCode, codes } — the ADP company code and earning codes (owners; settings.payrollExport).
+ * POST { coCode, codes, advance } — the ADP company code, earning codes and how advance repayments are mapped (owners; settings.payrollExport).
  */
 import { NextRequest, NextResponse } from 'next/server'
 
 import { mergeOrgSettings } from '@/lib/org-settings'
+import { loadOffCheckRepaid } from '@/lib/payroll-advances-db'
 import { requirePayrollAdminApi } from '@/lib/payroll-admin-api'
 import { isUuid, loadPayWeek } from '@/lib/payroll-pay-week'
 import { buildProviderExport, PAYROLL_EXPORT_SETTINGS_KEY, readAdpSettings, type ExportPerson } from '@/lib/payroll-provider-export'
@@ -34,7 +35,13 @@ export async function GET(request: NextRequest) {
       people.set(u.id as string, { userId: u.id as string, firstName: cut > 0 ? full.slice(0, cut) : full, lastName: cut > 0 ? full.slice(cut + 1) : '', email: (u.email as string | null) ?? null, employeeId: (u.payroll_employee_id as string | null) ?? null })
     }
     const { data: org } = await a.admin.from('orgs').select('settings').eq('id', orgId).maybeSingle()
-    const out = buildProviderExport({ provider: format, week, people, adp: readAdpSettings(org?.settings) })
+    let out
+    try {
+      out = buildProviderExport({ provider: format, week, people, adp: readAdpSettings(org?.settings), offCheckRepaid: await loadOffCheckRepaid(a.admin, orgId, periodId) })
+    } catch (e) {
+      // The file would not equal the approved pay: refuse rather than hand the provider a different number.
+      return NextResponse.json({ error: (e as Error).message, code: 'does_not_tie' }, { status: 409 })
+    }
     if (sp.get('check') === '1') return NextResponse.json({ people: out.people, total: out.total, missing: out.missing, adp: readAdpSettings(org?.settings) })
     return new NextResponse(out.csv, { headers: { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="${out.filename}"`, 'Cache-Control': 'no-store' } })
   } catch (e) {
@@ -47,9 +54,9 @@ export async function POST(request: NextRequest) {
   const a = await requirePayrollAdminApi()
   if ('error' in a) return a.error
   if (!isSuperAdmin(a.profile)) return NextResponse.json({ error: 'Only an owner can change the export codes.', code: 'owner_only' }, { status: 403 })
-  const b = (await request.json().catch(() => null)) as { coCode?: unknown; codes?: Record<string, unknown> } | null
-  const clean = readAdpSettings({ [PAYROLL_EXPORT_SETTINGS_KEY]: { coCode: b?.coCode, codes: b?.codes } })
-  const { error } = await mergeOrgSettings(a.admin, a.profile.org_id, { coCode: clean.coCode, codes: clean.codes }, { path: [PAYROLL_EXPORT_SETTINGS_KEY] })
+  const b = (await request.json().catch(() => null)) as { coCode?: unknown; codes?: Record<string, unknown>; advance?: Record<string, unknown> } | null
+  const clean = readAdpSettings({ [PAYROLL_EXPORT_SETTINGS_KEY]: { coCode: b?.coCode, codes: b?.codes, advance: b?.advance } })
+  const { error } = await mergeOrgSettings(a.admin, a.profile.org_id, { coCode: clean.coCode, codes: clean.codes, advance: clean.advance }, { path: [PAYROLL_EXPORT_SETTINGS_KEY] })
   if (error) {
     console.error('pay-week export settings', error)
     return NextResponse.json({ error: 'Could not save' }, { status: 500 })

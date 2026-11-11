@@ -118,7 +118,7 @@ export function AdvancesSection({ advances, directory, canEdit, draft, onChanged
   )
 }
 
-type Check = { people: number; total: number; missing: Array<{ userId: string; name: string; why: string }>; adp: { coCode: string; codes: { commission: string; bonus: string; other: string; advance: string } } }
+type Check = { people: number; total: number; missing: Array<{ userId: string; name: string; why: string }>; adp: { coCode: string; codes: Record<string, string>; advance: { onCheck: string; offCheck: string } } }
 
 /** Downloads for an approved week: Gusto CSV, ADP CSV (asks for the file numbers / company code first), pay sheets. */
 export function ExportButtons({ periodId, canEditCodes }: { periodId: string; canEditCodes: boolean }) {
@@ -127,7 +127,28 @@ export function ExportButtons({ periodId, canEditCodes }: { periodId: string; ca
   const [ids, setIds] = React.useState<Record<string, string>>({})
   const [co, setCo] = React.useState('')
   const [busy, setBusy] = React.useState(false)
+  const [tax, setTax] = React.useState<{ onCheck: string; offCheck: string } | null>(null)
   const base = `${API}/export?period=${periodId}`
+  const openTax = async () => {
+    const r = await fetch(`${base}&format=gusto&check=1`, { cache: 'no-store' })
+    const body = await r.json().catch(() => ({}))
+    if (!r.ok) return toast.error(body?.error || 'Could not load the settings')
+    setCheck(body)
+    setTax(body.adp.advance)
+  }
+  const saveTax = async () => {
+    if (!check || !tax) return
+    setBusy(true)
+    try {
+      await send('export', 'POST', { coCode: check.adp.coCode, codes: check.adp.codes, advance: tax })
+      toast.success('Saved')
+      setTax(null)
+    } catch (e) {
+      toast.error((e as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
   const openAdp = async () => {
     const r = await fetch(`${base}&format=adp&check=1`, { cache: 'no-store' })
     const body = await r.json().catch(() => ({}))
@@ -141,7 +162,7 @@ export function ExportButtons({ periodId, canEditCodes }: { periodId: string; ca
     setBusy(true)
     try {
       for (const [userId, employeeId] of Object.entries(ids)) if (employeeId.trim()) await send('people', 'PATCH', { userId, employeeId })
-      if (canEditCodes && co.trim() !== check?.adp.coCode) await send('export', 'POST', { coCode: co, codes: check?.adp.codes })
+      if (canEditCodes && co.trim() !== check?.adp.coCode) await send('export', 'POST', { coCode: co, codes: check?.adp.codes, advance: check?.adp.advance })
       setOpen(false)
       window.location.href = `${base}&format=adp`
     } catch (e) {
@@ -154,6 +175,31 @@ export function ExportButtons({ periodId, canEditCodes }: { periodId: string; ca
     <>
       <Button asChild variant="secondary" size="sm"><a href={`${base}&format=gusto`}>Gusto CSV</a></Button>
       <Button variant="secondary" size="sm" onClick={openAdp}>ADP CSV</Button>
+      {canEditCodes ? <Button variant="secondary" size="sm" onClick={openTax}>Advance export settings</Button> : null}
+      <Dialog open={tax !== null} onOpenChange={(o) => { if (!o) setTax(null) }}>
+        <DialogContent title="Advances in the provider file" description="How the file shows money taken back for an advance. Confirm with your accountant before the first live run.">
+          {tax ? (
+            <>
+              <label className="flex flex-col gap-1.5 text-ui-sm font-semibold text-ink">Advance paid on a check (taken back later)
+                <select value={tax.onCheck} onChange={(e) => setTax({ ...tax, onCheck: e.target.value })} className={selectCls}>
+                  <option value="reduce_earnings">Reduce that week's earnings (not taxed twice)</option>
+                  <option value="deduction">After-tax deduction</option>
+                </select>
+              </label>
+              <label className="flex flex-col gap-1.5 text-ui-sm font-semibold text-ink">Advance paid outside payroll
+                <select value={tax.offCheck} onChange={(e) => setTax({ ...tax, offCheck: e.target.value })} className={selectCls}>
+                  <option value="deduction">After-tax deduction</option>
+                  <option value="reduce_earnings">Reduce that week's earnings</option>
+                </select>
+              </label>
+            </>
+          ) : null}
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setTax(null)}>Cancel</Button>
+            <Button loading={busy} onClick={saveTax}>Save</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent title="Before the ADP file" description="ADP needs each person's file number and your company code. Fill what is missing; it is remembered.">
           {check?.missing.some((m) => !m.userId) ? (

@@ -36,25 +36,49 @@ const person = (o: Partial<PayWeekPerson> & { lines: PayWeekPerson['lines'] }): 
 const week = (people: PayWeekPerson[], state: 'draft' | 'approved' = 'approved'): PayWeek => ({ period: { weekStart: '2026-11-02', weekEnding: '2026-11-08', payDate: '2026-11-13', cutoffAt: '2026-11-09T04:59:59Z' }, state, totals: { amount: people.reduce((s, p) => s + p.total, 0), people: people.length }, canApprove: true, blockedBy: null, needs: [], warnings: [], people } as unknown as PayWeek)
 
 describe('provider export', () => {
-  const p = person({ total: 1100, lines: [
+  // $800 hourly + $1,400 commission + $50 bonus + (-$50 fix) - $300 advance repaid = $1,900 approved.
+  const p = person({ total: 1900, lines: [
     { kind: 'Commission', what: 'x', math: '', amount: 1400 },
-    { kind: 'Hourly', what: 'h', math: '', amount: 0 },
+    { kind: 'Hourly', what: 'Hourly', math: '', amount: 800 },
     { kind: 'Bonus', what: 'b', math: '', amount: 50 },
     { kind: 'Adjustment', what: 'Fix', math: '', amount: -50, adjustmentKind: 'fix' },
     { kind: 'Adjustment', what: 'Advance repaid', math: '', amount: -300, adjustmentKind: 'advance_recovery' },
-  ], hours: { regular: 0, overtime: 0 } })
+  ], hours: { regular: 20, overtime: 0 } })
   const people = new Map<string, ExportPerson>([['u1', { userId: 'u1', firstName: '=Jordan', lastName: 'Vale', email: 'j@x.co', employeeId: '77' }]])
-  it('splits by kind and ties to the check', () => {
-    const a = amountsFor(p)
-    expect(a).toMatchObject({ commission: 1400, bonus: 50, other: -50, advance: 300, total: 1100 })
-    expect(a.commission + a.bonus + a.other - a.advance).toBe(a.total)
+  const adp = readAdpSettings({ payrollExport: { coCode: 'AB1' } })
+  const cents = (n: string | number) => Math.round(Number(n) * 100)
+  it('splits by kind, hourly as dollars', () => {
+    expect(amountsFor(p)).toMatchObject({ hourly: 800, commission: 1400, bonus: 50, other: -50, advance: 300, total: 1900 })
   })
-  it('Gusto: plain headers, formula-safe names', () => {
-    const out = buildProviderExport({ provider: 'gusto', week: week([p]), people })
-    const [head, line] = out.csv.trim().split('\n')
-    expect(head).toBe('First name,Last name,Email,Regular hours,Overtime hours,Commission,Bonus,"Other pay (fixes, balances)",Advance repaid (deduct),Total pay')
-    expect(line).toBe("'=Jordan,Vale,j@x.co,0,0,1400.00,50.00,-50.00,300.00,1100.00")
-    expect(out.filename).toBe('gusto-pay-week-ending-2026-11-08.csv')
+  it('default: an on-check advance reduces earnings (no deduction); the file ties to the approved total, both providers', () => {
+    const w = week([p])
+    const g = buildProviderExport({ provider: 'gusto', week: w, people })
+    const [head, line] = g.csv.trim().split('\n')
+    expect(head).toBe('First name,Last name,Email,Hourly pay,Commission,Bonus,"Other pay (fixes, balances)",Advance repaid (after-tax deduction),Total pay')
+    // Commission 1400 is netted by 300; nothing is sent as a deduction.
+    expect(line).toBe("'=Jordan,Vale,j@x.co,800.00,1100.00,50.00,-50.00,0.00,1900.00")
+    const f = line.split(',')
+    expect(cents(f[3]) + cents(f[4]) + cents(f[5]) + cents(f[6]) - cents(f[7])).toBe(cents(w.totals.amount))
+    expect(g.filename).toBe('gusto-pay-week-ending-2026-11-08.csv')
+    const a = buildProviderExport({ provider: 'adp', week: w, people, adp })
+    const c = a.csv.trim().split('\n')[1].split(',')
+    // Reg/OT hours stay empty so the provider cannot pay the hours again.
+    expect(c.slice(4, 6)).toEqual(['', ''])
+    expect(cents(c[7]) + cents(c[9]) + cents(c[11]) + cents(c[13]) - (c[15] ? cents(c[15]) : 0)).toBe(cents(w.totals.amount))
+    expect(a.csv).not.toContain('ADV,')
+  })
+  it('owner setting: after-tax deduction; off-check advances default to a deduction', () => {
+    const w = week([p])
+    const ded = buildProviderExport({ provider: 'adp', week: w, people, adp: readAdpSettings({ payrollExport: { coCode: 'AB1', advance: { onCheck: 'deduction' } } }) })
+    const c = ded.csv.trim().split('\n')[1].split(',')
+    expect(c[14]).toBe('ADV')
+    expect(c[15]).toBe('300.00')
+    expect(cents(c[7]) + cents(c[9]) + cents(c[11]) + cents(c[13]) - cents(c[15])).toBe(1900 * 1)
+    const off = buildProviderExport({ provider: 'gusto', week: w, people, offCheckRepaid: new Map([['u1', 300]]) })
+    expect(off.csv.trim().split('\n')[1]).toContain(',300.00,1900.00')
+  })
+  it('refuses a file that would not equal the approved pay', () => {
+    expect(() => buildProviderExport({ provider: 'gusto', week: week([{ ...p, total: 1800 }]), people })).toThrow(/does not tie/)
   })
   it('ADP: documented columns, batch id = week end MMDDYY, missing file numbers and company code are listed', () => {
     const noId = new Map(people)
@@ -63,11 +87,13 @@ describe('provider export', () => {
     expect(out.csv.split('\n')[0].startsWith('Co Code,Batch ID,File #,Employee Name,Reg Hours,O/T Hours,Earnings 3 Code,Earnings 3 Amount')).toBe(true)
     expect(out.csv.split('\n')[1].startsWith('AB1,110826,,')).toBe(true)
     expect(out.missing).toEqual([{ userId: 'u1', name: 'Jordan Vale', why: 'No ADP file number' }])
-    expect(out.csv).toContain('ADV,300.00')
     expect(buildProviderExport({ provider: 'adp', week: week([p]), people }).missing[0].why).toBe('ADP company code is not set')
   })
-  it('only approved weeks', () => {
+  it('only approved weeks; a carriage return in a name is quoted', () => {
     expect(() => buildProviderExport({ provider: 'gusto', week: week([p], 'draft'), people })).toThrow()
+    const odd = new Map(people)
+    odd.set('u1', { ...people.get('u1')!, firstName: 'A\rB' })
+    expect(buildProviderExport({ provider: 'gusto', week: week([p]), people: odd }).csv).toContain('"A\rB"')
   })
 })
 
@@ -86,6 +112,7 @@ describe('one-tap approve', () => {
   it('clean = ended, nothing needs anyone, no warning beyond another-state', () => {
     expect(isCleanWeek(clean, now)).toBe(true)
     expect(isCleanWeek({ ...clean, warnings: [{ code: 'multi_state', text: '' }] }, now)).toBe(true)
+    expect(isCleanWeek({ ...clean, warnings: [{ code: 'advance_limited', text: '' }, { code: 'advance_left', text: '' }] }, now)).toBe(true)
     expect(isCleanWeek({ ...clean, warnings: [{ code: 'big_line', text: '' }] }, now)).toBe(false)
     expect(isCleanWeek({ ...clean, needs: [{ kind: 'hours' } as never] }, now)).toBe(false)
     expect(isCleanWeek({ ...clean, blockedBy: { code: 'minimum_unanswered', text: '', count: 1 } }, now)).toBe(false)

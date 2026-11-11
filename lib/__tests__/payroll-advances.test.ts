@@ -4,6 +4,7 @@ import { lockPayrollPeriod } from '@/lib/payroll-period-lock'
 import { loadPayWeek } from '@/lib/payroll-pay-week'
 import { advanceOutstanding, describeAdvanceRule, parseAdvanceInput, planAdvanceRecoveries, type AdvanceRow } from '@/lib/payroll-advances'
 import { personTotalsFromTables } from '@/lib/payroll-week-total'
+import { saveMinimumDecision } from '@/lib/payroll-weekly-minimum'
 import { mergeOrgSettings } from '@/lib/org-settings'
 
 const adv = (o: Partial<AdvanceRow> = {}): AdvanceRow => ({ id: 'a1', userId: 'u1', amount: 500, givenOn: '2026-10-01', note: null, mode: 'full', value: null, firstWeekEnding: '2026-10-21', belowMinimumOk: false, status: 'active', recovered: 0, paidAdjustmentId: null, ...o })
@@ -93,6 +94,26 @@ describe('recovery is an ordinary line: preview = Approve = stored', () => {
     expect(approved.state).toBe('approved')
     expect(approved.people.find((p) => p.name === 'Jordan Vale')?.total).toBe(1100)
     expect(approved.advances[0]).toMatchObject({ outstanding: 200, thisWeek: 300 })
+  })
+
+  it('the weekly minimum only protects the check when it is actually paid that week', async () => {
+    const withMinimum = () => {
+      const t = seed()
+      t.comp_plans[0] = { ...t.comp_plans[0], weekly_minimum: { amount: 2000, needsCheck: true } } as never
+      return t
+    }
+    // Office says the minimum is NOT paid this week: nothing protects the check, the advance comes out in full.
+    let db = createFakeDb(withMinimum(), { relations, rpc: fakePayrollRpcs })
+    let week = await loadPayWeek(db.client, ORG, NOW)
+    await saveMinimumDecision(db.client, { orgId: ORG, periodId: week.period.id, userId: 'c1', met: false, actorUserId: 'a' })
+    week = await loadPayWeek(db.client, ORG, NOW)
+    expect(week.people.find((p) => p.name === 'Jordan Vale')?.total).toBe(1100)
+    // Minimum IS paid ($2,000): the check stays at the minimum, so nothing comes out.
+    db = createFakeDb(withMinimum(), { relations, rpc: fakePayrollRpcs })
+    week = await loadPayWeek(db.client, ORG, NOW)
+    await saveMinimumDecision(db.client, { orgId: ORG, periodId: week.period.id, userId: 'c1', met: true, actorUserId: 'a' })
+    week = await loadPayWeek(db.client, ORG, NOW)
+    expect(week.people.find((p) => p.name === 'Jordan Vale')?.total).toBe(2000)
   })
 
   it('a cancelled advance takes nothing', async () => {
