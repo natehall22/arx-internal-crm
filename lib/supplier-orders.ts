@@ -163,7 +163,7 @@ export async function loadSupplierOrderContext(
   const [vendorsRes, overridesRes, tradesRes, tradeOvRes, orgDefaultsRes, ordersRes, sendsRes] = await Promise.all([
     admin
       .from('vendors')
-      .select('id, name, order_email, order_cc_emails, account_number, default_branch, default_delivery_notes, default_for_trades, active, connection_type')
+      .select('*')
       .eq('org_id', orgId)
       .is('deleted_at', null),
     admin
@@ -191,6 +191,13 @@ export async function loadSupplierOrderContext(
   if (vendorsRes.error || overridesRes.error || tradeOvRes.error || orgDefaultsRes.error || ordersRes.error || sendsRes.error) {
     return { ok: false, reason: 'setup_missing' }
   }
+
+  // Purchase orders (lib/purchase-orders-db.ts) share these tables: this flow only ever sees the roofing materials kind,
+  // and a vendor that is only a subcontractor is never offered as a material supplier.
+  const materialOrderRows = ((ordersRes.data ?? []) as Record<string, unknown>[]).filter((o) => (o.kind ?? 'materials') === 'materials')
+  const materialOrderIds = new Set(materialOrderRows.map((o) => String(o.id)))
+  const materialVendorRows = ((vendorsRes.data ?? []) as Record<string, unknown>[]).filter((v) => v.vendor_type !== 'sub')
+  const materialSendRows = ((sendsRes.data ?? []) as Record<string, unknown>[]).filter((x) => materialOrderIds.has(String(x.supplier_order_id)))
 
   const lineOv = new Map<string, { vendorId: string | null; source: MaterialSource | null }>()
   for (const row of (overridesRes.data ?? []) as Record<string, unknown>[]) {
@@ -258,7 +265,7 @@ export async function loadSupplierOrderContext(
     if (isMaterialSource(row.material_source)) orgSourceDefaults[String(row.trade)] = row.material_source
   }
 
-  const sends: SendRecord[] = ((sendsRes.data ?? []) as Record<string, unknown>[]).map((r) => ({
+  const sends: SendRecord[] = materialSendRows.map((r) => ({
     id: String(r.id),
     supplierOrderId: String(r.supplier_order_id),
     vendorId: String(r.vendor_id),
@@ -270,7 +277,7 @@ export async function loadSupplierOrderContext(
     poLabel: String(r.po_label ?? ''),
   }))
 
-  const orderRows = (ordersRes.data ?? []) as Record<string, unknown>[]
+  const orderRows = materialOrderRows
   const lastSendIds = orderRows.map((o) => str(o.last_send_id)).filter((v): v is string => !!v)
   const linesBySend = new Map<string, LineSnapshot[]>()
   if (lastSendIds.length > 0) {
@@ -346,7 +353,7 @@ export async function loadSupplierOrderContext(
       baseSheet: materialOrderFromRunSheet(sheet),
       displayByKey,
       lines,
-      suppliers: ((vendorsRes.data ?? []) as Record<string, unknown>[]).map((row) => ({ ...supplierFromRow(row), api: apiSettings.get(String(row.id)) ?? null })),
+      suppliers: materialVendorRows.map((row) => ({ ...supplierFromRow(row), api: apiSettings.get(String(row.id)) ?? null })),
       trades,
       tradeOverrides: ((tradeOvRes.data ?? []) as Record<string, unknown>[]).map((r) => ({
         trade: String(r.trade),
@@ -1092,14 +1099,15 @@ export function supabaseSupplierOrderStore(admin: SupabaseClient): SupplierOrder
   return {
     async ensureSupplierOrder({ orgId, jobId, vendorId, jobNumber }) {
       for (let attempt = 0; attempt < 5; attempt++) {
-        const { data: existing } = await admin
+        // A general purchase order (lib/purchase-orders-db.ts) to the same vendor may share the job: this is the MATERIALS one.
+        const { data: existingRows } = await admin
           .from('supplier_orders')
           .select('*')
           .eq('org_id', orgId)
           .eq('job_id', jobId)
           .eq('vendor_id', vendorId)
-          .maybeSingle()
-        if (existing) return orderFromRow(existing as Record<string, unknown>)
+        const existing = ((existingRows ?? []) as Record<string, unknown>[]).find((o) => (o.kind ?? 'materials') === 'materials')
+        if (existing) return orderFromRow(existing)
         const { data: used } = await admin.from('supplier_orders').select('po_letter').eq('org_id', orgId).eq('job_id', jobId)
         const letter = nextPoLetter(((used ?? []) as { po_letter: string }[]).map((u) => u.po_letter))
         const { data: created, error } = await admin

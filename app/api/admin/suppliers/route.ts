@@ -13,8 +13,10 @@ import { canManageSuppliers, describeChange, parseSupplierInput, type FieldChang
 
 export const dynamic = 'force-dynamic'
 
-const COLUMNS =
+const BASE_COLUMNS =
   'id, updated_at, name, active, order_email, order_cc_emails, account_number, default_branch, default_delivery_notes, default_for_trades, connection_type'
+// Vendor directory fields (migration 202611120050); before it is applied the list falls back to the base columns.
+const COLUMNS = `${BASE_COLUMNS}, vendor_type, phone, contact_name, trades, sub_contractor_id`
 
 async function authorize() {
   try {
@@ -31,8 +33,9 @@ export async function GET() {
   if ('error' in a) return a.error
   const orgId = a.profile.org_id
 
-  const [suppliersRes, logRes] = await Promise.all([
-    a.admin.from('vendors').select(COLUMNS).eq('org_id', orgId).is('deleted_at', null).order('name'),
+  const vendorQuery = (cols: string) => a.admin.from('vendors').select(cols).eq('org_id', orgId).is('deleted_at', null).order('name')
+  const [firstTry, logRes] = await Promise.all([
+    vendorQuery(COLUMNS),
     a.admin
       .from('supplier_audit_log')
       .select('id, vendor_id, action, changed_at, changes, changed_by, users:changed_by(full_name)')
@@ -40,13 +43,21 @@ export async function GET() {
       .order('changed_at', { ascending: false })
       .limit(200),
   ])
+  const suppliersRes = firstTry.error ? await vendorQuery(BASE_COLUMNS) : firstTry
   if (suppliersRes.error) return NextResponse.json({ error: 'Could not load suppliers' }, { status: 500 })
+  // Subcontractors not yet in the directory: one tap adds them as vendors (they stay the same crew, not typed twice).
+  const vendorRows = (suppliersRes.data ?? []) as unknown as Array<Record<string, any>>
+  const linked = new Set(vendorRows.map((v) => v.sub_contractor_id).filter(Boolean))
+  const subsRes = await a.admin.from('sub_contractors').select('id, company_name, contact_name, phone, email, services, active').eq('org_id', orgId).eq('active', true)
+  const unlinkedSubs = ((subsRes.data ?? []) as Array<Record<string, any>>)
+    .filter((x) => !linked.has(x.id))
+    .map((x) => ({ id: x.id, name: x.company_name, contact_name: x.contact_name ?? null, phone: x.phone ?? null, email: x.email ?? null, services: x.services ?? [] }))
 
   // Last REAL email per supplier ("sent by hand" has no address). One small query each, so an old
   // supplier is never crowded out by newer sends to others.
   const lastOrder = new Map<string, { to: string; at: string | null; po: string }>()
   await Promise.all(
-    (suppliersRes.data ?? []).map(async (s) => {
+    vendorRows.map(async (s) => {
       const { data } = await a.admin
         .from('supplier_order_sends')
         .select('to_email, sent_at, po_label')
@@ -75,7 +86,8 @@ export async function GET() {
   }
 
   return NextResponse.json({
-    suppliers: (suppliersRes.data ?? []).map((s) => ({
+    unlinkedSubs,
+    suppliers: vendorRows.map((s) => ({
       ...s,
       last_order: lastOrder.get(s.id as string) ?? null,
       log: logByVendor.get(s.id as string) ?? [],

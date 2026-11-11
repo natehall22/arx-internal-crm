@@ -158,9 +158,10 @@ export async function loadJobCatchUps(
   const [health, projects, supplierOrders, photos, owners, orgTrades] = await Promise.all([
     loadDataHealthWithRows(admin, orgId, { jobIds: jobIdsFound, includeAppointments: false, now }),
     selectIn<{ id: string; opportunity_id: string | null }>(projectIds, (chunk) => admin.from('projects').select('id, opportunity_id').eq('org_id', orgId).in('id', chunk)),
-    selectIn<{ job_id: string; status: string; last_sent_at: string | null; received_at: string | null }>(jobIdsFound, (chunk) =>
-      admin.from('supplier_orders').select('job_id, status, last_sent_at, received_at').eq('org_id', orgId).in('job_id', chunk)
-    ),
+    // Materials orders only: a general purchase order to a vendor is not "the materials step" (kind column; missing = all materials).
+    selectIn<{ job_id: string; status: string; last_sent_at: string | null; received_at: string | null; kind?: string | null }>(jobIdsFound, (chunk) =>
+      admin.from('supplier_orders').select('*').eq('org_id', orgId).in('job_id', chunk)
+    ).then((rows) => rows.filter((r) => (r.kind ?? 'materials') === 'materials')),
     selectIn<{ job_id: string; created_at: string | null }>(jobIdsFound, (chunk) =>
       admin.from('photos').select('job_id, created_at').eq('org_id', orgId).is('deleted_at', null).gte('created_at', sinceIso).in('job_id', chunk)
     ),
