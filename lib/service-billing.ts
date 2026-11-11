@@ -15,6 +15,8 @@
  *   - 'month': one invoice per customer per month, every unit of that month on it.
  * A month that isn't over waits unless the office includes it — a monthly biller runs this on the 1st for last month.
  */
+import { formatInTimeZone } from 'date-fns-tz'
+
 import { addDaysYmd, planPriceOn, SERVICE_STEP, type BillingBasis } from '@/lib/service-plans'
 import { computeDocumentSalesTax, type SalesTaxSettings } from '@/lib/sales-tax'
 import { invoiceItemDateLabel } from '@/lib/invoice-lines'
@@ -102,7 +104,7 @@ export function monthFirstDay(month: string): string {
 
 /** "November 2026" for 2026-11. */
 export function monthLabel(month: string): string {
-  return new Date(`${month}-01T12:00:00Z`).toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' })
+  return formatInTimeZone(new Date(`${month}-01T12:00:00Z`), 'UTC', 'MMMM yyyy')
 }
 
 /** Units ready to bill, and done visits that can't be billed here (with why). `billed` = what non-void invoices hold. */

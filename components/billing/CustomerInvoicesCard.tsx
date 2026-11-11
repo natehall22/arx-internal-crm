@@ -7,6 +7,7 @@ import { Badge, Button, Card, CardContent, CardHeader, CardTitle, Dialog, Dialog
 import { confirmDialog } from '@/components/ui/confirm-dialog'
 import { CUSTOMER_PAYMENT_METHOD_LABELS, CUSTOMER_PAYMENT_METHODS, type CustomerPaymentMethod } from '@/lib/invoice-lines'
 import { formatCurrency } from '@/lib/job-payments'
+import { formatDate } from '@/lib/format'
 import { INVOICE_STATUS_LABELS, type InvoiceStatus, type JobInvoice } from '@/lib/types/invoices'
 
 type Row = JobInvoice & { applied_cents: number; balance_cents: number }
@@ -120,7 +121,7 @@ export default function CustomerInvoicesCard({ customerId }: { customerId: strin
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <button type="button" className="min-h-tap text-left" onClick={() => setOpenId(inv.id)}>
                     <span className="block text-ui-base font-semibold text-ink underline">{inv.invoice_number}</span>
-                    <span className="block text-ui-sm text-ink">{new Date(inv.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                    <span className="block text-ui-sm text-ink">{formatDate(inv.issued_at ?? inv.created_at)}</span>
                   </button>
                   <span className="flex items-center gap-2">
                     <Badge tone={STATUS_TONE[inv.status]}>{INVOICE_STATUS_LABELS[inv.status]}</Badge>

@@ -120,6 +120,7 @@ export async function getDepositInfo(
   const requiredDepositCents = Math.round(saleAmountCents * depositPercent)
 
   // Get all deposit payments
+  // org-scope-ok: job_payments gained org_id only for payments without a job (202611110060); jobId was verified in the caller's company
   const { data: payments } = await supabase
     .from('job_payments')
     .select('id, amount_cents')
@@ -826,6 +827,7 @@ export async function applyPaymentToInvoice(
 
   // Verify payment exists and belongs to same job
   const { data: payment } = await supabase
+    // org-scope-ok: job_payments gained org_id only for payments without a job (202611110060); the payment must belong to the invoice's own job (checked just below), and the invoice was verified by findOrgInvoice
     .from('job_payments')
     .select('id, amount_cents, job_id')
     .eq('id', jobPaymentId)

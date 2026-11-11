@@ -248,8 +248,8 @@ follow-on visit). Feature switch `servicePlans` — the first **default-OFF** sw
 - **Access** `lib/service-plans-access.ts`: view = job board; edit = `jobs:edit`; prices = edit or job financials; templates = owners.
 - **Visit photos**: `photos` with `job_id` NULL + `work_order_id`, via `registerVisitPhotoUpload` / `finalizeVisitPhotoUpload`.
 - **Visit prices are not on `work_orders`** (field/sub roles read that table): `service_visit_charges` (price + taxable
-  snapshot per visit, RLS on, no policies, no grants — service role only). Invoicing hook (not built):
-  `loadCompletedServiceVisits`.
+  snapshot per visit, RLS on, no policies, no grants — service role only). Invoicing reads them through
+  `loadCompletedServiceVisits` (see "Invoicing recurring service").
 - **Work order numbers** come from `work_order_number_counters` (per company, seeded once from the highest `WO-n`; no
   table scan); `WO-00001`…`WO-99999`, then `WO-100000` (widened, never truncated).
 - **Readers that must not count visits** exclude `work_order_type = SERVICE_VISIT_TYPE` (Today crews, ops dashboard open WOs,
@@ -319,7 +319,45 @@ Nathan's goal: measure complex roofs ourselves — **no paid EagleView/Hover rep
 Built on the single send door in `lib/suppliers/send-order.ts`; **OFF by default** (env `SUPPLIER_API_ORDERING`, `orgs.supplier_api_ordering_enabled`, per-supplier switch), sandbox first, second owner approves orders over the limit or of unknown size, one attempt and never an auto-retry, only first orders (no API revise/cancel), append-only `supplier_api_events`. **Never call ABC's Pricing API or compare ABC prices with other suppliers — their Terms forbid it** (test-enforced). Setup and gaps: `docs/abc-supply-connector.md`.
 
 ## Invoices are per company (2026-11-10)
-`job_invoices.org_id` (migration `202611100040`, NOT applied) is filled ONLY by trigger `job_invoices_set_org` from the parent job — writers never pass it. `invoice_number` is unique per org (`INV-<YY>-<job_number>-<seq>`, seq per job, skips numbers already used in the org). Every invoice-id read goes through `findOrgInvoice` (`lib/invoices.ts`, scoped via `production_jobs.org_id`, so code works with or without the migration); a lookup by `invoice_number` must also filter on the org (test-enforced, `invoice-org-scope.test.ts`). Items/payments have no org_id — they hang off a checked invoice.
+`job_invoices.org_id` (migration `202611100040`, NOT applied) is filled ONLY by trigger `job_invoices_set_org` from the parent job — writers never pass it. `invoice_number` is unique per org (`INV-<YY>-<job_number>-<seq>`, seq per job, skips numbers already used in the org). Every invoice-id read goes through `findOrgInvoice` (`lib/invoices.ts`, scoped via `production_jobs.org_id`, so code works with or without the migration); a lookup by `invoice_number` must also filter on the org (test-enforced, `invoice-org-scope.test.ts`). Items/payments have no org_id — they hang off a checked invoice. **Invoices without a job (2026-11-11)** carry their own org_id and `customer_id`; `findOrgInvoice` finds them through org_id (see "Invoicing recurring service").
+
+## Invoicing recurring service — invoices without a job (2026-11-11)
+ONE invoice system: `job_invoices` (+ items, `invoice_payments`, `job_payments`). Migration `202611110060_customer_invoices.sql`
+(NOT applied; after 202611100040, 202611110030, 202611110040; DB test `supabase/tests/run-customer-invoices.sh` on local PG16).
+- **Shape:** `job_invoices.job_id` nullable; a row has a job (exactly as before) OR `customer_id` (+ `property_id`) with its own
+  `org_id` (writer sets it; trigger `job_invoices_set_org` checks customer/property are that company's). Kind `'service'`.
+  Numbers `INV-<YY>-<5-digit seq per company per year>`. Lines gain `work_order_id` (the visit), `service_date`,
+  `service_plan_id` + `billing_month` (a monthly plan's month, 1st), `unit` ('hour' = time & materials: qty hours × rate).
+- **ONE writer of billed lines:** SQL `create_service_invoice` (per-company advisory lock; a visit or plan-month already on a
+  non-void invoice is skipped; void frees it). App side `lib/service-billing-db.ts` (`loadReadyToBill`,
+  `createServiceInvoices` — recomputes from the DB, the browser only names draft keys, ≤ 25 per request), rules
+  `lib/service-billing.ts` (units: per-visit plan → each visit at its `service_visit_charges` snapshot = its own price as of
+  its slot day; per-month plan → one plan-month at `planPriceOn(plan, 1st)`, its visits listed at $0; yearly / unpriced /
+  follow-on steps not billed here). Grouping: one per customer per month (the current month waits unless included) or
+  one per visit. Screen: Jobs → Schedule → **Ready to bill** (`components/billing/ReadyToBill.tsx`).
+- **Who:** `lib/service-billing-access.ts` — `servicePlans` switch on + `callerCanAccessJobBilling` (money:record).
+- **Tax:** `recalculateInvoiceTotals` (now exported) taxes an invoice without a job by ITS customer; the preview uses the same
+  `computeDocumentSalesTax`. Plan / charge `taxable` → line `taxable`.
+- **Customer document:** `lib/invoice-document.ts` is THE invoice model for the print page AND the email
+  (`lib/invoice-email.ts`); `findPrintableInvoice` is the id-or-number lookup (both scoped). Only invoices without a job are
+  really emailed (`sendCustomerInvoice`: email first, then mark sent); job invoices keep the old "mark sent" stub — the
+  original company is unchanged. `renderInvoiceEmail(doc, { payUrl })` is where a card pay link goes.
+- **Money in:** ONE writer `recordCustomerInvoicePayment` → SQL `record_customer_invoice_payment` (locks the invoice, never over
+  the balance, a draft is issued on the spot) = a `job_payments` row with `job_id` NULL + `org_id` + `customer_id` and its
+  `invoice_payments` application. The Stripe webhook (Phase 3) calls this same function. Every job reader filters
+  `job_payments` by job id (and the SQL views join jobs), so these rows never touch job totals, paid-in-full
+  (`lib/job-collection.ts`), payroll or `rpt_payments`. `applyPaymentToInvoice` refuses invoices without a job.
+  Paid in full for these invoices = `computeInvoiceBalance(...).is_paid` / status `paid`.
+- **A billed visit can't be reopened** (`applyVisitAction` → 409 naming the invoice; void it first).
+- **Not built:** auto-invoice when a crew marks a visit done (the office bills from Ready to bill, one tap per visit or a
+  batch); yearly-plan billing; the `unpaid-invoices` Today card; QuickBooks for these invoices (the outbox design is per
+  job); an "Hours to bill" UI (the item model + `add_item` accept `unit:'hour'` + `service_date` for the time-tracking builder).
+- **Visit job costs — deliberately NOT built (2026-11-11):** `job_cost_lines.job_id` stays NOT NULL. Every cost reader is
+  job-keyed (`lib/job-cost-ledger.ts`, `rpt_job_costs`, profit tracker, payroll materialization); a visit cost line would
+  be invisible to all of them, i.e. a second cost ledger in practice. A visit's real costs are crew time (the time-entry
+  source being built on feat/time-tracking: one source for payroll + costing + billing) and per-plan materials — decide the
+  visit/plan profit view there, then add `work_order_id` to `job_cost_lines` (nullable job, CHECK one of the two) in one
+  change with its reader.
 
 ## QuickBooks (2026-11-06)
 Not connected yet; design in `docs/quickbooks-sync.md`. Until the worker ships, `integration_outbox` only receives

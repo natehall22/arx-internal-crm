@@ -44,6 +44,7 @@ export async function GET(
     // payments are recorded straight onto it (record_payment on /api/invoices/[id]).
     const { data: jobPayments } = invoiceCheck.job_id
       ? await adminClient
+          // org-scope-ok: job_payments gained org_id only for payments without a job (202611110060); job_id is the parent job of the invoice findOrgInvoice verified in the caller's company
           .from('job_payments')
           .select('*')
           .eq('job_id', invoiceCheck.job_id)

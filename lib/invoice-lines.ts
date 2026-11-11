@@ -3,6 +3,8 @@
  * A line is "each" (qty × price) or "hours" (time & materials: qty = hours, unit_price_cents = the hourly rate), and may
  * carry the day the work was done (service visits, hours worked). Migration 202611110060 adds `unit` / `service_date`.
  */
+import { formatInTimeZone } from 'date-fns-tz'
+
 import { formatCurrency } from '@/lib/job-payments'
 import type { InvoiceItemUnit, JobInvoiceItem } from '@/lib/types/invoices'
 
@@ -61,5 +63,5 @@ export function invoiceItemPriceLabel(item: Pick<JobInvoiceItem, 'unit_price_cen
 /** "Tue, Nov 3, 2026" for a line's work day (calendar date, no time zone shift), or ''. */
 export function invoiceItemDateLabel(serviceDate: string | null | undefined): string {
   if (!isYmd(serviceDate)) return ''
-  return new Date(`${serviceDate}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
+  return formatInTimeZone(new Date(`${serviceDate}T12:00:00Z`), 'UTC', 'EEE, MMM d, yyyy')
 }

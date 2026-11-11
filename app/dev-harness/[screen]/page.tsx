@@ -85,6 +85,8 @@ import OrgFeaturesCard from '@/components/admin/OrgFeaturesCard'
 import ServicePlanTemplatesCard from '@/components/service-plans/ServicePlanTemplatesCard'
 import ServicePlansCard from '@/components/service-plans/ServicePlansCard'
 import VisitsBoard from '@/components/service-plans/VisitsBoard'
+import ReadyToBill from '@/components/billing/ReadyToBill'
+import CustomerInvoicesCard from '@/components/billing/CustomerInvoicesCard'
 import CrewDayList, { type CrewDayVisit } from '@/app/crew/day/[token]/CrewDayList'
 import SalesTaxCard from '@/components/admin/SalesTaxCard'
 import TaxExemptionCard from '@/components/customer/TaxExemptionCard'
@@ -400,6 +402,10 @@ export default function Harness({ params }: { params: { screen: string } }) {
       )
     case 'visits-board':
       return <VisitsBoard />
+    case 'ready-to-bill':
+      return <ReadyToBill />
+    case 'customer-invoices':
+      return <div className="mx-auto max-w-2xl p-4"><CustomerInvoicesCard customerId="c1" /></div>
     case 'crew-day':
       return <CrewDayList token="harness-token-harness-token-harness-1" crewName="Green Team" companyName="Precision Maintenance" today="2026-11-10" visits={HARNESS_CREW_DAY as CrewDayVisit[]} />
     case 'plan-templates':

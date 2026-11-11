@@ -87,6 +87,7 @@ export async function findPrintableInvoice(admin: SupabaseClient, orgId: string,
   }
   if (isUuid) {
     const { data } = await admin
+      // org-scope-ok: company filter is .eq('production_jobs.org_id', orgId) on the !inner parent-job join, re-checked in strip()
       .from('job_invoices')
       .select(INVOICE_WITH_JOB)
       .eq('id', idOrNumber)
@@ -98,6 +99,7 @@ export async function findPrintableInvoice(admin: SupabaseClient, orgId: string,
     const ownFound = strip(own as Record<string, unknown> | null)
     if (ownFound) return ownFound
   }
+  // org-scope-ok: company filter is .eq('production_jobs.org_id', orgId) on the !inner parent-job join, re-checked in strip()
   const { data: byNumber } = await admin
     .from('job_invoices')
     .select(INVOICE_WITH_JOB)

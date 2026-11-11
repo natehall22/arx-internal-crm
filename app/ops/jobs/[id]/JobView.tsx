@@ -303,6 +303,7 @@ export default async function JobView({ params, embedded = false, initialTab = n
 
     try {
       const { data: payments } = await supabaseService
+        // org-scope-ok: job_payments gained org_id only for payments without a job (202611110060); jobRes is the job loaded with .eq(org_id, profile.org_id)
         .from('job_payments')
         .select('amount_cents, funding_status')
         .eq('job_id', jobRes.data.id)
