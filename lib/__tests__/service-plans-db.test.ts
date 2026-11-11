@@ -1,4 +1,5 @@
 import { createFakeDb } from '@/lib/test-helpers/fake-db'
+import { fakeServicePlanRpc } from '@/lib/test-helpers/fake-service-plan-rpc'
 import {
   applyTemplateToPlans,
   applyVisitAction,
@@ -9,6 +10,7 @@ import {
   ensureServiceVisits,
   loadCrewVisit,
   loadVisits,
+  loadVisitsPage,
   resolveCrewDay,
   rotateCrewDayToken,
   updateServicePlan,
@@ -39,8 +41,9 @@ function seed(extra: Record<string, Array<Record<string, unknown>>> = {}) {
     crew_day_links: [],
     service_plan_templates: [],
     service_plan_changes: [],
+    service_visit_charges: [],
     ...extra,
-  })
+  }, { rpc: fakeServicePlanRpc })
 }
 
 const weekly = {
@@ -55,6 +58,11 @@ const weekly = {
   seasons: [{ from: '01-01', to: '12-31', frequency: 'weekly' }],
 }
 
+const chargeOf = (db: ReturnType<typeof seed>, id: string) => {
+  const c = (db.tables.service_visit_charges as Array<Record<string, unknown>>).find((x) => x.work_order_id === id)
+  return c ? { price: c.price, taxable: c.taxable } : null
+}
+
 const visitsOf = (db: ReturnType<typeof seed>, planId: string) =>
   (db.tables.work_orders as Array<Record<string, unknown>>).filter((w) => w.service_plan_id === planId).sort((a, b) => String(a.service_planned_date).localeCompare(String(b.service_planned_date)))
 
@@ -66,7 +74,10 @@ describe('ensureServiceVisits — the one generator', () => {
     const planId = (r as { plan: { id: string } }).plan.id
     const v = visitsOf(db, planId)
     expect(v.map((x) => x.service_planned_date)).toEqual(['2026-11-10', '2026-11-17', '2026-11-24', '2026-12-01', '2026-12-08', '2026-12-15'])
-    expect(v[0]).toMatchObject({ org_id: ORG, work_order_type: 'service_visit', visit_step: 'service', status: 'scheduled', scheduled_date: '2026-11-10', service_price: 45, service_taxable: false, assigned_sub_id: 's1', trade: 'lawn', property_id: 'p1', customer_id: 'c1', address: '1 Oak St' })
+    expect(v[0]).toMatchObject({ org_id: ORG, work_order_type: 'service_visit', visit_step: 'service', status: 'scheduled', scheduled_date: '2026-11-10', assigned_sub_id: 's1', trade: 'lawn', property_id: 'p1', customer_id: 'c1', address: '1 Oak St' })
+    // The price snapshot lives beside the visit (service role only), never on work_orders.
+    expect(v[0].service_price).toBeUndefined()
+    expect(chargeOf(db, String(v[0].id))).toEqual({ price: 45, taxable: false })
     expect(v[0].job_id ?? null).toBeNull()
   })
 
@@ -125,10 +136,13 @@ describe('editing a plan regenerates future unstarted visits only', () => {
     expect(u.ok).toBe(true)
     const after = visitsOf(db, planId)
     const byDate = Object.fromEntries(after.map((x) => [x.service_planned_date, x]))
-    expect(byDate['2026-11-10']).toMatchObject({ status: 'completed', service_price: 45 }) // history unchanged
-    expect(byDate['2026-11-17']).toMatchObject({ status: 'skipped', service_price: 45 })
+    expect(byDate['2026-11-10']).toMatchObject({ status: 'completed' }) // history unchanged
+    expect(chargeOf(db, String(byDate['2026-11-10'].id))?.price).toBe(45)
+    expect(byDate['2026-11-17']).toMatchObject({ status: 'skipped' })
+    expect(chargeOf(db, String(byDate['2026-11-17'].id))?.price).toBe(45)
     expect(byDate['2026-11-24']).toBeUndefined() // old Tuesday slots after today are gone…
-    expect(byDate['2026-11-12']).toMatchObject({ status: 'scheduled', service_price: 50, assigned_sub_id: 's2' }) // …Thursdays take their place
+    expect(byDate['2026-11-12']).toMatchObject({ status: 'scheduled', assigned_sub_id: 's2' }) // …Thursdays take their place
+    expect(chargeOf(db, String(byDate['2026-11-12'].id))?.price).toBe(50)
     expect(after.filter((x) => weekdayOf(String(x.service_planned_date)) === 4).length).toBeGreaterThan(4)
   })
 
@@ -151,7 +165,7 @@ describe('editing a plan regenerates future unstarted visits only', () => {
     expect(ok.ok && ok.plan).toMatchObject({ price: 39, billing_basis: 'per_month', tier_key: 'standard' })
     // A monthly plan's visits carry no per-visit price.
     const id = (ok as { plan: { id: string } }).plan.id
-    expect(visitsOf(db, id)[0].service_price).toBeNull()
+    expect(chargeOf(db, String(visitsOf(db, id)[0].id))?.price).toBeNull()
   })
 
   it('refuses another company’s property, crew or customer', async () => {
@@ -323,8 +337,9 @@ describe('plan edits: preview first, future only, history kept', () => {
     const saved = await updateServicePlan(db.client, ORG, 'u1', id, { property_id: 'p3', default_sub_id: 's2', price: 50 }, null, NOW)
     expect(saved).toMatchObject({ ok: true, effect: { removed: 0, added: 0, updated: 5 } })
     const after = visitsOf(db, id)
-    expect(after[0]).toMatchObject({ id: todays.id, property_id: 'p1', service_price: 45, assigned_sub_id: 's1' }) // today unchanged
-    expect(after.slice(1).every((v) => v.property_id === 'p3' && v.service_price === 50 && v.assigned_sub_id === 's2' && v.address === '9 Elm St')).toBe(true)
+    expect(after[0]).toMatchObject({ id: todays.id, property_id: 'p1', assigned_sub_id: 's1' }) // today unchanged
+    expect(chargeOf(db, String(todays.id))?.price).toBe(45)
+    expect(after.slice(1).every((v) => v.property_id === 'p3' && chargeOf(db, String(v.id))?.price === 50 && v.assigned_sub_id === 's2' && v.address === '9 Elm St')).toBe(true)
     const h = await loadChangeHistory(db.client, ORG, { planId: id })
     const upd = h.find((x) => x.action === 'updated')!
     expect(upd.by).toBe('Office')
@@ -355,5 +370,100 @@ describe('crew link expiry', () => {
     expect(await resolveCrewDay(db.client, link.token, new Date(Date.now() + 31 * 86_400_000))).toBeNull()
     db.tables.crew_day_links[0].expires_at = new Date(Date.now() - 1000).toISOString()
     expect(await resolveCrewDay(db.client, link.token)).toBeNull()
+  })
+})
+
+describe('review fixes', () => {
+  it('a trade change reaches upcoming visits (and the preview counts them)', async () => {
+    const db = seed()
+    const r = await createServicePlan(db.client, ORG, 'u1', 'c1', weekly, NOW)
+    if (!r.ok) throw new Error(r.error)
+    const pv = await updateServicePlan(db.client, ORG, 'u1', r.plan.id, { trade: 'gutters', preview: true }, null, NOW)
+    expect(pv).toMatchObject({ ok: true, effect: { updated: 5 } })
+    await updateServicePlan(db.client, ORG, 'u1', r.plan.id, { trade: 'gutters' }, null, NOW)
+    const v = visitsOf(db, r.plan.id)
+    expect(v[0].trade).toBe('lawn') // today's visit is history
+    expect(v.slice(1).every((x) => x.trade === 'gutters')).toBe(true)
+  })
+
+  it('re-ordered seasons (or jsonb key order) are not a change: no history line, "Nothing changed"', async () => {
+    const db = seed()
+    const seasons = [{ from: '04-01', to: '10-31', frequency: 'weekly' }, { from: '01-01', to: '03-31', frequency: 'monthly' }, { from: '11-01', to: '12-31', frequency: 'monthly' }]
+    const r = await createServicePlan(db.client, ORG, 'u1', 'c1', { ...weekly, seasons }, NOW)
+    if (!r.ok) throw new Error(r.error)
+    // Stored jsonb comes back with its keys in another order.
+    const row = db.tables.service_plans[0] as Record<string, unknown>
+    row.seasons = (row.seasons as Array<Record<string, unknown>>).map((x) => ({ frequency: x.frequency, to: x.to, from: x.from }))
+    const again = await updateServicePlan(db.client, ORG, 'u1', r.plan.id, { seasons: [...seasons].reverse() }, null, NOW)
+    expect(again).toMatchObject({ ok: false, error: 'Nothing changed' })
+    const pv = await updateServicePlan(db.client, ORG, 'u1', r.plan.id, { seasons, preview: true }, null, NOW)
+    expect(pv).toMatchObject({ ok: true, changes: [], effect: { removed: 0, added: 0, updated: 0 } })
+  })
+
+  it('the generator refuses slots planned from a plan version a save has since replaced', async () => {
+    const db = seed()
+    const r = await createServicePlan(db.client, ORG, 'u1', 'c1', weekly, NOW)
+    if (!r.ok) throw new Error(r.error)
+    // (fake inserts carry no column defaults: give the row the version a board load would have read)
+    ;(db.tables.service_plans[0] as Record<string, unknown>).updated_at = 'v1'
+    const stale = 'v1'
+    await updateServicePlan(db.client, ORG, 'u1', r.plan.id, { preferred_weekday: 4 }, null, NOW)
+    const before = visitsOf(db, r.plan.id).length
+    const { data } = await (db.client as unknown as { rpc: (n: string, a: unknown) => Promise<{ data: unknown }> }).rpc('service_plan_add_visits', {
+      p_org_id: ORG,
+      p_plan_id: r.plan.id,
+      p_plan_updated_at: stale,
+      p_rows: [{ visit_step: 'service', service_planned_date: '2026-11-24', scheduled_date: '2026-11-24' }],
+    })
+    expect(data).toBe(-1)
+    expect(visitsOf(db, r.plan.id)).toHaveLength(before)
+  })
+
+  it('a save that lost the race to another save is refused (409), nothing half-written', async () => {
+    const db = seed()
+    const r = await createServicePlan(db.client, ORG, 'u1', 'c1', weekly, NOW)
+    if (!r.ok) throw new Error(r.error)
+    ;(db.tables.service_plans[0] as Record<string, unknown>).updated_at = 'v1'
+    await updateServicePlan(db.client, ORG, 'u1', r.plan.id, { price: 50 }, null, NOW)
+    const snapshot = JSON.stringify(db.tables.work_orders)
+    const late = await updateServicePlan(db.client, ORG, 'u1', r.plan.id, { preferred_weekday: 4, expectedUpdatedAt: 'v1' }, null, NOW)
+    expect(late).toMatchObject({ ok: false, status: 409 })
+    expect(JSON.stringify(db.tables.work_orders)).toBe(snapshot)
+  })
+
+  it('a template push updates the plans it can and lists the one it could not', async () => {
+    const db = seed()
+    const t = await saveTemplate(db.client, ORG, 'u1', null, { name: 'Lawn', trade: 'lawn', seasons: [{ from: '01-01', to: '12-31', frequency: 'weekly' }], billing_basis: 'per_visit', pricing: { fields: [], tiers: [], allowCustom: true }, steps: [] })
+    if (!t.ok) throw new Error(t.error)
+    const a = await createServicePlan(db.client, ORG, 'u1', 'c1', { template_id: t.template.id, property_id: 'p1', start_date: '2026-11-03', price: 40 }, NOW)
+    const b = await createServicePlan(db.client, ORG, 'u1', 'c1', { template_id: t.template.id, property_id: 'p1', start_date: '2026-11-03', price: 40, name: 'Second' }, NOW)
+    if (!a.ok || !b.ok) throw new Error('setup')
+    await saveTemplate(db.client, ORG, 'u1', t.template.id, { seasons: [{ from: '01-01', to: '12-31', frequency: 'every_2_weeks' }] })
+    const real = fakeServicePlanRpc.service_plan_save
+    const spy = jest.spyOn(fakeServicePlanRpc, 'service_plan_save').mockImplementation((args, tables) => {
+      if (args.p_plan_id === b.plan.id) throw Object.assign(new Error('boom'), { code: 'XX000' })
+      return real(args, tables)
+    })
+    const r = await applyTemplateToPlans(db.client, ORG, 'u1', t.template.id, { preview: false, now: NOW })
+    spy.mockRestore()
+    if (!r.ok) throw new Error(r.error)
+    expect(r.plans).toBe(1)
+    expect(r.failed).toEqual([{ planId: b.plan.id, name: 'Second', error: 'Could not save the plan' }])
+    expect(r.summary).toContain('1 can’t be updated: Second')
+    expect((db.tables.service_plans as Array<Record<string, unknown>>).find((p) => p.id === a.plan.id)?.template_version).toBe(2)
+    expect((db.tables.service_plans as Array<Record<string, unknown>>).find((p) => p.id === b.plan.id)?.template_version).toBe(1)
+  })
+
+  it('the visits list pages instead of silently stopping, and says how many there are', async () => {
+    const db = seed()
+    for (let i = 0; i < 3; i++) await createServicePlan(db.client, ORG, 'u1', 'c1', { ...weekly, name: `Plan ${i}` }, NOW)
+    const first = await loadVisitsPage(db.client, ORG, { from: '2026-11-10', to: '2026-12-31', accessNotes: false, limit: 10 })
+    expect(first.total).toBe(18)
+    expect(first.visits).toHaveLength(10)
+    expect(first.hasMore).toBe(true)
+    const rest = await loadVisitsPage(db.client, ORG, { from: '2026-11-10', to: '2026-12-31', accessNotes: false, limit: 10, offset: 10 })
+    expect(rest.visits).toHaveLength(8)
+    expect(rest.hasMore).toBe(false)
+    expect((await loadVisits(db.client, ORG, { from: '2026-11-10', to: '2026-12-31', accessNotes: false })).length).toBe(18)
   })
 })

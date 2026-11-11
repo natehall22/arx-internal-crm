@@ -176,6 +176,8 @@ export function cleanSeasons(raw: unknown): { ok: true; value: Season[] } | { ok
       return { ok: false, error: `Seasons overlap on ${monthDayLabel(ymd.slice(5))} — each day can be in one season only` }
     }
   }
+  // One order (by start day): seasons never overlap, so order carries no meaning — and a re-ordered list is no change.
+  out.sort((a, b) => a.from.localeCompare(b.from))
   return { ok: true, value: out }
 }
 
@@ -905,15 +907,33 @@ export const TEMPLATE_FIELD_LABELS: Record<string, string> = {
 
 export type VisitEffect = { removed: number; added: number; updated: number }
 
+/** What a kept visit carries from its plan (a change to any of these updates the visit). */
+export type PreviewVisitFields = { title?: string | null; description?: string | null; trade?: string | null; property_id?: string | null; price?: number | null; taxable?: boolean | null }
+export type PreviewPlanFields = Pick<ServicePlan, 'name' | 'description' | 'trade' | 'price' | 'billing_basis' | 'taxable' | 'default_sub_id' | 'property_id'>
+
+/** Pure: does a kept visit need refreshing after an edit (and to what crew)? The one rule the save and the preview share. */
+export function visitNeedsRefresh(v: ExistingVisit & PreviewVisitFields, oldPlan: PreviewPlanFields, newPlan: PreviewPlanFields): boolean {
+  const crew = crewAfterEdit(v.assigned_sub_id, oldPlan.default_sub_id, newPlan.default_sub_id)
+  return (
+    crew !== v.assigned_sub_id ||
+    (v.title ?? oldPlan.name) !== newPlan.name ||
+    (v.description === undefined ? oldPlan.description : v.description) !== newPlan.description ||
+    (v.trade ?? oldPlan.trade) !== newPlan.trade ||
+    (v.property_id ?? oldPlan.property_id) !== newPlan.property_id ||
+    (v.price === undefined ? visitPrice(oldPlan) : v.price) !== visitPrice(newPlan) ||
+    (v.taxable ?? oldPlan.taxable) !== newPlan.taxable
+  )
+}
+
 /**
  * Pure: what saving a plan change would do to its visits, without doing it. Same rules as the save
  * (`regenerationPlan` + the generator): removed = future unstarted visits whose slot goes away; added = new slots in the
  * horizon with no visit yet; updated = kept future visits whose name / price / crew / property / tax would change.
  */
 export function previewVisitEffect(
-  visits: Array<ExistingVisit & { title?: string | null; service_price?: number | null; service_taxable?: boolean | null; property_id?: string | null }>,
-  oldPlan: ServicePlanSchedule & Pick<ServicePlan, 'name' | 'price' | 'billing_basis' | 'taxable' | 'default_sub_id' | 'property_id'>,
-  newPlan: ServicePlanSchedule & Pick<ServicePlan, 'name' | 'price' | 'billing_basis' | 'taxable' | 'default_sub_id' | 'property_id'>,
+  visits: Array<ExistingVisit & PreviewVisitFields>,
+  oldPlan: ServicePlanSchedule & PreviewPlanFields,
+  newPlan: ServicePlanSchedule & PreviewPlanFields,
   todayYmd: string
 ): VisitEffect {
   const tomorrow = addDaysYmd(todayYmd, 1)
@@ -922,17 +942,7 @@ export function previewVisitEffect(
   const { remove, keep } = regenerationPlan(visits, futureDates, todayYmd)
   const haveSlots = new Set(visits.filter((v) => (v.visit_step ?? SERVICE_STEP) === SERVICE_STEP && !remove.includes(v.id)).map((v) => v.service_planned_date))
   const added = planVisitDates(newPlan, todayYmd, to).filter((d) => !haveSlots.has(d)).length
-  const newPrice = visitPrice(newPlan)
-  const updated = keep.filter((v) => {
-    const crew = crewAfterEdit(v.assigned_sub_id, oldPlan.default_sub_id, newPlan.default_sub_id)
-    return (
-      crew !== v.assigned_sub_id ||
-      (v.title ?? oldPlan.name) !== newPlan.name ||
-      (v.service_price ?? visitPrice(oldPlan)) !== newPrice ||
-      (v.service_taxable ?? oldPlan.taxable) !== newPlan.taxable ||
-      (v.property_id ?? oldPlan.property_id) !== newPlan.property_id
-    )
-  }).length
+  const updated = keep.filter((v) => visitNeedsRefresh(v, oldPlan, newPlan)).length
   return { removed: remove.length, added, updated }
 }
 

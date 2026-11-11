@@ -21,12 +21,13 @@ CREATE TABLE work_orders (
   job_id uuid, customer_id uuid REFERENCES customers(id) ON DELETE SET NULL, trade text,
   work_order_type text NOT NULL DEFAULT 'go_back', status text NOT NULL DEFAULT 'pending',
   address text, city text, state text, zip text, title text NOT NULL DEFAULT 't', scheduled_date date, assigned_user_id uuid, assigned_sub_id uuid,
-  completed_at timestamptz,
+  completed_at timestamptz, priority text DEFAULT 'normal', description text, created_by uuid, updated_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT work_orders_org_id_work_order_number_key UNIQUE (org_id, work_order_number),
   CONSTRAINT work_orders_org_trade_fkey FOREIGN KEY (org_id, trade) REFERENCES org_trades(org_id, slug),
   CONSTRAINT work_orders_status_check CHECK (status = ANY (ARRAY['pending','assigned','scheduled','in_progress','completed','cancelled','on_hold'])),
   CONSTRAINT work_orders_work_order_type_check CHECK (work_order_type = ANY (ARRAY['go_back','repair','warranty','punch_list','inspection','install','service_call']))
 );
-CREATE TABLE photos (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), org_id uuid NOT NULL, job_id uuid NOT NULL, work_order_id uuid REFERENCES work_orders(id) ON DELETE SET NULL, storage_path text NOT NULL DEFAULT 'x');
+CREATE TABLE photos (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), org_id uuid NOT NULL, job_id uuid NOT NULL, work_order_id uuid REFERENCES work_orders(id) ON DELETE SET NULL, storage_path text NOT NULL DEFAULT 'x', deleted_at timestamptz);
 
 INSERT INTO orgs VALUES ('00000000-0000-0000-0000-000000000001', 'A'), ('00000000-0000-0000-0000-000000000002', 'B');
 INSERT INTO users VALUES ('90000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001'), ('90000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000002');
@@ -34,12 +35,15 @@ INSERT INTO customers VALUES ('10000000-0000-0000-0000-00000000000a', '00000000-
 INSERT INTO sub_contractors VALUES ('80000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', 'Green Team'), ('80000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000002', 'Not ours');
 INSERT INTO org_trades VALUES ('00000000-0000-0000-0000-000000000001', 'lawn'), ('00000000-0000-0000-0000-000000000002', 'lawn');
 -- An existing ordinary work order, written before the migration.
-INSERT INTO work_orders (id, org_id, work_order_type, status) VALUES ('60000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-000000000001', 'repair', 'completed');
+INSERT INTO work_orders (id, org_id, work_order_type, status, work_order_number) VALUES ('60000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-000000000001', 'repair', 'completed', 'WO-00041');
 
 \i supabase/migrations/202611110010_properties.sql
 \i supabase/migrations/202611110030_service_plans.sql
 -- Idempotent: applying twice changes nothing and does not fail.
 \i supabase/migrations/202611110030_service_plans.sql
+-- The numbering trigger as prod has it (20260213_operations_tables.sql), now calling the counter version.
+CREATE TRIGGER trigger_generate_work_order_number BEFORE INSERT ON work_orders FOR EACH ROW
+  WHEN (NEW.work_order_number IS NULL OR NEW.work_order_number = '') EXECUTE FUNCTION generate_work_order_number();
 
 DO $t$
 DECLARE
@@ -47,7 +51,7 @@ DECLARE
   ca uuid := '10000000-0000-0000-0000-00000000000a'; cb uuid := '10000000-0000-0000-0000-00000000000b'; c2 uuid := '20000000-0000-0000-0000-00000000000a';
   u1 uuid := '90000000-0000-0000-0000-000000000001'; u2 uuid := '90000000-0000-0000-0000-000000000002';
   s1 uuid := '80000000-0000-0000-0000-000000000001'; s2 uuid := '80000000-0000-0000-0000-000000000002';
-  pa uuid; pb uuid; p2 uuid; plan uuid; v1 uuid; insp uuid; ok boolean; t1 uuid; t2 uuid;
+  pa uuid; pb uuid; p2 uuid; plan uuid; v1 uuid; insp uuid; ok boolean; t1 uuid; t2 uuid; r jsonb; n int; keep uuid; gone uuid; photo_v uuid; v_upd timestamptz;
 BEGIN
   INSERT INTO properties (org_id, customer_id, address_text) VALUES (o1, ca, '1 Oak St') RETURNING id INTO pa;
   INSERT INTO properties (org_id, customer_id, address_text) VALUES (o1, cb, '2 Elm St') RETURNING id INTO pb;
@@ -109,6 +113,45 @@ BEGIN
   ASSERT NOT has_table_privilege('authenticated', 'service_plans', 'SELECT'), 'T5 plans not readable by users';
   ASSERT NOT has_table_privilege('authenticated', 'service_plan_templates', 'SELECT'), 'T5 templates not readable by users';
   ASSERT NOT has_table_privilege('authenticated', 'service_plan_changes', 'SELECT'), 'T5 history not readable by users';
+
+  -- T6 save RPC: plan + visits in one go; a removed visit with a live photo is cancelled, one without is deleted;
+  --    kept visits refreshed (incl. trade) + charges; a stale expected version refuses everything.
+  n := service_plan_add_visits(o1, plan, NULL, '[{"service_planned_date":"2026-12-01","scheduled_date":"2026-12-01","price":45,"taxable":false},
+                                              {"service_planned_date":"2026-12-08","scheduled_date":"2026-12-08","price":45},
+                                              {"service_planned_date":"2026-12-15","scheduled_date":"2026-12-15","price":45}]');
+  ASSERT n = 3, 'T6 added ' || n;
+  ASSERT (SELECT count(*) FROM service_visit_charges c JOIN work_orders w ON w.id = c.work_order_id WHERE w.service_plan_id = plan AND c.price = 45) = 3, 'T6 charges beside visits';
+  ASSERT service_plan_add_visits(o1, plan, NULL, '[{"service_planned_date":"2026-12-01","scheduled_date":"2026-12-01"}]') = 0, 'T6 idempotent slot';
+  SELECT id INTO gone FROM work_orders WHERE service_plan_id = plan AND service_planned_date = '2026-12-01';
+  SELECT id INTO photo_v FROM work_orders WHERE service_plan_id = plan AND service_planned_date = '2026-12-08';
+  SELECT id INTO keep FROM work_orders WHERE service_plan_id = plan AND service_planned_date = '2026-12-15';
+  INSERT INTO photos (org_id, job_id, work_order_id) VALUES (o1, NULL, photo_v);
+  SELECT updated_at INTO v_upd FROM service_plans WHERE id = plan;
+  INSERT INTO org_trades VALUES (o1, 'gutters');
+  r := service_plan_save(o1, plan, v_upd, '{"price": 50, "trade": "gutters", "org_id": "00000000-0000-0000-0000-000000000002"}', ARRAY[gone, photo_v],
+         jsonb_build_array(jsonb_build_object('ids', jsonb_build_array(keep), 'set', jsonb_build_object('trade', 'gutters', 'title', 'Mow+'), 'charge', jsonb_build_object('price', 50, 'taxable', true))));
+  ASSERT (r->>'removed')::int = 1 AND (r->>'cancelled')::int = 1 AND (r->>'updated')::int = 1, 'T6 counts ' || r::text;
+  ASSERT NOT EXISTS (SELECT 1 FROM work_orders WHERE id = gone), 'T6 deleted';
+  ASSERT (SELECT status FROM work_orders WHERE id = photo_v) = 'cancelled', 'T6 photo visit cancelled, kept';
+  ASSERT (SELECT trade || '|' || title FROM work_orders WHERE id = keep) = 'gutters|Mow+', 'T6 kept refreshed';
+  ASSERT (SELECT price FROM service_visit_charges WHERE work_order_id = keep) = 50, 'T6 charge refreshed';
+  ASSERT (SELECT org_id FROM service_plans WHERE id = plan) = o1, 'T6 patch cannot move the plan';
+  ASSERT (SELECT price FROM service_plans WHERE id = plan) = 50, 'T6 plan saved';
+  ok := false; BEGIN PERFORM service_plan_save(o1, plan, v_upd, '{"price": 60}', NULL, NULL); EXCEPTION WHEN serialization_failure THEN ok := true; END; ASSERT ok, 'T6 stale save refused';
+  ASSERT (SELECT price FROM service_plans WHERE id = plan) = 50, 'T6 stale save wrote nothing';
+  ASSERT service_plan_add_visits(o1, plan, v_upd, '[{"service_planned_date":"2026-12-22","scheduled_date":"2026-12-22"}]') = -1, 'T6 stale generator refused';
+  ok := false; BEGIN PERFORM service_plan_save(o2, plan, NULL, '{}', NULL, NULL); EXCEPTION WHEN no_data_found THEN ok := true; END; ASSERT ok, 'T6 other company cannot save';
+  ASSERT NOT has_table_privilege('authenticated', 'service_visit_charges', 'SELECT'), 'T6 charges not readable by users';
+  ASSERT NOT has_function_privilege('authenticated', 'service_plan_save(uuid, uuid, timestamptz, jsonb, uuid[], jsonb)', 'EXECUTE'), 'T6 save not callable by users';
+
+  -- T7 work order numbers: per company, continues from the highest existing, never truncated past 99,999
+  ASSERT (SELECT work_order_number FROM work_orders WHERE id = v1) = 'WO-00042', 'T7 continues after WO-00041: ' || (SELECT work_order_number FROM work_orders WHERE id = v1);
+  ASSERT (SELECT last_number FROM work_order_number_counters WHERE org_id = o1) >= 42, 'T7 counter row';
+  UPDATE work_order_number_counters SET last_number = 99999 WHERE org_id = o1;
+  INSERT INTO work_orders (org_id, work_order_type, status) VALUES (o1, 'repair', 'pending');
+  ASSERT EXISTS (SELECT 1 FROM work_orders WHERE org_id = o1 AND work_order_number = 'WO-100000'), 'T7 widened past 99,999';
+  INSERT INTO work_orders (org_id, work_order_type, status) VALUES (o2, 'repair', 'pending');
+  ASSERT EXISTS (SELECT 1 FROM work_orders WHERE org_id = o2 AND work_order_number = 'WO-00001'), 'T7 per company';
 
   RAISE NOTICE 'REPORT: all assertions passed';
 END $t$;

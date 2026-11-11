@@ -220,8 +220,8 @@ describe('history and preview', () => {
     expect(c).toEqual([{ field: 'price', label: 'Price', old: 45, new: 50 }])
     expect(describeChange(c[0])).toBe('Price: 45 → 50')
   })
-  const base = { status: 'active' as const, start_date: '2026-11-03', end_date: null, paused_until: null, seasons: [{ from: '01-01', to: '12-31', frequency: 'weekly' as const }], preferred_weekday: 2, name: 'Mow', price: 45, billing_basis: 'per_visit' as const, taxable: false, default_sub_id: 's1', property_id: 'p1' }
-  const v = (d: string, over: Record<string, unknown> = {}) => ({ id: d, visit_step: 'service', status: 'scheduled', service_planned_date: d, scheduled_date: d, assigned_sub_id: 's1', completed_at: null, title: 'Mow', service_price: 45, service_taxable: false, property_id: 'p1', ...over })
+  const base = { status: 'active' as const, start_date: '2026-11-03', end_date: null, paused_until: null, seasons: [{ from: '01-01', to: '12-31', frequency: 'weekly' as const }], preferred_weekday: 2, name: 'Mow', price: 45, billing_basis: 'per_visit' as const, taxable: false, default_sub_id: 's1', property_id: 'p1', trade: 'lawn', description: null }
+  const v = (d: string, over: Record<string, unknown> = {}) => ({ id: d, visit_step: 'service', status: 'scheduled', service_planned_date: d, scheduled_date: d, assigned_sub_id: 's1', completed_at: null, title: 'Mow', description: null, trade: 'lawn', price: 45, taxable: false, property_id: 'p1', ...over })
   const visits = ['2026-11-10', '2026-11-17', '2026-11-24', '2026-12-01', '2026-12-08', '2026-12-15'].map((d) => v(d))
   it('a weekday change: future visits move (removed + added), today stays', () => {
     const e = previewVisitEffect(visits, base, { ...base, preferred_weekday: 4 }, '2026-11-10')

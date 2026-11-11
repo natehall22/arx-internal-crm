@@ -10,7 +10,7 @@ import type { VisitView } from '@/lib/service-plans-db'
 import { uploadVisitPhotos } from '@/lib/visit-photo-upload'
 
 type Crew = { id: string; name: string; hasPhoneLink: boolean }
-type Load = { today: string; from: string; to: string; visits: VisitView[]; canEdit: boolean; crews: Crew[] }
+type Load = { today: string; from: string; to: string; visits: VisitView[]; total: number; hasMore: boolean; canEdit: boolean; crews: Crew[] }
 type Sheet =
   | { kind: 'done'; visit: VisitView; result: string | null; notes: string }
   | { kind: 'skip'; visit: VisitView; reason: SkipReason | ''; notes: string }
@@ -35,23 +35,28 @@ export default function VisitsBoard() {
   const [from, setFrom] = React.useState<string | null>(null)
   const [crew, setCrew] = React.useState('')
   const [data, setData] = React.useState<Load | null>(null)
+  const dataRef = React.useRef<Load | null>(null)
+  dataRef.current = data
   const [failed, setFailed] = React.useState(false)
   const [sheet, setSheet] = React.useState<Sheet | null>(null)
   const [busy, setBusy] = React.useState(false)
   const fileRef = React.useRef<HTMLInputElement>(null)
   const photoFor = React.useRef<string | null>(null)
 
-  const load = React.useCallback(async () => {
+  const load = React.useCallback(async (more = false) => {
     const q = new URLSearchParams()
     if (from) {
       q.set('from', from)
       q.set('to', addDaysYmd(from, 6))
     }
     if (crew) q.set('crew', crew)
+    if (more && dataRef.current) q.set('offset', String(dataRef.current.visits.length))
     const res = await fetch(`/api/ops/visits?${q}`, { cache: 'no-store' }).catch(() => null)
     if (!res || !res.ok) return setFailed(true)
     setFailed(false)
-    setData((await res.json()) as Load)
+    const next = (await res.json()) as Load
+    // "Load more" appends the next page; anything else (refresh after a save, filters) starts over.
+    setData((prev) => (more && prev ? { ...next, visits: [...prev.visits, ...next.visits.filter((v) => !prev.visits.some((p) => p.id === v.id))] } : next))
   }, [from, crew])
   React.useEffect(() => {
     void load()
@@ -135,6 +140,12 @@ export default function VisitsBoard() {
       </div>
       <input ref={fileRef} type="file" accept="image/*" multiple className="sr-only" aria-label="Add photos" onChange={(e) => void onPhotos(e.target.files)} />
 
+      {d.total > d.visits.length ? (
+        <p className="text-ui-base font-semibold text-ink">
+          Showing {d.visits.length} of {d.total} visits this week.{' '}
+          <Button size="sm" variant="secondary" disabled={busy} onClick={() => void load(true)}>Load more</Button>
+        </p>
+      ) : null}
       {days.map((day) => {
         const list = byDay.get(day) ?? []
         return (
