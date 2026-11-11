@@ -429,6 +429,8 @@ async function readBody(res: Response): Promise<string> {
  * suite until someone reads its SQL and adds it here.
  */
 const VERIFIED_RPCS: Record<string, string> = {
+  unapprove_billed_time: 'supabase/migrations/202611120030_hourly_billing.sql: UPDATE billed_time_days WHERE id = p_id AND org_id = p_org (route passes the caller org); tested in supabase/tests/hourly_billing.test.sql T5',
+  approve_billed_time: 'supabase/migrations/202611120030_hourly_billing.sql: job `id = p_job AND org_id = p_org` / visit `id = p_visit AND org_id = p_org` else P0002; tested T4/T8',
   cancel_management_comp_overlay: 'supabase/migrations/202608070001_management_comp_overlays.sql: assignment WHERE id = p_assignment_id AND org_id = p_org_id (route passes auth.profile.org_id)',
   end_management_comp_overlay: 'supabase/migrations/202608070001_management_comp_overlays.sql: assignment WHERE id = p_assignment_id AND org_id = p_org_id',
   assign_primary_comp_plan: 'supabase/migrations/202608070001_management_comp_overlays.sql: target user AND plan both `org_id = p_org_id` (admin/data passes profile.org_id)',
