@@ -209,7 +209,7 @@ function addDays(ymd: string, n: number): string {
 
 /** An invoice of THIS customer (job invoice on their job, or their own), or null. The one check before download / pay. */
 export async function findPortalInvoice(admin: SupabaseClient, s: PortalSession, invoiceId: string): Promise<{ id: string; job_id: string | null; status: string } | null> {
-  if (!/^[0-9a-f-]{36}$/i.test(invoiceId)) return null
+  if (!/^[0-9A-Za-z_-]{1,64}$/.test(invoiceId)) return null
   const db = orgDb(admin, s.orgId)
   const { data } = await db.from('job_invoices').select('id, job_id, customer_id, status').eq('id', invoiceId).in('status', ['sent', 'partially_paid', 'paid']).maybeSingle()
   const inv = data as { id: string; job_id: string | null; customer_id: string | null; status: string } | null
@@ -223,7 +223,7 @@ export async function findPortalInvoice(admin: SupabaseClient, s: PortalSession,
 
 /** A shared document or photo of THIS customer: its storage path, or null. */
 export async function findPortalFile(admin: SupabaseClient, s: PortalSession, kind: 'document' | 'photo', id: string): Promise<{ storagePath: string; filename: string } | null> {
-  if (!portalCaps(s).documents || !/^[0-9a-f-]{36}$/i.test(id)) return null
+  if (!portalCaps(s).documents || !/^[0-9A-Za-z_-]{1,64}$/.test(id)) return null
   const db = orgDb(admin, s.orgId)
   const ids = await ownIds(admin, s.orgId, s.customerId)
   if (kind === 'document') {

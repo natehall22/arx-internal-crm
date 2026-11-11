@@ -422,6 +422,10 @@ const SCREENS: Screen[] = [
     states: [
       { name: 'part-and-save', run: async (p) => { await p.getByRole('button', { name: 'Pay a different amount' }).click(); await p.getByLabel('Amount to pay now').fill('40'); await p.getByLabel(/Save my card/).check(); await p.waitForSelector('text=I authorize') } },
     ] },
+  { name: 'portal-signin', path: '/dev-harness/portal-signin', ready: 'text=Email me a link',
+    states: [{ name: 'sent', run: async (p) => { await p.route('**/api/portal/request-link', (r) => r.fulfill(json({ ok: true }))); await p.getByLabel('Your email or phone number').fill('dana@example.com'); await p.getByRole('button', { name: 'Email me a link' }).click(); await p.waitForSelector('text=Check your email') } }] },
+  { name: 'portal-home', path: '/dev-harness/portal-home', ready: 'text=Upcoming visits',
+    states: [{ name: 'message', run: async (p) => { await p.route('**/api/portal/messages', (r) => r.fulfill(json({ ok: true }))); await p.getByLabel('Write to us').fill('Can you come Thursday instead?'); await p.getByRole('button', { name: 'Send message' }).click(); await p.waitForSelector('text=Can you come Thursday instead?') } }] },
   { name: 'pay-page-paid', path: '/dev-harness/pay-page-paid', ready: 'text=Paid — thank you!' },
   { name: 'save-card-page', path: '/dev-harness/save-card-page', ready: 'text=Agree and add card' },
   { name: 'online-payments-settings', path: '/dev-harness/online-payments-settings', ready: 'text=Connected — taking payments', mock: async (p) => {
