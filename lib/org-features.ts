@@ -57,6 +57,11 @@ export const ORG_FEATURE_DEFS = {
     description: 'In-house crews clock in and out on their phone (one tap for the whole crew), staff clock in on the job page, and hours go to payroll and job labor cost. Subcontractors never see a clock.',
     defaultOn: false,
   },
+  hourlyBilling: {
+    label: 'Hourly billing (time & materials)',
+    description: 'Bill a job or a plan by the hour: crew and machine hours from the time clock (or typed for subs) become invoice lines after your rounding and minimum rules, on the Hours to bill screen.',
+    defaultOn: false,
+  },
 } as const satisfies Record<string, { label: string; description: string; defaultOn?: boolean }>
 
 export type OrgFeature = keyof typeof ORG_FEATURE_DEFS

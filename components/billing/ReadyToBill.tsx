@@ -320,7 +320,7 @@ export default function ReadyToBill() {
             {data.notBillable.slice(0, 100).map((n) => (
               <li key={n.visitId}>
                 {data.customers[n.customerId ?? '']?.name ?? 'Customer'} · {n.planName} · {visitDateLabel(n.date)} —{' '}
-                {n.reason === 'yearly' ? 'yearly plan (bill it from the customer)' : 'no price on the plan (set one, then it shows here)'}
+                {n.reason === 'yearly' ? 'yearly plan (bill it from the customer)' : n.reason === 'hourly' ? 'billed by the hour (Hours to bill)' : 'no price on the plan (set one, then it shows here)'}
               </li>
             ))}
           </ul>

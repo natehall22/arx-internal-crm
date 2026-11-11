@@ -2,9 +2,12 @@
 
 import * as React from 'react'
 
+import { useOrgFeatures } from '@/hooks/useOrgFeatures'
+
 import { Button, Input, Select } from '@/components/ui'
 import {
   BILLING_BASIS_LABELS,
+  billingBasisChoices,
   CONDITION_OPS,
   CONDITION_OP_LABELS,
   DEFAULT_STEP_RESULTS,
@@ -96,6 +99,7 @@ export function SeasonsEditor({ value, onChange }: { value: Season[]; onChange: 
 
 /** Price rules (template editor): the questions asked about a home, the tiers and their rules, custom price on/off. */
 export function PricingEditor({ value, onChange }: { value: PlanPricing; onChange: (v: PlanPricing) => void }) {
+  const hourlyOn = useOrgFeatures().hourlyBilling
   const fieldKeys = value.fields.map((f) => f.key)
   type TierDraft = PlanPricing['tiers'][number] & { price: number | string }
   const setTier = (i: number, patch: Partial<TierDraft>) => onChange({ ...value, tiers: value.tiers.map((t, j) => (j === i ? ({ ...t, ...patch } as PlanPricing['tiers'][number]) : t)) })
@@ -124,7 +128,7 @@ export function PricingEditor({ value, onChange }: { value: PlanPricing; onChang
               <Input aria-label="Tier name" className="text-base" maxLength={60} value={t.label} onChange={(e) => setTier(i, { label: e.target.value })} />
               <Input aria-label="Tier price ($)" inputMode="decimal" className="text-base" placeholder="$" value={String(t.price ?? '')} onChange={(e) => setTier(i, { price: e.target.value as unknown as number })} />
               <Select aria-label="Tier billed" className="text-base" value={t.billingBasis} onChange={(e) => setTier(i, { billingBasis: e.target.value as BillingBasis })}>
-                {(Object.keys(BILLING_BASIS_LABELS) as BillingBasis[]).map((b) => (
+                {billingBasisChoices(hourlyOn, t.billingBasis).map((b) => (
                   <option key={b} value={b}>{BILLING_BASIS_LABELS[b]}</option>
                 ))}
               </Select>

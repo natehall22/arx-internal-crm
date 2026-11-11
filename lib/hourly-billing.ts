@@ -536,8 +536,29 @@ export function dayBillableHours(lines: readonly BillLine[]): number {
 }
 
 /** Stored with the approval: what was billed and why (no prices from the browser — these are the server's lines). */
-export function approvalLineSnapshot(lines: readonly BillLine[]) {
-  return lines.map((l) => ({ kind: l.kind, description: lineDescription(l), item_id: l.itemId, people: l.people, hours: l.hours, rate_cents: l.rateCents, reasons: l.reasons }))
+export function approvalLineSnapshot(lines: readonly BillLine[]): Array<BillLine & { description: string }> {
+  return lines.map((l) => ({ ...l, reasons: [...l.reasons], description: lineDescription(l) }))
+}
+
+/** An approval's stored lines back as lines (rows written by approvalLineSnapshot; anything odd is dropped). */
+export function linesFromSnapshot(raw: unknown): BillLine[] {
+  if (!Array.isArray(raw)) return []
+  const out: BillLine[] = []
+  for (const r of raw) {
+    const x = r && typeof r === 'object' ? (r as Record<string, unknown>) : {}
+    if (!(BILL_LINE_KINDS as readonly unknown[]).includes(x.kind) || typeof x.hours !== 'number') continue
+    out.push({
+      kind: x.kind as BillLineKind,
+      itemId: typeof x.itemId === 'string' ? x.itemId : null,
+      name: typeof x.name === 'string' ? x.name : 'Hours',
+      people: typeof x.people === 'number' ? x.people : null,
+      hours: x.hours,
+      rateCents: typeof x.rateCents === 'number' ? x.rateCents : null,
+      taxable: x.taxable === true,
+      reasons: Array.isArray(x.reasons) ? x.reasons.filter((y): y is string => typeof y === 'string') : [],
+    })
+  }
+  return out
 }
 
 export { isYmd }

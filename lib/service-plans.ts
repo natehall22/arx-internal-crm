@@ -23,9 +23,16 @@ export const SERVICE_FREQUENCY_LABELS: Record<ServiceFrequency, string> = {
 export const SERVICE_PLAN_STATUSES = ['active', 'paused', 'ended'] as const
 export type ServicePlanStatus = (typeof SERVICE_PLAN_STATUSES)[number]
 
-export const BILLING_BASES = ['per_visit', 'per_month', 'per_year'] as const
+export const BILLING_BASES = ['per_visit', 'per_month', 'per_year', 'per_hour'] as const
 export type BillingBasis = (typeof BILLING_BASES)[number]
-export const BILLING_BASIS_LABELS: Record<BillingBasis, string> = { per_visit: 'per visit', per_month: 'per month', per_year: 'per year' }
+export const BILLING_BASIS_LABELS: Record<BillingBasis, string> = { per_visit: 'per visit', per_month: 'per month', per_year: 'per year', per_hour: 'per hour' }
+/** 'per_hour' (time & materials, migration 202611120030): the plan's price is the hourly labor rate and its visits are
+ * billed from Hours to bill (lib/hourly-billing.ts) — only offered while the company has `hourlyBilling` on. */
+export const HOURLY_BILLING_BASIS: BillingBasis = 'per_hour'
+/** The "Billed" choices a form shows: "per hour" only with hourly billing on (or when the plan already is). */
+export function billingBasisChoices(hourlyBillingOn: boolean, current?: BillingBasis | null): BillingBasis[] {
+  return BILLING_BASES.filter((b) => b !== HOURLY_BILLING_BASIS || hourlyBillingOn || current === b)
+}
 
 /** The plan's own visit. Follow-on steps (a plan's `steps`) carry their own key instead. */
 export const SERVICE_STEP = 'service'
@@ -371,7 +378,7 @@ export function cleanPlanInput(
   }
   if (has('billing_basis')) {
     const bb = b.billing_basis ?? 'per_visit'
-    if (!(BILLING_BASES as readonly unknown[]).includes(bb)) return { ok: false, error: 'Bill per visit, per month or per year' }
+    if (!(BILLING_BASES as readonly unknown[]).includes(bb)) return { ok: false, error: 'Bill per visit, per month, per year or per hour' }
     out.billing_basis = bb as BillingBasis
   }
   if (has('taxable')) out.taxable = b.taxable === true
@@ -889,7 +896,7 @@ export function cleanTemplateInput(body: unknown, partial = false): R<Partial<Te
   }
   if (has('billing_basis')) {
     const bb = b.billing_basis ?? 'per_visit'
-    if (!(BILLING_BASES as readonly unknown[]).includes(bb)) return { ok: false, error: 'Bill per visit, per month or per year' }
+    if (!(BILLING_BASES as readonly unknown[]).includes(bb)) return { ok: false, error: 'Bill per visit, per month, per year or per hour' }
     out.billing_basis = bb as BillingBasis
   }
   if (has('taxable')) out.taxable = b.taxable === true
