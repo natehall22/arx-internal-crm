@@ -886,6 +886,7 @@ export default function JobFileWorkspaceCard({
       setShowAddCostForm(false)
       await loadData()
       onLedgerMutated?.()
+      if (data.warning) setStatusMessage({ type: 'error', text: data.warning })
     } catch (err: any) {
       setStatusMessage({ type: 'error', text: err?.message || 'Could not add cost line' })
     } finally {

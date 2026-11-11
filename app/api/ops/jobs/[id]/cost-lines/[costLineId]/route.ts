@@ -23,7 +23,7 @@ async function loadLine(
 ) {
   const { data } = await supabase
     .from('job_cost_lines')
-    .select('id, job_id, org_id, description, amount, cost_type, approved')
+    .select('id, job_id, org_id, description, amount, cost_type, approved, source')
     .eq('id', costLineId)
     .eq('job_id', jobId)
     .eq('org_id', orgId)
@@ -31,9 +31,12 @@ async function loadLine(
     .is('deleted_at', null)
     .maybeSingle()
   return data as
-    | { id: string; description: string; amount: number; cost_type: string; approved: boolean }
+    | { id: string; description: string; amount: number; cost_type: string; approved: boolean; source: string | null }
     | null
 }
+
+/** Crew time lines are written by the time clock feed (lib/time-tracking-db.ts); a hand edit would be overwritten. */
+const TIME_CLOCK_LOCKED = 'This line comes from the crew time clock. Fix the time in Time (it updates this line), not here.'
 
 const DEALER_FEE_LOCKED =
   'The lender / dealer fee comes from the sale\'s financing. Change it under Financial source, not here.'
@@ -105,6 +108,9 @@ export async function PATCH(request: Request, { params }: RouteParams) {
     }
     if (isDealerFeeCostLine(existing)) {
       return NextResponse.json({ error: DEALER_FEE_LOCKED }, { status: 409 })
+    }
+    if (existing.source === 'time_entries') {
+      return NextResponse.json({ error: TIME_CLOCK_LOCKED }, { status: 409 })
     }
 
     const patch: Record<string, unknown> = {}
@@ -187,6 +193,9 @@ export async function DELETE(_request: Request, { params }: RouteParams) {
     }
     if (isDealerFeeCostLine(existing)) {
       return NextResponse.json({ error: DEALER_FEE_LOCKED }, { status: 409 })
+    }
+    if (existing.source === 'time_entries') {
+      return NextResponse.json({ error: TIME_CLOCK_LOCKED }, { status: 409 })
     }
     const { error } = await supabase
       .from('job_cost_lines')

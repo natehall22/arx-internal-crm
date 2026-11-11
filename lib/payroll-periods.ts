@@ -12,31 +12,59 @@ export async function ensureNextOpenPeriod(admin: SupabaseClient, orgId: string,
   // does not exist yet is created.
   for (let k = 1; k <= 8; k++) {
     // Eastern calendar weeks, rebuilt with the timezone database (a fixed 7 x 24h is an hour off across a clock change).
-    const target = addEasternDays(cutoffAt, k * 7)
-    const from = new Date(target.getTime() - 36 * 3_600_000).toISOString()
-    const to = new Date(target.getTime() + 36 * 3_600_000).toISOString()
-    const find = async () => {
-      const { data, error } = await admin.from('payroll_periods').select('id, status').eq('org_id', orgId).neq('status', 'cancelled').gte('cutoff_at', from).lte('cutoff_at', to).order('created_at', { ascending: true }).limit(1)
-      if (error) throw error
-      return (data ?? [])[0] as { id: string; status: string } | undefined
-    }
-    let row = await find()
-    if (!row) {
-      const { error } = await admin.from('payroll_periods').insert({
-        org_id: orgId,
-        period_label: `Week ending ${ymdEt(target)}`,
-        cutoff_at: target.toISOString(),
-        lock_at: target.toISOString(),
-        scheduled_pay_date: weeklyPayrollPayDateForCutoff(target),
-        status: 'open',
-      })
-      // Two people at once: the loser hits the unique label — just read the winner's row.
-      if (error && (error as { code?: string }).code !== '23505') throw error
-      row = await find()
-    }
+    const row = await findPeriodForCutoff(admin, orgId, addEasternDays(cutoffAt, k * 7), { create: true })
     if (row && row.status === 'open') return { id: row.id }
   }
   throw new Error('Could not find an open week to put this on')
+}
+
+export type PeriodForCutoff = { id: string; status: string; cutoff_at: string; locked_at: string | null; lock_claimed_at: string | null }
+
+/**
+ * The (non-cancelled) payroll period for a weekly cutoff — an existing period whose cutoff is within 36 hours counts
+ * (legacy periods have hand-typed cutoffs) — created when `create` is set and none exists. Earliest-created wins a race.
+ */
+export async function findPeriodForCutoff(admin: SupabaseClient, orgId: string, target: Date, opts: { create: boolean }): Promise<PeriodForCutoff | null> {
+  const from = new Date(target.getTime() - 36 * 3_600_000).toISOString()
+  const to = new Date(target.getTime() + 36 * 3_600_000).toISOString()
+  const find = async () => {
+    const { data, error } = await admin
+      .from('payroll_periods')
+      .select('id, status, cutoff_at, locked_at, lock_claimed_at')
+      .eq('org_id', orgId)
+      .neq('status', 'cancelled')
+      .gte('cutoff_at', from)
+      .lte('cutoff_at', to)
+      .order('created_at', { ascending: true })
+      .limit(1)
+    if (error) throw error
+    return ((data ?? [])[0] as PeriodForCutoff | undefined) ?? null
+  }
+  let row = await find()
+  if (!row && opts.create) {
+    const { error } = await admin.from('payroll_periods').insert({
+      org_id: orgId,
+      period_label: `Week ending ${ymdEt(target)}`,
+      cutoff_at: target.toISOString(),
+      lock_at: target.toISOString(),
+      scheduled_pay_date: weeklyPayrollPayDateForCutoff(target),
+      status: 'open',
+    })
+    // Two people at once: the loser hits the unique label — just read the winner's row.
+    if (error && (error as { code?: string }).code !== '23505') throw error
+    row = await find()
+  }
+  return row
+}
+
+const LOCK_CLAIM_STALE_MS = 15 * 60 * 1000
+
+/** A week can take or lose hours / a fix only while it is open AND no approval is mid-flight (a live lock claim). No period yet = open. */
+export function periodIsEditable(p: { status?: unknown; lock_claimed_at?: unknown } | null): boolean {
+  if (!p) return true
+  if (p.status !== 'open') return false
+  const claimed = p.lock_claimed_at ? new Date(String(p.lock_claimed_at)).getTime() : 0
+  return !(claimed && Date.now() - claimed < LOCK_CLAIM_STALE_MS)
 }
 
 /** The message the payroll writers show while a week is being approved (the database refuses their write). */

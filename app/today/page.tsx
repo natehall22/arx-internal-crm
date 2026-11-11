@@ -22,6 +22,8 @@ import { isOwnerProfile } from '@/lib/super-admin'
 import { createServiceClient } from '@/lib/supabase/service'
 import { resolveThreadViewer } from '@/lib/threads/viewer'
 import { listWaiting } from '@/lib/threads/waiting'
+import { loadOpenShiftsQueue } from '@/lib/time-tracking-db'
+import { isPayrollAdminRole } from '@/lib/payroll-admin-access'
 import { loadCloserQueues, loadOpsQueues, loadOwnerExceptions, loadServiceVisitQueues, todayKindFor, type TodayKind } from '@/lib/today'
 import { applyTodayProfile, loadOrgProfile } from '@/lib/org-profile'
 
@@ -51,6 +53,9 @@ export default async function TodayPage() {
 
   // Service-plan visits (only companies with the servicePlans switch on): ops and owners see today's crews + skips first.
   const visitsOn = (kind === 'ops' || kind === 'owner') && orgProfile.features.servicePlans
+  // Crew time clock: shifts the system stopped with no finish time (may be paying 0 h) — payroll admins (ops / owners).
+  const clockOn = (kind === 'ops' || kind === 'owner') && isPayrollAdminRole(profile.role) && orgProfile.features.timeTracking
+  const shiftsQueue = clockOn ? await loadOpenShiftsQueue(admin, profile.org_id).catch((e) => { console.error('today: open shifts failed', e); return null }) : null
   const [visitQueues, closerQueues, opsQueues, ownerQueues, report] = await Promise.all([
     visitsOn ? loadServiceVisitQueues(admin, profile.org_id).catch((e) => { console.error('today: visits failed', e); return [] }) : Promise.resolve([]),
     kind === 'closer' ? loadCloserQueues(admin, profile.org_id, profile.id, new Date(), { money: true }) : Promise.resolve([]),
@@ -74,7 +79,7 @@ export default async function TodayPage() {
             { label: 'Appointments', value: mine.calendar },
           ]
   const waiting = await resolveThreadViewer(admin, profile).then((viewer) => listWaiting(admin, viewer)).catch(() => [])
-  const queues = applyTodayProfile([...visitQueues, ...closerQueues, ...opsQueues, ...ownerQueues], orgProfile.today, orgProfile.terms)
+  const queues = applyTodayProfile([...(shiftsQueue ? [shiftsQueue] : []), ...visitQueues, ...closerQueues, ...opsQueues, ...ownerQueues], orgProfile.today, orgProfile.terms)
 
   return (
     <div className="min-h-screen bg-surface-subtle">

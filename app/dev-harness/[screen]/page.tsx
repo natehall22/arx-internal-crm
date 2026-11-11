@@ -13,7 +13,13 @@ import JobMaterialsCard from '@/components/ops/JobMaterialsCard'
 import NeedsYouList from '@/components/ops/NeedsYouList'
 import CheckupList from '@/components/checkups/CheckupList'
 import { HARNESS_CHECKUPS } from '@/e2e/fixtures'
-import { HARNESS_CREW_DAY } from '@/e2e/fixtures'
+import { HARNESS_CREW_DAY, HARNESS_CLOCK_STATE, HARNESS_CLOCK_STATE_IN, HARNESS_TIME_WEEK } from '@/e2e/fixtures'
+import JobClockCard from '@/components/time/JobClockCard'
+import TimeWeekClient from '@/components/time/TimeWeekClient'
+import TimeClockSettingsCard from '@/components/time/TimeClockSettingsCard'
+import CrewTimeSetup from '@/components/time/CrewTimeSetup'
+import type { ClockState } from '@/components/time/useClock'
+import type { TimeWeek } from '@/lib/time-tracking-db'
 import WhatsNewView from '@/components/WhatsNewView'
 import { ROLE_GROUPS } from '@/lib/announcements'
 import { WHATS_NEW_SHOTS } from '@/lib/whats-new-shots'
@@ -236,7 +242,7 @@ export default function Harness({ params }: { params: { screen: string } }) {
     case 'org-features':
       return (
         <div className="mx-auto max-w-2xl p-4">
-          <OrgFeaturesCard initial={{ canvassing: false, insurance: false, roofMeasure: true, incentives: false, stormAlerts: false, squaresPricing: true, servicePlans: true }} />
+          <OrgFeaturesCard initial={{ canvassing: false, insurance: false, roofMeasure: true, incentives: false, stormAlerts: false, squaresPricing: true, servicePlans: true, timeTracking: false }} />
         </div>
       )
     case 'org-profile':
@@ -419,6 +425,21 @@ export default function Harness({ params }: { params: { screen: string } }) {
       return <div className="mx-auto max-w-2xl p-4"><CustomerInvoicesCard customerId="c1" /></div>
     case 'crew-day':
       return <CrewDayList token="harness-token-harness-token-harness-1" crewName="Green Team" companyName="Precision Maintenance" today="2026-11-10" visits={HARNESS_CREW_DAY as CrewDayVisit[]} />
+    case 'crew-day-clock':
+      return <CrewDayList token="harness-token-harness-token-harness-2" crewName="Green Team" companyName="Precision Maintenance" today="2026-11-10" visits={HARNESS_CREW_DAY as CrewDayVisit[]} clock={HARNESS_CLOCK_STATE as unknown as ClockState} />
+    case 'crew-day-clocked-in':
+      return <CrewDayList token="harness-token-harness-token-harness-3" crewName="Green Team" companyName="Precision Maintenance" today="2026-11-10" visits={HARNESS_CREW_DAY as CrewDayVisit[]} clock={HARNESS_CLOCK_STATE_IN as unknown as ClockState} />
+    case 'job-clock':
+      return <div className="mx-auto max-w-md p-4"><JobClockCard jobId="dddddddd-0000-4000-8000-000000000001" jobLabel="job 26-0141" /></div>
+    case 'time-week':
+      return (
+        <div className="mx-auto flex max-w-3xl flex-col gap-4 p-4">
+          <TimeWeekClient initial={HARNESS_TIME_WEEK as unknown as TimeWeek} />
+          <TimeClockSettingsCard />
+        </div>
+      )
+    case 'crew-time-setup':
+      return <div className="mx-auto max-w-lg p-4"><CrewTimeSetup subId="s1" /></div>
     case 'plan-templates':
       return <div className="mx-auto max-w-2xl p-4"><ServicePlanTemplatesCard /></div>
     case 'customer-records-plain':

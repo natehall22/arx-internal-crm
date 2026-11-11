@@ -8,6 +8,7 @@ import {
 import { fetchMorningUpdateMetrics, type MorningUpdateMetrics } from '@/lib/morning-update-metrics'
 import { loadDataHealth, needsYouForEmailRecipient, shapeNeedsYou, type DataHealthReport } from '@/lib/data-health'
 import { loadCheckupSettings } from '@/lib/checkups'
+import { loadOpenShiftsQueue } from '@/lib/time-tracking-db'
 import { loadCheckupsDueQueue, loadCrewWeekQueue, loadOpsQueues, loadOwnerExceptions, loadServiceVisitQueues, loadStormHitsQueue, type Queue } from '@/lib/today'
 import { resolveOrgFeatures, type OrgFeatures } from '@/lib/org-features'
 import { applyTodayProfile, loadOrgProfile } from '@/lib/org-profile'
@@ -186,6 +187,14 @@ export async function loadMorningTodayQueues(
         return [{ id: 'todays-visits', title: "Today's visits", count: 0, empty: 'Visits couldn’t load today.', items: [] }]
       })
     : []
+  // Crew time clock (switch on only), in both versions and first: shifts stopped with no finish time may be paying 0 h.
+  const shifts = orgProfile.features.timeTracking
+    ? await loadOpenShiftsQueue(supabase, orgId, now).catch((error) => {
+        console.error('morning update: open shifts failed', error)
+        return null
+      })
+    : null
+  if (shifts) visits.unshift(shifts)
   if (focus === 'crews') {
     const [crews, ops] = await Promise.all([loadCrewWeekQueue(supabase, orgId, now), loadOpsQueues(supabase, orgId)])
     return asProfile([...visits, crews, ...ops.filter((q) => q.id === 'jobs-to-schedule')])

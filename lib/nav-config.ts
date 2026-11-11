@@ -99,6 +99,8 @@ export const NAV_SECTIONS: NavSection[] = [
     children: [
       { href: '/my-pay', label: 'My pay', show: (c) => c.permsReady && c.flags.payWeek && c.flags.earnsPay },
       { href: '/admin/payroll', label: 'Payroll', show: (c) => c.permsReady && c.flags.isPayrollAdmin },
+      // Default-OFF switch: shown only once the features have loaded and say on (never on a missing map).
+      { href: '/admin/time', label: 'Time', show: (c) => c.permsReady && c.flags.isPayrollAdmin && c.features?.timeTracking === true },
       { href: '/admin/job-profit-tracker', label: 'Job profit', show: (c) => c.permsReady && c.flags.isPayrollAdmin },
       { href: '/pricebook', label: 'Pricebook', show: (c) => !c.flags.salesDocBarred && gated('pricebook:view', 'pricebook:edit')(c) },
     ],

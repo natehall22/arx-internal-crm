@@ -73,7 +73,9 @@ export function createFakeDb(
         if (rl) out[name] = rl.many ? (tables[rl.table] ?? []).filter((x) => x[rl.fk] === r.id) : (tables[rl.table] ?? []).find((x) => x.id === r[rl.fk]) ?? null
       }
       // JSON path with an alias: `features:settings->features` (`->>` = text). Rows keep every column besides.
+      // Only when the row has the source column (tests that seed the alias key itself keep it).
       for (const m of Array.from(selectCols.matchAll(/([a-z_]+)\s*:\s*([a-z_]+)((?:->>?[a-z_A-Z0-9]+)+)/g))) {
+        if (!(m[2] in r)) continue
         let v: unknown = r[m[2]]
         for (const step of Array.from(m[3].matchAll(/->(>?)([a-z_A-Z0-9]+)/g))) {
           v = v && typeof v === 'object' ? (v as Row)[step[2]] : undefined

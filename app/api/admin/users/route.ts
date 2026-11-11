@@ -452,6 +452,10 @@ export async function DELETE(request: NextRequest) {
 
     if (profileDeleteError) {
       console.error('Profile delete error:', profileDeleteError)
+      // time_entries.user_id is ON DELETE RESTRICT: clock time is a pay record and is never deleted with a person.
+      if ((profileDeleteError as { code?: string }).code === '23503' && /time_entries/.test(String(profileDeleteError.message ?? ''))) {
+        return NextResponse.json({ error: 'This person has time clock records. Turn their account off (deactivate) instead of deleting it.' }, { status: 409 })
+      }
       return NextResponse.json({ error: 'Failed to delete user profile' }, { status: 500 })
     }
 

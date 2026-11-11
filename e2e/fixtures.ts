@@ -698,3 +698,76 @@ export const HARNESS_CUSTOMER_INVOICES = {
     { id: 'inv-3', job_id: null, customer_id: 'c1', invoice_number: 'INV-26-00015', invoice_kind: 'service', status: 'draft', issued_at: null, due_at: null, sent_at: null, sent_to_email: null, subtotal_cents: 4500, tax_cents: 0, total_cents: 4500, applied_cents: 0, balance_cents: 4500, created_at: '2026-11-10T14:00:00Z' },
   ],
 }
+
+// ---- Time clock (lib/time-tracking-db.ts ClockState / TimeWeek shapes) ----
+const CLOCK_PEOPLE = [
+  { userId: 'aaaaaaaa-0000-4000-8000-000000000001', name: 'Marcus Lead', isLead: true, open: null, onBreak: false, travelling: false },
+  { userId: 'aaaaaaaa-0000-4000-8000-000000000002', name: 'Dee Crew', isLead: false, open: null, onBreak: false, travelling: false },
+  { userId: 'aaaaaaaa-0000-4000-8000-000000000003', name: 'Tony Crew', isLead: false, open: null, onBreak: false, travelling: false },
+]
+export const HARNESS_CLOCK_STATE = {
+  ready: true,
+  people: CLOCK_PEOPLE,
+  equipment: [],
+  equipmentChoices: [{ id: 'cccccccc-0000-4000-8000-000000000001', name: 'Compact tractor' }],
+  finishQuestions: [{ entryId: 'bbbbbbbb-0000-4000-8000-000000000001', userId: CLOCK_PEOPLE[1].userId, name: 'Dee Crew', day: '2026-11-09', startedAt: '2026-11-09T12:00:00.000Z', stoppedAt: '2026-11-09T17:30:00.000Z' }],
+  captureLocation: false,
+  timeZone: 'UTC',
+}
+export const HARNESS_CLOCK_STATE_IN = {
+  ...HARNESS_CLOCK_STATE,
+  finishQuestions: [],
+  people: CLOCK_PEOPLE.map((p, i) => ({ ...p, open: { entryId: `bbbbbbbb-0000-4000-8000-00000000001${i}`, workOrderId: 'v1', jobId: null, startedAt: '2026-11-10T12:02:00.000Z' } })),
+  equipment: [{ entryId: 'bbbbbbbb-0000-4000-8000-000000000020', name: 'Compact tractor', workOrderId: 'v1', startedAt: '2026-11-10T13:00:00.000Z' }],
+}
+export const HARNESS_JOB_CLOCK_SELF = {
+  ...HARNESS_CLOCK_STATE,
+  finishQuestions: [],
+  equipmentChoices: [],
+  people: [{ userId: 'aaaaaaaa-0000-4000-8000-000000000009', name: 'Pat Office', isLead: false, open: null, onBreak: false, travelling: false }],
+}
+export const HARNESS_TIME_WEEK = {
+  ready: true,
+  weekStart: '2026-11-05',
+  weekEnd: '2026-11-11',
+  cutoffAt: '2026-11-12T04:59:59.999Z',
+  editable: true,
+  timeZone: 'UTC',
+  staff: CLOCK_PEOPLE.map((p) => ({ userId: p.userId, name: p.name })),
+  equipment: [{ id: 'eq1', kind: 'equipment', startedAt: '2026-11-10T13:00:00.000Z', endedAt: '2026-11-10T15:30:00.000Z', where: 'Grading — 5 Old Shell Rd', workOrderId: 'v3', jobId: null, source: 'lead_tap', endSource: 'lead_tap', needsReview: false, reviewNote: null, tappedBy: 'Marcus Lead', equipment: 'Compact tractor' }],
+  people: [
+    {
+      userId: CLOCK_PEOPLE[1].userId,
+      name: 'Dee Crew',
+      paidSeconds: 31 * 3600 + 20 * 60,
+      travelSeconds: 50 * 60,
+      breakSeconds: 2 * 3600,
+      regularHours: 31.333333,
+      overtimeHours: 0,
+      payrollHours: 31.33,
+      typedHours: 30,
+      warnings: [{ code: 'needs_review', day: '2026-11-09', text: 'Forgot to clock out — stopped at the last tap. Ask what time they finished.' }],
+      entries: [
+        { id: 'bbbbbbbb-0000-4000-8000-000000000001', kind: 'work', startedAt: '2026-11-09T12:00:00.000Z', endedAt: '2026-11-09T17:30:00.000Z', where: 'Weekly mowing — 2410 Crawfordville Hwy', workOrderId: 'v1', jobId: null, source: 'lead_tap', endSource: 'auto_closed', needsReview: true, reviewNote: 'Forgot to clock out — stopped at the last tap. Ask what time they finished.', tappedBy: 'Marcus Lead', equipment: null },
+        { id: 'bbbbbbbb-0000-4000-8000-000000000002', kind: 'work', startedAt: '2026-11-10T12:02:00.000Z', endedAt: '2026-11-10T20:15:00.000Z', where: 'Job 26-0141', workOrderId: null, jobId: 'dddddddd-0000-4000-8000-000000000001', source: 'lead_tap', endSource: 'lead_tap', needsReview: false, reviewNote: null, tappedBy: 'Marcus Lead', equipment: null },
+      ],
+    },
+    {
+      userId: CLOCK_PEOPLE[0].userId,
+      name: 'Marcus Lead',
+      paidSeconds: 44 * 3600,
+      travelSeconds: 0,
+      breakSeconds: 0,
+      regularHours: 40,
+      overtimeHours: 4,
+      payrollHours: null,
+      typedHours: null,
+      warnings: [{ code: 'no_break', day: '2026-11-10', text: '9 h with no break' }, { code: 'overtime', day: null, text: 'Overtime: 4 h' }],
+      entries: [{ id: 'bbbbbbbb-0000-4000-8000-000000000003', kind: 'work', startedAt: '2026-11-10T11:00:00.000Z', endedAt: '2026-11-10T20:00:00.000Z', where: 'Job 26-0141', workOrderId: null, jobId: 'dddddddd-0000-4000-8000-000000000001', source: 'self_tap', endSource: 'self_tap', needsReview: false, reviewNote: null, tappedBy: 'Marcus Lead', equipment: null }],
+    },
+  ],
+}
+export const HARNESS_CREW_SETUP = {
+  roster: { subId: 's1', name: 'Green Team', tracksTime: true, members: [{ userId: CLOCK_PEOPLE[0].userId, name: 'Marcus Lead', isLead: true }, { userId: CLOCK_PEOPLE[1].userId, name: 'Dee Crew', isLead: false }] },
+  people: CLOCK_PEOPLE.map((p) => ({ userId: p.userId, name: p.name })),
+}

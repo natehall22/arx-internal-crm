@@ -15,7 +15,6 @@ import {
   A_STAMP, ATTACKER_TOKEN, requestShape, guessValue, type RequestShape, BRAVO_PUBLIC_TOKEN, BRAVO_ROW_ID, ORG_A, ORG_B, SERVICE_KEY, VICTIM_ID, companyTables, createWorld, reachedB, crossReferences, crossings, findings, routePathOf, tablesInCode, walk,
   type Finding, type World, noJobInvoices,
 } from '@/lib/test-helpers/breakin-harness'
-import type { Row } from '@/lib/test-helpers/fake-db'
 
 const ROOT = join(__dirname, '..', '..')
 process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://proj.supabase.co'
@@ -199,6 +198,7 @@ function bodyFor(routePath: string, method: string, shape: RequestShape): Record
  * resources), keyed `METHOD /route` or `/route`. Each variant is run as its own control + attack. `id` is the record
  * id (B's in the control, A's in the attack); `ref` the id for reference fields.
  */
+type Row = Record<string, unknown>
 type Variant = ((id: string, ref: string) => { body?: Record<string, unknown>; query?: Record<string, string> }) & {
   /** Reshape both companies' seed rows for this variant only (before the snapshot), e.g. no-job invoices. */
   seed?: (seed: Record<string, Row[]>) => void

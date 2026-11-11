@@ -45,6 +45,8 @@ export async function mergeOrgSettings(
   if (path.length === 0 && ('profile' in set || remove.includes('profile'))) return { error: 'profile is saved at path [profile]' }
   // Sales tax has validated fields; it is only ever written at path ['salesTax'] by saveSalesTaxSettings.
   if (path.length === 0 && ('salesTax' in set || remove.includes('salesTax'))) return { error: 'salesTax is saved through saveSalesTaxSettings' }
+  // The time clock settings are only ever written at path ['timeTracking'] (owner-only, /api/admin/time/settings).
+  if (path.length === 0 && ('timeTracking' in set || remove.includes('timeTracking'))) return { error: 'timeTracking is saved per key at path [timeTracking]' }
   if (Object.keys(set).length === 0 && remove.length === 0) return { error: null }
 
   const { error } = await client.rpc('merge_org_settings', { p_org_id: orgId, p_path: path, p_set: set, p_remove: remove })

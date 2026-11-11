@@ -58,7 +58,7 @@ describe('applyIndustryProfile', () => {
   it('resetFeatures removes only the saved switch keys, before the profile key', async () => {
     storedSettings = { features: { canvassing: true } }
     await applyIndustryProfile({} as never, 'org-1', 'u1', 'lawn_landscape', { resetFeatures: true })
-    expect(calls.slice(1)).toEqual(['merge ["features"] set={} remove=7', 'merge ["profile"] set={"id":"lawn_landscape","version":2} remove=0'])
+    expect(calls.slice(1)).toEqual(['merge ["features"] set={} remove=8', 'merge ["profile"] set={"id":"lawn_landscape","version":2} remove=0'])
   })
 
   it('trades table missing: trades skipped, profile still recorded', async () => {

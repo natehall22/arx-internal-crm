@@ -52,6 +52,11 @@ export const ORG_FEATURE_DEFS = {
     description: 'Recurring service for a property (weekly mowing, monthly cleaning) with seasons, visits put on the calendar automatically, the Visits schedule and the crew phone list.',
     defaultOn: false,
   },
+  timeTracking: {
+    label: 'Crew time clock',
+    description: 'In-house crews clock in and out on their phone (one tap for the whole crew), staff clock in on the job page, and hours go to payroll and job labor cost. Subcontractors never see a clock.',
+    defaultOn: false,
+  },
 } as const satisfies Record<string, { label: string; description: string; defaultOn?: boolean }>
 
 export type OrgFeature = keyof typeof ORG_FEATURE_DEFS
