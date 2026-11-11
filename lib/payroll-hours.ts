@@ -187,7 +187,8 @@ export async function saveHoursEntries(
           overtime_hours: ot,
           hourly_rate_snapshot: hourlyRate,
           hourly_earnings: earnings.total,
-          notes: entry.notes ?? null,
+          // Only when sent: a save that carries no note (Pay this week, the time clock) must not wipe one typed earlier.
+          ...(entry.notes !== undefined ? { notes: entry.notes ?? null } : {}),
         },
         { onConflict: 'payroll_period_id,user_id' }
       )

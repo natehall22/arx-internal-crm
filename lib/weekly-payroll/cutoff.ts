@@ -77,6 +77,19 @@ export function addEasternDays(cutoff: Date | string, n: number): Date {
   return cutoffInstantForYmd(addDaysYmd(cutoffYmdEt(cutoff), n))
 }
 
+/**
+ * The cutoff of the pay week an instant belongs to (the first cutoff at or after it). The ONE "which pay week is this
+ * moment in" rule for anything bucketed by instant (the time clock); if the pay week ever changes, change it here.
+ */
+export function payWeekCutoffFor(instant: Date): Date {
+  return getNextWeeklyPayrollCutoffEtAfter(new Date(instant.getTime() - 1))
+}
+
+/** The first instant of the pay week that ends at `cutoff` (just after the previous cutoff, rebuilt with the time zone database). */
+export function payWeekStartInstant(cutoff: Date | string): Date {
+  return new Date(addEasternDays(cutoff, -7).getTime() + 1)
+}
+
 /** First calendar day (Eastern) of the week a cutoff pays: the Thursday before it. */
 export function weekStartYmd(cutoff: Date | string): string {
   return addDaysYmd(cutoffYmdEt(cutoff), -6)
