@@ -368,8 +368,9 @@ describe('on the way / done', () => {
   })
   it('done before the migration: the visit stands, no email, no throw', async () => {
     const db = seed({ work_orders: [visit('v1', { scheduled_date: '2026-11-11', status: 'completed' })] })
-    const real = db.client.from.bind(db.client)
-    ;(db.client as { from: unknown }).from = (t: string) => {
+    const client = db.client as unknown as { from: (t: string) => unknown }
+    const real = client.from.bind(client)
+    client.from = (t: string) => {
       if (t !== 'customer_messages') return real(t)
       const err = { data: null, error: { code: '42P01', message: 'relation does not exist' } }
       const chain: Record<string, unknown> = {}

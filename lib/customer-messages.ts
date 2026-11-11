@@ -5,7 +5,7 @@
  *
  * Settings: `orgs.settings.customerMessages` (flat keys, owners only, Settings → Customer messages, mergeOrgSettings path
  * ['customerMessages']). Nothing stored = every message OFF. The whole module is also behind the `customerMessages`
- * feature switch (default OFF; lawn & landscape profile ON) — ARX is unchanged unless both are turned on.
+ * feature switch (default OFF; lawn & landscape profile ON) — the original company is unchanged unless both are turned on.
  *
  * Every message is rendered for every channel at once (`email` + `sms` text), so SMS plugs in without new wording code.
  */

@@ -4,6 +4,7 @@ import { useState } from 'react'
 
 import { Button, Card, CardContent, CardHeader, CardTitle, confirmDialog, toast } from '@/components/ui'
 import type { CustomerMessageState } from '@/lib/customer-messages-db'
+import { formatDateShort } from '@/lib/format'
 
 const KIND_LABEL: Record<string, string> = {
   visit_reminder: 'Visit reminder',
@@ -32,9 +33,7 @@ const REASON_LABEL: Record<string, string> = {
   too_late: 'too late',
 }
 
-function day(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-}
+const day = (iso: string): string => formatDateShort(iso)
 
 /**
  * Customer File → Automatic emails. One switch the office flips ("don't email this customer"); shows when the customer

@@ -101,10 +101,10 @@ describe('roofing profile = the app as it was (the original company is unchanged
 describe('lawn & landscape profile (Precision Maintenance)', () => {
   const lawn = resolveOrgProfile(lawnSettings)
 
-  it('roof / door-knocking / insurance / incentive features default off; service plans + time clock + hourly billing on', () => {
+  it('roof / door-knocking / insurance / incentive features default off; service plans + time clock + hourly billing + customer messages on', () => {
     expect(lawn.id).toBe('lawn_landscape')
     expect(lawn.storedVersion).toBe(2)
-    for (const k of ORG_FEATURE_KEYS) expect([k, lawn.features[k]]).toEqual([k, k === 'servicePlans' || k === 'timeTracking' || k === 'hourlyBilling'])
+    for (const k of ORG_FEATURE_KEYS) expect([k, lawn.features[k]]).toEqual([k, k === 'servicePlans' || k === 'timeTracking' || k === 'hourlyBilling' || k === 'customerMessages'])
   })
 
   it('words, menu order and hidden pages', () => {
