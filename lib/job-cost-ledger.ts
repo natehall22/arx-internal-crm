@@ -81,6 +81,8 @@ export const JOB_COST_LINE_SOURCES = [
   'product_order_mirror',
   'legacy_column_import',
   'dealer_fee_sync',
+  'time_entries',
+  'vendor_bill',
 ] as const
 export type JobCostLineSource = (typeof JOB_COST_LINE_SOURCES)[number]
 
@@ -384,4 +386,48 @@ export async function loadRecentJobCostLines(
       job: job ? { job_number: job.job_number ?? null, customer_name: customer?.name ?? null } : null,
     }
   })
+}
+
+/**
+ * THE one writer of a manual-style cost line (POST /api/ops/jobs/[id]/cost-lines and a vendor bill recorded on a
+ * purchase order both call it). New lines are born unapproved and never reduce the commission base
+ * (NEW_COST_LINE_PAYROLL_FLAGS). `purchaseOrderBillId` ties the line to its bill: a unique index allows one line per
+ * bill, so a retried bill can never double a cost.
+ */
+export async function addJobCostLine(
+  client: LedgerClient,
+  args: {
+    orgId: string
+    jobId: string
+    userId: string | null
+    description: string
+    amount: number
+    costType: JobCostType
+    credit?: boolean
+    vendorId: string | null
+    source: JobCostLineSource
+    incurredOn?: string | null
+    purchaseOrderBillId?: string | null
+  }
+): Promise<{ ok: true; line: { id: string; description: string; amount: number; cost_type: string; status: string; approved: boolean } } | { ok: false; error: string; duplicate?: boolean }> {
+  const { data, error } = await client
+    .from('job_cost_lines')
+    .insert({
+      org_id: args.orgId,
+      job_id: args.jobId,
+      description: args.description,
+      vendor_id: args.vendorId,
+      source: args.source,
+      amount: signedCostAmount(args.amount, args.credit === true),
+      cost_type: args.costType,
+      status: 'active',
+      incurred_on: args.incurredOn ?? new Date().toISOString().slice(0, 10),
+      created_by: args.userId,
+      ...(args.purchaseOrderBillId ? { purchase_order_bill_id: args.purchaseOrderBillId } : {}),
+      ...NEW_COST_LINE_PAYROLL_FLAGS,
+    })
+    .select('id, description, amount, cost_type, status, approved')
+    .single()
+  if (error) return { ok: false, error: error.message, duplicate: error.code === '23505' }
+  return { ok: true, line: data }
 }

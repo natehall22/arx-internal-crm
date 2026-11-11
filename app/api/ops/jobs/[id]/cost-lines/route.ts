@@ -5,13 +5,12 @@ import { requireAuthApi } from '@/lib/auth'
 import { resolveOpsAccess } from '@/lib/ops-access'
 import { createServiceClient } from '@/lib/supabase/service'
 import {
-  NEW_COST_LINE_PAYROLL_FLAGS,
+  addJobCostLine,
   ledgerSummaryFor,
   loadJobCostLedger,
   normalizeJobCostType,
   isDealerFeeCostLine,
   resolveVendorId,
-  signedCostAmount,
 } from '@/lib/job-cost-ledger'
 import { callerCanAccessJobBilling } from '@/lib/finance-access'
 
@@ -148,27 +147,21 @@ export async function POST(request: Request, { params }: { params: { id: string 
 
     const vendorId = await resolveVendorId(supabase, profile.org_id, body.supplier ?? null, profile.id)
 
-    const { data: row, error } = await supabase
-      .from('job_cost_lines')
-      .insert({
-        org_id: profile.org_id,
-        job_id: jobId,
-        description: rawDescription,
-        vendor_id: vendorId,
-        source: 'manual',
-        amount: signedCostAmount(amount, body.credit === true),
-        cost_type: costType,
-        status: 'active',
-        incurred_on: new Date().toISOString().slice(0, 10),
-        created_by: profile.id,
-        ...NEW_COST_LINE_PAYROLL_FLAGS,
-      })
-      .select('id, description, amount, cost_type, status, approved')
-      .single()
-
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 })
+    const written = await addJobCostLine(supabase, {
+      orgId: profile.org_id,
+      jobId,
+      userId: profile.id,
+      description: rawDescription,
+      amount,
+      costType,
+      credit: body.credit === true,
+      vendorId,
+      source: 'manual',
+    })
+    if (!written.ok) {
+      return NextResponse.json({ error: written.error }, { status: 500 })
     }
+    const row = written.line
 
     // A labor line typed for a job whose crew time this week already comes from the time clock: likely the same work twice.
     let warning: string | undefined
