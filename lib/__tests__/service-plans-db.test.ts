@@ -4,6 +4,7 @@ import {
   applyTemplateToPlans,
   applyVisitAction,
   bulkShiftVisits,
+  previewBulkShift,
   createCustomerWithPlan,
   createServicePlan,
   loadChangeHistory,
@@ -98,7 +99,7 @@ describe('ensureServiceVisits — the one generator', () => {
     const db = seed()
     const r = await createServicePlan(db.client, ORG, 'u1', 'c1', weekly, NOW)
     const planId = (r as { plan: { id: string } }).plan.id
-    expect((await bulkShiftVisits(db.client, ORG, { from: '2026-11-17', to: '2026-11-17', days: 2, subId: 'all' })).moved).toBe(1)
+    expect(await bulkShiftVisits(db.client, ORG, { from: '2026-11-17', to: '2026-11-17', days: 2, subId: 'all' }, { now: NOW })).toEqual({ moved: 1 })
     await ensureServiceVisits(db.client, ORG, { now: NOW })
     const v = visitsOf(db, planId)
     expect(v).toHaveLength(6)
@@ -214,10 +215,39 @@ describe('visits: skip, done + follow-on inspection, bulk shift', () => {
     const bId = (b as { plan: { id: string } }).plan.id
     const done = visitsOf(db, aId).find((x) => x.service_planned_date === '2026-11-17')!
     done.status = 'completed'
-    const res = await bulkShiftVisits(db.client, ORG, { from: '2026-11-17', to: '2026-11-24', days: 1, subId: 's2' })
-    expect(res.moved).toBe(2)
+    const res = await bulkShiftVisits(db.client, ORG, { from: '2026-11-17', to: '2026-11-24', days: 1, subId: 's2' }, { now: NOW })
+    expect(res).toEqual({ moved: 2 })
     expect(visitsOf(db, bId).filter((x) => x.scheduled_date !== x.service_planned_date).map((x) => x.scheduled_date)).toEqual(['2026-11-18', '2026-11-25'])
     expect(visitsOf(db, aId).every((x) => x.scheduled_date === x.service_planned_date)).toBe(true)
+  })
+})
+
+describe('bulk shift preview', () => {
+  const s2 = { from: '2026-11-17', to: '2026-11-24', days: 1, subId: 'all' } as const
+  it('writes nothing, shows what would move, and the move then does exactly that', async () => {
+    const db = seed()
+    const a = await createServicePlan(db.client, ORG, 'u1', 'c1', weekly, NOW)
+    const aId = (a as { plan: { id: string } }).plan.id
+    const done = visitsOf(db, aId).find((x) => x.service_planned_date === '2026-11-17')!
+    done.status = 'completed'
+    const before = JSON.stringify(db.tables.work_orders)
+    const p = await previewBulkShift(db.client, ORG, s2, NOW)
+    expect(JSON.stringify(db.tables.work_orders)).toBe(before)
+    expect(p.staying.done).toBe(1)
+    expect(p.intoPast).toBe(0)
+    expect(p.count).toBe(p.landing.reduce((n, l) => n + l.count, 0))
+    const res = await bulkShiftVisits(db.client, ORG, s2, { expectCount: p.count, now: NOW })
+    expect(res).toEqual({ moved: p.count })
+    expect(done.scheduled_date).toBe('2026-11-17')
+  })
+  it('refuses when the selection changed since the preview, and never moves into the past', async () => {
+    const db = seed()
+    await createServicePlan(db.client, ORG, 'u1', 'c1', weekly, NOW)
+    const p = await previewBulkShift(db.client, ORG, s2, NOW)
+    expect(await bulkShiftVisits(db.client, ORG, s2, { expectCount: p.count + 1, now: NOW })).toMatchObject({ status: 409 })
+    const back = { from: '2026-11-17', to: '2026-11-17', days: -30, subId: 'all' } as const
+    expect((await previewBulkShift(db.client, ORG, back, NOW)).intoPast).toBeGreaterThan(0)
+    expect(await bulkShiftVisits(db.client, ORG, back, { now: NOW })).toMatchObject({ status: 400 })
   })
 })
 

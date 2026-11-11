@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { Badge, Button, Card, CardContent, Dialog, DialogContent, DialogFooter, Field, Input, Select, Textarea, toast } from '@/components/ui'
 import { formatDateWeekday } from '@/lib/format'
 import { RESULT_TONE_CLASS, SERVICE_STEP, SKIP_REASONS, SKIP_REASON_LABELS, VISIT_STATUS_LABELS, addDaysYmd, type SkipReason, type VisitStatus } from '@/lib/service-plans'
-import type { VisitView } from '@/lib/service-plans-db'
+import type { ShiftPreview, VisitView } from '@/lib/service-plans-db'
 import { FileDropZone } from '@/components/ui/file-drop-zone'
 import NewCustomerPlan from '@/components/service-plans/NewCustomerPlan'
 import { uploadVisitPhotos } from '@/lib/visit-photo-upload'
@@ -17,7 +17,7 @@ type Sheet =
   | { kind: 'done'; visit: VisitView; result: string | null; notes: string }
   | { kind: 'skip'; visit: VisitView; reason: SkipReason | ''; notes: string }
   | { kind: 'move'; visit: VisitView; date: string }
-  | { kind: 'shift'; from: string; to: string; move: 'next' | 'after' | 'pick'; date: string; crew: string }
+  | { kind: 'shift'; from: string; to: string; move: 'next' | 'after' | 'pick'; date: string; crew: string; preview: ShiftPreview | null }
   | { kind: 'links'; made: Record<string, string> }
   | { kind: 'photos'; visit: VisitView; photos: Array<{ id: string; filename: string; created_at: string }> | null }
 
@@ -98,6 +98,16 @@ export default function VisitsBoard() {
     return true
   }
 
+  async function previewShift(body: { from: string; to: string; days: number; subId: string }, sheet: Extract<Sheet, { kind: 'shift' }>) {
+    setBusy(true)
+    const res = await fetch('/api/ops/visits/shift', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...body, preview: true }) }).catch(() => null)
+    const out = (res ? await res.json().catch(() => ({})) : {}) as { error?: string; preview?: ShiftPreview }
+    setBusy(false)
+    if (!res || !res.ok || !out.preview) return toast.error(out.error || 'Could not check those visits')
+    const preview = out.preview
+    setSheet((cur) => (cur && cur.kind === 'shift' && cur.from === sheet.from && cur.to === sheet.to && cur.move === sheet.move && cur.date === sheet.date && cur.crew === sheet.crew ? { ...cur, preview } : cur))
+  }
+
   async function makeLink(c: Crew) {
     setBusy(true)
     const res = await fetch(`/api/ops/subs/${c.id}/crew-day-link`, { method: 'POST' }).catch(() => null)
@@ -157,7 +167,7 @@ export default function VisitsBoard() {
         </Select>
         {d.canEdit ? (
           <>
-            <Button size="sm" onClick={() => setSheet({ kind: 'shift', from: addDaysYmd(d.today, 1), to: addDaysYmd(d.today, 1), move: 'next', date: '', crew: crew && crew !== 'mine' ? crew : 'all' })}>Rain day — move visits</Button>
+            <Button size="sm" onClick={() => setSheet({ kind: 'shift', from: addDaysYmd(d.today, 1), to: addDaysYmd(d.today, 1), move: 'next', date: '', crew: crew && crew !== 'mine' ? crew : 'all', preview: null })}>Rain day — move visits</Button>
             <Button size="sm" variant="secondary" onClick={() => setSheet({ kind: 'links', made: {} })}>Crew phone links</Button>
             <NewCustomerPlan onCreated={() => void load()} />
           </>
@@ -285,7 +295,7 @@ export default function VisitsBoard() {
         <Dialog open onOpenChange={(o) => !o && !busy && setSheet(null)}>
           <DialogContent
             title={sheet.kind === 'done' ? (sheet.visit.resultOptions.length ? 'How did it go?' : 'Mark done') : sheet.kind === 'skip' ? 'Skip this visit' : sheet.kind === 'move' ? 'Move this visit' : 'Move visits'}
-            description={sheet.kind === 'shift' ? 'Every visit still scheduled on those days moves by the same number of days. Done and skipped visits stay.' : undefined}
+            description={sheet.kind === 'shift' ? 'Every visit still scheduled on those days moves by the same number of days. You see the list before anything moves. Done, skipped and billed visits stay.' : undefined}
           >
             <form
               className="flex flex-col gap-3"
@@ -295,7 +305,12 @@ export default function VisitsBoard() {
                 if (sheet.kind === 'done') void post(`/api/ops/visits/${sheet.visit.id}`, { action: 'done', result: sheet.result ?? undefined, notes: sheet.notes }, 'Visit done').then(close)
                 if (sheet.kind === 'skip' && sheet.reason) void post(`/api/ops/visits/${sheet.visit.id}`, { action: 'skip', reason: sheet.reason, notes: sheet.notes }, 'Visit skipped').then(close)
                 if (sheet.kind === 'move') void post(`/api/ops/visits/${sheet.visit.id}`, { action: 'move', date: sheet.date }, 'Visit moved').then(close)
-                if (sheet.kind === 'shift') void post('/api/ops/visits/shift', { from: sheet.from, to: sheet.to, days: shiftDays(sheet), subId: sheet.crew }, '').then(close)
+                if (sheet.kind === 'shift') {
+                  const body = { from: sheet.from, to: sheet.to, days: shiftDays(sheet), subId: sheet.crew }
+                  // Step 1 shows what WOULD move (nothing is written); step 2 moves exactly that many.
+                  if (!sheet.preview) void previewShift(body, sheet)
+                  else void post('/api/ops/visits/shift', { ...body, expectCount: sheet.preview.count }, '').then(close)
+                }
               }}
             >
               {sheet.kind === 'done' && sheet.visit.resultOptions.length ? (
@@ -326,26 +341,26 @@ export default function VisitsBoard() {
               {sheet.kind === 'shift' ? (
                 <>
                   <div className="grid grid-cols-2 gap-3">
-                    <Field label="From">{(a) => <Input {...a} type="date" className="text-base" value={sheet.from} onChange={(e) => setSheet({ ...sheet, from: e.target.value, to: sheet.to < e.target.value ? e.target.value : sheet.to })} />}</Field>
-                    <Field label="Through">{(a) => <Input {...a} type="date" className="text-base" value={sheet.to} min={sheet.from} onChange={(e) => setSheet({ ...sheet, to: e.target.value })} />}</Field>
+                    <Field label="From">{(a) => <Input {...a} type="date" className="text-base" value={sheet.from} onChange={(e) => setSheet({ ...sheet, from: e.target.value, to: sheet.to < e.target.value ? e.target.value : sheet.to, preview: null })} />}</Field>
+                    <Field label="Through">{(a) => <Input {...a} type="date" className="text-base" value={sheet.to} min={sheet.from} onChange={(e) => setSheet({ ...sheet, to: e.target.value, preview: null })} />}</Field>
                   </div>
                   <fieldset className="flex flex-col gap-2">
                     <legend className="mb-1 text-ui-sm font-semibold text-ink">Move them to</legend>
                     <div className="grid grid-cols-3 gap-2">
                       {([['next', 'Next day'], ['after', 'Day after'], ['pick', 'Pick a day']] as const).map(([k, label]) => (
-                        <button key={k} type="button" aria-pressed={sheet.move === k} className={`min-h-tap rounded-ui border-2 px-2 text-ui-base font-semibold ${sheet.move === k ? 'border-ink bg-ink text-white' : 'border-surface-line bg-surface text-ink'}`} onClick={() => setSheet({ ...sheet, move: k })}>
+                        <button key={k} type="button" aria-pressed={sheet.move === k} className={`min-h-tap rounded-ui border-2 px-2 text-ui-base font-semibold ${sheet.move === k ? 'border-ink bg-ink text-white' : 'border-surface-line bg-surface text-ink'}`} onClick={() => setSheet({ ...sheet, move: k, preview: null })}>
                           {label}
                         </button>
                       ))}
                     </div>
-                    {sheet.move === 'pick' ? <Field label="New day for the first one">{(a) => <Input {...a} type="date" className="text-base" value={sheet.date} onChange={(e) => setSheet({ ...sheet, date: e.target.value })} />}</Field> : null}
+                    {sheet.move === 'pick' ? <Field label="New day for the first one">{(a) => <Input {...a} type="date" className="text-base" value={sheet.date} onChange={(e) => setSheet({ ...sheet, date: e.target.value, preview: null })} />}</Field> : null}
                     <p className="text-ui-sm text-ink">
                       {shiftDays(sheet) ? `Every visit moves ${Math.abs(shiftDays(sheet))} day${Math.abs(shiftDays(sheet)) === 1 ? '' : 's'} ${shiftDays(sheet) > 0 ? 'later' : 'earlier'}.` : 'Pick the new day.'}
                     </p>
                   </fieldset>
                   <Field label="Which crew">
                     {(a) => (
-                      <Select {...a} className="text-base" value={sheet.crew} onChange={(e) => setSheet({ ...sheet, crew: e.target.value })}>
+                      <Select {...a} className="text-base" value={sheet.crew} onChange={(e) => setSheet({ ...sheet, crew: e.target.value, preview: null })}>
                         <option value="all">All crews</option>
                         <option value="none">No crew</option>
                         {d.crews.map((c) => (
@@ -354,6 +369,35 @@ export default function VisitsBoard() {
                       </Select>
                     )}
                   </Field>
+                  {sheet.preview ? (
+                    <div className="flex flex-col gap-2 rounded-ui border-2 border-ink bg-surface p-3 text-ui-base text-ink" role="status" aria-live="polite">
+                      <p className="font-semibold">
+                        {sheet.preview.count === 0 ? 'No scheduled visits on those days.' : `${sheet.preview.count} visit${sheet.preview.count === 1 ? '' : 's'} will move.`}
+                      </p>
+                      {sheet.preview.landing.length ? (
+                        <p>
+                          Landing: {sheet.preview.landing.map((l) => `${formatDateWeekday(l.day)} (${l.count})`).join(', ')}
+                        </p>
+                      ) : null}
+                      {sheet.preview.sample.length ? (
+                        <ul className="flex flex-col gap-1">
+                          {sheet.preview.sample.map((v) => (
+                            <li key={v.id}>
+                              {v.customer ?? v.what} · {formatDateWeekday(v.from)} → {formatDateWeekday(v.to)}
+                              {v.crew ? ` · ${v.crew}` : ''}
+                            </li>
+                          ))}
+                          {sheet.preview.count > sheet.preview.sample.length ? <li>…and {sheet.preview.count - sheet.preview.sample.length} more</li> : null}
+                        </ul>
+                      ) : null}
+                      {sheet.preview.staying.done + sheet.preview.staying.skipped > 0 ? (
+                        <p>
+                          Staying put: {sheet.preview.staying.done} done, {sheet.preview.staying.skipped} skipped (finished and billed visits never move).
+                        </p>
+                      ) : null}
+                      {sheet.preview.intoPast > 0 ? <p className="font-semibold">That would put {sheet.preview.intoPast} visit{sheet.preview.intoPast === 1 ? '' : 's'} on a day that already passed. Pick a later day.</p> : null}
+                    </div>
+                  ) : null}
                 </>
               ) : null}
               <DialogFooter className="sticky bottom-0 bg-surface pt-2">
@@ -364,10 +408,10 @@ export default function VisitsBoard() {
                   disabled={
                     (sheet.kind === 'done' && sheet.visit.resultOptions.length > 0 && !sheet.result) ||
                     (sheet.kind === 'skip' && (!sheet.reason || (sheet.reason === 'other' && !sheet.notes.trim()))) ||
-                    (sheet.kind === 'shift' && (!shiftDays(sheet) || Math.abs(shiftDays(sheet)) > 30 || !sheet.from))
+                    (sheet.kind === 'shift' && (!shiftDays(sheet) || Math.abs(shiftDays(sheet)) > 30 || !sheet.from || (sheet.preview !== null && (sheet.preview.count === 0 || sheet.preview.intoPast > 0))))
                   }
                 >
-                  {sheet.kind === 'done' ? 'Save' : sheet.kind === 'skip' ? 'Skip visit' : 'Move'}
+                  {sheet.kind === 'done' ? 'Save' : sheet.kind === 'skip' ? 'Skip visit' : sheet.kind === 'shift' ? (sheet.preview ? `Move ${sheet.preview.count} visit${sheet.preview.count === 1 ? '' : 's'}` : 'Preview') : 'Move'}
                 </Button>
               </DialogFooter>
             </form>
