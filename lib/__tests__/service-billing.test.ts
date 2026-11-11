@@ -128,6 +128,28 @@ describe('grouping', () => {
     expect(drafts[1].lines[0].description).toBe('Weekly mowing')
   })
 
+  it('per property: a customer with two homes gets one invoice per home per month, each carrying its property', () => {
+    const drafts = groupDraftInvoices(units, 'property', addr).sort((a, b) => a.key.localeCompare(b.key))
+    expect(drafts.map((d) => [d.key, d.propertyId, d.subtotalCents])).toEqual([
+      ['p:c1:p1:2026-10', 'p1', 4500 + 12000 + 4500],
+      ['p:c1:p1:2026-11', 'p1', 4500],
+      ['p:c1:p2:2026-10', 'p2', 4500],
+      ['p:c2:p9:2026-10', 'p9', 4500],
+    ])
+    // one home per invoice: no address prefix on the lines
+    expect(drafts.every((d) => d.lines.every((l) => !l.description.includes(' · ')))).toBe(true)
+    // every visit is on exactly one invoice
+    const ids = drafts.flatMap((d) => d.lines.map((l) => l.work_order_id).filter(Boolean))
+    expect(new Set(ids).size).toBe(ids.length)
+  })
+
+  it('per property waits for the month to end like monthly, but per visit never waits', () => {
+    const u = units.find((x) => x.key === 'v:n1')!
+    expect(unitWaits(u, 'property', '2026-11', false)).toBe(true)
+    expect(unitWaits(u, 'visit', '2026-11', false)).toBe(false)
+    expect(unitWaits(u, 'property', '2026-11', true)).toBe(false)
+  })
+
   it('per visit: one invoice per visit (and per plan-month)', () => {
     const drafts = groupDraftInvoices(units, 'visit', addr)
     expect(drafts.map((d) => d.key).sort()).toEqual(['m:care:2026-10', 'v:n1', 'v:o1', 'v:v1', 'v:v2', 'v:w1'])

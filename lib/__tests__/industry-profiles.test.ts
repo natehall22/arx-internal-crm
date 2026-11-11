@@ -141,7 +141,8 @@ describe('lawn & landscape profile (Precision Maintenance)', () => {
       "Today's estimate visits",
       'Something new',
     ])
-    expect(lawn.today.planned.map((p) => p.id)).toEqual(['unpaid-invoices'])
+    expect(lawn.today.planned).toEqual([])
+    expect(lawn.today.order).toContain('unpaid-invoices')
     // Service-plan visit cards (built) lead the lawn Today.
     expect(lawn.today.order.slice(0, 2)).toEqual(['todays-visits', 'skipped-visits'])
   })
@@ -203,7 +204,6 @@ describe('switching profile', () => {
       keep: ['Roofing', 'Gutters', 'Siding', 'Windows', 'Other'],
     })
     expect(plan.words.find((w) => w.key === 'proposal')).toEqual({ key: 'proposal', now: 'Proposal', after: 'Quote' })
-    expect(plan.other.join('\n')).toContain('Unpaid invoices (needs per-visit / monthly invoicing (Phase 3))')
     expect(plan.noChange).toBe(false)
   })
 
