@@ -34,7 +34,7 @@ export async function GET() {
 
 /** POST { action: 'connect' } → { url } (Stripe onboarding, open it in this browser); { action: 'disconnect' }. Owners. */
 export async function POST(request: Request) {
-  const a = await requireOnlinePaymentsCaller('owner')
+  const a = await requireOnlinePaymentsCaller('owner', request)
   if (a.error) return a.error
   const orgId = a.profile.org_id
   const body = (await request.json().catch(() => ({}))) as { action?: string }
@@ -65,7 +65,7 @@ export async function POST(request: Request) {
 
 /** PATCH { settings: { allowPartial?, bankPayments?, autopay?, retryDays? } } — owners. */
 export async function PATCH(request: Request) {
-  const a = await requireOnlinePaymentsCaller('owner')
+  const a = await requireOnlinePaymentsCaller('owner', request)
   if (a.error) return a.error
   const parsed = parseOnlinePaymentSettingsPatch(await request.json().catch(() => null))
   if ('error' in parsed) return NextResponse.json({ error: parsed.error }, { status: 400 })

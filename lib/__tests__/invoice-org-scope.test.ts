@@ -9,6 +9,7 @@
 import fs from 'fs'
 import path from 'path'
 
+import { FAKE_PAYMENT_RPC } from '@/lib/test-helpers/fake-payment-rpc'
 import { createFakeDb } from '@/lib/test-helpers/fake-db'
 import { applyPaymentToInvoice, findOrgInvoice } from '@/lib/invoices'
 
@@ -36,7 +37,7 @@ function seed() {
       ],
       invoice_payments: [],
     },
-    { relations }
+    { relations, rpc: FAKE_PAYMENT_RPC }
   )
 }
 
@@ -64,14 +65,31 @@ describe('findOrgInvoice', () => {
 describe('applyPaymentToInvoice', () => {
   it("refuses a payment from another job (another company's)", async () => {
     const db = seed()
-    await expect(applyPaymentToInvoice(db.client, 'inv-a', 'pay-b', 1000, 'u1')).rejects.toThrow('Payment not found')
+    await expect(applyPaymentToInvoice(db.client, ORG_A, 'inv-a', 'pay-b', 1000, 'u1')).rejects.toThrow('Payment not found')
     expect(db.tables.invoice_payments).toHaveLength(0)
   })
 
   it('applies a payment from the same job', async () => {
     const db = seed()
-    await applyPaymentToInvoice(db.client, 'inv-a', 'pay-a', 1000, 'u1')
+    await applyPaymentToInvoice(db.client, ORG_A, 'inv-a', 'pay-a', 1000, 'u1')
     expect(db.tables.invoice_payments).toEqual([expect.objectContaining({ invoice_id: 'inv-a', job_payment_id: 'pay-a', applied_cents: 1000 })])
+  })
+
+  it("another company can't apply to this company's invoice, even with this invoice's own payment", async () => {
+    const db = seed()
+    await expect(applyPaymentToInvoice(db.client, ORG_B, 'inv-a', 'pay-a', 1000, 'u1')).rejects.toThrow('Invoice not found')
+  })
+
+  it('never over-applies: not more than the payment has left, nor the invoice balance (one locked SQL step)', async () => {
+    const db = seed()
+    db.tables.job_payments.push({ id: 'pay-a2', job_id: 'job-a', amount_cents: 8000 })
+    await applyPaymentToInvoice(db.client, ORG_A, 'inv-a', 'pay-a', 5000, 'u1')
+    await expect(applyPaymentToInvoice(db.client, ORG_A, 'inv-a', 'pay-a2', 6000, 'u1')).rejects.toThrow('more than the invoice balance')
+    await applyPaymentToInvoice(db.client, ORG_A, 'inv-a', 'pay-a2', 5000, 'u1')
+    expect(db.tables.job_invoices.find((i) => i.id === 'inv-a')?.status).toBe('paid')
+    // the same payment again is a no-op, not a second application
+    await applyPaymentToInvoice(db.client, ORG_A, 'inv-a', 'pay-a2', 5000, 'u1')
+    expect(db.tables.invoice_payments).toHaveLength(2)
   })
 })
 

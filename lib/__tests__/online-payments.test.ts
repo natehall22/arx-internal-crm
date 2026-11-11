@@ -7,6 +7,7 @@
 import { createHmac } from 'crypto'
 
 import { createFakeDb } from '@/lib/test-helpers/fake-db'
+import { FAKE_PAYMENT_RPC } from '@/lib/test-helpers/fake-payment-rpc'
 
 jest.mock('@/lib/company-links', () => ({
   orgAppUrl: async () => 'https://acme.crm.test',
@@ -156,6 +157,7 @@ function seed(extra: Partial<Record<string, Row[]>> = {}) {
       relations: { job_invoices: { production_jobs: { table: 'production_jobs', fk: 'job_id' } } },
       onRpc: (name, args) => rpcCalls.push({ name, args }),
       rpc: {
+        ...FAKE_PAYMENT_RPC,
         record_customer_invoice_payment: (args, t) => {
           const inv = t.job_invoices.find((r) => r.id === args.p_invoice && r.org_id === args.p_org && r.job_id == null)
           if (!inv) throw Object.assign(new Error('not found'), { code: 'P0002' })

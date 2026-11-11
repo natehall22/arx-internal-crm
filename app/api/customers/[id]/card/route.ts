@@ -8,7 +8,7 @@ import { orgDb } from '@/lib/supabase/org-db'
 import { requireOnlinePaymentsCaller } from '@/lib/online-payments/access'
 import { loadOnlinePayments } from '@/lib/online-payments/accounts'
 import { cardExpired, cardLabel, loadCardOnFile, removeCardOnFile, setAutopayOff } from '@/lib/online-payments/cards'
-import { createPaymentLink } from '@/lib/online-payments/links'
+import { createPaymentLink, tooManyLinks } from '@/lib/online-payments/links'
 
 export const dynamic = 'force-dynamic'
 
@@ -44,7 +44,7 @@ export async function GET(_request: Request, { params }: Ctx) {
  * enters the card on Stripe's page; the office never sees or types a card). Returns { url }; email: true sends it.
  */
 export async function POST(request: Request, { params }: Ctx) {
-  const a = await requireOnlinePaymentsCaller('billing')
+  const a = await requireOnlinePaymentsCaller('billing', request)
   if (a.error) return a.error
   const orgId = a.profile.org_id
   const customer = await loadCustomer(a.admin, orgId, params.id)
@@ -52,6 +52,7 @@ export async function POST(request: Request, { params }: Ctx) {
   const op = await loadOnlinePayments(a.admin, orgId)
   if (!op.featureOn) return NextResponse.json({ error: 'Online payments are off for this company' }, { status: 404 })
   if (!op.ready || !op.settings.autopay) return NextResponse.json({ error: 'Automatic payments are not available (Settings → Online payments)' }, { status: 409 })
+  if (await tooManyLinks(a.admin, orgId, { customerId: customer.id })) return NextResponse.json({ error: 'Too many save-card links for this customer in the last hour' }, { status: 429 })
   const link = await createPaymentLink(a.admin, orgId, { kind: 'save_card', customerId: customer.id }, a.profile.id)
   const body = (await request.json().catch(() => ({}))) as { email?: unknown }
   if (body.email !== true) return NextResponse.json({ url: link.url })
@@ -81,7 +82,7 @@ export async function POST(request: Request, { params }: Ctx) {
 
 /** PATCH { autopay: false } — stop automatic payments (turning them ON is only ever the customer's own choice). */
 export async function PATCH(request: Request, { params }: Ctx) {
-  const a = await requireOnlinePaymentsCaller('billing')
+  const a = await requireOnlinePaymentsCaller('billing', request)
   if (a.error) return a.error
   if (!(await loadCustomer(a.admin, a.profile.org_id, params.id))) return NextResponse.json({ error: 'Customer not found' }, { status: 404 })
   const body = (await request.json().catch(() => ({}))) as { autopay?: unknown }
@@ -91,8 +92,8 @@ export async function PATCH(request: Request, { params }: Ctx) {
 }
 
 /** DELETE — remove the card on file (detached at Stripe too). */
-export async function DELETE(_request: Request, { params }: Ctx) {
-  const a = await requireOnlinePaymentsCaller('billing')
+export async function DELETE(request: Request, { params }: Ctx) {
+  const a = await requireOnlinePaymentsCaller('billing', request)
   if (a.error) return a.error
   if (!(await loadCustomer(a.admin, a.profile.org_id, params.id))) return NextResponse.json({ error: 'Customer not found' }, { status: 404 })
   if (!(await removeCardOnFile(a.admin, a.profile.org_id, params.id, a.profile.id))) return NextResponse.json({ error: 'No card on file' }, { status: 404 })

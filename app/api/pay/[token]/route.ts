@@ -6,6 +6,9 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { loadOnlinePayments } from '@/lib/online-payments/accounts'
 import { createInvoiceCheckout, createSaveCardCheckout } from '@/lib/online-payments/checkout'
 import { resolvePublicLink } from '@/lib/online-payments/public'
+import { takeLinkAttempt } from '@/lib/online-payments/links'
+// The shared in-memory limiter (first written for the website estimate; generic despite its name).
+import { clientIpFromRequest, consumePublicEstimateRateLimit } from '@/lib/public-estimate-rate-limit'
 
 export const dynamic = 'force-dynamic'
 
@@ -16,9 +19,14 @@ export const dynamic = 'force-dynamic'
  */
 export async function POST(request: Request, { params }: { params: { token: string } }) {
   try {
+    // Per address (one server's memory: stops a burst) and per link (in the database: every server). Each tap opens a
+    // Stripe page, so a script can't make thousands of them.
+    const ip = consumePublicEstimateRateLimit({ key: `pay:${clientIpFromRequest(request)}`, limit: 30, windowMs: 10 * 60_000 })
+    if (!ip.ok) return NextResponse.json({ error: 'Too many tries. Please wait a few minutes.' }, { status: 429, headers: { 'Retry-After': String(ip.retryAfterSec) } })
     const admin = createServiceClient()
     const link = await resolvePublicLink(admin, params.token)
     if (!link) return NextResponse.json({ error: 'This link is not active' }, { status: 404 })
+    if (!(await takeLinkAttempt(admin, link.id))) return NextResponse.json({ error: 'Too many tries on this link. Please wait 15 minutes or contact us.' }, { status: 429, headers: { 'Retry-After': '900' } })
     const body = (await request.json().catch(() => ({}))) as { amountCents?: unknown; saveCard?: unknown }
     const op = await loadOnlinePayments(admin, link.org_id)
     const brand = await getDocumentBrand(admin, link.org_id)

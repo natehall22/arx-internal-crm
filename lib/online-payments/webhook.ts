@@ -15,7 +15,8 @@ import {
   fulfillCheckoutSession,
   recordFailedIntent,
   recordSucceededIntent,
-  syncRefunds,
+  syncReversals,
+  type RecordOutcome,
 } from '@/lib/online-payments/record'
 
 /** Events the endpoint should be subscribed to (docs/online-payments.md lists the same). */
@@ -29,6 +30,7 @@ export const STRIPE_WEBHOOK_EVENTS = [
   'charge.refunded',
   'charge.refund.updated',
   'charge.dispute.created',
+  'charge.dispute.closed',
   'account.updated',
   'account.application.deauthorized',
 ] as const
@@ -36,6 +38,14 @@ export const STRIPE_WEBHOOK_EVENTS = [
 export type WebhookResult = { status: number; body: Record<string, unknown> }
 
 const IN_FLIGHT_MS = 2 * 60_000
+
+/** The payment is being recorded right now by another path (pay page, autopay): answer non-2xx so Stripe retries. */
+class RetryLater extends Error {}
+
+/** A recorder outcome that means "nothing was recorded yet, but it must be": never acknowledge the event. */
+function mustRetry(outcome: RecordOutcome): void {
+  if (outcome === 'busy') throw new RetryLater('payment is being recorded by another request')
+}
 
 export async function handleStripeWebhookEvent(admin: SupabaseClient, event: StripeObject, now: Date = new Date()): Promise<WebhookResult> {
   const id = typeof event.id === 'string' ? event.id : ''
@@ -89,8 +99,10 @@ export async function handleStripeWebhookEvent(admin: SupabaseClient, event: Str
     return { status: 200, body: { received: true } }
   } catch (e) {
     const msg = (e as Error)?.message ?? String(e)
-    console.error('stripe webhook: handler failed', type, id, msg)
+    // Never 'done' unless recorded: a busy recorder or a failure leaves the event to be processed again on Stripe's retry.
     await finish('failed', msg)
+    if (e instanceof RetryLater) return { status: 409, body: { error: 'Payment is being recorded; retry' } }
+    console.error('stripe webhook: handler failed', type, id, msg)
     return { status: 500, body: { error: 'Handler failed; Stripe will retry' } }
   }
 }
@@ -106,13 +118,13 @@ async function dispatch(
     case 'checkout.session.completed':
     case 'checkout.session.async_payment_succeeded':
     case 'checkout.session.async_payment_failed':
-      await fulfillCheckoutSession(admin, account, String(obj.id), now)
+      mustRetry(await fulfillCheckoutSession(admin, account, String(obj.id), now))
       return true
     case 'checkout.session.expired':
       await expireCheckoutSession(admin, account, String(obj.id))
       return true
     case 'payment_intent.succeeded':
-      await recordSucceededIntent(admin, account, await fetchIntent(account, String(obj.id)), { now })
+      mustRetry(await recordSucceededIntent(admin, account, await fetchIntent(account, String(obj.id)), { now }))
       return true
     case 'payment_intent.payment_failed':
       await recordFailedIntent(admin, account, await fetchIntent(account, String(obj.id)), now)
@@ -121,7 +133,22 @@ async function dispatch(
     case 'charge.refund.updated': {
       const pi = typeof obj.payment_intent === 'string' ? obj.payment_intent : typeof obj.payment_intent?.id === 'string' ? obj.payment_intent.id : null
       if (!pi) return false
-      await syncRefunds(admin, account, pi)
+      await syncReversals(admin, account, pi)
+      return true
+    }
+    case 'charge.dispute.closed': {
+      // Lost → the bank kept the money: a negative payment (outbox payment.disputed), the invoice re-opens, office told.
+      // Won → nothing to record (the payment stands); the office is told.
+      const pi = typeof obj.payment_intent === 'string' ? obj.payment_intent : null
+      if (!pi) return false
+      if (obj.status === 'lost') {
+        await syncReversals(admin, account, pi)
+        return true
+      }
+      const full = await fetchIntent(account, pi)
+      const invoiceId = (full.metadata ?? {}).invoice_id
+      if (full.metadata?.crm_org_id !== account.org_id || typeof invoiceId !== 'string') return false
+      await notifyOfficeOfPaymentProblem(admin, account.org_id, { problem: 'dispute', invoiceId, amountCents: Number(obj.amount) || 0, detail: `The dispute is closed (${String(obj.status)}). The payment stands; nothing changed in the CRM.` })
       return true
     }
     case 'charge.dispute.created': {

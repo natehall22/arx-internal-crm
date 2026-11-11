@@ -7,7 +7,7 @@ import type { JobInvoice } from '@/lib/types/invoices'
 import { requireOnlinePaymentsCaller } from '@/lib/online-payments/access'
 import { loadOnlinePayments } from '@/lib/online-payments/accounts'
 import { payableCents } from '@/lib/online-payments/checkout'
-import { createPaymentLink } from '@/lib/online-payments/links'
+import { createPaymentLink, tooManyLinks } from '@/lib/online-payments/links'
 
 export const dynamic = 'force-dynamic'
 
@@ -17,7 +17,7 @@ export const dynamic = 'force-dynamic'
  * to copy / text; with email: true it is also emailed with the invoice.
  */
 export async function POST(request: Request, { params }: { params: { invoiceId: string } }) {
-  const a = await requireOnlinePaymentsCaller('billing')
+  const a = await requireOnlinePaymentsCaller('billing', request)
   if (a.error) return a.error
   const orgId = a.profile.org_id
   const op = await loadOnlinePayments(a.admin, orgId)
@@ -44,6 +44,7 @@ export async function POST(request: Request, { params }: { params: { invoiceId: 
       return NextResponse.json({ error: (e as Error).message }, { status: 400 })
     }
   }
+  if (await tooManyLinks(a.admin, orgId, { invoiceId: invoice.id })) return NextResponse.json({ error: 'Too many links for this invoice in the last hour' }, { status: 429 })
   const link = await createPaymentLink(a.admin, orgId, { kind: 'invoice', invoiceId: invoice.id }, a.profile.id)
   if (body.email === true) {
     const sent = await emailInvoicePayLink(a.admin, orgId, invoice, link.url, to)

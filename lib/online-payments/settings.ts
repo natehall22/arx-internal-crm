@@ -15,6 +15,8 @@ export type OnlinePaymentSettings = {
   autopay: boolean
   /** After a failed automatic charge, try again this many days after each failure (max 3 retries). */
   retryDays: number[]
+  /** The company's currency (ISO, lowercase). Every charge is made in it; a payment in anything else is never recorded. */
+  currency: string
 }
 
 export const DEFAULT_ONLINE_PAYMENT_SETTINGS: Readonly<OnlinePaymentSettings> = Object.freeze({
@@ -22,6 +24,7 @@ export const DEFAULT_ONLINE_PAYMENT_SETTINGS: Readonly<OnlinePaymentSettings> = 
   bankPayments: true,
   autopay: true,
   retryDays: [3, 7],
+  currency: 'usd',
 })
 
 /** Smallest partial payment (Stripe's own card minimum is $0.50; $1 keeps typos out). */
@@ -49,6 +52,7 @@ export function readOnlinePaymentSettings(stored: unknown): OnlinePaymentSetting
     bankPayments: typeof s.bankPayments === 'boolean' ? s.bankPayments : d.bankPayments,
     autopay: typeof s.autopay === 'boolean' ? s.autopay : d.autopay,
     retryDays: cleanRetryDays(s.retryDays) ?? [...d.retryDays],
+    currency: typeof s.currency === 'string' && /^[a-z]{3}$/.test(s.currency) ? s.currency : d.currency,
   }
 }
 

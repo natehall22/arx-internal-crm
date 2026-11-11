@@ -38,6 +38,13 @@ export default function OnlinePaymentsCard({ initial = null }: { initial?: View 
     void load()
   }, [load])
 
+  // Back from Stripe: `?payments=resume` = the onboarding link expired (start a fresh one with the button below);
+  // `?payments=return` = Stripe finished (the status above was just re-read from Stripe).
+  const [resume, setResume] = useState(false)
+  useEffect(() => {
+    setResume(new URLSearchParams(window.location.search).get('payments') === 'resume')
+  }, [])
+
   async function call(method: 'POST' | 'PATCH', body: unknown, tag: string) {
     setBusy(tag)
     const res = await fetch('/api/admin/online-payments', { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).catch(() => null)
@@ -116,6 +123,7 @@ export default function OnlinePaymentsCard({ initial = null }: { initial?: View 
             {acct && acct.status === 'active' && !acct.payoutsEnabled ? (
               <p className="text-ui-sm text-ink">Payments work; Stripe still needs your bank details to send payouts (finish in your Stripe dashboard).</p>
             ) : null}
+            {resume && acct && acct.status !== 'active' ? <p className="text-ui-base font-semibold text-ink">Stripe’s setup page timed out — tap “Finish setup in Stripe” to continue where you left off.</p> : null}
             {!acct ? <p className="text-ui-sm text-ink">You’ll sign in to Stripe (or create an account) and confirm your business. It takes about 5 minutes.</p> : null}
 
             {s ? (

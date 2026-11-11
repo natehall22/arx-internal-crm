@@ -82,3 +82,29 @@ export async function revokePaymentLink(admin: SupabaseClient, orgId: string, li
 export async function touchPaymentLink(admin: SupabaseClient, orgId: string, linkId: string): Promise<void> {
   await orgDb(admin, orgId).from('payment_links').update({ last_opened_at: new Date().toISOString() }).eq('id', linkId)
 }
+
+/** A customer link may open at most this many Stripe pages per window (shared across server instances: SQL). */
+export const LINK_ATTEMPTS = { limit: 10, windowSeconds: 15 * 60 }
+/** Staff may make at most this many links for one invoice / customer per hour (each can be emailed). */
+export const LINKS_PER_TARGET_PER_HOUR = 20
+
+export async function takeLinkAttempt(admin: SupabaseClient, linkId: string): Promise<boolean> {
+  const { data, error } = await admin.rpc('payment_link_take_attempt', { p_link: linkId, p_limit: LINK_ATTEMPTS.limit, p_window_seconds: LINK_ATTEMPTS.windowSeconds })
+  if (error) {
+    console.error('takeLinkAttempt failed (refusing)', error)
+    return false
+  }
+  return data === true
+}
+
+export async function tooManyLinks(
+  admin: SupabaseClient,
+  orgId: string,
+  target: { invoiceId: string } | { customerId: string },
+  now: Date = new Date()
+): Promise<boolean> {
+  const since = new Date(now.getTime() - 3_600_000).toISOString()
+  const q = orgDb(admin, orgId).from('payment_links').select('id', { count: 'exact', head: true }).gte('created_at', since)
+  const { count } = await ('invoiceId' in target ? q.eq('invoice_id', target.invoiceId) : q.eq('customer_id', target.customerId))
+  return (count ?? 0) >= LINKS_PER_TARGET_PER_HOUR
+}

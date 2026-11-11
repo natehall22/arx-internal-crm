@@ -195,6 +195,8 @@ export async function recordSucceededIntent(
     return 'needs_review' as const
   }
   if (!invoice || !Number.isInteger(amount) || amount <= 0) return review('the invoice was not found.')
+  const currency = await companyCurrency(admin, orgId)
+  if (String(pi.currency ?? '').toLowerCase() !== currency) return review(`it was paid in ${String(pi.currency ?? '?').toUpperCase()}, but the company takes ${currency.toUpperCase()}.`)
 
   let jobPaymentId: string
   if (invoice.job_id) {
@@ -224,7 +226,7 @@ export async function recordSucceededIntent(
         const bal = await computeInvoiceBalance(admin, invoice.id)
         const take = Math.min(amount, bal.balance_cents)
         if (take <= 0) return review('the invoice was already paid. The payment counts on the job.', jobPaymentId)
-        await applyPaymentToInvoice(admin, invoice.id, jobPaymentId, take)
+        await applyPaymentToInvoice(admin, orgId, invoice.id, jobPaymentId, take)
         if (take < amount) return review(`only ${(take / 100).toFixed(2)} was owed on the invoice. The rest counts on the job.`, jobPaymentId)
       }
     } catch (e) {
@@ -325,24 +327,46 @@ export async function failRow(
 }
 
 /**
- * Bring our refunds up to Stripe's: every SUCCEEDED refund on this payment is one negative payment (keyed by its refund
- * id), taken back off the invoice. Safe to run any number of times. A refund on a payment we never recorded waits
- * (the payment's own event records it, then the next refund event — or this one retried — catches up).
+ * Pure: how much of a reversal (refund or lost dispute) comes back off the invoice. Money the payment took that never
+ * went on the invoice (an overpayment) is given back FIRST and takes nothing back; after that each cent reverses an
+ * applied cent, never more than the payment applied. `previous` = reversals of this payment already counted.
  */
-export async function syncRefunds(admin: SupabaseClient, account: PaymentAccountRow, paymentIntentId: string): Promise<RecordOutcome> {
+export function refundTakeBack(chargedCents: number, appliedCents: number, previousCents: number, amountCents: number): number {
+  const applied = Math.max(0, appliedCents)
+  const excess = Math.max(0, chargedCents - applied)
+  const counted = (x: number) => Math.min(applied, Math.max(0, x - excess))
+  return counted(previousCents + amountCents) - counted(previousCents)
+}
+
+type Reversal = { key: string; kind: 'refund' | 'dispute'; amount: number; created: number }
+
+/**
+ * Bring our reversals up to Stripe's for one payment: every SUCCEEDED refund and every LOST dispute is one negative
+ * payment (keyed `stripe-refund:<id>` / `stripe-dispute:<id>`; QuickBooks outbox `payment.refunded` / `payment.disputed`
+ * for job payments), and comes back off the invoice only as far as THIS payment applied to it (`refundTakeBack`) — an
+ * overpayment refund or a repeat never re-opens a paid invoice. Safe to run any number of times. A reversal of a payment
+ * not recorded yet throws (the webhook answers 500 and Stripe retries after the payment's own event).
+ */
+export async function syncReversals(admin: SupabaseClient, account: PaymentAccountRow, paymentIntentId: string): Promise<RecordOutcome> {
   const orgId = account.org_id
   const row = await loadRow(admin, orgId, 'payment_intent_id', paymentIntentId)
   if (!row) return 'ignored'
   if (!row.job_payment_id) {
-    // Money the office is already reviewing (it never went on an invoice): the refund is theirs to match up.
+    // Money the office is already reviewing (it never went on an invoice): the reversal is theirs to match up.
     if (row.status === 'needs_review') {
-      await notifyOfficeOfPaymentProblem(admin, orgId, { problem: 'needs_review', invoiceId: row.invoice_id, amountCents: row.amount_cents, detail: 'A payment you were asked to review was refunded in Stripe. Nothing was changed in the CRM.' })
+      await notifyOfficeOfPaymentProblem(admin, orgId, { problem: 'needs_review', invoiceId: row.invoice_id, amountCents: row.amount_cents, detail: 'A payment you were asked to review was refunded or disputed in Stripe. Nothing was changed in the CRM.' })
       return 'needs_review'
     }
-    throw new Error('refund before its payment was recorded — retry later')
+    throw new Error('reversal before its payment was recorded — retry later')
   }
-  const list = await stripeRequest('GET', '/v1/refunds', { payment_intent: paymentIntentId, limit: 100 }, { account: account.account_id })
-  const refunds = ((list.data ?? []) as StripeObject[]).filter((r) => r.status === 'succeeded' && Number(r.amount) > 0)
+  const [refundList, disputeList] = await Promise.all([
+    stripeRequest('GET', '/v1/refunds', { payment_intent: paymentIntentId, limit: 100 }, { account: account.account_id }),
+    stripeRequest('GET', '/v1/disputes', { payment_intent: paymentIntentId, limit: 100 }, { account: account.account_id }),
+  ])
+  const reversals: Reversal[] = [
+    ...((refundList.data ?? []) as StripeObject[]).filter((r) => r.status === 'succeeded' && Number(r.amount) > 0).map((r) => ({ key: `stripe-refund:${r.id}`, kind: 'refund' as const, amount: Number(r.amount), created: Number(r.created) || 0 })),
+    ...((disputeList.data ?? []) as StripeObject[]).filter((d) => d.status === 'lost' && Number(d.amount) > 0).map((d) => ({ key: `stripe-dispute:${d.id}`, kind: 'dispute' as const, amount: Number(d.amount), created: Number(d.created) || 0 })),
+  ].sort((x, y) => x.created - y.created || x.key.localeCompare(y.key))
   const invoice = await findOrgInvoice(admin, row.invoice_id, orgId)
   if (!invoice) return 'ignored'
   const tz = await loadOrgTimeZone(admin, orgId)
@@ -350,39 +374,58 @@ export async function syncRefunds(admin: SupabaseClient, account: PaymentAccount
   const { data: orig } = await admin.from('job_payments').select('payment_type, method').eq('id', row.job_payment_id).maybeSingle()
   const o = (orig ?? {}) as { payment_type?: PaymentType; method?: 'card' | 'ach' }
   const method = o.method === 'ach' ? 'ach' : 'card'
+  // What THIS payment put on THIS invoice (its own positive application).
+  const { data: apps } = await admin.from('invoice_payments').select('applied_cents').eq('invoice_id', invoice.id).eq('job_payment_id', row.job_payment_id)
+  const applied = ((apps ?? []) as Array<{ applied_cents: number }>).reduce((t, a) => t + Number(a.applied_cents), 0)
+  let previous = 0
   let problems = 0
-  for (const r of refunds) {
-    const cents = Number(r.amount)
-    const paidAt = ymdInZone(new Date(Number(r.created) * 1000), tz)
-    const note = `Refund (Stripe ${r.id})`
-    const key = `stripe-refund:${r.id}`
+  const newlyLost: Reversal[] = []
+  for (const r of reversals) {
+    const take = refundTakeBack(row.amount_cents, applied, previous, r.amount)
+    previous += r.amount
+    const paidAt = ymdInZone(new Date(r.created * 1000), tz)
+    const note = `${r.kind === 'refund' ? 'Refund' : 'Dispute lost'} (Stripe ${r.key.split(':')[1]})`
     if (invoice.job_id) {
       const res = await recordJobPayment(admin, {
         orgId,
         jobId: invoice.job_id,
         paidAt,
-        amountCents: -cents,
+        amountCents: -r.amount,
         paymentType: o.payment_type ?? 'other',
         method,
         payer: 'homeowner',
         note,
         createdBy: null,
-        idempotencyKey: key,
+        idempotencyKey: r.key,
+        eventType: r.kind === 'refund' ? 'payment.refunded' : 'payment.disputed',
       })
-      if (!res.ok) throw new Error(`syncRefunds: job refund not written (${res.error})`)
-      await applyRefundToInvoice(admin, invoice.id, res.payment.id, cents)
+      if (!res.ok) throw new Error(`syncReversals: job reversal not written (${res.error})`)
+      if (!res.duplicate && r.kind === 'dispute') newlyLost.push(r)
+      if (take > 0) await applyRefundToInvoice(admin, orgId, invoice.id, res.payment.id, take)
     } else {
-      const res = await recordCustomerInvoiceRefund(admin, orgId, invoice.id, { amountCents: cents, paidAt, method, note, idempotencyKey: key })
+      const res = await recordCustomerInvoiceRefund(admin, orgId, invoice.id, { amountCents: r.amount, paidAt, method, note, idempotencyKey: r.key, unapplyCents: take })
       if (!res.ok) problems++
+      else if (!res.duplicate && r.kind === 'dispute') newlyLost.push(r)
     }
   }
-  const refunded = refunds.reduce((s, r) => s + Number(r.amount), 0)
-  await patchRow(admin, orgId, row.id, { refunded_cents: refunded })
+  await patchRow(admin, orgId, row.id, {
+    refunded_cents: reversals.filter((r) => r.kind === 'refund').reduce((t, r) => t + r.amount, 0),
+    disputed_cents: reversals.filter((r) => r.kind === 'dispute').reduce((t, r) => t + r.amount, 0),
+  })
+  for (const r of newlyLost) {
+    await notifyOfficeOfPaymentProblem(admin, orgId, { problem: 'dispute', invoiceId: row.invoice_id, amountCents: r.amount, detail: 'The dispute was lost: the bank took the money back. It is recorded as a negative payment and the invoice is open again for that amount.' })
+  }
   if (problems > 0) {
-    await notifyOfficeOfPaymentProblem(admin, orgId, { problem: 'needs_review', invoiceId: row.invoice_id, amountCents: refunded, detail: 'A refund in Stripe is more than what is left paid on this invoice in the CRM. Check the invoice.' })
+    await notifyOfficeOfPaymentProblem(admin, orgId, { problem: 'needs_review', invoiceId: row.invoice_id, amountCents: previous, detail: 'A refund or dispute in Stripe could not be matched to this invoice in the CRM. Check the invoice.' })
     return 'needs_review'
   }
   return 'recorded'
+}
+
+/** The currency the company takes (settings; US companies = usd). A payment in any other currency is never recorded. */
+async function companyCurrency(admin: SupabaseClient, orgId: string): Promise<string> {
+  const { data } = await admin.from('orgs').select('online:settings->onlinePayments').eq('id', orgId).maybeSingle()
+  return readOnlinePaymentSettings((data as { online?: unknown } | null)?.online ?? {}).currency
 }
 
 /** Re-read a PaymentIntent on the company's account with its charge (the source of truth for amount and card). */

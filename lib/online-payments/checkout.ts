@@ -101,6 +101,7 @@ export async function createInvoiceCheckout(
       link_id: link.id,
       amount_cents: amount.cents,
       application_fee_cents: fee,
+      currency: op.settings.currency,
       status: 'open',
     })
     .select('id')
@@ -118,7 +119,7 @@ export async function createInvoiceCheckout(
   const session = await createSession(
     {
       mode: 'payment',
-      line_items: [{ quantity: 1, price_data: { currency: 'usd', unit_amount: amount.cents, product_data: { name: `Invoice ${number}` } } }],
+      line_items: [{ quantity: 1, price_data: { currency: op.settings.currency, unit_amount: amount.cents, product_data: { name: `Invoice ${number}` } } }],
       success_url: urls.successUrl,
       cancel_url: urls.cancelUrl,
       client_reference_id: invoice.id,
@@ -161,7 +162,7 @@ export async function createSaveCardCheckout(
     '/v1/checkout/sessions',
     {
       mode: 'setup',
-      currency: 'usd',
+      currency: op.settings.currency,
       customer: stripeCustomer,
       payment_method_types: ['card'],
       success_url: urls.successUrl,

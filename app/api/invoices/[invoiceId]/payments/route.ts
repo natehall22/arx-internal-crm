@@ -117,6 +117,7 @@ export async function POST(
 
     const application = await applyPaymentToInvoice(
       adminClient,
+      profile.org_id,
       params.invoiceId,
       job_payment_id,
       applied_cents,

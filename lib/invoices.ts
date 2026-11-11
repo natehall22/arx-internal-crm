@@ -1,3 +1,4 @@
+import { isMissingFunction } from './org-settings'
 import { SupabaseClient } from '@supabase/supabase-js'
 import {
   JobInvoice,
@@ -783,10 +784,43 @@ export async function finalizeAndSendInvoice(
 }
 
 /**
- * Apply a job payment to an invoice.
- * Automatically updates invoice status based on payment coverage.
+ * Apply a job payment to a job invoice. ONE SQL transaction with the invoice row locked (`apply_job_invoice_payment`,
+ * migration 202611120020): the invoice must be this company's and issued, the payment this job's, and the amount never
+ * more than what the payment has left NOR the invoice balance — so two applies at once can't over-apply. Status follows.
+ * Applying the same payment to the same invoice twice is a no-op (the first application is returned).
  */
 export async function applyPaymentToInvoice(
+  supabase: SupabaseClient,
+  orgId: string,
+  invoiceId: string,
+  jobPaymentId: string,
+  appliedCents: number,
+  createdBy?: string | null
+): Promise<InvoicePayment> {
+  if (!Number.isInteger(appliedCents) || appliedCents <= 0) {
+    throw new Error('Applied amount must be positive')
+  }
+  const { error } = await supabase.rpc('apply_job_invoice_payment', {
+    p_org: orgId,
+    p_invoice: invoiceId,
+    p_payment: jobPaymentId,
+    p_applied_cents: appliedCents,
+    p_created_by: createdBy ?? null,
+  })
+  if (error && isMissingFunction(error)) return legacyApplyPaymentToInvoice(supabase, invoiceId, jobPaymentId, appliedCents, createdBy ?? undefined)
+  if (error) throw new Error(error.message)
+  const { data: application } = await supabase
+    .from('invoice_payments')
+    .select('*')
+    .eq('invoice_id', invoiceId)
+    .eq('job_payment_id', jobPaymentId)
+    .maybeSingle()
+  if (!application) throw new Error('Failed to apply payment')
+  return application as InvoicePayment
+}
+
+/** Before migration 202611120020 only: the original unlocked path. */
+async function legacyApplyPaymentToInvoice(
   supabase: SupabaseClient,
   invoiceId: string,
   jobPaymentId: string,
@@ -1254,7 +1288,7 @@ export async function recordCustomerInvoiceRefund(
   supabase: SupabaseClient,
   orgId: string,
   invoiceId: string,
-  p: { amountCents: number; paidAt: string; method: CustomerPaymentMethod; note: string | null; idempotencyKey: string }
+  p: { amountCents: number; paidAt: string; method: CustomerPaymentMethod; note: string | null; idempotencyKey: string; unapplyCents?: number }
 ): Promise<{ ok: true; paymentId: string; duplicate: boolean } | { ok: false; status: 400 | 404; error: string }> {
   const { data, error } = await supabase.rpc('record_customer_invoice_refund', {
     p_org: orgId,
@@ -1264,6 +1298,8 @@ export async function recordCustomerInvoiceRefund(
     p_method: p.method,
     p_note: p.note,
     p_idempotency_key: p.idempotencyKey,
+    // How much comes back off the invoice (capped per payment by the caller); the money row is always the full refund.
+    p_unapply_cents: p.unapplyCents ?? p.amountCents,
   })
   if (error) {
     if (error.code === 'P0002') return { ok: false, status: 404, error: 'Invoice not found' }
@@ -1275,38 +1311,28 @@ export async function recordCustomerInvoiceRefund(
 }
 
 /**
- * Take a refunded job payment back off the job invoice it paid: a negative application for the refund's own
- * (negative) job payment row, then the invoice status is re-read (paid → partly paid → sent). Idempotent: a refund
- * payment already applied to this invoice is not applied twice. Never more than the net paid on the invoice.
- * Returns the cents taken back (0 when nothing was applied).
+ * Take a refund (or lost dispute) back off the job invoice it paid: a negative application for the refund's own negative
+ * job payment, through the same locked SQL as payments (`apply_job_invoice_payment`). `unapplyCents` is how much comes
+ * off THIS invoice (the caller caps it to what the original payment applied — an overpayment's refund takes nothing
+ * back). Idempotent per refund payment. Returns the cents taken back.
  */
 export async function applyRefundToInvoice(
   supabase: SupabaseClient,
+  orgId: string,
   invoiceId: string,
   refundPaymentId: string,
-  refundCents: number,
-  createdBy: string | null = null
+  unapplyCents: number
 ): Promise<number> {
-  if (!(refundCents > 0)) return 0
-  const { data: existing } = await supabase
-    .from('invoice_payments')
-    .select('id')
-    .eq('invoice_id', invoiceId)
-    .eq('job_payment_id', refundPaymentId)
-    .maybeSingle()
-  if (existing) return 0
-  const balance = await computeInvoiceBalance(supabase, invoiceId)
-  const take = Math.min(refundCents, Math.max(0, balance.applied_cents))
-  if (take <= 0) return 0
-  const { error } = await supabase
-    .from('invoice_payments')
-    .insert({ invoice_id: invoiceId, job_payment_id: refundPaymentId, applied_cents: -take, created_by: createdBy })
-  if (error) {
-    if (error.code === '23505') return 0
-    throw new Error(`Failed to apply refund: ${error.message}`)
-  }
-  await updateInvoicePaymentStatus(supabase, invoiceId)
-  return take
+  if (!(unapplyCents > 0)) return 0
+  const { data, error } = await supabase.rpc('apply_job_invoice_payment', {
+    p_org: orgId,
+    p_invoice: invoiceId,
+    p_payment: refundPaymentId,
+    p_applied_cents: -unapplyCents,
+    p_created_by: null,
+  })
+  if (error) throw new Error(`Failed to apply refund: ${error.message}`)
+  return Math.abs(Number((data as { applied_cents?: number } | null)?.applied_cents ?? 0))
 }
 
 /**
