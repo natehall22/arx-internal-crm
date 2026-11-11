@@ -27,13 +27,12 @@ export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 export const maxDuration = 60
 
-const forbidden = () => NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 const notFound = () => NextResponse.json({ error: 'Not found' }, { status: 404 })
 
 /** GET — everything the Move from Jobber screen shows for one import. */
 export async function GET(_request: Request, { params }: { params: { runId: string } }) {
   const owner = await importOwner()
-  if (!owner) return forbidden()
+  if (owner instanceof NextResponse) return owner
   const admin = createServiceClient()
   const run = await loadRun(admin, owner.org_id, params.runId)
   if (!run) return notFound()
@@ -58,7 +57,7 @@ export async function GET(_request: Request, { params }: { params: { runId: stri
  */
 export async function POST(request: Request, { params }: { params: { runId: string } }) {
   const owner = await importOwner()
-  if (!owner) return forbidden()
+  if (owner instanceof NextResponse) return owner
   const admin = createServiceClient()
   const run = await loadRun(admin, owner.org_id, params.runId)
   if (!run) return notFound()
