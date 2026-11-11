@@ -1,8 +1,13 @@
 import { sumCollectedCents } from '@/lib/job-collection'
 import { requireAuth } from '@/lib/auth'
-import { clientOrgProfile, loadOrgProfile } from '@/lib/org-profile'
+import { clientOrgProfile, loadOrgProfile, t } from '@/lib/org-profile'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
+import CustomFieldsCard from '@/components/custom-fields/CustomFieldsCard'
+import { fieldsToShow } from '@/lib/custom-fields'
+import { customFieldRecordAccess } from '@/lib/custom-fields-access'
+import { loadCustomFieldDefinitions, loadCustomFieldValues } from '@/lib/custom-fields-db'
+import { resolveThreadViewer } from '@/lib/threads/viewer'
 import { notFound, redirect } from 'next/navigation'
 import JobDetailClient from './JobDetailClient'
 import { callerCanAccessJobBilling } from '@/lib/finance-access'
@@ -584,8 +589,21 @@ export default async function JobView({ params, embedded = false, initialTab = n
 
   // Industry profile (lib/org-profile.ts): its feature map is the same rule getOrgFeatures used; its words paint first time.
   const orgProfile = await loadOrgProfile(createServiceClient(), profile.org_id)
+
+  // The company's own job fields (Settings → Custom fields). Nothing loads or renders for a company without any.
+  let detailsSlot: React.ReactNode = null
+  const jobFieldDefs = (await loadCustomFieldDefinitions(admin, profile.org_id, 'job')).definitions
+  if (jobFieldDefs.length > 0) {
+    const values = (await loadCustomFieldValues(admin, profile.org_id, 'job', jobRes.data.id)) ?? {}
+    if (fieldsToShow(jobFieldDefs, 'job', values).length > 0) {
+      const access = await customFieldRecordAccess(admin, await resolveThreadViewer(admin, profile), 'job', jobRes.data.id)
+      detailsSlot = <CustomFieldsCard entity="job" recordId={jobRes.data.id} definitions={jobFieldDefs} initialValues={values} canEdit={access.edit} title={`${t(orgProfile, 'job')} details`} />
+    }
+  }
+
   return (
     <JobDetailClient
+      detailsSlot={detailsSlot}
       orgFeatures={orgProfile.features}
       orgProfile={clientOrgProfile(orgProfile)}
       catchUp={catchUp}

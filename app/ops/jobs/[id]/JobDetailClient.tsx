@@ -389,6 +389,8 @@ interface JobDetailClientProps {
   orgFeatures?: OrgFeatures | null
   /** The company's industry profile resolved on the server (lib/org-profile.ts), so its words paint first time. */
   orgProfile?: ClientOrgProfile | null
+  /** The company's own job fields card (Settings → Custom fields), built on the server. Null = the company has none. */
+  detailsSlot?: React.ReactNode
 }
 
 /** Old six-tab keys -> the five job tabs, so every "jump to X" in this file works on both pages. */
@@ -617,6 +619,7 @@ export default function JobDetailClient({
   initialTab = null,
   notesSlot,
   catchUp = null,
+  detailsSlot = null,
   orgFeatures: serverOrgFeatures = null,
   orgProfile: serverOrgProfile = null,
 }: JobDetailClientProps) {
@@ -1995,6 +1998,9 @@ export default function JobDetailClient({
 
         {/* Both job bodies: the catch-up box sits at the top, above the customer row. */}
         {catchUp && <JobCatchUpBox catchUp={catchUp} canSetOwner={canEditJobs} />}
+
+        {/* Both job bodies: the company's own job fields (absent for a company without any). */}
+        {detailsSlot ? <div className="mb-4 sm:mb-6">{detailsSlot}</div> : null}
 
         {v2 ? (
           <JobCustomerRow jobId={job.id} dealId={job.opportunity_id ?? null} customer={job.customer ?? null} />

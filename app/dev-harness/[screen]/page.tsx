@@ -62,6 +62,13 @@ import UiKitHarness from '@/components/ui/UiKitHarness'
 import Nav from '@/components/Nav'
 import SettingsHub from '@/app/admin/SettingsHub'
 import JobSetupClient from '@/app/admin/job-setup/JobSetupClient'
+import CustomFieldsClient from '@/app/admin/custom-fields/CustomFieldsClient'
+import CustomFieldsCard from '@/components/custom-fields/CustomFieldsCard'
+import PropertiesCard from '@/components/customer-file/PropertiesCard'
+import CustomerDocumentsCard from '@/components/customer-file/CustomerDocumentsCard'
+import { HARNESS_CUSTOM_FIELDS, HARNESS_PROPERTIES, HARNESS_CUSTOMER_DOCUMENTS } from '@/e2e/fixtures'
+import type { CustomFieldDefinition } from '@/lib/custom-fields'
+import type { Property } from '@/lib/properties'
 import { visibleSettingsGroups } from '@/lib/settings-registry'
 import { QueueCard, KpiTiles } from '@/components/today/QueueCard'
 import FileHeader from '@/components/customer-file/FileHeader'
@@ -350,6 +357,29 @@ export default function Harness({ params }: { params: { screen: string } }) {
       return <GeneralSettingsHarness canEditBrand />
     case 'admin-settings-readonly':
       return <GeneralSettingsHarness canEditBrand={false} />
+    case 'custom-fields-admin':
+      return <div className="mx-auto max-w-3xl p-4"><h1 className="text-ui-xl font-bold text-ink">Custom fields</h1><CustomFieldsClient /></div>
+    case 'customer-records': {
+      const defs = HARNESS_CUSTOM_FIELDS.definitions as CustomFieldDefinition[]
+      return (
+        <div className="mx-auto flex max-w-3xl flex-col gap-4 p-4">
+          <h1 className="text-ui-xl font-bold text-ink">Gulf Coast Property Group</h1>
+          <CustomFieldsCard entity="customer" recordId="cust-1" definitions={defs} initialValues={{ 'cf-gate': 'Dana (accounts payable)', 'cf-terms': 'Net 30' }} canEdit title="Customer details" />
+          <PropertiesCard customerId="cust-1" initial={HARNESS_PROPERTIES as Property[]} ready canEdit accessNotes propertyFields={defs.filter((d) => d.entity === 'property')} />
+          <CustomerDocumentsCard customerId="cust-1" initial={HARNESS_CUSTOMER_DOCUMENTS} canUpload properties={[{ id: 'prop-1', name: 'Main office · 2410 Crawfordville Hwy' }, { id: 'prop-2', name: 'Rental on Oak · 88 Oak Ridge Rd' }]} />
+        </div>
+      )
+    }
+    case 'customer-records-plain':
+      // A one-home customer at a company that doesn't use properties: only the small add links.
+      return (
+        <div className="mx-auto flex max-w-3xl flex-col gap-4 p-4">
+          <h1 className="text-ui-xl font-bold text-ink">Pat Customer</h1>
+          <CustomFieldsCard entity="customer" recordId="cust-2" definitions={[]} initialValues={{}} canEdit />
+          <PropertiesCard customerId="cust-2" initial={[{ ...(HARNESS_PROPERTIES[1] as Property), label: null, customer_id: 'cust-2' }]} ready canEdit accessNotes propertyFields={[]} />
+          <CustomerDocumentsCard customerId="cust-2" initial={[]} canUpload properties={[]} />
+        </div>
+      )
     case 'job-setup':
       return <div className="mx-auto max-w-3xl p-4"><h1 className="text-ui-xl font-bold text-ink">Job setup</h1><JobSetupClient /></div>
     case 'pay-week':

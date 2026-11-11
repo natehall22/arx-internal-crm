@@ -5,8 +5,8 @@ import * as React from 'react'
 import { Badge, Button, Input } from '@/components/ui'
 
 /**
- * Shared editor for a company's short config lists (Settings → Job setup: Trades now; Cost codes and
- * Payment schedule next). Add, rename, reorder and turn on/off — never delete, because rows elsewhere
+ * Shared editor for a company's short config lists (Settings → Job setup: Trades; Settings → Custom fields; Cost codes
+ * and Payment schedule next). Add, rename, reorder and turn on/off — never delete, because rows elsewhere
  * keep pointing at an item after it is turned off. Every change is handed to the parent, which saves
  * it through its one server route and passes the saved list back in.
  *
@@ -27,9 +27,17 @@ type Props = {
   onRename: (key: string, label: string) => Promise<boolean>
   onReorder: (keys: string[]) => Promise<boolean>
   onSetActive: (key: string, active: boolean) => Promise<boolean>
+  /** How many items must stay on (Trades: 1, a job needs a crew; Custom fields: 0). */
+  minActive?: number
+  /** One line under an item's name (e.g. a field's type and choices). */
+  renderDetail?: (key: string) => React.ReactNode
+  /** Extra buttons beside Rename / Turn off (e.g. a field's settings). */
+  renderActions?: (key: string, busy: boolean) => React.ReactNode
+  /** Replaces the built-in "Add a …" name box when adding needs more than a name. */
+  addForm?: React.ReactNode
 }
 
-export default function ConfigListEditor({ items, noun, readOnly = false, maxLabelLength = 40, hint, onAdd, onRename, onReorder, onSetActive }: Props) {
+export default function ConfigListEditor({ items, noun, readOnly = false, maxLabelLength = 40, hint, onAdd, onRename, onReorder, onSetActive, minActive = 1, renderDetail, renderActions, addForm }: Props) {
   const [busy, setBusy] = React.useState<string | null>(null)
   const [editing, setEditing] = React.useState<{ key: string; label: string } | null>(null)
   const [newLabel, setNewLabel] = React.useState('')
@@ -73,7 +81,8 @@ export default function ConfigListEditor({ items, noun, readOnly = false, maxLab
 
   return (
     <div className="flex flex-col gap-3">
-      <ol className="flex flex-col divide-y divide-surface-line rounded-ui border border-surface-line bg-surface">
+      {items.length === 0 ? <p className="text-ui-base text-ink">No {noun}s yet.</p> : null}
+      <ol className={`flex flex-col divide-y divide-surface-line rounded-ui border border-surface-line bg-surface ${items.length === 0 ? 'hidden' : ''}`}>
         {items.map((item, index) => {
           const isEditing = editing?.key === item.key
           return (
@@ -107,7 +116,10 @@ export default function ConfigListEditor({ items, noun, readOnly = false, maxLab
                 <>
                   <div className="flex min-w-0 flex-1 items-center gap-2">
                     <span className="w-6 shrink-0 text-right text-ui-sm font-semibold text-ink">{index + 1}.</span>
-                    <span className={`min-w-0 flex-1 break-words text-ui-base font-semibold text-ink ${item.active ? '' : 'line-through decoration-1'}`}>{item.label}</span>
+                    <span className="min-w-0 flex-1">
+                      <span className={`block break-words text-ui-base font-semibold text-ink ${item.active ? '' : 'line-through decoration-1'}`}>{item.label}</span>
+                      {renderDetail ? <span className="block break-words text-ui-sm text-ink">{renderDetail(item.key)}</span> : null}
+                    </span>
                     {!item.active ? <Badge>Off</Badge> : null}
                     {!readOnly ? (
                       <div className="flex shrink-0 gap-1">
@@ -121,7 +133,7 @@ export default function ConfigListEditor({ items, noun, readOnly = false, maxLab
                     ) : null}
                   </div>
                   {!readOnly ? (
-                    <div className="flex gap-2 pl-8 sm:pl-0">
+                    <div className="flex flex-wrap gap-2 pl-8 sm:pl-0">
                       <Button type="button" size="sm" variant="secondary" disabled={anyBusy} onClick={() => setEditing({ key: item.key, label: item.label })}>
                         Rename
                       </Button>
@@ -129,12 +141,13 @@ export default function ConfigListEditor({ items, noun, readOnly = false, maxLab
                         type="button"
                         size="sm"
                         variant="secondary"
-                        disabled={anyBusy || (item.active && activeCount <= 1)}
+                        disabled={anyBusy || (item.active && activeCount <= minActive)}
                         loading={busy === `active:${item.key}`}
                         onClick={() => void run(`active:${item.key}`, () => onSetActive(item.key, !item.active))}
                       >
                         {item.active ? 'Turn off' : 'Turn on'}
                       </Button>
+                      {renderActions ? renderActions(item.key, anyBusy) : null}
                     </div>
                   ) : null}
                 </>
@@ -146,7 +159,8 @@ export default function ConfigListEditor({ items, noun, readOnly = false, maxLab
 
       {hint ? <p className="text-ui-sm text-ink">{hint}</p> : null}
 
-      {!readOnly ? (
+      {!readOnly && addForm ? addForm : null}
+      {!readOnly && !addForm ? (
         <form onSubmit={add} className="flex flex-col gap-2 sm:flex-row sm:items-end">
           <div className="flex flex-1 flex-col gap-1.5">
             <label htmlFor={addId} className="text-ui-sm font-semibold text-ink">

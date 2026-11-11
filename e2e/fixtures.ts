@@ -545,3 +545,40 @@ export const HARNESS_CHECKUPS = [
     customerName: 'Pat Customer', phone: '7045550100', email: null, assigneeName: 'Nathan Hall',
   },
 ]
+
+/** Properties + custom fields harness (lawn / landscape company with a commercial account). */
+export const HARNESS_CUSTOM_FIELDS = {
+  ready: true,
+  definitions: [
+    { id: 'cf-gate', entity: 'customer', label: 'Billing contact', field_type: 'text', options: [], required: false, sort: 10, active: true, visible_to_field: false },
+    { id: 'cf-terms', entity: 'customer', label: 'Payment terms', field_type: 'dropdown', options: ['Due on receipt', 'Net 15', 'Net 30'], required: true, sort: 20, active: true, visible_to_field: false },
+    { id: 'pf-day', entity: 'property', label: 'Mowing day', field_type: 'dropdown', options: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'], required: false, sort: 10, active: true, visible_to_field: true },
+    { id: 'pf-acres', entity: 'property', label: 'Acres', field_type: 'number', options: [], required: false, sort: 20, active: true, visible_to_field: false },
+    { id: 'pf-old', entity: 'property', label: 'Old irrigation note', field_type: 'text', options: [], required: false, sort: 30, active: false, visible_to_field: false },
+    { id: 'jf-crew', entity: 'job', label: 'Crew size', field_type: 'number', options: [], required: false, sort: 10, active: true, visible_to_field: false },
+  ],
+}
+
+export const HARNESS_PROPERTIES = [
+  {
+    id: 'prop-1', customer_id: 'cust-1', label: 'Main office', address_line1: '2410 Crawfordville Hwy', address_line2: null, city: 'Crawfordville', state: 'FL', zip: '32327',
+    address_text: '2410 Crawfordville Hwy, Crawfordville, FL 32327', lat: 30.1763, lng: -84.3752, notes: 'Front beds get mulch every spring.',
+    access_notes: 'Gate code 4421. Dog in the back yard on weekdays — use the side gate.', active: true, source: 'manual',
+    custom_fields: { 'pf-day': 'Tuesday', 'pf-acres': 1.5 }, created_at: '2026-11-01T12:00:00Z', updated_at: '2026-11-01T12:00:00Z',
+  },
+  {
+    id: 'prop-2', customer_id: 'cust-1', label: 'Rental on Oak', address_line1: null, address_line2: null, city: null, state: null, zip: null,
+    address_text: '88 Oak Ridge Rd, Wakulla Springs, FL 32327', lat: null, lng: null, notes: null, access_notes: null, active: true, source: 'backfill',
+    custom_fields: {}, created_at: '2026-11-01T12:00:00Z', updated_at: '2026-11-01T12:00:00Z',
+  },
+  {
+    id: 'prop-3', customer_id: 'cust-1', label: null, address_line1: '5 Old Shell Rd', address_line2: null, city: 'Medart', state: 'FL', zip: '32327',
+    address_text: '5 Old Shell Rd, Medart, FL 32327', lat: null, lng: null, notes: null, access_notes: null, active: false, source: 'manual',
+    custom_fields: { 'pf-old': 'Drip line by the mailbox' }, created_at: '2026-11-01T12:00:00Z', updated_at: '2026-11-01T12:00:00Z',
+  },
+]
+
+export const HARNESS_CUSTOMER_DOCUMENTS = [
+  { id: 'doc-1', title: 'Annual maintenance agreement 2027', filename: 'agreement.pdf', category: 'contract', property_id: 'prop-1', created_at: '2026-11-02T15:00:00Z' },
+  { id: 'doc-2', title: 'Certificate of insurance', filename: 'coi.pdf', category: 'insurance', property_id: null, created_at: '2026-10-20T15:00:00Z' },
+]

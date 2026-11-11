@@ -13,6 +13,7 @@ import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 import { isReferralManagerRole } from '@/lib/referral-links'
 import { projectStatusLabelForJobStatus } from '@/lib/job-status'
 import { filesObjectHref } from '@/lib/files/files-object'
+import { withoutCustomFields } from '@/lib/custom-fields'
 
 
 function resolveProjectDisplayStatus(project: any) {
@@ -217,7 +218,7 @@ export default async function CustomerDetailPage({
 
         {activeTab === 'overview' && (
           <div className="space-y-6">
-            <CustomerInfoCard customer={customer} />
+            <CustomerInfoCard customer={withoutCustomFields(customer)} />
 
             {leads &&
               leads.some((l: { source?: string | null }) => isDoorKnockSource(l.source)) && (
