@@ -195,7 +195,7 @@ const lawnLandscape: IndustryProfile = {
   version: 2,
   label: 'Lawn & landscape',
   description: 'Recurring lawn maintenance, landscape projects, land work, clean-ups and soft washing.',
-  features: { canvassing: false, incentives: false, servicePlans: true, timeTracking: true, hourlyBilling: true, customerMessages: true, ...ROOF_ONLY_OFF },
+  features: { canvassing: false, incentives: false, servicePlans: true, timeTracking: true, hourlyBilling: true, customerMessages: true, quoteApproval: true, ...ROOF_ONLY_OFF },
   trades: [
     { label: 'Lawn care', matchKeywords: ['\\blawn', 'mow', 'edging', 'fertiliz'] },
     { label: 'Landscaping', matchKeywords: ['landscap', 'mulch', 'sod\\b', 'plant', 'shrub', 'hardscape', 'paver'] },
@@ -257,7 +257,7 @@ const exteriorCleaning: IndustryProfile = {
   label: 'Exterior cleaning',
   description: 'Pressure washing, soft washing, window and gutter cleaning — one-off and repeat.',
   // Door knocking stays on: many cleaning companies sell door to door.
-  features: { incentives: false, servicePlans: true, ...ROOF_ONLY_OFF },
+  features: { incentives: false, servicePlans: true, quoteApproval: true, ...ROOF_ONLY_OFF },
   trades: [
     { label: 'Pressure washing', matchKeywords: ['pressure ?wash', 'power ?wash'] },
     { label: 'Soft wash', matchKeywords: ['soft ?wash', 'house wash', 'roof wash'] },

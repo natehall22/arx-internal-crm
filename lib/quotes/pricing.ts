@@ -88,14 +88,16 @@ export function quoteFingerprint(input: {
   discountPercent?: number | null
   discountAmount?: number | null
   tax: QuoteTaxMode
-  depositCents?: number
+  deposit?: { mode: string; percent: number; fixedCents: number }
+  terms?: string
 }): string {
   const body = JSON.stringify({
     l: input.lines.map((l) => [l.id, Math.round((Number(l.line_total) || 0) * 100), Math.round((Number(l.unit_price) || 0) * 100), l.unit ?? '', l.price_type ?? '', l.taxable ?? null, l.is_optional === true, l.optional_default_on === true]),
     dp: Number(input.discountPercent) || 0,
     da: Math.round((Number(input.discountAmount) || 0) * 100),
     t: input.tax.kind === 'legacy' ? ['legacy', input.tax.percent] : ['rates', input.tax.exempt, input.tax.rates.map((r) => [r.id ?? '', r.percent])],
-    d: input.depositCents ?? 0,
+    d: input.deposit ? [input.deposit.mode, input.deposit.percent, input.deposit.fixedCents] : null,
+    tm: input.terms ?? '',
   })
   let h = 0x811c9dc5
   for (let i = 0; i < body.length; i++) {

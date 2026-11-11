@@ -72,6 +72,11 @@ export const ORG_FEATURE_DEFS = {
     description: 'Visit reminders, “on the way” and “done” emails, quote follow-ups and invoice reminders, sent on their own. Each one is turned on separately in Settings → Customer messages.',
     defaultOn: false,
   },
+  quoteApproval: {
+    label: 'Online quote approval',
+    description: 'Send customers a quote link: they tick the optional items, watch the total and tax update, approve with their name, and pay a deposit by card. An approved quote becomes the signed sale.',
+    defaultOn: false,
+  },
 } as const satisfies Record<string, { label: string; description: string; defaultOn?: boolean }>
 
 export type OrgFeature = keyof typeof ORG_FEATURE_DEFS
