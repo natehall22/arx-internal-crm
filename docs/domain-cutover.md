@@ -96,3 +96,6 @@ needs entries #5–#7 (the wildcards above cover them).
 - Full order for invoicing recurring service: 202611100040 → 202611110010 (properties) → 202611110030 (service plans) →
   202611110040 (sales tax) → 202611110060 (invoices without a job). Then the code. DB test:
   `supabase/tests/run-customer-invoices.sh` (throwaway local Postgres only).
+- Hourly billing: `202611120030_hourly_billing.sql` after 202611110060 (it writes `job_invoice_items.unit` / `work_order_id`
+  and the per-hour plan basis on 202611110030's tables); also needs 202611100090 for price-book items priced "per hour".
+  Then the code. DB test: `supabase/tests/run-hourly-billing.sh`.
