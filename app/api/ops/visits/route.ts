@@ -32,7 +32,7 @@ export async function GET(request: Request) {
   const filter = crew === 'mine' ? { from, to, userId: ctx.userId, accessNotes: true } : { from, to, subId: crew === 'none' ? null : crew || undefined, accessNotes: true }
   const [page, subs, linked] = await Promise.all([
     loadVisitsPage(ctx.admin, ctx.orgId, { ...filter, offset }),
-    orgDb(ctx.admin, ctx.orgId).from('sub_contractors').select('id, company_name').eq('active', true).order('company_name'),
+    orgDb(ctx.admin, ctx.orgId).from('sub_contractors').select('id, company_name, phone').eq('active', true).order('company_name'),
     crewDayLinkSubIds(ctx.admin, ctx.orgId),
   ])
   return NextResponse.json({
@@ -44,6 +44,7 @@ export async function GET(request: Request) {
     hasMore: page.hasMore,
     offset,
     canEdit: ctx.access.edit,
-    crews: ((subs.data ?? []) as Array<{ id: string; company_name: string | null }>).map((s) => ({ id: s.id, name: s.company_name ?? 'Crew', hasPhoneLink: linked.has(s.id) })),
+    // Phone only for editors (they send the crew its link by text).
+    crews: ((subs.data ?? []) as Array<{ id: string; company_name: string | null; phone: string | null }>).map((s) => ({ id: s.id, name: s.company_name ?? 'Crew', hasPhoneLink: linked.has(s.id), phone: ctx.access.edit ? s.phone : null })),
   })
 }

@@ -10,14 +10,14 @@ export const dynamic = 'force-dynamic'
 /** GET — the company's time clock settings (owners). */
 export async function GET() {
   const a = await requireTimeOfficeApi({ owner: true })
-  if ('error' in a) return a.error
+  if (a.error) return a.error
   return NextResponse.json({ settings: (await loadClockConfig(a.admin, a.profile.org_id)).settings })
 }
 
 /** PATCH { timeTracking: { autoCloseHours?, captureLocation?, overtimeAfterHours?, breakWarningAfterHours? } } — owners only. */
 export async function PATCH(request: Request) {
   const a = await requireTimeOfficeApi({ owner: true })
-  if ('error' in a) return a.error
+  if (a.error) return a.error
   const parsed = parseTimeTrackingSettingsPatch(await request.json().catch(() => null))
   if ('error' in parsed) return NextResponse.json({ error: parsed.error }, { status: 400 })
   const { error } = await mergeOrgSettings(a.admin, a.profile.org_id, parsed.set, { path: [TIME_TRACKING_SETTINGS_KEY] })

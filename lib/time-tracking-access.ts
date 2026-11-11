@@ -21,5 +21,5 @@ export async function requireTimeOfficeApi(opts: { owner?: boolean } = {}) {
   if (off) return { error: off } as const
   const allowed = opts.owner ? isSuperAdmin(profile as never) : isPayrollAdminRole(profile.role)
   if (!allowed) return { error: NextResponse.json({ error: 'Forbidden' }, { status: 403 }) } as const
-  return { profile, admin: createServiceClient() } as const
+  return { error: null, profile, admin: createServiceClient() } as const
 }

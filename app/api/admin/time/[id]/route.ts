@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic'
 /** GET — who changed this entry, when, why. */
 export async function GET(_request: Request, { params }: { params: { id: string } }) {
   const a = await requireTimeOfficeApi()
-  if ('error' in a) return a.error
+  if (a.error) return a.error
   if (!isUuidLike(params.id)) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   return NextResponse.json({ history: await loadEntryHistory(a.admin, a.profile.org_id, params.id) })
 }
@@ -17,7 +17,7 @@ export async function GET(_request: Request, { params }: { params: { id: string 
 /** PATCH { startedAt?, endedAt?, kind?, jobId?, workOrderId?, needsReview?, reason } — fix an entry (reason required). */
 export async function PATCH(request: Request, { params }: { params: { id: string } }) {
   const a = await requireTimeOfficeApi()
-  if ('error' in a) return a.error
+  if (a.error) return a.error
   if (!isUuidLike(params.id)) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   const parsed = parseEntryEdit(await request.json().catch(() => null), { adding: false })
   if ('error' in parsed) return NextResponse.json({ error: parsed.error }, { status: 400 })
@@ -29,7 +29,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
 /** DELETE { reason } — take an entry out (kept as removed, with the reason). */
 export async function DELETE(request: Request, { params }: { params: { id: string } }) {
   const a = await requireTimeOfficeApi()
-  if ('error' in a) return a.error
+  if (a.error) return a.error
   if (!isUuidLike(params.id)) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   const body = (await request.json().catch(() => null)) as { reason?: unknown } | null
   const reason = typeof body?.reason === 'string' ? body.reason.trim() : ''

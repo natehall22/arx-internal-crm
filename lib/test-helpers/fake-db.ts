@@ -115,6 +115,12 @@ export function createFakeDb(
       // `rel.col` filters an embedded parent (e.g. `.eq('production_jobs.org_id', org)` with `production_jobs!inner(...)`).
       eq(c: string, v: unknown) { filters.push((r) => (c.includes('.') ? embeddedValue(r, c) : r[c]) === v); return api },
       neq(c: string, v: unknown) { filters.push((r) => r[c] !== v); return api },
+      // Postgres ILIKE: % = any run, _ = one character, case-insensitive.
+      ilike(c: string, pattern: string) {
+        const re = new RegExp(`^${String(pattern).replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/%/g, '.*').replace(/_/g, '.')}$`, 'is')
+        filters.push((r) => typeof r[c] === 'string' && re.test(r[c] as string))
+        return api
+      },
       in(c: string, v: unknown[]) { filters.push((r) => v.includes(r[c])); return api },
       is(c: string, v: unknown) { filters.push((r) => (v === null ? r[c] == null : r[c] === v)); return api },
       not(c: string, o: string, v: unknown) { filters.push((r) => (o === 'is' ? !(v === null ? r[c] == null : r[c] === v) : o === 'in' ? !String(v).replace(/[()]/g, '').split(',').includes(String(r[c])) : true)); return api },

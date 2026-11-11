@@ -57,6 +57,9 @@ import {
   type VisitEffect,
 } from '@/lib/service-plans'
 import { orgDb } from '@/lib/supabase/org-db'
+import { upsertCustomer } from '@/lib/customers'
+import { createProperty, loadCustomerProperties } from '@/lib/properties-db'
+import { cleanPropertyInput } from '@/lib/properties'
 
 const PAGE = 1000
 /** Ids per `in (…)` request: keeps PostgREST URLs short however many visits a screen shows. */
@@ -499,14 +502,16 @@ export type PlanPreview =
  * Sell a plan. With `template_id` the template is copied first (seasons, price rules, steps, billing, tax, name, trade)
  * and anything in the body overrides it for this one plan. The price comes from the plan's own rules.
  */
-export async function createServicePlan(
+/**
+ * A new plan's values (template copied, body on top, checked, priced) — or why not. `customerId` null = a check before
+ * the customer exists (the new-customer flow): the property is not checked then, everything else is.
+ */
+async function prepareNewPlan(
   admin: SupabaseClient,
   orgId: string,
-  userId: string,
-  customerId: string,
-  body: unknown,
-  now = new Date()
-): Promise<PlanSave> {
+  customerId: string | null,
+  body: unknown
+): Promise<{ ok: true; base: Record<string, unknown>; v: ServicePlanInput } | Fail> {
   const b = body && typeof body === 'object' && !Array.isArray(body) ? (body as Record<string, unknown>) : {}
   let base: Record<string, unknown> = {}
   if (typeof b.template_id === 'string' && b.template_id) {
@@ -529,7 +534,20 @@ export async function createServicePlan(
   if (!refs.ok) return refs
   const p = priced(clean.value, null)
   if (!p.ok) return p
-  const v = p.value as ServicePlanInput
+  return { ok: true, base, v: p.value as ServicePlanInput }
+}
+
+export async function createServicePlan(
+  admin: SupabaseClient,
+  orgId: string,
+  userId: string,
+  customerId: string,
+  body: unknown,
+  now = new Date()
+): Promise<PlanSave> {
+  const prep = await prepareNewPlan(admin, orgId, customerId, body)
+  if (!prep.ok) return prep
+  const { base, v } = prep
   const { data, error } = await orgDb(admin, orgId)
     .from('service_plans')
     .insert({
@@ -563,6 +581,55 @@ export async function createServicePlan(
     visit_effect: effect,
   })
   return { ok: true, plan, effect, changes: [] }
+}
+
+const PENDING_PROPERTY = 'pending-property'
+
+export type NewCustomerPlanResult =
+  | { ok: true; customerId: string; matchedExisting: boolean; plan: ServicePlan; effect: VisitEffect }
+  | { ok: false; status: number; error: string; customerId?: string }
+
+/**
+ * "New customer + plan" in one go (Visits board / customers list): the customer (the one matching rule, `upsertCustomer`
+ * — a phone or email already on file reuses that customer), their property, then the plan. Everything is checked first,
+ * so a bad plan creates nobody. If the plan save itself fails afterwards, the customer and property stay (said in the
+ * error, with the customer id, so the office can finish on the Customer File).
+ */
+export async function createCustomerWithPlan(
+  admin: SupabaseClient,
+  orgId: string,
+  userId: string,
+  body: unknown,
+  opts: { accessNotes: boolean; now?: Date }
+): Promise<NewCustomerPlanResult> {
+  const b = body && typeof body === 'object' && !Array.isArray(body) ? (body as Record<string, unknown>) : {}
+  const c = (b.customer && typeof b.customer === 'object' ? b.customer : {}) as Record<string, unknown>
+  const text = (v: unknown, max: number) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : null)
+  const name = text(c.name, 120)
+  if (!name) return { ok: false, status: 400, error: 'Enter the customer’s name' }
+  const phone = text(c.phone, 40)
+  const email = text(c.email, 254)
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { ok: false, status: 400, error: 'Check the email address' }
+  const prop = cleanPropertyInput(b.property, 'create')
+  if (!prop.ok) return { ok: false, status: 400, error: prop.error }
+  const planBody = b.plan && typeof b.plan === 'object' ? (b.plan as Record<string, unknown>) : {}
+  const pre = await prepareNewPlan(admin, orgId, null, { ...planBody, property_id: PENDING_PROPERTY })
+  if (!pre.ok) return pre
+
+  const addressText = String(prop.value.address_text ?? '')
+  const { customer_id: customerId, created } = await upsertCustomer(admin, orgId, { name, phone, email, address_text: addressText })
+  // The same home may already be on file for a matched customer: use it rather than refusing.
+  const existing = await loadCustomerProperties(admin, orgId, customerId, { accessNotes: false })
+  const key = (t: string | null | undefined) => (t ?? '').toLowerCase().replace(/[^a-z0-9]/g, '')
+  let propertyId = existing.properties.find((p) => key(p.address_text) === key(addressText))?.id ?? null
+  if (!propertyId) {
+    const made = await createProperty(admin, orgId, userId, customerId, b.property, { accessNotes: opts.accessNotes })
+    if (!made.ok) return { ok: false, status: made.status, error: made.error, customerId }
+    propertyId = made.property.id
+  }
+  const plan = await createServicePlan(admin, orgId, userId, customerId, { ...planBody, property_id: propertyId }, opts.now)
+  if (!plan.ok) return { ok: false, status: plan.status, error: `The customer was saved, but not the plan: ${plan.error}`, customerId }
+  return { ok: true, customerId, matchedExisting: !created, plan: plan.plan, effect: plan.effect }
 }
 
 /** Pure-ish: the patch an edit or status change would make, or why not (validation + reference checks). */

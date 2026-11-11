@@ -195,6 +195,28 @@ export function seasonLabel(s: Season): string {
   return `${SERVICE_FREQUENCY_LABELS[s.frequency]}, ${monthDayLabel(s.from)} – ${monthDayLabel(s.to)}`
 }
 
+const SHORT_FREQUENCY: Record<ServiceFrequency, string> = { weekly: 'Weekly', every_2_weeks: 'Every 2 weeks', every_4_weeks: 'Every 4 weeks', monthly: 'Monthly', none: '' }
+const MONTH_END = ['01-31', '02-28', '03-31', '04-30', '05-31', '06-30', '07-31', '08-31', '09-30', '10-31', '11-30', '12-31']
+
+/** "Weekly Apr–Oct, every 2 weeks Nov–Mar" — one line for a plan's seasons (seasons with no visits are left out). */
+export function scheduleSummary(seasons: Season[]): string {
+  const parts = [...seasons]
+    .filter((s) => s.frequency !== 'none')
+    .sort((a, b) => a.from.localeCompare(b.from))
+    .map((s, i) => {
+      const freq = i === 0 ? SHORT_FREQUENCY[s.frequency] : SHORT_FREQUENCY[s.frequency].toLowerCase()
+      if (s.from === '01-01' && s.to === '12-31') return `${freq} all year`
+      const wholeMonths = s.from.endsWith('-01') && (MONTH_END.includes(s.to) || s.to === '02-29')
+      const span = wholeMonths
+        ? s.from.slice(0, 2) === s.to.slice(0, 2)
+          ? MONTHS[+s.from.slice(0, 2) - 1]
+          : `${MONTHS[+s.from.slice(0, 2) - 1]}–${MONTHS[+s.to.slice(0, 2) - 1]}`
+        : `${monthDayLabel(s.from)}–${monthDayLabel(s.to)}`
+      return `${freq} ${span}`
+    })
+  return parts.length ? parts.join(', ') : 'No visits scheduled'
+}
+
 // ---------------------------------------------------------------------------------------------------------------------
 // The schedule
 // ---------------------------------------------------------------------------------------------------------------------

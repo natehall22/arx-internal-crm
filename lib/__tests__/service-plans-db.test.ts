@@ -4,6 +4,7 @@ import {
   applyTemplateToPlans,
   applyVisitAction,
   bulkShiftVisits,
+  createCustomerWithPlan,
   createServicePlan,
   loadChangeHistory,
   saveTemplate,
@@ -461,7 +462,7 @@ describe('review fixes', () => {
     const pv = await updateServicePlan(db.client, ORG, 'u1', r.plan.id, { price: 50, price_starts_on: '2026-12-01', preview: true }, null, NOW)
     expect(pv).toMatchObject({ ok: true, effect: { updated: 3 } })
     const saved = await updateServicePlan(db.client, ORG, 'u1', r.plan.id, { price: 50, price_starts_on: '2026-12-01' }, null, NOW)
-    if (!saved.ok) throw new Error(saved.error)
+    if (!saved.ok || !('plan' in saved)) throw new Error('save')
     expect(saved.plan).toMatchObject({ price: 50, previous_price: 45, price_starts_on: '2026-12-01' })
     const priceOn = (ymd: string) => chargeOf(db, String(visitsOf(db, r.plan.id).find((v) => v.service_planned_date === ymd)?.id))?.price
     expect(priceOn('2026-11-24')).toBe(45)
@@ -472,7 +473,7 @@ describe('review fixes', () => {
     expect(priceOn('2026-12-29')).toBe(50)
     // An edit with no date makes the new price apply now (and clears the schedule).
     const now2 = await updateServicePlan(db.client, ORG, 'u1', r.plan.id, { price: 55 }, null, NOW)
-    if (!now2.ok) throw new Error(now2.error)
+    if (!now2.ok || !('plan' in now2)) throw new Error('save')
     expect(now2.plan).toMatchObject({ price: 55, previous_price: null, price_starts_on: null })
     expect(priceOn('2026-11-24')).toBe(55)
     expect(await updateServicePlan(db.client, ORG, 'u1', r.plan.id, { price: 60, price_starts_on: 'soon' }, null, NOW)).toMatchObject({ ok: false, status: 400 })
@@ -491,3 +492,29 @@ describe('review fixes', () => {
     expect((await loadVisits(db.client, ORG, { from: '2026-11-10', to: '2026-12-31', accessNotes: false })).length).toBe(18)
   })
 })
+
+describe('new customer + plan in one go', () => {
+  const plan = { trade: 'lawn', name: 'Weekly mowing', price: 45, start_date: '2026-11-10', seasons: [{ from: '01-01', to: '12-31', frequency: 'weekly' }] }
+  const property = { address_line1: '9 Pine Ln', city: 'Crawfordville', state: 'FL', zip: '32327', access_notes: 'Gate 9999' }
+  it('creates the customer, their property and the plan (visits on the calendar)', async () => {
+    const db = seed()
+    const r = await createCustomerWithPlan(db.client, ORG, 'u1', { customer: { name: 'Sam New', phone: '850-555-0199' }, property, plan }, { accessNotes: true, now: NOW })
+    if (!r.ok) throw new Error(r.error)
+    expect(r.matchedExisting).toBe(false)
+    const cust = (db.tables.customers as Array<Record<string, unknown>>).find((c) => c.id === r.customerId)
+    expect(cust).toMatchObject({ org_id: ORG, name: 'Sam New' })
+    const prop = (db.tables.properties as Array<Record<string, unknown>>).find((p) => p.customer_id === r.customerId)
+    expect(prop).toMatchObject({ org_id: ORG, address_line1: '9 Pine Ln', access_notes: 'Gate 9999' })
+    expect(r.plan.property_id).toBe(prop?.id)
+    expect(visitsOf(db, r.plan.id).length).toBeGreaterThan(0)
+  })
+  it('a bad plan creates nobody; a missing name or address is refused first', async () => {
+    const db = seed()
+    const before = db.tables.customers.length
+    expect(await createCustomerWithPlan(db.client, ORG, 'u1', { customer: { name: 'Sam' }, property, plan: { ...plan, trade: 'nope' } }, { accessNotes: true, now: NOW })).toMatchObject({ ok: false, status: 400 })
+    expect(await createCustomerWithPlan(db.client, ORG, 'u1', { customer: { name: '' }, property, plan }, { accessNotes: true, now: NOW })).toMatchObject({ ok: false, error: 'Enter the customer’s name' })
+    expect(await createCustomerWithPlan(db.client, ORG, 'u1', { customer: { name: 'Sam' }, property: { city: 'X' }, plan }, { accessNotes: true, now: NOW })).toMatchObject({ ok: false, status: 400 })
+    expect(db.tables.customers.length).toBe(before)
+  })
+})
+

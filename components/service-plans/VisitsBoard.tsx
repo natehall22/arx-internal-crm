@@ -8,19 +8,35 @@ import { formatDateWeekday } from '@/lib/format'
 import { RESULT_TONE_CLASS, SERVICE_STEP, SKIP_REASONS, SKIP_REASON_LABELS, VISIT_STATUS_LABELS, addDaysYmd, type SkipReason, type VisitStatus } from '@/lib/service-plans'
 import type { VisitView } from '@/lib/service-plans-db'
 import { FileDropZone } from '@/components/ui/file-drop-zone'
+import NewCustomerPlan from '@/components/service-plans/NewCustomerPlan'
 import { uploadVisitPhotos } from '@/lib/visit-photo-upload'
 
-type Crew = { id: string; name: string; hasPhoneLink: boolean }
+type Crew = { id: string; name: string; hasPhoneLink: boolean; phone: string | null }
 type Load = { today: string; from: string; to: string; visits: VisitView[]; total: number; hasMore: boolean; canEdit: boolean; crews: Crew[] }
 type Sheet =
   | { kind: 'done'; visit: VisitView; result: string | null; notes: string }
   | { kind: 'skip'; visit: VisitView; reason: SkipReason | ''; notes: string }
   | { kind: 'move'; visit: VisitView; date: string }
-  | { kind: 'shift'; from: string; to: string; days: string; crew: string }
-  | { kind: 'links' }
+  | { kind: 'shift'; from: string; to: string; move: 'next' | 'after' | 'pick'; date: string; crew: string }
+  | { kind: 'links'; made: Record<string, string> }
   | { kind: 'photos'; visit: VisitView; photos: Array<{ id: string; filename: string; created_at: string }> | null }
 
 const STATUS_TONE: Record<string, 'neutral' | 'success' | 'warning' | 'info'> = { scheduled: 'info', completed: 'success', skipped: 'warning', cancelled: 'neutral' }
+
+/** Days between two calendar days (b − a). */
+function daysBetween(a: string, b: string): number {
+  return Math.round((Date.parse(`${b}T12:00:00Z`) - Date.parse(`${a}T12:00:00Z`)) / 86_400_000)
+}
+
+function shiftDays(sh: Extract<Sheet, { kind: 'shift' }>): number {
+  return sh.move === 'next' ? 1 : sh.move === 'after' ? 2 : sh.date ? daysBetween(sh.from, sh.date) : 0
+}
+
+function smsHref(phone: string | null, body: string): string {
+  const to = (phone ?? '').replace(/[^\d+]/g, '')
+  // iOS and Android both read "?&body=" / "?body="; "&" keeps iOS happy when there is a number.
+  return `sms:${to}${to ? '?&' : '?'}body=${encodeURIComponent(body)}`
+}
 
 function mapHref(v: Pick<VisitView, 'lat' | 'lng' | 'address'>): string {
   const q = v.lat != null && v.lng != null ? `${v.lat},${v.lng}` : v.address ?? ''
@@ -41,6 +57,13 @@ export default function VisitsBoard() {
   const [failed, setFailed] = React.useState(false)
   const [sheet, setSheet] = React.useState<Sheet | null>(null)
   const [busy, setBusy] = React.useState(false)
+  const [open, setOpen] = React.useState<Set<string>>(new Set())
+  const toggle = (id: string) => setOpen((o) => {
+    const n = new Set(o)
+    if (n.has(id)) n.delete(id)
+    else n.add(id)
+    return n
+  })
 
   const load = React.useCallback(async (more = false) => {
     const q = new URLSearchParams()
@@ -82,13 +105,17 @@ export default function VisitsBoard() {
     setBusy(false)
     if (!res || !res.ok || !out.path) return toast.error(out.error || 'Could not make the link')
     const url = `${window.location.origin}${out.path}`
+    setSheet((s) => (s && s.kind === 'links' ? { ...s, made: { ...s.made, [c.id]: url } } : s))
+    await load()
+  }
+
+  async function copy(url: string) {
     try {
       await navigator.clipboard.writeText(url)
-      toast.success(`Link for ${c.name} copied — text it to the crew. Any older link stopped working.`)
+      toast.success('Link copied')
     } catch {
-      window.prompt(`Link for ${c.name} (copy it):`, url)
+      toast.error('Couldn’t copy — press and hold the link to copy it')
     }
-    await load()
   }
 
   async function onPhotos(id: string, files: File[]) {
@@ -130,8 +157,9 @@ export default function VisitsBoard() {
         </Select>
         {d.canEdit ? (
           <>
-            <Button size="sm" onClick={() => setSheet({ kind: 'shift', from: d.today, to: d.today, days: '1', crew: crew && crew !== 'mine' ? crew : 'all' })}>Move a day’s visits</Button>
-            <Button size="sm" variant="secondary" onClick={() => setSheet({ kind: 'links' })}>Crew phone links</Button>
+            <Button size="sm" onClick={() => setSheet({ kind: 'shift', from: addDaysYmd(d.today, 1), to: addDaysYmd(d.today, 1), move: 'next', date: '', crew: crew && crew !== 'mine' ? crew : 'all' })}>Rain day — move visits</Button>
+            <Button size="sm" variant="secondary" onClick={() => setSheet({ kind: 'links', made: {} })}>Crew phone links</Button>
+            <NewCustomerPlan onCreated={() => void load()} />
           </>
         ) : null}
       </div>
@@ -157,32 +185,33 @@ export default function VisitsBoard() {
                 {list.map((v) => (
                   <li key={v.id}>
                     <Card>
-                      <CardContent className="flex flex-col gap-1.5 p-3">
-                        <div className="flex flex-wrap items-center gap-2">
+                      <CardContent className="flex flex-col gap-1 p-3">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                           <p className="text-ui-base font-semibold text-ink">
                             {v.routePosition ? `${v.routePosition}. ` : ''}
-                            {v.step !== SERVICE_STEP ? `${v.stepLabel ?? 'Follow-on'} — ${v.planName}` : v.planName}
+                            {v.customerId ? (
+                              <Link href={`/c/${v.customerId}`} className="underline">{v.customerName ?? 'Customer'}</Link>
+                            ) : (
+                              v.customerName ?? ''
+                            )}
                           </p>
                           <Badge tone={STATUS_TONE[v.status] ?? 'neutral'}>{VISIT_STATUS_LABELS[v.status as VisitStatus] ?? v.status}</Badge>
                           {v.result ? <span className={`rounded-full px-2.5 py-0.5 text-ui-sm font-semibold ${RESULT_TONE_CLASS[v.result.tone]}`}>{v.result.label}</span> : null}
                           {v.moved ? <Badge tone="warning">Moved from {formatDateWeekday(v.plannedDate)}</Badge> : null}
                         </div>
-                        <p className="break-words text-ui-base text-ink">
-                          {v.customerId ? (
-                            <Link href={`/c/${v.customerId}`} className="font-semibold underline">{v.customerName ?? 'Customer'}</Link>
-                          ) : null}
-                          {v.address ? ` · ${v.address}` : ''}{' '}
-                          {v.address || v.lat != null ? (
-                            <a href={mapHref(v)} target="_blank" rel="noopener noreferrer" className="font-semibold text-brand-800 underline">Map</a>
-                          ) : null}
-                        </p>
-                        {v.accessNotes ? <p className="whitespace-pre-wrap break-words rounded-ui bg-brand-50 px-3 py-1.5 text-ui-base text-brand-900"><span className="font-semibold">Access: </span>{v.accessNotes}</p> : null}
-                        <p className="text-ui-sm text-ink">
-                          {v.subName ?? v.userName ?? 'No crew'}
+                        <p className="break-words text-ui-sm text-ink">
+                          {[v.step !== SERVICE_STEP ? `${v.stepLabel ?? 'Follow-on'} — ${v.planName}` : v.planName, v.address, v.subName ?? v.userName ?? 'No crew'].filter(Boolean).join(' · ')}
                           {v.skipReason ? ` · ${SKIP_REASON_LABELS[v.skipReason as SkipReason] ?? v.skipReason}` : ''}
-                          {v.notes ? ` · ${v.notes}` : ''}
                           {v.photoCount ? ` · ${v.photoCount} photo${v.photoCount === 1 ? '' : 's'}` : ''}
+                          {v.address || v.lat != null ? (
+                            <>
+                              {' '}
+                              <a href={mapHref(v)} target="_blank" rel="noopener noreferrer" className="font-semibold text-brand-800 underline">Map</a>
+                            </>
+                          ) : null}
                         </p>
+                        {v.accessNotes && v.status === 'scheduled' ? <p className="whitespace-pre-wrap break-words rounded-ui bg-brand-50 px-3 py-1 text-ui-sm text-brand-900"><span className="font-semibold">Access: </span>{v.accessNotes}</p> : null}
+                        {v.notes ? <p className="break-words text-ui-sm text-ink">Note: {v.notes}</p> : null}
                         {d.canEdit ? (
                           <div className="flex flex-wrap gap-2 pt-1">
                             {v.status === 'scheduled' ? (
@@ -190,21 +219,28 @@ export default function VisitsBoard() {
                                 <Button size="sm" onClick={() => setSheet({ kind: 'done', visit: v, result: null, notes: '' })}>Done</Button>
                                 <Button size="sm" variant="secondary" onClick={() => setSheet({ kind: 'skip', visit: v, reason: '', notes: '' })}>Skip</Button>
                                 <Button size="sm" variant="secondary" onClick={() => setSheet({ kind: 'move', visit: v, date: v.scheduledDate })}>Move</Button>
-                                {v.step === SERVICE_STEP ? (
-                                  <Select aria-label="Crew for this visit" className="min-h-tap max-w-[12rem] text-base" value={v.subId ?? ''} disabled={busy} onChange={(e) => void post(`/api/ops/visits/${v.id}`, { action: 'assign', subId: e.target.value || null }, 'Crew changed')}>
-                                    <option value="">No crew</option>
-                                    {d.crews.map((c) => (
-                                      <option key={c.id} value={c.id}>{c.name}</option>
-                                    ))}
-                                  </Select>
-                                ) : null}
                               </>
                             ) : v.status !== 'cancelled' ? (
                               <Button size="sm" variant="secondary" disabled={busy} onClick={() => void post(`/api/ops/visits/${v.id}`, { action: 'reopen' }, 'Visit reopened')}>Reopen</Button>
                             ) : null}
-                            <FileDropZone compact accept="image/*" disabled={busy} label="Add photos (drop or tap)" className="w-full sm:w-auto" onFiles={(files) => void onPhotos(v.id, files)} />
+                            <Button size="sm" variant="ghost" className="underline" aria-expanded={open.has(v.id)} onClick={() => toggle(v.id)}>
+                              {open.has(v.id) ? 'Less' : 'More'}
+                            </Button>
+                          </div>
+                        ) : null}
+                        {d.canEdit && open.has(v.id) ? (
+                          <div className="flex flex-col gap-2 border-t border-surface-line pt-2">
+                            {v.status === 'scheduled' && v.step === SERVICE_STEP ? (
+                              <Select aria-label="Crew for this visit" className="min-h-tap text-base" value={v.subId ?? ''} disabled={busy} onChange={(e) => void post(`/api/ops/visits/${v.id}`, { action: 'assign', subId: e.target.value || null }, 'Crew changed')}>
+                                <option value="">No crew</option>
+                                {d.crews.map((c) => (
+                                  <option key={c.id} value={c.id}>{c.name}</option>
+                                ))}
+                              </Select>
+                            ) : null}
+                            <FileDropZone compact accept="image/*" disabled={busy} label="Add photos (drop or tap)" onFiles={(files) => void onPhotos(v.id, files)} />
                             {v.photoCount ? (
-                              <Button size="sm" variant="ghost" className="underline" onClick={() => void openPhotos(v)}>
+                              <Button size="sm" variant="ghost" className="self-start underline" onClick={() => void openPhotos(v)}>
                                 See photos ({v.photoCount})
                               </Button>
                             ) : null}
@@ -259,7 +295,7 @@ export default function VisitsBoard() {
                 if (sheet.kind === 'done') void post(`/api/ops/visits/${sheet.visit.id}`, { action: 'done', result: sheet.result ?? undefined, notes: sheet.notes }, 'Visit done').then(close)
                 if (sheet.kind === 'skip' && sheet.reason) void post(`/api/ops/visits/${sheet.visit.id}`, { action: 'skip', reason: sheet.reason, notes: sheet.notes }, 'Visit skipped').then(close)
                 if (sheet.kind === 'move') void post(`/api/ops/visits/${sheet.visit.id}`, { action: 'move', date: sheet.date }, 'Visit moved').then(close)
-                if (sheet.kind === 'shift') void post('/api/ops/visits/shift', { from: sheet.from, to: sheet.to, days: Number(sheet.days), subId: sheet.crew }, '').then(close)
+                if (sheet.kind === 'shift') void post('/api/ops/visits/shift', { from: sheet.from, to: sheet.to, days: shiftDays(sheet), subId: sheet.crew }, '').then(close)
               }}
             >
               {sheet.kind === 'done' && sheet.visit.resultOptions.length ? (
@@ -289,24 +325,35 @@ export default function VisitsBoard() {
               {sheet.kind === 'move' ? <Field label="New day">{(a) => <Input {...a} type="date" className="text-base" value={sheet.date} onChange={(e) => setSheet({ ...sheet, date: e.target.value })} />}</Field> : null}
               {sheet.kind === 'shift' ? (
                 <>
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <Field label="From day">{(a) => <Input {...a} type="date" className="text-base" value={sheet.from} onChange={(e) => setSheet({ ...sheet, from: e.target.value, to: sheet.to < e.target.value ? e.target.value : sheet.to })} />}</Field>
-                    <Field label="Through day">{(a) => <Input {...a} type="date" className="text-base" value={sheet.to} min={sheet.from} onChange={(e) => setSheet({ ...sheet, to: e.target.value })} />}</Field>
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field label="From">{(a) => <Input {...a} type="date" className="text-base" value={sheet.from} onChange={(e) => setSheet({ ...sheet, from: e.target.value, to: sheet.to < e.target.value ? e.target.value : sheet.to })} />}</Field>
+                    <Field label="Through">{(a) => <Input {...a} type="date" className="text-base" value={sheet.to} min={sheet.from} onChange={(e) => setSheet({ ...sheet, to: e.target.value })} />}</Field>
                   </div>
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <Field label="Move by (days)" hint="1 = the next day. Use a minus to move earlier.">{(a) => <Input {...a} type="number" inputMode="numeric" min={-30} max={30} className="text-base" value={sheet.days} onChange={(e) => setSheet({ ...sheet, days: e.target.value })} />}</Field>
-                    <Field label="Which visits">
-                      {(a) => (
-                        <Select {...a} className="text-base" value={sheet.crew} onChange={(e) => setSheet({ ...sheet, crew: e.target.value })}>
-                          <option value="all">All crews</option>
-                          <option value="none">No crew</option>
-                          {d.crews.map((c) => (
-                            <option key={c.id} value={c.id}>{c.name}</option>
-                          ))}
-                        </Select>
-                      )}
-                    </Field>
-                  </div>
+                  <fieldset className="flex flex-col gap-2">
+                    <legend className="mb-1 text-ui-sm font-semibold text-ink">Move them to</legend>
+                    <div className="grid grid-cols-3 gap-2">
+                      {([['next', 'Next day'], ['after', 'Day after'], ['pick', 'Pick a day']] as const).map(([k, label]) => (
+                        <button key={k} type="button" aria-pressed={sheet.move === k} className={`min-h-tap rounded-ui border-2 px-2 text-ui-base font-semibold ${sheet.move === k ? 'border-ink bg-ink text-white' : 'border-surface-line bg-surface text-ink'}`} onClick={() => setSheet({ ...sheet, move: k })}>
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                    {sheet.move === 'pick' ? <Field label="New day for the first one">{(a) => <Input {...a} type="date" className="text-base" value={sheet.date} onChange={(e) => setSheet({ ...sheet, date: e.target.value })} />}</Field> : null}
+                    <p className="text-ui-sm text-ink">
+                      {shiftDays(sheet) ? `Every visit moves ${Math.abs(shiftDays(sheet))} day${Math.abs(shiftDays(sheet)) === 1 ? '' : 's'} ${shiftDays(sheet) > 0 ? 'later' : 'earlier'}.` : 'Pick the new day.'}
+                    </p>
+                  </fieldset>
+                  <Field label="Which crew">
+                    {(a) => (
+                      <Select {...a} className="text-base" value={sheet.crew} onChange={(e) => setSheet({ ...sheet, crew: e.target.value })}>
+                        <option value="all">All crews</option>
+                        <option value="none">No crew</option>
+                        {d.crews.map((c) => (
+                          <option key={c.id} value={c.id}>{c.name}</option>
+                        ))}
+                      </Select>
+                    )}
+                  </Field>
                 </>
               ) : null}
               <DialogFooter className="sticky bottom-0 bg-surface pt-2">
@@ -317,7 +364,7 @@ export default function VisitsBoard() {
                   disabled={
                     (sheet.kind === 'done' && sheet.visit.resultOptions.length > 0 && !sheet.result) ||
                     (sheet.kind === 'skip' && (!sheet.reason || (sheet.reason === 'other' && !sheet.notes.trim()))) ||
-                    (sheet.kind === 'shift' && (!Number(sheet.days) || !sheet.from))
+                    (sheet.kind === 'shift' && (!shiftDays(sheet) || Math.abs(shiftDays(sheet)) > 30 || !sheet.from))
                   }
                 >
                   {sheet.kind === 'done' ? 'Save' : sheet.kind === 'skip' ? 'Skip visit' : 'Move'}
@@ -332,14 +379,32 @@ export default function VisitsBoard() {
         <Dialog open onOpenChange={(o) => !o && !busy && setSheet(null)}>
           <DialogContent title="Crew phone links" description="Each crew gets one link that shows only their visits for today, with addresses, gate codes, Done, Skip and photos. Making a new link turns the old one off.">
             <ul className="flex flex-col gap-2">
-              {d.crews.map((c) => (
-                <li key={c.id} className="flex flex-wrap items-center justify-between gap-2 border-b border-surface-line pb-2">
-                  <span className="text-ui-base font-semibold text-ink">{c.name}</span>
-                  <Button size="sm" variant={c.hasPhoneLink ? 'secondary' : 'primary'} loading={busy} onClick={() => void makeLink(c)}>
-                    {c.hasPhoneLink ? 'New link (old one stops)' : 'Make link'}
-                  </Button>
-                </li>
-              ))}
+              {d.crews.map((c) => {
+                const url = sheet.made[c.id]
+                return (
+                  <li key={c.id} className="flex flex-col gap-2 border-b border-surface-line pb-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-ui-base font-semibold text-ink">{c.name}</span>
+                      {!url ? (
+                        <Button size="sm" variant={c.hasPhoneLink ? 'secondary' : 'primary'} loading={busy} onClick={() => void makeLink(c)}>
+                          {c.hasPhoneLink ? 'New link (old one stops)' : 'Make link'}
+                        </Button>
+                      ) : null}
+                    </div>
+                    {url ? (
+                      <>
+                        <p className="break-all rounded-ui bg-surface-subtle px-3 py-2 text-ui-sm text-ink">{url}</p>
+                        <div className="grid grid-cols-2 gap-2">
+                          <Button size="sm" variant="secondary" onClick={() => void copy(url)}>Copy</Button>
+                          <a className="inline-flex min-h-tap items-center justify-center rounded-ui bg-brand-700 px-3 text-ui-base font-semibold text-white" href={smsHref(c.phone, `Your visits for today: ${url}`)}>
+                            Text{c.phone ? ' the crew' : ''}
+                          </a>
+                        </div>
+                      </>
+                    ) : null}
+                  </li>
+                )
+              })}
             </ul>
             <DialogFooter>
               <Button variant="secondary" onClick={() => setSheet(null)}>Close</Button>

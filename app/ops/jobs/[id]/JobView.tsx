@@ -617,7 +617,7 @@ export default async function JobView({ params, embedded = false, initialTab = n
   return (
     <JobDetailClient
       detailsSlot={detailsSlot}
-      orgFeatures={features}
+      orgFeatures={await getOrgFeatures(profile.org_id)}
       catchUp={catchUp}
       embedded={embedded}
       v2={(profile as { ui_prefs?: { jobPageV2?: unknown } | null }).ui_prefs?.jobPageV2 === true}
