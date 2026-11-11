@@ -236,6 +236,18 @@ export function createWorld(tables: string[], orgTables: Set<string>, attackerRo
   seedTweak?.(seed)
   const db = createFakeDb(seed, {
     relations: PARENT_JOINS,
+    // The portal's three SQL functions (supabase/migrations/202611120060_customer_portal.sql). Limits always allow here:
+    // the suite is about whose rows a request reaches, not how often (lib/__tests__/customer-portal.test.ts does limits).
+    rpc: {
+      portal_take_attempt: () => true,
+      portal_find_customers: () => [],
+      portal_consume_login_token: (args, t) => {
+        const row = (t.portal_login_tokens ?? []).find((r) => r.token_hash === args.p_hash && !r.used_at)
+        if (!row) return []
+        row.used_at = new Date().toISOString()
+        return [{ org_id: row.org_id, customer_id: row.customer_id }]
+      },
+    },
     onRpc: (name, args) => rpcs.push({ name, args }),
     onSelect: (table, rows) => {
       if (rows.some((r) => ownerOf(table, r) === ORG_A)) readsOfA.push(table)

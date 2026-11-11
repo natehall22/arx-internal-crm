@@ -31,7 +31,8 @@ jest.mock('@/lib/company-host-server', () => ({
 }))
 jest.mock('@/lib/org-features-server', () => ({ isOrgFeatureOn: async (_org: string, f: string) => !mockFeatureOff.has(f) }))
 jest.mock('@/lib/company-links', () => ({ orgAppUrl: async (org: string) => `https://${org}.crm.test`, tryOrgAppUrl: async (org: string) => `https://${org}.crm.test` }))
-jest.mock('@/lib/supabase/service', () => ({ createServiceClient: () => db.client }))
+const storage = { from: () => ({ createSignedUrl: async (p: string) => ({ data: { signedUrl: `https://storage.test/${p}` }, error: null }) }) }
+jest.mock('@/lib/supabase/service', () => ({ createServiceClient: () => ({ ...(db.client as object), storage }) }))
 jest.mock('@/lib/setter-email', () => ({
   getCrmEmailFrom: () => 'Co <info@co.test>',
   getMailTransport: () => ({ sendMail: async (m: { to: string; subject: string; text: string; html: string }) => { mails.push(m) } }),
@@ -230,6 +231,17 @@ describe('asking for a link', () => {
     for (let i = 0; i < PORTAL_LIMITS.requestPerIdentifier.limit + 2; i++) await requestLoginLink(admin(), A, 'alice@x.test', `9.9.9.${i}`)
     expect(mails).toHaveLength(PORTAL_LIMITS.requestPerIdentifier.limit)
     expect(db.tables.portal_login_events.some((e) => e.kind === 'link_blocked')).toBe(true)
+  })
+  test('a match and a stranger take the same time (a fixed floor, not the mail server)', async () => {
+    process.env.PORTAL_REQUEST_MIN_MS = '250'
+    try {
+      const t = async (v: string) => { const a = Date.now(); await requestLoginLink(admin(), A, v, '2.2.2.2'); return Date.now() - a }
+      const [match, stranger] = [await t('alice@x.test'), await t('ghost@x.test')]
+      expect(match).toBeGreaterThanOrEqual(240)
+      expect(stranger).toBeGreaterThanOrEqual(240)
+    } finally {
+      process.env.PORTAL_REQUEST_MIN_MS = '0'
+    }
   })
   test('the audit log never holds a raw address or a token', async () => {
     await requestLoginLink(admin(), A, 'bob@x.test', '203.0.113.7')
