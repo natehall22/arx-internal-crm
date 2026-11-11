@@ -8,7 +8,8 @@
 --    (e.g. visit_reminder:email:<customer>:<visit day>), so "one reminder per customer per day" is the key itself.
 --    status: queued (an event waiting for send_after, e.g. "done" 15 min later), sending (claimed), sent, skipped
 --    (opted out / no address / suppressed / expired — skip_reason), cancelled (no longer true at send time), failed
---    (attempts, last_error; retried while attempts < 3). channel 'sms' is reserved (SMS plugs in later; nothing writes it).
+--    (attempts, last_error; retried while attempts < 3), blocked (the company can't send yet — no postal address / sender
+--    identity; retried once that is fixed, within the message's own late window). channel 'sms' is reserved (SMS plugs in later; nothing writes it).
 --    link_token_hash = sha256 of the message's own random link token (unsubscribe + visit photos page /m/<token>).
 -- 2. customer_message_suppressions: addresses that must never get an automatic message again — the customer
 --    unsubscribed, the address bounced, or a complaint. One row per (org, channel, address).
@@ -19,7 +20,8 @@
 -- All service role only (RLS on, no policies; no grants to anon/authenticated).
 -- Deploy: apply BEFORE the code (the code refuses to send and Settings says so until it is applied). Needs
 -- 202611120030 (commission_change_wait). Order-free with 202611120040.
--- ROLLBACK (no message sent yet, or the log may be dropped): DROP TABLE customer_message_suppressions, customer_messages;
+-- ROLLBACK (no message sent yet, or the log may be dropped): DROP FUNCTION customer_message_claim(uuid, uuid, text, integer, text,
+--   text, integer, timestamptz, timestamptz); DROP TABLE customer_message_suppressions, customer_messages;
 --   ALTER TABLE customers DROP COLUMN messages_off_at, DROP COLUMN messages_off_by; restore the commission_change_wait
 --   CHECK from 202611120030 (only once no job is 'retry_error').
 
@@ -33,7 +35,7 @@ create table if not exists public.customer_messages (
   message_key text not null check (length(message_key) between 1 and 300),
   kind text not null check (kind in ('visit_reminder', 'visit_on_the_way', 'visit_done', 'quote_follow_up', 'invoice_reminder')),
   channel text not null default 'email' check (channel in ('email', 'sms')),
-  status text not null default 'queued' check (status in ('queued', 'sending', 'sent', 'skipped', 'cancelled', 'failed')),
+  status text not null default 'queued' check (status in ('queued', 'sending', 'sent', 'skipped', 'cancelled', 'failed', 'blocked')),
   customer_id uuid null references public.customers(id) on delete set null,
   to_address text null,
   refs jsonb not null default '{}'::jsonb,
@@ -50,18 +52,56 @@ create table if not exists public.customer_messages (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint customer_messages_key_unique unique (org_id, message_key),
-  constraint customer_messages_skip_shape check (status not in ('skipped', 'cancelled') or skip_reason is not null),
+  constraint customer_messages_skip_shape check (status not in ('skipped', 'cancelled', 'blocked') or skip_reason is not null),
   constraint customer_messages_sent_shape check (status <> 'sent' or (sent_at is not null and to_address is not null))
 );
 create unique index if not exists customer_messages_link_token_idx on public.customer_messages (link_token_hash) where link_token_hash is not null;
 -- The sender's work list (events waiting + failures to retry), per company.
-create index if not exists customer_messages_due_idx on public.customer_messages (org_id, send_after) where status in ('queued', 'failed', 'sending');
+create index if not exists customer_messages_due_idx on public.customer_messages (org_id, send_after) where status in ('queued', 'failed', 'sending', 'blocked');
 -- "How many did this address get today" (rate limit) and a customer's history.
 create index if not exists customer_messages_address_idx on public.customer_messages (org_id, to_address, created_at desc);
 create index if not exists customer_messages_customer_idx on public.customer_messages (org_id, customer_id, created_at desc);
 
 alter table public.customer_messages enable row level security;
 revoke all on public.customer_messages from anon, authenticated;
+
+-- THE claim (lib/customer-messages-db.ts `deliver`): one row queued|failed|blocked → sending, recording the address it goes
+-- to, but only while that address has had fewer than p_max messages since p_since (sent, being sent, or failed and still to
+-- be retried — counted by the address recorded at claim). Serialized per (company, address) with a transaction advisory
+-- lock, so two parallel senders can never both slip under the cap. Returns 'claimed' | 'capped' (row closed as skipped
+-- 'daily_limit') | 'not_claimed' (someone else has it, or it changed).
+create or replace function public.customer_message_claim(
+  p_org uuid, p_id uuid, p_from_status text, p_attempts integer, p_to text, p_token_hash text, p_max integer, p_since timestamptz, p_now timestamptz
+) returns text
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_count integer;
+begin
+  perform pg_advisory_xact_lock(hashtextextended('customer_message_to:' || p_org::text || ':' || p_to, 0));
+  perform 1 from public.customer_messages
+   where id = p_id and org_id = p_org and status = p_from_status and attempts = p_attempts
+   for update;
+  if not found then return 'not_claimed'; end if;
+  select count(*) into v_count from public.customer_messages
+   where org_id = p_org and to_address = p_to and id <> p_id
+     and coalesce(sent_at, claimed_at, created_at) >= p_since
+     and (status in ('sent', 'sending') or (status = 'failed' and attempts < 3));
+  if v_count >= p_max then
+    update public.customer_messages
+       set status = 'skipped', skip_reason = 'daily_limit', to_address = p_to, updated_at = p_now
+     where id = p_id;
+    return 'capped';
+  end if;
+  update public.customer_messages
+     set status = 'sending', claimed_at = p_now, attempts = p_attempts + 1, to_address = p_to,
+         link_token_hash = p_token_hash, updated_at = p_now
+   where id = p_id;
+  return 'claimed';
+end $$;
+revoke all on function public.customer_message_claim(uuid, uuid, text, integer, text, text, integer, timestamptz, timestamptz) from public, anon, authenticated;
 
 -- ---- 2. Addresses never to message again --------------------------------------------------------------------------------
 create table if not exists public.customer_message_suppressions (

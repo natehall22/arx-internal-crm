@@ -17,7 +17,7 @@
  * company is skipped unless the `customerMessages` switch is on AND at least one message is turned on. Days and hours are
  * the company's own (`orgs.timezone`); nothing is sent in quiet hours except "on the way".
  */
-import { createHash, randomBytes } from 'node:crypto'
+import { createHash, createHmac } from 'node:crypto'
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 
@@ -56,7 +56,7 @@ import { orgLogoHref } from '@/lib/files/files-object'
 import { findOrgInvoice } from '@/lib/invoices'
 import { loadInvoiceDocument } from '@/lib/invoice-document'
 import type { JobInvoice } from '@/lib/types/invoices'
-import { brandDocument, resolveOrgBrand } from '@/lib/org-brand'
+import { formatPhone } from '@/lib/format'
 import { loadOrgFeatures } from '@/lib/org-features'
 import { resolveOrgProfile, t } from '@/lib/org-profile'
 import { daysBetweenYmd, ymdInZone } from '@/lib/payroll-week-schedule'
@@ -64,10 +64,8 @@ import { SERVICE_STEP, SERVICE_VISIT_TYPE } from '@/lib/service-plans'
 import { orgDb } from '@/lib/supabase/org-db'
 import { isMissingColumn, isMissingTable } from '@/lib/supabase/errors'
 import { orgTimeZone } from '@/lib/timezone'
-import { listUnsignedProposals } from '@/lib/today'
+import { listUnsignedProposals, type Queue as TodayQueue } from '@/lib/today'
 
-const TABLE = 'customer_messages'
-const SUPPRESSIONS = 'customer_message_suppressions'
 const ROW_COLS =
   'id, org_id, message_key, kind, channel, status, customer_id, to_address, refs, send_after, expires_at, attempts, claimed_at, sent_at, skip_reason, last_error, created_at'
 /** A row claimed longer ago than this died mid-send. */
@@ -82,7 +80,7 @@ export type MessageRow = {
   message_key: string
   kind: MessageKind
   channel: MessageChannel
-  status: 'queued' | 'sending' | 'sent' | 'skipped' | 'cancelled' | 'failed'
+  status: 'queued' | 'sending' | 'sent' | 'skipped' | 'cancelled' | 'failed' | 'blocked'
   customer_id: string | null
   to_address: string | null
   refs: Record<string, unknown>
@@ -109,46 +107,80 @@ export type SendContext = {
   hour: number
   settings: CustomerMessageSettings
   company: EmailCompany
+  /** The company's own sender (name + email). */
+  from: { name: string; address: string }
   replyTo: string | null
   appUrl: string
   proposalWord: string
   channel: MessageChannelSender
+  /** Set when the company can't send yet (what to fix, in plain words): every due row is marked 'blocked' instead. */
+  blocked: BlockReason | null
   /** Sends left in this run. */
   budget: { left: number }
   stats: RunStats
 }
 
-export type RunStats = { sent: number; skipped: number; cancelled: number; failed: number; queued: number; deferred: number }
+export type RunStats = { sent: number; skipped: number; cancelled: number; failed: number; queued: number; deferred: number; blocked: number }
 
-const emptyStats = (): RunStats => ({ sent: 0, skipped: 0, cancelled: 0, failed: 0, queued: 0, deferred: 0 })
+const emptyStats = (): RunStats => ({ sent: 0, skipped: 0, cancelled: 0, failed: 0, queued: 0, deferred: 0, blocked: 0 })
 
 /** The company's message settings (`orgs.settings.customerMessages`), all OFF when nothing is saved. */
 export function messageSettingsOf(settings: Record<string, unknown> | null | undefined): CustomerMessageSettings {
   return readCustomerMessageSettings((settings ?? {})[CUSTOMER_MESSAGES_SETTINGS_KEY])
 }
 
-/** The company's look in a customer email: its own name, phone, email, website, postal address and logo. */
-export function emailCompanyOf(org: OrgRow, appUrl: string | null): EmailCompany {
-  const doc = brandDocument(resolveOrgBrand(org))
+const present = (v: unknown): string => (typeof v === 'string' ? v.trim() : '')
+
+/** Why a company can't send customer emails (each one a fix the owner makes in Settings → Company settings). */
+export type BlockReason = 'missing_company_name' | 'missing_company_email' | 'missing_company_address'
+
+export const BLOCK_REASON_TEXT: Record<BlockReason, string> = {
+  missing_company_name: 'Add your company name in Settings → Company settings: emails go out under it.',
+  missing_company_email: 'Add your company email in Settings → Company settings: emails are sent from it and replies go to it.',
+  missing_company_address: 'Add your business address in Settings → Company settings: the law requires a postal address in these emails.',
+}
+
+/**
+ * The company's identity in a customer email, read ONLY from its own row — name, email, postal address and phone are
+ * `orgs` columns, website `settings.brand.website` — never a fallback (no other company's values can ever appear, whatever
+ * the deployment). `missing` = required fields that are blank: nothing is sent until they are filled.
+ */
+export function companyIdentity(org: OrgRow, appUrl: string | null): { company: EmailCompany; from: { name: string; address: string }; missing: BlockReason[] } {
+  const brand = (org.settings?.brand ?? {}) as Record<string, unknown>
+  const name = present(org.name)
+  const email = normalizeEmail(org.email) ?? ''
+  const addressLine = present(org.address)
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .join(', ')
+  const missing: BlockReason[] = []
+  if (!name) missing.push('missing_company_name')
+  if (!email) missing.push('missing_company_email')
+  if (!addressLine) missing.push('missing_company_address')
   return {
-    name: doc.casualName || doc.name || doc.legalName,
-    phone: doc.phone,
-    email: doc.email,
-    website: doc.website,
-    addressLine: doc.addressLine,
-    logoUrl: appUrl ? orgLogoHref(org.id, org as Parameters<typeof orgLogoHref>[1], { appUrl }) : null,
+    company: {
+      name,
+      phone: present(org.phone) ? formatPhone(present(org.phone)) : '',
+      email,
+      website: present(brand.website),
+      addressLine,
+      logoUrl: appUrl ? orgLogoHref(org.id, org as Parameters<typeof orgLogoHref>[1], { appUrl }) : null,
+    },
+    from: { name, address: email },
+    missing,
   }
 }
 
 /** Is the send log there (migration 202611120050 applied)? */
 export async function customerMessagesReady(admin: SupabaseClient, orgId: string): Promise<boolean> {
-  const { error } = await orgDb(admin, orgId).from(TABLE).select('id').limit(1)
+  const { error } = await orgDb(admin, orgId).from('customer_messages').select('id').limit(1)
   if (!error) return true
   if (isMissingTable(error)) return false
   throw new Error(`customer messages: ${error.message}`)
 }
 
-type ContextResult = { ok: true; ctx: SendContext } | { ok: false; reason: 'feature_off' | 'all_off' | 'no_email' | 'not_ready' | 'no_app_url' | 'no_org' }
+type ContextResult = { ok: true; ctx: SendContext } | { ok: false; reason: 'feature_off' | 'all_off' | 'no_email' | 'not_ready' | 'no_app_url' | 'no_org' | 'no_link_secret' }
 
 /** Everything a send needs, or why nothing can be sent for this company right now. */
 export async function loadSendContext(admin: SupabaseClient, orgId: string, now: Date = new Date()): Promise<ContextResult> {
@@ -161,12 +193,13 @@ export async function loadSendContext(admin: SupabaseClient, orgId: string, now:
   if (!anyMessageOn(settings)) return { ok: false, reason: 'all_off' }
   const channel = channelSender('email')
   if (!channel.available()) return { ok: false, reason: 'no_email' }
+  if (!linkSecret()) return { ok: false, reason: 'no_link_secret' }
   if (!(await customerMessagesReady(admin, orgId))) return { ok: false, reason: 'not_ready' }
   // Every automatic message carries its own unsubscribe link on the company's address: no address, no message.
   const appUrl = await tryOrgAppUrl(orgId, 'customer-messages')
   if (!appUrl) return { ok: false, reason: 'no_app_url' }
   const timeZone = orgTimeZone(o.timezone)
-  const company = emailCompanyOf(o, appUrl)
+  const id = companyIdentity(o, appUrl)
   return {
     ok: true,
     ctx: {
@@ -177,14 +210,37 @@ export async function loadSendContext(admin: SupabaseClient, orgId: string, now:
       today: ymdInZone(now, timeZone),
       hour: hourInZone(now, timeZone),
       settings,
-      company,
-      replyTo: normalizeEmail(company.email),
+      company: id.company,
+      from: id.from,
+      replyTo: id.company.email || null,
       appUrl,
       proposalWord: t(resolveOrgProfile(o.settings), 'proposal'),
       channel,
+      blocked: id.missing[0] ?? null,
       budget: { left: MAX_SENDS_PER_RUN },
       stats: emptyStats(),
     },
+  }
+}
+
+/**
+ * Owners' Today card when customer emails are switched on but can't go out (company name / email / postal address
+ * missing). Null when nothing is wrong (or the module is off).
+ */
+export async function loadCustomerMessagesBlockedQueue(admin: SupabaseClient, orgId: string): Promise<TodayQueue | null> {
+  const features = await loadOrgFeatures(admin, orgId)
+  if (!features.customerMessages) return null
+  const { data: org } = await admin.from('orgs').select('id, name, address, phone, email, settings').eq('id', orgId).maybeSingle()
+  if (!org || !anyMessageOn(messageSettingsOf((org as OrgRow).settings))) return null
+  const { missing } = companyIdentity(org as OrgRow, null)
+  if (missing.length === 0) return null
+  const { count } = await orgDb(admin, orgId).from('customer_messages').select('id', { count: 'exact', head: true }).eq('status', 'blocked')
+  return {
+    id: 'customer-messages-blocked',
+    title: 'Customer emails are stopped',
+    count: Math.max(count ?? 0, 1),
+    empty: 'Customer emails are going out.',
+    items: missing.map((m) => ({ id: m, title: BLOCK_REASON_TEXT[m], detail: count ? `${count} email${count === 1 ? '' : 's'} waiting` : 'Nothing has been sent yet', href: '/admin/settings', ref: 'Customer emails', note: BLOCK_REASON_TEXT[m] })),
   }
 }
 
@@ -207,13 +263,13 @@ export async function suppressAddress(
   const address = channel === 'email' ? normalizeEmail(rawAddress) : rawAddress.trim().toLowerCase()
   if (!address) return
   const { error } = await orgDb(admin, orgId)
-    .from(SUPPRESSIONS)
+    .from('customer_message_suppressions')
     .upsert({ channel, address, reason, message_id: opts.messageId ?? null, detail: opts.detail?.slice(0, 300) ?? null }, { onConflict: 'org_id,channel,address', ignoreDuplicates: true })
   if (error) throw new Error(`suppress address: ${error.message}`)
 }
 
 async function suppressionOf(admin: SupabaseClient, orgId: string, channel: MessageChannel, address: string): Promise<{ reason: SuppressionReason; created_at: string } | null> {
-  const { data } = await orgDb(admin, orgId).from(SUPPRESSIONS).select('reason, created_at').eq('channel', channel).eq('address', address).maybeSingle()
+  const { data } = await orgDb(admin, orgId).from('customer_message_suppressions').select('reason, created_at').eq('channel', channel).eq('address', address).maybeSingle()
   return (data as { reason: SuppressionReason; created_at: string } | null) ?? null
 }
 
@@ -234,7 +290,7 @@ type NewMessage = { kind: MessageKind; key: string; customerId: string | null; r
 /** Insert a message row unless its key exists. Returns the new row, or null when the key was already used. */
 export async function enqueueMessage(admin: SupabaseClient, orgId: string, m: NewMessage): Promise<MessageRow | null> {
   const { data, error } = await orgDb(admin, orgId)
-    .from(TABLE)
+    .from('customer_messages')
     .insert({
       message_key: m.key,
       kind: m.kind,
@@ -261,7 +317,7 @@ async function existingKeys(admin: SupabaseClient, orgId: string, keys: string[]
   const out = new Set<string>()
   // Keys are ~70 characters: 50 per request keeps the URL small (PostgREST / proxies cap request lines).
   for (let i = 0; i < keys.length; i += KEY_CHUNK) {
-    const { data, error } = await orgDb(admin, orgId).from(TABLE).select('message_key').in('message_key', keys.slice(i, i + KEY_CHUNK))
+    const { data, error } = await orgDb(admin, orgId).from('customer_messages').select('message_key').in('message_key', keys.slice(i, i + KEY_CHUNK))
     if (error) throw new Error(`message keys: ${error.message}`)
     for (const r of (data ?? []) as Array<{ message_key: string }>) out.add(r.message_key)
   }
@@ -270,102 +326,169 @@ async function existingKeys(admin: SupabaseClient, orgId: string, keys: string[]
 
 async function finish(ctx: SendContext, row: MessageRow, patch: Record<string, unknown>): Promise<void> {
   const { error } = await orgDb(ctx.admin, ctx.orgId)
-    .from(TABLE)
+    .from('customer_messages')
     .update({ ...patch, updated_at: new Date().toISOString() })
     .eq('id', row.id)
     .eq('status', 'sending')
   if (error) console.error('[customer-messages] could not record the result', { orgId: ctx.orgId, id: row.id, error })
 }
 
+/** Close or park a row nobody has claimed — conditional on what we read, so a racing claim always wins. */
+async function closeUnclaimed(ctx: SendContext, row: MessageRow, patch: Record<string, unknown>): Promise<boolean> {
+  const { data } = await orgDb(ctx.admin, ctx.orgId)
+    .from('customer_messages')
+    .update({ ...patch, updated_at: ctx.now.toISOString() })
+    .eq('id', row.id)
+    .eq('status', row.status)
+    .eq('attempts', row.attempts)
+    .select('id')
+  return ((data ?? []) as unknown[]).length === 1
+}
+
 /** What a message says and to whom, re-checked at send time — or why it is no longer sent. */
 type Built =
-  | { send: true; customerId: string | null; to: string; render: (links: Links) => RenderedMessage }
+  | {
+      send: true
+      customerId: string | null
+      to: string
+      /** Side effects that only make sense once the row is ours (e.g. making a pay link). */
+      prepare?: () => Promise<Record<string, string | null>>
+      render: (links: Links, prepared: Record<string, string | null>) => RenderedMessage
+    }
   | { send: false; status: 'skipped' | 'cancelled'; reason: string; to?: string | null }
   | { defer: true; untilMs: number; reason: string }
 
 type Links = { page: string; unsubscribe: string; unsubscribePost: string }
 
-function newLinkToken(): { token: string; hash: string } {
-  const token = randomBytes(32).toString('base64url')
-  return { token, hash: hashLinkToken(token) }
+/** Secret behind every message's link token (env CUSTOMER_MESSAGE_LINK_SECRET, else derived from the service key). */
+function linkSecret(): string | null {
+  const s = process.env.CUSTOMER_MESSAGE_LINK_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY
+  return s && s.length >= 16 ? s : null
+}
+
+/**
+ * A message's link token: HMAC of its row id, so a retry carries the SAME links as an earlier try that may have arrived
+ * (an "unknown" SMTP outcome) — never a second token that would kill the first email's links. Only its hash is stored.
+ */
+export function linkTokenFor(messageId: string): string {
+  const secret = linkSecret()
+  if (!secret) throw new Error('customer messages: no link secret')
+  return createHmac('sha256', secret).update(`customer-message:${messageId}`).digest('base64url')
 }
 
 export function hashLinkToken(token: string): string {
   return createHash('sha256').update(token).digest('hex')
 }
 
-/** Recipient checks shared by every kind: office "don't email", no usable address, suppressed, too many today. */
-async function recipientRefusal(ctx: SendContext, customer: CustomerFacts | null, to: string | null, rowId: string): Promise<{ reason: string } | null> {
+/** A stable Message-ID per message (same on every retry) on the company's own address. */
+function messageIdFor(ctx: SendContext, rowId: string): string {
+  let host = 'localhost'
+  try {
+    host = new URL(ctx.appUrl).hostname || host
+  } catch {
+    /* keep localhost */
+  }
+  return `<cm-${rowId}@${host}>`
+}
+
+/** Recipient checks shared by every kind: office "don't email", no usable address, suppressed. (The daily cap is in the claim.) */
+async function recipientRefusal(ctx: SendContext, customer: CustomerFacts | null, to: string | null): Promise<{ reason: string } | null> {
   if (customer?.off) return { reason: 'customer_opted_out' }
   if (!to) return { reason: 'no_address' }
   if (await suppressionOf(ctx.admin, ctx.orgId, ctx.channel.channel, to)) return { reason: 'suppressed' }
-  const since = new Date(ctx.now.getTime() - 86_400_000).toISOString()
-  const { count } = await orgDb(ctx.admin, ctx.orgId)
-    .from(TABLE)
-    .select('id', { count: 'exact', head: true })
-    .eq('to_address', to)
-    .in('status', ['sent', 'sending'])
-    .gte('created_at', since)
-    .neq('id', rowId)
-  if ((count ?? 0) >= MAX_PER_ADDRESS_PER_DAY) return { reason: 'daily_limit' }
   return null
 }
 
+const CLAIMABLE = new Set<MessageRow['status']>(['queued', 'failed', 'blocked'])
+
 /**
- * Send one queued (or failed, retryable) row. Claims it first; a row someone else claimed, or one already finished,
- * is left alone. `bypassQuiet` = "on the way" (sent while the crew is driving, whatever the hour).
+ * Send one row that is waiting (queued, failed with tries left, or blocked earlier). It is re-checked FIRST (read-only:
+ * still turned on, still within its late window, still true, recipient allowed), then claimed atomically together with
+ * the per-address daily cap (SQL customer_message_claim), then prepared, sent and recorded. "On the way" ignores quiet hours.
  */
-export async function deliver(ctx: SendContext, row: MessageRow): Promise<'sent' | 'skipped' | 'cancelled' | 'failed' | 'deferred' | 'not_claimed'> {
-  if (row.status !== 'queued' && row.status !== 'failed') return 'not_claimed'
+export async function deliver(ctx: SendContext, row: MessageRow): Promise<'sent' | 'skipped' | 'cancelled' | 'failed' | 'deferred' | 'blocked' | 'not_claimed'> {
+  if (!CLAIMABLE.has(row.status)) return 'not_claimed'
   if (row.expires_at && Date.parse(row.expires_at) <= ctx.now.getTime()) {
-    await closeUnclaimed(ctx, row, 'skipped', 'expired')
-    ctx.stats.skipped++
+    if (await closeUnclaimed(ctx, row, { status: 'skipped', skip_reason: 'expired' })) ctx.stats.skipped++
     return 'skipped'
+  }
+  if (ctx.blocked) {
+    // Nothing goes out under a missing identity. Parked (looked at again hourly); sent once fixed if still in its window.
+    await closeUnclaimed(ctx, row, { status: 'blocked', skip_reason: ctx.blocked, send_after: new Date(ctx.now.getTime() + 3_600_000).toISOString() })
+    ctx.stats.blocked++
+    return 'blocked'
   }
   if (row.kind !== 'visit_on_the_way' && isQuietHour(ctx.hour, ctx.settings)) return 'deferred'
   if (ctx.budget.left <= 0) {
     ctx.stats.deferred++
     return 'deferred'
   }
-  const link = newLinkToken()
-  const { data: claimed } = await orgDb(ctx.admin, ctx.orgId)
-    .from(TABLE)
-    .update({ status: 'sending', claimed_at: ctx.now.toISOString(), attempts: row.attempts + 1, link_token_hash: link.hash, updated_at: ctx.now.toISOString() })
-    .eq('id', row.id)
-    .eq('status', row.status)
-    .eq('attempts', row.attempts)
-    .select('id')
-  if (((claimed ?? []) as unknown[]).length !== 1) return 'not_claimed'
-  ctx.budget.left--
 
   let built: Built
   try {
     built = await build(ctx, row)
   } catch (e) {
-    await finish(ctx, row, { status: 'failed', last_error: errText(e), send_after: retryAt(ctx, row.attempts + 1) })
+    // A read failed: try again later (attempts counted, so a broken row can't loop forever).
+    await closeUnclaimed(ctx, row, { status: 'failed', attempts: row.attempts + 1, last_error: errText(e), send_after: retryAt(ctx, row.attempts + 1) })
     ctx.stats.failed++
     return 'failed'
   }
   if ('defer' in built) {
-    // Hand it back untouched (attempts restored): nothing was tried.
-    await finish(ctx, row, { status: 'queued', attempts: row.attempts, claimed_at: null, send_after: new Date(built.untilMs).toISOString(), last_error: built.reason })
+    await closeUnclaimed(ctx, row, { status: 'queued', send_after: new Date(built.untilMs).toISOString(), last_error: built.reason })
     ctx.stats.deferred++
     return 'deferred'
   }
   if (!built.send) {
-    await finish(ctx, row, { status: built.status, skip_reason: built.reason, to_address: built.to ?? null })
-    ctx.stats[built.status === 'skipped' ? 'skipped' : 'cancelled']++
+    if (await closeUnclaimed(ctx, row, { status: built.status, skip_reason: built.reason, to_address: built.to ?? null })) ctx.stats[built.status === 'skipped' ? 'skipped' : 'cancelled']++
     return built.status
   }
-  const links: Links = {
-    page: `${ctx.appUrl}/m/${link.token}`,
-    unsubscribe: `${ctx.appUrl}/m/${link.token}?stop=1`,
-    unsubscribePost: `${ctx.appUrl}/api/m/${link.token}/unsubscribe`,
+
+  const token = linkTokenFor(row.id)
+  const { data: claim, error: claimError } = await ctx.admin.rpc('customer_message_claim', {
+    p_org: ctx.orgId,
+    p_id: row.id,
+    p_from_status: row.status,
+    p_attempts: row.attempts,
+    p_to: built.to,
+    p_token_hash: hashLinkToken(token),
+    p_max: MAX_PER_ADDRESS_PER_DAY,
+    p_since: new Date(ctx.now.getTime() - 86_400_000).toISOString(),
+    p_now: ctx.now.toISOString(),
+  })
+  if (claimError) {
+    console.error('[customer-messages] claim failed', { orgId: ctx.orgId, id: row.id, claimError })
+    return 'not_claimed'
   }
-  const rendered = built.render(links)
-  const out = await ctx.channel.send(built.to, rendered, { replyTo: ctx.replyTo, unsubscribeUrl: links.unsubscribe, unsubscribePostUrl: links.unsubscribePost })
+  if (claim === 'capped') {
+    ctx.stats.skipped++
+    return 'skipped'
+  }
+  if (claim !== 'claimed') return 'not_claimed'
+  ctx.budget.left--
+
+  let prepared: Record<string, string | null> = {}
+  try {
+    prepared = built.prepare ? await built.prepare() : {}
+  } catch (e) {
+    await finish(ctx, row, { status: 'failed', last_error: errText(e), send_after: retryAt(ctx, row.attempts + 1) })
+    ctx.stats.failed++
+    return 'failed'
+  }
+  const links: Links = {
+    page: `${ctx.appUrl}/m/${token}`,
+    unsubscribe: `${ctx.appUrl}/m/${token}?stop=1`,
+    unsubscribePost: `${ctx.appUrl}/api/m/${token}/unsubscribe`,
+  }
+  const rendered = built.render(links, prepared)
+  const out = await ctx.channel.send(built.to, rendered, {
+    from: ctx.from,
+    replyTo: ctx.replyTo,
+    messageId: messageIdFor(ctx, row.id),
+    unsubscribeUrl: links.unsubscribe,
+    unsubscribePostUrl: links.unsubscribePost,
+  })
   if (out.ok) {
-    await finish(ctx, row, { status: 'sent', sent_at: new Date().toISOString(), to_address: built.to, customer_id: built.customerId, subject: rendered.subject.slice(0, 300), last_error: null })
+    await finish(ctx, row, { status: 'sent', sent_at: new Date().toISOString(), customer_id: built.customerId, subject: rendered.subject.slice(0, 300), last_error: null })
     ctx.stats.sent++
     return 'sent'
   }
@@ -373,14 +496,24 @@ export async function deliver(ctx: SendContext, row: MessageRow): Promise<'sent'
     await suppressAddress(ctx.admin, ctx.orgId, ctx.channel.channel, built.to, 'bounced', { messageId: row.id, detail: out.error }).catch((e) =>
       console.error('[customer-messages] could not suppress a bounced address', { orgId: ctx.orgId, e })
     )
-    await finish(ctx, row, { status: 'skipped', skip_reason: 'bounced', to_address: built.to, last_error: out.error })
+    await finish(ctx, row, { status: 'skipped', skip_reason: 'bounced', last_error: out.error })
     ctx.stats.skipped++
     return 'skipped'
   }
-  await finish(ctx, row, { status: 'failed', to_address: built.to, last_error: out.error, send_after: retryAt(ctx, row.attempts + 1) })
+  // No definite answer (timeout / dropped line): it may have gone out. Never retried soon — after UNKNOWN_RETRY_HOURS,
+  // with the same Message-ID and links, so a copy that did arrive is recognizable and its links keep working.
+  const delayMs = out.unknown ? UNKNOWN_RETRY_HOURS * 3_600_000 : null
+  await finish(ctx, row, {
+    status: 'failed',
+    last_error: `${out.unknown ? 'unknown (may have been sent): ' : ''}${out.error}`.slice(0, 300),
+    send_after: delayMs ? new Date(ctx.now.getTime() + delayMs).toISOString() : retryAt(ctx, row.attempts + 1),
+  })
   ctx.stats.failed++
   return 'failed'
 }
+
+/** An SMTP send with no definite answer is tried again only this much later (same Message-ID). */
+export const UNKNOWN_RETRY_HOURS = 6
 
 function errText(e: unknown): string {
   return (e instanceof Error ? e.message : String(e)).slice(0, 300)
@@ -389,16 +522,6 @@ function errText(e: unknown): string {
 /** 30 min, then 2 h before the last try. */
 function retryAt(ctx: SendContext, attempts: number): string {
   return new Date(ctx.now.getTime() + (attempts <= 1 ? 30 : 120) * 60_000).toISOString()
-}
-
-/** Close a row nobody has claimed (expired) — conditional, so a racing claim wins. */
-async function closeUnclaimed(ctx: SendContext, row: MessageRow, status: 'skipped' | 'cancelled', reason: string): Promise<void> {
-  await orgDb(ctx.admin, ctx.orgId)
-    .from(TABLE)
-    .update({ status, skip_reason: reason, updated_at: ctx.now.toISOString() })
-    .eq('id', row.id)
-    .eq('status', row.status)
-    .eq('attempts', row.attempts)
 }
 
 // ── Build: per kind, from the row's refs, re-checked now ────────────────────────────────────────────────────────────
@@ -450,6 +573,7 @@ async function buildVisitReminder(ctx: SendContext, row: MessageRow): Promise<Bu
   const customerId = str(row.refs.customerId)
   const day = str(row.refs.day)
   if (!customerId || !day) return { send: false, status: 'cancelled', reason: 'bad_refs' }
+  if (!ctx.settings.visitReminder) return { send: false, status: 'cancelled', reason: 'turned_off' }
   const timing = visitReminderTiming(ctx.today, day, ctx.settings.visitReminderDays, ctx.hour)
   if (!timing) return { send: false, status: 'skipped', reason: 'too_late' }
   const { data, error } = await orgDb(ctx.admin, ctx.orgId)
@@ -466,7 +590,7 @@ async function buildVisitReminder(ctx: SendContext, row: MessageRow): Promise<Bu
   if (visits.length === 0) return { send: false, status: 'cancelled', reason: 'no_visits_that_day' }
   const customer = await loadCustomer(ctx.admin, ctx.orgId, customerId)
   const to = ctx.channel.addressFor({ email: customer?.email ?? null, phone: null })
-  const refusal = await recipientRefusal(ctx, customer, to, row.id)
+  const refusal = await recipientRefusal(ctx, customer, to)
   if (refusal) return { send: false, status: 'skipped', reason: refusal.reason, to }
   const what = await describeVisits(ctx, visits)
   // Same address listed once per thing being done there.
@@ -496,7 +620,7 @@ async function buildVisitEvent(ctx: SendContext, row: MessageRow): Promise<Built
   if (done ? !ctx.settings.visitDone : !ctx.settings.onTheWay) return { send: false, status: 'cancelled', reason: 'turned_off' }
   const customer = await loadCustomer(ctx.admin, ctx.orgId, v.customer_id)
   const to = ctx.channel.addressFor({ email: customer?.email ?? null, phone: null })
-  const refusal = await recipientRefusal(ctx, customer, to, row.id)
+  const refusal = await recipientRefusal(ctx, customer, to)
   if (refusal) return { send: false, status: 'skipped', reason: refusal.reason, to }
   const info = (await describeVisits(ctx, [v])).get(v.id)!
   let photos = false
@@ -518,9 +642,14 @@ async function buildVisitEvent(ctx: SendContext, row: MessageRow): Promise<Built
 async function buildQuoteFollowUp(ctx: SendContext, row: MessageRow): Promise<Built> {
   const proposalId = str(row.refs.proposalId)
   if (!proposalId) return { send: false, status: 'cancelled', reason: 'bad_refs' }
+  if (!ctx.settings.quoteFollowUp) return { send: false, status: 'cancelled', reason: 'turned_off' }
   // The one "waiting for a signature" rule: still 'sent', deal not won or lost.
   const [p] = await listUnsignedProposals(ctx.admin, ctx.orgId, { ids: [proposalId] })
   if (!p) return { send: false, status: 'cancelled', reason: 'signed_or_declined' }
+  // Still this step's turn, inside its late window (and the step is still one of the company's days).
+  if (dueStep(daysBetweenYmd(ymdInZone(new Date(p.sent_at), ctx.timeZone), ctx.today), ctx.settings.quoteFollowUpDays) !== row.refs.step) {
+    return { send: false, status: 'skipped', reason: 'too_late' }
+  }
   let customerId: string | null = null
   if (p.opportunity_id) {
     const { data: opp } = await orgDb(ctx.admin, ctx.orgId).from('opportunities').select('customer_id').eq('id', p.opportunity_id).maybeSingle()
@@ -528,7 +657,7 @@ async function buildQuoteFollowUp(ctx: SendContext, row: MessageRow): Promise<Bu
   }
   const customer = await loadCustomer(ctx.admin, ctx.orgId, customerId)
   const to = ctx.channel.addressFor({ email: p.customer_email || customer?.email || null, phone: null })
-  const refusal = await recipientRefusal(ctx, customer, to, row.id)
+  const refusal = await recipientRefusal(ctx, customer, to)
   if (refusal) return { send: false, status: 'skipped', reason: refusal.reason, to }
   // A signing link already sent for this quote (still waiting) is the button; otherwise "reply to this email".
   const { data: contract } = await orgDb(ctx.admin, ctx.orgId)
@@ -567,6 +696,7 @@ export function invoiceDueDay(inv: { due_at: string | null; sent_at: string | nu
 async function buildInvoiceReminder(ctx: SendContext, row: MessageRow): Promise<Built> {
   const invoiceId = str(row.refs.invoiceId)
   if (!invoiceId) return { send: false, status: 'cancelled', reason: 'bad_refs' }
+  if (!ctx.settings.invoiceReminder) return { send: false, status: 'cancelled', reason: 'turned_off' }
   const found = await findOrgInvoice(ctx.admin, invoiceId, ctx.orgId)
   if (!found || (found.status !== 'sent' && found.status !== 'partially_paid')) return { send: false, status: 'cancelled', reason: found ? `invoice_${found.status}` : 'invoice_gone' }
   // org-scope-ok: found above in this company by findOrgInvoice (job invoices scope through their job)
@@ -577,6 +707,8 @@ async function buildInvoiceReminder(ctx: SendContext, row: MessageRow): Promise<
   if (doc.isPaid || doc.balanceCents <= 0) return { send: false, status: 'cancelled', reason: 'paid' }
   const dueDay = invoiceDueDay(invoice, ctx.timeZone)
   if (!dueDay) return { send: false, status: 'cancelled', reason: 'not_sent' }
+  // Still this step's turn, inside its late window (a due date moved, or the step taken off the company's list → no).
+  if (dueStep(daysBetweenYmd(dueDay, ctx.today), ctx.settings.invoiceReminderDays) !== row.refs.step) return { send: false, status: 'skipped', reason: 'too_late' }
   let customerId = invoice.customer_id ?? null
   if (!customerId && invoice.job_id) {
     const { data: job } = await orgDb(ctx.admin, ctx.orgId).from('production_jobs').select('customer_id').eq('id', invoice.job_id).maybeSingle()
@@ -584,32 +716,33 @@ async function buildInvoiceReminder(ctx: SendContext, row: MessageRow): Promise<
   }
   const customer = await loadCustomer(ctx.admin, ctx.orgId, customerId)
   const to = ctx.channel.addressFor({ email: doc.billTo.email, phone: null })
-  const refusal = await recipientRefusal(ctx, customer, to, row.id)
+  const refusal = await recipientRefusal(ctx, customer, to)
   if (refusal) return { send: false, status: 'skipped', reason: refusal.reason, to }
 
   // Online payments: a pay link — and a customer on automatic payments hears nothing until their card has been tried.
-  let payUrl: string | null = null
   const { loadOnlinePayments } = await import('@/lib/online-payments/accounts')
   const op = await loadOnlinePayments(ctx.admin, ctx.orgId)
-  if (op.ready) {
-    if (op.settings.autopay && !invoice.job_id && customerId) {
-      const wait = await autopayPending(ctx, invoice.id, customerId)
-      if (wait) return { defer: true, untilMs: ctx.now.getTime() + 6 * 3_600_000, reason: wait }
-    }
-    const { createPaymentLink } = await import('@/lib/online-payments/links')
-    payUrl = (await createPaymentLink(ctx.admin, ctx.orgId, { kind: 'invoice', invoiceId: invoice.id }, null, ctx.now)).url
+  if (op.ready && op.settings.autopay && !invoice.job_id && customerId) {
+    const wait = await autopayPending(ctx, invoice.id, customerId)
+    if (wait) return { defer: true, untilMs: ctx.now.getTime() + 6 * 3_600_000, reason: wait }
   }
   return {
     send: true,
     customerId,
     to: to!,
-    render: (links) =>
+    // The pay link is made only once this row is ours (a lost claim never leaves a stray link behind).
+    prepare: async () => {
+      if (!op.ready) return { payUrl: null }
+      const { createPaymentLink } = await import('@/lib/online-payments/links')
+      return { payUrl: (await createPaymentLink(ctx.admin, ctx.orgId, { kind: 'invoice', invoiceId: invoice.id }, null, ctx.now)).url }
+    },
+    render: (links, prepared) =>
       renderInvoiceReminder(msgCtx(ctx, customer, links, doc.billTo.name), {
         invoiceNumber: invoice.invoice_number,
         balanceCents: doc.balanceCents,
         dueDay,
         daysPastDue: daysBetweenYmd(dueDay, ctx.today),
-        payUrl,
+        payUrl: prepared.payUrl ?? null,
       }),
   }
 }
@@ -709,7 +842,7 @@ export async function scanInvoiceReminders(ctx: SendContext): Promise<void> {
 /** Rows stuck in `sending` (the process died mid-send): failed, never retried — the email may have gone out. */
 async function closeStaleSends(ctx: SendContext): Promise<void> {
   await orgDb(ctx.admin, ctx.orgId)
-    .from(TABLE)
+    .from('customer_messages')
     .update({ status: 'failed', attempts: MAX_SEND_ATTEMPTS, last_error: 'Stopped mid-send — not retried in case it went out', updated_at: ctx.now.toISOString() })
     .eq('status', 'sending')
     .lt('claimed_at', new Date(ctx.now.getTime() - STALE_SENDING_MS).toISOString())
@@ -718,9 +851,9 @@ async function closeStaleSends(ctx: SendContext): Promise<void> {
 /** Everything due to go: queued rows and failed ones with tries left, oldest first. */
 async function drain(ctx: SendContext): Promise<void> {
   const { data, error } = await orgDb(ctx.admin, ctx.orgId)
-    .from(TABLE)
+    .from('customer_messages')
     .select(ROW_COLS)
-    .in('status', ['queued', 'failed'])
+    .in('status', ['queued', 'failed', 'blocked'])
     .lt('attempts', MAX_SEND_ATTEMPTS)
     .lte('send_after', ctx.now.toISOString())
     .order('send_after', { ascending: true })
@@ -759,7 +892,7 @@ export async function runCustomerMessagesForOrg(admin: SupabaseClient, orgId: st
 
 // ── Events (crew taps) ──────────────────────────────────────────────────────────────────────────────────────────────
 
-export type EventResult = { status: 'sent' | 'queued' | 'already' | 'off' | 'not_today' | 'not_ready' | 'failed' | 'skipped' | 'cancelled' | 'deferred' }
+export type EventResult = { status: 'sent' | 'queued' | 'already' | 'off' | 'not_today' | 'not_ready' | 'failed' | 'skipped' | 'cancelled' | 'deferred' | 'blocked' }
 
 async function visitForEvent(admin: SupabaseClient, orgId: string, visitId: string): Promise<VisitRow | null> {
   const { data } = await orgDb(admin, orgId).from('work_orders').select(VISIT_COLS).eq('id', visitId).eq('work_order_type', SERVICE_VISIT_TYPE).maybeSingle()
@@ -824,7 +957,7 @@ export async function queueVisitDone(admin: SupabaseClient, orgId: string, visit
 export async function findMessageByToken(admin: SupabaseClient, token: unknown): Promise<MessageRow | null> {
   if (typeof token !== 'string' || !/^[A-Za-z0-9_-]{32,64}$/.test(token)) return null
   // org-scope-ok: lookup by the hash of a secret per-message token; the row names its own company, which every later query uses
-  const { data } = await admin.from(TABLE).select(ROW_COLS).eq('link_token_hash', hashLinkToken(token)).maybeSingle()
+  const { data } = await admin.from('customer_messages').select(ROW_COLS).eq('link_token_hash', hashLinkToken(token)).maybeSingle()
   return (data as MessageRow | null) ?? null
 }
 
@@ -878,7 +1011,7 @@ export async function loadCustomerMessageState(admin: SupabaseClient, orgId: str
   const email = normalizeEmail(cust.email)
   const [sup, { data: rows }] = await Promise.all([
     email ? suppressionOf(admin, orgId, 'email', email) : Promise.resolve(null),
-    orgDb(admin, orgId).from(TABLE).select('id, kind, status, created_at, sent_at, skip_reason, subject').eq('customer_id', customerId).order('created_at', { ascending: false }).limit(10),
+    orgDb(admin, orgId).from('customer_messages').select('id, kind, status, created_at, sent_at, skip_reason, subject').eq('customer_id', customerId).order('created_at', { ascending: false }).limit(10),
   ])
   return {
     off: !!cust.messages_off_at,
@@ -920,6 +1053,6 @@ export async function setCustomerMessages(
   const needsCustomer = state.offBy === 'customer' || !!state.suppressed
   if (needsCustomer && !customerAsked) return { ok: false, status: 409, error: 'The customer stopped these emails (or the address bounced). Turn them back on only if the customer asked.' }
   await db.from('customers').update({ messages_off_at: null, messages_off_by: null }).eq('id', customerId)
-  if (state.email && state.suppressed) await db.from(SUPPRESSIONS).delete().eq('channel', 'email').eq('address', state.email)
+  if (state.email && state.suppressed) await db.from('customer_message_suppressions').delete().eq('channel', 'email').eq('address', state.email)
   return { ok: true }
 }

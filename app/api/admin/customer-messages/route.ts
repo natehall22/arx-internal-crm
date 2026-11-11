@@ -10,7 +10,7 @@ import {
   quietHoursPhrase,
   sampleMessages,
 } from '@/lib/customer-messages'
-import { customerMessagesReady, emailCompanyOf, messageSettingsOf } from '@/lib/customer-messages-db'
+import { BLOCK_REASON_TEXT, companyIdentity, customerMessagesReady, messageSettingsOf } from '@/lib/customer-messages-db'
 import { tryOrgAppUrl } from '@/lib/company-links'
 import { isOrgFeatureOn } from '@/lib/org-features-server'
 import { resolveOrgProfile, t } from '@/lib/org-profile'
@@ -39,10 +39,10 @@ async function auth(): Promise<{ admin: Admin; orgId: string } | Response> {
 /** Everything the Settings screen shows: the switches, what each does in plain words, and a sample of each email. */
 async function view(admin: Admin, orgId: string) {
   const { data: org } = await admin.from('orgs').select('id, name, address, phone, email, settings, timezone, logo_url').eq('id', orgId).maybeSingle()
-  const o = (org ?? { id: orgId }) as Parameters<typeof emailCompanyOf>[0]
+  const o = (org ?? { id: orgId }) as Parameters<typeof companyIdentity>[0]
   const settings = messageSettingsOf(o.settings)
   const appUrl = await tryOrgAppUrl(orgId, 'customer-messages settings')
-  const company = emailCompanyOf(o, appUrl)
+  const { company, missing } = companyIdentity(o, appUrl)
   const today = ymdInZone(new Date(), orgTimeZone(o.timezone))
   const word = t(resolveOrgProfile(o.settings), 'proposal')
   const samples = sampleMessages(company, settings, today, word)
@@ -56,7 +56,8 @@ async function view(admin: Admin, orgId: string) {
       ...((await customerMessagesReady(admin, orgId)) ? [] : ['The database needs an update before any email can go out (migration 202611120050).']),
       ...(channelSender('email').available() ? [] : ['Email isn’t set up for your company yet (outgoing mail server).']),
       ...(appUrl ? [] : ['Your company’s web address isn’t set up, so emails can’t carry their links yet.']),
-      ...(company.addressLine ? [] : ['Add your business address in Settings → Company: the law requires a postal address in these emails.']),
+      // The company's own name, email (the sender) and postal address — nothing goes out without them.
+      ...missing.map((m) => BLOCK_REASON_TEXT[m]),
     ],
     samples: Object.fromEntries(MESSAGE_KINDS.map((k) => [k, { subject: samples[k].subject, html: samples[k].html }])),
   }

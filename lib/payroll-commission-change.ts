@@ -280,13 +280,22 @@ export async function loadCommissionChangesWaitingQueue(admin: SupabaseClient, o
   const { data, error } = await orgDb(admin, orgId).from('production_jobs').select('id, job_number, commission_change_wait').not('commission_change_due_at', 'is', null).limit(200)
   if (error || !data?.length) return null
   const rows = data as Array<{ id: string; job_number: string | null; commission_change_wait: string | null }>
-  const offCount = rows.filter((r) => r.commission_change_wait === 'pay_week_off').length
+  const n = rows.length
+  const s = n === 1 ? '' : 's'
+  const kinds = new Set(rows.map((r) => r.commission_change_wait ?? 'approval_running'))
+  // The title says the real reason; a mix of reasons gets a plain count (each row says its own).
+  const title =
+    kinds.size > 1
+      ? `${n} commission change${s} waiting`
+      : kinds.has('pay_week_off')
+        ? `${n} commission change${s} waiting for the new payroll`
+        : kinds.has('retry_error')
+          ? `${n} commission change${s} couldn’t be written — retried every morning`
+          : `${n} commission change${s} waiting for an approval to finish`
   return {
     id: 'commission-changes-waiting',
-    title: offCount
-      ? `${rows.length} commission change${rows.length === 1 ? '' : 's'} waiting for the new payroll`
-      : `${rows.length} commission change${rows.length === 1 ? '' : 's'} waiting for an approval to finish`,
-    count: rows.length,
+    title,
+    count: n,
     empty: 'No commission changes waiting.',
     items: rows.slice(0, 10).map((r) => {
       const ref = r.job_number ? `Job ${r.job_number}` : 'Job'

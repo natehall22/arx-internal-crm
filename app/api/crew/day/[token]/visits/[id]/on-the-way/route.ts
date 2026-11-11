@@ -18,6 +18,7 @@ const SAID: Record<string, string> = {
   not_today: 'Only for today’s visits',
   off: 'On-the-way emails are off',
   not_ready: 'On-the-way emails are off',
+  blocked: 'Customer emails are paused — tell the office',
 }
 
 /**

@@ -2,7 +2,9 @@
  * Where an automatic customer message goes out (server only). ONE interface per channel; the sender
  * (lib/customer-messages-db.ts) never talks to SMTP (or, later, an SMS provider) directly.
  *
- * - email: the company copy's SMTP (`getMailTransport`, From = `getCrmEmailFrom`), Reply-To = the company's own email,
+ * - email: the copy's SMTP (`getMailTransport`); From = the COMPANY's name + email (orgs row; a company missing either is
+ *   blocked, never sent under another identity — the SMTP account must be allowed to send as that address: Workspace
+ *   "Send mail as" / a verified domain at the provider), Reply-To = the company's email, a stable Message-ID per message,
  *   List-Unsubscribe + one-click List-Unsubscribe-Post (RFC 8058) pointing at the message's own link.
  * - sms: reserved. `available()` is false until a provider is wired in; nothing writes an sms row today. To add it:
  *   implement `send` with the provider, make `addressFor` return the customer's mobile number, and turn `available` on.
@@ -12,14 +14,28 @@
  * mail (Gmail / Workspace) and spam complaints are NOT visible over SMTP; a provider with webhooks (SES, Postmark…)
  * would call `suppressAddress` (lib/customer-messages-db.ts) from its webhook — the one writer.
  */
-import { getCrmEmailFrom, getMailTransport } from '@/lib/setter-email'
+import { getMailTransport } from '@/lib/setter-email'
 import { isUsableCustomerEmail } from '@/lib/invoice-document'
 import type { MessageChannel, RenderedMessage } from '@/lib/customer-messages'
 
 export type SendOutcome =
   | { ok: true; providerId: string | null }
-  /** permanent = this address will never work (suppress it); otherwise a later attempt may. */
-  | { ok: false; permanent: boolean; error: string }
+  /**
+   * permanent = this address will never work (suppress it). unknown = the server may have taken it before the line went
+   * quiet (a timeout / dropped connection after we started): retried only after a long delay, with the SAME Message-ID so
+   * mail systems can recognize a copy. Otherwise a definite "not sent" that a later attempt may fix.
+   */
+  | { ok: false; permanent: boolean; unknown?: boolean; error: string }
+
+export type SendOptions = {
+  /** The company's own sender: its name and email (never a product / other company's fallback). */
+  from: { name: string; address: string }
+  replyTo: string | null
+  /** Stable per message (the same on every retry). */
+  messageId: string
+  unsubscribeUrl: string | null
+  unsubscribePostUrl: string | null
+}
 
 export type ChannelRecipient = { email: string | null; phone: string | null }
 
@@ -29,13 +45,23 @@ export interface MessageChannelSender {
   available(): boolean
   /** The address this channel would use for a recipient (normalized), or null when there is none usable. */
   addressFor(r: ChannelRecipient): string | null
-  send(to: string, m: RenderedMessage, opts: { replyTo: string | null; unsubscribeUrl: string | null; unsubscribePostUrl: string | null }): Promise<SendOutcome>
+  send(to: string, m: RenderedMessage, opts: SendOptions): Promise<SendOutcome>
 }
 
 /** Lower-cased, trimmed — the one spelling of an address in the send log and the suppression list. */
 export function normalizeEmail(raw: string | null | undefined): string | null {
   const v = (raw ?? '').trim().toLowerCase()
   return isUsableCustomerEmail(v) && /^[^\s@<>(),;:"]+@[^\s@<>(),;:"]+\.[^\s@<>(),;:"]+$/.test(v) ? v : null
+}
+
+/**
+ * Pure: did the send end without a definite answer? A timeout or a dropped socket once talking to the server may mean
+ * the message was accepted. A failure to connect at all (ECONNECTION / ECONNREFUSED / DNS) or an SMTP reply is definite.
+ */
+export function isUnknownSmtpOutcome(e: unknown): boolean {
+  const err = e as { code?: string; responseCode?: number } | null
+  if (!err || typeof err.responseCode === 'number') return false
+  return err.code === 'ETIMEDOUT' || err.code === 'ESOCKET' || err.code === 'ECONNRESET' || err.code === 'EPIPE'
 }
 
 /** Pure: does an SMTP error mean this address is bad for good? (5xx on the recipient; a 4xx / network error may pass later.) */
@@ -50,8 +76,9 @@ export function isPermanentSmtpFailure(e: unknown): boolean {
 
 export const emailChannel: MessageChannelSender = {
   channel: 'email',
+  /** An outgoing mail server for this copy. The From is the company's own (SendOptions.from), not the copy's. */
   available() {
-    return !!process.env.SMTP_HOST && !!getCrmEmailFrom()
+    return !!process.env.SMTP_HOST
   },
   addressFor(r) {
     return normalizeEmail(r.email)
@@ -59,7 +86,8 @@ export const emailChannel: MessageChannelSender = {
   async send(to, m, opts) {
     try {
       const info = await getMailTransport().sendMail({
-        from: getCrmEmailFrom(),
+        from: opts.from,
+        messageId: opts.messageId,
         to,
         ...(opts.replyTo ? { replyTo: opts.replyTo } : {}),
         subject: m.subject,
@@ -78,7 +106,7 @@ export const emailChannel: MessageChannelSender = {
       if (rejected.length > 0) return { ok: false, permanent: true, error: 'The mail server refused this address' }
       return { ok: true, providerId: typeof (info as { messageId?: unknown }).messageId === 'string' ? (info as { messageId: string }).messageId : null }
     } catch (e) {
-      return { ok: false, permanent: isPermanentSmtpFailure(e), error: e instanceof Error ? e.message.slice(0, 300) : 'Send failed' }
+      return { ok: false, permanent: isPermanentSmtpFailure(e), unknown: isUnknownSmtpOutcome(e), error: e instanceof Error ? e.message.slice(0, 300) : 'Send failed' }
     }
   },
 }

@@ -9,9 +9,12 @@ import { createFakeDb } from '@/lib/test-helpers/fake-db'
 const ORG = 'org-precision'
 const OTHER = 'org-other'
 process.env.DEPLOYMENT_ORG_ID = ORG
+process.env.CUSTOMER_MESSAGE_LINK_SECRET = 'test-link-secret-0123456789'
 
-const sends: Array<{ to: string; subject: string; text: string; unsubscribe: string | null }> = []
-let nextSend: () => { ok: true; providerId: string } | { ok: false; permanent: boolean; error: string } = () => ({ ok: true, providerId: 'm' })
+type Sent = { to: string; subject: string; text: string; unsubscribe: string | null; from: { name: string; address: string }; messageId: string }
+const sends: Sent[] = []
+const attemptsSeen: Sent[] = []
+let nextSend: () => { ok: true; providerId: string } | { ok: false; permanent: boolean; unknown?: boolean; error: string } = () => ({ ok: true, providerId: 'm' })
 
 jest.mock('@/lib/customer-message-channels', () => {
   const actual = jest.requireActual('@/lib/customer-message-channels')
@@ -19,9 +22,11 @@ jest.mock('@/lib/customer-message-channels', () => {
     channel: 'email',
     available: () => true,
     addressFor: actual.emailChannel.addressFor,
-    send: async (to: string, m: { subject: string; text: string }, o: { unsubscribeUrl: string | null }) => {
+    send: async (to: string, m: { subject: string; text: string }, o: { unsubscribeUrl: string | null; from: { name: string; address: string }; messageId: string }) => {
       const out = nextSend()
-      if (out.ok) sends.push({ to, subject: m.subject, text: m.text, unsubscribe: o.unsubscribeUrl })
+      const rec = { to, subject: m.subject, text: m.text, unsubscribe: o.unsubscribeUrl, from: o.from, messageId: o.messageId }
+      attemptsSeen.push(rec)
+      if (out.ok) sends.push(rec)
       return out
     },
   }
@@ -40,6 +45,8 @@ jest.mock('@/lib/online-payments/cards', () => ({ loadCardOnFile: jest.fn(async 
 
 import {
   deliver,
+  linkTokenFor,
+  loadCustomerMessagesBlockedQueue,
   findMessageByToken,
   loadSendContext,
   messagePhotos,
@@ -62,7 +69,7 @@ function org(id: string, over: Record<string, unknown> = {}, messages: Record<st
     email: 'office@precision.test',
     timezone: 'America/New_York',
     logo_url: null,
-    settings: { features, customerMessages: messages, brand: { website: 'precision.test' } },
+    settings: { features: { ...features }, customerMessages: { ...messages }, brand: { website: 'precision.test' } },
     ...over,
   }
 }
@@ -84,6 +91,28 @@ function visit(id: string, over: Record<string, unknown> = {}) {
     completed_at: null,
     ...over,
   }
+}
+
+type Row = Record<string, unknown>
+/** JS mirror of SQL customer_message_claim (migration 202611120050) — the real one also takes a per-address advisory lock. */
+function fakeClaim(a: Record<string, unknown>, t: Record<string, Row[]>) {
+  const rows = t.customer_messages
+  const row = rows.find((r) => r.id === a.p_id && r.org_id === a.p_org && r.status === a.p_from_status && r.attempts === a.p_attempts)
+  if (!row) return 'not_claimed'
+  const n = rows.filter(
+    (r) =>
+      r.org_id === a.p_org &&
+      r.to_address === a.p_to &&
+      r.id !== a.p_id &&
+      String(r.sent_at ?? r.claimed_at ?? r.created_at ?? '') >= String(a.p_since) &&
+      (r.status === 'sent' || r.status === 'sending' || (r.status === 'failed' && Number(r.attempts) < 3))
+  ).length
+  if (n >= Number(a.p_max)) {
+    Object.assign(row, { status: 'skipped', skip_reason: 'daily_limit', to_address: a.p_to })
+    return 'capped'
+  }
+  Object.assign(row, { status: 'sending', claimed_at: a.p_now, attempts: Number(a.p_attempts) + 1, to_address: a.p_to, link_token_hash: a.p_token_hash })
+  return 'claimed'
 }
 
 function seed(over: Record<string, unknown[]> = {}) {
@@ -114,7 +143,7 @@ function seed(over: Record<string, unknown[]> = {}) {
       production_jobs: [],
       ...over,
     },
-    { unique: { customer_messages: [['org_id', 'message_key']], customer_message_suppressions: [['org_id', 'channel', 'address']] } }
+    { unique: { customer_messages: [['org_id', 'message_key']], customer_message_suppressions: [['org_id', 'channel', 'address']] }, rpc: { customer_message_claim: fakeClaim } }
   )
 }
 
@@ -123,6 +152,7 @@ const MORNING = new Date('2026-11-11T14:30:00Z')
 
 beforeEach(() => {
   sends.length = 0
+  attemptsSeen.length = 0
   nextSend = () => ({ ok: true, providerId: 'm' })
   online.ready = false
   online.settings.autopay = false
@@ -449,5 +479,101 @@ describe('invoice reminders', () => {
     await runCustomerMessagesForOrg(admin(db), ORG, new Date(MORNING.getTime() + 7 * 3_600_000))
     expect(sends).toHaveLength(1)
     expect(sends[0].text).toContain('https://precision.example.com/pay/tok')
+  })
+})
+
+describe('review fixes', () => {
+  it('sent from the company’s own name and email, with a stable Message-ID', async () => {
+    const db = seed({ work_orders: [visit('v1')] })
+    await runCustomerMessagesForOrg(admin(db), ORG, MORNING)
+    expect(sends[0].from).toEqual({ name: 'Precision Maintenance', address: 'office@precision.test' })
+    expect(sends[0].messageId).toBe(`<cm-${rows(db)[0].id}@precision.example.com>`)
+  })
+  it('missing postal address / email / name: nothing sent, rows blocked, owners see the fix on Today; sent once fixed (if still in time)', async () => {
+    const db = seed({ orgs: [org(ORG, { address: '  ', email: null })], work_orders: [visit('v1')] })
+    const r = await runCustomerMessagesForOrg(admin(db), ORG, MORNING)
+    expect(r.stats?.blocked).toBe(1)
+    expect(sends).toHaveLength(0)
+    expect(rows(db)[0]).toMatchObject({ status: 'blocked', skip_reason: 'missing_company_email' })
+    const q = await loadCustomerMessagesBlockedQueue(admin(db), ORG)
+    expect(q).toMatchObject({ id: 'customer-messages-blocked', title: 'Customer emails are stopped', count: 1 })
+    expect(q!.items.map((i) => i.id)).toEqual(['missing_company_email', 'missing_company_address'])
+    // On-the-way taps are blocked too (never sent under another identity).
+    const today = seed({ orgs: [org(ORG, { address: '' })], work_orders: [visit('v9', { scheduled_date: '2026-11-11' })] })
+    expect(await notifyVisitOnTheWay(admin(today), ORG, 'v9', MORNING)).toEqual({ status: 'blocked' })
+    // Fixed 2 hours later: the parked reminder goes out.
+    Object.assign(db.tables.orgs[0], { address: '12 Main St', email: 'office@precision.test' })
+    expect(await loadCustomerMessagesBlockedQueue(admin(db), ORG)).toBeNull()
+    await runCustomerMessagesForOrg(admin(db), ORG, new Date(MORNING.getTime() + 2 * 3_600_000))
+    expect(sends).toHaveLength(1)
+    expect(rows(db)[0].status).toBe('sent')
+  })
+  it('never falls back to another company’s identity, even on an unfenced copy', async () => {
+    const saved = process.env.DEPLOYMENT_ORG_ID
+    delete process.env.DEPLOYMENT_ORG_ID
+    try {
+      const db = seed({ orgs: [org(ORG, { name: '', email: '', address: '', phone: '' })], work_orders: [visit('v1')] })
+      await runCustomerMessagesForOrg(admin(db), ORG, MORNING)
+      expect(sends).toHaveLength(0)
+      expect(rows(db)[0]).toMatchObject({ status: 'blocked', skip_reason: 'missing_company_name' })
+    } finally {
+      process.env.DEPLOYMENT_ORG_ID = saved
+    }
+  })
+  it('a message turned off after it was queued is cancelled, not sent (every kind)', async () => {
+    const db = seed({ work_orders: [visit('v1')], job_invoices: [] })
+    const loaded = await loadSendContext(admin(db), ORG, MORNING)
+    if (!loaded.ok) throw new Error(loaded.reason)
+    const { scanVisitReminders } = await import('@/lib/customer-messages-db')
+    await scanVisitReminders(loaded.ctx)
+    ;((db.tables.orgs[0] as { settings: Record<string, unknown> }).settings.customerMessages as Record<string, unknown>).visitReminder = false
+    await runCustomerMessagesForOrg(admin(db), ORG, MORNING)
+    expect(rows(db)[0]).toMatchObject({ status: 'cancelled', skip_reason: 'turned_off' })
+    expect(sends).toHaveLength(0)
+  })
+  it('a queued quote / invoice step past its late window is skipped, not sent', async () => {
+    const db = seed({
+      proposals: [{ id: 'q1', org_id: ORG, status: 'sent', customer_name: 'Jane', customer_email: 'jane@example.com', proposal_number: 1, total: 10, opportunity_id: null, sent_at: '2026-11-08T15:00:00Z', pdf_generated_at: null, created_at: '2026-11-08T15:00:00Z' }],
+    })
+    const loaded = await loadSendContext(admin(db), ORG, MORNING)
+    if (!loaded.ok) throw new Error(loaded.reason)
+    const { scanQuoteFollowUps } = await import('@/lib/customer-messages-db')
+    await scanQuoteFollowUps(loaded.ctx)
+    // An outage: the run comes back 4 days later (step 3 window was days 3–5).
+    await runCustomerMessagesForOrg(admin(db), ORG, new Date('2026-11-14T14:30:00Z'))
+    expect(rows(db).find((m) => m.message_key.endsWith(':3'))).toMatchObject({ status: 'skipped', skip_reason: 'too_late' })
+    expect(sends).toHaveLength(0)
+  })
+  it('daily cap: counted by the address recorded at claim, sending + retry rows included; two parallel sends can’t both slip under it', async () => {
+    const prior = (i: number, status: string, attempts = 1) => ({
+      id: `old${i}`, org_id: ORG, message_key: `old${i}`, kind: 'visit_done', channel: 'email', status, customer_id: 'c1', to_address: 'jane@example.com', refs: {}, attempts, send_after: '2026-11-11T10:00:00Z', claimed_at: '2026-11-11T10:00:00Z', created_at: '2026-11-11T10:00:00Z',
+    })
+    const db = seed({
+      customer_messages: [prior(1, 'sent'), prior(2, 'sending'), prior(3, 'failed', 1)],
+      work_orders: [visit('v1', { scheduled_date: '2026-11-11' }), visit('v2', { scheduled_date: '2026-11-11', property_id: 'p2' })],
+    })
+    const a = await notifyVisitOnTheWay(admin(db), ORG, 'v1', MORNING)
+    const b = await notifyVisitOnTheWay(admin(db), ORG, 'v2', MORNING)
+    expect([a.status, b.status].sort()).toEqual(['sent', 'skipped'])
+    expect(sends).toHaveLength(1)
+    expect(rows(db).filter((m) => m.skip_reason === 'daily_limit')).toHaveLength(1)
+  })
+  it('SMTP with no answer (timeout): not retried soon; the retry carries the same Message-ID and the same links', async () => {
+    const db = seed({ work_orders: [visit('v1')] })
+    nextSend = () => ({ ok: false, permanent: false, unknown: true, error: 'Timeout' })
+    await runCustomerMessagesForOrg(admin(db), ORG, MORNING)
+    const row = rows(db)[0]
+    expect(row).toMatchObject({ status: 'failed', attempts: 1 })
+    expect(row.last_error).toMatch(/^unknown \(may have been sent\)/)
+    expect(Date.parse(row.send_after) - MORNING.getTime()).toBe(6 * 3_600_000)
+    nextSend = () => ({ ok: true, providerId: 'm' })
+    await runCustomerMessagesForOrg(admin(db), ORG, new Date(MORNING.getTime() + 60 * 60_000))
+    expect(sends).toHaveLength(0)
+    // Still the reminder's day-before window at 3:30 PM.
+    await runCustomerMessagesForOrg(admin(db), ORG, new Date(MORNING.getTime() + 6 * 3_600_000))
+    expect(sends).toHaveLength(1)
+    expect(attemptsSeen[0].messageId).toBe(attemptsSeen[1].messageId)
+    expect(attemptsSeen[0].unsubscribe).toBe(attemptsSeen[1].unsubscribe)
+    expect(attemptsSeen[1].unsubscribe).toContain(linkTokenFor(row.id))
   })
 })
