@@ -14,7 +14,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { toast } from '@/components/ui/toast'
 import { cn } from '@/lib/cn'
 import { formatDateWeekday, formatMoney } from '@/lib/format'
-import type { PayWeek, PayWeekLine, PayWeekNeed, PayWeekPerson } from '@/lib/payroll-pay-week'
+import type { PayWeek as PayWeekData, PayWeekLine, PayWeekNeed, PayWeekPerson } from '@/lib/payroll-pay-week'
+
+import JobSplitSheet from './JobSplitSheet'
+import PayWeekScheduleSheet from './PayWeekScheduleSheet'
+
+/** What GET pay-week returns: the week plus what this viewer may do (only owners approve or change the pay week). */
+type PayWeek = PayWeekData & { viewer?: { canApprove: boolean; canEditSchedule: boolean } }
 
 const API = '/api/admin/payroll/pay-week'
 
@@ -35,9 +41,8 @@ export default function PayWeekClient() {
   const [fixUser, setFixUser] = React.useState('')
   const [fixAmount, setFixAmount] = React.useState('')
   const [fixReason, setFixReason] = React.useState('')
-  const [change, setChange] = React.useState<{ p: PayWeekPerson; l: PayWeekLine } | null>(null)
-  const [changeAmount, setChangeAmount] = React.useState('')
-  const [changeReason, setChangeReason] = React.useState('')
+  const [splitJob, setSplitJob] = React.useState<string | null>(null)
+  const [scheduleOpen, setScheduleOpen] = React.useState(false)
   const [done, setDone] = React.useState<{ total: number; people: number } | null>(null)
   const [emailing, setEmailing] = React.useState(false)
   const [emailed, setEmailed] = React.useState<{ sent: number; skipped: number; failed: number } | null>(null)
@@ -99,27 +104,6 @@ export default function PayWeekClient() {
     }
   }
 
-  const saveChange = async () => {
-    if (!change || !change.l.jobId || !change.l.participantRole) return
-    setBusy(true)
-    try {
-      const r = await fetch('/api/admin/payroll/deal-commission-roles', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ job_id: change.l.jobId, user_id: change.p.userId, role: change.l.participantRole, override_amount: Number(changeAmount), reason: changeReason.trim() }),
-      })
-      const body = await r.json().catch(() => ({}))
-      if (!r.ok) throw new Error(body?.error || 'Could not save the change')
-      setChange(null)
-      toast.success('Saved')
-      await load()
-    } catch (e) {
-      toast.error((e as Error).message)
-    } finally {
-      setBusy(false)
-    }
-  }
-
   const saveFix = async () => {
     if (!week) return
     setBusy(true)
@@ -164,8 +148,12 @@ export default function PayWeekClient() {
         <div>
           <h1 className="text-ui-xl font-bold text-ink">Pay this week</h1>
           <p className="text-ui-base text-ink-muted">
-            Week ending {formatDateWeekday(week.period.weekEnding)} · Payday {formatDateWeekday(week.period.payDate)}
+            {formatDateWeekday(week.period.weekStart)} – {formatDateWeekday(week.period.weekEnding)} · Payday {formatDateWeekday(week.period.payDate)}
             {!draft ? <Badge tone="success" className="ml-2">Approved</Badge> : null}
+          </p>
+          <p className="text-ui-sm text-ink-muted">
+            Pay week: {week.schedule.words}
+            {week.viewer?.canEditSchedule ? <> · <button type="button" onClick={() => setScheduleOpen(true)} className="min-h-tap font-semibold text-brand-700 underline underline-offset-2">Change</button></> : null}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -192,7 +180,7 @@ export default function PayWeekClient() {
           <h2 id="needs-h" className="px-4 pt-3 text-ui-lg font-semibold text-ink">{openNeeds.length ? `Needs you (${openNeeds.length})` : 'Check these'}</h2>
           <ul className="divide-y divide-amber-200">
             {openNeeds.map((n, i) => (
-              <li key={i} className="px-4 py-3"><Need n={n} onHours={async (userId, hrs) => { try { await post('hours', { periodId: week.period.id, userId, regularHours: hrs }); toast.success('Hours added'); await load() } catch (e) { toast.error((e as Error).message) } }} onBonus={async (id) => { if (bonusBusy) return; setBonusBusy(true); try { await post('bonus', { id, periodId: week.period.id, action: 'approve' }); await load() } catch (e) { toast.error((e as Error).message) } finally { setBonusBusy(false) } }} onLater={(id) => setLater((l) => ({ ...l, [id]: true }))} onReply={async (id, reply) => { try { await post('dispute', { id, action: 'reply', reply }); toast.success('Sent'); await load() } catch (e) { toast.error((e as Error).message) } }} onDisputeFix={(d) => { setFixDispute(d.id); setFixUser(d.userId); setFixAmount(''); setFixReason(''); setFixing(true) }} /></li>
+              <li key={i} className="px-4 py-3"><Need n={n} onHours={async (userId, hrs) => { try { await post('hours', { periodId: week.period.id, userId, regularHours: hrs }); toast.success('Hours added'); await load() } catch (e) { toast.error((e as Error).message) } }} onBonus={async (id) => { if (bonusBusy) return; setBonusBusy(true); try { await post('bonus', { id, periodId: week.period.id, action: 'approve' }); await load() } catch (e) { toast.error((e as Error).message) } finally { setBonusBusy(false) } }} onLater={(id) => setLater((l) => ({ ...l, [id]: true }))} onReply={async (id, reply) => { try { await post('dispute', { id, action: 'reply', reply }); toast.success('Sent'); await load() } catch (e) { toast.error((e as Error).message) } }} onDisputeFix={(d) => { setFixDispute(d.id); setFixUser(d.userId); setFixAmount(''); setFixReason(''); setFixing(true) }} onMinimum={async (userId, met) => { try { await post('minimum', { periodId: week.period.id, userId, met }); await load() } catch (e) { toast.error((e as Error).message) } }} /></li>
             ))}
             {week.warnings.map((w, i) => (
               <li key={`w${i}`} className="px-4 py-3 text-ui-base text-ink">{w.text}</li>
@@ -210,7 +198,7 @@ export default function PayWeekClient() {
         <TabsContent value="people" className="pt-3">
           {week.people.length === 0 ? <EmptyState title="Nothing to pay this week" body="No job is ready to pay and no hours or bonuses are in." /> : (
             <div className="rounded-ui border border-surface-line bg-surface">
-              {week.people.map((p) => <Person key={p.userId} p={p} open={!!open[p.userId]} toggle={() => setOpen((o) => ({ ...o, [p.userId]: !o[p.userId] }))} onRemove={draft ? removeFix : undefined} onChange={draft ? (pp, l) => { setChange({ p: pp, l }); setChangeAmount(String(l.amount)); setChangeReason('') } : undefined} />)}
+              {week.people.map((p) => <Person key={p.userId} p={p} open={!!open[p.userId]} toggle={() => setOpen((o) => ({ ...o, [p.userId]: !o[p.userId] }))} onRemove={draft ? removeFix : undefined} onChange={draft ? (_pp, l) => { if (l.jobId) setSplitJob(l.jobId) } : undefined} />)}
             </div>
           )}
         </TabsContent>
@@ -224,6 +212,7 @@ export default function PayWeekClient() {
                     <span className="tabular-nums font-semibold text-ink">{formatMoney(j.total)}</span>
                   </div>
                   <p className="text-ui-sm text-ink-muted">{j.address} · commission base {formatMoney(j.commissionBase)}</p>
+                  {draft ? <button type="button" onClick={() => setSplitJob(j.jobId)} className="min-h-tap text-ui-base font-semibold text-brand-700 underline underline-offset-2">Change who gets what</button> : null}
                   <ul className="mt-2 flex flex-col gap-1">
                     {j.paid.map((x, i) => (
                       <li key={i} className="flex justify-between gap-3 text-ui-base">
@@ -250,6 +239,7 @@ export default function PayWeekClient() {
                   <span className="text-ink-muted"> · {w.address}</span>
                   <p className="text-ui-base text-ink">{w.reason}</p>
                   {w.who.length ? <p className="text-ui-sm text-ink-muted">{w.who.map((x) => `${x.name} ${formatMoney(x.estimate)}`).join(' · ')}</p> : null}
+                  <button type="button" onClick={() => setSplitJob(w.jobId)} className="min-h-tap text-ui-base font-semibold text-brand-700 underline underline-offset-2">Change who gets what</button>
                 </div>
               </div>
             ))}
@@ -290,7 +280,11 @@ export default function PayWeekClient() {
       {draft ? (
         <div className="fixed inset-x-0 bottom-0 z-30 border-t border-surface-line bg-surface md:left-60 print:hidden" style={{ bottom: 'var(--pay-footer-offset, 0px)' }}>
           <div className="mx-auto flex max-w-3xl flex-col gap-1 px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
-            <Button size="md" className="min-h-[3.5rem] w-full text-ui-lg" disabled={!week.canApprove} onClick={() => setConfirming(true)}>Approve {formatMoney(week.totals.amount)}</Button>
+            {week.viewer?.canApprove ? (
+              <Button size="md" className="min-h-[3.5rem] w-full text-ui-lg" disabled={!week.canApprove} onClick={() => setConfirming(true)}>Approve {formatMoney(week.totals.amount)}</Button>
+            ) : (
+              <p className="flex min-h-[3.5rem] w-full items-center justify-center rounded-ui border border-surface-line bg-surface-subtle px-3 text-center text-ui-lg font-semibold text-ink">{formatMoney(week.totals.amount)} · an owner approves</p>
+            )}
             <p className="text-center text-ui-sm text-ink-muted">{openNeeds.length ? `${openNeeds.length} item${openNeeds.length > 1 ? 's' : ''} above not done — they wait for next week. ` : ''}{week.totals.people} {week.totals.people === 1 ? 'person' : 'people'} · payday {formatDateWeekday(week.period.payDate)}</p>
           </div>
         </div>
@@ -337,20 +331,8 @@ export default function PayWeekClient() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!change} onOpenChange={(o) => !o && setChange(null)}>
-        <DialogContent title={change ? `Change ${change.p.name}'s line` : 'Change'} description={change ? `${change.l.what}. This replaces what the plan would pay on this job; the reason goes in the audit trail.` : undefined}>
-          <label className="flex flex-col gap-1.5 text-ui-sm font-semibold text-ink">New amount
-            <Input type="number" inputMode="decimal" step="0.01" min={0} value={changeAmount} onChange={(e) => setChangeAmount(e.target.value)} />
-          </label>
-          <label className="flex flex-col gap-1.5 text-ui-sm font-semibold text-ink">Why
-            <Input value={changeReason} onChange={(e) => setChangeReason(e.target.value)} placeholder="e.g. Closed alone — no split" />
-          </label>
-          <DialogFooter>
-            <Button variant="secondary" onClick={() => setChange(null)}>Cancel</Button>
-            <Button loading={busy} disabled={!changeReason.trim() || changeAmount === '' || !Number.isFinite(Number(changeAmount)) || Number(changeAmount) < 0} onClick={saveChange}>Save change</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {draft ? <JobSplitSheet periodId={week.period.id} jobId={splitJob} onClose={() => setSplitJob(null)} onSaved={load} /> : null}
+      <PayWeekScheduleSheet open={scheduleOpen} onClose={() => setScheduleOpen(false)} onSaved={load} />
 
       <Dialog open={help} onOpenChange={setHelp}>
         <DialogContent title="How this is calculated">
@@ -359,6 +341,8 @@ export default function PayWeekClient() {
             <p>The base is the signed contract plus change orders, minus sales tax. Each person&apos;s percentage comes from their pay plan; inspection, self-generated and manager lines are added the same way.</p>
             <p>All sales commission on a job together can&apos;t go over 18% of the base. If it would, every line is reduced a little and the line says so.</p>
             <p>A job that isn&apos;t ready appears under &ldquo;Waiting&rdquo; with the reason, and pays in the week it clears.</p>
+            <p>Some pay plans have a weekly minimum: the person gets the greater of that amount or their commission for the week, never both. It shows as its own line.</p>
+            <p>To change who gets what on a job, tap &ldquo;Change who gets what&rdquo;: type each person&apos;s share, add or take people off, say why. It saves as one change and is kept in the history.</p>
             <p>The total on the Approve button is exactly what Approve pays. An approved week is never reopened.</p>
           </div>
         </DialogContent>
@@ -402,7 +386,7 @@ function Person({ p, open, toggle, onChange, onRemove }: { p: PayWeekPerson; ope
   )
 }
 
-function Need({ n, onHours, onBonus, onLater, onReply, onDisputeFix }: { n: PayWeekNeed; onHours: (userId: string, hours: number) => void; onBonus: (id: string) => void; onLater: (id: string) => void; onReply: (id: string, reply: string) => void; onDisputeFix: (d: Extract<PayWeekNeed, { kind: 'dispute' }>) => void }) {
+function Need({ n, onHours, onBonus, onLater, onReply, onDisputeFix, onMinimum }: { n: PayWeekNeed; onHours: (userId: string, hours: number) => void; onBonus: (id: string) => void; onLater: (id: string) => void; onReply: (id: string, reply: string) => void; onDisputeFix: (d: Extract<PayWeekNeed, { kind: 'dispute' }>) => void; onMinimum: (userId: string, met: boolean) => void }) {
   const [reply, setReply] = React.useState('')
   const [replying, setReplying] = React.useState(false)
   const [hrs, setHrs] = React.useState('')
@@ -426,6 +410,18 @@ function Need({ n, onHours, onBonus, onLater, onReply, onDisputeFix }: { n: PayW
         <div className="mt-2 flex flex-wrap gap-2">
           <Button onClick={() => onBonus(n.id)}>Yes, pay it</Button>
           <Button variant="secondary" onClick={() => onLater(n.id)}>Not now</Button>
+        </div>
+      </div>
+    )
+  }
+  if (n.kind === 'minimum') {
+    return (
+      <div>
+        <p className="font-semibold text-ink">Did {n.name} meet this week&apos;s requirements?</p>
+        <p className="text-ui-base text-ink-muted">Their plan pays the greater of {formatMoney(n.minimum)} or commission. Commission this week: {formatMoney(n.commission)}.</p>
+        <div className="mt-2 flex flex-wrap gap-2">
+          <Button onClick={() => onMinimum(n.userId, true)}>Yes — pay {formatMoney(n.minimum)}</Button>
+          <Button variant="secondary" onClick={() => onMinimum(n.userId, false)}>No — commission only</Button>
         </div>
       </div>
     )

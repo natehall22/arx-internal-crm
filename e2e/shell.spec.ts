@@ -24,7 +24,7 @@ test('pay this week on desktop', async ({ page }, info) => {
   await page.route('**/api/**', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{}' }))
   await page.route('**/api/admin/payroll/pay-week', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(PAY_WEEK) }))
   await page.goto('/dev-harness/pay-week')
-  await page.waitForSelector('text=Needs you (3)')
+  await page.waitForSelector('text=Needs you (4)')
   await page.getByRole('button', { name: /Jordan Vale/ }).click()
   await page.getByRole('button', { name: /^Approve/ }).waitFor()
   const widths = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, inner: window.innerWidth }))

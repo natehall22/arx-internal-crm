@@ -1,5 +1,6 @@
 jest.mock('@/lib/payroll-statement-email', () => ({ sendPayrollStatementEmail: jest.fn() }))
 
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { createFakeDb } from '@/lib/test-helpers/fake-db'
 import { fakePayrollRpcs } from '@/lib/test-helpers/fake-payroll-rpc'
 import { approvePayWeek } from '@/lib/payroll-approve'
@@ -127,7 +128,7 @@ describe('the Change sheet (one job, who gets what %, one reason)', () => {
       ],
     })
     if (!planned.ok) return
-    const { error } = await db.client.rpc('payroll_set_job_split', { p_org_id: ORG, p_job_id: 'j1', p_period_id: week.period.id, p_actor_user_id: 'a', p_reason: 'Closed with Nathan, no setter', p_rows: planned.rows })
+    const { error } = await (db.client as unknown as SupabaseClient).rpc('payroll_set_job_split', { p_org_id: ORG, p_job_id: 'j1', p_period_id: week.period.id, p_actor_user_id: 'a', p_reason: 'Closed with Nathan, no setter', p_rows: planned.rows })
     expect(error).toBeNull()
     expect(db.tables.payroll_override_audit).toHaveLength(3)
 
@@ -152,7 +153,7 @@ describe('the Change sheet (one job, who gets what %, one reason)', () => {
     expect(planJobSplitWrites(s.value, { lines: [], added: [{ userId: 'n1', percent: 95 }] }).ok).toBe(false)
     expect(planJobSplitWrites(s.value, { lines: [], added: [{ userId: 'n1', percent: 1 }, { userId: 'n1', percent: 1 }] }).ok).toBe(false)
     await approvePayWeek(db.client, { orgId: ORG, actorUserId: 'a', periodId: week.period.id, expectedTotal: week.totals.amount, now: NOW })
-    const { error } = await db.client.rpc('payroll_set_job_split', { p_org_id: ORG, p_job_id: 'j1', p_period_id: week.period.id, p_actor_user_id: 'a', p_reason: 'x', p_rows: [{ user_id: 'c1', role: 'closer', override_percent: 1, override_amount: null, clear: false }] })
+    const { error } = await (db.client as unknown as SupabaseClient).rpc('payroll_set_job_split', { p_org_id: ORG, p_job_id: 'j1', p_period_id: week.period.id, p_actor_user_id: 'a', p_reason: 'x', p_rows: [{ user_id: 'c1', role: 'closer', override_percent: 1, override_amount: null, clear: false }] })
     expect(error?.message).toMatch(/job_split:already_paid/)
     expect((await loadJobSplit(db.client, ORG, week.period.id, 'j1', NOW)).ok).toBe(false)
   })

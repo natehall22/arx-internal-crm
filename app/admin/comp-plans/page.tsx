@@ -59,6 +59,8 @@ interface CompPlan {
   base_percentage: number | null
   hourly_rate: number | null
   unit_rate: number | null
+  /** "Greater of this amount or the commission" each week (lib/payroll-weekly-minimum.ts). */
+  weekly_minimum?: { amount: number; needsCheck?: boolean } | null
   unit_type: string | null  // 'square', 'kw', 'linear_foot', etc.
   tiers: { min: number; max: number | null; rate: number }[] | null
   bonuses: { type: string; target: number; bonus: number }[] | null
@@ -255,6 +257,8 @@ export default function CompPlansPage() {
     unit_rate: '',
     unit_type: 'square',
     custom_unit_label: '',
+    weekly_minimum_amount: '',
+    weekly_minimum_check: true,
     tiers: [{ min: '0', max: '10000', rate: '5' }] as TierFormRow[],
     volume_bonuses: [] as VolumeTierForm[],
     // Hybrid components
@@ -434,6 +438,9 @@ export default function CompPlansPage() {
         : null,
       unit_rate: planForm.plan_purpose === 'primary' && (planForm.plan_type === 'unit_based' || planForm.hybrid_components.some(c => c.type === 'per_unit'))
         ? parseFloat(planForm.unit_rate) || null 
+        : null,
+      weekly_minimum: planForm.plan_purpose === 'primary' && planForm.weekly_minimum_amount.trim() !== ''
+        ? { amount: parseFloat(planForm.weekly_minimum_amount), needsCheck: planForm.weekly_minimum_check }
         : null,
       unit_type: planForm.plan_purpose === 'primary' && planForm.plan_type === 'unit_based'
         ? (planForm.unit_type === 'custom' ? planForm.custom_unit_label : planForm.unit_type)
@@ -684,6 +691,8 @@ export default function CompPlansPage() {
       unit_rate: '',
       unit_type: 'square',
       custom_unit_label: '',
+      weekly_minimum_amount: '',
+      weekly_minimum_check: true,
       tiers: [{ min: '0', max: '10000', rate: '5' }],
       volume_bonuses: [],
       hybrid_components: [],
@@ -714,6 +723,8 @@ export default function CompPlansPage() {
       unit_rate: plan.unit_rate?.toString() || '',
       unit_type: isCustomUnit ? 'custom' : (plan.unit_type || 'square'),
       custom_unit_label: isCustomUnit ? (plan.unit_type || '') : '',
+      weekly_minimum_amount: plan.weekly_minimum?.amount != null ? String(plan.weekly_minimum.amount) : '',
+      weekly_minimum_check: plan.weekly_minimum?.needsCheck !== false,
       tiers: (plan.tiers || [{ min: 0, max: 10000, rate: 5 }]).map((t) => ({
         min: formatNumericDraft(t.min),
         max: t.max == null ? '' : formatNumericDraft(t.max),
@@ -1610,6 +1621,30 @@ export default function CompPlansPage() {
                 </div>
 
                 {planWarnings.length > 0 && <CompPlanWarningList warnings={planWarnings} />}
+
+                {/* Weekly minimum: greater of a fixed amount or the commission */}
+                {planForm.plan_purpose === 'primary' && (
+                  <div className="rounded-lg border border-gray-300 p-3">
+                    <label className="block text-sm font-medium mb-1" style={{ color: INK }}>Weekly minimum ($, optional)</label>
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      min={0}
+                      step="0.01"
+                      value={planForm.weekly_minimum_amount}
+                      onChange={(e) => setPlanForm(prev => ({ ...prev, weekly_minimum_amount: e.target.value }))}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg text-base"
+                      placeholder="e.g. 500"
+                    />
+                    <p className="mt-1 text-sm" style={{ color: INK }}>Each week they get the greater of this or their commission — never both. Leave blank for none.</p>
+                    {planForm.weekly_minimum_amount.trim() !== '' && (
+                      <label className="mt-2 flex min-h-[44px] items-center gap-3 text-sm" style={{ color: INK }}>
+                        <input type="checkbox" className="h-5 w-5" checked={planForm.weekly_minimum_check} onChange={(e) => setPlanForm(prev => ({ ...prev, weekly_minimum_check: e.target.checked }))} />
+                        Only when the office confirms they met the week&apos;s requirements (asked on the Pay screen)
+                      </label>
+                    )}
+                  </div>
+                )}
 
                 {/* Hourly Rate */}
                 {planForm.plan_type === 'hourly' && (

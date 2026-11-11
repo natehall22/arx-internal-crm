@@ -5,6 +5,8 @@ import { isTeamAdminRoleSlug } from '@/lib/org-role-constants'
 import { createServiceClient } from '@/lib/supabase/service'
 import { firstForeignRef } from '@/lib/supabase/org-db'
 import { isPayrollAdminRole } from '@/lib/payroll-admin-access'
+import { validateWeeklyMinimumInput } from '@/lib/payroll-weekly-minimum'
+import { isMissingColumn } from '@/lib/supabase/errors'
 import { compPlanBodyChanged, COMP_PLAN_VERSION_FLOOR_DATE } from '@/lib/comp-plan-version'
 import { getEasternTodayIso } from '@/lib/eastern-datetime'
 
@@ -53,6 +55,22 @@ async function getAuthenticatedUser(_req: NextRequest) {
 }
 
 // GET - Fetch admin data
+/**
+ * comp_plans.weekly_minimum ("greater of $X or the commission", lib/payroll-weekly-minimum.ts) is edited in place, apart from the
+ * versioned body: an approved week stores its top-up and never recalculates, so editing it only changes open weeks. Written in its
+ * own update so a database without the column (migration 202611120010 not applied) keeps saving everything else.
+ */
+async function saveWeeklyMinimum(adminClient: ReturnType<typeof createServiceClient>, orgId: string, planId: string, raw: unknown): Promise<NextResponse | null> {
+  const v = validateWeeklyMinimumInput(raw)
+  if (!v.ok) return NextResponse.json({ error: v.error }, { status: 400 })
+  const { error } = await adminClient.from('comp_plans').update({ weekly_minimum: v.value }).eq('id', planId).eq('org_id', orgId)
+  if (!error) return null
+  if (isMissingColumn(error, 'weekly_minimum')) {
+    return v.value ? NextResponse.json({ error: 'The plan was saved, but the weekly minimum needs the database update first.', code: 'needs_migration' }, { status: 409 }) : null
+  }
+  return NextResponse.json({ error: error.message }, { status: 400 })
+}
+
 export async function GET(request: NextRequest) {
   try {
     const auth = await getAuthenticatedUser(request)
@@ -365,6 +383,10 @@ export async function POST(request: NextRequest) {
           { status: 400 }
         )
       }
+      if ('weekly_minimum' in data) {
+        const wm = validateWeeklyMinimumInput(data.weekly_minimum)
+        if (!wm.ok) return NextResponse.json({ error: wm.error }, { status: 400 })
+      }
       const planData = {
         org_id: profile.org_id,
         name: data.name,
@@ -433,6 +455,10 @@ export async function POST(request: NextRequest) {
             { error: 'Could not record the plan\'s initial pay terms. The plan was not created.' },
             { status: 500 }
           )
+        }
+        if ('weekly_minimum' in data) {
+          const wmResponse = await saveWeeklyMinimum(adminClient, profile.org_id, createdPlan.id as string, data.weekly_minimum)
+          if (wmResponse) return wmResponse
         }
       }
 
@@ -600,6 +626,11 @@ export async function PATCH(request: NextRequest) {
         )
       }
 
+      if ('weekly_minimum' in data) {
+        const wm = validateWeeklyMinimumInput(data.weekly_minimum)
+        if (!wm.ok) return NextResponse.json({ error: wm.error }, { status: 400 })
+      }
+
       const nextBody = {
         plan_type: data.plan_type,
         base_percentage: basePercentage,
@@ -752,6 +783,11 @@ export async function PATCH(request: NextRequest) {
 
       if (error) {
         return NextResponse.json({ error: error.message }, { status: 400 })
+      }
+
+      if ('weekly_minimum' in data) {
+        const wmResponse = await saveWeeklyMinimum(adminClient, profile.org_id, id as string, data.weekly_minimum)
+        if (wmResponse) return wmResponse
       }
 
       // If setting as default, unset other defaults

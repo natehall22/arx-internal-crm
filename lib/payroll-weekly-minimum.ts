@@ -1,6 +1,6 @@
 /**
  * Weekly minimum — a pay-plan rule: "the person gets the GREATER of a fixed amount or their commission for the week" (the two are
- * not added). Generic: any company can put it on any plan (`comp_plans.weekly_minimum = { amount, needsCheck }`). ARX's Field
+ * not added). Generic: any company can put it on any plan (`comp_plans.weekly_minimum = { amount, needsCheck }`). One company's Field
  * Marketer agreement is one use: $500 weekly performance pay or 3% of commissionable sale value, whichever is greater, the $500 only
  * when that Monday–Sunday week's requirements were completed and verified (`needsCheck`: the office answers yes/no each week).
  *
