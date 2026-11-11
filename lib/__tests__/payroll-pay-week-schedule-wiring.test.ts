@@ -73,7 +73,7 @@ describe('a company on Monday–Sunday', () => {
   })
 
   it('approving before Sunday night is refused with the company\'s own cutoff day', async () => {
-    const db = createFakeDb({ orgs: [org(ARX_WEEK)], payroll_periods: [{ id: 'w', org_id: ORG, status: 'open', cutoff_at: '2026-11-16T04:59:59.999Z', scheduled_pay_date: '2026-11-20', period_label: 'Week ending 2026-11-15' }] })
+    const db = createFakeDb({ orgs: [org(ARX_WEEK)], payroll_periods: [{ id: 'w', org_id: ORG, status: 'open', cutoff_at: '2026-11-16T04:59:59.999Z', scheduled_pay_date: '2026-11-20', period_label: 'Week ending 2026-11-15' }], users: [{ id: 'u', org_id: ORG, role: 'admin', active: true, is_super_admin: true }] })
     const r = await approvePayWeek(db.client, { orgId: ORG, actorUserId: 'u', periodId: 'w', expectedTotal: 0, now: new Date('2026-11-15T15:00:00Z') })
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.body.error).toBe("This week hasn't ended yet. Approve it after Sunday night.")
@@ -126,5 +126,21 @@ describe('changing the pay week', () => {
     const r = await savePayWeekSchedule(db.client, ORG, { weekStartDay: 1, cutoffTime: '25:00', paydayWeekday: 5 }, new Date())
     expect(r.ok).toBe(false)
     expect((await mergeOrgSettings(db.client, ORG, { payWeek: ARX_WEEK })).error).toMatch(/savePayWeekSchedule/)
+  })
+})
+
+describe('Approve is owners only (super admins); the office prepares', () => {
+  const week = { id: 'w', org_id: ORG, status: 'open', cutoff_at: '2026-11-09T04:59:59.999Z', scheduled_pay_date: '2026-11-13', period_label: 'Week ending 2026-11-08' }
+  it.each([
+    ['an office (operations) user', { id: 'u', org_id: ORG, role: 'operations', active: true }],
+    ['an admin who is not an owner', { id: 'u', org_id: ORG, role: 'admin', active: true, is_super_admin: false }],
+    ['a deactivated owner', { id: 'u', org_id: ORG, role: 'admin', active: false, is_super_admin: true }],
+    ['an owner of another company', { id: 'u', org_id: 'other', role: 'admin', active: true, is_super_admin: true }],
+  ])('%s is refused before anything is computed or claimed', async (_label, user) => {
+    const db = createFakeDb({ orgs: [org(ARX_WEEK)], payroll_periods: [{ ...week }], users: [user] })
+    const r = await approvePayWeek(db.client, { orgId: ORG, actorUserId: 'u', periodId: 'w', expectedTotal: 0, now: new Date('2026-11-12T15:00:00Z') })
+    expect(r).toMatchObject({ ok: false, status: 403, body: { code: 'owner_only' } })
+    expect(db.tables.payroll_periods[0]).not.toHaveProperty('lock_claim_token')
+    expect(db.tables.payroll_periods[0].status).toBe('open')
   })
 })

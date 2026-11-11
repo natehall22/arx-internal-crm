@@ -25,7 +25,7 @@ function build() {
       ],
       projects: [{ id: 'pr1', org_id: ORG, opportunity_id: 'o1' }, { id: 'pr2', org_id: ORG, opportunity_id: 'o2' }],
       opportunities: ['o1', 'o2'].map((id) => ({ id, org_id: ORG, owner_user_id: 'c1', setter_user_id: 's1' })),
-      users: [{ id: 'c1', org_id: ORG, full_name: 'Jordan Vale', role: 'sales_rep', active: true }, { id: 's1', org_id: ORG, full_name: 'Riley Moss', role: 'setter', active: true }],
+      users: [{ id: 'a', org_id: ORG, full_name: 'Owner A', role: 'admin', active: true, is_super_admin: true }, { id: 'admin', org_id: ORG, full_name: 'Owner B', role: 'admin', active: true, is_super_admin: true }, { id: 'c1', org_id: ORG, full_name: 'Jordan Vale', role: 'sales_rep', active: true }, { id: 's1', org_id: ORG, full_name: 'Riley Moss', role: 'setter', active: true }],
       comp_plans: [plan('plan-closer', 7), plan('plan-setter', 5)],
       user_comp_plans: [
         { user_id: 'c1', org_id: ORG, comp_plan_id: 'plan-closer', effective_from: '2026-01-01', effective_to: null, override_percentage: null, hourly_rate_override: null },

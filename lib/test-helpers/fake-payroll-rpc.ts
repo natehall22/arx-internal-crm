@@ -110,4 +110,41 @@ export const fakePayrollRpcs: Record<string, (args: Record<string, unknown>, tab
     Object.assign(period, { status: 'locked', locked_at: new Date().toISOString(), units_frozen_at: new Date().toISOString(), lock_claimed_at: null, lock_claim_token: null })
     return { ok: true, total, people: Array.from(totals.values()).filter((v) => v > 0).length, snapshots: (plan.jobs ?? []).length, lines, carried }
   },
+  payroll_set_job_split: (args, tables) => {
+    const orgId = args.p_org_id as string
+    const jobId = args.p_job_id as string
+    if (!String(args.p_reason ?? '').trim()) throw new Error('job_split:reason_required')
+    const job = (tables.production_jobs ?? []).find((j) => j.id === jobId && j.org_id === orgId)
+    if (!job) throw new Error('job_split:job_not_found')
+    if (job.payroll_settled_externally_at) throw new Error('job_split:settled_externally')
+    const closed = new Set((tables.payroll_periods ?? []).filter((p) => p.status === 'locked' || p.status === 'paid').map((p) => p.id))
+    if ((tables.payroll_payout_lines ?? []).some((l) => l.org_id === orgId && l.job_id === jobId && closed.has(l.payroll_period_id))) throw new Error('job_split:already_paid')
+    const claimed = (tables.payroll_periods ?? []).find((p) => p.id === args.p_period_id && p.org_id === orgId && p.lock_claim_token)
+    if (claimed) throw Object.assign(new Error('payroll_period_claimed'), { code: '55006' })
+    tables.deal_commission_roles ??= []
+    tables.payroll_override_audit ??= []
+    let changed = 0
+    for (const r of (args.p_rows as Array<Record<string, unknown>>) ?? []) {
+      if (!(tables.users ?? []).some((u) => u.id === r.user_id && u.org_id === orgId)) throw new Error('job_split:user_not_found')
+      let pct = r.override_percent == null ? null : Number(r.override_percent)
+      const amt = r.override_amount == null ? null : Number(r.override_amount)
+      if (pct != null && (pct < 0 || pct > 100)) throw new Error('job_split:bad_percent')
+      if (amt != null && amt < 0) throw new Error('job_split:bad_amount')
+      if (pct != null && amt != null) pct = null
+      const i = tables.deal_commission_roles.findIndex((d) => d.org_id === orgId && d.job_id === jobId && d.user_id === r.user_id && d.role === r.role)
+      const old = i >= 0 ? { ...tables.deal_commission_roles[i] } : null
+      if (r.clear) {
+        if (i < 0) continue
+        tables.deal_commission_roles.splice(i, 1)
+      } else if (old) {
+        if ((old.override_percent ?? null) === pct && (old.override_amount ?? null) === amt) continue
+        Object.assign(tables.deal_commission_roles[i], { override_percent: pct, override_amount: amt })
+      } else {
+        tables.deal_commission_roles.push({ id: `dcr-${Math.random().toString(36).slice(2, 8)}`, org_id: orgId, job_id: jobId, user_id: r.user_id, role: r.role, override_percent: pct, override_amount: amt })
+      }
+      tables.payroll_override_audit.push({ org_id: orgId, override_type: 'manual_adjustment', job_id: jobId, payroll_period_id: args.p_period_id, actor_user_id: args.p_actor_user_id, reason: String(args.p_reason).trim(), before_value: old, after_value: r.clear ? null : { override_percent: pct, override_amount: amt, role: r.role, user_id: r.user_id } })
+      changed += 1
+    }
+    return { ok: true, changed }
+  },
 }

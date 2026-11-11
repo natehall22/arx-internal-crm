@@ -28,7 +28,7 @@ function build(extra: Record<string, Array<Record<string, unknown>>> = {}, rpc =
       job_payments: [{ job_id: 'j1', amount_cents: 2000000, funding_status: 'cleared', paid_at: '2026-10-12', created_at: '2026-10-12T12:00:00Z' }],
       projects: [{ id: 'pr1', org_id: ORG, opportunity_id: 'o1' }],
       opportunities: [{ id: 'o1', org_id: ORG, owner_user_id: 'c1', setter_user_id: 's1' }],
-      users: [{ id: 'c1', org_id: ORG, full_name: 'Jordan Vale', role: 'sales_rep', active: true }, { id: 's1', org_id: ORG, full_name: 'Riley Moss', role: 'setter', active: true }],
+      users: [{ id: 'a', org_id: ORG, full_name: 'Owner A', role: 'admin', active: true, is_super_admin: true }, { id: 'admin', org_id: ORG, full_name: 'Owner B', role: 'admin', active: true, is_super_admin: true }, { id: 'c1', org_id: ORG, full_name: 'Jordan Vale', role: 'sales_rep', active: true }, { id: 's1', org_id: ORG, full_name: 'Riley Moss', role: 'setter', active: true }],
       comp_plans: [plan('plan-closer', 7), plan('plan-setter', 5)],
       user_comp_plans: [
         { user_id: 'c1', org_id: ORG, comp_plan_id: 'plan-closer', effective_from: '2026-01-01', effective_to: null, override_percentage: null, hourly_rate_override: null },
@@ -251,7 +251,7 @@ describe('review fixes', () => {
 
   it('a saved hours row\'s stored earnings are the pay (the database sums the same column)', async () => {
     const db = build({
-      users: [{ id: 'h1', org_id: ORG, full_name: 'Hourly Hal', role: 'sales_rep', active: true }],
+      users: [{ id: 'h1', org_id: ORG, full_name: 'Hourly Hal', role: 'sales_rep', active: true }, { id: 'a', org_id: ORG, full_name: 'Owner A', role: 'admin', active: true, is_super_admin: true }],
       production_jobs: [],
       comp_plans: [{ id: 'plan-hr', name: 'Hourly', plan_type: 'hourly', hourly_rate: 20, is_active: true, org_id: ORG }],
       user_comp_plans: [{ user_id: 'h1', org_id: ORG, comp_plan_id: 'plan-hr', effective_from: '2026-01-01', effective_to: null, override_percentage: null, hourly_rate_override: null }],
