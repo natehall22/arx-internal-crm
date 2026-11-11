@@ -1,3 +1,4 @@
+/* eslint-disable no-restricted-properties -- calendar days (YYYY-MM-DD) are printed as that exact day (UTC), never shifted by a zone; formatDate would move them */
 /** Plain-words formatting for the customer portal (client-safe). Day strings (YYYY-MM-DD) are shown as that calendar day, never shifted by a time zone. */
 export const money = (cents: number): string => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100)
 
