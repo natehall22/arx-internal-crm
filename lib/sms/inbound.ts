@@ -20,11 +20,12 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { sendComplianceText } from '@/lib/customer-messages-db'
-import { suppressAddress, unsuppressAddress } from '@/lib/customer-message-suppressions'
+import { suppressAddress, suppressionOf, unsuppressAddress } from '@/lib/customer-message-suppressions'
 import { notifyCompanyOfPortalMessage } from '@/lib/portal/messages'
 import { helpReply, startReply, stopReply } from '@/lib/sms/compliance'
-import { recordConsent } from '@/lib/sms/consent'
-import { findOrgByNumber } from '@/lib/sms/org-sms'
+import { latestConsent, recordConsent } from '@/lib/sms/consent'
+import { findOrgByNumber, smsNotReadyReason } from '@/lib/sms/org-sms'
+import { loadOrgFeatures } from '@/lib/org-features'
 import { normalizeUsPhone, last10 } from '@/lib/sms/phone'
 import { classifyInbound, type InboundKind } from '@/lib/sms/keywords'
 import { priceMicros, type SmsEvent } from '@/lib/sms/provider'
@@ -35,10 +36,11 @@ import { postCustomerMessage } from '@/lib/threads/post-message'
 import { orgDb } from '@/lib/supabase/org-db'
 
 export type WebhookOutcome =
-  | { status: 200; handled: 'duplicate' | 'unknown_number' | 'not_this_copy' | 'ignored' | 'bad_sender' | InboundKind | 'unmatched' | 'status' | 'status_unknown' }
-  | { status: 500; handled: 'error' }
+  | { status: 200; handled: 'duplicate' | 'unknown_number' | 'not_this_copy' | 'ignored' | 'bad_sender' | 'texting_off' | InboundKind | 'unmatched' | 'status' | 'status_unknown' }
+  | { status: 500; handled: 'error' | 'status_not_saved_yet' }
 
 const BODY_MAX = 1600
+const STATUS_RETRY_WINDOW_MS = 30 * 60_000
 
 /** Env SMS_COMPLIANCE_AUTO_REPLY=false when the carrier already answers STOP / HELP itself (never both). */
 const autoReplyOn = (): boolean => process.env.SMS_COMPLIANCE_AUTO_REPLY !== 'false'
@@ -111,6 +113,11 @@ async function processInbound(admin: SupabaseClient, ev: Extract<SmsEvent, { kin
   if (!from) return { status: 200, handled: 'bad_sender' } // short codes, international senders: nothing to answer, nothing to match
   const text = (ev.text ?? '').slice(0, 4000)
   const kind: InboundKind = classifyInbound(text)
+  // Texting switched off, or the number disconnected: the only thing still honored is a request to stop. Everything else
+  // is dropped — nothing is posted to a thread, nothing answered, nobody emailed.
+  const live = (await loadOrgFeatures(admin, orgId)).texting && !smsNotReadyReason(org)
+  const isStop = kind === 'stop' || kind === 'optout_phrase' || kind === 'wrong_number'
+  if (!live && !isStop) return { status: 200, handled: 'texting_off' }
 
   // Step 1: the claim. A second delivery of the same carrier message hits the unique key and stops here.
   const db = orgDb(admin, orgId)
@@ -133,6 +140,14 @@ async function processInbound(admin: SupabaseClient, ev: Extract<SmsEvent, { kin
     const ids = await customersWithNumber(admin, orgId, from)
     const customerId = ids.length === 1 ? ids[0] : ids.length > 1 ? await lastTextedCustomer(admin, orgId, from, ids) : null
     const company = await loadCompany(admin, orgId)
+    if (!live) {
+      // Switched off: record the opt-out (suppression + revoke row) and stop there.
+      await suppressAddress(admin, orgId, 'sms', from, 'unsubscribed', { detail: kind === 'stop' ? 'Texted STOP' : `Texted: ${text.slice(0, 120)}` })
+      const consent = await recordConsent(admin, orgId, { customerId, phone: from, status: 'revoked', source: 'sms_stop', evidence: { inboundId: ev.id, text: text.slice(0, 200), kind, texting: 'off' } })
+      if (!consent.ok) throw new Error(consent.error)
+      if (autoReplyOn()) await defer(() => sendComplianceText(admin, orgId, { inboundId: ev.id, to: from, text: stopReply(company), customerId }, now))
+      return { status: 200, handled: kind }
+    }
 
     if (kind === 'stop' || kind === 'optout_phrase' || kind === 'wrong_number') {
       await suppressAddress(admin, orgId, 'sms', from, 'unsubscribed', { detail: kind === 'stop' ? 'Texted STOP' : `Texted: ${text.slice(0, 120)}` })
@@ -140,9 +155,15 @@ async function processInbound(admin: SupabaseClient, ev: Extract<SmsEvent, { kin
       if (!consent.ok) throw new Error(consent.error)
       if (autoReplyOn()) await defer(() => sendComplianceText(admin, orgId, { inboundId: ev.id, to: from, text: stopReply(company), customerId }, now))
     } else if (kind === 'start') {
-      await unsuppressAddress(admin, orgId, 'sms', from)
-      const consent = await recordConsent(admin, orgId, { customerId, phone: from, status: 'granted', source: 'sms_start', companyName: company.name, evidence: { inboundId: ev.id } })
-      if (!consent.ok) throw new Error(consent.error)
+      // START re-subscribes what they opted out of. From someone who never opted out (or never agreed to anything) it is
+      // NOT a new agreement to be texted: no consent row, only the answer.
+      const wasStopped = !!(await suppressionOf(admin, orgId, 'sms', from))
+      const before = await latestConsent(admin, orgId, from)
+      if (wasStopped || before?.status === 'revoked') {
+        await unsuppressAddress(admin, orgId, 'sms', from)
+        const consent = await recordConsent(admin, orgId, { customerId, phone: from, status: 'granted', source: 'sms_start', companyName: company.name, evidence: { inboundId: ev.id, reopens: before?.id ?? null } })
+        if (!consent.ok) throw new Error(consent.error)
+      }
       if (autoReplyOn()) await defer(() => sendComplianceText(admin, orgId, { inboundId: ev.id, to: from, text: startReply(company), customerId }, now))
     } else if (kind === 'help') {
       if (autoReplyOn()) await defer(() => sendComplianceText(admin, orgId, { inboundId: ev.id, to: from, text: helpReply({ name: company.name, phone: company.phone, email: company.email }), customerId }, now))
@@ -175,13 +196,15 @@ async function processStatus(admin: SupabaseClient, ev: Extract<SmsEvent, { kind
   const db = orgDb(admin, orgId)
   const { data } = await db.from('customer_messages').select('id, customer_id, to_address, delivery_status').eq('provider_message_id', ev.id).eq('channel', 'sms').maybeSingle()
   const row = data as { id: string; customer_id: string | null; to_address: string | null; delivery_status: string | null } | null
-  if (!row) return { status: 200, handled: 'status_unknown' }
+  // The receipt can beat our own save of the send (the carrier is fast): while it is recent, ask for a retry. Bounded: an
+  // old receipt for a message we never recorded is dropped.
+  if (!row) return Date.now() - Date.parse(ev.at) < STATUS_RETRY_WINDOW_MS ? { status: 500, handled: 'status_not_saved_yet' } : { status: 200, handled: 'status_unknown' }
   // delivered / failed are final: a late or repeated "sent" never undoes them.
-  if (!(ev.status === 'sent' && (row.delivery_status === 'delivered' || row.delivery_status === 'failed'))) {
+  if (!((ev.status === 'sent' || ev.status === 'unconfirmed') && (row.delivery_status === 'delivered' || row.delivery_status === 'failed'))) {
     await db
       .from('customer_messages')
       .update({
-        delivery_status: ev.status,
+        delivery_status: ev.status === 'unconfirmed' ? 'delivery_unconfirmed' : ev.status,
         ...(ev.status === 'delivered' ? { delivered_at: ev.at, provider_error: null } : {}),
         ...(ev.status === 'failed' ? { provider_error: [ev.errorCode, ev.errorText].filter(Boolean).join(': ').slice(0, 300) || 'Not delivered' } : {}),
         updated_at: new Date().toISOString(),

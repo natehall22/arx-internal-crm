@@ -21,8 +21,11 @@ const MAX_BODY = 256 * 1024
 export async function POST(request: Request) {
   const provider = process.env.SMS_PROVIDER === 'test' && process.env.NODE_ENV !== 'production' ? testProvider : telnyxProvider
   if (!provider.canReceive()) return NextResponse.json({ error: 'Texting is not set up' }, { status: 503 })
-  const raw = await request.text()
-  if (raw.length > MAX_BODY) return NextResponse.json({ error: 'Too large' }, { status: 413 })
+  // Cap the body while it streams in (not after): a declared length over the cap, or a stream that runs past it, is refused.
+  const declared = Number(request.headers.get('content-length') ?? '0')
+  if (declared > MAX_BODY) return NextResponse.json({ error: 'Too large' }, { status: 413 })
+  const raw = await readCapped(request, MAX_BODY)
+  if (raw === null) return NextResponse.json({ error: 'Too large' }, { status: 413 })
   const check = provider.verifyWebhook(raw, request.headers, Date.now())
   if (!check.ok) return NextResponse.json({ error: 'Bad signature' }, { status: 400 })
   const event = provider.parseWebhook(raw)
@@ -32,4 +35,23 @@ export async function POST(request: Request) {
     waitUntil(work().catch((e) => console.error('[sms webhook] deferred step failed', e)))
   })
   return NextResponse.json({ ok: result.status === 200, handled: result.handled }, { status: result.status })
+}
+
+/** The request body as text, or null once it grows past `max` bytes (reading stops there). */
+async function readCapped(request: Request, max: number): Promise<string | null> {
+  if (!request.body) return ''
+  const reader = request.body.getReader()
+  const chunks: Uint8Array[] = []
+  let total = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    total += value.byteLength
+    if (total > max) {
+      await reader.cancel().catch(() => undefined)
+      return null
+    }
+    chunks.push(value)
+  }
+  return Buffer.concat(chunks).toString('utf8')
 }

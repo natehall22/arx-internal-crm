@@ -5,14 +5,15 @@
  *
  *   company:   `texting` switch on · a number that is `active` · a carrier configured
  *   recipient: not "don't message" in the office · a US number · not on the opt-out list (STOP / bad number)
- *              · consent on file for THAT number, or the customer texted first in the last 24 hours
+ *              · consent on file for THAT number, or the customer texted first in the last 24 hours (a staff reply only, never an automatic text)
  *   time:      never before 8 AM or from 9 PM, company time (a hard floor), and inside the company's own quiet hours
- *              (default 8 AM–8 PM). A staff reply to a customer who texted in the last 2 hours is allowed at any hour.
+ *              (default 8 AM–8 PM). A staff reply to a customer who texted in the last 2 hours may go after the company's quiet hours but never outside 8 AM–9 PM. The customer's own time zone (area code) counts too: the stricter window wins.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { suppressionOf } from '@/lib/customer-message-suppressions'
 import { hourInZone, isQuietHour, type CustomerMessageSettings } from '@/lib/customer-messages'
+import { areaCodeTimeZone } from '@/lib/sms/area-code-tz'
 import { loadOrgFeatures } from '@/lib/org-features'
 import { customerTextedRecently, latestConsent } from '@/lib/sms/consent'
 import { loadOrgSms, smsNotReadyReason } from '@/lib/sms/org-sms'
@@ -26,12 +27,24 @@ import { orgTimeZone } from '@/lib/timezone'
 export const SMS_EARLIEST_HOUR = 8
 /** No text from this hour on, ever, whatever the owner chose (the federal 9 PM limit). */
 export const SMS_LATEST_HOUR = 21
-/** A reply to a customer's own text, within this long, may go at any hour. */
+/** A reply to a customer's own text, within this long, may go after the company's quiet hours (never outside 8 AM–9 PM). */
 export const CONVERSATION_WINDOW_HOURS = 2
 /** Automatic texts to one number in 24 hours (the shared claim counts them). */
 export const SMS_MAX_PER_NUMBER_PER_DAY = 3
 /** A staff member's 1:1 replies are a conversation, not automation: a much higher ceiling. */
 export const SMS_MAX_STAFF_PER_NUMBER_PER_DAY = 30
+
+/**
+ * The time zones a text to this number must be fit for: the company's, plus the number's own (area code, best guess).
+ * Both must allow it — the stricter window wins when the two differ or we are unsure.
+ */
+export function smsZones(companyTimeZone: string, phone: string | null): string[] {
+  const theirs = areaCodeTimeZone(phone)
+  return theirs && theirs !== companyTimeZone ? [companyTimeZone, theirs] : [companyTimeZone]
+}
+
+/** Is it a hour no text may go out in this zone at all (before 8 AM / from 9 PM)? */
+export const outsideSmsFloor = (hour: number): boolean => hour < SMS_EARLIEST_HOUR || hour >= SMS_LATEST_HOUR
 
 /** Is this hour closed for texts? The company's own quiet hours, plus the fixed floor. */
 export function isSmsQuietHour(hour: number, s: Pick<CustomerMessageSettings, 'quietStart' | 'quietEnd'>): boolean {
@@ -67,7 +80,7 @@ export async function checkSmsRecipient(
   orgId: string,
   phone: string,
   now: Date,
-  opts: { customerOff?: boolean } = {}
+  opts: { customerOff?: boolean; /** A staff member's own reply: a customer who texted first may be answered without an earlier OK. */ reply?: boolean } = {}
 ): Promise<RecipientCheck> {
   if (opts.customerOff) return { ok: false, code: 'customer_off' }
   const sup = await suppressionOf(admin, orgId, 'sms', phone)
@@ -75,7 +88,8 @@ export async function checkSmsRecipient(
   const consent = await latestConsent(admin, orgId, phone)
   // A revoked row is the newest word: only a fresh grant (or the customer texting START, which writes one) lifts it.
   if (consent?.status === 'granted') return { ok: true, via: 'consent' }
-  if (consent?.status !== 'revoked' && (await customerTextedRecently(admin, orgId, phone, now))) return { ok: true, via: 'customer_started' }
+  // The customer texting first lets a PERSON answer them. It never opens automatic texts (reminders, follow-ups).
+  if (opts.reply && consent?.status !== 'revoked' && (await customerTextedRecently(admin, orgId, phone, now))) return { ok: true, via: 'customer_started' }
   return { ok: false, code: 'no_consent' }
 }
 
@@ -123,7 +137,7 @@ export async function textStatus(admin: SupabaseClient, orgId: string, customerI
   if (!customer.phone?.trim()) return blocked('no_phone', null, customer.name)
   const phone = normalizeUsPhone(customer.phone)
   if (!phone) return blocked('bad_phone', null, customer.name)
-  const check = await checkSmsRecipient(admin, orgId, phone, now, { customerOff: !!customer.messages_off_at })
+  const check = await checkSmsRecipient(admin, orgId, phone, now, { customerOff: !!customer.messages_off_at, reply: true })
   if (!check.ok) return blocked(check.code, phone, customer.name)
   return { state: 'ready', phone, masked: maskE164(phone) ?? phone, via: check.via, name: customer.name }
 }

@@ -175,15 +175,28 @@ describe('texting hours (company time zone, DST)', () => {
     // 16:00 UTC = 8 AM PST: allowed; in New York it would be 11 AM too, so use 15:00 UTC = 7 AM PST: waits
     expect((await sendStaffText(admin(db), ORG, 'c1', 'a1', 'u1', new Date('2026-11-11T15:00:00Z'))).status).toBe('queued')
   })
-  it('a staff reply to a customer who texted in the last 2 hours goes at any hour; the STOP answer always does', async () => {
+  it('a staff reply to a customer who texted in the last 2 hours may pass the company quiet hours but never 9 PM; the STOP answer always goes', async () => {
+    const quiet = new Date('2026-11-12T01:30:00Z') // 8:30 PM EST: past the company's 8 PM, before 9 PM
+    const db = seed({ sms_inbound: [{ id: 'i1', org_id: ORG, from_e164: PHONE, received_at: '2026-11-12T01:00:00Z', status: 'handled', kind: 'message' }] })
+    expect((await sendStaffText(admin(db), ORG, 'c1', 'a1', 'u1', quiet)).status).toBe('sent')
     const night = new Date('2026-11-12T04:00:00Z') // 11 PM EST
-    const db = seed({ sms_inbound: [{ id: 'i1', org_id: ORG, from_e164: PHONE, received_at: '2026-11-12T03:30:00Z', status: 'handled', kind: 'message' }] })
-    expect((await sendStaffText(admin(db), ORG, 'c1', 'a1', 'u1', night)).status).toBe('sent')
+    const late = seed({ sms_inbound: [{ id: 'i1', org_id: ORG, from_e164: PHONE, received_at: '2026-11-12T03:30:00Z', status: 'handled', kind: 'message' }] })
+    expect((await sendStaffText(admin(late), ORG, 'c1', 'a1', 'u1', night)).status).toBe('queued')
     const old = seed({ sms_inbound: [{ id: 'i1', org_id: ORG, from_e164: PHONE, received_at: '2026-11-12T00:00:00Z', status: 'handled', kind: 'message' }] })
-    expect((await sendStaffText(admin(old), ORG, 'c1', 'a1', 'u1', night)).status).toBe('queued')
+    expect((await sendStaffText(admin(old), ORG, 'c1', 'a1', 'u1', quiet)).status).toBe('queued')
     const stop = seed()
     expect(await sendComplianceText(admin(stop), ORG, { inboundId: 'in1', to: PHONE, text: 'Precision Maintenance: You are unsubscribed.', customerId: 'c1' }, night)).toBe('sent')
     expect(testSmsOutbox().at(-1)?.text).toBe('Precision Maintenance: You are unsubscribed.')
+  })
+  it('the customer’s own time zone (area code) counts: the stricter window wins', async () => {
+    const la = '+13105550100' // Los Angeles
+    const mk = () => seed({ customers: [{ id: 'c1', org_id: ORG, name: 'Jane', email: 'j@x.test', phone: '(310) 555-0100', messages_off_at: null }], customer_sms_consent: [{ id: 'k1', org_id: ORG, customer_id: 'c1', phone_e164: la, status: 'granted', source: 'staff_phone', created_at: '2026-11-01T00:00:00Z', evidence: {} }] })
+    // 8:30 AM New York = 5:30 AM Los Angeles: closed for them
+    expect((await sendStaffText(admin(mk()), ORG, 'c1', 'a1', 'u1', new Date('2026-11-11T13:30:00Z'))).status).toBe('queued')
+    // 12:00 New York = 9 AM Los Angeles: open
+    expect((await sendStaffText(admin(mk()), ORG, 'c1', 'a1', 'u1', NOON)).status).toBe('sent')
+    // 7:30 PM Los Angeles = 10:30 PM New York: closed on the company side
+    expect((await sendStaffText(admin(mk()), ORG, 'c1', 'a1', 'u1', new Date('2026-11-12T03:30:00Z'))).status).toBe('queued')
   })
 })
 
@@ -252,6 +265,15 @@ describe('automatic texts by choice', () => {
     const db = seed({ work_orders: [visit], customer_sms_consent: [] })
     await runCustomerMessagesForOrg(admin(db), ORG, new Date('2026-11-11T14:30:00Z'))
     expect(testSmsOutbox()).toHaveLength(0)
+  })
+  it('a customer texting first never opens automatic texts', async () => {
+    const db = seed({ work_orders: [visit], customer_sms_consent: [], sms_inbound: [{ id: 'i1', org_id: ORG, from_e164: PHONE, received_at: '2026-11-11T13:00:00Z', status: 'handled', kind: 'message' }] })
+    await runCustomerMessagesForOrg(admin(db), ORG, new Date('2026-11-11T14:30:00Z'))
+    expect(testSmsOutbox()).toHaveLength(0)
+  })
+  it('a HELP or STOP text never counts as the customer starting a conversation', async () => {
+    const db = seed({ customer_sms_consent: [], sms_inbound: [{ id: 'i1', org_id: ORG, from_e164: PHONE, received_at: '2026-11-11T16:30:00Z', status: 'handled', kind: 'help' }] })
+    expect((await sendStaffText(admin(db), ORG, 'c1', 'a1', 'u1', NOON)).status).toBe('skipped')
   })
   it('the default (email) never texts', async () => {
     const db = seed({ work_orders: [visit], orgs: [org({ customerMessages: { visitReminder: true } })] })

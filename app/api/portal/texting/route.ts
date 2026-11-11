@@ -3,7 +3,7 @@ import { loadPortalCompany } from '@/lib/portal/brand'
 import { isOrgFeatureOn } from '@/lib/org-features-server'
 import { latestConsent, recordConsent } from '@/lib/sms/consent'
 import { normalizeUsPhone } from '@/lib/sms/phone'
-import { suppressionOf } from '@/lib/customer-message-suppressions'
+import { suppressAddress, suppressionOf } from '@/lib/customer-message-suppressions'
 import { orgDb } from '@/lib/supabase/org-db'
 
 export const dynamic = 'force-dynamic'
@@ -27,6 +27,8 @@ export async function POST(request: Request) {
     return portalJson({ error: 'You asked us to stop texting this number. Text START to our number to turn texts back on.' }, 409)
   }
   const company = await loadPortalCompany(admin, session.orgId)
+  // Turning texts OFF is a real opt-out: it goes on the one opt-out list too (the sender checks that list first).
+  if (!raw.on) await suppressAddress(admin, session.orgId, 'sms', phone, 'unsubscribed', { detail: 'Turned off in the customer account' })
   const r = await recordConsent(admin, session.orgId, {
     customerId: session.customerId,
     phone,
@@ -35,7 +37,7 @@ export async function POST(request: Request) {
     companyName: company.name,
     evidence: { ip, userAgent: (request.headers.get('user-agent') ?? '').slice(0, 300) },
   })
-  if (!r.ok) return portalJson({ error: r.error }, 500)
+  if (!r.ok) return portalJson({ error: r.error }, r.optedOut ? 409 : 500)
   return portalJson({ ok: true, on: raw.on })
 }
 

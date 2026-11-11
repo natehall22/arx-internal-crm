@@ -12,6 +12,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { consentText, SMS_CONSENT_WORDING_VERSION } from '@/lib/sms/consent-text'
+import { suppressionOf } from '@/lib/customer-message-suppressions'
 import { isMissingTable } from '@/lib/supabase/errors'
 import { orgDb } from '@/lib/supabase/org-db'
 
@@ -59,8 +60,16 @@ export type ConsentInput = {
   createdBy?: string | null
 }
 
+const FORM_SOURCES: ReadonlySet<ConsentSource> = new Set(['portal', 'quote_form', 'web_form', 'signing'])
+
 /** Append one consent row. Never edits an earlier one. */
-export async function recordConsent(admin: SupabaseClient, orgId: string, c: ConsentInput): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+export async function recordConsent(admin: SupabaseClient, orgId: string, c: ConsentInput): Promise<{ ok: true; id: string } | { ok: false; error: string; optedOut?: true }> {
+  // A form anyone can fill in never outranks an earlier STOP or "off": only the person's own START or a staff member
+  // recording "the customer said OK" (a staff source) after it reopens texting.
+  if (c.status === 'granted' && FORM_SOURCES.has(c.source)) {
+    const [latest, stopped] = await Promise.all([latestConsent(admin, orgId, c.phone), suppressionOf(admin, orgId, 'sms', c.phone)])
+    if (stopped || latest?.status === 'revoked') return { ok: false, error: 'This number asked us to stop texting. Texting it again needs the person to text START.', optedOut: true }
+  }
   const { data, error } = await orgDb(admin, orgId)
     .from('customer_sms_consent')
     .insert({
@@ -92,7 +101,7 @@ export async function latestConsent(admin: SupabaseClient, orgId: string, phone:
 /** Did this number text the company within the last CUSTOMER_STARTED_HOURS? (Customer-started conversation.) */
 export async function customerTextedRecently(admin: SupabaseClient, orgId: string, phone: string, now: Date, hours = CUSTOMER_STARTED_HOURS): Promise<boolean> {
   const since = new Date(now.getTime() - hours * 3_600_000).toISOString()
-  const { data, error } = await orgDb(admin, orgId).from('sms_inbound').select('id').eq('from_e164', phone).gte('received_at', since).limit(1)
+  const { data, error } = await orgDb(admin, orgId).from('sms_inbound').select('id').eq('from_e164', phone).eq('kind', 'message').gte('received_at', since).limit(1)
   if (error) {
     if (isMissingTable(error)) return false
     throw new Error(`inbound: ${error.message}`)

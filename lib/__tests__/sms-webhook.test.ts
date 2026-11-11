@@ -189,6 +189,37 @@ describe('keywords', () => {
   })
 })
 
+describe('switch off or number disconnected', () => {
+  const off = () => {
+    ;((db.tables.orgs as Row[])[0].settings as { features: Record<string, boolean> }).features.texting = false
+  }
+  it('STOP is still honored; nothing else is stored or posted', async () => {
+    off()
+    await call(inboundBody('m1', 'STOP'))
+    expect(table('customer_message_suppressions')).toHaveLength(1)
+    expect(table('customer_sms_consent')[0]).toMatchObject({ status: 'revoked' })
+    expect(table('activities')).toHaveLength(0)
+    await call(inboundBody('m2', 'hello there'))
+    await call(inboundBody('m3', 'HELP'))
+    expect(table('activities')).toHaveLength(0)
+    expect(table('sms_inbound').map((r) => r.provider_message_id)).toEqual(['m1'])
+  })
+  it('a disconnected number behaves the same', async () => {
+    ;(table('org_sms')[0] as Row).status = 'not_started'
+    await call(inboundBody('m1', 'hello'))
+    expect(table('sms_inbound')).toHaveLength(0)
+    await call(inboundBody('m2', 'please stop texting me'))
+    expect(table('customer_message_suppressions')).toHaveLength(1)
+  })
+})
+
+describe('START', () => {
+  it('from someone who never opted out is only answered: no new consent', async () => {
+    await call(inboundBody('m1', 'START'))
+    expect(table('customer_sms_consent')).toHaveLength(0)
+  })
+})
+
 describe('ordinary texts', () => {
   it('unknown number: waits for staff, no customer is created, nothing is sent', async () => {
     await call(inboundBody('m1', 'Hi, do you do gutters?', CO_A, '+18505550777'))
@@ -264,7 +295,15 @@ describe('delivery receipts', () => {
     expect(table('customer_messages')[0].delivery_status).toBe('sent')
     expect(table('customer_message_suppressions')).toHaveLength(0)
   })
-  it('a receipt for a message we never sent is ignored', async () => {
-    expect((await call(receipt('nope', 'delivered'))).status).toBe(200)
+  it('a fresh receipt for a message not saved yet asks the carrier to retry; an old one is dropped', async () => {
+    const fresh = JSON.stringify({ data: { event_type: 'message.finalized', occurred_at: new Date().toISOString(), payload: { id: 'nope', from: { phone_number: CO_A }, to: [{ phone_number: CUST, status: 'delivered' }] } } })
+    expect((await call(fresh)).status).toBe(500)
+    expect((await call(receipt('nope', 'delivered'))).status).toBe(200) // occurred 2026-11-11: long ago
+  })
+  it('"delivery unconfirmed" is not a failure and does not suppress', async () => {
+    sent()
+    await call(receipt('p1', 'delivery_unconfirmed', '40008'))
+    expect(table('customer_messages')[0].delivery_status).toBe('delivery_unconfirmed')
+    expect(table('customer_message_suppressions')).toHaveLength(0)
   })
 })

@@ -302,7 +302,7 @@ function Composer({ dealId, data, replyTo, onClearReply, onSent }: { dealId: str
   const [people, setPeople] = useState<{ id: string; full_name: string }[]>([])
   const [picked, setPicked] = useState<string[]>([])
   const clientId = useRef<string>(crypto.randomUUID())
-  // "To customer" can go by email (default) or by text — picked on purpose, never inferred. Replies start on the channel the customer used.
+  // "To customer" can go by email (default) or by text — picked on purpose, never inferred. Never chosen for the sender: Text is only ever an explicit pick.
   const [byText, setByText] = useState(false)
 
   useEffect(() => { if (data.writable.includes(data.defaultAudience)) setAudience(data.defaultAudience) }, [data.defaultAudience]) // eslint-disable-line react-hooks/exhaustive-deps -- only when the server's default changes, never on a poll
@@ -316,7 +316,6 @@ function Composer({ dealId, data, replyTo, onClearReply, onSent }: { dealId: str
   const toCustomer = effective === 'customer'
   const { data: textData, record: recordTextConsent } = useTextStatus(dealId, !!data.texting && toCustomer)
   const textReady = textData?.status?.state === 'ready'
-  useEffect(() => { if (toCustomer && textData?.lastCameBy === 'sms' && textReady) setByText(true) }, [toCustomer, textData?.lastCameBy, textReady])
   const sendingText = toCustomer && byText && !!data.texting
   const atMatch = AT_TAIL.exec(body)
   const suggestions = atMatch ? people.filter((p) => p.full_name.toLowerCase().includes(atMatch[1].trim().toLowerCase())).slice(0, 5) : []

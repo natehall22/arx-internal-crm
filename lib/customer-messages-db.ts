@@ -28,6 +28,8 @@ import { smsWords } from '@/lib/sms/compliance'
 import { recordConsent } from '@/lib/sms/consent'
 import {
   checkSmsRecipient,
+  outsideSmsFloor,
+  smsZones,
   inConversation,
   isSmsQuietHour,
   SMS_MAX_PER_NUMBER_PER_DAY,
@@ -421,11 +423,11 @@ function messageIdFor(ctx: SendContext, rowId: string): string {
  * Recipient checks shared by every kind: office "don't message", no usable address, suppressed — and for a text, consent
  * (lib/sms/gate.ts: the one place those rules live). (The daily cap is in the claim.)
  */
-async function recipientRefusal(ctx: SendContext, customer: CustomerFacts | null, to: string | null): Promise<{ reason: string } | null> {
+async function recipientRefusal(ctx: SendContext, customer: CustomerFacts | null, to: string | null, reply = false): Promise<{ reason: string } | null> {
   if (customer?.off) return { reason: 'customer_opted_out' }
   if (!to) return { reason: 'no_address' }
   if (ctx.channel.channel === 'sms') {
-    const check = await checkSmsRecipient(ctx.admin, ctx.orgId, to, ctx.now)
+    const check = await checkSmsRecipient(ctx.admin, ctx.orgId, to, ctx.now, { reply })
     if (check.ok) return null
     return { reason: check.code === 'no_consent' ? 'no_consent' : 'suppressed' }
   }
@@ -587,13 +589,14 @@ function smsPerNumberCap(kind: RowKind): number {
  * carrier requires it at once) and a staff reply to a customer who texted in the last 2 hours (a conversation).
  */
 async function smsClosedNow(ctx: SendContext, row: MessageRow): Promise<boolean> {
-  if (!isSmsQuietHour(ctx.hour, ctx.settings)) return false
   if (row.kind === 'sms_compliance') return false
-  if (row.kind === 'staff_reply') {
-    const phone = ctx.channel.addressFor({ email: null, phone: await rowPhone(ctx, row) })
-    if (phone && (await inConversation(ctx.admin, ctx.orgId, phone, ctx.now))) return false
+  const phone = ctx.channel.addressFor({ email: null, phone: await rowPhone(ctx, row) })
+  const zones = smsZones(ctx.timeZone, phone)
+  if (row.kind === 'staff_reply' && phone && (await inConversation(ctx.admin, ctx.orgId, phone, ctx.now))) {
+    // A conversation the customer started: past the company's quiet hours is fine, past 8 AM–9 PM (their clock too) is not.
+    return zones.some((z) => outsideSmsFloor(hourInZone(ctx.now, z)))
   }
-  return true
+  return zones.some((z) => isSmsQuietHour(hourInZone(ctx.now, z), ctx.settings))
 }
 
 /** The company's own ceiling for texts in one day (a runaway guard); the STOP answer is exempt. */
@@ -892,7 +895,7 @@ async function buildStaffReply(ctx: SendContext, row: MessageRow): Promise<Built
   if (!a || a.deleted_at || a.audience !== 'customer' || a.customer_id !== row.customer_id || !a.body?.trim()) return { send: false, status: 'cancelled', reason: 'message_gone' }
   const customer = await loadCustomer(ctx.admin, ctx.orgId, row.customer_id)
   const to = ctx.channel.addressFor({ email: null, phone: customer?.phone ?? null })
-  const refusal = await recipientRefusal(ctx, customer, to)
+  const refusal = await recipientRefusal(ctx, customer, to, true)
   if (refusal) return { send: false, status: 'skipped', reason: refusal.reason, to }
   const body = a.body.trim()
   return {

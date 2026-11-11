@@ -62,6 +62,26 @@ create table if not exists public.customer_sms_consent (
   created_at timestamptz not null default now()
 );
 create index if not exists customer_sms_consent_phone_idx on public.customer_sms_consent (org_id, phone_e164, created_at desc);
+
+-- Append-only: proof is never edited or removed. The one allowed change is the link to a customer going empty when that
+-- customer is deleted (the foreign key's ON DELETE SET NULL); a whole company's rows go with the company (cascade).
+create or replace function public.customer_sms_consent_append_only() returns trigger
+language plpgsql as $f$
+begin
+  if tg_op = 'DELETE' then
+    if not exists (select 1 from public.orgs where id = old.org_id) then return old; end if;
+    raise exception 'customer_sms_consent is append-only';
+  end if;
+  if new.customer_id is null and old.customer_id is not null
+     and (to_jsonb(new) - 'customer_id') = (to_jsonb(old) - 'customer_id') then
+    return new;
+  end if;
+  raise exception 'customer_sms_consent is append-only';
+end;
+$f$;
+drop trigger if exists customer_sms_consent_append_only on public.customer_sms_consent;
+create trigger customer_sms_consent_append_only before update or delete on public.customer_sms_consent
+  for each row execute function public.customer_sms_consent_append_only();
 create index if not exists customer_sms_consent_customer_idx on public.customer_sms_consent (org_id, customer_id, created_at desc);
 alter table public.customer_sms_consent enable row level security;
 revoke all on public.customer_sms_consent from anon, authenticated;
@@ -116,7 +136,7 @@ revoke all on public.sms_usage from anon, authenticated;
 alter table public.customer_messages
   add column if not exists provider_message_id text null,
   add column if not exists segments integer null check (segments is null or segments >= 0),
-  add column if not exists delivery_status text null check (delivery_status is null or delivery_status in ('sent', 'delivered', 'failed')),
+  add column if not exists delivery_status text null check (delivery_status is null or delivery_status in ('sent', 'delivered', 'failed', 'delivery_unconfirmed')),
   add column if not exists delivered_at timestamptz null,
   add column if not exists provider_error text null;
 create index if not exists customer_messages_provider_idx on public.customer_messages (org_id, provider_message_id) where provider_message_id is not null;

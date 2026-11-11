@@ -374,6 +374,7 @@ system — a portal session is a row (`portal_sessions`) tied to ONE customer of
   5 / hour per customer; 30 sign-in taps / 15 min per address; 600 requests / 10 min per session; 10 messages / hour; pay links 20 / hour.
   **Audit:** `portal_login_events` (requested, sent, no match, blocked, login, failed, logout, staff sign-out) — only hashed address
   keys, never a token or raw email.
+- **Pre-launch, texting (counsel):** quote follow-up texts count as marketing (written consent needed); the website checkbox wording `v1-2026-11` (`lib/sms/consent-text.ts`) needs counsel review before any company turns `texting` on.
 - **Pre-launch (not blocking the prototype):** SMS sign-in (email only now), a staff view of `portal_login_events`, change-order signing
   inside the portal.
 

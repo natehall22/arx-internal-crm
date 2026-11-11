@@ -53,7 +53,7 @@ export type SmsEvent =
       /** The company's number that sent it. */
       from: string
       to: string
-      status: 'sent' | 'delivered' | 'failed'
+      status: 'sent' | 'delivered' | 'failed' | 'unconfirmed'
       errorCode: string | null
       errorText: string | null
       segments: number | null

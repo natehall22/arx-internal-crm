@@ -153,7 +153,7 @@ export function parseTelnyxEvent(rawBody: string): SmsEvent | null {
   if (type === 'message.sent' || type === 'message.finalized') {
     const raw = typeof toFirst.status === 'string' ? toFirst.status : ''
     const errs = Array.isArray(p.errors) ? p.errors.map(asObj) : []
-    const status: 'sent' | 'delivered' | 'failed' = type === 'message.sent' ? 'sent' : raw === 'delivered' ? 'delivered' : 'failed'
+    const status: 'sent' | 'delivered' | 'failed' | 'unconfirmed' = type === 'message.sent' ? 'sent' : raw === 'delivered' ? 'delivered' : raw === 'delivery_unconfirmed' ? 'unconfirmed' : 'failed'
     return {
       kind: 'status',
       id,

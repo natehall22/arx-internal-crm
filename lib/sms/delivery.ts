@@ -29,6 +29,7 @@ export function deliveryOf(r: Row): TextDelivery {
   if (r.status === 'sent') {
     if (r.delivery_status === 'delivered') return { state: 'delivered', label: 'Texted · delivered', detail: null }
     if (r.delivery_status === 'failed') return { state: 'failed', label: 'Text not delivered', detail: r.provider_error ?? null }
+    if (r.delivery_status === 'delivery_unconfirmed') return { state: 'sent', label: 'Not confirmed', detail: 'The carrier did not say whether it arrived.' }
     return { state: 'sent', label: 'Texted', detail: null }
   }
   if (r.status === 'queued' || r.status === 'sending') return { state: 'waiting', label: 'Text waiting to go out', detail: 'Texts only go out between your texting hours.' }
