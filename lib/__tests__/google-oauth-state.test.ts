@@ -208,3 +208,42 @@ test('discard burns an unused ticket and wipes its parked code', async () => {
   expect(db.oauth_states[0].used_at).toBeTruthy()
   expect(await finish(t.nonce)).toEqual({ ok: false, reason: 'used' })
 })
+
+describe('ticket purpose (QuickBooks reuses this flow)', () => {
+  const qb = (over: Partial<{ returnHost: string; orgId: string }> = {}) =>
+    issueOAuthState(fakeAdmin(), { userId: 'u-1', orgId: 'org-acme', returnHost: 'acme.crm-product.test', purpose: 'quickbooks', ...over })
+
+  test('a QuickBooks ticket is refused by the Google callback, and a Google ticket by the QuickBooks one', async () => {
+    const q = (await qb())!
+    expect(await acceptOAuthCallback(fakeAdmin(), q.state, 'c')).toEqual({ ok: false, reason: 'bad_signature' })
+    const g = (await issue())!
+    expect(await acceptOAuthCallback(fakeAdmin(), g.state, 'c', Date.now(), { purpose: 'quickbooks' })).toEqual({ ok: false, reason: 'bad_signature' })
+    // Neither refusal parked a code.
+    expect(db.oauth_states.every((r) => r.code_ciphertext === null)).toBe(true)
+  })
+
+  test('a QuickBooks ticket works at its own callback', async () => {
+    const q = (await qb())!
+    const cb = await acceptOAuthCallback(fakeAdmin(), q.state, '{"c":"x","r":"123"}', Date.now(), { purpose: 'quickbooks' })
+    expect(cb).toMatchObject({ ok: true, returnOrigin: 'https://acme.crm-product.test' })
+  })
+
+  test('company with no address of its own: only the host the callback arrived on counts (and only then)', async () => {
+    db.orgs = [{ id: 'org-legacy', subdomain: null }]
+    db.users = [{ id: 'u-1', org_id: 'org-legacy', active: true }]
+    const t = (await qb({ orgId: 'org-legacy', returnHost: 'crm.legacy.test' }))!
+    expect(await acceptOAuthCallback(fakeAdmin(), t.state, 'c', Date.now(), { purpose: 'quickbooks' })).toEqual({ ok: false, reason: 'wrong_host' })
+    const t2 = (await qb({ orgId: 'org-legacy', returnHost: 'crm.legacy.test' }))!
+    expect(await acceptOAuthCallback(fakeAdmin(), t2.state, 'c', Date.now(), { purpose: 'quickbooks', sameOrigin: 'https://evil.test' })).toEqual({ ok: false, reason: 'wrong_host' })
+    const t3 = (await qb({ orgId: 'org-legacy', returnHost: 'crm.legacy.test' }))!
+    expect(await acceptOAuthCallback(fakeAdmin(), t3.state, 'c', Date.now(), { purpose: 'quickbooks', sameOrigin: 'https://crm.legacy.test' })).toMatchObject({ ok: true, returnOrigin: 'https://crm.legacy.test' })
+  })
+
+  test('sameOrigin never overrides a company that HAS its own address', async () => {
+    const q = (await qb({ returnHost: 'acme.crm-product.test' }))!
+    const cb = await acceptOAuthCallback(fakeAdmin(), q.state, 'c', Date.now(), { purpose: 'quickbooks', sameOrigin: 'https://acme.crm-product.test' })
+    expect(cb).toMatchObject({ ok: true, returnOrigin: 'https://acme.crm-product.test' })
+    const q2 = (await qb({ returnHost: 'other.crm-product.test' }))!
+    expect(await acceptOAuthCallback(fakeAdmin(), q2.state, 'c', Date.now(), { purpose: 'quickbooks', sameOrigin: 'https://other.crm-product.test' })).toEqual({ ok: false, reason: 'wrong_host' })
+  })
+})

@@ -66,6 +66,11 @@ export type HostKind =
   | { kind: 'company'; subdomain: string }
   | { kind: 'invalid' } // under the base domain but not a usable company name (nested, reserved, malformed)
 
+/** The host this request arrived on (the Host header; never a forwarded one) — the one source for connect flows' return host. */
+export function requestHost(request: Request): string {
+  return request.headers.get('host') ?? new URL(request.url).host
+}
+
 /** Hostname from a Host header: lowercase, no port, no trailing dot. */
 export function hostnameFromHeader(host: string | null | undefined): string {
   let h = (host ?? '').trim().toLowerCase()
