@@ -25,7 +25,10 @@ import {
   type ClockActor,
 } from '@/lib/time-tracking-db'
 import { localTimeToInstant, parseClockTap, type ClockTap } from '@/lib/time-tracking'
-import { payWeekCutoffFor } from '@/lib/weekly-payroll/cutoff'
+import { LEGACY_PAY_WEEK, weekCutoffContaining } from '@/lib/payroll-week-schedule'
+
+/** The company in these tests has no saved pay week: the legacy Thursday–Wednesday week in its own zone. */
+const payWeekCutoffFor = (at: Date) => weekCutoffContaining(at, { ...LEGACY_PAY_WEEK, timeZone: DEFAULT_TIMEZONE })
 
 const TZ = DEFAULT_TIMEZONE
 const U1 = 'aaaaaaaa-0000-4000-8000-000000000001'
@@ -305,7 +308,7 @@ describe('office', () => {
     db.tables.crew_members.push({ id: 'cm3', org_id: 'org1', sub_id: 's1', user_id: U3, is_lead: false })
     await applyClockTap(db.client, crew, tap('clock_in', T('06:00'), { workOrderId: WO2, userIds: [U1, U2, U3] }), T('06:00'))
     await applyClockTap(db.client, crew, tap('clock_out', T('14:00'), { userIds: [U1, U2, U3] }), T('14:00'))
-    const week = await loadTimeWeek(db.client, 'org1', payWeekCutoffFor(T('06:00')), T('18:00'))
+    const week = await loadTimeWeek(db.client, 'org1', T('06:00'), T('18:00'))
     expect(week.people.map((p) => [p.name, p.paidSeconds / 3600])).toEqual([
       ['Crew Carla', 8],
       ['Lead Larry', 8],
@@ -350,5 +353,55 @@ describe('open shifts on Today / morning email + the feed lock', () => {
     await applyClockTap(db.client, crew, tap('clock_out', T('09:00'), { userIds: [U1] }), T('09:00'))
     expect(calls.length).toBeGreaterThan(0)
     expect(calls.filter((c) => c === 'lock').length).toBe(calls.filter((c) => c === 'unlock').length)
+  })
+})
+
+describe('pay week = the company schedule, and weeks already stored win (payroll-solid merge)', () => {
+  // The owner moved the pay week from Thursday–Wednesday to Monday–Sunday; the old week ending Wed Nov 4 is approved.
+  const MON_SUN = { weekStartDay: 1, cutoffTime: '23:59', paydayWeekday: 5, lateFunding: null }
+  const oldCutoff = localTimeToInstant('2026-11-04', '23:59', TZ)!
+  function withSchedule(lockedAt: string) {
+    const db = seed()
+    Object.assign(db.tables.orgs[0], { settings: { payWeek: MON_SUN, timeTracking: {} } })
+    db.tables.payroll_periods.push({ id: 'p-old', org_id: 'org1', cutoff_at: new Date(oldCutoff.getTime() + 59_999).toISOString(), status: 'locked', locked_at: lockedAt, created_at: '2026-10-29T00:00:00Z' })
+    return db
+  }
+  const weekEnding = (db: ReturnType<typeof seed>, periodId: string) => db.tables.payroll_periods.find((p) => p.id === periodId)?.cutoff_at as string
+
+  it('time in the old approved week, tapped after approval, is paid once on the first new-schedule week (ends Sun Nov 8)', async () => {
+    const db = withSchedule(new Date(Date.now() - 60_000).toISOString())
+    const tue = T('09:00', '2026-11-03')
+    await applyClockTap(db.client, crew, tap('clock_in', tue, { workOrderId: WO1, userIds: [U1] }), tue)
+    await applyClockTap(db.client, crew, tap('clock_out', T('11:00', '2026-11-03'), { userIds: [U1] }), T('11:00', '2026-11-03'))
+    const calls = saveHoursEntries.mock.calls.map((c) => c[1] as { periodId: string; clock?: { timeZone?: string }; entries: Array<{ regular_hours: number; reason: string }> })
+    expect(calls.some((c) => c.periodId === 'p-old')).toBe(false)
+    const last = calls.at(-1)!
+    expect(new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(new Date(weekEnding(db, last.periodId)))).toBe('2026-11-08')
+    expect(last.entries[0].regular_hours).toBe(2)
+    expect(last.entries[0].reason).toMatch(/from the approved week before/)
+    expect(last.clock?.timeZone).toBe(TZ)
+    // No new week was made for the old week's own days (a Sunday Nov 1 week would overlap the approved one).
+    expect(db.tables.payroll_periods.map((p) => new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(new Date(p.cutoff_at as string))).sort()).toEqual(['2026-11-04', '2026-11-08'])
+  })
+
+  it('time already paid in the approved week is not paid again: the new week starts right after the old cutoff', async () => {
+    const db = withSchedule(new Date(Date.now() + 3_600_000).toISOString()) // approval "after" every tap below
+    await applyClockTap(db.client, crew, tap('clock_in', T('09:00', '2026-11-03'), { workOrderId: WO1, userIds: [U1] }), T('09:00', '2026-11-03'))
+    await applyClockTap(db.client, crew, tap('clock_out', T('11:00', '2026-11-03'), { userIds: [U1] }), T('11:00', '2026-11-03'))
+    saveHoursEntries.mockClear()
+    // Thursday Nov 5 is in the new Sunday week (Nov 5–8): only its own hour is paid there.
+    await applyClockTap(db.client, crew, tap('clock_in', T('09:00', '2026-11-05'), { workOrderId: WO1, userIds: [U1] }), T('09:00', '2026-11-05'))
+    await applyClockTap(db.client, crew, tap('clock_out', T('10:00', '2026-11-05'), { userIds: [U1] }), T('10:00', '2026-11-05'))
+    const last = saveHoursEntries.mock.calls.at(-1)![1] as { periodId: string; entries: Array<{ regular_hours: number }> }
+    expect(new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(new Date(weekEnding(db, last.periodId)))).toBe('2026-11-08')
+    expect(last.entries[0].regular_hours).toBe(1)
+  })
+
+  it('the office week list for a day in the new schedule runs from the old cutoff to Sunday', async () => {
+    const db = withSchedule(new Date(Date.now() - 60_000).toISOString())
+    const week = await loadTimeWeek(db.client, 'org1', '2026-11-06', T('12:00', '2026-11-06'))
+    expect([week.weekStart, week.weekEnd]).toEqual(['2026-11-05', '2026-11-08'])
+    const old = await loadTimeWeek(db.client, 'org1', '2026-11-02', T('12:00', '2026-11-06'))
+    expect([old.weekEnd, old.editable]).toEqual(['2026-11-04', false])
   })
 })

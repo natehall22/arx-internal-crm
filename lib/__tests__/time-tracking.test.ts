@@ -19,10 +19,18 @@ import {
   DEFAULT_TIME_TRACKING_SETTINGS,
   type TimeEntry,
 } from '@/lib/time-tracking'
-import { payWeekCutoffFor, payWeekStartInstant, cutoffYmdEt } from '@/lib/weekly-payroll/cutoff'
+import { LEGACY_PAY_WEEK, addWeeks, cutoffYmd, localInstant, weekCutoffContaining, type PayWeekSchedule } from '@/lib/payroll-week-schedule'
+
+/** First instant of a week on a schedule with no stored neighbour (lib/time-tracking-db clockWeekPrevCutoff fallback). */
+const weekStartInstant = (c: Date, s: PayWeekSchedule) => new Date(addWeeks(c, -1, s).getTime() + 1)
 
 const TZ = DEFAULT_TIMEZONE
 const at = (ymd: string, hm: string) => localTimeToInstant(ymd, hm, TZ)!.toISOString()
+// No saved pay week = the legacy Thursday–Wednesday week, in the company's zone (lib/payroll-week-schedule.ts).
+const LEGACY: PayWeekSchedule = { ...LEGACY_PAY_WEEK, timeZone: TZ }
+const payWeekCutoffFor = (d: Date) => weekCutoffContaining(d, LEGACY)
+const payWeekStartInstant = (c: Date) => weekStartInstant(c, LEGACY)
+const cutoffYmdEt = (c: Date) => cutoffYmd(c, LEGACY)
 let n = 0
 function entry(p: Partial<TimeEntry> & Pick<TimeEntry, 'kind' | 'startedAt'>): TimeEntry {
   return {
@@ -202,5 +210,37 @@ describe('office edits + settings', () => {
     expect(parseTimeTrackingSettingsPatch({ timeTracking: { autoCloseHours: 1 } })).toHaveProperty('error')
     expect(parseTimeTrackingSettingsPatch({ timeTracking: { overtimeAfterHours: 44 } })).toEqual({ set: { overtimeAfterHours: 44 } })
     expect(parseTimeTrackingSettingsPatch({ timeTracking: { bogus: 1 } })).toEqual({ error: 'Unknown setting: bogus' })
+  })
+})
+
+describe('time clock weeks follow the company pay-week schedule (payroll-solid)', () => {
+  // Monday–Sunday, closing Sunday 11:59 PM (Nathan's decided week).
+  const MON_SUN: PayWeekSchedule = { weekStartDay: 1, cutoffTime: '23:59', paydayWeekday: 5, lateFunding: null, timeZone: TZ }
+  const at = (ymd: string, hm: string) => new Date(localTimeToInstant(ymd, hm, TZ)!.getTime())
+
+  it('a Monday-to-Sunday week: Sunday night is this week, Monday 00:00 the next; the clock-change weeks are 169 h / 167 h', () => {
+    const sunNight = weekCutoffContaining(at('2026-11-08', '23:30'), MON_SUN)
+    expect(cutoffYmd(sunNight, MON_SUN)).toBe('2026-11-08')
+    expect(cutoffYmd(weekCutoffContaining(at('2026-11-09', '00:00'), MON_SUN), MON_SUN)).toBe('2026-11-15')
+    // An instant exactly on the cutoff belongs to that week.
+    expect(weekCutoffContaining(sunNight, MON_SUN).getTime()).toBe(sunNight.getTime())
+    // November 1 2026 (fall back) is a Sunday: the week Mon Oct 26 – Sun Nov 1 holds it.
+    const nov = weekCutoffContaining(at('2026-10-28', '09:00'), MON_SUN)
+    expect(cutoffYmd(nov, MON_SUN)).toBe('2026-11-01')
+    expect((nov.getTime() + 1 - weekStartInstant(nov, MON_SUN).getTime()) / 3_600_000).toBe(169)
+    // March 8 2026 (spring forward) is a Sunday: the week Mon Mar 2 – Sun Mar 8.
+    const mar = weekCutoffContaining(at('2026-03-04', '09:00'), MON_SUN)
+    expect(cutoffYmd(mar, MON_SUN)).toBe('2026-03-08')
+    expect((mar.getTime() + 1 - weekStartInstant(mar, MON_SUN).getTime()) / 3_600_000).toBe(167)
+  })
+
+  it('the office "week holding a day" (the day\'s first minute) follows the calendar day, on either schedule', () => {
+    const dayWeek = (ymd: string, s: PayWeekSchedule) => cutoffYmd(weekCutoffContaining(localInstant(ymd, '00:00', TZ), s), s)
+    expect(dayWeek('2026-11-09', MON_SUN)).toBe('2026-11-15')
+    expect(dayWeek('2026-11-15', MON_SUN)).toBe('2026-11-15')
+    expect(dayWeek('2026-11-05', LEGACY)).toBe('2026-11-11')
+    expect(dayWeek('2026-11-04', LEGACY)).toBe('2026-11-04')
+    // Even a week that closes at 00:00 on its last day: that day's first minute is still in it.
+    expect(dayWeek('2026-11-15', { ...MON_SUN, cutoffTime: '00:00' })).toBe('2026-11-15')
   })
 })

@@ -2,6 +2,7 @@
 
 import type { PayrollStatementPayload } from '@/lib/payroll-statement'
 import {
+  adjustmentsLabel,
   formatPayrollMoney,
   formatParticipantRoleLabel,
   holdStatusClass,
@@ -95,7 +96,7 @@ export default function PayrollStatementView({
         <SummaryCard label="Pay date" value={period.payDate} />
         <SummaryCard label="Rep" value={rep.name} />
         {(totals.adjustments ?? 0) !== 0 && (
-          <SummaryCard label="Fixes" value={formatPayrollMoney(totals.adjustments)} />
+          <SummaryCard label={adjustmentsLabel(statement.adjustments)} value={formatPayrollMoney(totals.adjustments)} />
         )}
         <SummaryCard
           label="Net payout"
@@ -122,7 +123,7 @@ export default function PayrollStatementView({
             />
           )}
           {(totals.adjustments ?? 0) !== 0 && (
-            <BreakdownChip label="Fixes" value={formatPayrollMoney(totals.adjustments)} />
+            <BreakdownChip label={adjustmentsLabel(statement.adjustments)} value={formatPayrollMoney(totals.adjustments)} />
           )}
           <BreakdownChip
             label="Chargebacks"

@@ -34,3 +34,10 @@ export function holdStatusClass(
   if (status === 'paid') return 'bg-indigo-100 text-indigo-800'
   return 'bg-gray-100 text-gray-600'
 }
+
+/** The statement's label for its "fixes" row: it also carries a weekly-minimum top-up when there is one. Pure. */
+export function adjustmentsLabel(adjustments: ReadonlyArray<{ kind: string }> | undefined): string {
+  const hasMin = (adjustments ?? []).some((a) => a.kind === 'weekly_minimum')
+  const hasFix = (adjustments ?? []).some((a) => a.kind !== 'weekly_minimum')
+  return hasMin ? (hasFix ? 'Weekly minimum & fixes' : 'Weekly minimum') : 'Fixes'
+}

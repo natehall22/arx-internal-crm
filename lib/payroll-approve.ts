@@ -2,12 +2,17 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { loadOrgForLinks } from '@/lib/company-links'
 
 import { lockPayrollPeriod } from '@/lib/payroll-period-lock'
+import { WEEKDAY_NAMES, weekdayOfYmd } from '@/lib/payroll-week-schedule'
 import { loadPayWeek, resolvePayWeekPeriod, type PayWeek } from '@/lib/payroll-pay-week'
 import { buildPayrollStatement } from '@/lib/payroll-statement'
 import { sendPayrollStatementEmail } from '@/lib/payroll-statement-email'
 import { getOrgBrand } from '@/lib/org-brand'
+import { isSuperAdmin } from '@/lib/super-admin'
 import { pickValidEmail } from '@/lib/setter-email'
 import { isUserActiveForTransactionalEmail } from '@/lib/user-email-eligibility'
+
+/** What anyone but an owner sees on Approve. */
+export const OWNER_ONLY_APPROVE_MESSAGE = 'Only an owner can approve payroll. Everything else on this screen is ready for them.'
 
 export type ApproveResult =
   | { ok: true; total: number; people: number; message: string }
@@ -26,13 +31,17 @@ export async function approvePayWeek(
 ): Promise<ApproveResult> {
   const { orgId, periodId } = input
   const now = input.now ?? new Date()
+  // Only an owner (super admin) approves; the office prepares everything else. Checked here, from the database, for every caller.
+  const { data: actor, error: actorErr } = await admin.from('users').select('id, is_super_admin, active').eq('id', input.actorUserId).eq('org_id', orgId).maybeSingle()
+  if (actorErr) throw actorErr
+  if (!isSuperAdmin(actor as never)) return { ok: false, status: 403, body: { error: OWNER_ONLY_APPROVE_MESSAGE, code: 'owner_only' } }
   // Cheap early exits from the period row alone; the pay calculation runs ONCE, under the claim, inside lockPayrollPeriod
   // (which also refuses when its total is not the one the admin was shown).
   const period = await resolvePayWeekPeriod(admin, orgId, now, periodId)
   if (period.status !== 'open') return { ok: false, status: 409, body: { error: 'This week is already approved' } }
-  // A week can only be approved once it has ended (its Wednesday cutoff has passed): never the upcoming week.
+  // A week can only be approved once it has ended (its cutoff has passed): never the upcoming week.
   if (new Date(period.cutoffAt).getTime() > now.getTime()) {
-    return { ok: false, status: 409, body: { error: "This week hasn't ended yet. Approve it after Wednesday night.", code: 'not_ended' } }
+    return { ok: false, status: 409, body: { error: `This week hasn't ended yet. Approve it after ${WEEKDAY_NAMES[weekdayOfYmd(period.weekEnding)]} night.`, code: 'not_ended' } }
   }
 
   const lock = await lockPayrollPeriod(admin, { orgId, periodId, actorUserId: input.actorUserId, status: 'open', expectedTotal: input.expectedTotal, now })

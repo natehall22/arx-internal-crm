@@ -4,7 +4,8 @@ import type { CompPlanForCalc } from '@/lib/calculate-commission-from-plan'
 import { loadActiveCompPlanForUser } from '@/lib/payroll-export'
 import { resolveHourlyRate } from '@/lib/payroll-hourly-rate'
 import { isPeriodClaimedError, periodRefusalMessage } from '@/lib/payroll-periods'
-import { cutoffYmdEt, ymdEt } from '@/lib/weekly-payroll/cutoff'
+import { weekDays } from '@/lib/payroll-week-schedule'
+import { DEFAULT_TIMEZONE } from '@/lib/timezone'
 import { computeHourlyEarnings } from '@/lib/weekly-payroll/hourly-earnings'
 
 export type HoursEntry = {
@@ -40,15 +41,16 @@ function isHourlyEligiblePlan(
   return false
 }
 
-/** The Eastern calendar days a weekly period pays: [weekStart, weekEnd], weekEnd being the cutoff's own Eastern date. */
-export function payWeekDays(cutoffAt: string | null | undefined): { start: string; end: string; days: string[] } {
+/** Where a week sits on the calendar: the company's time zone and the previous week's cutoff (a shorter/longer in-between week). */
+export type WeekClock = { timeZone?: string; prevCutoffAt?: string | null }
+
+/**
+ * The calendar days a weekly period pays, in the company's time zone: [weekStart, weekEnd], weekEnd being the cutoff's own date.
+ * Without a clock (`timeZone` unset) it is the original Eastern 7-day week, unchanged. One rule: lib/payroll-week-schedule weekDays.
+ */
+export function payWeekDays(cutoffAt: string | null | undefined, clock?: WeekClock): { start: string; end: string; days: string[] } {
   const cutoff = cutoffAt ? new Date(cutoffAt) : new Date()
-  const end = cutoffYmdEt(cutoff)
-  // Calendar arithmetic on the Eastern DATE (noon UTC avoids any DST edge), never on instants: subtracting 24h multiples from a
-  // 23:59 Eastern cutoff repeats/skips a date in the week the clocks change.
-  const days: string[] = []
-  for (let i = 0; i < 7; i++) days.push(new Date(new Date(`${end}T12:00:00Z`).getTime() - i * 86_400_000).toISOString().slice(0, 10))
-  return { start: days[days.length - 1], end, days }
+  return weekDays(cutoff, { timeZone: clock?.timeZone || DEFAULT_TIMEZONE }, clock?.prevCutoffAt ?? null)
 }
 
 export type WeekPerson = { id: string; full_name: string; role: string; active: boolean }
@@ -58,8 +60,8 @@ export type WeekPerson = { id: string; full_name: string; role: string; active: 
  * overlaps it — deactivation ends the assignment, so someone who left on Monday is still here), or with hours already
  * saved. The roster must not depend on who happens to be active at the moment Approve runs.
  */
-export async function loadWeekPeople(supabase: SupabaseClient, orgId: string, period: { id: string; cutoff_at: string | null }): Promise<WeekPerson[]> {
-  const { start, end } = payWeekDays(period.cutoff_at)
+export async function loadWeekPeople(supabase: SupabaseClient, orgId: string, period: { id: string; cutoff_at: string | null } & { clock?: WeekClock }): Promise<WeekPerson[]> {
+  const { start, end } = payWeekDays(period.cutoff_at, period.clock)
   const [{ data: activeUsers }, { data: savedRows }, { data: overlapping }] = await Promise.all([
     supabase.from('users').select('id, full_name, role, active').eq('org_id', orgId).eq('active', true).order('full_name'),
     supabase.from('payroll_rep_hours').select('user_id').eq('org_id', orgId).eq('payroll_period_id', period.id),
@@ -79,8 +81,8 @@ export async function loadWeekPeople(supabase: SupabaseClient, orgId: string, pe
  * The plan a person is paid under for this week: the one in force on the cutoff's Eastern date, or — for someone who left
  * during the week — the one in force on their last day (walking back day by day).
  */
-export async function loadPlanForWeek(supabase: SupabaseClient, userId: string, orgId: string, cutoffAt: string | null | undefined, opts: { leftOrSaved: boolean }) {
-  const { days } = payWeekDays(cutoffAt)
+export async function loadPlanForWeek(supabase: SupabaseClient, userId: string, orgId: string, cutoffAt: string | null | undefined, opts: { leftOrSaved: boolean; clock?: WeekClock }) {
+  const { days } = payWeekDays(cutoffAt, opts.clock)
   const first = await loadActiveCompPlanForUser(supabase, userId, orgId, days[0])
   if (first || !opts.leftOrSaved) return first
   for (const day of days.slice(1)) {
@@ -94,7 +96,7 @@ export async function loadPlanForWeek(supabase: SupabaseClient, userId: string, 
 export async function loadHourlyRoster(
   supabase: SupabaseClient,
   orgId: string,
-  period: { id: string; cutoff_at: string | null },
+  period: { id: string; cutoff_at: string | null; clock?: WeekClock },
   /** Already-loaded people for this week (loadWeekPeople), to skip a second read. */
   preloadedPeople?: WeekPerson[]
 ): Promise<HourlyRosterRow[]> {
@@ -111,7 +113,7 @@ export async function loadHourlyRoster(
   const rows: HourlyRosterRow[] = []
   for (const u of people) {
     const saved = savedByUser.get(u.id)
-    const assignment = await loadPlanForWeek(supabase, u.id, orgId, period.cutoff_at, { leftOrSaved: !u.active || Boolean(saved) })
+    const assignment = await loadPlanForWeek(supabase, u.id, orgId, period.cutoff_at, { leftOrSaved: !u.active || Boolean(saved), clock: period.clock })
     const plan = assignment?.comp_plans as (CompPlanForCalc & { hourly_rate?: number | null; name?: string | null }) | null
     // Saved hours always show (money already typed in is never hidden by a plan change); otherwise only hourly-eligible plans.
     if (!saved && !isHourlyEligiblePlan(plan, assignment?.hourly_rate_override)) continue
@@ -193,7 +195,7 @@ export function planHoursWrite(
  */
 export async function saveHoursEntries(
   supabase: SupabaseClient,
-  input: { orgId: string; periodId: string; cutoffAt: string | null; actorUserId: string; entries: HoursEntry[]; source?: 'typed' | 'clock' }
+  input: { orgId: string; periodId: string; cutoffAt: string | null; clock?: WeekClock; actorUserId: string; entries: HoursEntry[]; source?: 'typed' | 'clock' }
 ): Promise<SaveHoursResult> {
   const { orgId, periodId, actorUserId, entries } = input
   const source = input.source ?? 'typed'
@@ -207,7 +209,7 @@ export async function saveHoursEntries(
     const reg = Math.max(0, Number(entry.regular_hours) || 0)
     const ot = Math.max(0, Number(entry.overtime_hours) || 0)
 
-    const assignment = await loadPlanForWeek(supabase, userId, orgId, input.cutoffAt, { leftOrSaved: true })
+    const assignment = await loadPlanForWeek(supabase, userId, orgId, input.cutoffAt, { leftOrSaved: true, clock: input.clock })
     const plan = assignment?.comp_plans as (CompPlanForCalc & { hourly_rate?: number | null }) | null
     const hourlyRate = resolveHourlyRate({ hourlyRateOverride: assignment?.hourly_rate_override, compPlan: plan })
     // Only require a resolved hourly rate when actual hours are being recorded.

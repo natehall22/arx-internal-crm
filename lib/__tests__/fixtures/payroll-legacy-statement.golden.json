@@ -1,0 +1,73 @@
+{
+  "statement": {
+    "period": {
+      "id": "p1",
+      "label": "2026-W34",
+      "cutoffAt": "2026-08-16T22:10:00Z",
+      "startAt": "2026-08-09T14:24:00.000Z",
+      "endAt": "2026-08-16T22:10:00.000Z",
+      "payDate": "2026-08-21",
+      "status": "locked"
+    },
+    "rep": {
+      "id": "u1",
+      "name": "Jordan Vale"
+    },
+    "deals": [
+      {
+        "jobId": "j1",
+        "jobNumber": "26-0141",
+        "customerName": "Ashley Example",
+        "holdStatus": null,
+        "ntpDate": "2026-08-01",
+        "installDate": "2026-08-12",
+        "commissionableAmount": 20000,
+        "role": "sales_rep",
+        "ntpCommission": 0,
+        "revenueCommission": 1400,
+        "premierPricingCommission": 0,
+        "overrideAmount": null,
+        "dealTotal": 1400
+      }
+    ],
+    "hourly": {
+      "regularHours": 10,
+      "overtimeHours": 1,
+      "hourlyRate": 18,
+      "regularEarnings": 180,
+      "overtimeEarnings": 27,
+      "total": 207,
+      "notes": "n"
+    },
+    "periodUnits": null,
+    "totals": {
+      "grossCommission": 1400,
+      "hourlyEarnings": 207,
+      "periodUnitEarnings": 0,
+      "bonusEarnings": 250,
+      "adjustments": -50,
+      "chargebacksApplied": 0,
+      "netPayout": 1807,
+      "hasDeficit": false
+    },
+    "chargebacks": [],
+    "bonuses": [
+      {
+        "id": "b1",
+        "bonusType": "manual",
+        "description": "Spiff",
+        "amount": 250
+      }
+    ],
+    "adjustments": [
+      {
+        "id": "a1",
+        "kind": "fix",
+        "reason": "Fix 26-0120",
+        "amount": -50
+      }
+    ]
+  },
+  "subject": "Pay statement — 2026-W34 — $1,807.00",
+  "html": "\n    <div style=\"font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto; padding: 20px; color: #111827;\">\n      <h2 style=\"margin: 0 0 16px;\">Your pay statement</h2>\n      <p style=\"color: #374151;\">Hi Jordan,</p>\n      <p style=\"color: #374151;\">\n        Your pay statement for <strong>2026-W34</strong> is ready.\n        A one-page PDF summary is attached. Use the button below for customer-level detail in the CRM.\n      </p>\n      <table style=\"width: 100%; border-collapse: collapse; margin: 16px 0;\">\n        <tr><td style=\"padding: 8px 0; color: #6B7280; width: 180px;\">Pay period</td><td style=\"padding: 8px 0; color: #111827;\">2026-W34</td></tr><tr><td style=\"padding: 8px 0; color: #6B7280; width: 180px;\">Pay date</td><td style=\"padding: 8px 0; color: #111827;\">2026-08-21</td></tr><tr><td style=\"padding: 8px 0; color: #6B7280; width: 180px;\">Net payout</td><td style=\"padding: 8px 0; color: #111827;\">$1,807.00</td></tr><tr><td style=\"padding: 8px 0; color: #6B7280; width: 180px;\">Commission</td><td style=\"padding: 8px 0; color: #111827;\">$1,400.00</td></tr><tr><td style=\"padding: 8px 0; color: #6B7280; width: 180px;\">Hourly</td><td style=\"padding: 8px 0; color: #111827;\">$207.00</td></tr><tr><td style=\"padding: 8px 0; color: #6B7280; width: 180px;\">Bonuses</td><td style=\"padding: 8px 0; color: #111827;\">$250.00</td></tr><tr><td style=\"padding: 8px 0; color: #6B7280; width: 180px;\">Fixes</td><td style=\"padding: 8px 0; color: #111827;\">-$50.00</td></tr><tr><td style=\"padding: 8px 0; color: #6B7280; width: 180px;\">Chargebacks</td><td style=\"padding: 8px 0; color: #111827;\">-$0.00</td></tr><tr><td style=\"padding: 8px 0; color: #6B7280; width: 180px;\">Period status</td><td style=\"padding: 8px 0; color: #111827;\">locked</td></tr>\n      </table>\n      \n      <p style=\"margin-top: 16px;\">\n        <a href=\"https://crm.example.test/s\" style=\"display: inline-block; background: #4F46E5; color: #fff; padding: 10px 16px; border-radius: 8px; text-decoration: none; font-weight: 600;\">\n          View pay statement in CRM\n        </a>\n      </p>\n      <p style=\"color: #6B7280; font-size: 12px; margin-top: 16px;\">\n        This is an automated message from ARX CRM. If you have questions, contact your manager or payroll admin.\n      </p>\n    </div>\n  "
+}

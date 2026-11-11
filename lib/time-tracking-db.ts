@@ -20,7 +20,7 @@ import { orgTimeZone } from '@/lib/cron-orgs'
 import { NEW_COST_LINE_PAYROLL_FLAGS } from '@/lib/job-cost-ledger'
 import { loadPlanForWeek, saveHoursEntries } from '@/lib/payroll-hours'
 import { resolveHourlyRate } from '@/lib/payroll-hourly-rate'
-import { findPeriodForCutoff, periodIsEditable } from '@/lib/payroll-periods'
+import { findOrCreateWeek, findWeekNear, periodIsEditable } from '@/lib/payroll-periods'
 import { isFieldRoleLike } from '@/lib/permissions'
 import { isMissingColumn, isMissingTable } from '@/lib/supabase/errors'
 import { orgDb } from '@/lib/supabase/org-db'
@@ -48,7 +48,8 @@ import {
   type TimeTrackingSettings,
   type TimeWarning,
 } from '@/lib/time-tracking'
-import { addDaysYmd, addEasternDays, cutoffYmdEt, payWeekCutoffFor, payWeekStartInstant } from '@/lib/weekly-payroll/cutoff'
+import { addDaysYmd, addWeeks, cutoffYmd, daysBetweenYmd, localInstant, nextWeekCutoff, readPayWeekSchedule, weekCutoffContaining, type PayWeekSchedule } from '@/lib/payroll-week-schedule'
+import { loadPrevCutoff } from '@/lib/payroll-week-schedule-server'
 
 type Fail = { ok: false; status: number; error: string }
 
@@ -63,12 +64,54 @@ export const TIME_TRACKING_NOT_READY = 'The time clock turns on once the databas
 // Company settings + time zone (one read)
 // ---------------------------------------------------------------------------------------------------------------------
 
-export type ClockConfig = { settings: TimeTrackingSettings; timeZone: string }
+/** `payWeek` = the company's pay-week schedule (lib/payroll-week-schedule.ts) — the ONE week rule clock time is bucketed by. */
+export type ClockConfig = { settings: TimeTrackingSettings; timeZone: string; payWeek: PayWeekSchedule }
 
 export async function loadClockConfig(admin: SupabaseClient, orgId: string): Promise<ClockConfig> {
-  const { data } = await admin.from('orgs').select('timezone, tt:settings->timeTracking').eq('id', orgId).maybeSingle()
-  const row = (data ?? {}) as { timezone?: unknown; tt?: unknown }
-  return { settings: readTimeTrackingSettings(row.tt ?? {}), timeZone: orgTimeZone(row.timezone) }
+  const { data } = await admin.from('orgs').select('timezone, tt:settings->timeTracking, pw:settings->payWeek').eq('id', orgId).maybeSingle()
+  const row = (data ?? {}) as { timezone?: unknown; tt?: unknown; pw?: unknown }
+  const timeZone = orgTimeZone(row.timezone)
+  // Same reading as loadPayWeekSchedule (lib/payroll-week-schedule-server.ts): saved schedule if valid, else the legacy week.
+  return { settings: readTimeTrackingSettings(row.tt ?? {}), timeZone, payWeek: readPayWeekSchedule({ payWeek: row.pw ?? undefined }, timeZone) }
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Pay weeks: the company's schedule (lib/payroll-week-schedule.ts) + the weeks already stored
+// ---------------------------------------------------------------------------------------------------------------------
+
+/**
+ * The cutoff of the pay week an instant belongs to. Normally the company's schedule (`weekCutoffContaining`); but a week
+ * already stored that closes between the instant and that cutoff wins — e.g. an old Wednesday week right after the owner
+ * moved the pay week to Sundays — so clock time is never paid in two overlapping weeks.
+ */
+export async function clockWeekCutoff(admin: SupabaseClient, orgId: string, at: Date, pw: PayWeekSchedule): Promise<Date> {
+  const scheduled = weekCutoffContaining(at, pw)
+  const { data, error } = await admin
+    .from('payroll_periods')
+    .select('cutoff_at')
+    .eq('org_id', orgId)
+    .neq('status', 'cancelled')
+    .gte('cutoff_at', at.toISOString())
+    .lt('cutoff_at', scheduled.toISOString())
+    .order('cutoff_at', { ascending: true })
+    .limit(1)
+  if (error) throw error
+  const stored = (data ?? [])[0]?.cutoff_at as string | undefined
+  // A stored cutoff on the scheduled cutoff's own date is that week (hand-typed legacy hour): findWeekNear matches it by date.
+  return stored && cutoffYmd(stored, pw) !== cutoffYmd(scheduled, pw) ? new Date(stored) : scheduled
+}
+
+/**
+ * The cutoff just before the week closing at `cutoff` (the week starts 1 ms after it): the stored week before it when that is
+ * 1–13 days back — the same neighbour rule payroll uses for the week's days (`weekDays`) — else one schedule week back.
+ */
+export async function clockWeekPrevCutoff(admin: SupabaseClient, orgId: string, cutoff: Date, pw: PayWeekSchedule): Promise<Date> {
+  const prev = await loadPrevCutoff(admin, orgId, null, cutoff.toISOString())
+  if (prev) {
+    const gap = daysBetweenYmd(cutoffYmd(prev, pw), cutoffYmd(cutoff, pw))
+    if (gap >= 1 && gap <= 13) return new Date(prev)
+  }
+  return addWeeks(cutoff, -1, pw)
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -404,7 +447,7 @@ export async function applyClockTap(admin: SupabaseClient, actor: ClockActor, ta
 
   // A tap for a week already approved is kept and flagged; its time is paid on the next open week (syncTimeFeeds carry).
   let flag = time.flag
-  const period = await findPeriodForCutoff(admin, actor.orgId, payWeekCutoffFor(time.at), { create: false }).catch(() => null)
+  const period = await clockWeekCutoff(admin, actor.orgId, time.at, config.payWeek).then((c) => findWeekNear(admin, actor.orgId, c, config.payWeek)).catch(() => null)
   if (!periodIsEditable(period)) flag = [flag, 'Came in after that week was approved — paid on the next open week'].filter(Boolean).join('. ')
 
   const ctx: TapCtx = {
@@ -679,8 +722,9 @@ async function answerFinishTime(
   }
   if (!end || end.getTime() <= startMs) return { ok: false, status: 400, error: 'That’s before they started' }
   if (end.getTime() - startMs > 24 * 3_600_000 || end.getTime() > input.now.getTime()) return { ok: false, status: 400, error: 'That time doesn’t fit — ask the office to fix it' }
-  const period = await findPeriodForCutoff(admin, orgId, payWeekCutoffFor(end), { create: false })
-  const periodStart = await findPeriodForCutoff(admin, orgId, payWeekCutoffFor(new Date(startMs)), { create: false })
+  const pw = input.config.payWeek
+  const period = await findWeekNear(admin, orgId, await clockWeekCutoff(admin, orgId, end, pw), pw)
+  const periodStart = await findWeekNear(admin, orgId, await clockWeekCutoff(admin, orgId, new Date(startMs), pw), pw)
   if (!periodIsEditable(period) || !periodIsEditable(periodStart)) return { ok: false, status: 409, error: 'That week is already approved — ask the office' }
   const endedAt = end.toISOString()
   const overlap = await overlapRefusal(admin, orgId, { userId: e.userId, kind: 'work', startedAt: e.startedAt, endedAt, excludeId: e.id, timeZone: input.config.timeZone })
@@ -853,17 +897,23 @@ export type TimeWeek = {
   staff: Array<{ userId: string; name: string }>
 }
 
-/** One pay week of time: every person with entries, their paid total, warnings, and what payroll has. */
-export async function loadTimeWeek(admin: SupabaseClient, orgId: string, cutoff: Date, now = new Date()): Promise<TimeWeek> {
+/**
+ * One pay week of time: every person with entries, their paid total, warnings, and what payroll has. `ref` = a calendar day
+ * (YYYY-MM-DD, the week whose days include it) or an instant (the week it falls in) — on the company's pay-week schedule.
+ */
+export async function loadTimeWeek(admin: SupabaseClient, orgId: string, ref: string | Date = new Date(), now = new Date()): Promise<TimeWeek> {
   const config = await loadClockConfig(admin, orgId)
+  const pw = config.payWeek
+  // A day = its first minute (a cutoff is never earlier on its own date), so a day and an instant follow one rule.
+  const cutoff = await clockWeekCutoff(admin, orgId, typeof ref === 'string' ? localInstant(ref, '00:00', config.timeZone) : ref, pw)
   await autoCloseForgotten(admin, orgId, { now, config }).catch((e) => console.error('[time-clock] auto-close on list failed', e))
-  const from = payWeekStartInstant(cutoff).getTime()
+  const from = (await clockWeekPrevCutoff(admin, orgId, cutoff, pw)).getTime() + 1
   const to = cutoff.getTime()
-  const period = await findPeriodForCutoff(admin, orgId, cutoff, { create: false })
+  const period = await findWeekNear(admin, orgId, cutoff, pw)
   const base: TimeWeek = {
     ready: true,
     weekStart: localYmd(from, config.timeZone),
-    weekEnd: cutoffYmdEt(cutoff),
+    weekEnd: cutoffYmd(cutoff, pw),
     cutoffAt: cutoff.toISOString(),
     editable: periodIsEditable(period),
     timeZone: config.timeZone,
@@ -973,9 +1023,10 @@ async function loadEquipmentNames(admin: SupabaseClient, orgId: string, entries:
 }
 
 async function weekIsOpen(admin: SupabaseClient, orgId: string, isoTimes: Array<string | null | undefined>): Promise<boolean> {
+  const { payWeek } = await loadClockConfig(admin, orgId)
   for (const iso of isoTimes) {
     if (!iso) continue
-    const p = await findPeriodForCutoff(admin, orgId, payWeekCutoffFor(new Date(iso)), { create: false })
+    const p = await findWeekNear(admin, orgId, await clockWeekCutoff(admin, orgId, new Date(iso), payWeek), payWeek)
     if (!periodIsEditable(p)) return false
   }
   return true
@@ -1160,21 +1211,22 @@ export async function syncTimeFeeds(
   input: { userIds: string[]; instants: string[]; jobIds: string[]; actorUserId: string | null }
 ): Promise<FeedResult> {
   const out: FeedResult = { weeks: 0, hoursSaved: 0, skipped: [], costLines: 0 }
+  if (!input.instants.some((iso) => Number.isFinite(Date.parse(iso)))) return out
+  const config = await loadClockConfig(admin, orgId)
+  // Weeks on the company's own pay-week schedule (lib/payroll-week-schedule.ts), the same rule payroll uses.
   const cutoffs = new Map<string, Date>()
   for (const iso of input.instants) {
     const t = Date.parse(iso)
     if (!Number.isFinite(t)) continue
-    const c = payWeekCutoffFor(new Date(t))
+    const c = await clockWeekCutoff(admin, orgId, new Date(t), config.payWeek)
     cutoffs.set(c.toISOString(), c)
   }
-  if (cutoffs.size === 0) return out
-  const config = await loadClockConfig(admin, orgId)
   // A touched week that is already approved can't change: its late time is carried into the week after (below).
   const weeks = Array.from(cutoffs.values())
   for (const c of [...weeks]) {
-    const p = await findPeriodForCutoff(admin, orgId, c, { create: false })
+    const p = await findWeekNear(admin, orgId, c, config.payWeek)
     if (!periodIsEditable(p)) {
-      const next = addEasternDays(c, 7)
+      const next = nextWeekCutoff(c, config.payWeek)
       if (!cutoffs.has(next.toISOString())) {
         cutoffs.set(next.toISOString(), next)
         weeks.push(next)
@@ -1183,14 +1235,15 @@ export async function syncTimeFeeds(
   }
   for (const cutoff of weeks) {
     out.weeks++
-    const from = payWeekStartInstant(cutoff).getTime()
+    const prevCutoff = await clockWeekPrevCutoff(admin, orgId, cutoff, config.payWeek)
+    const from = prevCutoff.getTime() + 1
     const to = cutoff.getTime()
-    const period = await findPeriodForCutoff(admin, orgId, cutoff, { create: input.userIds.length > 0 })
+    const period = input.userIds.length > 0 ? await findOrCreateWeek(admin, orgId, cutoff, config.payWeek) : await findWeekNear(admin, orgId, cutoff, config.payWeek)
     const weekOpen = periodIsEditable(period)
     const rateCache = new Map<string, number | null>()
     const rateFor = async (userId: string) => {
       if (!rateCache.has(userId)) {
-        const a = await loadPlanForWeek(admin, userId, orgId, cutoff.toISOString(), { leftOrSaved: true })
+        const a = await loadPlanForWeek(admin, userId, orgId, cutoff.toISOString(), { leftOrSaved: true, clock: { timeZone: config.payWeek.timeZone } })
         rateCache.set(userId, resolveHourlyRate({ hourlyRateOverride: a?.hourly_rate_override, compPlan: a?.comp_plans as never }))
       }
       return rateCache.get(userId) ?? null
@@ -1199,10 +1252,9 @@ export async function syncTimeFeeds(
     // ---- payroll hours
     if (period && weekOpen) {
       // The week before, if it was approved: time recorded after its approval began was never paid there.
-      const prevCutoff = addEasternDays(cutoff, -7)
-      const prev = await findPeriodForCutoff(admin, orgId, prevCutoff, { create: false })
+      const prev = await findWeekNear(admin, orgId, prevCutoff, config.payWeek)
       const prevApprovedAt = prev && !periodIsEditable(prev) ? Date.parse((prev.lock_claimed_at ?? prev.locked_at ?? '') as string) : NaN
-      const prevFrom = payWeekStartInstant(prevCutoff).getTime()
+      const prevFrom = (await clockWeekPrevCutoff(admin, orgId, prevCutoff, config.payWeek)).getTime() + 1
       for (const userId of input.userIds) {
         // One recompute per person at a time: two taps landing together can't write an older total over a newer one.
         const res = await withFeedLock(admin, orgId, userId, async () => {
@@ -1221,6 +1273,7 @@ export async function syncTimeFeeds(
             orgId,
             periodId: period.id,
             cutoffAt: period.cutoff_at,
+            clock: { timeZone: config.payWeek.timeZone },
             actorUserId: input.actorUserId ?? userId,
             source: 'clock',
             entries: [{ user_id: userId, regular_hours: split.regularHours, overtime_hours: split.overtimeHours, reason: carried ? `Time clock (incl. ${formatDuration(carried)} from the approved week before)` : 'Time clock' }],
@@ -1265,7 +1318,7 @@ export async function syncTimeFeeds(
       }
       const written = await upsertJobLaborLine(admin, orgId, {
         jobId,
-        weekEnding: cutoffYmdEt(cutoff),
+        weekEnding: cutoffYmd(cutoff, config.payWeek),
         amount: Math.round(amount * 100) / 100,
         seconds,
         unpricedSeconds,

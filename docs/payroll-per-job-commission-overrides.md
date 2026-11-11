@@ -150,7 +150,16 @@ intended, and each is overridden independently.
 - Every write requires a non-empty reason and is audited; if the audit insert
   fails, the override is rolled back and the request 500s.
 
-## Known gap — the write UI is hard to reach
+## The Change sheet (2026-11-12) replaces the recipe above
+
+On the new Pay screen (flag on), "Change who gets what" on a job opens one sheet: every line with its share, take someone off
+(writes the 0 row), add someone (a `custom` row), "back to plan" (deletes the office row), one reason, one Save. The server re-reads
+the job's lines from the planner and writes only what changed through SQL `payroll_set_job_split` — every row plus one
+`payroll_override_audit` row each, in one transaction, refused once the job has lines in an approved week
+(`lib/payroll-job-split.ts`, migration 202611120010). Taking a derived line off (inspection, manager override, self-gen) writes the
+matching explicit 0 row, which is exactly the suppression rule described above.
+
+## Known gap (legacy path only) — the write UI is hard to reach
 
 `/admin/payroll/statements` renders its override inputs from
 `payroll_payout_lines`, which only exist **after** `materializePayrollPeriod()`,

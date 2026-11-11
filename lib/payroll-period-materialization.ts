@@ -4,7 +4,8 @@ import { buildCommissionPayrollSnapshot } from '@/lib/commission-payroll'
 import { loadInvoiceTaxCentsByJob } from './job-invoice-tax'
 import { evaluateJobCollection, sumCollectedCents } from '@/lib/job-collection'
 import { roundMoney } from '@/lib/money'
-import { cutoffYmdEt } from '@/lib/weekly-payroll/cutoff'
+import { cutoffYmd } from '@/lib/payroll-week-schedule'
+import { DEFAULT_TIMEZONE } from '@/lib/timezone'
 import { loadJobCostLedger } from '@/lib/job-cost-ledger'
 import {
   buildAdditiveParticipantsForJob,
@@ -98,7 +99,7 @@ export function derivePayrollEligibility(input: {
   state?: JobStateRow
   payments: PaymentRow[]
   costs: CostRow[]
-}): { eligibleAt: string | null; reason: string | null; deductibleCosts: number } {
+}): { eligibleAt: string | null; reason: string | null; deductibleCosts: number; installAt?: string; fundedAt?: string; costsAt?: string } {
   const installAt = input.state?.install_completed_at || input.job.completed_at
   if (!installAt && input.job.status !== 'complete' && input.job.status !== 'collected') {
     return { eligibleAt: null, reason: 'not_installed', deductibleCosts: 0 }
@@ -142,7 +143,25 @@ export function derivePayrollEligibility(input: {
       .filter((line) => line.approved && line.deduct_from_commission_base)
       .reduce((sum, line) => sum + (Number(line.amount) || 0), 0)
   )
-  return { eligibleAt, reason: null, deductibleCosts }
+  return { eligibleAt, reason: null, deductibleCosts, installAt, fundedAt, costsAt }
+}
+
+/**
+ * Does a finished job pay THIS week? Its install, money and costs all landed by the cutoff — or, when the company has a late-money
+ * window (lib/payroll-week-schedule lateFunding, e.g. "financed money in by Wednesday 11:59 PM still pays Friday"), the install
+ * and costs landed by the cutoff and the money landed by the end of that window (and has actually landed: never later than `now`). Pure.
+ */
+export function paysThisWeek(
+  e: { eligibleAt: string; installAt?: string; fundedAt?: string; costsAt?: string },
+  cutoffAt: string,
+  lateFundingUntil: string | null | undefined,
+  now: Date
+): boolean {
+  const cutoff = new Date(cutoffAt).getTime()
+  if (new Date(e.eligibleAt).getTime() <= cutoff) return true
+  if (!lateFundingUntil || !e.installAt || !e.fundedAt || !e.costsAt) return false
+  const until = Math.min(new Date(lateFundingUntil).getTime(), now.getTime())
+  return new Date(e.installAt).getTime() <= cutoff && new Date(e.costsAt).getTime() <= cutoff && new Date(e.fundedAt).getTime() <= until
 }
 
 function monthBounds(jobs: JobRow[], fallbackDate: string): { from: string; to: string } {
@@ -172,6 +191,8 @@ export type PlannedPayoutRow = {
 export type PlannedJob = {
   job: JobRow
   eligibleAt: string
+  /** The three dates eligibility is the latest of (the late-money rule and the side-by-side need them). */
+  eligibility?: { installAt?: string; fundedAt?: string; costsAt?: string }
   rows: PlannedPayoutRow[]
   commissionBase: number
   poolCap: number
@@ -236,15 +257,34 @@ export function waitingReasonText(reason: string, collectedCents: number, saleAm
  */
 export async function planPayrollPeriod(
   supabase: SupabaseClient,
-  input: { orgId: string; periodId: string; onlyJobIds?: string[]; includeWaiting?: boolean }
+  input: {
+    orgId: string
+    periodId: string
+    onlyJobIds?: string[]
+    includeWaiting?: boolean
+    /** The company's time zone (the cutoff's calendar date). Unset = the original Eastern date. */
+    timeZone?: string
+    /** The company's late-money window for this week (PayWeekPeriod.lateFundingUntil). */
+    lateFundingUntil?: string | null
+    now?: Date
+    /**
+     * Dry run of a week that does not exist (the side-by-side, lib/payroll-simulate-week.ts): plan against this period instead of
+     * reading one, and include jobs settled outside the CRM. Never used by the Pay screen or Approve.
+     */
+    simulate?: { period: { id: string; cutoff_at: string; scheduled_pay_date: string }; includeSettledExternally: boolean }
+  }
 ): Promise<PayrollPlan> {
   const { orgId, periodId } = input
-  const { data: periodData, error: periodError } = await supabase
-    .from('payroll_periods')
-    .select('id, cutoff_at, scheduled_pay_date, status')
-    .eq('id', periodId)
-    .eq('org_id', orgId)
-    .maybeSingle()
+  const zone = { timeZone: input.timeZone || DEFAULT_TIMEZONE }
+  const now = input.now ?? new Date()
+  const { data: periodData, error: periodError } = input.simulate
+    ? { data: { ...input.simulate.period, status: 'open' }, error: null }
+    : await supabase
+        .from('payroll_periods')
+        .select('id, cutoff_at, scheduled_pay_date, status')
+        .eq('id', periodId)
+        .eq('org_id', orgId)
+        .maybeSingle()
   if (periodError || !periodData) throw periodError || new Error('Payroll period not found')
   const period = periodData as PeriodRow
   if (period.status === 'paid' || period.status === 'cancelled') {
@@ -270,13 +310,14 @@ export async function planPayrollPeriod(
     )
     .eq('org_id', orgId)
     .not('sale_date', 'is', null)
-    .lte('sale_date', cutoffYmdEt(period.cutoff_at))
+    .lte('sale_date', cutoffYmd(period.cutoff_at, zone))
     .in('status', statuses)
     // Settled outside the CRM before cutover: never planned, previewed, waiting or paid (and the double-pay checks never see them).
-    .is('payroll_settled_externally_at', null)
+    // (The side-by-side dry run alone looks at them — they are exactly what was paid outside; filter added below.)
     // Deterministic: the once-per-month flat bonus lands on the same job in the preview and in Approve.
     .order('sale_date', { ascending: true })
     .order('id', { ascending: true })
+  if (!input.simulate?.includeSettledExternally) jobsQuery = jobsQuery.is('payroll_settled_externally_at', null)
   if (input.onlyJobIds?.length) jobsQuery = jobsQuery.in('id', input.onlyJobIds)
   const { data: jobData, error: jobError } = await jobsQuery
   if (jobError) throw jobError
@@ -367,12 +408,12 @@ export async function planPayrollPeriod(
       waitingItems.push({ job, reason })
       return []
     }
-    if (new Date(result.eligibleAt).getTime() > new Date(period.cutoff_at).getTime()) {
+    if (!paysThisWeek(result as { eligibleAt: string }, period.cutoff_at, input.lateFundingUntil, now)) {
       skippedJobs.push({ jobId: job.id, reason: 'after_cutoff' })
       waitingItems.push({ job, reason: 'after_cutoff' })
       return []
     }
-    return [{ job, eligibleAt: result.eligibleAt, deductibleCosts: result.deductibleCosts }]
+    return [{ job, eligibleAt: result.eligibleAt, deductibleCosts: result.deductibleCosts, eligibility: { installAt: result.installAt, fundedAt: result.fundedAt, costsAt: result.costsAt } }]
   })
 
   const waitingToPrice = input.includeWaiting ? waitingItems : []
@@ -459,7 +500,7 @@ export async function planPayrollPeriod(
       string,
       { role: string; plan: CompPlanForCalc; calc: ReturnType<typeof computeRawCommissionForParticipant>; flatBonus: number }
     >()
-    const saleDate = job.sale_date || cutoffYmdEt(period.cutoff_at)
+    const saleDate = job.sale_date || cutoffYmd(period.cutoff_at, zone)
     const monthKey = monthKeyFromSaleDate(job.sale_date)
 
     // Producers whose pay on THIS job was overridden by an admin. Their comp plan is
@@ -670,6 +711,7 @@ export async function planPayrollPeriod(
     jobs.push({
       job,
       eligibleAt: item.eligibleAt,
+      eligibility: item.eligibility,
       rows,
       commissionBase: payrollSnapshot.compBase as number,
       poolCap: payrollSnapshot.poolCap as number,

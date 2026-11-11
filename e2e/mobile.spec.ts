@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import { REPORT_TEMPLATES } from '../lib/reporting/templates'
-import { JOB_SETUP_TRADES, HARNESS_TRADES_0037, HARNESS_PAYMENTS_0037, SUPPLIER_VIEW_0037, HARNESS_INCENTIVES, HARNESS_LEADERBOARD, HARNESS_INSIDE_SALES, HARNESS_INSTALL_SCHEDULE, HARNESS_PARTNERS, HARNESS_APPOINTMENTS, HARNESS_THREAD, HARNESS_PROPOSALS, HARNESS_LEADS, ANNOUNCEMENTS, BANNER, DEFAULT_PLANS, COST_LINES, SUPPLIERS, PAY_WEEK, MY_PAY, REPORT_RESULT, SALE_CREDIT, SUPPLIER_PREVIEW, SUPPLIER_VIEW, TEMPLATE_META, USERS, HARNESS_OWNER_CANDIDATES, HARNESS_CUSTOM_FIELDS, HARNESS_PROPERTIES, HARNESS_SERVICE_PLANS, HARNESS_VISITS, HARNESS_PLAN_TEMPLATES, HARNESS_TEMPLATE_DETAIL, HARNESS_READY_TO_BILL, HARNESS_CUSTOMER_INVOICES, HARNESS_CLOCK_STATE, HARNESS_CLOCK_STATE_IN, HARNESS_JOB_CLOCK_SELF, HARNESS_TIME_WEEK, HARNESS_CREW_SETUP } from './fixtures'
+import { JOB_SETUP_TRADES, HARNESS_TRADES_0037, HARNESS_PAYMENTS_0037, SUPPLIER_VIEW_0037, HARNESS_INCENTIVES, HARNESS_LEADERBOARD, HARNESS_INSIDE_SALES, HARNESS_INSTALL_SCHEDULE, HARNESS_PARTNERS, HARNESS_APPOINTMENTS, HARNESS_THREAD, HARNESS_PROPOSALS, HARNESS_LEADS, ANNOUNCEMENTS, BANNER, DEFAULT_PLANS, COST_LINES, SUPPLIERS, PAY_WEEK, MY_PAY, REPORT_RESULT, SALE_CREDIT, SUPPLIER_PREVIEW, SUPPLIER_VIEW, TEMPLATE_META, USERS, HARNESS_OWNER_CANDIDATES, HARNESS_CUSTOM_FIELDS, HARNESS_PROPERTIES, HARNESS_SERVICE_PLANS, HARNESS_VISITS, HARNESS_PLAN_TEMPLATES, HARNESS_TEMPLATE_DETAIL, HARNESS_READY_TO_BILL, HARNESS_CUSTOMER_INVOICES, HARNESS_CLOCK_STATE, HARNESS_CLOCK_STATE_IN, HARNESS_JOB_CLOCK_SELF, HARNESS_TIME_WEEK, HARNESS_CREW_SETUP, JOB_SPLIT, PAY_WEEK_SCHEDULE, PAY_WEEK_SCHEDULE_PREVIEW } from './fixtures'
 
 const json = (body: unknown, status = 200) => ({ status, contentType: 'application/json', body: JSON.stringify(body) })
 
@@ -25,6 +25,8 @@ async function mockApi(page: Page) {
     if (p === '/api/admin/announcements') return route.fulfill(json(ANNOUNCEMENTS))
     if (p === '/api/admin/suppliers') return route.fulfill(json(SUPPLIERS))
     if (p === '/api/admin/payroll/pay-week') return route.fulfill(json(PAY_WEEK))
+    if (p === '/api/admin/payroll/pay-week/job-split') return route.fulfill(json(JOB_SPLIT))
+    if (p === '/api/admin/payroll/pay-week/schedule') return route.fulfill(json(m === 'GET' ? PAY_WEEK_SCHEDULE : PAY_WEEK_SCHEDULE_PREVIEW))
     if (p === '/api/me/pay') return route.fulfill(json(MY_PAY))
     if (p === '/api/sisu/leaderboard') return route.fulfill(json(HARNESS_LEADERBOARD))
     if (p === '/api/ops/install-schedule') return route.fulfill(json(HARNESS_INSTALL_SCHEDULE))
@@ -380,12 +382,15 @@ const SCREENS: Screen[] = [
   { name: 'moved-host-pending', path: '/dev-harness/moved-host-pending', ready: 'text=Try again' },
   { name: 'moved-host-attention', path: '/dev-harness/moved-host-attention', ready: 'text=Continue anyway to crm.example.test' },
   { name: 'moved-host-ready', path: '/dev-harness/moved-host-ready', ready: 'text=Tap to continue at crm.example.test' },
-  { name: 'pay-week', path: '/dev-harness/pay-week', ready: 'text=Needs you (3)',
+  { name: 'pay-week', path: '/dev-harness/pay-week', ready: 'text=Needs you (4)',
     states: [
       { name: 'person-open', run: async (p) => { await p.getByRole('button', { name: /Jordan Vale/ }).click(); await p.waitForSelector('text=Change') } },
       { name: 'by-job', run: async (p) => { await p.getByRole('tab', { name: /By job/ }).click(); await p.waitForSelector('text=Job 26-0141') } },
       { name: 'fix-sheet', run: async (p) => { await p.getByRole('button', { name: 'Fix a mistake' }).click(); await p.waitForSelector('text=Amount (+ pays them') } },
       { name: 'approve-sheet', run: async (p) => { await p.getByRole('button', { name: /^Approve/ }).click(); await p.waitForSelector('text=Email each person their statement') } },
+      { name: 'blocked-by-minimum', run: async (p) => { await p.route('**/api/admin/payroll/pay-week', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ...PAY_WEEK, canApprove: false, blockedBy: { code: 'minimum_unanswered', text: 'Answer the weekly minimum for 1 person first.', count: 1 } }) })); await p.reload(); await p.waitForSelector('text=Answer the weekly minimum for 1 person first.') } },
+      { name: 'change-sheet', run: async (p) => { await p.getByRole('tab', { name: /By job/ }).click(); await p.getByRole('button', { name: 'Change who gets what' }).first().click(); await p.waitForSelector('text=Total 18% of the base'); await p.getByRole('button', { name: '+ Add someone' }).click() } },
+      { name: 'schedule-sheet', run: async (p) => { await p.getByRole('button', { name: 'Change', exact: true }).first().click(); await p.getByLabel('Week starts on').selectOption('1'); await p.waitForSelector('text=First week on it') } },
     ] },
 ]
 

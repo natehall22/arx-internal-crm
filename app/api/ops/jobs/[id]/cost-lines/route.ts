@@ -1,4 +1,5 @@
-import { cutoffYmdEt, payWeekCutoffFor } from '@/lib/weekly-payroll/cutoff'
+import { cutoffYmd, weekCutoffContaining } from '@/lib/payroll-week-schedule'
+import { loadPayWeekSchedule } from '@/lib/payroll-week-schedule-server'
 import { NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { resolveOpsAccess } from '@/lib/ops-access'
@@ -172,15 +173,19 @@ export async function POST(request: Request, { params }: { params: { id: string 
     // A labor line typed for a job whose crew time this week already comes from the time clock: likely the same work twice.
     let warning: string | undefined
     if (costType === 'labor') {
-      const { data: clockLine, error: clockErr } = await supabase
-        .from('job_cost_lines')
-        .select('id')
-        .eq('org_id', profile.org_id)
-        .eq('job_id', jobId)
-        .eq('time_week_ending', cutoffYmdEt(payWeekCutoffFor(new Date())))
-        .is('deleted_at', null)
-        .limit(1)
-      if (!clockErr && (clockLine ?? []).length > 0) warning = 'This week’s crew time on this job already comes from the time clock. If this is the same work, remove one of the two lines.'
+      // This pay week on the company's own schedule (the week the time clock writes its line for).
+      const payWeek = await loadPayWeekSchedule(supabase, profile.org_id).catch(() => null)
+      if (payWeek) {
+        const { data: clockLine, error: clockErr } = await supabase
+          .from('job_cost_lines')
+          .select('id')
+          .eq('org_id', profile.org_id)
+          .eq('job_id', jobId)
+          .eq('time_week_ending', cutoffYmd(weekCutoffContaining(new Date(), payWeek), payWeek))
+          .is('deleted_at', null)
+          .limit(1)
+        if (!clockErr && (clockLine ?? []).length > 0) warning = 'This week’s crew time on this job already comes from the time clock. If this is the same work, remove one of the two lines.'
+      }
     }
 
     return NextResponse.json({ cost_line: row, ...(warning ? { warning } : {}) })

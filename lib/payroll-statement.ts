@@ -10,6 +10,9 @@ import { computeHourlyEarnings } from '@/lib/weekly-payroll/hourly-earnings'
 import { loadActiveCompPlanForUser, producerStorageRoleForParticipant } from '@/lib/payroll-export'
 import { roundMoney } from '@/lib/money'
 import { loadPeriodAdjustments } from '@/lib/payroll-adjustments'
+import { placePeriod } from '@/lib/payroll-pay-week'
+import { loadPayWeekSchedule } from '@/lib/payroll-week-schedule-server'
+import { loadMinimumDecisions, weeklyMinimumMath } from '@/lib/payroll-weekly-minimum'
 import { cutoffYmdEt } from '@/lib/weekly-payroll/cutoff'
 
 /**
@@ -283,7 +286,14 @@ export async function buildPayrollStatement(
     : new Date().toISOString().slice(0, 10)
   // An approved week reads the per-unit pay stored at approval — never a recalculation. A week locked before per-unit pay was
   // frozen (no units_frozen_at) keeps the old live calculation.
-  const periodWindow = await resolvePayrollPeriodWindow(supabase, orgId, periodId, String(period.cutoff_at))
+  // A week approved on the new path (units frozen) is placed on the company's own pay week; a legacy week keeps the legacy window,
+  // byte-identical while PAYROLL_PAY_WEEK_ENABLED is off.
+  const periodWindow = period.units_frozen_at
+    ? await (async () => {
+        const placed = await placePeriod(supabase, orgId, period as never, await loadPayWeekSchedule(supabase, orgId))
+        return { startIso: placed.windowStartIso, endIso: new Date(placed.cutoffAt).toISOString() }
+      })()
+    : await resolvePayrollPeriodWindow(supabase, orgId, periodId, String(period.cutoff_at))
   let periodUnits: PeriodUnitEarningsResult | null = null
   if (period.units_frozen_at && period.status !== 'open') {
     const stored = (await loadStoredUnitEarnings(supabase, orgId, periodId, [userId])).get(userId)
@@ -312,6 +322,14 @@ export async function buildPayrollStatement(
   const periodUnitEarnings = periodUnits?.total ?? 0
   const adjustmentRows = (await loadPeriodAdjustments(supabase, orgId, periodId)).filter((a) => a.userId === userId)
   const adjustments: PayrollStatementAdjustment[] = adjustmentRows.map((a) => ({ id: a.id, kind: a.kind, reason: a.reason, amount: a.amount }))
+  // A weekly-minimum top-up ("greater of $X or commission") stored when the week was approved shows as its own line with its math,
+  // so the emailed statement adds up to the check (lib/payroll-weekly-minimum.ts). Open weeks show it on the Pay screen instead.
+  if (period.status !== 'open') {
+    const min = (await loadMinimumDecisions(supabase, orgId, periodId)).get(userId)
+    if (min && min.amount > 0) {
+      adjustments.push({ id: `minimum-${periodId}`, kind: 'weekly_minimum', reason: `Weekly minimum — ${weeklyMinimumMath(min.detail?.minimum ?? min.amount, min.detail?.commission ?? 0, min.amount)}`, amount: roundMoney(min.amount) })
+    }
+  }
   const adjustmentTotal = roundMoney(adjustments.reduce((s, a) => s + a.amount, 0))
   const bonusEarnings = bonuses.reduce((s, b) => s + b.amount, 0)
   const chargebacksApplied = chargebacks.reduce((s, c) => s + c.appliedAmount, 0)

@@ -3,7 +3,6 @@ import { NextResponse } from 'next/server'
 import { parseEntryEdit } from '@/lib/time-tracking'
 import { requireTimeOfficeApi } from '@/lib/time-tracking-access'
 import { addTimeEntry, loadTimeWeek } from '@/lib/time-tracking-db'
-import { cutoffInstantForYmd, payWeekCutoffFor } from '@/lib/weekly-payroll/cutoff'
 
 export const dynamic = 'force-dynamic'
 
@@ -12,10 +11,9 @@ export async function GET(request: Request) {
   const a = await requireTimeOfficeApi()
   if (a.error) return a.error
   const day = new URL(request.url).searchParams.get('day')
-  // Noon of the day (any time inside it lands in the same pay week; the cutoff is late evening).
-  const ref = day && /^\d{4}-\d{2}-\d{2}$/.test(day) ? new Date(cutoffInstantForYmd(day).getTime() - 12 * 3_600_000) : new Date()
-  if (!Number.isFinite(ref.getTime())) return NextResponse.json({ error: 'Bad day' }, { status: 400 })
-  return NextResponse.json(await loadTimeWeek(a.admin, a.profile.org_id, payWeekCutoffFor(ref)), { headers: { 'Cache-Control': 'no-store, private' } })
+  // The company's pay week whose days include that day (lib/payroll-week-schedule weekCutoffForDay), else the current one.
+  if (day && !(/^\d{4}-\d{2}-\d{2}$/.test(day) && Number.isFinite(Date.parse(`${day}T12:00:00Z`)))) return NextResponse.json({ error: 'Bad day' }, { status: 400 })
+  return NextResponse.json(await loadTimeWeek(a.admin, a.profile.org_id, day ?? new Date()), { headers: { 'Cache-Control': 'no-store, private' } })
 }
 
 /** POST { userId, startedAt, endedAt, kind?, jobId? | workOrderId?, reason } — add time someone forgot to tap. */

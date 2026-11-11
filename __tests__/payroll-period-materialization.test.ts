@@ -1,4 +1,4 @@
-import { derivePayrollEligibility } from '@/lib/payroll-period-materialization'
+import { derivePayrollEligibility, paysThisWeek } from '@/lib/payroll-period-materialization'
 
 const job = {
   id: 'job-1',
@@ -40,11 +40,15 @@ describe('derivePayrollEligibility', () => {
       ],
     })
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       eligibleAt: '2026-07-24T01:00:21.643Z',
       reason: null,
       deductibleCosts: 992.76,
+      fundedAt: '2026-07-24T01:00:14.609Z',
+      costsAt: '2026-07-14T00:14:45.023Z',
     })
+    // The three dates the eligibility is the latest of (used by the late-money rule).
+    expect([result.installAt, result.fundedAt, result.costsAt].sort().pop()).toBe(result.eligibleAt)
   })
 
   it('fails closed when cleared funding is short', () => {
@@ -142,5 +146,32 @@ describe('derivePayrollEligibility — paid-in-full rule (lib/job-collection.ts)
   })
   it('a job with no sale amount is not funded', () => {
     expect(derivePayrollEligibility({ job: { ...job, sale_amount: null }, payments: [], costs: [] }).reason).toBe('not_funded')
+  })
+})
+
+describe('paysThisWeek (cutoff + late-money window)', () => {
+  const cutoff = '2026-11-09T04:59:59.999Z' // Sun 11-08 23:59:59.999 ET
+  const late = '2026-11-12T04:59:59.999Z' // Wed 11-11 23:59:59.999 ET
+  const thu = new Date('2026-11-12T15:00:00Z')
+  const parts = (install: string, funded: string, costs: string) => ({ installAt: install, fundedAt: funded, costsAt: costs, eligibleAt: [install, funded, costs].sort().pop() as string })
+  it('everything by the cutoff pays, window or not', () => {
+    expect(paysThisWeek(parts('2026-11-05T12:00:00Z', '2026-11-06T12:00:00Z', '2026-11-05T12:00:00Z'), cutoff, null, thu)).toBe(true)
+  })
+  it('money on Tuesday pays only with a window', () => {
+    const e = parts('2026-11-05T12:00:00Z', '2026-11-10T15:00:00Z', '2026-11-05T12:00:00Z')
+    expect(paysThisWeek(e, cutoff, null, thu)).toBe(false)
+    expect(paysThisWeek(e, cutoff, late, thu)).toBe(true)
+  })
+  it('money one millisecond after the window waits', () => {
+    expect(paysThisWeek(parts('2026-11-05T12:00:00Z', '2026-11-12T05:00:00.000Z', '2026-11-05T12:00:00Z'), cutoff, late, thu)).toBe(false)
+  })
+  it('an install after the cutoff never rides the money window', () => {
+    expect(paysThisWeek(parts('2026-11-09T15:00:00Z', '2026-11-10T15:00:00Z', '2026-11-05T12:00:00Z'), cutoff, late, thu)).toBe(false)
+  })
+  it('a cost approved after the cutoff never rides the money window', () => {
+    expect(paysThisWeek(parts('2026-11-05T12:00:00Z', '2026-11-10T15:00:00Z', '2026-11-10T16:00:00Z'), cutoff, late, thu)).toBe(false)
+  })
+  it('money dated in the future is not counted before it lands (approved Monday)', () => {
+    expect(paysThisWeek(parts('2026-11-05T12:00:00Z', '2026-11-10T15:00:00Z', '2026-11-05T12:00:00Z'), cutoff, late, new Date('2026-11-09T15:00:00Z'))).toBe(false)
   })
 })

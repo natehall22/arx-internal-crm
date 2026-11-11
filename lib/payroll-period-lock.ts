@@ -17,7 +17,7 @@ export function commitSummaryMessage(s: CommitSummary): string {
   return `Period locked with ${s.lines} payout line(s).`
 }
 
-/** What `payroll_commit_week` (migration 202610280010) writes, built from the one plan the screen showed. Pure. */
+/** What `payroll_commit_week` (migration 202611120010) writes, built from the one plan the screen showed. Pure. */
 export function buildCommitPlan(full: PayWeekFull) {
   const jobs = (full.plan?.jobs ?? []).map((j) => ({
     job_id: j.job.id,
@@ -29,7 +29,9 @@ export function buildCommitPlan(full: PayWeekFull) {
     state: j.stateRow,
   }))
   const units = Array.from(full.units.entries()).map(([user_id, v]) => ({ user_id, amount: roundMoney(v.total), detail: v.detail }))
-  return { jobs, units }
+  // Weekly-minimum top-ups (migration 202611120010 stores them in payroll_week_minimums and counts them in the total).
+  const minimums = full.minimums.map((m) => ({ user_id: m.userId, amount: roundMoney(m.amount), detail: m.detail }))
+  return { jobs, units, minimums }
 }
 
 /** Turns a Postgres exception raised by payroll_commit_week into the response the admin sees. Pure. */
@@ -42,6 +44,7 @@ export function mapCommitError(error: { message?: string; code?: string }, compu
   if (/payroll_commit:(total_mismatch|job_changed)|payroll_already_paid/.test(msg)) {
     return { ok: false, status: 409, body: { error: 'The numbers changed while approving. Nothing was paid; review them again.', code: 'changed', total: computedTotal } }
   }
+  if (/payroll_commit:minimum_unanswered/.test(msg)) return { ok: false, status: 409, body: { error: 'Answer the weekly minimum for everyone on this week first. Nothing was paid.', code: 'minimum_unanswered' } }
   if (/payroll_commit:next_week_busy/.test(msg)) return { ok: false, status: 409, body: { error: 'Next week is being approved right now, so a balance cannot be carried into it. Try again in a minute. Nothing was paid.', code: 'next_week_busy' } }
   if (/payroll_commit:no_next_period/.test(msg)) return { ok: false, status: 409, body: { error: 'There is no open week to carry a negative balance into. Nothing was paid.', code: 'no_next_period' } }
   if (/payroll_commit:not_found/.test(msg)) return { ok: false, status: 404, body: { error: 'Week not found' } }
@@ -105,6 +108,7 @@ export async function lockPayrollPeriod(
       return { ok: false, status: 409, body: { error: 'The numbers changed while you were looking. Review them again.', code: 'changed', total: computed } }
     }
     const plan = buildCommitPlan(full)
+    if (full.week.blockedBy) return { ok: false, status: 409, body: { error: full.week.blockedBy.text, code: full.week.blockedBy.code } }
     // The server's own answer (the screen uses the same flag): jobs to snapshot or balances to carry count even at $0 payable.
     if (!full.week.canApprove) return { ok: false, status: 409, body: { error: 'Nothing to pay this week' } }
 

@@ -8,6 +8,7 @@ import { CHECKUPS_ASSIGNEE_KEY, CHECKUPS_SETTINGS_KEYS, canEditCheckupSettings, 
 import { JOB_CATCH_UP_SETTINGS_KEYS, canEditJobCatchUpSettings, parseJobCatchUpPatch } from '@/lib/job-catch-up-settings'
 import { mergeOrgSettings } from '@/lib/org-settings'
 import { TIME_TRACKING_SETTINGS_KEY } from '@/lib/time-tracking'
+import { PAY_WEEK_SETTINGS_KEY } from '@/lib/payroll-week-schedule'
 import { ORG_FEATURES_SETTINGS_KEY, parseOrgFeaturesPatch } from '@/lib/org-features'
 import { SALES_TAX_SETTINGS_KEY } from '@/lib/sales-tax'
 import { saveSalesTaxSettings } from '@/lib/sales-tax-server'
@@ -284,9 +285,10 @@ export async function PATCH(request: NextRequest) {
       // managers — pre-existing; Known Redundancy #25 (should become an allow-list).
       // Feature switches (settings.features) are owner-only and written only by the `features` save above; the industry
       // profile (settings.profile) only by /api/admin/industry-profile (owners).
-      // Sales tax (settings.salesTax) is owner-only and written only by the `salesTax` save above.
+      // Sales tax (settings.salesTax) is owner-only and written only by the `salesTax` save above. The pay week
+      // (settings.payWeek) only by /api/admin/payroll/pay-week/schedule (super admins, savePayWeekSchedule).
       // The time clock settings are owner-only too (`/api/admin/time/settings`, path ['timeTracking']).
-      const { brand: _brand, [ORG_FEATURES_SETTINGS_KEY]: _features, [SALES_TAX_SETTINGS_KEY]: _salesTax, [TIME_TRACKING_SETTINGS_KEY]: _timeTracking, profile: _profile, ...rest } = data
+      const { brand: _brand, [ORG_FEATURES_SETTINGS_KEY]: _features, [SALES_TAX_SETTINGS_KEY]: _salesTax, [TIME_TRACKING_SETTINGS_KEY]: _timeTracking, [PAY_WEEK_SETTINGS_KEY]: _payWeek, profile: _profile, ...rest } = data
       const settingsData = Object.fromEntries(Object.entries(rest).filter(([k]) => !JOB_CATCH_UP_SETTINGS_KEYS.includes(k) && !CHECKUPS_SETTINGS_KEYS.includes(k)))
       const { error } = await adminClient
         .from('orgs')

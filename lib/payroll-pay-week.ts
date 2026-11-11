@@ -6,7 +6,7 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 
-import { computePeriodUnitEarningsForUser, loadStoredUnitEarnings, resolvePayrollPeriodWindow, type PeriodUnitEarningsResult, type UnitEarnings } from '@/lib/comp-plan-period-unit-earnings'
+import { computePeriodUnitEarningsForUser, loadStoredUnitEarnings, type PeriodUnitEarningsResult, type UnitEarnings } from '@/lib/comp-plan-period-unit-earnings'
 import { compPlanRoleLabel } from '@/lib/comp-plan-roles'
 import { loadEndedPlanPeople, loadPayPlanGaps } from '@/lib/comp-plan-defaults-db'
 import { roundMoney } from '@/lib/money'
@@ -14,8 +14,12 @@ import { loadPeriodAdjustments, type PayrollAdjustment } from '@/lib/payroll-adj
 import { loadOpenDisputes } from '@/lib/payroll-disputes'
 import { loadHourlyRoster, loadPlanForWeek, loadWeekPeople, type HourlyRosterRow } from '@/lib/payroll-hours'
 import { planPayrollPeriod, type PlannedPayoutRow, type WaitingJob } from '@/lib/payroll-period-materialization'
-import { computeNetPayout } from '@/lib/payroll-statement'
-import { addEasternDays, cutoffYmdEt, getLastWeeklyPayrollCutoffEtAtOrBefore, weekStartYmd, weeklyPayrollPayDateForCutoff, ymdEt } from '@/lib/weekly-payroll/cutoff'
+import { personRawTotal, payableTotal, type PayLineKind } from '@/lib/payroll-week-total'
+import { loadMinimumDecisions, minimumBasisTotal, parseWeeklyMinimum, weekMinimumFor, weeklyMinimumMath, weeklyMinimumOutcome, type WeekMinimum } from '@/lib/payroll-weekly-minimum'
+import { addWeeks, clockWords, nextWeekCutoff, sameWeekEnding, cutoffYmd, daysBetweenYmd, describePayWeek, WEEKDAY_NAMES, lastCutoffAtOrBefore, lateFundingUntil, payDateFor, weekDays, weekLabel, type PayWeekSchedule } from '@/lib/payroll-week-schedule'
+import { loadPayWeekSchedule, loadPrevCutoff } from '@/lib/payroll-week-schedule-server'
+import { findOrCreateWeek, findWeekNear, PERIOD_COLS, type PeriodRow } from '@/lib/payroll-periods'
+import type { WeekClock } from '@/lib/payroll-hours'
 
 /** A single line over this amount is flagged above the Approve button. */
 export const BIG_LINE_THRESHOLD = 3000
@@ -28,13 +32,19 @@ export type PayWeekPeriod = {
   status: string
   /** Per-unit pay was stored when this week was approved: read it, never recalculate. */
   unitsFrozen: boolean
-  /** First day of the week this run pays (Eastern, YYYY-MM-DD). */
+  /** First day of the week this run pays (company time zone, YYYY-MM-DD). */
   weekStart: string
   weekEnding: string
+  /** The company's time zone and the previous week's cutoff: where this week sits on the calendar. */
+  clock: Required<WeekClock>
+  /** Start of the week as an instant (per-unit pay window): the previous week's cutoff when it is this week's neighbour. */
+  windowStartIso: string
+  /** Money that clears by then still pays this week (null = the company has no late-money window). */
+  lateFundingUntil: string | null
 }
 
 export type PayWeekLine = {
-  kind: 'Commission' | 'Hourly' | 'Units' | 'Bonus' | 'Adjustment'
+  kind: PayLineKind
   what: string
   math: string
   amount: number
@@ -44,6 +54,8 @@ export type PayWeekLine = {
   participantRole?: string
   /** Set on 'Adjustment' lines so a fix on an open week can be removed. */
   adjustmentId?: string
+  /** 'fix' | 'balance' on 'Adjustment' lines (a job fix counts toward a weekly minimum; a carried balance does not). */
+  adjustmentKind?: string
 }
 
 export type PayWeekPerson = {
@@ -82,6 +94,8 @@ export type PayWeekNeed =
   | { kind: 'plans'; text: string; names: string[]; href: string }
   | { kind: 'conflict'; text: string; jobNumbers: string[] }
   | { kind: 'dispute'; id: string; userId: string; name: string; label: string; message: string }
+  /** Weekly minimum: did this person meet the week's requirements? Yes pays the top-up on this check. */
+  | { kind: 'minimum'; userId: string; name: string; minimum: number; commission: number; topUp: number }
 
 export type PayWeekWarning = { code: string; text: string }
 
@@ -94,6 +108,8 @@ export type PayWeek = {
    * payable total is $0. The screen enables Approve from this, never from `total > 0`.
    */
   canApprove: boolean
+  /** Why Approve is not possible yet, in plain words (an unanswered weekly-minimum question). */
+  blockedBy: { code: 'minimum_unanswered'; text: string; count: number } | null
   needs: PayWeekNeed[]
   warnings: PayWeekWarning[]
   /** Jobs that finished before this week and are paid for the first time here (shown in the Approve confirmation). */
@@ -101,6 +117,8 @@ export type PayWeek = {
   people: PayWeekPerson[]
   jobs: PayWeekJobView[]
   waiting: PayWeekWaiting[]
+  /** The company's pay week in plain words ("Monday–Sunday · closes Sunday 11:59 PM · paid Friday"). */
+  schedule: { words: string }
   /** Other weeks, newest first, for the "Earlier weeks" picker. */
   earlier: Array<{ id: string; weekEnding: string; payDate: string; status: string }>
   /** Fixes already queued on the week after this one (shown when this week is approved). */
@@ -153,6 +171,8 @@ export type WeekInputs = {
   units: Map<string, number>
   bonuses: Array<{ id: string; userId: string; amount: number; description: string | null; bonusType: string }>
   adjustments?: PayrollAdjustment[]
+  /** Weekly-minimum top-ups (lib/payroll-weekly-minimum.ts). */
+  minimums?: WeekMinimum[]
 }
 
 /** Turns rows + hours + units + bonuses into the people list and the by-job view. Pure. */
@@ -202,19 +222,15 @@ export function composeWeek(inp: WeekInputs): { people: PayWeekPerson[]; jobs: P
     person(b.userId).lines.push({ kind: 'Bonus', what: b.description || (b.bonusType === 'manual' ? 'Bonus' : b.bonusType.replace(/_/g, ' ')), math: 'Approved bonus', amount: roundMoney(b.amount) })
   }
   for (const a of inp.adjustments ?? []) {
-    person(a.userId).lines.push({ kind: 'Adjustment', what: a.kind === 'balance' ? 'Balance carried over' : 'Fix', math: a.reason, amount: a.amount, adjustmentId: a.id, jobId: a.jobId ?? undefined })
+    person(a.userId).lines.push({ kind: 'Adjustment', what: a.kind === 'balance' ? 'Balance carried over' : 'Fix', math: a.reason, amount: a.amount, adjustmentId: a.id, adjustmentKind: a.kind, jobId: a.jobId ?? undefined })
   }
+  for (const m of inp.minimums ?? []) {
+    if (m.amount > 0) person(m.userId).lines.push({ kind: 'Minimum', what: 'Weekly minimum', math: weeklyMinimumMath(m.detail.minimum, m.detail.commission, m.amount, m.detail.weekDays ?? 7, m.detail.basis ?? 'gross'), amount: roundMoney(m.amount) })
+  }
+  // ONE total rule (lib/payroll-week-total.ts) — the same one the database checks at Approve.
   for (const p of Array.from(byUser.values())) {
-    const parts = { commission: 0, hourly: 0, units: 0, bonus: 0, chargebacks: 0, adjustments: 0 }
-    for (const l of p.lines) {
-      if (l.kind === 'Commission') parts.commission += l.amount
-      else if (l.kind === 'Hourly') parts.hourly += l.amount
-      else if (l.kind === 'Units') parts.units += l.amount
-      else if (l.kind === 'Adjustment') parts.adjustments += l.amount
-      else parts.bonus += l.amount
-    }
-    p.raw = roundMoney(computeNetPayout(parts))
-    p.total = Math.max(0, p.raw)
+    p.raw = personRawTotal(p.lines)
+    p.total = payableTotal(p.raw)
   }
   const people = Array.from(byUser.values()).sort((a, b) => b.total - a.total || a.name.localeCompare(b.name))
   const jobs = Array.from(byJob.values()).sort((a, b) => a.jobNumber.localeCompare(b.jobNumber))
@@ -236,11 +252,32 @@ export function buildWarnings(args: { people: PayWeekPerson[]; firstTimePayees: 
   return out
 }
 
-function toPeriod(row: { id: string; period_label: string | null; cutoff_at: string; scheduled_pay_date: string; status: string; units_frozen_at?: string | null }): PayWeekPeriod {
+
+/** A stored week as the screen sees it, placed on the company's calendar. Pure. */
+export function toPeriod(row: PeriodRow, s: PayWeekSchedule, prevCutoffAt: string | null): PayWeekPeriod {
   const cutoff = new Date(row.cutoff_at)
-  const end = ymdEt(cutoff)
-  const start = weekStartYmd(cutoff)
-  return { id: row.id, label: row.period_label ?? end, cutoffAt: row.cutoff_at, payDate: row.scheduled_pay_date, status: row.status, unitsFrozen: Boolean(row.units_frozen_at), weekStart: start, weekEnding: end }
+  const days = weekDays(cutoff, s, prevCutoffAt)
+  const neighbour = prevCutoffAt != null && daysBetweenYmd(cutoffYmd(prevCutoffAt, s), days.end) >= 1 && daysBetweenYmd(cutoffYmd(prevCutoffAt, s), days.end) <= 13
+  const late = lateFundingUntil(cutoff, s)
+  return {
+    id: row.id,
+    label: row.period_label ?? days.end,
+    cutoffAt: row.cutoff_at,
+    payDate: row.scheduled_pay_date,
+    status: row.status,
+    unitsFrozen: Boolean(row.units_frozen_at),
+    weekStart: days.start,
+    weekEnding: days.end,
+    clock: { timeZone: s.timeZone, prevCutoffAt },
+    windowStartIso: neighbour ? new Date(prevCutoffAt as string).toISOString() : addWeeks(cutoff, -1, s).toISOString(),
+    lateFundingUntil: late ? late.toISOString() : null,
+  }
+}
+
+
+/** A stored week placed on the company's calendar (its neighbour read from the database). */
+export async function placePeriod(admin: SupabaseClient, orgId: string, row: PeriodRow, s: PayWeekSchedule): Promise<PayWeekPeriod> {
+  return toPeriod(row, s, await loadPrevCutoff(admin, orgId, row.id, row.cutoff_at))
 }
 
 /**
@@ -248,63 +285,24 @@ function toPeriod(row: { id: string; period_label: string | null; cutoff_at: str
  * created on first use — there is nothing to set up. An existing period whose cutoff is within 36 hours counts as that
  * week (legacy periods have hand-typed cutoffs).
  */
-export async function resolvePayWeekPeriod(admin: SupabaseClient, orgId: string, now: Date, periodId?: string | null): Promise<PayWeekPeriod> {
-  const cols = 'id, period_label, cutoff_at, scheduled_pay_date, status, units_frozen_at, created_at'
+export async function resolvePayWeekPeriod(admin: SupabaseClient, orgId: string, now: Date, periodId?: string | null, schedule?: PayWeekSchedule): Promise<PayWeekPeriod> {
+  const s = schedule ?? (await loadPayWeekSchedule(admin, orgId))
   if (periodId) {
-    const { data, error } = await admin.from('payroll_periods').select(cols).eq('id', periodId).eq('org_id', orgId).maybeSingle()
+    const { data, error } = await admin.from('payroll_periods').select(PERIOD_COLS).eq('id', periodId).eq('org_id', orgId).maybeSingle()
     if (error) throw error
     if (!data || (data as { status?: string }).status === 'cancelled') throw new Error('Pay period not found')
-    return toPeriod(data as never)
+    return placePeriod(admin, orgId, data as PeriodRow, s)
   }
-  const target = getLastWeeklyPayrollCutoffEtAtOrBefore(now)
-  const from = new Date(target.getTime() - 36 * 3_600_000).toISOString()
-  const to = new Date(target.getTime() + 36 * 3_600_000).toISOString()
-  const find = async () => {
-    const { data, error } = await admin
-      .from('payroll_periods')
-      .select(cols)
-      .eq('org_id', orgId)
-      .neq('status', 'cancelled')
-      .gte('cutoff_at', from)
-      .lte('cutoff_at', to)
-      .order('created_at', { ascending: true })
-      .limit(1)
-    if (error) throw error
-    return (data ?? [])[0] as never
-  }
-  let row = await find()
-  if (!row) {
-    const payDate = weeklyPayrollPayDateForCutoff(target)
-    const { error } = await admin.from('payroll_periods').insert({
-      org_id: orgId,
-      period_label: `Week ending ${ymdEt(target)}`,
-      cutoff_at: target.toISOString(),
-      lock_at: target.toISOString(),
-      scheduled_pay_date: payDate,
-      status: 'open',
-    })
-    // Two people opening Payroll at once: the loser's insert hits the unique label — that is fine, just read the winner's row.
-    if (error && (error as { code?: string }).code !== '23505') throw error
-    row = await find() // re-read: if two admins raced, both settle on the earliest-created row
-  }
-  return toPeriod(row)
+  const target = lastCutoffAtOrBefore(now, s)
+  const row = (await findOrCreateWeek(admin, orgId, target, s)) as PeriodRow
+  return placePeriod(admin, orgId, row, s)
 }
 
 /** The current pay week if it already exists — never creates one (a rep opening My pay is a read). */
 export async function findCurrentPayWeekPeriod(admin: SupabaseClient, orgId: string, now: Date): Promise<PayWeekPeriod | null> {
-  const target = getLastWeeklyPayrollCutoffEtAtOrBefore(now)
-  const { data, error } = await admin
-    .from('payroll_periods')
-        .select('id, period_label, cutoff_at, scheduled_pay_date, status, units_frozen_at, created_at')
-    .eq('org_id', orgId)
-    .neq('status', 'cancelled')
-    .gte('cutoff_at', new Date(target.getTime() - 36 * 3_600_000).toISOString())
-    .lte('cutoff_at', new Date(target.getTime() + 36 * 3_600_000).toISOString())
-    .order('created_at', { ascending: true })
-    .limit(1)
-  if (error) throw error
-  const row = (data ?? [])[0]
-  return row ? toPeriod(row as never) : null
+  const s = await loadPayWeekSchedule(admin, orgId)
+  const row = await findWeekNear(admin, orgId, lastCutoffAtOrBefore(now, s), s)
+  return row ? placePeriod(admin, orgId, row, s) : null
 }
 
 async function loadNames(admin: SupabaseClient, orgId: string, ids: string[]) {
@@ -317,13 +315,14 @@ async function loadNames(admin: SupabaseClient, orgId: string, ids: string[]) {
 }
 
 /** Per-unit pay computed live from the comp plans (an open week). `leftOrSaved` = people who may have left mid-week. */
-export async function computeUnitEarnings(admin: SupabaseClient, orgId: string, period: PayWeekPeriod, userIds: string[], leftOrSaved: Set<string> = new Set()): Promise<UnitEarnings> {
+export async function computeUnitEarnings(admin: SupabaseClient, orgId: string, period: PayWeekPeriod, userIds: string[], leftOrSaved: Set<string> = new Set(), plansSeen?: Map<string, Record<string, unknown> | null>): Promise<UnitEarnings> {
   const out: UnitEarnings = new Map()
   if (userIds.length === 0) return out
-  const window = await resolvePayrollPeriodWindow(admin, orgId, period.id, period.cutoffAt)
+  const window = { startIso: period.windowStartIso, endIso: new Date(period.cutoffAt).toISOString() }
   for (const userId of userIds) {
-    const assignment = await loadPlanForWeek(admin, userId, orgId, period.cutoffAt, { leftOrSaved: leftOrSaved.has(userId) })
+    const assignment = await loadPlanForWeek(admin, userId, orgId, period.cutoffAt, { leftOrSaved: leftOrSaved.has(userId), clock: period.clock })
     const plan = assignment?.comp_plans as Record<string, unknown> | null
+    plansSeen?.set(userId, plan ?? null)
     if (!plan) continue
     const res = await computePeriodUnitEarningsForUser(admin, {
       orgId,
@@ -346,9 +345,55 @@ export async function computeUnitEarnings(admin: SupabaseClient, orgId: string, 
  * Per-unit pay for a week. An OPEN week is computed live; an approved week reads what was stored at approval and is never
  * recalculated. A week locked before per-unit pay was frozen (no `unitsFrozen`) keeps the old live calculation.
  */
-export async function loadWeekUnitEarnings(admin: SupabaseClient, orgId: string, period: PayWeekPeriod, userIds: string[], leftOrSaved: Set<string> = new Set()): Promise<UnitEarnings> {
+export async function loadWeekUnitEarnings(admin: SupabaseClient, orgId: string, period: PayWeekPeriod, userIds: string[], leftOrSaved: Set<string> = new Set(), plansSeen?: Map<string, Record<string, unknown> | null>): Promise<UnitEarnings> {
   if (period.status !== 'open' && period.unitsFrozen) return loadStoredUnitEarnings(admin, orgId, period.id, userIds)
-  return computeUnitEarnings(admin, orgId, period, userIds, leftOrSaved)
+  return computeUnitEarnings(admin, orgId, period, userIds, leftOrSaved, plansSeen)
+}
+
+export type MinimumAsk = { userId: string; minimum: number; commission: number; topUp: number }
+
+/** Calendar days in a week (normally 7; the in-between week after a pay-week change is 1–13). */
+export const periodLength = (p: Pick<PayWeekPeriod, 'weekStart' | 'weekEnding'>) => (p.weekStart && p.weekEnding ? daysBetweenYmd(p.weekStart, p.weekEnding) + 1 : 7)
+
+/**
+ * Weekly-minimum top-ups for a week. An approved week reads what Approve stored. An open week computes them: each person's plan in
+ * force that week, their commission lines, and the office's yes/no. People still waiting on an answer come back in `asks`
+ * (the "Needs you" card) and get no line yet.
+ */
+export async function loadWeekMinimums(
+  admin: SupabaseClient,
+  orgId: string,
+  period: PayWeekPeriod,
+  people: Array<{ id: string; active: boolean }>,
+  /** Each person's lines for the week WITHOUT a minimum line (composeWeek), from which the plan's basis is summed. */
+  linesByUser: Map<string, PayWeekLine[]>,
+  plans: Map<string, Record<string, unknown> | null> = new Map()
+): Promise<{ minimums: WeekMinimum[]; asks: MinimumAsk[] }> {
+  const decisions = await loadMinimumDecisions(admin, orgId, period.id)
+  if (period.status !== 'open') {
+    const minimums = Array.from(decisions.entries())
+      .filter(([, d]) => d.amount > 0)
+      .map(([userId, d]) => ({ userId, amount: d.amount, detail: d.detail ?? { minimum: d.amount, commission: 0, planName: null } }))
+    return { minimums, asks: [] }
+  }
+  const minimums: WeekMinimum[] = []
+  const asks: MinimumAsk[] = []
+  const days = periodLength(period)
+  for (const p of people) {
+    let plan = plans.get(p.id)
+    if (plan === undefined) {
+      const a = await loadPlanForWeek(admin, p.id, orgId, period.cutoffAt, { leftOrSaved: !p.active, clock: period.clock })
+      plan = (a?.comp_plans as Record<string, unknown> | null) ?? null
+    }
+    const rule = parseWeeklyMinimum(plan?.weekly_minimum)
+    if (!rule) continue
+    const commission = minimumBasisTotal(linesByUser.get(p.id) ?? [], rule.basis)
+    const out = weeklyMinimumOutcome(rule, commission, decisions.get(p.id)?.met ?? null, p.active, days)
+    const minimum = weekMinimumFor(rule, days)
+    if (out.state === 'pays') minimums.push({ userId: p.id, amount: out.topUp, detail: { minimum, commission, planName: (plan?.name as string) ?? null, weekDays: days, basis: rule.basis } })
+    else if (out.state === 'needs_answer') asks.push({ userId: p.id, minimum, commission, topUp: out.topUp })
+  }
+  return { minimums, asks }
 }
 
 export async function loadUnits(admin: SupabaseClient, orgId: string, period: PayWeekPeriod, userIds: string[]): Promise<Map<string, number>> {
@@ -405,6 +450,8 @@ export type PayWeekFull = {
   plan: Awaited<ReturnType<typeof planPayrollPeriod>> | null
   /** Per-unit pay behind the totals (computed for a draft, stored for an approved week). */
   units: UnitEarnings
+  /** Weekly-minimum top-ups behind the totals (what Approve stores). */
+  minimums: WeekMinimum[]
 }
 
 export async function loadPayWeek(admin: SupabaseClient, orgId: string, now: Date, periodId?: string | null): Promise<PayWeek> {
@@ -413,7 +460,8 @@ export async function loadPayWeek(admin: SupabaseClient, orgId: string, now: Dat
 
 /** The week plus the plan and per-unit pay it was built from — what Approve commits, so preview and Approve share one read. */
 export async function loadPayWeekFull(admin: SupabaseClient, orgId: string, now: Date, periodId?: string | null): Promise<PayWeekFull> {
-  const period = await resolvePayWeekPeriod(admin, orgId, now, periodId)
+  const schedule = await loadPayWeekSchedule(admin, orgId)
+  const period = await resolvePayWeekPeriod(admin, orgId, now, periodId, schedule)
   const draft = period.status === 'open'
 
   let rows: WeekInputs['rows'] = []
@@ -423,7 +471,7 @@ export async function loadPayWeekFull(admin: SupabaseClient, orgId: string, now:
   let backlog = { jobs: 0, amount: 0, since: period.weekStart }
 
   if (draft) {
-    const plan = await planPayrollPeriod(admin, { orgId, periodId: period.id, includeWaiting: true })
+    const plan = await planPayrollPeriod(admin, { orgId, periodId: period.id, includeWaiting: true, timeZone: period.clock.timeZone, lateFundingUntil: period.lateFundingUntil, now })
     fullPlan = plan
     rows = plan.jobs.flatMap((j) => j.rows)
     // Lines already written to this still-open week (debris of an interrupted approval, or a reopened week) are part of what Approve
@@ -438,7 +486,7 @@ export async function loadPayWeekFull(admin: SupabaseClient, orgId: string, now:
     for (const l of (existing ?? []) as WeekInputs['rows']) if (!planned.has(`${l.job_id}|${l.user_id}|${l.participant_role}`)) rows.push(l)
     waiting = plan.waiting
     conflictJobIds = plan.selfGenSetterConflictJobIds
-    const old = plan.jobs.filter((j) => ymdEt(new Date(j.eligibleAt)) < period.weekStart)
+    const old = plan.jobs.filter((j) => cutoffYmd(j.eligibleAt, period.clock) < period.weekStart)
     backlog = { jobs: old.length, amount: roundMoney(old.reduce((sum, j) => sum + j.rows.reduce((a, r) => a + (Number(r.net_amount) || 0), 0), 0)), since: period.weekStart }
   } else {
     const { data, error } = await admin
@@ -452,10 +500,10 @@ export async function loadPayWeekFull(admin: SupabaseClient, orgId: string, now:
 
   const jobIds = Array.from(new Set([...rows.map((r) => r.job_id), ...waiting.map((w) => w.job.id)]))
   // Everyone active on any day of the week: read once, shared by the hours roster and per-unit pay.
-  const weekPeople = await loadWeekPeople(admin, orgId, { id: period.id, cutoff_at: period.cutoffAt })
+  const weekPeople = await loadWeekPeople(admin, orgId, { id: period.id, cutoff_at: period.cutoffAt, clock: period.clock })
   const [jobs, hours, bonusRes, adjustments] = await Promise.all([
     loadJobs(admin, orgId, jobIds),
-    draft ? loadHourlyRoster(admin, orgId, { id: period.id, cutoff_at: period.cutoffAt }, weekPeople) : loadStoredHours(admin, orgId, period.id),
+    draft ? loadHourlyRoster(admin, orgId, { id: period.id, cutoff_at: period.cutoffAt, clock: period.clock }, weekPeople) : loadStoredHours(admin, orgId, period.id),
     admin.from('payroll_bonus_lines').select('id, user_id, bonus_type, amount, description, status').eq('org_id', orgId).eq('payroll_period_id', period.id),
     loadPeriodAdjustments(admin, orgId, period.id),
   ])
@@ -474,7 +522,7 @@ export async function loadPayWeekFull(admin: SupabaseClient, orgId: string, now:
     }
     for (const b of stuck ?? []) {
       const ps = pstat.get(b.payroll_period_id as string)
-      if (ps && (ps.status === 'locked' || ps.status === 'paid')) pendingBonuses.push({ ...(b as unknown as (typeof bonusAll)[number]), fromWeek: ymdEt(new Date(ps.cutoff)) })
+      if (ps && (ps.status === 'locked' || ps.status === 'paid')) pendingBonuses.push({ ...(b as unknown as (typeof bonusAll)[number]), fromWeek: cutoffYmd(ps.cutoff, period.clock) })
     }
   }
 
@@ -492,15 +540,26 @@ export async function loadPayWeekFull(admin: SupabaseClient, orgId: string, now:
   // hours still earns it). An approved week reads what was stored at approval.
   const leftOrSaved = new Set(weekPeople.filter((p) => !p.active).map((p) => p.id))
   const unitIds = Array.from(new Set([...weekPeople.map((u) => u.id), ...rows.map((r) => r.user_id), ...hours.map((h) => h.user_id)]))
-  const unitEarnings = await loadWeekUnitEarnings(admin, orgId, period, unitIds, new Set([...Array.from(leftOrSaved), ...hours.filter((h) => h.has_entry).map((h) => h.user_id)]))
+  const plansSeen = new Map<string, Record<string, unknown> | null>()
+  const unitEarnings = await loadWeekUnitEarnings(admin, orgId, period, unitIds, new Set([...Array.from(leftOrSaved), ...hours.filter((h) => h.has_entry).map((h) => h.user_id)]), plansSeen)
   const units = new Map(Array.from(unitEarnings.entries()).map(([id, v]) => [id, v.total]))
 
-  const { people, jobs: jobViews } = composeWeek({ rows, jobs, names, hours, units, bonuses: approvedBonuses, adjustments })
+  // Weekly minimum ("greater of $X or the commission"): compared with each person's commission lines this week.
+  // The basis is summed from the person's own lines (everything but the minimum), so the screen and the floor read the same numbers.
+  const before = composeWeek({ rows, jobs, names, hours, units, bonuses: approvedBonuses, adjustments })
+  const linesByUser = new Map(before.people.map((p) => [p.userId, p.lines]))
+  const minimumPeople = new Map(weekPeople.map((p) => [p.id, { id: p.id, active: p.active }]))
+  for (const id of Array.from(linesByUser.keys())) if (!minimumPeople.has(id)) minimumPeople.set(id, { id, active: true })
+  const { minimums, asks: minimumAsks } = await loadWeekMinimums(admin, orgId, period, Array.from(minimumPeople.values()), linesByUser, plansSeen)
+  for (const p of weekPeople) if (!names.has(p.id) && (minimums.some((m) => m.userId === p.id) || minimumAsks.some((m) => m.userId === p.id))) names.set(p.id, { name: p.full_name, role: p.role })
+
+  const { people, jobs: jobViews } = composeWeek({ rows, jobs, names, hours, units, bonuses: approvedBonuses, adjustments, minimums })
 
   const needs: PayWeekNeed[] = []
   const warnings: PayWeekWarning[] = []
   if (draft) {
     for (const h of hours) if (!h.has_entry) needs.push({ kind: 'hours', userId: h.user_id, name: h.full_name, rate: h.hourly_rate ?? 0 })
+    for (const m of minimumAsks) needs.push({ kind: 'minimum', userId: m.userId, name: names.get(m.userId)?.name ?? 'Unknown', minimum: m.minimum, commission: m.commission, topUp: m.topUp })
     for (const b of pendingBonuses) {
       needs.push({ kind: 'bonus', id: b.id, userId: b.user_id, name: names.get(b.user_id)?.name ?? 'Unknown', amount: Number(b.amount) || 0, what: b.description || b.bonus_type.replace(/_/g, ' '), fromWeek: b.fromWeek })
     }
@@ -519,23 +578,25 @@ export async function loadPayWeekFull(admin: SupabaseClient, orgId: string, now:
     const paidBefore = new Set((prior ?? []).map((r) => r.user_id as string))
     const firstTime = new Set(people.filter((p) => !paidBefore.has(p.userId)).map((p) => p.userId))
     warnings.push(...buildWarnings({ people, firstTimePayees: firstTime, backlogJobs: backlog.jobs, weekStart: period.weekStart }))
+    // Late money still counts until the window closes: approving earlier leaves those jobs for next week.
+    if (period.lateFundingUntil && now.getTime() < new Date(period.lateFundingUntil).getTime() && schedule.lateFunding) {
+      warnings.push({ code: 'late_money_open', text: `Money that clears by ${WEEKDAY_NAMES[schedule.lateFunding.weekday]} ${clockWords(schedule.lateFunding.time)} still pays on this check. Approving before then leaves those jobs for next week.` })
+    }
   }
 
   const { data: others } = await admin.from('payroll_periods').select('id, cutoff_at, scheduled_pay_date, status').eq('org_id', orgId).neq('id', period.id).neq('status', 'cancelled').lte('cutoff_at', now.toISOString()).order('cutoff_at', { ascending: false }).limit(12)
-  const earlier = (others ?? []).map((o) => ({ id: o.id as string, weekEnding: ymdEt(new Date(o.cutoff_at as string)), payDate: o.scheduled_pay_date as string, status: o.status as string }))
+  const earlier = (others ?? []).map((o) => ({ id: o.id as string, weekEnding: cutoffYmd(o.cutoff_at as string, period.clock), payDate: o.scheduled_pay_date as string, status: o.status as string }))
 
   const { data: dirRows } = await admin.from('users').select('id, full_name').eq('org_id', orgId).eq('active', true).order('full_name')
   const directory = (dirRows ?? []).map((u) => ({ id: u.id as string, name: (u.full_name as string) || 'Unnamed' }))
 
   let nextWeek: PayWeek['nextWeek'] = null
   if (!draft) {
-    const nc = addEasternDays(period.cutoffAt, 7)
-    const { data: np } = await admin.from('payroll_periods').select('id, cutoff_at, scheduled_pay_date').eq('org_id', orgId).eq('status', 'open').gte('cutoff_at', new Date(nc.getTime() - 36 * 3_600_000).toISOString()).lte('cutoff_at', new Date(nc.getTime() + 36 * 3_600_000).toISOString()).order('created_at', { ascending: true }).limit(1)
-    const nrow = (np ?? [])[0]
+    const nrow = await findWeekNear(admin, orgId, nextWeekCutoff(period.cutoffAt, schedule), schedule, { openOnly: true })
     if (nrow) {
       const fixes = await loadPeriodAdjustments(admin, orgId, nrow.id as string)
       const fnames = await loadNames(admin, orgId, Array.from(new Set(fixes.map((f) => f.userId))))
-      nextWeek = { periodId: nrow.id as string, weekEnding: ymdEt(new Date(nrow.cutoff_at as string)), payDate: nrow.scheduled_pay_date as string, fixes: fixes.map((f) => ({ id: f.id, name: fnames.get(f.userId)?.name ?? 'Unknown', amount: f.amount, reason: f.reason })) }
+      nextWeek = { periodId: nrow.id as string, weekEnding: cutoffYmd(nrow.cutoff_at as string, period.clock), payDate: nrow.scheduled_pay_date as string, fixes: fixes.map((f) => ({ id: f.id, name: fnames.get(f.userId)?.name ?? 'Unknown', amount: f.amount, reason: f.reason })) }
     }
   }
 
@@ -544,18 +605,21 @@ export async function loadPayWeekFull(admin: SupabaseClient, orgId: string, now:
     period,
     state: draft ? 'draft' : 'approved',
     totals: { amount: roundMoney(payable.reduce((s, p) => s + p.total, 0)), people: payable.length },
-    canApprove: draft && (payable.length > 0 || (fullPlan?.jobs.length ?? 0) > 0 || people.some((p) => p.raw < 0)),
+    // An unanswered weekly-minimum question blocks Approve: approving would silently pay commission only.
+    canApprove: draft && minimumAsks.length === 0 && (payable.length > 0 || (fullPlan?.jobs.length ?? 0) > 0 || people.some((p) => p.raw < 0)),
+    blockedBy: draft && minimumAsks.length > 0 ? { code: 'minimum_unanswered', text: `Answer the weekly minimum for ${minimumAsks.length} ${minimumAsks.length === 1 ? 'person' : 'people'} first.`, count: minimumAsks.length } : null,
     needs,
     warnings,
     backlog,
     people,
     jobs: jobViews,
     waiting: waiting.map((w) => waitingView(w, jobs, names)),
+    schedule: { words: describePayWeek(schedule) },
     earlier,
     nextWeek,
     directory,
   }
-  return { week, plan: fullPlan, units: unitEarnings }
+  return { week, plan: fullPlan, units: unitEarnings, minimums }
 }
 
 /** One total per person, for the payroll processor. */

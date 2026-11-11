@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 
 import { requirePayrollAdminApi } from '@/lib/payroll-admin-api'
 import { isUuid, loadPayWeek } from '@/lib/payroll-pay-week'
+import { isSuperAdmin } from '@/lib/super-admin'
 
 export const dynamic = 'force-dynamic'
 
@@ -12,7 +13,9 @@ export async function GET(request: NextRequest) {
   const periodId = request.nextUrl.searchParams.get('period')
   if (periodId && !isUuid(periodId)) return NextResponse.json({ error: 'Bad period' }, { status: 400 })
   try {
-    return NextResponse.json(await loadPayWeek(a.admin, a.profile.org_id, new Date(), periodId))
+    const week = await loadPayWeek(a.admin, a.profile.org_id, new Date(), periodId)
+    // Office staff prepare the week; only an owner (super admin) sees the Approve button and can change the pay week.
+    return NextResponse.json({ ...week, viewer: { canApprove: isSuperAdmin(a.profile), canEditSchedule: isSuperAdmin(a.profile) } })
   } catch (e) {
     console.error('GET pay-week', e)
     return NextResponse.json({ error: 'Could not load this week' }, { status: 500 })
