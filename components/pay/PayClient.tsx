@@ -132,6 +132,13 @@ export default function PayClient({ token, view, returned }: { token: string; vi
           </p>
         </>
       )}
+      {view.portalOpen ? (
+        <form method="post" action="/api/portal/open" className="mt-6 border-t border-[#e5e3dc] pt-4 text-center">
+          <input type="hidden" name="source" value="pay" />
+          <input type="hidden" name="token" value={token} />
+          <button type="submit" className="min-h-[44px] text-base font-bold text-[#1d4ed8] underline">See everything on my account</button>
+        </form>
+      ) : null}
       {contact ? <p className="mt-6 border-t border-[#e5e3dc] pt-4 text-center text-sm text-[#2c2c2a]">Questions? {contact}</p> : null}
     </Shell>
   )
