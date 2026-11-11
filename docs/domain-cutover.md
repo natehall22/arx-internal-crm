@@ -1,6 +1,6 @@
 # Moving the CRM to arxcapitol.com
 
-Old address: `arx-internal-crm.vercel.app`. New: `arxcapitol.com`, later `<company>.arxcapitol.com` per company.
+Old address: `arx-internal-crm.vercel.app`. New: `arx.arxcapitol.com` (the company address; the bare `arxcapitol.com` is refused once `APP_BASE_DOMAIN` is set), later `<company>.arxcapitol.com` per company.
 The old address keeps **serving** (no redirect) for the whole overlap.
 
 ## What the code does now (branch `feat/app-domain-cutover`)
@@ -26,22 +26,26 @@ The old address keeps **serving** (no redirect) for the whole overlap.
 - Weather worker scripts require `WEATHER_SWATHS_INGEST_URL`; there is no default host.
 
 ## Config checklist (outside the repo)
+**Never point `NEXT_PUBLIC_APP_URL` or the iOS `CRM_BASE_URL` at the bare domain `arxcapitol.com`.** Once `APP_BASE_DOMAIN` is
+set the bare domain is refused (no company), and links built from it would die. Go straight from the legacy host
+(`arx-internal-crm.vercel.app`) to the company address `https://arx.arxcapitol.com` (needs the web name `arx`, migrations
+202611100070 / 202611100095). The code refuses the bare domain (`lib/__tests__/company-host.test.ts`).
 | # | Where | Change | Keep old during overlap? |
 |---|---|---|---|
-| 1 | GitHub repo variables | `WEATHER_SWATHS_INGEST_URL` = `https://arxcapitol.com/api/cron/weather-swaths-ingest`, `LIDAR_INGEST_URL` = `https://arxcapitol.com/api/cron/lidar-ingest`. **Check both are set before merging** — the weather worker no longer has a default. | n/a |
+| 1 | GitHub repo variables | `WEATHER_SWATHS_INGEST_URL` = `https://arx.arxcapitol.com/api/cron/weather-swaths-ingest`, `LIDAR_INGEST_URL` = `https://arx.arxcapitol.com/api/cron/lidar-ingest`. **Check both are set before merging** — the weather worker no longer has a default. | n/a |
 | 2 | Vercel → Domains | Add `arxcapitol.com` (and `www` → apex). Later `*.arxcapitol.com` (wildcard needs Vercel nameservers). Leave `arx-internal-crm.vercel.app` attached with **no redirect**. | yes |
-| 3 | Vercel → Settings → Environment Variables | `NEXT_PUBLIC_APP_URL=https://arxcapitol.com` for Production **and** Preview (no value = links fail loudly there). Redeploy: NEXT_PUBLIC values are baked in at build. Keep "Automatically expose System Environment Variables" ON (the hand-off skips previews via `NEXT_PUBLIC_VERCEL_ENV`). | n/a |
-| 4 | Vercel env | `GOOGLE_REDIRECT_URI` = `https://arxcapitol.com/api/auth/google/callback`, or delete it (it is then derived from the app address). | n/a |
-| 5 | Google Cloud → OAuth client | Add redirect URI `https://arxcapitol.com/api/auth/google/callback` (keep the old one). OAuth consent screen → Authorized domains: add `arxcapitol.com`; update home/privacy links. Stored refresh tokens keep working. | yes |
-| 6 | Supabase → Auth → URL configuration | Site URL `https://arxcapitol.com`. Redirect URLs: add `https://arxcapitol.com/reset-password` and `https://*.arxcapitol.com/reset-password`; keep the old host's entry. Check email templates that use `{{ .SiteURL }}`. | yes |
-| 7 | Google Cloud → Maps JS key | HTTP referrers: add `https://arxcapitol.com/*` and `https://*.arxcapitol.com/*`. | yes |
-| 8 | Website (arxroofing.com Vercel project) | `NEXT_PUBLIC_CRM_PUBLIC_ESTIMATE_URL` → `https://arxcapitol.com` (instant estimate). | old keeps working |
+| 3 | Vercel → Settings → Environment Variables | `NEXT_PUBLIC_APP_URL=https://arx.arxcapitol.com` for Production **and** Preview (no value = links fail loudly there). Redeploy: NEXT_PUBLIC values are baked in at build. Keep "Automatically expose System Environment Variables" ON (the hand-off skips previews via `NEXT_PUBLIC_VERCEL_ENV`). | n/a |
+| 4 | Vercel env | `GOOGLE_REDIRECT_URI` = `https://arx.arxcapitol.com/api/auth/google/callback`, or delete it (it is then derived from the app address). | n/a |
+| 5 | Google Cloud → OAuth client | Add redirect URI `https://arx.arxcapitol.com/api/auth/google/callback` (keep the old one). OAuth consent screen → Authorized domains: add `arxcapitol.com`; update home/privacy links. Stored refresh tokens keep working. | yes |
+| 6 | Supabase → Auth → URL configuration | Site URL `https://arx.arxcapitol.com`. Redirect URLs: add `https://arx.arxcapitol.com/reset-password` and `https://*.arxcapitol.com/reset-password`; keep the old host's entry. Check email templates that use `{{ .SiteURL }}`. | yes |
+| 7 | Google Cloud → Maps JS key | HTTP referrers: add `https://arx.arxcapitol.com/*` and `https://*.arxcapitol.com/*`. | yes |
+| 8 | Website (arxroofing.com Vercel project) | `NEXT_PUBLIC_CRM_PUBLIC_ESTIMATE_URL` → `https://arx.arxcapitol.com` (instant estimate). | old keeps working |
 | 9 | Lead sources (Zapier/Facebook/forms) | Re-point any `…/api/webhooks/leads?token=…` URL to the new host (Admin → Campaigns now shows the new address). | yes |
-| 10 | iOS (Xcode) | Build setting `CRM_BASE_URL` → `https://arxcapitol.com`, ship via TestFlight/App Store. Old builds keep calling the old host. | yes |
+| 10 | iOS (Xcode) | Build setting `CRM_BASE_URL` → `https://arx.arxcapitol.com`, ship via TestFlight/App Store. Old builds keep calling the old host. | yes |
 
 ## Cutover order
 1. GitHub variables (#1) — they work on either host.
-2. Domain live in Vercel (#2); confirm `https://arxcapitol.com/api/health` answers.
+2. Domain live in Vercel (#2); confirm `https://arx.arxcapitol.com/api/health` answers.
 3. Allow-lists (#5, #6, #7) — before any link points at the new host.
 4. Set `NEXT_PUBLIC_APP_URL` / `GOOGLE_REDIRECT_URI` (#3, #4) and deploy this branch.
 5. Smoke test on the new host: sign in, admin password reset email, Google Calendar connect, assign a crew (invite crew link),
@@ -107,20 +111,30 @@ needs entries #5–#7 (the wildcards above cover them).
   and the per-hour plan basis on 202611110030's tables); also needs 202611100090 for price-book items priced "per hour".
   Then the code. DB test: `supabase/tests/run-hourly-billing.sh`.
 
-## Full migration apply order (integration/multi-company, round 6)
-Apply in this order, then the code: 202610280010, 202611100040, 202611110010, 202611110020, 202611110030, 202611110040,
-202611110060, 202611110070, 202611120010, 202611120020 (online payments), 202611120030 (hourly billing),
-202611120040 (Jobber import), 202611120050 (customer messages), 202611120060 (portal), 202611120080 (project tools),
-202611120090 (purchase orders), 202611130010, 202611130020 (AI connector), 202611130050 (QuickBooks),
-202611130070 (quote approval), 202611140010 (rpt_invoices), 202611140070 (payroll advances / approval links),
-202611150010 (portal roofing), 202611150070 (AI connector writes), 202611160010 / 202611160020 / 202611160030
-(signing safety, see below), 202611170010 (texting).
+## Full migration apply order (integration/multi-company, rounds 5-6)
+**Phase 1 — before the code, in this order** (each file's header has its own detail):
+202610280010, 202611030010, 202611030020, 202611050010, 202611060010 (the generic settings merge), 202611060020,
+202611060030, 202611100030, 202611100040 (before 0060 below), 202611100070 (company web address) and 202611100095 (old
+addresses; needs 0070) and 202611100080 (Google connect on a company address) — **all three before setting
+`APP_BASE_DOMAIN`**, 202611100090 (hourly / monthly / per-visit units; before 202611120030), 202611110010, 202611110020,
+202611110030, 202611110040, 202611110060, 202611110070, 202611120010, 202611120020 (online payments), 202611120030 (hourly
+billing), 202611120040 (Jobber import), 202611120050 (customer messages), 202611120060 (portal), 202611120080 (project
+tools), 202611120090 (purchase orders), 202611130010, 202611130020 (AI connector), 202611130050 (QuickBooks),
+202611130070 (quote approval), 202611140010 (rpt_invoices), 202611140070 (payroll advances / approval links), 202611150010
+(portal roofing), 202611150070 (AI connector writes), 202611160010 / 202611160020 / 202611160030 (signing safety, below),
+202611170010 (texting; after 120050 and 120060). Then the signing-safety backfill (below).
+**Phase 2 — deploy the code.**
+**Phase 3 — only after the code is live:** 202611160040 (drops the contracts' `signing_token` default — the code that was
+live before still relies on it), 202611100050 (drops every storage policy on `files`; needs the files-bucket phase-2 code),
+then 202611020020 → 202611020010 (files bucket private; read both headers first), 202611100010 (drops the old brand
+merge), and 202611100020 one release after the code ships.
 All numbers are unique.
 
 ## Database migrations — apply order (signing safety, PR0)
 - `202611160010` (drops the anon policies; prod already closed) → `202611160020` (evidence columns, token-hash columns,
-  contracts' `signing_token` loses NOT NULL/default) → `202611160030` (signing recovery columns). **All three BEFORE the code**: the sign routes write `customer_user_agent`, `signing_token_hash/enc`,
+  contracts' `signing_token` loses NOT NULL; its default STAYS until `202611160040`, applied after the code is live) → `202611160030` (signing recovery columns). **All three BEFORE the code**: the sign routes write `customer_user_agent`, `signing_token_hash/enc`,
   `signing_steps`, `signing_finalize_lease_at`, and creators stop writing the plaintext `signing_token` (a NOT NULL there would
   reject new contracts). Links already sent keep working (plaintext still accepted).
+- `202611160040_drop_signing_token_default.sql` goes AFTER the code is live (never before: the old code relies on the default).
 - Backfill: run `supabase/data-fixes/2026-11-11_signing_recovery_backfill.sql` right after 0030, then **again right after
   the code deploys** (contracts the old code signed in between). It is idempotent and skips rows the new code has touched.

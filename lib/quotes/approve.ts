@@ -30,6 +30,7 @@ import { flagApprovalBlocked, NEEDS_DETAIL_MESSAGE } from '@/lib/quotes/blocked'
 import { isOptionalLine } from '@/lib/quotes/pricing'
 import { fingerprintOf, loadQuoteContext, priceForSelection, quoteDeposit, quoteTerms, type QuoteContext } from '@/lib/quotes/load'
 import type { QuoteLinkRow } from '@/lib/quotes/links'
+import { newSigningTokenColumns, signingTokenOf } from '@/lib/signing-tokens'
 
 export const FINALIZE_LEASE_MS = 2 * 60_000
 const OPEN_STATUSES = ['draft', 'sent', 'viewed']
@@ -268,6 +269,7 @@ export async function finalizeApproval(admin: SupabaseClient, orgId: string, app
     // 2. The signed sale — through the one signing pipeline.
     let contractId = approval.contract_id
     if (!contractId) {
+      const { columns: signingTokenColumns } = newSigningTokenColumns('contract')
       const chosen = snap.lines.filter((l) => l.chosen).map((l) => l.name)
       const { data: c, error } = await db
         .from('order_form_contracts')
@@ -287,6 +289,7 @@ export async function finalizeApproval(admin: SupabaseClient, orgId: string, app
           status: 'pending_customer',
           created_by: creator,
           quote_approval_id: approval.id,
+          ...signingTokenColumns,
           // The signing link of this contract is never sent to anyone (we sign it ourselves, now or on a retry), and the quote
           // link has its own expiry. The 7-day default would make a retry after a week fail forever.
           token_expires_at: new Date(now.getTime() + APPROVAL_CONTRACT_TOKEN_DAYS * 86_400_000).toISOString(),
@@ -297,9 +300,11 @@ export async function finalizeApproval(admin: SupabaseClient, orgId: string, app
       contractId = (c as { id: string }).id
       await setApproval(admin, orgId, approvalId, { contract_id: contractId })
     }
-    const { data: ct } = await db.from('order_form_contracts').select('id, status, signing_token, pdf_url').eq('id', contractId).maybeSingle()
-    const contract = ct as { id: string; status: string; signing_token: string; pdf_url: string | null } | null
-    if (!contract) throw new Error('contract missing')
+    const { data: ct } = await db.from('order_form_contracts').select('id, status, signing_token, signing_token_enc, pdf_url').eq('id', contractId).maybeSingle()
+    const contractRow = ct as { id: string; status: string; signing_token: string | null; signing_token_enc: string | null; pdf_url: string | null } | null
+    if (!contractRow) throw new Error('contract missing')
+    const contract = { ...contractRow, signing_token: signingTokenOf(contractRow) }
+    if (!contract.signing_token) throw new Error('contract link unreadable')
     // A COMPLETED contract is never reopened (it would drop out of sales and payroll, overwrite customer_signed_at, re-send the
     // sale email, and a lease expiry could then make a second job). The signing route marks a contract completed BEFORE it
     // makes the project and job; if it stopped in between, the contract reads completed with no job. The one recovery is the

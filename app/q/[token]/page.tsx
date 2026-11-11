@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 
+import { signingTokenOf } from '@/lib/signing-tokens'
 import { orgAppUrl } from '@/lib/company-links'
 import { customerSignedDocPath } from '@/lib/files/files-object'
 import { loadOrgFeatures } from '@/lib/org-features'
@@ -42,9 +43,10 @@ export default async function QuotePage({ params }: { params: { token: string } 
     state = 'approved'
     let copyHref: string | null = null
     if (approval.contract_id) {
-      const { data: c } = await orgDb(admin, orgId).from('order_form_contracts').select('signing_token, pdf_url').eq('id', approval.contract_id).maybeSingle()
-      const row = c as { signing_token?: string | null; pdf_url?: string | null } | null
-      if (row?.signing_token && row.pdf_url) copyHref = customerSignedDocPath('contract', String(row.signing_token))
+      const { data: c } = await orgDb(admin, orgId).from('order_form_contracts').select('signing_token, signing_token_enc, pdf_url').eq('id', approval.contract_id).maybeSingle()
+      const row = c as { signing_token?: string | null; signing_token_enc?: string | null; pdf_url?: string | null } | null
+      const copyToken = signingTokenOf(row)
+      if (copyToken && row?.pdf_url) copyHref = customerSignedDocPath('contract', copyToken)
     }
     const dep = approval.finalized_at ? await depositStateFor(admin, orgId, approval) : null
     approvalView = {

@@ -65,13 +65,14 @@ export async function loadJobInvoiceFacts(client: SupabaseClient, jobIds: readon
       if (r.status === 'void') continue
       const f = facts(r.job_id)
       const row = { total_cents: Number(r.total_cents) || 0, tax_cents: taxReady && Number(r.tax_cents) > 0 ? Number(r.tax_cents) : 0 }
-      f.taxCents += row.tax_cents
       f.invoicedTotalCents += row.total_cents
       f.invoicedPreTaxCents += invoicedPreTaxCents([row])
       if (r.status === 'draft') {
         drafts.add(r.job_id)
         continue
       }
+      // Tax counts toward what must be collected only once the invoice is issued: a taxed DRAFT must not hold a job open.
+      f.taxCents += row.tax_cents
       f.issuedTotalCents += row.total_cents
       f.issuedPreTaxCents += invoicedPreTaxCents([row])
     }

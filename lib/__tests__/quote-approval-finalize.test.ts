@@ -22,6 +22,7 @@ jest.mock('@/lib/online-payments/links', () => ({ createPaymentLink: jest.fn(), 
 
 import { createFakeDb } from '@/lib/test-helpers/fake-db'
 import { APPROVAL_CONTRACT_TOKEN_DAYS, finalizeApproval } from '@/lib/quotes/approve'
+import { hashSigningToken, newSigningTokenColumns, openSigningToken } from '@/lib/signing-tokens'
 
 const ORG = 'org-1'
 const snapshot = {
@@ -43,7 +44,12 @@ function setup(seed: Record<string, Array<Record<string, unknown>>>) {
 }
 const ok = () => ({ ok: true, json: async () => ({ success: true }) })
 
+// New contracts keep only the hashed token + its encrypted copy (no plaintext), so the seeds do too.
+process.env.SIGNING_TOKEN_SECRET = 'test-signing-secret'
+const hashed = (kind: 'contract' = 'contract') => newSigningTokenColumns(kind).columns
+
 beforeEach(() => {
+  process.env.SIGNING_TOKEN_SECRET = 'test-signing-secret'
   jest.clearAllMocks()
   storeApprovalPdf.mockResolvedValue('org/org-1/quotes/a1.pdf')
   sendApprovalConfirmation.mockResolvedValue(true)
@@ -68,6 +74,11 @@ describe('approval contract', () => {
     const now = new Date('2026-11-01T12:05:00Z')
     expect(await finalizeApproval(db.client, ORG, 'a1', { now })).toBe(true)
     const c = db.tables.order_form_contracts[0]
+    // the approval's own contract is made with the hashed token columns (no plaintext), and the sign route is called with that token
+    expect(c.signing_token).toBeNull()
+    const sent = JSON.parse(await (signContract.mock.calls[0][0] as Request).text()).token
+    expect(openSigningToken(c.signing_token_enc as string)).toBe(sent)
+    expect(c.signing_token_hash).toBe(hashSigningToken(sent))
     const exp = Date.parse(String(c.token_expires_at))
     expect(exp - now.getTime()).toBeGreaterThan((APPROVAL_CONTRACT_TOKEN_DAYS - 1) * 86_400_000)
     expect(exp - Date.now()).toBeGreaterThan(365 * 86_400_000)
@@ -104,7 +115,7 @@ describe('signing stopped half way', () => {
   })
 
   it('with the route not finishing anything yet (400 already signed) the retry fails cleanly, status untouched', async () => {
-    const db = setup({ order_form_contracts: [{ id: 'c1', org_id: ORG, status: 'completed', signing_token: 't' }] })
+    const db = setup({ order_form_contracts: [{ id: 'c1', org_id: ORG, status: 'completed', ...hashed() }] })
     db.tables.quote_approvals[0].contract_id = 'c1'
     signContract.mockResolvedValue({ ok: false, json: async () => ({ error: 'Contract has already been signed' }) })
     expect(await finalizeApproval(db.client, ORG, 'a1', { now: new Date('2026-11-01T12:05:00Z') })).toBe(false)
@@ -113,7 +124,7 @@ describe('signing stopped half way', () => {
   })
 
   it('a completed contract whose job exists is not signed again', async () => {
-    const db = setup({ order_form_contracts: [{ id: 'c1', org_id: ORG, status: 'completed', signing_token: 't' }], production_jobs: [{ id: 'j1', org_id: ORG, accepted_proposal_id: 'p1', sale_amount: 400 }] })
+    const db = setup({ order_form_contracts: [{ id: 'c1', org_id: ORG, status: 'completed', ...hashed() }], production_jobs: [{ id: 'j1', org_id: ORG, accepted_proposal_id: 'p1', sale_amount: 400 }] })
     db.tables.quote_approvals[0].contract_id = 'c1'
     expect(await finalizeApproval(db.client, ORG, 'a1', { now: new Date('2026-11-01T12:05:00Z') })).toBe(true)
     expect(signContract).not.toHaveBeenCalled()
@@ -121,7 +132,7 @@ describe('signing stopped half way', () => {
 })
 
 describe('deposit invoice', () => {
-  const base = { order_form_contracts: [{ id: 'c1', org_id: ORG, status: 'completed', signing_token: 't', pdf_url: 'x.pdf' }], production_jobs: [{ id: 'j1', org_id: ORG, accepted_proposal_id: 'p1', sale_amount: 400 }] }
+  const base = { order_form_contracts: [{ id: 'c1', org_id: ORG, status: 'completed', ...hashed(), pdf_url: 'x.pdf' }], production_jobs: [{ id: 'j1', org_id: ORG, accepted_proposal_id: 'p1', sale_amount: 400 }] }
   const withContract = (db: ReturnType<typeof createFakeDb>) => { db.tables.quote_approvals[0].contract_id = 'c1' }
 
   it('an empty draft left by an earlier attempt gets its line and is sent, once', async () => {

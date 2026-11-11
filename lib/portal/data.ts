@@ -211,10 +211,11 @@ export async function loadPortalHome(admin: SupabaseClient, s: PortalSession): P
   })
   const paperwork: PortalPaperwork[] = []
   for (const part of chunk(ids.openJobIds).slice(0, 1)) {
-    for (const r of await soft<{ id: string; co_number: string; signing_token: string | null; signed_at: string | null; created_at: string }>('change orders', () =>
-      db.from('job_change_orders').select('id, co_number, signing_token, signed_at, created_at').in('job_id', part).eq('status', 'completed').order('created_at', { ascending: false }).limit(MAX.paperwork)
+    for (const r of await soft<{ id: string; co_number: string; signing_token: string | null; signing_token_enc: string | null; signed_at: string | null; created_at: string }>('change orders', () =>
+      db.from('job_change_orders').select('id, co_number, signing_token, signing_token_enc, signed_at, created_at').in('job_id', part).eq('status', 'completed').order('created_at', { ascending: false }).limit(MAX.paperwork)
     )) {
-      if (r.signing_token && /^[0-9a-f]{64}$/i.test(r.signing_token)) paperwork.push({ id: r.id, title: `Change order ${r.co_number}`, href: customerSignedDocPath('change-order', r.signing_token), date: r.signed_at || r.created_at })
+      const coToken = signingTokenOf(r)
+      if (coToken && /^[0-9a-f]{64}$/i.test(coToken)) paperwork.push({ id: r.id, title: `Change order ${r.co_number}`, href: customerSignedDocPath('change-order', coToken), date: r.signed_at || r.created_at })
     }
   }
   // A cancelled / on-hold job's report is not shown: drop the opportunities those jobs stand on.

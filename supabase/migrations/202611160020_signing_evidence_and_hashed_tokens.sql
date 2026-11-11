@@ -12,12 +12,13 @@ ALTER TABLE job_change_orders
 
 --  * signing links: a NEW token is stored as its SHA-256 (signing_token_hash, what a link is looked up by) plus an encrypted
 --    copy (signing_token_enc, so "Copy link" still works). The plaintext columns stay for links already sent and are left
---    empty for new rows; the contracts' column loses its NOT NULL / random default so a new row has no plaintext token.
+--    empty for new rows; the contracts' column loses its NOT NULL (the random default goes later, in 202611160040).
 ALTER TABLE order_form_contracts
   ADD COLUMN IF NOT EXISTS signing_token_hash TEXT,
   ADD COLUMN IF NOT EXISTS signing_token_enc TEXT;
 ALTER TABLE order_form_contracts ALTER COLUMN signing_token DROP NOT NULL;
-ALTER TABLE order_form_contracts ALTER COLUMN signing_token DROP DEFAULT;
+-- The DEFAULT stays here: the code now live on main still creates contracts without a token and relies on it. It is dropped by
+-- 202611160040, applied AFTER the new code is live.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_order_form_contracts_signing_token_hash
   ON order_form_contracts(signing_token_hash) WHERE signing_token_hash IS NOT NULL;
 

@@ -27,6 +27,19 @@ describe('invoice tax is owed on top of sale_amount — every paid-in-full reade
     expect(collectionInvoiceFields(m.get('j2'))).toEqual({ invoiceTaxCents: 0, timeAndMaterialsInvoicedCents: 100, timeAndMaterialsPending: false })
   })
 
+  it('loader: a taxed DRAFT invoice adds no tax to what must be collected (it cannot hold payroll)', async () => {
+    const { client } = createFakeDb({
+      job_invoices: [
+        { id: 'a', job_id: 'j1', status: 'sent', tax_cents: 4500, total_cents: 104500 },
+        { id: 'b', job_id: 'j1', status: 'draft', tax_cents: 700, total_cents: 7700 },
+      ],
+      production_jobs: [{ id: 'j1', billing_mode: null }],
+    })
+    const m = await loadJobInvoiceFacts(client, ['j1'])
+    expect(m.get('j1')?.taxCents).toBe(4500)
+    expect(collectionInvoiceFields(m.get('j1')).invoiceTaxCents).toBe(4500)
+  })
+
   it('loader: before migration 202611110040 (no tax_cents) everything is 0', async () => {
     const err = { code: '42703', message: 'column job_invoices.tax_cents does not exist' }
     // job_invoices: tax_cents missing → retried without; production_jobs: billing_mode missing (202611120030 not applied).
