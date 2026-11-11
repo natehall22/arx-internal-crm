@@ -9,6 +9,8 @@ import * as React from 'react'
 import Link from 'next/link'
 
 import { Badge, Button, Card, CardContent, CardHeader, CardTitle, confirmDialog, Dialog, DialogContent, DialogFooter, FileDropZone, Select, toast } from '@/components/ui'
+import { decodeCsvBytes } from '@/lib/csv'
+import { CUSTOMER_DOCUMENT_ACCEPT, isAllowedCustomerDocumentName } from '@/lib/customer-document-categories'
 import { uploadCustomerDocument } from '@/lib/customer-document-upload'
 import { formatDate, formatMoney } from '@/lib/format'
 import { JOBBER_FILE_KIND_LABELS, JOBBER_FILE_KINDS, resolveMapping, targetChoices, type JobberFileKind } from '@/lib/jobber-import/columns'
@@ -120,7 +122,9 @@ export default function MoveFromJobber() {
         continue
       }
       try {
-        const res = await api<{ detected: boolean }>(`${BASE}/${runId}`, { action: 'addFile', name: f.name, text: await f.text() })
+        const { text, encoding } = decodeCsvBytes(await f.arrayBuffer())
+        if (encoding !== 'utf-8') toast(`${f.name} was saved by Excel — read as Windows text so accents and dashes come through`)
+        const res = await api<{ detected: boolean }>(`${BASE}/${runId}`, { action: 'addFile', name: f.name, text })
         if (!res.detected) toast.error(`${f.name}: we couldn’t tell which Jobber export this is — pick it below`)
       } catch (e) {
         toast.error(`${f.name}: ${(e as Error).message}`)
@@ -147,7 +151,21 @@ export default function MoveFromJobber() {
   async function check(next?: Partial<Run['options']>) {
     if (!state) return
     if (next) await post({ action: 'update', options: next })
-    await post({ action: 'check' }, 'Checking every row…')
+    // One file per request (big uploads never hit a time limit); the screen shows where it is.
+    const runId = state.run.id
+    setBusy('Checking every row…')
+    try {
+      for (let guard = 0; guard < 200; guard++) {
+        const r = await api<{ done: boolean; step?: string; at?: number; of?: number }>(`${BASE}/${runId}`, { action: 'check' })
+        if (r.done) break
+        setBusy(`${r.step}… (${r.at} of ${r.of})`)
+      }
+    } catch (e) {
+      toast.error((e as Error).message)
+    } finally {
+      setBusy(null)
+      await load(runId).catch(() => null)
+    }
   }
 
   /** Runs batches until done (import or undo). Safe to leave: coming back continues. */
@@ -583,7 +601,10 @@ function FilesStep({ runId, onDone }: { runId: string; onDone: () => void }) {
   const [picked, setPicked] = React.useState<Record<string, string>>({})
   const [busy, setBusy] = React.useState<string | null>(null)
 
-  async function choose(list: File[]) {
+  async function choose(all: File[]) {
+    const list = all.filter((f) => isAllowedCustomerDocumentName(f.name))
+    if (list.length < all.length) toast.error(`${all.length - list.length} file${all.length - list.length === 1 ? '' : 's'} left out — only PDF, photos, Word or CSV`)
+    if (!list.length) return
     setBusy('Matching file names to customers…')
     try {
       const r = await api<{ matches: FileMatch[]; customers: Array<{ id: string; name: string }> }>(`${BASE}/${runId}`, { action: 'matchFiles', names: list.map((f) => f.name) })
@@ -632,7 +653,7 @@ function FilesStep({ runId, onDone }: { runId: string; onDone: () => void }) {
         <p className="text-ui-base text-ink">
           Jobber only lets you download files one client at a time (open the client → Files and media → Select all → download). Name them “Client Name - Contract.pdf” and drop them here: we match each one to a customer and you check before anything is saved.
         </p>
-        <FileDropZone onFiles={choose} disabled={!!busy} label="Drop files here or tap to choose" hint="PDFs, photos, documents — any number" />
+        <FileDropZone accept={CUSTOMER_DOCUMENT_ACCEPT} onFiles={choose} disabled={!!busy} label="Drop files here or tap to choose" hint="PDF, photos, Word or CSV — any number" />
         {busy ? <p role="status" className="text-ui-base font-semibold text-ink">{busy}</p> : null}
         {matches.length ? (
           <>

@@ -170,18 +170,41 @@ function contact(f: Record<string, string>): ReportContact {
   return { name: f.client_name ?? null, email: emails[0]?.toLowerCase() ?? null, phone: splitMulti(f.client_phone)[0] ?? null, service: addr(f, 'service') }
 }
 
-export function readJobberFiles(files: RunFile[], choices: Record<string, Record<string, unknown>>, options: Pick<ImportOptions, 'dateOrder'>): ReadResult {
-  const problems: Problem[] = []
-  const mapped = files.map((file) => {
-    const mapping = resolveMapping(file.kind, file.headers, choices[file.id] ?? {})
-    return { file, rows: file.rows.map((r, i) => ({ row: i + 2, m: mapRow(mapping, r) })) }
-  })
+/** What one file says about the date order (a day over 12 first = day/month; second = month/day). */
+export type DateEvidence = { dmy: boolean; mdy: boolean }
 
-  // One date order for the whole upload: every file comes out of the same Jobber account.
-  const dateCells: string[] = []
-  for (const x of mapped) for (const r of x.rows) for (const k of DATE_FIELDS) if (r.m.fields[k]) dateCells.push(r.m.fields[k])
-  const detected = detectDateOrder(dateCells)
-  const order = options.dateOrder ?? detected.order
+export function fileDateEvidence(file: RunFile, choices: Record<string, unknown> | undefined): DateEvidence {
+  const mapping = resolveMapping(file.kind, file.headers, choices ?? {})
+  const idx = mapping.map((m, i) => (DATE_FIELDS.includes(m.target) ? i : -1)).filter((i) => i >= 0)
+  const cells: string[] = []
+  for (const r of file.rows) for (const i of idx) if (r[i]) cells.push(r[i])
+  const d = detectDateOrder(cells)
+  return { dmy: d.order === 'dmy' || d.conflicting, mdy: (d.order === 'mdy' && !d.ambiguous) || d.conflicting }
+}
+
+/** One date order for the whole upload (every file comes out of the same Jobber account); the owner's pick wins. */
+export function decideDateOrder(evidence: DateEvidence[], chosen: DateOrder | null): ReadResult['dateOrder'] {
+  const dmy = evidence.some((e) => e.dmy)
+  const mdy = evidence.some((e) => e.mdy)
+  const detected: DateOrder = dmy && !mdy ? 'dmy' : 'mdy'
+  return { order: chosen ?? detected, ambiguous: !dmy && !mdy, conflicting: dmy && mdy, chosen: chosen !== null }
+}
+
+/** A file read on its own (the Check reads one file per request); JSON-safe, so it can be stored between requests. */
+export type ReadPart = Omit<ReadResult, 'visitDatesByJob' | 'dateOrder'> & { visitDatesByJob: Record<string, string[]> }
+
+/** Excel re-saves turn long numbers into "8.50555E+09" and drop a ZIP's leading zero ("2108" for 02108). */
+const EXCEL_NUMBER = /^\d(\.\d+)?E\+\d+$/i
+function excelDamage(where: Where, label: string, raw: string | undefined, kind: 'phone' | 'zip', problems: Problem[]) {
+  if (!raw) return
+  if (EXCEL_NUMBER.test(raw.trim())) problems.push({ severity: 'warning', file: where.file, row: where.row, message: `${label} “${raw}” looks changed by Excel (digits lost) — fix it in Jobber’s original export, or after the import` })
+  else if (kind === 'zip' && /^\d{3,4}$/.test(raw.trim())) problems.push({ severity: 'warning', file: where.file, row: where.row, message: `${label} “${raw}” lost its leading zero (Excel) — check it` })
+}
+
+export function readOneFile(file: RunFile, choices: Record<string, unknown> | undefined, order: DateOrder): ReadPart {
+  const problems: Problem[] = []
+  const mapping = resolveMapping(file.kind, file.headers, choices ?? {})
+  const mapped = [{ file, rows: file.rows.map((r, i) => ({ row: i + 2, m: mapRow(mapping, r) })) }]
   const dateOf = (where: Where, label: string, raw: string | undefined): string | null => {
     if (!raw) return null
     const d = parseDate(raw, order)
@@ -198,17 +221,17 @@ export function readJobberFiles(files: RunFile[], choices: Record<string, Record
   }
 
   const clientsById = new Map<string, ClientRecord>()
-  const out: ReadResult = {
-    clients: [],
-    quotes: [],
-    recurring: [],
-    oneOff: [],
-    invoices: [],
-    products: [],
-    visitDatesByJob: new Map(),
+  const visitDates = new Map<string, string[]>()
+  const out = {
+    clients: [] as ClientRecord[],
+    quotes: [] as QuoteRecord[],
+    recurring: [] as RecurringRecord[],
+    oneOff: [] as OneOffRecord[],
+    invoices: [] as InvoiceRecord[],
+    products: [] as ProductRecord[],
+    visitDatesByJob: visitDates,
     problems,
-    dateOrder: { ...detected, order, chosen: options.dateOrder !== null },
-    files: files.map((f) => ({ id: f.id, name: f.name, kind: f.kind, rows: f.rows.length })),
+    files: [{ id: file.id, name: file.name, kind: file.kind, rows: file.rows.length }],
   }
 
   for (const { file, rows } of mapped) {
@@ -226,7 +249,7 @@ export function readJobberFiles(files: RunFile[], choices: Record<string, Record
             const person = [f.first_name, f.last_name].filter(Boolean).join(' ') || f.full_name || ''
             const emails = splitMulti(f.emails)
             const goodEmails = emails.filter(isEmail).map((e) => e.toLowerCase())
-            const phones = [f.main_phone, f.mobile_phone, f.sms_phone, f.home_phone, f.work_phone, f.other_phone].flatMap((p) => splitMulti(p))
+            const phones = [f.main_phone, f.mobile_phone, f.sms_phone, f.home_phone, f.work_phone, f.other_phone].flatMap((p) => splitMulti(p)).filter((p) => !EXCEL_NUMBER.test(p))
             const uniquePhones: string[] = []
             for (const p of phones) if (!uniquePhones.some((q) => phoneDigits(q) && phoneDigits(q) === phoneDigits(p))) uniquePhones.push(p)
             const name = (f.display_name || (isCompany ? f.company : '') || person || f.company || goodEmails[0] || uniquePhones[0] || '').slice(0, 120)
@@ -266,10 +289,14 @@ export function readJobberFiles(files: RunFile[], choices: Record<string, Record
             for (const cv of m.custom.filter((x) => x.entity === 'customer'))
               if (!c.custom.some((x) => x.label.toLowerCase() === cv.label.toLowerCase())) c.custom.push(cv)
           }
+          for (const k of ['main_phone', 'mobile_phone', 'home_phone', 'work_phone', 'other_phone', 'sms_phone']) excelDamage(where, 'Phone', f[k], 'phone', problems)
+          excelDamage(where, 'Service ZIP', f.service_zip, 'zip', problems)
+          excelDamage(where, 'Billing ZIP', f.billing_zip, 'zip', problems)
           const service = addr(f, 'service')
           if (service.line1) {
             c.properties.push({
-              sourceId: f.jid?.trim() || `${clientId}:${c.properties.length + 1}`,
+              // "103_" (no property part) or no J-ID: numbered within the client, so two such rows never collide.
+              sourceId: jid.client && jid.property ? `${jid.client}_${jid.property}` : `${clientId}:${c.properties.length + 1}`,
               where,
               label: f.property_name?.slice(0, 80) || null,
               address: service,
@@ -335,10 +362,11 @@ export function readJobberFiles(files: RunFile[], choices: Record<string, Record
           break
         case 'visits': {
           const d = dateOf(where, 'Date', f.date)
-          if (f.job_number && d) out.visitDatesByJob.set(f.job_number, [...(out.visitDatesByJob.get(f.job_number) ?? []), d])
+          if (f.job_number && d) visitDates.set(f.job_number, [...(visitDates.get(f.job_number) ?? []), d])
           break
         }
         case 'invoices':
+          excelDamage(where, 'Client phone', f.client_phone, 'phone', problems)
           if (!f.invoice_number) {
             problems.push({ severity: 'warning', file: file.name, row, message: 'No invoice number — row left out' })
             break
@@ -386,9 +414,56 @@ export function readJobberFiles(files: RunFile[], choices: Record<string, Record
       }
     }
   }
-  if (detected.conflicting && options.dateOrder === null)
+  return { ...out, visitDatesByJob: Object.fromEntries(visitDates) }
+}
+
+/**
+ * Many files → one read. Clients split across Jobber's ~1,500-row files are joined by their Jobber id; a recurring job,
+ * quote, one-off job or invoice that appears in two exports (overlapping date ranges, the same report twice) is kept once.
+ */
+export function mergeReads(parts: ReadPart[], dateOrder: ReadResult['dateOrder']): ReadResult {
+  const problems: Problem[] = parts.flatMap((p) => p.problems)
+  const clients = new Map<string, ClientRecord>()
+  for (const c of parts.flatMap((p) => p.clients)) {
+    const had = clients.get(c.sourceId)
+    if (!had) {
+      clients.set(c.sourceId, { ...c, properties: [...c.properties], custom: [...c.custom], problems: [...c.problems] })
+      continue
+    }
+    for (const p of c.properties) if (!had.properties.some((x) => x.sourceId === p.sourceId)) had.properties.push(p)
+    for (const v of c.custom) if (!had.custom.some((x) => x.label.toLowerCase() === v.label.toLowerCase())) had.custom.push(v)
+  }
+  const once = <T extends { number: string; where: Where }>(list: T[], what: string): T[] => {
+    const seen = new Map<string, T>()
+    for (const r of list) {
+      const prev = seen.get(r.number)
+      if (prev) problems.push({ severity: 'warning', file: r.where.file, row: r.where.row, message: `${what} #${r.number} is also in ${prev.where.file} row ${prev.where.row} — kept once` })
+      else seen.set(r.number, r)
+    }
+    return Array.from(seen.values())
+  }
+  const visitDatesByJob = new Map<string, string[]>()
+  for (const p of parts) for (const [job, dates] of Object.entries(p.visitDatesByJob)) visitDatesByJob.set(job, Array.from(new Set([...(visitDatesByJob.get(job) ?? []), ...dates])))
+  if (dateOrder.conflicting && !dateOrder.chosen)
     problems.push({ severity: 'warning', file: 'All files', row: null, message: 'Some dates read day/month and others month/day — pick the order under “Dates” and check again' })
-  return out
+  return {
+    clients: Array.from(clients.values()),
+    quotes: once(parts.flatMap((p) => p.quotes), 'Quote'),
+    recurring: once(parts.flatMap((p) => p.recurring), 'Job'),
+    oneOff: once(parts.flatMap((p) => p.oneOff), 'Job'),
+    invoices: once(parts.flatMap((p) => p.invoices), 'Invoice'),
+    products: parts.flatMap((p) => p.products),
+    visitDatesByJob,
+    problems,
+    dateOrder,
+    files: parts.flatMap((p) => p.files),
+  }
+}
+
+/** All files in one go (tests, small uploads). The Check does the same three steps one file per request. */
+export function readJobberFiles(files: RunFile[], choices: Record<string, Record<string, unknown>>, options: Pick<ImportOptions, 'dateOrder'>): ReadResult {
+  const order = decideDateOrder(files.map((f) => fileDateEvidence(f, choices[f.id])), options.dateOrder)
+  return mergeReads(files.map((f) => readOneFile(f, choices[f.id], order.order)), order)
 }
 
 /** Every address the plan will compare (Check asks SQL for their "same address" keys in one call). */
@@ -816,7 +891,8 @@ export function buildPlan(read: ReadResult, existing: ExistingSnapshot, addressK
       }
     }
     const prior = invBySource.get(source)
-    let number = inv.number.slice(0, 60)
+    // A re-run keeps the number the first import gave (it may be J-<n>); looked up by Jobber id, never by number.
+    let number = prior ? prior.invoice_number : inv.number.slice(0, 60)
     if (!prior && usedNumbers.has(number.toLowerCase())) {
       number = `J-${number}`
       problems.push({ severity: 'warning', file: inv.where.file, row: inv.where.row, message: `You already have an invoice numbered ${inv.number} — this one comes in as ${number}` })

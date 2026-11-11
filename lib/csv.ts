@@ -38,3 +38,16 @@ export function parseCsv(text: string): string[][] {
   if (row.some((c) => c.trim() !== '')) rows.push(row)
   return rows
 }
+
+/**
+ * Bytes of a CSV → text. UTF-8 first (Jobber's own exports, with or without a BOM); a file Excel re-saved on Windows is
+ * Windows-1252 (é, ’, – as single bytes, invalid as UTF-8) and is decoded as that instead of turning into "�".
+ */
+export function decodeCsvBytes(bytes: ArrayBuffer | Uint8Array): { text: string; encoding: 'utf-8' | 'windows-1252' } {
+  const view = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes)
+  try {
+    return { text: new TextDecoder('utf-8', { fatal: true }).decode(view).replace(/^﻿/, ''), encoding: 'utf-8' }
+  } catch {
+    return { text: new TextDecoder('windows-1252').decode(view), encoding: 'windows-1252' }
+  }
+}

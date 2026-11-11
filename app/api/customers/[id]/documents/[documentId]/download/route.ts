@@ -10,7 +10,8 @@ export const dynamic = 'force-dynamic'
 
 const PRIVATE = { 'Cache-Control': 'private, no-store, max-age=0' }
 
-/** GET — 302 to a 10-minute signed link for one customer-level document. Anything not allowed or not there is a 404. */
+/** GET — 302 to a 10-minute signed link for one customer-level document, served as a download (Content-Disposition:
+ * attachment), never rendered inline from storage. Anything not allowed or not there is a 404. */
 export async function GET(_request: Request, { params }: { params: { id: string; documentId: string } }) {
   const ctx = await threadAuth()
   if (ctx instanceof NextResponse) return ctx
@@ -19,7 +20,7 @@ export async function GET(_request: Request, { params }: { params: { id: string;
   if (!access?.read || !access.documents) return notFound()
   const doc = await findCustomerDocument(ctx.admin, ctx.viewer.orgId, params.id, params.documentId)
   if (!doc) return notFound()
-  const { data, error } = await ctx.admin.storage.from(FILES_BUCKET).createSignedUrl(doc.storage_path, 60 * 10)
+  const { data, error } = await ctx.admin.storage.from(FILES_BUCKET).createSignedUrl(doc.storage_path, 60 * 10, { download: true })
   if (error || !data?.signedUrl) return notFound()
   return NextResponse.redirect(data.signedUrl, { status: 302, headers: PRIVATE })
 }

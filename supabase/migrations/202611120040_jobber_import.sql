@@ -164,6 +164,11 @@ create table if not exists public.import_run_files (
   rows jsonb not null check (jsonb_typeof(rows) = 'array'),
   row_count integer not null default 0,
   sha256 text not null,
+  -- The Check, one file per request (so 30 big files never run into a request time limit): what the file says about
+  -- the date order, then the file read into records (cleared whenever files, columns or options change).
+  date_evidence jsonb null,
+  parsed jsonb null,
+  parsed_at timestamptz null,
   created_at timestamptz not null default now()
 );
 create index if not exists import_run_files_run_idx on public.import_run_files (run_id);

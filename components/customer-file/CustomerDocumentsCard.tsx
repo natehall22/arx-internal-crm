@@ -3,7 +3,7 @@
 import * as React from 'react'
 
 import { Button, Card, CardContent, CardHeader, CardTitle, FileDropZone, Field, Select, toast } from '@/components/ui'
-import { CUSTOMER_DOCUMENT_CATEGORIES } from '@/lib/customer-document-categories'
+import { CUSTOMER_DOCUMENT_ACCEPT, CUSTOMER_DOCUMENT_CATEGORIES } from '@/lib/customer-document-categories'
 import { formatDate } from '@/lib/format'
 import { uploadCustomerDocument } from '@/lib/customer-document-upload'
 
@@ -141,7 +141,7 @@ export default function CustomerDocumentsCard({
                 </Field>
               ) : null}
             </div>
-            <FileDropZone disabled={busy !== null} label={busy ?? 'Drop files here or tap to choose'} hint="PDFs, photos or any file" onFiles={(f) => void upload(f)} />
+            <FileDropZone accept={CUSTOMER_DOCUMENT_ACCEPT} disabled={busy !== null} label={busy ?? 'Drop files here or tap to choose'} hint="PDF, photos, Word or CSV" onFiles={(f) => void upload(f)} />
           </div>
         ) : null}
       </CardContent>

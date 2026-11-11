@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 
 import { resolveCustomerAccess } from '@/lib/customer-file/customer-access'
 import { customerDocumentFolder, loadCustomerDocuments } from '@/lib/customer-documents'
+import { isAllowedCustomerDocumentName } from '@/lib/customer-document-categories'
 import { signedUploadTokenForPath } from '@/lib/files/signed-upload'
 import { FILES_BUCKET, buildCustomerDocumentStoragePath, safeUploadFilename } from '@/lib/files/storage'
 import { loadProperty } from '@/lib/properties-db'
@@ -35,6 +36,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
   const body = (await request.json().catch(() => null)) as { filename?: unknown; propertyId?: unknown } | null
   const rawName = typeof body?.filename === 'string' ? body.filename : ''
   if (!rawName.trim()) return NextResponse.json({ error: 'filename is required' }, { status: 400 })
+  if (!isAllowedCustomerDocumentName(rawName)) return NextResponse.json({ error: 'Only PDF, photo (JPG, PNG, HEIC…), Word or CSV files can be added' }, { status: 400 })
   if (body?.propertyId != null) {
     const p = typeof body.propertyId === 'string' ? await loadProperty(ctx.admin, ctx.viewer.orgId, body.propertyId, false) : null
     if (!p || p.customer_id !== params.id) return NextResponse.json({ error: 'That property is not this customer’s' }, { status: 400 })

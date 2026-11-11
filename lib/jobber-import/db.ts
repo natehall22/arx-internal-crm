@@ -27,7 +27,7 @@ import { fetchSupabaseAllPages } from '@/lib/supabase-fetch-all-pages'
 import { orgDb } from '@/lib/supabase/org-db'
 
 import { detectFileKind, isColumnTarget, JOBBER_FILE_KINDS, type JobberFileKind } from './columns'
-import { addressesOf, buildPlan, readJobberFiles, ITEM_RANK, type CustomerRef, type ExistingSnapshot, type ImportOptions, type PlanSummary, type PropertyRef, type RunFile } from './plan'
+import { addressesOf, buildPlan, decideDateOrder, fileDateEvidence, mergeReads, readOneFile, ITEM_RANK, type DateEvidence, type ReadPart, type CustomerRef, type ExistingSnapshot, type ImportOptions, type PlanSummary, type PropertyRef, type RunFile } from './plan'
 
 export const IMPORT_NOT_READY = 'Move from Jobber turns on once the database update for it is applied (migration 202611120040).'
 /** Under Vercel's 4.5 MB request limit once sent as JSON; Jobber already splits client exports at ~1,500 rows. */
@@ -120,6 +120,7 @@ export async function openRun(admin: SupabaseClient, orgId: string, userId: stri
 async function clearCheck(admin: SupabaseClient, orgId: string, runId: string) {
   const db = orgDb(admin, orgId)
   await db.from('import_run_items').delete().eq('run_id', runId)
+  await db.from('import_run_files').update({ date_evidence: null, parsed: null, parsed_at: null }).eq('run_id', runId)
   await db.from('import_runs').update({ summary: null, checked_at: null, updated_at: new Date().toISOString() }).eq('id', runId).eq('status', 'draft')
 }
 
@@ -236,11 +237,41 @@ async function loadSnapshot(admin: SupabaseClient, orgId: string): Promise<Exist
   }
 }
 
-export async function checkRun(admin: SupabaseClient, orgId: string, run: RunRow): Promise<{ ok: true; summary: PlanSummary } | Fail> {
+export type CheckStep = { ok: true; done: false; step: string; at: number; of: number } | { ok: true; done: true; summary: PlanSummary }
+
+/**
+ * The Check, one unit of work per call (the screen calls until `done`): every file's date evidence, then every file read
+ * into records (stored on the file), then the plan from all of them. Nothing a person sees is written until the last step.
+ */
+export async function checkRun(admin: SupabaseClient, orgId: string, run: RunRow): Promise<CheckStep | Fail> {
   if (run.status !== 'draft') return fail(409, 'This import has already started')
-  const files = await loadRunFiles(admin, orgId, run.id, true)
-  const usable = files.filter((f) => (JOBBER_FILE_KINDS as readonly string[]).includes(f.kind))
-  if (usable.length === 0) return fail(400, 'Add at least one Jobber export first')
+  const db = orgDb(admin, orgId)
+  const { data: metaRows, error: metaErr } = await db.from('import_run_files').select('id, name, kind, headers, row_count, date_evidence, parsed_at').eq('run_id', run.id).order('created_at')
+  if (metaErr) return isImportNotReadyError(metaErr) ? fail(503, IMPORT_NOT_READY) : fail(500, 'Could not read the files')
+  const meta = ((metaRows ?? []) as Array<RunFileInfo & { date_evidence: DateEvidence | null; parsed_at: string | null }>).filter((f) => (JOBBER_FILE_KINDS as readonly string[]).includes(f.kind))
+  if (meta.length === 0) return fail(400, 'Add at least one Jobber export first')
+  const total = meta.length * 2 + 1
+  const rowsOf = async (id: string): Promise<RunFile> => {
+    const { data } = await db.from('import_run_files').select('id, name, kind, headers, rows').eq('id', id).eq('run_id', run.id).single()
+    return data as RunFile
+  }
+  const needEvidence = meta.findIndex((f) => !f.date_evidence)
+  if (needEvidence >= 0) {
+    const f = meta[needEvidence]
+    const ev = fileDateEvidence(await rowsOf(f.id), run.mapping[f.id])
+    await db.from('import_run_files').update({ date_evidence: ev }).eq('id', f.id).eq('run_id', run.id)
+    return { ok: true, done: false, step: `Looking at ${f.name}`, at: needEvidence + 1, of: total }
+  }
+  const order = decideDateOrder(meta.map((f) => f.date_evidence!), run.options.dateOrder)
+  const needRead = meta.findIndex((f) => !f.parsed_at)
+  if (needRead >= 0) {
+    const f = meta[needRead]
+    const part = readOneFile(await rowsOf(f.id), run.mapping[f.id], order.order)
+    const { error } = await db.from('import_run_files').update({ parsed: part, parsed_at: new Date().toISOString() }).eq('id', f.id).eq('run_id', run.id)
+    if (error) return fail(500, 'Could not save the check')
+    return { ok: true, done: false, step: `Reading ${f.name}`, at: meta.length + needRead + 1, of: total }
+  }
+
   let snapshot: ExistingSnapshot
   try {
     snapshot = await loadSnapshot(admin, orgId)
@@ -249,24 +280,28 @@ export async function checkRun(admin: SupabaseClient, orgId: string, run: RunRow
     if (isImportNotReadyError(err)) return fail(503, IMPORT_NOT_READY)
     throw e
   }
+  const parts: ReadPart[] = []
+  for (const f of meta) {
+    const { data } = await db.from('import_run_files').select('parsed').eq('id', f.id).eq('run_id', run.id).single()
+    parts.push((data as { parsed: ReadPart }).parsed)
+  }
   const today = ymdInZone(new Date(), await loadOrgTimeZone(admin, orgId))
   const options: ImportOptions = { ...run.options, today }
-  const read = readJobberFiles(usable as RunFile[], run.mapping, options)
+  const read = mergeReads(parts, order)
   const addresses = addressesOf(read)
   const keys = new Map<string, string>()
   for (let i = 0; i < addresses.length; i += 1000) {
     const chunk = addresses.slice(i, i + 1000)
     const { data, error } = await admin.rpc('property_address_keys', { p: chunk })
     if (error) return isImportNotReadyError(error) ? fail(503, IMPORT_NOT_READY) : fail(500, 'Could not check the addresses')
-    ;(data as string[]).forEach((k, j) => keys.set(chunk[j], k))
+    ;((data as string[] | null) ?? []).forEach((k, j) => keys.set(chunk[j], k))
   }
   const { items, summary } = buildPlan(read, snapshot, keys, options)
-  const db = orgDb(admin, orgId)
   const del = await db.from('import_run_items').delete().eq('run_id', run.id)
   if (del.error) return fail(500, 'Could not save the check')
-  for (let i = 0; i < items.length; i += 500) {
+  for (let i = 0; i < items.length; i += 1000) {
     const { error } = await db.from('import_run_items').insert(
-      items.slice(i, i + 500).map((it) => ({
+      items.slice(i, i + 1000).map((it) => ({
         run_id: run.id,
         kind: it.kind,
         rank: it.rank,
@@ -286,7 +321,7 @@ export async function checkRun(admin: SupabaseClient, orgId: string, run: RunRow
     }
   }
   await db.from('import_runs').update({ summary, checked_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', run.id).eq('status', 'draft')
-  return { ok: true, summary }
+  return { ok: true, done: true, summary }
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -416,7 +451,8 @@ async function guardedUpdate(
     return { status: 'skipped', target_table: table, target_id: item.target_id, error: 'Changed here since the last import — kept as it is' }
   const values = typeof valuesFor === 'function' ? valuesFor(current) : valuesFor
   const changed = Object.fromEntries(Object.entries(values).filter(([k, v]) => !same(current[k], v)))
-  if (Object.keys(changed).length === 0) return { status: 'done', target_table: table, target_id: item.target_id, applied: pick(current, Object.keys(values)), before: null }
+  // Nothing to change: this run wrote nothing, so its undo must never touch the row (the run that made it owns that).
+  if (Object.keys(changed).length === 0) return { status: 'done', target_id: item.target_id, error: 'Unchanged since the last import' }
   const { data: after, error } = await db.from(table).update(changed).eq('id', item.target_id).select(cols).single()
   if (error || !after) return { status: 'failed', error: error?.message ?? 'Could not update' }
   return { status: 'done', target_table: table, target_id: item.target_id, applied: pick(after as Record<string, unknown>, Object.keys(changed)), before: pick(current, Object.keys(changed)) }
@@ -578,7 +614,9 @@ async function doItem(ctx: Ctx, item: Item): Promise<Outcome> {
       }
       const lines = (p.lines ?? []) as ImportedInvoiceLine[]
       if (item.action === 'update') {
-        const out = await guardedUpdate(ctx, 'job_invoices', item, header, IMPORTED_INVOICE_COLUMNS)
+        // The number stays what the first import gave it (it may be J-<n> because yours already had <n>).
+        const { invoice_number: _keep, ...rest } = header
+        const out = await guardedUpdate(ctx, 'job_invoices', item, rest, IMPORTED_INVOICE_COLUMNS)
         if (out.status === 'done' && out.before) {
           const r = await replaceImportedInvoiceLines(ctx.admin, String(item.target_id), lines)
           if (!r.ok) return { status: 'failed', error: r.error }
@@ -692,17 +730,17 @@ export async function undoBatch(admin: SupabaseClient, orgId: string, run: RunRo
     if (left <= 0) break
     const { data } = await db
       .from('import_run_items')
-      .select('id, kind, target_table, target_id, applied, before')
+      .select('id, kind, action, target_table, target_id, applied, before')
       .eq('run_id', run.id)
       .eq('kind', kind)
       .eq('status', 'done')
       .order('seq', { ascending: false })
       .limit(left)
-    const items = (data ?? []) as Array<{ id: string; kind: string; target_table: string | null; target_id: string | null; applied: Record<string, unknown> | null; before: Record<string, unknown> | null }>
+    const items = (data ?? []) as Array<{ id: string; kind: string; action: string; target_table: string | null; target_id: string | null; applied: Record<string, unknown> | null; before: Record<string, unknown> | null }>
     for (const it of items) {
       left -= 1
       let result = 'deleted'
-      if (it.target_table && it.target_id && it.applied) {
+      if (it.target_table && it.target_id && it.applied && (it.action === 'create' || it.before)) {
         const rpc = it.before
           ? await admin.rpc('import_revert_row', { p_org: orgId, p_table: it.target_table, p_id: it.target_id, p_applied: it.applied, p_before: it.before })
           : await admin.rpc('import_undo_row', { p_org: orgId, p_table: it.target_table, p_id: it.target_id, p_applied: it.applied, p_ignore: it.target_table === 'job_invoices' ? ['job_invoice_items'] : [] })
