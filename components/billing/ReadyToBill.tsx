@@ -16,6 +16,7 @@ import {
   type NotBillable,
 } from '@/lib/service-billing'
 import type { SalesTaxSettings } from '@/lib/sales-tax'
+import { lineTotalCents } from '@/lib/invoice-lines'
 
 type Customer = { name: string; email: string | null; exempt: boolean }
 type Load = {
@@ -279,7 +280,7 @@ export default function ReadyToBill() {
                               {l.description}
                               {l.service_date ? ` — ${visitDateLabel(l.service_date)}` : ''}
                             </span>
-                            <span className="tabular-nums">{formatCurrency(Math.round(l.qty * l.unit_price_cents))}</span>
+                            <span className="tabular-nums">{formatCurrency(lineTotalCents(l.qty, l.unit_price_cents))}</span>
                           </li>
                         ))}
                         {t && t.taxCents > 0 ? (
@@ -320,7 +321,7 @@ export default function ReadyToBill() {
             {data.notBillable.slice(0, 100).map((n) => (
               <li key={n.visitId}>
                 {data.customers[n.customerId ?? '']?.name ?? 'Customer'} · {n.planName} · {visitDateLabel(n.date)} —{' '}
-                {n.reason === 'yearly' ? 'yearly plan (bill it from the customer)' : 'no price on the plan (set one, then it shows here)'}
+                {n.reason === 'yearly' ? 'yearly plan (bill it from the customer)' : n.reason === 'hourly' ? 'billed by the hour (Hours to bill)' : 'no price on the plan (set one, then it shows here)'}
               </li>
             ))}
           </ul>

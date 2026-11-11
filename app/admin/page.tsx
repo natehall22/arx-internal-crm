@@ -19,6 +19,7 @@ import { loadOrgProfile } from '@/lib/org-profile'
 import SalesTaxCard from '@/components/admin/SalesTaxCard'
 import { loadOrgSalesTax } from '@/lib/sales-tax-server'
 import ServicePlanTemplatesCard from '@/components/service-plans/ServicePlanTemplatesCard'
+import HourlyBillingSettingsCard from '@/components/billing/HourlyBillingSettingsCard'
 import { loadCheckupSettings } from '@/lib/checkups'
 import { canEditCheckupSettings } from '@/lib/checkups-settings'
 import { loadJobCatchUpSettings } from '@/lib/job-catch-up-db'
@@ -75,6 +76,8 @@ export default async function SettingsPage() {
           <CheckupSettingsCard initial={{ ...checkups, canEdit: canEditCheckupSettings(profile) }} users={userOptions} />
           {/* Owners, when the company uses service plans: what it sells (plan templates). */}
           {features.servicePlans && canEditFeatures ? <ServicePlanTemplatesCard /> : null}
+          {/* Owners, when the company bills by the hour: rounding, minimums, drive time (lib/hourly-billing.ts). */}
+          {features.hourlyBilling && canEditFeatures ? <HourlyBillingSettingsCard /> : null}
         </div>
       </main>
     </div>

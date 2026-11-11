@@ -56,7 +56,7 @@ export type ReadyToBill =
       salesTax: SalesTaxSettings | null
     }
 
-function chunks<T>(list: readonly T[], size = ID_CHUNK): T[][] {
+export function chunks<T>(list: readonly T[], size = ID_CHUNK): T[][] {
   const out: T[][] = []
   for (let i = 0; i < list.length; i += size) out.push(list.slice(i, i + size))
   return out
@@ -75,7 +75,7 @@ function notReady(error: { code?: string; message?: string } | null | undefined)
 type InvoiceRef = { status?: string; org_id?: string } | null
 
 /** Visits and plan-months already on a non-void invoice of this company. */
-async function loadBilled(admin: SupabaseClient, orgId: string, visitIds: string[], planIds: string[]): Promise<{ visitIds: Set<string>; planMonths: Set<string> } | null> {
+export async function loadBilled(admin: SupabaseClient, orgId: string, visitIds: string[], planIds: string[]): Promise<{ visitIds: Set<string>; planMonths: Set<string> } | null> {
   const visits = new Set<string>()
   const planMonths = new Set<string>()
   const live = (inv: InvoiceRef) => !!inv && inv.org_id === orgId && inv.status !== 'void'
@@ -140,7 +140,7 @@ async function loadPlanFacts(admin: SupabaseClient, orgId: string, planIds: stri
   return out
 }
 
-async function loadCustomers(admin: SupabaseClient, orgId: string, ids: string[]): Promise<Record<string, BillingCustomer>> {
+export async function loadCustomers(admin: SupabaseClient, orgId: string, ids: string[]): Promise<Record<string, BillingCustomer>> {
   const out: Record<string, BillingCustomer> = {}
   for (const part of chunks(ids)) {
     let res = await orgDb(admin, orgId).from('customers').select('id, name, email, tax_exempt').in('id', part)
@@ -152,7 +152,7 @@ async function loadCustomers(admin: SupabaseClient, orgId: string, ids: string[]
   return out
 }
 
-async function loadAddresses(admin: SupabaseClient, orgId: string, ids: string[]): Promise<Record<string, string>> {
+export async function loadAddresses(admin: SupabaseClient, orgId: string, ids: string[]): Promise<Record<string, string>> {
   const out: Record<string, string> = {}
   for (const part of chunks(ids)) {
     const { data, error } = await orgDb(admin, orgId).from('properties').select('id, address_text').in('id', part)

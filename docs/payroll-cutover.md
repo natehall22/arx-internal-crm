@@ -37,6 +37,11 @@ second rule for every job (not only financed ones — see Open questions). It di
 6. **Set `PAYROLL_PAY_WEEK_ENABLED=true` in Vercel and redeploy** (the old-URL redirects in `next.config.js` are read at build).
    Do it at a week boundary (Monday), so the first Approve is a fresh week.
 7. Owner approves the first week; check the emailed statement matches the screen.
+8. **Commission changes waiting (hourly billing, only companies with `hourlyBilling` on).** While the flag is off, a
+   time & materials job paid on an approved week that later has more hours billed and PAID (or a paid invoice voided /
+   refunded) gets NO pay line — the legacy path would never pay it. The job is marked `commission_change_wait =
+   'pay_week_off'` and owners see "N commission changes waiting for the new payroll" on Today and in the morning email.
+   After step 6 the morning cron (and opening Pay this week) writes them onto the next open week. ARX has none (switch off).
 
 ## Delete after it has been on for one clean month (Known Redundancy #15, second entry)
 

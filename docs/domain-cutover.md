@@ -100,3 +100,6 @@ needs entries #5–#7 (the wildcards above cover them).
   202611110060 — it replaces 0060's `record_customer_invoice_payment` and `job_invoices_void_guard` with copies that also
   count `paid_outside_cents`. Re-applying 0060 after it would drop that; apply in order. DB test:
   `supabase/tests/run-jobber-import.sh`.
+- Hourly billing: `202611120030_hourly_billing.sql` after 202611110060 (it writes `job_invoice_items.unit` / `work_order_id`
+  and the per-hour plan basis on 202611110030's tables); also needs 202611100090 for price-book items priced "per hour".
+  Then the code. DB test: `supabase/tests/run-hourly-billing.sh`.

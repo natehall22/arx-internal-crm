@@ -21,6 +21,7 @@ import {
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 import { hasFinancials } from '@/lib/financials-access'
 import JobClockCard from '@/components/time/JobClockCard'
+import JobHourlyCard from '@/components/billing/JobHourlyCard'
 import { loadJobCatchUpSettings, loadJobCatchUps } from '@/lib/job-catch-up-db'
 import type { JobCatchUpResult } from '@/lib/job-catch-up'
 
@@ -614,6 +615,20 @@ export default async function JobView({ params, embedded = false, initialTab = n
       </div>
     ) : (
       clockCard
+    )
+  }
+
+  // Billed by the hour (company switch on): this job's billing setup — as sold, or time & materials (lib/hourly-billing.ts).
+  // The card loads its own data and shows nothing to people who can neither edit jobs nor record money.
+  if (orgProfile.features.hourlyBilling) {
+    const hourlyCard = <JobHourlyCard jobId={jobRes.data.id} />
+    detailsSlot = detailsSlot ? (
+      <div className="flex flex-col gap-4">
+        {hourlyCard}
+        {detailsSlot}
+      </div>
+    ) : (
+      hourlyCard
     )
   }
 

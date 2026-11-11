@@ -1,3 +1,5 @@
+import { isTimeAndMaterialsJob, syncTimeAndMaterialsCommissionBase } from '@/lib/job-commission-base'
+import { invoiceHasBilledHours } from '@/lib/hourly-billing-db'
 import { NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -82,12 +84,21 @@ export async function PATCH(
 
     const body = await request.json()
     const { action } = body
+    // A job billed by the hour: its commission base is what it was invoiced (lib/job-commission-base.ts) — re-sync after
+    // any change to one of its invoices. Fixed-price jobs are left alone (the helper checks).
+    const resyncBase = () => syncTimeAndMaterialsCommissionBase(adminClient, profile.org_id, invoiceCheck.job_id)
+    // Hours on a job billed by the hour come only from Hours to bill (one approval per day) — never typed onto an invoice.
+    const hoursOnHourlyJob = async (unit: unknown) =>
+      unit === 'hour' && !!invoiceCheck.job_id && (await isTimeAndMaterialsJob(adminClient, profile.org_id, invoiceCheck.job_id))
 
     switch (action) {
       case 'add_item': {
         const { description, qty, unit_price_cents, sort_order, taxable, unit, service_date } = body
         if (!description || unit_price_cents === undefined) {
           return NextResponse.json({ error: 'description and unit_price_cents required' }, { status: 400 })
+        }
+        if (await hoursOnHourlyJob(unit)) {
+          return NextResponse.json({ error: 'This job is billed by the hour — bill hours from Hours to bill' }, { status: 409 })
         }
         const item = await addInvoiceItem(adminClient, params.invoiceId, {
           description,
@@ -99,6 +110,7 @@ export async function PATCH(
           ...(unit === 'hour' ? { unit: 'hour' as const } : {}),
           ...(typeof service_date === 'string' && service_date ? { service_date } : {}),
         })
+        await resyncBase()
         const invoice = await getInvoiceWithDetails(adminClient, params.invoiceId)
         return NextResponse.json({ success: true, item, invoice })
       }
@@ -115,6 +127,7 @@ export async function PATCH(
           sort_order,
           ...(typeof taxable === 'boolean' ? { taxable } : {}),
         })
+        await resyncBase()
         const invoice = await getInvoiceWithDetails(adminClient, params.invoiceId)
         return NextResponse.json({ success: true, item, invoice })
       }
@@ -125,6 +138,7 @@ export async function PATCH(
           return NextResponse.json({ error: 'item_id required' }, { status: 400 })
         }
         await deleteInvoiceItem(adminClient, params.invoiceId, item_id)
+        await resyncBase()
         const invoice = await getInvoiceWithDetails(adminClient, params.invoiceId)
         return NextResponse.json({ success: true, invoice })
       }
@@ -144,6 +158,8 @@ export async function PATCH(
           return NextResponse.json({ error: 'email required' }, { status: 400 })
         }
         const invoice = await finalizeAndSendInvoice(adminClient, params.invoiceId, email)
+        // Issued now: a time & materials job's commission base counts it (drafts don't).
+        await resyncBase()
         return NextResponse.json({ success: true, invoice })
       }
 
@@ -171,11 +187,17 @@ export async function PATCH(
           return NextResponse.json({ error: 'reason required' }, { status: 400 })
         }
         const invoice = await voidInvoice(adminClient, params.invoiceId, reason)
+        await resyncBase()
         return NextResponse.json({ success: true, invoice })
       }
 
       case 'duplicate': {
+        // Hours approved on Hours to bill are billed once: a copy would bill them again. Void, un-approve, approve again.
+        if (await invoiceHasBilledHours(adminClient, profile.org_id, params.invoiceId)) {
+          return NextResponse.json({ error: 'This invoice carries approved hours — void it, un-approve the days on Hours to bill, then bill them again there' }, { status: 409 })
+        }
         const invoice = await duplicateInvoiceAsDraft(adminClient, params.invoiceId, profile.id)
+        await resyncBase()
         return NextResponse.json({ success: true, invoice })
       }
 

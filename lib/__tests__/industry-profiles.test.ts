@@ -101,10 +101,10 @@ describe('roofing profile = the app as it was (the original company is unchanged
 describe('lawn & landscape profile (Precision Maintenance)', () => {
   const lawn = resolveOrgProfile(lawnSettings)
 
-  it('roof / door-knocking / insurance / incentive features default off; service plans + time clock on', () => {
+  it('roof / door-knocking / insurance / incentive features default off; service plans + time clock + hourly billing on', () => {
     expect(lawn.id).toBe('lawn_landscape')
     expect(lawn.storedVersion).toBe(2)
-    for (const k of ORG_FEATURE_KEYS) expect([k, lawn.features[k]]).toEqual([k, k === 'servicePlans' || k === 'timeTracking'])
+    for (const k of ORG_FEATURE_KEYS) expect([k, lawn.features[k]]).toEqual([k, k === 'servicePlans' || k === 'timeTracking' || k === 'hourlyBilling'])
   })
 
   it('words, menu order and hidden pages', () => {
@@ -196,7 +196,7 @@ describe('switching profile', () => {
     const plan = planProfileSwitch({ features: {} }, [...DEFAULT_ORG_TRADES], 'lawn_landscape')
     expect(plan.from.id).toBe('roofing')
     // Roofing: every switch on except the default-off modules (service plans, time clock); lawn: the reverse.
-    expect(plan.features.map((f) => [f.key, f.now, f.after])).toEqual(ORG_FEATURE_KEYS.map((k) => (k === 'servicePlans' || k === 'timeTracking' ? [k, false, true] : [k, true, false])))
+    expect(plan.features.map((f) => [f.key, f.now, f.after])).toEqual(ORG_FEATURE_KEYS.map((k) => (k === 'servicePlans' || k === 'timeTracking' || k === 'hourlyBilling' ? [k, false, true] : [k, true, false])))
     expect(plan.trades).toEqual({
       add: ['Lawn care', 'Landscaping', 'Tractor / land work', 'Clean-up', 'Soft wash / pressure washing'],
       turnOn: [],

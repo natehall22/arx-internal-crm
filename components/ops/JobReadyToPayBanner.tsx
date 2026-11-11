@@ -32,6 +32,8 @@ export default function JobReadyToPayBanner({
   const collection = evaluateJobCollection({
     saleAmount,
     invoiceTaxCents: paymentSummary.invoice_tax_cents,
+    timeAndMaterialsInvoicedCents: paymentSummary.tm_invoiced_cents ?? null,
+    timeAndMaterialsPending: paymentSummary.tm_pending ?? null,
     collectedCents: paymentSummary.collected_cents ?? 0,
   })
   if (collection.missingSaleAmount) return null

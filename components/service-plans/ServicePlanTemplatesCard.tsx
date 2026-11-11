@@ -2,11 +2,13 @@
 
 import * as React from 'react'
 
+import { useOrgFeatures } from '@/hooks/useOrgFeatures'
+
 import { Badge, Button, Card, CardContent, CardHeader, CardTitle, Dialog, DialogContent, DialogFooter, Field, Input, Select, Textarea, toast } from '@/components/ui'
 import { PricingEditor, SeasonsEditor, StepsEditor } from '@/components/service-plans/PlanSpecEditors'
 import { formatDateTime } from '@/lib/format'
 import type { StarterTemplate } from '@/lib/service-plan-starters'
-import { BILLING_BASIS_LABELS, EMPTY_PRICING, type BillingBasis, type PlanPricing, type PlanStep, type Season, type ServicePlanTemplate } from '@/lib/service-plans'
+import { BILLING_BASIS_LABELS, EMPTY_PRICING, billingBasisChoices, type BillingBasis, type PlanPricing, type PlanStep, type Season, type ServicePlanTemplate } from '@/lib/service-plans'
 
 type Option = { id: string; name: string }
 type Load = { ready: boolean; canEdit: boolean; templates: ServicePlanTemplate[]; starters: StarterTemplate[]; trades: Array<{ slug: string; label: string }>; crews: Option[]; people: Option[] }
@@ -37,6 +39,7 @@ function draftFrom(t: Partial<ServicePlanTemplate> | StarterTemplate | null, tra
  * Data: /api/admin/service-plan-templates.
  */
 export default function ServicePlanTemplatesCard() {
+  const hourlyOn = useOrgFeatures().hourlyBilling
   const [data, setData] = React.useState<Load | null>(null)
   const [failed, setFailed] = React.useState(false)
   const [draft, setDraft] = React.useState<Draft | null>(null)
@@ -167,7 +170,7 @@ export default function ServicePlanTemplatesCard() {
               <Field label="Billed (custom prices)">
                 {(a) => (
                   <Select {...a} className="text-base" value={draft.billing_basis} onChange={(e) => setDraft({ ...draft, billing_basis: e.target.value as BillingBasis })}>
-                    {(Object.keys(BILLING_BASIS_LABELS) as BillingBasis[]).map((b) => (
+                    {billingBasisChoices(hourlyOn, draft.billing_basis).map((b) => (
                       <option key={b} value={b}>{BILLING_BASIS_LABELS[b]}</option>
                     ))}
                   </Select>

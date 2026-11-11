@@ -12,7 +12,7 @@ import { loadDataHealthWithRows, shapeNeedsYou, type HealthProblem } from '@/lib
 import { deriveMaterialsState, type MaterialsState } from '@/lib/job-materials-state'
 import { paymentStatusChip } from '@/lib/job-status'
 import { sumCollectedCents } from '@/lib/job-collection'
-import { loadInvoiceTaxCentsByJob } from '@/lib/job-invoice-tax'
+import { collectionInvoiceFields, loadJobInvoiceFacts, type JobInvoiceFacts } from '@/lib/job-invoice-tax'
 import { ACTIVITY_WINDOW_DAYS, readJobCatchUpSettings, type JobCatchUpSettings } from '@/lib/job-catch-up-settings'
 import {
   CUSTOMER_CONTACT_TYPES,
@@ -216,7 +216,7 @@ export async function loadJobCatchUps(
   const tradesByJob = groupBy(health.rows.trades, (t) => t.job_id)
   const paymentsByJob = groupBy(health.rows.payments, (p) => p.job_id)
   // Invoice sales tax owed on top of the sale amount (lib/job-invoice-tax.ts); only read when the chip is shown.
-  const invoiceTaxByJob = opts.showPayment ? await loadInvoiceTaxCentsByJob(admin, jobs.map((j) => j.id)) : new Map<string, number>()
+  const invoiceTaxByJob = opts.showPayment ? await loadJobInvoiceFacts(admin, jobs.map((j) => j.id)) : new Map<string, JobInvoiceFacts>()
   const cosByJob = groupBy(health.rows.changeOrders, (c) => c.job_id)
   const ordersByJob = groupBy(supplierOrders, (o) => o.job_id)
   const photosByJob = groupBy(photos, (p) => p.job_id)
@@ -265,7 +265,7 @@ export async function loadJobCatchUps(
     })
 
     const chip = opts.showPayment
-      ? paymentStatusChip({ sale_amount: job.sale_amount, collected_cents: sumCollectedCents(jobPayments), allow_close_with_balance: job.allow_close_with_balance, close_balance_by: job.close_balance_by, invoice_tax_cents: invoiceTaxByJob.get(job.id) ?? 0 })
+      ? paymentStatusChip({ sale_amount: job.sale_amount, collected_cents: sumCollectedCents(jobPayments), allow_close_with_balance: job.allow_close_with_balance, close_balance_by: job.close_balance_by, invoice_tax_cents: invoiceTaxByJob.get(job.id)?.taxCents ?? 0, tm_invoiced_cents: collectionInvoiceFields(invoiceTaxByJob.get(job.id)).timeAndMaterialsInvoicedCents, tm_pending: collectionInvoiceFields(invoiceTaxByJob.get(job.id)).timeAndMaterialsPending })
       : null
 
     const catchUp = buildJobCatchUp({

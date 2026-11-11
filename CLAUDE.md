@@ -360,6 +360,66 @@ citations: `docs/jobber-import.md`. Migration `202611120040_jobber_import.sql` (
   read from the catalog); newest import only. Quotes / one-off jobs are history on the run (`kind 'history'`), shown on the
   customer page "From Jobber" card (owners / managers / ops, never pricing-barred or field roles).
 
+## Hourly billing — time & materials (2026-11-12)
+Switch `hourlyBilling` (`ORG_FEATURE_DEFS`, **default OFF**; lawn_landscape profile ON; ARX unchanged). Migration
+`202611120030_hourly_billing.sql` (NOT applied; after 202611110060; DB test `supabase/tests/run-hourly-billing.sh`). Rules
+`lib/hourly-billing.ts` (pure, client-safe); DB + **ONE writer** `lib/hourly-billing-db.ts` → SQL `approve_billed_time`;
+doors `lib/hourly-billing-access.ts` (bill = money:record; job setup = `jobs:edit`; rules = owners).
+- **What is billed by the hour:** a job with `production_jobs.billing_mode = 'time_materials'` (+ `estimated_hours`, labor rate =
+  `hourly_rate_item_id`, a price-book item with unit `hour`) — set on the job page "Billing" card (`JobHourlyCard`; "By the
+  hour" prefills the estimate + rate from the job's quote hour lines, `is_labor` items first) — or a visit of a plan billed
+  `per_hour` (plan price = the hourly labor rate as of the visit's day, `planPriceOn`; Ready to bill lists it as "billed by the
+  hour"). "Per hour" is offered / accepted only while the switch is on (`billingBasisChoices`, `hourlyBasisRefusal`).
+- **Rules** `orgs.settings.hourlyBilling` (owners, Settings → Hourly billing, `/api/admin/hourly-billing`, mergeOrgSettings path
+  ['hourlyBilling']; top-level writes refused, the generic settings save strips it): rounding none | up15 | nearest15 (per
+  person, or once for the crew, once per machine); minimum hours per visit (labor total and each machine; never invents labor);
+  drive time no | yes (own "Travel time" line at the labor rate, the gap before arriving, `closed_for_travel`) | trip_charge (a
+  price-book item, once per day billed); basis person-hours | crew-hours (union of the crew's time); machine hours = the
+  operator's hours at that stop (`equipmentFromOperator`, default on) or the machine's own on/off.
+- **Day** = one job / visit on the local day a stretch STARTED (`orgs.timezone`, DST-safe): a shift past midnight is one
+  billing day (rounding / minimum once); all of a visit's time sits on its first day. Read from `time_entries`
+  (removed rows out, each person's breaks out); a running clock = "Still clocked in" (approve only by typing, with a reason).
+- **Hours to bill** (Jobs → Schedule → Hours to bill, `components/billing/HoursToBill.tsx`, `/api/ops/hours-to-bill`): per
+  customer card, days with what they bill + why (`reasons`), one button "Bill N days · $X" = ONE new draft invoice: a JOB
+  invoice for a job (send it from the job), the customer's invoice without a job for a visit (optional email). Tap a day to change
+  hours (reason required → `source 'edited'`) or type hours when nobody clocked (`'typed'`, marked on screen). Prices are
+  never taken from the browser. Tax: `computeCustomerSalesTax` (the one rule), lines taxable by their price-book item / plan.
+- **Idempotent:** `billed_time_days` — at most ONE approved row per job/visit per day (partial unique indexes + checks under
+  the same per-company lock as `create_service_invoice`). A visit's lines carry `work_order_id`, so Ready to bill and Hours to
+  bill refuse each other's visits. Un-approve (`unapprove_billed_time`) only once its invoice is void, with a reason; history kept.
+- **Payroll is never touched:** nothing here writes `time_entries`, `payroll_rep_hours` or `job_cost_lines` (test-locked);
+  rounding happens on invoice copies only.
+- **Money on a T&M job (coordinator decision 2026-11-12):** paid in full = payments vs the total ISSUED (sent / paid — never
+  drafts or void), tax included (`evaluateJobCollection({ timeAndMaterialsInvoicedCents, timeAndMaterialsPending })`; nothing
+  invoiced = not paid; a draft invoice or clocked days not approved = "still being billed", never paid, payroll waits) and
+  commission base = issued minus tax (`invoicedPreTaxCents`, the one rule, lib/job-invoice-tax.ts) (`syncJobSaleAndCommissionBase` T&M branch; sale amount stays the signed estimate). ONE loader for both:
+  `loadJobInvoiceFacts` + `collectionInvoiceFields` (lib/job-invoice-tax.ts; replaced `loadInvoiceTaxCentsByJob`); the guard
+  test fails on any `evaluateJobCollection` call without the T&M input. Base re-synced after hours are approved, a job
+  invoice is changed / voided / copied / made, and the billing mode changes (`syncTimeAndMaterialsCommissionBase` — no-op for
+  fixed-price jobs). Fixed-price jobs (ARX): unchanged. **Paid before more hours were billed (or an invoice voided):** the
+  paid week never changes — `syncCommissionChangesForJob` (lib/payroll-commission-change.ts) puts one signed
+  `payroll_adjustments` line per paid person (kind `commission_change`, `base_delta`, the math in `reason`) on the next open
+  week = change in the PAID-FOR base (issued pre-tax × share of it collected; billed-but-unpaid counts only once paid; a
+  void / refund claws back) × that person's PERCENT rate only (`percentRateOfLine`: flat Change-sheet dollars, flat-rate plans
+  and volume bonuses never scale; unknown snapshot shape = 0); negatives carry forward like any fix. Writer SQL
+  `payroll_add_commission_changes` (per-job lock, refuses a stale "base covered so far" → recompute). Refused during an
+  approval (55006) → job marked `commission_change_wait 'approval_running'`, retried by the morning cron and Pay this week;
+  pay-week flag off → `'pay_week_off'`, no line, owners see "N commission changes waiting" (Today + morning email;
+  docs/payroll-cutover.md step 8). Profit tracker labels T&M revenue "billed so far". Once a job is paid its
+  billing mode can't switch. Profit tracker: T&M revenue = issued pre-tax, "Not billed yet" when nothing is issued, status
+  from the one paid-in-full rule (fixed-price jobs now also get its $0.05 tolerance there).
+- **Guards:** a T&M job gets no deposit / final / "job total" invoice (custom amounts for extras, not capped by the estimate);
+  no hand-typed hour lines on its invoices; an invoice carrying approved hours can't be copied; back to "as sold" is refused
+  while billed hours sit on a live invoice. Line amounts everywhere = `lineTotalCents` (lib/invoice-lines.ts, integer math =
+  Postgres `round(qty * cents)`). Machine hours = union of time (two operators on one tractor bill it once); a visit past
+  midnight keeps all its time on its first day. Job card rates need money:record or `reports:financials`.
+- **Not built:** per-plan estimated hours. The office biller needs job-board access to open Jobs → Schedule (as Ready to bill).
+
+**Known Redundancy additions (2026-11-12, hourly billing):** (38) `approve_billed_time` / `unapprove_billed_time` are mirrored
+in JS inside `lib/__tests__/hourly-billing-db.test.ts` (KR #35 pattern) — a SQL rule change must change there too; the real SQL
+runs in `supabase/tests/hourly_billing.test.sql`. (39) `addDaysYmd` exists in both `lib/service-plans.ts` and
+`lib/payroll-week-schedule.ts` (pre-existing; this change imports the service-plans one).
+
 ## UI Conventions
 - **Text contrast is an ongoing, recurring problem in this build — always verify text stands out.** Use explicit dark text (`#2c2c2a`, not generic gray) on light surfaces; never place text directly on the satellite/photo map — use a solid or opaque-scrim background; aim for WCAG AA. Validate legibility on a cheap Android in direct sun for any field-facing UI.
 
@@ -459,7 +519,7 @@ ONE invoice system: `job_invoices` (+ items, `invoice_payments`, `job_payments`)
   — no invoice dataset exists in the catalog today (`lib/reporting/catalog.ts`).
 - **Not built:** auto-invoice when a crew marks a visit done (the office bills from Ready to bill, one tap per visit or a
   batch); yearly-plan billing; the `unpaid-invoices` Today card; QuickBooks for these invoices (the outbox design is per
-  job); an "Hours to bill" UI (the item model + `add_item` accept `unit:'hour'` + `service_date` for the time-tracking builder).
+  job). Hours billing: see "Hourly billing (time & materials)".
 - **Visit job costs — deliberately NOT built (2026-11-11):** `job_cost_lines.job_id` stays NOT NULL. Every cost reader is
   job-keyed (`lib/job-cost-ledger.ts`, `rpt_job_costs`, profit tracker, payroll materialization); a visit cost line would
   be invisible to all of them, i.e. a second cost ledger in practice. A visit's real costs are crew time (the time-entry

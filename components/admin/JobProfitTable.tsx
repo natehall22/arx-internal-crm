@@ -15,6 +15,8 @@ export type ProfitRow = {
   address: string | null
   saleDate: string | null
   saleAmount: number
+  /** Billed by the hour: saleAmount is what has been invoiced so far, not a contract. */
+  billedSoFar?: boolean
   financeCost: number
   commissionable: number
   materials: number
@@ -60,7 +62,17 @@ const COLUMNS: ColumnDef<ProfitRow, any>[] = [
   },
   { id: 'customer', header: 'Customer', accessorFn: (r) => r.customerName, meta: { mobile: 'hide' as const } },
   { id: 'address', header: 'Address', accessorFn: (r) => r.address ?? '', cell: (c) => <span className="block max-w-[16rem] truncate">{(c.getValue() as string) || '—'}</span> },
-  { accessorKey: 'saleAmount', header: 'Contract', cell: money, meta: R },
+  {
+    accessorKey: 'saleAmount',
+    header: 'Contract',
+    cell: (c) => (
+      <span>
+        {formatMoney(Number(c.getValue()) || 0)}
+        {c.row.original.billedSoFar ? <span className="block text-ui-sm text-ink">billed so far</span> : null}
+      </span>
+    ),
+    meta: R,
+  },
   { accessorKey: 'financeCost', header: 'Finance costs', cell: money, meta: { ...R, mobile: 'hide' as const } },
   { accessorKey: 'commissionable', header: 'Commissionable', cell: money, meta: { ...R, mobile: 'hide' as const } },
   { accessorKey: 'materials', header: 'Materials', cell: money, meta: { ...R, mobile: 'hide' as const } },

@@ -1,3 +1,4 @@
+import { isTimeAndMaterialsJob, syncTimeAndMaterialsCommissionBase } from '@/lib/job-commission-base'
 import { NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -86,6 +87,13 @@ export async function POST(
     const body = await request.json()
     const { invoice_kind = 'standard', amount_cents: rawAmountCents, line_description: rawLineDescription } = body
 
+    // A job billed by the hour owes its hours (Hours to bill), not the estimate: deposit / final / "job total" invoices
+    // would bill the estimate on top of the hours. Extras (materials, a dump fee) go on a custom-amount invoice.
+    const hourly = await isTimeAndMaterialsJob(adminClient, profile.org_id, params.id)
+    if (hourly && invoice_kind !== 'custom') {
+      return NextResponse.json({ error: 'This job is billed by the hour — bill hours from Hours to bill; use a custom amount for extras' }, { status: 409 })
+    }
+
     let invoice
 
     switch (invoice_kind) {
@@ -123,7 +131,9 @@ export async function POST(
           params.id,
           profile.id,
           amountCents,
-          lineDescription
+          lineDescription,
+          // The estimate is not a cap on a job billed by the hour.
+          hourly ? { noContractCap: true } : undefined
         )
         break
       }
@@ -139,6 +149,7 @@ export async function POST(
         break
     }
 
+    if (hourly) await syncTimeAndMaterialsCommissionBase(adminClient, profile.org_id, params.id)
     return NextResponse.json({ success: true, invoice })
 
   } catch (error) {

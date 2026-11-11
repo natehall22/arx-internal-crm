@@ -19,10 +19,29 @@ export const CUSTOMER_PAYMENT_METHOD_LABELS: Record<CustomerPaymentMethod, strin
   other: 'Other',
 }
 
+/**
+ * THE line amount: qty × unit price in cents, the way Postgres computes it (`round(qty * unit_price_cents)` on numeric —
+ * exact, half away from zero; qty is numeric(10,2)). Integer math: qty is taken to the hundredth first, so 0.69 h × $45.50
+ * = 3140 (floating point gives 0.69 * 4550 = 3139.4999… → 3139). Every invoice writer, preview and SQL check agrees.
+ */
+export function lineTotalCents(qty: number | string | null | undefined, unitPriceCents: number | null | undefined): number {
+  const hundredths = Math.round(Number(qty ?? 1) * 100)
+  const cents = Math.round(Number(unitPriceCents) || 0)
+  if (!Number.isFinite(hundredths)) return 0
+  const exact = (hundredths * cents) / 100
+  // Half away from zero (Postgres numeric round), not JavaScript's half-up toward +∞.
+  return Math.sign(exact) * Math.round(Math.abs(exact))
+}
+
 /** Most hours one line may carry (a month of full days); qty is numeric(10,2). */
 export const MAX_LINE_HOURS = 744
 
 const YMD = /^\d{4}-\d{2}-\d{2}$/
+
+/** At most 2 decimals, read the way people type them: 1.1 and 2.3 pass (1.1 * 100 is 110.00000000000001 in floating point). */
+export function hasAtMost2Decimals(n: number): boolean {
+  return Number.isFinite(n) && Math.abs(n * 100 - Math.round(n * 100)) < 1e-6
+}
 
 export function isYmd(v: unknown): v is string {
   return typeof v === 'string' && YMD.test(v) && !Number.isNaN(Date.parse(`${v}T12:00:00Z`)) && new Date(`${v}T12:00:00Z`).toISOString().slice(0, 10) === v
@@ -39,7 +58,7 @@ export function invoiceItemLineFields(item: {
     if (item.unit !== 'hour') return { error: 'Unknown line unit' }
     const qty = Number(item.qty ?? 1)
     if (!Number.isFinite(qty) || qty <= 0 || qty > MAX_LINE_HOURS) return { error: `Hours must be above 0 and at most ${MAX_LINE_HOURS}` }
-    if (Math.round(qty * 100) !== qty * 100) return { error: 'Hours can have at most 2 decimals (e.g. 1.25)' }
+    if (!hasAtMost2Decimals(qty)) return { error: 'Hours can have at most 2 decimals (e.g. 1.25)' }
     value.unit = 'hour'
   }
   if (item.service_date != null && item.service_date !== '') {

@@ -63,6 +63,10 @@ export interface JobPaymentSummary {
   remaining_dollars: number
   /** Sales tax billed on the job's invoices; included in sale_amount_cents (what must be collected). */
   invoice_tax_cents?: number
+  /** A time & materials job: its invoiced total (tax included) is what it owes; null = fixed price. */
+  tm_invoiced_cents?: number | null
+  /** A time & materials job still being billed (draft invoice / clocked days not approved): not paid yet. */
+  tm_pending?: boolean | null
   payment_count: number
   /** lib/job-collection.ts: payments within $0.05 of the sale amount, or super-admin forced. */
   paid_in_full?: boolean

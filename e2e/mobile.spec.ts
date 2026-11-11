@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import { REPORT_TEMPLATES } from '../lib/reporting/templates'
-import { JOB_SETUP_TRADES, HARNESS_TRADES_0037, HARNESS_PAYMENTS_0037, SUPPLIER_VIEW_0037, HARNESS_INCENTIVES, HARNESS_LEADERBOARD, HARNESS_INSIDE_SALES, HARNESS_INSTALL_SCHEDULE, HARNESS_PARTNERS, HARNESS_APPOINTMENTS, HARNESS_THREAD, HARNESS_PROPOSALS, HARNESS_LEADS, ANNOUNCEMENTS, BANNER, DEFAULT_PLANS, COST_LINES, SUPPLIERS, PAY_WEEK, MY_PAY, REPORT_RESULT, SALE_CREDIT, SUPPLIER_PREVIEW, SUPPLIER_VIEW, TEMPLATE_META, USERS, HARNESS_OWNER_CANDIDATES, HARNESS_CUSTOM_FIELDS, HARNESS_PROPERTIES, HARNESS_SERVICE_PLANS, HARNESS_VISITS, HARNESS_PLAN_TEMPLATES, HARNESS_TEMPLATE_DETAIL, HARNESS_READY_TO_BILL, HARNESS_CUSTOMER_INVOICES, HARNESS_CLOCK_STATE, HARNESS_CLOCK_STATE_IN, HARNESS_JOB_CLOCK_SELF, HARNESS_TIME_WEEK, HARNESS_CREW_SETUP, JOB_SPLIT, PAY_WEEK_SCHEDULE, PAY_WEEK_SCHEDULE_PREVIEW, HARNESS_JOBBER_STATE, HARNESS_JOBBER_DONE, HARNESS_JOBBER_RUN } from './fixtures'
+import { JOB_SETUP_TRADES, HARNESS_TRADES_0037, HARNESS_PAYMENTS_0037, SUPPLIER_VIEW_0037, HARNESS_INCENTIVES, HARNESS_LEADERBOARD, HARNESS_INSIDE_SALES, HARNESS_INSTALL_SCHEDULE, HARNESS_PARTNERS, HARNESS_APPOINTMENTS, HARNESS_THREAD, HARNESS_PROPOSALS, HARNESS_LEADS, ANNOUNCEMENTS, BANNER, DEFAULT_PLANS, COST_LINES, SUPPLIERS, PAY_WEEK, MY_PAY, REPORT_RESULT, SALE_CREDIT, SUPPLIER_PREVIEW, SUPPLIER_VIEW, TEMPLATE_META, USERS, HARNESS_OWNER_CANDIDATES, HARNESS_CUSTOM_FIELDS, HARNESS_PROPERTIES, HARNESS_SERVICE_PLANS, HARNESS_VISITS, HARNESS_PLAN_TEMPLATES, HARNESS_TEMPLATE_DETAIL, HARNESS_READY_TO_BILL, HARNESS_HOURS_TO_BILL, HARNESS_JOB_HOURLY, HARNESS_HOURLY_SETTINGS, HARNESS_CUSTOMER_INVOICES, HARNESS_CLOCK_STATE, HARNESS_CLOCK_STATE_IN, HARNESS_JOB_CLOCK_SELF, HARNESS_TIME_WEEK, HARNESS_CREW_SETUP, JOB_SPLIT, PAY_WEEK_SCHEDULE, PAY_WEEK_SCHEDULE_PREVIEW, HARNESS_JOBBER_STATE, HARNESS_JOBBER_DONE, HARNESS_JOBBER_RUN } from './fixtures'
 
 const json = (body: unknown, status = 200) => ({ status, contentType: 'application/json', body: JSON.stringify(body) })
 
@@ -236,6 +236,33 @@ const SCREENS: Screen[] = [
       { name: 'confirm', run: async (p) => { await p.getByRole('button', { name: /^Bill 2/ }).click(); await p.waitForSelector('[role=dialog] >> text=1 without an email stay as drafts.') } },
       { name: 'billed', run: async (p) => { await p.getByRole('button', { name: /^Bill 2/ }).click(); await p.getByRole('button', { name: 'Make and email' }).click(); await p.waitForSelector('text=Made 2 invoices · 1 emailed') } },
     ] },
+  { name: 'hours-to-bill', path: '/dev-harness/hours-to-bill', ready: 'text=Pat Lee', mock: async (p) => {
+    await p.route(/\/api\/ops\/hours-to-bill(\?.*)?$/, (route) =>
+      route.request().method() === 'POST'
+        ? route.fulfill(json({ ok: true, invoiceId: 'i9', invoiceNumber: 'INV-26-26-0141-002', totalCents: 140000, isJobInvoice: true, sent: false, sendError: null }))
+        : route.fulfill(json(HARNESS_HOURS_TO_BILL)))
+    await p.route('**/api/ops/hours-to-bill/*', (route) => route.fulfill(json({ ok: true })))
+  },
+    states: [
+      { name: 'day-sheet', run: async (p) => { await p.getByRole('button', { name: /Tue, Nov 3, 2026/ }).click(); await p.waitForSelector('[role=dialog] >> text=From the clock') } },
+      { name: 'edit-needs-reason', run: async (p) => { await p.getByRole('button', { name: /Tue, Nov 3, 2026/ }).click(); await p.getByLabel('Hours each').fill('5'); await p.waitForSelector('[role=dialog] >> text=Why did the hours change?') } },
+      { name: 'typed-visit', run: async (p) => { await p.getByRole('button', { name: /No clock time/ }).click(); await p.waitForSelector('[role=dialog] >> text=Typed — no clock time') } },
+      { name: 'type-a-day', run: async (p) => { await p.getByRole('button', { name: 'Type hours for a day' }).click(); await p.waitForSelector('[role=dialog] >> text=Day worked') } },
+      { name: 'billed', run: async (p) => { await p.getByRole('button', { name: /^Bill 2 days/ }).click(); await p.waitForSelector('text=INV-26-26-0141-002') } },
+      { name: 'unapprove', run: async (p) => { await p.getByText('Billed (1)').click(); await p.getByRole('button', { name: 'Un-approve to bill again' }).click(); await p.waitForSelector('[role=dialog] >> text=Un-approve these hours?') } },
+    ] },
+  { name: 'job-hourly', path: '/dev-harness/job-hourly', ready: 'text=Billing', mock: async (p) => {
+    await p.route('**/api/ops/jobs/*/hourly', (route) =>
+      route.request().method() === 'PATCH'
+        ? route.fulfill(json({ ...HARNESS_JOB_HOURLY, mode: 'time_materials', estimatedHours: 20, rateItemId: 'pb-labor', ok: true }))
+        : route.fulfill(json(HARNESS_JOB_HOURLY)))
+  },
+    states: [
+      { name: 'by-the-hour', run: async (p) => { await p.getByRole('button', { name: 'By the hour' }).click(); await p.waitForSelector('text=of 20 h estimated') } },
+    ] },
+  { name: 'hourly-settings', path: '/dev-harness/hourly-settings', ready: 'text=Hourly billing', mock: async (p) => {
+    await p.route('**/api/admin/hourly-billing', (route) => route.fulfill(json({ ok: true, ...HARNESS_HOURLY_SETTINGS })))
+  } },
   { name: 'customer-invoices', path: '/dev-harness/customer-invoices', ready: 'text=INV-26-00012', mock: async (p) => {
     await p.route('**/api/customers/*/invoices', (route) => route.fulfill(json(HARNESS_CUSTOMER_INVOICES)))
     await p.route('**/api/invoices/*', (route) => route.fulfill(json({ success: true, invoice: { ...HARNESS_CUSTOMER_INVOICES.invoices[0], items: [], payments: [] } })))

@@ -2,11 +2,14 @@
 
 import * as React from 'react'
 
+import { useOrgFeatures } from '@/hooks/useOrgFeatures'
+
 import { Button, Field, Input, Select, Textarea } from '@/components/ui'
 import { SeasonsEditor, StepsEditor } from '@/components/service-plans/PlanSpecEditors'
 import { formatMoney } from '@/lib/format'
 import {
   BILLING_BASIS_LABELS,
+  billingBasisChoices,
   WEEKDAY_LABELS,
   eligibleTiers,
   planWeekday,
@@ -178,6 +181,7 @@ export function PlanFields({
   /** The plan being edited (null = new). */
   plan: PlanRow | null
 }) {
+  const hourlyOn = useOrgFeatures().hourlyBilling
   const isNew = !plan
   const [details, setDetails] = React.useState(!isNew || !f.template_id)
   const inputs = numericInputs(f)
@@ -219,12 +223,12 @@ export function PlanFields({
       {f.tier_key && !fits.some((t) => t.key === f.tier_key) ? <p className="text-ui-sm text-danger">This home doesn’t fit that tier any more.</p> : null}
       {!f.tier_key ? (
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-          <Field label="Price ($)">{(a) => <Input {...a} inputMode="decimal" className="text-base" placeholder="45.00" value={f.price} onChange={(e) => set({ price: e.target.value })} />}</Field>
+          <Field label={f.billing_basis === 'per_hour' ? 'Labor rate per hour ($)' : 'Price ($)'}>{(a) => <Input {...a} inputMode="decimal" className="text-base" placeholder="45.00" value={f.price} onChange={(e) => set({ price: e.target.value })} />}</Field>
           {details ? (
             <Field label="Billed">
               {(a) => (
                 <Select {...a} className="text-base" value={f.billing_basis} onChange={(e) => set({ billing_basis: e.target.value as BillingBasis })}>
-                  {(Object.keys(BILLING_BASIS_LABELS) as BillingBasis[]).map((b) => (
+                  {billingBasisChoices(hourlyOn, f.billing_basis).map((b) => (
                     <option key={b} value={b}>{BILLING_BASIS_LABELS[b]}</option>
                   ))}
                 </Select>

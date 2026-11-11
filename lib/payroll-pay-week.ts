@@ -461,6 +461,9 @@ export async function loadPayWeek(admin: SupabaseClient, orgId: string, now: Dat
 /** The week plus the plan and per-unit pay it was built from — what Approve commits, so preview and Approve share one read. */
 export async function loadPayWeekFull(admin: SupabaseClient, orgId: string, now: Date, periodId?: string | null): Promise<PayWeekFull> {
   const schedule = await loadPayWeekSchedule(admin, orgId)
+  // Commission changes waiting (an approval was running when hours were paid): put them on the open week before it is shown.
+  const { retryDueCommissionChanges } = await import('@/lib/payroll-commission-change')
+  await retryDueCommissionChanges(admin, orgId).catch((error) => console.error('[pay week] commission change retry failed', { orgId, error }))
   const period = await resolvePayWeekPeriod(admin, orgId, now, periodId, schedule)
   const draft = period.status === 'open'
 

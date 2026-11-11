@@ -1,5 +1,5 @@
-import { sumCollectedCents } from '@/lib/job-collection'
-import { loadInvoiceTaxCentsByJob } from '@/lib/job-invoice-tax'
+import { evaluateJobCollection, sumCollectedCents } from '@/lib/job-collection'
+import { collectionInvoiceFields, loadJobInvoiceFacts, type JobInvoiceFacts } from '@/lib/job-invoice-tax'
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import Nav from '@/components/Nav'
@@ -32,6 +32,8 @@ type JobRow = {
   completed_at: string | null
   dealer_fee_amount?: number | string | null
   internal_notes?: string | null
+  allow_close_with_balance?: boolean | null
+  close_balance_by?: string | null
   customer?: { name: string | null } | null
   project?: {
     customers?: { name: string | null } | null
@@ -114,6 +116,8 @@ export default async function AdminJobProfitTrackerPage({
         completed_at,
         dealer_fee_amount,
         internal_notes,
+        allow_close_with_balance,
+        close_balance_by,
         customer:customers(name),
         project:projects(customers(name), leads(homeowner_name, source))
       `
@@ -174,7 +178,7 @@ export default async function AdminJobProfitTrackerPage({
   // labor_cost columns and job_product_orders are no longer read (Known Redundancy #11).
   let ledger: JobCostLedger = new Map()
   // Sales tax billed on invoices is owed on top of the sale amount (lib/job-invoice-tax.ts); 0 for most jobs.
-  let invoiceTaxByJob = new Map<string, number>()
+  let invoiceTaxByJob = new Map<string, JobInvoiceFacts>()
 
   if (jobIds.length > 0) {
     const [loadedLedger, { data: payments }, loadedInvoiceTax] = await Promise.all([
@@ -183,7 +187,7 @@ export default async function AdminJobProfitTrackerPage({
         .from('job_payments')
         .select('job_id, amount_cents, funding_status')
         .in('job_id', jobIds),
-      loadInvoiceTaxCentsByJob(supabase, jobIds),
+      loadJobInvoiceFacts(supabase, jobIds),
     ])
     ledger = loadedLedger
     invoiceTaxByJob = loadedInvoiceTax
@@ -197,7 +201,9 @@ export default async function AdminJobProfitTrackerPage({
   }
 
   const rows = jobs.map((job, index) => {
-    const saleAmount = moneyValue(job.sale_amount)
+    const facts = invoiceTaxByJob.get(job.id)
+    // A time & materials job's revenue is what it was invoiced (issued invoices, tax out), not its estimate.
+    const saleAmount = facts?.timeAndMaterials ? facts.issuedPreTaxCents / 100 : moneyValue(job.sale_amount)
     const financeCost = moneyValue(job.dealer_fee_amount)
     const commissionableAmount = Math.max(0, saleAmount - financeCost)
     const costs = ledgerSummaryFor(ledger, job.id)
@@ -221,19 +227,31 @@ export default async function AdminJobProfitTrackerPage({
     const netProfit = grossProfit - ownerDraw
     const netPercent = saleAmount > 0 ? (netProfit / saleAmount) * 100 : null
     const collected = (collectedCentsByJob.get(job.id) || 0) / 100
-    // Balance owed = sale amount + invoice sales tax − collected (tax money collected is not a contract overpayment).
-    const balance = Math.max(0, saleAmount + (invoiceTaxByJob.get(job.id) ?? 0) / 100 - collected)
+    // The one paid-in-full rule (lib/job-collection.ts): sale amount + invoice tax, or — billed by the hour — what was
+    // invoiced (tax included), and never paid while hours are still being billed.
+    const collection = evaluateJobCollection({
+      saleAmount: job.sale_amount,
+      ...collectionInvoiceFields(facts),
+      collectedCents: collectedCentsByJob.get(job.id) || 0,
+      allowCloseWithBalance: job.allow_close_with_balance,
+      closeBalanceBy: job.close_balance_by,
+    })
+    const balance = Math.max(0, collection.remainingCents / 100)
     const customerName = customerNameFor(job)
     const trackerStatus =
-      balance <= 0 && saleAmount > 0
-        ? 'Reconciled & Closed'
-        : collected > 0
-          ? 'Deposit Received'
-          : humanStatus(job.status)
+      facts?.timeAndMaterials && collection.missingSaleAmount
+        ? 'Not billed yet'
+        : collection.paidByPayments
+          ? 'Reconciled & Closed'
+          : collected > 0
+            ? 'Deposit Received'
+            : humanStatus(job.status)
 
     return {
       index: index + 1,
       job,
+      // Billed by the hour: the "contract" column is what has been invoiced so far (issued, tax out), not the estimate.
+      billedSoFar: facts?.timeAndMaterials === true,
       customerName,
       lastName: lastNameFor(customerName),
       saleAmount,
@@ -389,6 +407,7 @@ export default async function AdminJobProfitTrackerPage({
             address: r.job.address_text,
             saleDate: r.job.sale_date,
             saleAmount: r.saleAmount,
+            billedSoFar: r.billedSoFar,
             financeCost: r.financeCost,
             commissionable: r.commissionableAmount,
             materials: r.materials,

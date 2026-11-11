@@ -9,6 +9,7 @@ import { fetchMorningUpdateMetrics, type MorningUpdateMetrics } from '@/lib/morn
 import { loadDataHealth, needsYouForEmailRecipient, shapeNeedsYou, type DataHealthReport } from '@/lib/data-health'
 import { loadCheckupSettings } from '@/lib/checkups'
 import { loadOpenShiftsQueue } from '@/lib/time-tracking-db'
+import { loadCommissionChangesWaitingQueue } from '@/lib/payroll-commission-change'
 import { loadCheckupsDueQueue, loadCrewWeekQueue, loadOpsQueues, loadOwnerExceptions, loadServiceVisitQueues, loadStormHitsQueue, type Queue } from '@/lib/today'
 import { resolveOrgFeatures, type OrgFeatures } from '@/lib/org-features'
 import { applyTodayProfile, loadOrgProfile } from '@/lib/org-profile'
@@ -222,8 +223,16 @@ export async function loadMorningTodayQueues(
         return { id: 'checkups-due', title: 'Customer checkups due', count: 0, empty: 'Checkups couldn’t load today.', items: [] }
       }),
   ])
+  // Commission changes waiting (hourly billing companies only): money owed to people, owners must see it.
+  const commissionWaiting = orgProfile.features.hourlyBilling
+    ? await loadCommissionChangesWaitingQueue(supabase, orgId).catch((error) => {
+        console.error('morning update: commission changes waiting failed', error)
+        return null
+      })
+    : null
   return asProfile([
     ...(storm.count > 0 || stormFailed ? [storm] : []),
+    ...(commissionWaiting ? [commissionWaiting] : []),
     ...visits,
     ...owner.filter((q) => q.id !== 'no-outcome'),
     ...(checkups && (checkups.count > 0 || checkupsFailed) ? [checkups] : []),

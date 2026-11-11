@@ -1,5 +1,5 @@
 import { JOB_COLLECTION_COLUMNS, evaluateJobCollection } from '@/lib/job-collection'
-import { loadInvoiceTaxCentsByJob } from '@/lib/job-invoice-tax'
+import { collectionInvoiceFields, loadJobInvoiceFacts, type JobInvoiceFacts } from '@/lib/job-invoice-tax'
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { requireAuthApi } from '@/lib/auth'
@@ -56,7 +56,7 @@ export async function GET() {
       // Get all payments for these jobs
       const [{ data: payments }, invoiceTaxByJob] = await Promise.all([
         supabase.from('job_payments').select('job_id, amount_cents, funding_status').in('job_id', jobIds),
-        loadInvoiceTaxCentsByJob(supabase, jobIds),
+        loadJobInvoiceFacts(supabase, jobIds),
       ])
 
       // Outstanding per job comes from the one paid-in-full rule (lib/job-collection.ts)
@@ -68,7 +68,7 @@ export async function GET() {
       activeJobs.forEach(job => {
         const c = evaluateJobCollection({
           saleAmount: job.sale_amount,
-          invoiceTaxCents: invoiceTaxByJob.get(job.id) ?? 0,
+          ...collectionInvoiceFields(invoiceTaxByJob.get(job.id)),
           payments: paymentsByJob[job.id] || [],
           allowCloseWithBalance: job.allow_close_with_balance,
           closeBalanceBy: job.close_balance_by,

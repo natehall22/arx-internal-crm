@@ -854,3 +854,63 @@ export const HARNESS_JOBBER_DONE = {
   needsALook: [{ id: 'i1', kind: 'invoice', label: 'Invoice #1088', status: 'failed', problems: [], error: 'Its customer wasn’t brought over', undo_note: null }],
   reviewPlans: [{ planId: 'p1', customerId: 'c1', name: 'Weekly lawn maintenance', review: ['How often was worked out from 31 visits in Jobber — check it.', 'Tax is off — turn it on if this service is taxable.'] }],
 }
+
+// Hours to bill (components/billing/HoursToBill.tsx): a grading job with two clocked days + a running one, a per-hour plan visit
+// with no clock time, and a billed day whose invoice was voided.
+const HB_LABOR = { itemId: 'pb-labor', name: 'Grading labor', rateCents: 6500, taxable: false }
+export const HARNESS_HOURS_TO_BILL = {
+  today: '2026-11-06',
+  lookbackDays: 45,
+  timeZone: 'UTC',
+  settings: { rounding: 'up15', minimumHours: 2, travel: 'trip_charge', tripChargeItemId: 'pb-trip', basis: 'person', equipmentFromOperator: true },
+  customers: { c1: { name: 'Pat Lee', email: 'pat@example.com', exempt: false }, c2: { name: 'Sam Ortiz', email: null, exempt: false } },
+  equipment: [HB_LABOR, { itemId: 'pb-tractor', name: 'Tractor', rateCents: 9500, taxable: true }, { itemId: 'pb-skid', name: 'Skid steer', rateCents: 11000, taxable: true }],
+  trip: { itemId: 'pb-trip', name: 'Trip charge', rateCents: 3500, taxable: false },
+  salesTax: { enabled: true, rates: [{ id: 'fl', name: 'Florida', percent: 7, active: true }], defaultRateIds: ['fl'] },
+  maxDaysPerApproval: 31,
+  targets: [
+    {
+      key: 'job:j1', kind: 'job', id: 'dddddddd-0000-4000-8000-000000000001', title: 'Job 26-0141', customerId: 'c1', customerName: 'Pat Lee', address: '12 Oak St, Crawfordville',
+      labor: HB_LABOR, estimatedHours: 20, billedHours: 6.5, visitDate: null, visitBilled: false,
+      days: [
+        { date: '2026-11-06', status: 'open', clockedSeconds: 0, lines: [], needsReview: false, approval: null },
+        { date: '2026-11-04', status: 'ready', clockedSeconds: 22020, needsReview: true, approval: null, lines: [
+          { kind: 'labor', itemId: 'pb-labor', name: 'Grading labor', people: 1, split: 'each', hours: 6.25, rateCents: 6500, taxable: false, reasons: ['Clocked 6 h 7 min (1 person), each person rounded up to the next 15 min'] },
+          { kind: 'trip', itemId: 'pb-trip', name: 'Trip charge', people: null, hours: 1, rateCents: 3500, taxable: false, reasons: ['Flat trip charge per visit'] },
+        ] },
+        { date: '2026-11-03', status: 'ready', clockedSeconds: 42240, needsReview: false, approval: null, lines: [
+          { kind: 'labor', itemId: 'pb-labor', name: 'Grading labor', people: 2, split: null, hours: 12, rateCents: 6500, taxable: false, reasons: ['Clocked 11 h 44 min (2 people), each person rounded up to the next 15 min'] },
+          { kind: 'equipment', itemId: 'pb-tractor', name: 'Tractor', people: null, hours: 5.75, rateCents: 9500, taxable: true, reasons: ["Operator's time 5 h 37 min (machine ran 8 h), rounded up to the next 15 min"] },
+          { kind: 'trip', itemId: 'pb-trip', name: 'Trip charge', people: null, hours: 1, rateCents: 3500, taxable: false, reasons: ['Flat trip charge per visit'] },
+        ] },
+        { date: '2026-10-30', status: 'voided', clockedSeconds: 23400, needsReview: false, lines: [
+          { kind: 'labor', itemId: 'pb-labor', name: 'Grading labor', people: 1, split: 'each', hours: 6.5, rateCents: 6500, taxable: false, reasons: [] },
+        ], approval: { id: 'ap1', date: '2026-10-30', source: 'edited', editReason: 'Clock left on over lunch', billableHours: 6.5, invoiceId: 'inv1', invoiceNumber: 'INV-26-26-0141-001', invoiceStatus: 'void' } },
+      ],
+    },
+    {
+      key: 'visit:v1', kind: 'visit', id: 'dddddddd-0000-4000-8000-000000000002', title: 'Bush hogging', customerId: 'c2', customerName: 'Sam Ortiz', address: '4 Pine Rd',
+      labor: { itemId: null, name: 'Bush hogging', rateCents: 7500, taxable: false }, estimatedHours: null, billedHours: 0, visitDate: '2026-11-05', visitBilled: false,
+      days: [{ date: '2026-11-05', status: 'no_time', clockedSeconds: 0, lines: [], needsReview: false, approval: null }],
+    },
+  ],
+}
+
+export const HARNESS_JOB_HOURLY = {
+  mode: 'fixed',
+  estimatedHours: null,
+  rateItemId: null,
+  rateChoices: [
+    { id: 'pb-labor', name: 'Grading labor', rateCents: 6500, isLabor: true },
+    { id: 'pb-tractor', name: 'Tractor', rateCents: 9500, isLabor: false },
+  ],
+  fromQuote: { estimatedHours: 20, rateItemId: 'pb-labor', lines: [{ name: 'Grading labor', hours: 20 }, { name: 'Tractor', hours: 8 }] },
+  billedHours: 0,
+  canEdit: true,
+  canBill: true,
+}
+
+export const HARNESS_HOURLY_SETTINGS = {
+  settings: { rounding: 'up15', minimumHours: 2, travel: 'trip_charge', tripChargeItemId: 'pb-trip', basis: 'person', equipmentFromOperator: true },
+  tripChoices: [{ id: 'pb-trip', name: 'Trip charge', rateCents: 3500 }],
+}

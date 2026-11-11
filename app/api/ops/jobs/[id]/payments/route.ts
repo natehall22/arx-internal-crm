@@ -1,3 +1,4 @@
+import { syncTimeAndMaterialsCommissionBase } from '@/lib/job-commission-base'
 import { NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -6,7 +7,7 @@ import { JOB_COLLECTION_COLUMNS } from '@/lib/job-collection'
 import { enqueuePaymentRecorded } from '@/lib/integrations'
 import { callerCanAccessJobBilling } from '@/lib/finance-access'
 import { buildJobPaymentSummary, getJobPaymentSummary } from '@/lib/job-payments'
-import { loadInvoiceTaxCentsByJob } from '@/lib/job-invoice-tax'
+import { collectionInvoiceFields, loadJobInvoiceFacts, type JobInvoiceFacts } from '@/lib/job-invoice-tax'
 import { notifyAdminOpsOfJobPayment } from '@/lib/job-payment-email'
 
 // GET - Get all payments for a job with summary
@@ -52,9 +53,9 @@ export async function GET(
       return NextResponse.json({ error: 'Failed to fetch payments' }, { status: 500 })
     }
 
-    const invoiceTax = await loadInvoiceTaxCentsByJob(adminClient, [params.id])
+    const invoiceTax = await loadJobInvoiceFacts(adminClient, [params.id])
     const summary: JobPaymentSummary = buildJobPaymentSummary(
-      { ...(job as unknown as Parameters<typeof buildJobPaymentSummary>[0]), invoice_tax_cents: invoiceTax.get(params.id) ?? 0 },
+      { ...(job as unknown as Parameters<typeof buildJobPaymentSummary>[0]), invoice_tax_cents: invoiceTax.get(params.id)?.taxCents ?? 0, tm_invoiced_cents: collectionInvoiceFields(invoiceTax.get(params.id)).timeAndMaterialsInvoicedCents, tm_pending: collectionInvoiceFields(invoiceTax.get(params.id)).timeAndMaterialsPending },
       (payments || []) as JobPayment[]
     )
 
@@ -136,6 +137,9 @@ export async function POST(
       method,
       payer,
     }).catch(err => console.error('Failed to enqueue payment event:', err))
+
+    // Billed by the hour: money in can make newly billed hours payable (commission change lines). No-op for fixed-price jobs.
+    await syncTimeAndMaterialsCommissionBase(adminClient, profile.org_id, params.id)
 
     // Email admin + operations (non-blocking)
     getJobPaymentSummary(adminClient, params.id)

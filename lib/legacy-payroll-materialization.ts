@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { CompPlanForCalc } from '@/lib/calculate-commission-from-plan'
 import { buildCommissionPayrollSnapshot } from '@/lib/commission-payroll'
-import { loadInvoiceTaxCentsByJob } from './job-invoice-tax'
+import { collectionInvoiceFields, loadJobInvoiceFacts, type JobInvoiceFacts } from './job-invoice-tax'
 import { evaluateJobCollection } from '@/lib/job-collection'
 import { roundMoney } from '@/lib/money'
 import { loadJobCostLedger } from '@/lib/job-cost-ledger'
@@ -38,6 +38,10 @@ type PeriodRow = {
 type JobRow = {
   /** Sales tax billed on the job's invoices (lib/job-invoice-tax.ts); owed on top of sale_amount. */
   invoice_tax_cents?: number | null
+  /** A time & materials job's invoiced total (tax included) = what it owes (lib/job-invoice-tax.ts); null = fixed price. */
+  tm_invoiced_cents?: number | null
+  /** A time & materials job still being billed (draft invoice / clocked days not approved): not paid yet. */
+  tm_pending?: boolean | null
   id: string
   job_number: string
   status: string
@@ -155,6 +159,8 @@ export function derivePayrollEligibility(input: {
   const collection = evaluateJobCollection({
     saleAmount: input.job.sale_amount,
     invoiceTaxCents: input.job.invoice_tax_cents,
+    timeAndMaterialsInvoicedCents: input.job.tm_invoiced_cents ?? null,
+    timeAndMaterialsPending: input.job.tm_pending ?? null,
     payments: input.payments,
     allowCloseWithBalance: input.job.allow_close_with_balance,
     closeBalanceBy: input.job.close_balance_by,
@@ -240,8 +246,12 @@ export async function materializePayrollPeriod(
   const candidateJobs = (jobData || []) as JobRow[]
   const jobIds = candidateJobs.map((j) => j.id)
   // Invoice sales tax is owed on top of sale_amount (lib/job-invoice-tax.ts); 0 for jobs without it.
-  const invoiceTaxByJob = jobIds.length ? await loadInvoiceTaxCentsByJob(supabase, jobIds) : new Map<string, number>()
-  for (const job of candidateJobs) job.invoice_tax_cents = invoiceTaxByJob.get(job.id) ?? 0
+  const invoiceTaxByJob = jobIds.length ? await loadJobInvoiceFacts(supabase, jobIds) : new Map<string, JobInvoiceFacts>()
+  for (const job of candidateJobs) {
+    job.invoice_tax_cents = invoiceTaxByJob.get(job.id)?.taxCents ?? 0
+    job.tm_invoiced_cents = collectionInvoiceFields(invoiceTaxByJob.get(job.id)).timeAndMaterialsInvoicedCents
+    job.tm_pending = collectionInvoiceFields(invoiceTaxByJob.get(job.id)).timeAndMaterialsPending
+  }
 
   if (jobIds.length === 0) {
     return {
