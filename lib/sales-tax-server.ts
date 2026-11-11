@@ -2,11 +2,14 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { mergeOrgSettings } from '@/lib/org-settings'
 import { orgDb } from '@/lib/supabase/org-db'
 import { isMissingColumn } from '@/lib/job-catch-up-db'
+import { computeProposalTotals } from '@/lib/proposal-pricing-visibility'
 import {
   SALES_TAX_SETTINGS_KEY,
+  combinedTaxPercent,
   computeDocumentSalesTax,
   parseSalesTaxSettings,
   readSalesTaxSettings,
+  taxRatesByIds,
   type SalesTaxResult,
   type SalesTaxSettings,
   type TaxDocLine,
@@ -95,7 +98,71 @@ export async function saveSalesTaxSettings(
 ): Promise<{ error: string | null; value?: SalesTaxSettings }> {
   const parsed = parseSalesTaxSettings(input)
   if ('error' in parsed) return { error: parsed.error }
+  // Set-up tax writes per-rate snapshots on quotes and invoices: refuse until those columns exist, so a company never
+  // switches to rates while documents could only store the legacy single rate.
+  for (const [table, column] of [['proposals', 'tax_lines'], ['job_invoices', 'tax_lines']] as const) {
+    const probe = table === 'proposals'
+      ? await client.from('proposals').select(column).eq('org_id', orgId).limit(1)
+      // org-scope-ok: column probe only (limit 0 rows read); job_invoices.org_id may not exist before 202611100040
+      : await client.from('job_invoices').select(column).limit(0)
+    if (isMissingColumn(probe.error, column)) {
+      return { error: 'Sales tax needs a database update first (migration 202611110040). Nothing was changed.' }
+    }
+  }
   const { error } = await mergeOrgSettings(client, orgId, { ...parsed.value }, { path: [SALES_TAX_SETTINGS_KEY] })
   if (error) return { error }
   return { error: null, value: parsed.value }
+}
+
+/**
+ * Server check of a proposal save (builder POST/PUT). A quote that carries `tax_lines` was priced with company rates:
+ * the server recomputes subtotal, discount, tax and total from the line items with the SAME helper the screen uses
+ * (computeProposalTotals), the company's own rates (by id) and the customer's exemption, so stored numbers never
+ * depend on what the browser sent. No `tax_lines` (or the company has not set up sales tax) = legacy single rate:
+ * returns null and the save is unchanged.
+ */
+export async function proposalSalesTaxFields(
+  client: SupabaseClient,
+  orgId: string,
+  proposal: Record<string, unknown>,
+  lineItems: readonly Record<string, unknown>[]
+): Promise<Record<string, unknown> | null> {
+  // Only the chosen rate IDS are taken from the browser; names, percents and amounts come from the company's list.
+  if (!Array.isArray(proposal.tax_lines)) return null
+  const settings = await loadOrgSalesTax(client, orgId)
+  if (!settings) return null
+  const rateIds = (proposal.tax_lines as unknown[])
+    .map((l) => (l && typeof l === 'object' ? (l as { id?: unknown }).id : null))
+    .filter((id): id is string => typeof id === 'string' && id.length > 0)
+  const opportunityId = typeof proposal.opportunity_id === 'string' && proposal.opportunity_id ? proposal.opportunity_id : null
+  let customerId: string | null = null
+  if (opportunityId) {
+    const { data } = await orgDb(client, orgId).from('opportunities').select('customer_id').eq('id', opportunityId).maybeSingle()
+    customerId = (data as { customer_id?: string | null } | null)?.customer_id ?? null
+  }
+  const exemption = await loadCustomerTaxExemption(client, orgId, customerId)
+  const rates = taxRatesByIds(settings, rateIds)
+  const t = computeProposalTotals({
+    items: lineItems.map((i) => ({
+      line_total: Number(i.line_total) || 0,
+      unit_price: Number(i.unit_price) || 0,
+      unit: typeof i.unit === 'string' ? i.unit : null,
+      price_type: typeof i.price_type === 'string' ? i.price_type : null,
+      taxable: typeof i.taxable === 'boolean' ? i.taxable : null,
+    })),
+    discountPercent: Number(proposal.discount_percent) || 0,
+    discountAmount: Number(proposal.discount_amount) || 0,
+    rates,
+    exempt: exemption.exempt,
+  })
+  return {
+    subtotal: t.subtotalCents / 100,
+    discount_amount: t.discountCents / 100,
+    tax_rate: combinedTaxPercent(rates),
+    tax_amount: t.taxCents / 100,
+    total: t.totalCents / 100,
+    tax_lines: t.taxLines,
+    taxable_subtotal: t.taxableCents / 100,
+    tax_exempt: t.exempt,
+  }
 }
