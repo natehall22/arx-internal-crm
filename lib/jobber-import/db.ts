@@ -30,7 +30,8 @@ import { detectFileKind, isColumnTarget, JOBBER_FILE_KINDS, type JobberFileKind 
 import { addressesOf, buildPlan, readJobberFiles, ITEM_RANK, type CustomerRef, type ExistingSnapshot, type ImportOptions, type PlanSummary, type PropertyRef, type RunFile } from './plan'
 
 export const IMPORT_NOT_READY = 'Move from Jobber turns on once the database update for it is applied (migration 202611120040).'
-export const MAX_FILE_BYTES = 8 * 1024 * 1024
+/** Under Vercel's 4.5 MB request limit once sent as JSON; Jobber already splits client exports at ~1,500 rows. */
+export const MAX_FILE_BYTES = 4 * 1024 * 1024
 export const MAX_FILE_ROWS = 20_000
 export const MAX_FILES = 30
 const BATCH = 40
@@ -124,7 +125,7 @@ async function clearCheck(admin: SupabaseClient, orgId: string, runId: string) {
 
 export async function addFile(admin: SupabaseClient, orgId: string, run: RunRow, name: string, text: string): Promise<{ ok: true; file: RunFileInfo; detected: boolean } | Fail> {
   if (run.status !== 'draft') return fail(409, 'This import has already started')
-  if (Buffer.byteLength(text, 'utf8') > MAX_FILE_BYTES) return fail(413, 'That file is over 8 MB — export fewer columns, or split it')
+  if (Buffer.byteLength(text, 'utf8') > MAX_FILE_BYTES) return fail(413, 'That file is over 4 MB — export fewer columns, or split it')
   const rows = parseCsv(text)
   if (rows.length < 2) return fail(400, `${name} has no rows`)
   const headers = rows[0].map((h) => h.trim())
@@ -645,7 +646,7 @@ export async function importBatch(admin: SupabaseClient, orgId: string, userId: 
 // Undo
 // ---------------------------------------------------------------------------------------------------------------------
 
-const UNDO_ORDER = ['history', 'invoice', 'plan', 'property', 'customer', 'price_item', 'custom_field']
+const UNDO_ORDER = ['document', 'history', 'invoice', 'plan', 'property', 'customer', 'price_item', 'custom_field']
 const UNDO_NOTES: Record<string, string> = {
   changed: 'Changed here since the import — kept',
   in_use: 'Used by something added since the import — kept',
@@ -699,6 +700,56 @@ export async function undoBatch(admin: SupabaseClient, orgId: string, run: RunRo
   const finished = (count ?? 0) === 0
   if (finished) await db.from('import_runs').update({ status: 'undone', undone_at: new Date().toISOString() }).eq('id', run.id).eq('status', 'undoing')
   return { ok: true, progress, finished }
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Customer files (contracts etc. downloaded from Jobber one client at a time)
+// ---------------------------------------------------------------------------------------------------------------------
+
+/** Customers to match file names against (id + name; ≤ 20,000). */
+export async function loadCustomerNames(admin: SupabaseClient, orgId: string): Promise<Array<{ id: string; name: string }>> {
+  const rows = await fetchSupabaseAllPages<{ id: string; name: string | null }>((from, to) => orgDb(admin, orgId).from('customers').select('id, name').order('id').range(from, to))
+  return rows.filter((r) => r.name).map((r) => ({ id: r.id, name: String(r.name) }))
+}
+
+/**
+ * Files uploaded through the match screen (the normal customer-document register → upload → finalize) are recorded on
+ * the run, so "Undo this import" also takes them back off the customers. Only documents this person just uploaded to a
+ * customer of this company, with no job, are accepted.
+ */
+export async function recordDocuments(admin: SupabaseClient, orgId: string, userId: string, run: RunRow, documentIds: unknown): Promise<{ ok: true; recorded: number } | Fail> {
+  if (run.status !== 'done') return fail(409, 'Add files after the import has finished')
+  const ids = Array.isArray(documentIds) ? documentIds.filter((x): x is string => typeof x === 'string' && /^[0-9a-f-]{36}$/i.test(x)).slice(0, 200) : []
+  if (!ids.length) return fail(400, 'No files')
+  const db = orgDb(admin, orgId)
+  const { data } = await db.from('documents').select('id, customer_id, filename, uploaded_by, job_id, deleted_at').in('id', ids)
+  const docs = ((data ?? []) as Array<{ id: string; customer_id: string | null; filename: string; uploaded_by: string | null; job_id: string | null; deleted_at: string | null }>).filter(
+    (d) => d.customer_id && !d.job_id && !d.deleted_at && d.uploaded_by === userId
+  )
+  if (!docs.length) return { ok: true, recorded: 0 }
+  const { data: had } = await db.from('import_run_items').select('seq, source_id').eq('run_id', run.id).eq('kind', 'document')
+  const known = new Set(((had ?? []) as Array<{ source_id: string }>).map((r) => r.source_id))
+  let seq = Math.max(0, ...((had ?? []) as Array<{ seq: number }>).map((r) => r.seq))
+  const fresh = docs.filter((d) => !known.has(`document:${d.id}`))
+  if (!fresh.length) return { ok: true, recorded: 0 }
+  const { error } = await db.from('import_run_items').insert(
+    fresh.map((d) => ({
+      run_id: run.id,
+      kind: 'document',
+      rank: ITEM_RANK.document,
+      seq: ++seq,
+      source_id: `document:${d.id}`,
+      label: d.filename.slice(0, 300),
+      action: 'create',
+      status: 'done',
+      target_table: 'documents',
+      target_id: d.id,
+      applied: { customer_id: d.customer_id, deleted_at: null },
+      done_at: new Date().toISOString(),
+    }))
+  )
+  if (error) return fail(500, 'Could not record the files')
+  return { ok: true, recorded: fresh.length }
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
