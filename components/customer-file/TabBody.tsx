@@ -20,6 +20,21 @@ import { HEALTH_RESULT_STYLE } from '@/lib/health-result'
 import TaxExemptionCard from '@/components/customer/TaxExemptionCard'
 import { loadCustomerTaxExemption, loadOrgSalesTax } from '@/lib/sales-tax-server'
 import { orgDb } from '@/lib/supabase/org-db'
+import CustomerMessagesCard from '@/components/customer/CustomerMessagesCard'
+import { loadCustomerMessageState } from '@/lib/customer-messages-db'
+import { resolveCustomerAccess } from '@/lib/customer-file/customer-access'
+import { getOrgFeatures } from '@/lib/org-features-server'
+import type { ThreadViewer } from '@/lib/threads/visibility'
+
+/** Automatic emails card: only for a company sending them, only for people who can open the customer. */
+async function loadCustomerMessagesCard(viewer: ThreadViewer, customerId: string) {
+  if (!(await getOrgFeatures(viewer.orgId)).customerMessages) return null
+  const admin = createServiceClient()
+  const access = await resolveCustomerAccess(admin, viewer, customerId)
+  if (!access?.read) return null
+  const state = await loadCustomerMessageState(admin, viewer.orgId, customerId)
+  return state ? { state, canEdit: access.edit } : null
+}
 
 async function loadTaxExemptionCard(orgId: string, customerId: string) {
   const admin = createServiceClient()
@@ -71,7 +86,7 @@ async function Overview({ customerId, dealId }: { customerId: string; dealId: st
   const { job, deal, customer } = ctx
   // Checkups are job-side: only people with the job board see them (field roles never do).
   const admin = createServiceClient()
-  const [checkups, extras, taxExemption] = await Promise.all([
+  const [checkups, extras, taxExemption, messages] = await Promise.all([
     ctx.viewer.jobBoard || ctx.viewer.ownerLike
       ? loadCheckups(admin, ctx.viewer.orgId, { customerId: customer.id }).catch(() => null)
       : Promise.resolve(null),
@@ -79,6 +94,7 @@ async function Overview({ customerId, dealId }: { customerId: string; dealId: st
     loadCustomerExtras(admin, ctx.viewer, customer.id).catch(() => null),
     // Sales tax exemption: billing staff, and only once the company has set up sales tax (lib/sales-tax.ts).
     ctx.canViewJobBilling ? loadTaxExemptionCard(ctx.viewer.orgId, customer.id).catch(() => null) : Promise.resolve(null),
+    loadCustomerMessagesCard(ctx.viewer, customer.id).catch(() => null),
   ])
   return (
     <div className="space-y-4">
@@ -115,6 +131,8 @@ async function Overview({ customerId, dealId }: { customerId: string; dealId: st
           </CardContent>
         </Card>
       )}
+
+      {messages && <CustomerMessagesCard customerId={customer.id} initial={messages.state} canEdit={messages.canEdit} />}
 
       {taxExemption && <TaxExemptionCard proposalWord={ctx.proposalWord} customerId={customer.id} initial={taxExemption.initial} documents={taxExemption.documents} />}
 

@@ -1553,6 +1553,9 @@ export async function applyVisitAction(
   if (a.action === 'done') {
     // The visit stands even if the follow-on can't be made; ops sees the missing step on the Visits list.
     await createFollowUpVisit(admin, orgId, r, opts.now ?? new Date()).catch((e) => console.error('[service-plans] follow-up failed', visitId, e))
+    // The customer's "done" email (only when the company turned it on; sent ~15 min later so a mis-tap can be reopened).
+    const { queueVisitDone } = await import('@/lib/customer-messages-db')
+    await queueVisitDone(admin, orgId, visitId, opts.now ?? new Date())
   }
   return { ok: true }
 }
