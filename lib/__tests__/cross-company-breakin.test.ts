@@ -12,7 +12,7 @@ import { join, sep } from 'node:path'
 import { NextRequest } from 'next/server'
 import { __resetCompanyHostCacheForTests } from '@/lib/company-host'
 import {
-  ATTACKER_TOKEN, BRAVO_PUBLIC_TOKEN, BRAVO_ROW_ID, ORG_A, ORG_B, SERVICE_KEY, VICTIM_ID, companyTables, createWorld, crossReferences, crossings, findings, routePathOf, tablesInCode, walk,
+  A_STAMP, ATTACKER_TOKEN, requestShape, guessValue, type RequestShape, BRAVO_PUBLIC_TOKEN, BRAVO_ROW_ID, ORG_A, ORG_B, SERVICE_KEY, VICTIM_ID, companyTables, createWorld, reachedB, crossReferences, crossings, findings, routePathOf, tablesInCode, walk,
   type Finding, type World,
 } from '@/lib/test-helpers/breakin-harness'
 
@@ -25,13 +25,15 @@ delete process.env.DEPLOYMENT_ORG_ID
 delete process.env.APP_BASE_DOMAIN
 
 /**
- * BREAKIN_SELF=1 runs the same calls with company B's OWN ids. It is the control for this suite: it shows which routes
- * actually reach a record when the id is right (`readsOfBRecord` / "Bravo" in the body), so a 404 in the attack run means
- * "refused A's record", not "never got past input parsing". The same no-A-data assertions still apply.
+ * Every handler is called twice in the `own` mode: first with company B's OWN ids (the control — does this request
+ * reach a record at all?), then with company A's ids (the attack). A refusal in the attack only means something when the
+ * control reached B's record; the number of handlers whose control reaches a record is ratcheted
+ * (scripts/breakin-reach-baseline.json, may only rise).
  */
-const SELF = !!process.env.BREAKIN_SELF
-const TARGET = SELF ? BRAVO_ROW_ID : VICTIM_ID
-const TARGET_ORG = SELF ? ORG_B : ORG_A
+let target = VICTIM_ID
+let targetOrg = ORG_A
+/** Id used for every reference field (`*_id` other than `id`). Equals `target` except in the "own record, A's refs" run. */
+let refTarget = VICTIM_ID
 const TABLES = tablesInCode(ROOT)
 const ORG_TABLES = companyTables(ROOT)
 let mockWorld: World
@@ -82,6 +84,7 @@ jest.mock('@supabase/supabase-js', () => {
         const log = (op: string) => async (...args: unknown[]) => {
           w().storage.push({ bucket: b, op, arg: JSON.stringify(args) })
           const path = typeof args[0] === 'string' ? args[0] : ''
+          if (op === 'list' || op === 'createSignedUrls') return { data: [], error: null }
           return { data: { signedUrl: `https://storage.test/${b}/${path}`, path, publicUrl: `https://storage.test/${b}/${path}` }, error: null }
         }
         return {
@@ -172,17 +175,49 @@ const ID_KEYS = [
 ]
 const idBag = () => {
   const o: Record<string, unknown> = {}
-  for (const k of ID_KEYS) o[k] = TARGET
+  for (const k of ID_KEYS) o[k] = k === 'id' ? target : refTarget
   return o
 }
-const body = () => ({
-  ...idBag(),
-  org_id: TARGET_ORG, orgId: TARGET_ORG,
-  ids: [TARGET], leadIds: [TARGET], lead_ids: [TARGET], jobIds: [TARGET], job_ids: [TARGET], userIds: [TARGET], user_ids: [TARGET],
-  data: idBag(), updates: idBag(), patch: idBag(), item: idBag(), record: idBag(), lead: idBag(), job: idBag(),
-  token: BRAVO_PUBLIC_TOKEN, path: `org/${TARGET_ORG}/x.pdf`, storage_path: `org/${TARGET_ORG}/x.pdf`,
-  status: 'cancelled', notes: 'bravo was here', name: 'bravo', body: 'bravo', reason: 'other', action: 'delete', type: 'note',
-})
+/** Generic fields every write gets, then every field the route's own source reads (`requestShape`), then FIXTURES. */
+function bodyFor(routePath: string, method: string, shape: RequestShape): Record<string, unknown> {
+  const out: Record<string, unknown> = {
+    ...idBag(),
+    org_id: targetOrg, orgId: targetOrg,
+    ids: [target], leadIds: [refTarget], lead_ids: [refTarget], jobIds: [refTarget], job_ids: [refTarget], userIds: [refTarget], user_ids: [refTarget],
+    data: idBag(), updates: idBag(), patch: idBag(), item: idBag(), record: idBag(), lead: idBag(), job: idBag(),
+    token: BRAVO_PUBLIC_TOKEN, path: `org/${targetOrg}/x.pdf`, storage_path: `org/${targetOrg}/x.pdf`,
+    status: 'cancelled', notes: 'bravo was here', name: 'bravo', body: 'bravo', reason: 'other', action: 'delete', type: 'note',
+  }
+  for (const k of [...shape.body, ...shape.form]) if (!(k in out)) out[k] = guessValue(k, k === 'id' ? target : refTarget, targetOrg)
+  if (variant) Object.assign(out, variant(target, refTarget).body ?? {})
+  return out
+}
+
+/**
+ * Request variants for routes the generic guess can't drive (enum values, nested shapes, one route serving several
+ * resources), keyed `METHOD /route` or `/route`. Each variant is run as its own control + attack. `id` is the record
+ * id (B's in the control, A's in the attack); `ref` the id for reference fields.
+ */
+type Variant = (id: string, ref: string) => { body?: Record<string, unknown>; query?: Record<string, string> }
+let variant: Variant | null = null
+const each = (field: string, values: string[]): Variant[] => values.map((v) => () => ({ body: { [field]: v }, query: { [field]: v } }))
+const POLYGON = { type: 'Polygon', coordinates: [[[-80.7, 35.4], [-80.6, 35.4], [-80.6, 35.5], [-80.7, 35.4]]] }
+const FIXTURES: Record<string, Variant[]> = {
+  '/api/admin/data': each('resource', ['comp_plans', 'regions', 'teams', 'users', 'campaigns', 'scheduling', 'subs']),
+  '/api/admin/incentives': each('resource', ['payout_queue', 'heat_program', 'incentive_cycle', 'incentive_badge', 'user_badge']),
+  '/api/admin/pricing': each('type', ['pricebook', 'item', 'pricebook_default', 'org_settings']),
+  '/api/admin/proposals': each('type', ['adder', 'percentage', 'template', 'visibility', 'toggle_adder']),
+  '/api/admin/settings': each('type', ['job_catch_up', 'features', 'checkups', 'general', 'settings', 'canvass_dispositions', 'inspection_outcomes', 'close_outcomes']),
+  'POST /api/admin/announcements': [() => ({ body: { title: 'Bravo news', body: 'Bravo body', starts_at: '2026-11-10T00:00:00.000Z', roles: ['admin'] } })],
+  'POST /api/admin/comp-rates': [() => ({ body: { inspection_rate: 10, manager_override_rate: 1, self_gen_rate: 1 } })],
+  'PATCH /api/admin/payroll/bonus-lines/[bonusLineId]/status': [() => ({ body: { status: 'approved' } })],
+  'POST /api/admin/canvass-territories': [() => ({ body: { boundary_geojson: POLYGON } })],
+  '/api/admin/canvass-territories/[id]': [() => ({ body: { boundary_geojson: POLYGON } })],
+}
+
+/** A real 1x1 PNG, so upload routes that sniff the file get past their checks. */
+const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64')
+const FILE_FIELDS = ['file', 'files', 'photo', 'image', 'logo', 'attachment', 'document', 'upload']
 
 /**
  * How company B reaches the app. `own` = B's own token on an unfenced address (the strongest position: auth succeeds,
@@ -191,44 +226,49 @@ const body = () => ({
  * host). In the last two the company fence (lib/company-host.ts) should refuse B before any route code runs.
  */
 type Mode = { name: string; host: string; baseDomain?: string; code?: string }
-const MODES: Mode[] = SELF
-  ? [{ name: 'own (self-check, B ids)', host: 'bravo.crm.test' }]
-  : [
-      { name: 'own', host: 'bravo.crm.test' },
-      { name: 'a-address', host: 'alpha.crm.test', baseDomain: 'crm.test' },
-      { name: 'a-code', host: 'legacy.example', baseDomain: 'crm.test', code: 'alpha' },
-    ]
+const MODES: Mode[] = [
+  { name: 'own', host: 'bravo.crm.test' },
+  { name: 'a-address', host: 'alpha.crm.test', baseDomain: 'crm.test' },
+  { name: 'a-code', host: 'legacy.example', baseDomain: 'crm.test', code: 'alpha' },
+]
 let mode: Mode = MODES[0]
 
 type Outcome = {
   mode: string; route: string; method: string; status: number | 'threw' | 'timeout'; error?: string; findings: Finding[]; xref: string[]; readA: boolean
-  rpcA: string[]; reached: boolean
+  rpcA: string[]; reached: boolean; controlStatus?: number | 'threw' | 'timeout'; controlText?: string
 }
 const outcomes: Outcome[] = []
 
 const routeFiles = walk(join(ROOT, 'app', 'api')).filter((f) => f.endsWith(`route.ts`)).sort()
 const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const
 
-function urlFor(routePath: string) {
+function urlFor(routePath: string, shape?: RequestShape) {
   const params: Record<string, string | string[]> = {}
   const path = routePath.replace(/\[(\.\.\.)?([^\]]+)\]/g, (_m, rest, name: string) => {
     // A [token] gets B's own valid public token, so token routes resolve B's record and the A ids elsewhere in the
     // request test whether a link can be walked to another company's records. [kind] = a real signed-document kind.
-    const v = name === 'orgId' ? TARGET_ORG : /token/i.test(name) ? BRAVO_PUBLIC_TOKEN : name === 'kind' ? 'change-order' : TARGET
+    const v = name === 'orgId' ? targetOrg : /token/i.test(name) ? BRAVO_PUBLIC_TOKEN : name === 'kind' ? 'change-order' : target
     params[name] = rest ? [v] : v
     return v
   })
   const qs = new URLSearchParams()
   for (const [k, v] of Object.entries(idBag())) qs.set(k, String(v))
-  qs.set('org_id', TARGET_ORG)
-  qs.set('orgId', TARGET_ORG)
+  for (const k of shape?.query ?? []) if (!qs.has(k)) { const v = guessValue(k, k === 'id' ? target : refTarget, targetOrg); qs.set(k, Array.isArray(v) ? v.join(',') : typeof v === 'object' ? JSON.stringify(v) : String(v)) }
+  if (variant) for (const [k, v] of Object.entries(variant(target, refTarget).query ?? {})) qs.set(k, v)
+  qs.set('org_id', targetOrg)
+  qs.set('orgId', targetOrg)
   qs.set('token', BRAVO_PUBLIC_TOKEN)
-  qs.set('path', `org/${TARGET_ORG}/x.pdf`)
+  qs.set('path', `org/${targetOrg}/x.pdf`)
   return { url: `https://${mode.host}${path}?${qs}`, params }
 }
 
-async function attack(handler: (req: NextRequest, ctx: { params: Record<string, unknown> }) => Promise<Response>, method: string, routePath: string, kind: 'json' | 'form') {
-  const { url, params } = urlFor(routePath)
+const EMPTY_SHAPE: RequestShape = { body: [], query: [], form: [], multipart: false }
+
+async function attack(
+  handler: (req: NextRequest, ctx: { params: Record<string, unknown> }) => Promise<Response>, method: string, routePath: string,
+  kind: 'json' | 'form', shape: RequestShape = EMPTY_SHAPE
+) {
+  const { url, params } = urlFor(routePath, shape)
   const cookieValue = encodeURIComponent(JSON.stringify({ access_token: ATTACKER_TOKEN }))
   const headers = new Headers({
     authorization: `Bearer ${ATTACKER_TOKEN}`,
@@ -237,14 +277,18 @@ async function attack(handler: (req: NextRequest, ctx: { params: Record<string, 
   })
   if (mode.code) headers.set('x-company-code', mode.code)
   let payload: BodyInit | undefined
-  if (method !== 'GET' && method !== 'DELETE') {
+  if (method !== 'GET') {
+    const b = bodyFor(routePath, method, shape)
     if (kind === 'json') {
       headers.set('content-type', 'application/json')
-      payload = JSON.stringify(body())
+      payload = JSON.stringify(b)
     } else {
+      // Real multipart: every field as text, and a real PNG under each name upload routes use (plus the route's own).
       const fd = new FormData()
-      for (const [k, v] of Object.entries(body())) fd.set(k, typeof v === 'string' ? v : JSON.stringify(v))
-      fd.set('file', new Blob(['x'], { type: 'image/png' }), 'x.png')
+      for (const [k, v] of Object.entries(b)) fd.set(k, typeof v === 'string' ? v : JSON.stringify(v))
+      for (const f of Array.from(new Set([...FILE_FIELDS, ...shape.form.filter((k) => /file|photo|image|logo|attach|doc|upload/i.test(k))]))) {
+        fd.set(f, new Blob([PNG], { type: 'image/png' }), 'x.png')
+      }
       payload = fd
     }
   }
@@ -295,6 +339,9 @@ async function readBody(res: Response): Promise<string> {
  * suite until someone reads its SQL and adds it here.
  */
 const VERIFIED_RPCS: Record<string, string> = {
+  cancel_management_comp_overlay: 'supabase/migrations/202608070001_management_comp_overlays.sql: assignment WHERE id = p_assignment_id AND org_id = p_org_id (route passes auth.profile.org_id)',
+  end_management_comp_overlay: 'supabase/migrations/202608070001_management_comp_overlays.sql: assignment WHERE id = p_assignment_id AND org_id = p_org_id',
+  save_supplier: 'supabase/migrations/202610220030_supplier_atomic_save.sql: vendors WHERE id = p_id AND org_id = p_org, else supplier_not_found (route passes profile.org_id)',
   cancel_production_job: 'supabase/migrations/202609140001_production_job_cancellation.sql: WHERE id = p_job_id AND org_id = p_org_id, else P0002',
   uncancel_production_job: 'supabase/migrations/202609260001_uncancel_restore_only_this_cancel.sql: WHERE id = p_job_id AND org_id = p_org_id, else P0002',
 }
@@ -305,11 +352,14 @@ const VERIFIED_RPCS: Record<string, string> = {
  */
 const ALLOWED_XREF: Record<string, string> = {
   'leads.external_lead_id': 'webhooks/leads: the sending system\'s own lead id (free text from the webhook body), not a CRM row reference',
+  'campaigns.google_campaign_id': 'ad-platform campaign id (free text), not a CRM row',
+  'campaigns.google_ads_campaign_id': 'ad-platform campaign id (free text), not a CRM row',
+  'campaigns.facebook_campaign_id': 'ad-platform campaign id (free text), not a CRM row',
+  'campaigns.external_id': 'ad-platform id (free text), not a CRM row',
 }
 
 /** The harness must catch a hole when there is one; otherwise every green route below proves nothing. */
-const describeUnlessSelf = SELF ? describe.skip : describe
-describeUnlessSelf('harness catches a planted hole', () => {
+describe('harness catches a planted hole', () => {
   const { createServiceClient } = jest.requireActual('@/lib/supabase/service') as typeof import('@/lib/supabase/service')
   const run = async (h: (req: NextRequest, ctx: { params: Record<string, unknown> }) => Promise<Response>) => {
     mockWorld = createWorld(TABLES, ORG_TABLES)
@@ -349,6 +399,46 @@ describeUnlessSelf('harness catches a planted hole', () => {
   })
 })
 
+/** Upload routes get real multipart first; anything else JSON, falling back to multipart if JSON is refused. */
+async function send(h: never, method: string, routePath: string, shape: RequestShape) {
+  mockWorld = createWorld(TABLES, ORG_TABLES)
+  let r = await attack(h, method, routePath, shape.multipart ? 'form' : 'json', shape)
+  if (!shape.multipart && r.status === 'threw' && /Content-Type was not one of/.test(r.text)) {
+    mockWorld = createWorld(TABLES, ORG_TABLES)
+    r = await attack(h, method, routePath, 'form', shape)
+  }
+  return r
+}
+
+/**
+ * Reads of company A rows that are allowed: the route loads a row by the request id and then refuses it because its
+ * org_id is not the caller's (the "load by id, then check" pattern the org-scope gate accepts). Each was read; the
+ * refusal returns before anything of the row is used. Anything else that reads an A row fails.
+ */
+const READ_THEN_CHECK: Record<string, string> = {
+  'PUT /api/admin/presets': 'admin/presets: load by id, `existing.org_id !== profile.org_id` → 404',
+  'DELETE /api/admin/presets': 'admin/presets: load by id, `existing.org_id !== profile.org_id` → 404',
+  'PUT /api/admin/users': 'admin/users: target loaded by id, `targetUser.org_id !== profile.org_id` → 404',
+  'DELETE /api/admin/users': 'admin/users: target loaded by id, `targetUser.org_id !== profile.org_id` → 404',
+  'PUT /api/admin/user-permissions': 'admin/user-permissions: target loaded by id, org mismatch → 404',
+  'GET /api/measurements/[id]': 'measurements/[id]: row loaded by id, `row.org_id !== profile.org_id` → 403',
+  'DELETE /api/measurements/[id]': 'measurements/[id]: row loaded by id, org mismatch → 403',
+  'GET /api/canvass/team-availability': 'canvass/team-availability: team loaded by id, `team.org_id !== profile.org_id` → 404',
+  'GET /api/sisu/badges': 'sisu/badges: target user loaded by id, org mismatch → 404',
+  'POST /api/jobs/[id]/review-request': 'jobs/[id]/review-request: job loaded by id, `job.org_id !== profile.org_id` → 404',
+  'POST /api/projects/[id]/review': 'projects/[id]/review: project loaded by id, org mismatch → 404',
+  'GET /api/org-logo/[orgId]': 'org-logo: a company logo is public by design (login pages, documents); only the logo path is signed',
+  'GET /api/company-logo': 'company-logo: serves the logo of the company whose web address this is (A on A\'s address) — public by design',
+}
+
+/** Successful (2xx) responses may echo company A's id only where listed (the route repeats the request back). */
+const ECHO_OK: Record<string, string> = {
+  'POST /api/campaigns': 'echoes the ad-platform campaign ids it was sent (free text, see ALLOWED_XREF); no A row is read',
+}
+
+const reachedByControl = new Set<string>()
+let controlRuns = 0
+
 for (const m of MODES) {
   describe(`company B (${m.name}) cannot read or change company A through any API route`, () => {
     beforeAll(() => {
@@ -370,23 +460,57 @@ for (const m of MODES) {
           outcomes.push({ mode: m.name, route: routePath, method: 'IMPORT', status: 'threw', error: msg, findings: [], xref: [], readA: false, rpcA: [], reached: false })
           throw new Error(`IMPORT ${routePath}: ${msg}`)
         }
+        const shape = requestShape(file)
         for (const method of METHODS) {
           const h = mod[method]
           if (typeof h !== 'function') continue
-          mockWorld = createWorld(TABLES, ORG_TABLES)
-          let r = await attack(h as never, method, routePath, 'json')
-          if (r.status === 'threw' && /Content-Type was not one of/.test(r.text)) {
-            mockWorld = createWorld(TABLES, ORG_TABLES)
-            r = await attack(h as never, method, routePath, 'form')
+          const key = `${method} ${routePath}`
+          const variants: Array<Variant | null> = FIXTURES[key] ?? FIXTURES[routePath] ?? [null]
+          for (const [vi, v] of variants.entries()) {
+            variant = v
+            const tag = variants.length > 1 ? `${key} #${vi + 1}` : key
+            // Control (own mode only): the same request with company B's own ids.
+            let control: { status: number | 'threw' | 'timeout'; text: string } | undefined
+            if (m.name === 'own') {
+              target = refTarget = BRAVO_ROW_ID
+              targetOrg = ORG_B
+              try {
+                control = await send(h as never, method, routePath, shape)
+                controlRuns++
+                if (reachedB(mockWorld) || control.text.includes('Bravo')) reachedByControl.add(key)
+                // "Own record, A's references": B's own ids in the path and `id`, A's ids in every other reference field
+                // and A's org_id — catches re-homing a B row into A and B rows left pointing at A's records.
+                if (method !== 'GET') {
+                  refTarget = VICTIM_ID
+                  targetOrg = ORG_A
+                  const mixed = await send(h as never, method, routePath, shape)
+                  for (const x of findings(mockWorld, mixed.text)) problems.push(`${tag} [own record, A refs: ${mixed.status}] ${x.kind}: ${x.detail}`)
+                  for (const x of crossReferences(mockWorld)) if (!ALLOWED_XREF[x]) problems.push(`${tag} [own record, A refs: ${mixed.status}] cross-reference: company B row ${x} = company A's id`)
+                }
+              } finally {
+                target = refTarget = VICTIM_ID
+                targetOrg = ORG_A
+              }
+            }
+            const r = await send(h as never, method, routePath, shape)
+            const f = findings(mockWorld, r.text)
+            const rpcA = mockWorld.rpcs.filter((x) => JSON.stringify(x.args).match(new RegExp(`${VICTIM_ID}|${ORG_A}`))).map((x) => x.name)
+            const xref = crossReferences(mockWorld)
+            const readA = Array.from(new Set(mockWorld.readsOfA))
+            outcomes.push({
+              mode: m.name, route: routePath, method, status: r.status, error: 'error' in r ? r.error : undefined, findings: f, xref,
+              readA: readA.length > 0, rpcA, reached: reachedByControl.has(key), controlStatus: control?.status, controlText: control?.text.slice(0, 200),
+            })
+            for (const x of f) problems.push(`${tag} [${r.status}] ${x.kind}: ${x.detail}`)
+            for (const x of xref) if (!ALLOWED_XREF[x]) problems.push(`${tag} [${r.status}] cross-reference: company B row ${x} = company A's id`)
+            for (const n of rpcA) if (!VERIFIED_RPCS[n]) problems.push(`${tag} [${r.status}] rpc ${n} received company A's id — read its SQL, then list it in VERIFIED_RPCS`)
+            if (readA.length && !READ_THEN_CHECK[key]) problems.push(`${tag} [${r.status}] read company A rows from ${readA.join(', ')}`)
+            if (typeof r.status === 'number' && r.status < 300 && r.text.includes(VICTIM_ID) && !ECHO_OK[key]) {
+              problems.push(`${tag} [${r.status}] successful response carries company A's record id`)
+            }
+
           }
-          const f = findings(mockWorld, r.text)
-          const rpcA = mockWorld.rpcs.filter((x) => JSON.stringify(x.args).match(new RegExp(`${VICTIM_ID}|${ORG_A}`))).map((x) => x.name)
-          const xref = crossReferences(mockWorld)
-          const reached = mockWorld.readsOfBRecord.length > 0 || r.text.includes('Bravo')
-          outcomes.push({ mode: m.name, route: routePath, method, status: r.status, error: 'error' in r ? r.error : undefined, findings: f, xref, readA: mockWorld.readsOfA.length > 0, rpcA, reached })
-          for (const x of f) problems.push(`${method} ${routePath} [${r.status}] ${x.kind}: ${x.detail}`)
-          for (const x of xref) if (!ALLOWED_XREF[x]) problems.push(`${method} ${routePath} [${r.status}] cross-reference: company B row ${x} = company A's id`)
-          for (const n of rpcA) if (!VERIFIED_RPCS[n]) problems.push(`${method} ${routePath} [${r.status}] rpc ${n} received company A's id — read its SQL, then list it in VERIFIED_RPCS`)
+          variant = null
         }
         expect(problems).toEqual([])
       }, 60_000)
@@ -395,11 +519,30 @@ for (const m of MODES) {
 }
 
 /**
+ * Ratchet: how many handlers the control reaches a record with. A route that stops reaching (a fixture broke, a guess no
+ * longer fits) makes its attack result vacuous, so the count may only rise. Raise the baseline when you add fixtures.
+ */
+describe('control reach ratchet', () => {
+  test('handlers that reach a record with company B\'s own ids', () => {
+    const handlers = routeFiles.reduce((n, f) => {
+      const mod = require(f) as Record<string, unknown>
+      return n + METHODS.filter((x) => typeof mod[x] === 'function').length
+    }, 0)
+    if (controlRuns < handlers) return // a -t filter skipped some routes; the full run checks the count
+    const baseline = JSON.parse(fs.readFileSync(join(ROOT, 'scripts', 'breakin-reach-baseline.json'), 'utf8')) as { reached: number }
+    if (process.env.BREAKIN_REACH_UPDATE && reachedByControl.size > baseline.reached) {
+      fs.writeFileSync(join(ROOT, 'scripts', 'breakin-reach-baseline.json'), JSON.stringify({ reached: reachedByControl.size }, null, 2) + '\n')
+    }
+    expect(reachedByControl.size).toBeGreaterThanOrEqual(baseline.reached)
+  })
+})
+
+/**
  * Background jobs run for every company at once (lib/cron-orgs.ts). Called the way Vercel calls them (the real cron
  * secret, no user), with both companies holding data: nothing written for one company may point at the other's
  * records, and no email to one company's people may carry the other's data.
  */
-describeUnlessSelf('crons keep each company to itself', () => {
+describe('crons keep each company to itself', () => {
   beforeAll(() => {
     mode = { name: 'cron', host: 'legacy.example' }
     delete process.env.APP_BASE_DOMAIN

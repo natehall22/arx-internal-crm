@@ -37,7 +37,9 @@ export const A_AMOUNT = 987654.32
 export const A_TOKEN = 'alpha-public-token-0000'
 /** Any of these in a response / email / outbound call means company A's data reached company B. (A's org id and
  * public token are not in the list for responses: the attacker sends both, and routes may echo the request.) */
-export const LEAK_PATTERNS = [MARK, 'alpha.test', '987654', A_PHONE]
+/** Company A rows' created_at/updated_at — a field of A's that is not a marker string (B rows use 2026-11-02). */
+export const A_STAMP = '2026-11-01T12:00:00.000Z'
+export const LEAK_PATTERNS = [MARK, 'alpha.test', '987654', A_PHONE, '2026-11-01T12']
 /** Storage paths and auth-admin calls also fail on A's org id / token (the attacker cannot get those signed). */
 const PATH_PATTERNS = [...LEAK_PATTERNS, ORG_A, A_TOKEN]
 /** Hidden owner tag on child rows (tables with no org_id): lets the RLS emulation hide them from other companies. */
@@ -111,8 +113,8 @@ export function victimRow(table: string, hasOrgId = true): Row {
   for (const k of TOKENS) r[k] = A_TOKEN
   r.email = A_EMAIL
   r.phone = A_PHONE
-  r.created_at = '2026-11-01T12:00:00.000Z'
-  r.updated_at = '2026-11-01T12:00:00.000Z'
+  r.created_at = A_STAMP
+  r.updated_at = A_STAMP
   return r
 }
 
@@ -149,11 +151,19 @@ export function seedTables(tables: string[], orgTables: Set<string>, attackerRol
       id: ATTACKER_ID, org_id: ORG_B, role: attackerRole, is_super_admin: attackerRole === 'admin', active: true,
       email: 'boss@bravo.test', full_name: 'Bravo Boss', permissions: [],
     },
+    // B's own rep under the shared B id, so user-id fields in the control run name a real B user (closer, foreman, owner).
+    {
+      ...attackerSeed('users'), id: BRAVO_ROW_ID, org_id: ORG_B, role: 'closer', is_super_admin: false, active: true,
+      can_receive_appointments: true, email: 'rep@bravo.test', full_name: 'Bravo Rep', manager_user_id: ATTACKER_ID,
+    },
   ]
   return seed
 }
 
-export type Finding = { kind: 'leak' | 'write' | 'insert_into_a' | 'storage' | 'auth_admin' | 'exfil'; detail: string }
+export type Finding = { kind: 'leak' | 'write' | 'insert_into_a' | 'moved_into_a' | 'storage' | 'auth_admin' | 'exfil'; detail: string }
+
+/** Columns that point at shared reference tables (GLOBAL_TABLES): an id there is nobody's company data. */
+const GLOBAL_REF_COLUMNS = new Set(['permission_id'])
 
 export type World = ReturnType<typeof createWorld>
 
@@ -162,7 +172,8 @@ export function createWorld(tables: string[], orgTables: Set<string>, attackerRo
   const rpcs: Array<{ name: string; args: Row }> = []
   const readsOfA: string[] = []
   const readsOfBRecord: string[] = []
-  const db = createFakeDb(seedTables(tables, orgTables, attackerRole), {
+  const seed = seedTables(tables, orgTables, attackerRole)
+  const db = createFakeDb(seed, {
     onRpc: (name, args) => rpcs.push({ name, args }),
     onSelect: (table, rows) => {
       if (rows.some((r) => ownerOf(table, r) === ORG_A)) readsOfA.push(table)
@@ -174,6 +185,12 @@ export function createWorld(tables: string[], orgTables: Set<string>, attackerRo
   const authAdmin: Array<{ op: string; arg: string }> = []
   const outbound: string[] = []
   return { db, before, rpcs, readsOfA, readsOfBRecord, storage, authAdmin, outbound }
+}
+
+/** Did the request get through to company B's data — read B's record, or write any B row? (control-run "reach") */
+export function reachedB(w: World): boolean {
+  if (w.readsOfBRecord.length > 0) return true
+  return w.db.writes.some((x) => x.rows.some((r) => ownerOf(x.table, r) === ORG_B || r.id === BRAVO_ROW_ID))
 }
 
 /** Which company a seeded row belongs to (org_id, the orgs row itself, or the hidden tag on child rows). */
@@ -201,20 +218,27 @@ export function findings(w: World, responseText: string): Finding[] {
     if (now === undefined) out.push({ kind: 'write', detail: `deleted ${k}` })
     else if (now !== v) out.push({ kind: 'write', detail: `changed ${k}: ${diff(JSON.parse(v), JSON.parse(now))}` })
   }
+  // A row of B's (or a new row) that now belongs to A: moved into another company by an update.
+  for (const k of Array.from(after.keys())) {
+    if (!w.before.has(k) && !w.db.writes.some((x) => (x.op === 'insert' || x.op === 'upsert') && `${x.table}:` === k.slice(0, x.table.length + 1))) {
+      out.push({ kind: 'moved_into_a', detail: `${k} now belongs to company A` })
+    }
+  }
   for (const wr of w.db.writes) {
     if (wr.op !== 'insert' && wr.op !== 'upsert') continue
     for (const r of wr.rows) {
       if (ownerOf(wr.table, r) === ORG_A) out.push({ kind: 'insert_into_a', detail: `${wr.op} ${wr.table} with company A org_id` })
       // A row with no org_id hangs off its parent: one pointing at A's record lands in A's data (e.g. a payment on A's job).
       else if (!('org_id' in r) && !(OWNER_TAG in r)) {
-        const cols = Object.entries(r).filter(([k, v]) => v === VICTIM_ID && k !== 'id').map(([k]) => k)
+        const cols = Object.entries(r).filter(([k, v]) => v === VICTIM_ID && k !== 'id' && !GLOBAL_REF_COLUMNS.has(k)).map(([k]) => k)
         if (cols.length) out.push({ kind: 'insert_into_a', detail: `${wr.op} ${wr.table} (no org_id) pointing at A via ${cols.join('/')}` })
       }
     }
   }
   const hitPath = (s: string) => PATH_PATTERNS.find((p) => s.includes(p))
   for (const s of w.storage) {
-    const p = hitPath(s.arg) ?? (s.arg.includes(VICTIM_ID) ? VICTIM_ID : undefined)
+    // A's record id inside B's own folder (e.g. searching B's uploads for a name) is not A's storage.
+    const p = hitPath(s.arg) ?? (s.arg.includes(VICTIM_ID) && !s.arg.includes(ORG_B) ? VICTIM_ID : undefined)
     if (p) out.push({ kind: 'storage', detail: `storage ${s.bucket}.${s.op}(${s.arg})` })
   }
   for (const a of w.authAdmin) if (a.arg.includes(VICTIM_ID) || hitPath(a.arg)) out.push({ kind: 'auth_admin', detail: `auth.admin.${a.op}(${a.arg})` })
@@ -222,16 +246,15 @@ export function findings(w: World, responseText: string): Finding[] {
   return out
 }
 
-/** Writes by company B that point at company A's record (B-owned row with a column = VICTIM_ID). Not a read or change
- * of A's data, but a dangling cross-company reference; reported for review, not failed on. */
+/** Writes (insert, upsert or update) by company B that leave a B row pointing at company A's record (a column =
+ * VICTIM_ID): a cross-company reference. */
 export function crossReferences(w: World): string[] {
   const out: string[] = []
   for (const wr of w.db.writes) {
-    if (wr.op !== 'insert' && wr.op !== 'upsert') continue
+    if (wr.op === 'delete') continue
     for (const r of wr.rows) {
       if (r.org_id === ORG_A || !('org_id' in r)) continue
-      const cols = Object.entries(r).filter(([k, v]) => v === VICTIM_ID && k !== 'id').map(([k]) => k)
-      if (cols.length) out.push(`${wr.table}.${cols.join('/')}`)
+      for (const [k, v] of Object.entries(r)) if (v === VICTIM_ID && k !== 'id' && !GLOBAL_REF_COLUMNS.has(k)) out.push(`${wr.table}.${k}`)
     }
   }
   return out
@@ -278,4 +301,55 @@ export function crossings(w: World): string[] {
     if (/alpha\.test/.test(recipients) && o.includes('Bravo')) out.push(`mail to company A carries company B data: ${excerpt(o, 'Bravo')}`)
   }
   return out
+}
+
+/** What a route reads from the request, found by scanning its source (no schemas in this codebase). */
+export type RequestShape = { body: string[]; query: string[]; form: string[]; multipart: boolean }
+
+export function requestShape(file: string): RequestShape {
+  const src = readFileSync(file, 'utf8')
+  const body = new Set<string>()
+  const query = new Set<string>()
+  const form = new Set<string>()
+  // body.x / body?.x / rawBody.x / payload.x / json.x / input.x
+  for (const m of Array.from(src.matchAll(/\b(?:body|rawBody|payload|json|input|data|parsed)\??\.([A-Za-z_][A-Za-z0-9_]*)/g))) body.add(m[1])
+  // const { a, b: c, d = 1 } = body / await request.json() / await req.json()
+  for (const m of Array.from(src.matchAll(/(?:const|let)\s*\{([^}]*)\}\s*(?::[^=]+)?=\s*(?:\(?await\s+\w+\.json\(\)|body|rawBody|payload|json|input)\b/g))) {
+    for (const part of m[1].split(',')) {
+      const k = part.trim().split(/[:=\s]/)[0]
+      if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(k)) body.add(k)
+    }
+  }
+  for (const m of Array.from(src.matchAll(/searchParams\.get(?:All)?\(\s*['"]([^'"]+)['"]/g))) query.add(m[1])
+  for (const m of Array.from(src.matchAll(/\b(?:form|formData|fd)\.get(?:All)?\(\s*['"]([^'"]+)['"]/g))) form.add(m[1])
+  const drop = new Set(['length', 'map', 'filter', 'forEach', 'some', 'every', 'trim', 'toString', 'then', 'error', 'data'])
+  const clean = (s: Set<string>) => Array.from(s).filter((k) => !drop.has(k)).sort()
+  return { body: clean(body), query: clean(query), form: clean(form), multipart: /\.formData\(\)/.test(src) }
+}
+
+/** A plausible value for a request field, guessed from its name; ids get `id`. */
+export function guessValue(key: string, id: string, org: string): unknown {
+  const k = key.toLowerCase()
+  if (k === 'org_id' || k === 'orgid') return org
+  if (/calendar/.test(k)) return 'crew@bravo.test'
+  if (k === 'month') return '2026-11'
+  if (k === 'week' || k === 'week_start' || k === 'weekstart') return '2026-11-09'
+  if (k === 'role') return 'closer'
+  if (k === 'preset') return 'mtd'
+  if (/password/.test(k)) return 'Bravo-pass-123'
+  if (k === 'permission') return 'reports:financials'
+  if (k === 'mode') return 'grant'
+  if (k === 'title' || k === 'summary') return 'Bravo title'
+  if (/(^|_)ids$|ids$/.test(key) || /Ids$/.test(key)) return [id]
+  if (/(^id$|_id$|Id$)/.test(key)) return id
+  if (/email/.test(k)) return 'bravo@bravo.test'
+  if (/phone/.test(k)) return '7045550123'
+  if (/(date|day|start|end|from|to|until|since|_on$)/.test(k) && !/update/.test(k)) return /time|_at$/.test(k) ? '2026-11-12T15:00:00.000Z' : '2026-11-12'
+  if (/(_at$|time|datetime)/.test(k)) return '2026-11-12T15:00:00.000Z'
+  if (/^(is|has|can|should|allow|send|enabled|active|confirm|final|force|include)/.test(k) || /(enabled|_flag)$/.test(k)) return true
+  if (/(amount|price|cost|total|qty|quantity|count|rate|percent|hours|minutes|days|squares|sq|lf|lat|lng|lon|pitch|limit|offset|page|size|number|num|year|month|week|value|score|duration)/.test(k)) return 10
+  if (/(items|lines|rows|entries|list|members|users|steps|photos|files|messages|tags)$/.test(k)) return [{ id, name: 'bravo', amount: 10 }]
+  if (/(settings|config|options|meta|filters|prefs|patch|updates|changes|fields)$/.test(k)) return { id }
+  if (/(lat|lng)$/.test(k)) return 35.4
+  return 'bravo'
 }
