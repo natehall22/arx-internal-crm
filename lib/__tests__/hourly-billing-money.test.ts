@@ -81,11 +81,11 @@ describe('commission base for a job billed by the hour = invoiced − tax', () =
     expect(timeAndMaterialsCommissionBase({ issuedPreTaxCents: 132500 })).toBe(1325)
     expect(timeAndMaterialsCommissionBase(null)).toBe(0)
   })
-  it('the one writer: non-void invoices, tax out, the estimate (sale amount) left as signed', async () => {
+  it('the one writer: issued invoices only (draft and void out), tax out, the estimate (sale amount) left as signed', async () => {
     const db = seed()
     const r = await syncJobSaleAndCommissionBase(db.client, { orgId: ORG, jobId: TM })
-    expect(r).toEqual({ status: 'time_materials', changed: true, commissionBase: 1325 }) // (107000 − 7000 + 32500) / 100
-    expect(db.tables.production_jobs[0]).toMatchObject({ commission_comp_base: 1325, sale_amount: 5000 })
+    expect(r).toEqual({ status: 'time_materials', changed: true, commissionBase: 1000 }) // (107000 − 7000) / 100; draft i2 out
+    expect(db.tables.production_jobs[0]).toMatchObject({ commission_comp_base: 1000, sale_amount: 5000 })
     expect(await syncJobSaleAndCommissionBase(db.client, { orgId: ORG, jobId: TM })).toMatchObject({ changed: false })
   })
   it('a fixed-price job (ARX): the invoice re-sync does nothing at all', async () => {

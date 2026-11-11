@@ -249,11 +249,12 @@ describe('days', () => {
     expect(d.open).toBe(true)
     expect(billableLines(d, ctx())).toEqual([])
   })
-  it('a shift past midnight is split at the company’s local midnight', () => {
+  it('a shift past midnight is ONE billing day (its start day): rounding and the minimum apply once', () => {
     const overnight = e({ kind: 'work', userId: 'ana', jobId: JOB, startedAt: at('22:00'), endedAt: at('02:00', '2026-06-11') })
-    const split = days([overnight])
-    expect(split.get(jobTarget(JOB))!.get(D)!.people.get('ana')!.workSeconds).toBe(2 * 3600)
-    expect(split.get(jobTarget(JOB))!.get('2026-06-11')!.people.get('ana')!.workSeconds).toBe(2 * 3600)
+    const split = days([overnight]).get(jobTarget(JOB))!
+    expect(Array.from(split.keys())).toEqual([D])
+    expect(split.get(D)!.people.get('ana')!.workSeconds).toBe(4 * 3600)
+    expect(billableLines(split.get(D)!, ctx({ minimumHours: 2, rounding: 'up15' }))[0].hours).toBe(4)
   })
   it('a visit past midnight keeps all its time on its first day (billed once, nothing stranded)', () => {
     const late = e({ kind: 'work', userId: 'ana', workOrderId: VISIT, startedAt: at('22:00'), endedAt: at('01:30', '2026-06-11') })

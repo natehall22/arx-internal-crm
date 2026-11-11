@@ -702,6 +702,15 @@ export function parseJobHourlyPatch(body: unknown): { patch: JobHourlyPatch } | 
   return { patch: { mode: b.mode, estimatedHours: est, rateItemId: rate as string | null } }
 }
 
+/** Has payroll paid this job on an approved (locked / paid) week? */
+async function jobPaidOnApprovedWeek(admin: SupabaseClient, orgId: string, jobId: string): Promise<boolean> {
+  const { data: lines, error } = await orgDb(admin, orgId).from('payroll_payout_lines').select('payroll_period_id').eq('job_id', jobId).limit(200)
+  if (error || !lines?.length) return false
+  const ids = Array.from(new Set((lines as Array<{ payroll_period_id: string }>).map((l) => l.payroll_period_id)))
+  const { data: periods } = await orgDb(admin, orgId).from('payroll_periods').select('id, status').in('id', ids)
+  return ((periods ?? []) as Array<{ status: string }>).some((p) => p.status === 'locked' || p.status === 'paid')
+}
+
 /** Invoice numbers of a job's approved hours that are on a live (not void) invoice. */
 export async function liveBilledHoursInvoices(admin: SupabaseClient, orgId: string, jobId: string): Promise<string[]> {
   const { data, error } = await orgDb(admin, orgId).from('billed_time_days').select('invoice_id').eq('production_job_id', jobId).eq('status', 'approved').limit(1000)
@@ -724,6 +733,13 @@ export async function invoiceHasBilledHours(admin: SupabaseClient, orgId: string
  * while billed hours sit on a live invoice (void those first). The commission base follows (lib/job-commission-base.ts).
  */
 export async function saveJobHourlySetup(admin: SupabaseClient, orgId: string, jobId: string, patch: JobHourlyPatch): Promise<{ ok: true } | Fail> {
+  // Paid on an approved week: how it is billed can no longer change (its commission was paid on that basis; later
+  // changes in what it is invoiced go through commission change lines, lib/payroll-commission-change.ts).
+  const { data: current } = await orgDb(admin, orgId).from('production_jobs').select('billing_mode').eq('id', jobId).maybeSingle()
+  const currentMode = (current as { billing_mode?: string | null } | null)?.billing_mode === 'time_materials' ? 'time_materials' : 'fixed'
+  if (current && currentMode !== patch.mode && (await jobPaidOnApprovedWeek(admin, orgId, jobId))) {
+    return { ok: false, status: 409, error: 'This job’s commission was already paid, so how it is billed can’t change now' }
+  }
   if (patch.mode === 'fixed') {
     const live = await liveBilledHoursInvoices(admin, orgId, jobId)
     if (live.length) return { ok: false, status: 409, error: `Hours are billed on ${live.join(', ')} — void ${live.length === 1 ? 'it' : 'them'} first, then switch back to as sold` }

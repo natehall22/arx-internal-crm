@@ -16,9 +16,19 @@
 --    writes the invoice (job invoice, or an invoice without a job for a visit), its lines (+ totals computed by the app's
 --    ONE tax calculation, checked against the lines) and the approval rows — all or nothing.
 --
+-- 5. Commission change lines (payroll): a T&M job's commission base moves after the job was paid (more hours billed, an
+--    invoice voided). The paid week never changes: the NEXT OPEN week gets a signed payroll_adjustments line per person
+--    (kind 'commission_change', base_delta = the base it covers, the math in `reason`) — the existing fix-line mechanism
+--    (counted by PAY_LINE_SOURCES 'Adjustment'; a negative check carries forward as a balance at approve, as for any fix).
+--    payroll_add_commission_changes() inserts them under a per-job lock and refuses (40001) when the base already covered
+--    changed since the app read it, so two re-syncs can never pay the same dollars twice. Needs 202610250010 +
+--    202610280010 (payroll_adjustments + its claimed-period guard).
+--
 -- Deploy: apply BEFORE the code. Needs 202611100040, 202611110030, 202611110040, 202611110060 (the invoice / plan / tax
 -- columns it writes). Order-free with 202611110070 / 202611120010.
--- ROLLBACK (only while billed_time_days is empty): DROP FUNCTION approve_billed_time(uuid, uuid, uuid, uuid, jsonb, jsonb, jsonb),
+-- ROLLBACK (only while billed_time_days is empty and no commission_change line exists): DROP FUNCTION
+--   payroll_add_commission_changes(uuid, uuid, uuid, uuid, uuid, jsonb); restore the payroll_adjustments kind CHECK from
+--   202610250010, drop constraint payroll_adjustments_commission_change_shape, column base_delta; then: DROP FUNCTION approve_billed_time(uuid, uuid, uuid, uuid, jsonb, jsonb, jsonb),
 --   unapprove_billed_time(uuid, uuid, uuid, text); DROP TABLE billed_time_days; ALTER TABLE production_jobs DROP COLUMN
 --   billing_mode, estimated_hours, hourly_rate_item_id; restore the two billing_basis CHECKs from 202611110030
 --   (only once no plan / template is 'per_hour').
@@ -255,6 +265,64 @@ begin
   return v_n > 0;
 end;
 $$;
+
+-- ---- 5. Commission change lines ---------------------------------------------------------------------------------------
+alter table public.payroll_adjustments add column if not exists base_delta numeric(14, 2) null;
+comment on column public.payroll_adjustments.base_delta is
+  'kind commission_change only: the change in the job''s commission base this line pays (+) or takes back (−).';
+alter table public.payroll_adjustments drop constraint if exists payroll_adjustments_kind_check;
+alter table public.payroll_adjustments add constraint payroll_adjustments_kind_check
+  check (kind in ('fix', 'balance', 'chargeback', 'resplit', 'topup', 'commission_change'));
+do $$ begin
+  alter table public.payroll_adjustments add constraint payroll_adjustments_commission_change_shape
+    check (kind <> 'commission_change' or (job_id is not null and base_delta is not null and base_delta <> 0));
+exception when duplicate_object then null; end $$;
+create index if not exists idx_payroll_adjustments_commission_change on public.payroll_adjustments (job_id, user_id)
+  where kind = 'commission_change' and status <> 'void';
+
+-- p_lines: [{ user_id, amount, base_delta, reason, expected_prior }] — expected_prior = the sum of base_delta of this
+-- person's live commission_change lines on the job when the app computed the line. Returns the number of lines written.
+create or replace function public.payroll_add_commission_changes(
+  p_org uuid, p_job uuid, p_period uuid, p_source_period uuid, p_actor uuid, p_lines jsonb
+) returns integer
+language plpgsql
+set search_path = public, pg_temp
+as $$
+declare
+  v_line jsonb;
+  v_prior numeric;
+  v_n integer := 0;
+begin
+  if jsonb_typeof(p_lines) is distinct from 'array' or jsonb_array_length(p_lines) = 0 or jsonb_array_length(p_lines) > 100 then
+    raise exception 'payroll_add_commission_changes: 1–100 lines' using errcode = '22023';
+  end if;
+  if not exists (select 1 from public.production_jobs j where j.id = p_job and j.org_id = p_org) then
+    raise exception 'payroll_add_commission_changes: job not found' using errcode = 'P0002';
+  end if;
+  if not exists (select 1 from public.payroll_periods p where p.id = p_period and p.org_id = p_org and p.status = 'open') then
+    raise exception 'payroll_add_commission_changes: that week is not open' using errcode = '55006';
+  end if;
+  perform pg_advisory_xact_lock(hashtextextended('commission_change:' || p_job::text, 0));
+  for v_line in select * from jsonb_array_elements(p_lines) loop
+    select coalesce(sum(a.base_delta), 0) into v_prior from public.payroll_adjustments a
+     where a.org_id = p_org and a.job_id = p_job and a.user_id = (v_line->>'user_id')::uuid
+       and a.kind = 'commission_change' and a.status <> 'void';
+    if v_prior is distinct from coalesce((v_line->>'expected_prior')::numeric, 0) then
+      raise exception 'payroll_add_commission_changes: the base changed meanwhile — recompute' using errcode = '40001';
+    end if;
+    if not exists (select 1 from public.users u where u.id = (v_line->>'user_id')::uuid and u.org_id = p_org) then
+      raise exception 'payroll_add_commission_changes: person not in this company' using errcode = '42501';
+    end if;
+    insert into public.payroll_adjustments (org_id, payroll_period_id, user_id, job_id, amount, reason, kind, status, source_period_id, created_by, base_delta)
+    values (p_org, p_period, (v_line->>'user_id')::uuid, p_job, round((v_line->>'amount')::numeric, 2), left(btrim(v_line->>'reason'), 300),
+            'commission_change', 'pending', p_source_period, p_actor, round((v_line->>'base_delta')::numeric, 2));
+    v_n := v_n + 1;
+  end loop;
+  return v_n;
+end;
+$$;
+revoke all on function public.payroll_add_commission_changes(uuid, uuid, uuid, uuid, uuid, jsonb) from public, anon, authenticated;
+grant execute on function public.payroll_add_commission_changes(uuid, uuid, uuid, uuid, uuid, jsonb) to service_role;
 
 revoke all on function public.approve_billed_time(uuid, uuid, uuid, uuid, jsonb, jsonb, jsonb) from public, anon, authenticated;
 grant execute on function public.approve_billed_time(uuid, uuid, uuid, uuid, jsonb, jsonb, jsonb) to service_role;

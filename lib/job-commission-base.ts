@@ -29,7 +29,8 @@
  * Time & materials jobs (`billing_mode = 'time_materials'`, lib/hourly-billing.ts; coordinator decision 2026-11-12): the
  * commission base is what was INVOICED minus its sales tax (issued job invoices' total − tax_cents; drafts and void out) — the hours billed,
  * not the estimate. The sale amount stays the signed quote (the estimate). Re-synced after hours are approved and after a
- * job invoice changes (`syncTimeAndMaterialsCommissionBase`). Fixed-price jobs: unchanged.
+ * job invoice changes (`syncTimeAndMaterialsCommissionBase`); once the job was paid on an approved week, the difference goes
+ * on the next open week as commission change lines (lib/payroll-commission-change.ts). Fixed-price jobs: unchanged.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { roundMoney } from '@/lib/money'
@@ -332,6 +333,14 @@ export async function syncTimeAndMaterialsCommissionBase(admin: SupabaseClient, 
     if (!(await isTimeAndMaterialsJob(admin, orgId, jobId))) return null
     const r = await syncJobSaleAndCommissionBase(admin, { orgId, jobId })
     if (r.status === 'error') console.error('[job-commission-base] time & materials sync failed', { orgId, jobId, error: r.error })
+    // Already paid on an approved week? The base moved since: the next open week gets the difference (never the paid week).
+    // Run on every sync (not only on a change) so a run that failed before catches up; it writes nothing when in step.
+    if (r.status === 'time_materials') {
+      const { syncCommissionChangesForJob } = await import('@/lib/payroll-commission-change')
+      await syncCommissionChangesForJob(admin, orgId, jobId).catch((error) =>
+        console.error('[job-commission-base] commission change lines failed', { orgId, jobId, error })
+      )
+    }
     return r
   } catch (error) {
     console.error('[job-commission-base] time & materials sync failed', { orgId, jobId, error })
