@@ -73,7 +73,7 @@ describe('provider export', () => {
     const c = ded.csv.trim().split('\n')[1].split(',')
     expect(c[14]).toBe('ADV')
     expect(c[15]).toBe('300.00')
-    expect(cents(c[7]) + cents(c[9]) + cents(c[11]) + cents(c[13]) - cents(c[15])).toBe(1900 * 1)
+    expect(cents(c[7]) + cents(c[9]) + cents(c[11]) + cents(c[13]) - cents(c[15])).toBe(cents(1900))
     const off = buildProviderExport({ provider: 'gusto', week: w, people, offCheckRepaid: new Map([['u1', 300]]) })
     expect(off.csv.trim().split('\n')[1]).toContain(',300.00,1900.00')
   })
