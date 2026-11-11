@@ -352,7 +352,8 @@ doors `lib/hourly-billing-access.ts` (bill = money:record; job setup = `jobs:edi
   drive time no | yes (own "Travel time" line at the labor rate, the gap before arriving, `closed_for_travel`) | trip_charge (a
   price-book item, once per day billed); basis person-hours | crew-hours (union of the crew's time); machine hours = the
   operator's hours at that stop (`equipmentFromOperator`, default on) or the machine's own on/off.
-- **Day** = one job / visit on one local day (`orgs.timezone`, split at local midnight, DST-safe). Read from `time_entries`
+- **Day** = one job / visit on the local day a stretch STARTED (`orgs.timezone`, DST-safe): a shift past midnight is one
+  billing day (rounding / minimum once); all of a visit's time sits on its first day. Read from `time_entries`
   (removed rows out, each person's breaks out); a running clock = "Still clocked in" (approve only by typing, with a reason).
 - **Hours to bill** (Jobs → Schedule → Hours to bill, `components/billing/HoursToBill.tsx`, `/api/ops/hours-to-bill`): per
   customer card, days with what they bill + why (`reasons`), one button "Bill N days · $X" = ONE new draft invoice: a JOB
@@ -364,13 +365,20 @@ doors `lib/hourly-billing-access.ts` (bill = money:record; job setup = `jobs:edi
   bill refuse each other's visits. Un-approve (`unapprove_billed_time`) only once its invoice is void, with a reason; history kept.
 - **Payroll is never touched:** nothing here writes `time_entries`, `payroll_rep_hours` or `job_cost_lines` (test-locked);
   rounding happens on invoice copies only.
-- **Money on a T&M job (coordinator decision 2026-11-12):** paid in full = payments vs the total INVOICED, tax included
-  (`evaluateJobCollection({ timeAndMaterialsInvoicedCents })`; nothing invoiced = not paid) and commission base = invoiced
-  minus tax (`syncJobSaleAndCommissionBase` T&M branch; sale amount stays the signed estimate). ONE loader for both:
+- **Money on a T&M job (coordinator decision 2026-11-12):** paid in full = payments vs the total ISSUED (sent / paid — never
+  drafts or void), tax included (`evaluateJobCollection({ timeAndMaterialsInvoicedCents, timeAndMaterialsPending })`; nothing
+  invoiced = not paid; a draft invoice or clocked days not approved = "still being billed", never paid, payroll waits) and
+  commission base = issued minus tax (`invoicedPreTaxCents`, the one rule, lib/job-invoice-tax.ts) (`syncJobSaleAndCommissionBase` T&M branch; sale amount stays the signed estimate). ONE loader for both:
   `loadJobInvoiceFacts` + `collectionInvoiceFields` (lib/job-invoice-tax.ts; replaced `loadInvoiceTaxCentsByJob`); the guard
   test fails on any `evaluateJobCollection` call without the T&M input. Base re-synced after hours are approved, a job
   invoice is changed / voided / copied / made, and the billing mode changes (`syncTimeAndMaterialsCommissionBase` — no-op for
-  fixed-price jobs). Fixed-price jobs (ARX): unchanged.
+  fixed-price jobs). Fixed-price jobs (ARX): unchanged. **Paid before more hours were billed (or an invoice voided):** the
+  paid week never changes — `syncCommissionChangesForJob` (lib/payroll-commission-change.ts) puts one signed
+  `payroll_adjustments` line per paid person (kind `commission_change`, `base_delta`, the math in `reason`) on the next open
+  week = base change × that person's paid share (net ÷ the snapshot base); negatives carry forward like any fix. Writer SQL
+  `payroll_add_commission_changes` (per-job lock, refuses a stale "base covered so far" → recompute). Once a job is paid its
+  billing mode can't switch. Profit tracker: T&M revenue = issued pre-tax, "Not billed yet" when nothing is issued, status
+  from the one paid-in-full rule (fixed-price jobs now also get its $0.05 tolerance there).
 - **Guards:** a T&M job gets no deposit / final / "job total" invoice (custom amounts for extras, not capped by the estimate);
   no hand-typed hour lines on its invoices; an invoice carrying approved hours can't be copied; back to "as sold" is refused
   while billed hours sit on a live invoice. Line amounts everywhere = `lineTotalCents` (lib/invoice-lines.ts, integer math =
