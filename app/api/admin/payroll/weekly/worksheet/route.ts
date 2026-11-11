@@ -7,6 +7,7 @@ import { isPayrollAdminRole } from '@/lib/payroll-admin-access'
 import { CANCELLED_JOB_STATUS } from '@/lib/job-status'
 import { loadJobCostLedger } from '@/lib/job-cost-ledger'
 import { evaluateJobCollection } from '@/lib/job-collection'
+import { loadInvoiceTaxCentsByJob } from '@/lib/job-invoice-tax'
 
 export const dynamic = 'force-dynamic'
 
@@ -110,7 +111,7 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const [{ data: states }, { data: payments }, { data: costLines }] = await Promise.all([
+    const [{ data: states }, { data: payments }, { data: costLines }, invoiceTaxByJob] = await Promise.all([
       jobIds.length
         ? supabase.from('job_payroll_state').select('*').in('job_id', jobIds)
         : Promise.resolve({ data: [] as Record<string, unknown>[] }),
@@ -124,6 +125,7 @@ export async function GET(request: NextRequest) {
             data: Array.from(ledger.values()).flatMap((entry) => entry.lines),
           }))
         : Promise.resolve({ data: [] as { job_id: string; approved: boolean; deduct_from_commission_base: boolean }[] }),
+      loadInvoiceTaxCentsByJob(supabase, jobIds),
     ])
 
     const compPlanKeys = new Map<string, { userId: string; saleYmd: string }>()
@@ -177,6 +179,7 @@ export async function GET(request: NextRequest) {
       // already the full contract total. "Funded" is the one paid-in-full rule (lib/job-collection.ts).
       const funded = evaluateJobCollection({
         saleAmount: job.sale_amount,
+        invoiceTaxCents: invoiceTaxByJob.get(job.id) ?? 0,
         collectedCents: collectedByJob.get(job.id) || 0,
         allowCloseWithBalance: job.allow_close_with_balance,
         closeBalanceBy: job.close_balance_by,

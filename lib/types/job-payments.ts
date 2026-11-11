@@ -61,6 +61,8 @@ export interface JobPaymentSummary {
   sale_amount_dollars: number
   remaining_cents: number
   remaining_dollars: number
+  /** Sales tax billed on the job's invoices; included in sale_amount_cents (what must be collected). */
+  invoice_tax_cents?: number
   payment_count: number
   /** lib/job-collection.ts: payments within $0.05 of the sale amount, or super-admin forced. */
   paid_in_full?: boolean

@@ -1,4 +1,5 @@
 import { sumCollectedCents } from '@/lib/job-collection'
+import { loadInvoiceTaxCentsByJob } from '@/lib/job-invoice-tax'
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import Nav from '@/components/Nav'
@@ -172,16 +173,20 @@ export default async function AdminJobProfitTrackerPage({
   // job page, ops board, goals and payroll use. The old production_jobs.material_cost /
   // labor_cost columns and job_product_orders are no longer read (Known Redundancy #11).
   let ledger: JobCostLedger = new Map()
+  // Sales tax billed on invoices is owed on top of the sale amount (lib/job-invoice-tax.ts); 0 for most jobs.
+  let invoiceTaxByJob = new Map<string, number>()
 
   if (jobIds.length > 0) {
-    const [loadedLedger, { data: payments }] = await Promise.all([
+    const [loadedLedger, { data: payments }, loadedInvoiceTax] = await Promise.all([
       loadJobCostLedger(supabase, profile.org_id, jobIds),
       supabase
         .from('job_payments')
         .select('job_id, amount_cents, funding_status')
         .in('job_id', jobIds),
+      loadInvoiceTaxCentsByJob(supabase, jobIds),
     ])
     ledger = loadedLedger
+    invoiceTaxByJob = loadedInvoiceTax
 
     for (const payment of (payments || []) as PaymentLine[]) {
       collectedCentsByJob.set(
@@ -216,7 +221,8 @@ export default async function AdminJobProfitTrackerPage({
     const netProfit = grossProfit - ownerDraw
     const netPercent = saleAmount > 0 ? (netProfit / saleAmount) * 100 : null
     const collected = (collectedCentsByJob.get(job.id) || 0) / 100
-    const balance = Math.max(0, saleAmount - collected)
+    // Balance owed = sale amount + invoice sales tax − collected (tax money collected is not a contract overpayment).
+    const balance = Math.max(0, saleAmount + (invoiceTaxByJob.get(job.id) ?? 0) / 100 - collected)
     const customerName = customerNameFor(job)
     const trackerStatus =
       balance <= 0 && saleAmount > 0
