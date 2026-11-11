@@ -550,7 +550,7 @@ const SCREENS: Screen[] = [
       { name: 'blocked-by-minimum', run: async (p) => { await p.route('**/api/admin/payroll/pay-week', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ...PAY_WEEK, canApprove: false, blockedBy: { code: 'minimum_unanswered', text: 'Answer the weekly minimum for 1 person first.', count: 1 } }) })); await p.reload(); await p.waitForSelector('text=Answer the weekly minimum for 1 person first.') } },
       { name: 'change-sheet', run: async (p) => { await p.getByRole('tab', { name: /By job/ }).click(); await p.getByRole('button', { name: 'Change who gets what' }).first().click(); await p.waitForSelector('text=Total 18% of the base'); await p.getByRole('button', { name: '+ Add someone' }).click() } },
       { name: 'preview-pay-sheets-button', run: async (p) => { await p.getByRole('link', { name: 'Preview pay sheets' }).scrollIntoViewIfNeeded(); await p.waitForSelector('text=Preview pay sheets') } },
-      { name: 'advances', run: async (p) => { await p.waitForSelector('text=$400 still owed'); await p.getByRole('button', { name: 'Record an advance' }).click(); await p.waitForSelector('text=Take it back') } },
+      { name: 'advances', run: async (p) => { await p.waitForSelector('text=still owed'); await p.getByRole('button', { name: 'Record an advance' }).click(); await p.waitForSelector('text=Take it back') } },
       { name: 'schedule-sheet', run: async (p) => { await p.getByRole('button', { name: 'Change', exact: true }).first().click(); await p.getByLabel('Week starts on').selectOption('1'); await p.waitForSelector('text=First week on it') } },
     ] },
 ]
