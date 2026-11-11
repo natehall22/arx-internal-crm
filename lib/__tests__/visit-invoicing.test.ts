@@ -301,6 +301,18 @@ describe('review fixes', () => {
     await expect(voidInvoice(d.client, id, 'oops')).rejects.toThrow("This invoice has a payment on it, so it can't be voided.")
   })
 
+  it('NET money decides (as the DB guard): refunded in full → can be voided; money paid before an import → cannot', async () => {
+    const d = seed()
+    await createServiceInvoices(d.client, ORG, 'u1', { ...(await shown(d)), keys: ['v:s1'], grouping: 'visit', includeCurrentMonth: false, send: false }, NOW)
+    const inv = d.tables.job_invoices[0]
+    const id = String(inv.id)
+    d.tables.invoice_payments.push({ id: 'ip+', invoice_id: id, job_payment_id: 'jp1', applied_cents: 1000 }, { id: 'ip-', invoice_id: id, job_payment_id: 'jp2', applied_cents: -1000 })
+    inv.paid_outside_cents = 500
+    await expect(voidInvoice(d.client, id, 'oops')).rejects.toThrow("This invoice has a payment on it, so it can't be voided.")
+    inv.paid_outside_cents = null
+    await expect(voidInvoice(d.client, id, 'refunded in full')).resolves.toMatchObject({ status: 'void' })
+  })
+
   it('a monthly-fee plan bills a month whose visits were all skipped; a per-visit plan bills nothing for skips', async () => {
     const d = seed()
     d.tables.work_orders.push({ ...visit('k1', 'care', 'c1', 'p1', '2026-09-15', 'skipped'), skip_reason: 'weather' })

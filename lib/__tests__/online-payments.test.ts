@@ -16,6 +16,11 @@ jest.mock('@/lib/company-links', () => ({
 
 let mockClient: unknown = null
 jest.mock('@/lib/supabase/service', () => ({ createServiceClient: () => mockClient }))
+// The real T&M commission sync by default (a no-op on these fixed-price jobs); one test makes the job billed by the hour.
+jest.mock('@/lib/job-commission-base', () => {
+  const actual = jest.requireActual('@/lib/job-commission-base')
+  return { ...actual, syncTimeAndMaterialsCommissionBase: jest.fn((...args: unknown[]) => actual.syncTimeAndMaterialsCommissionBase(...args)) }
+})
 
 import { encodeStripeForm, verifyStripeSignature } from '@/lib/stripe/api'
 import {
@@ -39,6 +44,7 @@ import { handleStripeWebhookEvent } from '@/lib/online-payments/webhook'
 import { chargeInvoiceAutopay, noAnswer, runAutopayRetries } from '@/lib/online-payments/autopay'
 import { loadPaymentReversalsQueue } from '@/lib/online-payments/summary'
 import { StripeApiError } from '@/lib/stripe/api'
+import { syncTimeAndMaterialsCommissionBase } from '@/lib/job-commission-base'
 import { POST as webhookPOST } from '@/app/api/webhooks/stripe/route'
 
 const ORG = 'org-acme'
@@ -716,5 +722,30 @@ describe('second review', () => {
     await handleStripeWebhookEvent(d2.client as never, event('evt_rev2_l', 'charge.dispute.closed', { id: 'dp_r', status: 'lost', amount: 5000, payment_intent: 'pi_rev' }), NOW)
     expect(d2.tables.online_payments[0].reversal_flag ?? null).toBeNull()
     expect((await loadPaymentReversalsQueue(d2.client as never, ORG, new Date())).count).toBe(0)
+  })
+
+  test('billed by the hour: every payment and the lost dispute go through the commission sync; no review flag (commission change lines take it back)', async () => {
+    const sync = syncTimeAndMaterialsCommissionBase as jest.Mock
+    sync.mockClear()
+    sync.mockResolvedValue({ status: 'time_materials', changed: true, commissionBase: 0 })
+    try {
+      const d = seed()
+      d.tables.production_jobs[0].status = 'collected'
+      const meta = { crm_org_id: ORG, invoice_id: 'inv-dep' }
+      stripe['GET /v1/payment_intents/pi_tm'] = () => ({ json: pi('pi_tm', meta, { amount: 5000, amount_received: 5000 }) })
+      await handleStripeWebhookEvent(d.client as never, event('evt_tm', 'payment_intent.succeeded', { id: 'pi_tm', metadata: meta }), NOW)
+      stripe['GET /v1/refunds'] = () => ({ json: { data: [] } })
+      stripe['GET /v1/disputes'] = () => ({ json: { data: [{ id: 'dp_tm', amount: 5000, status: 'lost', created: visaCharge.created + 5 }] } })
+      await handleStripeWebhookEvent(d.client as never, event('evt_tm_l', 'charge.dispute.closed', { id: 'dp_tm', status: 'lost', amount: 5000, payment_intent: 'pi_tm' }), NOW)
+      expect(d.tables.job_payments.map((p) => p.amount_cents)).toEqual([5000, -5000])
+      expect(sync.mock.calls.map((c) => [c[1], c[2]])).toEqual([[ORG, 'job1'], [ORG, 'job1']])
+      expect(d.tables.online_payments[0].reversal_flag ?? null).toBeNull()
+      expect((await loadPaymentReversalsQueue(d.client as never, ORG, new Date())).count).toBe(0)
+      // A repeat of the same event writes nothing and syncs nothing.
+      await handleStripeWebhookEvent(d.client as never, event('evt_tm_l2', 'charge.dispute.closed', { id: 'dp_tm', status: 'lost', amount: 5000, payment_intent: 'pi_tm' }), NOW)
+      expect(sync).toHaveBeenCalledTimes(2)
+    } finally {
+      sync.mockImplementation((...args: unknown[]) => jest.requireActual('@/lib/job-commission-base').syncTimeAndMaterialsCommissionBase(...args))
+    }
   })
 })
