@@ -221,7 +221,12 @@ const SCREENS: Screen[] = [
   { name: 'crew-day-clock', path: '/dev-harness/crew-day-clock', ready: 'text=Crew time',
     mock: async (p) => {
       await p.route('**/api/crew/day/*/status', (route) => route.fulfill(json({ active: true })))
-      await p.route('**/api/crew/day/*/clock', (route) => route.fulfill(route.request().method() === 'GET' ? json(HARNESS_CLOCK_STATE) : json({ ok: true, done: 3 })))
+      // Stateful like the server: after a clock-in tap the re-read shows the crew clocked in at stop 1.
+      let clockedIn = false
+      await p.route('**/api/crew/day/*/clock', (route) => {
+        if (route.request().method() !== 'GET') { clockedIn = true; return route.fulfill(json({ ok: true, done: 3 })) }
+        return route.fulfill(json(clockedIn ? HARNESS_CLOCK_STATE_IN : HARNESS_CLOCK_STATE))
+      })
     },
     states: [
       { name: 'untick-absent', run: async (p) => { await p.getByRole('button', { name: /Tony Crew/ }).click(); await p.waitForSelector('text=Clock in crew here (2)') } },
@@ -240,7 +245,15 @@ const SCREENS: Screen[] = [
       { name: 'clock-out', run: async (p) => { await p.getByRole('button', { name: 'Clock out crew' }).click(); await p.waitForSelector('text=Yes — done for the day') } },
     ] },
   { name: 'job-clock', path: '/dev-harness/job-clock', ready: 'text=My time',
-    mock: async (p) => { await p.route('**/api/time/clock', (route) => route.fulfill(route.request().method() === 'GET' ? json(HARNESS_JOB_CLOCK_SELF) : json({ ok: true, done: 1 }))) },
+    // Stateful like the server: after the tap, the re-read shows the person clocked in on this job.
+    mock: async (p) => {
+      let clockedIn = false
+      await p.route('**/api/time/clock', (route) => {
+        if (route.request().method() !== 'GET') { clockedIn = true; return route.fulfill(json({ ok: true, done: 1 })) }
+        const st = clockedIn ? { ...HARNESS_JOB_CLOCK_SELF, people: HARNESS_JOB_CLOCK_SELF.people.map((x) => ({ ...x, open: { entryId: 'bbbbbbbb-0000-4000-8000-000000000099', workOrderId: null, jobId: 'dddddddd-0000-4000-8000-000000000001', startedAt: '2026-11-10T12:00:00.000Z' } })) } : HARNESS_JOB_CLOCK_SELF
+        return route.fulfill(json(st))
+      })
+    },
     states: [{ name: 'clocked-in', run: async (p) => { await p.getByRole('button', { name: 'Clock in', exact: true }).click(); await p.waitForSelector('text=Clocked in here') } }] },
   { name: 'time-week', path: '/dev-harness/time-week', ready: 'text=Dee Crew',
     mock: async (p) => {
