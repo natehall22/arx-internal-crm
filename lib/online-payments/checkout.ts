@@ -80,6 +80,16 @@ export async function createInvoiceCheckout(
   const fee = applicationFeeCents(amount.cents)
   const stripeCustomer = saveCard && customerId ? await ensureStripeCustomer(admin, orgId, accountId, customerId) : null
 
+  // One open Stripe page per invoice: a second tab / a second tap closes the earlier page, so the same balance can't be
+  // paid twice (best effort; anything that slips through is kept and flagged by the recorder).
+  const { data: open } = await orgDb(admin, orgId).from('online_payments').select('id, checkout_session_id').eq('invoice_id', invoice.id).eq('kind', 'checkout').eq('status', 'open')
+  for (const o of (open ?? []) as Array<{ id: string; checkout_session_id: string | null }>) {
+    if (o.checkout_session_id) {
+      await stripeRequest('POST', `/v1/checkout/sessions/${encodeURIComponent(o.checkout_session_id)}/expire`, {}, { account: accountId }).catch(() => null)
+    }
+    await orgDb(admin, orgId).from('online_payments').update({ status: 'expired', updated_at: new Date().toISOString() }).eq('id', o.id).eq('status', 'open')
+  }
+
   const { data: row, error } = await orgDb(admin, orgId)
     .from('online_payments')
     .insert({

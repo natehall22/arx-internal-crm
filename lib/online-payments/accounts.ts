@@ -150,6 +150,7 @@ export async function startOnboarding(
   }
   if (!row) row = await reuseDisconnectedAccount(admin, orgId, userId)
   if (!row) {
+    const { count: before } = await orgDb(admin, orgId).from('payment_accounts').select('id', { count: 'exact', head: true })
     const { data: org } = await admin.from('orgs').select('name, email, settings').eq('id', orgId).maybeSingle()
     const o = (org ?? {}) as { name?: string | null; email?: string | null; settings?: { brand?: { website?: string } } | null }
     const website = typeof o.settings?.brand?.website === 'string' && /^https:\/\//.test(o.settings.brand.website) ? o.settings.brand.website : undefined
@@ -168,8 +169,8 @@ export async function startOnboarding(
         },
         metadata: { crm_org_id: orgId },
       },
-      // One account per company even if the owner double-taps Connect.
-      { idempotencyKey: `connect-account:${orgId}:${new Date().toISOString().slice(0, 10)}` }
+      // One account per company even if the owner double-taps Connect (a later reconnect is a new attempt number).
+      { idempotencyKey: `connect-account:${orgId}:${before ?? 0}` }
     )
     const { data, error } = await orgDb(admin, orgId)
       .from('payment_accounts')

@@ -77,7 +77,14 @@ export async function handleStripeWebhookEvent(admin: SupabaseClient, event: Str
   }
 
   try {
-    const handled = await dispatch(admin, account, type, (event.data?.object ?? {}) as StripeObject, now)
+    const obj = (event.data?.object ?? {}) as StripeObject
+    // The company's own Stripe activity outside the CRM (its other sales) is not ours: skip it before any Stripe read.
+    // Our sessions / payment intents always carry crm_org_id; account and refund events are checked by their handlers.
+    if (/^(checkout\.session|payment_intent)\./.test(type) && obj.metadata?.crm_org_id !== account.org_id) {
+      await finish('ignored', 'not a CRM payment')
+      return { status: 200, body: { received: true, ignored: true } }
+    }
+    const handled = await dispatch(admin, account, type, obj, now)
     await finish(handled ? 'done' : 'ignored')
     return { status: 200, body: { received: true } }
   } catch (e) {

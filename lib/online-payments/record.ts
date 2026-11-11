@@ -153,7 +153,7 @@ async function claim(admin: SupabaseClient, row: OnlinePaymentRow, now: Date): P
     .update({ recording_at: now.toISOString(), updated_at: now.toISOString() })
     .eq('id', row.id)
     .is('job_payment_id', null)
-    .or(`recording_at.is.null,recording_at.lt.${stale}`)
+    .or(`recording_at.is.null,recording_at.lt."${stale}"`)
     .select('id')
   return ((data ?? []) as unknown[]).length === 1
 }
@@ -333,7 +333,14 @@ export async function syncRefunds(admin: SupabaseClient, account: PaymentAccount
   const orgId = account.org_id
   const row = await loadRow(admin, orgId, 'payment_intent_id', paymentIntentId)
   if (!row) return 'ignored'
-  if (!row.job_payment_id) throw new Error('refund before its payment was recorded — retry later')
+  if (!row.job_payment_id) {
+    // Money the office is already reviewing (it never went on an invoice): the refund is theirs to match up.
+    if (row.status === 'needs_review') {
+      await notifyOfficeOfPaymentProblem(admin, orgId, { problem: 'needs_review', invoiceId: row.invoice_id, amountCents: row.amount_cents, detail: 'A payment you were asked to review was refunded in Stripe. Nothing was changed in the CRM.' })
+      return 'needs_review'
+    }
+    throw new Error('refund before its payment was recorded — retry later')
+  }
   const list = await stripeRequest('GET', '/v1/refunds', { payment_intent: paymentIntentId, limit: 100 }, { account: account.account_id })
   const refunds = ((list.data ?? []) as StripeObject[]).filter((r) => r.status === 'succeeded' && Number(r.amount) > 0)
   const invoice = await findOrgInvoice(admin, row.invoice_id, orgId)
@@ -403,9 +410,7 @@ export async function fulfillCheckoutSession(admin: SupabaseClient, account: Pay
       paymentMethodId: si.payment_method,
       consentText: meta.consent || 'Saved on the card page',
     })
-    if (meta.link_id) {
-      await orgDb(admin, account.org_id).from('payment_links').update({ revoked_at: now.toISOString() }).eq('id', meta.link_id).is('revoked_at', null)
-    }
+    // The link stays live until it expires (14 days): the customer lands back on it, and may replace the card again.
     return 'recorded'
   }
   const pi = (typeof s.payment_intent === 'object' ? s.payment_intent : null) as StripeObject | null

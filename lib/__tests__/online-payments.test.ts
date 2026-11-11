@@ -257,7 +257,7 @@ describe('pay an invoice without a job (service plan) by card', () => {
 
     const meta = { crm_org_id: ORG, invoice_id: 'inv-svc', online_payment_id: d.tables.online_payments[0].id, kind: 'checkout' }
     stripe['GET /v1/checkout/sessions/cs_1'] = () => ({ json: { id: 'cs_1', mode: 'payment', status: 'complete', payment_status: 'paid', metadata: meta, payment_intent: pi('pi_1', meta) } })
-    const r1 = await handleStripeWebhookEvent(d.client as never, event('evt_1', 'checkout.session.completed', { id: 'cs_1' }), NOW)
+    const r1 = await handleStripeWebhookEvent(d.client as never, event('evt_1', 'checkout.session.completed', { id: 'cs_1', metadata: meta }), NOW)
     expect(r1.status).toBe(200)
     const payRpc = d.rpcCalls.filter((c) => c.name === 'record_customer_invoice_payment')
     expect(payRpc).toHaveLength(1)
@@ -267,9 +267,9 @@ describe('pay an invoice without a job (service plan) by card', () => {
     expect(d.tables.online_payments[0]).toMatchObject({ status: 'succeeded', payment_intent_id: 'pi_1', job_payment_id: 'pay-1', method: 'card', card_last4: '4242' })
 
     // Same event again (Stripe retry) and another event for the same payment: nothing more is written.
-    expect((await handleStripeWebhookEvent(d.client as never, event('evt_1', 'checkout.session.completed', { id: 'cs_1' }), NOW)).body).toMatchObject({ duplicate: true })
+    expect((await handleStripeWebhookEvent(d.client as never, event('evt_1', 'checkout.session.completed', { id: 'cs_1', metadata: meta }), NOW)).body).toMatchObject({ duplicate: true })
     stripe['GET /v1/payment_intents/pi_1'] = () => ({ json: pi('pi_1', meta) })
-    await handleStripeWebhookEvent(d.client as never, event('evt_2', 'payment_intent.succeeded', { id: 'pi_1' }), NOW)
+    await handleStripeWebhookEvent(d.client as never, event('evt_2', 'payment_intent.succeeded', { id: 'pi_1', metadata: meta }), NOW)
     expect(d.rpcCalls.filter((c) => c.name === 'record_customer_invoice_payment')).toHaveLength(1)
     expect(d.tables.job_payments).toHaveLength(1)
 
@@ -294,7 +294,7 @@ describe('pay an invoice without a job (service plan) by card', () => {
     const meta = { crm_org_id: ORG, invoice_id: 'inv-svc', online_payment_id: d.tables.online_payments[0].id }
     const bank = { id: 'ch_b', created: visaCharge.created, payment_method_details: { type: 'us_bank_account', us_bank_account: { last4: '6789' } } }
     stripe['GET /v1/checkout/sessions/cs_ach'] = () => ({ json: { id: 'cs_ach', mode: 'payment', status: 'complete', payment_status: 'unpaid', metadata: meta, payment_intent: pi('pi_ach', meta, { status: 'processing', amount_received: 0, latest_charge: bank }) } })
-    await handleStripeWebhookEvent(d.client as never, event('evt_ach', 'checkout.session.completed', { id: 'cs_ach' }), NOW)
+    await handleStripeWebhookEvent(d.client as never, event('evt_ach', 'checkout.session.completed', { id: 'cs_ach', metadata: meta }), NOW)
     expect(d.tables.online_payments[0]).toMatchObject({ status: 'processing', method: 'ach' })
     expect(d.tables.job_payments).toHaveLength(0) // nothing is recorded until the bank says it cleared
     const again = await createInvoiceCheckout(d.client as never, op, row!, { companyName: 'Acme' }, { successUrl: 's', cancelUrl: 'c' }, NOW)
@@ -302,7 +302,7 @@ describe('pay an invoice without a job (service plan) by card', () => {
 
     // It bounces: the invoice stays open, the attempt reads failed.
     stripe['GET /v1/payment_intents/pi_ach'] = () => ({ json: pi('pi_ach', meta, { status: 'requires_payment_method', amount_received: 0, last_payment_error: { code: 'insufficient_funds', message: 'Insufficient funds' } }) })
-    await handleStripeWebhookEvent(d.client as never, event('evt_ach2', 'payment_intent.payment_failed', { id: 'pi_ach' }), NOW)
+    await handleStripeWebhookEvent(d.client as never, event('evt_ach2', 'payment_intent.payment_failed', { id: 'pi_ach', metadata: meta }), NOW)
     expect(d.tables.online_payments[0]).toMatchObject({ status: 'failed', failure_code: 'insufficient_funds' })
     expect(d.tables.job_invoices.find((i) => i.id === 'inv-svc')?.status).toBe('sent')
   })
@@ -313,7 +313,7 @@ describe('deposit on a job invoice', () => {
     const d = seed()
     const meta = { crm_org_id: ORG, invoice_id: 'inv-dep', kind: 'checkout' }
     stripe['GET /v1/payment_intents/pi_dep'] = () => ({ json: pi('pi_dep', meta, { amount: 5000, amount_received: 5000 }) })
-    const r = await handleStripeWebhookEvent(d.client as never, event('evt_dep', 'payment_intent.succeeded', { id: 'pi_dep' }), NOW)
+    const r = await handleStripeWebhookEvent(d.client as never, event('evt_dep', 'payment_intent.succeeded', { id: 'pi_dep', metadata: meta }), NOW)
     expect(r.status).toBe(200)
     expect(d.tables.job_payments).toEqual([
       expect.objectContaining({ job_id: 'job1', amount_cents: 5000, payment_type: 'deposit', method: 'card', payer: 'homeowner', idempotency_key: 'stripe:pi_dep', created_by: null }),
@@ -335,7 +335,7 @@ describe('deposit on a job invoice', () => {
     d.tables.invoice_payments.push({ id: 'cash', invoice_id: 'inv-dep', job_payment_id: 'jp-cash', applied_cents: 5000 })
     const meta = { crm_org_id: ORG, invoice_id: 'inv-dep' }
     stripe['GET /v1/payment_intents/pi_late'] = () => ({ json: pi('pi_late', meta, { amount: 5000, amount_received: 5000 }) })
-    await handleStripeWebhookEvent(d.client as never, event('evt_late', 'payment_intent.succeeded', { id: 'pi_late' }), NOW)
+    await handleStripeWebhookEvent(d.client as never, event('evt_late', 'payment_intent.succeeded', { id: 'pi_late', metadata: meta }), NOW)
     expect(d.tables.job_payments).toHaveLength(1) // counts on the job
     expect(d.tables.online_payments[0]).toMatchObject({ status: 'needs_review', job_payment_id: d.tables.job_payments[0].id })
   })
@@ -346,7 +346,7 @@ describe('one company, one account', () => {
     const d = seed()
     const meta = { crm_org_id: OTHER, invoice_id: 'inv-svc' }
     stripe['GET /v1/payment_intents/pi_x'] = () => ({ json: pi('pi_x', meta) })
-    await handleStripeWebhookEvent(d.client as never, event('evt_x', 'payment_intent.succeeded', { id: 'pi_x' }), NOW)
+    await handleStripeWebhookEvent(d.client as never, event('evt_x', 'payment_intent.succeeded', { id: 'pi_x', metadata: { crm_org_id: ORG } }), NOW)
     expect(d.tables.job_payments).toHaveLength(0)
     expect(d.rpcCalls).toHaveLength(0)
   })
@@ -354,9 +354,14 @@ describe('one company, one account', () => {
     const d = seed()
     const meta = { crm_org_id: OTHER, invoice_id: 'inv-svc' }
     stripe['GET /v1/payment_intents/pi_y'] = () => ({ json: pi('pi_y', meta) })
-    await handleStripeWebhookEvent(d.client as never, event('evt_y', 'payment_intent.succeeded', { id: 'pi_y' }, 'acct_OTHER'), NOW)
+    await handleStripeWebhookEvent(d.client as never, event('evt_y', 'payment_intent.succeeded', { id: 'pi_y', metadata: { crm_org_id: OTHER } }, 'acct_OTHER'), NOW)
     expect(d.tables.job_payments).toHaveLength(0)
     expect(d.rpcCalls).toHaveLength(0)
+  })
+  test("the company's other Stripe sales (no CRM metadata) are skipped without reading Stripe", async () => {
+    const d = seed()
+    expect((await handleStripeWebhookEvent(d.client as never, event('evt_shop', 'payment_intent.succeeded', { id: 'pi_shop', metadata: {} }), NOW)).body).toMatchObject({ ignored: true })
+    expect(calls).toHaveLength(0)
   })
   test('unknown accounts and platform events are acknowledged and ignored', async () => {
     const d = seed()
