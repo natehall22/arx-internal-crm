@@ -29,7 +29,7 @@ export type SimulatedPerson = {
   minimumIfMet: number
 }
 
-export type SimulatedWeek = CrmWeek & { payDate: string; people: SimulatedPerson[] }
+export type SimulatedWeek = Omit<CrmWeek, 'people'> & { payDate: string; people: SimulatedPerson[] }
 
 export async function simulatePayWeek(admin: SupabaseClient, orgId: string, weekEnding: string, now: Date = new Date()): Promise<SimulatedWeek> {
   if (!isYmd(weekEnding)) throw new Error(`"${weekEnding}" is not a date (YYYY-MM-DD)`)
