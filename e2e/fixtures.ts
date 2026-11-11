@@ -713,6 +713,7 @@ export const HARNESS_TIME_WEEK = {
       regularHours: 31.333333,
       overtimeHours: 0,
       payrollHours: 31.33,
+      typedHours: 30,
       warnings: [{ code: 'needs_review', day: '2026-11-09', text: 'Forgot to clock out — stopped at the last tap. Ask what time they finished.' }],
       entries: [
         { id: 'bbbbbbbb-0000-4000-8000-000000000001', kind: 'work', startedAt: '2026-11-09T12:00:00.000Z', endedAt: '2026-11-09T17:30:00.000Z', where: 'Weekly mowing — 2410 Crawfordville Hwy', workOrderId: 'v1', jobId: null, source: 'lead_tap', endSource: 'auto_closed', needsReview: true, reviewNote: 'Forgot to clock out — stopped at the last tap. Ask what time they finished.', tappedBy: 'Marcus Lead', equipment: null },
@@ -728,6 +729,7 @@ export const HARNESS_TIME_WEEK = {
       regularHours: 40,
       overtimeHours: 4,
       payrollHours: null,
+      typedHours: null,
       warnings: [{ code: 'no_break', day: '2026-11-10', text: '9 h with no break' }, { code: 'overtime', day: null, text: 'Overtime: 4 h' }],
       entries: [{ id: 'bbbbbbbb-0000-4000-8000-000000000003', kind: 'work', startedAt: '2026-11-10T11:00:00.000Z', endedAt: '2026-11-10T20:00:00.000Z', where: 'Job 26-0141', workOrderId: null, jobId: 'dddddddd-0000-4000-8000-000000000001', source: 'self_tap', endSource: 'self_tap', needsReview: false, reviewNote: null, tappedBy: 'Marcus Lead', equipment: null }],
     },

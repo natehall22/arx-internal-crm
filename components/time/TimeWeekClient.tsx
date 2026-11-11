@@ -102,6 +102,9 @@ export default function TimeWeekClient({ initial }: { initial?: TimeWeek | null 
             ) : (
               <p className="text-base">{`In payroll: ${hoursText(p.payrollHours)}`}</p>
             )}
+            {p.typedHours !== null ? (
+              <p className="rounded-lg bg-[#fff4cc] px-3 py-2 text-base font-semibold">{`Typed ${hoursText(p.typedHours)} vs clocked ${hoursText(p.regularHours + p.overtimeHours)} — payroll uses the clock. Fix time here; the typed hours come back only if the clock time is removed.`}</p>
+            ) : null}
             {p.warnings.length ? (
               <ul className="flex flex-col gap-1">
                 {p.warnings.map((w, i) => (

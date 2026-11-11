@@ -288,6 +288,20 @@ Switch `timeTracking` (`ORG_FEATURE_DEFS`, **default OFF**; ARX unchanged). Migr
   (service visit billing comes with the invoicing branch). The pay week is `payWeekCutoffFor` (lib/weekly-payroll/cutoff.ts)
   — the ONE instant→week rule; days for travel / warnings use `orgs.timezone`.
 - `time_entries.user_id` is ON DELETE RESTRICT: a person with clock time is deactivated, not deleted (users DELETE → 409).
+- **Review fixes (2026-11-11):** (1) every tap first runs the forgot-to-clock-out check AT THE TAP'S TIME (a Monday clock
+  still open when Tuesday's tap arrives stops at Monday's last tap, flagged; a shift with no other tap says "pays 0 h until a
+  finish time is given"). (2) **Typed vs clocked hours:** `payroll_rep_hours.hours_source` ('typed'|'clock') +
+  `typed_regular_hours/typed_overtime_hours`; ONE rule `planHoursWrite` (lib/payroll-hours.ts): clock wins while there is
+  clock time, typed is kept aside and comes back if the clock time is removed, the clock never writes 0 over typed, a typed
+  save never replaces clock hours (Pay this week returns a `warning`); the Time page shows "Typed X vs clocked Y". (3) Signed-in
+  clocking: only members of a time-tracked crew, or roles the owner ticks (`settings.timeTracking.selfClockRoles`); field
+  roles never. (4) Every people action names `userIds` (empty → 400); clock-out re-reads who is clocked in first
+  (`latestOpen`). (5) "N shifts need a finish time" (`loadOpenShiftsQueue`) leads Today (payroll admins) and the morning
+  email. (6) A typed labor line on the same job/week: the clock line says CHECK; adding one returns a `warning`. (7) Office
+  add/edit and finish answers refuse overlapping time (`overlapRefusal`). (8) Payroll recompute holds a per-person lease
+  (`time_feed_try_lock` / `time_feed_unlock`). (9) Time recorded after its week's approval began (`ended_recorded_at` >
+  `lock_claimed_at ?? locked_at`) is carried into the next open week, split at the cutoff. (10) The outbox queues the tap
+  first; a tap waiting for its location holds its place (≤ 5 s).
 
 **Known Redundancy additions (2026-11-11, time clock):** (36) The old `crews` table (`20260213_operations_tables.sql`,
 `members uuid[]`, `/admin/crews`, `app/api/admin/crews`, read by `/ops/schedule` and `/ops/dashboard`) is a deletion

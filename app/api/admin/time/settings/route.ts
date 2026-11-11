@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server'
 import { mergeOrgSettings } from '@/lib/org-settings'
 import { TIME_TRACKING_SETTINGS_KEY, parseTimeTrackingSettingsPatch } from '@/lib/time-tracking'
 import { requireTimeOfficeApi } from '@/lib/time-tracking-access'
-import { loadClockConfig } from '@/lib/time-tracking-db'
+import { loadClockConfig, loadSelfClockRoleChoices } from '@/lib/time-tracking-db'
 
 export const dynamic = 'force-dynamic'
 
@@ -11,7 +11,7 @@ export const dynamic = 'force-dynamic'
 export async function GET() {
   const a = await requireTimeOfficeApi({ owner: true })
   if (a.error) return a.error
-  return NextResponse.json({ settings: (await loadClockConfig(a.admin, a.profile.org_id)).settings })
+  return NextResponse.json({ settings: (await loadClockConfig(a.admin, a.profile.org_id)).settings, roles: await loadSelfClockRoleChoices(a.admin, a.profile.org_id) })
 }
 
 /** PATCH { timeTracking: { autoCloseHours?, captureLocation?, overtimeAfterHours?, breakWarningAfterHours? } } — owners only. */

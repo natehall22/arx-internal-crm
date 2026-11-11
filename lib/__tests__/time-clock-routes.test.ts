@@ -33,6 +33,7 @@ jest.mock('@/lib/time-tracking-db', () => ({
   loadTimeWeek: async () => ({ ready: true, people: [] }),
   addTimeEntry: async () => ({ ok: true, id: 'e1' }),
   loadClockConfig: async () => ({ settings: { autoCloseHours: 12 }, timeZone: 'UTC' }),
+  loadSelfClockRoleChoices: async () => ['operations'],
 }))
 jest.mock('@/lib/org-settings', () => ({ mergeOrgSettings: async () => ({ error: null }) }))
 
@@ -41,7 +42,7 @@ import * as myClock from '@/app/api/time/clock/route'
 import * as office from '@/app/api/admin/time/route'
 import * as settings from '@/app/api/admin/time/settings/route'
 
-const tapBody = { tapId: 'tap-00000001', action: 'clock_out', at: '2026-06-10T15:00:00.000Z', deviceNow: '2026-06-10T15:00:00.000Z' }
+const tapBody = { tapId: 'tap-00000001', action: 'clock_out', userIds: ['aaaaaaaa-0000-4000-8000-000000000001'], at: '2026-06-10T15:00:00.000Z', deviceNow: '2026-06-10T15:00:00.000Z' }
 const post = (body: unknown) => new Request('http://x/api', { method: 'POST', body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' } })
 
 beforeEach(() => {

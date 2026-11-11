@@ -18,6 +18,7 @@ import {
   autoCloseForgotten,
   editTimeEntry,
   loadClockState,
+  loadOpenShiftsQueue,
   loadTimeWeek,
   removeTimeEntry,
   saveCrewSetup,
@@ -70,7 +71,9 @@ function seed() {
 
 let k = 0
 function tap(action: ClockTap['action'], at: Date, extra: Record<string, unknown> = {}): ClockTap {
-  const p = parseClockTap({ tapId: `tap-${String(++k).padStart(8, '0')}`, action, at: at.toISOString(), deviceNow: at.toISOString(), ...extra })
+  // People actions always name who (the phone sends the ticked crew); default here = the two crew members.
+  const people = ['clock_in', 'clock_out', 'break_start', 'break_end'].includes(action) && !('userIds' in extra) ? { userIds: [U1, U2] } : {}
+  const p = parseClockTap({ tapId: `tap-${String(++k).padStart(8, '0')}`, action, at: at.toISOString(), deviceNow: at.toISOString(), ...people, ...extra })
   if ('error' in p) throw new Error(p.error)
   return p.tap
 }
@@ -139,7 +142,7 @@ describe('crew taps', () => {
     expect(open(db).map((e) => [e.user_id, e.source, e.tapped_via])).toEqual([[U2, 'lead_tap', 'signed_in']])
     const db2 = seed()
     await applyClockTap(db2.client, me, tap('clock_in', T('07:00'), { jobId: JOB1, userIds: [U2] }), T('07:00'))
-    expect(open(db2)[0]).toMatchObject({ source: 'self_tap', sub_id: null, production_job_id: JOB1 })
+    expect(open(db2)[0]).toMatchObject({ source: 'self_tap', sub_id: 's1', production_job_id: JOB1 }) // filed under their crew
   })
 
   it('equipment runs on the crew’s stop and stops when the crew leaves', async () => {
@@ -152,14 +155,44 @@ describe('crew taps', () => {
     expect(open(db, 'equipment')).toHaveLength(0)
   })
 
-  it('a tap for an approved week is kept, flagged and never sent to payroll', async () => {
+  it('a tap for an approved week is kept, flagged, never changes that week, and is paid on the next open week', async () => {
     const db = seed()
     const cutoff = payWeekCutoffFor(T('07:00'))
     db.tables.payroll_periods.push({ id: 'p1', org_id: 'org1', cutoff_at: cutoff.toISOString(), status: 'locked', locked_at: cutoff.toISOString() })
     await applyClockTap(db.client, crew, tap('clock_in', T('07:00'), { workOrderId: WO1 }), T('07:00'))
     await applyClockTap(db.client, crew, tap('clock_out', T('09:00')), T('09:00'))
     expect(db.tables.time_entries.every((e) => e.needs_review === true)).toBe(true)
-    expect(saveHoursEntries).not.toHaveBeenCalled()
+    const calls = saveHoursEntries.mock.calls.map((c) => c[1] as { periodId: string; source: string; entries: Array<{ regular_hours: number; reason: string }> })
+    expect(calls.some((c) => c.periodId === 'p1')).toBe(false)
+    const last = calls.at(-1)!
+    expect(last).toMatchObject({ source: 'clock' })
+    expect(last.entries[0].regular_hours).toBe(2)
+    expect(last.entries[0].reason).toMatch(/from the approved week before/)
+  })
+
+  it('a shift open across the cutoff while that week is approved: the approved part lands on the next week', async () => {
+    const db = seed()
+    // Wednesday cutoff week: clock in Wed 9pm, out Thu 1am (2 h before the cutoff, 1 h after).
+    const wed = T('21:00', '2026-06-10')
+    const cutoff = payWeekCutoffFor(wed)
+    db.tables.payroll_periods.push({ id: 'p1', org_id: 'org1', cutoff_at: cutoff.toISOString(), status: 'open', locked_at: null })
+    await applyClockTap(db.client, crew, tap('clock_in', wed, { workOrderId: WO1, userIds: [U1] }), wed)
+    // The week is approved while the shift is still open.
+    Object.assign(db.tables.payroll_periods[0], { status: 'locked', locked_at: new Date(Date.now() - 60_000).toISOString() })
+    const thu = T('01:00', '2026-06-11')
+    await applyClockTap(db.client, crew, tap('clock_out', thu, { userIds: [U1] }), thu)
+    const last = saveHoursEntries.mock.calls.at(-1)![1] as { periodId: string; entries: Array<{ regular_hours: number }> }
+    expect(last.periodId).not.toBe('p1')
+    expect(last.entries[0].regular_hours).toBeCloseTo(4, 6) // 1 h this week + the ~3 h carried from the approved week
+  })
+
+  it('an empty "who" list never means everyone', async () => {
+    expect(parseClockTap({ tapId: 'tap-99999999', action: 'clock_out', at: T('09:00').toISOString(), deviceNow: T('09:00').toISOString() })).toEqual({ error: 'Pick who' })
+    const db = seed()
+    await applyClockTap(db.client, crew, tap('clock_in', T('07:00'), { workOrderId: WO1 }), T('07:00'))
+    // Only someone not on this crew named: refused, nobody clocked out.
+    expect(await applyClockTap(db.client, crew, tap('clock_out', T('09:00'), { userIds: [X1] }), T('09:00'))).toMatchObject({ ok: false, status: 400 })
+    expect(open(db)).toHaveLength(2)
   })
 
   it('captures location only when the company turned it on', async () => {
@@ -174,6 +207,26 @@ describe('crew taps', () => {
 })
 
 describe('forgot to clock out', () => {
+  it('a queued Tuesday tap never closes Monday’s forgotten clock at Tuesday: Monday stops at its last tap, flagged', async () => {
+    const db = seed()
+    await applyClockTap(db.client, crew, tap('clock_in', T('07:00', '2026-06-08'), { workOrderId: WO1, userIds: [U1] }), T('07:00', '2026-06-08'))
+    // Monday's 4pm clock-out sat in the phone queue; it arrives Tuesday morning together with Tuesday's clock-in.
+    const tue = T('07:05', '2026-06-09')
+    // The queue stamps deviceNow when it SENDS (Tuesday), so the phone clock is right and Monday's time is kept.
+    await applyClockTap(db.client, crew, tap('clock_out', T('16:00', '2026-06-08'), { userIds: [U1], deviceNow: tue.toISOString() }), tue)
+    const mon = db.tables.time_entries.find((e) => e.started_at === T('07:00', '2026-06-08').toISOString())!
+    expect(mon).toMatchObject({ ended_at: T('16:00', '2026-06-08').toISOString(), end_source: 'lead_tap' }) // inside the limit: closed normally
+
+    // Now a forgotten one: Tuesday in, never out; Wednesday's clock-in arrives.
+    await applyClockTap(db.client, crew, tap('clock_in', tue, { workOrderId: WO1, userIds: [U1] }), tue)
+    const wed = T('07:00', '2026-06-10')
+    await applyClockTap(db.client, crew, tap('clock_in', wed, { workOrderId: WO2, userIds: [U1] }), wed)
+    const tueEntry = db.tables.time_entries.find((e) => e.started_at === tue.toISOString())!
+    expect(tueEntry).toMatchObject({ ended_at: tue.toISOString(), end_source: 'auto_closed', needs_review: true })
+    expect(String(tueEntry.review_note)).toMatch(/pays 0 h until a finish time/)
+    expect(open(db).map((e) => e.work_order_id)).toEqual([WO2])
+  })
+
   it('stops at the last tap after the limit, flags it, and takes the lead’s answer next morning', async () => {
     const db = seed()
     await applyClockTap(db.client, crew, tap('clock_in', T('07:00'), { workOrderId: WO1, userIds: [U1] }), T('07:00'))
@@ -194,6 +247,22 @@ describe('forgot to clock out', () => {
     expect(await applyClockTap(db.client, crew, tap('finish_answer', morning, { entryId: q.entryId, finishTime: '16:15', tappedBy: U1 }), morning)).toEqual({ ok: true, done: 1 })
     expect(e).toMatchObject({ ended_at: T('16:15').toISOString(), end_source: 'typed', needs_review: false, ended_by_user_id: U1 })
     expect(db.tables.time_entry_changes.map((c) => c.action)).toEqual(['auto_closed', 'finish_answered'])
+  })
+})
+
+describe('authorization (signed in)', () => {
+  it('only crew members (or a role the owner allowed) clock themselves; field roles never; nobody by job id alone', async () => {
+    const db = seed()
+    db.tables.users.push({ id: 'aaaaaaaa-0000-4000-8000-000000000010', org_id: 'org1', full_name: 'Office Olga', role: 'operations', active: true })
+    db.tables.users.push({ id: 'aaaaaaaa-0000-4000-8000-000000000011', org_id: 'org1', full_name: 'Setter Sam', role: 'setter', active: true })
+    const office: ClockActor = { via: 'signed_in', orgId: 'org1', userId: 'aaaaaaaa-0000-4000-8000-000000000010' }
+    const setter: ClockActor = { via: 'signed_in', orgId: 'org1', userId: 'aaaaaaaa-0000-4000-8000-000000000011' }
+    expect(await applyClockTap(db.client, office, tap('clock_in', T('07:00'), { jobId: JOB1, userIds: [office.userId] }), T('07:00'))).toMatchObject({ ok: false, status: 403 })
+    // The owner allows the operations role (and, by mistake, setters — still refused).
+    db.tables.orgs[0].tt = { selfClockRoles: ['operations', 'setter'] }
+    expect(await applyClockTap(db.client, office, tap('clock_in', T('07:00'), { jobId: JOB1, userIds: [office.userId] }), T('07:00'))).toMatchObject({ ok: true, done: 1 })
+    expect(await applyClockTap(db.client, setter, tap('clock_in', T('07:00'), { jobId: JOB1, userIds: [setter.userId] }), T('07:00'))).toMatchObject({ ok: false, status: 403 })
+    expect(open(db).map((e) => [e.user_id, e.source])).toEqual([[office.userId, 'self_tap']])
   })
 })
 
@@ -223,6 +292,10 @@ describe('office', () => {
     const period = db2.tables.payroll_periods[0]
     period.status = 'locked'
     expect(await editTimeEntry(db2.client, 'org1', U1, (add2 as { id: string }).id, { endedAt: T('16:00').toISOString() }, 'Stayed late')).toMatchObject({ ok: false, status: 409 })
+    // Overlapping the same person's other work is refused.
+    const db3 = seed()
+    await addTimeEntry(db3.client, 'org1', U1, { userId: U2, kind: 'work', startedAt: T('07:00').toISOString(), endedAt: T('15:00').toISOString(), jobId: JOB1 }, 'Phone was dead')
+    expect(await addTimeEntry(db3.client, 'org1', U1, { userId: U2, kind: 'work', startedAt: T('14:00').toISOString(), endedAt: T('16:00').toISOString(), jobId: JOB1 }, 'Second stop')).toMatchObject({ ok: false, status: 409 })
     // Another company's person can't be given time.
     expect(await addTimeEntry(db2.client, 'org1', U1, { userId: X1, kind: 'work', startedAt: T('07:00', '2026-06-20').toISOString(), endedAt: T('08:00', '2026-06-20').toISOString(), jobId: JOB1 }, 'Test it')).toMatchObject({ ok: false, status: 404 })
   })
@@ -230,8 +303,8 @@ describe('office', () => {
   it('the week list: paid totals, warnings, what payroll has; a person with no pay rate is named on the job line', async () => {
     const db = seed()
     db.tables.crew_members.push({ id: 'cm3', org_id: 'org1', sub_id: 's1', user_id: U3, is_lead: false })
-    await applyClockTap(db.client, crew, tap('clock_in', T('06:00'), { workOrderId: WO2 }), T('06:00'))
-    await applyClockTap(db.client, crew, tap('clock_out', T('14:00')), T('14:00'))
+    await applyClockTap(db.client, crew, tap('clock_in', T('06:00'), { workOrderId: WO2, userIds: [U1, U2, U3] }), T('06:00'))
+    await applyClockTap(db.client, crew, tap('clock_out', T('14:00'), { userIds: [U1, U2, U3] }), T('14:00'))
     const week = await loadTimeWeek(db.client, 'org1', payWeekCutoffFor(T('06:00')), T('18:00'))
     expect(week.people.map((p) => [p.name, p.paidSeconds / 3600])).toEqual([
       ['Crew Carla', 8],
@@ -253,5 +326,29 @@ describe('crew setup', () => {
     expect(db.tables.sub_contractors[1].tracks_time).toBe(true)
     expect(db.tables.crew_members.filter((m) => m.sub_id === 's2')).toEqual([expect.objectContaining({ user_id: U3, is_lead: true, org_id: 'org1' })])
     expect(await saveCrewSetup(db.client, 'org1', 'nope', U1, { tracksTime: true, members: [] })).toMatchObject({ ok: false, status: 404 })
+  })
+})
+
+describe('open shifts on Today / morning email + the feed lock', () => {
+  it('lists shifts the system stopped with no finish time, loudly when they pay 0 h', async () => {
+    const db = seed()
+    const mon = T('07:00', '2026-06-08')
+    await applyClockTap(db.client, crew, tap('clock_in', mon, { workOrderId: WO1, userIds: [U1] }), mon)
+    await autoCloseForgotten(db.client, 'org1', { now: T('08:00', '2026-06-09') })
+    const q = await loadOpenShiftsQueue(db.client, 'org1', T('08:00', '2026-06-09'))
+    expect(q).toMatchObject({ id: 'open-shifts', title: '1 shift needs a finish time', count: 1, items: [{ title: 'Lead Larry', href: '/admin/time' }] })
+    expect(q!.items[0].note).toMatch(/paying 0 h until fixed/)
+  })
+
+  it('each payroll recompute takes the person’s lease and gives it back', async () => {
+    const calls: string[] = []
+    const db = createFakeDb(
+      { orgs: [{ id: 'org1', timezone: TZ }], users: [{ id: U1, org_id: 'org1', full_name: 'L', active: true }], sub_contractors: [{ id: 's1', org_id: 'org1', company_name: 'G', tracks_time: true, active: true }], crew_members: [{ id: 'c', org_id: 'org1', sub_id: 's1', user_id: U1, is_lead: true }], work_orders: [{ id: WO1, org_id: 'org1', assigned_sub_id: 's1', job_id: null, status: 'scheduled' }], time_entries: [], payroll_periods: [] },
+      { rpc: { time_feed_try_lock: () => { calls.push('lock'); return true }, time_feed_unlock: () => { calls.push('unlock'); return null } } }
+    )
+    await applyClockTap(db.client, crew, tap('clock_in', T('07:00'), { workOrderId: WO1, userIds: [U1] }), T('07:00'))
+    await applyClockTap(db.client, crew, tap('clock_out', T('09:00'), { userIds: [U1] }), T('09:00'))
+    expect(calls.length).toBeGreaterThan(0)
+    expect(calls.filter((c) => c === 'lock').length).toBe(calls.filter((c) => c === 'unlock').length)
   })
 })

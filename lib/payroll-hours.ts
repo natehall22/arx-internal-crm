@@ -140,15 +140,65 @@ export async function loadHourlyRoster(
   return rows
 }
 
-export type SaveHoursResult = { ok: true; saved: Array<{ user_id: string; id: string }> } | { ok: false; status: number; error: string }
+export type SaveHoursResult = { ok: true; saved: Array<{ user_id: string; id: string }>; notes?: string[] } | { ok: false; status: number; error: string }
 
-/** Saves hours (with an audit row per changed field). The one hours write. The caller has already checked the period is open. */
+type ExistingHours = {
+  id: string
+  regular_hours: number | null
+  overtime_hours: number | null
+  notes: string | null
+  hourly_rate_snapshot: number | null
+  hourly_earnings: number | null
+  hours_source?: string | null
+  typed_regular_hours?: number | null
+  typed_overtime_hours?: number | null
+}
+
+const num = (v: unknown) => (v === null || v === undefined ? null : Number(v))
+
+/**
+ * What a save does to a person's week, typed vs clocked (pure). Payroll pays `regular/overtime`; `source` says where they
+ * came from. Clock hours win while there are any; the office's typed hours are kept aside (`typed*`) and come back if the
+ * clock time goes to zero. A clock save never writes 0 over typed hours, and a typed save never replaces clock hours.
+ * Returns null when nothing should be written.
+ */
+export function planHoursWrite(
+  existing: Pick<ExistingHours, 'regular_hours' | 'overtime_hours' | 'hours_source' | 'typed_regular_hours' | 'typed_overtime_hours'> | null,
+  input: { source: 'typed' | 'clock'; regular: number; overtime: number }
+): { regular: number; overtime: number; source: 'typed' | 'clock'; typedRegular: number | null; typedOvertime: number | null; note?: string } | null {
+  const wasClock = existing?.hours_source === 'clock'
+  if (input.source === 'typed') {
+    if (wasClock) {
+      // Clock hours stay what payroll pays; the typed number is kept for when the clock time goes away.
+      return { regular: Number(existing!.regular_hours) || 0, overtime: Number(existing!.overtime_hours) || 0, source: 'clock', typedRegular: input.regular, typedOvertime: input.overtime, note: 'clock_kept' }
+    }
+    return { regular: input.regular, overtime: input.overtime, source: 'typed', typedRegular: null, typedOvertime: null }
+  }
+  // Clock save. What was typed before the clock took over, kept aside.
+  const typedRegular = wasClock ? num(existing?.typed_regular_hours) : existing ? Number(existing.regular_hours) || 0 : null
+  const typedOvertime = wasClock ? num(existing?.typed_overtime_hours) : existing ? Number(existing.overtime_hours) || 0 : null
+  const hasTyped = typedRegular !== null && (typedRegular > 0 || (typedOvertime ?? 0) > 0)
+  if (input.regular + input.overtime <= 0) {
+    if (!existing) return null
+    if (!wasClock) return null // never 0 over typed hours
+    if (hasTyped) return { regular: typedRegular!, overtime: typedOvertime ?? 0, source: 'typed', typedRegular: null, typedOvertime: null, note: 'typed_restored' }
+    return { regular: 0, overtime: 0, source: 'clock', typedRegular: null, typedOvertime: null }
+  }
+  return { regular: input.regular, overtime: input.overtime, source: 'clock', typedRegular: hasTyped ? typedRegular : null, typedOvertime: hasTyped ? typedOvertime ?? 0 : null }
+}
+
+/**
+ * Saves hours (with an audit row per changed field). The one hours write. The caller has already checked the period is
+ * open. `source` 'clock' is the time clock feed (lib/time-tracking-db.ts) — see `planHoursWrite` for typed vs clocked.
+ */
 export async function saveHoursEntries(
   supabase: SupabaseClient,
-  input: { orgId: string; periodId: string; cutoffAt: string | null; actorUserId: string; entries: HoursEntry[] }
+  input: { orgId: string; periodId: string; cutoffAt: string | null; actorUserId: string; entries: HoursEntry[]; source?: 'typed' | 'clock' }
 ): Promise<SaveHoursResult> {
   const { orgId, periodId, actorUserId, entries } = input
+  const source = input.source ?? 'typed'
   const results: Array<{ user_id: string; id: string }> = []
+  const notes: string[] = []
 
   for (const entry of entries) {
     const userId = entry.user_id
@@ -166,15 +216,39 @@ export async function saveHoursEntries(
     if (hourlyRate == null && (reg > 0 || ot > 0)) {
       return { ok: false, status: 400, error: `No hourly rate for user ${userId}` }
     }
-    const earnings = computeHourlyEarnings({ regularHours: reg, overtimeHours: ot, hourlyRate: hourlyRate ?? 0 })
 
-    const { data: existing } = await supabase
-      .from('payroll_rep_hours')
-      .select('id, regular_hours, overtime_hours, notes, hourly_rate_snapshot, hourly_earnings')
-      .eq('payroll_period_id', periodId)
-      .eq('user_id', userId)
-      .eq('org_id', orgId)
-      .maybeSingle()
+    // Typed vs clocked columns arrive with migration 202611110070; without them a typed save works as before and the
+    // clock never writes (it would overwrite typed hours).
+    let sourceColumns = true
+    let existing: ExistingHours | null = null
+    {
+      const full = await supabase
+        .from('payroll_rep_hours')
+        .select('id, regular_hours, overtime_hours, notes, hourly_rate_snapshot, hourly_earnings, hours_source, typed_regular_hours, typed_overtime_hours')
+        .eq('payroll_period_id', periodId)
+        .eq('user_id', userId)
+        .eq('org_id', orgId)
+        .maybeSingle()
+      if (full.error && /hours_source|typed_(regular|overtime)_hours/.test(String(full.error.message ?? ''))) {
+        sourceColumns = false
+        const legacy = await supabase
+          .from('payroll_rep_hours')
+          .select('id, regular_hours, overtime_hours, notes, hourly_rate_snapshot, hourly_earnings')
+          .eq('payroll_period_id', periodId)
+          .eq('user_id', userId)
+          .eq('org_id', orgId)
+          .maybeSingle()
+        existing = (legacy.data as ExistingHours | null) ?? null
+      } else {
+        existing = (full.data as ExistingHours | null) ?? null
+      }
+    }
+    if (!sourceColumns && source === 'clock') return { ok: false, status: 503, error: 'Clock hours need the time clock database update' }
+
+    const plan2 = sourceColumns ? planHoursWrite(existing, { source, regular: reg, overtime: ot }) : { regular: reg, overtime: ot, source: 'typed' as const, typedRegular: null, typedOvertime: null }
+    if (!plan2) continue
+    if (plan2.note) notes.push(`${userId}:${plan2.note}`)
+    const earnings = computeHourlyEarnings({ regularHours: plan2.regular, overtimeHours: plan2.overtime, hourlyRate: hourlyRate ?? Number(existing?.hourly_rate_snapshot ?? 0) })
 
     const { data: saved, error: saveErr } = await supabase
       .from('payroll_rep_hours')
@@ -183,10 +257,11 @@ export async function saveHoursEntries(
           org_id: orgId,
           payroll_period_id: periodId,
           user_id: userId,
-          regular_hours: reg,
-          overtime_hours: ot,
-          hourly_rate_snapshot: hourlyRate,
+          regular_hours: plan2.regular,
+          overtime_hours: plan2.overtime,
+          hourly_rate_snapshot: hourlyRate ?? existing?.hourly_rate_snapshot ?? null,
           hourly_earnings: earnings.total,
+          ...(sourceColumns ? { hours_source: plan2.source, typed_regular_hours: plan2.typedRegular, typed_overtime_hours: plan2.typedOvertime } : {}),
           // Only when sent: a save that carries no note (Pay this week, the time clock) must not wipe one typed earlier.
           ...(entry.notes !== undefined ? { notes: entry.notes ?? null } : {}),
         },
@@ -203,15 +278,19 @@ export async function saveHoursEntries(
 
     const auditReason = entry.reason || 'Admin hours entry'
     const fields: Array<{ field: string; oldVal: string | null; newVal: string }> = [
-      { field: 'regular_hours', oldVal: existing?.regular_hours?.toString() ?? null, newVal: String(reg) },
-      { field: 'overtime_hours', oldVal: existing?.overtime_hours?.toString() ?? null, newVal: String(ot) },
+      { field: 'regular_hours', oldVal: existing?.regular_hours?.toString() ?? null, newVal: String(plan2.regular) },
+      { field: 'overtime_hours', oldVal: existing?.overtime_hours?.toString() ?? null, newVal: String(plan2.overtime) },
       { field: 'hourly_earnings', oldVal: existing?.hourly_earnings?.toString() ?? null, newVal: String(earnings.total) },
     ]
+    if (sourceColumns) {
+      fields.push({ field: 'hours_source', oldVal: existing?.hours_source ?? null, newVal: plan2.source })
+      fields.push({ field: 'typed_regular_hours', oldVal: existing?.typed_regular_hours?.toString() ?? null, newVal: plan2.typedRegular === null ? '' : String(plan2.typedRegular) })
+    }
     if (entry.notes !== undefined) {
       fields.push({ field: 'notes', oldVal: (existing?.notes as string) ?? null, newVal: entry.notes ?? '' })
     }
     for (const f of fields) {
-      if (f.oldVal === f.newVal) continue
+      if (f.oldVal === f.newVal || ((f.oldVal ?? '') === '' && f.newVal === '')) continue
       await supabase.from('payroll_rep_hours_audit').insert({
         org_id: orgId,
         rep_hours_id: saved.id,
@@ -226,5 +305,5 @@ export async function saveHoursEntries(
     }
     results.push({ user_id: userId, id: saved.id as string })
   }
-  return { ok: true, saved: results }
+  return { ok: true, saved: results, ...(notes.length ? { notes } : {}) }
 }

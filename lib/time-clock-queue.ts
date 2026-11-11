@@ -12,7 +12,11 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
-export type QueuedTap = { id: string; endpoint: string; body: Record<string, unknown>; queuedAt: string }
+/** `hold`: still waiting for the phone's location (at most HOLD_MS); it keeps its place in line meanwhile. */
+export type QueuedTap = { id: string; endpoint: string; body: Record<string, unknown>; queuedAt: string; hold?: boolean }
+
+/** The longest a tap waits for a location before it goes without one. */
+export const HOLD_MS = 5000
 export type FailedTap = QueuedTap & { error: string }
 
 type QueueState = {
@@ -20,7 +24,8 @@ type QueueState = {
   failed: FailedTap[]
   sending: boolean
   lastSentAt: string | null
-  enqueue: (endpoint: string, body: Record<string, unknown>) => string
+  /** Queue a tap NOW (its place in line is fixed at the tap); a location, if asked for, is attached when it arrives. */
+  enqueue: (endpoint: string, body: Record<string, unknown>, location?: Promise<{ lat: number; lng: number } | null>) => string
   flush: () => Promise<void>
   dismissFailed: (id: string) => void
 }
@@ -45,9 +50,16 @@ export const useTimeClockQueue = create<QueueState>()(
       failed: [],
       sending: false,
       lastSentAt: null,
-      enqueue: (endpoint, body) => {
+      enqueue: (endpoint, body, location) => {
         const id = typeof body.tapId === 'string' ? body.tapId : newTapId()
-        set((s) => ({ pending: [...s.pending, { id, endpoint, body: { ...body, tapId: id }, queuedAt: new Date().toISOString() }] }))
+        set((s) => ({ pending: [...s.pending, { id, endpoint, body: { ...body, tapId: id }, queuedAt: new Date().toISOString(), hold: !!location }] }))
+        if (location) {
+          const release = (loc: { lat: number; lng: number } | null) => {
+            set((s) => ({ pending: s.pending.map((t) => (t.id === id && t.hold ? { ...t, hold: false, body: { ...t.body, ...(loc ?? {}) } } : t)) }))
+            void get().flush()
+          }
+          void Promise.race([location.catch(() => null), new Promise<null>((r) => setTimeout(() => r(null), HOLD_MS))]).then(release)
+        }
         void get().flush()
         return id
       },
@@ -58,6 +70,9 @@ export const useTimeClockQueue = create<QueueState>()(
           for (;;) {
             const next = get().pending[0]
             if (!next) break
+            // Taps go in tap order: one still waiting for its location holds the line (never longer than HOLD_MS,
+            // also after a reload).
+            if (next.hold && Date.now() - Date.parse(next.queuedAt) < HOLD_MS) break
             let res: Response | null = null
             try {
               res = await fetch(next.endpoint, {

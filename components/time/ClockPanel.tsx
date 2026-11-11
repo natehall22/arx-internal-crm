@@ -34,7 +34,12 @@ export function ClockPanel({
   placeLabel: (open: NonNullable<ClockPerson['open']>) => string | null
   title?: string
 }) {
-  const { state, pending, failed, dismissFailed, tap, tappedBy, setTapper, leads } = clock
+  const { state, pending, failed, dismissFailed, tap, tappedBy, setTapper, leads, latestOpen } = clock
+  // Right before a clock-out, re-read who is clocked in (a stale screen must not miss or invent anyone).
+  const clockOut = async (forTravel: boolean) => {
+    const ids = await latestOpen()
+    if (ids.length) void tap('clock_out', { userIds: ids, forTravel })
+  }
   const [confirmOut, setConfirmOut] = useState(false)
   const [moreOpen, setMoreOpen] = useState(false)
   const [answers, setAnswers] = useState<Record<string, string>>({})
@@ -143,7 +148,7 @@ export function ClockPanel({
                 className={primary}
                 onClick={() => {
                   setConfirmOut(false)
-                  void tap('clock_out', { userIds: open.map((p) => p.userId) })
+                  void clockOut(false)
                 }}
               >
                 Yes — done for the day
@@ -153,7 +158,7 @@ export function ClockPanel({
                 className={outline}
                 onClick={() => {
                   setConfirmOut(false)
-                  void tap('clock_out', { userIds: open.map((p) => p.userId), forTravel: true })
+                  void clockOut(true)
                 }}
               >
                 Driving to the next stop

@@ -33,6 +33,8 @@ export type TimeEntry = {
   pricebookItemId: string | null
   tappedBy: string | null
   endedBy: string | null
+  /** When the end was recorded on the server (a late close of an approved week is paid on the next week). */
+  endedRecordedAt?: string | null
 }
 
 export function entryFromRow(r: Record<string, unknown>): TimeEntry {
@@ -53,11 +55,12 @@ export function entryFromRow(r: Record<string, unknown>): TimeEntry {
     pricebookItemId: (r.pricebook_item_id as string | null) ?? null,
     tappedBy: (r.tapped_by_user_id as string | null) ?? null,
     endedBy: (r.ended_by_user_id as string | null) ?? null,
+    endedRecordedAt: (r.ended_recorded_at as string | null) ?? null,
   }
 }
 
 export const TIME_ENTRY_COLUMNS =
-  'id, user_id, sub_id, work_order_id, production_job_id, kind, started_at, ended_at, source, end_source, closed_for_travel, needs_review, review_note, pricebook_item_id, tapped_by_user_id, ended_by_user_id'
+  'id, user_id, sub_id, work_order_id, production_job_id, kind, started_at, ended_at, source, end_source, closed_for_travel, needs_review, review_note, pricebook_item_id, tapped_by_user_id, ended_by_user_id, ended_recorded_at'
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Company settings (orgs.settings.timeTracking)
@@ -74,6 +77,11 @@ export type TimeTrackingSettings = {
   overtimeAfterHours: number
   /** Warn when a day is longer than this with no break (0 = never). Warning only — nothing is deducted. */
   breakWarningAfterHours: number
+  /**
+   * Roles (slugs) that may clock THEMSELVES in on a job page without being on a crew (e.g. a working foreman's role).
+   * Crew members always can. Field roles (setters, canvassers, inside sales) never can, even if listed.
+   */
+  selfClockRoles: string[]
 }
 
 export const DEFAULT_TIME_TRACKING_SETTINGS: Readonly<TimeTrackingSettings> = Object.freeze({
@@ -81,7 +89,8 @@ export const DEFAULT_TIME_TRACKING_SETTINGS: Readonly<TimeTrackingSettings> = Ob
   captureLocation: false,
   overtimeAfterHours: 40,
   breakWarningAfterHours: 6,
-})
+  selfClockRoles: [],
+}) as Readonly<TimeTrackingSettings>
 
 const LIMITS = {
   autoCloseHours: [2, 24],
@@ -103,7 +112,14 @@ export function readTimeTrackingSettings(stored: unknown): TimeTrackingSettings 
     captureLocation: typeof t.captureLocation === 'boolean' ? t.captureLocation : DEFAULT_TIME_TRACKING_SETTINGS.captureLocation,
     overtimeAfterHours: numberIn(t.overtimeAfterHours, LIMITS.overtimeAfterHours) ?? DEFAULT_TIME_TRACKING_SETTINGS.overtimeAfterHours,
     breakWarningAfterHours: numberIn(t.breakWarningAfterHours, LIMITS.breakWarningAfterHours) ?? DEFAULT_TIME_TRACKING_SETTINGS.breakWarningAfterHours,
+    selfClockRoles: cleanRoles(t.selfClockRoles) ?? [],
   }
+}
+
+function cleanRoles(v: unknown): string[] | null {
+  if (!Array.isArray(v) || v.length > 30) return null
+  if (!v.every((r) => typeof r === 'string' && /^[a-z0-9_ -]{1,60}$/i.test(r))) return null
+  return Array.from(new Set((v as string[]).map((r) => r.trim().toLowerCase())))
 }
 
 /** An owner's save: `{ timeTracking: { autoCloseHours: 10, … } }` → keys to merge, or why not. */
@@ -112,7 +128,11 @@ export function parseTimeTrackingSettingsPatch(body: unknown): { set: Partial<Ti
   const patch = b.timeTracking && typeof b.timeTracking === 'object' ? (b.timeTracking as Record<string, unknown>) : {}
   const set: Partial<TimeTrackingSettings> = {}
   for (const [k, v] of Object.entries(patch)) {
-    if (k === 'captureLocation') {
+    if (k === 'selfClockRoles') {
+      const roles = cleanRoles(v)
+      if (!roles) return { error: 'Pick roles from the list' }
+      set.selfClockRoles = roles
+    } else if (k === 'captureLocation') {
       if (typeof v !== 'boolean') return { error: 'Location must be on or off' }
       set.captureLocation = v
     } else if (k in LIMITS) {
@@ -312,6 +332,8 @@ export function formatDuration(seconds: number): string {
 
 export const CLOCK_ACTIONS = ['clock_in', 'clock_out', 'break_start', 'break_end', 'equipment_start', 'equipment_stop', 'finish_answer'] as const
 export type ClockAction = (typeof CLOCK_ACTIONS)[number]
+/** Actions that act on people: each names them (`userIds`), never "everyone". */
+export const PEOPLE_ACTIONS: readonly ClockAction[] = ['clock_in', 'clock_out', 'break_start', 'break_end']
 
 export type ClockTap = {
   tapId: string
@@ -322,7 +344,7 @@ export type ClockTap = {
   deviceNow: string
   workOrderId: string | null
   jobId: string | null
-  /** Who (crew members ticked). Empty = everyone the tap may act for. */
+  /** Who (crew members ticked). Required for clock in / out / lunch; never empty for those. */
   userIds: string[]
   /** clock_out: leaving for the next stop (the drive is paid). */
   forTravel: boolean
@@ -360,6 +382,8 @@ export function parseClockTap(body: unknown): { tap: ClockTap } | { error: strin
   const finishTime = typeof b.finishTime === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(b.finishTime) ? b.finishTime : null
   const action = b.action as ClockAction
   if (action === 'clock_in' && !workOrderId && !jobId) return { error: 'Which stop or job?' }
+  // Who, always by name: an empty list never means "everyone".
+  if (PEOPLE_ACTIONS.includes(action) && userIds.length === 0) return { error: 'Pick who' }
   if (action === 'equipment_start' && !pricebookItemId) return { error: 'Which equipment?' }
   if ((action === 'equipment_stop' || action === 'finish_answer') && !entryId) return { error: 'Which entry?' }
   if (action === 'finish_answer' && !finishTime) return { error: 'What time did you finish?' }

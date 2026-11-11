@@ -162,7 +162,7 @@ describe('overtime + warnings', () => {
 
 describe('taps', () => {
   const now = new Date('2026-06-10T15:00:00.000Z')
-  const base = { tapId: 'tap-12345678', action: 'clock_in', at: now.toISOString(), deviceNow: now.toISOString(), workOrderId: '11111111-1111-4111-8111-111111111111' }
+  const base = { tapId: 'tap-12345678', action: 'clock_in', at: now.toISOString(), deviceNow: now.toISOString(), workOrderId: '11111111-1111-4111-8111-111111111111', userIds: ['22222222-2222-4222-8222-222222222222'] }
 
   it('parses and refuses bad input', () => {
     expect('tap' in parseClockTap(base)).toBe(true)

@@ -10,12 +10,17 @@ const inputCls = 'min-h-[48px] w-28 rounded-lg border-2 border-[#2c2c2a] bg-whit
 /** Owners: how the crew time clock behaves. Wage-law items are warnings only — nothing here deducts time. */
 export default function TimeClockSettingsCard() {
   const [s, setS] = useState<TimeTrackingSettings | null>(null)
+  const [roles, setRoles] = useState<string[]>([])
   const [msg, setMsg] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   useEffect(() => {
     void fetch('/api/admin/time/settings', { cache: 'no-store' })
       .then((r) => (r.ok ? r.json() : null))
-      .then((d) => d && setS((d as { settings: TimeTrackingSettings }).settings))
+      .then((d) => {
+        if (!d) return
+        setS((d as { settings: TimeTrackingSettings }).settings)
+        setRoles((d as { roles?: string[] }).roles ?? [])
+      })
   }, [])
   if (!s) return null
   const num = (k: keyof TimeTrackingSettings, label: string, hint: string) => (
@@ -40,6 +45,23 @@ export default function TimeClockSettingsCard() {
           <span className="block text-sm">Only at the tap, never in between. Check your state’s rules and tell your crew first.</span>
         </span>
       </label>
+      {roles.length ? (
+        <fieldset className="flex flex-col gap-1 text-base">
+          <legend className="font-semibold">Who else may clock themselves in on a job page</legend>
+          <span className="text-sm">Crew members always can. Setters and other field sales roles never can.</span>
+          {roles.map((r) => (
+            <label key={r} className="flex min-h-[44px] items-center gap-3">
+              <input
+                type="checkbox"
+                className="h-6 w-6"
+                checked={s.selfClockRoles.includes(r)}
+                onChange={(e) => setS({ ...s, selfClockRoles: e.target.checked ? [...s.selfClockRoles, r] : s.selfClockRoles.filter((x) => x !== r) })}
+              />
+              <span>{r.replace(/_/g, ' ')}</span>
+            </label>
+          ))}
+        </fieldset>
+      ) : null}
       {msg ? <p className="text-base font-semibold">{msg}</p> : null}
       <Button
         className="self-start"

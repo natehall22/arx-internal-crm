@@ -151,6 +151,8 @@ export default function JobMaterialsCard({
         }),
       })
       if (response.ok) {
+        const out = (await response.json().catch(() => ({}))) as { warning?: string }
+        if (out.warning) toast.error(out.warning)
         setNewCost(EMPTY_FORM)
         setShowAddForm(false)
         afterMutation()

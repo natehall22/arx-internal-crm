@@ -314,7 +314,8 @@ export default function CrewDayList({
                           className={`${btn} bg-[#2c2c2a] text-white`}
                           onClick={() => {
                             setAskPhoto(null)
-                            void clock.tap('clock_out', { userIds: crewHere })
+                            // Fresh list of who is clocked in here (not the list painted when Done was tapped).
+                            void clock.latestOpen(v.id).then((ids) => { if (ids.length) void clock.tap('clock_out', { userIds: ids }) })
                           }}
                         >
                           Clock out crew — done for the day
@@ -324,7 +325,7 @@ export default function CrewDayList({
                           className={`${btn} border-2 border-[#2c2c2a] bg-white`}
                           onClick={() => {
                             setAskPhoto(null)
-                            void clock.tap('clock_out', { userIds: crewHere, forTravel: true })
+                            void clock.latestOpen(v.id).then((ids) => { if (ids.length) void clock.tap('clock_out', { userIds: ids, forTravel: true }) })
                           }}
                         >
                           Driving to the next stop

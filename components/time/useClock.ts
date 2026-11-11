@@ -104,15 +104,34 @@ export function useClock(endpoint: string, opts: { tapperKey?: string; initial?:
   const tap = useCallback(
     async (action: ClockAction, extra: Where & { userIds?: string[]; forTravel?: boolean; pricebookItemId?: string; entryId?: string; finishTime?: string } = {}) => {
       const at = new Date().toISOString()
-      const loc = state?.captureLocation ? await quickLocation() : null
-      const body: Record<string, unknown> = { tapId: newTapId(), action, at, ...extra, ...(tappedBy ? { tappedBy } : {}), ...(loc ?? {}) }
+      const body: Record<string, unknown> = { tapId: newTapId(), action, at, ...extra, ...(tappedBy ? { tappedBy } : {}) }
       setState((s) => (s ? optimistic(s, action, extra, at) : s))
-      enqueue(endpoint, body)
+      // Into the queue first (order = tap order); the location, when the company asks for it, follows.
+      enqueue(endpoint, body, state?.captureLocation ? quickLocation() : undefined)
     },
     [endpoint, enqueue, state?.captureLocation, tappedBy]
   )
 
-  return { state, loadError, pending, failed, dismissFailed, tap, refresh, tappedBy, setTapper, leads }
+  /**
+   * Who is clocked in right now (optionally at one stop), read fresh from the server unless taps are still queued (then
+   * the on-screen picture is the latest truth). Used right before a clock-out so a stale screen can't miss anyone.
+   */
+  const latestOpen = useCallback(
+    async (workOrderId?: string): Promise<string[]> => {
+      let s = state
+      if (!useTimeClockQueue.getState().pending.some((t) => t.endpoint === endpoint)) {
+        const res = await fetch(endpoint, { cache: 'no-store', credentials: 'include' }).catch(() => null)
+        if (res && res.ok) {
+          s = (await res.json()) as ClockState
+          setState(s)
+        }
+      }
+      return (s?.people ?? []).filter((p) => p.open && (!workOrderId || p.open.workOrderId === workOrderId)).map((p) => p.userId)
+    },
+    [endpoint, state]
+  )
+
+  return { state, loadError, pending, failed, dismissFailed, tap, refresh, tappedBy, setTapper, leads, latestOpen }
 }
 
 /** What the screen shows right after a tap, before the server answers. */
