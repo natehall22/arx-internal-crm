@@ -384,7 +384,9 @@ export async function savePoDraft(
   target: PoTarget,
   userId: string,
   input: PoDraftInput,
-  existingId: string | null
+  existingId: string | null,
+  /** An AI draft only STARTS an order: if the vendor already has one on this job (made or edited on screen meanwhile), nothing is replaced. */
+  opts: { createOnly?: boolean } = {}
 ): Promise<SaveDraftResult> {
   const orgId = target.orgId
   if (target.cancelled) return { ok: false, status: 409, message: 'This job is cancelled, so orders cannot be changed.' }
@@ -412,6 +414,7 @@ export async function savePoDraft(
     }
     order = byId as OrderRow
   }
+  if (opts.createOnly && order) return { ok: false, status: 409, message: 'This vendor already has an order on this job, so nothing was added. Change that order in the app.' }
   if (order && order.status === 'cancelled') {
     // A cancelled PO keeps its number; editing it reopens it as a revision on the next send.
   }

@@ -11,7 +11,7 @@ type Data = {
   writesEnabled: boolean
   builtinRedirectUris: string[]
   extraRedirectUris: string[]
-  changes: Array<{ id: string; when: string; person: string; tool: string; summary: string; links: Array<{ label: string; path: string }>; failed: boolean }>
+  changes: Array<{ id: string; when: string; person: string; tool: string; summary: string; links: Array<{ label: string; path: string }>; failed: boolean; stuck: boolean; saving: boolean }>
   connections: Array<{ id: string; userId: string; person: string; app: string; canWrite: boolean; connectedAt: string; lastUsedAt: string | null }>
   audit: Array<{ id: number; when: string; person: string | null; tool: string; result: string; records: number; detail: string | null }>
 }
@@ -93,7 +93,7 @@ export default function AiConnectorClient() {
           </Button>
           <p className="mt-4 text-ui-base font-semibold text-ink">AI can make changes: {data.writesEnabled ? 'On' : 'Off'}</p>
           <p className="mt-1 text-ui-base text-ink">
-            When on, a person who allows it when they connect lets their AI app propose a change: add a note, log a call, add a lead or customer, move a service visit, add a job cost, start a draft invoice or order. The person sees exactly what will change and confirms each one. It can never send, pay, delete, approve payroll or change settings. Off stops it on the next request.
+            When on, a person who allows it when they connect lets their AI app propose a change: add a note, log a call, add a lead or customer, move a service visit, add a job cost, start a draft invoice or order. Each one waits in the CRM until that person opens it and taps Approve; the AI cannot approve. It can never send, pay, delete, approve payroll or change settings. Off stops it on the next request.
           </p>
           <Button variant={data.writesEnabled ? 'secondary' : 'primary'} className="mt-3 min-h-tap" disabled={!data.enabled} loading={busy === 'writes'} aria-pressed={data.writesEnabled} onClick={() => void toggleWrites()}>
             {data.writesEnabled ? 'Turn off changes' : 'Turn on changes'}
@@ -138,7 +138,7 @@ export default function AiConnectorClient() {
           <ul className="divide-y divide-surface-line">
             {data.changes.map((c) => (
               <li key={c.id} className="py-2 text-ui-sm text-ink">
-                <span className="font-semibold">{when(c.when)}</span> · {c.person} · {c.tool} · {c.failed ? 'Not saved' : c.summary}
+                <span className="font-semibold">{when(c.when)}</span> · {c.person} · {c.tool} · {c.stuck ? 'STUCK while saving: open the record and check whether it was saved' : c.saving ? 'Saving now' : c.failed ? 'Not saved' : c.summary}
                 {c.links.map((l) => (
                   <Link key={l.path} href={l.path} className="ml-2 underline">
                     {l.label}

@@ -13,12 +13,17 @@ export type AiScope = (typeof AI_SCOPES)[number]
 export const DEFAULT_SCOPES: readonly AiScope[] = ['crm:read']
 export const WRITE_SCOPE: AiScope = 'crm:write'
 
-/** A proposed change can be confirmed for this long; after that it is gone and must be asked for again. */
+/** A proposed change can be approved by the person for this long; after that it is gone and must be asked for again. */
 export const CHANGE_TTL_SECONDS = 10 * 60
 /** Unconfirmed proposals one person may hold at a time. */
 export const MAX_PENDING_CHANGES = 20
 /** Proposals nobody confirmed are deleted after this many days (applied changes are kept as the record). */
 export const PENDING_CHANGE_KEEP_DAYS = 2
+/** Failed changes are kept this long (never less than 30 days) so an owner can look at them. */
+export const FAILED_CHANGE_KEEP_DAYS = 30
+/** A change still `applying` after this long is stuck (a crash mid-save): a note is retried once, anything else goes to the owner. */
+export const APPLY_STALE_SECONDS = 120
+export const MAX_APPLY_ATTEMPTS = 2
 
 export const CODE_TTL_SECONDS = 10 * 60
 export const ACCESS_TTL_SECONDS = 60 * 60

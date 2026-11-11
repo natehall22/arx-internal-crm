@@ -38,7 +38,7 @@ export default function ConnectedAiApps() {
         <CardTitle>Connected AI apps</CardTitle>
       </CardHeader>
       <CardContent>
-        <p className="mb-3 text-ui-base text-ink">AI apps you have allowed to work as you. They only see what you can see. An app marked “can propose changes” can prepare a change, but nothing is saved until you confirm it. Disconnect one and it stops right away.</p>
+        <p className="mb-3 text-ui-base text-ink">AI apps you have allowed to work as you. They only see what you can see. An app marked “can propose changes” can prepare a change, but nothing is saved until you approve it yourself in the CRM. Disconnect one and it stops right away.</p>
         {apps === null ? <p className="text-ui-base text-ink">Loading…</p> : null}
         {apps?.length === 0 ? <p className="text-ui-base text-ink">No AI apps connected.</p> : null}
         <ul className="divide-y divide-surface-line">

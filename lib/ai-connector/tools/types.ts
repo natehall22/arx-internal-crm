@@ -15,6 +15,10 @@ export type ToolContext = {
   clientId?: string
   /** True only when the connection carries `crm:write` AND the company's "AI can make changes" switch is on, checked this request. */
   writesAllowed?: boolean
+  /** The company's public address for this request (links the AI hands to the person). */
+  origin?: string
+  /** Set when the PERSON approves a change: the AI app's name (cleaned), used to tag what it wrote. */
+  clientName?: string
   rate?: RateGate
   now?: number
 }
@@ -39,7 +43,7 @@ export type McpTool = {
   description: string
   inputSchema: Record<string, unknown>
   schema: z.ZodTypeAny
-  /** Read tools never change anything. Write tools only PROPOSE (preview + confirm key); `confirm_change` is what saves. */
+  /** Read tools never change anything. Write tools only PROPOSE (a preview + a link the PERSON opens to approve); nothing in the AI's reach saves. */
   readOnly: boolean
   /** Hidden from tools/list and refused unless the connection may make changes (see ToolContext.writesAllowed). */
   needsWrites?: boolean
@@ -67,4 +71,6 @@ export type ChangeOutcome = { summary: string; links: Array<{ label: string; pat
 export type WriteSpec<A> = {
   prepare(ctx: ToolContext, args: A): Promise<ChangePreview>
   apply(ctx: ToolContext, args: A, changeId: string): Promise<ChangeOutcome>
+  /** True when `apply` writes at most once per `changeId` (the writer dedupes on it): a save stuck after a crash may be retried once. */
+  idempotent?: boolean
 }

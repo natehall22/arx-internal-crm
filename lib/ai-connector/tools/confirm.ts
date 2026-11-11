@@ -1,20 +1,21 @@
 import { z } from 'zod'
 
-import { confirmChange } from '@/lib/ai-connector/changes'
-import { WRITE_TOOLS } from '@/lib/ai-connector/tools/writes'
-import type { McpTool, WriteSpec } from '@/lib/ai-connector/tools/types'
+import { checkChange } from '@/lib/ai-connector/changes'
+import { ID, type McpTool } from '@/lib/ai-connector/tools/types'
 
-const schema = z.object({ confirm_key: z.string().min(10).max(120) }).strict()
+const schema = z.object({ change_id: z.string().regex(ID) }).strict()
 
-/** The only tool that saves anything. It saves exactly the change a write tool previewed, once. */
+/**
+ * Status only. The AI can NOT save or approve anything: the signed-in person approves in the CRM at the review link.
+ * (The name is kept so AI apps that already know it keep working.)
+ */
 export const confirmChangeTool: McpTool = {
   name: 'confirm_change',
-  title: 'Save a change the person approved',
-  description: 'Saves the change from an earlier preview. Call it ONLY after the person has seen the preview and clearly said yes. The confirm_key works once, for 10 minutes, for the same person. If anything changed since the preview, nothing is saved and you must ask for the change again.',
-  inputSchema: { type: 'object', properties: { confirm_key: { type: 'string', description: 'The confirm_key returned with the preview' } }, required: ['confirm_key'], additionalProperties: false },
+  title: 'Check whether the person approved a change',
+  description: 'Tells you whether a prepared change was approved (saved), declined, expired or is still waiting for the person. It never saves anything and cannot approve: only the person can, by opening the review_link in the CRM.',
+  inputSchema: { type: 'object', properties: { change_id: { type: 'string', description: 'The change_id returned with the preview' } }, required: ['change_id'], additionalProperties: false },
   schema,
-  readOnly: false,
+  readOnly: true,
   needsWrites: true,
-  destructive: true,
-  run: (ctx, args: z.infer<typeof schema>) => confirmChange(ctx, args.confirm_key, (name) => WRITE_TOOLS.find((t) => t.name === name) as (McpTool & { write?: WriteSpec<never> }) | undefined),
+  run: (ctx, args: z.infer<typeof schema>) => checkChange(ctx, args.change_id),
 }

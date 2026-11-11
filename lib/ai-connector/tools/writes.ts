@@ -11,13 +11,15 @@ import { z } from 'zod'
 
 import { writeTool } from '@/lib/ai-connector/changes'
 import { ID, ToolError, type ChangePreview, type McpTool, type ToolContext } from '@/lib/ai-connector/tools/types'
+import { ownCustomerIds } from '@/lib/ai-connector/tools/contact-scope'
 import { loadOrgTimeZone } from '@/lib/cron-orgs'
 import { CONTACT_KINDS, CONTACT_KIND_LABELS, CONTACT_OUTCOME_LABELS, OUTCOMES_FOR_KIND, type ContactKind, type ContactOutcome } from '@/lib/customer-contact'
 import { findExistingCustomer, upsertCustomer } from '@/lib/customers'
 import { effectiveHasPermission, resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 import { createServiceInvoiceFromLines } from '@/lib/invoices'
+import { hasAtMost2Decimals, lineTotalCents } from '@/lib/invoice-lines'
 import { authorizeJobCost, parseCostInput } from '@/lib/job-cost-record'
-import { addJobCostLine, JOB_COST_TYPES } from '@/lib/job-cost-ledger'
+import { addJobCostLine, JOB_COST_TYPES, signedCostAmount } from '@/lib/job-cost-ledger'
 import { MANUAL_LEAD_SOURCES } from '@/lib/lead-sources'
 import { createLeadRecord } from '@/lib/leads-create'
 import { canEditCustomerRecordsFromPermissionNames } from '@/lib/permissions'
@@ -60,7 +62,6 @@ const ymd = z.string().refine(isYmd, 'Use YYYY-MM-DD')
 const dollars = (max: number) => z.number().finite().min(0).max(max)
 
 const link = (label: string, path: string) => ({ label, path })
-const money = (n: number) => formatMoney(Math.round(n * 100))
 
 /** Field roles (setters, canvassers, inside sales) never get money, production or customer-record edits through the AI either. */
 async function notFieldRole(ctx: ToolContext) {
@@ -68,6 +69,10 @@ async function notFieldRole(ctx: ToolContext) {
   if (isFieldRole(viewer)) throw new ToolError('denied', 'Your role cannot make this change in the app, so the AI cannot either.', 'field_role')
   return viewer
 }
+
+/** Everything the AI writes into a conversation carries this, so a reader can tell it did not come from the person typing. */
+const aiTag = (ctx: ToolContext) => `Written by AI (via ${ctx.clientName ?? 'an AI app'})`
+const AI_TAG_WARNING = 'It will be marked "Written by AI" with the app\'s name. @names in it are plain text: nobody is pinged or notified.'
 
 const REFUSED = 'You do not have permission to make this change in the app, so the AI cannot either.'
 
@@ -112,11 +117,12 @@ export const addNote = writeTool({
   },
   schema: noteSchema,
   write: {
+    idempotent: true,
     async prepare(ctx, a): Promise<ChangePreview> {
       const g = await dealGate(ctx, a.deal_id, a.audience)
       const warnings: string[] = []
       if (looksLikePricing(a.text)) warnings.push('This looks like it contains prices, so it will be hidden from setters.')
-      if (a.text.includes('@')) warnings.push('Nobody is notified. An AI app never sends messages or pings people.')
+      warnings.push(AI_TAG_WARNING)
       return {
         title: 'Add a note',
         lines: [
@@ -132,7 +138,7 @@ export const addNote = writeTool({
     async apply(ctx, a, changeId) {
       const g = await dealGate(ctx, a.deal_id, a.audience)
       // The one write path for deal conversations. No notifyMessage: an AI app never sends email or push.
-      const res = await postMessage(ctx.admin, ctx.profile, g.deal, { body: a.text, audience: g.audience, clientId: changeId, source: 'ai_connector', surface: 'other' }, { viewer: g.viewer })
+      const res = await postMessage(ctx.admin, ctx.profile, g.deal, { body: `${aiTag(ctx)}: ${a.text}`, audience: g.audience, clientId: changeId, source: 'ai_connector', surface: 'other', noMentions: true }, { viewer: g.viewer })
       if (!res.ok) throw new ToolError(res.status === 403 || res.status === 404 ? 'denied' : 'bad_input', res.error, 'post_refused')
       return { summary: 'Note added.', links: dealLinks(g.deal), recordIds: [g.deal.id, res.message.id] }
     },
@@ -166,6 +172,7 @@ export const logContact = writeTool({
   },
   schema: contactSchema,
   write: {
+    idempotent: true,
     async prepare(ctx, a): Promise<ChangePreview> {
       const g = await dealGate(ctx, a.deal_id, undefined)
       return {
@@ -177,12 +184,12 @@ export const logContact = writeTool({
         ],
         links: dealLinks(g.deal),
         recordIds: [g.deal.id],
-        warnings: ['This only records a contact that already happened. Nothing is sent to the customer.'],
+        warnings: ['This only records a contact that already happened. Nothing is sent to the customer.', AI_TAG_WARNING],
       }
     },
     async apply(ctx, a, changeId) {
       const g = await dealGate(ctx, a.deal_id, undefined)
-      const res = await postMessage(ctx.admin, ctx.profile, g.deal, { body: a.note ?? '', contact: { kind: a.kind as ContactKind, outcome: a.outcome as ContactOutcome }, clientId: changeId, source: 'ai_connector', surface: 'other' }, { viewer: g.viewer })
+      const res = await postMessage(ctx.admin, ctx.profile, g.deal, { body: a.note ? `${a.note} (${aiTag(ctx)})` : aiTag(ctx), noMentions: true, contact: { kind: a.kind as ContactKind, outcome: a.outcome as ContactOutcome }, clientId: changeId, source: 'ai_connector', surface: 'other' }, { viewer: g.viewer })
       if (!res.ok) throw new ToolError(res.status === 403 || res.status === 404 ? 'denied' : 'bad_input', res.error, 'post_refused')
       return { summary: 'Contact logged.', links: dealLinks(g.deal), recordIds: [g.deal.id, res.message.id] }
     },
@@ -202,10 +209,19 @@ const contactFields = {
 const leadSchema = z.object({ ...contactFields, notes: optPlain(2000), source: z.enum(leadSources).optional() }).strict().refine((a) => !!(a.name || a.phone || a.email || a.address), { message: 'Give at least a name, phone, email or address' })
 
 /** A matching existing customer is shown only to people who may see customer records (a setter must not learn who owns a phone number). */
-async function matchFor(ctx: ToolContext, a: { name?: string; phone?: string; email?: string; address?: string }) {
+async function matchFor(ctx: ToolContext, a: { name?: string; phone?: string; email?: string; address?: string }): Promise<{ id: string; name: string | null } | 'hidden' | null> {
   const viewer = await resolveThreadViewer(ctx.admin, ctx.profile)
   if (isFieldRole(viewer) || !(a.email || a.phone || (a.name && a.address))) return null
-  return (await findExistingCustomer(ctx.admin, ctx.orgId, { name: a.name ?? '', email: a.email || null, phone: a.phone || null, address_text: a.address || null })) as { id: string; name: string | null } | null
+  const m = (await findExistingCustomer(ctx.admin, ctx.orgId, { name: a.name ?? '', email: a.email || null, phone: a.phone || null, address_text: a.address || null })) as { id: string; name: string | null } | null
+  return m ? await visibleOrHidden(ctx, m) : null
+}
+
+const POSSIBLE_DUPLICATE = 'A possible duplicate already exists. Ask the office before adding this.'
+
+/** The existing customer is named or linked ONLY if this person may open that record (the read tools' own rule); otherwise it is reported without a name or id. */
+async function visibleOrHidden<T extends { id: string }>(ctx: ToolContext, m: T): Promise<T | 'hidden'> {
+  const own = await ownCustomerIds(ctx, [m.id])
+  return own === null || own.has(m.id) ? m : 'hidden'
 }
 
 async function mayCreateLeads(ctx: ToolContext) {
@@ -245,9 +261,9 @@ export const createLead = writeTool({
           { label: 'Source', value: a.source ?? 'other' },
           { label: 'Owner', value: 'You (the signed-in person)' },
         ],
-        links: m ? [link('Existing customer with the same details', `/c/${m.id}`)] : [],
-        recordIds: m ? [m.id] : [],
-        warnings: m ? [`A customer with these details is already on file (${m.name ?? 'unnamed'}). Make sure you want a separate lead.`] : [],
+        links: m && m !== 'hidden' ? [link('Existing customer with the same details', `/c/${m.id}`)] : [],
+        recordIds: m && m !== 'hidden' ? [m.id] : [],
+        warnings: m === 'hidden' ? [POSSIBLE_DUPLICATE] : m ? [`A customer with these details is already on file (${m.name ?? 'unnamed'}). Make sure you want a separate lead.`] : [],
       }
     },
     async apply(ctx, a) {
@@ -281,7 +297,11 @@ export const createCustomer = writeTool({
   write: {
     async prepare(ctx, a): Promise<ChangePreview> {
       await mayEditCustomers(ctx)
-      const m = (await findExistingCustomer(ctx.admin, ctx.orgId, { name: a.name, email: a.email || null, phone: a.phone || null, address_text: a.address || null })) as { id: string; name: string | null; email: string | null; phone: string | null; address_text: string | null } | null
+      const found = (await findExistingCustomer(ctx.admin, ctx.orgId, { name: a.name, email: a.email || null, phone: a.phone || null, address_text: a.address || null })) as { id: string; name: string | null; email: string | null; phone: string | null; address_text: string | null } | null
+      // The caller's own access check comes FIRST: a customer this person cannot open is never named, linked, described or filled.
+      const seen = found ? await visibleOrHidden(ctx, found) : null
+      if (seen === 'hidden') throw new ToolError('bad_input', POSSIBLE_DUPLICATE, 'possible_duplicate')
+      const m = seen
       if (!m) {
         return {
           title: 'Add a customer',
@@ -400,7 +420,7 @@ export const addCostLine = writeTool({
           { label: 'Job', value: [gate.job.job_number, gate.job.address_text].filter(Boolean).join(' — ') || 'Job' },
           { label: 'What', value: input.value.description },
           { label: 'Type', value: input.value.costType },
-          { label: 'Amount', value: `${input.value.credit ? '-' : ''}${money(input.value.amount)}` },
+          { label: 'Amount', value: formatMoney(Math.round(signedCostAmount(input.value.amount, input.value.credit) * 100)) },
         ],
         links: [link('Open the job', `/ops/jobs/${a.job_id}`)],
         recordIds: [a.job_id],
@@ -422,7 +442,7 @@ export const addCostLine = writeTool({
 
 /* ---- draft invoice --------------------------------------------------------------------------------------------------- */
 
-const invoiceLine = z.object({ description: plain(200), qty: z.number().finite().gt(0).max(10_000), unit_price: dollars(1_000_000), taxable: z.boolean().optional() }).strict()
+const invoiceLine = z.object({ description: plain(200), qty: z.number().finite().gt(0).max(10_000).refine(hasAtMost2Decimals, 'Quantity can have at most 2 decimals'), unit_price: dollars(1_000_000).refine(hasAtMost2Decimals, 'Prices are in dollars and cents'), taxable: z.boolean().optional() }).strict()
 const invoiceSchema = z.object({ customer_id: z.string().regex(ID), property_id: z.string().regex(ID).optional(), lines: z.array(invoiceLine).min(1).max(20) }).strict()
 
 async function invoiceGate(ctx: ToolContext, a: z.infer<typeof invoiceSchema>) {
@@ -437,8 +457,8 @@ async function invoiceGate(ctx: ToolContext, a: z.infer<typeof invoiceSchema>) {
     const { data: prop } = await db.from('properties').select('id, address_text').eq('id', a.property_id).eq('customer_id', a.customer_id).maybeSingle()
     if (!prop) throw new ToolError('not_found')
   }
-  const lines = a.lines.map((l) => ({ description: l.description, qty: Math.round(l.qty * 1000) / 1000, unit_price_cents: Math.round(l.unit_price * 100), taxable: l.taxable === true }))
-  const tax = await computeCustomerSalesTax(ctx.admin, ctx.orgId, a.customer_id, lines.map((l) => ({ amountCents: Math.round(l.qty * l.unit_price_cents), taxable: l.taxable })))
+  const lines = a.lines.map((l) => ({ description: l.description, qty: l.qty, unit_price_cents: Math.round(l.unit_price * 100), taxable: l.taxable === true }))
+  const tax = await computeCustomerSalesTax(ctx.admin, ctx.orgId, a.customer_id, lines.map((l) => ({ amountCents: lineTotalCents(l.qty, l.unit_price_cents), taxable: l.taxable })))
   const total = tax.subtotalCents + tax.taxCents
   if (total <= 0) throw new ToolError('bad_input', 'The invoice total must be above zero.', 'zero_total')
   return { customer: customer as { id: string; name: string | null }, lines, tax, total }
@@ -476,7 +496,7 @@ export const draftInvoice = writeTool({
         title: 'Start a draft invoice',
         lines: [
           { label: 'Customer', value: g.customer.name ?? 'Customer' },
-          ...g.lines.map((l, i) => ({ label: `Line ${i + 1}`, value: `${l.description} — ${l.qty} × ${formatMoney(l.unit_price_cents)} = ${formatMoney(Math.round(l.qty * l.unit_price_cents))}${l.taxable ? ' (taxable)' : ''}` })),
+          ...g.lines.map((l, i) => ({ label: `Line ${i + 1}`, value: `${l.description} — ${l.qty} × ${formatMoney(l.unit_price_cents)} = ${formatMoney(lineTotalCents(l.qty, l.unit_price_cents))}${l.taxable ? ' (taxable)' : ''}` })),
           { label: 'Subtotal', value: formatMoney(g.tax.subtotalCents) },
           { label: 'Sales tax', value: formatMoney(g.tax.taxCents) },
           { label: 'Total', value: formatMoney(g.total) },
@@ -569,7 +589,7 @@ export const draftPurchaseOrder = writeTool({
     },
     async apply(ctx, a) {
       const g = await poGate(ctx, a)
-      const saved = await savePoDraft(ctx.admin, g.target, ctx.userId, g.draft, null)
+      const saved = await savePoDraft(ctx.admin, g.target, ctx.userId, g.draft, null, { createOnly: true })
       if (!saved.ok) throw new ToolError(saved.status === 404 ? 'not_found' : 'bad_input', saved.message, 'po_refused')
       return { summary: 'Draft purchase order created (not sent).', links: [link('Open the job', `/ops/jobs/${a.job_id}`)], recordIds: [a.job_id, saved.id] }
     },

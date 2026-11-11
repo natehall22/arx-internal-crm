@@ -96,6 +96,14 @@ describe('postMessage', () => {
     expect(one.ok && one.recipients).toEqual([{ userId: 'ops', priority: 'needs_reply', reason: 'mention' }])
   })
 
+  it('noMentions (text an AI app wrote): "@Steve Potts" stays plain text, nobody is flagged or waiting', async () => {
+    const db = fresh()
+    const r = await post(db, 'closer', { body: 'Written by AI (via Claude): @Steve Potts can you look?', audience: 'team', noMentions: true })
+    expect(r.ok && r.message.mentioned_user_ids).toEqual([])
+    expect(r.ok && r.message.priority).toBe('fyi')
+    expect(r.ok && r.recipients).toEqual([])
+    expect(r.ok && r.message.body).toContain('@Steve Potts')
+  })
   it('mentioning a setter in a Production message pings them blind and never grants access', async () => {
     const db = fresh()
     const r = await post(db, 'ops', { body: '@Jordan Setter dumpster is on the street', audience: 'production' })

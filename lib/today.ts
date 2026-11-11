@@ -458,3 +458,29 @@ export async function loadServiceVisitQueues(admin: SupabaseClient, orgId: strin
     },
   ].filter((q) => q.count > 0 || q.items.length > 0)
 }
+
+/**
+ * Changes an AI app prepared for THIS person that wait for their Approve (lib/ai-connector/changes.ts). Per person, not org-wide:
+ * nobody else may approve them. Titles only (no customer details): the review page shows the exact change.
+ */
+export async function loadAiChangesQueue(admin: SupabaseClient, orgId: string, userId: string, now = new Date()): Promise<Queue> {
+  const { data, count } = ok(
+    await admin
+      .from('ai_changes')
+      .select('id, preview, created_at', { count: 'exact' })
+      .eq('org_id', orgId)
+      .eq('user_id', userId)
+      .eq('status', 'pending')
+      .gt('expires_at', now.toISOString())
+      .order('created_at', { ascending: false })
+      .limit(LIST_CAP)
+  )
+  const rows = (data ?? []) as Array<{ id: string; preview: { title?: string } | null; created_at: string }>
+  return {
+    id: 'ai-changes',
+    title: 'AI changes waiting for your approval',
+    count: count ?? rows.length,
+    empty: '',
+    items: rows.map((r) => ({ id: r.id, title: r.preview?.title ?? 'A change', detail: `Prepared ${formatTime(r.created_at)}. Open it to approve or decline.`, href: `/ai-changes/${r.id}`, ref: 'AI change', note: 'Waiting for your approval' })),
+  }
+}

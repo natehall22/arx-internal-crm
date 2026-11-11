@@ -6,6 +6,7 @@
 import { ATTACKER_ID, BRAVO_ROW_ID, LEAK_PATTERNS, ORG_A, ORG_B, VICTIM_ID, companyTables, createWorld, tablesInCode, type World } from '@/lib/test-helpers/breakin-harness'
 import { resolveOpsAccess } from '@/lib/ops-access'
 import { capResult } from '@/lib/ai-connector/mcp'
+import { approveAiChange, declineAiChange } from '@/lib/ai-connector/changes-review'
 import { MCP_TOOLS, READ_TOOLS } from '@/lib/ai-connector/tools'
 import { ToolError, type McpTool } from '@/lib/ai-connector/tools/types'
 
@@ -163,11 +164,13 @@ const WRITE_ATTACKS: Array<[string, unknown]> = [
 ]
 
 describe('phase 2: write tools only prepare, and never reach company A', () => {
-  it('every write tool is registered, needs writes, and is not read-only; confirm_change is the only saver', () => {
+  it('every write tool is registered, needs writes, and is not read-only; confirm_change only REPORTS (read-only, no key) and nothing the AI can call saves', () => {
     const writes = MCP_TOOLS.filter((t) => !t.readOnly).map((t) => t.name).sort()
-    expect(writes).toEqual(['add_cost_line', 'add_note', 'confirm_change', 'create_customer', 'create_lead', 'draft_invoice', 'draft_purchase_order', 'log_contact', 'reschedule_visit'])
+    expect(writes).toEqual(['add_cost_line', 'add_note', 'create_customer', 'create_lead', 'draft_invoice', 'draft_purchase_order', 'log_contact', 'reschedule_visit'])
     for (const t of MCP_TOOLS.filter((x) => !x.readOnly)) expect(t.needsWrites).toBe(true)
-    expect(MCP_TOOLS.filter((t) => t.destructive).map((t) => t.name).sort()).toEqual(['confirm_change', 'reschedule_visit'])
+    expect(byName('confirm_change').readOnly).toBe(true)
+    expect(MCP_TOOLS.filter((t) => t.destructive).map((t) => t.name).sort()).toEqual(['reschedule_visit'])
+    for (const t of MCP_TOOLS) expect(JSON.stringify(t.inputSchema)).not.toMatch(/confirm_key/)
   })
   it.each(WRITE_ATTACKS)('%s: B with A ids → refused or blind; nothing of A read, nothing written to A', async (name, args) => {
     const { w, ctx } = build('admin')
@@ -186,16 +189,18 @@ describe('phase 2: write tools only prepare, and never reach company A', () => {
   it('without crm:write / the switch every write tool and confirm_change refuses before reading anything', async () => {
     for (const t of MCP_TOOLS.filter((x) => x.needsWrites)) {
       const { w, ctx } = build('admin')
-      const res = await run(t, { ...ctx, writesAllowed: false }, t.name === 'confirm_change' ? { confirm_key: 'acf_' + 'a'.repeat(40) } : WRITE_ATTACKS.find(([n]) => n === t.name)![1])
+      const res = await run(t, { ...ctx, writesAllowed: false }, t.name === 'confirm_change' ? { change_id: VICTIM_ID } : WRITE_ATTACKS.find(([n]) => n === t.name)![1])
       expect(`${t.name}: ${res.error}`).toBe(`${t.name}: true`)
       expect(w.db.writes).toEqual([])
     }
   })
-  it('a confirm key minted for company A cannot be confirmed by B', async () => {
+  it('a change prepared in company A cannot be checked or approved by B (not through the AI tool, not through the person door)', async () => {
     const { w, ctx } = build('admin')
-    w.db.tables.ai_changes = [{ id: VICTIM_ID, org_id: ORG_A, user_id: ATTACKER_ID, grant_id: 'g-b', tool: 'add_note', token_hash: 'whatever', args: {}, args_hash: 'x', preview: {}, preview_hash: 'x', status: 'pending', expires_at: '2099-01-01T00:00:00Z' }]
-    const res = await run(byName('confirm_change'), ctx, { confirm_key: 'acf_' + 'a'.repeat(40) })
+    w.db.tables.ai_changes = [{ id: VICTIM_ID, org_id: ORG_A, user_id: ATTACKER_ID, grant_id: 'g-b', tool: 'add_note', args: {}, args_hash: 'x', preview: {}, preview_hash: 'x', status: 'pending', expires_at: '2099-01-01T00:00:00Z' }]
+    const res = await run(byName('confirm_change'), ctx, { change_id: VICTIM_ID })
     expect(res.error).toBe(true)
+    await expect(approveAiChange({ ...ctx, writesAllowed: true }, VICTIM_ID)).rejects.toThrow()
+    await expect(declineAiChange({ ...ctx, writesAllowed: true }, VICTIM_ID)).rejects.toThrow()
     expect(w.db.tables.ai_changes[0].status).toBe('pending')
   })
 })
@@ -227,7 +232,7 @@ describe('phase 2 control: B reaches its own records with the same tools (the at
   ] as Array<[string, unknown]>)('%s: B on its own record gets a preview', async (name, args) => {
     const { w, ctx } = build('admin')
     const res = await run(byName(name), ctx, args)
-    expect(`${name}: ${res.text.slice(0, 400)}`).toContain('preview_only_nothing_saved')
+    expect(`${name}: ${res.text.slice(0, 400)}`).toContain('waiting_for_the_person_to_approve_nothing_saved')
     expect(w.db.tables.ai_changes.filter((r) => r.tool === name && r.status === 'pending' && r.org_id === ORG_B)).toHaveLength(1)
   })
 })

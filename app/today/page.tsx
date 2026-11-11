@@ -27,7 +27,7 @@ import { loadCommissionChangesWaitingQueue } from '@/lib/payroll-commission-chan
 import { loadCustomerMessagesBlockedQueue } from '@/lib/customer-messages-db'
 import { loadPaymentReversalsQueue } from '@/lib/online-payments/summary'
 import { isPayrollAdminRole } from '@/lib/payroll-admin-access'
-import { loadCloserQueues, loadOpsQueues, loadOwnerExceptions, loadServiceVisitQueues, todayKindFor, type TodayKind } from '@/lib/today'
+import { loadAiChangesQueue, loadCloserQueues, loadOpsQueues, loadOwnerExceptions, loadServiceVisitQueues, todayKindFor, type TodayKind } from '@/lib/today'
 import { applyTodayProfile, loadOrgProfile } from '@/lib/org-profile'
 
 const TITLE: Record<TodayKind, string> = {
@@ -89,7 +89,9 @@ export default async function TodayPage() {
             { label: 'Appointments', value: mine.calendar },
           ]
   const waiting = await resolveThreadViewer(admin, profile).then((viewer) => listWaiting(admin, viewer)).catch(() => [])
-  const queues = applyTodayProfile([...(messagesBlocked ? [messagesBlocked] : []), ...(reversals && reversals.count > 0 ? [reversals] : []), ...(commissionWaiting ? [commissionWaiting] : []), ...(shiftsQueue ? [shiftsQueue] : []), ...visitQueues, ...closerQueues, ...opsQueues, ...ownerQueues], orgProfile.today, orgProfile.terms)
+  // AI changes waiting for THIS person's Approve (the switch must be on; a failed read just hides the card).
+  const aiChanges = orgProfile.features.aiConnectorWrites ? await loadAiChangesQueue(admin, profile.org_id, profile.id).catch((e) => { console.error('today: AI changes failed', e); return null }) : null
+  const queues = [...(aiChanges && aiChanges.count > 0 ? [aiChanges] : []), ...applyTodayProfile([...(messagesBlocked ? [messagesBlocked] : []), ...(reversals && reversals.count > 0 ? [reversals] : []), ...(commissionWaiting ? [commissionWaiting] : []), ...(shiftsQueue ? [shiftsQueue] : []), ...visitQueues, ...closerQueues, ...opsQueues, ...ownerQueues], orgProfile.today, orgProfile.terms)]
 
   return (
     <div className="min-h-screen bg-surface-subtle">

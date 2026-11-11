@@ -52,7 +52,7 @@ export async function GET() {
     builtinRedirectUris: BUILTIN_REDIRECT_URIS,
     extraRedirectUris: extra,
     connections: grants.map((g) => ({ id: g.id, userId: g.user_id, person: names.get(g.user_id) ?? 'Unknown', app: g.app_label ?? g.client_name ?? 'An app', canWrite: g.scopes.includes(WRITE_SCOPE), connectedAt: g.created_at, lastUsedAt: g.last_used_at })),
-    changes: changes.map((c) => ({ id: c.id, when: c.finished_at ?? c.created_at, person: names.get(c.user_id) ?? 'Unknown', tool: c.tool, summary: c.result?.summary ?? '', links: c.result?.links ?? [], failed: c.status === 'failed' })),
+    changes: changes.map((c) => ({ id: c.id, when: c.finished_at ?? c.created_at, person: names.get(c.user_id) ?? 'Unknown', tool: c.tool, summary: c.result?.summary ?? '', links: c.result?.links ?? [], failed: c.status === 'failed', stuck: c.stuck, saving: c.status === 'applying' && !c.stuck })),
     audit: audit.map((a) => ({ id: a.id, when: a.created_at, person: a.user_id ? names.get(a.user_id) ?? 'Unknown' : null, tool: a.tool, result: a.result, records: a.record_ids.length, detail: a.detail })),
   })
 }

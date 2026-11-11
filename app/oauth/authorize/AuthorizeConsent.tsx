@@ -56,7 +56,7 @@ export default function AuthorizeConsent({ ticket, companyName, appLabel, claime
           <label className="flex min-h-[44px] items-start gap-3 text-base">
             <input type="checkbox" className="mt-1 h-6 w-6 shrink-0" checked={allowWrites} onChange={(e) => setAllowWrites(e.target.checked)} />
             <span>
-              <strong>Also let it propose changes.</strong> It can add a note, log a call, add a lead or customer, move a service visit, add a job cost, or start a draft invoice or purchase order. You see exactly what will change and must confirm each one first; nothing is saved until you do. Leave this unticked to let it look things up only.
+              <strong>Also let it propose changes.</strong> It can add a note, log a call, add a lead or customer, move a service visit, add a job cost, or start a draft invoice or purchase order. Nothing is saved by the AI: each change waits in the CRM, and only you can approve it there after seeing exactly what will change. Leave this unticked to let it look things up only.
             </span>
           </label>
         </section>
@@ -68,7 +68,7 @@ export default function AuthorizeConsent({ ticket, companyName, appLabel, claime
         <ul className="mt-2 list-disc space-y-1 pl-5 text-base">
           <li>Delete anything, or send an email, text, invoice or order</li>
           <li>Take a payment, approve payroll, or change anyone&apos;s access or settings</li>
-          <li>{allowWrites ? 'Save a change you have not confirmed' : 'Change anything'}</li>
+          <li>{allowWrites ? 'Save a change unless you approve it yourself in the CRM' : 'Change anything'}</li>
           <li>See anything you cannot see yourself</li>
         </ul>
       </section>

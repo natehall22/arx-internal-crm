@@ -39,6 +39,8 @@ export type MessageDraft = {
   allowSetters?: boolean
   clientId?: string | null
   source?: string | null
+  /** Text is stored as typed; @names are NOT turned into mentions (nobody is flagged or waiting). Used for text an AI app wrote. */
+  noMentions?: boolean
   /** A logged call/text/email/visit: the row is written as that type with its outcome, and `body` becomes the optional note. */
   contact?: { kind: ContactKind; outcome: ContactOutcome } | null
 }
@@ -154,7 +156,7 @@ export async function postMessage(
     .eq('org_id', viewer.orgId)
     .eq('active', true)
   const candidates = mentionCandidates(((orgUsers ?? []) as OrgUser[]).map((u) => ({ ...u })))
-  const mentioned = resolveNoteMentions(body, candidates, draft.selectedMentionIds ?? [])
+  const mentioned = draft.noMentions ? [] : resolveNoteMentions(body, candidates, draft.selectedMentionIds ?? [])
     .filter((u) => u.id !== viewer.userId)
 
   const parentAuthor = parent?.user_id && parent.user_id !== viewer.userId ? parent.user_id : null
