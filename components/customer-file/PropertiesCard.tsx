@@ -103,10 +103,11 @@ export default function PropertiesCard({
     if (saved) {
       const existing = properties.find((p) => p.id === saved!.id)
       const defs = fieldsToShow(propertyFields, 'property', existing?.custom_fields ?? {})
-      const patch = patchFrom(defs, editing.fields)
-      const changed = Object.keys(patch).some((id) => (patch[id] ?? '') !== (draftFrom(defs, existing?.custom_fields ?? {})[id] ?? ''))
-      // Required fields are checked by the server on every save that carries values, so send whenever one exists.
-      if (changed || defs.some((d) => d.active && d.required)) {
+      // A new property sends every field (so required ones are checked); an edit sends only what changed (an untouched
+      // value — e.g. a dropdown choice removed since — stays as stored).
+      const patch = existing ? patchFrom(defs, editing.fields, draftFrom(defs, existing.custom_fields)) : patchFrom(defs, editing.fields)
+      const needed = existing ? Object.keys(patch).length > 0 : defs.some((d) => d.active && (d.required || (patch[d.id] ?? null) !== null))
+      if (needed) {
         const r = await saveCustomFieldValues('property', saved.id, patch)
         if ('error' in r) {
           setErrorField(r.fieldId ?? null)

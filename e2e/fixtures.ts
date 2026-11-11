@@ -550,12 +550,12 @@ export const HARNESS_CHECKUPS = [
 export const HARNESS_CUSTOM_FIELDS = {
   ready: true,
   definitions: [
-    { id: 'cf-gate', entity: 'customer', label: 'Billing contact', field_type: 'text', options: [], required: false, sort: 10, active: true },
-    { id: 'cf-terms', entity: 'customer', label: 'Payment terms', field_type: 'dropdown', options: ['Due on receipt', 'Net 15', 'Net 30'], required: true, sort: 20, active: true },
-    { id: 'pf-day', entity: 'property', label: 'Mowing day', field_type: 'dropdown', options: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'], required: false, sort: 10, active: true },
-    { id: 'pf-acres', entity: 'property', label: 'Acres', field_type: 'number', options: [], required: false, sort: 20, active: true },
-    { id: 'pf-old', entity: 'property', label: 'Old irrigation note', field_type: 'text', options: [], required: false, sort: 30, active: false },
-    { id: 'jf-crew', entity: 'job', label: 'Crew size', field_type: 'number', options: [], required: false, sort: 10, active: true },
+    { id: 'cf-gate', entity: 'customer', label: 'Billing contact', field_type: 'text', options: [], required: false, sort: 10, active: true, visible_to_field: false },
+    { id: 'cf-terms', entity: 'customer', label: 'Payment terms', field_type: 'dropdown', options: ['Due on receipt', 'Net 15', 'Net 30'], required: true, sort: 20, active: true, visible_to_field: false },
+    { id: 'pf-day', entity: 'property', label: 'Mowing day', field_type: 'dropdown', options: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'], required: false, sort: 10, active: true, visible_to_field: true },
+    { id: 'pf-acres', entity: 'property', label: 'Acres', field_type: 'number', options: [], required: false, sort: 20, active: true, visible_to_field: false },
+    { id: 'pf-old', entity: 'property', label: 'Old irrigation note', field_type: 'text', options: [], required: false, sort: 30, active: false, visible_to_field: false },
+    { id: 'jf-crew', entity: 'job', label: 'Crew size', field_type: 'number', options: [], required: false, sort: 10, active: true, visible_to_field: false },
   ],
 }
 

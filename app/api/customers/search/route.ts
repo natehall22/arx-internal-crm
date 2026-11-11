@@ -3,6 +3,7 @@ import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import { canAccessCustomerRecordsFromPermissionNames, isRepLikeCustomerRecordRole } from '@/lib/permissions'
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
+import { withoutCustomFields } from '@/lib/custom-fields'
 
 export const dynamic = 'force-dynamic'
 
@@ -119,7 +120,8 @@ export async function GET(request: Request) {
       customers = nameMatches || []
     }
 
-    return NextResponse.json({ customers })
+    // Custom field values only travel through the Customer File cards (field-role rule there).
+    return NextResponse.json({ customers: (customers ?? []).map((c: Record<string, unknown>) => withoutCustomFields(c)) })
 
   } catch (error) {
     console.error('Error in GET /api/customers/search:', error)

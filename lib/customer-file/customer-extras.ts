@@ -6,10 +6,10 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { resolveCustomerAccess, type CustomerAccess } from '@/lib/customer-file/customer-access'
 import { loadCustomFieldDefinitions, loadCustomFieldValues } from '@/lib/custom-fields-db'
-import type { CustomFieldDefinition } from '@/lib/custom-fields'
+import { definitionsForViewer, valuesForViewer, type CustomFieldDefinition } from '@/lib/custom-fields'
 import { loadCustomerProperties } from '@/lib/properties-db'
 import { propertyDisplayName, type Property } from '@/lib/properties'
-import type { ThreadViewer } from '@/lib/threads/visibility'
+import { isFieldRole, type ThreadViewer } from '@/lib/threads/visibility'
 
 export type CustomerExtras = {
   access: CustomerAccess
@@ -30,13 +30,16 @@ export async function loadCustomerExtras(admin: SupabaseClient, viewer: ThreadVi
     loadCustomFieldDefinitions(admin, viewer.orgId),
     loadCustomFieldValues(admin, viewer.orgId, 'customer', customerId),
   ])
+  // Field roles see only fields marked visible to them (lib/custom-fields.ts definitionsForViewer) — values included.
+  const visible = definitionsForViewer(defs.definitions, isFieldRole(viewer))
+  const propertyFields = visible.filter((d) => d.entity === 'property')
   return {
     access,
     propertiesReady: props.ready,
-    properties: props.properties,
+    properties: props.properties.map((p) => ({ ...p, custom_fields: valuesForViewer(p.custom_fields, propertyFields) })),
     propertyOptions: props.properties.filter((p) => p.active).map((p) => ({ id: p.id, name: propertyDisplayName(p) })),
-    customerFields: defs.definitions.filter((d) => d.entity === 'customer'),
-    propertyFields: defs.definitions.filter((d) => d.entity === 'property'),
-    customerValues: values ?? {},
+    customerFields: visible.filter((d) => d.entity === 'customer'),
+    propertyFields,
+    customerValues: valuesForViewer(values, visible.filter((d) => d.entity === 'customer')),
   }
 }

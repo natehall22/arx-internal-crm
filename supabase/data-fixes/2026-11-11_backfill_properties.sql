@@ -17,7 +17,8 @@
 --   c. production_jobs.property_id  = its project's deal's property (same customer), else the customer's property at the job address.
 --   d. work_orders.property_id      = its job's property (same customer or no customer on the work order).
 --   e. documents.property_id        = its job's property (only when the document's customer, if set, matches the job's).
--- NOT changed: any address column, customers, which address any page or PDF shows. Rows with no customer or a blank address
+-- NOT changed: any address column, customers, which address any page or PDF shows, any updated_at (see the stamp
+-- triggers below). Possible duplicates (house number differs, one address longer) are LISTED in the preview, not merged. Rows with no customer or a blank address
 -- get no property (they are counted in the preview).
 --
 -- Backup + undo: every property_id written is recorded in release_backups.backfill_properties_rows (table, row, previous
@@ -51,6 +52,27 @@ CREATE TABLE IF NOT EXISTS release_backups.backfill_properties_created (
   undone_at    timestamptz NULL,
   kept_reason  text        NULL
 );
+
+-- Linking a property is not an edit: the fix must not move "last updated" on jobs, crew rows or documents (lists sort on
+-- it). Their BEFORE UPDATE triggers stamp updated_at = now(), so apply and undo switch those triggers off for their own
+-- transaction only (ALTER TABLE is transactional: an error rolls the switch back too) and on again before returning.
+-- Only triggers that exist are touched; the company / customer check trigger (property_fill_row) stays on.
+CREATE OR REPLACE FUNCTION release_backups.backfill_properties_stamp_triggers(p_enable boolean) RETURNS void
+LANGUAGE plpgsql AS $$
+DECLARE r record;
+BEGIN
+  FOR r IN
+    SELECT c.relname AS tbl, t.tgname
+      FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid JOIN pg_namespace n ON n.oid = c.relnamespace
+     WHERE n.nspname = 'public' AND NOT t.tgisinternal
+       AND (c.relname, t.tgname) IN (('production_jobs', 'trigger_production_jobs_updated_at'),
+                                     ('work_orders', 'trigger_work_orders_updated_at'),
+                                     ('documents', 'trigger_enforce_documents_mvp_rules'))
+  LOOP
+    EXECUTE format('ALTER TABLE public.%I %s TRIGGER %I', r.tbl, CASE WHEN p_enable THEN 'ENABLE' ELSE 'DISABLE' END, r.tgname);
+  END LOOP;
+END;
+$$;
 
 -- Every (company, customer, address) that should have a property, with the best coordinates on file.
 CREATE OR REPLACE FUNCTION release_backups.property_backfill_sources() RETURNS TABLE (
@@ -88,6 +110,21 @@ CREATE OR REPLACE FUNCTION release_backups.property_backfill_sources() RETURNS T
    GROUP BY k1.org_id, k1.customer_id, k1.k;
 $$;
 
+-- Possible duplicates for a PERSON to confirm (never merged): two addresses of the same customer whose keys differ only
+-- in the house number ("706 Patricia Ave" / "710 Patricia Ave") or where one key is the other plus more words
+-- ("511 allison st nw" / "511 allison st nw concord").
+CREATE OR REPLACE FUNCTION release_backups.property_backfill_near_duplicates() RETURNS TABLE (
+  org_id uuid, customer_id uuid, address_a text, address_b text, why text
+) LANGUAGE sql STABLE AS $$
+  WITH s AS (SELECT * FROM release_backups.property_backfill_sources())
+  SELECT a.org_id, a.customer_id, a.address_text, b.address_text,
+         CASE WHEN regexp_replace(a.address_key, '^\S+\s', '') = regexp_replace(b.address_key, '^\S+\s', '') THEN 'house number differs'
+              ELSE 'one address is the other plus more words' END
+    FROM s a JOIN s b ON b.org_id = a.org_id AND b.customer_id = a.customer_id AND a.address_key < b.address_key
+   WHERE regexp_replace(a.address_key, '^\S+\s', '') = regexp_replace(b.address_key, '^\S+\s', '')
+      OR b.address_key LIKE a.address_key || ' %' OR a.address_key LIKE b.address_key || ' %';
+$$;
+
 CREATE OR REPLACE FUNCTION release_backups.backfill_properties(p_mode text DEFAULT 'preview') RETURNS jsonb
 LANGUAGE plpgsql AS $$
 DECLARE
@@ -108,6 +145,7 @@ BEGIN
     'jobs_no_customer', (SELECT count(*) FROM public.production_jobs WHERE property_id IS NULL AND customer_id IS NULL),
     'work_orders_with_job', (SELECT count(*) FROM public.work_orders WHERE property_id IS NULL AND job_id IS NOT NULL),
     'documents_on_job', (SELECT count(*) FROM public.documents WHERE property_id IS NULL AND job_id IS NOT NULL),
+    'near_duplicates_to_check', (SELECT coalesce(jsonb_agg(to_jsonb(d) - 'org_id' ORDER BY d.customer_id), '[]'::jsonb) FROM release_backups.property_backfill_near_duplicates() d),
     'sample', (SELECT coalesce(jsonb_agg(to_jsonb(s) - 'org_id'), '[]'::jsonb) FROM (SELECT * FROM release_backups.property_backfill_sources() ORDER BY customer_id LIMIT 15) s)
   ) INTO v_plan;
 
@@ -116,6 +154,8 @@ BEGIN
   END IF;
 
   -- ---- apply: one function = one transaction ----
+  SET LOCAL lock_timeout = '5s';
+  PERFORM release_backups.backfill_properties_stamp_triggers(false);
   -- a. properties
   WITH ins AS (
     INSERT INTO public.properties (org_id, customer_id, address_text, lat, lng, source)
@@ -183,6 +223,7 @@ BEGIN
   SELECT v_run, 'documents', id, org_id, property_id FROM u;
   GET DIAGNOSTICS v_docs = ROW_COUNT;
 
+  PERFORM release_backups.backfill_properties_stamp_triggers(true);
   RETURN jsonb_build_object('mode', 'apply', 'run_id', v_run, 'plan', v_plan - 'sample',
     'properties_created', v_created, 'opportunities_linked', v_opp, 'jobs_linked', v_job, 'work_orders_linked', v_wo, 'documents_linked', v_docs,
     'undo', 'SELECT release_backups.undo_backfill_properties();');
@@ -195,6 +236,8 @@ DECLARE
   v_reverted int := 0; v_n int; v_deleted int := 0; v_kept int := 0; v_changed int;
   r record;
 BEGIN
+  SET LOCAL lock_timeout = '5s';
+  PERFORM release_backups.backfill_properties_stamp_triggers(false);
   -- 1. clear property_id only where it still holds the applied value
   WITH u AS (UPDATE public.documents t SET property_id = NULL FROM release_backups.backfill_properties_rows b
               WHERE b.undone_at IS NULL AND b.table_name = 'documents' AND t.id = b.row_id AND t.property_id = b.applied_property_id RETURNING b.run_id, b.row_id)
@@ -234,6 +277,7 @@ BEGIN
     END IF;
   END LOOP;
 
+  PERFORM release_backups.backfill_properties_stamp_triggers(true);
   RETURN jsonb_build_object('property_ids_cleared', v_reverted, 'left_alone_changed_since', v_changed,
                             'properties_deleted', v_deleted, 'properties_kept', v_kept);
 END;

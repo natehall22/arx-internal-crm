@@ -15,12 +15,18 @@ CREATE TABLE customers (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), org_id uu
 CREATE TABLE opportunities (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), org_id uuid NOT NULL, customer_id uuid REFERENCES customers(id),
   address_text text, lat numeric, lng numeric, updated_at timestamptz NOT NULL DEFAULT now());
 CREATE TABLE projects (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), org_id uuid NOT NULL, opportunity_id uuid REFERENCES opportunities(id));
+-- Column types as in prod (2026-11-11): opportunities.lat/lng numeric, production_jobs.lat/lng double precision.
 CREATE TABLE production_jobs (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), org_id uuid NOT NULL, project_id uuid, customer_id uuid,
-  address_text text, lat numeric, lng numeric, updated_at timestamptz NOT NULL DEFAULT now());
+  address_text text, lat double precision, lng double precision, updated_at timestamptz NOT NULL DEFAULT now());
 CREATE TABLE work_orders (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), org_id uuid NOT NULL, job_id uuid, customer_id uuid,
-  address text, city text, state text, zip text);
+  address text, city text, state text, zip text, updated_at timestamptz NOT NULL DEFAULT now());
 CREATE TABLE documents (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), org_id uuid NOT NULL, job_id uuid, customer_id uuid,
-  storage_path text NOT NULL DEFAULT 'x', deleted_at timestamptz);
+  storage_path text NOT NULL DEFAULT 'x', deleted_at timestamptz, updated_at timestamptz NOT NULL DEFAULT now());
+-- The prod "last updated" stamps (same names), so the test proves the backfill leaves them alone.
+CREATE FUNCTION update_updated_at() RETURNS trigger LANGUAGE plpgsql AS $f$ BEGIN NEW.updated_at = now(); RETURN NEW; END $f$;
+CREATE TRIGGER trigger_production_jobs_updated_at BEFORE UPDATE ON production_jobs FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+CREATE TRIGGER trigger_work_orders_updated_at BEFORE UPDATE ON work_orders FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+CREATE TRIGGER trigger_enforce_documents_mvp_rules BEFORE UPDATE ON documents FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
 -- Existing data BEFORE the migration (ARX-shaped): A has one home, B has two, C has a blank address, org2 is another company.
 INSERT INTO orgs (id) VALUES ('00000000-0000-0000-0000-000000000001'), ('00000000-0000-0000-0000-000000000002');
@@ -35,10 +41,18 @@ INSERT INTO opportunities (id, org_id, customer_id, address_text, lat, lng) VALU
  ('30000000-0000-0000-0000-0000000000b2', '00000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-00000000000b', '9 Lake Dr, Kannapolis, NC 28081', NULL, NULL),
  ('30000000-0000-0000-0000-00000000000c', '00000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-00000000000c', NULL, NULL, NULL);
 INSERT INTO projects (id, org_id, opportunity_id) VALUES ('40000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-00000000000a');
-INSERT INTO production_jobs (id, org_id, project_id, customer_id, address_text) VALUES
- ('50000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-00000000000a', '12 Oak Street, Concord NC');
-INSERT INTO work_orders (id, org_id, job_id, customer_id) VALUES ('60000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-00000000000a', NULL);
-INSERT INTO documents (id, org_id, job_id) VALUES ('70000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-00000000000a');
+INSERT INTO production_jobs (id, org_id, project_id, customer_id, address_text, updated_at) VALUES
+ ('50000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-00000000000a', '12 Oak Street, Concord NC', '2026-01-01T00:00:00Z');
+-- A job with no deal behind it (customer D): its own address makes the property; coordinates are double precision.
+INSERT INTO customers (id, org_id, address_text) VALUES ('10000000-0000-0000-0000-00000000000d', '00000000-0000-0000-0000-000000000001', '511 Allison St NW, Concord, NC 28027');
+INSERT INTO production_jobs (id, org_id, project_id, customer_id, address_text, lat, lng, updated_at) VALUES
+ ('50000000-0000-0000-0000-00000000000b', '00000000-0000-0000-0000-000000000001', NULL, '10000000-0000-0000-0000-00000000000d', '511 Allison St nw concord nc', 35.41234567891, -80.58765432109, '2026-01-01T00:00:00Z');
+-- Customer B also has two near-duplicate deal addresses (house number differs) for the preview list.
+INSERT INTO opportunities (org_id, customer_id, address_text) VALUES
+ ('00000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-00000000000b', '706 Patricia Ave, Concord, NC 28025'),
+ ('00000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-00000000000b', '710 Patricia Ave, Concord, NC 28025');
+INSERT INTO work_orders (id, org_id, job_id, customer_id, updated_at) VALUES ('60000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-00000000000a', NULL, '2026-01-01T00:00:00Z');
+INSERT INTO documents (id, org_id, job_id, updated_at) VALUES ('70000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-00000000000a', '2026-01-01T00:00:00Z');
 
 \i supabase/migrations/202611110010_properties.sql
 \i supabase/migrations/202611110020_custom_fields.sql
@@ -52,24 +66,37 @@ DECLARE pv jsonb; ap jsonb; ap2 jsonb; un jsonb; n int; pa uuid; pb uuid; pid uu
   ca uuid := '10000000-0000-0000-0000-00000000000a'; cb uuid := '10000000-0000-0000-0000-00000000000b'; c2 uuid := '20000000-0000-0000-0000-00000000000a';
 BEGIN
   -- T1 address key
-  ASSERT public.property_address_key('123 Main St., Tallahassee, FL 32301, USA') = '123 main st tallahassee fl 32301', 'T1 key';
+  ASSERT public.property_address_key('123 Main St., Tallahassee, FL 32301, USA') = '123 main st tallahassee', 'T1 key ' || public.property_address_key('123 Main St., Tallahassee, FL 32301, USA');
+  ASSERT public.property_address_key('511 Allison St nw concord nc') = public.property_address_key('511 Allison St NW, Concord, NC 28027'), 'T1 zip/state/case';
+  ASSERT public.property_address_key('511 Allison St NW, Concord, NC 28027-1234') = '511 allison st nw concord', 'T1 zip+4';
+  ASSERT public.property_address_key('12 Oak Ct') = '12 oak ct', 'T1 Ct kept on a short address';
+  ASSERT public.property_address_key('706 Patricia Ave') <> public.property_address_key('710 Patricia Ave'), 'T1 house numbers never merge';
   ASSERT public.property_address_key('  ') = '', 'T1 blank';
   ASSERT public.property_address_key('Unit #4-B, 5 Elm') = 'unit #4-b 5 elm', 'T1 keeps # and -';
   -- T2 preview writes nothing
   pv := release_backups.backfill_properties('preview');
   ASSERT (SELECT count(*) FROM properties) = 0, 'T2 preview wrote';
-  ASSERT (pv->'plan'->>'properties_needed')::int = 4, 'T2 needed=' || (pv->'plan'->>'properties_needed');
+  -- A x1, B x4 (Pine, Lake, 706, 710), D x1 (job without a deal), org2 x1
+  ASSERT (pv->'plan'->>'properties_needed')::int = 7, 'T2 needed=' || (pv->'plan'->>'properties_needed');
+  ASSERT jsonb_array_length(pv->'plan'->'near_duplicates_to_check') = 1
+     AND pv->'plan'->'near_duplicates_to_check'->0->>'why' = 'house number differs', 'T2 near dups ' || (pv->'plan'->'near_duplicates_to_check')::text;
   -- T3 apply
   ap := release_backups.backfill_properties('apply');
-  ASSERT (ap->>'properties_created')::int = 4, 'T3 created ' || ap::text;
-  ASSERT (SELECT count(*) FROM properties WHERE source = 'backfill') = 4, 'T3 source';
+  ASSERT (ap->>'properties_created')::int = 7, 'T3 created ' || ap::text;
+  ASSERT (SELECT count(*) FROM properties WHERE source = 'backfill') = 7, 'T3 source';
+  ASSERT (SELECT p.lat FROM production_jobs j JOIN properties p ON p.id = j.property_id WHERE j.id = '50000000-0000-0000-0000-00000000000b') = 35.41234568, 'T3 job without deal: own address + double coords';
+  ASSERT (SELECT count(*) FROM properties WHERE customer_id = '10000000-0000-0000-0000-00000000000d') = 1, 'T3 D: customer address and job address are one property';
+  ASSERT (SELECT updated_at FROM production_jobs WHERE id = '50000000-0000-0000-0000-00000000000a') = '2026-01-01T00:00:00Z', 'T3 job updated_at kept';
+  ASSERT (SELECT updated_at FROM work_orders WHERE id = '60000000-0000-0000-0000-00000000000a') = '2026-01-01T00:00:00Z', 'T3 work order updated_at kept';
+  ASSERT (SELECT updated_at FROM documents WHERE id = '70000000-0000-0000-0000-00000000000a') = '2026-01-01T00:00:00Z', 'T3 document updated_at kept';
+  ASSERT (SELECT bool_and(t.tgenabled = 'O') FROM pg_trigger t WHERE t.tgname IN ('trigger_production_jobs_updated_at', 'trigger_work_orders_updated_at', 'trigger_enforce_documents_mvp_rules')), 'T3 stamp triggers back on';
   SELECT property_id INTO pa FROM opportunities WHERE id = '30000000-0000-0000-0000-00000000000a';
   ASSERT pa IS NOT NULL, 'T3 opp A linked';
   ASSERT (SELECT lat FROM properties WHERE id = pa) = 35.4, 'T3 coords from deal';
   ASSERT (SELECT property_id FROM production_jobs WHERE id = '50000000-0000-0000-0000-00000000000a') = pa, 'T3 job takes deal property despite spelling';
   ASSERT (SELECT property_id FROM work_orders WHERE id = '60000000-0000-0000-0000-00000000000a') = pa, 'T3 work order takes job property';
   ASSERT (SELECT property_id FROM documents WHERE id = '70000000-0000-0000-0000-00000000000a') = pa, 'T3 document takes job property';
-  ASSERT (SELECT count(DISTINCT property_id) FROM opportunities WHERE customer_id = cb) = 2, 'T3 B has two properties';
+  ASSERT (SELECT count(DISTINCT property_id) FROM opportunities WHERE customer_id = cb) = 4, 'T3 B has four properties (near duplicates are not merged)';
   ASSERT (SELECT property_id FROM opportunities WHERE id = '30000000-0000-0000-0000-00000000000c') IS NULL, 'T3 blank address stays NULL';
   ASSERT (SELECT org_id FROM properties WHERE customer_id = c2) = o2, 'T3 org2 property in org2';
   ASSERT (SELECT address_text FROM opportunities WHERE id = '30000000-0000-0000-0000-00000000000a') = '12 oak st,  Concord, NC 28025', 'T3 address untouched';
@@ -85,6 +112,8 @@ BEGIN
   INSERT INTO projects (id, org_id, opportunity_id) VALUES ('40000000-0000-0000-0000-0000000000d1', o1, '30000000-0000-0000-0000-0000000000d1');
   INSERT INTO production_jobs (id, org_id, project_id, customer_id, address_text) VALUES ('50000000-0000-0000-0000-0000000000d1', o1, '40000000-0000-0000-0000-0000000000d1', ca, 'something else') RETURNING property_id INTO pid;
   ASSERT pid = pb, 'T5 job inherits deal property';
+  INSERT INTO production_jobs (org_id, customer_id, address_text, lat, lng) VALUES (o1, cb, '3 Fresh Rd, Concord NC', 35.5::double precision, -80.5::double precision) RETURNING property_id INTO pid;
+  ASSERT pid IS NOT NULL AND (SELECT lng FROM properties WHERE id = pid) = -80.5, 'T5 job without deal fills with double precision coords';
   INSERT INTO work_orders (org_id, job_id) VALUES (o1, '50000000-0000-0000-0000-0000000000d1') RETURNING property_id INTO pid;
   ASSERT pid = pb, 'T5 work order inherits';
   INSERT INTO work_orders (org_id, customer_id, address, city, state, zip) VALUES (o1, cb, '9 Lake Dr', 'Kannapolis', 'NC', '28081') RETURNING property_id INTO pid;
@@ -148,7 +177,8 @@ BEGIN
   ASSERT pid = pa, 'T10 an unrelated update leaves it alone';
   UPDATE opportunities SET customer_id = ca WHERE id = '30000000-0000-0000-0000-00000000000a' RETURNING property_id INTO pid;
   ASSERT pid = pa, 'T10 same customer rewritten: unchanged';
-  UPDATE opportunities SET customer_id = cb WHERE id = '30000000-0000-0000-0000-0000000000d1';  -- put back for T9
+  UPDATE opportunities SET customer_id = cb WHERE id = '30000000-0000-0000-0000-0000000000d1' RETURNING property_id INTO pid;  -- NULL -> a customer
+  ASSERT pid IS NOT NULL AND (SELECT customer_id FROM properties WHERE id = pid) = cb, 'T10 no customer -> customer fills';
 
   -- T9 undo: clears only rows still holding the applied value; keeps properties in use or edited
   UPDATE production_jobs SET property_id = pb WHERE id = '50000000-0000-0000-0000-00000000000a';   -- someone moved the job to A's other property since
@@ -159,6 +189,8 @@ BEGIN
   ASSERT EXISTS (SELECT 1 FROM properties WHERE id = pa), 'T9 property A kept (in use by the new deal / edited)';
   ASSERT NOT EXISTS (SELECT 1 FROM properties WHERE customer_id = c2), 'T9 unused backfill property deleted';
   ASSERT (un->>'left_alone_changed_since')::int = 1, 'T9 count changed';
+  ASSERT (SELECT updated_at FROM work_orders WHERE id = '60000000-0000-0000-0000-00000000000a') = '2026-01-01T00:00:00Z', 'T9 undo kept work order updated_at';
+  ASSERT (SELECT property_id FROM work_orders WHERE id = '60000000-0000-0000-0000-00000000000a') IS NULL, 'T9 work order cleared';
 
   RAISE EXCEPTION 'REPORT (rolled back by design): all assertions passed';
 END $t$;

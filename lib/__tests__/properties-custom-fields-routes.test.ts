@@ -34,13 +34,15 @@ function seed() {
         { id: 'd1', org_id: ORG, customer_id: 'c1', owner_user_id: 'u-closer', setter_user_id: 'u-setter' },
       ],
       properties: [
-        { id: 'p1', org_id: ORG, customer_id: 'c1', label: null, address_line1: '5 Elm', city: 'Tallahassee', state: 'FL', zip: '32301', address_text: '5 Elm, Tallahassee, FL 32301', access_notes: 'Gate 4421', active: true, source: 'manual', custom_fields: {} },
+        { id: 'p1', org_id: ORG, customer_id: 'c1', label: null, address_line1: '5 Elm', city: 'Tallahassee', state: 'FL', zip: '32301', address_text: '5 Elm, Tallahassee, FL 32301', access_notes: 'Gate 4421', active: true, source: 'manual', custom_fields: { 'f-prop-office': 'office only', 'f-prop-all': 'everyone' } },
         { id: 'px', org_id: OTHER, customer_id: 'cx', address_text: '1 Other', active: true, source: 'manual', custom_fields: {} },
       ],
       production_jobs: [{ id: 'j1', org_id: ORG, customer_id: 'c1', custom_fields: {} }, { id: 'jx', org_id: OTHER, customer_id: 'cx' }],
       custom_field_definitions: [
         { id: 'f-cust', org_id: ORG, entity: 'customer', label: 'Gate code', field_type: 'text', options: [], required: false, sort: 10, active: true },
         { id: 'f-job', org_id: ORG, entity: 'job', label: 'Crew size', field_type: 'number', options: [], required: true, sort: 10, active: true },
+        { id: 'f-prop-office', org_id: ORG, entity: 'property', label: 'Office note', field_type: 'text', options: [], required: false, sort: 10, active: true, visible_to_field: false },
+        { id: 'f-prop-all', org_id: ORG, entity: 'property', label: 'Crew note', field_type: 'text', options: [], required: false, sort: 20, active: true, visible_to_field: true },
         { id: 'f-other', org_id: OTHER, entity: 'customer', label: 'Theirs', field_type: 'text', options: [], required: false, sort: 10, active: true },
       ],
       documents: [],
@@ -119,6 +121,7 @@ describe('properties', () => {
     const body = await res.json()
     expect(body.properties.map((p: { id: string }) => p.id)).toEqual(['p1'])
     expect(body.properties[0].access_notes).toBe('Gate 4421')
+    expect(body.properties[0].custom_fields).toEqual({ 'f-prop-office': 'office only', 'f-prop-all': 'everyone' })
     expect((await propertiesRoute.GET(json('GET'), { params: { id: 'cx' } })).status).toBe(404)
   })
 
@@ -126,6 +129,7 @@ describe('properties', () => {
     viewer = baseViewer({ userId: 'u-setter', setterLike: true, pricingBarred: true })
     const body = await (await propertiesRoute.GET(json('GET'), { params: { id: 'c1' } })).json()
     expect(body.properties[0].access_notes).toBeNull()
+    expect(body.properties[0].custom_fields).toEqual({ 'f-prop-all': 'everyone' })
     expect(body.canEdit).toBe(false)
     expect((await propertiesRoute.POST(json('POST', { address_line1: '9 Pine' }), { params: { id: 'c1' } })).status).toBe(403)
   })
@@ -187,7 +191,9 @@ describe('Settings → Custom fields (owners only)', () => {
   it('owner: list is this company’s only; add / rules', async () => {
     superAdmin = true
     const list = await (await adminRoute.GET()).json()
-    expect(list.definitions.map((d: { id: string }) => d.id).sort()).toEqual(['f-cust', 'f-job'])
+    expect(list.definitions.map((d: { id: string }) => d.id).sort()).toEqual(['f-cust', 'f-job', 'f-prop-all', 'f-prop-office'])
+    expect((await adminRoute.POST(json('POST', { action: 'update', id: 'f-job', visible_to_field: true }))).status).toBe(400)
+    expect((await adminRoute.POST(json('POST', { action: 'update', id: 'f-cust', visible_to_field: true }))).status).toBe(200)
     expect((await adminRoute.POST(json('POST', { action: 'add', entity: 'property', label: 'Mow day', field_type: 'dropdown', options: [] }))).status).toBe(400)
     expect((await adminRoute.POST(json('POST', { action: 'add', entity: 'customer', label: 'gate CODE', field_type: 'text' }))).status).toBe(409)
     const ok = await adminRoute.POST(json('POST', { action: 'add', entity: 'property', label: 'Mow day', field_type: 'dropdown', options: ['Mon', 'Tue', 'mon'] }))

@@ -3,7 +3,10 @@ import { NextResponse } from 'next/server'
 import { resolveCustomerAccess } from '@/lib/customer-file/customer-access'
 import { createProperty, loadCustomerProperties } from '@/lib/properties-db'
 import { PROPERTIES_NOT_READY } from '@/lib/properties'
+import { definitionsForViewer, valuesForViewer } from '@/lib/custom-fields'
+import { loadCustomFieldDefinitions } from '@/lib/custom-fields-db'
 import { threadAuth } from '@/lib/threads/api'
+import { isFieldRole } from '@/lib/threads/visibility'
 
 export const dynamic = 'force-dynamic'
 
@@ -16,8 +19,18 @@ export async function GET(request: Request, { params }: { params: { id: string }
   const access = await resolveCustomerAccess(ctx.admin, ctx.viewer, params.id)
   if (!access?.read) return notFound()
   const includeInactive = new URL(request.url).searchParams.get('all') === '1'
-  const { ready, properties } = await loadCustomerProperties(ctx.admin, ctx.viewer.orgId, params.id, { includeInactive, accessNotes: access.accessNotes })
-  return NextResponse.json({ ready, properties, canEdit: access.edit, accessNotes: access.accessNotes })
+  const [{ ready, properties }, defs] = await Promise.all([
+    loadCustomerProperties(ctx.admin, ctx.viewer.orgId, params.id, { includeInactive, accessNotes: access.accessNotes }),
+    loadCustomFieldDefinitions(ctx.admin, ctx.viewer.orgId, 'property'),
+  ])
+  // Field values reach field roles only for fields marked visible to them.
+  const visible = definitionsForViewer(defs.definitions, isFieldRole(ctx.viewer))
+  return NextResponse.json({
+    ready,
+    properties: properties.map((p) => ({ ...p, custom_fields: valuesForViewer(p.custom_fields, visible) })),
+    canEdit: access.edit,
+    accessNotes: access.accessNotes,
+  })
 }
 
 /** POST — add a property to the customer. body: PropertyInput (lib/properties.ts). */

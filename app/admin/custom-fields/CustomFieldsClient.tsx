@@ -113,6 +113,7 @@ function EntityFields({
           if (!d) return null
           const parts: string[] = [CUSTOM_FIELD_TYPE_LABELS[d.field_type]]
           if (d.required) parts.push('Required')
+          if (d.visible_to_field) parts.push('Door-knocking roles see it')
           if (d.field_type === 'dropdown') parts.push(d.options.join(', '))
           return parts.join(' · ')
         }}
@@ -120,7 +121,7 @@ function EntityFields({
           const d = byId(id)
           return d ? (
             <Button type="button" size="sm" variant="secondary" disabled={busy} onClick={() => setSettingsFor(d)}>
-              {d.field_type === 'dropdown' ? 'Choices & required' : 'Required'}
+              {d.field_type === 'dropdown' ? 'Choices & settings' : 'Settings'}
             </Button>
           ) : null
         }}
@@ -140,15 +141,17 @@ function AddFieldForm({ entity, save }: { entity: CustomFieldEntity; save: (body
   const [type, setType] = React.useState<CustomFieldType>('text')
   const [choices, setChoices] = React.useState('')
   const [required, setRequired] = React.useState(false)
+  const [fieldVisible, setFieldVisible] = React.useState(false)
   const [busy, setBusy] = React.useState(false)
   const reqId = React.useId()
+  const visId = React.useId()
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
     if (!label.trim()) return
     setBusy(true)
     const ok = await save(
-      { action: 'add', entity, label: label.trim(), field_type: type, required, ...(type === 'dropdown' ? { options: linesOf(choices) } : {}) },
+      { action: 'add', entity, label: label.trim(), field_type: type, required, visible_to_field: entity !== 'job' && fieldVisible, ...(type === 'dropdown' ? { options: linesOf(choices) } : {}) },
       `${label.trim()} added`
     )
     setBusy(false)
@@ -156,6 +159,7 @@ function AddFieldForm({ entity, save }: { entity: CustomFieldEntity; save: (body
       setLabel('')
       setChoices('')
       setRequired(false)
+      setFieldVisible(false)
       setType('text')
     }
   }
@@ -186,6 +190,12 @@ function AddFieldForm({ entity, save }: { entity: CustomFieldEntity; save: (body
         <input id={reqId} type="checkbox" checked={required} onChange={(e) => setRequired(e.target.checked)} className="h-5 w-5" />
         Required (must be filled in before the record’s fields can be saved)
       </label>
+      {entity !== 'job' ? (
+        <label htmlFor={visId} className="flex min-h-tap items-center gap-3 text-ui-base text-ink">
+          <input id={visId} type="checkbox" checked={fieldVisible} onChange={(e) => setFieldVisible(e.target.checked)} className="h-5 w-5" />
+          Setters, canvassers and inside sales can see it (off: office and crews only)
+        </label>
+      ) : null}
       <p className="text-ui-sm text-ink">The type can’t be changed later — turn the field off and add a new one instead.</p>
       <Button type="submit" loading={busy} disabled={!label.trim() || (type === 'dropdown' && linesOf(choices).length === 0)} className="sm:self-start">
         + Add field
@@ -196,14 +206,19 @@ function AddFieldForm({ entity, save }: { entity: CustomFieldEntity; save: (body
 
 function FieldSettingsSheet({ def, onClose, save }: { def: CustomFieldDefinition; onClose: () => void; save: (body: Record<string, unknown>, done: string) => Promise<boolean> }) {
   const [required, setRequired] = React.useState(def.required)
+  const [fieldVisible, setFieldVisible] = React.useState(def.visible_to_field)
   const [choices, setChoices] = React.useState(def.options.join('\n'))
   const [busy, setBusy] = React.useState(false)
   const reqId = React.useId()
+  const visId = React.useId()
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
     setBusy(true)
-    const ok = await save({ action: 'update', id: def.id, required, ...(def.field_type === 'dropdown' ? { options: linesOf(choices) } : {}) }, `${def.label} saved`)
+    const ok = await save(
+      { action: 'update', id: def.id, required, ...(def.entity !== 'job' ? { visible_to_field: fieldVisible } : {}), ...(def.field_type === 'dropdown' ? { options: linesOf(choices) } : {}) },
+      `${def.label} saved`
+    )
     setBusy(false)
     if (ok) onClose()
   }
@@ -221,6 +236,12 @@ function FieldSettingsSheet({ def, onClose, save }: { def: CustomFieldDefinition
             <input id={reqId} type="checkbox" checked={required} onChange={(e) => setRequired(e.target.checked)} className="h-5 w-5" />
             Required
           </label>
+          {def.entity !== 'job' ? (
+            <label htmlFor={visId} className="flex min-h-tap items-center gap-3 text-ui-base text-ink">
+              <input id={visId} type="checkbox" checked={fieldVisible} onChange={(e) => setFieldVisible(e.target.checked)} className="h-5 w-5" />
+              Setters, canvassers and inside sales can see it
+            </label>
+          ) : null}
           <DialogFooter>
             <Button type="button" variant="secondary" disabled={busy} onClick={onClose}>
               Cancel

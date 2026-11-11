@@ -117,9 +117,11 @@ export async function saveDefinitionChange(
         options = o
       }
       if (change.required !== undefined && typeof change.required !== 'boolean') return fail(400, 'required must be true or false')
+      if (change.visible_to_field !== undefined && typeof change.visible_to_field !== 'boolean') return fail(400, 'visible_to_field must be true or false')
       const sort = Math.max(0, ...defs.filter((d) => d.entity === change.entity).map((d) => d.sort)) + 10
       ;({ error } = await db.from('custom_field_definitions').insert({
         entity: change.entity, label, field_type: change.field_type, options, required: change.required === true, sort, active: true,
+        visible_to_field: change.entity !== 'job' && change.visible_to_field === true,
         created_by: userId, updated_by: userId,
       }))
       break
@@ -143,6 +145,11 @@ export async function saveDefinitionChange(
       if (change.required !== undefined) {
         if (typeof change.required !== 'boolean') return fail(400, 'required must be true or false')
         patch.required = change.required
+      }
+      if (change.visible_to_field !== undefined) {
+        if (typeof change.visible_to_field !== 'boolean') return fail(400, 'visible_to_field must be true or false')
+        if (def.entity === 'job' && change.visible_to_field) return fail(400, 'Field roles never see jobs')
+        patch.visible_to_field = change.visible_to_field
       }
       if (Object.keys(patch).length === 2) return fail(400, 'Nothing to save')
       ;({ error } = await db.from('custom_field_definitions').update(patch).eq('id', def.id))

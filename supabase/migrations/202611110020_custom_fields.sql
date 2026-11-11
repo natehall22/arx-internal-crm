@@ -2,7 +2,7 @@
 -- the values live on the record itself. Additive / nullable only. NOT applied by the builder — apply BEFORE the code
 -- (the code reads both; without them the Custom fields page says so and record pages show nothing extra).
 --
--- 1. custom_field_definitions: one row per field. `id` is the field's permanent key — values are stored under it, so a
+-- 1. custom_field_definitions: one row per field. Values are hidden from field roles unless `visible_to_field`. `id` is the field's permanent key — values are stored under it, so a
 --    rename never loses data. `field_type` never changes after creation (the API refuses it). Never hard-deleted by the
 --    app: `active = false` hides it and keeps every saved value.
 -- 2. custom_fields jsonb on customers, properties, production_jobs: { "<definition id>": value }.
@@ -16,6 +16,7 @@
 --           DROP TABLE public.custom_field_definitions;
 
 BEGIN;
+SET LOCAL lock_timeout = '5s';   -- adds columns to busy tables: give up rather than queue behind a long transaction
 
 CREATE TABLE IF NOT EXISTS public.custom_field_definitions (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -26,6 +27,9 @@ CREATE TABLE IF NOT EXISTS public.custom_field_definitions (
   -- Dropdown choices, in order. Empty for every other type.
   options jsonb NOT NULL DEFAULT '[]'::jsonb CHECK (jsonb_typeof(options) = 'array' AND jsonb_array_length(options) <= 50),
   required boolean NOT NULL DEFAULT false,
+  -- Field roles (setters, canvassers, inside sales) see a customer / property field only when this is on. Job fields never
+  -- reach them (they have no job access at all).
+  visible_to_field boolean NOT NULL DEFAULT false,
   sort integer NOT NULL DEFAULT 0,
   active boolean NOT NULL DEFAULT true,
   created_by uuid NULL REFERENCES public.users(id) ON DELETE SET NULL,

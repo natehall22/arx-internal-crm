@@ -2,6 +2,9 @@ import {
   cleanFieldOptions,
   cleanFieldValue,
   definitionFromRow,
+  definitionsForViewer,
+  valuesForViewer,
+  withoutCustomFields,
   displayFieldValue,
   fieldsToShow,
   isCalendarDate,
@@ -10,7 +13,7 @@ import {
 } from '@/lib/custom-fields'
 
 const def = (over: Partial<CustomFieldDefinition>): CustomFieldDefinition => ({
-  id: 'f', entity: 'customer', label: 'Field', field_type: 'text', options: [], required: false, sort: 0, active: true, ...over,
+  id: 'f', entity: 'customer', label: 'Field', field_type: 'text', options: [], required: false, sort: 0, active: true, visible_to_field: false, ...over,
 })
 
 describe('cleanFieldValue', () => {
@@ -68,6 +71,14 @@ describe('validateValuePatch', () => {
     expect(validateValuePatch(defs, 'customer', { b: 1 }, { job1: 'x' }).ok).toBe(false)
     expect(validateValuePatch(defs, 'customer', { b: 1 }, { nope: 'x' }).ok).toBe(false)
   })
+  it('a value sent back unchanged is kept without re-validation (a removed dropdown choice does not block other fields)', () => {
+    const dd = [def({ id: 'd', field_type: 'dropdown', options: ['Net 30'] }), def({ id: 'n', field_type: 'number' }), def({ id: 'y', field_type: 'yes_no' }), def({ id: 'a' })]
+    const stored = { d: 'Net 15', n: 1250, y: true }
+    expect(validateValuePatch(dd, 'customer', stored, { d: 'Net 15', n: '1,250', y: 'yes', a: 'new' })).toEqual({ ok: true, set: { a: 'new' }, remove: [] })
+    expect(validateValuePatch(dd, 'customer', stored, { d: 'Net 15 ' }).ok).toBe(false) // nothing changed -> nothing to save
+    expect(validateValuePatch(dd, 'customer', stored, { d: 'Weekly' })).toMatchObject({ ok: false, fieldId: 'd' }) // a real change is checked
+    expect(validateValuePatch(dd, 'customer', stored, { d: null })).toEqual({ ok: true, set: {}, remove: ['d'] })
+  })
   it('refuses a non-object or empty patch', () => {
     expect(validateValuePatch(defs, 'customer', {}, null).ok).toBe(false)
     expect(validateValuePatch(defs, 'customer', {}, ['a']).ok).toBe(false)
@@ -91,6 +102,16 @@ describe('definitions', () => {
     const defs = [def({ id: 'x', sort: 20 }), def({ id: 'y', sort: 10 }), def({ id: 'z', active: false, sort: 5 })]
     expect(fieldsToShow(defs, 'customer', {}).map((d) => d.id)).toEqual(['y', 'x'])
     expect(fieldsToShow(defs, 'customer', { z: 'kept' }).map((d) => d.id)).toEqual(['z', 'y', 'x'])
+  })
+})
+
+describe('field roles', () => {
+  it('see only customer / property fields marked visible to them, values included; never job fields', () => {
+    const defs = [def({ id: 'c1' }), def({ id: 'c2', visible_to_field: true }), def({ id: 'p1', entity: 'property', visible_to_field: true }), def({ id: 'j1', entity: 'job', visible_to_field: true })]
+    expect(definitionsForViewer(defs, true).map((d) => d.id)).toEqual(['c2', 'p1'])
+    expect(definitionsForViewer(defs, false)).toHaveLength(4)
+    expect(valuesForViewer({ c1: 'secret', c2: 'ok', zz: 'x' }, definitionsForViewer(defs, true))).toEqual({ c2: 'ok' })
+    expect(withoutCustomFields({ id: 'c', custom_fields: { c1: 'x' } })).toEqual({ id: 'c' })
   })
 })
 
