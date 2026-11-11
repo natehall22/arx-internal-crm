@@ -2,7 +2,7 @@
  * Purchase orders for any vendor or subcontractor — the rules. Pure and client-safe (no database, no mail).
  *
  * ONE purchase-order system. A PO is a `supplier_orders` row. Its `kind` says where its lines come from:
- *   'materials' — ARX's roofing material order (lib/supplier-orders.ts, quantities computed from the sold scope), unchanged;
+ *   'materials' — the roofing material order (lib/supplier-orders.ts, quantities computed from the sold scope), unchanged;
  *   'general'   — a vendor or sub, lines typed or picked from the price book (this module + lib/purchase-orders-db.ts).
  * Both share the vendors directory, PO numbers (`<job number>-<letter>`), the send log, the double-send guard
  * (`decideSend`) and the one send door (lib/suppliers/send-order.ts).

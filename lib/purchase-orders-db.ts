@@ -1008,6 +1008,7 @@ const TOKEN_RE = /^[A-Za-z0-9_-]{40,64}$/
 export async function loadVendorLinkView(admin: SupabaseClient, token: string): Promise<VendorLinkView | null> {
   if (!TOKEN_RE.test(token)) return null
   const { data } = await admin
+    // org-scope-ok: public vendor link; the company comes from the order the secret token (SHA-256 hash, unique) points at
     .from('supplier_orders')
     .select('id, org_id, status, ack_token_expires_at, acknowledged_at, kind')
     .eq('ack_token_hash', hashToken(token))
@@ -1037,6 +1038,7 @@ export async function loadVendorLinkView(admin: SupabaseClient, token: string): 
 export async function acknowledgeByToken(admin: SupabaseClient, token: string, note: string | null): Promise<{ ok: boolean; message?: string }> {
   if (!TOKEN_RE.test(token)) return { ok: false, message: 'This link is not valid.' }
   const { data } = await admin
+    // org-scope-ok: public vendor link; the company comes from the order the secret token (SHA-256 hash, unique) points at
     .from('supplier_orders')
     .select('id, org_id, status, ack_token_expires_at, acknowledged_at, kind')
     .eq('ack_token_hash', hashToken(token))
