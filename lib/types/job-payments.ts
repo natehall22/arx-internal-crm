@@ -40,19 +40,6 @@ export interface JobPayment {
   idempotency_key?: string | null
 }
 
-export interface JobPaymentInsert {
-  job_id: string
-  paid_at: string
-  amount_cents: number
-  payment_type: PaymentType
-  method: PaymentMethod
-  payer: PaymentPayer
-  note?: string | null
-  created_by?: string | null
-  funding_status?: FundingStatus
-  idempotency_key?: string | null
-}
-
 export interface JobPaymentSummary {
   payments: JobPayment[]
   collected_cents: number

@@ -2,8 +2,9 @@
 -- Additive / nullable only. NOT applied by the builder — apply by hand, BEFORE the code that reads it.
 --
 -- APPLY ORDER — REQUIRED: after 202611110010 (properties), 202611110020 (custom fields), 202611110030 (service plans),
--- 202611100040 + 202611110060 (invoices without a job; this file replaces record_customer_invoice_payment and the void
--- guard from 0060 with copies that also count money paid before the import). Listed in docs/domain-cutover.md.
+-- 202611100040 + 202611110060 (invoices without a job) AND 202611120020 (online payments): this file replaces
+-- record_customer_invoice_payment (8-arg), record_customer_invoice_refund and the void guard from 0020 with copies that
+-- also count money paid before the import. Listed in docs/domain-cutover.md.
 --
 -- 1. import_source / import_source_id on the rows an import creates (customers, properties, service_plans, job_invoices,
 --    pricebook_items, custom_field_definitions): 'jobber' + Jobber's own id. Unique per company, so re-running an import
@@ -24,8 +25,8 @@
 -- 6. property_address_keys(): THE same-address rule for a whole list in one call (Check screen).
 --
 -- Rollback (nothing else depends on it): drop the three functions + import_* tables; drop the import_source columns and
--- their unique indexes; drop paid_outside_cents after restoring record_customer_invoice_payment and
--- job_invoices_void_guard from 202611110060.
+-- their unique indexes; drop paid_outside_cents after restoring record_customer_invoice_payment,
+-- record_customer_invoice_refund and job_invoices_void_guard from 202611120020.
 
 begin;
 set local lock_timeout = '5s';
@@ -60,9 +61,13 @@ exception when duplicate_object then null; end $$;
 comment on column public.job_invoices.paid_outside_cents is
   'Imported invoices only: paid before this system (Jobber total − Jobber balance). Not a payment row; never made up. Balance = total − invoice_payments − this.';
 
--- Copy of 202611110060's writer; the ONLY change is v_balance also subtracting paid_outside_cents.
+-- Copy of 202611120020's writer (online payments: 8 args, idempotency key; it dropped 0060's 7-arg one); the ONLY change
+-- is v_balance also subtracting paid_outside_cents. The 7-arg drop is a no-op after 0020 and stops a second overload
+-- (PostgREST could not choose between them) if this file ever runs against a database that still has it.
+drop function if exists public.record_customer_invoice_payment(uuid, uuid, integer, date, text, text, uuid);
 create or replace function public.record_customer_invoice_payment(
-  p_org uuid, p_invoice uuid, p_amount_cents integer, p_paid_at date, p_method text, p_note text, p_created_by uuid
+  p_org uuid, p_invoice uuid, p_amount_cents integer, p_paid_at date, p_method text, p_note text, p_created_by uuid,
+  p_idempotency_key text default null
 ) returns jsonb
 language plpgsql
 set search_path = public, pg_temp
@@ -78,14 +83,21 @@ begin
   if not found or v_inv.job_id is not null then
     raise exception 'record_customer_invoice_payment: invoice not found' using errcode = 'P0002';
   end if;
+  select coalesce(sum(applied_cents), 0) into v_applied from public.invoice_payments where invoice_id = p_invoice;
+  v_balance := v_inv.total_cents - v_applied - coalesce(v_inv.paid_outside_cents, 0);
+  if p_idempotency_key is not null then
+    select id into v_pay from public.job_payments
+     where org_id = p_org and job_id is null and idempotency_key = p_idempotency_key;
+    if found then
+      return jsonb_build_object('payment_id', v_pay, 'status', v_inv.status, 'balance_cents', v_balance, 'duplicate', true);
+    end if;
+  end if;
   if v_inv.status = 'void' then
     raise exception 'This invoice is void' using errcode = '22023';
   end if;
   if v_inv.total_cents <= 0 then
     raise exception 'This invoice has nothing to pay' using errcode = '22023';
   end if;
-  select coalesce(sum(applied_cents), 0) into v_applied from public.invoice_payments where invoice_id = p_invoice;
-  v_balance := v_inv.total_cents - v_applied - coalesce(v_inv.paid_outside_cents, 0);
   if p_amount_cents is null or p_amount_cents <= 0 then
     raise exception 'Enter an amount above zero' using errcode = '22023';
   end if;
@@ -97,21 +109,84 @@ begin
        set status = 'sent', issued_at = coalesce(issued_at, current_date), due_at = coalesce(due_at, current_date)
      where id = p_invoice;
   end if;
-  insert into public.job_payments (job_id, org_id, customer_id, paid_at, amount_cents, payment_type, method, payer, note, created_by)
-  values (null, p_org, v_inv.customer_id, p_paid_at, p_amount_cents, 'other', p_method, 'other', nullif(btrim(p_note), ''), p_created_by)
+  insert into public.job_payments (job_id, org_id, customer_id, paid_at, amount_cents, payment_type, method, payer, note, created_by, idempotency_key)
+  values (null, p_org, v_inv.customer_id, p_paid_at, p_amount_cents, 'other', p_method, 'other', nullif(btrim(p_note), ''), p_created_by, p_idempotency_key)
   returning id into v_pay;
   insert into public.invoice_payments (invoice_id, job_payment_id, applied_cents, created_by)
   values (p_invoice, v_pay, p_amount_cents, p_created_by);
   v_balance := v_balance - p_amount_cents;
   v_status := case when v_balance <= 0 then 'paid'::invoice_status else 'partially_paid'::invoice_status end;
   update public.job_invoices set status = v_status where id = p_invoice;
-  return jsonb_build_object('payment_id', v_pay, 'status', v_status, 'balance_cents', v_balance);
+  return jsonb_build_object('payment_id', v_pay, 'status', v_status, 'balance_cents', v_balance, 'duplicate', false);
 end;
 $$;
-revoke all on function public.record_customer_invoice_payment(uuid, uuid, integer, date, text, text, uuid) from public, anon, authenticated;
-grant execute on function public.record_customer_invoice_payment(uuid, uuid, integer, date, text, text, uuid) to service_role;
+revoke all on function public.record_customer_invoice_payment(uuid, uuid, integer, date, text, text, uuid, text) from public, anon, authenticated;
+grant execute on function public.record_customer_invoice_payment(uuid, uuid, integer, date, text, text, uuid, text) to service_role;
 
--- Copy of 202611110060's guard; money paid before the import counts as a payment on the invoice too.
+-- Copy of 202611120020's refund (no-job invoice); the ONLY change: the status after the refund counts money paid before
+-- the import, so a refund of an online payment on a Jobber invoice that was part-paid there reads "partly paid", not "sent".
+create or replace function public.record_customer_invoice_refund(
+  p_org uuid, p_invoice uuid, p_amount_cents integer, p_paid_at date, p_method text, p_note text, p_idempotency_key text,
+  p_unapply_cents integer default null
+) returns jsonb
+language plpgsql
+set search_path = public, pg_temp
+as $$
+declare
+  v_inv public.job_invoices%rowtype;
+  v_applied integer;
+  v_paid integer;
+  v_pay uuid;
+  v_status invoice_status;
+  v_unapply integer;
+begin
+  if p_idempotency_key is null or btrim(p_idempotency_key) = '' then
+    raise exception 'A refund needs its processor id' using errcode = '22023';
+  end if;
+  select * into v_inv from public.job_invoices where id = p_invoice and org_id = p_org for update;
+  if not found or v_inv.job_id is not null then
+    raise exception 'record_customer_invoice_refund: invoice not found' using errcode = 'P0002';
+  end if;
+  select id into v_pay from public.job_payments
+   where org_id = p_org and job_id is null and idempotency_key = p_idempotency_key;
+  if found then
+    return jsonb_build_object('payment_id', v_pay, 'status', v_inv.status, 'duplicate', true);
+  end if;
+  if p_amount_cents is null or p_amount_cents <= 0 then
+    raise exception 'A refund must be above zero' using errcode = '22023';
+  end if;
+  -- Never more than the refund, never more than the net paid HERE (money paid in Jobber was never ours to refund).
+  v_unapply := coalesce(p_unapply_cents, p_amount_cents);
+  select coalesce(sum(applied_cents), 0) into v_applied from public.invoice_payments where invoice_id = p_invoice;
+  if v_unapply < 0 or v_unapply > p_amount_cents or v_unapply > v_applied then
+    raise exception 'That is more than was paid on this invoice' using errcode = '22023';
+  end if;
+  insert into public.job_payments (job_id, org_id, customer_id, paid_at, amount_cents, payment_type, method, payer, note, created_by, idempotency_key)
+  values (null, p_org, v_inv.customer_id, p_paid_at, -p_amount_cents, 'other', p_method, 'other', nullif(btrim(p_note), ''), null, p_idempotency_key)
+  returning id into v_pay;
+  if v_unapply > 0 then
+    insert into public.invoice_payments (invoice_id, job_payment_id, applied_cents, created_by)
+    values (p_invoice, v_pay, -v_unapply, null);
+  end if;
+  v_applied := v_applied - v_unapply;
+  v_paid := v_applied + coalesce(v_inv.paid_outside_cents, 0);
+  if v_inv.status <> 'void' then
+    v_status := case
+      when v_paid >= v_inv.total_cents then 'paid'::invoice_status
+      when v_paid > 0 then 'partially_paid'::invoice_status
+      else 'sent'::invoice_status end;
+    update public.job_invoices set status = v_status where id = p_invoice;
+  else
+    v_status := 'void'::invoice_status;
+  end if;
+  return jsonb_build_object('payment_id', v_pay, 'status', v_status, 'duplicate', false);
+end;
+$$;
+revoke all on function public.record_customer_invoice_refund(uuid, uuid, integer, date, text, text, text, integer) from public, anon, authenticated;
+grant execute on function public.record_customer_invoice_refund(uuid, uuid, integer, date, text, text, text, integer) to service_role;
+
+-- Copy of 202611120020's guard (NET money on the invoice: a fully refunded invoice can be voided); money paid before the
+-- import counts as a payment on the invoice too.
 create or replace function public.job_invoices_void_guard()
 returns trigger
 language plpgsql
@@ -120,7 +195,7 @@ as $$
 begin
   if new.status = 'void' and old.status is distinct from 'void' and old.job_id is null
      and (coalesce(old.paid_outside_cents, 0) > 0
-          or exists (select 1 from public.invoice_payments ip where ip.invoice_id = old.id)) then
+          or coalesce((select sum(ip.applied_cents) from public.invoice_payments ip where ip.invoice_id = old.id), 0) > 0) then
     raise exception 'This invoice has a payment on it, so it can''t be voided' using errcode = '23514';
   end if;
   return new;

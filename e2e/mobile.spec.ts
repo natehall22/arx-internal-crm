@@ -265,6 +265,7 @@ const SCREENS: Screen[] = [
   } },
   { name: 'customer-invoices', path: '/dev-harness/customer-invoices', ready: 'text=INV-26-00012', mock: async (p) => {
     await p.route('**/api/customers/*/invoices', (route) => route.fulfill(json(HARNESS_CUSTOMER_INVOICES)))
+    await p.route('**/api/customers/*/card', (route) => route.fulfill(json({ available: true, featureOn: true, card: { label: 'Visa •••• 4242', autopay: true, expired: false, expires: '12/30' } })))
     await p.route('**/api/invoices/*', (route) => route.fulfill(json({ success: true, invoice: { ...HARNESS_CUSTOMER_INVOICES.invoices[0], items: [], payments: [] } })))
   },
     states: [
@@ -417,6 +418,16 @@ const SCREENS: Screen[] = [
     },
     states: [{ name: 'preview', run: async (p) => { await p.getByLabel('Switch to').selectOption('lawn_landscape'); await p.waitForSelector('text=What changes with Lawn & landscape') } }] },
   { name: 'sales-tax', path: '/dev-harness/sales-tax', ready: 'text=Rates stack' },
+  { name: 'pay-page', path: '/dev-harness/pay-page', ready: 'text=Amount due',
+    states: [
+      { name: 'part-and-save', run: async (p) => { await p.getByRole('button', { name: 'Pay a different amount' }).click(); await p.getByLabel('Amount to pay now').fill('40'); await p.getByLabel(/Save my card/).check(); await p.waitForSelector('text=I authorize') } },
+    ] },
+  { name: 'pay-page-paid', path: '/dev-harness/pay-page-paid', ready: 'text=Paid — thank you!' },
+  { name: 'save-card-page', path: '/dev-harness/save-card-page', ready: 'text=Agree and add card' },
+  { name: 'online-payments-settings', path: '/dev-harness/online-payments-settings', ready: 'text=Connected — taking payments', mock: async (p) => {
+    await p.route('**/api/admin/online-payments', (route) => route.fulfill(json({ featureOn: true, configured: true, ready: true, testMode: true, settings: { allowPartial: false, bankPayments: true, autopay: true, retryDays: [3, 7] }, account: { status: 'active', chargesEnabled: true, payoutsEnabled: false, detailsSubmitted: true, livemode: false, accountId: 'acct_1' } })))
+  } },
+  { name: 'invoice-online', path: '/dev-harness/invoice-online', ready: 'text=Copy pay link' },
   { name: 'tax-exemption', path: '/dev-harness/tax-exemption', ready: 'text=Tax exempt (no sales tax' },
   { name: 'admin-settings', path: '/dev-harness/admin-settings', ready: 'text=Customer-facing brand',
     states: [{ name: 'editing-brand', run: async (p) => { await p.getByLabel('Website').fill('example.test/roofing'); await p.waitForTimeout(200) } }] },

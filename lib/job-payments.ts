@@ -1,5 +1,5 @@
 import { SupabaseClient } from '@supabase/supabase-js'
-import { JobPayment, JobPaymentSummary, JobPaymentInsert } from './types/job-payments'
+import type { JobPayment, JobPaymentSummary } from './types/job-payments'
 import { evaluateJobCollection, JOB_COLLECTION_COLUMNS } from './job-collection'
 import { collectionInvoiceFields, loadJobInvoiceFacts, type JobInvoiceFacts } from './job-invoice-tax'
 
@@ -92,28 +92,6 @@ export function buildJobPaymentSummary(
     forced_paid_in_full: collection.forcedPaidInFull,
     legacy_close_with_balance: collection.legacyCloseWithBalance,
   }
-}
-
-/**
- * Add a payment to a job (append-only, no updates)
- * For refunds, use negative amount_cents
- */
-export async function addJobPayment(
-  supabase: SupabaseClient,
-  payment: JobPaymentInsert
-): Promise<JobPayment | null> {
-  const { data, error } = await supabase
-    .from('job_payments')
-    .insert(payment)
-    .select()
-    .single()
-
-  if (error) {
-    console.error('Error adding payment:', error)
-    return null
-  }
-
-  return data as JobPayment
 }
 
 /**

@@ -10,6 +10,7 @@ import { loadDataHealth, needsYouForEmailRecipient, shapeNeedsYou, type DataHeal
 import { loadCheckupSettings } from '@/lib/checkups'
 import { loadOpenShiftsQueue } from '@/lib/time-tracking-db'
 import { loadCommissionChangesWaitingQueue } from '@/lib/payroll-commission-change'
+import { loadPaymentReversalsQueue } from '@/lib/online-payments/summary'
 import { loadCheckupsDueQueue, loadCrewWeekQueue, loadOpsQueues, loadOwnerExceptions, loadServiceVisitQueues, loadStormHitsQueue, type Queue } from '@/lib/today'
 import { resolveOrgFeatures, type OrgFeatures } from '@/lib/org-features'
 import { applyTodayProfile, loadOrgProfile } from '@/lib/org-profile'
@@ -230,7 +231,17 @@ export async function loadMorningTodayQueues(
         return null
       })
     : null
+  // Online payments: lost disputes on jobs already collected / in an approved payroll week (Everything version only).
+  let reversalsFailed = false
+  const reversals = orgProfile.features.onlinePayments
+    ? await loadPaymentReversalsQueue(supabase, orgId, now).catch((error): Queue => {
+        console.error('morning update: payment reversals failed', error)
+        reversalsFailed = true
+        return { id: 'payment-reversals', title: 'Payment reversed — review', count: 0, empty: 'Reversed payments couldn’t load today.', items: [] }
+      })
+    : null
   return asProfile([
+    ...(reversals && (reversals.count > 0 || reversalsFailed) ? [reversals] : []),
     ...(storm.count > 0 || stormFailed ? [storm] : []),
     ...(commissionWaiting ? [commissionWaiting] : []),
     ...visits,

@@ -4,6 +4,7 @@ import { getOrgEmailBlastSettings } from '@/lib/admin-email-blasts'
 import { ensureCheckups } from '@/lib/checkups'
 import { retryDueCommissionChanges } from '@/lib/payroll-commission-change'
 import { ensureServiceVisits } from '@/lib/service-plans-db'
+import { runAutopayRetries } from '@/lib/online-payments/autopay'
 import { autoCloseForgotten } from '@/lib/time-tracking-db'
 import { getBlastSendDate, runClaimedBlast, type BlastResult } from '@/lib/email-blast-ledger'
 import { sendMorningUpdateEmail } from '@/lib/morning-update-email'
@@ -61,6 +62,7 @@ export async function GET(request: NextRequest) {
   const servicePlansOn = orgFeatureChecker('servicePlans')
   const timeTrackingOn = orgFeatureChecker('timeTracking')
   const hourlyBillingOn = orgFeatureChecker('hourlyBilling')
+  const onlinePaymentsOn = orgFeatureChecker('onlinePayments')
   for (const org of orgRows || []) {
     const orgId = org.id
     // Each company's morning is its own: 5:30am in `orgs.timezone`, and the once-a-day claim is keyed to
@@ -96,6 +98,12 @@ export async function GET(request: NextRequest) {
     if (await timeTrackingOn(orgId)) {
       await autoCloseForgotten(admin, orgId, { now }).catch((error) => {
         console.error(`[cron/morning-update] time clock auto-close failed for org ${orgId}:`, error)
+      })
+    }
+    // Automatic payments whose retry day has come are tried again (online payments companies; each retry claimed once).
+    if (await onlinePaymentsOn(orgId)) {
+      await runAutopayRetries(admin, orgId, now).catch((error) => {
+        console.error(`[cron/morning-update] autopay retries failed for org ${orgId}:`, error)
       })
     }
     const settings = getOrgEmailBlastSettings(org.settings)

@@ -17,6 +17,7 @@ import OrgProfileCard from '@/components/admin/OrgProfileCard'
 import { INDUSTRY_PROFILE_IDS, INDUSTRY_PROFILES } from '@/lib/industry-profiles'
 import { loadOrgProfile } from '@/lib/org-profile'
 import SalesTaxCard from '@/components/admin/SalesTaxCard'
+import OnlinePaymentsCard from '@/components/admin/OnlinePaymentsCard'
 import { loadOrgSalesTax } from '@/lib/sales-tax-server'
 import ServicePlanTemplatesCard from '@/components/service-plans/ServicePlanTemplatesCard'
 import HourlyBillingSettingsCard from '@/components/billing/HourlyBillingSettingsCard'
@@ -72,6 +73,8 @@ export default async function SettingsPage() {
           {canEditFeatures && <OrgFeaturesCard initial={features} />}
           {/* Owners only: sales tax rates, default stack, on/off (lib/sales-tax.ts). */}
           {canEditFeatures && <SalesTaxCard initial={salesTax} proposalWord={orgProfile.terms.proposal} />}
+          {/* Owners, when the company uses online payments: connect its own Stripe account (lib/online-payments). */}
+          {canEditFeatures && features.onlinePayments ? <OnlinePaymentsCard /> : null}
           <JobCatchUpSettingsCard initial={{ ...catchUp, canEdit: canEditJobCatchUpSettings(profile) }} />
           <CheckupSettingsCard initial={{ ...checkups, canEdit: canEditCheckupSettings(profile) }} users={userOptions} />
           {/* Owners, when the company uses service plans: what it sells (plan templates). */}

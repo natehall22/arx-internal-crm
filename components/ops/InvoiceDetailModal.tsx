@@ -7,6 +7,8 @@ import { invoiceTaxRows } from '@/lib/sales-tax'
 import { invoiceItemDateLabel, invoiceItemPriceLabel, invoiceItemQtyLabel } from '@/lib/invoice-lines'
 import { toast } from '@/components/ui/toast'
 import { confirmDialog } from '@/components/ui/confirm-dialog'
+import InvoiceOnlinePayments from '@/components/billing/InvoiceOnlinePayments'
+import type { InvoiceOnlineSummary } from '@/lib/online-payments/summary'
 
 interface InvoiceDetailModalProps {
   invoiceId: string
@@ -28,6 +30,8 @@ export default function InvoiceDetailModal({
   const [publicNote, setPublicNote] = useState('')
   const [internalNote, setInternalNote] = useState('')
   const [notesChanged, setNotesChanged] = useState(false)
+  /** Online payments (lib/online-payments/summary.ts): null when the company doesn't use them. */
+  const [online, setOnline] = useState<InvoiceOnlineSummary | null>(null)
 
   const loadInvoice = async () => {
     try {
@@ -36,6 +40,7 @@ export default function InvoiceDetailModal({
         const data = await response.json()
         setInvoice(data.invoice)
         setSalesTaxOn(data.salesTaxOn === true)
+        setOnline(data.online ?? null)
         setPublicNote(data.invoice?.public_note || '')
         setInternalNote(data.invoice?.internal_note || '')
         setNotesChanged(false)
@@ -514,6 +519,8 @@ export default function InvoiceDetailModal({
                 </div>
               </div>
             )}
+
+            <InvoiceOnlinePayments invoiceId={invoice.id} online={online} owed={invoice.status !== 'void' && invoice.status !== 'paid'} onChanged={() => void loadInvoice()} />
 
             {/* Void Info */}
             {invoice.status === 'void' && invoice.void_reason && (

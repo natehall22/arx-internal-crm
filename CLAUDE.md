@@ -505,15 +505,15 @@ ONE invoice system: `job_invoices` (+ items, `invoice_payments`, `job_payments`)
   original company is unchanged. `renderInvoiceEmail(doc, { payUrl })` is where a card pay link goes.
 - **Money in:** ONE writer `recordCustomerInvoicePayment` → SQL `record_customer_invoice_payment` (locks the invoice, never over
   the balance, a draft is issued on the spot) = a `job_payments` row with `job_id` NULL + `org_id` + `customer_id` and its
-  `invoice_payments` application. The Stripe webhook (Phase 3) calls this same function. Every job reader filters
+  `invoice_payments` application. The Stripe webhook calls this same function (key `stripe:<payment intent>`, see "Online payments"). Every job reader filters
   `job_payments` by job id (and the SQL views join jobs), so these rows never touch job totals, paid-in-full
   (`lib/job-collection.ts`), payroll or `rpt_payments`. `applyPaymentToInvoice` refuses invoices without a job.
   Paid in full for these invoices = `computeInvoiceBalance(...).is_paid` / status `paid`.
 - **A billed visit can't be reopened** (`applyVisitAction` → 409 naming the invoice; DB trigger
   `work_orders_billed_visit_guard` takes the same lock as billing, so they can't cross).
 - **An invoice without a job with a payment on it can't be voided** (`voidInvoice` message + DB trigger
-  `job_invoices_void_guard`; the payment writer locks the invoice row). There is no refund flow yet — a wrong partly-paid
-  invoice is corrected on the next invoice.
+  `job_invoices_void_guard`; the payment writer locks the invoice row). Since 202611120020 the guard counts the NET paid
+  (refunds are negative applications), so a fully refunded invoice can be voided. Refunds come only from Stripe today.
 - **Reports:** `rpt_payments` (redefined in 0060, LEFT JOIN) includes payments without a job under their own company (no
   job number); job payment rows unchanged. Follow-up: an `rpt_invoices` view (billed service revenue by month/customer)
   — no invoice dataset exists in the catalog today (`lib/reporting/catalog.ts`).
@@ -527,9 +527,62 @@ ONE invoice system: `job_invoices` (+ items, `invoice_payments`, `job_payments`)
   visit/plan profit view there, then add `work_order_id` to `job_cost_lines` (nullable job, CHECK one of the two) in one
   change with its reader.
 
+## Online payments — Stripe Connect (2026-11-12)
+Switch `onlinePayments` (default OFF). Migration `202611120020_online_payments.sql` (NOT applied; after 0040 → 0060; DB test
+`supabase/tests/run-online-payments.sh`). Full design, Stripe doc links and the Stripe-dashboard setup: `docs/online-payments.md`.
+- **Each company connects its OWN Stripe account; direct charges** (`Stripe-Account` header) — the money and Stripe's fees are
+  the company's. v1 accounts with Standard controller properties, onboarding by Account Link (no OAuth / client id).
+  One live `payment_accounts` row per company; never deleted (refunds after a disconnect still resolve).
+- **ONE Stripe door** `lib/stripe/api.ts` (fetch, form encoding, pinned API version 2024-06-20, signature check). No SDK.
+- **Card data never touches us:** Stripe-hosted Checkout for pay + save card (mode setup). Keep ids + brand/last4/expiry only.
+  No surcharge ever. Platform fee = env `STRIPE_APPLICATION_FEE_BPS` (default 0 = not sent).
+- **No new money writers.** `lib/online-payments/record.ts` routes Stripe money to the existing ones: job invoice →
+  `recordJobPayment` (**`lib/job-payment-record.ts`, server only** — the one job payment writer; "Add payment" uses it too:
+  insert + idempotency key + outbox `payment.recorded` + office email) + `applyPaymentToInvoice`; no-job invoice →
+  `recordCustomerInvoicePayment` (SQL gained `p_idempotency_key`). Refunds = NEGATIVE payments + negative applications
+  (`applyRefundToInvoice`, SQL `record_customer_invoice_refund`), keyed `stripe-refund:<refund id>`, never deletes.
+  `invoice_payments.applied_cents` may now be negative (≠ 0). Don't import `lib/job-payment-record.ts` from client code.
+- **Webhook** `/api/webhooks/stripe`: signature on the raw body, once per event id (`stripe_webhook_events`), company ONLY from
+  `event.account`, object accepted only when its metadata `crm_org_id` is that company; non-CRM Stripe activity skipped.
+  Handlers are idempotent; the pay page also records on return.
+- **Customer page** `/pay/<token>` (public, hashed tokens in `payment_links`, host-fenced to the company's address).
+  Autopay: no-job invoices charge the card on file on Send (`sendCustomerInvoiceOnline`), retries on the morning cron
+  (`runAutopayRetries`), one charge per invoice per attempt (unique index + Stripe idempotency key).
+- Who: owners connect/disconnect/settings; billing staff (`money:record`) make links and manage cards (`lib/online-payments/access.ts`).
+- **Money review (2026-11-12) — rules:** (1) a webhook event is never `done` unless its payment is recorded: a recorder
+  holding the lease → 409, any error → 500 (Stripe retries); the recorder is idempotent by PaymentIntent. (2) Autopay: an
+  attempt that got no answer stays `open` and is finished with the SAME attempt, amount and idempotency key after asking
+  Stripe (search by `online_payment_id` metadata) — never a new charge beside it; the morning cron finishes stale ones.
+  (3) Refunds / lost disputes come back off the invoice only as far as THAT payment applied (`refundTakeBack`: an
+  overpayment is given back first). (4) Applying a payment to a job invoice is ONE locked SQL step,
+  `apply_job_invoice_payment` (never over the payment's rest nor the invoice balance). (5) A job payment and its outbox row
+  are ONE SQL transaction, `record_job_payment` (re-queues a missing outbox row on a repeat). (6) Outbox events:
+  `payment.recorded`, `payment.refunded`, `payment.disputed` (negative amounts) — never a negative `payment.recorded`.
+  (7) Rate limits: `/api/pay/<token>` per address (memory) and per link (SQL `payment_link_take_attempt`, 10 / 15 min);
+  staff links ≤ 20 per invoice / customer per hour. (8) A payment in another currency than the company's
+  (`settings.onlinePayments.currency`, default usd) is never recorded (needs a look). (9) Stripe's onboarding refresh
+  URL is a side-effect-free GET (back to Settings); every staff write refuses a cross-site Origin (`crossSiteWrite`).
+  JS mirrors of the new SQL for jest: `lib/test-helpers/fake-payment-rpc.ts` (Known Redundancy 40).
+- **Second review (2026-11-12):** only "no answer" (network, timeout, Stripe 5xx / 429 / 409 in-progress — `noAnswer`) keeps an
+  autopay attempt open; any other Stripe answer (decline, removed card, bad request) fails it normally (customer + office
+  told; the retry is a NEW attempt). An attempt charges in its SAVED currency. Reversals are computed from ALL of a payment's
+  succeeded refunds + lost disputes at once (order-independent). A lost dispute on a job already collected or in an
+  approved payroll week sets `online_payments.reversal_flag` → "Payment reversed — review" on Today (payroll admins) and the
+  owner morning email for 14 days. **Not built (decide first):** automatic negative commission lines for a reversal — the
+  office uses Payroll → Fix a mistake (`addAdjustment`) today.
+
+**Known Redundancy additions (2026-11-12, online payments):** (38) `ymdInZone` is defined twice (`lib/payroll-week-schedule.ts`,
+`lib/service-plans.ts`, identical) — fold into one date helper. (39) Customer-facing "branded email with one button" HTML is
+now hand-built in 4 places (`renderInvoiceEmail`, `notifyCustomerOfFailedPayment`, the save-card email in
+`app/api/customers/[id]/card`, `lib/job-payment-email.ts` office) — one small email layout helper when next touched.
+(40) `record_job_payment` / `apply_job_invoice_payment` are mirrored in JS for jest (`lib/test-helpers/fake-payment-rpc.ts`);
+a rule changed in the SQL must change there too (the real SQL runs in `supabase/tests/online_payments.test.sql`). The old
+unlocked TS paths stay only as a fallback until migration 202611120020 is applied — delete them after.
+
 ## QuickBooks (2026-11-06)
 Not connected yet; design in `docs/quickbooks-sync.md`. Until the worker ships, `integration_outbox` only receives
-`customer.upserted` (contract signing, `enrichCustomerFromContract`) and `payment.recorded` (job payments) — nothing drains it.
+`customer.upserted` (contract signing, `enrichCustomerFromContract`) and `payment.recorded` (job payments, `recordJobPayment` —
+office and Stripe alike) — nothing drains it.
 `lib/__tests__/quickbooks-outbox-guard.test.ts` holds that line.
 
 ## Install Scheduling — crews per trade (2026-09-15)

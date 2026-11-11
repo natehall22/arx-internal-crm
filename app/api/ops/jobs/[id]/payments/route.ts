@@ -1,14 +1,12 @@
-import { syncTimeAndMaterialsCommissionBase } from '@/lib/job-commission-base'
 import { NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import type { JobPayment, JobPaymentSummary } from '@/lib/types/job-payments'
 import { JOB_COLLECTION_COLUMNS } from '@/lib/job-collection'
-import { enqueuePaymentRecorded } from '@/lib/integrations'
 import { callerCanAccessJobBilling } from '@/lib/finance-access'
-import { buildJobPaymentSummary, getJobPaymentSummary } from '@/lib/job-payments'
-import { collectionInvoiceFields, loadJobInvoiceFacts, type JobInvoiceFacts } from '@/lib/job-invoice-tax'
-import { notifyAdminOpsOfJobPayment } from '@/lib/job-payment-email'
+import { buildJobPaymentSummary } from '@/lib/job-payments'
+import { recordJobPayment } from '@/lib/job-payment-record'
+import { collectionInvoiceFields, loadJobInvoiceFacts } from '@/lib/job-invoice-tax'
 
 // GET - Get all payments for a job with summary
 export async function GET(
@@ -86,18 +84,6 @@ export async function POST(
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
-    // Verify job exists and belongs to user's org
-    const { data: job, error: jobError } = await adminClient
-      .from('production_jobs')
-      .select('id, customer_id, job_number, address_text')
-      .eq('id', params.id)
-      .eq('org_id', profile.org_id)
-      .single()
-
-    if (jobError || !job) {
-      return NextResponse.json({ error: 'Job not found' }, { status: 404 })
-    }
-
     const body = await request.json()
     const { paid_at, amount_cents, payment_type, method, payer, note } = body
 
@@ -106,60 +92,20 @@ export async function POST(
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
     }
 
-    // Insert payment (append-only, no updates allowed)
-    const { data: payment, error: insertError } = await adminClient
-      .from('job_payments')
-      .insert({
-        job_id: params.id,
-        paid_at,
-        amount_cents,
-        payment_type,
-        method,
-        payer,
-        note: note || null,
-        created_by: profile.id,
-      })
-      .select()
-      .single()
-
-    if (insertError) {
-      console.error('Error inserting payment:', insertError)
-      return NextResponse.json({ error: 'Failed to add payment' }, { status: 500 })
-    }
-
-    // Enqueue integration event for payment
-    enqueuePaymentRecorded(adminClient, profile.org_id, payment.id, {
-      job_id: params.id,
-      customer_id: job.customer_id,
-      amount_cents,
-      paid_at,
-      payment_type,
+    // The one job payment writer (append-only; outbox, payment email and the time & materials commission sync inside). It checks the job is this company's.
+    const result = await recordJobPayment(adminClient, {
+      orgId: profile.org_id,
+      jobId: params.id,
+      paidAt: paid_at,
+      amountCents: amount_cents,
+      paymentType: payment_type,
       method,
       payer,
-    }).catch(err => console.error('Failed to enqueue payment event:', err))
-
-    // Billed by the hour: money in can make newly billed hours payable (commission change lines). No-op for fixed-price jobs.
-    await syncTimeAndMaterialsCommissionBase(adminClient, profile.org_id, params.id)
-
-    // Email admin + operations (non-blocking)
-    getJobPaymentSummary(adminClient, params.id)
-      .then((summary) => {
-        if (!summary) return
-        return notifyAdminOpsOfJobPayment(adminClient, {
-          orgId: profile.org_id,
-          jobId: params.id,
-          jobNumber: job.job_number || params.id,
-          addressText: job.address_text || '',
-          amountCents: amount_cents,
-          payer: String(payer),
-          method: String(method),
-          paidAt: String(paid_at),
-          collectedCents: summary.collected_cents,
-          remainingCents: summary.remaining_cents,
-          saleAmountCents: summary.sale_amount_cents,
-        })
-      })
-      .catch((err) => console.error('notifyAdminOpsOfJobPayment failed:', err))
+      note: note || null,
+      createdBy: profile.id,
+    })
+    if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status })
+    const payment = result.payment
 
     return NextResponse.json({ success: true, payment })
 

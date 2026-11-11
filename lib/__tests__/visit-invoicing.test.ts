@@ -10,6 +10,7 @@ const sendMail = jest.fn(async () => ({}))
 jest.mock('@/lib/setter-email', () => ({ getMailTransport: () => ({ sendMail }), getCrmEmailFrom: () => 'Green Co <office@green.example>' }))
 jest.mock('@/lib/cron-orgs', () => ({ loadOrgTimeZone: async () => 'America/New_York' }))
 
+import { FAKE_PAYMENT_RPC } from '@/lib/test-helpers/fake-payment-rpc'
 import { createFakeDb } from '@/lib/test-helpers/fake-db'
 import { applyPaymentToInvoice, computeInvoiceBalance, duplicateInvoiceAsDraft, findOrgInvoice, recordCustomerInvoicePayment, voidInvoice } from '@/lib/invoices'
 import { createServiceInvoices, loadReadyToBill, visitInvoiceNumber } from '@/lib/service-billing-db'
@@ -88,6 +89,7 @@ function seed() {
     {
       relations,
       rpc: {
+        ...FAKE_PAYMENT_RPC,
         // Shape only (the real rules are SQL, tested in Postgres): one invoice + its lines.
         // Shape + the all-or-nothing skip (the real rules are SQL, tested in Postgres): one invoice + lines + totals.
         create_service_invoice: (args, t) => {
@@ -244,7 +246,7 @@ describe('invoices without a job: company fence, payments, paid in full', () => 
     expect(d.tables.job_payments.every((p) => p.job_id === null && p.org_id === ORG && p.customer_id === 'c2')).toBe(true)
     // a payment can't be "applied" to an invoice without a job (no job to match it on)
     d.tables.job_invoices[0].status = 'sent'
-    await expect(applyPaymentToInvoice(d.client, id, 'pay-1', 1, 'u1')).rejects.toThrow('Payment not found')
+    await expect(applyPaymentToInvoice(d.client, ORG, id, 'pay-1', 1, 'u1')).rejects.toThrow(/not found/)
   })
 
   it('a billed visit cannot be reopened (void the invoice first); an unbilled one can', async () => {

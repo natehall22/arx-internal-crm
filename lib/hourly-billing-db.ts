@@ -33,7 +33,8 @@ import {
   type Rate,
   type TargetKey,
 } from '@/lib/hourly-billing'
-import { sendCustomerInvoice } from '@/lib/invoice-email'
+// Send = THE no-job invoice send (autopay + pay link when online payments are ready; else exactly sendCustomerInvoice).
+import { sendCustomerInvoiceOnline } from '@/lib/online-payments/autopay'
 import { syncJobSaleAndCommissionBase, syncTimeAndMaterialsCommissionBase } from '@/lib/job-commission-base'
 import { lineTotalCents } from '@/lib/invoice-lines'
 import { computeCustomerSalesTax, loadOrgSalesTax } from '@/lib/sales-tax-server'
@@ -587,7 +588,7 @@ export async function approveHours(admin: SupabaseClient, orgId: string, userId:
     if (!email) sendError = 'No email on file — left as a draft'
     else {
       try {
-        const s = await sendCustomerInvoice(admin, orgId, invoice, email)
+        const s = await sendCustomerInvoiceOnline(admin, orgId, invoice, email, userId)
         if (s.ok) {
           sent = true
           invoice = s.invoice

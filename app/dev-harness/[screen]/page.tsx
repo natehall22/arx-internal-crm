@@ -101,6 +101,10 @@ import HoursToBill from '@/components/billing/HoursToBill'
 import JobHourlyCard from '@/components/billing/JobHourlyCard'
 import HourlyBillingSettingsCard from '@/components/billing/HourlyBillingSettingsCard'
 import CustomerInvoicesCard from '@/components/billing/CustomerInvoicesCard'
+import PayClient from '@/components/pay/PayClient'
+import OnlinePaymentsCard from '@/components/admin/OnlinePaymentsCard'
+import InvoiceOnlinePayments from '@/components/billing/InvoiceOnlinePayments'
+import type { PayPageView } from '@/lib/online-payments/public'
 import CrewDayList, { type CrewDayVisit } from '@/app/crew/day/[token]/CrewDayList'
 import { HARNESS_CATCH_UP_JOBS, HARNESS_CATCH_UP_STUCK, HARNESS_VIEWER_ID } from '@/e2e/fixtures'
 
@@ -134,6 +138,21 @@ const handoffDeps = (knocks: number, jobPhotos: number, reportPhotos: number, kn
 const HANDOFF_PENDING = handoffDeps(3, 1, 1)
 const HANDOFF_DONE = handoffDeps(0, 0, 0)
 const HANDOFF_ATTENTION = handoffDeps(0, 0, 0, 2)
+
+/** Online payments pay page (components/pay/PayClient.tsx): a service invoice, part payments + save card allowed. */
+const HARNESS_PAY_VIEW: PayPageView = {
+  kind: 'invoice',
+  state: 'pay',
+  company: { name: 'Precision Maintenance', phone: '555-201-3344', email: 'office@precision.test', logoHref: null },
+  customerName: 'Pat Doe',
+  invoice: { number: 'INV-26-00012', totalCents: 9500, balanceCents: 9500, payableCents: 9500, processingCents: 0 },
+  allowPartial: true,
+  minPartialCents: 100,
+  bankPayments: true,
+  canSaveCard: true,
+  consentText: 'I authorize Precision Maintenance to charge this card for my service invoices when they are sent, until I ask them to stop.',
+  cardOnFile: null,
+}
 
 export default function Harness({ params }: { params: { screen: string } }) {
   if (process.env.NODE_ENV === 'production') notFound()
@@ -246,7 +265,7 @@ export default function Harness({ params }: { params: { screen: string } }) {
     case 'org-features':
       return (
         <div className="mx-auto max-w-2xl p-4">
-          <OrgFeaturesCard initial={{ canvassing: false, insurance: false, roofMeasure: true, incentives: false, stormAlerts: false, squaresPricing: true, servicePlans: true, timeTracking: false, hourlyBilling: false }} />
+          <OrgFeaturesCard initial={{ canvassing: false, insurance: false, roofMeasure: true, incentives: false, stormAlerts: false, squaresPricing: true, servicePlans: true, timeTracking: false, hourlyBilling: false, onlinePayments: false }} />
         </div>
       )
     case 'org-profile':
@@ -436,6 +455,27 @@ export default function Harness({ params }: { params: { screen: string } }) {
       return <div className="mx-auto max-w-md p-4"><HourlyBillingSettingsCard /></div>
     case 'customer-invoices':
       return <div className="mx-auto max-w-2xl p-4"><CustomerInvoicesCard customerId="c1" /></div>
+    case 'pay-page':
+      return <PayClient token="harness-pay-token-harness-pay-token-harness" view={HARNESS_PAY_VIEW} returned={false} />
+    case 'pay-page-paid':
+      return <PayClient token="harness-pay-token-harness-pay-token-harness" view={{ ...HARNESS_PAY_VIEW, state: 'paid' }} returned />
+    case 'save-card-page':
+      return <PayClient token="harness-pay-token-harness-pay-token-harness" view={{ ...HARNESS_PAY_VIEW, kind: 'save_card', state: 'save_card', invoice: null, cardOnFile: 'Visa •••• 4242' }} returned={false} />
+    case 'online-payments-settings':
+      return <div className="mx-auto max-w-2xl p-4"><OnlinePaymentsCard /></div>
+    case 'invoice-online':
+      return (
+        <div className="mx-auto max-w-2xl p-4">
+          <InvoiceOnlinePayments
+            invoiceId="inv-1"
+            owed
+            online={{ featureOn: true, ready: true, attempts: [
+              { id: 'a1', kind: 'autopay', status: 'failed', label: 'Automatic payment didn’t go through (Visa •••• 4242)', amountCents: 9500, refundedCents: 0, at: '2026-11-10T12:00:00Z', note: 'Your card has insufficient funds.' },
+              { id: 'a2', kind: 'checkout', status: 'processing', label: 'Bank payment processing (bank •••• 6789)', amountCents: 9500, refundedCents: 0, at: '2026-11-11T12:00:00Z', note: null },
+            ] }}
+          />
+        </div>
+      )
     case 'crew-day':
       return <CrewDayList token="harness-token-harness-token-harness-1" crewName="Green Team" companyName="Precision Maintenance" today="2026-11-10" visits={HARNESS_CREW_DAY as CrewDayVisit[]} />
     case 'crew-day-clock':

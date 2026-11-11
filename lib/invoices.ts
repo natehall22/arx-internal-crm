@@ -1,3 +1,4 @@
+import { isMissingFunction } from './org-settings'
 import { SupabaseClient } from '@supabase/supabase-js'
 import {
   JobInvoice,
@@ -784,10 +785,43 @@ export async function finalizeAndSendInvoice(
 }
 
 /**
- * Apply a job payment to an invoice.
- * Automatically updates invoice status based on payment coverage.
+ * Apply a job payment to a job invoice. ONE SQL transaction with the invoice row locked (`apply_job_invoice_payment`,
+ * migration 202611120020): the invoice must be this company's and issued, the payment this job's, and the amount never
+ * more than what the payment has left NOR the invoice balance — so two applies at once can't over-apply. Status follows.
+ * Applying the same payment to the same invoice twice is a no-op (the first application is returned).
  */
 export async function applyPaymentToInvoice(
+  supabase: SupabaseClient,
+  orgId: string,
+  invoiceId: string,
+  jobPaymentId: string,
+  appliedCents: number,
+  createdBy?: string | null
+): Promise<InvoicePayment> {
+  if (!Number.isInteger(appliedCents) || appliedCents <= 0) {
+    throw new Error('Applied amount must be positive')
+  }
+  const { error } = await supabase.rpc('apply_job_invoice_payment', {
+    p_org: orgId,
+    p_invoice: invoiceId,
+    p_payment: jobPaymentId,
+    p_applied_cents: appliedCents,
+    p_created_by: createdBy ?? null,
+  })
+  if (error && isMissingFunction(error)) return legacyApplyPaymentToInvoice(supabase, invoiceId, jobPaymentId, appliedCents, createdBy ?? undefined)
+  if (error) throw new Error(error.message)
+  const { data: application } = await supabase
+    .from('invoice_payments')
+    .select('*')
+    .eq('invoice_id', invoiceId)
+    .eq('job_payment_id', jobPaymentId)
+    .maybeSingle()
+  if (!application) throw new Error('Failed to apply payment')
+  return application as InvoicePayment
+}
+
+/** Before migration 202611120020 only: the original unlocked path. */
+async function legacyApplyPaymentToInvoice(
   supabase: SupabaseClient,
   invoiceId: string,
   jobPaymentId: string,
@@ -1034,13 +1068,14 @@ export async function voidInvoice(
     throw new Error('Cannot void a paid invoice. Refund payments first.')
   }
 
-  // An invoice without a job with money on it stays (the DB refuses too: job_invoices_void_guard).
+  // An invoice without a job with money on it stays (the DB refuses too: job_invoices_void_guard). Money on it = NET
+  // applications (a refund is a negative one, so a fully refunded invoice can be voided) + money paid before an import.
   // org-scope-ok: invoiceId was verified in the caller's company by findOrgInvoice; invoice_payments hang off it
-  const { data: applied } = await supabase.from('invoice_payments').select('id').eq('invoice_id', invoiceId).limit(1)
+  const { data: applied } = await supabase.from('invoice_payments').select('applied_cents').eq('invoice_id', invoiceId)
   // org-scope-ok: same verified invoice
   const { data: owner } = await supabase.from('job_invoices').select('*').eq('id', invoiceId).maybeSingle()
-  // Money paid before an import (paid_outside_cents) counts as a payment too.
-  if (owner && !owner.job_id && ((applied ?? []).length > 0 || Number(owner.paid_outside_cents ?? 0) > 0)) {
+  const netApplied = ((applied ?? []) as Array<{ applied_cents: number }>).reduce((t, a) => t + (Number(a.applied_cents) || 0), 0)
+  if (owner && !owner.job_id && invoicePaidCents(owner, netApplied) > 0) {
     throw new Error("This invoice has a payment on it, so it can't be voided.")
   }
 
@@ -1204,10 +1239,12 @@ export type CustomerInvoicePayment = {
   method: CustomerPaymentMethod
   note?: string | null
   createdBy: string | null
+  /** A processor's payment id (online payments): a retry with the same key returns the first payment, writes nothing. */
+  idempotencyKey?: string | null
 }
 
 export type RecordPaymentResult =
-  | { ok: true; paymentId: string; status: InvoiceStatus; balanceCents: number }
+  | { ok: true; paymentId: string; status: InvoiceStatus; balanceCents: number; duplicate: boolean }
   | { ok: false; status: 400 | 404; error: string }
 
 /**
@@ -1235,14 +1272,72 @@ export async function recordCustomerInvoicePayment(
     p_method: p.method,
     p_note: note || null,
     p_created_by: p.createdBy,
+    // Only sent when set, so the call shape is unchanged for "Mark paid".
+    ...(p.idempotencyKey ? { p_idempotency_key: p.idempotencyKey } : {}),
   })
   if (error) {
     if (error.code === 'P0002') return { ok: false, status: 404, error: 'Invoice not found' }
     if (error.code === '22023') return { ok: false, status: 400, error: error.message }
     throw new Error(`Failed to record payment: ${error.message}`)
   }
-  const r = (data ?? {}) as { payment_id?: string; status?: InvoiceStatus; balance_cents?: number }
-  return { ok: true, paymentId: String(r.payment_id), status: (r.status ?? 'partially_paid') as InvoiceStatus, balanceCents: Number(r.balance_cents ?? 0) }
+  const r = (data ?? {}) as { payment_id?: string; status?: InvoiceStatus; balance_cents?: number; duplicate?: boolean }
+  return { ok: true, paymentId: String(r.payment_id), status: (r.status ?? 'partially_paid') as InvoiceStatus, balanceCents: Number(r.balance_cents ?? 0), duplicate: !!r.duplicate }
+}
+
+/**
+ * A refund on an invoice without a job (online payments: the processor refunded the customer). One SQL transaction
+ * (record_customer_invoice_refund, migration 202611120020): a NEGATIVE job_payments row + a negative application, so the
+ * invoice balance re-opens by the refund. Never more than the net paid; idempotent by the processor's refund id.
+ */
+export async function recordCustomerInvoiceRefund(
+  supabase: SupabaseClient,
+  orgId: string,
+  invoiceId: string,
+  p: { amountCents: number; paidAt: string; method: CustomerPaymentMethod; note: string | null; idempotencyKey: string; unapplyCents?: number }
+): Promise<{ ok: true; paymentId: string; duplicate: boolean } | { ok: false; status: 400 | 404; error: string }> {
+  const { data, error } = await supabase.rpc('record_customer_invoice_refund', {
+    p_org: orgId,
+    p_invoice: invoiceId,
+    p_amount_cents: p.amountCents,
+    p_paid_at: p.paidAt,
+    p_method: p.method,
+    p_note: p.note,
+    p_idempotency_key: p.idempotencyKey,
+    // How much comes back off the invoice (capped per payment by the caller); the money row is always the full refund.
+    p_unapply_cents: p.unapplyCents ?? p.amountCents,
+  })
+  if (error) {
+    if (error.code === 'P0002') return { ok: false, status: 404, error: 'Invoice not found' }
+    if (error.code === '22023') return { ok: false, status: 400, error: error.message }
+    throw new Error(`Failed to record refund: ${error.message}`)
+  }
+  const r = (data ?? {}) as { payment_id?: string; duplicate?: boolean }
+  return { ok: true, paymentId: String(r.payment_id), duplicate: !!r.duplicate }
+}
+
+/**
+ * Take a refund (or lost dispute) back off the job invoice it paid: a negative application for the refund's own negative
+ * job payment, through the same locked SQL as payments (`apply_job_invoice_payment`). `unapplyCents` is how much comes
+ * off THIS invoice (the caller caps it to what the original payment applied — an overpayment's refund takes nothing
+ * back). Idempotent per refund payment. Returns the cents taken back.
+ */
+export async function applyRefundToInvoice(
+  supabase: SupabaseClient,
+  orgId: string,
+  invoiceId: string,
+  refundPaymentId: string,
+  unapplyCents: number
+): Promise<number> {
+  if (!(unapplyCents > 0)) return 0
+  const { data, error } = await supabase.rpc('apply_job_invoice_payment', {
+    p_org: orgId,
+    p_invoice: invoiceId,
+    p_payment: refundPaymentId,
+    p_applied_cents: -unapplyCents,
+    p_created_by: null,
+  })
+  if (error) throw new Error(`Failed to apply refund: ${error.message}`)
+  return Math.abs(Number((data as { applied_cents?: number } | null)?.applied_cents ?? 0))
 }
 
 /**

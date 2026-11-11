@@ -17,7 +17,8 @@ import {
   CUSTOMER_PAYMENT_METHODS,
   type CustomerPaymentMethod,
 } from '@/lib/invoices'
-import { sendCustomerInvoice } from '@/lib/invoice-email'
+import { sendCustomerInvoiceOnline } from '@/lib/online-payments/autopay'
+import { loadInvoiceOnlineSummary } from '@/lib/online-payments/summary'
 import type { JobInvoice } from '@/lib/types/invoices'
 import { defaultTaxRates } from '@/lib/sales-tax'
 import { loadOrgSalesTax } from '@/lib/sales-tax-server'
@@ -50,7 +51,8 @@ export async function GET(
     // Taxable box on lines only when this company charges sales tax with rates (lib/sales-tax.ts).
     const salesTax = await loadOrgSalesTax(adminClient, profile.org_id)
     // canMarkPaid: invoices without a job are paid right on the invoice (record_payment); job invoices use job payments.
-    return NextResponse.json({ invoice, salesTaxOn: !!salesTax?.enabled && defaultTaxRates(salesTax).length > 0, canMarkPaid: !invoiceCheck.job_id })
+    const online = await loadInvoiceOnlineSummary(adminClient, profile.org_id, params.invoiceId)
+    return NextResponse.json({ invoice, salesTaxOn: !!salesTax?.enabled && defaultTaxRates(salesTax).length > 0, canMarkPaid: !invoiceCheck.job_id, online })
 
   } catch (error) {
     console.error('Error in GET /api/invoices/[invoiceId]:', error)
@@ -150,7 +152,8 @@ export async function PATCH(
         if (!invoiceCheck.job_id) {
           const current = await getInvoiceWithDetails(adminClient, params.invoiceId)
           if (!current) return NextResponse.json({ error: 'Invoice not found' }, { status: 404 })
-          const sent = await sendCustomerInvoice(adminClient, profile.org_id, current as JobInvoice, typeof email === 'string' ? email : null)
+          // With online payments on: a card on file is charged first (autopay) and the email carries a pay link.
+          const sent = await sendCustomerInvoiceOnline(adminClient, profile.org_id, current as JobInvoice, typeof email === 'string' ? email : null, profile.id)
           if (!sent.ok) return NextResponse.json({ error: sent.error }, { status: sent.status })
           return NextResponse.json({ success: true, invoice: sent.invoice })
         }

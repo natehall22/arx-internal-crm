@@ -52,6 +52,15 @@ ALTER TABLE job_payments ADD COLUMN funding_status text; -- 121_weekly_sales_pay
 CREATE TABLE pricebook_items (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), org_id uuid NOT NULL REFERENCES orgs(id), name text NOT NULL, unit_price numeric(10,2) NOT NULL DEFAULT 0);
 CREATE TABLE proposal_adders (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), pricebook_item_id uuid REFERENCES pricebook_items(id));
 ALTER TABLE documents ADD CONSTRAINT documents_customer_fk FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL; -- as in 071
+-- Online payments (202611120020) comes before this file: it owns the 8-arg no-job payment writer, the refund writer and
+-- the NET void guard that this file copies with paid_outside_cents added.
+\i supabase/migrations/122_job_payments_idempotency.sql
+CREATE TYPE outbox_status AS ENUM ('pending', 'processing', 'completed', 'failed');
+CREATE TABLE integration_outbox (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(), org_id uuid NOT NULL REFERENCES orgs(id), provider text NOT NULL, event_type text NOT NULL,
+  entity_table text NOT NULL, entity_id uuid NOT NULL, idempotency_key text NOT NULL UNIQUE, payload jsonb NOT NULL DEFAULT '{}',
+  status outbox_status NOT NULL DEFAULT 'pending', created_at timestamptz NOT NULL DEFAULT now());
+\i supabase/migrations/202611120020_online_payments.sql
 \i supabase/migrations/202611120040_jobber_import.sql
 -- Idempotent: a second apply changes nothing and does not fail.
 \i supabase/migrations/202611120040_jobber_import.sql
@@ -80,6 +89,22 @@ BEGIN
   ok := false; BEGIN UPDATE job_invoices SET paid_outside_cents = 5 WHERE job_id IS NOT NULL; INSERT INTO job_invoices (org_id, customer_id, invoice_kind, status, total_cents, paid_outside_cents, created_by) VALUES (o1, c1, 'service', 'sent', 100, 5, u1); EXCEPTION WHEN check_violation THEN ok := true; END; ASSERT ok, 'T2 paid_outside only on imported invoices';
   j := record_customer_invoice_payment(o1, inv, 9500, '2026-11-11', 'cash', null, u1);
   ASSERT j->>'status' = 'paid' AND (j->>'balance_cents')::int = 0, 'T2 rest paid → paid ' || j::text;
+  -- T2b with online payments (0020): ONE writer signature (8 args, no 7-arg overload left for PostgREST to trip on); the
+  -- idempotency key still dedupes; a refund's status counts the Jobber money; the void guard counts NET money + Jobber money.
+  SELECT count(*) INTO n FROM pg_proc WHERE proname = 'record_customer_invoice_payment'; ASSERT n = 1, 'T2b one writer overload: ' || n;
+  INSERT INTO job_invoices (org_id, customer_id, invoice_kind, invoice_number, status, subtotal_cents, total_cents, paid_outside_cents, import_source, import_source_id, created_by)
+    VALUES (o1, c1, 'service', '2043', 'partially_paid', 10000, 10000, 4000, 'jobber', 'invoice:2043', u1) RETURNING id INTO inv2;
+  j := record_customer_invoice_payment(o1, inv2, 6000, '2026-11-11', 'card', null, null, 'stripe:pi_1');
+  ASSERT j->>'status' = 'paid' AND (j->>'duplicate')::boolean = false, 'T2b online rest paid ' || j::text;
+  j := record_customer_invoice_payment(o1, inv2, 6000, '2026-11-11', 'card', null, null, 'stripe:pi_1');
+  ASSERT (j->>'duplicate')::boolean AND (j->>'balance_cents')::int = 0, 'T2b same key = same payment ' || j::text;
+  j := record_customer_invoice_refund(o1, inv2, 6000, '2026-11-12', 'card', null, 'stripe-refund:re_1');
+  ASSERT j->>'status' = 'partially_paid', 'T2b refund leaves the Jobber money: partly paid ' || j::text;
+  ok := false; BEGIN UPDATE job_invoices SET status = 'void', void_reason = 'x' WHERE id = inv2; EXCEPTION WHEN check_violation THEN ok := true; END; ASSERT ok, 'T2b void still refused (Jobber money)';
+  UPDATE job_invoices SET paid_outside_cents = NULL, status = 'sent' WHERE id = inv2;
+  UPDATE job_invoices SET status = 'void', void_reason = 'refunded in full' WHERE id = inv2;
+  ASSERT (SELECT status FROM job_invoices WHERE id = inv2) = 'void', 'T2b fully refunded (net 0) can be voided';
+  inv2 := NULL;
 
   -- T3 claim: lowest rank first, never past a rank still being written
   INSERT INTO import_runs (org_id, status, created_by) VALUES (o1, 'importing', u1) RETURNING id INTO run;

@@ -2,13 +2,14 @@
  * Billing recurring service — the DB side (server only). Rules: lib/service-billing.ts. The one writer of billed lines:
  * SQL create_service_invoice (migration 202611110060), which re-checks "already billed" under a per-company lock, so a
  * double tap, two office people or a retried batch never bills a visit twice. Totals and tax: computed by the ONE tax
- * calculation (lib/sales-tax.ts) and written in the same SQL call (lib/invoices.ts createServiceInvoiceFromLines). Email: sendCustomerInvoice (lib/invoice-email.ts).
+ * calculation (lib/sales-tax.ts) and written in the same SQL call (lib/invoices.ts createServiceInvoiceFromLines). Email: sendCustomerInvoiceOnline (lib/online-payments/autopay.ts; autopay + pay link when online payments are ready).
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { loadOrgTimeZone } from '@/lib/cron-orgs'
 import { isUsableCustomerEmail } from '@/lib/invoice-document'
-import { sendCustomerInvoice } from '@/lib/invoice-email'
+// Send = THE no-job invoice send (autopay + pay link when online payments are ready; else exactly sendCustomerInvoice).
+import { sendCustomerInvoiceOnline } from '@/lib/online-payments/autopay'
 import { createServiceInvoiceFromLines } from '@/lib/invoices'
 import { invoicePaidCents } from '@/lib/invoice-lines'
 import { loadOrgSalesTax } from '@/lib/sales-tax-server'
@@ -286,7 +287,7 @@ export async function createServiceInvoices(admin: SupabaseClient, orgId: string
         if (!customer?.email) sendError = 'No email on file — left as a draft'
         else {
           try {
-            const s = await sendCustomerInvoice(admin, orgId, invoice, customer.email)
+            const s = await sendCustomerInvoiceOnline(admin, orgId, invoice, customer.email, userId)
             if (s.ok) {
               sent = true
               invoice = s.invoice

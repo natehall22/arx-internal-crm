@@ -2,7 +2,8 @@
 // docs/quickbooks-sync.md. Only the events something actually enqueues are listed.
 export type IntegrationProvider = 'quickbooks'
 
-export type IntegrationEventType = 'customer.upserted' | 'payment.recorded'
+/** payment.refunded / payment.disputed: money back out (negative job payments), written by SQL record_job_payment. */
+export type IntegrationEventType = 'customer.upserted' | 'payment.recorded' | 'payment.refunded' | 'payment.disputed'
 
 export interface EnqueueEventParams {
   orgId: string
