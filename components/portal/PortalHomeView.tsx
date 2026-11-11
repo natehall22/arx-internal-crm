@@ -3,7 +3,8 @@
 import { useState } from 'react'
 
 import { CardControls, MessageBox, PayButton } from '@/components/portal/PortalActions'
-import { dayLabel, money, shortDate } from '@/components/portal/format'
+import { dayLabel, money, monthDay, shortDate } from '@/components/portal/format'
+import JobProgressCard from '@/components/portal/JobProgressCard'
 import PortalShell, { Panel, type PortalCompany } from '@/components/portal/PortalShell'
 import type { PortalHome } from '@/lib/portal/data'
 
@@ -18,6 +19,10 @@ export default function PortalHomeView({ company, home, payOnline }: { company: 
   return (
     <PortalShell company={company} wide signOut>
       <h1 className="mb-3 text-2xl font-bold">{home.customerName ? `Hi, ${home.customerName.split(' ')[0]}` : 'Your account'}</h1>
+
+      {home.jobs.map((j) => (
+        <JobProgressCard key={j.id} job={j} company={company} payOnline={payOnline} payInvoiceId={toPay.find((i) => i.jobId === j.id)?.id ?? null} />
+      ))}
 
       {toPay.length > 0 ? (
         <Panel title="To pay">
@@ -109,9 +114,28 @@ export default function PortalHomeView({ company, home, payOnline }: { company: 
         </Panel>
       ) : null}
 
-      {home.documents.length > 0 ? (
+      {home.checkups.length > 0 ? (
+        <Panel title="Checkups">
+          <ul className="divide-y divide-[#e5e3dc]">
+            {home.checkups.map((c) => (
+              <li key={c.id} className="py-3">
+                <p className="text-lg font-bold">{c.title}</p>
+                <p className="text-base">{c.booked ? `Booked for ${dayLabel(c.when)}` : `Coming up around ${monthDay(c.when)}. We will be in touch to set it up.`}</p>
+              </li>
+            ))}
+          </ul>
+        </Panel>
+      ) : null}
+
+      {home.documents.length > 0 || home.paperwork.length > 0 ? (
         <Panel title="Documents and photos">
           <ul className="divide-y divide-[#e5e3dc]">
+            {home.paperwork.map((d) => (
+              <li key={`paper-${d.id}`} className="flex items-center justify-between gap-3 py-2">
+                <span className="min-w-0 break-words text-base font-semibold">{d.title}</span>
+                <a className={link} href={d.href} target="_blank" rel="noopener noreferrer">View</a>
+              </li>
+            ))}
             {home.documents.map((d) => (
               <li key={`${d.kind}-${d.id}`} className="flex items-center justify-between gap-3 py-2">
                 <span className="min-w-0 break-words text-base font-semibold">{d.title}</span>

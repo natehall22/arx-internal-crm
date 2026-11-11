@@ -21,6 +21,7 @@ import TaxExemptionCard from '@/components/customer/TaxExemptionCard'
 import { loadCustomerTaxExemption, loadOrgSalesTax } from '@/lib/sales-tax-server'
 import { orgDb } from '@/lib/supabase/org-db'
 import PortalAccessCard from '@/components/customer-file/PortalAccessCard'
+import { loadPortalAccessState } from '@/lib/portal/invite'
 import CustomerMessagesCard from '@/components/customer/CustomerMessagesCard'
 import { loadCustomerMessageState } from '@/lib/customer-messages-db'
 import { resolveCustomerAccess } from '@/lib/customer-file/customer-access'
@@ -121,7 +122,7 @@ async function Overview({ customerId, dealId }: { customerId: string; dealId: st
 
       {extras && <CustomerRecords customerId={customer.id} extras={extras} />}
 
-      {showPortal && <PortalAccessCard customerId={customer.id} />}
+      {showPortal && <PortalAccessCard customerId={customer.id} hasEmail={!!customer.email} {...(await loadPortalAccessState(admin, ctx.viewer.orgId, customer.id))} />}
 
       {job && (
         <Card>

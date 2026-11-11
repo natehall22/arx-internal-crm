@@ -16,3 +16,9 @@ export function shortDate(v: string | null | undefined): string {
   if (Number.isNaN(d.getTime())) return ''
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: /^\d{4}-\d{2}-\d{2}$/.test(v) ? 'UTC' : undefined })
 }
+
+/** "Nov 17" for a calendar day (YYYY-MM-DD), never shifted by a time zone. */
+export function monthDay(v: string | null | undefined): string {
+  if (!v || !/^\d{4}-\d{2}-\d{2}/.test(v)) return ''
+  return new Date(`${v.slice(0, 10)}T12:00:00Z`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
+}
