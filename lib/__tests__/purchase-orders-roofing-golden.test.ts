@@ -22,7 +22,7 @@ function pdfText(pdf: Buffer): string {
     } catch {
       /* uncompressed stream */
     }
-    for (const m of text.matchAll(/\(((?:\\.|[^\\)])*)\)\s*Tj/g)) out.push(m[1])
+    for (const m of Array.from(text.matchAll(/\(((?:\\.|[^\\)])*)\)\s*Tj/g))) out.push(m[1])
   }
   return out.join('\n')
 }
