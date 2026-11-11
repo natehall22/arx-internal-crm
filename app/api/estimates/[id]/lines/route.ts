@@ -2,6 +2,8 @@ import { requireAuthApi } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 import { calculateEstimateTotals } from '@/lib/calculations'
+import { pickEstimateLineFields } from '@/lib/estimate-line-fields'
+import { createServiceClient } from '@/lib/supabase/service'
 
 export async function POST(
   request: Request,
@@ -23,10 +25,16 @@ export async function POST(
     return NextResponse.json({ error: 'Estimate not found' }, { status: 404 })
   }
 
+  // Only the line's own fields: a raw body spread let a client set any column (e.g. another company's pricebook item).
+  const fields = await pickEstimateLineFields(createServiceClient(), profile.org_id, body)
+  if (!fields) {
+    return NextResponse.json({ error: 'Pricebook item not found' }, { status: 400 })
+  }
+
   const { data: line, error } = await supabase
     .from('estimate_lines')
     .insert({
-      ...body,
+      ...fields,
       estimate_id: params.id,
       org_id: profile.org_id,
     })

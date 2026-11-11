@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { createServiceClient } from '@/lib/supabase/service'
+import { firstForeignRef } from '@/lib/supabase/org-db'
 import { actorIsOwner, lockMoneyPermissions, moneyPermissionIds } from '@/lib/money-permission-guard'
 import { isOrgSuperuserRoleSlug } from '@/lib/org-role-constants'
 
@@ -166,6 +167,9 @@ export async function POST(request: NextRequest) {
 
   const body = await request.json()
   const { name, display_name, description, hierarchy_level, parent_role_id, permission_ids } = body
+  if (await firstForeignRef(adminClient, profile.org_id, { parent_role_id: ['custom_roles', parent_role_id] })) {
+    return NextResponse.json({ error: 'Parent role not found' }, { status: 400 })
+  }
 
   if (!name?.trim() || !display_name?.trim()) {
     return NextResponse.json({ error: 'Name and display name are required' }, { status: 400 })
@@ -236,6 +240,9 @@ export async function PUT(request: NextRequest) {
 
   const body = await request.json()
   const { id, display_name, description, hierarchy_level, parent_role_id, permission_ids } = body
+  if (await firstForeignRef(adminClient, profile.org_id, { parent_role_id: ['custom_roles', parent_role_id] })) {
+    return NextResponse.json({ error: 'Parent role not found' }, { status: 400 })
+  }
 
   if (!id) {
     return NextResponse.json({ error: 'Role ID is required' }, { status: 400 })
@@ -245,7 +252,8 @@ export async function PUT(request: NextRequest) {
     .from('custom_roles')
     .select('id, org_id')
     .eq('id', id)
-    .single()
+    .eq('org_id', profile.org_id)
+    .maybeSingle()
 
   if (!existing || existing.org_id !== profile.org_id) {
     return NextResponse.json({ error: 'Role not found' }, { status: 404 })
@@ -320,7 +328,8 @@ export async function DELETE(request: NextRequest) {
     .from('custom_roles')
     .select('id, org_id, is_system_role')
     .eq('id', roleId)
-    .single()
+    .eq('org_id', profile.org_id)
+    .maybeSingle()
 
   if (!existing || existing.org_id !== profile.org_id) {
     return NextResponse.json({ error: 'Role not found' }, { status: 404 })

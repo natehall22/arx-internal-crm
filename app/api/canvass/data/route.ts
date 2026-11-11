@@ -165,6 +165,7 @@ export async function GET(request: NextRequest) {
           .from('teams')
           .select('region_id')
           .eq('id', profile.team_id)
+          .eq('org_id', profile.org_id)
           .single()
         
         if (team?.region_id) {
@@ -246,10 +247,12 @@ export async function GET(request: NextRequest) {
     console.log('Filtered users for closer selection:', filteredUsers.map(u => u.full_name))
 
     // Check which users have Google Calendar connected
-    const { data: calendarTokens } = await adminClient
-      .from('user_google_tokens')
-      .select('user_id')
-    
+    // Only this company's users (the token table spans every company).
+    const candidateIds = filteredUsers.map((u) => u.id)
+    const { data: calendarTokens } = candidateIds.length
+      ? await adminClient.from('user_google_tokens').select('user_id').in('user_id', candidateIds)
+      : { data: [] as Array<{ user_id: string }> }
+
     const calendarUserIds = new Set((calendarTokens || []).map((t) => t.user_id))
     const usersWithCalendarStatus = filteredUsers
       .filter((user) => calendarUserIds.has(user.id))

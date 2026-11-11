@@ -3,6 +3,7 @@ import { orgAppUrl } from '@/lib/company-links'
 import { requireAuthApi } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
+import { firstForeignRef } from '@/lib/supabase/org-db'
 import { generateChangeOrderPdf } from '@/lib/contracts/generateChangeOrderPdf'
 import { syncJobSaleForProjectOrJob } from '@/lib/job-commission-base'
 import nodemailer from 'nodemailer'
@@ -49,6 +50,13 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       )
     }
+    // The project, job and original contract are stored on the change order: all must be this company's.
+    const foreign = await firstForeignRef(createServiceClient(), profile.org_id, {
+      projectId: ['projects', projectId],
+      jobId: ['production_jobs', jobId],
+      originalContractId: ['order_form_contracts', originalContractId],
+    })
+    if (foreign) return NextResponse.json({ error: 'Project not found' }, { status: 404 })
     if (!isSendToCustomer && !customerSignature) {
       return NextResponse.json(
         { error: 'Customer signature is required for in-person signing' },

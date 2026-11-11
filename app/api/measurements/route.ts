@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
+import { firstForeignRef } from '@/lib/supabase/org-db'
 import { requireAuthApi } from '@/lib/auth'
 import { orgFeatureOffResponse } from '@/lib/org-features-server'
 import { resolveSalesDocAccessBarred } from '@/lib/sales-doc-access'
@@ -83,6 +84,9 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json()
     const { measurements, opportunityId } = body
+    if (await firstForeignRef(adminClient, profile.org_id, { opportunityId: ['opportunities', opportunityId] })) {
+      return NextResponse.json({ error: 'Opportunity not found' }, { status: 404 })
+    }
 
     const facetRows = measurements?.facets
     if (Array.isArray(facetRows) && facetRows.length > 0) {

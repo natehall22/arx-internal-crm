@@ -3,6 +3,12 @@ import { requireAuthApi } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 
 // GET - List all campaigns
+/** Campaign columns a client may change (the create form's fields + the active toggle). */
+const CAMPAIGN_FIELDS = [
+  'name', 'description', 'source_type', 'channel', 'budget', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content',
+  'google_campaign_id', 'google_ads_campaign_id', 'facebook_campaign_id', 'external_id', 'start_date', 'end_date', 'is_active',
+]
+
 export async function GET(request: NextRequest) {
   let profile
   try {
@@ -171,7 +177,13 @@ export async function PUT(request: NextRequest) {
   }
 
   const body = await request.json()
-  const { id, ...updates } = body
+  // Only a campaign's own fields (a raw body let a client set org_id — moving the campaign to another company — or any column).
+  const { id } = body
+  const updates: Record<string, unknown> = {}
+  for (const key of CAMPAIGN_FIELDS) if (key in body) updates[key] = body[key]
+  if (Object.keys(updates).length === 0) {
+    return NextResponse.json({ error: 'No valid fields to update' }, { status: 400 })
+  }
 
   if (!id) {
     return NextResponse.json({ error: 'Campaign ID is required' }, { status: 400 })

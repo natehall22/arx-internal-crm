@@ -3,9 +3,29 @@ import { hasUnsupportedBonusTier } from '@/lib/calculate-commission-from-plan'
 import { requireAuthApi } from '@/lib/auth'
 import { isTeamAdminRoleSlug } from '@/lib/org-role-constants'
 import { createServiceClient } from '@/lib/supabase/service'
+import { firstForeignRef } from '@/lib/supabase/org-db'
 import { isPayrollAdminRole } from '@/lib/payroll-admin-access'
 import { compPlanBodyChanged, COMP_PLAN_VERSION_FLOOR_DATE } from '@/lib/comp-plan-version'
 import { getEasternTodayIso } from '@/lib/eastern-datetime'
+
+/**
+ * The client's fields for a company row, minus the ones only the server sets: `org_id` (would move the row to another
+ * company — these writes run on the service client) and `id`/`created_at`.
+ */
+function rowFields(data: Record<string, unknown>): Record<string, unknown> {
+  const { org_id: _org, id: _id, created_at: _created, ...rest } = data
+  return rest
+}
+/** A user's org links (team, region, manager, custom role) must all be this company's. */
+function foreignUserRef(client: Parameters<typeof firstForeignRef>[0], orgId: string, u: Record<string, unknown>) {
+  return firstForeignRef(client, orgId, {
+    team_id: ['teams', u.team_id],
+    region_id: ['regions', u.region_id],
+    manager_user_id: ['users', u.manager_user_id],
+    custom_role_id: ['custom_roles', u.custom_role_id],
+  })
+}
+
 
 export const dynamic = 'force-dynamic'
 
@@ -242,19 +262,6 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ schedules: schedules || [] })
     }
 
-    // Subs/Subcontractors
-    if (resource === 'subs') {
-      const { data: subs, error } = await adminClient
-        .from('subcontractors')
-        .select('*')
-        .eq('org_id', profile.org_id)
-        .order('name')
-
-      if (error && !error.message.includes('does not exist')) {
-        return NextResponse.json({ error: error.message }, { status: 400 })
-      }
-      return NextResponse.json({ subs: subs || [] })
-    }
 
     // Dashboard Settings
     if (resource === 'dashboard_settings') {
@@ -323,6 +330,9 @@ export async function POST(request: NextRequest) {
 
     // Create Team
     if (resource === 'team') {
+      if (await firstForeignRef(adminClient, profile.org_id, { region_id: ['regions', data.region_id] })) {
+        return NextResponse.json({ error: 'Region not found' }, { status: 400 })
+      }
       const { error } = await adminClient
         .from('teams')
         .insert({ 
@@ -465,9 +475,12 @@ export async function POST(request: NextRequest) {
 
     // Create Campaign
     if (resource === 'campaign') {
+      if (await firstForeignRef(adminClient, profile.org_id, { created_by: ['users', data.created_by] })) {
+        return NextResponse.json({ error: 'User not found' }, { status: 400 })
+      }
       const { error } = await adminClient
         .from('campaigns')
-        .insert({ ...data, org_id: profile.org_id })
+        .insert({ ...rowFields(data), org_id: profile.org_id })
 
       if (error) {
         return NextResponse.json({ error: error.message }, { status: 400 })
@@ -475,23 +488,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true })
     }
 
-    // Create Subcontractor
-    if (resource === 'sub') {
-      const { error } = await adminClient
-        .from('subcontractors')
-        .insert({ ...data, org_id: profile.org_id })
-
-      if (error) {
-        return NextResponse.json({ error: error.message }, { status: 400 })
-      }
-      return NextResponse.json({ success: true })
-    }
 
     // Create Proposal Template
     if (resource === 'proposal_template') {
       const { error } = await adminClient
         .from('proposal_templates')
-        .insert({ ...data, org_id: profile.org_id })
+        .insert({ ...rowFields(data), org_id: profile.org_id })
 
       if (error) {
         return NextResponse.json({ error: error.message }, { status: 400 })
@@ -540,6 +542,9 @@ export async function PATCH(request: NextRequest) {
 
     // Update Team
     if (resource === 'team') {
+      if (await firstForeignRef(adminClient, profile.org_id, { region_id: ['regions', data.region_id] })) {
+        return NextResponse.json({ error: 'Region not found' }, { status: 400 })
+      }
       const { error } = await adminClient
         .from('teams')
         .update({ 
@@ -776,6 +781,9 @@ export async function PATCH(request: NextRequest) {
       if (Object.keys(userUpdate).length === 0) {
         return NextResponse.json({ error: 'No valid fields to update' }, { status: 400 })
       }
+      if (await foreignUserRef(adminClient, profile.org_id, userUpdate)) {
+        return NextResponse.json({ error: 'Team, region, manager or role not found' }, { status: 400 })
+      }
       const { error } = await adminClient
         .from('users')
         .update(userUpdate)
@@ -792,7 +800,7 @@ export async function PATCH(request: NextRequest) {
     if (resource === 'campaign') {
       const { error } = await adminClient
         .from('campaigns')
-        .update(data)
+        .update(rowFields(data))
         .eq('id', id)
         .eq('org_id', profile.org_id)
 
@@ -826,19 +834,6 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ success: true })
     }
 
-    // Update Subcontractor
-    if (resource === 'sub') {
-      const { error } = await adminClient
-        .from('subcontractors')
-        .update(data)
-        .eq('id', id)
-        .eq('org_id', profile.org_id)
-
-      if (error) {
-        return NextResponse.json({ error: error.message }, { status: 400 })
-      }
-      return NextResponse.json({ success: true })
-    }
 
     // Update User Hierarchy (manager, region, team)
     if (resource === 'user_hierarchy') {
@@ -846,7 +841,10 @@ export async function PATCH(request: NextRequest) {
       if ('manager_user_id' in data) updateData.manager_user_id = data.manager_user_id
       if ('region_id' in data) updateData.region_id = data.region_id
       if ('team_id' in data) updateData.team_id = data.team_id
-      
+      if (await foreignUserRef(adminClient, profile.org_id, updateData)) {
+        return NextResponse.json({ error: 'Team, region or manager not found' }, { status: 400 })
+      }
+
       const { error } = await adminClient
         .from('users')
         .update(updateData)
@@ -863,7 +861,7 @@ export async function PATCH(request: NextRequest) {
     if (resource === 'proposal_template') {
       const { error } = await adminClient
         .from('proposal_templates')
-        .update(data)
+        .update(rowFields(data))
         .eq('id', id)
         .eq('org_id', profile.org_id)
 
@@ -1011,19 +1009,6 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ success: true })
     }
 
-    // Delete Subcontractor
-    if (resource === 'sub') {
-      const { error } = await adminClient
-        .from('subcontractors')
-        .delete()
-        .eq('id', id)
-        .eq('org_id', profile.org_id)
-
-      if (error) {
-        return NextResponse.json({ error: error.message }, { status: 400 })
-      }
-      return NextResponse.json({ success: true })
-    }
 
     // Delete Proposal Template
     if (resource === 'proposal_template') {

@@ -27,6 +27,7 @@ import { ensureLeadHasMapPinOrThrow } from '@/lib/lead-map-pin'
 import { isOrgSuperuserRoleSlug } from '@/lib/org-role-constants'
 import { deleteCanvassLeadWithDependencies } from '@/lib/canvass-lead-delete'
 import { createServiceClient } from '@/lib/supabase/service'
+import { firstForeignRef } from '@/lib/supabase/org-db'
 import { resolveCompanyRecipient } from '@/lib/company-recipient'
 import { isCanvassDoorEligible } from '@/lib/canvass-lead-attribution'
 import { isContactScoped, LEAD_CONTACT_FIELDS, myLeadIds } from '@/lib/contact-scope'
@@ -405,6 +406,10 @@ export async function POST(request: Request) {
         )
       }
       roundRobinTeamTimezone = rrTeam.timezone ?? null
+    }
+    // A chosen closer is stored on the lead whether or not an inspection is booked: it must be this company's user.
+    if (await firstForeignRef(supabase, profile.org_id, { closer_user_id: ['users', closerUserId] })) {
+      return NextResponse.json({ error: 'That closer is not in your organization.', code: 'CLOSER_NOT_ELIGIBLE' }, { status: 409 })
     }
     
     const scheduleInspection = Boolean(body.schedule_inspection)

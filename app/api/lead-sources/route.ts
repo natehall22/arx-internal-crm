@@ -1,6 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
+import { createServiceClient } from '@/lib/supabase/service'
+import { firstForeignRef } from '@/lib/supabase/org-db'
+
+/** Webhook leads go to the source's campaign and auto-assignee: both must be this company's. */
+function foreignLeadSourceRef(orgId: string, campaignId: unknown, assigneeId: unknown) {
+  return firstForeignRef(createServiceClient(), orgId, {
+    default_campaign_id: ['campaigns', campaignId],
+    auto_assign_user_id: ['users', assigneeId],
+  })
+}
 
 // GET - List all lead sources
 export async function GET() {
@@ -70,6 +80,9 @@ export async function POST(request: NextRequest) {
   if (!source_type) {
     return NextResponse.json({ error: 'Source type is required' }, { status: 400 })
   }
+  if (await foreignLeadSourceRef(profile.org_id, default_campaign_id, auto_assign_user_id)) {
+    return NextResponse.json({ error: 'Campaign or assignee not found' }, { status: 400 })
+  }
 
   const { data: leadSource, error } = await supabase
     .from('lead_sources')
@@ -128,6 +141,10 @@ export async function PUT(request: NextRequest) {
 
   if (!existing) {
     return NextResponse.json({ error: 'Lead source not found' }, { status: 404 })
+  }
+
+  if (await foreignLeadSourceRef(profile.org_id, body.default_campaign_id, body.auto_assign_user_id)) {
+    return NextResponse.json({ error: 'Campaign or assignee not found' }, { status: 400 })
   }
 
   const { error } = await supabase

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
+import { orgDb } from '@/lib/supabase/org-db'
 
 const BUCKET = 'inspection-photos'
 const MAX_PHOTOS = 20
@@ -92,6 +93,18 @@ export async function POST(
     }
 
     const admin = createServiceClient()
+
+    // The opportunity must be this company's: the draft row below is created with the URL id, and
+    // inspection_results is unique on opportunity_id, so a foreign id would squat another company's
+    // result (their later submit would then overwrite and re-home this row).
+    const { data: ownOpp } = await orgDb(admin, profile.org_id)
+      .from('opportunities')
+      .select('id')
+      .eq('id', params.id)
+      .maybeSingle()
+    if (!ownOpp) {
+      return NextResponse.json({ error: 'Opportunity not found' }, { status: 404 })
+    }
 
     // Resolve or create the inspection_results row so we have a result_id
     let { data: result } = await admin
