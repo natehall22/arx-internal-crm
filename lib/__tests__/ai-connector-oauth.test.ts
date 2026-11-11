@@ -302,6 +302,26 @@ describe('consent', () => {
     expect((await handleConsent(post(makeConsentTicket(raw, USER, 0), 'allow'), { ...w.deps, now: T0 }, { userId: USER, orgId: ORG })).status).toBe(400)
     expect(w.db.tables.ai_oauth_codes ?? []).toHaveLength(0)
   })
+  describe('crm:write scope', () => {
+    const rawW = { ...raw, scope: 'crm:read crm:write' }
+    const postW = (allowWrites: unknown) => new Request(`${ORIGIN}/api/oauth/consent`, { method: 'POST', headers: { host: 'acme.crm.test', 'content-type': 'application/json' }, body: JSON.stringify({ ticket: makeConsentTicket(rawW, USER, T0), decision: 'allow', allowWrites }) })
+    const scopesOf = async (res: Response, w: ReturnType<typeof world>) => { await res.json(); return w.db.tables.ai_oauth_codes?.[0]?.scopes }
+    it('granted only when asked, ticked and the company switch is on', async () => {
+      const w = world()
+      expect(await scopesOf(await handleConsent(postW(true), { ...w.deps, writesOn: async () => true }, { userId: USER, orgId: ORG }), w)).toEqual(['crm:read', 'crm:write'])
+    })
+    it('not ticked, or switch off, or ticked with a non-true value: read only', async () => {
+      for (const [tick, on] of [[false, true], [true, false], ['yes', true], [undefined, true]] as const) {
+        const w = world()
+        expect(await scopesOf(await handleConsent(postW(tick), { ...w.deps, writesOn: async () => on }, { userId: USER, orgId: ORG }), w)).toEqual(['crm:read'])
+      }
+    })
+    it('an app that never asked for write cannot get it by ticking', async () => {
+      const w = world()
+      const res = await handleConsent(new Request(`${ORIGIN}/api/oauth/consent`, { method: 'POST', headers: { host: 'acme.crm.test', 'content-type': 'application/json' }, body: JSON.stringify({ ticket: makeConsentTicket(raw, USER, T0), decision: 'allow', allowWrites: true }) }), { ...w.deps, writesOn: async () => true }, { userId: USER, orgId: ORG })
+      expect(await scopesOf(res, w)).toEqual(['crm:read'])
+    })
+  })
   it('switch off → 403, no code', async () => {
     const w = world()
     const res = await handleConsent(post(makeConsentTicket(raw, USER, T0), 'allow'), { ...w.deps, featureOn: async () => false }, { userId: USER, orgId: ORG })
@@ -319,6 +339,6 @@ describe('discovery documents', () => {
     expect(as.client_id_metadata_document_supported).toBe(true)
     expect(as.authorization_response_iss_parameter_supported).toBe(true)
     const pr = protectedResourceMetadata(ORIGIN)
-    expect(pr).toMatchObject({ resource: `${ORIGIN}/mcp`, authorization_servers: [ORIGIN], scopes_supported: ['crm:read'] })
+    expect(pr).toMatchObject({ resource: `${ORIGIN}/mcp`, authorization_servers: [ORIGIN], scopes_supported: ['crm:read', 'crm:write'] })
   })
 })
