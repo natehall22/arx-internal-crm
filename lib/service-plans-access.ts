@@ -35,12 +35,14 @@ export async function resolveServicePlanAccess(
  * Route guard shared by every /api route for plans and visits: signed in (401), feature on (404 — a company without
  * service plans has no such API), then `need` ('view' or 'edit', 403).
  */
-export async function servicePlanRouteAuth(need: 'view' | 'edit'): Promise<
+export async function servicePlanRouteAuth(need: 'view' | 'edit' | 'owner'): Promise<
   | {
       admin: SupabaseClient
       userId: string
       orgId: string
       access: ServicePlanAccess
+      /** Owner (super admin): manages plan templates. */
+      owner: boolean
     }
   | Response
 > {
@@ -54,11 +56,14 @@ export async function servicePlanRouteAuth(need: 'view' | 'edit'): Promise<
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
   const admin = createServiceClient()
-  const profile = auth.profile as { id: string; org_id: string; role: string; custom_role_id?: string | null }
+  const { isSuperAdmin } = await import('@/lib/super-admin')
+  const profile = auth.profile as { id: string; org_id: string; role: string; custom_role_id?: string | null; is_super_admin?: boolean | null; active?: boolean | null }
   const access = await resolveServicePlanAccess(admin, auth.authUser.id, profile)
   if (!access.feature) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  if (need === 'view' ? !access.view : !access.edit) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-  return { admin, userId: profile.id, orgId: profile.org_id, access }
+  const owner = isSuperAdmin(profile)
+  const allowed = need === 'view' ? access.view || owner : need === 'edit' ? access.edit : owner
+  if (!allowed) return NextResponse.json({ error: need === 'owner' ? 'Only an owner can change plan templates' : 'Forbidden' }, { status: 403 })
+  return { admin, userId: profile.id, orgId: profile.org_id, access, owner }
 }
 
 /**

@@ -14,5 +14,5 @@ export async function POST(_request: Request, { params }: { params: { id: string
   if (ctx instanceof Response) return ctx
   const res = await rotateCrewDayToken(ctx.admin, ctx.orgId, params.id, ctx.userId)
   if (!res.ok) return NextResponse.json({ error: res.error }, { status: res.status })
-  return NextResponse.json({ path: `/crew/day/${res.token}` })
+  return NextResponse.json({ path: `/crew/day/${res.token}`, expiresInDays: res.expiresInDays })
 }

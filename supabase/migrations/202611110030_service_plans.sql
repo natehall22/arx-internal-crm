@@ -1,55 +1,79 @@
--- Recurring service: service plans + their visits (Phase 2, 2026-11-11). Additive / nullable only.
+-- Recurring service: plan templates, service plans, their visits and their change history (Phase 2, 2026-11-11).
+-- Additive / nullable only on existing tables.
 --
--- 1. service_plans: one recurring agreement for a customer's property (weekly lawn care, monthly pool, ...). The
---    schedule is a list of seasons (`seasons` jsonb: [{ "from": "MM-DD", "to": "MM-DD", "frequency": "weekly" }, ...];
---    a season may wrap the new year, e.g. 12-01 → 02-28), a preferred weekday and a default crew. Never hard-deleted:
---    "ended" is a status. Paused = status 'paused' with an optional resume date (`paused_until`).
---    Pricing: `price_tier` 'standard' (the company's standard price, only when the home fits its rule — stories /
---    pitch, orgs.settings.servicePlans.standardTier, lib/service-plans.ts standardTierCheck) or 'custom' (any price).
---    `taxable`: whether the plan's charge carries sales tax (NC roof cleaning labor: yes; FL lawn care: no). Billing
---    basis per visit / month / year. Optional follow-on step after each visit (`follow_up` 'inspection', N days later,
---    by one staff person) — e.g. ARX Care: a sub's gutter/roof cleaning, then an inspector's green/yellow/red visit.
--- 2. Visits are work_orders rows: work_order_type 'service_visit', service_plan_id, service_planned_date (the slot the
---    generator planned; scheduled_date is where the visit actually sits after a move). ONE generator creates them
---    (lib/service-plans-db.ts ensureServiceVisits), idempotent on (org_id, service_plan_id, service_planned_date).
---    A visit always carries the plan's trade, so the browser RLS rule "only trade IS NULL rows are browser-writable"
---    (202609150002) keeps visits server-write-only. Visits are never scheduled_appointments.
---    Status: 'scheduled' → 'completed' (done) | 'skipped' (skip_reason) | 'cancelled'. 'skipped' is new.
---    service_price = the plan price per visit at the time the visit was planned (NULL for per-month plans); the later
---    invoicing builder reads completed visits + this snapshot, so a price change never rewrites history.
--- 3. photos.job_id becomes nullable so a visit (no job) can hold its photos (work_order_id set). Every existing reader
---    filters photos by job_id or by a trade's work_order_id, so a job-less photo is invisible to them.
--- 4. crew_day_links: a crew's phone link to "today's visits" (/crew/day/<token>), one per crew, rotated by ops. Its own
---    service-role-only table, NOT a sub_contractors column: every signed-in company member can SELECT sub_contractors
---    (policy "Users can view sub_contractors in their org"), and the link shows gate codes.
+-- 1. service_plan_templates: what a company sells, owner-managed in Settings (nothing about a plan is in code): name,
+--    trade, default seasons, billing basis, tax flag, price rules (generic: `pricing` jsonb = the questions asked about a
+--    home + tiers with conditions on them + whether a custom price is allowed) and follow-on steps with their own result
+--    options (`steps` jsonb; green / yellow / red is only the default). `version` goes up on every save.
+-- 2. service_plans: one plan sold to a customer for one property. It COPIES the template at sale (template_id +
+--    template_version + its own seasons / pricing / steps / billing / tax), so editing a template never changes a plan
+--    already sold; an owner may push a template's changes to its plans on purpose (with a preview). Never hard-deleted:
+--    "ended" is a status; paused = status 'paused' + optional resume date.
+-- 3. Visits are work_orders rows: work_order_type 'service_visit', visit_step ('service' = the plan's own visit, else a
+--    follow-on step's key), service_plan_id, service_planned_date (the generator's slot; scheduled_date = where it sits
+--    now). ONE generator (lib/service-plans-db.ts ensureServiceVisits), idempotent on
+--    (org_id, service_plan_id, service_planned_date, visit_step). A visit always carries the plan's trade, so the browser
+--    RLS rule "only trade IS NULL rows are browser-writable" (202609150002) keeps visits server-write-only. Never
+--    scheduled_appointments. New status 'skipped' (needs skip_reason). step_result = a follow-on step's result key
+--    (checked by the app against the plan's own options). service_price / service_taxable = snapshots for invoicing.
+-- 4. service_plan_changes: who changed a plan or template, when, what (same shape as supplier_audit_log:
+--    changes = [{ field, label, old, new }]) and what it did to visits ({ removed, added, updated }).
+-- 5. photos.job_id becomes nullable so a visit (no job) can hold photos (work_order_id set; CHECK one of the two).
+-- 6. crew_day_links: a crew's phone link (/crew/day/<token>), service-role only — NOT a sub_contractors column, because
+--    every signed-in company member can SELECT sub_contractors and the page shows gate codes. Expires (expires_at).
 --
--- Deploy: apply AFTER 202611110010 (properties) and BEFORE the code. The code only reads these when the company has
--- the servicePlans feature switch on (default OFF), so applying it changes nothing for anyone.
--- Rollback (no visit rows yet): DROP TABLE public.service_plans CASCADE; ALTER TABLE public.work_orders DROP COLUMN
+-- Deploy: apply AFTER 202611110010 (properties) and BEFORE the code. Nothing reads these unless the company turns on the
+-- servicePlans switch (default OFF), so applying it changes nothing for anyone.
+-- Rollback (no rows yet): DROP TABLE service_plan_changes, crew_day_links; ALTER TABLE work_orders DROP COLUMN
 --   service_plan_id, service_planned_date, service_price, service_taxable, skip_reason, skipped_at, visit_step,
---   parent_visit_id, health_result (DROP COLUMN each); restore the two CHECKs below to their previous lists; DROP TABLE public.crew_day_links;
---   (photos.job_id NOT NULL only once no row has a NULL job_id).
+--   parent_visit_id, step_result; DROP TABLE service_plans, service_plan_templates; restore the two CHECKs below to their
+--   previous lists; (photos.job_id NOT NULL only once no row has a NULL job_id).
 
 BEGIN;
+
+-- ---- Templates ------------------------------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.service_plan_templates (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id uuid NOT NULL REFERENCES public.orgs(id) ON DELETE CASCADE,
+  name text NOT NULL CHECK (char_length(btrim(name)) BETWEEN 1 AND 120),
+  trade text NOT NULL,
+  description text NULL CHECK (description IS NULL OR char_length(description) <= 2000),
+  seasons jsonb NOT NULL DEFAULT '[]'::jsonb CHECK (jsonb_typeof(seasons) = 'array' AND jsonb_array_length(seasons) <= 12),
+  billing_basis text NOT NULL DEFAULT 'per_visit' CHECK (billing_basis IN ('per_visit', 'per_month', 'per_year')),
+  taxable boolean NOT NULL DEFAULT false,
+  pricing jsonb NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(pricing) = 'object'),
+  steps jsonb NOT NULL DEFAULT '[]'::jsonb CHECK (jsonb_typeof(steps) = 'array' AND jsonb_array_length(steps) <= 5),
+  active boolean NOT NULL DEFAULT true,
+  version integer NOT NULL DEFAULT 1 CHECK (version >= 1),
+  created_by uuid NULL REFERENCES public.users(id) ON DELETE SET NULL,
+  updated_by uuid NULL REFERENCES public.users(id) ON DELETE SET NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT service_plan_templates_trade_fkey FOREIGN KEY (org_id, trade) REFERENCES public.org_trades(org_id, slug)
+);
+CREATE INDEX IF NOT EXISTS service_plan_templates_org_idx ON public.service_plan_templates (org_id, active);
+ALTER TABLE public.service_plan_templates ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.service_plan_templates FROM anon, authenticated;
 
 CREATE TABLE IF NOT EXISTS public.service_plans (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id uuid NOT NULL REFERENCES public.orgs(id) ON DELETE CASCADE,
   customer_id uuid NOT NULL REFERENCES public.customers(id) ON DELETE CASCADE,
   property_id uuid NOT NULL REFERENCES public.properties(id), -- NO ACTION: checked at statement end, so a customer delete cascading both works
+  template_id uuid NULL REFERENCES public.service_plan_templates(id) ON DELETE SET NULL,
+  template_version integer NULL,
   trade text NOT NULL,
   name text NOT NULL CHECK (char_length(btrim(name)) BETWEEN 1 AND 120),
   description text NULL CHECK (description IS NULL OR char_length(description) <= 2000),
   price numeric(10, 2) NULL CHECK (price IS NULL OR (price >= 0 AND price <= 1000000)),
   billing_basis text NOT NULL DEFAULT 'per_visit' CHECK (billing_basis IN ('per_visit', 'per_month', 'per_year')),
-  price_tier text NOT NULL DEFAULT 'custom' CHECK (price_tier IN ('standard', 'custom')),
   taxable boolean NOT NULL DEFAULT false,
-  -- What the standard-tier rule was checked against (both NULL = not recorded; a custom price needs neither).
-  stories smallint NULL CHECK (stories IS NULL OR stories BETWEEN 1 AND 10),
-  pitch_rise numeric(4, 1) NULL CHECK (pitch_rise IS NULL OR pitch_rise BETWEEN 0 AND 24),
-  follow_up text NULL CHECK (follow_up IS NULL OR follow_up IN ('inspection')),
-  follow_up_days smallint NULL CHECK (follow_up_days IS NULL OR follow_up_days BETWEEN 0 AND 30),
-  follow_up_user_id uuid NULL REFERENCES public.users(id) ON DELETE SET NULL,
+  -- The price rules copied from the template, the answers for this home, and the tier they matched (NULL = custom price).
+  pricing jsonb NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(pricing) = 'object'),
+  pricing_inputs jsonb NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(pricing_inputs) = 'object'),
+  tier_key text NULL CHECK (tier_key IS NULL OR char_length(tier_key) <= 40),
+  -- Follow-on steps copied from the template (e.g. cleaning -> inspection), each with its own result options.
+  steps jsonb NOT NULL DEFAULT '[]'::jsonb CHECK (jsonb_typeof(steps) = 'array' AND jsonb_array_length(steps) <= 5),
   status text NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'paused', 'ended')),
   start_date date NOT NULL,
   end_date date NULL,
@@ -65,36 +89,41 @@ CREATE TABLE IF NOT EXISTS public.service_plans (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT service_plans_dates CHECK (end_date IS NULL OR end_date >= start_date),
-  CONSTRAINT service_plans_follow_up_shape CHECK (follow_up IS NULL OR follow_up_days IS NOT NULL),
   CONSTRAINT service_plans_trade_fkey FOREIGN KEY (org_id, trade) REFERENCES public.org_trades(org_id, slug)
 );
 
 CREATE INDEX IF NOT EXISTS service_plans_org_status_idx ON public.service_plans (org_id, status);
 CREATE INDEX IF NOT EXISTS service_plans_customer_idx ON public.service_plans (org_id, customer_id);
 CREATE INDEX IF NOT EXISTS service_plans_property_idx ON public.service_plans (property_id);
+CREATE INDEX IF NOT EXISTS service_plans_template_idx ON public.service_plans (template_id) WHERE template_id IS NOT NULL;
 
 -- Service role only (lib/service-plans-db.ts, behind the job-board / jobs:edit checks). Prices are money.
 ALTER TABLE public.service_plans ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.service_plans FROM anon, authenticated;
 
--- Same company, and the property is this customer's; the crew is this company's. A real bug if not, so it raises.
+-- Templates and plans: one company's own references only. A real bug if not, so it raises.
 CREATE OR REPLACE FUNCTION public.service_plans_before_write() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 BEGIN
   IF TG_OP = 'UPDATE' THEN
     NEW.updated_at := now();
-    IF NEW.org_id IS DISTINCT FROM OLD.org_id OR NEW.customer_id IS DISTINCT FROM OLD.customer_id THEN
-      RAISE EXCEPTION 'a service plan cannot move to another company or customer' USING ERRCODE = '42501';
+    IF NEW.org_id IS DISTINCT FROM OLD.org_id THEN
+      RAISE EXCEPTION 'a row cannot move to another company' USING ERRCODE = '42501';
     END IF;
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM public.properties p WHERE p.id = NEW.property_id AND p.org_id = NEW.org_id AND p.customer_id = NEW.customer_id) THEN
-    RAISE EXCEPTION 'service plan property is not this customer''s' USING ERRCODE = '42501';
-  END IF;
-  IF NEW.default_sub_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM public.sub_contractors s WHERE s.id = NEW.default_sub_id AND s.org_id = NEW.org_id) THEN
-    RAISE EXCEPTION 'service plan crew is not in this company' USING ERRCODE = '42501';
-  END IF;
-  IF NEW.follow_up_user_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM public.users u WHERE u.id = NEW.follow_up_user_id AND u.org_id = NEW.org_id) THEN
-    RAISE EXCEPTION 'service plan follow-up person is not in this company' USING ERRCODE = '42501';
+  IF TG_TABLE_NAME = 'service_plans' THEN
+    IF TG_OP = 'UPDATE' AND NEW.customer_id IS DISTINCT FROM OLD.customer_id THEN
+      RAISE EXCEPTION 'a service plan cannot move to another customer' USING ERRCODE = '42501';
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM public.properties p WHERE p.id = NEW.property_id AND p.org_id = NEW.org_id AND p.customer_id = NEW.customer_id) THEN
+      RAISE EXCEPTION 'service plan property is not this customer''s' USING ERRCODE = '42501';
+    END IF;
+    IF NEW.default_sub_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM public.sub_contractors s WHERE s.id = NEW.default_sub_id AND s.org_id = NEW.org_id) THEN
+      RAISE EXCEPTION 'service plan crew is not in this company' USING ERRCODE = '42501';
+    END IF;
+    IF NEW.template_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM public.service_plan_templates t WHERE t.id = NEW.template_id AND t.org_id = NEW.org_id) THEN
+      RAISE EXCEPTION 'service plan template is not in this company' USING ERRCODE = '42501';
+    END IF;
   END IF;
   RETURN NEW;
 END;
@@ -103,6 +132,27 @@ $$;
 DROP TRIGGER IF EXISTS service_plans_before_write ON public.service_plans;
 CREATE TRIGGER service_plans_before_write BEFORE INSERT OR UPDATE ON public.service_plans
   FOR EACH ROW EXECUTE FUNCTION public.service_plans_before_write();
+DROP TRIGGER IF EXISTS service_plan_templates_before_write ON public.service_plan_templates;
+CREATE TRIGGER service_plan_templates_before_write BEFORE INSERT OR UPDATE ON public.service_plan_templates
+  FOR EACH ROW EXECUTE FUNCTION public.service_plans_before_write();
+
+-- ---- Change history (who / when / what; same shape as supplier_audit_log) -------------------------------------------
+CREATE TABLE IF NOT EXISTS public.service_plan_changes (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id uuid NOT NULL REFERENCES public.orgs(id) ON DELETE CASCADE,
+  plan_id uuid NULL REFERENCES public.service_plans(id) ON DELETE CASCADE,
+  template_id uuid NULL REFERENCES public.service_plan_templates(id) ON DELETE CASCADE,
+  action text NOT NULL CHECK (action IN ('created', 'updated', 'paused', 'resumed', 'ended', 'template_applied', 'auto_resumed', 'auto_ended')),
+  changed_by uuid NULL REFERENCES public.users(id) ON DELETE SET NULL,
+  changed_at timestamptz NOT NULL DEFAULT now(),
+  changes jsonb NOT NULL DEFAULT '[]'::jsonb,      -- [{ "field": "price", "label": "Price", "old": 45, "new": 50 }]
+  visit_effect jsonb NULL,                         -- { "removed": 2, "added": 3, "updated": 4 }
+  CONSTRAINT service_plan_changes_subject CHECK (plan_id IS NOT NULL OR template_id IS NOT NULL)
+);
+CREATE INDEX IF NOT EXISTS service_plan_changes_plan_idx ON public.service_plan_changes (plan_id, changed_at DESC) WHERE plan_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS service_plan_changes_template_idx ON public.service_plan_changes (template_id, changed_at DESC) WHERE template_id IS NOT NULL;
+ALTER TABLE public.service_plan_changes ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.service_plan_changes FROM anon, authenticated;
 
 -- ---- Visits on work_orders ------------------------------------------------------------------------------------------
 -- NO ACTION on delete: plans are never deleted (ended is a status), so a delete that would orphan visit history fails
@@ -114,11 +164,11 @@ ALTER TABLE public.work_orders ADD COLUMN IF NOT EXISTS service_price numeric(10
 ALTER TABLE public.work_orders ADD COLUMN IF NOT EXISTS skip_reason text NULL;
 ALTER TABLE public.work_orders ADD COLUMN IF NOT EXISTS skipped_at timestamptz NULL;
 ALTER TABLE public.work_orders ADD COLUMN IF NOT EXISTS service_taxable boolean NULL;
--- 'service' = the plan's own visit (made by the generator); 'inspection' = the follow-on made when a service visit is done.
+-- 'service' = the plan's own visit (made by the generator); otherwise a follow-on step's key from the plan's `steps`.
 ALTER TABLE public.work_orders ADD COLUMN IF NOT EXISTS visit_step text NULL;
 ALTER TABLE public.work_orders ADD COLUMN IF NOT EXISTS parent_visit_id uuid NULL REFERENCES public.work_orders(id) ON DELETE SET NULL;
--- Green / yellow / red, the same vocabulary as job_checkups.result (lib/health-result.ts).
-ALTER TABLE public.work_orders ADD COLUMN IF NOT EXISTS health_result text NULL;
+-- A follow-on step's result key (the plan's own options; green / yellow / red by default — lib/health-result.ts).
+ALTER TABLE public.work_orders ADD COLUMN IF NOT EXISTS step_result text NULL;
 
 -- Widen (never narrow) the two lists. Prod today (checked 2026-11-11): text columns with these CHECKs.
 ALTER TABLE public.work_orders DROP CONSTRAINT IF EXISTS work_orders_work_order_type_check;
@@ -134,21 +184,17 @@ BEGIN
     ALTER TABLE public.work_orders ADD CONSTRAINT work_orders_skip_reason_check
       CHECK (skip_reason IS NULL OR skip_reason IN ('rain', 'customer', 'holiday', 'other'));
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'work_orders_health_result_check') THEN
-    ALTER TABLE public.work_orders ADD CONSTRAINT work_orders_health_result_check
-      CHECK (health_result IS NULL OR health_result IN ('green', 'yellow', 'red'));
-  END IF;
-  -- A visit is a plan's, carries a trade (server-write-only under RLS) and a planned slot; only visits may be skipped.
+  -- A visit is a plan's, carries a trade (server-write-only under RLS), a planned slot and a step; only visits may be
+  -- skipped; the plan's own visit never carries a result (follow-on results are checked by the app against the plan).
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'work_orders_service_visit_shape') THEN
     ALTER TABLE public.work_orders ADD CONSTRAINT work_orders_service_visit_shape CHECK (
-      (work_order_type <> 'service_visit' AND service_plan_id IS NULL AND status <> 'skipped')
+      (work_order_type <> 'service_visit' AND service_plan_id IS NULL AND status <> 'skipped' AND visit_step IS NULL AND step_result IS NULL)
       OR (work_order_type = 'service_visit' AND service_plan_id IS NOT NULL AND trade IS NOT NULL
           AND service_planned_date IS NOT NULL AND job_id IS NULL
-          AND visit_step IN ('service', 'inspection')
+          AND visit_step ~ '^[a-z][a-z0-9_]{0,39}$'
           AND (status <> 'skipped' OR skip_reason IS NOT NULL)
-          -- An inspection is only done with a result; a service visit never carries one.
-          AND (visit_step = 'inspection' OR health_result IS NULL)
-          AND (visit_step <> 'inspection' OR status <> 'completed' OR health_result IS NOT NULL))
+          AND (visit_step <> 'service' OR step_result IS NULL)
+          AND (step_result IS NULL OR char_length(step_result) <= 40))
     );
   END IF;
 END $$;
@@ -194,6 +240,8 @@ CREATE TABLE IF NOT EXISTS public.crew_day_links (
   token text NOT NULL CHECK (char_length(token) BETWEEN 32 AND 64),
   created_by uuid NULL REFERENCES public.users(id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
+  -- A link stops working on its own after this (the app sets it; replacing the link sets a new one).
+  expires_at timestamptz NOT NULL DEFAULT now() + interval '30 days',
   CONSTRAINT crew_day_links_sub_key UNIQUE (org_id, sub_id),
   CONSTRAINT crew_day_links_token_key UNIQUE (token)
 );

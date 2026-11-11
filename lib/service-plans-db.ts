@@ -13,17 +13,30 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { loadOrgTimeZone } from '@/lib/cron-orgs'
 import { loadOrgTrades } from '@/lib/org-trades'
+import { describeChange, diffFields, type FieldChange } from '@/lib/change-log'
 import {
+  EMPTY_PRICING,
+  PLAN_FIELD_LABELS,
   SERVICE_PLAN_COLUMNS,
+  SERVICE_STEP,
   SERVICE_VISIT_TYPE,
+  TEMPLATE_COLUMNS,
+  TEMPLATE_FIELD_LABELS,
   addDaysYmd,
   cleanPlanInput,
+  cleanPricingInputs,
+  cleanTemplateInput,
   crewAfterEdit,
+  describeVisitEffect,
+  followUpVisitFields,
   planVisitDates,
-  readStandardTier,
+  previewVisitEffect,
+  readPricing,
+  readSteps,
   regenerationPlan,
   resolvePlanPricing,
-  followUpVisitFields,
+  seasonLabel,
+  stepResultKeys,
   visitHorizon,
   visitPatch,
   visitPrice,
@@ -32,10 +45,12 @@ import {
   type ExistingVisit,
   type PlanStatusChange,
   type Season,
-  type StandardTierRule,
   type ServicePlan,
   type ServicePlanInput,
+  type ServicePlanTemplate,
+  type StepResultOption,
   type VisitAction,
+  type VisitEffect,
 } from '@/lib/service-plans'
 import { orgDb } from '@/lib/supabase/org-db'
 
@@ -65,23 +80,24 @@ function num(v: unknown): number | null {
 }
 
 export function planFromRow(r: Record<string, unknown>): ServicePlan {
+  const inputs = cleanPricingInputs(r.pricing_inputs ?? {})
   return {
     id: String(r.id),
     org_id: String(r.org_id),
     customer_id: String(r.customer_id),
     property_id: String(r.property_id),
+    template_id: (r.template_id as string | null) ?? null,
+    template_version: num(r.template_version),
     trade: String(r.trade),
     name: String(r.name ?? ''),
     description: (r.description as string | null) ?? null,
     price: num(r.price),
     billing_basis: r.billing_basis === 'per_month' || r.billing_basis === 'per_year' ? r.billing_basis : 'per_visit',
-    price_tier: r.price_tier === 'standard' ? 'standard' : 'custom',
     taxable: r.taxable === true,
-    stories: num(r.stories),
-    pitch_rise: num(r.pitch_rise),
-    follow_up: r.follow_up === 'inspection' ? 'inspection' : null,
-    follow_up_days: num(r.follow_up_days),
-    follow_up_user_id: (r.follow_up_user_id as string | null) ?? null,
+    pricing: readPricing(r.pricing ?? {}),
+    pricing_inputs: inputs.ok ? inputs.value : {},
+    tier_key: (r.tier_key as string | null) ?? null,
+    steps: readSteps(r.steps ?? []),
     status: r.status === 'paused' || r.status === 'ended' ? r.status : 'active',
     start_date: String(r.start_date),
     end_date: (r.end_date as string | null) ?? null,
@@ -99,12 +115,13 @@ export function planFromRow(r: Record<string, unknown>): ServicePlan {
 export type PlansLoad = { ready: boolean; plans: ServicePlan[] }
 
 /** A customer's plans (or all of a company's), newest first. `ready: false` until the migration is applied. */
-export async function loadServicePlans(admin: SupabaseClient, orgId: string, opts: { customerId?: string; ids?: string[] } = {}): Promise<PlansLoad> {
+export async function loadServicePlans(admin: SupabaseClient, orgId: string, opts: { customerId?: string; ids?: string[]; templateId?: string } = {}): Promise<PlansLoad> {
   const out: ServicePlan[] = []
   for (let from = 0; ; from += PAGE) {
     let q = orgDb(admin, orgId).from('service_plans').select(SERVICE_PLAN_COLUMNS)
     if (opts.customerId) q = q.eq('customer_id', opts.customerId)
     if (opts.ids) q = q.in('id', opts.ids)
+    if (opts.templateId) q = q.eq('template_id', opts.templateId)
     const { data, error } = await q.order('created_at', { ascending: false }).order('id').range(from, from + PAGE - 1)
     if (error) {
       if (!isServicePlansNotReadyError(error)) console.error('[service-plans] load failed', error)
@@ -126,12 +143,13 @@ export async function loadServicePlan(admin: SupabaseClient, orgId: string, plan
   return data ? planFromRow(data as Record<string, unknown>) : null
 }
 
-type Ref = { ok: true } | { ok: false; status: number; error: string }
+type Fail = { ok: false; status: number; error: string }
+type Ref = { ok: true } | Fail
 
-/** The property is this customer's (and on), the trade is one of the company's active trades, the crew is the company's. */
-async function checkRefs(admin: SupabaseClient, orgId: string, customerId: string, v: Partial<ServicePlanInput>): Promise<Ref> {
+/** References in a save are this company's: the customer's own active property, an active trade, crews, people. */
+async function checkRefs(admin: SupabaseClient, orgId: string, customerId: string | null, v: Partial<ServicePlanInput>): Promise<Ref> {
   const db = orgDb(admin, orgId)
-  if (v.property_id !== undefined) {
+  if (v.property_id !== undefined && customerId) {
     const { data } = await db.from('properties').select('id, active').eq('id', v.property_id).eq('customer_id', customerId).maybeSingle()
     if (!data) return { ok: false, status: 400, error: 'That property is not this customer’s' }
     if ((data as { active?: boolean }).active === false) return { ok: false, status: 400, error: 'That property is turned off' }
@@ -140,52 +158,242 @@ async function checkRefs(admin: SupabaseClient, orgId: string, customerId: strin
     const trades = await loadOrgTrades(admin, orgId)
     if (!trades.some((t) => t.slug === v.trade && t.active)) return { ok: false, status: 400, error: 'Pick one of your service types' }
   }
-  if (v.default_sub_id) {
-    const { data } = await db.from('sub_contractors').select('id').eq('id', v.default_sub_id).maybeSingle()
-    if (!data) return { ok: false, status: 400, error: 'Pick one of your crews' }
+  const subIds = [v.default_sub_id, ...(v.steps ?? []).map((s) => s.subId)].filter((x): x is string => !!x)
+  if (subIds.length) {
+    const { data } = await db.from('sub_contractors').select('id').in('id', Array.from(new Set(subIds)))
+    if ((data ?? []).length !== new Set(subIds).size) return { ok: false, status: 400, error: 'Pick one of your crews' }
   }
-  if (v.follow_up_user_id) {
-    const { data } = await db.from('users').select('id').eq('id', v.follow_up_user_id).eq('active', true).maybeSingle()
-    if (!data) return { ok: false, status: 400, error: 'Pick who does the follow-up' }
+  const userIds = (v.steps ?? []).map((s) => s.userId).filter((x): x is string => !!x)
+  if (userIds.length) {
+    const { data } = await db.from('users').select('id').in('id', Array.from(new Set(userIds))).eq('active', true)
+    if ((data ?? []).length !== new Set(userIds).size) return { ok: false, status: 400, error: 'Pick who does each follow-on step' }
   }
   return { ok: true }
 }
 
-/** The company's standard-tier rule (orgs.settings.servicePlans.standardTier), or null. */
-export async function loadStandardTier(admin: SupabaseClient, orgId: string): Promise<StandardTierRule | null> {
-  const { data } = await admin.from('orgs').select('settings').eq('id', orgId).maybeSingle()
-  return readStandardTier((data as { settings?: unknown } | null)?.settings ?? null)
+/** Price from the plan's own rules: a tier's price if the home qualifies, else the typed (custom) price. */
+function priced(v: Partial<ServicePlanInput>, base: Pick<ServicePlan, 'pricing' | 'tier_key' | 'price' | 'billing_basis' | 'pricing_inputs'> | null): { ok: true; value: Partial<ServicePlanInput> } | Fail {
+  const touches = ['pricing', 'tier_key', 'price', 'billing_basis', 'pricing_inputs'].some((k) => k in v)
+  if (!touches && base) return { ok: true, value: v }
+  const pricing = v.pricing ?? base?.pricing ?? EMPTY_PRICING
+  const r = resolvePlanPricing(
+    {
+      tier_key: 'tier_key' in v ? v.tier_key ?? null : base?.tier_key ?? null,
+      price: 'price' in v ? v.price ?? null : base?.price ?? null,
+      billing_basis: v.billing_basis ?? base?.billing_basis ?? 'per_visit',
+      pricing_inputs: v.pricing_inputs ?? base?.pricing_inputs ?? {},
+    },
+    pricing
+  )
+  if (!r.ok) return { ok: false, status: 400, error: r.error }
+  return { ok: true, value: { ...v, price: r.price, billing_basis: r.billing_basis, tier_key: r.tier_key } }
 }
 
-/** Standard tier → the company's price; custom → the typed price. Only when a pricing field is in the save. */
-async function pricedValues(admin: SupabaseClient, orgId: string, v: Partial<ServicePlanInput>, old: ServicePlan | null): Promise<{ ok: true; value: Partial<ServicePlanInput> } | { ok: false; status: number; error: string }> {
-  const touches = ['price_tier', 'price', 'billing_basis', 'stories', 'pitch_rise'].some((k) => k in v)
-  if (!touches && old) return { ok: true, value: v }
-  const merged = {
-    price_tier: v.price_tier ?? old?.price_tier ?? 'custom',
-    price: 'price' in v ? v.price ?? null : old?.price ?? null,
-    billing_basis: v.billing_basis ?? old?.billing_basis ?? 'per_visit',
-    stories: 'stories' in v ? v.stories ?? null : old?.stories ?? null,
-    pitch_rise: 'pitch_rise' in v ? v.pitch_rise ?? null : old?.pitch_rise ?? null,
+// ---------------------------------------------------------------------------------------------------------------------
+// History (service_plan_changes; same shape as supplier_audit_log)
+// ---------------------------------------------------------------------------------------------------------------------
+
+export type ChangeAction = 'created' | 'updated' | 'paused' | 'resumed' | 'ended' | 'template_applied' | 'auto_resumed' | 'auto_ended'
+
+/** Best-effort: a failed history write is logged, never undoes the change (same as the supplier log). */
+async function writeChange(
+  admin: SupabaseClient,
+  orgId: string,
+  row: { plan_id?: string | null; template_id?: string | null; action: ChangeAction; changed_by: string | null; changes: FieldChange[]; visit_effect?: VisitEffect | null }
+): Promise<void> {
+  const { error } = await orgDb(admin, orgId).from('service_plan_changes').insert({
+    plan_id: row.plan_id ?? null,
+    template_id: row.template_id ?? null,
+    action: row.action,
+    changed_by: row.changed_by,
+    changes: row.changes,
+    visit_effect: row.visit_effect ?? null,
+  })
+  if (error) console.error('[service-plans] history write failed', row.action, error)
+}
+
+export type HistoryEntry = { id: string; action: ChangeAction; at: string; by: string | null; lines: string[]; effect: VisitEffect | null }
+
+/** A plan's (or template's) history, newest first, as lines people read. */
+export async function loadChangeHistory(admin: SupabaseClient, orgId: string, subject: { planId?: string; templateId?: string }, limit = 100): Promise<HistoryEntry[]> {
+  let q = orgDb(admin, orgId).from('service_plan_changes').select('id, action, changed_at, changed_by, changes, visit_effect')
+  q = subject.planId ? q.eq('plan_id', subject.planId) : q.eq('template_id', subject.templateId ?? '')
+  const { data, error } = await q.order('changed_at', { ascending: false }).limit(limit)
+  if (error) return []
+  const rows = (data ?? []) as Array<{ id: string; action: ChangeAction; changed_at: string; changed_by: string | null; changes: FieldChange[] | null; visit_effect: VisitEffect | null }>
+  const userIds = Array.from(new Set(rows.map((r) => r.changed_by).filter((x): x is string => !!x)))
+  const { data: users } = userIds.length ? await orgDb(admin, orgId).from('users').select('id, full_name').in('id', userIds) : { data: [] }
+  const names = new Map(((users ?? []) as Array<{ id: string; full_name: string | null }>).map((u) => [u.id, u.full_name]))
+  return rows.map((r) => ({
+    id: r.id,
+    action: r.action,
+    at: r.changed_at,
+    by: r.changed_by ? names.get(r.changed_by) ?? 'Someone' : null,
+    lines: (r.changes ?? []).map(describeChange),
+    effect: r.visit_effect,
+  }))
+}
+
+/** Field changes for the history, with ids shown as names (crew, property) and big json as short words. */
+function planChanges(before: ServicePlan, patch: Record<string, unknown>, names: { crews?: Map<string, string>; properties?: Map<string, string> } = {}): FieldChange[] {
+  const show = (field: string, v: unknown): unknown => {
+    if (v === null || v === undefined) return null
+    if (field === 'default_sub_id') return names.crews?.get(String(v)) ?? v
+    if (field === 'property_id') return names.properties?.get(String(v)) ?? v
+    if (field === 'seasons') return (v as Season[]).map(seasonLabel)
+    if (field === 'steps') return (v as Array<{ label: string }>).map((x) => x.label)
+    if (field === 'pricing') return (v as { tiers: Array<{ label: string; price: number }> }).tiers.map((t) => `${t.label} $${t.price}`)
+    return v
   }
-  const priced = resolvePlanPricing(merged, merged.price_tier === 'standard' ? await loadStandardTier(admin, orgId) : null)
-  if (!priced.ok) return { ok: false, status: 400, error: priced.error }
-  return { ok: true, value: { ...v, price_tier: merged.price_tier, price: priced.price, billing_basis: priced.billing_basis } }
+  return diffFields(before as unknown as Record<string, unknown>, patch, PLAN_FIELD_LABELS).map((c) => ({ ...c, old: show(c.field, c.old), new: show(c.field, c.new) }))
 }
 
-export type PlanSave = { ok: true; plan: ServicePlan } | { ok: false; status: number; error: string }
+async function nameMaps(admin: SupabaseClient, orgId: string, crewIds: Array<string | null | undefined>, propIds: Array<string | null | undefined>) {
+  const db = orgDb(admin, orgId)
+  const c = Array.from(new Set(crewIds.filter((x): x is string => !!x)))
+  const p = Array.from(new Set(propIds.filter((x): x is string => !!x)))
+  const [crews, props] = await Promise.all([
+    c.length ? db.from('sub_contractors').select('id, company_name').in('id', c) : Promise.resolve({ data: [] }),
+    p.length ? db.from('properties').select('id, label, address_text').in('id', p) : Promise.resolve({ data: [] }),
+  ])
+  return {
+    crews: new Map(((crews.data ?? []) as Array<{ id: string; company_name: string | null }>).map((x) => [x.id, x.company_name ?? 'Crew'])),
+    properties: new Map(((props.data ?? []) as Array<{ id: string; label: string | null; address_text: string }>).map((x) => [x.id, x.label || x.address_text])),
+  }
+}
 
+// ---------------------------------------------------------------------------------------------------------------------
+// Templates (owner-managed; a plan copies its template at sale)
+// ---------------------------------------------------------------------------------------------------------------------
+
+export function templateFromRow(r: Record<string, unknown>): ServicePlanTemplate {
+  return {
+    id: String(r.id),
+    org_id: String(r.org_id),
+    name: String(r.name ?? ''),
+    trade: String(r.trade ?? ''),
+    description: (r.description as string | null) ?? null,
+    seasons: Array.isArray(r.seasons) ? (r.seasons as Season[]) : [],
+    billing_basis: r.billing_basis === 'per_month' || r.billing_basis === 'per_year' ? r.billing_basis : 'per_visit',
+    taxable: r.taxable === true,
+    pricing: readPricing(r.pricing ?? {}),
+    steps: readSteps(r.steps ?? []),
+    active: r.active !== false,
+    version: num(r.version) ?? 1,
+    updated_at: String(r.updated_at ?? ''),
+  }
+}
+
+export async function loadTemplates(admin: SupabaseClient, orgId: string, opts: { activeOnly?: boolean } = {}): Promise<{ ready: boolean; templates: ServicePlanTemplate[] }> {
+  let q = orgDb(admin, orgId).from('service_plan_templates').select(TEMPLATE_COLUMNS)
+  if (opts.activeOnly) q = q.eq('active', true)
+  const { data, error } = await q.order('name')
+  if (error) {
+    if (!isServicePlansNotReadyError(error)) console.error('[service-plans] templates load failed', error)
+    return { ready: false, templates: [] }
+  }
+  return { ready: true, templates: ((data ?? []) as Record<string, unknown>[]).map(templateFromRow) }
+}
+
+export async function loadTemplate(admin: SupabaseClient, orgId: string, id: string): Promise<ServicePlanTemplate | null> {
+  if (typeof id !== 'string' || !id) return null
+  const { data } = await orgDb(admin, orgId).from('service_plan_templates').select(TEMPLATE_COLUMNS).eq('id', id).maybeSingle()
+  return data ? templateFromRow(data as Record<string, unknown>) : null
+}
+
+export type TemplateSave = { ok: true; template: ServicePlanTemplate } | Fail
+
+/** Create or edit a template (owners). Each save bumps `version`; plans already sold keep their copy. */
+export async function saveTemplate(admin: SupabaseClient, orgId: string, userId: string, id: string | null, body: unknown): Promise<TemplateSave> {
+  const old = id ? await loadTemplate(admin, orgId, id) : null
+  if (id && !old) return { ok: false, status: 404, error: 'Template not found' }
+  const clean = cleanTemplateInput(body, !!old)
+  if (!clean.ok) return { ok: false, status: 400, error: clean.error }
+  const v = clean.value
+  const refs = await checkRefs(admin, orgId, null, { trade: v.trade, steps: v.steps })
+  if (!refs.ok) return refs
+  const b = body && typeof body === 'object' ? (body as Record<string, unknown>) : {}
+  const db = orgDb(admin, orgId)
+  if (!old) {
+    const { data, error } = await db
+      .from('service_plan_templates')
+      .insert({ ...v, created_by: userId, updated_by: userId })
+      .select(TEMPLATE_COLUMNS)
+      .single()
+    if (error || !data) {
+      if (isServicePlansNotReadyError(error)) return { ok: false, status: 503, error: SERVICE_PLANS_NOT_READY }
+      console.error('[service-plans] template create failed', error)
+      return { ok: false, status: 500, error: 'Could not save the template' }
+    }
+    const t = templateFromRow(data as Record<string, unknown>)
+    await writeChange(admin, orgId, { template_id: t.id, action: 'created', changed_by: userId, changes: [] })
+    return { ok: true, template: t }
+  }
+  const changes = diffFields(old as unknown as Record<string, unknown>, v as Record<string, unknown>, TEMPLATE_FIELD_LABELS)
+  if (changes.length === 0) return { ok: true, template: old }
+  let q = db.from('service_plan_templates').update({ ...v, version: old.version + 1, updated_by: userId }).eq('id', old.id)
+  if (typeof b.expectedUpdatedAt === 'string') q = q.eq('updated_at', b.expectedUpdatedAt)
+  const { data, error } = await q.select(TEMPLATE_COLUMNS)
+  if (error) return { ok: false, status: 500, error: 'Could not save the template' }
+  const row = (data ?? [])[0] as Record<string, unknown> | undefined
+  if (!row) return { ok: false, status: 409, error: 'Someone just changed this template — refresh and try again' }
+  await writeChange(admin, orgId, { template_id: old.id, action: 'updated', changed_by: userId, changes })
+  return { ok: true, template: templateFromRow(row) }
+}
+
+/** A template's parts as plan values (what is copied at sale, or pushed later). Trade only at sale. */
+export function templatePlanValues(t: ServicePlanTemplate, atSale: boolean): Partial<ServicePlanInput> & { template_id: string; template_version: number } {
+  return {
+    ...(atSale ? { trade: t.trade, name: t.name, description: t.description } : {}),
+    seasons: t.seasons,
+    billing_basis: t.billing_basis,
+    taxable: t.taxable,
+    pricing: t.pricing,
+    steps: t.steps,
+    template_id: t.id,
+    template_version: t.version,
+  }
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Plans: create, edit (with preview), status changes, template push
+// ---------------------------------------------------------------------------------------------------------------------
+
+export type PlanSave = { ok: true; plan: ServicePlan; effect: VisitEffect; changes: FieldChange[] } | Fail
+export type PlanPreview = { ok: true; preview: true; effect: VisitEffect; changes: FieldChange[]; summary: string } | Fail
+
+/**
+ * Sell a plan. With `template_id` the template is copied first (seasons, price rules, steps, billing, tax, name, trade)
+ * and anything in the body overrides it for this one plan. The price comes from the plan's own rules.
+ */
 export async function createServicePlan(admin: SupabaseClient, orgId: string, userId: string, customerId: string, body: unknown, now = new Date()): Promise<PlanSave> {
-  const clean = cleanPlanInput(body)
+  const b = body && typeof body === 'object' && !Array.isArray(body) ? (body as Record<string, unknown>) : {}
+  let base: Record<string, unknown> = {}
+  if (typeof b.template_id === 'string' && b.template_id) {
+    const t = await loadTemplate(admin, orgId, b.template_id)
+    if (!t || !t.active) return { ok: false, status: 400, error: 'That plan template is not offered' }
+    base = templatePlanValues(t, true)
+  }
+  const merged = { ...base, ...Object.fromEntries(Object.entries(b).filter(([, v]) => v !== undefined)) }
+  const clean = cleanPlanInput(merged)
   if (!clean.ok) return { ok: false, status: 400, error: clean.error }
   const refs = await checkRefs(admin, orgId, customerId, clean.value)
   if (!refs.ok) return refs
-  const priced = await pricedValues(admin, orgId, clean.value, null)
-  if (!priced.ok) return priced
-  const v = priced.value as ServicePlanInput
+  const p = priced(clean.value, null)
+  if (!p.ok) return p
+  const v = p.value as ServicePlanInput
   const { data, error } = await orgDb(admin, orgId)
     .from('service_plans')
-    .insert({ ...v, description: v.description ?? null, customer_id: customerId, status: 'active', created_by: userId, updated_by: userId })
+    .insert({
+      ...v,
+      description: v.description ?? null,
+      template_id: (base.template_id as string | undefined) ?? null,
+      template_version: (base.template_version as number | undefined) ?? null,
+      customer_id: customerId,
+      status: 'active',
+      created_by: userId,
+      updated_by: userId,
+    })
     .select(SERVICE_PLAN_COLUMNS)
     .single()
   if (error || !data) {
@@ -194,59 +402,95 @@ export async function createServicePlan(admin: SupabaseClient, orgId: string, us
     return { ok: false, status: 500, error: 'Could not save the plan' }
   }
   const plan = planFromRow(data as Record<string, unknown>)
-  await ensureServiceVisits(admin, orgId, { now, planIds: [plan.id] })
-  return { ok: true, plan }
+  const { created } = await ensureServiceVisits(admin, orgId, { now, planIds: [plan.id] })
+  const effect = { removed: 0, added: created, updated: 0 }
+  await writeChange(admin, orgId, { plan_id: plan.id, action: 'created', changed_by: userId, changes: [], visit_effect: effect })
+  return { ok: true, plan, effect, changes: [] }
+}
+
+/** Pure-ish: the patch an edit or status change would make, or why not (validation + reference checks). */
+async function planPatch(
+  admin: SupabaseClient,
+  orgId: string,
+  old: ServicePlan,
+  body: Record<string, unknown>,
+  statusChange: PlanStatusChange | null,
+  today: string,
+  now: Date
+): Promise<{ ok: true; patch: Record<string, unknown>; action: ChangeAction } | Fail> {
+  if (old.status === 'ended') return { ok: false, status: 400, error: 'This plan has ended' }
+  if (statusChange) {
+    if (statusChange.action === 'pause') return { ok: true, patch: { status: 'paused', paused_until: statusChange.until }, action: 'paused' }
+    if (statusChange.action === 'resume') return { ok: true, patch: { status: 'active', paused_until: null }, action: 'resumed' }
+    const on = statusChange.on ?? today
+    if (on < old.start_date) return { ok: false, status: 400, error: 'The end date is before the plan started' }
+    // Ending in the future = an end date; ending today or earlier = ended now.
+    return { ok: true, patch: on > today ? { end_date: on } : { status: 'ended', end_date: on, ended_at: now.toISOString(), paused_until: null }, action: on > today ? 'updated' : 'ended' }
+  }
+  const clean = cleanPlanInput(body, true)
+  if (!clean.ok) return { ok: false, status: 400, error: clean.error }
+  const v = clean.value
+  const start = v.start_date ?? old.start_date
+  const end = 'end_date' in v ? v.end_date ?? null : old.end_date
+  if (end && end < start) return { ok: false, status: 400, error: 'End date is before the start date' }
+  const refs = await checkRefs(admin, orgId, old.customer_id, v)
+  if (!refs.ok) return refs
+  const p = priced(v, old)
+  if (!p.ok) return p
+  // Keep only real changes, so the history and the preview say exactly what moved.
+  const patch = Object.fromEntries(Object.entries(p.value).filter(([k, val]) => JSON.stringify((old as unknown as Record<string, unknown>)[k] ?? null) !== JSON.stringify(val ?? null)))
+  return { ok: true, patch, action: 'updated' }
+}
+
+/** Future service visits of a plan with what the preview compares. */
+async function futureVisits(admin: SupabaseClient, orgId: string, planId: string, today: string) {
+  const { data, error } = await orgDb(admin, orgId)
+    .from('work_orders')
+    .select('id, visit_step, status, service_planned_date, scheduled_date, assigned_sub_id, completed_at, title, service_price, service_taxable, property_id')
+    .eq('service_plan_id', planId)
+    .eq('work_order_type', SERVICE_VISIT_TYPE)
+    .eq('visit_step', SERVICE_STEP)
+    .gte('service_planned_date', today)
+  if (error) throw error
+  return ((data ?? []) as Array<ExistingVisit & { title: string | null; service_price: unknown; service_taxable: boolean | null; property_id: string | null }>).map((v) => ({ ...v, service_price: num(v.service_price) }))
 }
 
 /**
- * Edit a plan (any of its fields) or change its status (pause with an optional resume date, resume, end). Then its
- * future unstarted visits are brought in line (`regenerateFutureVisits`). `expectedUpdatedAt` guards two people saving
- * at once.
+ * Edit a plan or change its status. `preview: true` in the body = say what would change (fields + visits removed /
+ * added / updated) and write nothing. Otherwise: save, bring future unstarted visits in line, top up the horizon and
+ * write the history. Done / skipped visits and anything today or earlier never change. `expectedUpdatedAt` guards two
+ * people saving at once.
  */
 export async function updateServicePlan(
   admin: SupabaseClient,
   orgId: string,
-  userId: string,
+  userId: string | null,
   planId: string,
   body: unknown,
   statusChange: PlanStatusChange | null,
-  now = new Date()
-): Promise<PlanSave> {
+  now = new Date(),
+  opts: { action?: ChangeAction; extraPatch?: Record<string, unknown> } = {}
+): Promise<PlanSave | PlanPreview> {
   const old = await loadServicePlan(admin, orgId, planId)
   if (!old) return { ok: false, status: 404, error: 'Plan not found' }
-  const b = body && typeof body === 'object' ? (body as Record<string, unknown>) : {}
+  const b = body && typeof body === 'object' && !Array.isArray(body) ? (body as Record<string, unknown>) : {}
   const timeZone = await loadOrgTimeZone(admin, orgId)
   const today = ymdInZone(now, timeZone)
+  const made = await planPatch(admin, orgId, old, b, statusChange, today, now)
+  if (!made.ok) return made
+  // Server-set columns a body may never carry (e.g. the template version a push brings the plan to).
+  const patch = { ...made.patch, ...(opts.extraPatch ?? {}) }
+  const names = await nameMaps(admin, orgId, [old.default_sub_id, patch.default_sub_id as string | undefined], [old.property_id, patch.property_id as string | undefined])
+  const changes = planChanges(old, patch, names)
+  const next = { ...old, ...patch } as ServicePlan
 
-  let patch: Record<string, unknown> = {}
-  if (statusChange) {
-    if (old.status === 'ended') return { ok: false, status: 400, error: 'This plan has ended' }
-    if (statusChange.action === 'pause') patch = { status: 'paused', paused_until: statusChange.until }
-    else if (statusChange.action === 'resume') patch = { status: 'active', paused_until: null }
-    else {
-      const on = statusChange.on ?? today
-      if (on < old.start_date) return { ok: false, status: 400, error: 'The end date is before the plan started' }
-      // Ending in the future = an end date; ending today or earlier = ended now.
-      patch = on > today ? { end_date: on } : { status: 'ended', end_date: on, ended_at: now.toISOString(), paused_until: null }
-    }
-  } else {
-    if (old.status === 'ended') return { ok: false, status: 400, error: 'This plan has ended' }
-    const clean = cleanPlanInput(b, true)
-    if (!clean.ok) return { ok: false, status: 400, error: clean.error }
-    const v = clean.value
-    const start = v.start_date ?? old.start_date
-    const end = 'end_date' in v ? v.end_date ?? null : old.end_date
-    if (end && end < start) return { ok: false, status: 400, error: 'End date is before the start date' }
-    const refs = await checkRefs(admin, orgId, old.customer_id, v)
-    if (!refs.ok) return refs
-    const priced = await pricedValues(admin, orgId, v, old)
-    if (!priced.ok) return priced
-    patch = { ...priced.value }
+  if (b.preview === true) {
+    const effect = previewVisitEffect(await futureVisits(admin, orgId, old.id, today), old, next, today)
+    return { ok: true, preview: true, effect, changes, summary: describeVisitEffect(effect) }
   }
-  if (Object.keys(patch).length === 0) return { ok: false, status: 400, error: 'Nothing to save' }
-  patch.updated_by = userId
+  if (Object.keys(patch).length === 0) return { ok: false, status: 400, error: 'Nothing changed' }
 
-  let q = orgDb(admin, orgId).from('service_plans').update(patch).eq('id', planId)
+  let q = orgDb(admin, orgId).from('service_plans').update({ ...patch, updated_by: userId }).eq('id', planId)
   if (typeof b.expectedUpdatedAt === 'string') q = q.eq('updated_at', b.expectedUpdatedAt)
   const { data, error } = await q.select(SERVICE_PLAN_COLUMNS)
   if (error) {
@@ -256,9 +500,57 @@ export async function updateServicePlan(
   const row = (data ?? [])[0] as Record<string, unknown> | undefined
   if (!row) return { ok: false, status: 409, error: 'Someone just changed this plan — refresh and try again' }
   const plan = planFromRow(row)
-  await regenerateFutureVisits(admin, orgId, old, plan, today)
-  await ensureServiceVisits(admin, orgId, { now, planIds: [plan.id], timeZone })
-  return { ok: true, plan }
+  const regen = await regenerateFutureVisits(admin, orgId, old, plan, today)
+  const { created } = await ensureServiceVisits(admin, orgId, { now, planIds: [plan.id], timeZone })
+  const effect: VisitEffect = { removed: regen.removed + regen.cancelled, added: created, updated: regen.updated }
+  await writeChange(admin, orgId, { plan_id: plan.id, action: opts.action ?? made.action, changed_by: userId, changes, visit_effect: effect })
+  return { ok: true, plan, effect, changes }
+}
+
+/**
+ * Push a template's current version to plans sold from it (owners, on purpose). Copies seasons, price rules, steps,
+ * billing and tax — never the plan's property, crew, day, name or dates. A plan on a tier gets the tier's new price if
+ * the home still qualifies; otherwise it keeps its price as a custom price (listed in `needsPriceCheck`). Ended plans
+ * are skipped. `preview` = totals only, nothing written.
+ */
+export async function applyTemplateToPlans(
+  admin: SupabaseClient,
+  orgId: string,
+  userId: string,
+  templateId: string,
+  opts: { preview: boolean; planIds?: string[]; now?: Date }
+): Promise<{ ok: true; plans: number; effect: VisitEffect; needsPriceCheck: string[]; summary: string } | Fail> {
+  const t = await loadTemplate(admin, orgId, templateId)
+  if (!t) return { ok: false, status: 404, error: 'Template not found' }
+  const { plans } = await loadServicePlans(admin, orgId, { templateId })
+  const targets = plans.filter((p) => p.status !== 'ended' && (p.template_version ?? 0) < t.version && (!opts.planIds || opts.planIds.includes(p.id)))
+  const total: VisitEffect = { removed: 0, added: 0, updated: 0 }
+  const needsPriceCheck: string[] = []
+  for (const p of targets) {
+    const { template_id: _t, template_version, ...values } = templatePlanValues(t, false) as Record<string, unknown>
+    // The plan's price under the new rules: its tier's new price if the home still fits; otherwise it keeps what it pays,
+    // as a custom price (allowed for this plan even if the template no longer sells custom), and the owner is told.
+    const fits = resolvePlanPricing({ tier_key: p.tier_key, price: p.price, billing_basis: p.billing_basis, pricing_inputs: p.pricing_inputs }, t.pricing).ok
+    if (!fits) {
+      values.tier_key = null
+      values.pricing = { ...t.pricing, allowCustom: true }
+      needsPriceCheck.push(p.name)
+    }
+    if (!fits || !p.tier_key) {
+      values.price = p.price
+      values.billing_basis = p.billing_basis
+    }
+    const r = await updateServicePlan(admin, orgId, userId, p.id, { ...values, preview: opts.preview }, null, opts.now, { action: 'template_applied', extraPatch: { template_version } })
+    if (!r.ok) {
+      if (r.status === 400 && r.error === 'Nothing changed') continue
+      return r
+    }
+    total.removed += r.effect.removed
+    total.added += r.effect.added
+    total.updated += r.effect.updated
+  }
+  const summary = `${targets.length} plan${targets.length === 1 ? '' : 's'}: ${describeVisitEffect(total)}${needsPriceCheck.length ? ` ${needsPriceCheck.length} no longer fit their price tier and keep their current price — check them.` : ''}`
+  return { ok: true, plans: targets.length, effect: total, needsPriceCheck, summary }
 }
 
 /**
@@ -268,15 +560,7 @@ export async function updateServicePlan(
  */
 export async function regenerateFutureVisits(admin: SupabaseClient, orgId: string, old: ServicePlan, plan: ServicePlan, today: string): Promise<{ removed: number; cancelled: number; updated: number }> {
   const db = orgDb(admin, orgId)
-  const { data, error } = await db
-    .from('work_orders')
-    .select('id, visit_step, status, service_planned_date, scheduled_date, assigned_sub_id, completed_at')
-    .eq('service_plan_id', plan.id)
-    .eq('work_order_type', SERVICE_VISIT_TYPE)
-    .eq('visit_step', 'service')
-    .gt('service_planned_date', today)
-  if (error) throw error
-  const visits = (data ?? []) as ExistingVisit[]
+  const visits = await futureVisits(admin, orgId, plan.id, addDaysYmd(today, 1))
   const tomorrow = addDaysYmd(today, 1)
   const newDates = new Set(planVisitDates(plan, tomorrow, addDaysYmd(today, 3650)))
   const { remove, keep } = regenerationPlan(visits, newDates, today)
@@ -318,8 +602,9 @@ export async function regenerateFutureVisits(admin: SupabaseClient, orgId: strin
         .in('id', ids)
         .eq('status', 'scheduled')
       if (uErr) throw uErr
-      updated += ids.length
     }
+    // Count only visits that actually differ (same rule as the preview).
+    updated = previewVisitEffect(keep as Parameters<typeof previewVisitEffect>[0], old, plan, today).updated
   }
   return { removed: remove.length - cancelled, cancelled, updated }
 }
@@ -363,6 +648,7 @@ export async function ensureServiceVisits(
     if (error) throw error
     if ((data ?? []).length) {
       resumed += 1
+      await writeChange(admin, orgId, { plan_id: p.id, action: 'auto_resumed', changed_by: null, changes: [{ field: 'status', label: PLAN_FIELD_LABELS.status, old: 'paused', new: 'active' }] })
       p.status = 'active'
       p.paused_until = null
     }
@@ -370,8 +656,9 @@ export async function ensureServiceVisits(
 
   // A plan whose end date has passed is ended (the card and every list then say so).
   for (const p of all.filter((x) => x.status !== 'ended' && x.end_date && x.end_date < today)) {
-    const { error } = await db.from('service_plans').update({ status: 'ended', ended_at: now.toISOString(), paused_until: null }).eq('id', p.id).neq('status', 'ended')
+    const { data: ended, error } = await db.from('service_plans').update({ status: 'ended', ended_at: now.toISOString(), paused_until: null }).eq('id', p.id).neq('status', 'ended').select('id')
     if (error) throw error
+    if ((ended ?? []).length) await writeChange(admin, orgId, { plan_id: p.id, action: 'auto_ended', changed_by: null, changes: [{ field: 'status', label: PLAN_FIELD_LABELS.status, old: p.status, new: 'ended' }] })
     p.status = 'ended'
   }
 
@@ -387,7 +674,7 @@ export async function ensureServiceVisits(
         .from('work_orders')
         .select('service_plan_id, service_planned_date')
         .in('service_plan_id', planIds.slice(i, i + 200))
-        .eq('visit_step', 'service')
+        .eq('visit_step', SERVICE_STEP)
         .gte('service_planned_date', from)
         .order('id')
         .range(page, page + PAGE - 1)
@@ -403,7 +690,7 @@ export async function ensureServiceVisits(
       .filter((d) => !have.has(`${plan.id}|${d}`))
       .map((d) => ({
         work_order_type: SERVICE_VISIT_TYPE,
-        visit_step: 'service',
+        visit_step: SERVICE_STEP,
         status: 'scheduled',
         priority: 'normal',
         service_plan_id: plan.id,
@@ -458,9 +745,12 @@ export type VisitView = {
   subId: string | null
   subName: string | null
   routePosition: number | null
-  /** 'service' = the plan's visit; 'inspection' = the follow-on after a done service visit. */
-  step: 'service' | 'inspection'
-  healthResult: string | null
+  /** 'service' = the plan's own visit; otherwise a follow-on step's key (its label in `stepLabel`). */
+  step: string
+  stepLabel: string | null
+  /** The recorded result of a follow-on step, and the options the plan gives that step (empty = none asked). */
+  result: StepResultOption | null
+  resultOptions: StepResultOption[]
   /** A staff person (the follow-on inspector), when the visit is a person's rather than a crew's. */
   userId: string | null
   userName: string | null
@@ -472,7 +762,7 @@ export type VisitView = {
 }
 
 const VISIT_COLS =
-  'id, work_order_number, service_plan_id, visit_step, health_result, status, scheduled_date, service_planned_date, trade, customer_id, property_id, assigned_sub_id, assigned_user_id, skip_reason, completion_notes, completed_at, updated_at, address, title'
+  'id, work_order_number, service_plan_id, visit_step, step_result, status, scheduled_date, service_planned_date, trade, customer_id, property_id, assigned_sub_id, assigned_user_id, skip_reason, completion_notes, completed_at, updated_at, address, title'
 
 /** Visits on [from, to] (by the day they sit on), ordered by day, then the crew's stop number, then address. */
 export async function loadVisits(
@@ -503,7 +793,7 @@ export async function loadVisits(
   const subIds = uniq('assigned_sub_id')
   const userIds = uniq('assigned_user_id')
   const [plans, custs, props, subs, photos, users] = await Promise.all([
-    db.from('service_plans').select('id, name, route_position').in('id', planIds),
+    db.from('service_plans').select('id, name, route_position, steps').in('id', planIds),
     custIds.length ? db.from('customers').select('id, name').in('id', custIds) : Promise.resolve({ data: [], error: null }),
     propIds.length ? db.from('properties').select('id, address_text, lat, lng, access_notes').in('id', propIds) : Promise.resolve({ data: [], error: null }),
     subIds.length ? db.from('sub_contractors').select('id, company_name').in('id', subIds) : Promise.resolve({ data: [], error: null }),
@@ -512,7 +802,7 @@ export async function loadVisits(
   ])
   for (const r of [plans, custs, props, subs, photos, users]) if (r.error) throw r.error
   const userBy = new Map(((users.data ?? []) as Array<{ id: string; full_name: string | null }>).map((u) => [u.id, u.full_name]))
-  const planBy = new Map(((plans.data ?? []) as Array<{ id: string; name: string; route_position: number | null }>).map((p) => [p.id, p]))
+  const planBy = new Map(((plans.data ?? []) as Array<{ id: string; name: string; route_position: number | null; steps: unknown }>).map((p) => [p.id, { ...p, steps: readSteps(p.steps) }]))
   const custBy = new Map(((custs.data ?? []) as Array<{ id: string; name: string | null }>).map((c) => [c.id, c.name]))
   const propBy = new Map(((props.data ?? []) as Array<{ id: string; address_text: string; lat: unknown; lng: unknown; access_notes: string | null }>).map((p) => [p.id, p]))
   const subBy = new Map(((subs.data ?? []) as Array<{ id: string; company_name: string | null }>).map((s) => [s.id, s.company_name]))
@@ -542,8 +832,17 @@ export async function loadVisits(
       subId: (r.assigned_sub_id as string | null) ?? null,
       subName: r.assigned_sub_id ? subBy.get(String(r.assigned_sub_id)) ?? null : null,
       routePosition: plan?.route_position ?? null,
-      step: r.visit_step === 'inspection' ? 'inspection' : 'service',
-      healthResult: (r.health_result as string | null) ?? null,
+      step: String(r.visit_step ?? SERVICE_STEP),
+      ...(() => {
+        const st = plan?.steps.find((x) => x.key === r.visit_step)
+        const options = st?.results ?? []
+        const key = (r.step_result as string | null) ?? null
+        return {
+          stepLabel: st?.label ?? (r.visit_step && r.visit_step !== SERVICE_STEP ? String(r.visit_step) : null),
+          resultOptions: options,
+          result: key ? options.find((o) => o.key === key) ?? { key, label: key, tone: 'neutral' as const } : null,
+        }
+      })(),
       userId: (r.assigned_user_id as string | null) ?? null,
       userName: r.assigned_user_id ? userBy.get(String(r.assigned_user_id)) ?? null : null,
       skipReason: (r.skip_reason as string | null) ?? null,
@@ -595,19 +894,25 @@ export async function applyVisitAction(
     const { data: sub } = await db.from('sub_contractors').select('id').eq('id', a.subId).maybeSingle()
     if (!sub) return { ok: false, status: 400, error: 'Pick one of your crews' }
   }
-  const patch = visitPatch(r, a, by, opts.now ?? new Date())
+  // A follow-on step's result options come from the plan (its own copy of the template's steps).
+  let results: string[] = []
+  if ((r.visit_step ?? SERVICE_STEP) !== SERVICE_STEP && a.action === 'done') {
+    const plan = await loadServicePlan(admin, orgId, r.service_plan_id)
+    results = stepResultKeys(plan?.steps ?? [], r.visit_step)
+  }
+  const patch = visitPatch({ ...r, results }, a, by, opts.now ?? new Date())
   if ('error' in patch) return { ok: false, status: 400, error: patch.error as string }
   const { data: updated, error } = await db.from('work_orders').update(patch).eq('id', visitId).eq('updated_at', r.updated_at).select('id')
   if (error) return { ok: false, status: 409, error: 'Could not save' }
   if (!updated || updated.length === 0) return { ok: false, status: 409, error: 'Someone just changed this visit — refresh and try again' }
   if (a.action === 'done') {
-    // The visit stands even if the follow-on can't be made; ops sees a missing inspection on the Visits list.
+    // The visit stands even if the follow-on can't be made; ops sees the missing step on the Visits list.
     await createFollowUpVisit(admin, orgId, r, opts.now ?? new Date()).catch((e) => console.error('[service-plans] follow-up failed', visitId, e))
   }
   return { ok: true }
 }
 
-/** After a service visit is done: its follow-on (e.g. the inspector's green/yellow/red visit), once per slot. */
+/** After a visit is done: the plan's next step (e.g. the inspector's visit after a cleaning), once per slot and step. */
 async function createFollowUpVisit(
   admin: SupabaseClient,
   orgId: string,
@@ -617,14 +922,15 @@ async function createFollowUpVisit(
   const plan = await loadServicePlan(admin, orgId, parent.service_plan_id)
   if (!plan) return
   const today = ymdInZone(now, await loadOrgTimeZone(admin, orgId))
-  const f = followUpVisitFields(plan, parent, today)
+  const f = followUpVisitFields(plan.steps, parent, today)
   if (!f) return
+  const { title_suffix, ...fields } = f
   const addr = await propertyAddressFields(admin, orgId, [plan.property_id])
   const { error } = await orgDb(admin, orgId)
     .from('work_orders')
     .upsert(
       {
-        ...f,
+        ...fields,
         work_order_type: SERVICE_VISIT_TYPE,
         status: 'scheduled',
         priority: 'normal',
@@ -632,8 +938,7 @@ async function createFollowUpVisit(
         customer_id: plan.customer_id,
         property_id: plan.property_id,
         trade: plan.trade,
-        assigned_sub_id: null,
-        title: `${plan.name} — inspection`,
+        title: `${plan.name} — ${title_suffix}`,
         created_by: plan.created_by,
         ...(addr.get(plan.property_id) ?? {}),
       },
@@ -689,21 +994,26 @@ export function newCrewDayToken(): string {
 export type CrewDay = { orgId: string; subId: string; crewName: string }
 
 /** Who a crew phone link belongs to, or null (bad or rotated token, or a crew that was turned off). */
-export async function resolveCrewDay(admin: SupabaseClient, token: string): Promise<CrewDay | null> {
+export async function resolveCrewDay(admin: SupabaseClient, token: string, now = new Date()): Promise<CrewDay | null> {
   if (typeof token !== 'string' || !CREW_DAY_TOKEN_RE.test(token)) return null
   // org-scope-ok: lookup by a secret token column; the row names its own company, which every later query uses
-  const { data, error } = await admin.from('crew_day_links').select('org_id, sub_id').eq('token', token).maybeSingle()
+  const { data, error } = await admin.from('crew_day_links').select('org_id, sub_id, expires_at').eq('token', token).maybeSingle()
   if (error || !data) return null
-  const link = data as { org_id: string; sub_id: string }
+  const link = data as { org_id: string; sub_id: string; expires_at: string | null }
+  // An expired link is dead even before anyone replaces it (it shows gate codes).
+  if (!link.expires_at || Date.parse(link.expires_at) <= now.getTime()) return null
   const { data: sub } = await orgDb(admin, link.org_id).from('sub_contractors').select('id, company_name, active').eq('id', link.sub_id).maybeSingle()
   const s = sub as { id: string; company_name: string | null; active: boolean | null } | null
   if (!s || s.active === false) return null
   return { orgId: link.org_id, subId: s.id, crewName: s.company_name ?? 'Crew' }
 }
 
-/** Does this crew have a phone link yet (never returns the token — it is shown once, when made)? */
-export async function crewDayLinkSubIds(admin: SupabaseClient, orgId: string): Promise<Set<string>> {
-  const { data, error } = await orgDb(admin, orgId).from('crew_day_links').select('sub_id')
+/** Days a crew phone link works before it must be made again. */
+export const CREW_DAY_LINK_DAYS = 30
+
+/** Crews with a link that still works (never returns the token — it is shown once, when made). */
+export async function crewDayLinkSubIds(admin: SupabaseClient, orgId: string, now = new Date()): Promise<Set<string>> {
+  const { data, error } = await orgDb(admin, orgId).from('crew_day_links').select('sub_id, expires_at').gt('expires_at', now.toISOString())
   if (error) return new Set()
   return new Set(((data ?? []) as Array<{ sub_id: string }>).map((r) => r.sub_id))
 }
@@ -714,18 +1024,21 @@ export async function rotateCrewDayToken(
   orgId: string,
   subId: string,
   userId: string
-): Promise<{ ok: true; token: string } | { ok: false; status: number; error: string }> {
+): Promise<{ ok: true; token: string; expiresInDays: number } | { ok: false; status: number; error: string }> {
   const db = orgDb(admin, orgId)
   const { data: sub } = await db.from('sub_contractors').select('id').eq('id', subId).maybeSingle()
   if (!sub) return { ok: false, status: 404, error: 'Crew not found' }
   const token = newCrewDayToken()
-  const { error } = await db.from('crew_day_links').upsert({ sub_id: subId, token, created_by: userId, created_at: new Date().toISOString() }, { onConflict: 'org_id,sub_id' })
+  const now = new Date()
+  const { error } = await db
+    .from('crew_day_links')
+    .upsert({ sub_id: subId, token, created_by: userId, created_at: now.toISOString(), expires_at: new Date(now.getTime() + CREW_DAY_LINK_DAYS * 86_400_000).toISOString() }, { onConflict: 'org_id,sub_id' })
   if (error) {
     if (isServicePlansNotReadyError(error)) return { ok: false, status: 503, error: SERVICE_PLANS_NOT_READY }
     console.error('[service-plans] crew link failed', error)
     return { ok: false, status: 500, error: 'Could not make the link' }
   }
-  return { ok: true, token }
+  return { ok: true, token, expiresInDays: CREW_DAY_LINK_DAYS }
 }
 
 /** A crew may act on its own service visits from yesterday and today only (a late "done" is fine; the future is not). */
@@ -740,7 +1053,6 @@ export async function loadCrewVisit(admin: SupabaseClient, crew: CrewDay, visitI
     .select('id, status')
     .eq('id', visitId)
     .eq('work_order_type', SERVICE_VISIT_TYPE)
-    .eq('visit_step', 'service')
     .eq('assigned_sub_id', crew.subId)
     .gte('scheduled_date', addDaysYmd(today, -1))
     .lte('scheduled_date', today)

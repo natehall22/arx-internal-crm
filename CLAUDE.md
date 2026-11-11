@@ -186,43 +186,44 @@ Recurring work at one property (lawn care weekly in season; a roof & gutter care
 follow-on visit). Feature switch `servicePlans` — the first **default-OFF** switch (`defaultOn: false` in
 `ORG_FEATURE_DEFS`; only an explicit `true` turns it on; any company, roofing included, may turn it on). Migration
 `202611110030_service_plans.sql` (NOT applied; apply after 202611110010; DB test `supabase/tests/run-service-plans.sh`).
-- **Rules** `lib/service-plans.ts` (client-safe, pure): seasons (`MM-DD` ranges, may wrap the new year, no overlaps) each with
-  a frequency (weekly / every 2 / every 4 weeks — counted from the plan's anchor weekday, so the rhythm never drifts — /
-  monthly = first <weekday> / none); `planVisitDates` is deterministic for any window. Dates are bare calendar days; the only
-  clock input is "today" in `orgs.timezone` (`ymdInZone`). Pricing: `price_tier` standard (company rule
-  `orgs.settings.servicePlans.standardTier` = price, basis, max stories, max pitch — owners edit it on Settings, written only by
-  `/api/admin/settings` `type:'service_plans'`; the generic settings save strips the key) or custom (override); billing per
-  visit / month / year; `taxable` flag per plan, snapshotted on each visit.
-- **ONE writer** `lib/service-plans-db.ts`. Visits are `work_orders` rows (`work_order_type='service_visit'`, `visit_step`
-  service | inspection, `service_plan_id`, `service_planned_date` = the generator's slot, `scheduled_date` = where it sits now,
-  `trade` always set so browser RLS cannot write them, `job_id` NULL) — never `scheduled_appointments`. **ONE generator**
-  `ensureServiceVisits` (pattern of `ensureCheckups`): today → 42 days, idempotent on unique
-  `(org_id, service_plan_id, service_planned_date, visit_step)`; runs on the morning cron (feature on only), every Visits load
-  and after each plan save; resumes a pause whose date came; ends a plan whose end date passed. A moved/skipped/cancelled slot
-  is never re-created.
-- **Edits** regenerate only UNSTARTED FUTURE service visits (scheduled, planned and sitting after today): dropped slots are
-  deleted (cancelled if they have photos); kept ones get the new name/price/property, and the new default crew only if the
-  crew was the old default. Done / skipped / cancelled visits and anything today or earlier never change.
-- **Statuses** scheduled → completed (done) | skipped (`skip_reason` rain/customer/holiday/other) | cancelled. An inspection
-  visit is done only with `health_result` green/yellow/red — the SAME vocabulary as checkups (`lib/health-result.ts`).
-  Done on a service visit of a plan with `follow_up='inspection'` creates one inspection visit (N days later, to the plan's
-  inspector) — `createFollowUpVisit`, once per slot.
-- **Bulk shift** (`bulkShiftVisits`, rain/hurricane): scheduled visits on a day range, all / one crew / unassigned, ±1–30
-  days; the planned slot is kept so the generator never puts them back.
-- **Screens:** Customer File → Service plans card (job-board viewers; edit = `jobs:edit`; prices = edit or job
-  financials — `lib/service-plans-access.ts`); Jobs → Schedule → **Visits** tab (`components/service-plans/VisitsBoard.tsx`);
-  crew phone page `/crew/day/<token>` (token in service-role-only `crew_day_links`, one per crew, rotated from the Visits tab;
-  shows only that crew's visits today with gate notes; Done/Skip/photos for yesterday + today only; dies when the feature is
-  switched off). Today page + morning email get "Today's visits" / "Visits skipped this week" (ids `todays-visits`,
-  `skipped-visits`) when the switch is on.
-- **Visit photos** are `photos` rows with `job_id` NULL + `work_order_id` (job_id is now nullable; CHECK one of the two),
-  folder `<org>/visits/<visit>/photos`, through `registerVisitPhotoUpload` / `finalizeVisitPhotoUpload`
-  (lib/job-photo-upload.ts, same code as job photos). Browser: `lib/visit-photo-upload.ts`.
-- **Invoicing hook (not built):** `loadCompletedServiceVisits(admin, org, fromIso, toIso)` — done visits with their
-  `service_price` snapshot (per-visit plans) and plan id (per-month/year plans bill the plan). Nothing is written to
-  `integration_outbox` (the QuickBooks guard test holds that list).
-- **Readers that must not count visits** exclude `work_order_type = SERVICE_VISIT_TYPE`: Today crews-this-week, ops
-  dashboard open work orders, the sub portal list + its complete route. `/work-orders` already lists `trade IS NULL` only.
+**Nothing about a plan is in code (Nathan, 2026-11-11: "what fits now might not later").**
+- **Plan templates** (`service_plan_templates`, owners at Settings → Plan templates, `components/service-plans/ServicePlanTemplatesCard.tsx`,
+  `/api/admin/service-plan-templates`): name, trade, seasons, billing basis (visit / month / year), tax flag, **price rules**
+  (`pricing` = questions asked about a home + tiers with conditions on them + allow custom price — generic, no roofing
+  fields) and **follow-on steps** (`steps` = label, days after, a person or a crew, result options; green / yellow / red is
+  only the default, `DEFAULT_STEP_RESULTS` from `lib/health-result.ts`). `version` bumps on each save. Starters
+  (`lib/service-plan-starters.ts`, prices blank) only prefill the editor or a seed file (`servicePlanTemplates` in
+  `npm run seed:company`, a starter + `tierPrices` or a full template) — after that the company's row is the only source.
+- **A plan copies its template at sale** (`template_id`, `template_version`, its own seasons / pricing / steps / billing / tax).
+  Editing a template never changes a sold plan; an owner pushes a new version on purpose (`applyTemplateToPlans`, preview
+  first; a plan whose tier no longer fits keeps its price as custom and is listed). Every plan field stays editable on the plan.
+- **Rules** `lib/service-plans.ts` (client-safe, pure): seasons (`MM-DD`, may wrap the year, no overlaps) with frequencies
+  (weekly / every 2 / every 4 weeks from the plan's anchor weekday / monthly = first <weekday> / none); `planVisitDates`
+  deterministic for any window; only clock input is "today" in `orgs.timezone`. `resolvePlanPricing` / `tierCheck` (a tier
+  only for a home inside every rule; custom only when allowed). `previewVisitEffect` = what a change would do.
+- **ONE writer** `lib/service-plans-db.ts`. Visits are `work_orders` (`work_order_type='service_visit'`, `visit_step`
+  'service' or a step key, `step_result`, `service_plan_id`, `service_planned_date` = slot, `scheduled_date` = where it sits,
+  `trade` set so browser RLS can't write them, `job_id` NULL) — never `scheduled_appointments`. **ONE generator**
+  `ensureServiceVisits`: today → 42 days, idempotent on `(org_id, service_plan_id, service_planned_date, visit_step)`;
+  morning cron (switch on only), Visits loads, every plan save; auto-resumes / auto-ends plans (both in history).
+- **Edits: preview, then save** (`updateServicePlan` with `preview: true` writes nothing and returns changed fields + visits
+  removed / added / updated). Only UNSTARTED FUTURE service visits change; done / skipped / cancelled and anything today or
+  earlier never do; a crew picked by hand stays. **History**: `service_plan_changes` (same `{field,label,old,new}` shape as
+  `supplier_audit_log`; `lib/change-log.ts` is the one `FieldChange`/`describeChange`/`diffFields`), with `visit_effect`;
+  plan History button, template "Plans & history".
+- **Statuses** scheduled → completed | skipped (`skip_reason`) | cancelled. A step visit with result options is done only with
+  one of the plan's options; done starts the plan's NEXT step (`followUpVisitFields`, chained).
+- **Bulk shift** (`bulkShiftVisits`): a day range, all / one crew / unassigned, ±1–30 days; slots kept.
+- **Screens:** Customer File → Service plans card (start from a template; edit everything; preview; history); Jobs → Schedule →
+  **Visits** tab; crew phone page `/crew/day/<token>` (token in service-role `crew_day_links`, one per crew, **expires after 30
+  days** or when replaced or the switch is off; the open page re-checks `/api/crew/day/<token>/status` on focus / return / every
+  5 min and wipes addresses and gate codes when dead; gate codes only on visits still to do). Today + morning email
+  "Today's visits" / "Visits skipped this week" when on.
+- **Access** `lib/service-plans-access.ts`: view = job board; edit = `jobs:edit`; prices = edit or job financials; templates = owners.
+- **Visit photos**: `photos` with `job_id` NULL + `work_order_id`, via `registerVisitPhotoUpload` / `finalizeVisitPhotoUpload`.
+- **Invoicing hook (not built):** `loadCompletedServiceVisits` (done visits + `service_price` / `service_taxable` snapshots).
+- **Readers that must not count visits** exclude `work_order_type = SERVICE_VISIT_TYPE` (Today crews, ops dashboard open WOs,
+  sub portal list + complete). `/work-orders` already lists `trade IS NULL` only.
 
 **Known Redundancy additions (2026-11-11, service plans):** (32) "The migration isn't applied yet" is detected four ways
 (`isPropertiesNotReadyError`, `isMissingTableError` in org-trades, `isServicePlansNotReadyError`, and `isMissingColumn` on

@@ -3,21 +3,21 @@
 import * as React from 'react'
 
 import { Badge, Button, Card, CardContent, CardHeader, CardTitle, confirmDialog, Dialog, DialogContent, DialogFooter, Field, Input, Select, Textarea, toast } from '@/components/ui'
-import { formatDateShort, formatMoney } from '@/lib/format'
+import { SeasonsEditor, StepsEditor } from '@/components/service-plans/PlanSpecEditors'
+import { formatDateShort, formatDateTime, formatMoney } from '@/lib/format'
 import {
   BILLING_BASIS_LABELS,
-  DEFAULT_LAWN_SEASONS,
-  SERVICE_FREQUENCIES,
-  SERVICE_FREQUENCY_LABELS,
   WEEKDAY_LABELS,
+  eligibleTiers,
   planWeekday,
   seasonLabel,
-  standardTierCheck,
+  tierCheck,
   type BillingBasis,
+  type PlanPricing,
+  type PlanStep,
   type Season,
-  type ServiceFrequency,
   type ServicePlan,
-  type StandardTierRule,
+  type ServicePlanTemplate,
 } from '@/lib/service-plans'
 
 type PlanRow = ServicePlan & { priceHidden?: boolean }
@@ -31,10 +31,11 @@ type Load = {
   trades: Array<{ slug: string; label: string }>
   crews: Option[]
   people: Option[]
-  standardTier: (Omit<StandardTierRule, 'price'> & { price: number | null }) | null
+  templates: ServicePlanTemplate[]
 }
 
 type Form = {
+  template_id: string
   name: string
   description: string
   property_id: string
@@ -43,44 +44,31 @@ type Form = {
   end_date: string
   preferred_weekday: string
   seasons: Season[]
-  price_tier: 'standard' | 'custom'
+  pricing: PlanPricing
+  pricing_inputs: Record<string, string>
+  tier_key: string
   price: string
   billing_basis: BillingBasis
   taxable: boolean
-  stories: string
-  pitch_rise: string
   default_sub_id: string
   route_position: string
-  follow_up: boolean
-  follow_up_days: string
-  follow_up_user_id: string
+  steps: PlanStep[]
 }
 
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-const STATUS_TONE = { active: 'success', paused: 'warning', ended: 'neutral' } as const
+type Preview = { body: Record<string, unknown>; plan: PlanRow; summary: string; lines: string[] }
+type HistoryEntry = { id: string; action: string; at: string; by: string | null; lines: string[]; effect: { removed: number; added: number; updated: number } | null }
+type History = { plan: PlanRow; entries: HistoryEntry[] | null }
 
-function formFrom(p: PlanRow | null, d: Load, today: string): Form {
-  return {
-    name: p?.name ?? '',
-    description: p?.description ?? '',
-    property_id: p?.property_id ?? d.properties[0]?.id ?? '',
-    trade: p?.trade ?? d.trades[0]?.slug ?? '',
-    start_date: p?.start_date ?? today,
-    end_date: p?.end_date ?? '',
-    preferred_weekday: p ? String(planWeekday(p)) : '',
-    seasons: p?.seasons?.length ? p.seasons.map((s) => ({ ...s })) : [{ from: '01-01', to: '12-31', frequency: 'weekly' }],
-    price_tier: p?.price_tier ?? 'custom',
-    price: p?.price != null ? String(p.price) : '',
-    billing_basis: p?.billing_basis ?? 'per_visit',
-    taxable: p?.taxable ?? false,
-    stories: p?.stories != null ? String(p.stories) : '',
-    pitch_rise: p?.pitch_rise != null ? String(p.pitch_rise) : '',
-    default_sub_id: p?.default_sub_id ?? '',
-    route_position: p?.route_position != null ? String(p.route_position) : '',
-    follow_up: p?.follow_up === 'inspection',
-    follow_up_days: p?.follow_up_days != null ? String(p.follow_up_days) : '1',
-    follow_up_user_id: p?.follow_up_user_id ?? '',
-  }
+const STATUS_TONE = { active: 'success', paused: 'warning', ended: 'neutral' } as const
+const ACTION_WORDS: Record<string, string> = {
+  created: 'Started',
+  updated: 'Changed',
+  paused: 'Paused',
+  resumed: 'Resumed',
+  ended: 'Ended',
+  template_applied: 'Template update applied',
+  auto_resumed: 'Resumed on its date',
+  auto_ended: 'Ended on its end date',
 }
 
 function todayLocal(): string {
@@ -88,39 +76,91 @@ function todayLocal(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-/** "MM-DD" ↔ month + day pickers. */
-function MonthDay({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
-  const [m, d] = value.split('-').map(Number)
-  const days = new Date(2024, m, 0).getDate()
-  return (
-    <div className="flex flex-col gap-1">
-      <span className="text-ui-sm font-semibold text-ink">{label}</span>
-      <div className="flex gap-2">
-        <Select aria-label={`${label} month`} value={m} onChange={(e) => onChange(`${String(e.target.value).padStart(2, '0')}-${String(Math.min(d, new Date(2024, Number(e.target.value), 0).getDate())).padStart(2, '0')}`)} className="text-base">
-          {MONTHS.map((name, i) => (
-            <option key={name} value={i + 1}>{name}</option>
-          ))}
-        </Select>
-        <Select aria-label={`${label} day`} value={d} onChange={(e) => onChange(`${String(m).padStart(2, '0')}-${String(e.target.value).padStart(2, '0')}`)} className="w-24 text-base">
-          {Array.from({ length: days }, (_, i) => i + 1).map((n) => (
-            <option key={n} value={n}>{n}</option>
-          ))}
-        </Select>
-      </div>
-    </div>
-  )
+const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v)) as T
+
+function formFromTemplate(t: ServicePlanTemplate | null, d: Load): Form {
+  return {
+    template_id: t?.id ?? '',
+    name: t?.name ?? '',
+    description: t?.description ?? '',
+    property_id: d.properties[0]?.id ?? '',
+    trade: t?.trade ?? d.trades[0]?.slug ?? '',
+    start_date: todayLocal(),
+    end_date: '',
+    preferred_weekday: '',
+    seasons: t?.seasons?.length ? clone(t.seasons) : [{ from: '01-01', to: '12-31', frequency: 'weekly' }],
+    pricing: t ? clone(t.pricing) : { fields: [], tiers: [], allowCustom: true },
+    pricing_inputs: {},
+    tier_key: '',
+    price: '',
+    billing_basis: t?.billing_basis ?? 'per_visit',
+    taxable: t?.taxable ?? false,
+    default_sub_id: '',
+    route_position: '',
+    steps: t ? clone(t.steps) : [],
+  }
+}
+
+function formFromPlan(p: PlanRow): Form {
+  return {
+    template_id: p.template_id ?? '',
+    name: p.name,
+    description: p.description ?? '',
+    property_id: p.property_id,
+    trade: p.trade,
+    start_date: p.start_date,
+    end_date: p.end_date ?? '',
+    preferred_weekday: String(planWeekday(p)),
+    seasons: clone(p.seasons),
+    pricing: clone(p.pricing),
+    pricing_inputs: Object.fromEntries(Object.entries(p.pricing_inputs).map(([k, v]) => [k, String(v)])),
+    tier_key: p.tier_key ?? '',
+    price: p.price != null ? String(p.price) : '',
+    billing_basis: p.billing_basis,
+    taxable: p.taxable,
+    default_sub_id: p.default_sub_id ?? '',
+    route_position: p.route_position != null ? String(p.route_position) : '',
+    steps: clone(p.steps),
+  }
+}
+
+function bodyFrom(f: Form, isNew: boolean): Record<string, unknown> {
+  const inputs = Object.fromEntries(Object.entries(f.pricing_inputs).filter(([, v]) => v.trim() !== '').map(([k, v]) => [k, Number(v)]))
+  return {
+    ...(isNew ? { template_id: f.template_id || undefined, trade: f.trade } : {}),
+    name: f.name,
+    description: f.description,
+    property_id: f.property_id,
+    start_date: f.start_date,
+    end_date: f.end_date || null,
+    preferred_weekday: f.preferred_weekday === '' ? null : Number(f.preferred_weekday),
+    seasons: f.seasons,
+    pricing: f.pricing,
+    pricing_inputs: inputs,
+    tier_key: f.tier_key || null,
+    price: f.tier_key ? null : f.price,
+    billing_basis: f.billing_basis,
+    taxable: f.taxable,
+    default_sub_id: f.default_sub_id || null,
+    route_position: f.route_position,
+    steps: f.steps,
+  }
 }
 
 /**
- * Customer File → Service plans: recurring work at one of the customer's properties (weekly mowing, roof &
- * gutter cleaning). Visits go on the calendar by themselves (Jobs → Schedule → Visits). Only shown when the company has
- * service plans switched on; reads and saves through /api/customers/[id]/service-plans and /api/service-plans/[id].
+ * Customer File → Service plans: recurring work at one of the customer's properties. A new plan starts from one of the
+ * company's plan templates (Settings → Plan templates) and copies it; everything stays editable on the plan — schedule,
+ * seasons, price, crew, property, follow-on steps, billing. Saving an edit first shows what will change on the calendar
+ * (visits removed / added / updated); done, skipped and today's visits never change. Every change is in the plan's
+ * history. Reads and saves through /api/customers/[id]/service-plans and /api/service-plans/[id].
  */
 export default function ServicePlansCard({ customerId }: { customerId: string }) {
   const [data, setData] = React.useState<Load | null>(null)
   const [failed, setFailed] = React.useState(false)
   const [editing, setEditing] = React.useState<{ plan: PlanRow | null; form: Form } | null>(null)
+  const [preview, setPreview] = React.useState<Preview | null>(null)
   const [pausing, setPausing] = React.useState<{ plan: PlanRow; until: string } | null>(null)
+  const [history, setHistory] = React.useState<History | null>(null)
   const [saving, setSaving] = React.useState(false)
 
   const load = React.useCallback(async () => {
@@ -139,62 +179,70 @@ export default function ServicePlansCard({ customerId }: { customerId: string })
   if (data.plans.length === 0 && !data.canEdit) return null
   const d = data
 
-  async function send(url: string, method: string, body: unknown): Promise<boolean> {
+  async function send(url: string, method: string, body: unknown): Promise<Record<string, unknown> | null> {
     setSaving(true)
     const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).catch(() => null)
-    const out = (res ? await res.json().catch(() => ({})) : {}) as { error?: string }
+    const out = (res ? await res.json().catch(() => ({})) : {}) as Record<string, unknown>
     setSaving(false)
     if (!res || !res.ok) {
-      toast.error(out.error || 'Could not save')
-      return false
+      toast.error(typeof out.error === 'string' ? out.error : 'Could not save')
+      return null
     }
-    await load()
-    return true
+    return out
   }
 
-  async function save() {
+  /** Every change to an existing plan: preview first, then save with the same body. */
+  async function previewThenSave(plan: PlanRow, body: Record<string, unknown>) {
+    const out = await send(`/api/service-plans/${plan.id}`, 'PATCH', { ...body, preview: true })
+    if (!out) return
+    const lines = ((out.changes ?? []) as Array<{ label: string }>).map((c) => c.label)
+    setPreview({ body, plan, summary: String(out.summary ?? ''), lines })
+  }
+
+  async function confirmSave() {
+    if (!preview) return
+    const out = await send(`/api/service-plans/${preview.plan.id}`, 'PATCH', { ...preview.body, expectedUpdatedAt: preview.plan.updated_at })
+    if (!out) return
+    toast.success('Plan saved')
+    setPreview(null)
+    setEditing(null)
+    setPausing(null)
+    await load()
+  }
+
+  async function createPlan() {
     if (!editing) return
-    const f = editing.form
-    const body: Record<string, unknown> = {
-      name: f.name,
-      description: f.description,
-      property_id: f.property_id,
-      start_date: f.start_date,
-      end_date: f.end_date || null,
-      preferred_weekday: f.preferred_weekday === '' ? null : Number(f.preferred_weekday),
-      seasons: f.seasons,
-      price_tier: f.price_tier,
-      price: f.price_tier === 'custom' ? f.price : null,
-      billing_basis: f.billing_basis,
-      taxable: f.taxable,
-      stories: f.stories,
-      pitch_rise: f.pitch_rise,
-      default_sub_id: f.default_sub_id || null,
-      route_position: f.route_position,
-      follow_up: f.follow_up ? 'inspection' : null,
-      follow_up_days: f.follow_up_days,
-      follow_up_user_id: f.follow_up_user_id || null,
-    }
-    if (!editing.plan) body.trade = f.trade
-    else body.expectedUpdatedAt = editing.plan.updated_at
-    const ok = editing.plan ? await send(`/api/service-plans/${editing.plan.id}`, 'PATCH', body) : await send(`/api/customers/${customerId}/service-plans`, 'POST', body)
-    if (ok) {
-      toast.success(editing.plan ? 'Plan saved — upcoming visits updated' : 'Plan started — visits are on the calendar')
-      setEditing(null)
-    }
+    const out = await send(`/api/customers/${customerId}/service-plans`, 'POST', bodyFrom(editing.form, true))
+    if (!out) return
+    toast.success('Plan started — visits are on the calendar')
+    setEditing(null)
+    await load()
+  }
+
+  async function openHistory(plan: PlanRow) {
+    setHistory({ plan, entries: null })
+    const res = await fetch(`/api/service-plans/${plan.id}/history`, { cache: 'no-store' }).catch(() => null)
+    const out = (res && res.ok ? await res.json().catch(() => ({})) : {}) as { history?: HistoryEntry[] }
+    setHistory((h) => (h && h.plan.id === plan.id ? { ...h, entries: out.history ?? [] } : h))
   }
 
   const set = (patch: Partial<Form>) => setEditing((e) => (e ? { ...e, form: { ...e.form, ...patch } } : e))
-  const tierCheck = editing ? standardTierCheck(d.standardTier ? { ...d.standardTier, price: d.standardTier.price ?? 0 } : null, { stories: editing.form.stories === '' ? null : Number(editing.form.stories), pitch_rise: editing.form.pitch_rise === '' ? null : Number(editing.form.pitch_rise) }) : null
   const nameOf = (list: Option[], id: string | null) => list.find((o) => o.id === id)?.name ?? null
   const tradeName = (slug: string) => d.trades.find((t) => t.slug === slug)?.label ?? slug
+  const tierLabel = (p: PlanRow) => p.pricing.tiers.find((t) => t.key === p.tier_key)?.label ?? null
+
+  const f = editing?.form
+  const numericInputs: Record<string, number> = f
+    ? Object.fromEntries(Object.entries(f.pricing_inputs).filter(([, v]) => v.trim() !== '' && Number.isFinite(Number(v))).map(([k, v]) => [k, Number(v)]))
+    : {}
+  const fits = f ? eligibleTiers(f.pricing, numericInputs) : []
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>Service plans</CardTitle>
         {d.canEdit && d.properties.length > 0 ? (
-          <Button size="sm" onClick={() => setEditing({ plan: null, form: formFrom(null, d, todayLocal()) })}>
+          <Button size="sm" onClick={() => setEditing({ plan: null, form: formFromTemplate(d.templates[0] ?? null, d) })}>
             + Add plan
           </Button>
         ) : null}
@@ -213,47 +261,55 @@ export default function ServicePlansCard({ customerId }: { customerId: string })
                     {p.status === 'paused' ? (p.paused_until ? `Paused until ${formatDateShort(p.paused_until)}` : 'Paused') : p.status === 'ended' ? 'Ended' : 'Active'}
                   </Badge>
                 </div>
-                <p className="text-ui-base text-ink">
-                  {[tradeName(p.trade), nameOf(d.properties, p.property_id), `${WEEKDAY_LABELS[planWeekday(p)]}s`].filter(Boolean).join(' · ')}
-                </p>
+                <p className="text-ui-base text-ink">{[tradeName(p.trade), nameOf(d.properties, p.property_id), `${WEEKDAY_LABELS[planWeekday(p)]}s`].filter(Boolean).join(' · ')}</p>
                 <ul className="text-ui-sm text-ink">
                   {p.seasons.map((s, i) => (
                     <li key={i}>{seasonLabel(s)}</li>
                   ))}
                 </ul>
                 <p className="text-ui-sm text-ink">
-                  {p.priceHidden ? null : p.price != null ? `${formatMoney(p.price)} ${BILLING_BASIS_LABELS[p.billing_basis]}${p.price_tier === 'standard' ? ' (standard)' : ''}${p.taxable ? ' + tax' : ''} · ` : 'No price · '}
+                  {p.priceHidden
+                    ? null
+                    : p.price != null
+                      ? `${formatMoney(p.price)} ${BILLING_BASIS_LABELS[p.billing_basis]}${tierLabel(p) ? ` (${tierLabel(p)})` : ' (custom)'}${p.taxable ? ' + tax' : ''} · `
+                      : 'No price · '}
                   {nameOf(d.crews, p.default_sub_id) ?? 'No crew yet'}
-                  {p.follow_up === 'inspection' ? ` · inspection ${p.follow_up_days ?? 0} day${p.follow_up_days === 1 ? '' : 's'} after${nameOf(d.people, p.follow_up_user_id) ? ` by ${nameOf(d.people, p.follow_up_user_id)}` : ''}` : ''}
+                  {p.steps.length ? ` · then ${p.steps.map((s) => `${s.label} (+${s.daysAfter}d)`).join(', ')}` : ''}
                   {p.end_date && p.status !== 'ended' ? ` · ends ${formatDateShort(p.end_date)}` : ''}
                 </p>
-                {d.canEdit && p.status !== 'ended' ? (
-                  <div className="flex flex-wrap gap-2 pt-1">
-                    <Button size="sm" variant="secondary" onClick={() => setEditing({ plan: p, form: formFrom(p, d, todayLocal()) })}>
-                      Edit
-                    </Button>
-                    {p.status === 'paused' ? (
-                      <Button size="sm" variant="secondary" loading={saving} onClick={() => void send(`/api/service-plans/${p.id}`, 'PATCH', { action: 'resume' }).then((ok) => ok && toast.success('Plan resumed'))}>
-                        Resume
+                <div className="flex flex-wrap gap-2 pt-1">
+                  {d.canEdit && p.status !== 'ended' ? (
+                    <>
+                      <Button size="sm" variant="secondary" onClick={() => setEditing({ plan: p, form: formFromPlan(p) })}>
+                        Edit
                       </Button>
-                    ) : (
-                      <Button size="sm" variant="secondary" onClick={() => setPausing({ plan: p, until: '' })}>
-                        Pause
+                      {p.status === 'paused' ? (
+                        <Button size="sm" variant="secondary" loading={saving} onClick={() => void previewThenSave(p, { action: 'resume' })}>
+                          Resume
+                        </Button>
+                      ) : (
+                        <Button size="sm" variant="secondary" onClick={() => setPausing({ plan: p, until: '' })}>
+                          Pause
+                        </Button>
+                      )}
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        loading={saving}
+                        onClick={async () => {
+                          if (await confirmDialog({ title: `End “${p.name}”?`, description: 'You’ll see what comes off the calendar before it saves.', confirmLabel: 'Continue', destructive: true })) {
+                            await previewThenSave(p, { action: 'end' })
+                          }
+                        }}
+                      >
+                        End plan
                       </Button>
-                    )}
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      loading={saving}
-                      onClick={async () => {
-                        const ok = await confirmDialog({ title: `End “${p.name}”?`, description: 'Visits after today come off the calendar. Past visits stay.', confirmLabel: 'End plan', destructive: true })
-                        if (ok && (await send(`/api/service-plans/${p.id}`, 'PATCH', { action: 'end' }))) toast.success('Plan ended')
-                      }}
-                    >
-                      End plan
-                    </Button>
-                  </div>
-                ) : null}
+                    </>
+                  ) : null}
+                  <Button size="sm" variant="ghost" className="underline" onClick={() => void openHistory(p)}>
+                    History
+                  </Button>
+                </div>
               </li>
             ))}
           </ul>
@@ -265,39 +321,119 @@ export default function ServicePlansCard({ customerId }: { customerId: string })
           <DialogContent title={`Pause ${pausing.plan.name}`} description="Visits after today come off the calendar until it resumes. Leave the date empty to pause until someone resumes it.">
             <Field label="Resume on (optional)">{(a) => <Input {...a} type="date" className="text-base" value={pausing.until} min={todayLocal()} onChange={(e) => setPausing({ ...pausing, until: e.target.value })} />}</Field>
             <DialogFooter className="sticky bottom-0 bg-surface pt-2">
-              <Button variant="secondary" disabled={saving} onClick={() => setPausing(null)}>Cancel</Button>
-              <Button loading={saving} onClick={() => void send(`/api/service-plans/${pausing.plan.id}`, 'PATCH', { action: 'pause', until: pausing.until || null }).then((ok) => ok && (setPausing(null), toast.success('Plan paused')))}>
-                Pause plan
+              <Button variant="secondary" disabled={saving} onClick={() => setPausing(null)}>
+                Cancel
+              </Button>
+              <Button loading={saving} onClick={() => void previewThenSave(pausing.plan, { action: 'pause', until: pausing.until || null })}>
+                Next
               </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
       ) : null}
 
-      {editing ? (
+      {preview ? (
+        <Dialog open onOpenChange={(o) => !o && !saving && setPreview(null)}>
+          <DialogContent title="What will change" description={preview.plan.name}>
+            {preview.lines.length ? <p className="text-ui-base text-ink">Changing: {preview.lines.join(', ')}.</p> : null}
+            <p className="rounded-ui border border-amber-600 bg-amber-50 p-3 text-ui-base text-ink">{preview.summary}</p>
+            <DialogFooter className="sticky bottom-0 bg-surface pt-2">
+              <Button variant="secondary" disabled={saving} onClick={() => setPreview(null)}>
+                Back
+              </Button>
+              <Button loading={saving} onClick={() => void confirmSave()}>
+                Save
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      ) : null}
+
+      {history ? (
+        <Dialog open onOpenChange={(o) => !o && setHistory(null)}>
+          <DialogContent title={`History — ${history.plan.name}`}>
+            {history.entries === null ? (
+              <p className="text-ui-base text-ink">Loading…</p>
+            ) : history.entries.length === 0 ? (
+              <p className="text-ui-base text-ink">No changes recorded.</p>
+            ) : (
+              <ul className="flex flex-col gap-3">
+                {history.entries.map((h) => (
+                  <li key={h.id} className="text-ui-sm text-ink">
+                    <p>
+                      <span className="font-semibold">{ACTION_WORDS[h.action] ?? h.action}</span> · {formatDateTime(h.at)} · {h.by ?? 'Automatic'}
+                    </p>
+                    {h.lines.length ? (
+                      <ul className="ml-4 list-disc">
+                        {h.lines.map((l, i) => (
+                          <li key={i} className="break-words">{l}</li>
+                        ))}
+                      </ul>
+                    ) : null}
+                    {h.effect && (h.effect.removed || h.effect.added || h.effect.updated) ? (
+                      <p>Visits: {h.effect.removed} removed, {h.effect.added} added, {h.effect.updated} updated</p>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            )}
+            <DialogFooter>
+              <Button variant="secondary" onClick={() => setHistory(null)}>
+                Close
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      ) : null}
+
+      {editing && f ? (
         <Dialog open onOpenChange={(o) => !o && !saving && setEditing(null)}>
-          <DialogContent title={editing.plan ? 'Edit service plan' : 'New service plan'} description={editing.plan ? 'Upcoming visits that haven’t happened follow your changes. Done and skipped visits never change.' : 'Visits go on the calendar for the next 6 weeks, and keep coming.'}>
+          <DialogContent
+            title={editing.plan ? 'Edit service plan' : 'New service plan'}
+            description={editing.plan ? 'You’ll see what changes on the calendar before it saves. Done, skipped and today’s visits never change.' : 'Visits go on the calendar for the next 6 weeks, and keep coming.'}
+          >
             <form
               className="flex flex-col gap-3"
               onSubmit={(e) => {
                 e.preventDefault()
-                void save()
+                if (editing.plan) void previewThenSave(editing.plan, bodyFrom(f, false))
+                else void createPlan()
               }}
             >
-              <Field label="Plan name *">{(a) => <Input {...a} className="text-base" maxLength={120} placeholder="Weekly mowing" value={editing.form.name} onChange={(e) => set({ name: e.target.value })} />}</Field>
+              {!editing.plan ? (
+                <Field label="Start from" hint="Your plan templates (Settings → Plan templates). Everything below can be changed for this customer.">
+                  {(a) => (
+                    <Select
+                      {...a}
+                      className="text-base"
+                      value={f.template_id}
+                      onChange={(e) => {
+                        const t = d.templates.find((x) => x.id === e.target.value) ?? null
+                        setEditing({ plan: null, form: { ...formFromTemplate(t, d), property_id: f.property_id, start_date: f.start_date } })
+                      }}
+                    >
+                      {d.templates.map((t) => (
+                        <option key={t.id} value={t.id}>{t.name}</option>
+                      ))}
+                      <option value="">No template (set it all here)</option>
+                    </Select>
+                  )}
+                </Field>
+              ) : null}
+              <Field label="Plan name *">{(a) => <Input {...a} className="text-base" maxLength={120} value={f.name} onChange={(e) => set({ name: e.target.value })} />}</Field>
               <Field label="Property *">
                 {(a) => (
-                  <Select {...a} className="text-base" value={editing.form.property_id} onChange={(e) => set({ property_id: e.target.value })}>
+                  <Select {...a} className="text-base" value={f.property_id} onChange={(e) => set({ property_id: e.target.value })}>
                     {d.properties.map((o) => (
                       <option key={o.id} value={o.id}>{o.name}</option>
                     ))}
                   </Select>
                 )}
               </Field>
-              {!editing.plan ? (
+              {!editing.plan && !f.template_id ? (
                 <Field label="Service type *">
                   {(a) => (
-                    <Select {...a} className="text-base" value={editing.form.trade} onChange={(e) => set({ trade: e.target.value })}>
+                    <Select {...a} className="text-base" value={f.trade} onChange={(e) => set({ trade: e.target.value })}>
                       {d.trades.map((t) => (
                         <option key={t.slug} value={t.slug}>{t.label}</option>
                       ))}
@@ -306,12 +442,12 @@ export default function ServicePlansCard({ customerId }: { customerId: string })
                 </Field>
               ) : null}
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <Field label="Starts *">{(a) => <Input {...a} type="date" className="text-base" value={editing.form.start_date} onChange={(e) => set({ start_date: e.target.value })} />}</Field>
-                <Field label="Ends (optional)">{(a) => <Input {...a} type="date" className="text-base" value={editing.form.end_date} onChange={(e) => set({ end_date: e.target.value })} />}</Field>
+                <Field label="Starts *">{(a) => <Input {...a} type="date" className="text-base" value={f.start_date} onChange={(e) => set({ start_date: e.target.value })} />}</Field>
+                <Field label="Ends (optional)">{(a) => <Input {...a} type="date" className="text-base" value={f.end_date} onChange={(e) => set({ end_date: e.target.value })} />}</Field>
               </div>
               <Field label="Visit day" hint="Empty = the weekday the plan starts on.">
                 {(a) => (
-                  <Select {...a} className="text-base" value={editing.form.preferred_weekday} onChange={(e) => set({ preferred_weekday: e.target.value })}>
+                  <Select {...a} className="text-base" value={f.preferred_weekday} onChange={(e) => set({ preferred_weekday: e.target.value })}>
                     <option value="">Same as start date</option>
                     {WEEKDAY_LABELS.map((w, i) => (
                       <option key={w} value={i}>{w}</option>
@@ -319,65 +455,43 @@ export default function ServicePlansCard({ customerId }: { customerId: string })
                   </Select>
                 )}
               </Field>
-
-              <fieldset className="flex flex-col gap-3 rounded-ui border border-surface-line p-3">
-                <legend className="px-1 text-ui-sm font-semibold text-ink">How often, by season</legend>
-                {editing.form.seasons.map((s, i) => (
-                  <div key={i} className="flex flex-col gap-2 border-b border-surface-line pb-3 last:border-0 last:pb-0">
-                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                      <MonthDay label="From" value={s.from} onChange={(v) => set({ seasons: editing.form.seasons.map((x, j) => (j === i ? { ...x, from: v } : x)) })} />
-                      <MonthDay label="To" value={s.to} onChange={(v) => set({ seasons: editing.form.seasons.map((x, j) => (j === i ? { ...x, to: v } : x)) })} />
-                    </div>
-                    <div className="flex flex-wrap items-end gap-2">
-                      <Select aria-label="How often" className="max-w-xs text-base" value={s.frequency} onChange={(e) => set({ seasons: editing.form.seasons.map((x, j) => (j === i ? { ...x, frequency: e.target.value as ServiceFrequency } : x)) })}>
-                        {SERVICE_FREQUENCIES.map((f) => (
-                          <option key={f} value={f}>{SERVICE_FREQUENCY_LABELS[f]}</option>
-                        ))}
-                      </Select>
-                      {editing.form.seasons.length > 1 ? (
-                        <Button type="button" size="sm" variant="ghost" className="underline" onClick={() => set({ seasons: editing.form.seasons.filter((_, j) => j !== i) })}>
-                          Remove
-                        </Button>
-                      ) : null}
-                    </div>
-                  </div>
-                ))}
-                <div className="flex flex-wrap gap-2">
-                  <Button type="button" size="sm" variant="secondary" disabled={editing.form.seasons.length >= 12} onClick={() => set({ seasons: [...editing.form.seasons, { from: '01-01', to: '01-31', frequency: 'monthly' }] })}>
-                    + Add season
-                  </Button>
-                  <Button type="button" size="sm" variant="ghost" className="underline" onClick={() => set({ seasons: DEFAULT_LAWN_SEASONS.map((x) => ({ ...x })) })}>
-                    Use lawn seasons
-                  </Button>
-                </div>
-              </fieldset>
+              <SeasonsEditor value={f.seasons} onChange={(seasons) => set({ seasons })} />
 
               {d.prices ? (
                 <fieldset className="flex flex-col gap-3 rounded-ui border border-surface-line p-3">
                   <legend className="px-1 text-ui-sm font-semibold text-ink">Price</legend>
-                  {d.standardTier ? (
-                    <div className="flex flex-col gap-2">
-                      <div className="grid grid-cols-2 gap-2">
-                        <Field label="Stories">{(a) => <Input {...a} type="number" inputMode="numeric" min={1} max={10} className="text-base" value={editing.form.stories} onChange={(e) => set({ stories: e.target.value })} />}</Field>
-                        <Field label="Roof pitch (/12)">{(a) => <Input {...a} type="number" inputMode="decimal" min={0} max={24} step="0.5" className="text-base" value={editing.form.pitch_rise} onChange={(e) => set({ pitch_rise: e.target.value })} />}</Field>
-                      </div>
-                      <label className="flex min-h-tap items-center gap-2 text-ui-base text-ink">
-                        <input type="radio" className="h-5 w-5" name="tier" checked={editing.form.price_tier === 'standard'} disabled={!tierCheck?.ok} onChange={() => set({ price_tier: 'standard' })} />
-                        Standard: {d.standardTier.price != null ? `${formatMoney(d.standardTier.price)} ${BILLING_BASIS_LABELS[d.standardTier.billingBasis]}` : 'company price'}
-                      </label>
-                      {tierCheck && !tierCheck.ok ? <p className="text-ui-sm text-ink">{tierCheck.reason}</p> : null}
-                      <label className="flex min-h-tap items-center gap-2 text-ui-base text-ink">
-                        <input type="radio" className="h-5 w-5" name="tier" checked={editing.form.price_tier === 'custom'} onChange={() => set({ price_tier: 'custom' })} />
-                        Custom price
-                      </label>
+                  {f.pricing.fields.length ? (
+                    <div className="grid grid-cols-2 gap-2">
+                      {f.pricing.fields.map((q) => (
+                        <Field key={q.key} label={q.label}>
+                          {(a) => <Input {...a} inputMode="decimal" className="text-base" value={f.pricing_inputs[q.key] ?? ''} onChange={(e) => set({ pricing_inputs: { ...f.pricing_inputs, [q.key]: e.target.value } })} />}
+                        </Field>
+                      ))}
                     </div>
                   ) : null}
-                  {editing.form.price_tier === 'custom' || !d.standardTier ? (
+                  {f.pricing.tiers.map((t) => {
+                    const check = tierCheck(f.pricing, t, numericInputs)
+                    return (
+                      <label key={t.key} className="flex min-h-tap flex-wrap items-center gap-2 text-ui-base text-ink">
+                        <input type="radio" className="h-5 w-5" name="tier" checked={f.tier_key === t.key} disabled={!check.ok} onChange={() => set({ tier_key: t.key })} />
+                        {t.label}: {formatMoney(t.price)} {BILLING_BASIS_LABELS[t.billingBasis]}
+                        {!check.ok ? <span className="text-ui-sm">— {check.reason}</span> : null}
+                      </label>
+                    )
+                  })}
+                  {f.pricing.allowCustom ? (
+                    <label className="flex min-h-tap items-center gap-2 text-ui-base text-ink">
+                      <input type="radio" className="h-5 w-5" name="tier" checked={!f.tier_key} onChange={() => set({ tier_key: '' })} />
+                      Custom price
+                    </label>
+                  ) : null}
+                  {f.tier_key && !fits.some((t) => t.key === f.tier_key) ? <p className="text-ui-sm text-danger">This home doesn’t fit that tier any more.</p> : null}
+                  {!f.tier_key ? (
                     <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                      <Field label="Price ($)">{(a) => <Input {...a} inputMode="decimal" className="text-base" placeholder="45.00" value={editing.form.price} onChange={(e) => set({ price: e.target.value })} />}</Field>
+                      <Field label="Price ($)">{(a) => <Input {...a} inputMode="decimal" className="text-base" placeholder="45.00" value={f.price} onChange={(e) => set({ price: e.target.value })} />}</Field>
                       <Field label="Billed">
                         {(a) => (
-                          <Select {...a} className="text-base" value={editing.form.billing_basis} onChange={(e) => set({ billing_basis: e.target.value as BillingBasis })}>
+                          <Select {...a} className="text-base" value={f.billing_basis} onChange={(e) => set({ billing_basis: e.target.value as BillingBasis })}>
                             {(Object.keys(BILLING_BASIS_LABELS) as BillingBasis[]).map((b) => (
                               <option key={b} value={b}>{BILLING_BASIS_LABELS[b]}</option>
                             ))}
@@ -387,7 +501,7 @@ export default function ServicePlansCard({ customerId }: { customerId: string })
                     </div>
                   ) : null}
                   <label className="flex min-h-tap items-center gap-2 text-ui-base text-ink">
-                    <input type="checkbox" className="h-5 w-5" checked={editing.form.taxable} onChange={(e) => set({ taxable: e.target.checked })} />
+                    <input type="checkbox" className="h-5 w-5" checked={f.taxable} onChange={(e) => set({ taxable: e.target.checked })} />
                     Charge sales tax on this plan
                   </label>
                 </fieldset>
@@ -396,7 +510,7 @@ export default function ServicePlansCard({ customerId }: { customerId: string })
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_8rem]">
                 <Field label="Crew">
                   {(a) => (
-                    <Select {...a} className="text-base" value={editing.form.default_sub_id} onChange={(e) => set({ default_sub_id: e.target.value })}>
+                    <Select {...a} className="text-base" value={f.default_sub_id} onChange={(e) => set({ default_sub_id: e.target.value })}>
                       <option value="">No crew yet</option>
                       {d.crews.map((o) => (
                         <option key={o.id} value={o.id}>{o.name}</option>
@@ -404,38 +518,17 @@ export default function ServicePlansCard({ customerId }: { customerId: string })
                     </Select>
                   )}
                 </Field>
-                <Field label="Stop #" hint="Order on the crew’s day">{(a) => <Input {...a} type="number" inputMode="numeric" min={1} max={999} className="text-base" value={editing.form.route_position} onChange={(e) => set({ route_position: e.target.value })} />}</Field>
+                <Field label="Stop #" hint="Order on the crew’s day">{(a) => <Input {...a} type="number" inputMode="numeric" min={1} max={999} className="text-base" value={f.route_position} onChange={(e) => set({ route_position: e.target.value })} />}</Field>
               </div>
-
-              <fieldset className="flex flex-col gap-2 rounded-ui border border-surface-line p-3">
-                <legend className="px-1 text-ui-sm font-semibold text-ink">After each visit</legend>
-                <label className="flex min-h-tap items-center gap-2 text-ui-base text-ink">
-                  <input type="checkbox" className="h-5 w-5" checked={editing.form.follow_up} onChange={(e) => set({ follow_up: e.target.checked })} />
-                  Send someone to inspect (green / yellow / red)
-                </label>
-                {editing.form.follow_up ? (
-                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-[8rem_1fr]">
-                    <Field label="Days after">{(a) => <Input {...a} type="number" inputMode="numeric" min={0} max={30} className="text-base" value={editing.form.follow_up_days} onChange={(e) => set({ follow_up_days: e.target.value })} />}</Field>
-                    <Field label="Inspector">
-                      {(a) => (
-                        <Select {...a} className="text-base" value={editing.form.follow_up_user_id} onChange={(e) => set({ follow_up_user_id: e.target.value })}>
-                          <option value="">Pick later</option>
-                          {d.people.map((o) => (
-                            <option key={o.id} value={o.id}>{o.name}</option>
-                          ))}
-                        </Select>
-                      )}
-                    </Field>
-                  </div>
-                ) : null}
-              </fieldset>
-
-              <Field label="Notes for the crew (optional)">{(a) => <Textarea {...a} className="text-base" maxLength={2000} value={editing.form.description} onChange={(e) => set({ description: e.target.value })} />}</Field>
+              <StepsEditor value={f.steps} onChange={(steps) => set({ steps })} crews={d.crews} people={d.people} />
+              <Field label="Notes for the crew (optional)">{(a) => <Textarea {...a} className="text-base" maxLength={2000} value={f.description} onChange={(e) => set({ description: e.target.value })} />}</Field>
 
               <DialogFooter className="sticky bottom-0 bg-surface pt-2">
-                <Button type="button" variant="secondary" disabled={saving} onClick={() => setEditing(null)}>Cancel</Button>
-                <Button type="submit" loading={saving} disabled={!editing.form.name.trim() || !editing.form.property_id || !editing.form.start_date}>
-                  {editing.plan ? 'Save plan' : 'Start plan'}
+                <Button type="button" variant="secondary" disabled={saving} onClick={() => setEditing(null)}>
+                  Cancel
+                </Button>
+                <Button type="submit" loading={saving} disabled={!f.name.trim() || !f.property_id || !f.start_date}>
+                  {editing.plan ? 'Next: see what changes' : 'Start plan'}
                 </Button>
               </DialogFooter>
             </form>

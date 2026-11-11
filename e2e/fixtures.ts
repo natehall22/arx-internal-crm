@@ -583,43 +583,66 @@ export const HARNESS_CUSTOMER_DOCUMENTS = [
   { id: 'doc-2', title: 'Certificate of insurance', filename: 'coi.pdf', category: 'insurance', property_id: null, created_at: '2026-10-20T15:00:00Z' },
 ]
 
-/** Service plans (lawn company + an ARX Care style plan with a follow-on inspection). */
+/** Service plans (a lawn company + a roof & gutter care plan with a follow-on inspection), from plan templates. */
+const GYR = [
+  { key: 'green', label: 'Green — looks good', tone: 'good' },
+  { key: 'yellow', label: 'Yellow — watch / minor repair', tone: 'watch' },
+  { key: 'red', label: 'Red — needs repair', tone: 'bad' },
+]
+const LAWN_SEASONS = [
+  { from: '03-01', to: '03-31', frequency: 'every_2_weeks' },
+  { from: '04-01', to: '10-31', frequency: 'weekly' },
+  { from: '11-01', to: '11-30', frequency: 'every_2_weeks' },
+  { from: '12-01', to: '02-29', frequency: 'monthly' },
+]
+const LAWN_PRICING = { fields: [{ key: 'lawn_sqft', label: 'Lawn size (sq ft)' }], tiers: [{ key: 'standard', label: 'Standard yard', price: 45, billingBasis: 'per_visit', conditions: [{ field: 'lawn_sqft', op: 'lte', value: 15000 }] }], allowCustom: true }
+const CARE_PRICING = { fields: [{ key: 'stories', label: 'Stories' }, { key: 'pitch', label: 'Roof pitch (/12)' }], tiers: [{ key: 'standard', label: 'Standard home', price: 39, billingBasis: 'per_month', conditions: [{ field: 'stories', op: 'lte', value: 3 }, { field: 'pitch', op: 'lte', value: 10 }] }], allowCustom: true }
+const CARE_STEPS = [{ key: 'inspection', label: 'Roof inspection', daysAfter: 2, assignTo: 'person', userId: 'u-insp', subId: null, results: GYR }]
+
+export const HARNESS_PLAN_TEMPLATES = {
+  ready: true,
+  canEdit: true,
+  templates: [
+    { id: 'tpl-1', org_id: 'org-1', name: 'Lawn maintenance', trade: 'lawn', description: null, seasons: LAWN_SEASONS, billing_basis: 'per_visit', taxable: false, pricing: LAWN_PRICING, steps: [], active: true, version: 3, updated_at: '2026-11-01T12:00:00Z' },
+    { id: 'tpl-2', org_id: 'org-1', name: 'Roof & gutter care', trade: 'gutters', description: null, seasons: [{ from: '04-01', to: '04-30', frequency: 'monthly' }], billing_basis: 'per_month', taxable: true, pricing: CARE_PRICING, steps: CARE_STEPS, active: true, version: 1, updated_at: '2026-11-01T12:00:00Z' },
+  ],
+  starters: [],
+  trades: [{ slug: 'lawn', label: 'Lawn care' }, { slug: 'gutters', label: 'Gutters' }],
+  crews: [{ id: 'sub-1', name: 'Green Team' }, { id: 'sub-2', name: 'Blue Team' }],
+  people: [{ id: 'u-insp', name: 'Dana Inspector' }],
+}
+
+export const HARNESS_TEMPLATE_DETAIL = {
+  template: HARNESS_PLAN_TEMPLATES.templates[0],
+  plans: 12,
+  behind: 4,
+  history: [{ id: 'h1', action: 'updated', at: '2026-11-01T12:00:00Z', by: 'Owner', lines: ['Price rules: Standard yard $40 → Standard yard $45'] }],
+}
+
+const plan = (over: Record<string, unknown>) => ({
+  org_id: 'org-1', customer_id: 'cust-1', description: null, taxable: false, pricing_inputs: {}, end_date: null, paused_until: null, route_position: null,
+  created_by: 'u1', created_at: '2026-03-01T12:00:00Z', updated_at: '2026-03-01T12:00:00Z', priceHidden: false, template_version: 1, ...over,
+})
+
 export const HARNESS_SERVICE_PLANS = {
   ready: true,
   canEdit: true,
   prices: true,
   properties: [{ id: 'prop-1', name: 'Main office · 2410 Crawfordville Hwy' }, { id: 'prop-2', name: 'Rental on Oak · 88 Oak Ridge Rd' }],
-  trades: [{ slug: 'lawn', label: 'Lawn care' }, { slug: 'gutters', label: 'Gutters' }],
-  crews: [{ id: 'sub-1', name: 'Green Team' }, { id: 'sub-2', name: 'Blue Team' }],
-  people: [{ id: 'u-insp', name: 'Dana Inspector' }],
-  standardTier: { price: 39, billingBasis: 'per_month', maxStories: 3, maxPitchRise: 10 },
+  trades: HARNESS_PLAN_TEMPLATES.trades,
+  crews: HARNESS_PLAN_TEMPLATES.crews,
+  people: HARNESS_PLAN_TEMPLATES.people,
+  templates: HARNESS_PLAN_TEMPLATES.templates,
   plans: [
-    {
-      id: 'plan-1', org_id: 'org-1', customer_id: 'cust-1', property_id: 'prop-1', trade: 'lawn', name: 'Weekly mowing & edging', description: null,
-      price: 55, billing_basis: 'per_visit', price_tier: 'custom', taxable: false, stories: null, pitch_rise: null, follow_up: null, follow_up_days: null, follow_up_user_id: null,
-      status: 'active', start_date: '2026-03-03', end_date: null, paused_until: null, preferred_weekday: 2, default_sub_id: 'sub-1', route_position: 4,
-      seasons: [
-        { from: '03-01', to: '03-31', frequency: 'every_2_weeks' },
-        { from: '04-01', to: '10-31', frequency: 'weekly' },
-        { from: '11-01', to: '11-30', frequency: 'every_2_weeks' },
-        { from: '12-01', to: '02-29', frequency: 'monthly' },
-      ],
-      created_by: 'u1', created_at: '2026-03-01T12:00:00Z', updated_at: '2026-03-01T12:00:00Z', priceHidden: false,
-    },
-    {
-      id: 'plan-2', org_id: 'org-1', customer_id: 'cust-1', property_id: 'prop-2', trade: 'gutters', name: 'Roof & gutter care', description: null,
-      price: 39, billing_basis: 'per_month', price_tier: 'standard', taxable: true, stories: 2, pitch_rise: 6, follow_up: 'inspection', follow_up_days: 2, follow_up_user_id: 'u-insp',
-      status: 'paused', start_date: '2026-04-01', end_date: null, paused_until: '2026-12-01', preferred_weekday: 3, default_sub_id: 'sub-2', route_position: null,
-      seasons: [{ from: '04-01', to: '04-30', frequency: 'monthly' }, { from: '10-01', to: '11-30', frequency: 'monthly' }],
-      created_by: 'u1', created_at: '2026-03-01T12:00:00Z', updated_at: '2026-03-01T12:00:00Z', priceHidden: false,
-    },
+    plan({ id: 'plan-1', property_id: 'prop-1', template_id: 'tpl-1', trade: 'lawn', name: 'Weekly mowing & edging', price: 55, billing_basis: 'per_visit', pricing: LAWN_PRICING, tier_key: null, steps: [], status: 'active', start_date: '2026-03-03', preferred_weekday: 2, default_sub_id: 'sub-1', route_position: 4, seasons: LAWN_SEASONS }),
+    plan({ id: 'plan-2', property_id: 'prop-2', template_id: 'tpl-2', trade: 'gutters', name: 'Roof & gutter care', price: 39, billing_basis: 'per_month', taxable: true, pricing: CARE_PRICING, pricing_inputs: { stories: 2, pitch: 6 }, tier_key: 'standard', steps: CARE_STEPS, status: 'paused', start_date: '2026-04-01', paused_until: '2026-12-01', preferred_weekday: 3, default_sub_id: 'sub-2', seasons: [{ from: '04-01', to: '04-30', frequency: 'monthly' }, { from: '10-01', to: '11-30', frequency: 'monthly' }] }),
   ],
 }
 
 const visit = (over: Record<string, unknown>) => ({
   id: 'v', workOrderNumber: 'WO-00100', planId: 'plan-1', planName: 'Weekly mowing & edging', status: 'scheduled', scheduledDate: '2026-11-10', plannedDate: '2026-11-10', moved: false,
   trade: 'lawn', customerId: 'cust-1', customerName: 'Gulf Coast Property Group', propertyId: 'prop-1', address: '2410 Crawfordville Hwy, Crawfordville, FL 32327', lat: 30.17, lng: -84.37,
-  accessNotes: 'Gate code 4421. Dog in back yard.', subId: 'sub-1', subName: 'Green Team', routePosition: 4, step: 'service', healthResult: null, userId: null, userName: null,
+  accessNotes: 'Gate code 4421. Dog in back yard.', subId: 'sub-1', subName: 'Green Team', routePosition: 4, step: 'service', stepLabel: null, result: null, resultOptions: [], userId: null, userName: null,
   skipReason: null, notes: null, completedAt: null, photoCount: 0, updatedAt: '2026-11-09T12:00:00Z', ...over,
 })
 
@@ -633,13 +656,13 @@ export const HARNESS_VISITS = {
     visit({ id: 'v1' }),
     visit({ id: 'v2', planName: 'Biweekly mowing', address: '88 Oak Ridge Rd, Crawfordville, FL 32327', routePosition: 5, status: 'completed', photoCount: 3, accessNotes: null }),
     visit({ id: 'v3', planName: 'Hedges', status: 'skipped', skipReason: 'rain', routePosition: null, accessNotes: null }),
-    visit({ id: 'v4', planName: 'Roof & gutter care', step: 'inspection', subId: null, subName: null, userId: 'u-insp', userName: 'Dana Inspector', scheduledDate: '2026-11-12', plannedDate: '2026-11-10', routePosition: null }),
+    visit({ id: 'v4', planName: 'Roof & gutter care', step: 'inspection', stepLabel: 'Roof inspection', resultOptions: GYR, subId: null, subName: null, userId: 'u-insp', userName: 'Dana Inspector', scheduledDate: '2026-11-12', plannedDate: '2026-11-10', routePosition: null }),
     visit({ id: 'v5', scheduledDate: '2026-11-13', plannedDate: '2026-11-11', moved: true }),
   ],
 }
 
 export const HARNESS_CREW_DAY = [
-  { id: 'v1', planName: 'Weekly mowing & edging', address: '2410 Crawfordville Hwy, Crawfordville, FL 32327', lat: 30.17, lng: -84.37, accessNotes: 'Gate code 4421. Dog in back yard.', status: 'scheduled', skipReason: null, photoCount: 0, routePosition: 1 },
-  { id: 'v2', planName: 'Biweekly mowing', address: '88 Oak Ridge Rd, Crawfordville, FL 32327', lat: null, lng: null, accessNotes: null, status: 'completed', skipReason: null, photoCount: 2, routePosition: 2 },
-  { id: 'v3', planName: 'Hedges', address: '5 Old Shell Rd, Medart, FL 32327', lat: null, lng: null, accessNotes: null, status: 'scheduled', skipReason: null, photoCount: 0, routePosition: null },
+  { id: 'v1', planName: 'Weekly mowing & edging', address: '2410 Crawfordville Hwy, Crawfordville, FL 32327', lat: 30.17, lng: -84.37, accessNotes: 'Gate code 4421. Dog in back yard.', status: 'scheduled', skipReason: null, photoCount: 0, routePosition: 1, resultOptions: [] },
+  { id: 'v2', planName: 'Biweekly mowing', address: '88 Oak Ridge Rd, Crawfordville, FL 32327', lat: null, lng: null, accessNotes: null, status: 'completed', skipReason: null, photoCount: 2, routePosition: 2, resultOptions: [] },
+  { id: 'v3', planName: 'Clean-up check — Hedges', address: '5 Old Shell Rd, Medart, FL 32327', lat: null, lng: null, accessNotes: null, status: 'scheduled', skipReason: null, photoCount: 0, routePosition: null, resultOptions: [{ key: 'pass', label: 'Passed', tone: 'good' }, { key: 'fail', label: 'Needs a return trip', tone: 'bad' }] },
 ]

@@ -13,8 +13,7 @@ import { isOwnerProfile, isSuperAdmin } from '@/lib/super-admin'
 import CheckupSettingsCard from '@/components/admin/CheckupSettingsCard'
 import JobCatchUpSettingsCard from '@/components/admin/JobCatchUpSettingsCard'
 import OrgFeaturesCard from '@/components/admin/OrgFeaturesCard'
-import ServicePlanSettingsCard from '@/components/admin/ServicePlanSettingsCard'
-import { readStandardTier } from '@/lib/service-plans'
+import ServicePlanTemplatesCard from '@/components/service-plans/ServicePlanTemplatesCard'
 import { getOrgFeatures } from '@/lib/org-features-server'
 import { loadCheckupSettings } from '@/lib/checkups'
 import { canEditCheckupSettings } from '@/lib/checkups-settings'
@@ -40,11 +39,10 @@ export default async function SettingsPage() {
   })
   // Small org switches live as cards right here (the hub's "Job catch-up" entry links to #job-catch-up).
   const admin = createServiceClient()
-  const [catchUp, checkups, { data: activeUsers }, { data: orgRow }] = await Promise.all([
+  const [catchUp, checkups, { data: activeUsers }] = await Promise.all([
     loadJobCatchUpSettings(admin, profile.org_id),
     loadCheckupSettings(admin, profile.org_id),
     admin.from('users').select('id, full_name').eq('org_id', profile.org_id).eq('active', true).order('full_name'),
-    features.servicePlans && canEditFeatures ? admin.from('orgs').select('settings').eq('id', profile.org_id).maybeSingle() : Promise.resolve({ data: null }),
   ])
   const userOptions = ((activeUsers ?? []) as Array<{ id: string; full_name: string | null }>).map((u) => ({ id: u.id, name: u.full_name || 'Unnamed user' }))
 
@@ -59,8 +57,8 @@ export default async function SettingsPage() {
           {canEditFeatures && <OrgFeaturesCard initial={features} />}
           <JobCatchUpSettingsCard initial={{ ...catchUp, canEdit: canEditJobCatchUpSettings(profile) }} />
           <CheckupSettingsCard initial={{ ...checkups, canEdit: canEditCheckupSettings(profile) }} users={userOptions} />
-          {/* Owners, when the company uses service plans: the standard plan price and which homes qualify. */}
-          {features.servicePlans && canEditFeatures ? <ServicePlanSettingsCard initial={readStandardTier((orgRow as { settings?: unknown } | null)?.settings ?? null)} /> : null}
+          {/* Owners, when the company uses service plans: what it sells (plan templates). */}
+          {features.servicePlans && canEditFeatures ? <ServicePlanTemplatesCard /> : null}
         </div>
       </main>
     </div>

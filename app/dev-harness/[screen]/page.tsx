@@ -82,7 +82,7 @@ import GeneralSettingsCard, { type GeneralSettingsValues } from '@/components/ad
 import { DEFAULT_TIMEZONE } from '@/lib/timezone'
 import JobCatchUpSettingsCard from '@/components/admin/JobCatchUpSettingsCard'
 import OrgFeaturesCard from '@/components/admin/OrgFeaturesCard'
-import ServicePlanSettingsCard from '@/components/admin/ServicePlanSettingsCard'
+import ServicePlanTemplatesCard from '@/components/service-plans/ServicePlanTemplatesCard'
 import ServicePlansCard from '@/components/service-plans/ServicePlansCard'
 import VisitsBoard from '@/components/service-plans/VisitsBoard'
 import CrewDayList, { type CrewDayVisit } from '@/app/crew/day/[token]/CrewDayList'
@@ -375,8 +375,8 @@ export default function Harness({ params }: { params: { screen: string } }) {
       return <VisitsBoard />
     case 'crew-day':
       return <CrewDayList token="harness-token-harness-token-harness-1" crewName="Green Team" companyName="Precision Maintenance" today="2026-11-10" visits={HARNESS_CREW_DAY as CrewDayVisit[]} />
-    case 'service-plan-settings':
-      return <div className="mx-auto max-w-2xl p-4"><ServicePlanSettingsCard initial={{ price: 39, billingBasis: 'per_month', maxStories: 3, maxPitchRise: 10 }} /></div>
+    case 'plan-templates':
+      return <div className="mx-auto max-w-2xl p-4"><ServicePlanTemplatesCard /></div>
     case 'customer-records-plain':
       // A one-home customer at a company that doesn't use properties: only the small add links.
       return (

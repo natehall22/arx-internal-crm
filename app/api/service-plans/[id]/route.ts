@@ -10,7 +10,8 @@ export const dynamic = 'force-dynamic'
 /**
  * PATCH — edit a plan, or `{ action: 'pause', until? } | { action: 'resume' } | { action: 'end', on? }`.
  * Future visits that have not started follow the change; done / skipped visits and anything today or earlier never do.
- * Optional `expectedUpdatedAt` refuses the save (409) if someone else changed the plan since it was loaded.
+ * `preview: true` = what would change (fields + visits removed / added / updated), nothing written. Optional
+ * `expectedUpdatedAt` refuses the save (409) if someone else changed the plan since it was loaded.
  */
 export async function PATCH(request: Request, { params }: { params: { id: string } }) {
   const ctx = await servicePlanRouteAuth('edit')
@@ -22,5 +23,6 @@ export async function PATCH(request: Request, { params }: { params: { id: string
   if (change && 'error' in change) return NextResponse.json({ error: change.error }, { status: 400 })
   const result = await updateServicePlan(ctx.admin, ctx.orgId, ctx.userId, params.id, body, change)
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status })
-  return NextResponse.json({ plan: redactPlanPrices(result.plan, ctx.access.prices) })
+  if ('preview' in result) return NextResponse.json(result)
+  return NextResponse.json({ plan: redactPlanPrices(result.plan, ctx.access.prices), effect: result.effect })
 }

@@ -1,8 +1,11 @@
 import { createFakeDb } from '@/lib/test-helpers/fake-db'
 import {
+  applyTemplateToPlans,
   applyVisitAction,
   bulkShiftVisits,
   createServicePlan,
+  loadChangeHistory,
+  saveTemplate,
   ensureServiceVisits,
   loadCrewVisit,
   loadVisits,
@@ -21,19 +24,21 @@ const NOW = new Date('2026-11-10T15:00:00Z')
 
 function seed(extra: Record<string, Array<Record<string, unknown>>> = {}) {
   return createFakeDb({
-    orgs: [{ id: ORG, timezone: DEFAULT_TIMEZONE, settings: { servicePlans: { standardTier: { price: 39, billingBasis: 'per_month', maxStories: 3, maxPitchRise: 10 } } } }],
+    orgs: [{ id: ORG, timezone: DEFAULT_TIMEZONE, settings: {} }],
     customers: [{ id: 'c1', org_id: ORG, name: 'Pat' }, { id: 'c2', org_id: OTHER, name: 'Other co' }],
     properties: [
       { id: 'p1', org_id: ORG, customer_id: 'c1', address_text: '1 Oak St, Crawfordville FL', address_line1: '1 Oak St', city: 'Crawfordville', state: 'FL', zip: '32327', active: true, lat: 30.1, lng: -84.3, access_notes: 'Gate 1234' },
       { id: 'p2', org_id: OTHER, customer_id: 'c2', address_text: 'Elsewhere', active: true },
     ],
-    org_trades: [{ org_id: ORG, slug: 'lawn', label: 'Lawn care', sort: 1, active: true, match_keywords: [] }],
+    org_trades: [{ org_id: ORG, slug: 'lawn', label: 'Lawn care', sort: 1, active: true, match_keywords: [] }, { org_id: ORG, slug: 'gutters', label: 'Gutters', sort: 2, active: true, match_keywords: [] }],
     sub_contractors: [{ id: 's1', org_id: ORG, company_name: 'Crew One', active: true }, { id: 's2', org_id: ORG, company_name: 'Crew Two', active: true }, { id: 'sx', org_id: OTHER, company_name: 'Not ours', active: true }],
     users: [{ id: 'u1', org_id: ORG, full_name: 'Office', active: true }, { id: 'insp', org_id: ORG, full_name: 'Inspector', active: true }],
     service_plans: [],
     work_orders: [],
     photos: [],
     crew_day_links: [],
+    service_plan_templates: [],
+    service_plan_changes: [],
     ...extra,
   })
 }
@@ -137,12 +142,13 @@ describe('editing a plan regenerates future unstarted visits only', () => {
     expect(db.tables.work_orders.find((w) => w.id === target.id)).toMatchObject({ status: 'cancelled' })
   })
 
-  it('price tiers: standard takes the company price only for a qualifying home; custom is the override', async () => {
+  it('price tiers come from the plan’s own rules: a tier only for a qualifying home; custom is the override', async () => {
     const db = seed()
-    const bad = await createServicePlan(db.client, ORG, 'u1', 'c1', { ...weekly, price_tier: 'standard', stories: 4, pitch_rise: 6 }, NOW)
-    expect(bad).toEqual({ ok: false, status: 400, error: expect.stringContaining('stories') })
-    const ok = await createServicePlan(db.client, ORG, 'u1', 'c1', { ...weekly, price_tier: 'standard', stories: 2, pitch_rise: 8, price: 1 }, NOW)
-    expect(ok.ok && ok.plan).toMatchObject({ price: 39, billing_basis: 'per_month', price_tier: 'standard' })
+    const pricing = { fields: [{ key: 'stories', label: 'Stories' }, { key: 'pitch', label: 'Pitch' }], tiers: [{ key: 'standard', label: 'Standard', price: 39, billingBasis: 'per_month', conditions: [{ field: 'stories', op: 'lte', value: 3 }, { field: 'pitch', op: 'lte', value: 10 }] }], allowCustom: true }
+    const bad = await createServicePlan(db.client, ORG, 'u1', 'c1', { ...weekly, pricing, tier_key: 'standard', pricing_inputs: { stories: 4, pitch: 6 } }, NOW)
+    expect(bad).toEqual({ ok: false, status: 400, error: expect.stringContaining('Stories') })
+    const ok = await createServicePlan(db.client, ORG, 'u1', 'c1', { ...weekly, pricing, tier_key: 'standard', pricing_inputs: { stories: 2, pitch: 8 }, price: 1 }, NOW)
+    expect(ok.ok && ok.plan).toMatchObject({ price: 39, billing_basis: 'per_month', tier_key: 'standard' })
     // A monthly plan's visits carry no per-visit price.
     const id = (ok as { plan: { id: string } }).plan.id
     expect(visitsOf(db, id)[0].service_price).toBeNull()
@@ -157,9 +163,10 @@ describe('editing a plan regenerates future unstarted visits only', () => {
 })
 
 describe('visits: skip, done + follow-on inspection, bulk shift', () => {
-  it('done on a plan with a follow-on creates one inspection for the inspector, once', async () => {
+  it('done on a plan with a follow-on step creates one step visit for its person, once', async () => {
     const db = seed()
-    const r = await createServicePlan(db.client, ORG, 'u1', 'c1', { ...weekly, follow_up: 'inspection', follow_up_days: 1, follow_up_user_id: 'insp' }, NOW)
+    const steps = [{ key: 'inspection', label: 'Roof inspection', daysAfter: 1, assignTo: 'person', userId: 'insp', results: [{ key: 'green', label: 'Green', tone: 'good' }, { key: 'yellow', label: 'Yellow', tone: 'watch' }, { key: 'red', label: 'Red', tone: 'bad' }] }]
+    const r = await createServicePlan(db.client, ORG, 'u1', 'c1', { ...weekly, steps }, NOW)
     const planId = (r as { plan: { id: string } }).plan.id
     const first = visitsOf(db, planId)[0]
     await applyVisitAction(db.client, ORG, String(first.id), { action: 'done' }, { userId: null, subId: 's1' }, { now: NOW })
@@ -168,7 +175,9 @@ describe('visits: skip, done + follow-on inspection, bulk shift', () => {
     expect(insp[0]).toMatchObject({ parent_visit_id: first.id, scheduled_date: '2026-11-11', assigned_user_id: 'insp', assigned_sub_id: null, status: 'scheduled' })
     // The inspector needs a result.
     expect(await applyVisitAction(db.client, ORG, String(insp[0].id), { action: 'done' }, { userId: 'insp', subId: null }, { now: NOW })).toMatchObject({ ok: false, status: 400 })
+    expect(await applyVisitAction(db.client, ORG, String(insp[0].id), { action: 'done', result: 'purple' }, { userId: 'insp', subId: null }, { now: NOW })).toMatchObject({ ok: false, status: 400 })
     expect((await applyVisitAction(db.client, ORG, String(insp[0].id), { action: 'done', result: 'green' }, { userId: 'insp', subId: null }, { now: NOW })).ok).toBe(true)
+    expect(db.tables.work_orders.find((w) => w.id === insp[0].id)).toMatchObject({ status: 'completed', step_result: 'green', title: 'Weekly mowing — Roof inspection' })
     expect(visitsOf(db, planId).filter((x) => x.visit_step === 'inspection')).toHaveLength(1) // no inspection of an inspection
   })
 
@@ -227,3 +236,124 @@ describe('crew phone link', () => {
 function weekdayOf(ymd: string): number {
   return new Date(`${ymd}T12:00:00Z`).getUTCDay()
 }
+
+describe('templates: copied at sale, never change a sold plan, pushed on purpose with a preview', () => {
+  const tmpl = {
+    name: 'Roof & gutter care',
+    trade: 'gutters',
+    seasons: [{ from: '01-01', to: '12-31', frequency: 'weekly' }],
+    billing_basis: 'per_month',
+    taxable: true,
+    pricing: { fields: [{ key: 'stories', label: 'Stories' }], tiers: [{ key: 'standard', label: 'Standard', price: 39, billingBasis: 'per_month', conditions: [{ field: 'stories', op: 'lte', value: 3 }] }], allowCustom: true },
+    steps: [{ key: 'inspection', label: 'Roof inspection', daysAfter: 2, assignTo: 'person', userId: 'insp', results: [{ key: 'ok', label: 'OK', tone: 'good' }] }],
+  }
+
+  it('a plan copies the template; editing the template bumps its version and leaves the plan alone; push previews then applies', async () => {
+    const db = seed()
+    const t = await saveTemplate(db.client, ORG, 'u1', null, tmpl)
+    if (!t.ok) throw new Error(t.error)
+    const sold = await createServicePlan(db.client, ORG, 'u1', 'c1', { template_id: t.template.id, property_id: 'p1', start_date: '2026-11-03', preferred_weekday: 2, tier_key: 'standard', pricing_inputs: { stories: 2 } }, NOW)
+    if (!sold.ok) throw new Error(sold.error)
+    expect(sold.plan).toMatchObject({ name: 'Roof & gutter care', trade: 'gutters', taxable: true, price: 39, template_id: t.template.id, template_version: 1 })
+    expect(sold.plan.steps[0].label).toBe('Roof inspection')
+
+    // Owner raises the price and changes the schedule on the template.
+    const edited = await saveTemplate(db.client, ORG, 'u1', t.template.id, { pricing: { ...tmpl.pricing, tiers: [{ ...tmpl.pricing.tiers[0], price: 45 }] }, seasons: [{ from: '01-01', to: '12-31', frequency: 'every_2_weeks' }] })
+    if (!edited.ok) throw new Error(edited.error)
+    expect(edited.template.version).toBe(2)
+    const before = visitsOf(db, sold.plan.id).map((v) => ({ ...v }))
+    expect((db.tables.service_plans[0] as Record<string, unknown>).price).toBe(39) // sold plan untouched
+
+    const preview = await applyTemplateToPlans(db.client, ORG, 'u1', t.template.id, { preview: true, now: NOW })
+    if (!preview.ok) throw new Error(preview.error)
+    expect(preview.plans).toBe(1)
+    expect(preview.effect.removed).toBeGreaterThan(0)
+    expect(visitsOf(db, sold.plan.id)).toEqual(before) // preview wrote nothing
+
+    const applied = await applyTemplateToPlans(db.client, ORG, 'u1', t.template.id, { preview: false, now: NOW })
+    if (!applied.ok) throw new Error(applied.error)
+    expect(applied.effect).toEqual(preview.effect)
+    expect(db.tables.service_plans[0]).toMatchObject({ price: 45, template_version: 2 })
+    // History: plan created + template applied; template created + updated.
+    const planHistory = await loadChangeHistory(db.client, ORG, { planId: sold.plan.id })
+    expect(planHistory.map((h) => h.action).sort()).toEqual(['created', 'template_applied'])
+    expect(planHistory.find((h) => h.action === 'template_applied')?.lines.join(' ')).toContain('Price: 39 → 45')
+    expect((await loadChangeHistory(db.client, ORG, { templateId: t.template.id })).map((h) => h.action).sort()).toEqual(['created', 'updated'])
+    // Nothing behind any more: a second push touches nothing.
+    const again = await applyTemplateToPlans(db.client, ORG, 'u1', t.template.id, { preview: true, now: NOW })
+    expect(again.ok && again.plans).toBe(0)
+  })
+
+  it('a push that drops the plan’s tier keeps its price as custom and says so', async () => {
+    const db = seed()
+    const t = await saveTemplate(db.client, ORG, 'u1', null, tmpl)
+    if (!t.ok) throw new Error(t.error)
+    await createServicePlan(db.client, ORG, 'u1', 'c1', { template_id: t.template.id, property_id: 'p1', start_date: '2026-11-03', tier_key: 'standard', pricing_inputs: { stories: 3 } }, NOW)
+    await saveTemplate(db.client, ORG, 'u1', t.template.id, { pricing: { ...tmpl.pricing, tiers: [{ ...tmpl.pricing.tiers[0], conditions: [{ field: 'stories', op: 'lte', value: 2 }] }] } })
+    const r = await applyTemplateToPlans(db.client, ORG, 'u1', t.template.id, { preview: false, now: NOW })
+    expect(r.ok && r.needsPriceCheck).toEqual(['Roof & gutter care'])
+    expect(db.tables.service_plans[0]).toMatchObject({ price: 39, tier_key: null })
+  })
+
+  it('templates refuse another company’s crew / person and unknown trades', async () => {
+    const db = seed()
+    expect((await saveTemplate(db.client, ORG, 'u1', null, { ...tmpl, trade: 'pool' })).ok).toBe(false)
+    expect((await saveTemplate(db.client, ORG, 'u1', null, { ...tmpl, steps: [{ ...tmpl.steps[0], userId: 'nobody' }] })).ok).toBe(false)
+  })
+})
+
+describe('plan edits: preview first, future only, history kept', () => {
+  it('preview writes nothing; save changes property / crew / steps for future visits only and records who and what', async () => {
+    const db = seed({ properties: [] })
+    db.tables.properties.push(
+      { id: 'p1', org_id: ORG, customer_id: 'c1', address_text: '1 Oak St', active: true },
+      { id: 'p3', org_id: ORG, customer_id: 'c1', address_text: '9 Elm St', address_line1: '9 Elm St', active: true }
+    )
+    const r = await createServicePlan(db.client, ORG, 'u1', 'c1', weekly, NOW)
+    if (!r.ok) throw new Error(r.error)
+    const id = r.plan.id
+    const todays = visitsOf(db, id)[0]
+    const snapshot = JSON.stringify(db.tables.work_orders)
+
+    const pv = await updateServicePlan(db.client, ORG, 'u1', id, { property_id: 'p3', default_sub_id: 's2', price: 50, preview: true }, null, NOW)
+    expect(pv).toMatchObject({ ok: true, preview: true, effect: { removed: 0, added: 0, updated: 5 } })
+    expect(JSON.stringify(db.tables.work_orders)).toBe(snapshot)
+    expect(db.tables.service_plan_changes.filter((c) => c.action === 'updated')).toHaveLength(0)
+
+    const saved = await updateServicePlan(db.client, ORG, 'u1', id, { property_id: 'p3', default_sub_id: 's2', price: 50 }, null, NOW)
+    expect(saved).toMatchObject({ ok: true, effect: { removed: 0, added: 0, updated: 5 } })
+    const after = visitsOf(db, id)
+    expect(after[0]).toMatchObject({ id: todays.id, property_id: 'p1', service_price: 45, assigned_sub_id: 's1' }) // today unchanged
+    expect(after.slice(1).every((v) => v.property_id === 'p3' && v.service_price === 50 && v.assigned_sub_id === 's2' && v.address === '9 Elm St')).toBe(true)
+    const h = await loadChangeHistory(db.client, ORG, { planId: id })
+    const upd = h.find((x) => x.action === 'updated')!
+    expect(upd.by).toBe('Office')
+    expect(upd.lines).toEqual(expect.arrayContaining(['Property: 1 Oak St → 9 Elm St', 'Crew: Crew One → Crew Two', 'Price: 45 → 50']))
+    expect(upd.effect).toEqual({ removed: 0, added: 0, updated: 5 })
+    // Saving the same values again changes nothing and says so.
+    expect(await updateServicePlan(db.client, ORG, 'u1', id, { price: 50 }, null, NOW)).toMatchObject({ ok: false, error: 'Nothing changed' })
+  })
+
+  it('pause shows its effect before saving and is in the history', async () => {
+    const db = seed()
+    const r = await createServicePlan(db.client, ORG, 'u1', 'c1', weekly, NOW)
+    if (!r.ok) throw new Error(r.error)
+    const pv = await updateServicePlan(db.client, ORG, 'u1', r.plan.id, { preview: true }, { action: 'pause', until: null }, NOW)
+    expect(pv).toMatchObject({ ok: true, preview: true, effect: { removed: 5, added: 0 } })
+    await updateServicePlan(db.client, ORG, 'u1', r.plan.id, {}, { action: 'pause', until: null }, NOW)
+    expect((await loadChangeHistory(db.client, ORG, { planId: r.plan.id })).map((x) => x.action)).toContain('paused')
+  })
+})
+
+describe('crew link expiry', () => {
+  it('an expired link is dead before anyone replaces it', async () => {
+    const db = seed()
+    const link = await rotateCrewDayToken(db.client, ORG, 's1', 'u1')
+    if (!link.ok) throw new Error('link')
+    expect(link.expiresInDays).toBe(30)
+    expect(await resolveCrewDay(db.client, link.token)).not.toBeNull()
+    expect(await resolveCrewDay(db.client, link.token, new Date(Date.now() + 31 * 86_400_000))).toBeNull()
+    db.tables.crew_day_links[0].expires_at = new Date(Date.now() - 1000).toISOString()
+    expect(await resolveCrewDay(db.client, link.token)).toBeNull()
+  })
+})

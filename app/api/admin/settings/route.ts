@@ -8,7 +8,6 @@ import { CHECKUPS_ASSIGNEE_KEY, CHECKUPS_SETTINGS_KEYS, canEditCheckupSettings, 
 import { JOB_CATCH_UP_SETTINGS_KEYS, canEditJobCatchUpSettings, parseJobCatchUpPatch } from '@/lib/job-catch-up-settings'
 import { mergeOrgSettings } from '@/lib/org-settings'
 import { ORG_FEATURES_SETTINGS_KEY, parseOrgFeaturesPatch } from '@/lib/org-features'
-import { SERVICE_PLAN_SETTINGS_KEY, cleanStandardTier } from '@/lib/service-plans'
 
 export const dynamic = 'force-dynamic'
 
@@ -183,18 +182,6 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ success: true })
     }
 
-    // Service plans standard price + which homes qualify (lib/service-plans.ts): owners only, under settings.servicePlans.
-    if (type === 'service_plans') {
-      if (!profile?.org_id || !isSuperAdmin(profile)) return NextResponse.json({ error: 'Only an owner can change plan pricing' }, { status: 403 })
-      const parsed = cleanStandardTier(data)
-      if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 })
-      const { error } = parsed.value
-        ? await mergeOrgSettings(adminClient, profile.org_id, { standardTier: parsed.value }, { path: [SERVICE_PLAN_SETTINGS_KEY] })
-        : await mergeOrgSettings(adminClient, profile.org_id, {}, { path: [SERVICE_PLAN_SETTINGS_KEY], remove: ['standardTier'] })
-      if (error) return NextResponse.json({ error }, { status: 400 })
-      return NextResponse.json({ success: true })
-    }
-
     if (!profile?.org_id || !['admin', 'regional_manager', 'sales_manager'].includes(profile.role)) {
       return NextResponse.json({ error: 'Access denied' }, { status: 403 })
     }
@@ -284,8 +271,7 @@ export async function PATCH(request: NextRequest) {
       // `job_catch_up` save writes them (managers can reach this path). Any OTHER key is still accepted from
       // managers — pre-existing; Known Redundancy #25 (should become an allow-list).
       // Feature switches (settings.features) are owner-only and written only by the `features` save above.
-      // Service plan pricing (settings.servicePlans) is owner-only and written only by the `service_plans` save above.
-      const { brand: _brand, [ORG_FEATURES_SETTINGS_KEY]: _features, [SERVICE_PLAN_SETTINGS_KEY]: _servicePlans, ...rest } = data
+      const { brand: _brand, [ORG_FEATURES_SETTINGS_KEY]: _features, ...rest } = data
       const settingsData = Object.fromEntries(Object.entries(rest).filter(([k]) => !JOB_CATCH_UP_SETTINGS_KEYS.includes(k) && !CHECKUPS_SETTINGS_KEYS.includes(k)))
       const { error } = await adminClient
         .from('orgs')

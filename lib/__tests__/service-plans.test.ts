@@ -1,10 +1,19 @@
+import { describeChange, diffFields } from '@/lib/change-log'
+import { STARTER_TEMPLATES, starterTemplate } from '@/lib/service-plan-starters'
 import {
-  DEFAULT_LAWN_SEASONS,
+  DEFAULT_STEP_RESULTS,
   addDaysYmd,
   cleanPlanInput,
+  cleanPricing,
   cleanSeasons,
-  cleanStandardTier,
+  cleanSteps,
+  cleanTemplateInput,
   crewAfterEdit,
+  describeVisitEffect,
+  eligibleTiers,
+  nextStep,
+  previewVisitEffect,
+  stepResultKeys,
   daysBetweenYmd,
   followUpVisitFields,
   parseBulkShift,
@@ -12,12 +21,11 @@ import {
   parseVisitAction,
   planAnchor,
   planVisitDates,
-  readStandardTier,
   redactPlanPrices,
   regenerationPlan,
   resolvePlanPricing,
   seasonContains,
-  standardTierCheck,
+  tierCheck,
   visitHorizon,
   visitPatch,
   visitPrice,
@@ -27,6 +35,8 @@ import {
   type ServicePlanSchedule,
 } from '@/lib/service-plans'
 import { DEFAULT_TIMEZONE } from '@/lib/timezone'
+
+const DEFAULT_LAWN_SEASONS = starterTemplate('lawn_weekly')!.seasons
 
 const plan = (over: Partial<ServicePlanSchedule> = {}): ServicePlanSchedule => ({
   status: 'active',
@@ -125,7 +135,7 @@ describe('plan input', () => {
     expect(cleanPlanInput({ ...base, end_date: '2026-01-01' }).ok).toBe(false)
     expect(cleanPlanInput({ ...base, preferred_weekday: 7 }).ok).toBe(false)
     expect(cleanPlanInput({ ...base, price: 'abc' }).ok).toBe(false)
-    expect(cleanPlanInput({ ...base, follow_up: 'pizza' }).ok).toBe(false)
+    expect(cleanPlanInput({ ...base, steps: [{ key: 'service', label: 'x' }] }).ok).toBe(false)
   })
   it('partial edit returns only what was sent', () => {
     const r = cleanPlanInput({ name: ' New name ' }, true)
@@ -143,28 +153,92 @@ describe('plan input', () => {
   })
 })
 
-describe('standard price tier (ARX Care: ≤ 3 stories, pitch ≤ 10/12)', () => {
-  const rule = readStandardTier({ servicePlans: { standardTier: { price: 39, billingBasis: 'per_month', maxStories: 3, maxPitchRise: 10 } } })
-  it('reads the rule from settings; nothing stored = no standard tier', () => {
-    expect(rule).toEqual({ price: 39, billingBasis: 'per_month', maxStories: 3, maxPitchRise: 10 })
-    expect(readStandardTier({})).toBeNull()
+describe('price rules (generic; e.g. a roof & gutter plan: ≤ 3 stories, pitch ≤ 10/12)', () => {
+  const rules = cleanPricing({
+    fields: [{ key: 'stories', label: 'Stories' }, { key: 'pitch', label: 'Roof pitch (/12)' }],
+    tiers: [{ key: 'standard', label: 'Standard home', price: '39', billingBasis: 'per_month', conditions: [{ field: 'stories', op: 'lte', value: 3 }, { field: 'pitch', op: 'lte', value: '10' }] }],
+    allowCustom: true,
   })
-  it('qualifies only homes inside the rule, with stories and pitch known', () => {
-    expect(standardTierCheck(rule, { stories: 2, pitch_rise: 8 })).toEqual({ ok: true })
-    expect(standardTierCheck(rule, { stories: 4, pitch_rise: 8 }).ok).toBe(false)
-    expect(standardTierCheck(rule, { stories: 2, pitch_rise: 12 }).ok).toBe(false)
-    expect(standardTierCheck(rule, { stories: null, pitch_rise: 8 }).ok).toBe(false)
-    expect(standardTierCheck(null, { stories: 1, pitch_rise: 4 }).ok).toBe(false)
+  const pricing = rules.ok ? rules.value : (null as never)
+  it('cleans rules: prices and rule values become numbers; unknown questions / blank prices refused', () => {
+    expect(rules.ok).toBe(true)
+    expect(pricing.tiers[0]).toMatchObject({ price: 39, conditions: [{ field: 'stories', op: 'lte', value: 3 }, { field: 'pitch', op: 'lte', value: 10 }] })
+    expect(cleanPricing({ fields: [], tiers: [{ key: 't', label: 'T', price: 1, conditions: [{ field: 'nope', op: 'lte', value: 1 }] }] }).ok).toBe(false)
+    expect(cleanPricing({ tiers: [{ key: 't', label: 'T', price: '' }] }).ok).toBe(false)
+    expect(cleanPricing({ tiers: [], allowCustom: false }).ok).toBe(false)
   })
-  it('standard = the company price and basis (typed price ignored); custom = the override', () => {
-    expect(resolvePlanPricing({ price_tier: 'standard', price: 5, billing_basis: 'per_visit', stories: 2, pitch_rise: 6 }, rule)).toEqual({ ok: true, price: 39, billing_basis: 'per_month' })
-    expect(resolvePlanPricing({ price_tier: 'custom', price: 79, billing_basis: 'per_year', stories: 4, pitch_rise: 12 }, rule)).toEqual({ ok: true, price: 79, billing_basis: 'per_year' })
-    expect(resolvePlanPricing({ price_tier: 'standard', price: null, billing_basis: 'per_month', stories: 4, pitch_rise: 6 }, rule).ok).toBe(false)
+  it('a home qualifies only inside every rule; unanswered = not yet', () => {
+    const t = pricing.tiers[0]
+    expect(tierCheck(pricing, t, { stories: 2, pitch: 8 })).toEqual({ ok: true })
+    expect(tierCheck(pricing, t, { stories: 4, pitch: 8 })).toEqual({ ok: false, reason: 'Stories must be at most 3' })
+    expect(tierCheck(pricing, t, { stories: 2, pitch: 12 }).ok).toBe(false)
+    expect(tierCheck(pricing, t, { stories: 2 })).toEqual({ ok: false, reason: 'Answer “Roof pitch (/12)”' })
+    expect(eligibleTiers(pricing, { stories: 1, pitch: 4 }).map((x) => x.key)).toEqual(['standard'])
   })
-  it('settings save validates, null removes', () => {
-    expect(cleanStandardTier({ standardTier: null })).toEqual({ ok: true, value: null })
-    expect(cleanStandardTier({ standardTier: { price: 'x' } }).ok).toBe(false)
-    expect(cleanStandardTier({ standardTier: { price: 39, maxStories: 0 } }).ok).toBe(false)
+  it('a tier sets price and basis (typed price ignored); custom is the override, only when allowed', () => {
+    expect(resolvePlanPricing({ tier_key: 'standard', price: 5, billing_basis: 'per_visit', pricing_inputs: { stories: 2, pitch: 6 } }, pricing)).toEqual({ ok: true, price: 39, billing_basis: 'per_month', tier_key: 'standard' })
+    expect(resolvePlanPricing({ tier_key: null, price: 79, billing_basis: 'per_year', pricing_inputs: { stories: 4, pitch: 12 } }, pricing)).toEqual({ ok: true, price: 79, billing_basis: 'per_year', tier_key: null })
+    expect(resolvePlanPricing({ tier_key: 'standard', price: null, billing_basis: 'per_month', pricing_inputs: { stories: 4, pitch: 6 } }, pricing).ok).toBe(false)
+    expect(resolvePlanPricing({ tier_key: 'gone', price: null, billing_basis: 'per_month', pricing_inputs: {} }, pricing).ok).toBe(false)
+    expect(resolvePlanPricing({ tier_key: null, price: 1, billing_basis: 'per_month', pricing_inputs: {} }, { ...pricing, allowCustom: false }).ok).toBe(false)
+  })
+})
+
+describe('follow-on steps and their results', () => {
+  const steps = cleanSteps([
+    { key: 'cleaning_check', label: 'Clean-up check', daysAfter: 0, assignTo: 'crew', subId: 's1', results: [] },
+    { key: 'inspection', label: 'Roof inspection', daysAfter: 2, assignTo: 'person', userId: 'insp', results: DEFAULT_STEP_RESULTS },
+  ])
+  const list = steps.ok ? steps.value : []
+  it('cleans steps; green / yellow / red is only the default, options are editable', () => {
+    expect(steps.ok).toBe(true)
+    expect(list[1].results.map((r) => r.key)).toEqual(['green', 'yellow', 'red'])
+    expect(cleanSteps([{ key: 'service', label: 'X' }]).ok).toBe(false)
+    expect(cleanSteps([{ key: 'a', label: 'A', results: [{ key: 'pass', label: 'Pass', tone: 'good' }, { key: 'fail', label: 'Fail', tone: 'bad' }] }]).ok).toBe(true)
+    expect(stepResultKeys(list, 'inspection')).toEqual(['green', 'yellow', 'red'])
+    expect(stepResultKeys(list, 'service')).toEqual([])
+  })
+  it('steps chain in order: service → first step → next → none', () => {
+    expect(nextStep(list, 'service')?.key).toBe('cleaning_check')
+    expect(nextStep(list, 'cleaning_check')?.key).toBe('inspection')
+    expect(nextStep(list, 'inspection')).toBeNull()
+    expect(nextStep(list, 'unknown')).toBeNull()
+  })
+  it('starter templates are valid data (nothing about a plan is in code)', () => {
+    for (const t of STARTER_TEMPLATES) {
+      const r = cleanTemplateInput({ ...t, pricing: { ...t.pricing, tiers: t.pricing.tiers.map((x) => ({ ...x, price: 10 })) } })
+      expect(r.ok).toBe(true)
+      // Prices are left for each company to set.
+      expect(cleanTemplateInput(t).ok).toBe(t.pricing.tiers.length === 0)
+    }
+  })
+})
+
+describe('history and preview', () => {
+  it('diffFields lists only what changed, in the shared change-log shape', () => {
+    const c = diffFields({ price: 45, name: 'A', seasons: [1] }, { price: 50, name: 'A', seasons: [1] }, { price: 'Price', name: 'Name', seasons: 'Seasons' })
+    expect(c).toEqual([{ field: 'price', label: 'Price', old: 45, new: 50 }])
+    expect(describeChange(c[0])).toBe('Price: 45 → 50')
+  })
+  const base = { status: 'active' as const, start_date: '2026-11-03', end_date: null, paused_until: null, seasons: [{ from: '01-01', to: '12-31', frequency: 'weekly' as const }], preferred_weekday: 2, name: 'Mow', price: 45, billing_basis: 'per_visit' as const, taxable: false, default_sub_id: 's1', property_id: 'p1' }
+  const v = (d: string, over: Record<string, unknown> = {}) => ({ id: d, visit_step: 'service', status: 'scheduled', service_planned_date: d, scheduled_date: d, assigned_sub_id: 's1', completed_at: null, title: 'Mow', service_price: 45, service_taxable: false, property_id: 'p1', ...over })
+  const visits = ['2026-11-10', '2026-11-17', '2026-11-24', '2026-12-01', '2026-12-08', '2026-12-15'].map((d) => v(d))
+  it('a weekday change: future visits move (removed + added), today stays', () => {
+    const e = previewVisitEffect(visits, base, { ...base, preferred_weekday: 4 }, '2026-11-10')
+    expect(e.removed).toBe(5)
+    // Thursdays 11-12 … 12-17 inside the 6-week horizon.
+    expect(e.added).toBe(6)
+    expect(e.updated).toBe(0)
+    expect(describeVisitEffect(e)).toBe('5 upcoming visits removed, 6 added. Done, skipped and today’s visits don’t change.')
+  })
+  it('a price change updates future visits only; nothing at all says so', () => {
+    expect(previewVisitEffect(visits, base, { ...base, price: 50 }, '2026-11-10')).toEqual({ removed: 0, added: 0, updated: 5 })
+    expect(previewVisitEffect(visits, base, { ...base }, '2026-11-10')).toEqual({ removed: 0, added: 0, updated: 0 })
+    expect(describeVisitEffect({ removed: 0, added: 0, updated: 0 })).toBe('No visits on the calendar change.')
+  })
+  it('a hand-picked crew is not "updated" when the default crew changes', () => {
+    const mixed = [v('2026-11-17', { assigned_sub_id: 's9' }), v('2026-11-24')]
+    expect(previewVisitEffect(mixed, base, { ...base, default_sub_id: 's2' }, '2026-11-10').updated).toBe(1)
   })
 })
 
@@ -179,22 +253,27 @@ describe('visit actions', () => {
     expect(parseVisitAction({ action: 'skip', reason: 'other' })).toEqual({ error: expect.any(String) })
     expect(visitPatch({ status: 'scheduled', scheduled_date: '2026-11-10' }, { action: 'skip', reason: 'rain' }, office, now)).toMatchObject({ status: 'skipped', skip_reason: 'rain', completed_by: 'u1' })
   })
-  it('an inspection is done only with green / yellow / red; a service visit never carries one', () => {
-    expect(visitPatch({ status: 'scheduled', scheduled_date: 'x', visit_step: 'inspection' }, { action: 'done' }, office, now)).toEqual({ error: expect.any(String) })
-    expect(visitPatch({ status: 'scheduled', scheduled_date: 'x', visit_step: 'inspection' }, { action: 'done', result: 'yellow' }, office, now)).toMatchObject({ health_result: 'yellow' })
-    expect(visitPatch({ status: 'scheduled', scheduled_date: 'x', visit_step: 'service' }, { action: 'done', result: 'red' }, office, now)).toMatchObject({ health_result: null })
-    expect(parseVisitAction({ action: 'done', result: 'blue' })).toEqual({ error: expect.any(String) })
+  it('a follow-on step with results is done only with one of them; the plan’s own visit never carries one', () => {
+    const row = { status: 'scheduled', scheduled_date: 'x', visit_step: 'inspection', results: ['green', 'yellow', 'red'] }
+    expect(visitPatch(row, { action: 'done' }, office, now)).toEqual({ error: expect.any(String) })
+    expect(visitPatch(row, { action: 'done', result: 'blue' }, office, now)).toEqual({ error: expect.any(String) })
+    expect(visitPatch(row, { action: 'done', result: 'yellow' }, office, now)).toMatchObject({ step_result: 'yellow' })
+    expect(visitPatch({ status: 'scheduled', scheduled_date: 'x', visit_step: 'check', results: [] }, { action: 'done' }, office, now)).toMatchObject({ status: 'completed', step_result: null })
+    expect(visitPatch({ status: 'scheduled', scheduled_date: 'x', visit_step: 'service' }, { action: 'done', result: 'red' }, office, now)).toMatchObject({ step_result: null })
+    expect(parseVisitAction({ action: 'done', result: 'Not A Key' })).toEqual({ error: expect.any(String) })
   })
   it('reopen clears the close; move / assign only while scheduled', () => {
-    expect(visitPatch({ status: 'skipped', scheduled_date: 'x' }, { action: 'reopen' }, office, now)).toMatchObject({ status: 'scheduled', skip_reason: null, health_result: null })
+    expect(visitPatch({ status: 'skipped', scheduled_date: 'x' }, { action: 'reopen' }, office, now)).toMatchObject({ status: 'scheduled', skip_reason: null, step_result: null })
     expect(visitPatch({ status: 'completed', scheduled_date: 'x' }, { action: 'move', date: '2026-11-12' }, office, now)).toEqual({ error: expect.any(String) })
     expect(visitPatch({ status: 'scheduled', scheduled_date: 'x' }, { action: 'assign', subId: null }, office, now)).toEqual({ assigned_sub_id: null })
   })
-  it('the follow-on inspection: N days after the visit was done, on the parent’s slot, to the plan’s person', () => {
-    const f = followUpVisitFields({ follow_up: 'inspection', follow_up_days: 2, follow_up_user_id: 'insp' }, { id: 'v1', service_planned_date: '2026-11-09', visit_step: 'service' }, '2026-11-10')
-    expect(f).toEqual({ visit_step: 'inspection', parent_visit_id: 'v1', service_planned_date: '2026-11-09', scheduled_date: '2026-11-12', assigned_user_id: 'insp' })
-    expect(followUpVisitFields({ follow_up: null, follow_up_days: null, follow_up_user_id: null }, { id: 'v1', service_planned_date: 'x', visit_step: 'service' }, '2026-11-10')).toBeNull()
-    expect(followUpVisitFields({ follow_up: 'inspection', follow_up_days: 0, follow_up_user_id: null }, { id: 'v2', service_planned_date: 'x', visit_step: 'inspection' }, '2026-11-10')).toBeNull()
+  it('the next step: N days after the visit was done, on the parent’s slot, to the step’s person or crew', () => {
+    const steps = [{ key: 'inspection', label: 'Roof inspection', daysAfter: 2, assignTo: 'person' as const, userId: 'insp', subId: null, results: [] }]
+    expect(followUpVisitFields(steps, { id: 'v1', service_planned_date: '2026-11-09', visit_step: 'service' }, '2026-11-10')).toEqual({
+      visit_step: 'inspection', parent_visit_id: 'v1', service_planned_date: '2026-11-09', scheduled_date: '2026-11-12', assigned_user_id: 'insp', assigned_sub_id: null, title_suffix: 'Roof inspection',
+    })
+    expect(followUpVisitFields([], { id: 'v1', service_planned_date: 'x', visit_step: 'service' }, '2026-11-10')).toBeNull()
+    expect(followUpVisitFields(steps, { id: 'v2', service_planned_date: 'x', visit_step: 'inspection' }, '2026-11-10')).toBeNull()
   })
 })
 

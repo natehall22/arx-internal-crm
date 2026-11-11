@@ -8,7 +8,7 @@
  * UTC-noon dates and daylight saving can never move a visit. The only clock input is "today", which the caller works out
  * in the company's own time zone (`ymdInZone`).
  */
-import { isHealthResult, type HealthResult } from '@/lib/health-result'
+import { HEALTH_RESULTS, HEALTH_RESULT_STYLE } from '@/lib/health-result'
 
 export const SERVICE_FREQUENCIES = ['weekly', 'every_2_weeks', 'every_4_weeks', 'monthly', 'none'] as const
 export type ServiceFrequency = (typeof SERVICE_FREQUENCIES)[number]
@@ -27,14 +27,8 @@ export const BILLING_BASES = ['per_visit', 'per_month', 'per_year'] as const
 export type BillingBasis = (typeof BILLING_BASES)[number]
 export const BILLING_BASIS_LABELS: Record<BillingBasis, string> = { per_visit: 'per visit', per_month: 'per month', per_year: 'per year' }
 
-export const PRICE_TIERS = ['standard', 'custom'] as const
-export type PriceTier = (typeof PRICE_TIERS)[number]
-
-/** Follow-on step after each service visit (e.g. a roof & gutter care plan: a sub cleans, then a staff inspector rates the roof). */
-export const FOLLOW_UPS = ['inspection'] as const
-export type FollowUp = (typeof FOLLOW_UPS)[number]
-export const VISIT_STEPS = ['service', 'inspection'] as const
-export type VisitStep = (typeof VISIT_STEPS)[number]
+/** The plan's own visit. Follow-on steps (a plan's `steps`) carry their own key instead. */
+export const SERVICE_STEP = 'service'
 
 export const SKIP_REASONS = ['rain', 'customer', 'holiday', 'other'] as const
 export type SkipReason = (typeof SKIP_REASONS)[number]
@@ -79,13 +73,15 @@ export type ServicePlan = ServicePlanSchedule & {
   description: string | null
   price: number | null
   billing_basis: BillingBasis
-  price_tier: PriceTier
   taxable: boolean
-  stories: number | null
-  pitch_rise: number | null
-  follow_up: FollowUp | null
-  follow_up_days: number | null
-  follow_up_user_id: string | null
+  /** Price rules copied from the template at sale; the answers for this home; the tier they matched (null = custom). */
+  pricing: PlanPricing
+  pricing_inputs: Record<string, number>
+  tier_key: string | null
+  /** Follow-on steps copied from the template at sale (cleaning → inspection …). */
+  steps: PlanStep[]
+  template_id: string | null
+  template_version: number | null
   default_sub_id: string | null
   route_position: number | null
   created_by: string
@@ -94,7 +90,7 @@ export type ServicePlan = ServicePlanSchedule & {
 }
 
 export const SERVICE_PLAN_COLUMNS =
-  'id, org_id, customer_id, property_id, trade, name, description, price, billing_basis, price_tier, taxable, stories, pitch_rise, follow_up, follow_up_days, follow_up_user_id, status, start_date, end_date, paused_until, seasons, preferred_weekday, default_sub_id, route_position, created_by, created_at, updated_at'
+  'id, org_id, customer_id, property_id, template_id, template_version, trade, name, description, price, billing_basis, taxable, pricing, pricing_inputs, tier_key, steps, status, start_date, end_date, paused_until, seasons, preferred_weekday, default_sub_id, route_position, created_by, created_at, updated_at'
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Calendar-day arithmetic
@@ -194,14 +190,6 @@ export function seasonLabel(s: Season): string {
   return `${SERVICE_FREQUENCY_LABELS[s.frequency]}, ${monthDayLabel(s.from)} – ${monthDayLabel(s.to)}`
 }
 
-/** A sensible starting schedule for lawn care in the US Southeast: weekly in season, every 2 weeks in the shoulders, monthly in winter. */
-export const DEFAULT_LAWN_SEASONS: readonly Season[] = Object.freeze([
-  { from: '03-01', to: '03-31', frequency: 'every_2_weeks' },
-  { from: '04-01', to: '10-31', frequency: 'weekly' },
-  { from: '11-01', to: '11-30', frequency: 'every_2_weeks' },
-  { from: '12-01', to: '02-29', frequency: 'monthly' },
-]) as readonly Season[]
-
 // ---------------------------------------------------------------------------------------------------------------------
 // The schedule
 // ---------------------------------------------------------------------------------------------------------------------
@@ -287,13 +275,11 @@ export type ServicePlanInput = {
   description: string | null
   price: number | null
   billing_basis: BillingBasis
-  price_tier: PriceTier
   taxable: boolean
-  stories: number | null
-  pitch_rise: number | null
-  follow_up: FollowUp | null
-  follow_up_days: number | null
-  follow_up_user_id: string | null
+  pricing: PlanPricing
+  pricing_inputs: Record<string, number>
+  tier_key: string | null
+  steps: PlanStep[]
   start_date: string
   end_date: string | null
   seasons: Season[]
@@ -340,35 +326,22 @@ export function cleanPlanInput(
     if (!(BILLING_BASES as readonly unknown[]).includes(bb)) return { ok: false, error: 'Bill per visit, per month or per year' }
     out.billing_basis = bb as BillingBasis
   }
-  if (has('price_tier')) {
-    const t = b.price_tier ?? 'custom'
-    if (!(PRICE_TIERS as readonly unknown[]).includes(t)) return { ok: false, error: 'Pick standard or custom price' }
-    out.price_tier = t as PriceTier
-  }
   if (has('taxable')) out.taxable = b.taxable === true
-  if (has('stories')) {
-    const n = b.stories === null || b.stories === undefined || b.stories === '' ? null : Number(b.stories)
-    if (n !== null && (!Number.isInteger(n) || n < 1 || n > 10)) return { ok: false, error: 'Stories is 1 to 10' }
-    out.stories = n
+  if (has('pricing')) {
+    const r = cleanPricing(b.pricing ?? {})
+    if (!r.ok) return r
+    out.pricing = r.value
   }
-  if (has('pitch_rise')) {
-    const n = b.pitch_rise === null || b.pitch_rise === undefined || b.pitch_rise === '' ? null : Number(b.pitch_rise)
-    if (n !== null && (!Number.isFinite(n) || n < 0 || n > 24)) return { ok: false, error: 'Pitch is 0/12 to 24/12' }
-    out.pitch_rise = n === null ? null : Math.round(n * 10) / 10
+  if (has('pricing_inputs')) {
+    const r = cleanPricingInputs(b.pricing_inputs ?? {})
+    if (!r.ok) return r
+    out.pricing_inputs = r.value
   }
-  if (has('follow_up')) {
-    const f = b.follow_up === null || b.follow_up === undefined || b.follow_up === '' ? null : b.follow_up
-    if (f !== null && !(FOLLOW_UPS as readonly unknown[]).includes(f)) return { ok: false, error: 'Unknown follow-up step' }
-    out.follow_up = f as FollowUp | null
-    if (f) {
-      const d = Number(b.follow_up_days ?? 0)
-      if (!Number.isInteger(d) || d < 0 || d > 30) return { ok: false, error: 'Follow-up is 0 to 30 days after the visit' }
-      out.follow_up_days = d
-      out.follow_up_user_id = typeof b.follow_up_user_id === 'string' && b.follow_up_user_id ? b.follow_up_user_id : null
-    } else {
-      out.follow_up_days = null
-      out.follow_up_user_id = null
-    }
+  if (has('tier_key')) out.tier_key = typeof b.tier_key === 'string' && b.tier_key ? b.tier_key.slice(0, 40) : null
+  if (has('steps')) {
+    const r = cleanSteps(b.steps ?? [])
+    if (!r.ok) return r
+    out.steps = r.value
   }
   if (has('start_date')) {
     if (!isYmd(b.start_date)) return { ok: false, error: 'Pick a start date' }
@@ -439,7 +412,7 @@ export function parsePlanStatusChange(body: unknown, todayYmd: string): PlanStat
 // ---------------------------------------------------------------------------------------------------------------------
 
 export type VisitAction =
-  | { action: 'done'; result?: HealthResult; notes?: string }
+  | { action: 'done'; result?: string; notes?: string }
   | { action: 'skip'; reason: SkipReason; notes?: string }
   | { action: 'reopen' }
   | { action: 'move'; date: string }
@@ -453,8 +426,8 @@ export function parseVisitAction(body: unknown): VisitAction | { error: string }
   const notes = typeof b.notes === 'string' ? b.notes.trim().slice(0, 2000) : undefined
   switch (b.action) {
     case 'done':
-      if (b.result !== undefined && b.result !== null && !isHealthResult(b.result)) return { error: 'Pick green, yellow or red' }
-      return { action: 'done', result: isHealthResult(b.result) ? b.result : undefined, notes }
+      if (b.result !== undefined && b.result !== null && (typeof b.result !== 'string' || !KEY_RE.test(b.result))) return { error: 'Pick a result' }
+      return { action: 'done', result: typeof b.result === 'string' ? b.result : undefined, notes }
     case 'skip':
       if (!(SKIP_REASONS as readonly unknown[]).includes(b.reason)) return { error: 'Pick why it was skipped' }
       if (b.reason === 'other' && !notes) return { error: 'Say why it was skipped' }
@@ -471,7 +444,8 @@ export function parseVisitAction(body: unknown): VisitAction | { error: string }
   }
 }
 
-export type VisitRowState = { status: string; scheduled_date: string | null; visit_step?: string | null }
+/** `results` = the result options of the visit's step (from the plan); empty / missing = no result asked for. */
+export type VisitRowState = { status: string; scheduled_date: string | null; visit_step?: string | null; results?: readonly string[] }
 
 /**
  * Pure: the column changes for an action on a visit, or why not. `by` = a staff user id (office) or a crew's sub id
@@ -488,11 +462,14 @@ export function visitPatch(
   switch (a.action) {
     case 'done':
       if (!open) return { error: 'This visit is already closed' }
-      // An inspection is only done with green / yellow / red; a service visit never carries one.
-      if (row.visit_step === 'inspection' && !a.result) return { error: 'Pick how it looked: green, yellow or red' }
+      // A follow-on step with result options is only done with one of them; the plan's own visit never carries one.
+      {
+        const options = (row.visit_step ?? SERVICE_STEP) === SERVICE_STEP ? [] : row.results ?? []
+        if (options.length && (!a.result || !options.includes(a.result))) return { error: 'Pick a result' }
+      }
       return {
         status: 'completed',
-        health_result: row.visit_step === 'inspection' ? a.result : null,
+        step_result: (row.visit_step ?? SERVICE_STEP) !== SERVICE_STEP && (row.results ?? []).length ? a.result : null,
         completed_at: at,
         completed_by: by.userId,
         completed_by_sub_id: by.userId ? null : by.subId,
@@ -510,7 +487,7 @@ export function visitPatch(
       }
     case 'reopen':
       if (row.status !== 'completed' && row.status !== 'skipped') return { error: 'This visit is not closed' }
-      return { status: 'scheduled', completed_at: null, completed_by: null, completed_by_sub_id: null, skip_reason: null, skipped_at: null, health_result: null }
+      return { status: 'scheduled', completed_at: null, completed_by: null, completed_by_sub_id: null, skip_reason: null, skipped_at: null, step_result: null }
     case 'move':
       if (!open) return { error: 'Only a scheduled visit can be moved' }
       return { scheduled_date: a.date }
@@ -564,16 +541,16 @@ export type ExistingVisit = {
  *   - a slot it keeps → refreshed (name, price, crew if the crew was the old default — a crew picked by hand stays);
  *   - new slots are created by the generator afterwards.
  */
-export function regenerationPlan(
-  visits: ExistingVisit[],
+export function regenerationPlan<T extends ExistingVisit>(
+  visits: T[],
   newDates: Set<string>,
   todayYmd: string
-): { remove: string[]; keep: ExistingVisit[] } {
+): { remove: string[]; keep: T[] } {
   const remove: string[] = []
-  const keep: ExistingVisit[] = []
+  const keep: T[] = []
   for (const v of visits) {
-    // Follow-on inspections belong to a visit that already happened: never regenerated.
-    const future = (v.visit_step ?? 'service') === 'service' && v.status === 'scheduled' && !v.completed_at && v.service_planned_date > todayYmd && (v.scheduled_date ?? v.service_planned_date) > todayYmd
+    // Follow-on steps belong to a visit that already happened: never regenerated.
+    const future = (v.visit_step ?? SERVICE_STEP) === SERVICE_STEP && v.status === 'scheduled' && !v.completed_at && v.service_planned_date > todayYmd && (v.scheduled_date ?? v.service_planned_date) > todayYmd
     if (!future) continue
     if (newDates.has(v.service_planned_date)) keep.push(v)
     else remove.push(v.id)
@@ -591,87 +568,380 @@ export function redactPlanPrices<T extends Pick<ServicePlan, 'price'>>(p: T, pri
   return prices ? { ...p, priceHidden: false } : { ...p, price: null, priceHidden: true }
 }
 
+
 // ---------------------------------------------------------------------------------------------------------------------
-// Standard price tier (company settings: orgs.settings.servicePlans.standardTier)
+// Price rules (generic: the company decides what to ask about a home and which answers get which price)
 // ---------------------------------------------------------------------------------------------------------------------
 
-/**
- * The company's standard plan price and which homes qualify (e.g. ≤ 3 stories and pitch ≤ 10/12). A home outside
- * the rule — or one whose stories / pitch nobody recorded — gets a custom price instead. Null = no standard tier: every
- * plan is priced by hand.
- */
-export type StandardTierRule = { price: number; billingBasis: BillingBasis; maxStories: number | null; maxPitchRise: number | null }
+/** Lower-case key: letters, digits, underscore; starts with a letter. Used for pricing fields, tiers, steps, results. */
+export const KEY_RE = /^[a-z][a-z0-9_]{0,39}$/
 
-export const SERVICE_PLAN_SETTINGS_KEY = 'servicePlans'
+/** A question asked about the home when the plan is sold ("Stories", "Roof pitch (/12)", "Lawn size (sq ft)"). Numbers. */
+export type PricingField = { key: string; label: string }
+export const CONDITION_OPS = ['lte', 'lt', 'gte', 'gt', 'eq'] as const
+export type ConditionOp = (typeof CONDITION_OPS)[number]
+export const CONDITION_OP_LABELS: Record<ConditionOp, string> = { lte: 'at most', lt: 'under', gte: 'at least', gt: 'over', eq: 'exactly' }
+export type PricingCondition = { field: string; op: ConditionOp; value: number }
+/** A price a home gets when every condition holds (no conditions = everyone). First matching tier is offered first. */
+export type PricingTier = { key: string; label: string; price: number; billingBasis: BillingBasis; conditions: PricingCondition[] }
+export type PlanPricing = { fields: PricingField[]; tiers: PricingTier[]; allowCustom: boolean }
+export const EMPTY_PRICING: PlanPricing = Object.freeze({ fields: [], tiers: [], allowCustom: true }) as PlanPricing
 
-/** Pure: the rule out of `orgs.settings` (or the `servicePlans` object itself); anything malformed = no rule. */
-export function readStandardTier(settings: unknown): StandardTierRule | null {
-  const o = settings && typeof settings === 'object' && !Array.isArray(settings) ? (settings as Record<string, unknown>) : {}
-  const sp = (SERVICE_PLAN_SETTINGS_KEY in o ? o[SERVICE_PLAN_SETTINGS_KEY] : o) as Record<string, unknown> | null
-  const t = sp && typeof sp === 'object' ? (sp.standardTier as Record<string, unknown> | null | undefined) : null
-  if (!t || typeof t !== 'object') return null
-  const price = Number(t.price)
-  if (!Number.isFinite(price) || price < 0) return null
-  const basis = (BILLING_BASES as readonly unknown[]).includes(t.billingBasis) ? (t.billingBasis as BillingBasis) : 'per_month'
-  const n = (v: unknown) => (v === null || v === undefined || v === '' || !Number.isFinite(Number(v)) ? null : Number(v))
-  return { price: Math.round(price * 100) / 100, billingBasis: basis, maxStories: n(t.maxStories), maxPitchRise: n(t.maxPitchRise) }
+type R<T> = { ok: true; value: T } | { ok: false; error: string }
+const obj = (v: unknown): Record<string, unknown> => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {})
+const label = (v: unknown, max = 60): string | null => (typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : null)
+const money = (v: unknown): number | null => {
+  const n = typeof v === 'number' ? v : typeof v === 'string' && v.trim() ? Number(v.replace(/[$,\s]/g, '')) : NaN
+  return Number.isFinite(n) && n >= 0 && n <= 1_000_000 ? Math.round(n * 100) / 100 : null
 }
 
-/** Pure: a settings save → the rule to store (null = remove the standard tier), or why not. */
-export function cleanStandardTier(body: unknown): { ok: true; value: StandardTierRule | null } | { ok: false; error: string } {
-  const b = body && typeof body === 'object' && !Array.isArray(body) ? (body as Record<string, unknown>) : {}
-  if (b.standardTier === null) return { ok: true, value: null }
-  const rule = readStandardTier({ standardTier: b.standardTier })
-  if (!rule) return { ok: false, error: 'Enter the standard price' }
-  if (rule.maxStories !== null && (!Number.isInteger(rule.maxStories) || rule.maxStories < 1 || rule.maxStories > 10)) return { ok: false, error: 'Most stories is 1 to 10' }
-  if (rule.maxPitchRise !== null && (rule.maxPitchRise < 0 || rule.maxPitchRise > 24)) return { ok: false, error: 'Steepest pitch is 0/12 to 24/12' }
-  return { ok: true, value: rule }
-}
-
-/** Pure: may this home have the standard price? Unknown stories / pitch fail a rule that limits them. */
-export function standardTierCheck(rule: StandardTierRule | null, home: { stories: number | null; pitch_rise: number | null }): { ok: true } | { ok: false; reason: string } {
-  if (!rule) return { ok: false, reason: 'There is no standard price set up — use a custom price' }
-  if (rule.maxStories !== null) {
-    if (home.stories === null) return { ok: false, reason: 'Enter the number of stories' }
-    if (home.stories > rule.maxStories) return { ok: false, reason: `More than ${rule.maxStories} stories — use a custom price` }
+/** Pure: price rules from a save → clean rules, or why not. */
+export function cleanPricing(raw: unknown): R<PlanPricing> {
+  const o = obj(raw)
+  const fieldsRaw = Array.isArray(o.fields) ? o.fields : []
+  const tiersRaw = Array.isArray(o.tiers) ? o.tiers : []
+  if (fieldsRaw.length > 8) return { ok: false, error: 'At most 8 questions about the home' }
+  if (tiersRaw.length > 10) return { ok: false, error: 'At most 10 price tiers' }
+  const fields: PricingField[] = []
+  for (const f of fieldsRaw) {
+    const x = obj(f)
+    const l = label(x.label)
+    if (typeof x.key !== 'string' || !KEY_RE.test(x.key) || !l) return { ok: false, error: 'Each question needs a name' }
+    if (fields.some((y) => y.key === x.key)) return { ok: false, error: `“${l}” is listed twice` }
+    fields.push({ key: x.key, label: l })
   }
-  if (rule.maxPitchRise !== null) {
-    if (home.pitch_rise === null) return { ok: false, reason: 'Enter the roof pitch' }
-    if (home.pitch_rise > rule.maxPitchRise) return { ok: false, reason: `Steeper than ${rule.maxPitchRise}/12 — use a custom price` }
+  const tiers: PricingTier[] = []
+  for (const t of tiersRaw) {
+    const x = obj(t)
+    const l = label(x.label)
+    const price = money(x.price)
+    if (typeof x.key !== 'string' || !KEY_RE.test(x.key) || !l) return { ok: false, error: 'Each price tier needs a name' }
+    if (tiers.some((y) => y.key === x.key)) return { ok: false, error: `Tier “${l}” is listed twice` }
+    if (price === null) return { ok: false, error: `Enter a price for “${l}”` }
+    const basis = (BILLING_BASES as readonly unknown[]).includes(x.billingBasis) ? (x.billingBasis as BillingBasis) : 'per_visit'
+    const conditions: PricingCondition[] = []
+    for (const c of Array.isArray(x.conditions) ? x.conditions : []) {
+      const y = obj(c)
+      const v = typeof y.value === 'number' ? y.value : Number(y.value)
+      if (!fields.some((f) => f.key === y.field)) return { ok: false, error: `A rule in “${l}” asks about a question that isn’t listed` }
+      if (!(CONDITION_OPS as readonly unknown[]).includes(y.op) || !Number.isFinite(v)) return { ok: false, error: `Finish the rules in “${l}”` }
+      conditions.push({ field: String(y.field), op: y.op as ConditionOp, value: v })
+    }
+    if (conditions.length > 8) return { ok: false, error: `At most 8 rules in “${l}”` }
+    tiers.push({ key: x.key, label: l, price, billingBasis: basis, conditions })
+  }
+  const allowCustom = o.allowCustom !== false
+  if (!allowCustom && tiers.length === 0) return { ok: false, error: 'Add a price tier or allow a custom price' }
+  return { ok: true, value: { fields, tiers, allowCustom } }
+}
+
+/** Lenient read of stored rules (a row written by an older version never crashes a screen). */
+export function readPricing(raw: unknown): PlanPricing {
+  const r = cleanPricing(raw)
+  return r.ok ? r.value : { ...EMPTY_PRICING }
+}
+
+/** Pure: the answers about a home → numbers by question key. */
+export function cleanPricingInputs(raw: unknown): R<Record<string, number>> {
+  const out: Record<string, number> = {}
+  for (const [k, v] of Object.entries(obj(raw))) {
+    if (!KEY_RE.test(k)) return { ok: false, error: 'Unknown question' }
+    if (v === null || v === undefined || v === '') continue
+    const n = typeof v === 'number' ? v : Number(v)
+    if (!Number.isFinite(n) || Math.abs(n) > 1e9) return { ok: false, error: 'Answers about the home must be numbers' }
+    out[k] = n
+  }
+  return { ok: true, value: out }
+}
+
+function conditionHolds(c: PricingCondition, inputs: Record<string, number>): boolean {
+  const v = inputs[c.field]
+  if (v === undefined) return false
+  switch (c.op) {
+    case 'lte': return v <= c.value
+    case 'lt': return v < c.value
+    case 'gte': return v >= c.value
+    case 'gt': return v > c.value
+    case 'eq': return v === c.value
+  }
+}
+
+/** Pure: does this home qualify for a tier? Why not, in words (an unanswered question counts as "no"). */
+export function tierCheck(pricing: PlanPricing, tier: PricingTier, inputs: Record<string, number>): { ok: true } | { ok: false; reason: string } {
+  for (const c of tier.conditions) {
+    const f = pricing.fields.find((x) => x.key === c.field)
+    const name = f?.label ?? c.field
+    if (inputs[c.field] === undefined) return { ok: false, reason: `Answer “${name}”` }
+    if (!conditionHolds(c, inputs)) return { ok: false, reason: `${name} must be ${CONDITION_OP_LABELS[c.op]} ${c.value}` }
   }
   return { ok: true }
 }
 
+/** Pure: the tiers this home qualifies for (in the template's order). */
+export function eligibleTiers(pricing: PlanPricing, inputs: Record<string, number>): PricingTier[] {
+  return pricing.tiers.filter((t) => tierCheck(pricing, t, inputs).ok)
+}
+
 /**
- * Pure: the price a plan ends up with. Standard tier: the company's price and billing basis, only if the home
- * qualifies (the typed price is ignored). Custom: whatever was typed (the override).
+ * Pure: the price a plan ends up with. A tier: its price and billing basis, only if the home qualifies (a typed price is
+ * ignored). No tier (custom): the typed price — only if the rules allow a custom price.
  */
 export function resolvePlanPricing(
-  v: Pick<ServicePlanInput, 'price_tier' | 'price' | 'billing_basis' | 'stories' | 'pitch_rise'>,
-  rule: StandardTierRule | null
-): { ok: true; price: number | null; billing_basis: BillingBasis } | { ok: false; error: string } {
-  if (v.price_tier !== 'standard') return { ok: true, price: v.price, billing_basis: v.billing_basis }
-  const check = standardTierCheck(rule, v)
-  if (!check.ok) return { ok: false, error: check.reason }
-  return { ok: true, price: (rule as StandardTierRule).price, billing_basis: (rule as StandardTierRule).billingBasis }
+  v: { tier_key: string | null; price: number | null; billing_basis: BillingBasis; pricing_inputs: Record<string, number> },
+  pricing: PlanPricing
+): { ok: true; price: number | null; billing_basis: BillingBasis; tier_key: string | null } | { ok: false; error: string } {
+  if (!v.tier_key) {
+    if (!pricing.allowCustom) return { ok: false, error: 'This plan only sells at its set prices — pick a price tier' }
+    return { ok: true, price: v.price, billing_basis: v.billing_basis, tier_key: null }
+  }
+  const tier = pricing.tiers.find((t) => t.key === v.tier_key)
+  if (!tier) return { ok: false, error: 'That price tier no longer exists — pick another' }
+  const check = tierCheck(pricing, tier, v.pricing_inputs)
+  if (!check.ok) return { ok: false, error: `${tier.label}: ${check.reason}` }
+  return { ok: true, price: tier.price, billing_basis: tier.billingBasis, tier_key: tier.key }
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
-// Follow-on step
+// Follow-on steps (cleaning → inspection → …), each with its own result options
 // ---------------------------------------------------------------------------------------------------------------------
 
-/** Pure: the follow-on visit a done service visit starts (null when the plan has none). Planned on the parent's slot. */
+export const RESULT_TONES = ['good', 'watch', 'bad', 'neutral'] as const
+export type ResultTone = (typeof RESULT_TONES)[number]
+export type StepResultOption = { key: string; label: string; tone: ResultTone }
+/** Who does a step: one staff person (an inspector) or a crew. Empty = pick on the visit. */
+export type PlanStep = { key: string; label: string; daysAfter: number; assignTo: 'person' | 'crew'; userId: string | null; subId: string | null; results: StepResultOption[] }
+
+/** The default result options for a new step: the shared green / yellow / red (lib/health-result.ts). Editable. */
+export const DEFAULT_STEP_RESULTS: readonly StepResultOption[] = Object.freeze(
+  HEALTH_RESULTS.map((r): StepResultOption => ({ key: r, label: HEALTH_RESULT_STYLE[r].label, tone: r === 'green' ? 'good' : r === 'yellow' ? 'watch' : 'bad' }))
+)
+
+/** Badge / button colors per tone (dark text on yellow; white on green / red / gray — WCAG AA). */
+export const RESULT_TONE_CLASS: Record<ResultTone, string> = {
+  good: HEALTH_RESULT_STYLE.green.cls,
+  watch: HEALTH_RESULT_STYLE.yellow.cls,
+  bad: HEALTH_RESULT_STYLE.red.cls,
+  neutral: 'bg-[#2c2c2a] text-white',
+}
+
+export function cleanSteps(raw: unknown): R<PlanStep[]> {
+  if (!Array.isArray(raw)) return { ok: false, error: 'Steps must be a list' }
+  if (raw.length > 5) return { ok: false, error: 'At most 5 follow-on steps' }
+  const out: PlanStep[] = []
+  for (const s of raw) {
+    const x = obj(s)
+    const l = label(x.label)
+    if (typeof x.key !== 'string' || !KEY_RE.test(x.key) || x.key === SERVICE_STEP || !l) return { ok: false, error: 'Each step needs a name' }
+    if (out.some((y) => y.key === x.key)) return { ok: false, error: `Step “${l}” is listed twice` }
+    const days = Number(x.daysAfter ?? 0)
+    if (!Number.isInteger(days) || days < 0 || days > 60) return { ok: false, error: `“${l}”: 0 to 60 days after` }
+    const results: StepResultOption[] = []
+    for (const r of Array.isArray(x.results) ? x.results : []) {
+      const y = obj(r)
+      const rl = label(y.label)
+      if (typeof y.key !== 'string' || !KEY_RE.test(y.key) || !rl) return { ok: false, error: `“${l}”: each result needs a name` }
+      if (results.some((z) => z.key === y.key)) return { ok: false, error: `“${l}”: result “${rl}” is listed twice` }
+      results.push({ key: y.key, label: rl, tone: (RESULT_TONES as readonly unknown[]).includes(y.tone) ? (y.tone as ResultTone) : 'neutral' })
+    }
+    if (results.length > 8) return { ok: false, error: `“${l}”: at most 8 results` }
+    const assignTo = x.assignTo === 'crew' ? 'crew' : 'person'
+    out.push({
+      key: x.key,
+      label: l,
+      daysAfter: days,
+      assignTo,
+      userId: assignTo === 'person' && typeof x.userId === 'string' && x.userId ? x.userId : null,
+      subId: assignTo === 'crew' && typeof x.subId === 'string' && x.subId ? x.subId : null,
+      results,
+    })
+  }
+  return { ok: true, value: out }
+}
+
+export function readSteps(raw: unknown): PlanStep[] {
+  const r = cleanSteps(raw)
+  return r.ok ? r.value : []
+}
+
+/** Pure: the step after `current` ('service' → the first step). Null = none. */
+export function nextStep(steps: PlanStep[], current: string | null): PlanStep | null {
+  const at = (current ?? SERVICE_STEP) === SERVICE_STEP ? -1 : steps.findIndex((s) => s.key === current)
+  if (at === -1 && (current ?? SERVICE_STEP) !== SERVICE_STEP) return null
+  return steps[at + 1] ?? null
+}
+
+/** The result options of a visit's step (none for the plan's own visit, or a step the plan no longer has). */
+export function stepResultKeys(steps: PlanStep[], step: string | null): string[] {
+  if ((step ?? SERVICE_STEP) === SERVICE_STEP) return []
+  return (steps.find((s) => s.key === step)?.results ?? []).map((r) => r.key)
+}
+
+/** Pure: the follow-on visit a done visit starts (null when the plan has no next step). Planned on the parent's slot. */
 export function followUpVisitFields(
-  plan: Pick<ServicePlan, 'follow_up' | 'follow_up_days' | 'follow_up_user_id'>,
+  steps: PlanStep[],
   parent: { id: string; service_planned_date: string; visit_step: string | null },
   doneOnYmd: string
-): { visit_step: VisitStep; parent_visit_id: string; service_planned_date: string; scheduled_date: string; assigned_user_id: string | null } | null {
-  if (!plan.follow_up || parent.visit_step === 'inspection') return null
+): { visit_step: string; parent_visit_id: string; service_planned_date: string; scheduled_date: string; assigned_user_id: string | null; assigned_sub_id: string | null; title_suffix: string } | null {
+  const step = nextStep(steps, parent.visit_step)
+  if (!step) return null
   return {
-    visit_step: plan.follow_up,
+    visit_step: step.key,
     parent_visit_id: parent.id,
     service_planned_date: parent.service_planned_date,
-    scheduled_date: addDaysYmd(doneOnYmd, plan.follow_up_days ?? 0),
-    assigned_user_id: plan.follow_up_user_id,
+    scheduled_date: addDaysYmd(doneOnYmd, step.daysAfter),
+    assigned_user_id: step.assignTo === 'person' ? step.userId : null,
+    assigned_sub_id: step.assignTo === 'crew' ? step.subId : null,
+    title_suffix: step.label,
   }
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Templates (what a company sells; owners edit them in Settings)
+// ---------------------------------------------------------------------------------------------------------------------
+
+export type ServicePlanTemplate = {
+  id: string
+  org_id: string
+  name: string
+  trade: string
+  description: string | null
+  seasons: Season[]
+  billing_basis: BillingBasis
+  taxable: boolean
+  pricing: PlanPricing
+  steps: PlanStep[]
+  active: boolean
+  version: number
+  updated_at: string
+}
+
+export const TEMPLATE_COLUMNS = 'id, org_id, name, trade, description, seasons, billing_basis, taxable, pricing, steps, active, version, updated_at'
+
+export type TemplateInput = Pick<ServicePlanTemplate, 'name' | 'trade' | 'description' | 'seasons' | 'billing_basis' | 'taxable' | 'pricing' | 'steps' | 'active'>
+
+/** Pure: a template save → clean values, or why not. `partial` = edit. */
+export function cleanTemplateInput(body: unknown, partial = false): R<Partial<TemplateInput>> {
+  const b = obj(body)
+  const has = (k: string) => !partial || k in b
+  const out: Partial<TemplateInput> = {}
+  if (has('name')) {
+    const n = label(b.name, 120)
+    if (!n) return { ok: false, error: 'Give the template a name' }
+    out.name = n
+  }
+  if (has('trade')) {
+    if (typeof b.trade !== 'string' || !/^[a-z0-9_]{1,40}$/.test(b.trade)) return { ok: false, error: 'Pick the service type' }
+    out.trade = b.trade
+  }
+  if ('description' in b) out.description = label(b.description, 2000)
+  if (has('seasons')) {
+    const r = cleanSeasons(b.seasons)
+    if (!r.ok) return r
+    out.seasons = r.value
+  }
+  if (has('billing_basis')) {
+    const bb = b.billing_basis ?? 'per_visit'
+    if (!(BILLING_BASES as readonly unknown[]).includes(bb)) return { ok: false, error: 'Bill per visit, per month or per year' }
+    out.billing_basis = bb as BillingBasis
+  }
+  if (has('taxable')) out.taxable = b.taxable === true
+  if (has('pricing')) {
+    const r = cleanPricing(b.pricing ?? {})
+    if (!r.ok) return r
+    out.pricing = r.value
+  }
+  if (has('steps')) {
+    const r = cleanSteps(b.steps ?? [])
+    if (!r.ok) return r
+    out.steps = r.value
+  }
+  if ('active' in b) out.active = b.active !== false
+  return { ok: true, value: out }
+}
+
+/** The parts of a template copied onto a plan at sale (and pushed later, on purpose). Seasons included. */
+export const TEMPLATE_PLAN_FIELDS = ['trade', 'seasons', 'billing_basis', 'taxable', 'pricing', 'steps'] as const
+export type TemplatePlanField = (typeof TEMPLATE_PLAN_FIELDS)[number]
+
+// ---------------------------------------------------------------------------------------------------------------------
+// History labels + "what will change" preview
+// ---------------------------------------------------------------------------------------------------------------------
+
+/** Plan fields people can change, with the words the history shows. */
+export const PLAN_FIELD_LABELS: Record<string, string> = {
+  name: 'Name',
+  description: 'Notes for the crew',
+  property_id: 'Property',
+  trade: 'Service type',
+  start_date: 'Starts',
+  end_date: 'Ends',
+  preferred_weekday: 'Visit day',
+  seasons: 'Seasons',
+  price: 'Price',
+  billing_basis: 'Billed',
+  taxable: 'Sales tax',
+  pricing: 'Price rules',
+  pricing_inputs: 'Answers about the home',
+  tier_key: 'Price tier',
+  steps: 'Follow-on steps',
+  default_sub_id: 'Crew',
+  route_position: 'Stop #',
+  status: 'Status',
+  paused_until: 'Resumes',
+  template_version: 'Template version',
+}
+
+export const TEMPLATE_FIELD_LABELS: Record<string, string> = {
+  name: 'Name',
+  trade: 'Service type',
+  description: 'Description',
+  seasons: 'Seasons',
+  billing_basis: 'Billed',
+  taxable: 'Sales tax',
+  pricing: 'Price rules',
+  steps: 'Follow-on steps',
+  active: 'Offered',
+}
+
+export type VisitEffect = { removed: number; added: number; updated: number }
+
+/**
+ * Pure: what saving a plan change would do to its visits, without doing it. Same rules as the save
+ * (`regenerationPlan` + the generator): removed = future unstarted visits whose slot goes away; added = new slots in the
+ * horizon with no visit yet; updated = kept future visits whose name / price / crew / property / tax would change.
+ */
+export function previewVisitEffect(
+  visits: Array<ExistingVisit & { title?: string | null; service_price?: number | null; service_taxable?: boolean | null; property_id?: string | null }>,
+  oldPlan: ServicePlanSchedule & Pick<ServicePlan, 'name' | 'price' | 'billing_basis' | 'taxable' | 'default_sub_id' | 'property_id'>,
+  newPlan: ServicePlanSchedule & Pick<ServicePlan, 'name' | 'price' | 'billing_basis' | 'taxable' | 'default_sub_id' | 'property_id'>,
+  todayYmd: string
+): VisitEffect {
+  const tomorrow = addDaysYmd(todayYmd, 1)
+  const { to } = visitHorizon(todayYmd)
+  const futureDates = new Set(planVisitDates(newPlan, tomorrow, addDaysYmd(todayYmd, 3650)))
+  const { remove, keep } = regenerationPlan(visits, futureDates, todayYmd)
+  const haveSlots = new Set(visits.filter((v) => (v.visit_step ?? SERVICE_STEP) === SERVICE_STEP && !remove.includes(v.id)).map((v) => v.service_planned_date))
+  const added = planVisitDates(newPlan, todayYmd, to).filter((d) => !haveSlots.has(d)).length
+  const newPrice = visitPrice(newPlan)
+  const updated = keep.filter((v) => {
+    const crew = crewAfterEdit(v.assigned_sub_id, oldPlan.default_sub_id, newPlan.default_sub_id)
+    return (
+      crew !== v.assigned_sub_id ||
+      (v.title ?? oldPlan.name) !== newPlan.name ||
+      (v.service_price ?? visitPrice(oldPlan)) !== newPrice ||
+      (v.service_taxable ?? oldPlan.taxable) !== newPlan.taxable ||
+      (v.property_id ?? oldPlan.property_id) !== newPlan.property_id
+    )
+  }).length
+  return { removed: remove.length, added, updated }
+}
+
+/** "3 visits removed, 4 added, 2 updated" — or that nothing on the calendar changes. */
+export function describeVisitEffect(e: VisitEffect): string {
+  const parts = [
+    e.removed ? `${e.removed} upcoming visit${e.removed === 1 ? '' : 's'} removed` : null,
+    e.added ? `${e.added} added` : null,
+    e.updated ? `${e.updated} updated` : null,
+  ].filter(Boolean)
+  return parts.length ? `${parts.join(', ')}. Done, skipped and today’s visits don’t change.` : 'No visits on the calendar change.'
 }

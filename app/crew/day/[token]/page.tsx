@@ -4,7 +4,7 @@ import { cache } from 'react'
 import { loadOrgTimeZone } from '@/lib/cron-orgs'
 import { getDocumentBrand } from '@/lib/org-brand'
 import { activeCrewDay } from '@/lib/service-plans-access'
-import { ymdInZone } from '@/lib/service-plans'
+import { SERVICE_STEP, ymdInZone } from '@/lib/service-plans'
 import { loadVisits } from '@/lib/service-plans-db'
 import { createServiceClient } from '@/lib/supabase/service'
 import CrewDayList from './CrewDayList'
@@ -41,7 +41,7 @@ export default async function CrewDayPage({ params }: { params: { token: string 
     )
   }
   const today = ymdInZone(new Date(), await loadOrgTimeZone(admin, crew.orgId))
-  const visits = (await loadVisits(admin, crew.orgId, { from: today, to: today, subId: crew.subId, accessNotes: true })).filter((v) => v.step === 'service' && v.status !== 'cancelled')
+  const visits = (await loadVisits(admin, crew.orgId, { from: today, to: today, subId: crew.subId, accessNotes: true })).filter((v) => v.status !== 'cancelled')
   return (
     <CrewDayList
       token={params.token}
@@ -50,11 +50,13 @@ export default async function CrewDayPage({ params }: { params: { token: string 
       today={today}
       visits={visits.map((v) => ({
         id: v.id,
-        planName: v.planName,
+        planName: v.step !== SERVICE_STEP && v.stepLabel ? `${v.stepLabel} — ${v.planName}` : v.planName,
+        resultOptions: v.resultOptions,
         address: v.address,
         lat: v.lat,
         lng: v.lng,
-        accessNotes: v.accessNotes,
+        // Gate codes only for visits still to do: a finished stop has no reason to keep showing them.
+        accessNotes: v.status === 'scheduled' ? v.accessNotes : null,
         status: v.status,
         skipReason: v.skipReason,
         photoCount: v.photoCount,

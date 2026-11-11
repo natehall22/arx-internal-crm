@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import { REPORT_TEMPLATES } from '../lib/reporting/templates'
-import { JOB_SETUP_TRADES, HARNESS_TRADES_0037, HARNESS_PAYMENTS_0037, SUPPLIER_VIEW_0037, HARNESS_INCENTIVES, HARNESS_LEADERBOARD, HARNESS_INSIDE_SALES, HARNESS_INSTALL_SCHEDULE, HARNESS_PARTNERS, HARNESS_APPOINTMENTS, HARNESS_THREAD, HARNESS_PROPOSALS, HARNESS_LEADS, ANNOUNCEMENTS, BANNER, DEFAULT_PLANS, COST_LINES, SUPPLIERS, PAY_WEEK, MY_PAY, REPORT_RESULT, SALE_CREDIT, SUPPLIER_PREVIEW, SUPPLIER_VIEW, TEMPLATE_META, USERS, HARNESS_OWNER_CANDIDATES, HARNESS_CUSTOM_FIELDS, HARNESS_PROPERTIES, HARNESS_SERVICE_PLANS, HARNESS_VISITS } from './fixtures'
+import { JOB_SETUP_TRADES, HARNESS_TRADES_0037, HARNESS_PAYMENTS_0037, SUPPLIER_VIEW_0037, HARNESS_INCENTIVES, HARNESS_LEADERBOARD, HARNESS_INSIDE_SALES, HARNESS_INSTALL_SCHEDULE, HARNESS_PARTNERS, HARNESS_APPOINTMENTS, HARNESS_THREAD, HARNESS_PROPOSALS, HARNESS_LEADS, ANNOUNCEMENTS, BANNER, DEFAULT_PLANS, COST_LINES, SUPPLIERS, PAY_WEEK, MY_PAY, REPORT_RESULT, SALE_CREDIT, SUPPLIER_PREVIEW, SUPPLIER_VIEW, TEMPLATE_META, USERS, HARNESS_OWNER_CANDIDATES, HARNESS_CUSTOM_FIELDS, HARNESS_PROPERTIES, HARNESS_SERVICE_PLANS, HARNESS_VISITS, HARNESS_PLAN_TEMPLATES, HARNESS_TEMPLATE_DETAIL } from './fixtures'
 
 const json = (body: unknown, status = 200) => ({ status, contentType: 'application/json', body: JSON.stringify(body) })
 
@@ -182,11 +182,15 @@ const SCREENS: Screen[] = [
   { name: 'customer-records-plain', path: '/dev-harness/customer-records-plain', ready: 'text=+ Add another property' },
   { name: 'service-plans', path: '/dev-harness/service-plans', ready: 'text=Weekly mowing & edging', mock: async (p) => {
     await p.route('**/api/customers/*/service-plans', (route) => route.fulfill(json(HARNESS_SERVICE_PLANS)))
+    await p.route('**/api/service-plans/*/history', (route) => route.fulfill(json({ history: [{ id: 'h1', action: 'updated', at: '2026-11-01T12:00:00Z', by: 'Office', lines: ['Price: 45 → 55'], effect: { removed: 0, added: 0, updated: 5 } }] })))
+    await p.route(/\/api\/service-plans\/[^/]+$/, (route) => route.fulfill(json({ ok: true, preview: true, effect: { removed: 5, added: 6, updated: 0 }, changes: [{ field: 'preferred_weekday', label: 'Visit day', old: 2, new: 4 }], summary: '5 upcoming visits removed, 6 added. Done, skipped and today’s visits don’t change.' })))
   },
     states: [
       { name: 'editor', run: async (p) => { await p.getByRole('button', { name: 'Edit' }).first().click(); await p.waitForSelector('[role=dialog] >> text=How often, by season') } },
       { name: 'new-plan', run: async (p) => { await p.getByRole('button', { name: '+ Add plan' }).click(); await p.waitForSelector('[role=dialog] >> text=Send someone to inspect') } },
       { name: 'pause', run: async (p) => { await p.getByRole('button', { name: 'Pause' }).first().click(); await p.waitForSelector('[role=dialog] >> text=Resume on (optional)') } },
+      { name: 'preview', run: async (p) => { await p.getByRole('button', { name: 'Edit' }).first().click(); await p.getByRole('button', { name: 'Next: see what changes' }).click(); await p.waitForSelector('[role=dialog] >> text=What will change') } },
+      { name: 'history', run: async (p) => { await p.getByRole('button', { name: 'History' }).first().click(); await p.waitForSelector('[role=dialog] >> text=Price: 45 → 55') } },
     ] },
   { name: 'visits-board', path: '/dev-harness/visits-board', ready: 'text=Gate code 4421. Dog in back yard. >> nth=0', mock: async (p) => {
     await p.route(/\/api\/ops\/visits(\?.*)?$/, (route) => route.fulfill(json(HARNESS_VISITS)))
@@ -194,13 +198,25 @@ const SCREENS: Screen[] = [
   },
     states: [
       { name: 'skip-sheet', run: async (p) => { await p.getByRole('button', { name: 'Skip' }).first().click(); await p.waitForSelector('[role=dialog] >> text=Why?') } },
-      { name: 'inspection-result', run: async (p) => { await p.getByRole('button', { name: 'Done', exact: true }).nth(1).click(); await p.waitForSelector('[role=dialog] >> text=Green — looks good') } },
+      { name: 'step-result', run: async (p) => { await p.getByRole('button', { name: 'Done', exact: true }).nth(1).click(); await p.waitForSelector('[role=dialog] >> text=How did it go?') } },
       { name: 'bulk-move', run: async (p) => { await p.getByRole('button', { name: 'Move a day’s visits' }).click(); await p.waitForSelector('[role=dialog] >> text=Move by (days)') } },
       { name: 'crew-links', run: async (p) => { await p.getByRole('button', { name: 'Crew phone links' }).click(); await p.waitForSelector('[role=dialog] >> text=Make link') } },
     ] },
   { name: 'crew-day', path: '/dev-harness/crew-day', ready: 'text=Gate code 4421. Dog in back yard.',
-    states: [{ name: 'skip-reasons', run: async (p) => { await p.getByRole('button', { name: 'Skip', exact: true }).first().click(); await p.waitForSelector('text=Why skip?') } }] },
-  { name: 'service-plan-settings', path: '/dev-harness/service-plan-settings', ready: 'text=Service plan pricing' },
+    mock: async (p) => { await p.route('**/api/crew/day/*/status', (route) => route.fulfill(json({ active: true }))) },
+    states: [
+      { name: 'skip-reasons', run: async (p) => { await p.getByRole('button', { name: 'Skip', exact: true }).first().click(); await p.waitForSelector('text=Why skip?') } },
+      { name: 'step-results', run: async (p) => { await p.getByRole('button', { name: 'Done', exact: true }).nth(1).click(); await p.waitForSelector('text=Needs a return trip') } },
+    ] },
+  { name: 'plan-templates', path: '/dev-harness/plan-templates', ready: 'text=Roof & gutter care', mock: async (p) => {
+    await p.route('**/api/admin/service-plan-templates', (route) => route.fulfill(json(HARNESS_PLAN_TEMPLATES)))
+    await p.route('**/api/admin/service-plan-templates/*', (route) => route.fulfill(json(HARNESS_TEMPLATE_DETAIL)))
+    await p.route('**/api/admin/service-plan-templates/*/apply', (route) => route.fulfill(json({ ok: true, plans: 4, effect: { removed: 8, added: 8, updated: 4 }, needsPriceCheck: [], summary: '4 plans: 8 upcoming visits removed, 8 added, 4 updated.' })))
+  },
+    states: [
+      { name: 'editor', run: async (p) => { await p.getByRole('button', { name: 'Edit' }).nth(1).click(); await p.waitForSelector('[role=dialog] >> text=After each visit') } },
+      { name: 'push-preview', run: async (p) => { await p.getByRole('button', { name: 'Plans & history' }).first().click(); await p.getByRole('button', { name: /Update plans/ }).click(); await p.waitForSelector('text=4 plans: 8 upcoming visits removed') } },
+    ] },
   { name: 'settings-hub', path: '/dev-harness/settings-hub', ready: 'text=People & access',
     states: [{ name: 'searching', run: async (p) => { await p.getByRole('searchbox').fill('commission'); await p.waitForTimeout(200) } }] },
   { name: 'today-queues', path: '/dev-harness/today', ready: 'text=Proposals waiting for a signature' },

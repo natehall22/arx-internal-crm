@@ -5,15 +5,14 @@ import Link from 'next/link'
 
 import { Badge, Button, Card, CardContent, Dialog, DialogContent, DialogFooter, Field, Input, Select, Textarea, toast } from '@/components/ui'
 import { formatDateWeekday } from '@/lib/format'
-import { HEALTH_RESULTS, HEALTH_RESULT_STYLE, type HealthResult } from '@/lib/health-result'
-import { SKIP_REASONS, SKIP_REASON_LABELS, VISIT_STATUS_LABELS, addDaysYmd, type SkipReason, type VisitStatus } from '@/lib/service-plans'
+import { RESULT_TONE_CLASS, SERVICE_STEP, SKIP_REASONS, SKIP_REASON_LABELS, VISIT_STATUS_LABELS, addDaysYmd, type SkipReason, type VisitStatus } from '@/lib/service-plans'
 import type { VisitView } from '@/lib/service-plans-db'
 import { uploadVisitPhotos } from '@/lib/visit-photo-upload'
 
 type Crew = { id: string; name: string; hasPhoneLink: boolean }
 type Load = { today: string; from: string; to: string; visits: VisitView[]; canEdit: boolean; crews: Crew[] }
 type Sheet =
-  | { kind: 'done'; visit: VisitView; result: HealthResult | null; notes: string }
+  | { kind: 'done'; visit: VisitView; result: string | null; notes: string }
   | { kind: 'skip'; visit: VisitView; reason: SkipReason | ''; notes: string }
   | { kind: 'move'; visit: VisitView; date: string }
   | { kind: 'shift'; from: string; to: string; days: string; crew: string }
@@ -155,10 +154,10 @@ export default function VisitsBoard() {
                         <div className="flex flex-wrap items-center gap-2">
                           <p className="text-ui-base font-semibold text-ink">
                             {v.routePosition ? `${v.routePosition}. ` : ''}
-                            {v.step === 'inspection' ? `Inspection — ${v.planName}` : v.planName}
+                            {v.step !== SERVICE_STEP ? `${v.stepLabel ?? 'Follow-on'} — ${v.planName}` : v.planName}
                           </p>
                           <Badge tone={STATUS_TONE[v.status] ?? 'neutral'}>{VISIT_STATUS_LABELS[v.status as VisitStatus] ?? v.status}</Badge>
-                          {v.healthResult ? <span className={`rounded-full px-2.5 py-0.5 text-ui-sm font-semibold ${HEALTH_RESULT_STYLE[v.healthResult as HealthResult]?.cls ?? ''}`}>{HEALTH_RESULT_STYLE[v.healthResult as HealthResult]?.short ?? v.healthResult}</span> : null}
+                          {v.result ? <span className={`rounded-full px-2.5 py-0.5 text-ui-sm font-semibold ${RESULT_TONE_CLASS[v.result.tone]}`}>{v.result.label}</span> : null}
                           {v.moved ? <Badge tone="warning">Moved from {formatDateWeekday(v.plannedDate)}</Badge> : null}
                         </div>
                         <p className="break-words text-ui-base text-ink">
@@ -184,7 +183,7 @@ export default function VisitsBoard() {
                                 <Button size="sm" onClick={() => setSheet({ kind: 'done', visit: v, result: null, notes: '' })}>Done</Button>
                                 <Button size="sm" variant="secondary" onClick={() => setSheet({ kind: 'skip', visit: v, reason: '', notes: '' })}>Skip</Button>
                                 <Button size="sm" variant="secondary" onClick={() => setSheet({ kind: 'move', visit: v, date: v.scheduledDate })}>Move</Button>
-                                {v.step === 'service' ? (
+                                {v.step === SERVICE_STEP ? (
                                   <Select aria-label="Crew for this visit" className="min-h-tap max-w-[12rem] text-base" value={v.subId ?? ''} disabled={busy} onChange={(e) => void post(`/api/ops/visits/${v.id}`, { action: 'assign', subId: e.target.value || null }, 'Crew changed')}>
                                     <option value="">No crew</option>
                                     {d.crews.map((c) => (
@@ -242,7 +241,7 @@ export default function VisitsBoard() {
       {sheet && sheet.kind !== 'links' && sheet.kind !== 'photos' ? (
         <Dialog open onOpenChange={(o) => !o && !busy && setSheet(null)}>
           <DialogContent
-            title={sheet.kind === 'done' ? (sheet.visit.step === 'inspection' ? 'How did it look?' : 'Mark done') : sheet.kind === 'skip' ? 'Skip this visit' : sheet.kind === 'move' ? 'Move this visit' : 'Move visits'}
+            title={sheet.kind === 'done' ? (sheet.visit.resultOptions.length ? 'How did it go?' : 'Mark done') : sheet.kind === 'skip' ? 'Skip this visit' : sheet.kind === 'move' ? 'Move this visit' : 'Move visits'}
             description={sheet.kind === 'shift' ? 'Every visit still scheduled on those days moves by the same number of days. Done and skipped visits stay.' : undefined}
           >
             <form
@@ -256,11 +255,11 @@ export default function VisitsBoard() {
                 if (sheet.kind === 'shift') void post('/api/ops/visits/shift', { from: sheet.from, to: sheet.to, days: Number(sheet.days), subId: sheet.crew }, '').then(close)
               }}
             >
-              {sheet.kind === 'done' && sheet.visit.step === 'inspection' ? (
+              {sheet.kind === 'done' && sheet.visit.resultOptions.length ? (
                 <div className="grid grid-cols-1 gap-2">
-                  {HEALTH_RESULTS.map((r) => (
-                    <button key={r} type="button" aria-pressed={sheet.result === r} className={`min-h-tap rounded-ui px-3 text-left text-ui-base font-semibold ${HEALTH_RESULT_STYLE[r].cls} ${sheet.result === r ? 'ring-4 ring-brand-600' : ''}`} onClick={() => setSheet({ ...sheet, result: r })}>
-                      {HEALTH_RESULT_STYLE[r].label}
+                  {sheet.visit.resultOptions.map((r) => (
+                    <button key={r.key} type="button" aria-pressed={sheet.result === r.key} className={`min-h-tap rounded-ui px-3 text-left text-ui-base font-semibold ${RESULT_TONE_CLASS[r.tone]} ${sheet.result === r.key ? 'ring-4 ring-brand-600' : ''}`} onClick={() => setSheet({ ...sheet, result: r.key })}>
+                      {r.label}
                     </button>
                   ))}
                 </div>
@@ -309,7 +308,7 @@ export default function VisitsBoard() {
                   type="submit"
                   loading={busy}
                   disabled={
-                    (sheet.kind === 'done' && sheet.visit.step === 'inspection' && !sheet.result) ||
+                    (sheet.kind === 'done' && sheet.visit.resultOptions.length > 0 && !sheet.result) ||
                     (sheet.kind === 'skip' && (!sheet.reason || (sheet.reason === 'other' && !sheet.notes.trim()))) ||
                     (sheet.kind === 'shift' && (!Number(sheet.days) || !sheet.from))
                   }

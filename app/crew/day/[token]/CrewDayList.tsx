@@ -1,9 +1,9 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { formatDateWeekday } from '@/lib/format'
-import { SKIP_REASONS, SKIP_REASON_LABELS, type SkipReason } from '@/lib/service-plans'
+import { RESULT_TONE_CLASS, SKIP_REASONS, SKIP_REASON_LABELS, type SkipReason, type StepResultOption } from '@/lib/service-plans'
 import { uploadVisitPhotos } from '@/lib/visit-photo-upload'
 
 export type CrewDayVisit = {
@@ -17,7 +17,12 @@ export type CrewDayVisit = {
   skipReason: string | null
   photoCount: number
   routePosition: number | null
+  /** A follow-on step's result options (empty = just "done"). */
+  resultOptions: StepResultOption[]
 }
+
+/** How often an open page re-checks that its link still works (and wipes itself if not). */
+const RECHECK_MS = 5 * 60_000
 
 function directionsHref(v: Pick<CrewDayVisit, 'lat' | 'lng' | 'address'>): string {
   const dest = v.lat != null && v.lng != null ? `${v.lat},${v.lng}` : v.address ?? ''
@@ -31,16 +36,56 @@ const btn = 'inline-flex min-h-[48px] items-center justify-center rounded-lg px-
  * order. Done can carry photos; Skip needs a reason. Talks only to /api/crew/day/<token>/…
  */
 export default function CrewDayList({ token, crewName, companyName, today, visits: initial }: { token: string; crewName: string; companyName: string; today: string; visits: CrewDayVisit[] }) {
-  const [visits, setVisits] = useState(initial)
+  const [visits, setVisits] = useState<Array<CrewDayVisit & { resultLabel?: string }>>(initial)
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [skipping, setSkipping] = useState<{ id: string; reason: SkipReason | ''; notes: string } | null>(null)
+  const [finishing, setFinishing] = useState<string | null>(null)
+  const [dead, setDead] = useState(false)
+
+  // A replaced or expired link must not keep showing addresses and gate codes on a phone that still has the page open:
+  // re-check on focus, on return to the tab / back-forward cache, and every few minutes; wipe everything when it's dead.
+  const recheck = useCallback(async () => {
+    const res = await fetch(`/api/crew/day/${token}/status`, { cache: 'no-store' }).catch(() => null)
+    if (!res) return // no signal: keep what is on screen until we know
+    const out = (await res.json().catch(() => ({}))) as { active?: boolean }
+    if (res.ok && out.active === true) return
+    setVisits([])
+    setSkipping(null)
+    setFinishing(null)
+    setDead(true)
+  }, [token])
+  useEffect(() => {
+    const onShow = () => void recheck()
+    const onVisible = () => document.visibilityState === 'visible' && void recheck()
+    window.addEventListener('focus', onShow)
+    window.addEventListener('pageshow', onShow)
+    document.addEventListener('visibilitychange', onVisible)
+    const timer = window.setInterval(onShow, RECHECK_MS)
+    return () => {
+      window.removeEventListener('focus', onShow)
+      window.removeEventListener('pageshow', onShow)
+      document.removeEventListener('visibilitychange', onVisible)
+      window.clearInterval(timer)
+    }
+  }, [recheck])
   const fileRef = useRef<HTMLInputElement>(null)
   const photoFor = useRef<string | null>(null)
 
   const base = (id: string) => `/api/crew/day/${token}/visits/${id}`
   const open = visits.filter((v) => v.status === 'scheduled').length
   const dateLabel = formatDateWeekday(today)
+
+  if (dead) {
+    return (
+      <main className="min-h-dvh bg-[#f7f6f2] px-4 py-10 text-[#2c2c2a]">
+        <div className="mx-auto max-w-md rounded-xl border border-[#e5e3dc] bg-white p-6 text-center">
+          <h1 className="text-xl font-bold">This link isn’t active</h1>
+          <p className="mt-2 text-base">{`Ask ${companyName} for a new link.`}</p>
+        </div>
+      </main>
+    )
+  }
 
   async function act(id: string, body: Record<string, unknown>): Promise<boolean> {
     setBusy(id)
@@ -49,6 +94,7 @@ export default function CrewDayList({ token, crewName, companyName, today, visit
     const out = (res ? await res.json().catch(() => ({})) : {}) as { error?: string }
     setBusy(null)
     if (!res || !res.ok) {
+      if (res && res.status === 404) void recheck()
       setError(out.error || 'No signal? Try again in a moment.')
       return false
     }
@@ -92,7 +138,7 @@ export default function CrewDayList({ token, crewName, companyName, today, visit
                   </p>
                 ) : null}
                 {closed ? (
-                  <p className="mt-2 text-base font-bold">{v.status === 'completed' ? 'Done' : `Skipped — ${SKIP_REASON_LABELS[v.skipReason as SkipReason] ?? 'other'}`}{v.photoCount ? ` · ${v.photoCount} photo${v.photoCount === 1 ? '' : 's'}` : ''}</p>
+                  <p className="mt-2 text-base font-bold">{v.status === 'completed' ? `Done${v.resultLabel ? ` — ${v.resultLabel}` : ''}` : `Skipped — ${SKIP_REASON_LABELS[v.skipReason as SkipReason] ?? 'other'}`}{v.photoCount ? ` · ${v.photoCount} photo${v.photoCount === 1 ? '' : 's'}` : ''}</p>
                 ) : null}
                 <div className="mt-3 grid grid-cols-2 gap-2">
                   {v.address || (v.lat != null && v.lng != null) ? (
@@ -113,7 +159,16 @@ export default function CrewDayList({ token, crewName, companyName, today, visit
                   </button>
                   {!closed ? (
                     <>
-                      <button type="button" className={`${btn} bg-green-800 text-white`} disabled={busy === v.id} onClick={() => void act(v.id, { action: 'done' }).then((ok) => ok && setVisits((vs) => vs.map((x) => (x.id === v.id ? { ...x, status: 'completed' } : x))))}>
+                      <button
+                        type="button"
+                        className={`${btn} bg-green-800 text-white`}
+                        disabled={busy === v.id}
+                        onClick={() =>
+                          v.resultOptions.length
+                            ? setFinishing(v.id)
+                            : void act(v.id, { action: 'done' }).then((ok) => ok && setVisits((vs) => vs.map((x) => (x.id === v.id ? { ...x, status: 'completed', accessNotes: null } : x))))
+                        }
+                      >
                         Done
                       </button>
                       <button type="button" className={`${btn} border-2 border-[#2c2c2a] bg-white`} disabled={busy === v.id} onClick={() => setSkipping({ id: v.id, reason: '', notes: '' })}>
@@ -122,6 +177,31 @@ export default function CrewDayList({ token, crewName, companyName, today, visit
                     </>
                   ) : null}
                 </div>
+                {finishing === v.id ? (
+                  <div className="mt-3 flex flex-col gap-2 border-t-2 border-[#e5e3dc] pt-3">
+                    <p className="text-base font-bold">How did it go?</p>
+                    {v.resultOptions.map((r) => (
+                      <button
+                        key={r.key}
+                        type="button"
+                        className={`${btn} ${RESULT_TONE_CLASS[r.tone]}`}
+                        disabled={busy === v.id}
+                        onClick={() =>
+                          void act(v.id, { action: 'done', result: r.key }).then((ok) => {
+                            if (!ok) return
+                            setVisits((vs) => vs.map((x) => (x.id === v.id ? { ...x, status: 'completed', accessNotes: null, resultLabel: r.label } : x)))
+                            setFinishing(null)
+                          })
+                        }
+                      >
+                        {r.label}
+                      </button>
+                    ))}
+                    <button type="button" className={`${btn} border-2 border-[#2c2c2a] bg-white`} onClick={() => setFinishing(null)}>
+                      Cancel
+                    </button>
+                  </div>
+                ) : null}
                 {skipping?.id === v.id ? (
                   <form
                     className="mt-3 flex flex-col gap-2 border-t-2 border-[#e5e3dc] pt-3"
@@ -130,7 +210,7 @@ export default function CrewDayList({ token, crewName, companyName, today, visit
                       if (!skipping.reason) return
                       void act(v.id, { action: 'skip', reason: skipping.reason, notes: skipping.notes }).then((ok) => {
                         if (!ok) return
-                        setVisits((vs) => vs.map((x) => (x.id === v.id ? { ...x, status: 'skipped', skipReason: skipping.reason || null } : x)))
+                        setVisits((vs) => vs.map((x) => (x.id === v.id ? { ...x, status: 'skipped', skipReason: skipping.reason || null, accessNotes: null } : x)))
                         setSkipping(null)
                       })
                     }}
