@@ -51,6 +51,7 @@ ALTER TABLE job_payments ADD COLUMN funding_status text; -- 121_weekly_sales_pay
 
 CREATE TABLE pricebook_items (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), org_id uuid NOT NULL REFERENCES orgs(id), name text NOT NULL, unit_price numeric(10,2) NOT NULL DEFAULT 0);
 CREATE TABLE proposal_adders (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), pricebook_item_id uuid REFERENCES pricebook_items(id));
+ALTER TABLE documents ADD CONSTRAINT documents_customer_fk FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL; -- as in 071
 \i supabase/migrations/202611120040_jobber_import.sql
 -- Idempotent: a second apply changes nothing and does not fail.
 \i supabase/migrations/202611120040_jobber_import.sql
@@ -117,6 +118,15 @@ BEGIN
   -- documents: soft delete
   INSERT INTO documents (org_id, customer_id) VALUES (o1, c1) RETURNING id INTO doc;
   r := import_undo_row(o1, 'documents', doc, '{"deleted_at":null}'); ASSERT r = 'deleted' AND (SELECT deleted_at FROM documents WHERE id = doc) IS NOT NULL, 'T4 document soft-deleted';
+  -- a customer whose only reference is a removed (soft-deleted) document can be undone
+  DECLARE c4 uuid; BEGIN
+    INSERT INTO customers (org_id, name) VALUES (o1, 'Dee') RETURNING id INTO c4;
+    INSERT INTO documents (org_id, customer_id, deleted_at) VALUES (o1, c4, now());
+    r := import_undo_row(o1, 'customers', c4, '{"name":"Dee"}'); ASSERT r = 'deleted', 'T4 soft-deleted document does not hold the customer: ' || r;
+    INSERT INTO customers (org_id, name) VALUES (o1, 'Eve') RETURNING id INTO c4;
+    INSERT INTO documents (org_id, customer_id) VALUES (o1, c4);
+    r := import_undo_row(o1, 'customers', c4, '{"name":"Eve"}'); ASSERT r = 'in_use', 'T4 live document holds the customer';
+  END;
   -- custom field: kept while a record holds a value
   INSERT INTO custom_field_definitions (org_id, entity, label, field_type) VALUES (o1, 'customer', 'Gate code', 'text') RETURNING id INTO cf;
   UPDATE customers SET custom_fields = jsonb_build_object(cf::text, '4421') WHERE id = c1;

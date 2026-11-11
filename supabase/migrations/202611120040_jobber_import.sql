@@ -284,7 +284,9 @@ begin
     loop
       if v_fk.relname = any (coalesce(p_ignore, '{}')) then continue; end if;
       if v_fk.relname = p_table then continue; end if;   -- self references (none today)
-      execute format('select exists (select 1 from %s where %I = $1)', v_fk.rel, v_fk.col) into v_used using p_id;
+      -- A document removed in the app (soft delete) no longer counts: the customer it was filed on can go.
+      execute format('select exists (select 1 from %s where %I = $1%s)', v_fk.rel, v_fk.col,
+                     case when v_fk.relname = 'documents' then ' and deleted_at is null' else '' end) into v_used using p_id;
       if v_used then return 'in_use'; end if;
     end loop;
   end if;
