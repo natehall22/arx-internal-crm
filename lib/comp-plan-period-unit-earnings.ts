@@ -151,19 +151,13 @@ export async function resolvePayrollPeriodWindow(
     .eq('org_id', orgId)
     .lt('cutoff_at', cutoffAt)
     .neq('id', periodId)
-    .neq('status', 'cancelled')
     .order('cutoff_at', { ascending: false })
     .limit(1)
     .maybeSingle()
 
   const endMs = new Date(cutoffAt).getTime()
-  // The previous week is this week's neighbour only when it is at most ~2 weeks back (a schedule change makes one in-between week
-  // of 1–13 days). Further back is a gap in history — e.g. the first week after months of paying outside the CRM — and must not
-  // turn into a months-long per-unit window: the week is then the normal calendar week. (No prod week had a gap over 10 days,
-  // 2026-11-12, so no existing statement changes.) Cancelled weeks are not neighbours.
-  const prevMs = prev?.cutoff_at ? new Date(String(prev.cutoff_at)).getTime() : null
-  const startMs = prevMs != null && endMs - prevMs <= 13.5 * 86_400_000
-    ? prevMs
+  const startMs = prev?.cutoff_at
+    ? new Date(String(prev.cutoff_at)).getTime()
     : addEasternDays(cutoffAt, -7).getTime() // calendar week, not 7 x 24h (a clock change makes that an hour off)
 
   return {
