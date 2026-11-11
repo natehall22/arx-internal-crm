@@ -136,6 +136,20 @@ BEGIN
   ok := false; BEGIN INSERT INTO custom_field_definitions (org_id, entity, label, field_type) VALUES (o1, 'customer', ' gate CODE ', 'number'); EXCEPTION WHEN unique_violation THEN ok := true; END;
   ASSERT ok, 'T8 duplicate label refused';
 
+  -- T10 moving a deal / job / document to another customer never leaves a property of the old customer on it
+  UPDATE opportunities SET customer_id = cb WHERE id = '30000000-0000-0000-0000-0000000000d1' RETURNING property_id INTO pid;
+  ASSERT pid IS NOT NULL AND (SELECT customer_id FROM properties WHERE id = pid) = cb, 'T10 deal re-homed to the new customer';
+  ASSERT (SELECT address_text FROM properties WHERE id = pid) = '77 New Way, Concord NC', 'T10 same address';
+  UPDATE documents SET customer_id = cb WHERE customer_id = ca AND property_id = pa RETURNING property_id INTO pid;
+  ASSERT pid IS NULL, 'T10 document cleared (documents never create)';
+  UPDATE opportunities SET customer_id = NULL WHERE id = '30000000-0000-0000-0000-0000000000d1' RETURNING property_id INTO pid;
+  ASSERT pid IS NULL, 'T10 no customer, no property';
+  UPDATE opportunities SET address_text = address_text WHERE id = '30000000-0000-0000-0000-00000000000a' RETURNING property_id INTO pid;
+  ASSERT pid = pa, 'T10 an unrelated update leaves it alone';
+  UPDATE opportunities SET customer_id = ca WHERE id = '30000000-0000-0000-0000-00000000000a' RETURNING property_id INTO pid;
+  ASSERT pid = pa, 'T10 same customer rewritten: unchanged';
+  UPDATE opportunities SET customer_id = cb WHERE id = '30000000-0000-0000-0000-0000000000d1';  -- put back for T9
+
   -- T9 undo: clears only rows still holding the applied value; keeps properties in use or edited
   UPDATE production_jobs SET property_id = pb WHERE id = '50000000-0000-0000-0000-00000000000a';   -- someone moved the job to A's other property since
   un := release_backups.undo_backfill_properties();

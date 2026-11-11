@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 
 import { Button, Dialog, DialogContent, DialogFooter } from '@/components/ui'
+import { confirmDialog } from '@/components/ui/confirm-dialog'
 import { propertyDisplayName, type Property } from '@/lib/properties'
 
 interface Props {
@@ -30,9 +31,11 @@ export default function CreateAddOnOpportunityButton({ customerId }: Props) {
       setChoices(active)
       return
     }
-    const ok = window.confirm(
-      'Create a new add-on opportunity for this customer? This keeps the original completed project separate.'
-    )
+    const ok = await confirmDialog({
+      title: 'New add-on opportunity?',
+      description: 'This keeps the original completed project separate.',
+      confirmLabel: 'Create opportunity',
+    })
     if (ok) await createAddOnOpportunity(null)
   }
 

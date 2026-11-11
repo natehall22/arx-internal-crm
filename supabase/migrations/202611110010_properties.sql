@@ -8,7 +8,8 @@
 -- 2. property_id (nullable) on opportunities, production_jobs, work_orders, documents. ON DELETE SET NULL.
 --    `documents` (bucket project-files) is the live file system (job Files tab, contracts, change orders: 36 rows in prod
 --    2026-11-10); the legacy `files` table holds 1 row and is not extended.
--- 3. BEFORE INSERT fill: when a new row arrives WITHOUT property_id it is filled, never by the app:
+-- 3. Fill: when a new row arrives WITHOUT property_id it is filled, never by the app (and when a row is moved to another
+--    customer — customer link / merge, contract repair — a property of the OLD customer is cleared and re-filled):
 --      opportunities   -> the customer's property at the deal's address (created if missing)
 --      production_jobs -> its project's deal's property, else the customer's property at the job address (created if missing)
 --      work_orders     -> its job's property, else the customer's property at the work-order address (created if missing)
@@ -157,8 +158,19 @@ BEGIN
     RETURN NEW;
   END IF;
 
-  -- (b) Fill on INSERT only, and never raise from here on.
-  IF TG_OP <> 'INSERT' OR NEW.property_id IS NOT NULL THEN RETURN NEW; END IF;
+  -- (c) A row moved to another customer (customer link / merge, contract repair) whose property is the OLD customer's:
+  --     clear it and re-fill below for the new customer, so a property never points across customers.
+  IF TG_OP = 'UPDATE' THEN
+    IF NEW.customer_id IS DISTINCT FROM OLD.customer_id AND NEW.property_id IS NOT NULL
+       AND NOT EXISTS (SELECT 1 FROM public.properties p WHERE p.id = NEW.property_id AND p.customer_id IS NOT DISTINCT FROM NEW.customer_id) THEN
+      NEW.property_id := NULL;
+    ELSE
+      RETURN NEW;
+    END IF;
+  END IF;
+
+  -- (b) Fill (a new row, or a row re-homed by (c)), and never raise from here on.
+  IF NEW.property_id IS NOT NULL THEN RETURN NEW; END IF;
   BEGIN
     IF TG_TABLE_NAME = 'opportunities' THEN
       v_id := public.ensure_property(NEW.org_id, NEW.customer_id, NEW.address_text, NEW.lat, NEW.lng, 'auto');
@@ -196,16 +208,16 @@ END;
 $$;
 
 DROP TRIGGER IF EXISTS properties_fill_opportunities ON public.opportunities;
-CREATE TRIGGER properties_fill_opportunities BEFORE INSERT OR UPDATE OF property_id ON public.opportunities
+CREATE TRIGGER properties_fill_opportunities BEFORE INSERT OR UPDATE OF property_id, customer_id ON public.opportunities
   FOR EACH ROW EXECUTE FUNCTION public.property_fill_row();
 DROP TRIGGER IF EXISTS properties_fill_production_jobs ON public.production_jobs;
-CREATE TRIGGER properties_fill_production_jobs BEFORE INSERT OR UPDATE OF property_id ON public.production_jobs
+CREATE TRIGGER properties_fill_production_jobs BEFORE INSERT OR UPDATE OF property_id, customer_id ON public.production_jobs
   FOR EACH ROW EXECUTE FUNCTION public.property_fill_row();
 DROP TRIGGER IF EXISTS properties_fill_work_orders ON public.work_orders;
-CREATE TRIGGER properties_fill_work_orders BEFORE INSERT OR UPDATE OF property_id ON public.work_orders
+CREATE TRIGGER properties_fill_work_orders BEFORE INSERT OR UPDATE OF property_id, customer_id ON public.work_orders
   FOR EACH ROW EXECUTE FUNCTION public.property_fill_row();
 DROP TRIGGER IF EXISTS properties_fill_documents ON public.documents;
-CREATE TRIGGER properties_fill_documents BEFORE INSERT OR UPDATE OF property_id ON public.documents
+CREATE TRIGGER properties_fill_documents BEFORE INSERT OR UPDATE OF property_id, customer_id ON public.documents
   FOR EACH ROW EXECUTE FUNCTION public.property_fill_row();
 
 COMMIT;

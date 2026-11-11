@@ -84,7 +84,7 @@ CREATE OR REPLACE FUNCTION release_backups.property_backfill_sources() RETURNS T
          (array_agg(k1.lng ORDER BY k1.at DESC) FILTER (WHERE k1.lat IS NOT NULL AND k1.lng IS NOT NULL))[1],
          array_agg(DISTINCT k1.t)
     FROM keyed k1
-   WHERE k1.k <> ''
+   WHERE k1.k <> '' AND char_length(btrim(k1.address_text)) <= 500   -- the properties CHECK; a longer one stays unlinked
    GROUP BY k1.org_id, k1.customer_id, k1.k;
 $$;
 
