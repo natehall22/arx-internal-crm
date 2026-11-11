@@ -1,4 +1,4 @@
--- Migration: 202611120050_purchase_orders.sql
+-- Migration: 202611120090_purchase_orders.sql
 -- Purpose: purchase orders for ANY vendor or subcontractor, any trade, any company.
 --
 -- ONE purchase-order system. ARX's roofing materials order (supplier_orders, kind 'materials') stays exactly as it is;
@@ -70,7 +70,7 @@ ALTER TABLE supplier_orders ALTER COLUMN job_id DROP NOT NULL;
 ALTER TABLE supplier_orders ALTER COLUMN po_letter DROP NOT NULL;
 ALTER TABLE supplier_order_sends ALTER COLUMN job_id DROP NOT NULL;
 ALTER TABLE supplier_order_send_lines ALTER COLUMN job_id DROP NOT NULL;
-ALTER TABLE supplier_order_send_lines ADD COLUMN IF NOT EXISTS unit_cost NUMERIC(12, 2);
+-- Unit costs live only in purchase_order_lines (service role); the send log is browser-readable, so it holds none.
 
 -- One PO per vendor per job (per visit for a visit PO), per kind: roofing materials at ABC and a general PO to ABC
 -- on the same job can both exist. Cancelled POs keep their number, so they still hold the slot (revise, don't recreate).
@@ -126,6 +126,8 @@ CREATE TABLE IF NOT EXISTS purchase_order_bills (
   is_credit BOOLEAN NOT NULL DEFAULT false,
   cost_type TEXT NOT NULL DEFAULT 'material' CHECK (cost_type IN ('material', 'labor', 'permit', 'subcontractor', 'misc', 'other')),
   notes TEXT,
+  -- one key per open bill sheet: a double tap or retry records the bill once
+  client_key TEXT,
   -- the job_cost_lines row this bill produced (null for a PO on a visit without a job: there is no job budget to land on)
   cost_line_id UUID REFERENCES job_cost_lines(id) ON DELETE SET NULL,
   status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'void')),
@@ -139,6 +141,8 @@ CREATE INDEX IF NOT EXISTS idx_po_bills_org ON purchase_order_bills(org_id);
 -- The same vendor invoice number cannot be recorded twice on one PO.
 CREATE UNIQUE INDEX IF NOT EXISTS uq_po_bills_number
   ON purchase_order_bills(supplier_order_id, lower(bill_number)) WHERE bill_number IS NOT NULL AND status = 'active';
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_po_bills_client_key ON purchase_order_bills(supplier_order_id, client_key) WHERE client_key IS NOT NULL;
 
 -- The cost ledger knows which bill a line came from: one cost line per bill, so a retry can never double a cost.
 ALTER TABLE job_cost_lines ADD COLUMN IF NOT EXISTS purchase_order_bill_id UUID REFERENCES purchase_order_bills(id) ON DELETE SET NULL;

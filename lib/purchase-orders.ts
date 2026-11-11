@@ -179,12 +179,12 @@ export function lineQtyText(l: { quantity: number; unit: string | null; unitCost
 }
 
 /** A PO line as the shared OrderLine, so describeOrderChanges / canonicalContent / the send log work unchanged. */
-export function toOrderLines(lines: (PoLineInput & { key: string })[]): OrderLine[] {
+export function toOrderLines(lines: (PoLineInput & { key: string })[], withPrice = true): OrderLine[] {
   return lines.map((l) => ({
     key: l.key,
     trade: l.costType,
     label: l.description,
-    qty: lineQtyText(l),
+    qty: withPrice ? lineQtyText(l) : lineQtyText({ ...l, unitCostCents: 0 }),
     detail: null,
     note: l.costCode ? `Code ${l.costCode}` : null,
     status: 'ready' as const,
@@ -210,7 +210,7 @@ export function checkBillAgainstPo(totalCents: number, billedBeforeCents: number
   return { overBy: Math.max(0, overBy), message: null }
 }
 
-export type BillInput = { amountCents: number; billNumber: string | null; billDate: string | null; isCredit: boolean; notes: string | null; costType: JobCostType }
+export type BillInput = { amountCents: number; billNumber: string | null; billDate: string | null; isCredit: boolean; notes: string | null; costType: JobCostType; /** One per open bill sheet; a double tap or retry with the same key records once. */ clientKey?: string | null }
 
 export function parseBillInput(body: Record<string, unknown> | null): { ok: true; value: BillInput } | { ok: false; error: string } {
   if (!body) return { ok: false, error: 'Nothing to save.' }
@@ -226,6 +226,7 @@ export function parseBillInput(body: Record<string, unknown> | null): { ok: true
       isCredit: body.isCredit === true,
       notes: text(body.notes, 500),
       costType: normalizeJobCostType(body.costType, 'material'),
+      clientKey: typeof body.clientKey === 'string' && /^[A-Za-z0-9_-]{8,64}$/.test(body.clientKey) ? body.clientKey : null,
     },
   }
 }

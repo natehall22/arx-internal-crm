@@ -20,7 +20,7 @@ export type SupplierInput = {
   default_delivery_notes: string | null
   default_for_trades: string[]
   connection_type: 'email' | 'api'
-  /** Vendor directory (migration 202611120050). Left out of the save when the form did not send them — the stored value stays. */
+  /** Vendor directory (migration 202611120090). Left out of the save when the form did not send them — the stored value stays. */
   vendor_type?: 'supplier' | 'sub' | 'both'
   phone?: string | null
   contact_name?: string | null

@@ -55,7 +55,7 @@ export default function PurchaseOrdersCard({ jobId, workOrderId, onChanged }: { 
   const [confirmed, setConfirmed] = useState(false)
   const [busy, setBusy] = useState(false)
   const [receiving, setReceiving] = useState<{ po: PurchaseOrder; qty: Record<string, string> } | null>(null)
-  const [billing, setBilling] = useState<{ po: PurchaseOrder; amount: string; number: string; date: string; credit: boolean; file: File | null; confirm: string | null; confirmKind: 'over' | 'duplicate' | null; doneOver: boolean; doneDup: boolean; error: string | null } | null>(null)
+  const [billing, setBilling] = useState<{ po: PurchaseOrder; amount: string; number: string; date: string; credit: boolean; file: File | null; confirm: string | null; confirmKind: 'over' | 'duplicate' | null; doneOver: boolean; doneDup: boolean; error: string | null; key: string } | null>(null)
   const [suggest, setSuggest] = useState<{ index: number; items: { id: string; name: string; unit: string | null; unitCost: number }[] } | null>(null)
   const suggestTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -224,7 +224,7 @@ export default function PurchaseOrdersCard({ jobId, workOrderId, onChanged }: { 
     const res = await fetch(`/api/ops/purchase-orders/${billing.po.id}/bills`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ amount: billing.amount, billNumber: billing.number, billDate: billing.date || null, isCredit: billing.credit, confirmOver: over, confirmDuplicate: dup }),
+      body: JSON.stringify({ amount: billing.amount, billNumber: billing.number, billDate: billing.date || null, isCredit: billing.credit, confirmOver: over, confirmDuplicate: dup, clientKey: billing.key }),
     })
     const json = await res.json().catch(() => ({}))
     if (!res.ok) {
@@ -315,7 +315,7 @@ export default function PurchaseOrdersCard({ jobId, workOrderId, onChanged }: { 
               )}
               {data.canBill && po.status !== 'draft' && po.status !== 'cancelled' && (
                 <div className="mt-2">
-                  <button type="button" className={btn} onClick={() => setBilling({ po, amount: '', number: '', date: '', credit: false, file: null, confirm: null, confirmKind: null, doneOver: false, doneDup: false, error: null })}>Add vendor bill</button>
+                  <button type="button" className={btn} onClick={() => setBilling({ po, amount: '', number: '', date: '', credit: false, file: null, confirm: null, confirmKind: null, doneOver: false, doneDup: false, error: null, key: crypto.randomUUID() })}>Add vendor bill</button>
                 </div>
               )}
             </li>

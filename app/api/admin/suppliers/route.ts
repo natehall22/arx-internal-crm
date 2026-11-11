@@ -15,7 +15,7 @@ export const dynamic = 'force-dynamic'
 
 const BASE_COLUMNS =
   'id, updated_at, name, active, order_email, order_cc_emails, account_number, default_branch, default_delivery_notes, default_for_trades, connection_type'
-// Vendor directory fields (migration 202611120050); before it is applied the list falls back to the base columns.
+// Vendor directory fields (migration 202611120090); before it is applied the list falls back to the base columns.
 const COLUMNS = `${BASE_COLUMNS}, vendor_type, phone, contact_name, trades, sub_contractor_id`
 
 async function authorize() {

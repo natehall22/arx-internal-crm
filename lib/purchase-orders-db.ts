@@ -10,6 +10,7 @@
  *   - an API-connected vendor is refused (general POs go by email or "I sent it myself").
  * A vendor bill's cost goes into the job ledger through `addJobCostLine` — the one writer — once per bill.
  */
+import { firstForeignRef } from '@/lib/supabase/org-db'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { createHash, randomBytes } from 'crypto'
 
@@ -315,7 +316,7 @@ export async function loadPurchaseOrder(admin: SupabaseClient, orgId: string, id
   return po
 }
 
-function poOrderLines(po: PurchaseOrder) {
+function poOrderLines(po: PurchaseOrder, withPrice = true) {
   return toOrderLines(
     po.lines.map((l, i) => ({
       key: lineKey(l, i),
@@ -327,6 +328,7 @@ function poOrderLines(po: PurchaseOrder) {
       costCode: l.costCode,
       pricebookItemId: l.pricebookItemId,
     }))
+    , withPrice
   )
 }
 
@@ -389,6 +391,12 @@ export async function savePoDraft(
   const { data: vendor } = await admin.from('vendors').select('id, active, deleted_at').eq('org_id', orgId).eq('id', input.vendorId).maybeSingle()
   if (!vendor || (vendor as OrderRow).deleted_at || (vendor as OrderRow).active === false) return { ok: false, status: 404, message: 'That vendor is not in your list.' }
 
+  for (const l of input.lines) {
+    if (await firstForeignRef(admin, orgId, { pricebook_item_id: ['pricebook_items', l.pricebookItemId] })) {
+      return { ok: false, status: 400, message: 'One of the price book items is not in your price book.' }
+    }
+  }
+
   // Find the PO this edits: by id, else the vendor's PO on this job/visit.
   let q = admin.from('supplier_orders').select('*').eq('org_id', orgId).eq('kind', 'general').eq('vendor_id', input.vendorId)
   q = target.jobId ? q.eq('job_id', target.jobId) : q.is('job_id', null)
@@ -397,7 +405,9 @@ export async function savePoDraft(
   let order = found as OrderRow | null
   if (existingId) {
     const { data: byId } = await admin.from('supplier_orders').select('*').eq('org_id', orgId).eq('id', existingId).maybeSingle()
-    if (!byId || (byId as OrderRow).kind !== 'general' || (byId as OrderRow).vendor_id !== input.vendorId) {
+    const b = byId as OrderRow | null
+    // The order must belong to the job/visit being edited (the cancelled check above is on THIS target), same vendor, same company.
+    if (!b || b.kind !== 'general' || b.vendor_id !== input.vendorId || (b.job_id ?? null) !== (target.jobId ?? null) || (b.work_order_id ?? null) !== (target.workOrderId ?? null)) {
       return { ok: false, status: 404, message: 'Order not found.' }
     }
     order = byId as OrderRow
@@ -647,9 +657,11 @@ function poSubject(args: { kind: SendKind; label: string; address: string | null
 export function buildPoPreview(ctx: PoContext, req: PoPreviewRequest, sender: SupplierOrderSender, now: Date, ackUrl: string | null): PoPreview {
   const { po, vendor, target } = ctx
   const isCancel = req.requested === 'cancellation'
-  const lines = isCancel ? [] : poOrderLines(po)
+  // `lines` carries no prices: the send log (a table browser users can read) never holds unit costs, so changes are described
+  // price-free; prices still move the content hash, so a price change is a revision, never a plain re-send.
+  const lines = isCancel ? [] : poOrderLines(po, false)
   const contentHash = sha256(canonicalContent(poOrderLines(po), po.date, po.address))
-  const linesHash = sha256(JSON.stringify(lines.map((l) => [l.key, l.label, l.qty, l.note])))
+  const linesHash = sha256(JSON.stringify(poOrderLines(po).map((l) => [l.key, l.label, l.qty, l.note])))
 
   const blockers: string[] = []
   if (!isCancel) {
@@ -680,6 +692,7 @@ export function buildPoPreview(ctx: PoContext, req: PoPreviewRequest, sender: Su
           deliveryAddress: po.address,
         })
       : []
+  if (kind === 'revision' && changes.length === 0) changes.push('Unit prices changed.')
 
   const heading = kind === 'cancellation' ? `Cancel PO ${label}` : kind === 'revision' ? `Revised PO ${label}` : `PO ${label}`
   const fmt = (d: string | null) => {
@@ -855,7 +868,6 @@ export async function executePoSend(
     note: l.costCode ? `Code ${l.costCode}` : null,
     line_status: 'ready',
     material_source: 'supplier',
-    unit_cost: centsToDollars(l.unitCostCents),
   }))
   if (preview.kind !== 'cancellation' && lineRows.length > 0) {
     const r = await deps.store.insertSendLines(lineRows)
@@ -1005,7 +1017,8 @@ export type VendorLinkView = {
 const TOKEN_RE = /^[A-Za-z0-9_-]{40,64}$/
 
 /** Public: what the vendor sees on their confirm link. Company comes ONLY from the token's own order. */
-export async function loadVendorLinkView(admin: SupabaseClient, token: string): Promise<VendorLinkView | null> {
+/** `orgAllowed` is the host fence (fenceAllowsOrg): a link opened on another company's address is treated as not valid, like /pay. */
+export async function loadVendorLinkView(admin: SupabaseClient, token: string, orgAllowed: (orgId: string) => boolean): Promise<VendorLinkView | null> {
   if (!TOKEN_RE.test(token)) return null
   const { data } = await admin
     // org-scope-ok: public vendor link; the company comes from the order the secret token (SHA-256 hash, unique) points at
@@ -1014,7 +1027,7 @@ export async function loadVendorLinkView(admin: SupabaseClient, token: string): 
     .eq('ack_token_hash', hashToken(token))
     .maybeSingle()
   const row = data as OrderRow | null
-  if (!row || row.kind !== 'general') return null
+  if (!row || row.kind !== 'general' || !orgAllowed(String(row.org_id))) return null
   if (row.ack_token_expires_at && new Date(String(row.ack_token_expires_at)).getTime() < Date.now()) return null
   const orgId = String(row.org_id)
   const po = await loadPurchaseOrder(admin, orgId, String(row.id), { showMoney: true })
@@ -1035,7 +1048,7 @@ export async function loadVendorLinkView(admin: SupabaseClient, token: string): 
   }
 }
 
-export async function acknowledgeByToken(admin: SupabaseClient, token: string, note: string | null): Promise<{ ok: boolean; message?: string }> {
+export async function acknowledgeByToken(admin: SupabaseClient, token: string, note: string | null, orgAllowed: (orgId: string) => boolean): Promise<{ ok: boolean; message?: string }> {
   if (!TOKEN_RE.test(token)) return { ok: false, message: 'This link is not valid.' }
   const { data } = await admin
     // org-scope-ok: public vendor link; the company comes from the order the secret token (SHA-256 hash, unique) points at
@@ -1044,7 +1057,7 @@ export async function acknowledgeByToken(admin: SupabaseClient, token: string, n
     .eq('ack_token_hash', hashToken(token))
     .maybeSingle()
   const row = data as OrderRow | null
-  if (!row || row.kind !== 'general') return { ok: false, message: 'This link is not valid.' }
+  if (!row || row.kind !== 'general' || !orgAllowed(String(row.org_id))) return { ok: false, message: 'This link is not valid.' }
   if (row.ack_token_expires_at && new Date(String(row.ack_token_expires_at)).getTime() < Date.now()) return { ok: false, message: 'This link has expired. Please reply to the email instead.' }
   if (row.status === 'cancelled') return { ok: false, message: 'This order was cancelled.' }
   if (row.status === 'draft') return { ok: false, message: 'This link is not valid.' }
@@ -1098,9 +1111,17 @@ export async function recordPoBill(
     }
   }
 
+  if (input.clientKey) {
+    const { data: prior } = await admin.from('purchase_order_bills').select('id, cost_line_id').eq('org_id', orgId).eq('supplier_order_id', poId).eq('client_key', input.clientKey).maybeSingle()
+    if (prior) {
+      const p = prior as OrderRow
+      return { ok: true, billId: String(p.id), costLineId: s(p.cost_line_id), status: await refreshPoStatus(admin, orgId, poId), warning: null }
+    }
+  }
   const { data: bill, error } = await admin
     .from('purchase_order_bills')
     .insert({
+      client_key: input.clientKey ?? null,
       org_id: orgId,
       supplier_order_id: poId,
       vendor_id: po.vendorId,
@@ -1116,10 +1137,25 @@ export async function recordPoBill(
     .select('id')
     .single()
   if (error) {
+    if (error.code === '23505' && input.clientKey) {
+      const { data: again } = await admin.from('purchase_order_bills').select('id, cost_line_id').eq('org_id', orgId).eq('supplier_order_id', poId).eq('client_key', input.clientKey).maybeSingle()
+      if (again) return { ok: true, billId: String((again as OrderRow).id), costLineId: s((again as OrderRow).cost_line_id), status: await refreshPoStatus(admin, orgId, poId), warning: null }
+    }
     if (error.code === '23505') return { ok: false, status: 409, message: `Bill ${input.billNumber ?? ''} is already recorded on this order.`.replace('  ', ' ') }
     return { ok: false, status: 500, message: 'Could not record the bill.' }
   }
   const billId = String((bill as { id: string }).id)
+
+  // Atomic over-the-order check: the first look above can be raced by two simultaneous bills, so count again now that this one is in.
+  if (!input.isCredit && !confirm.over) {
+    const { data: all } = await admin.from('purchase_order_bills').select('amount, is_credit').eq('org_id', orgId).eq('supplier_order_id', poId).eq('status', 'active')
+    const billedNow = ((all ?? []) as OrderRow[]).reduce((sum, b) => sum + (b.is_credit ? -1 : 1) * Math.round(n(b.amount) * 100), 0)
+    const check = checkBillAgainstPo(po.totalCents, billedNow - input.amountCents, input.amountCents)
+    if (check.message) {
+      await admin.from('purchase_order_bills').delete().eq('org_id', orgId).eq('id', billId)
+      return { ok: false, status: 409, message: check.message, needsConfirm: true, confirmKind: 'over' }
+    }
+  }
 
   let costLineId: string | null = null
   let warning: string | null = null

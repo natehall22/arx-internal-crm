@@ -5,6 +5,8 @@
  */
 import { NextRequest, NextResponse } from 'next/server'
 
+import { fenceAllowsOrg } from '@/lib/company-host'
+import { getRequestHostFence } from '@/lib/company-host-server'
 import { acknowledgeByToken } from '@/lib/purchase-orders-db'
 import { createServiceClient } from '@/lib/supabase/service'
 
@@ -28,6 +30,7 @@ export async function POST(request: NextRequest, { params }: { params: { token: 
   if (limited(ip)) return NextResponse.json({ error: 'Too many tries. Please wait a few minutes.' }, { status: 429 })
   const body = (await request.json().catch(() => null)) as { note?: unknown } | null
   const note = typeof body?.note === 'string' ? body.note : null
-  const r = await acknowledgeByToken(createServiceClient(), params.token, note)
+  const fence = await getRequestHostFence()
+  const r = await acknowledgeByToken(createServiceClient(), params.token, note, (orgId) => fenceAllowsOrg(fence, orgId))
   return r.ok ? NextResponse.json({ ok: true }) : NextResponse.json({ error: r.message ?? 'This link is not valid.' }, { status: 404 })
 }

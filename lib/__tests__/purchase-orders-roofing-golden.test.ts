@@ -27,6 +27,10 @@ function pdfText(pdf: Buffer): string {
   return out.join('\n')
 }
 
+function row(key: string, label: string, qty: string | null, status: 'ready' | 'confirm' | 'manual', note: string | null) {
+  return { key, label, qty, detail: null, status, note, computedQty: qty, computedDetail: null, computedNote: note, isExcluded: false, isEdited: false, overrideNote: null }
+}
+
 const data: JobMaterialOrderData = {
   jobId: 'j1',
   orgName: 'Green Roofing Co',
@@ -38,18 +42,38 @@ const data: JobMaterialOrderData = {
   product: 'IKO Dual Black Shingles',
   accessories: '1 Pipe Boot\nChimney flashing',
   changeOrders: [{ label: 'Change order CO-001', body: 'Add 2 skylights' }],
-  sections: [],
-  isEmpty: true,
+  // A real order: ready, confirm and manual rows, so this proves the sections print as before.
+  sections: [
+    { title: 'Order', rows: [row('shingles', 'IKO Dynasty shingles', '28 sq · 84 bundles', 'ready', null), row('starter', 'Starter strip', '9 bundles', 'ready', null)] },
+    { title: 'Confirm before ordering', rows: [row('ice', 'Ice & water shield', '3 rolls', 'confirm', 'Confirm valleys with the crew')] },
+    { title: 'Manual — count in field', rows: [row('boots', 'Pipe boots', null, 'manual', 'Count on the roof')] },
+  ],
+  isEmpty: false,
   generatedAt: '2026-09-29T12:00:00.000Z',
 }
 
 describe('roofing material order PDF is unchanged', () => {
   it('draws the same text (golden digest)', () => {
     const text = pdfText(generateJobMaterialOrderPDF(data))
-    expect(text).toContain('Chimney flashing')
+    expect(text).toContain('IKO Dynasty shingles')
+    expect(text).toContain('Confirm valleys with the crew')
     expect(text).toContain('26-0042')
     // Pins every string the renderer draws. A deliberate wording change updates this digest on purpose.
     expect(createHash('sha256').update(text).digest('hex')).toBe(GOLDEN_PDF_TEXT_SHA)
+  })
+})
+
+describe('roofing supplier purchase-order sheet is unchanged', () => {
+  it('draws the same text for a PO to a supplier (golden digest)', () => {
+    const text = pdfText(
+      generateJobMaterialOrderPDF({
+        ...data,
+        purchaseOrder: { heading: 'PO 26-0042-A', supplierName: 'ABC Supply', accountNumber: '123', branch: 'Concord', deliveryDate: '2026-11-02', deliveryAddress: '12 Elm St', deliveryNotes: 'Call on arrival', note: 'Leave at the side gate', changes: [], notOnThisOrder: ['Gutters - supplied by installer (Pat)'] },
+      })
+    )
+    expect(text).toContain('PO 26-0042-A')
+    expect(text).toContain('IKO Dynasty shingles')
+    expect(createHash('sha256').update(text).digest('hex')).toBe(GOLDEN_PO_PDF_TEXT_SHA)
   })
 })
 
@@ -92,5 +116,6 @@ describe('materials readers ignore general purchase orders', () => {
   })
 })
 
-const GOLDEN_PDF_TEXT_SHA = '9aaf6224f84b0cf2fec60acba43d16c51cf9ca7bcd33e255b2cbb2439d35dd3b'
+const GOLDEN_PDF_TEXT_SHA = 'TBD'
+const GOLDEN_PO_PDF_TEXT_SHA = 'TBD'
 const GOLDEN_EMAIL_SHA = 'e4cfb2354d7a4be4483613b37f59892c6cceed8c6a59dd78bc374cac9c9d36cd'

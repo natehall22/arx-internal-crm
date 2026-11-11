@@ -80,6 +80,7 @@ function memStore(db: ReturnType<typeof world>) {
   }
 }
 
+const ok = () => true
 const actor = { id: USER, name: 'Sam', email: 'sam@green.test', canSend: true }
 
 describe('a draft', () => {
@@ -100,6 +101,16 @@ describe('a draft', () => {
     await makeDraft(db)
     expect(db.tables.supplier_orders.find((o) => o.kind === 'general')!.po_number).toBe('26-0100-B')
   })
+  it("will not edit another job's order by passing its id", async () => {
+    const db = world()
+    const id = await makeDraft(db)
+    const parsed = parsePoDraft(draftBody())
+    if (!parsed.ok) throw new Error('x')
+    const elsewhere = { ...target, jobId: '10000000-0000-4000-8000-0000000000ff', reference: '26-0999' }
+    expect(await savePoDraft(db.client as never, elsewhere, USER, parsed.value, id)).toMatchObject({ ok: false, status: 404 })
+    expect(await savePoDraft(db.client as never, { ...target, cancelled: true }, USER, parsed.value, id)).toMatchObject({ ok: false, status: 409 })
+  })
+
   it("refuses another company's vendor and a cancelled job", async () => {
     const db = world({ vendors: [{ id: VENDOR, org_id: OTHER, name: 'X', active: true, deleted_at: null }] })
     const parsed = parsePoDraft(draftBody())
@@ -183,6 +194,34 @@ describe('sending is explicit, previewed and safe', () => {
     expect(db.tables.supplier_orders[0]).toMatchObject({ revision: 1, acknowledged_at: null })
   })
 
+  it('a price-only change after sending is a revision, never a plain re-send, and never touches the send log with costs', async () => {
+    const db = world()
+    const id = await makeDraft(db)
+    const m = memStore(db)
+    const transmit = jest.fn(async () => ({ channel: 'email' as const, reference: null }))
+    const p1 = await previewToken(db, id)
+    await executePoSend(db.client as never, ORG, id, { requested: 'order', previewToken: p1.previewToken, confirmResend: false }, actor, { store: m.store as never, transmit })
+    expect(JSON.stringify(db.tables.supplier_order_send_lines)).not.toMatch(/unit_cost|\$100|100\.00/)
+    const edit = parsePoDraft(draftBody({ lines: [{ id: db.tables.purchase_order_lines[0].id, description: 'Gravel load', quantity: 2, unit: 'ea', unitCost: '120.00' }] }))
+    if (!edit.ok) throw new Error('x')
+    await savePoDraft(db.client as never, target, USER, edit.value, id)
+    const p2 = await previewToken(db, id)
+    expect(p2.kind).toBe('revision')
+    expect(p2.changes.join(' ')).toMatch(/price/i)
+  })
+
+  it('an unchanged order shows no spurious line changes (price-free snapshot)', async () => {
+    const db = world()
+    const id = await makeDraft(db)
+    const m = memStore(db)
+    const transmit = jest.fn(async () => ({ channel: 'email' as const, reference: null }))
+    const p1 = await previewToken(db, id)
+    await executePoSend(db.client as never, ORG, id, { requested: 'order', previewToken: p1.previewToken, confirmResend: false }, actor, { store: m.store as never, transmit })
+    const p2 = await previewToken(db, id)
+    expect(p2.kind).toBe('resend')
+    expect(p2.changes).toEqual([])
+  })
+
   it('a vendor on the supplier API is refused (general orders go by email)', async () => {
     const db = world()
     db.tables.vendors[0].connection_type = 'api'
@@ -252,24 +291,33 @@ describe('after it is sent', () => {
     const { db, id } = await sentPo()
     const token = 'a'.repeat(43)
     Object.assign(db.tables.supplier_orders[0], { ack_token_hash: hashToken(token), ack_token_expires_at: new Date(Date.now() + 86_400_000).toISOString() })
-    expect((await loadVendorLinkView(db.client as never, 'b'.repeat(43)))).toBeNull()
-    expect(await acknowledgeByToken(db.client as never, 'b'.repeat(43), null)).toMatchObject({ ok: false })
-    expect(await acknowledgeByToken(db.client as never, 'short', null)).toMatchObject({ ok: false })
-    const view = await loadVendorLinkView(db.client as never, token)
+    expect((await loadVendorLinkView(db.client as never, 'b'.repeat(43), ok))).toBeNull()
+    expect(await acknowledgeByToken(db.client as never, 'b'.repeat(43), null, ok)).toMatchObject({ ok: false })
+    expect(await acknowledgeByToken(db.client as never, 'short', null, ok)).toMatchObject({ ok: false })
+    const view = await loadVendorLinkView(db.client as never, token, ok)
     expect(view).toMatchObject({ orgName: 'Green Co', vendorName: 'Gravel Guys' })
     expect(JSON.stringify(view)).not.toMatch(new RegExp(`${ORG}|${JOB}|${USER}`))
-    expect(await acknowledgeByToken(db.client as never, token, 'on it')).toEqual({ ok: true })
+    expect(await acknowledgeByToken(db.client as never, token, 'on it', ok)).toEqual({ ok: true })
     expect(db.tables.supplier_orders.find((o) => o.id === id)).toMatchObject({ status: 'acknowledged', acknowledged_by: 'vendor_link', acknowledged_note: 'on it' })
+  })
+
+  it("a link opened on another company's address is not valid (host fence)", async () => {
+    const { db } = await sentPo()
+    const token = 'd'.repeat(43)
+    Object.assign(db.tables.supplier_orders[0], { ack_token_hash: hashToken(token), ack_token_expires_at: new Date(Date.now() + 1e9).toISOString() })
+    expect(await loadVendorLinkView(db.client as never, token, (o) => o === OTHER)).toBeNull()
+    expect(await acknowledgeByToken(db.client as never, token, null, (o) => o === OTHER)).toMatchObject({ ok: false })
+    expect(db.tables.supplier_orders[0].acknowledged_at).toBeUndefined()
   })
 
   it('an expired link and a cancelled order do not confirm', async () => {
     const { db } = await sentPo()
     const token = 'c'.repeat(43)
     Object.assign(db.tables.supplier_orders[0], { ack_token_hash: hashToken(token), ack_token_expires_at: '2020-01-01T00:00:00Z' })
-    expect(await acknowledgeByToken(db.client as never, token, null)).toMatchObject({ ok: false })
+    expect(await acknowledgeByToken(db.client as never, token, null, ok)).toMatchObject({ ok: false })
     db.tables.supplier_orders[0].ack_token_expires_at = new Date(Date.now() + 1e9).toISOString()
     db.tables.supplier_orders[0].status = 'cancelled'
-    expect(await acknowledgeByToken(db.client as never, token, null)).toMatchObject({ ok: false })
+    expect(await acknowledgeByToken(db.client as never, token, null, ok)).toMatchObject({ ok: false })
   })
 })
 
@@ -337,6 +385,16 @@ describe('vendor bills land in the one job cost ledger, once', () => {
     const r = await recordPoBill(v.client as never, ORG, USER, saved.id, bill, { over: false, duplicate: false })
     expect(r).toMatchObject({ ok: true, costLineId: null })
     expect(v.tables.job_cost_lines).toHaveLength(0)
+  })
+
+  it('the same bill sheet tapped twice records one bill and one cost line', async () => {
+    const { db, id } = await sentPo()
+    const b = { ...bill, billNumber: null, clientKey: 'sheet-key-0001' }
+    const one = await recordPoBill(db.client as never, ORG, USER, id, b, { over: false, duplicate: false })
+    const two = await recordPoBill(db.client as never, ORG, USER, id, b, { over: false, duplicate: false })
+    expect(one.ok && two.ok).toBe(true)
+    expect(db.tables.purchase_order_bills).toHaveLength(1)
+    expect(db.tables.job_cost_lines).toHaveLength(1)
   })
 
   it("another company's order is not found", async () => {
