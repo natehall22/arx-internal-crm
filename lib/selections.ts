@@ -26,7 +26,7 @@ export type SelectionRow = {
 /** Chosen price − allowance. Positive = overage the customer pays; negative = under allowance (credit). */
 export function priceDifference(allowance: number, chosenPrice: number | null | undefined): number | null {
   if (chosenPrice === null || chosenPrice === undefined) return null
-  return roundMoney(Number(chosenPrice) - Number(allowance || 0))
+  return roundMoney(Number(chosenPrice) - Number(allowance || 0)) || 0
 }
 
 export type SelectionState = 'not_sent' | 'waiting_customer' | 'overdue' | 'waiting_signature' | 'approved' | 'cancelled'

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from 'react'
 import type { BudgetRow, BudgetState, BudgetView } from '@/lib/cost-codes'
 import type { CostCode } from '@/lib/cost-codes'
 import { toast } from '@/components/ui/toast'
+import { ymdLabel } from '@/lib/ymd-label'
 import { api, btnGhost, btnPrimary, Card, inputCls, money, Pill, type Tone } from './ui'
 
 type History = { id: string; cost_code: string; old_amount: number | null; new_amount: number; reason: string | null; changed_at: string; changed_by_name: string | null }
@@ -151,7 +152,7 @@ export default function BudgetCard({ jobId, onLedgerMutated, canEditCodes }: { j
             <li key={h.id} className="rounded-lg bg-[#f1efe8] p-2 text-sm text-[#2c2c2a]">
               <strong>{labelFor(h.cost_code)}</strong>: {h.old_amount === null ? 'set to' : `${money(h.old_amount)} →`} {money(h.new_amount)}
               {h.reason ? ` — ${h.reason}` : ''}
-              <span className="block">{h.changed_by_name ?? 'Someone'} · {new Date(h.changed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+              <span className="block">{h.changed_by_name ?? 'Someone'} · {ymdLabel(h.changed_at.slice(0, 10))}</span>
             </li>
           ))}
         </ul>

@@ -3,8 +3,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { toast } from '@/components/ui/toast'
+import { ymdLabel } from '@/lib/ymd-label'
 import { addWorkdays, moveStage, nextWorkdayOnOrAfter, scheduleSpan } from '@/lib/job-schedule'
 import type { StageView } from '@/lib/project-tools/stages-db'
+import { confirmDialog } from '@/components/ui/confirm-dialog'
 import { api, btnGhost, btnPrimary, Card, inputCls, Pill } from './ui'
 
 type Payload = { stages: StageView[]; templates: Array<{ id: string; label: string; stageCount: number }>; ready: boolean; canEdit: boolean }
@@ -12,9 +14,9 @@ type Payload = { stages: StageView[]; templates: Array<{ id: string; label: stri
 const DAY_PX = 14
 const DAY_MS = 86400000
 const parse = (ymd: string) => Date.UTC(+ymd.slice(0, 4), +ymd.slice(5, 7) - 1, +ymd.slice(8, 10))
-const fmtDay = (ymd: string) => new Date(parse(ymd)).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
+const fmtDay = (ymd: string) => ymdLabel(ymd)
 const addDays = (ymd: string, n: number) => new Date(parse(ymd) + n * DAY_MS).toISOString().slice(0, 10)
-const todayYmd = () => new Date().toLocaleDateString('en-CA')
+const todayYmd = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` }
 
 /**
  * The job's stage schedule. First time: pick the template and a start date (2 taps) → dates fill in. After that a simple
@@ -40,8 +42,17 @@ export default function ScheduleCard({ jobId }: { jobId: string }) {
   }, [jobId])
   useEffect(() => void load(), [load])
 
-  const stages = p?.stages ?? []
+  const stages = useMemo(() => p?.stages ?? [], [p])
   const span = useMemo(() => scheduleSpan(stages), [stages])
+  // While dragging, preview the shift locally with the same rule the server uses.
+  const preview = useMemo(() => {
+    if (!drag) return null
+    const st = stages.find((s) => s.key === drag.key)
+    if (!st) return null
+    const days = Math.round(drag.dx / DAY_PX)
+    return moveStage(stages, drag.key, addDays(st.start, days)).stages
+  }, [drag, stages])
+  const shown = preview ?? stages
   if (!p) return null
 
   async function patch(body: Record<string, unknown>) {
@@ -88,15 +99,6 @@ export default function ScheduleCard({ jobId }: { jobId: string }) {
     void patch({ action: 'move', key: d.key, start: addDays(st.start, days) })
   }
 
-  // While dragging, preview the shift locally with the same rule the server uses.
-  const preview = useMemo(() => {
-    if (!drag) return null
-    const st = stages.find((s) => s.key === drag.key)
-    if (!st) return null
-    const days = Math.round(drag.dx / DAY_PX)
-    return moveStage(stages, drag.key, addDays(st.start, days)).stages
-  }, [drag, stages])
-  const shown = preview ?? stages
 
   return (
     <Card testId="schedule-card" title="Schedule" subtitle={span ? `${fmtDay(span.start)} to ${fmtDay(span.end)}` : 'Start from a template, then adjust.'}>
@@ -136,7 +138,7 @@ export default function ScheduleCard({ jobId }: { jobId: string }) {
                 <div key={s.key} className="flex items-stretch border-b border-[#e5e3dc] last:border-b-0" data-testid="stage-row">
                   <div className="sticky left-0 z-10 flex w-[140px] shrink-0 flex-col justify-center bg-white px-2 py-1">
                     <span className="truncate text-sm font-semibold text-[#2c2c2a]">{s.name}</span>
-                    <span className="text-xs text-[#2c2c2a]">{fmtDay(s.start)} · {s.workdays}d</span>
+                    <span className="text-sm text-[#2c2c2a]">{fmtDay(s.start)} · {s.workdays}d</span>
                   </div>
                   <div className="relative h-[60px] flex-1">
                     <div
@@ -194,7 +196,7 @@ export default function ScheduleCard({ jobId }: { jobId: string }) {
       {p.canEdit && stages.length > 0 ? (
         <div className="mt-3 flex flex-wrap gap-2">
           <button type="button" className={btnGhost} onClick={() => setAdding(adding ? null : { name: '', workdays: '3' })} aria-expanded={Boolean(adding)}>+ Add a stage</button>
-          {p.templates.length > 0 ? <button type="button" className={btnGhost} disabled={busy} onClick={() => { if (window.confirm('Start over from the template? This replaces the dates below.')) void build(true) }}>Start over</button> : null}
+          {p.templates.length > 0 ? <button type="button" className={btnGhost} disabled={busy} onClick={() => { void confirmDialog({ title: 'Start over from the template?', description: 'This replaces the dates below.', confirmLabel: 'Start over' }).then((ok) => { if (ok) void build(true) }) }}>Start over</button> : null}
         </div>
       ) : null}
 

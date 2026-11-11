@@ -14,6 +14,7 @@ import { getDocumentBrand } from '@/lib/org-brand'
 import { isMissingProjectToolsSchema, PROJECT_TOOLS_NOT_READY } from '@/lib/project-tools/budget-db'
 import { loadJobContact } from '@/lib/project-tools/selections-db'
 import { orgDb } from '@/lib/supabase/org-db'
+import { ymdLabel } from '@/lib/ymd-label'
 import { NWS_USER_AGENT } from '@/lib/weather-nws'
 
 type Fail = { error: string; status: number }
@@ -91,7 +92,7 @@ export async function sendDailyLogSummary(admin: SupabaseClient, args: { orgId: 
   const contact = await loadJobContact(admin, args.orgId, args.job)
   if (!contact.email) return { error: 'There is no email address on file for this customer.', status: 409 }
   const brand = await getDocumentBrand(admin, args.orgId)
-  const dateLabel = new Date(`${log.log_date}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: 'UTC' })
+  const dateLabel = ymdLabel(log.log_date, { long: true })
   const mail = buildDailyLogSummaryEmail({ brand, customerName: contact.name, dateLabel, address: contact.address, note: log.note || 'Work continued on your project today.', weather: log.weather, photoCount: (log.photo_ids ?? []).length, repName: args.senderName || brand.name })
   try {
     const transporter = nodemailer.createTransport({ host: process.env.SMTP_HOST, port: Number(process.env.SMTP_PORT || 587), secure: false, auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS } })

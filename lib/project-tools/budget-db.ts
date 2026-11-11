@@ -43,7 +43,7 @@ export async function saveCostCodes(admin: SupabaseClient, orgId: string, input:
   const db = orgDb(admin, orgId)
   const { data: existing, error: readErr } = await db.from('org_cost_codes').select('code')
   if (readErr) return missingTable(readErr) ? { error: PROJECT_TOOLS_NOT_READY, status: 409 } : { error: 'Could not save', status: 500 }
-  const { error } = await db.upsert(rows.map((r) => ({ ...r, updated_at: new Date().toISOString() })), { onConflict: 'org_id,code' })
+  const { error } = await db.from('org_cost_codes').upsert(rows.map((r) => ({ ...r, updated_at: new Date().toISOString() })), { onConflict: 'org_id,code' })
   if (error) return { error: 'Could not save', status: 500 }
   const gone = (existing ?? []).map((e: { code: string }) => e.code).filter((c: string) => !seen.has(c))
   if (gone.length > 0) await db.from('org_cost_codes').update({ active: false, updated_at: new Date().toISOString() }).in('code', gone)
@@ -82,7 +82,7 @@ export async function loadBudgetView(admin: SupabaseClient, orgId: string, jobId
   return { view, codes, history, ready: true }
 }
 
-export async function setBudgetLine(admin: SupabaseClient, ctx: { orgId: string; userId: string; jobId: string }, input: { code: unknown; amount: unknown; reason?: unknown }): Promise<{ changed: boolean } | { error: string; status: number }> {
+export async function setBudgetLine(admin: SupabaseClient, ctx: { orgId: string; userId: string; jobId: string }, input: { code?: unknown; amount?: unknown; reason?: unknown }): Promise<{ changed: boolean } | { error: string; status: number }> {
   if (!isCostCodeSlug(input.code)) return { error: 'Pick a cost code', status: 400 }
   const amount = parseBudgetAmount(input.amount)
   if (amount === null) return { error: 'Enter an amount of $0 or more', status: 400 }

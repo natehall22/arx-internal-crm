@@ -67,7 +67,7 @@ async function writeChanged(admin: SupabaseClient, orgId: string, jobId: string,
 }
 
 /** Start a job's schedule from a template. Refuses when stages exist unless `replace` (then the old plan is cleared first). */
-export async function applyTemplate(admin: SupabaseClient, ctx: { orgId: string; userId: string; jobId: string }, input: { templateId: unknown; start: unknown; replace?: unknown }): Promise<{ count: number } | Fail> {
+export async function applyTemplate(admin: SupabaseClient, ctx: { orgId: string; userId: string; jobId: string }, input: { templateId?: unknown; start?: unknown; replace?: unknown }): Promise<{ count: number } | Fail> {
   if (!isYmd(input.start)) return { error: 'Pick a start date', status: 400 }
   const templates = await templatesForOrg(admin, ctx.orgId)
   const template = templates.find((t) => t.id === input.templateId)

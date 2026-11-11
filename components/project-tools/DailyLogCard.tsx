@@ -3,11 +3,12 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import { toast } from '@/components/ui/toast'
+import { ymdLabel } from '@/lib/ymd-label'
 import type { DailyLogView } from '@/lib/project-tools/daily-logs-db'
 import DailyLogForm from './DailyLogForm'
 import { api, btnGhost, btnPrimary, Card, Pill } from './ui'
 
-const dayLabel = (ymd: string) => new Date(`${ymd}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' })
+const dayLabel = (ymd: string) => ymdLabel(ymd, { weekday: true })
 
 /** Daily log on the job page: tap "Add today's log" → note + photos → Save (3 taps). Past logs below, each can be emailed to the customer. */
 export default function DailyLogCard({ jobId, canEdit }: { jobId: string; canEdit: boolean }) {
