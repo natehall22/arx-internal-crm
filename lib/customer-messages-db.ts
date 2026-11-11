@@ -74,6 +74,7 @@ const ROW_COLS =
 const STALE_SENDING_MS = 15 * 60_000
 const PAGE = 1000
 const CHUNK = 200
+const KEY_CHUNK = 50
 
 export type MessageRow = {
   id: string
@@ -258,8 +259,9 @@ export async function enqueueMessage(admin: SupabaseClient, orgId: string, m: Ne
 /** Keys (of `keys`) already in the log, so a scan never re-tries an insert every run. */
 async function existingKeys(admin: SupabaseClient, orgId: string, keys: string[]): Promise<Set<string>> {
   const out = new Set<string>()
-  for (let i = 0; i < keys.length; i += CHUNK) {
-    const { data, error } = await orgDb(admin, orgId).from(TABLE).select('message_key').in('message_key', keys.slice(i, i + CHUNK))
+  // Keys are ~70 characters: 50 per request keeps the URL small (PostgREST / proxies cap request lines).
+  for (let i = 0; i < keys.length; i += KEY_CHUNK) {
+    const { data, error } = await orgDb(admin, orgId).from(TABLE).select('message_key').in('message_key', keys.slice(i, i + KEY_CHUNK))
     if (error) throw new Error(`message keys: ${error.message}`)
     for (const r of (data ?? []) as Array<{ message_key: string }>) out.add(r.message_key)
   }

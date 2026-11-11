@@ -44,10 +44,12 @@ async function view(admin: Admin, orgId: string) {
   const appUrl = await tryOrgAppUrl(orgId, 'customer-messages settings')
   const company = emailCompanyOf(o, appUrl)
   const today = ymdInZone(new Date(), orgTimeZone(o.timezone))
-  const samples = sampleMessages(company, settings, today, t(resolveOrgProfile(o.settings), 'proposal'))
+  const word = t(resolveOrgProfile(o.settings), 'proposal')
+  const samples = sampleMessages(company, settings, today, word)
   return {
     settings,
-    describe: describeMessages(settings),
+    proposalWord: word,
+    describe: describeMessages(settings, word),
     quiet: quietHoursPhrase(settings),
     // What stops anything from going out, in plain words (empty = ready).
     blockers: [

@@ -7,6 +7,8 @@ import type { CustomerMessageSettings, MessageKind } from '@/lib/customer-messag
 
 type View = {
   settings: CustomerMessageSettings
+  /** The company's word for a quote (industry profile; roofing says "Proposal"). */
+  proposalWord?: string
   describe: Record<MessageKind, string>
   quiet: string
   blockers: string[]
@@ -109,7 +111,7 @@ export default function CustomerMessagesSettings({ initial = null }: { initial?:
           <Card key={m.kind}>
             <CardContent className="flex flex-col gap-3 pt-4">
               <label className="flex min-h-tap cursor-pointer items-center justify-between gap-3">
-                <span className="text-ui-lg font-bold text-ink">{m.title}</span>
+                <span className="text-ui-lg font-bold text-ink">{m.kind === 'quote_follow_up' ? `${view.proposalWord ?? 'Quote'} follow-up` : m.title}</span>
                 <span className="flex items-center gap-2 text-ui-base font-semibold text-ink">
                   {on ? 'On' : 'Off'}
                   <input
@@ -155,7 +157,7 @@ export default function CustomerMessagesSettings({ initial = null }: { initial?:
               ) : null}
               {on && m.kind === 'quote_follow_up' ? (
                 <label className="flex flex-col gap-1 text-ui-sm font-semibold text-ink">
-                  Days after the quote is sent (up to 3, e.g. 3, 7)
+                  Days after it is sent (up to 3, e.g. 3, 7)
                   <Input inputMode="numeric" value={field('quoteFollowUpDays', daysText(s.quoteFollowUpDays))} onChange={(e) => setField('quoteFollowUpDays', e.target.value)} />
                 </label>
               ) : null}

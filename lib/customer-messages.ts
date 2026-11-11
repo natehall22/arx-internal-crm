@@ -363,12 +363,13 @@ function list(days: number[], unit: (d: number) => string): string {
 const hourLabel = (h: number) => (h === 0 ? '12 AM' : h < 12 ? `${h} AM` : h === 12 ? '12 PM' : `${h - 12} PM`)
 
 /** What each message does, in one sentence, from the current settings (the Settings screen shows it under each switch). */
-export function describeMessages(s: CustomerMessageSettings): Record<MessageKind, string> {
+export function describeMessages(s: CustomerMessageSettings, proposalWord = 'Quote'): Record<MessageKind, string> {
+  const quote = proposalWord.toLowerCase()
   return {
     visit_reminder: `${s.visitReminderDays === 1 ? 'The day before' : `${s.visitReminderDays} days before`} each visit, one email per customer per day with the date${s.visitWindow ? ', the arrival window' : ''}, what we’re doing${s.visitNote ? ' and your note' : ''}. A moved visit gets a new reminder; a skipped one gets none.`,
     visit_on_the_way: 'When the crew taps “On my way” on their phone list. Sent right away, even in quiet hours (the crew is already coming).',
     visit_done: `${DONE_DELAY_MINUTES} minutes after the crew marks a visit done that day${s.visitDonePhotos ? ', with a link to the visit’s photos when there are any' : ''}. Not sent for visits marked done on a later day.`,
-    quote_follow_up: `${list(s.quoteFollowUpDays, (d) => `${d} day${d === 1 ? '' : 's'}`)} after a quote is sent, while it isn’t signed or turned down. Stops as soon as it is.`,
+    quote_follow_up: `${list(s.quoteFollowUpDays, (d) => `${d} day${d === 1 ? '' : 's'}`)} after a ${quote} is sent, while it isn’t signed or turned down. Stops as soon as it is.`,
     invoice_reminder: `${list(s.invoiceReminderDays, (d) => (d === 0 ? 'on the due date' : d < 0 ? `${-d} day${d === -1 ? '' : 's'} before it` : `${d} day${d === 1 ? '' : 's'} after it`))}, with a pay link when online payments are on. Stops when it’s paid. Customers on automatic payments only hear once their card has been tried and failed.`,
   }
 }
