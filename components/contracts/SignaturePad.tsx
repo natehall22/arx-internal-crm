@@ -3,8 +3,11 @@
 import { useRef, useEffect, useState } from 'react'
 
 interface SignaturePadProps {
-  onChange: (dataUrl: string | null) => void
+  /** Controlled use (the signing pages, contract and change-order modals). Optional when `name` is given. */
+  onChange?: (dataUrl: string | null) => void
   value?: string | null
+  /** Plain-form use: posts the drawn signature as `<name>_type` ("draw") and `<name>_data` (PNG data URL). */
+  name?: string
   disabled?: boolean
   width?: number
   height?: number
@@ -13,6 +16,7 @@ interface SignaturePadProps {
 export default function SignaturePad({
   onChange,
   value,
+  name,
   disabled = false,
   width = 400,
   height = 150,
@@ -20,6 +24,8 @@ export default function SignaturePad({
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [isDrawing, setIsDrawing] = useState(false)
   const [hasSignature, setHasSignature] = useState(false)
+  // What a plain <form> posts when the pad is used with `name` (controlled callers read it from onChange instead).
+  const [drawn, setDrawn] = useState<string>(value ?? '')
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -102,7 +108,8 @@ export default function SignaturePad({
     const canvas = canvasRef.current
     if (canvas && hasSignature) {
       const dataUrl = canvas.toDataURL('image/png')
-      onChange(dataUrl)
+      setDrawn(dataUrl)
+      onChange?.(dataUrl)
     }
   }
 
@@ -114,7 +121,8 @@ export default function SignaturePad({
     ctx.fillStyle = '#ffffff'
     ctx.fillRect(0, 0, canvas.width, canvas.height)
     setHasSignature(false)
-    onChange(null)
+    setDrawn('')
+    onChange?.(null)
   }
 
   return (
@@ -142,6 +150,12 @@ export default function SignaturePad({
           </div>
         )}
       </div>
+      {name && (
+        <>
+          <input type="hidden" name={`${name}_type`} value="draw" />
+          <input type="hidden" name={`${name}_data`} value={drawn} />
+        </>
+      )}
       {!disabled && (
         <button
           type="button"
