@@ -608,6 +608,17 @@ message OFF) — ARX is unchanged unless both. Migration `202611120050_customer_
   records sent / skipped(reason) / cancelled(reason) / failed (≤ 3 tries, 30 min then 2 h). A row stuck in `sending` > 15
   min is closed failed and never retried (it may have gone out). Steps due only within 3 days of their day (an old quote /
   invoice when the switch is turned on gets nothing). Caps: 100 sends per company per run, 4 per address per 24 h.
+- **Review rules (2026-11-12):** every builder re-checks at send time that its message is still ON (else cancelled
+  'turned_off') and still inside its late window (else skipped 'too_late'). **Identity:** From = the company's own name +
+  email (`orgs.name/email`), Reply-To the same, postal address `orgs.address` — read by `companyIdentity` straight from the
+  row, never `resolveOrgBrand`'s legacy fallback; any of the three blank → nothing is sent, due rows become `blocked`
+  (re-tried hourly, sent once fixed if still in their window), Settings lists the fix and owners get "Customer emails are
+  stopped" on Today (`loadCustomerMessagesBlockedQueue`). The SMTP account must be allowed to send as that address.
+  **Claim + daily cap are ONE SQL step** `customer_message_claim` (per (company, address) advisory lock; counts sent,
+  sending and failed-with-tries-left rows by the address recorded at claim). **Timeouts / dropped connections = unknown**:
+  retried only after 6 h, with the same Message-ID (`<cm-<row id>@<company host>>`) and the same links (link token =
+  HMAC of the row id, env `CUSTOMER_MESSAGE_LINK_SECRET` else the service key). JS mirror of the claim: in
+  `lib/__tests__/customer-messages-db.test.ts` (KR #35 pattern).
 - **Opt-outs:** office "Don't email this customer" (`customers.messages_off_at/by`, Customer File → Automatic emails card,
   `/api/customers/[id]/messages`, anyone who may edit the customer); unsubscribe link `/m/<token>?stop=1` + one-click POST
   `/api/m/<token>/unsubscribe` (public, host-fenced, hashed per-message token) → `customer_message_suppressions`
