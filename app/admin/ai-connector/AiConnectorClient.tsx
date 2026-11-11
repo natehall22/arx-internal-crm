@@ -43,6 +43,17 @@ export default function AiConnectorClient() {
     void load()
   }
 
+  // The same owner-only save the Features card uses (PATCH /api/admin/settings type 'features').
+  async function toggleSwitch() {
+    if (!data) return
+    setBusy('switch')
+    const res = await fetch('/api/admin/settings', { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ type: 'features', features: { aiConnector: !data.enabled } }) }).catch(() => null)
+    setBusy(null)
+    if (!res || !res.ok) return toast.error('Could not save')
+    toast.success(data.enabled ? 'AI connector turned off' : 'AI connector turned on')
+    void load()
+  }
+
   async function saveExtra() {
     setBusy('extra')
     const uris = extra.split('\n').map((s) => s.trim()).filter(Boolean)
@@ -66,8 +77,11 @@ export default function AiConnectorClient() {
           <p className="mt-1 text-ui-base text-ink">
             When on, each person can connect their own AI app. It sees only what that person can see and cannot change anything. Turning it off, or turning a person off, stops it on the next request.
           </p>
-          <Link href="/admin#features" className="mt-3 inline-flex min-h-tap items-center font-semibold text-brand-700 underline">
-            {data.enabled ? 'Turn it off in Features' : 'Turn it on in Features'}
+          <Button variant={data.enabled ? 'secondary' : 'primary'} className="mt-3 min-h-tap" loading={busy === 'switch'} aria-pressed={data.enabled} onClick={() => void toggleSwitch()}>
+            {data.enabled ? 'Turn off' : 'Turn on'}
+          </Button>
+          <Link href="/admin#features" className="ml-4 mt-3 inline-flex min-h-tap items-center text-ui-sm text-ink underline">
+            All feature switches
           </Link>
         </CardContent>
       </Card>

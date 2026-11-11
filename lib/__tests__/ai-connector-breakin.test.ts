@@ -4,6 +4,7 @@
  * VICTIM_ID), and as a field role (setter): nothing of A's may be read or returned, and a field role sees no money or production.
  */
 import { ATTACKER_ID, BRAVO_ROW_ID, LEAK_PATTERNS, ORG_A, ORG_B, VICTIM_ID, companyTables, createWorld, tablesInCode, type World } from '@/lib/test-helpers/breakin-harness'
+import { resolveOpsAccess } from '@/lib/ops-access'
 import { capResult } from '@/lib/ai-connector/mcp'
 import { MCP_TOOLS } from '@/lib/ai-connector/tools'
 import { ToolError, type McpTool } from '@/lib/ai-connector/tools/types'
@@ -127,8 +128,12 @@ describe('field roles never see money or production through the AI either', () =
     }
   })
   it('a job summary carries no sale amount unless the person may see job money', async () => {
-    const { ctx } = build('operations')
-    const res = await run(byName('get_job_summary'), ctx, { job_id: BRAVO_ROW_ID })
-    if (!res.error) expect(res.text).not.toContain('sale_amount')
+    for (const role of ['operations', 'closer']) {
+      const { w, ctx } = build(role)
+      const ops = await resolveOpsAccess(w.db.client as never, ATTACKER_ID, ctx.profile)
+      const res = await run(byName('get_job_summary'), ctx, { job_id: BRAVO_ROW_ID })
+      // The amount is in the answer exactly when the person's own job-money door is open.
+      if (!res.error) expect(res.text.includes('sale_amount')).toBe(ops.canViewJobFinancials)
+    }
   })
 })

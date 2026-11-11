@@ -3,7 +3,7 @@
 import { createFakeDb } from '@/lib/test-helpers/fake-db'
 import { pkceChallenge, sha256Hex, signConsentTicket, verifyConsentTicket, verifyPkce } from '@/lib/ai-connector/crypto'
 import { createAuthCode, exchangeCode, refreshTokens, revokeGrant, revokeByToken } from '@/lib/ai-connector/store'
-import { handleRegister, handleRevoke, handleToken, handleConsent, makeConsentTicket } from '@/lib/ai-connector/endpoints'
+import { type EndpointDeps, handleRegister, handleRevoke, handleToken, handleConsent, makeConsentTicket } from '@/lib/ai-connector/endpoints'
 import { checkAuthorizeRequest } from '@/lib/ai-connector/authorize'
 import { fetchClientMetadata, isAllowedRedirectUri, isPublicIp, validateRegistration } from '@/lib/ai-connector/clients'
 import { authorizationServerMetadata, protectedResourceMetadata } from '@/lib/ai-connector/metadata'
@@ -29,7 +29,8 @@ function world(over: { userActive?: boolean } = {}) {
     orgs: [{ id: ORG, settings: {} }],
   })
   const fence: CompanyFence = { kind: 'org', orgId: ORG, source: 'host' }
-  return { db, admin: db.client as never, deps: { admin: db.client as never, fence: async () => fence, featureOn: async () => true, now: T0 } }
+  const deps: EndpointDeps = { admin: db.client as never, fence: async (): Promise<CompanyFence> => fence, featureOn: async () => true, now: T0 }
+  return { db, admin: db.client as never, deps }
 }
 
 const form = (o: Record<string, string>) =>

@@ -11,6 +11,7 @@ import { mcpResource, originFromHeaders } from '@/lib/ai-connector/urls'
 import { getRequestHostFence } from '@/lib/company-host-server'
 import { getOrgBrand } from '@/lib/org-brand'
 import { isOrgFeatureOn } from '@/lib/org-features-server'
+import { consumePublicEstimateRateLimit } from '@/lib/public-estimate-rate-limit'
 import { createServiceClient } from '@/lib/supabase/service'
 
 import AuthorizeConsent from './AuthorizeConsent'
@@ -33,7 +34,11 @@ function Notice({ title, body }: { title: string; body: string }) {
  * the request is signed into a short ticket and the person goes to sign in, then comes back through /oauth/resume.
  */
 export default async function AuthorizePage({ searchParams }: { searchParams: Record<string, string | string[] | undefined> }) {
-  const origin = originFromHeaders(headers())
+  const h = headers()
+  const origin = originFromHeaders(h)
+  // This page can make us fetch a client's metadata document: keep one address from using it as a request cannon.
+  const limited = consumePublicEstimateRateLimit({ key: `oauth:authorize:${h.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown'}`, limit: 60, windowMs: 60_000 })
+  if (!limited.ok) return <Notice title="Too many tries" body="Wait a minute and start again from your AI app." />
   const admin = createServiceClient()
   const auth = await getAuthContext()
   const fence = auth ? null : await getRequestHostFence()
@@ -44,8 +49,8 @@ export default async function AuthorizePage({ searchParams }: { searchParams: Re
   }
   const check = await checkAuthorizeRequest(admin, searchParams, { issuer: origin, resource: mcpResource(origin), orgId })
   if (!check.ok) {
-    if (check.fatal) return <Notice title="We could not connect this app" body={check.fatal} />
-    redirect(check.redirectTo)
+    if ('redirectTo' in check) redirect(check.redirectTo)
+    return <Notice title="We could not connect this app" body={check.fatal} />
   }
 
   const raw: Record<string, string> = {}

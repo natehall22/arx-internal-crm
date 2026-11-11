@@ -1,6 +1,5 @@
 /** @jest-environment node */
 /** AI connector: the MCP endpoint — one auth door, audience, deactivation / switch kill access at once, audit, rate limit, caps. */
-import { z } from 'zod'
 
 import { createFakeDb } from '@/lib/test-helpers/fake-db'
 import { createAuthCode, exchangeCode, revokeGrant } from '@/lib/ai-connector/store'
@@ -12,19 +11,21 @@ import { hashArgs } from '@/lib/ai-connector/crypto'
 import { resetPublicEstimateRateLimitForTests } from '@/lib/public-estimate-rate-limit'
 import type { CompanyFence } from '@/lib/company-host'
 
-const stubTool = {
-  name: 'echo',
-  title: 'Echo',
-  description: 'test',
-  inputSchema: { type: 'object' },
-  schema: z.object({ n: z.number().optional() }).strict(),
-  readOnly: true as const,
-  run: jest.fn(async (_ctx: unknown, args: { n?: number }) => ({ data: { n: args.n ?? 0 }, recordIds: ['rec-1'] })),
-}
-jest.mock('@/lib/ai-connector/tools', () => ({
-  MCP_TOOLS: [stubTool],
-  toolByName: (n: string) => (n === 'echo' ? stubTool : undefined),
-}))
+const mockRun = jest.fn(async (_ctx: unknown, args: { n?: number }) => ({ data: { n: args.n ?? 0 }, recordIds: ['rec-1'] }))
+jest.mock('@/lib/ai-connector/tools', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { z: zod } = require('zod')
+  const stub = {
+    name: 'echo',
+    title: 'Echo',
+    description: 'test',
+    inputSchema: { type: 'object' },
+    schema: zod.object({ n: zod.number().optional() }).strict(),
+    readOnly: true as const,
+    run: (...a: [unknown, { n?: number }]) => mockRun(...a),
+  }
+  return { MCP_TOOLS: [stub], toolByName: (n: string) => (n === 'echo' ? stub : undefined) }
+})
 
 const ORG = 'org-a'
 const USER = 'user-1'
@@ -53,7 +54,7 @@ const call = (name: string, args: unknown = {}) => ({ jsonrpc: '2.0', id: 1, met
 
 beforeEach(() => {
   resetPublicEstimateRateLimitForTests()
-  stubTool.run.mockClear()
+  mockRun.mockClear()
 })
 
 describe('the one auth door', () => {
@@ -65,7 +66,7 @@ describe('the one auth door', () => {
     const bad = await handleMcpPost(rpc('aat_garbage', call('echo')), s.deps)
     expect(bad.status).toBe(401)
     expect(bad.headers.get('www-authenticate')).toContain('error="invalid_token"')
-    expect(stubTool.run).not.toHaveBeenCalled()
+    expect(mockRun).not.toHaveBeenCalled()
   })
   it('returns the same profile object requireAuthApi returns', async () => {
     const s = await setup()
@@ -156,7 +157,7 @@ describe('audit + limits', () => {
   })
   it('a call that cannot be audited is not answered', async () => {
     const s = await setup()
-    const failing = { ...s.admin, from: (t: string) => (t === 'ai_audit_log' ? { insert: () => ({ then: (r: (v: unknown) => void) => r({ error: { message: 'down' } }) }) } : (s.admin as { from: (t: string) => unknown }).from(t)) } as never
+    const failing = { ...(s.admin as unknown as object), from: (t: string) => (t === 'ai_audit_log' ? { insert: () => ({ then: (r: (v: unknown) => void) => r({ error: { message: 'down' } }) }) } : (s.admin as { from: (t: string) => unknown }).from(t)) } as never
     const res = await (await handleMcpPost(rpc(s.token, call('echo', { n: 1 })), { ...s.deps, admin: failing })).json()
     expect(res.result.isError).toBe(true)
     expect(res.result.content[0].text).not.toContain('"n":1')

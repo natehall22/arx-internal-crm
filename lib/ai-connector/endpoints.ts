@@ -143,7 +143,7 @@ export async function handleConsent(
 
   const origin = requestOrigin(request)
   const check = await checkAuthorizeRequest(d.admin, params, { issuer: origin, resource: mcpResource(origin), orgId: who.orgId, fetcher: d.fetcher })
-  if (!check.ok) return check.fatal ? Response.json({ error: check.fatal }, { status: 400 }) : Response.json({ redirect: check.redirectTo })
+  if (!check.ok) return 'redirectTo' in check ? Response.json({ redirect: check.redirectTo }) : Response.json({ error: check.fatal }, { status: 400 })
 
   const audit = (tool: string) => writeAudit(d.admin, { orgId: who.orgId, userId: who.userId, clientId: check.client.client_id, tool, result: 'ok', detail: check.scopes.join(' ') })
   if (body?.decision !== 'allow') {
