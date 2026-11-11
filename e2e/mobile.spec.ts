@@ -187,7 +187,7 @@ const SCREENS: Screen[] = [
   },
     states: [
       { name: 'editor', run: async (p) => { await p.getByRole('button', { name: 'Edit' }).first().click(); await p.waitForSelector('[role=dialog] >> text=How often, by season') } },
-      { name: 'new-plan', run: async (p) => { await p.getByRole('button', { name: '+ Add plan' }).click(); await p.waitForSelector('[role=dialog] >> text=Send someone to inspect') } },
+      { name: 'new-plan', run: async (p) => { await p.getByRole('button', { name: '+ Add plan' }).click(); await p.waitForSelector('[role=dialog] >> text=Start from') } },
       { name: 'pause', run: async (p) => { await p.getByRole('button', { name: 'Pause' }).first().click(); await p.waitForSelector('[role=dialog] >> text=Resume on (optional)') } },
       { name: 'preview', run: async (p) => { await p.getByRole('button', { name: 'Edit' }).first().click(); await p.getByRole('button', { name: 'Next: see what changes' }).click(); await p.waitForSelector('[role=dialog] >> text=What will change') } },
       { name: 'history', run: async (p) => { await p.getByRole('button', { name: 'History' }).first().click(); await p.waitForSelector('[role=dialog] >> text=Price: 45 → 55') } },

@@ -138,7 +138,7 @@ export default function VisitsBoard() {
           </>
         ) : null}
       </div>
-      <input ref={fileRef} type="file" accept="image/*" multiple className="sr-only" aria-label="Add photos" onChange={(e) => void onPhotos(e.target.files)} />
+      <input ref={fileRef} type="file" accept="image/*" multiple hidden tabIndex={-1} aria-hidden aria-label="Add photos" onChange={(e) => void onPhotos(e.target.files)} />
 
       {d.total > d.visits.length ? (
         <p className="text-ui-base font-semibold text-ink">

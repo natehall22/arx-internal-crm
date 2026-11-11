@@ -122,7 +122,7 @@ export default function CrewDayList({ token, crewName, companyName, today, visit
           <p className="text-base">{visits.length === 0 ? 'No visits today.' : open === 0 ? 'All visits finished. Nice work.' : `${open} of ${visits.length} visit${visits.length === 1 ? '' : 's'} left`}</p>
         </header>
         {error ? <p role="alert" className="rounded-lg border-2 border-red-700 bg-white p-3 text-base font-semibold text-red-800">{error}</p> : null}
-        <input ref={fileRef} type="file" accept="image/*" multiple className="sr-only" aria-label="Add photos" onChange={(e) => void onPhotos(e.target.files)} />
+        <input ref={fileRef} type="file" accept="image/*" multiple hidden tabIndex={-1} aria-hidden aria-label="Add photos" onChange={(e) => void onPhotos(e.target.files)} />
         <ol className="flex flex-col gap-3">
           {visits.map((v, i) => {
             const closed = v.status !== 'scheduled'
