@@ -4,6 +4,7 @@
  * (customers, properties, production_jobs), keyed by the definition id, so renaming a field never loses data.
  * Database side: lib/custom-fields-db.ts. Owners manage the list at Settings → Custom fields (/admin/custom-fields).
  */
+import { formatDate, formatNumber } from '@/lib/format'
 
 export const CUSTOM_FIELD_ENTITIES = ['customer', 'property', 'job'] as const
 export type CustomFieldEntity = (typeof CUSTOM_FIELD_ENTITIES)[number]
@@ -192,15 +193,12 @@ export function validateValuePatch(
   return { ok: true, set, remove }
 }
 
-/** How a stored value reads on a page ("—" when blank). Dates are shown as written (a day, never shifted by time zone). */
+/** How a stored value reads on a page ("—" when blank). Dates are calendar days (lib/format never zone-shifts a bare day). */
 export function displayFieldValue(def: Pick<CustomFieldDefinition, 'field_type'>, v: unknown): string {
   if (isBlankValue(v)) return '—'
   if (def.field_type === 'yes_no') return v === true ? 'Yes' : v === false ? 'No' : String(v)
-  if (def.field_type === 'number' && typeof v === 'number') return v.toLocaleString('en-US', { maximumFractionDigits: 6 })
-  if (def.field_type === 'date' && typeof v === 'string' && isCalendarDate(v)) {
-    const [y, m, d] = v.split('-').map(Number)
-    return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
-  }
+  if (def.field_type === 'number' && typeof v === 'number') return formatNumber(v)
+  if (def.field_type === 'date' && typeof v === 'string' && isCalendarDate(v)) return formatDate(v)
   return String(v)
 }
 

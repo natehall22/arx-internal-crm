@@ -157,3 +157,25 @@ export function isPropertiesNotReadyError(error: { code?: string; message?: stri
 }
 
 export const PROPERTIES_NOT_READY = 'Properties turn on once the database update for them is applied.'
+
+/**
+ * How the Customer File shows a customer's properties, so a company that never uses them sees nothing new:
+ *  'full' — a Properties card: the customer has 2+ properties, a property carries anything beyond its address (name,
+ *           notes, access notes, field values), a property is turned off, or the company has property fields;
+ *  'link' — only a small "Add another property" link, for people who may edit (the everyday one-home customer);
+ *  'none' — nothing (not set up yet, or a viewer who may not edit and there is nothing beyond the address to show).
+ */
+export function propertiesDisplayMode(input: { ready: boolean; properties: Property[]; hasPropertyFields: boolean; canEdit: boolean }): 'full' | 'link' | 'none' {
+  if (!input.ready) return 'none'
+  const ps = input.properties
+  const rich = (p: Property) =>
+    !!(p.label || p.notes || p.access_notes) || !p.active || Object.values(p.custom_fields ?? {}).some((v) => v !== null && v !== '')
+  if (ps.length >= 2 || ps.some(rich) || input.hasPropertyFields) return 'full'
+  return input.canEdit ? 'link' : 'none'
+}
+
+/** Google Maps search link for a property (coordinates when known, else the address). */
+export function propertyMapHref(p: Pick<Property, 'lat' | 'lng' | 'address_text'>): string {
+  const q = p.lat !== null && p.lng !== null ? `${p.lat},${p.lng}` : p.address_text
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`
+}

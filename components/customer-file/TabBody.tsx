@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 
+import { CustomerDocuments, CustomerRecords } from '@/components/customer-file/CustomerRecords'
 import FilesPanel from '@/components/customer-file/FilesPanel'
 import MoneyCards from '@/components/customer-file/MoneyCards'
 import ThreadPanel from '@/components/customer-file/ThreadPanel'
@@ -12,6 +13,7 @@ import { loadCheckups } from '@/lib/checkups'
 import { formatDate } from '@/lib/format'
 import { isFileTab, type FileTab } from '@/lib/customer-file/access'
 import { loadFile } from '@/lib/customer-file/load'
+import { loadCustomerExtras } from '@/lib/customer-file/customer-extras'
 import { createServiceClient } from '@/lib/supabase/service'
 import PhoneLink from '@/components/PhoneLink'
 
@@ -53,9 +55,14 @@ async function Overview({ customerId, dealId }: { customerId: string; dealId: st
   const base = `/c/${customerId}/d/${dealId}`
   const { job, deal, customer } = ctx
   // Checkups are job-side: only people with the job board see them (field roles never do).
-  const checkups = ctx.viewer.jobBoard || ctx.viewer.ownerLike
-    ? await loadCheckups(createServiceClient(), ctx.viewer.orgId, { customerId: customer.id }).catch(() => null)
-    : null
+  const admin = createServiceClient()
+  const [checkups, extras] = await Promise.all([
+    ctx.viewer.jobBoard || ctx.viewer.ownerLike
+      ? loadCheckups(admin, ctx.viewer.orgId, { customerId: customer.id }).catch(() => null)
+      : Promise.resolve(null),
+    // The customer's own records: properties and the company's custom fields (lib/customer-file/customer-extras.ts).
+    loadCustomerExtras(admin, ctx.viewer, customer.id).catch(() => null),
+  ])
   return (
     <div className="space-y-4">
       <Card>
@@ -76,6 +83,8 @@ async function Overview({ customerId, dealId }: { customerId: string; dealId: st
           )}
         </CardContent>
       </Card>
+
+      {extras && <CustomerRecords customerId={customer.id} extras={extras} />}
 
       {job && (
         <Card>
@@ -142,6 +151,7 @@ async function Files({ customerId, dealId }: { customerId: string; dealId: strin
     .eq('opportunity_id', dealId)
     .eq('org_id', ctx.viewer.orgId)
     .order('created_at', { ascending: false })
+  const extras = await loadCustomerExtras(admin, ctx.viewer, customerId).catch(() => null)
   return (
     <div className="space-y-4">
       <Card>
@@ -152,6 +162,7 @@ async function Files({ customerId, dealId }: { customerId: string; dealId: strin
           )}
         </CardContent>
       </Card>
+      {extras && <CustomerDocuments customerId={customerId} orgId={ctx.viewer.orgId} extras={extras} />}
       {ctx.job && (
         <FilesPanel jobId={ctx.job.id} userRole={ctx.profile.role} canSeeFinancials={ctx.viewer.jobFinancials || ctx.viewer.ownerLike} jobStatus={ctx.job.status} customerEmail={ctx.customer.email} />
       )}
