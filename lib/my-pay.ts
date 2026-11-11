@@ -14,7 +14,7 @@ import { loadPeriodAdjustments } from '@/lib/payroll-adjustments'
 import { planPayrollPeriod } from '@/lib/payroll-period-materialization'
 import { COMMISSION_ROLES } from '@/lib/comp-plan-defaults'
 import { loadPayWeekSchedule } from '@/lib/payroll-week-schedule-server'
-import { composeWeek, earnedTowardMinimum, findCurrentPayWeekPeriod, loadWeekMinimums, placePeriod, loadUnits, payoutRoleWord, type PayWeekLine, type PayWeekPeriod } from '@/lib/payroll-pay-week'
+import { composeWeek, findCurrentPayWeekPeriod, loadWeekMinimums, placePeriod, loadUnits, payoutRoleWord, type PayWeekLine, type PayWeekPeriod } from '@/lib/payroll-pay-week'
 
 export type MyPayJob = { key: string; title: string; why: string; amount: number; math: string; jobId?: string; lineKind: string }
 
@@ -60,7 +60,7 @@ async function myWeekLines(admin: SupabaseClient, orgId: string, userId: string,
   const hours = hoursRow
     ? [{ user_id: userId, full_name: name, role: '', plan_name: null, plan_type: null, hourly_rate: Number(hoursRow.hourly_rate_snapshot) || 0, regular_hours: Number(hoursRow.regular_hours) || 0, overtime_hours: Number(hoursRow.overtime_hours) || 0, hourly_earnings: Number(hoursRow.hourly_earnings) || 0, notes: null, has_entry: true }]
     : []
-  const { people } = composeWeek({
+  const inputs: Parameters<typeof composeWeek>[0] = {
     rows,
     jobs,
     names: new Map([[userId, { name, role: '' }]]),
@@ -68,9 +68,11 @@ async function myWeekLines(admin: SupabaseClient, orgId: string, userId: string,
     units: await loadUnits(admin, orgId, period, [userId]),
     bonuses: (bonusRows ?? []).map((b) => ({ id: b.id as string, userId, amount: Number(b.amount) || 0, description: (b.description as string) ?? null, bonusType: b.bonus_type as string })),
     adjustments: adjustments.filter((a) => a.userId === userId),
-    // The same weekly-minimum rule as the office's screen (an approved week reads what Approve stored).
-    minimums: (await loadWeekMinimums(admin, orgId, period, [{ id: userId, active }], earnedTowardMinimum(rows.filter((r) => r.user_id === userId), adjustments.filter((x) => x.userId === userId)))).minimums,
-  })
+  }
+  // The same weekly-minimum rule as the office's screen (basis summed from the same lines; an approved week reads what Approve stored).
+  const before = composeWeek(inputs).people.find((p) => p.userId === userId)
+  const { minimums } = await loadWeekMinimums(admin, orgId, period, [{ id: userId, active }], new Map([[userId, before?.lines ?? []]]))
+  const { people } = composeWeek({ ...inputs, minimums })
   return people.find((p) => p.userId === userId) ?? null
 }
 

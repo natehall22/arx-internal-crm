@@ -19,11 +19,14 @@ export default function PayWeekScheduleSheet({ open, onClose, onSaved }: { open:
   const [check, setCheck] = React.useState<PayWeekChangeCheck | null>(null)
   const [error, setError] = React.useState<string | null>(null)
   const [busy, setBusy] = React.useState(false)
+  /** The last Save failed: nothing was changed (one transaction); the problem is shown and Save becomes "Try again". */
+  const [saveFailed, setSaveFailed] = React.useState<string | null>(null)
 
   React.useEffect(() => {
     if (!open) return
     setCheck(null)
     setError(null)
+    setSaveFailed(null)
     fetch(API, { cache: 'no-store' })
       .then(async (r) => {
         const body = await r.json().catch(() => null)
@@ -55,12 +58,13 @@ export default function PayWeekScheduleSheet({ open, onClose, onSaved }: { open:
     try {
       const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ schedule: form }) })
       const body = await r.json().catch(() => ({}))
-      if (!r.ok) throw new Error(body?.error || 'Could not save the pay week')
+      if (!r.ok) throw new Error(body?.error || 'Could not save the pay week. Nothing was changed.')
+      setSaveFailed(null)
       toast.success('Pay week saved')
       onSaved()
       onClose()
     } catch (e) {
-      toast.error((e as Error).message)
+      setSaveFailed((e as Error).message)
     } finally {
       setBusy(false)
     }
@@ -101,6 +105,7 @@ export default function PayWeekScheduleSheet({ open, onClose, onSaved }: { open:
         ) : null}
 
         {error ? <p className="rounded-ui border border-danger p-3 text-ui-base text-ink">{error}</p> : null}
+        {saveFailed ? <p role="alert" className="rounded-ui border border-danger bg-red-50 p-3 text-ui-base text-ink">{saveFailed}</p> : null}
         {check && !check.unchanged ? (
           <div className="flex flex-col gap-1 rounded-ui border border-surface-line bg-surface-subtle p-3 text-ui-base text-ink">
             <p className="font-semibold">{check.next.words}</p>
@@ -118,7 +123,7 @@ export default function PayWeekScheduleSheet({ open, onClose, onSaved }: { open:
 
         <DialogFooter>
           <Button variant="secondary" disabled={busy} onClick={onClose}>Cancel</Button>
-          <Button loading={busy} disabled={!check || check.unchanged || check.blockers.length > 0} onClick={save}>Save pay week</Button>
+          <Button loading={busy} disabled={!check || check.unchanged || check.blockers.length > 0} onClick={save}>{saveFailed ? 'Try again' : 'Save pay week'}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

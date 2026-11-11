@@ -15,7 +15,8 @@
 -- HOW THIS FILE RUNS (running it as-is changes nothing):
 --   1. Running the whole file (re)creates the function + backup table in `release_backups` and calls the PREVIEW.
 --   2. Apply:  SELECT release_backups.close_stale_payroll_weeks('<org id>', 'apply');   (one company per run; required)
---   3. Undo:   SELECT release_backups.undo_close_stale_payroll_weeks();   (only weeks still 'cancelled' by this fix are reopened)
+--   3. Undo:   SELECT release_backups.undo_close_stale_payroll_weeks('<org id>');  or  (NULL, '<run id>')  — never all companies;
+--              only weeks still 'cancelled' by this fix are reopened.
 -- Order: any time before PAYROLL_PAY_WEEK_ENABLED=true; independent of migration 202611120010.
 
 CREATE SCHEMA IF NOT EXISTS release_backups;
@@ -90,22 +91,27 @@ BEGIN
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION release_backups.undo_close_stale_payroll_weeks(p_run uuid DEFAULT NULL)
+DROP FUNCTION IF EXISTS release_backups.undo_close_stale_payroll_weeks(uuid);
+CREATE OR REPLACE FUNCTION release_backups.undo_close_stale_payroll_weeks(p_org_id uuid DEFAULT NULL, p_run uuid DEFAULT NULL)
 RETURNS jsonb LANGUAGE plpgsql AS $$
 DECLARE v_n int := 0;
 BEGIN
+  -- Never an all-companies undo: name the company or the run.
+  IF p_org_id IS NULL AND p_run IS NULL THEN RAISE EXCEPTION 'pass the company id or the run id'; END IF;
   -- Only a week this fix cancelled AND that is still cancelled is reopened.
   UPDATE payroll_periods p SET status = b.prev_status
   FROM release_backups.close_stale_payroll_weeks b
-  WHERE b.period_id = p.id AND b.undone_at IS NULL AND p.status = b.applied_status AND (p_run IS NULL OR b.run_id = p_run);
+  WHERE b.period_id = p.id AND b.undone_at IS NULL AND p.status = b.applied_status
+    AND (p_org_id IS NULL OR b.org_id = p_org_id) AND (p_run IS NULL OR b.run_id = p_run);
   GET DIAGNOSTICS v_n = ROW_COUNT;
-  UPDATE release_backups.close_stale_payroll_weeks b SET undone_at = now() WHERE b.undone_at IS NULL AND (p_run IS NULL OR b.run_id = p_run);
+  UPDATE release_backups.close_stale_payroll_weeks b SET undone_at = now()
+  WHERE b.undone_at IS NULL AND (p_org_id IS NULL OR b.org_id = p_org_id) AND (p_run IS NULL OR b.run_id = p_run);
   RETURN jsonb_build_object('reopened', v_n);
 END;
 $$;
 
 REVOKE ALL ON FUNCTION release_backups.close_stale_payroll_weeks(uuid, text, interval) FROM PUBLIC;
-REVOKE ALL ON FUNCTION release_backups.undo_close_stale_payroll_weeks(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION release_backups.undo_close_stale_payroll_weeks(uuid, uuid) FROM PUBLIC;
 
 -- ARX (prod org 9089d4ad-f46c-405b-9798-6751d45a7051). Another company: pass its own id.
 SELECT release_backups.close_stale_payroll_weeks('9089d4ad-f46c-405b-9798-6751d45a7051', 'preview');

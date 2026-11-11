@@ -6,12 +6,13 @@
 --      (the office's yes/no answer and, at approval, the frozen top-up). Writer guard = the same trigger as hours/bonuses/fixes.
 --   3. payroll_week_person_totals counts the minimum top-up. It is the SQL copy of ONE definition, PAY_LINE_SOURCES in
 --      lib/payroll-week-total.ts; lib/__tests__/payroll-week-total-parity.test.ts reads this file and fails if they differ.
+--   6. payroll_set_pay_week(): the setting + closing old open weeks in ONE transaction.
 --   5. payroll_move_open_week(): a pay-week change closes an old-schedule open week cleanly (its hours/bonuses/fixes move forward).
 --   4. payroll_set_job_split(): the "Change" sheet's one write — every per-job commission change (deal_commission_roles) and its
 --      audit rows for one job in ONE transaction, refused once the job is paid.
 -- Run AFTER 202610280010_atomic_approve_and_field_role_deny.sql. Deploy order: this migration, then the code (the code only calls
 -- these when the flag is on; payroll_set_job_split missing answers 503 "needs the database update").
--- Rollback: DROP FUNCTION public.payroll_move_open_week(uuid, uuid, uuid); DROP FUNCTION public.payroll_set_job_split(uuid, uuid, uuid, uuid, text, jsonb); DROP TABLE payroll_week_minimums;
+-- Rollback: DROP FUNCTION public.payroll_set_pay_week(uuid, jsonb); DROP FUNCTION public.payroll_move_open_week(uuid, uuid, uuid); DROP FUNCTION public.payroll_week_minimum_unanswered(uuid, uuid); DROP FUNCTION public.payroll_set_job_split(uuid, uuid, uuid, uuid, text, jsonb); DROP TABLE payroll_week_minimums;
 --   ALTER TABLE comp_plans DROP COLUMN weekly_minimum; DROP FUNCTION arx_private.payroll_org_week(uuid); then re-run sections 3 and 4
 --   of 202610280010 (payroll_week_person_totals and payroll_commit_week as they were).
 SET lock_timeout = '5s';
@@ -85,6 +86,62 @@ COMMENT ON TABLE payroll_week_minimums IS 'Weekly minimum per person per week: t
 DROP TRIGGER IF EXISTS trg_guard_claimed_period ON payroll_week_minimums;
 CREATE TRIGGER trg_guard_claimed_period BEFORE INSERT OR UPDATE OR DELETE ON payroll_week_minimums
   FOR EACH ROW EXECUTE FUNCTION public.payroll_guard_claimed_period();
+
+-- 2b. Who still needs an answer for the weekly minimum this week (SQL twin of loadWeekMinimums' "needs_answer"; lib/payroll-weekly-minimum.ts).
+-- A person on a plan with a weekly minimum, whose basis earnings this week are below the (pro-rated) minimum, whose plan needs the
+-- office's check (or who has left), and who has no yes/no yet. payroll_commit_week refuses to approve while anyone is listed.
+CREATE OR REPLACE FUNCTION public.payroll_week_minimum_unanswered(p_org_id uuid, p_period_id uuid)
+RETURNS TABLE (user_id uuid, minimum numeric, earned numeric)
+LANGUAGE sql
+STABLE
+SET search_path = public
+AS $$
+  WITH w AS (SELECT * FROM arx_private.payroll_org_week(p_org_id)),
+  per AS (
+    SELECT p.id, p.cutoff_at, (p.cutoff_at AT TIME ZONE w.tz)::date AS d, w.tz
+    FROM payroll_periods p, w WHERE p.id = p_period_id AND p.org_id = p_org_id
+  ),
+  prev AS (
+    SELECT max((pp.cutoff_at AT TIME ZONE per.tz)::date) AS d FROM payroll_periods pp, per
+    WHERE pp.org_id = p_org_id AND pp.status <> 'cancelled' AND pp.cutoff_at < per.cutoff_at AND pp.id <> per.id
+  ),
+  days AS (SELECT CASE WHEN prev.d IS NOT NULL AND per.d - prev.d BETWEEN 1 AND 13 THEN per.d - prev.d ELSE 7 END AS n FROM per, prev),
+  plans AS (
+    SELECT DISTINCT ON (ucp.user_id) ucp.user_id, cp.weekly_minimum AS wm
+    FROM user_comp_plans ucp JOIN comp_plans cp ON cp.id = ucp.comp_plan_id, per
+    WHERE ucp.org_id = p_org_id AND ucp.effective_from <= per.d AND (ucp.effective_to IS NULL OR ucp.effective_to >= per.d)
+    ORDER BY ucp.user_id, ucp.effective_from DESC
+  ),
+  rules AS (  -- parseWeeklyMinimum()
+    SELECT pl.user_id, (pl.wm->>'amount')::numeric AS amt,
+           COALESCE(pl.wm->>'needsCheck', 'true') <> 'false' AS chk,
+           COALESCE(pl.wm->>'prorate', 'true') <> 'false' AS pr,
+           CASE WHEN pl.wm->>'basis' = 'commission' THEN 'commission' ELSE 'gross' END AS basis
+    FROM plans pl
+    WHERE jsonb_typeof(pl.wm) = 'object' AND (pl.wm->>'amount') ~ '^[0-9]+(\.[0-9]+)?$'
+      AND (pl.wm->>'amount')::numeric > 0 AND (pl.wm->>'amount')::numeric <= 100000
+  ),
+  lines AS (  -- countsTowardMinimum(): kind, amount
+    SELECT l.user_id, 'commission' AS k, round(l.net_amount, 2) AS amt FROM payroll_payout_lines l WHERE l.org_id = p_org_id AND l.payroll_period_id = p_period_id
+    UNION ALL SELECT a.user_id, 'commission', round(a.amount, 2) FROM payroll_adjustments a
+      WHERE a.org_id = p_org_id AND a.payroll_period_id = p_period_id AND a.status <> 'void' AND a.kind = 'fix' AND a.job_id IS NOT NULL
+    UNION ALL SELECT h.user_id, 'gross', round(h.hourly_earnings, 2) FROM payroll_rep_hours h WHERE h.org_id = p_org_id AND h.payroll_period_id = p_period_id AND COALESCE(h.hourly_earnings, 0) > 0
+    UNION ALL SELECT u.user_id, 'gross', round(u.amount, 2) FROM payroll_unit_earnings u WHERE u.org_id = p_org_id AND u.payroll_period_id = p_period_id AND u.amount > 0
+    UNION ALL SELECT b.user_id, 'gross', round(b.amount, 2) FROM payroll_bonus_lines b WHERE b.org_id = p_org_id AND b.payroll_period_id = p_period_id AND b.status IN ('approved', 'paid')
+  ),
+  scored AS (
+    SELECT r.user_id,
+           CASE WHEN r.pr AND days.n <> 7 THEN round(r.amt * days.n / 7, 2) ELSE r.amt END AS minimum,
+           COALESCE((SELECT sum(x.amt) FROM lines x WHERE x.user_id = r.user_id AND (x.k = 'commission' OR r.basis = 'gross')), 0) AS earned,
+           r.chk, COALESCE(us.active, true) AS active
+    FROM rules r JOIN users us ON us.id = r.user_id AND us.org_id = p_org_id, days
+    WHERE COALESCE(us.is_test_account, false) = false
+  )
+  SELECT sc.user_id, sc.minimum, sc.earned FROM scored sc
+  WHERE round(sc.minimum - sc.earned, 2) > 0
+    AND (sc.chk OR NOT sc.active)
+    AND NOT EXISTS (SELECT 1 FROM payroll_week_minimums m WHERE m.payroll_period_id = p_period_id AND m.user_id = sc.user_id AND m.met IS NOT NULL);
+$$;
 
 -- 3. One person-total definition (SQL copy of PAY_LINE_SOURCES, lib/payroll-week-total.ts) ------------------------------------
 CREATE OR REPLACE FUNCTION public.payroll_week_person_totals(p_org_id uuid, p_period_id uuid)
@@ -247,6 +304,11 @@ BEGIN
   WHERE (m->>'amount')::numeric > 0
   ON CONFLICT (payroll_period_id, user_id) DO UPDATE SET amount = EXCLUDED.amount, detail = EXCLUDED.detail, updated_at = now();
 
+  -- Nobody may be left without an answer to their weekly minimum (approving would silently pay commission only).
+  IF EXISTS (SELECT 1 FROM payroll_week_minimum_unanswered(p_org_id, p_period_id)) THEN
+    RAISE EXCEPTION 'payroll_commit:minimum_unanswered';
+  END IF;
+
   -- What the tables now say must equal what the admin approved, to the cent.
   SELECT COALESCE(sum(GREATEST(0, raw)), 0), count(*) FILTER (WHERE raw > 0), count(*) FILTER (WHERE raw < 0)
     INTO v_total, v_people, v_negative
@@ -325,6 +387,10 @@ BEGIN
 END;
 $$;
 
+
+-- Shares typed on the Change sheet (and automatic lines it pins) are kept to 6 decimals, not 2: a 1.333% manager override pinned
+-- at 1.33% would pay a different number of cents. Widening a numeric is lossless for every existing value.
+ALTER TABLE deal_commission_roles ALTER COLUMN override_percent TYPE numeric(10, 6);
 
 -- 4. The Change sheet's one write ---------------------------------------------------------------------------------------------
 -- p_rows = [{ user_id, role, override_percent | null, override_amount | null, clear: boolean }]: the final state of each
@@ -446,12 +512,78 @@ BEGIN
 END;
 $$;
 
+-- 6. Saving a new pay week: the setting AND the closing of every old-schedule open week in ONE transaction (all or nothing).
+-- Called only by savePayWeekSchedule (lib/payroll-week-schedule-server.ts) after it validated p_pay_week (parsePayWeek). An old
+-- open week moves to the new week covering its last day (found by exact calendar date, created if missing) via
+-- payroll_move_open_week; any refusal rolls back everything, including the setting.
+CREATE OR REPLACE FUNCTION public.payroll_set_pay_week(p_org_id uuid, p_pay_week jsonb)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = public
+AS $$
+DECLARE
+  v_week record;
+  v_old record;
+  v_d date;
+  v_target_d date;
+  v_tc timestamptz;
+  v_target uuid;
+  v_moved integer := 0;
+BEGIN
+  IF jsonb_typeof(p_pay_week) <> 'object' THEN RAISE EXCEPTION 'pay_week:bad_schedule'; END IF;
+  PERFORM 1 FROM orgs WHERE id = p_org_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'pay_week:org_not_found'; END IF;
+  UPDATE orgs SET settings = jsonb_set(COALESCE(settings, '{}'::jsonb), '{payWeek}', p_pay_week, true) WHERE id = p_org_id;
+  SELECT * INTO v_week FROM arx_private.payroll_org_week(p_org_id);
+
+  FOR v_old IN
+    SELECT id, cutoff_at FROM payroll_periods
+    WHERE org_id = p_org_id AND status = 'open' AND extract(dow FROM (cutoff_at AT TIME ZONE v_week.tz)::date)::int <> v_week.cutoff_dow
+    ORDER BY cutoff_at FOR UPDATE
+  LOOP
+    v_d := (v_old.cutoff_at AT TIME ZONE v_week.tz)::date;
+    v_target_d := v_d + ((v_week.cutoff_dow - extract(dow FROM v_d)::int + 7) % 7);   -- moveTargetCutoff(): first new cutoff day on/after
+    v_tc := (v_target_d + v_week.cutoff_time) AT TIME ZONE v_week.tz;
+    SELECT id INTO v_target FROM payroll_periods
+      WHERE org_id = p_org_id AND status <> 'cancelled' AND cutoff_at BETWEEN v_tc - interval '36 hours' AND v_tc + interval '36 hours'
+        AND (cutoff_at AT TIME ZONE v_week.tz)::date = v_target_d
+      ORDER BY created_at, id LIMIT 1;
+    IF v_target IS NULL THEN
+      INSERT INTO payroll_periods (org_id, period_label, cutoff_at, lock_at, scheduled_pay_date, status)
+      VALUES (p_org_id, 'Week ending ' || to_char(v_target_d, 'YYYY-MM-DD'), v_tc, v_tc, v_target_d + v_week.payday_offset, 'open')
+      ON CONFLICT DO NOTHING RETURNING id INTO v_target;
+      IF v_target IS NULL THEN
+        SELECT id INTO v_target FROM payroll_periods
+          WHERE org_id = p_org_id AND status <> 'cancelled' AND (cutoff_at AT TIME ZONE v_week.tz)::date = v_target_d
+            AND cutoff_at BETWEEN v_tc - interval '36 hours' AND v_tc + interval '36 hours'
+          ORDER BY created_at, id LIMIT 1;
+      END IF;
+      IF v_target IS NULL THEN  -- label held by a cancelled week
+        INSERT INTO payroll_periods (org_id, period_label, cutoff_at, lock_at, scheduled_pay_date, status)
+        VALUES (p_org_id, 'Week ending ' || to_char(v_target_d, 'YYYY-MM-DD') || ' (2)', v_tc, v_tc, v_target_d + v_week.payday_offset, 'open')
+        RETURNING id INTO v_target;
+      END IF;
+    END IF;
+    BEGIN
+      PERFORM payroll_move_open_week(p_org_id, v_old.id, v_target);
+    EXCEPTION WHEN OTHERS THEN
+      RAISE EXCEPTION 'pay_week:%:%', to_char(v_d, 'YYYY-MM-DD'), SQLERRM USING ERRCODE = SQLSTATE;
+    END;
+    v_moved := v_moved + 1;
+  END LOOP;
+  RETURN jsonb_build_object('ok', true, 'closed', v_moved);
+END;
+$$;
+
 -- Privileges -------------------------------------------------------------------------------------------------------------------
 REVOKE ALL ON FUNCTION arx_private.payroll_org_week(uuid) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.payroll_week_person_totals(uuid, uuid) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.payroll_commit_week(uuid, uuid, uuid, uuid, numeric, jsonb) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.payroll_set_job_split(uuid, uuid, uuid, uuid, text, jsonb) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.payroll_move_open_week(uuid, uuid, uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.payroll_set_pay_week(uuid, jsonb) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.payroll_week_minimum_unanswered(uuid, uuid) FROM PUBLIC;
 DO $$
 DECLARE r text;
 BEGIN
@@ -462,6 +594,8 @@ BEGIN
       EXECUTE format('REVOKE ALL ON FUNCTION public.payroll_commit_week(uuid, uuid, uuid, uuid, numeric, jsonb) FROM %I', r);
       EXECUTE format('REVOKE ALL ON FUNCTION public.payroll_set_job_split(uuid, uuid, uuid, uuid, text, jsonb) FROM %I', r);
       EXECUTE format('REVOKE ALL ON FUNCTION public.payroll_move_open_week(uuid, uuid, uuid) FROM %I', r);
+      EXECUTE format('REVOKE ALL ON FUNCTION public.payroll_set_pay_week(uuid, jsonb) FROM %I', r);
+      EXECUTE format('REVOKE ALL ON FUNCTION public.payroll_week_minimum_unanswered(uuid, uuid) FROM %I', r);
     END IF;
   END LOOP;
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
@@ -470,5 +604,7 @@ BEGIN
     GRANT EXECUTE ON FUNCTION public.payroll_commit_week(uuid, uuid, uuid, uuid, numeric, jsonb) TO service_role;
     GRANT EXECUTE ON FUNCTION public.payroll_set_job_split(uuid, uuid, uuid, uuid, text, jsonb) TO service_role;
     GRANT EXECUTE ON FUNCTION public.payroll_move_open_week(uuid, uuid, uuid) TO service_role;
+    GRANT EXECUTE ON FUNCTION public.payroll_set_pay_week(uuid, jsonb) TO service_role;
+    GRANT EXECUTE ON FUNCTION public.payroll_week_minimum_unanswered(uuid, uuid) TO service_role;
   END IF;
 END $$;

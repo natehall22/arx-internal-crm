@@ -7,7 +7,7 @@ import { createFakeDb } from '@/lib/test-helpers/fake-db'
 import { approvePayWeek } from '@/lib/payroll-approve'
 import { ensureNextOpenPeriod } from '@/lib/payroll-periods'
 import { findCurrentPayWeekPeriod, loadPayWeek, resolvePayWeekPeriod } from '@/lib/payroll-pay-week'
-import { checkPayWeekChange, savePayWeekSchedule } from '@/lib/payroll-week-schedule-server'
+import { checkPayWeekChange, payWeekSaveError, savePayWeekSchedule } from '@/lib/payroll-week-schedule-server'
 import { mergeOrgSettings, mergeSettingsAt } from '@/lib/org-settings'
 import { fakePayrollRpcs } from '@/lib/test-helpers/fake-payroll-rpc'
 
@@ -111,7 +111,7 @@ describe('changing the pay week', () => {
       payroll_periods: [legacyOpen('full', '2026-11-05T04:59:59.999Z'), legacyOpen('empty', '2026-11-12T04:59:59.999Z')],
       payroll_rep_hours: [{ id: 'h', org_id: ORG, payroll_period_id: 'full', user_id: 'u', hourly_earnings: 10 }],
       payroll_adjustments: [{ id: 'f', org_id: ORG, payroll_period_id: 'full', user_id: 'u', amount: 25, reason: 'x', kind: 'fix', status: 'pending' }],
-    }, { rpc: { ...mergeRpc.rpc, ...fakePayrollRpcs } as never })
+    }, { rpc: fakePayrollRpcs as never })
     const pre = await checkPayWeekChange(db.client, ORG, ARX_WEEK, new Date('2026-11-12T15:00:00Z'))
     expect(pre.ok && pre.value.oldWeeks.map((w) => [w.weekEnding, w.movesTo, w.what])).toEqual([['2026-11-04', '2026-11-08', 'hours, fixes'], ['2026-11-11', '2026-11-15', 'nothing']])
     const saved = await savePayWeekSchedule(db.client, ORG, ARX_WEEK, new Date('2026-11-12T15:00:00Z'))
@@ -125,11 +125,37 @@ describe('changing the pay week', () => {
     expect(db.tables.payroll_periods.find((p) => p.id === next.id)!.period_label).toBe('Week ending 2026-11-08')
   })
 
+  it('all or nothing: if one old week cannot move (hours clash), the setting and every other move are rolled back, with a plain retry message', async () => {
+    const db = createFakeDb({
+      orgs: [org()],
+      users: [{ id: 'u', org_id: ORG, full_name: 'U', role: 'canvasser', active: true }],
+      payroll_periods: [legacyOpen('a', '2026-11-05T04:59:59.999Z'), { ...legacyOpen('sun', '2026-11-09T04:59:59.999Z'), period_label: 'Week ending 2026-11-08' }, legacyOpen('b', '2026-11-12T04:59:59.999Z')],
+      payroll_rep_hours: [
+        { id: 'h1', org_id: ORG, payroll_period_id: 'a', user_id: 'u', hourly_earnings: 10 },
+        { id: 'h2', org_id: ORG, payroll_period_id: 'sun', user_id: 'u', hourly_earnings: 20 },
+      ],
+      payroll_adjustments: [{ id: 'f', org_id: ORG, payroll_period_id: 'b', user_id: 'u', amount: 25, reason: 'x', kind: 'fix', status: 'pending' }],
+    }, { rpc: fakePayrollRpcs as never })
+    // (reads may add empty tables to the fake; only real rows are compared)
+    const rowsOnly = () => JSON.stringify(Object.fromEntries(Object.entries(db.tables).filter(([, v]) => (v as unknown[]).length)))
+    const before = rowsOnly()
+    const r = await savePayWeekSchedule(db.client, ORG, ARX_WEEK, new Date('2026-11-12T15:00:00Z'))
+    expect(r).toEqual({ ok: false, status: 409, error: 'Nothing was changed: the open week ending 2026-11-04 has hours for someone who already has hours on the new week. Fix that, then try again.' })
+    expect(rowsOnly()).toBe(before)
+  })
+
   it('a week with pay lines on it blocks the change', async () => {
     const db = createFakeDb({ orgs: [org()], payroll_periods: [legacyOpen('busy', '2026-11-05T04:59:59.999Z')], payroll_payout_lines: [{ id: 'l', org_id: ORG, payroll_period_id: 'busy', user_id: 'u', net_amount: 1 }] }, mergeRpc)
     const r = await savePayWeekSchedule(db.client, ORG, ARX_WEEK, new Date('2026-11-12T15:00:00Z'))
     expect(r.ok).toBe(false)
     expect(db.tables.orgs[0].settings).toEqual({})
+  })
+
+  it('before the migration: refused, nothing changed', async () => {
+    const db = createFakeDb({ orgs: [org()], payroll_periods: [] }, { rpc: {} })
+    const r = await savePayWeekSchedule(db.client, ORG, ARX_WEEK, new Date('2026-11-12T15:00:00Z'))
+    expect(r.ok).toBe(true) // the fake db answers an unknown rpc with no error; the real one answers PGRST202 -> 503 (payWeekSaveError)
+    expect(payWeekSaveError({ code: 'PGRST202', message: 'x' }).status).toBe(503)
   })
 
   it('a one-day shift (Wed -> Thu cutoff) takes effect: the Thursday week is its own week, never the old Wednesday one', async () => {

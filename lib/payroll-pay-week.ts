@@ -15,7 +15,7 @@ import { loadOpenDisputes } from '@/lib/payroll-disputes'
 import { loadHourlyRoster, loadPlanForWeek, loadWeekPeople, type HourlyRosterRow } from '@/lib/payroll-hours'
 import { planPayrollPeriod, type PlannedPayoutRow, type WaitingJob } from '@/lib/payroll-period-materialization'
 import { personRawTotal, payableTotal, type PayLineKind } from '@/lib/payroll-week-total'
-import { countsTowardMinimum, loadMinimumDecisions, parseWeeklyMinimum, weekMinimumFor, weeklyMinimumMath, weeklyMinimumOutcome, type WeekMinimum } from '@/lib/payroll-weekly-minimum'
+import { loadMinimumDecisions, minimumBasisTotal, parseWeeklyMinimum, weekMinimumFor, weeklyMinimumMath, weeklyMinimumOutcome, type WeekMinimum } from '@/lib/payroll-weekly-minimum'
 import { addWeeks, clockWords, nextWeekCutoff, sameWeekEnding, cutoffYmd, daysBetweenYmd, describePayWeek, WEEKDAY_NAMES, lastCutoffAtOrBefore, lateFundingUntil, payDateFor, weekDays, weekLabel, type PayWeekSchedule } from '@/lib/payroll-week-schedule'
 import { loadPayWeekSchedule, loadPrevCutoff } from '@/lib/payroll-week-schedule-server'
 import { findOrCreateWeek, findWeekNear, PERIOD_COLS, type PeriodRow } from '@/lib/payroll-periods'
@@ -225,7 +225,7 @@ export function composeWeek(inp: WeekInputs): { people: PayWeekPerson[]; jobs: P
     person(a.userId).lines.push({ kind: 'Adjustment', what: a.kind === 'balance' ? 'Balance carried over' : 'Fix', math: a.reason, amount: a.amount, adjustmentId: a.id, adjustmentKind: a.kind, jobId: a.jobId ?? undefined })
   }
   for (const m of inp.minimums ?? []) {
-    if (m.amount > 0) person(m.userId).lines.push({ kind: 'Minimum', what: 'Weekly minimum', math: weeklyMinimumMath(m.detail.minimum, m.detail.commission, m.amount, m.detail.weekDays ?? 7), amount: roundMoney(m.amount) })
+    if (m.amount > 0) person(m.userId).lines.push({ kind: 'Minimum', what: 'Weekly minimum', math: weeklyMinimumMath(m.detail.minimum, m.detail.commission, m.amount, m.detail.weekDays ?? 7, m.detail.basis ?? 'gross'), amount: roundMoney(m.amount) })
   }
   // ONE total rule (lib/payroll-week-total.ts) — the same one the database checks at Approve.
   for (const p of Array.from(byUser.values())) {
@@ -355,15 +355,6 @@ export type MinimumAsk = { userId: string; minimum: number; commission: number; 
 /** Calendar days in a week (normally 7; the in-between week after a pay-week change is 1–13). */
 export const periodLength = (p: Pick<PayWeekPeriod, 'weekStart' | 'weekEnding'>) => (p.weekStart && p.weekEnding ? daysBetweenYmd(p.weekStart, p.weekEnding) + 1 : 7)
 
-/** What counts toward each person's weekly minimum (countsTowardMinimum): commission rows + job fixes. Pure. */
-export function earnedTowardMinimum(rows: Array<{ user_id: string; net_amount: number | string | null }>, adjustments: PayrollAdjustment[]): Map<string, number> {
-  const out = new Map<string, number>()
-  const add = (u: string, n: number) => out.set(u, roundMoney((out.get(u) ?? 0) + roundMoney(n)))
-  for (const r of rows) if (countsTowardMinimum({ kind: 'Commission' })) add(r.user_id, Number(r.net_amount) || 0)
-  for (const a of adjustments) if (countsTowardMinimum({ kind: 'Adjustment', adjustmentKind: a.kind, jobId: a.jobId })) add(a.userId, a.amount)
-  return out
-}
-
 /**
  * Weekly-minimum top-ups for a week. An approved week reads what Approve stored. An open week computes them: each person's plan in
  * force that week, their commission lines, and the office's yes/no. People still waiting on an answer come back in `asks`
@@ -374,7 +365,8 @@ export async function loadWeekMinimums(
   orgId: string,
   period: PayWeekPeriod,
   people: Array<{ id: string; active: boolean }>,
-  commissionByUser: Map<string, number>,
+  /** Each person's lines for the week WITHOUT a minimum line (composeWeek), from which the plan's basis is summed. */
+  linesByUser: Map<string, PayWeekLine[]>,
   plans: Map<string, Record<string, unknown> | null> = new Map()
 ): Promise<{ minimums: WeekMinimum[]; asks: MinimumAsk[] }> {
   const decisions = await loadMinimumDecisions(admin, orgId, period.id)
@@ -395,10 +387,10 @@ export async function loadWeekMinimums(
     }
     const rule = parseWeeklyMinimum(plan?.weekly_minimum)
     if (!rule) continue
-    const commission = roundMoney(commissionByUser.get(p.id) ?? 0)
+    const commission = minimumBasisTotal(linesByUser.get(p.id) ?? [], rule.basis)
     const out = weeklyMinimumOutcome(rule, commission, decisions.get(p.id)?.met ?? null, p.active, days)
     const minimum = weekMinimumFor(rule, days)
-    if (out.state === 'pays') minimums.push({ userId: p.id, amount: out.topUp, detail: { minimum, commission, planName: (plan?.name as string) ?? null, weekDays: days } })
+    if (out.state === 'pays') minimums.push({ userId: p.id, amount: out.topUp, detail: { minimum, commission, planName: (plan?.name as string) ?? null, weekDays: days, basis: rule.basis } })
     else if (out.state === 'needs_answer') asks.push({ userId: p.id, minimum, commission, topUp: out.topUp })
   }
   return { minimums, asks }
@@ -553,10 +545,12 @@ export async function loadPayWeekFull(admin: SupabaseClient, orgId: string, now:
   const units = new Map(Array.from(unitEarnings.entries()).map(([id, v]) => [id, v.total]))
 
   // Weekly minimum ("greater of $X or the commission"): compared with each person's commission lines this week.
-  const commissionByUser = earnedTowardMinimum(rows, adjustments)
+  // The basis is summed from the person's own lines (everything but the minimum), so the screen and the floor read the same numbers.
+  const before = composeWeek({ rows, jobs, names, hours, units, bonuses: approvedBonuses, adjustments })
+  const linesByUser = new Map(before.people.map((p) => [p.userId, p.lines]))
   const minimumPeople = new Map(weekPeople.map((p) => [p.id, { id: p.id, active: p.active }]))
-  for (const id of Array.from(commissionByUser.keys())) if (!minimumPeople.has(id)) minimumPeople.set(id, { id, active: true })
-  const { minimums, asks: minimumAsks } = await loadWeekMinimums(admin, orgId, period, Array.from(minimumPeople.values()), commissionByUser, plansSeen)
+  for (const id of Array.from(linesByUser.keys())) if (!minimumPeople.has(id)) minimumPeople.set(id, { id, active: true })
+  const { minimums, asks: minimumAsks } = await loadWeekMinimums(admin, orgId, period, Array.from(minimumPeople.values()), linesByUser, plansSeen)
   for (const p of weekPeople) if (!names.has(p.id) && (minimums.some((m) => m.userId === p.id) || minimumAsks.some((m) => m.userId === p.id))) names.set(p.id, { name: p.full_name, role: p.role })
 
   const { people, jobs: jobViews } = composeWeek({ rows, jobs, names, hours, units, bonuses: approvedBonuses, adjustments, minimums })

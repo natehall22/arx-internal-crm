@@ -5,8 +5,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { orgTimeZone } from '@/lib/cron-orgs'
-import { mergeOrgSettings } from '@/lib/org-settings'
-import { findOrCreateWeek } from '@/lib/payroll-periods'
 import {
   cutoffInstantForYmd,
   cutoffWeekday,
@@ -15,7 +13,6 @@ import {
   describePayWeek,
   lastCutoffAtOrBefore,
   parsePayWeek,
-  PAY_WEEK_SETTINGS_KEY,
   previewPayWeekChange,
   readPayWeekSchedule,
   sameStoredPayWeek,
@@ -122,11 +119,21 @@ const MOVE_ERRORS: Record<string, string> = {
   not_open: 'is no longer open',
 }
 
+/** Plain words for a refusal from payroll_set_pay_week. Pure. */
+export function payWeekSaveError(error: { message?: string; code?: string }): { status: number; error: string } {
+  const m = String(error.message ?? '')
+  if (error.code === 'PGRST202' || error.code === '42883') return { status: 503, error: 'Changing the pay week needs the database update first. Nothing was changed.' }
+  const hit = /pay_week:(\d{4}-\d{2}-\d{2}):.*?move_week:(\w+)/.exec(m)
+  if (hit) return { status: 409, error: `Nothing was changed: the open week ending ${hit[1]} ${MOVE_ERRORS[hit[2]] ?? 'could not be closed'}. Fix that, then try again.` }
+  if (/payroll_period_claimed/.test(m) || error.code === '55006') return { status: 409, error: 'A week is being approved right now. Nothing was changed; try again in a minute.' }
+  return { status: 500, error: 'Could not save the pay week. Nothing was changed; try again.' }
+}
+
 /**
- * THE writer of `orgs.settings.payWeek` (super admins only — the route checks). Saves the schedule first (so every week made from
- * here on is on it), then closes each old-schedule open week with `payroll_move_open_week`: whatever was waiting on it moves to the
- * new week covering its last day, in one transaction per week. A week that cannot move is reported; the schedule stays saved and
- * saving again retries (each move is all-or-nothing).
+ * THE writer of `orgs.settings.payWeek` (super admins only — the route checks). Validates, then ONE database transaction
+ * (`payroll_set_pay_week`, migration 202611120010) saves the schedule AND closes every old-schedule open week, moving whatever was
+ * waiting on it (hours, bonuses, fixes) to the new week covering its last day. Any refusal changes nothing — no half-saved schedule
+ * and no money stranded on a cancelled week.
  */
 export async function savePayWeekSchedule(admin: SupabaseClient, orgId: string, raw: unknown, now: Date): Promise<{ ok: true; value: PayWeekChangeCheck } | { ok: false; status: number; error: string }> {
   const check = await checkPayWeekChange(admin, orgId, raw, now)
@@ -135,20 +142,11 @@ export async function savePayWeekSchedule(admin: SupabaseClient, orgId: string, 
   if (c.blockers.length) {
     return { ok: false, status: 409, error: `Approve these weeks first: ${c.blockers.map((b) => `week ending ${b.weekEnding} (${b.what})`).join('; ')}.` }
   }
-  const { error } = await mergeOrgSettings(admin, orgId, { ...c.next.schedule }, { path: [PAY_WEEK_SETTINGS_KEY] })
-  if (error) return { ok: false, status: 500, error: 'Could not save the pay week.' }
-  const s: PayWeekSchedule = { ...c.next.schedule, timeZone: (await loadPayWeekSchedule(admin, orgId)).timeZone }
-  const failed: string[] = []
-  for (const w of c.oldWeeks) {
-    const { data: row } = await admin.from('payroll_periods').select('cutoff_at').eq('id', w.periodId).eq('org_id', orgId).maybeSingle()
-    if (!row) continue
-    const target = await findOrCreateWeek(admin, orgId, moveTargetCutoff(row.cutoff_at as string, s), s)
-    const { error: moveErr } = await admin.rpc('payroll_move_open_week', { p_org_id: orgId, p_from_id: w.periodId, p_to_id: target.id })
-    if (moveErr) {
-      const code = /move_week:(\w+)/.exec(String(moveErr.message ?? ''))?.[1] ?? ''
-      failed.push(`week ending ${w.weekEnding} ${MOVE_ERRORS[code] ?? 'could not be closed'}`)
-    }
+  const { error } = await admin.rpc('payroll_set_pay_week', { p_org_id: orgId, p_pay_week: { ...c.next.schedule } })
+  if (error) {
+    const m = payWeekSaveError(error)
+    if (m.status === 500) console.error('payroll_set_pay_week', error)
+    return { ok: false, ...m }
   }
-  if (failed.length) return { ok: false, status: 409, error: `Pay week saved, but ${failed.join('; ')}. Fix that, then save again.` }
   return { ok: true, value: c }
 }

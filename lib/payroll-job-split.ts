@@ -33,6 +33,8 @@ export type SplitLine = {
   percent: number
   /** What the line pays now (after the pool cap). */
   amount: number
+  /** What the line is before the pool cap (base × share), to the cent — what a pinned line must keep paying exactly. */
+  gross: number
   /** The office already set this line by hand (it can go back to the plan). */
   setByOffice: boolean
 }
@@ -75,10 +77,25 @@ export function suppressedTogether(writtenRole: string, lineRole: string): boole
   return !!lanes && !!lineLanes && lineLanes.some((l) => lanes.includes(l))
 }
 
+/** Shares are stored to 6 decimals (deal_commission_roles.override_percent is NUMERIC(10,6) from migration 202611120010). */
+const roundPct = (p: number) => Math.round(p * 1_000_000) / 1_000_000
+
+/**
+ * The stored share that pays EXACTLY `gross` on this base, the way payroll computes it (roundMoney(base × % / 100)): the unrounded
+ * percent when it reproduces the cents, otherwise the flat dollars. A pinned automatic line never moves by a cent. Pure.
+ */
+export function exactShare(gross: number, base: number): { override_percent: number | null; override_amount: number | null } {
+  if (base > 0) {
+    const pct = roundPct((gross / base) * 100)
+    if (roundMoney(roundMoney(base) * (pct / 100)) === roundMoney(gross)) return { override_percent: pct, override_amount: null }
+  }
+  return { override_percent: null, override_amount: roundMoney(gross) }
+}
+
 const pctOf = (amount: number, base: number) => (base > 0 ? Math.round((amount / base) * 10000) / 100 : 0)
 
 /** Turns the office's final split into the stored rows, writing only what actually changes. Pure. */
-export function planJobSplitWrites(split: Pick<JobSplit, 'lines'>, edit: SplitEdit): { ok: true; rows: SplitWriteRow[] } | { ok: false; error: string } {
+export function planJobSplitWrites(split: Pick<JobSplit, 'lines'> & { job: Pick<JobSplit['job'], 'base'> }, edit: SplitEdit): { ok: true; rows: SplitWriteRow[] } | { ok: false; error: string } {
   const byKey = new Map(split.lines.map((l) => [l.key, l]))
   const rows: SplitWriteRow[] = []
   const valid = (p: number) => Number.isFinite(p) && p >= 0 && p <= 100
@@ -92,7 +109,7 @@ export function planJobSplitWrites(split: Pick<JobSplit, 'lines'>, edit: SplitEd
     const next = e.percent == null ? 0 : Number(e.percent)
     if (!valid(next)) return { ok: false, error: 'Each share must be between 0% and 100%.' }
     if (Math.abs(next - line.percent) < 0.005) continue
-    rows.push({ user_id: line.userId, role: line.storageRole, override_percent: roundMoney(next), override_amount: null, clear: false })
+    rows.push({ user_id: line.userId, role: line.storageRole, override_percent: roundPct(next), override_amount: null, clear: false })
   }
   const seen = new Set<string>()
   for (const a of edit.added) {
@@ -101,7 +118,7 @@ export function planJobSplitWrites(split: Pick<JobSplit, 'lines'>, edit: SplitEd
     if (seen.has(a.userId)) return { ok: false, error: 'That person is added twice.' }
     if (split.lines.some((l) => l.userId === a.userId && l.role === 'custom')) return { ok: false, error: 'That person already has their own line on this job: change it there.' }
     seen.add(a.userId)
-    rows.push({ user_id: a.userId, role: 'custom', override_percent: roundMoney(p), override_amount: null, clear: false })
+    rows.push({ user_id: a.userId, role: 'custom', override_percent: roundPct(p), override_amount: null, clear: false })
   }
   // An explicit row for an automatic (derived) role turns off the automatic line for EVERYONE in that lane on the job
   // (lib/job-derived-commission-lines.ts buildAdditiveParticipantsForJob). So when the office changes one manager's override, every
@@ -111,7 +128,7 @@ export function planJobSplitWrites(split: Pick<JobSplit, 'lines'>, edit: SplitEd
     for (const l of split.lines) {
       if (l.setByOffice || written.has(`${l.userId}|${l.storageRole}`)) continue
       if (!suppressedTogether(r.role, l.storageRole)) continue
-      rows.push({ user_id: l.userId, role: l.storageRole, override_percent: roundMoney(l.percent), override_amount: null, clear: false })
+      rows.push({ user_id: l.userId, role: l.storageRole, ...exactShare(l.gross, split.job.base), clear: false })
       written.add(`${l.userId}|${l.storageRole}`)
     }
   }
@@ -165,6 +182,7 @@ export async function loadJobSplit(admin: SupabaseClient, orgId: string, periodI
       word: payoutRoleWord(r.participant_role),
       percent: pctOf(Number(r.gross_amount) || 0, base),
       amount: roundMoney(Number(r.net_amount) || 0),
+      gross: roundMoney(Number(r.gross_amount) || 0),
       setByOffice: officeSet.has(`${r.user_id}|${storageRole}`),
     }
   })

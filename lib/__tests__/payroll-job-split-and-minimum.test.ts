@@ -2,11 +2,11 @@ jest.mock('@/lib/payroll-statement-email', () => ({ sendPayrollStatementEmail: j
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { createFakeDb } from '@/lib/test-helpers/fake-db'
-import { fakePayrollRpcs } from '@/lib/test-helpers/fake-payroll-rpc'
+import { fakePayrollRpcs, minimumUnanswered } from '@/lib/test-helpers/fake-payroll-rpc'
 import { approvePayWeek } from '@/lib/payroll-approve'
-import { loadJobSplit, planJobSplitWrites, type JobSplit } from '@/lib/payroll-job-split'
+import { exactShare, loadJobSplit, planJobSplitWrites } from '@/lib/payroll-job-split'
 import { loadPayWeek } from '@/lib/payroll-pay-week'
-import { countsTowardMinimum, saveMinimumDecision, weekMinimumFor, weeklyMinimumOutcome, weeklyMinimumMath, parseWeeklyMinimum } from '@/lib/payroll-weekly-minimum'
+import { countsTowardMinimum, minimumBasisTotal, saveMinimumDecision, weekMinimumFor, weeklyMinimumOutcome, weeklyMinimumMath, parseWeeklyMinimum } from '@/lib/payroll-weekly-minimum'
 import { addAdjustment } from '@/lib/payroll-adjustments'
 import { loadMyPay } from '@/lib/my-pay'
 
@@ -42,15 +42,15 @@ function build(extra: Record<string, Array<Record<string, unknown>>> = {}) {
 describe('weekly minimum ("greater of $500 or 3%") — pure rule', () => {
   it('pays the gap only, never adds the two', () => {
     const r = parseWeeklyMinimum({ amount: 500 })!
-    expect(r).toEqual({ amount: 500, needsCheck: true, prorate: true })
+    expect(r).toEqual({ amount: 500, needsCheck: true, prorate: true, basis: 'gross' })
     expect(weeklyMinimumOutcome(r, 600, true, true)).toEqual({ state: 'commission_higher', topUp: 0 })
     expect(weeklyMinimumOutcome(r, 500, null, true)).toEqual({ state: 'commission_higher', topUp: 0 })
     expect(weeklyMinimumOutcome(r, 180, true, true)).toEqual({ state: 'pays', topUp: 320 })
     expect(weeklyMinimumOutcome(r, 180, false, true)).toEqual({ state: 'not_met', topUp: 0 })
     expect(weeklyMinimumOutcome(r, 180, null, true)).toEqual({ state: 'needs_answer', topUp: 320 })
-    expect(weeklyMinimumOutcome({ amount: 500, needsCheck: false, prorate: true }, 180, null, true)).toEqual({ state: 'pays', topUp: 320 })
+    expect(weeklyMinimumOutcome({ amount: 500, needsCheck: false, prorate: true, basis: 'gross' as const }, 180, null, true)).toEqual({ state: 'pays', topUp: 320 })
     // someone who left mid-week: only on an explicit yes, even without a check
-    expect(weeklyMinimumOutcome({ amount: 500, needsCheck: false, prorate: true }, 180, null, false).state).toBe('needs_answer')
+    expect(weeklyMinimumOutcome({ amount: 500, needsCheck: false, prorate: true, basis: 'gross' as const }, 180, null, false).state).toBe('needs_answer')
     expect(weeklyMinimumMath(500, 180, 320)).toBe('Greater of $500 or earnings: $500 − $180 earned = $320')
   })
   it.each([[null], [{}], [{ amount: 0 }], [{ amount: -5 }], [{ amount: 'x' }], [[500]]])('no rule for %j', (raw) => expect(parseWeeklyMinimum(raw)).toBeNull())
@@ -161,12 +161,14 @@ describe('the Change sheet (one job, who gets what %, one reason)', () => {
 })
 
 describe('review fixes: minimum counts, blocks Approve, pro-rates', () => {
-  it('which lines count: commission + job fixes only', () => {
-    expect(countsTowardMinimum({ kind: 'Commission' })).toBe(true)
+  it('which lines count: gross (default) = commission, hours, per-unit, bonuses, job fixes; commission basis = commission + job fixes', () => {
+    for (const k of ['Commission', 'Hourly', 'Units', 'Bonus']) expect(countsTowardMinimum({ kind: k })).toBe(true)
     expect(countsTowardMinimum({ kind: 'Adjustment', adjustmentKind: 'fix', jobId: 'j1' })).toBe(true)
     expect(countsTowardMinimum({ kind: 'Adjustment', adjustmentKind: 'fix', jobId: null })).toBe(false)
     expect(countsTowardMinimum({ kind: 'Adjustment', adjustmentKind: 'balance', jobId: 'j1' })).toBe(false)
-    for (const k of ['Hourly', 'Units', 'Bonus', 'Minimum']) expect(countsTowardMinimum({ kind: k })).toBe(false)
+    expect(countsTowardMinimum({ kind: 'Minimum' })).toBe(false)
+    for (const k of ['Hourly', 'Units', 'Bonus', 'Minimum']) expect(countsTowardMinimum({ kind: k }, 'commission')).toBe(false)
+    expect(countsTowardMinimum({ kind: 'Commission' }, 'commission')).toBe(true)
   })
 
   it('$180 commission + a $200 job fix = $500 check, not $700', async () => {
@@ -211,12 +213,13 @@ describe('review fixes: minimum counts, blocks Approve, pro-rates', () => {
 })
 
 describe('review fix: Change sheet keeps a second manager\'s automatic override', () => {
-  const split: Pick<JobSplit, 'lines'> = {
+  const split = {
+    job: { base: 20000 },
     lines: [
-      { key: 'c|sales_rep', userId: 'c', name: 'C', role: 'sales_rep', storageRole: 'closer', word: 'closer', percent: 7, amount: 1400, setByOffice: false },
-      { key: 'm1|closer_manager_override', userId: 'm1', name: 'M1', role: 'closer_manager_override', storageRole: 'closer_manager_override', word: 'sales manager override', percent: 2, amount: 400, setByOffice: false },
-      { key: 'm2|closer_manager_override', userId: 'm2', name: 'M2', role: 'closer_manager_override', storageRole: 'closer_manager_override', word: 'sales manager override', percent: 1, amount: 200, setByOffice: false },
-      { key: 'm3|setter_manager_override', userId: 'm3', name: 'M3', role: 'setter_manager_override', storageRole: 'setter_manager_override', word: 'setter manager override', percent: 1, amount: 200, setByOffice: false },
+      { key: 'c|sales_rep', userId: 'c', name: 'C', role: 'sales_rep', storageRole: 'closer', word: 'closer', percent: 7, amount: 1400, gross: 1400, setByOffice: false },
+      { key: 'm1|closer_manager_override', userId: 'm1', name: 'M1', role: 'closer_manager_override', storageRole: 'closer_manager_override', word: 'sales manager override', percent: 2, amount: 400, gross: 400, setByOffice: false },
+      { key: 'm2|closer_manager_override', userId: 'm2', name: 'M2', role: 'closer_manager_override', storageRole: 'closer_manager_override', word: 'sales manager override', percent: 1, amount: 200, gross: 200, setByOffice: false },
+      { key: 'm3|setter_manager_override', userId: 'm3', name: 'M3', role: 'setter_manager_override', storageRole: 'setter_manager_override', word: 'setter manager override', percent: 1, amount: 200, gross: 200, setByOffice: false },
     ],
   }
   it('changing one closer-lane manager writes the other closer-lane manager at their share (setter lane untouched)', () => {
@@ -231,8 +234,85 @@ describe('review fix: Change sheet keeps a second manager\'s automatic override'
     expect(r.ok && r.rows.find((x) => x.user_id === 'm1')).toEqual({ user_id: 'm1', role: 'closer_manager_override', override_percent: 2, override_amount: null, clear: false })
   })
   it('back to plan only for the whole lane', () => {
-    const set = { lines: split.lines.map((l) => (l.role === 'closer_manager_override' ? { ...l, setByOffice: true } : l)) }
+    const set = { job: split.job, lines: split.lines.map((l) => (l.role === 'closer_manager_override' ? { ...l, setByOffice: true } : l)) }
     expect(planJobSplitWrites(set, { lines: [{ key: 'm1|closer_manager_override', percent: 0, backToPlan: true }], added: [] }).ok).toBe(false)
     expect(planJobSplitWrites(set, { lines: [{ key: 'm1|closer_manager_override', percent: 0, backToPlan: true }, { key: 'm2|closer_manager_override', percent: 0, backToPlan: true }], added: [] }).ok).toBe(true)
+  })
+})
+
+describe('second review: minimum basis = gross earnings (default); balances and advances after the floor', () => {
+  const minFor = (lines: Array<{ kind: string; amount: number; adjustmentKind?: string; jobId?: string }>) => {
+    const r = parseWeeklyMinimum({ amount: 500 })!
+    const earned = minimumBasisTotal(lines, r.basis)
+    return weeklyMinimumOutcome(r, earned, true, true).topUp
+  }
+  it('$500 commission + a -$300 job clawback → earned $200 → $300 top-up ($500 check)', () => {
+    expect(minFor([{ kind: 'Commission', amount: 500 }, { kind: 'Adjustment', amount: -300, adjustmentKind: 'fix', jobId: 'j' }])).toBe(300)
+  })
+  it('$300 hours + $180 commission → earned $480 → $20 top-up', () => {
+    expect(minFor([{ kind: 'Hourly', amount: 300 }, { kind: 'Commission', amount: 180 }])).toBe(20)
+  })
+  it('-$100 carried balance is applied AFTER the floor: $180 + $320 top-up − $100 = $400 check', async () => {
+    expect(minFor([{ kind: 'Commission', amount: 180 }, { kind: 'Adjustment', amount: -100, adjustmentKind: 'balance' }])).toBe(320)
+    const db = build({ payroll_adjustments: [] })
+    db.tables.production_jobs[0].commission_comp_base = 6000
+    db.tables.production_jobs[0].sale_amount = 6000
+    db.tables.job_payments[0].amount_cents = 600000
+    const week0 = await loadPayWeek(db.client, ORG, NOW)
+    db.tables.payroll_adjustments = [{ id: 'bal', org_id: ORG, payroll_period_id: week0.period.id, user_id: 's1', amount: -100, reason: 'Carried over', kind: 'balance', status: 'pending', job_id: null }]
+    await saveMinimumDecision(db.client, { orgId: ORG, periodId: week0.period.id, userId: 's1', met: true, actorUserId: 'a' })
+    const week = await loadPayWeek(db.client, ORG, NOW)
+    const riley = week.people.find((p) => p.userId === 's1')!
+    expect(riley.lines.find((l) => l.kind === 'Minimum')).toMatchObject({ amount: 320, math: 'Greater of $500 or earnings: $500 − $180 earned = $320' })
+    expect(riley.total).toBe(400)
+  })
+  it('commission basis ignores hours', () => {
+    const r = parseWeeklyMinimum({ amount: 500, basis: 'commission' })!
+    expect(minimumBasisTotal([{ kind: 'Hourly', amount: 300 }, { kind: 'Commission', amount: 180 }], r.basis)).toBe(180)
+    expect(weeklyMinimumMath(500, 180, 320, 7, 'commission')).toBe('Greater of $500 or commission: $500 − $180 commission = $320')
+  })
+})
+
+describe('second review: pinned shares keep every cent', () => {
+  it('a 1.333...% manager line is pinned at full precision (or flat dollars), paying exactly the same cents', () => {
+    expect(exactShare(266.67, 20005)).toEqual({ override_percent: 1.333017, override_amount: null })
+    // gross that no 6-decimal percent reproduces -> flat dollars
+    const odd = exactShare(0.01, 1_000_000_000)
+    expect(odd.override_amount ?? Math.round(1_000_000_000 * (odd.override_percent! / 100) * 100) / 100).toBe(0.01)
+    for (let i = 0; i < 2000; i++) {
+      const base = Math.round(Math.random() * 6_000_000) / 100 + 1000
+      const gross = Math.round(base * (Math.random() * 10)) / 100
+      const sh = exactShare(gross, base)
+      const paid = sh.override_amount != null ? sh.override_amount : Math.round(Math.round(base * 100) / 100 * (sh.override_percent! / 100) * 100) / 100
+      expect(Math.round(paid * 100)).toBe(Math.round(gross * 100))
+    }
+  })
+})
+
+describe('second review: Approve is refused in SQL too while a minimum is unanswered (TS/SQL parity)', () => {
+  const scenario = (extra: (periodId: string) => Record<string, Array<Record<string, unknown>>>, listed: string[]) => async () => {
+    const db = build({ production_jobs: [] })
+    const week0 = await loadPayWeek(db.client, ORG, NOW)
+    for (const [t, rows] of Object.entries(extra(week0.period.id))) db.tables[t] = rows
+    const week = await loadPayWeek(db.client, ORG, NOW)
+    const ts = week.needs.filter((n) => n.kind === 'minimum').map((n) => (n as { userId: string }).userId).sort()
+    const sqlTwin = minimumUnanswered(db.tables as never, ORG, week.period.id).sort()
+    expect(sqlTwin).toEqual(ts)
+    expect(ts).toEqual(listed)
+    return { db, week, ts }
+  }
+  const line = (p: string, user: string, amt: number) => ({ id: `l${amt}`, org_id: ORG, payroll_period_id: p, job_id: 'jx', user_id: user, participant_role: 'setter', gross_amount: amt, net_amount: amt, comp_plan_snapshot: {} })
+  it('below the floor, no answer -> both list them', scenario((p) => ({ payroll_payout_lines: [line(p, 's1', 180)] }), ['s1']))
+  it('hours lift them over the floor (gross) -> neither lists them', scenario((p) => ({ payroll_payout_lines: [line(p, 's1', 180)], payroll_rep_hours: [{ org_id: ORG, payroll_period_id: p, user_id: 's1', regular_hours: 30, hourly_earnings: 330, has_entry: true }] }), []))
+  it('a job clawback drops them under -> both list them', scenario((p) => ({ payroll_payout_lines: [line(p, 's1', 600)], payroll_adjustments: [{ id: 'f', org_id: ORG, payroll_period_id: p, user_id: 's1', amount: -300, reason: 'x', kind: 'fix', status: 'pending', job_id: 'jx' }] }), ['s1']))
+  it('a carried balance does not count (applied after the floor) -> not listed when commission covers it', scenario((p) => ({ payroll_payout_lines: [line(p, 's1', 600)], payroll_adjustments: [{ id: 'b', org_id: ORG, payroll_period_id: p, user_id: 's1', amount: -300, reason: 'x', kind: 'balance', status: 'pending', job_id: null }] }), []))
+  it('the commit itself refuses (bypassing the screen)', async () => {
+    const db = build({ production_jobs: [] })
+    const week = await loadPayWeek(db.client, ORG, NOW)
+    db.tables.payroll_payout_lines = [line(week.period.id, 's1', 180)]
+    db.tables.payroll_periods[0].lock_claim_token = 'tok'
+    const { error } = await (db.client as unknown as SupabaseClient).rpc('payroll_commit_week', { p_org_id: ORG, p_period_id: week.period.id, p_token: 'tok', p_actor_user_id: 'a', p_expected_total: 180, p_plan: { jobs: [], units: [] } })
+    expect(error?.message).toMatch(/payroll_commit:minimum_unanswered/)
+    expect(db.tables.payroll_periods[0].status).toBe('open')
   })
 })

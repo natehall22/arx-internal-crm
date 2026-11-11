@@ -44,6 +44,7 @@ export function mapCommitError(error: { message?: string; code?: string }, compu
   if (/payroll_commit:(total_mismatch|job_changed)|payroll_already_paid/.test(msg)) {
     return { ok: false, status: 409, body: { error: 'The numbers changed while approving. Nothing was paid; review them again.', code: 'changed', total: computedTotal } }
   }
+  if (/payroll_commit:minimum_unanswered/.test(msg)) return { ok: false, status: 409, body: { error: 'Answer the weekly minimum for everyone on this week first. Nothing was paid.', code: 'minimum_unanswered' } }
   if (/payroll_commit:next_week_busy/.test(msg)) return { ok: false, status: 409, body: { error: 'Next week is being approved right now, so a balance cannot be carried into it. Try again in a minute. Nothing was paid.', code: 'next_week_busy' } }
   if (/payroll_commit:no_next_period/.test(msg)) return { ok: false, status: 409, body: { error: 'There is no open week to carry a negative balance into. Nothing was paid.', code: 'no_next_period' } }
   if (/payroll_commit:not_found/.test(msg)) return { ok: false, status: 404, body: { error: 'Week not found' } }

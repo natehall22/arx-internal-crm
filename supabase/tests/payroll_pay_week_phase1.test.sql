@@ -10,8 +10,9 @@ DO $$ BEGIN
 END $$;
 
 CREATE TABLE orgs (id uuid PRIMARY KEY, name text, settings jsonb DEFAULT '{}'::jsonb, timezone text);
-CREATE TABLE users (id uuid PRIMARY KEY, org_id uuid REFERENCES orgs(id), full_name text, role text, active boolean DEFAULT true, is_super_admin boolean);
+CREATE TABLE users (id uuid PRIMARY KEY, org_id uuid REFERENCES orgs(id), full_name text, role text, active boolean DEFAULT true, is_super_admin boolean, is_test_account boolean DEFAULT false);
 CREATE TABLE comp_plans (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), org_id uuid, name text);
+CREATE TABLE user_comp_plans (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), org_id uuid, user_id uuid, comp_plan_id uuid, effective_from date, effective_to date);
 CREATE TABLE payroll_periods (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), org_id uuid NOT NULL REFERENCES orgs(id), period_label text, cutoff_at timestamptz, lock_at timestamptz,
   scheduled_pay_date date, status text NOT NULL DEFAULT 'open', locked_at timestamptz, paid_at timestamptz, created_at timestamptz NOT NULL DEFAULT now(),
   lock_claimed_at timestamptz, lock_claim_token uuid, UNIQUE (org_id, period_label));
@@ -29,7 +30,7 @@ CREATE TABLE payroll_rep_hours (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), o
 CREATE TABLE payroll_bonus_lines (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), org_id uuid, payroll_period_id uuid REFERENCES payroll_periods(id), user_id uuid,
   amount numeric, status text, bonus_type text, source_id uuid);
 CREATE TABLE payroll_adjustments (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), org_id uuid, payroll_period_id uuid REFERENCES payroll_periods(id), user_id uuid, amount numeric,
-  reason text, kind text DEFAULT 'fix', status text DEFAULT 'pending', source_period_id uuid, created_by uuid, applied_at timestamptz);
+  reason text, kind text DEFAULT 'fix', status text DEFAULT 'pending', source_period_id uuid, created_by uuid, applied_at timestamptz, job_id uuid);
 CREATE UNIQUE INDEX ON payroll_adjustments (source_period_id, user_id) WHERE kind = 'balance' AND status <> 'void';
 CREATE TABLE deal_commission_roles (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), org_id uuid, job_id uuid, role text, user_id uuid, override_amount numeric(14,2),
   override_percent numeric(5,2), created_at timestamptz DEFAULT now(), updated_at timestamptz DEFAULT now(), UNIQUE (job_id, role, user_id));
@@ -166,7 +167,12 @@ BEGIN
   v_res := release_backups.close_stale_payroll_weeks(v_org, 'apply');
   IF (SELECT status FROM payroll_periods WHERE id = v_stale) <> 'cancelled' OR (SELECT status FROM payroll_periods WHERE id = v_busy) <> 'open' THEN RAISE EXCEPTION 'apply %', v_res; END IF;
   IF (SELECT count(*) FROM payroll_rep_hours WHERE payroll_period_id = v_stale) <> 1 THEN RAISE EXCEPTION 'hours history lost'; END IF;
-  v_res := release_backups.undo_close_stale_payroll_weeks();
+  BEGIN
+    PERFORM release_backups.undo_close_stale_payroll_weeks();
+    RAISE EXCEPTION 'all-companies undo allowed';
+  EXCEPTION WHEN raise_exception THEN IF SQLERRM NOT LIKE 'pass the company id%' THEN RAISE; END IF;
+  END;
+  v_res := release_backups.undo_close_stale_payroll_weeks(v_org);
   IF (SELECT status FROM payroll_periods WHERE id = v_stale) <> 'open' THEN RAISE EXCEPTION 'undo %', v_res; END IF;
   RAISE NOTICE 'PASS 7 stale-week data fix preview/apply/undo';
 END $$;
@@ -214,6 +220,74 @@ BEGIN
   EXCEPTION WHEN raise_exception THEN IF SQLERRM NOT LIKE 'move_week:hours_conflict%' THEN RAISE; END IF;
   END;
   RAISE NOTICE 'PASS 9 old open week closed cleanly; conflicts refused';
+END $$;
+
+-- 10. Unanswered weekly minimum (SQL twin of the screen's "Needs you"), same cases as lib/__tests__/payroll-job-split-and-minimum.test.ts
+--     parity block: below floor -> listed; hours lift it (gross) -> not; job clawback drops under -> listed; carried balance ignored.
+--     And payroll_commit_week refuses while anyone is listed.
+DO $$
+DECLARE v_org uuid := gen_random_uuid(); v_u uuid := gen_random_uuid(); v_plan uuid := gen_random_uuid(); v_p uuid; v_n int; v_tok uuid := gen_random_uuid();
+BEGIN
+  INSERT INTO orgs VALUES (v_org, 'Min', '{"payWeek":{"weekStartDay":1,"cutoffTime":"23:59","paydayWeekday":5,"lateFunding":null}}', 'America/New_York');
+  INSERT INTO users VALUES (v_u, v_org, 'FM', 'canvasser', true, false, false);
+  INSERT INTO comp_plans (id, org_id, name, weekly_minimum) VALUES (v_plan, v_org, 'FM', '{"amount":500,"needsCheck":true}');
+  INSERT INTO user_comp_plans (org_id, user_id, comp_plan_id, effective_from) VALUES (v_org, v_u, v_plan, '2026-01-01');
+  -- a: $180 commission
+  v_p := gen_random_uuid();
+  INSERT INTO payroll_periods (id, org_id, period_label, cutoff_at, scheduled_pay_date) VALUES (v_p, v_org, 'wa', '2027-01-04T04:59:59.999Z', '2027-01-08');
+  INSERT INTO payroll_payout_lines (org_id, payroll_period_id, job_id, user_id, participant_role, gross_amount, net_amount) VALUES (v_org, v_p, gen_random_uuid(), v_u, 'setter', 180, 180);
+  SELECT count(*) INTO v_n FROM payroll_week_minimum_unanswered(v_org, v_p); IF v_n <> 1 THEN RAISE EXCEPTION 'a: %', v_n; END IF;
+  UPDATE payroll_periods SET lock_claim_token = v_tok, lock_claimed_at = now() WHERE id = v_p;
+  BEGIN
+    PERFORM payroll_commit_week(v_org, v_p, v_tok, v_u, 180, '{"jobs":[],"units":[]}'::jsonb);
+    RAISE EXCEPTION 'commit accepted an unanswered minimum';
+  EXCEPTION WHEN raise_exception THEN IF SQLERRM NOT LIKE 'payroll_commit:minimum_unanswered%' THEN RAISE; END IF;
+  END;
+  IF (SELECT status FROM payroll_periods WHERE id = v_p) <> 'open' THEN RAISE EXCEPTION 'refused commit changed the week'; END IF;
+  UPDATE payroll_periods SET lock_claim_token = NULL, lock_claimed_at = NULL WHERE id = v_p;  -- lockPayrollPeriod releases its claim
+  -- b: + $330 hours -> gross 510 >= 500
+  INSERT INTO payroll_rep_hours (org_id, payroll_period_id, user_id, regular_hours, hourly_earnings) VALUES (v_org, v_p, v_u, 30, 330);
+  SELECT count(*) INTO v_n FROM payroll_week_minimum_unanswered(v_org, v_p); IF v_n <> 0 THEN RAISE EXCEPTION 'b: %', v_n; END IF;
+  -- c: commission basis ignores the hours
+  UPDATE comp_plans SET weekly_minimum = '{"amount":500,"basis":"commission"}' WHERE id = v_plan;
+  SELECT count(*) INTO v_n FROM payroll_week_minimum_unanswered(v_org, v_p); IF v_n <> 1 THEN RAISE EXCEPTION 'c: %', v_n; END IF;
+  UPDATE comp_plans SET weekly_minimum = '{"amount":500}' WHERE id = v_plan;
+  DELETE FROM payroll_rep_hours WHERE payroll_period_id = v_p;
+  -- d: $600 commission − $300 job clawback = 300 -> listed; a −$300 carried balance instead -> not listed
+  UPDATE payroll_payout_lines SET net_amount = 600, gross_amount = 600 WHERE payroll_period_id = v_p;
+  INSERT INTO payroll_adjustments (org_id, payroll_period_id, user_id, amount, reason, kind, job_id) VALUES (v_org, v_p, v_u, -300, 'claw', 'fix', gen_random_uuid());
+  SELECT count(*) INTO v_n FROM payroll_week_minimum_unanswered(v_org, v_p); IF v_n <> 1 THEN RAISE EXCEPTION 'd1: %', v_n; END IF;
+  UPDATE payroll_adjustments SET kind = 'balance', job_id = NULL WHERE payroll_period_id = v_p;
+  SELECT count(*) INTO v_n FROM payroll_week_minimum_unanswered(v_org, v_p); IF v_n <> 0 THEN RAISE EXCEPTION 'd2: %', v_n; END IF;
+  -- e: answered -> not listed
+  UPDATE payroll_adjustments SET kind = 'fix', job_id = gen_random_uuid() WHERE payroll_period_id = v_p;
+  INSERT INTO payroll_week_minimums (org_id, payroll_period_id, user_id, met) VALUES (v_org, v_p, v_u, false);
+  SELECT count(*) INTO v_n FROM payroll_week_minimum_unanswered(v_org, v_p); IF v_n <> 0 THEN RAISE EXCEPTION 'e: %', v_n; END IF;
+  RAISE NOTICE 'PASS 10 unanswered minimum (gross/commission basis, clawback, balance) + commit refuses';
+END $$;
+
+-- 11. payroll_set_pay_week: setting + old-week moves in ONE transaction; a clash rolls back everything (setting included).
+DO $$
+DECLARE v_org uuid := gen_random_uuid(); v_u uuid := gen_random_uuid(); v_a uuid := gen_random_uuid(); v_sun uuid := gen_random_uuid(); v_res jsonb;
+BEGIN
+  INSERT INTO orgs VALUES (v_org, 'Switch', '{}', 'America/New_York');
+  INSERT INTO users VALUES (v_u, v_org, 'U', 'canvasser', true, false, false);
+  INSERT INTO payroll_periods (id, org_id, period_label, cutoff_at, scheduled_pay_date) VALUES
+    (v_a, v_org, 'Week ending 2027-02-03', '2027-02-04T04:59:59.999Z', '2027-02-05'),
+    (v_sun, v_org, 'Week ending 2027-02-07', '2027-02-08T04:59:59.999Z', '2027-02-12');
+  INSERT INTO payroll_rep_hours (org_id, payroll_period_id, user_id, regular_hours, hourly_earnings) VALUES (v_org, v_a, v_u, 1, 10), (v_org, v_sun, v_u, 2, 20);
+  BEGIN
+    PERFORM payroll_set_pay_week(v_org, '{"weekStartDay":1,"cutoffTime":"23:59","paydayWeekday":5,"lateFunding":null}');
+    RAISE EXCEPTION 'clash accepted';
+  EXCEPTION WHEN raise_exception THEN IF SQLERRM NOT LIKE 'pay_week:2027-02-03:move_week:hours_conflict%' THEN RAISE; END IF;
+  END;
+  IF (SELECT settings FROM orgs WHERE id = v_org) <> '{}'::jsonb OR (SELECT status FROM payroll_periods WHERE id = v_a) <> 'open' THEN RAISE EXCEPTION 'not rolled back'; END IF;
+  DELETE FROM payroll_rep_hours WHERE payroll_period_id = v_sun;
+  v_res := payroll_set_pay_week(v_org, '{"weekStartDay":1,"cutoffTime":"23:59","paydayWeekday":5,"lateFunding":null}');
+  IF (v_res->>'closed')::int <> 1 OR (SELECT status FROM payroll_periods WHERE id = v_a) <> 'cancelled'
+     OR (SELECT payroll_period_id FROM payroll_rep_hours WHERE user_id = v_u) <> v_sun
+     OR (SELECT settings->'payWeek'->>'weekStartDay' FROM orgs WHERE id = v_org) <> '1' THEN RAISE EXCEPTION 'set pay week %', v_res; END IF;
+  RAISE NOTICE 'PASS 11 pay-week save + moves are one transaction';
 END $$;
 
 SELECT 'ALL PAYROLL PHASE1 TESTS PASSED';

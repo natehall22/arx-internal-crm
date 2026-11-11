@@ -6,7 +6,8 @@
  * database does on success and on every refusal (a thrown error rolls the whole fake database back, see fake-db.ts).
  */
 import { personTotalsFromTables } from '@/lib/payroll-week-total'
-import { nextWeekCutoff, payDateFor, readPayWeekSchedule, sameWeekEnding, weekLabel } from '@/lib/payroll-week-schedule'
+import { cutoffYmd, daysBetweenYmd, nextWeekCutoff, weekdayOfYmd, payDateFor, readPayWeekSchedule, sameWeekEnding, weekLabel } from '@/lib/payroll-week-schedule'
+import { minimumBasisTotal, parseWeeklyMinimum, weekMinimumFor } from '@/lib/payroll-weekly-minimum'
 
 type Row = Record<string, unknown>
 type Tables = Record<string, Row[]>
@@ -15,6 +16,39 @@ const num = (v: unknown) => Number(v) || 0
 
 export function personTotals(tables: Tables, orgId: string, periodId: string): Map<string, number> {
   return personTotalsFromTables(tables, orgId, periodId)
+}
+
+/** In-memory twin of SQL payroll_week_minimum_unanswered (built from the TS rule functions it mirrors). */
+export function minimumUnanswered(tables: Tables, orgId: string, periodId: string): string[] {
+  const period = (tables.payroll_periods ?? []).find((p) => p.id === periodId && p.org_id === orgId)
+  if (!period) return []
+  const org = (tables.orgs ?? []).find((o) => o.id === orgId)
+  const sched = readPayWeekSchedule(org?.settings, (org?.timezone as string) || null)
+  const d = cutoffYmd(String(period.cutoff_at), sched)
+  const prev = (tables.payroll_periods ?? []).filter((p) => p.org_id === orgId && p.id !== periodId && p.status !== 'cancelled' && String(p.cutoff_at) < String(period.cutoff_at)).map((p) => cutoffYmd(String(p.cutoff_at), sched)).sort().pop()
+  const gap = prev ? daysBetweenYmd(prev, d) : 0
+  const days = gap >= 1 && gap <= 13 ? gap : 7
+  const out: string[] = []
+  const assigned = (tables.user_comp_plans ?? []).filter((u) => u.org_id === orgId && String(u.effective_from) <= d && (u.effective_to == null || String(u.effective_to) >= d))
+  for (const uid of Array.from(new Set(assigned.map((a) => a.user_id as string)))) {
+    const a = assigned.filter((x) => x.user_id === uid).sort((x, y) => String(y.effective_from).localeCompare(String(x.effective_from)))[0]
+    const rule = parseWeeklyMinimum((tables.comp_plans ?? []).find((c) => c.id === a.comp_plan_id)?.weekly_minimum)
+    const user = (tables.users ?? []).find((u) => u.id === uid && u.org_id === orgId)
+    if (!rule || !user || user.is_test_account) continue
+    const mine = (t: string) => (tables[t] ?? []).filter((r) => r.org_id === orgId && r.payroll_period_id === periodId && r.user_id === uid)
+    const lines = [
+      ...mine('payroll_payout_lines').map((r) => ({ kind: 'Commission', amount: num(r.net_amount) })),
+      ...mine('payroll_rep_hours').filter((r) => num(r.hourly_earnings) > 0).map((r) => ({ kind: 'Hourly', amount: num(r.hourly_earnings) })),
+      ...mine('payroll_unit_earnings').filter((r) => num(r.amount) > 0).map((r) => ({ kind: 'Units', amount: num(r.amount) })),
+      ...mine('payroll_bonus_lines').filter((r) => r.status === 'approved' || r.status === 'paid').map((r) => ({ kind: 'Bonus', amount: num(r.amount) })),
+      ...mine('payroll_adjustments').filter((r) => r.status !== 'void').map((r) => ({ kind: 'Adjustment', amount: num(r.amount), adjustmentKind: r.kind as string, jobId: (r.job_id as string) ?? null })),
+    ]
+    const gapAmt = r2(weekMinimumFor(rule, days) - minimumBasisTotal(lines, rule.basis))
+    if (gapAmt <= 0 || !(rule.needsCheck || user.active === false)) continue
+    if ((tables.payroll_week_minimums ?? []).some((m) => m.payroll_period_id === periodId && m.user_id === uid && m.met != null)) continue
+    out.push(uid)
+  }
+  return out
 }
 
 export const fakePayrollRpcs: Record<string, (args: Record<string, unknown>, tables: Tables) => unknown> = {
@@ -76,6 +110,7 @@ export const fakePayrollRpcs: Record<string, (args: Record<string, unknown>, tab
       else tables.payroll_week_minimums.push({ id: id('min'), org_id: orgId, payroll_period_id: periodId, user_id: m.user_id, amount: r2(m.amount), detail: m.detail, met: null })
     }
 
+    if (minimumUnanswered(tables, orgId, periodId).length) throw new Error('payroll_commit:minimum_unanswered')
     const totals = personTotals(tables, orgId, periodId)
     const total = r2(Array.from(totals.values()).reduce((s, v) => s + Math.max(0, v), 0))
     if (total !== r2(num(args.p_expected_total))) throw new Error(`payroll_commit:total_mismatch:${total}:${r2(num(args.p_expected_total))}`)
@@ -166,5 +201,32 @@ export const fakePayrollRpcs: Record<string, (args: Record<string, unknown>, tab
     if (tables.payroll_week_minimums) tables.payroll_week_minimums = tables.payroll_week_minimums.filter((m) => m.payroll_period_id !== from.id)
     from.status = 'cancelled'
     return { ok: true, hours: h, bonuses: b, fixes: a }
+  },
+  payroll_week_minimum_unanswered: (args, tables) => minimumUnanswered(tables, args.p_org_id as string, args.p_period_id as string).map((user_id) => ({ user_id })),
+  payroll_set_pay_week: (args, tables) => {
+    const orgId = args.p_org_id as string
+    const org = (tables.orgs ?? []).find((o) => o.id === orgId)
+    if (!org) throw new Error('pay_week:org_not_found')
+    org.settings = { ...((org.settings as Record<string, unknown>) ?? {}), payWeek: args.p_pay_week }
+    const sched = readPayWeekSchedule(org.settings, (org.timezone as string) || null)
+    const cutDay = (sched.weekStartDay + 6) % 7
+    const old = (tables.payroll_periods ?? []).filter((p) => p.org_id === orgId && p.status === 'open' && weekdayOfYmd(cutoffYmd(String(p.cutoff_at), sched)) !== cutDay).sort((a, b) => String(a.cutoff_at).localeCompare(String(b.cutoff_at)))
+    let closed = 0
+    for (const p of old) {
+      const d = cutoffYmd(String(p.cutoff_at), sched)
+      const tc = nextWeekCutoff(String(p.cutoff_at), sched)
+      let target = (tables.payroll_periods ?? []).find((x) => x.org_id === orgId && x.status !== 'cancelled' && sameWeekEnding(String(x.cutoff_at), tc, sched))
+      if (!target) {
+        target = { id: `wk-${Math.random().toString(36).slice(2, 8)}`, org_id: orgId, period_label: weekLabel(tc, sched), cutoff_at: tc.toISOString(), lock_at: tc.toISOString(), scheduled_pay_date: payDateFor(tc, sched), status: 'open', created_at: new Date().toISOString() }
+        tables.payroll_periods.push(target)
+      }
+      try {
+        fakePayrollRpcs.payroll_move_open_week({ p_org_id: orgId, p_from_id: p.id, p_to_id: target.id }, tables)
+      } catch (e) {
+        throw new Error(`pay_week:${d}:${(e as Error).message}`)
+      }
+      closed += 1
+    }
+    return { ok: true, closed }
   },
 }

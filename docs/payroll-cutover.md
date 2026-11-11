@@ -26,7 +26,7 @@ second rule for every job (not only financed ones — see Open questions). It di
 3. **Cancel the stale July week**: run `supabase/data-fixes/2026-11-12_close_stale_payroll_week.sql` (previews ARX only), then
    `SELECT release_backups.close_stale_payroll_weeks('<ARX org id>', 'apply');` (one company per run). Prod today: one week, `2026-W27`, with 36 h / $180.00 of hours
    (entered 2026-07-06) and a rejected bonus. **Confirm the $180 was paid outside first.** Undo:
-   `SELECT release_backups.undo_close_stale_payroll_weeks();`.
+   `SELECT release_backups.undo_close_stale_payroll_weeks('<ARX org id>');` (company or run id required).
 4. **Set ARX's pay week** (owner, on the Pay screen once the flag is on — or before, with the same values in SQL):
    Monday start, closes Sunday 11:59 PM, payday Friday, late money Wednesday 11:59 PM. ARX's last CRM week was 2026-08-16, so the
    first new week is a normal 7-day week (no in-between week).

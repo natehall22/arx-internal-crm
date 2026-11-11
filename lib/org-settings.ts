@@ -4,7 +4,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
  * THE per-key writer for `orgs.settings` (Known Redundancy #25). One SQL function, `merge_org_settings` (migration
  * 202611060010), changes only the given keys at one place in settings — the top level (`path: []`) or one nested
  * object (`path: ['brand']`) — inside a single UPDATE, so a concurrent save of another key is never lost.
- * Users: job catch-up (top level), pricing (`/api/admin/pricing` org_settings, top level), brand (`lib/org-brand.ts` saveBrandSettings, path ['brand']), feature switches (`/api/admin/settings` type 'features', path ['features']), industry profile (lib/org-profile-server.ts + company seed, path ['profile']), sales tax (`lib/sales-tax-server.ts` saveSalesTaxSettings, path ['salesTax']), pay week (`lib/payroll-week-schedule-server.ts` savePayWeekSchedule, path ['payWeek']).
+ * Users: job catch-up (top level), pricing (`/api/admin/pricing` org_settings, top level), brand (`lib/org-brand.ts` saveBrandSettings, path ['brand']), feature switches (`/api/admin/settings` type 'features', path ['features']), industry profile (lib/org-profile-server.ts + company seed, path ['profile']), sales tax (`lib/sales-tax-server.ts` saveSalesTaxSettings, path ['salesTax']), (the pay week is NOT written here: SQL payroll_set_pay_week via savePayWeekSchedule, so the setting and the closing of old weeks are one transaction).
  * Until the migration is applied, ONLY a missing function (PGRST202 / 42883) falls back to read → merge → write of
  * the same keys; any other error (permission denied, no such org) is returned.
  */

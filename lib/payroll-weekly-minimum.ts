@@ -18,7 +18,16 @@ import { isMissingColumn, isMissingTable } from '@/lib/supabase/errors'
  * prorate (default true): a week that is not 7 days long (the one in-between week after a pay-week change: 1–13 days) gets
  * amount × days / 7. Off = the full amount whatever the week's length.
  */
-export type WeeklyMinimumRule = { amount: number; needsCheck: boolean; prorate: boolean }
+export type WeeklyMinimumRule = { amount: number; needsCheck: boolean; prorate: boolean; basis: MinimumBasis }
+
+/**
+ * What the minimum is compared with (the plan's `basis`):
+ *   'gross' (default): everything the person EARNED that week — commission, hourly, per-unit pay, bonuses, and fixes tied to a job
+ *                      (clawbacks included, so a -$300 job fix lowers it). Carried balances and fixes with no job (advances, draws,
+ *                      other repayments) are applied AFTER the floor, never inside it.
+ *   'commission':      commission lines + job fixes only.
+ */
+export type MinimumBasis = 'gross' | 'commission'
 
 /** The stored rule, or null when the plan has none / it is malformed. Pure. */
 export function parseWeeklyMinimum(raw: unknown): WeeklyMinimumRule | null {
@@ -26,7 +35,7 @@ export function parseWeeklyMinimum(raw: unknown): WeeklyMinimumRule | null {
   const r = raw as Record<string, unknown>
   const amount = Number(r.amount)
   if (!Number.isFinite(amount) || amount <= 0 || amount > 100_000) return null
-  return { amount: roundMoney(amount), needsCheck: r.needsCheck !== false, prorate: r.prorate !== false }
+  return { amount: roundMoney(amount), needsCheck: r.needsCheck !== false, prorate: r.prorate !== false, basis: r.basis === 'commission' ? 'commission' : 'gross' }
 }
 
 /** What the office may save as a rule (null clears it). */
@@ -67,23 +76,29 @@ export function weekMinimumFor(rule: WeeklyMinimumRule, weekDays: number): numbe
 }
 
 /**
- * Which of a person's lines count toward the minimum ("the greater of $X or what they earned"): their commission lines, plus fixes
- * tied to a job (a correction to commission). NOT counted: hourly, per-unit pay, bonuses, balances carried from earlier weeks, fixes
- * with no job, and the minimum line itself. So $180 commission + a $200 job fix = $380 earned → a $500 minimum adds $120 ($500 check),
- * never $700. Pure.
+ * Which of a person's lines count toward the minimum, for the plan's basis (see MinimumBasis). Never counted: carried balances,
+ * fixes with no job, and the minimum line itself. Pure.
  */
-export function countsTowardMinimum(line: { kind: string; adjustmentKind?: string | null; jobId?: string | null }): boolean {
+export function countsTowardMinimum(line: { kind: string; adjustmentKind?: string | null; jobId?: string | null }, basis: MinimumBasis = 'gross'): boolean {
   if (line.kind === 'Commission') return true
-  return line.kind === 'Adjustment' && line.adjustmentKind === 'fix' && !!line.jobId
+  if (line.kind === 'Adjustment') return line.adjustmentKind === 'fix' && !!line.jobId
+  if (basis === 'gross') return line.kind === 'Hourly' || line.kind === 'Units' || line.kind === 'Bonus'
+  return false
+}
+
+/** The person's basis total for the week from their lines. Pure. */
+export function minimumBasisTotal(lines: ReadonlyArray<{ kind: string; amount: number; adjustmentKind?: string | null; jobId?: string | null }>, basis: MinimumBasis): number {
+  return lines.filter((l) => countsTowardMinimum(l, basis)).reduce((s, l) => roundMoney(s + roundMoney(l.amount)), 0)
 }
 
 /** "Greater of $500 or commission: $500 − $180 commission = $320". Pure. */
-export function weeklyMinimumMath(minimum: number, commission: number, topUp: number, weekDays = 7): string {
+export function weeklyMinimumMath(minimum: number, earned: number, topUp: number, weekDays = 7, basis: MinimumBasis = 'gross'): string {
   const short = weekDays !== 7 ? ` (${weekDays}-day week)` : ''
-  return `Greater of ${fmt(minimum)}${short} or earnings: ${fmt(minimum)} − ${fmt(roundMoney(commission))} earned = ${fmt(topUp)}`
+  const what = basis === 'commission' ? 'commission' : 'earnings'
+  return `Greater of ${fmt(minimum)}${short} or ${what}: ${fmt(minimum)} − ${fmt(roundMoney(earned))} ${basis === 'commission' ? 'commission' : 'earned'} = ${fmt(topUp)}`
 }
 
-export type WeekMinimum = { userId: string; amount: number; detail: { minimum: number; commission: number; planName: string | null; weekDays?: number } }
+export type WeekMinimum = { userId: string; amount: number; detail: { minimum: number; commission: number; planName: string | null; weekDays?: number; basis?: MinimumBasis } }
 
 export type MinimumDecision = { met: boolean | null }
 
