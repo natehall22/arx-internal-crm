@@ -61,7 +61,10 @@ function memStore(db: ReturnType<typeof world>) {
         db.tables.supplier_order_sends.push({ id, ...row })
         return { id }
       }),
-      insertSendLines: jest.fn(async () => ({})),
+      insertSendLines: jest.fn(async (rows: Record<string, unknown>[]) => {
+        db.tables.supplier_order_send_lines.push(...rows)
+        return {}
+      }),
       insertSendSourcing: jest.fn(async () => ({})),
       completeSend: jest.fn(async (id: string, patch: Record<string, unknown>) => {
         Object.assign(db.tables.supplier_order_sends.find((s) => s.id === id)!, patch)
@@ -169,7 +172,7 @@ describe('sending is explicit, previewed and safe', () => {
     const p1 = await previewToken(db, id)
     await executePoSend(db.client as never, ORG, id, { requested: 'order', previewToken: p1.previewToken, confirmResend: false }, actor, { store: m.store as never, transmit })
     db.tables.supplier_orders[0].acknowledged_at = '2026-11-02T00:00:00Z'
-    const edit = parsePoDraft(draftBody({ lines: [{ description: 'Gravel load', quantity: 5, unitCost: '100' }] }))
+    const edit = parsePoDraft(draftBody({ lines: [{ id: db.tables.purchase_order_lines[0].id, description: 'Gravel load', quantity: 5, unitCost: '100' }] }))
     if (!edit.ok) throw new Error('x')
     await savePoDraft(db.client as never, target, USER, edit.value, id)
     const p2 = await previewToken(db, id)
