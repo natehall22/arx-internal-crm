@@ -23,6 +23,7 @@
  * of `total` so callers add `dealer_fee_amount` once via `jobDirectCost` — never twice.
  */
 import { roundMoney } from '@/lib/money'
+import { isMissingProjectToolsSchema } from '@/lib/project-tools/budget-db'
 
 /** Exact description of the system line mirrored from `production_jobs.dealer_fee_amount`. */
 export const DEALER_FEE_COST_LINE_DESCRIPTION = 'Lender / dealer fee'
@@ -72,6 +73,8 @@ export type JobCostLedgerLine = {
   source: JobCostLineSource | null
   vendor_id: string | null
   vendor_name: string | null
+  /** Company cost code (project tools). Only filled when the ledger was loaded with `withCostCodes`; null = by cost_type. */
+  cost_code?: string | null
   created_at: string
   updated_at: string
 }
@@ -218,7 +221,9 @@ const LEDGER_PAGE = 1000
 export async function loadJobCostLedger(
   client: LedgerClient,
   orgId: string,
-  jobIds: ReadonlyArray<string>
+  jobIds: ReadonlyArray<string>,
+  /** `withCostCodes` also selects `cost_code` (needs migration 202611120080) — only the project-tools budget card asks. */
+  opts: { withCostCodes?: boolean } = {}
 ): Promise<JobCostLedger> {
   const ids = Array.from(new Set(jobIds.filter(Boolean)))
   const linesByJob = new Map<string, JobCostLedgerLine[]>()
@@ -232,7 +237,7 @@ export async function loadJobCostLedger(
     for (let from = 0; ; from += LEDGER_PAGE) {
       const { data, error } = await client
         .from('job_cost_lines')
-        .select(JOB_COST_LEDGER_COLUMNS)
+        .select(opts.withCostCodes ? `${JOB_COST_LEDGER_COLUMNS}, cost_code` : JOB_COST_LEDGER_COLUMNS)
         .eq('org_id', orgId)
         .eq('status', 'active')
         .is('deleted_at', null)
@@ -260,6 +265,7 @@ export async function loadJobCostLedger(
           : null,
         vendor_id: (raw.vendor_id as string | null) ?? null,
         vendor_name: vendorNameOf(raw.vendor),
+        ...(opts.withCostCodes ? { cost_code: typeof raw.cost_code === 'string' && raw.cost_code ? raw.cost_code : null } : {}),
         created_at: String(raw.created_at ?? ''),
         updated_at: String(raw.updated_at ?? raw.created_at ?? ''),
       }
@@ -408,8 +414,10 @@ export async function addJobCostLine(
     source: JobCostLineSource
     incurredOn?: string | null
     purchaseOrderBillId?: string | null
+    /** Project tools: a cost code from the company's list (the caller has already validated it). */
+    costCode?: string | null
   }
-): Promise<{ ok: true; line: { id: string; description: string; amount: number; cost_type: string; status: string; approved: boolean } } | { ok: false; error: string; duplicate?: boolean }> {
+): Promise<{ ok: true; line: { id: string; description: string; amount: number; cost_type: string; status: string; approved: boolean } } | { ok: false; error: string; duplicate?: boolean; missingSchema?: boolean }> {
   const { data, error } = await client
     .from('job_cost_lines')
     .insert({
@@ -424,10 +432,11 @@ export async function addJobCostLine(
       incurred_on: args.incurredOn ?? new Date().toISOString().slice(0, 10),
       created_by: args.userId,
       ...(args.purchaseOrderBillId ? { purchase_order_bill_id: args.purchaseOrderBillId } : {}),
+      ...(args.costCode ? { cost_code: args.costCode } : {}),
       ...NEW_COST_LINE_PAYROLL_FLAGS,
     })
     .select('id, description, amount, cost_type, status, approved')
     .single()
-  if (error) return { ok: false, error: error.message, duplicate: error.code === '23505' }
+  if (error) return { ok: false, error: error.message, duplicate: error.code === '23505', missingSchema: !!args.costCode && isMissingProjectToolsSchema(error) }
   return { ok: true, line: data }
 }

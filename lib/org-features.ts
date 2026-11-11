@@ -62,6 +62,11 @@ export const ORG_FEATURE_DEFS = {
     description: 'Bill a job or a plan by the hour: crew and machine hours from the time clock (or typed for subs) become invoice lines after your rounding and minimum rules, on the Hours to bill screen.',
     defaultOn: false,
   },
+  projectTools: {
+    label: 'Project tools (budgets, selections, schedule, daily log)',
+    description: 'Budget vs actual by cost code on each job, customer selections with allowances (overages become signed change orders), a stage schedule you can start from a template, and a one-tap daily log with photos.',
+    defaultOn: false,
+  },
   onlinePayments: {
     label: 'Online payments (Stripe)',
     description: 'Customers pay invoices and deposits by card or bank from a link, save a card for automatic payments on service plans, and payments are recorded on their own. Money goes to your own Stripe account.',

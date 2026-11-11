@@ -32,6 +32,9 @@ import SuppliersClient from '@/app/admin/suppliers/SuppliersClient'
 import ContractSigningForm from '@/app/contracts/sign/[token]/CustomerSigningForm'
 import ChangeOrderSigningForm from '@/app/change-orders/sign/[token]/CustomerSigningForm'
 import CrewPhotoCapture from '@/app/crew/[token]/CrewPhotoCapture'
+import JobProjectTools from '@/components/project-tools/JobProjectTools'
+import SelectionClient from '@/components/selections/SelectionClient'
+import { HARNESS_PUBLIC_SELECTION } from '@/e2e/fixtures'
 import MovedHostNotice, { type HandoffDeps } from '@/app/(canvass-app)/canvass/components/MovedHostNotice'
 import { HARNESS_CONTRACT } from '@/e2e/fixtures'
 import { DEFAULT_DOCUMENT_BRAND } from '@/lib/org-brand'
@@ -286,7 +289,7 @@ export default function Harness({ params }: { params: { screen: string } }) {
     case 'org-features':
       return (
         <div className="mx-auto max-w-2xl p-4">
-          <OrgFeaturesCard initial={{ canvassing: false, insurance: false, roofMeasure: true, incentives: false, stormAlerts: false, squaresPricing: true, servicePlans: true, timeTracking: false, hourlyBilling: false, onlinePayments: false, customerMessages: false, aiConnector: false }} />
+          <OrgFeaturesCard initial={{ canvassing: false, insurance: false, roofMeasure: true, incentives: false, stormAlerts: false, squaresPricing: true, servicePlans: true, timeTracking: false, hourlyBilling: false, projectTools: false, onlinePayments: false, customerMessages: false, aiConnector: false }} />
         </div>
       )
     case 'org-profile':
@@ -435,6 +438,14 @@ export default function Harness({ params }: { params: { screen: string } }) {
       return <UiKitHarness />
     case 'default-plans':
       return <div className="p-3"><DefaultPlansCard /></div>
+    case 'project-tools-money':
+      return <div className="mx-auto max-w-xl p-3"><JobProjectTools part="money" jobId="job-1" canEdit isOwner /></div>
+    case 'project-tools-crews':
+      return <div className="mx-auto max-w-xl p-3"><JobProjectTools part="crews" jobId="job-1" canEdit isOwner={false} /></div>
+    case 'selection-customer':
+      return <SelectionClient token="abcdefghijklmnopqrstuvwx" view={HARNESS_PUBLIC_SELECTION as never} />
+    case 'crew-daily-log':
+      return <CrewPhotoCapture token="tok" tradeLabel="Framing" addressText="12 Elm Street, Concord NC 28025" jobNumber="26-0042" initialCounts={{ final_front: 1 }} brand={DEFAULT_DOCUMENT_BRAND} dailyLog />
     case 'my-pay':
       return <div className="mx-auto max-w-xl p-4"><MyPayClient /></div>
     case 'admin-settings':

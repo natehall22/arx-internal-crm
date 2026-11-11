@@ -13,6 +13,9 @@ import {
   resolveVendorId,
 } from '@/lib/job-cost-ledger'
 import { callerCanAccessJobBilling } from '@/lib/finance-access'
+import { costTypeForCode, isCostCodeSlug } from '@/lib/cost-codes'
+import { isOrgFeatureOn } from '@/lib/org-features-server'
+import { isMissingProjectToolsSchema, loadCostCodes, PROJECT_TOOLS_NOT_READY } from '@/lib/project-tools/budget-db'
 
 export const runtime = 'nodejs'
 
@@ -127,7 +130,18 @@ export async function POST(request: Request, { params }: { params: { id: string 
         { status: 400 }
       )
     }
-    const costType = normalizeJobCostType(body.cost_type, 'other')
+    // Project tools: a cost code from the company's list rides on the line; its cost_type keeps the Materials/Labor/Other rollups right.
+    let costCode: string | null = null
+    let costType = normalizeJobCostType(body.cost_type, 'other')
+    // Only when the company has project tools on: otherwise a cost_code in the body is ignored (the line is just a line).
+    if (isCostCodeSlug(body.cost_code) && (await isOrgFeatureOn(profile.org_id, 'projectTools'))) {
+      const codes = await loadCostCodes(supabase, profile.org_id)
+      if (!codes.some((c) => c.code === body.cost_code && c.active)) {
+        return NextResponse.json({ error: 'That cost code is not on your list' }, { status: 400 })
+      }
+      costCode = body.cost_code
+      costType = normalizeJobCostType(costTypeForCode(body.cost_code, codes), 'other')
+    }
     const amountRaw = body.amount
     const amountParsed =
       typeof amountRaw === 'number' && !Number.isNaN(amountRaw)
@@ -157,8 +171,11 @@ export async function POST(request: Request, { params }: { params: { id: string 
       credit: body.credit === true,
       vendorId,
       source: 'manual',
+      costCode,
     })
     if (!written.ok) {
+      // cost_code column not there yet (migration not applied): say so, do not 500.
+      if (written.missingSchema) return NextResponse.json({ error: PROJECT_TOOLS_NOT_READY }, { status: 409 })
       return NextResponse.json({ error: written.error }, { status: 500 })
     }
     const row = written.line
