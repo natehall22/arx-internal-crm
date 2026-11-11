@@ -44,7 +44,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
 
     const { doc, brand } = await normalizeReportDocForOrg(admin, report.doc, report)
     const address = doc.propertyAddressHeader || 'your property'
-    const shareUrl = `${await orgAppUrl(admin, profile.org_id)}/r/${report.share_token}`
+    const shareUrl = `${await orgAppUrl(profile.org_id)}/r/${report.share_token}`
 
     // Attach the PDF when it's email-sized (size unknown → download and check for real;
     // the buf.length check below is the actual gate)

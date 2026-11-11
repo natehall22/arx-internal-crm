@@ -1327,7 +1327,7 @@ async function sendNewPublicEstimateLeadAlerts(options: {
       // Nobody to tell yet (company inbox unknown) → fail the channel so a later unlock retries it.
       if (!emailRecipients.size) throw new Error('No alert recipients: org brand lookup failed')
       // Built inside the delivery: a missing app address fails (and later retries) this channel, never the unlock itself.
-      const leadUrl = `${await orgAppUrl(adminClient, orgId)}/leads/${leadId}`
+      const leadUrl = `${await orgAppUrl(orgId)}/leads/${leadId}`
       const alert = buildOpsAlertEmailContent({
         customerPath,
         name,

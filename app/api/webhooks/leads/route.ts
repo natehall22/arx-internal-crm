@@ -477,7 +477,7 @@ export async function POST(request: NextRequest) {
 
     // Email the lead's owner (same company, active). It used to go to one hardcoded ARX inbox for every company.
     if (owner?.email) try {
-      const appUrl = await orgAppUrl(adminClient, org_id)
+      const appUrl = await orgAppUrl(org_id)
       const leadUrl = `${appUrl}/leads/${lead.id}`
       const sourceLabel = String(source || 'web')
       const h = (v: unknown, fallback: string) => escapeHtml(String(v || fallback))

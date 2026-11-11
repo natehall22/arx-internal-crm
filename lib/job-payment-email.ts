@@ -63,7 +63,7 @@ export async function notifyAdminOpsOfJobPayment(
     return
   }
 
-  const jobLink = `${await orgAppUrl(supabase, params.orgId)}/ops/jobs/${params.jobId}`
+  const jobLink = `${await orgAppUrl(params.orgId)}/ops/jobs/${params.jobId}`
 
   const saleStr =
     params.saleAmountCents > 0 ? formatMoney(params.saleAmountCents) : '—'

@@ -514,7 +514,7 @@ export async function PATCH(request: NextRequest) {
     // docs/domain-cutover.md). Checked before a recovery token is minted.
     let appUrl: string
     try {
-      appUrl = await orgAppUrl(adminClient, targetUser.org_id)
+      appUrl = await orgAppUrl(targetUser.org_id)
     } catch {
       return NextResponse.json({ error: 'The app address is not configured, so a reset link cannot be built.' }, { status: 500 })
     }

@@ -67,7 +67,7 @@ export async function POST(
   // anything.
   let appUrl: string
   try {
-    appUrl = await orgAppUrl(supabase, job.org_id)
+    appUrl = await orgAppUrl(job.org_id)
   } catch {
     return NextResponse.json({ error: 'The app address is not configured, so a review link cannot be built.' }, { status: 500 })
   }

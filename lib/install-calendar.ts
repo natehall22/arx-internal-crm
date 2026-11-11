@@ -452,7 +452,7 @@ export async function syncInstallToCalendar(
   try {
     // Built inside the try: a missing app address (crew link) is recorded as this trade's sync failure, not a 500.
     // The crew photo link and the staff job link open on this company's own address.
-    const appUrl = params.appUrl ?? (await orgAppUrl(adminClient, trade.org_id))
+    const appUrl = params.appUrl ?? (await orgAppUrl(trade.org_id))
     const event = buildInstallEvent({
       jobId: trade.job_id,
       jobNumber: trade.job_number,

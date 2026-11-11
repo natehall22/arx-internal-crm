@@ -250,7 +250,7 @@ export async function POST(
             },
           })
 
-          const appUrl = await orgAppUrl(serviceClient, workOrder.org_id)
+          const appUrl = await orgAppUrl(workOrder.org_id)
 
           await transporter.sendMail({
             from: getCrmEmailFrom(),

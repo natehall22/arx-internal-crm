@@ -35,7 +35,7 @@ export async function POST(
     return NextResponse.redirect(new URL('/projects', request.url), { status: 303 })
   }
 
-  const signingUrl = `${await orgAppUrl(admin, contract.org_id)}/contracts/${contract.token}`
+  const signingUrl = `${await orgAppUrl(contract.org_id)}/contracts/${contract.token}`
 
   const transporter = nodemailer.createTransport({
     host: process.env.SMTP_HOST,

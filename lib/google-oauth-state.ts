@@ -155,7 +155,7 @@ async function verifyState(admin: SupabaseClient, state: string, now: number): P
 
   // The return host must be that org's own address — never a host taken from the request.
   // Uncached on purpose (security check): the one subdomain reader, lib/company-links.
-  const org = await readOrgSubdomain(admin, p.o)
+  const org = await readOrgSubdomain(p.o)
   if (!org.ok) return { ok: false, reason: 'unavailable' }
   const origin = companyAppUrl(org.subdomain, appBaseDomain())
   if (!origin || new URL(origin).hostname !== p.h) return { ok: false, reason: 'wrong_host' }

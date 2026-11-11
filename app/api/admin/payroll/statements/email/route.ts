@@ -98,7 +98,7 @@ export async function POST(request: NextRequest) {
       recipientUserId: userId,
       statement,
       brand: await getOrgBrand(supabase, orgId),
-      linkOrg: await loadOrgForLinks(supabase, orgId),
+      linkOrg: await loadOrgForLinks(orgId),
       attachPdf: body.attach_pdf !== false,
     })
 

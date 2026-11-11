@@ -122,7 +122,7 @@ export async function POST(request: NextRequest) {
 
     // The customer's link to their signed copy goes through the token route, never the bucket's public URL.
     const customerPdfUrl = pdfUrl
-      ? customerSignedDocUrl('change-order', String(changeOrder.signing_token), await tryOrgAppUrl(supabase, changeOrder.org_id, 'signed change-order link'))
+      ? customerSignedDocUrl('change-order', String(changeOrder.signing_token), await tryOrgAppUrl(changeOrder.org_id, 'signed change-order link'))
       : null
 
     if (changeOrder.customer_email) {

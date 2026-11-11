@@ -116,6 +116,9 @@ export function __resetCompanyHostCacheForTests(): void {
   foundCache.clear()
   notFoundCache.clear()
   inFlight.clear()
+  aliasFound.clear()
+  aliasUnknown.clear()
+  aliasInFlight.clear()
 }
 
 function putLru(map: Map<string, CacheEntry>, max: number, key: string, entry: CacheEntry): void {
@@ -195,6 +198,85 @@ async function fetchCompany(sub: string): Promise<CompanyLookup> {
     return typeof body === 'string' && body ? { status: 'found', orgId: body } : { status: 'not_found' }
   } catch (e) {
     console.error('company-host: lookup threw', e instanceof Error ? e.message : e)
+    return { status: 'error' }
+  }
+}
+
+/* ------------------------------------------------------------------------ *
+ * Retired names (renamed companies): old address → current web name
+ * ------------------------------------------------------------------------ */
+
+export type AliasLookup = { status: 'moved'; subdomain: string } | { status: 'not_found' } | { status: 'error' }
+
+type AliasEntry = { current: string | null; fresh: number }
+const aliasFound = new Map<string, AliasEntry>()
+const aliasUnknown = new Map<string, AliasEntry>()
+const aliasInFlight = new Map<string, Promise<AliasLookup>>()
+
+function putAlias(map: Map<string, AliasEntry>, max: number, key: string, entry: AliasEntry): void {
+  map.delete(key)
+  while (map.size >= max) {
+    const lru = map.keys().next().value
+    if (lru === undefined) break
+    map.delete(lru)
+  }
+  map.set(key, entry)
+}
+
+/**
+ * A name that is no company's CURRENT address may be one a company used before a rename
+ * (`org_subdomain_aliases`, migration 202611100090). Middleware asks this only after `lookupCompanyBySubdomain` said
+ * not_found, and answers `moved` with a 308 to the same path on the current address — so links already sent on the
+ * old address (/r, /crew, signing, reviews, staff emails) keep working while new links use the current name. Never
+ * used for sign-in: an alias host is not a company host. Function not deployed yet (PGRST202/404) = not_found.
+ * Same caching shape as the company lookup (found 60 s / unknown 30 s, separate LRUs, errors never cached).
+ */
+export async function lookupSubdomainAlias(subdomain: string): Promise<AliasLookup> {
+  const sub = normalizeSubdomain(subdomain)
+  if (!sub) return { status: 'not_found' }
+  const now = Date.now()
+  const hit = aliasFound.get(sub) ?? aliasUnknown.get(sub)
+  if (hit && hit.fresh > now) return hit.current ? { status: 'moved', subdomain: hit.current } : { status: 'not_found' }
+  const pending = aliasInFlight.get(sub)
+  if (pending) return pending
+  const p = fetchAlias(sub)
+    .then((r): AliasLookup => {
+      const at = Date.now()
+      if (r.status === 'moved') {
+        aliasUnknown.delete(sub)
+        putAlias(aliasFound, MAX_FOUND_ENTRIES, sub, { current: r.subdomain, fresh: at + FOUND_TTL_MS })
+      } else if (r.status === 'not_found') {
+        aliasFound.delete(sub)
+        putAlias(aliasUnknown, MAX_NOT_FOUND_ENTRIES, sub, { current: null, fresh: at + NOT_FOUND_TTL_MS })
+      }
+      return r
+    })
+    .finally(() => aliasInFlight.delete(sub))
+  aliasInFlight.set(sub, p)
+  return p
+}
+
+async function fetchAlias(sub: string): Promise<AliasLookup> {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  if (!url || !key) return { status: 'error' }
+  try {
+    const res = await fetch(`${url.replace(/\/$/, '')}/rest/v1/rpc/company_subdomain_for_alias`, {
+      method: 'POST',
+      headers: { apikey: key, Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ p_subdomain: sub }),
+      cache: 'no-store',
+    })
+    if (res.status === 404) return { status: 'not_found' } // migration 202611100090 not applied: no aliases exist
+    if (!res.ok) {
+      console.error('company-host: alias lookup failed', res.status)
+      return { status: 'error' }
+    }
+    const body: unknown = await res.json()
+    const current = typeof body === 'string' ? normalizeSubdomain(body) : null
+    return current && current !== sub ? { status: 'moved', subdomain: current } : { status: 'not_found' }
+  } catch (e) {
+    console.error('company-host: alias lookup threw', e instanceof Error ? e.message : e)
     return { status: 'error' }
   }
 }

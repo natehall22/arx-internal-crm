@@ -4,7 +4,22 @@ import path from 'path'
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 
-import { clientLinkBase, getAppUrl } from '@/lib/app-url'
+// The helper creates its own service client; tests swap in a fake one (installed by fakeClient / installClient).
+let currentClient: SupabaseClient | null = null
+const serviceCalls = { n: 0 }
+jest.mock('@/lib/supabase/service', () => ({
+  createServiceClient: () => {
+    serviceCalls.n += 1
+    if (!currentClient) throw new Error('no client')
+    return currentClient
+  },
+}))
+function installClient(c: SupabaseClient): SupabaseClient {
+  currentClient = c
+  return c
+}
+
+import { __resetAppUrlWarningsForTests, clientLinkBase, getAppUrl } from '@/lib/app-url'
 import {
   __resetCompanyLinksCacheForTests,
   loadOrgForLinks,
@@ -18,7 +33,9 @@ import { crewLinkUrl } from '@/lib/job-trades'
 import { buildNeedsYouHtml, buildTodayHtml } from '@/lib/morning-update-email'
 import { buildPayrollStatementEmailUrl } from '@/lib/payroll-statement-email'
 import { buildTrackedReviewLink } from '@/lib/review-requests'
+import { isPublicPath } from '@/lib/public-paths'
 
+const ROOT = path.resolve(__dirname, '..', '..')
 const SHARED = 'https://crm.example.test'
 const BASE = 'product.example.test'
 const ACME = `https://acme.${BASE}`
@@ -26,7 +43,7 @@ const ACME = `https://acme.${BASE}`
 type Row = { id: string; subdomain?: string | null }
 function fakeClient(opts: { rows?: Row[]; error?: { code?: string; message?: string } | null; calls?: { n: number } } = {}) {
   const calls = opts.calls ?? { n: 0 }
-  return {
+  return installClient({
     from(table: string) {
       expect(table).toBe('orgs')
       let id = ''
@@ -49,7 +66,7 @@ function fakeClient(opts: { rows?: Row[]; error?: { code?: string; message?: str
       }
       return q
     },
-  } as unknown as SupabaseClient
+  } as unknown as SupabaseClient)
 }
 
 const ORGS: Row[] = [
@@ -59,14 +76,20 @@ const ORGS: Row[] = [
 
 const env = { url: process.env.NEXT_PUBLIC_APP_URL, base: process.env.APP_BASE_DOMAIN }
 let errorSpy: jest.SpyInstance
+let warnSpy: jest.SpyInstance
 beforeEach(() => {
   __resetCompanyLinksCacheForTests()
+  __resetAppUrlWarningsForTests()
+  currentClient = null
+  serviceCalls.n = 0
+  warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined)
   process.env.NEXT_PUBLIC_APP_URL = SHARED
   process.env.APP_BASE_DOMAIN = BASE
   errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
 })
 afterEach(() => {
   errorSpy.mockRestore()
+  warnSpy.mockRestore()
   jest.useRealTimers()
   if (env.url === undefined) delete process.env.NEXT_PUBLIC_APP_URL
   else process.env.NEXT_PUBLIC_APP_URL = env.url
@@ -76,25 +99,25 @@ afterEach(() => {
 
 describe('loadOrgForLinks / orgAppUrl', () => {
   it("gives a company with a web name its own address and the original company (none set) the shared one", async () => {
-    const db = fakeClient({ rows: ORGS })
-    expect(await orgAppUrl(db, 'org-acme')).toBe(ACME)
-    expect(await orgAppUrl(db, 'org-arx')).toBe(SHARED)
-    expect(await orgAppUrl(db, null)).toBe(SHARED)
+    fakeClient({ rows: ORGS })
+    expect(await orgAppUrl('org-acme')).toBe(ACME)
+    expect(await orgAppUrl('org-arx')).toBe(SHARED)
+    expect(await orgAppUrl(null)).toBe(SHARED)
   })
 
   it('is byte-identical to today while routing is off, even for a company with a web name', async () => {
     delete process.env.APP_BASE_DOMAIN
-    const db = fakeClient({ rows: ORGS })
-    expect(await orgAppUrl(db, 'org-acme')).toBe(getAppUrl())
-    expect(await orgAppUrl(db, 'org-arx')).toBe(getAppUrl())
+    fakeClient({ rows: ORGS })
+    expect(await orgAppUrl('org-acme')).toBe(getAppUrl())
+    expect(await orgAppUrl('org-arx')).toBe(getAppUrl())
   })
 
   it('treats a missing column (migration not applied) as no web name and caches it', async () => {
     const calls = { n: 0 }
-    const db = fakeClient({ error: { code: '42703', message: 'column orgs.subdomain does not exist' }, calls })
-    expect(await readOrgSubdomain(db, 'org-acme')).toEqual({ ok: true, subdomain: null })
-    expect(await orgAppUrl(db, 'org-acme')).toBe(SHARED)
-    expect(await orgAppUrl(db, 'org-acme')).toBe(SHARED)
+    fakeClient({ error: { code: '42703', message: 'column orgs.subdomain does not exist' }, calls })
+    expect(await readOrgSubdomain('org-acme')).toEqual({ ok: true, subdomain: null })
+    expect(await orgAppUrl('org-acme')).toBe(SHARED)
+    expect(await orgAppUrl('org-acme')).toBe(SHARED)
     expect(calls.n).toBe(2) // one uncached read + one cached load
     expect(errorSpy).not.toHaveBeenCalled()
   })
@@ -102,48 +125,49 @@ describe('loadOrgForLinks / orgAppUrl', () => {
   it('caches for 60 s and dedupes concurrent loads', async () => {
     jest.useFakeTimers({ now: 1_000_000 })
     const calls = { n: 0 }
-    const db = fakeClient({ rows: ORGS, calls })
-    await Promise.all([loadOrgForLinks(db, 'org-acme'), loadOrgForLinks(db, 'org-acme')])
+    fakeClient({ rows: ORGS, calls })
+    await Promise.all([loadOrgForLinks('org-acme'), loadOrgForLinks('org-acme')])
     expect(calls.n).toBe(1)
     jest.setSystemTime(1_000_000 + 59_000)
-    await loadOrgForLinks(db, 'org-acme')
+    await loadOrgForLinks('org-acme')
     expect(calls.n).toBe(1)
     jest.setSystemTime(1_000_000 + 61_000)
-    await loadOrgForLinks(db, 'org-acme')
+    await loadOrgForLinks('org-acme')
     expect(calls.n).toBe(2)
   })
 
   it('on a read error reuses a recent answer, never caches the error, else falls back to the shared address (logged)', async () => {
     jest.useFakeTimers({ now: 1_000_000 })
     const rows = [...ORGS]
-    const good = fakeClient({ rows })
-    expect(await orgAppUrl(good, 'org-acme')).toBe(ACME)
+    fakeClient({ rows })
+    expect(await orgAppUrl('org-acme')).toBe(ACME)
     jest.setSystemTime(1_000_000 + 5 * 60_000)
-    const broken = fakeClient({ error: { code: '08006', message: 'connection reset' } })
-    expect(await orgAppUrl(broken, 'org-acme')).toBe(ACME)
+    fakeClient({ error: { code: '08006', message: 'connection reset' } })
+    expect(await orgAppUrl('org-acme')).toBe(ACME)
     jest.setSystemTime(1_000_000 + 11 * 60_000)
-    expect(await orgAppUrl(broken, 'org-acme')).toBe(SHARED)
+    expect(await orgAppUrl('org-acme')).toBe(SHARED)
     expect(errorSpy).toHaveBeenCalled()
     // A throwing client is the same as an error.
-    const throwing = { from: () => { throw new Error('boom') } } as unknown as SupabaseClient
-    expect(await orgAppUrl(throwing, 'org-new')).toBe(SHARED)
+    installClient({ from: () => { throw new Error('boom') } } as unknown as SupabaseClient)
+    expect(await orgAppUrl('org-new')).toBe(SHARED)
     // Recovery is immediate (the error was not cached).
-    expect(await orgAppUrl(good, 'org-acme')).toBe(ACME)
+    fakeClient({ rows })
+    expect(await orgAppUrl('org-acme')).toBe(ACME)
   })
 
   it('refuses a stored value that is not a valid web name', async () => {
-    const db = fakeClient({ rows: [{ id: 'org-x', subdomain: 'www' }, { id: 'org-y', subdomain: 'a.b' }] })
-    expect(await orgAppUrl(db, 'org-x')).toBe(SHARED)
-    expect(await orgAppUrl(db, 'org-y')).toBe(SHARED)
+    fakeClient({ rows: [{ id: 'org-x', subdomain: 'www' }, { id: 'org-y', subdomain: 'a.b' }] })
+    expect(await orgAppUrl('org-x')).toBe(SHARED)
+    expect(await orgAppUrl('org-y')).toBe(SHARED)
   })
 
   it('tryOrgAppUrl returns null (logged) when nothing is configured; orgAppUrl throws', async () => {
     delete process.env.NEXT_PUBLIC_APP_URL
-    const db = fakeClient({ rows: ORGS })
-    expect(await tryOrgAppUrl(db, 'org-arx', 'test')).toBeNull()
-    await expect(orgAppUrl(db, 'org-arx')).rejects.toThrow('App address is not configured')
+    fakeClient({ rows: ORGS })
+    expect(await tryOrgAppUrl('org-arx', 'test')).toBeNull()
+    await expect(orgAppUrl('org-arx')).rejects.toThrow('App address is not configured')
     // A company with its own address still gets it.
-    expect(await tryOrgAppUrl(db, 'org-acme', 'test')).toBe(ACME)
+    expect(await tryOrgAppUrl('org-acme', 'test')).toBe(ACME)
   })
 })
 
@@ -158,19 +182,20 @@ describe('every link type uses the company address it is handed, and is unchange
   ]
 
   it.each(cases)('%s', async (_name, build) => {
-    const db = fakeClient({ rows: ORGS })
-    const acme = build(await orgAppUrl(db, 'org-acme'))
-    const arx = build(await orgAppUrl(db, 'org-arx'))
+    fakeClient({ rows: ORGS })
+    const acme = build(await orgAppUrl('org-acme'))
+    const arx = build(await orgAppUrl('org-arx'))
     expect(acme.startsWith(`${ACME}/`)).toBe(true)
     expect(arx.startsWith(`${SHARED}/`)).toBe(true)
     expect(acme.slice(ACME.length)).toBe(arx.slice(SHARED.length))
   })
 
   it('ARX (no web name) links are byte-identical to the pre-change builders', async () => {
-    const arx = await orgAppUrl(fakeClient({ rows: ORGS }), 'org-arx')
+    fakeClient({ rows: ORGS })
+    const arx = await orgAppUrl('org-arx')
     expect(crewLinkUrl(TOKEN, arx)).toBe(crewLinkUrl(TOKEN))
     expect(customerSignedDocUrl('contract', TOKEN, arx)).toBe(customerSignedDocUrl('contract', TOKEN))
-    expect(buildPayrollStatementEmailUrl('p', await loadOrgForLinks(fakeClient({ rows: ORGS }), 'org-arx'))).toBe(
+    expect(buildPayrollStatementEmailUrl('p', await loadOrgForLinks('org-arx'))).toBe(
       buildPayrollStatementEmailUrl('p')
     )
     expect(buildTodayHtml([], arx)).toBe(buildTodayHtml([]))
@@ -179,7 +204,8 @@ describe('every link type uses the company address it is handed, and is unchange
   })
 
   it('payroll statement takes the loaded company directly', async () => {
-    const acme = await loadOrgForLinks(fakeClient({ rows: ORGS }), 'org-acme')
+    fakeClient({ rows: ORGS })
+    const acme = await loadOrgForLinks('org-acme')
     expect(buildPayrollStatementEmailUrl('p', acme)).toBe(`${ACME}/commissions/statement/p`)
   })
 
@@ -264,7 +290,7 @@ describe('guard: server links are built for a company', () => {
 
   it('the morning email sender hands its builders the company address', () => {
     const src = fs.readFileSync(path.join(root, 'lib/morning-update-email.ts'), 'utf8')
-    expect(src).toMatch(/await tryOrgAppUrl\(supabase, params\.orgId,/)
+    expect(src).toMatch(/await tryOrgAppUrl\(params\.orgId,/)
     expect(src).toMatch(/buildMorningUpdateHtml\(metrics, \{[^}]*\bappUrl\b[^}]*\}\)/)
   })
 })
@@ -274,28 +300,28 @@ describe('wiring: each sent link is built on the record company address', () => 
   // record (or the signed-in user's own org, which is the record's org because every record read is org-scoped).
   const root = path.resolve(__dirname, '..', '..')
   const WIRING: Array<[string, string, RegExp]> = [
-    ['signing link: contract created', 'app/api/contracts/create/route.ts', /orgAppUrl\(supabase, profile\.org_id\)[\s\S]*\$\{appUrl\}\/contracts\/sign\//],
-    ['signing link: contract re-sent', 'app/api/contracts/[id]/send/route.ts', /\$\{await orgAppUrl\(admin, contract\.org_id\)\}\/contracts\//],
-    ['signing link: change order', 'app/api/change-orders/create/route.ts', /orgAppUrl\(createServiceClient\(\), profile\.org_id\)[\s\S]*\$\{appUrl\}\/change-orders\/sign\//],
-    ['signed contract download', 'app/api/contracts/sign/route.ts', /customerSignedDocUrl\('contract', [^\n]*tryOrgAppUrl\(supabase, contract\.org_id,/],
-    ['contract signed: admin sale email', 'app/api/contracts/sign/route.ts', /tryOrgAppUrl\(supabase, contract\.org_id, 'contract signed: admin sale email'\)/],
-    ['signed change-order download', 'app/api/change-orders/sign/route.ts', /tryOrgAppUrl\(supabase, changeOrder\.org_id,/],
-    ['/r report link', 'app/api/inspection-reports/[id]/send/route.ts', /\$\{await orgAppUrl\(admin, profile\.org_id\)\}\/r\//],
-    ['review link (SMS)', 'app/api/jobs/[id]/review-request/route.ts', /orgAppUrl\(supabase, job\.org_id\)/],
-    ['password reset', 'app/api/admin/users/route.ts', /orgAppUrl\(adminClient, targetUser\.org_id\)[\s\S]*\$\{appUrl\}\/reset-password/],
-    ['employee agreement', 'app/api/admin/employee-agreements/route.ts', /orgAppUrl\(admin, claimed\.org_id as string\)/],
-    ['crew links (crews list)', 'app/api/ops/jobs/[id]/trades/route.ts', /tryOrgAppUrl\(admin, orgId,[\s\S]*crewLinkUrl\(t\.crew_link_token, appUrl\)/],
-    ['calendar invite', 'lib/install-calendar.ts', /params\.appUrl \?\? \(await orgAppUrl\(adminClient, trade\.org_id\)\)/],
-    ['sub work order complete', 'app/api/subs/work-orders/[id]/complete/route.ts', /orgAppUrl\(serviceClient, workOrder\.org_id\)/],
-    ['canvass lead emails', 'app/api/canvass/lead/route.ts', /orgAppUrl\(createServiceClient\(\), profile\.org_id\)/],
-    ['webhook lead email', 'app/api/webhooks/leads/route.ts', /orgAppUrl\(adminClient, org_id\)/],
-    ['appointment email', 'app/api/appointments/[id]/route.ts', /orgAppUrl\(adminClient, profile\.org_id\)/],
-    ['website estimate lead', 'lib/public-estimate-lead.ts', /\$\{await orgAppUrl\(adminClient, orgId\)\}\/leads\//],
-    ['payment email', 'lib/job-payment-email.ts', /\$\{await orgAppUrl\(supabase, params\.orgId\)\}\/ops\/jobs\//],
-    ['thread notifications', 'lib/threads/notify.ts', /\$\{await orgAppUrl\(admin, input\.orgId\)\}\$\{path\}/],
-    ['payroll statement (manual)', 'app/api/admin/payroll/statements/email/route.ts', /linkOrg: await loadOrgForLinks\(supabase, orgId\)/],
-    ['payroll statement (approve)', 'lib/payroll-approve.ts', /loadOrgForLinks\(admin, orgId\)/],
-    ['morning update (cron)', 'lib/morning-update-email.ts', /tryOrgAppUrl\(supabase, params\.orgId,/],
+    ['signing link: contract created', 'app/api/contracts/create/route.ts', /orgAppUrl\(profile\.org_id\)[\s\S]*\$\{appUrl\}\/contracts\/sign\//],
+    ['signing link: contract re-sent', 'app/api/contracts/[id]/send/route.ts', /\$\{await orgAppUrl\(contract\.org_id\)\}\/contracts\//],
+    ['signing link: change order', 'app/api/change-orders/create/route.ts', /orgAppUrl\(profile\.org_id\)[\s\S]*\$\{appUrl\}\/change-orders\/sign\//],
+    ['signed contract download', 'app/api/contracts/sign/route.ts', /customerSignedDocUrl\('contract', [^\n]*tryOrgAppUrl\(contract\.org_id,/],
+    ['contract signed: admin sale email', 'app/api/contracts/sign/route.ts', /tryOrgAppUrl\(contract\.org_id, 'contract signed: admin sale email'\)/],
+    ['signed change-order download', 'app/api/change-orders/sign/route.ts', /tryOrgAppUrl\(changeOrder\.org_id,/],
+    ['/r report link', 'app/api/inspection-reports/[id]/send/route.ts', /\$\{await orgAppUrl\(profile\.org_id\)\}\/r\//],
+    ['review link (SMS)', 'app/api/jobs/[id]/review-request/route.ts', /orgAppUrl\(job\.org_id\)/],
+    ['password reset', 'app/api/admin/users/route.ts', /orgAppUrl\(targetUser\.org_id\)[\s\S]*\$\{appUrl\}\/reset-password/],
+    ['employee agreement', 'app/api/admin/employee-agreements/route.ts', /orgAppUrl\(claimed\.org_id as string\)/],
+    ['crew links (crews list)', 'app/api/ops/jobs/[id]/trades/route.ts', /tryOrgAppUrl\(orgId,[\s\S]*crewLinkUrl\(t\.crew_link_token, appUrl\)/],
+    ['calendar invite', 'lib/install-calendar.ts', /params\.appUrl \?\? \(await orgAppUrl\(trade\.org_id\)\)/],
+    ['sub work order complete', 'app/api/subs/work-orders/[id]/complete/route.ts', /orgAppUrl\(workOrder\.org_id\)/],
+    ['canvass lead emails', 'app/api/canvass/lead/route.ts', /orgAppUrl\(profile\.org_id\)/],
+    ['webhook lead email', 'app/api/webhooks/leads/route.ts', /orgAppUrl\(org_id\)/],
+    ['appointment email', 'app/api/appointments/[id]/route.ts', /orgAppUrl\(profile\.org_id\)/],
+    ['website estimate lead', 'lib/public-estimate-lead.ts', /\$\{await orgAppUrl\(orgId\)\}\/leads\//],
+    ['payment email', 'lib/job-payment-email.ts', /\$\{await orgAppUrl\(params\.orgId\)\}\/ops\/jobs\//],
+    ['thread notifications', 'lib/threads/notify.ts', /\$\{await orgAppUrl\(input\.orgId\)\}\$\{path\}/],
+    ['payroll statement (manual)', 'app/api/admin/payroll/statements/email/route.ts', /linkOrg: await loadOrgForLinks\(orgId\)/],
+    ['payroll statement (approve)', 'lib/payroll-approve.ts', /loadOrgForLinks\(orgId\)/],
+    ['morning update (cron)', 'lib/morning-update-email.ts', /tryOrgAppUrl\(params\.orgId,/],
   ]
   it.each(WIRING)('%s', (_name, file, pattern) => {
     expect(fs.readFileSync(path.join(root, file), 'utf8')).toMatch(pattern)
@@ -313,5 +339,62 @@ describe('wiring: each sent link is built on the record company address', () => 
       expect(src).toMatch(/clientLinkBase\(/)
       expect(src).not.toMatch(/window\.location\.origin|NEXT_PUBLIC_APP_URL/)
     }
+  })
+})
+
+describe('review fixes', () => {
+  it('reads with the service client it creates itself; callers cannot hand in a client', async () => {
+    expect(loadOrgForLinks.length).toBe(1)
+    expect(orgAppUrl.length).toBe(1)
+    expect(tryOrgAppUrl.length).toBe(2)
+    expect(readOrgSubdomain.length).toBe(1)
+    fakeClient({ rows: ORGS })
+    await loadOrgForLinks('org-acme')
+    expect(serviceCalls.n).toBe(1)
+    // A missing service key is a read error (shared address, logged), never a thrown request.
+    __resetCompanyLinksCacheForTests()
+    currentClient = null
+    expect(await orgAppUrl('org-acme')).toBe(SHARED)
+    expect(errorSpy).toHaveBeenCalled()
+  })
+
+  describe('cutover guard: routing on, company has no web name', () => {
+    it('falls back to the legacy shared address and says so', async () => {
+      fakeClient({ rows: ORGS })
+      expect(await orgAppUrl('org-arx')).toBe(SHARED)
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('has no web name'))
+    })
+    it('builds no link when the fallback is the bare product domain or another company address', async () => {
+      fakeClient({ rows: ORGS })
+      for (const fallback of [`https://${BASE}`, `https://www.${BASE}`, ACME]) {
+        process.env.NEXT_PUBLIC_APP_URL = fallback
+        await expect(orgAppUrl('org-arx')).rejects.toThrow('no web name')
+        expect(await tryOrgAppUrl('org-arx', 't')).toBeNull()
+        // A company with its own name is unaffected.
+        expect(await orgAppUrl('org-acme')).toBe(ACME)
+      }
+    })
+    it('no warning or change while routing is off, and bare getAppUrl() is untouched', async () => {
+      fakeClient({ rows: ORGS })
+      delete process.env.APP_BASE_DOMAIN
+      expect(await orgAppUrl('org-arx')).toBe(SHARED)
+      expect(warnSpy).not.toHaveBeenCalled()
+      process.env.APP_BASE_DOMAIN = BASE
+      process.env.NEXT_PUBLIC_APP_URL = `https://${BASE}`
+      expect(getAppUrl()).toBe(`https://${BASE}`)
+    })
+  })
+
+  it('compensation agreement pages are public token pages and print the company, not a fixed brand', () => {
+    expect(isPublicPath('/comp-agreements/sign/tok')).toBe(true)
+    expect(isPublicPath('/comp-agreements/receipt/tok')).toBe(true)
+    expect(isPublicPath('/comp-agreements')).toBe(false)
+    for (const f of ['app/comp-agreements/sign/[token]/page.tsx', 'app/comp-agreements/receipt/[token]/page.tsx']) {
+      const src = fs.readFileSync(path.join(ROOT, f), 'utf8')
+      expect(src).not.toMatch(/ARX/)
+      expect(src).toMatch(/getOrgBrand\(admin, data\.org_id\)/)
+    }
+    const send = fs.readFileSync(path.join(ROOT, 'app/api/admin/employee-agreements/route.ts'), 'utf8')
+    expect(send).not.toMatch(/`ARX /)
   })
 })

@@ -467,7 +467,7 @@ export async function sendMorningUpdateEmail(
   }
 
   // Links open on this company's own address. Null (logged) = the builders fall back to / fail on NEXT_PUBLIC_APP_URL as before.
-  const appUrl = await tryOrgAppUrl(supabase, params.orgId, 'morning update links')
+  const appUrl = await tryOrgAppUrl(params.orgId, 'morning update links')
   const htmlFor = (to: string): string => {
     const focus = focusFor(to)
     const today = todayByFocus.get(focus) ?? null

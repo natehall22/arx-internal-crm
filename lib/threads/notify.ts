@@ -71,7 +71,7 @@ export async function notifyMessage(admin: SupabaseClient, input: NotifyInput): 
   // Email: mentions and needs-reply/urgent only. Blind mentions carry no text.
   try {
     if (!process.env.SMTP_HOST) return
-    const link = `${await orgAppUrl(admin, input.orgId)}${path}`
+    const link = `${await orgAppUrl(input.orgId)}${path}`
     const { data: users } = await admin.from('users').select('id, email, full_name').in('id', rows.map((r) => r.userId))
     const transporter = nodemailer.createTransport({
       host: process.env.SMTP_HOST,

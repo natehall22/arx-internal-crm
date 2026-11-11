@@ -1332,7 +1332,7 @@ export async function POST(request: Request) {
         // ARX inbox for every company. No such person → no email.
         const alertTo = (await resolveCompanyRecipient(supabase, profile.org_id, [], 'inspection_without_closer').catch(() => null))?.email
         if (alertTo) try {
-          const appUrl = await orgAppUrl(createServiceClient(), profile.org_id)
+          const appUrl = await orgAppUrl(profile.org_id)
           const leadUrl = `${appUrl}/leads/${leadRow.id}`
           const scheduledTime = formatInspectionTimeEt(inspectionScheduledFor)
 
@@ -1401,7 +1401,7 @@ export async function POST(request: Request) {
             closerProfile?.email &&
             (await isUserActiveForTransactionalEmail(createServiceClient(), closerUserId))
           ) {
-            const appUrl = await orgAppUrl(createServiceClient(), profile.org_id)
+            const appUrl = await orgAppUrl(profile.org_id)
             const recordUrl = opportunityId ? `${appUrl}/opportunities/${opportunityId}` : `${appUrl}/leads/${leadRow.id}`
             const closerName = closerProfile.full_name || 'Closer'
 

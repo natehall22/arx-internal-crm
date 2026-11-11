@@ -337,7 +337,7 @@ export async function PATCH(
       // Email both assignees when SMTP is configured (in-app notifications alone are not email).
       try {
         if (process.env.SMTP_HOST) {
-        const appUrl = await orgAppUrl(adminClient, profile.org_id)
+        const appUrl = await orgAppUrl(profile.org_id)
         const recordUrl = appointment.opportunity_id
           ? `${appUrl}/opportunities/${appointment.opportunity_id}`
           : `${appUrl}/leads/${appointment.lead_id}`

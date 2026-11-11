@@ -118,7 +118,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Checked before the row is written: a change order sent for signature needs a working signing link.
-    const appUrl = isSendToCustomer ? await orgAppUrl(createServiceClient(), profile.org_id) : null
+    const appUrl = isSendToCustomer ? await orgAppUrl(profile.org_id) : null
 
     // Insert change order record
     const { data: changeOrder, error: insertError } = await supabase

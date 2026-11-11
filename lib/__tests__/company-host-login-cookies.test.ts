@@ -115,6 +115,42 @@ describe('middleware company gate', () => {
     expect((await middleware(pageReq('a.b.crm-product.test', '/login'))).status).toBe(404)
   })
 
+  test("a company's former address (renamed) → 308 to the same path on its current address; new names unaffected", async () => {
+    const ALIASES: Record<string, string> = { 'acme-old': 'acme' }
+    fetchMock.mockImplementation(async (u: string, init: { body: string }) => {
+      const sub = JSON.parse(init.body).p_subdomain
+      const body = u.endsWith('/company_subdomain_for_alias') ? ALIASES[sub] ?? null : ORGS[sub] ?? null
+      return { ok: true, status: 200, json: async () => body }
+    })
+    for (const p of ['/r/tok?x=1', '/crew/t', '/contracts/sign/t', '/change-orders/sign/t', '/api/r/t', '/today']) {
+      const res = await middleware(pageReq('acme-old.crm-product.test', p))
+      expect(res.status).toBe(308)
+      expect(res.headers.get('location')).toBe(`https://acme.crm-product.test${p}`)
+    }
+    // Still 404 for a name that was never anyone's.
+    expect((await middleware(pageReq('nobody.crm-product.test', '/r/tok'))).status).toBe(404)
+    // A current name never consults aliases.
+    fetchMock.mockClear()
+    expect((await middleware(pageReq('acme.crm-product.test', '/r/tok'))).status).toBe(200)
+    expect(fetchMock.mock.calls.every(([u]) => !String(u).endsWith('/company_subdomain_for_alias'))).toBe(true)
+  })
+
+  test('alias lookup: function not deployed (404) = no alias; outage = 503', async () => {
+    fetchMock.mockImplementation(async (u: string, init: { body: string }) =>
+      u.endsWith('/company_subdomain_for_alias')
+        ? { ok: false, status: 404, json: async () => ({}) }
+        : { ok: true, status: 200, json: async () => ORGS[JSON.parse(init.body).p_subdomain] ?? null }
+    )
+    expect((await middleware(pageReq('acme-old.crm-product.test', '/r/t'))).status).toBe(404)
+    __resetCompanyHostCacheForTests()
+    fetchMock.mockImplementation(async (u: string, init: { body: string }) =>
+      u.endsWith('/company_subdomain_for_alias')
+        ? { ok: false, status: 500, json: async () => ({}) }
+        : { ok: true, status: 200, json: async () => ORGS[JSON.parse(init.body).p_subdomain] ?? null }
+    )
+    expect((await middleware(pageReq('acme-old.crm-product.test', '/r/t'))).status).toBe(503)
+  })
+
   test('known company → login served; root goes to the CRM, not the marketing page', async () => {
     const res = await middleware(pageReq('acme.crm-product.test', '/login'))
     expect(res.status).toBe(200)

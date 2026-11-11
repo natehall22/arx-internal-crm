@@ -98,7 +98,7 @@ export async function GET(_request: Request, { params }: { params: { id: string 
   // Crew links open on this company's own address (lib/company-links). They are extra on this list: a missing app
   // address leaves them out (logged) instead of failing the Crews tab.
   const appUrl = ((tradesData ?? []) as { crew_link_token?: string | null }[]).some((t) => t.crew_link_token)
-    ? await tryOrgAppUrl(admin, orgId, 'crews list: crew photo links')
+    ? await tryOrgAppUrl(orgId, 'crews list: crew photo links')
     : null
   return NextResponse.json({
     canEdit: canEditJobs,

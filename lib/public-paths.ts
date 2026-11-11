@@ -20,7 +20,10 @@ export function isPublicPath(pathname: string | null | undefined): boolean {
     pathname.startsWith('/contracts/') ||
     pathname.startsWith('/change-orders/sign/') ||
     pathname.startsWith('/r/') || // public inspection-report share links (unguessable tokens)
-    pathname.startsWith('/crew/') || // crew photo links from install invites (unguessable per-trade tokens)
+    pathname.startsWith('/crew/') ||
+    // compensation agreements a new hire signs from an email (hashed per-agreement tokens; no account needed)
+    pathname.startsWith('/comp-agreements/sign/') ||
+    pathname.startsWith('/comp-agreements/receipt/') || // crew photo links from install invites (unguessable per-trade tokens)
     pathname.startsWith('/_next/') ||
     pathname === '/favicon.ico' ||
     pathname.endsWith('.json') ||

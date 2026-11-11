@@ -53,7 +53,7 @@ export async function emailWeekStatements(admin: SupabaseClient, orgId: string, 
   const week = await loadPayWeek(admin, orgId, new Date(), periodId)
   const out: EmailSummary = { sent: 0, skipped: 0, failed: 0 }
   const brand = await getOrgBrand(admin, orgId)
-  const linkOrg = await loadOrgForLinks(admin, orgId)
+  const linkOrg = await loadOrgForLinks(orgId)
   for (const p of week.people.filter((x) => x.total > 0)) {
     try {
       const { data: user } = await admin.from('users').select('id, full_name, email').eq('id', p.userId).eq('org_id', orgId).maybeSingle()

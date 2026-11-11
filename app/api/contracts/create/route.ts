@@ -198,7 +198,7 @@ export async function POST(request: NextRequest) {
                      'unknown'
 
     // Checked before the row is written: a contract with no working signing link must not be created.
-    const appUrl = await orgAppUrl(supabase, profile.org_id)
+    const appUrl = await orgAppUrl(profile.org_id)
 
     const { data: contract, error: insertError } = await supabase
       .from('order_form_contracts')

@@ -3,7 +3,7 @@
  *
  * `getAppUrl(org)` (lib/app-url.ts) turns `{ subdomain }` into https://<subdomain>.<APP_BASE_DOMAIN>; this module is
  * the ONE reader of `orgs.subdomain` that feeds it, so a route that builds a link for a record calls
- * `orgAppUrl(client, record.org_id)` (or `tryOrgAppUrl` where the link is optional) instead of `getAppUrl()`.
+ * `orgAppUrl(record.org_id)` (or `tryOrgAppUrl` where the link is optional) instead of `getAppUrl()`.
  *
  * - No subdomain, routing off (APP_BASE_DOMAIN unset) or migration 202611100070 not applied → NEXT_PUBLIC_APP_URL,
  *   byte-identical to before.
@@ -11,20 +11,21 @@
  *   Read errors are never cached: a known answer ≤ 10 min old is reused, otherwise the link falls back to
  *   NEXT_PUBLIC_APP_URL (the shared address, which keeps serving every company during the overlap) and logs.
  * - `readOrgSubdomain` is the uncached, fail-closed form for security checks (Google connect return host).
+ * - Reads ALWAYS use the service client, created here — callers never hand one in. A user-scoped client under RLS
+ *   could read "no row" for another company and that wrong answer would be cached for every caller.
  */
-import type { SupabaseClient } from '@supabase/supabase-js'
-
 import { getAppUrl, tryGetAppUrl } from '@/lib/app-url'
 import { normalizeSubdomain } from '@/lib/company-host'
 import { isMissingColumn } from '@/lib/supabase/errors'
+import { createServiceClient } from '@/lib/supabase/service'
 
 export type OrgLinkTarget = { subdomain: string | null }
 
 export type OrgSubdomainRead = { ok: true; subdomain: string | null } | { ok: false }
 
 /** Uncached read of a company's stored web name. Missing column (migration not applied) = no subdomain. */
-export async function readOrgSubdomain(client: SupabaseClient, orgId: string): Promise<OrgSubdomainRead> {
-  const { data, error } = await client.from('orgs').select('subdomain').eq('id', orgId).maybeSingle()
+export async function readOrgSubdomain(orgId: string): Promise<OrgSubdomainRead> {
+  const { data, error } = await createServiceClient().from('orgs').select('subdomain').eq('id', orgId).maybeSingle()
   if (error) {
     if (isMissingColumn(error, 'subdomain')) return { ok: true, subdomain: null }
     return { ok: false }
@@ -45,7 +46,7 @@ export function __resetCompanyLinksCacheForTests(): void {
 }
 
 /** What a link for this company needs (its web name). Never throws. */
-export async function loadOrgForLinks(client: SupabaseClient, orgId: string | null | undefined): Promise<OrgLinkTarget> {
+export async function loadOrgForLinks(orgId: string | null | undefined): Promise<OrgLinkTarget> {
   if (!orgId) return { subdomain: null }
   const now = Date.now()
   const hit = cache.get(orgId)
@@ -53,7 +54,8 @@ export async function loadOrgForLinks(client: SupabaseClient, orgId: string | nu
   const pending = inFlight.get(orgId)
   if (pending) return pending
 
-  const p = readOrgSubdomain(client, orgId)
+  const p = Promise.resolve()
+    .then(() => readOrgSubdomain(orgId))
     .catch((): OrgSubdomainRead => ({ ok: false }))
     .then((r): OrgLinkTarget => {
       const at = Date.now()
@@ -79,11 +81,11 @@ export async function loadOrgForLinks(client: SupabaseClient, orgId: string | nu
 }
 
 /** The company's app origin for links (throws AppUrlNotConfiguredError like getAppUrl). */
-export async function orgAppUrl(client: SupabaseClient, orgId: string | null | undefined): Promise<string> {
-  return getAppUrl(await loadOrgForLinks(client, orgId))
+export async function orgAppUrl(orgId: string | null | undefined): Promise<string> {
+  return getAppUrl(await loadOrgForLinks(orgId))
 }
 
 /** Same, for a link that is only part of the work: logs and returns null instead of throwing. */
-export async function tryOrgAppUrl(client: SupabaseClient, orgId: string | null | undefined, context: string): Promise<string | null> {
-  return tryGetAppUrl(context, await loadOrgForLinks(client, orgId))
+export async function tryOrgAppUrl(orgId: string | null | undefined, context: string): Promise<string | null> {
+  return tryGetAppUrl(context, await loadOrgForLinks(orgId))
 }
