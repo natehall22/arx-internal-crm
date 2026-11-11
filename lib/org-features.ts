@@ -82,6 +82,11 @@ export const ORG_FEATURE_DEFS = {
     description: 'Visit reminders, “on the way” and “done” emails, quote follow-ups and invoice reminders, sent on their own. Each one is turned on separately in Settings → Customer messages.',
     defaultOn: false,
   },
+  texting: {
+    label: 'Text messages (two-way)',
+    description: 'Text your customers from the company’s own local number: reminders and “on the way” texts on their own, and staff can text a customer from their file. Customers’ replies land in the same conversation. Needs a registered number and the customer’s OK to text (Settings → Texting).',
+    defaultOn: false,
+  },
   aiConnector: {
     label: 'AI connector (Claude, ChatGPT)',
     description: 'People can connect their own AI app to look things up in the CRM as themselves. By default read-only; the AI sees only what that person can see, and every request is logged.',

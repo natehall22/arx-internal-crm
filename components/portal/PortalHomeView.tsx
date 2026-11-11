@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 
-import { CardControls, MessageBox, PayButton } from '@/components/portal/PortalActions'
+import { CardControls, MessageBox, PayButton, TextsToggle } from '@/components/portal/PortalActions'
 import { dayLabel, money, monthDay, shortDate } from '@/components/portal/format'
 import JobProgressCard from '@/components/portal/JobProgressCard'
 import PortalShell, { Panel, type PortalCompany } from '@/components/portal/PortalShell'
@@ -12,7 +12,7 @@ const link = 'inline-flex min-h-[44px] items-center text-base font-bold text-[#1
 const Empty = ({ children }: { children: React.ReactNode }) => <p className="text-base">{children}</p>
 
 /** The portal home: one scrolling page, each part only when there is something to show. */
-export default function PortalHomeView({ company, home, payOnline }: { company: PortalCompany; home: PortalHome; payOnline: boolean }) {
+export default function PortalHomeView({ company, home, payOnline, texting = false }: { company: PortalCompany; home: PortalHome; payOnline: boolean; texting?: boolean }) {
   const [messages, setMessages] = useState(home.messages)
   const toPay = home.invoices.filter((i) => i.balanceCents > 0)
 
@@ -165,6 +165,12 @@ export default function PortalHomeView({ company, home, payOnline }: { company: 
         )}
         <MessageBox onSent={(body) => setMessages((l) => [...l, { id: `new-${l.length}`, fromCustomer: true, body, date: new Date().toISOString() }])} />
       </Panel>
+
+      {texting ? (
+        <Panel title="Text messages">
+          <TextsToggle companyName={company.name} />
+        </Panel>
+      ) : null}
     </PortalShell>
   )
 }

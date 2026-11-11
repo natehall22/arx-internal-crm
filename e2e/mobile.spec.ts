@@ -318,6 +318,22 @@ const SCREENS: Screen[] = [
       { name: 'preview', run: async (p) => { await p.getByRole('button', { name: 'See the email' }).first().click(); await p.waitForSelector('[role=dialog] >> text=Subject:') } },
       { name: 'timing-dirty', run: async (p) => { await p.getByPlaceholder('between 8 AM and 5 PM').fill('8 to 5'); await p.waitForSelector('text=Save changes') } },
     ] },
+  { name: 'texting-settings', path: '/dev-harness/texting-settings', ready: 'text=Submit for registration',
+    mock: async (p) => {
+      await p.route('**/api/admin/texting', (route) => route.fulfill(json({
+        companyName: 'Harness Roofing & Exteriors', number: { e164: '+18505550199', display: '(850) 555-0199', kind: 'local', source: 'manual' },
+        status: 'active', statusText: 'Ready to text', notReady: null, rejectionReason: null, dailyCap: 300, blockers: [],
+        registration: { fields: [{ key: 'legalName', label: 'Legal business name', required: true, help: 'As on your tax papers', max: 120 }, { key: 'ein', label: 'EIN', required: true, help: 'Nine digits', max: 20 }], values: { legalName: 'Harness Roofing LLC', ein: '**-***1234' }, missing: [] },
+        submit: { enabled: false, note: 'Submitting from here isn’t available yet. Register your number with the carrier directly, then enter it above.' },
+        usage: { thisMonth: { out: { texts: 12, segments: 14, costMicros: 98000 }, in: { texts: 5, segments: 5, costMicros: 15000 }, cost: '$0.11' }, lastMonth: { out: { texts: 0, segments: 0, costMicros: 0 }, in: { texts: 0, segments: 0, costMicros: 0 }, cost: '$0.00' }, thisMonthLabel: '2026-11', lastMonthLabel: '2026-10' },
+        consent: { version: 'v1-2026-11', text: 'I agree to get text messages from Harness Roofing about my service.' },
+        inbox: [{ id: 'i1', from: '(850) 555-0777', body: 'Hi, do you do gutters? I got your number from a neighbor.', kind: 'message', at: '2026-11-11T15:00:00Z' }],
+      })))
+    } },
+  { name: 'text-customer-dialog', path: '/dev-harness/text-customer', ready: 'text=Text the customer',
+    mock: async (p) => {
+      await p.route('**/api/threads/d1/texting', (route) => route.fulfill(json({ enabled: true, lastCameBy: null, status: { state: 'ready', phone: '+18505550100', masked: '(850) ***-0100', via: 'consent', name: 'Jane Smith' } })))
+    } },
   { name: 'customer-messages-card', path: '/dev-harness/customer-messages-card', ready: 'text=Automatic emails' },
   { name: 'crew-day-clock', path: '/dev-harness/crew-day-clock', ready: 'text=Crew time',
     mock: async (p) => {

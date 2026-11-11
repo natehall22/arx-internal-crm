@@ -10,13 +10,16 @@ import { notifyMessage } from '@/lib/threads/notify'
 import { loadOrgFeatures } from '@/lib/org-features'
 import { createServiceClient } from '@/lib/supabase/service'
 import { sendCustomerReply } from '@/lib/customer-messages-db'
+import { STAFF_TEXT_MAX } from '@/lib/sms/compliance'
+import { loadTextDeliveries } from '@/lib/sms/delivery'
+import { textStatus } from '@/lib/sms/gate'
 import { loadMessage, postMessage } from '@/lib/threads/post-message'
 import { resolveByReply } from '@/lib/threads/waiting'
 import { AUDIENCES, canReadMessage, defaultAudience, writableAudiences, type Audience } from '@/lib/threads/visibility'
 
 async function customerChannelOn(orgId: string): Promise<boolean> {
   const f = await loadOrgFeatures(createServiceClient(), orgId)
-  return f.customerPortal || f.customerMessages
+  return f.customerPortal || f.customerMessages || f.texting
 }
 
 async function handleGET(request: Request, { params }: { params: { dealId: string } }) {
@@ -47,8 +50,13 @@ async function handleGET(request: Request, { params }: { params: { dealId: strin
   })
   const surfaceParam = url.searchParams.get('surface')
   const surface = surfaceParam === 'sales' || surfaceParam === 'job' || surfaceParam === 'overview' ? surfaceParam : 'other'
+  // Texts a staff member sent from here: delivered / waiting / not sent, under the message (only with texting on).
+  const features = await loadOrgFeatures(ctx.admin, ctx.viewer.orgId)
+  const toCustomerIds = features.texting ? timeline.messages.filter((m) => m.audience === 'customer').map((m) => m.id) : []
+  const textDeliveries = toCustomerIds.length ? await loadTextDeliveries(ctx.admin, ctx.viewer.orgId, toCustomerIds).catch(() => ({})) : {}
   return NextResponse.json({
     ...timeline,
+    ...(features.texting ? { texting: true, textDeliveries } : {}),
     writable: writableAudiences(ctx.viewer, dealRef, await customerChannelOn(ctx.viewer.orgId)),
     defaultAudience: defaultAudience(ctx.viewer, { surface }, dealRef),
     canAllowSetters: !ctx.viewer.pricingBarred,
@@ -74,6 +82,16 @@ async function handlePOST(request: Request, { params }: { params: { dealId: stri
   }
   if (body.contact !== undefined && !parseContact(body.contact)) {
     return NextResponse.json({ error: 'Pick how the contact went' }, { status: 400 })
+  }
+  // "Text customer": a reply TO the customer sent by text instead of email. Picked on purpose (never a default), and
+  // refused BEFORE anything is posted when the customer can't be texted (so nothing lands in their portal unsent).
+  const bySms = body.channel === 'sms'
+  if (bySms) {
+    if (body.audience !== 'customer') return NextResponse.json({ error: 'A text goes to the customer: pick “To customer”.' }, { status: 400 })
+    if (typeof body.body === 'string' && body.body.trim().length > STAFF_TEXT_MAX) return NextResponse.json({ error: `A text can be ${STAFF_TEXT_MAX} characters at most.` }, { status: 400 })
+    if (!deal.customer_id) return NextResponse.json({ error: 'This deal has no customer on file yet, so there is nobody to text.' }, { status: 409 })
+    const status = await textStatus(ctx.admin, ctx.viewer.orgId, deal.customer_id)
+    if (status.state === 'blocked') return NextResponse.json({ error: status.message, code: status.code }, { status: 409 })
   }
   const res = await postMessage(ctx.admin, ctx.profile, deal, {
     body: typeof body.body === 'string' ? body.body : '',
@@ -103,9 +121,9 @@ async function handlePOST(request: Request, { params }: { params: { dealId: stri
   }).catch((e) => console.error('notifyMessage', e))
 
   // "To customer": the customer also gets it by email (company From); the portal shows it either way.
-  const emailed = res.message.audience === 'customer' && deal.customer_id && !res.replayed ? await sendCustomerReply(ctx.admin, ctx.viewer.orgId, deal.customer_id, res.message.id, res.message.body) : undefined
+  const sent = res.message.audience === 'customer' && deal.customer_id && !res.replayed ? await sendCustomerReply(ctx.admin, ctx.viewer.orgId, deal.customer_id, res.message.id, res.message.body, bySms ? { channel: 'sms', userId: ctx.viewer.userId } : {}) : undefined
 
-  return NextResponse.json({ message: res.message, pricingNotice: res.pricingNotice, ...(emailed ? { emailed } : {}) })
+  return NextResponse.json({ message: res.message, pricingNotice: res.pricingNotice, ...(sent ? (bySms ? { texted: sent } : { emailed: sent }) : {}) })
 }
 
 async function dealLabel(admin: ThreadCtx['admin'], orgId: string, dealId: string) {

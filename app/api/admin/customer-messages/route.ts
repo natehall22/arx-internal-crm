@@ -12,7 +12,8 @@ import {
 } from '@/lib/customer-messages'
 import { BLOCK_REASON_TEXT, companyIdentity, customerMessagesReady, messageSettingsOf } from '@/lib/customer-messages-db'
 import { tryOrgAppUrl } from '@/lib/company-links'
-import { isOrgFeatureOn } from '@/lib/org-features-server'
+import { isOrgFeatureOn, getOrgFeatures } from '@/lib/org-features-server'
+import { loadOrgSms, smsNotReadyReason } from '@/lib/sms/org-sms'
 import { resolveOrgProfile, t } from '@/lib/org-profile'
 import { mergeOrgSettings } from '@/lib/org-settings'
 import { ymdInZone } from '@/lib/payroll-week-schedule'
@@ -46,8 +47,11 @@ async function view(admin: Admin, orgId: string) {
   const today = ymdInZone(new Date(), orgTimeZone(o.timezone))
   const word = t(resolveOrgProfile(o.settings), 'proposal')
   const samples = sampleMessages(company, settings, today, word)
+  // Texting offered per message only while the switch is on AND the company's number is ready.
+  const texting = (await getOrgFeatures(orgId)).texting && !smsNotReadyReason(await loadOrgSms(admin, orgId))
   return {
     settings,
+    texting,
     proposalWord: word,
     describe: describeMessages(settings, word),
     quiet: quietHoursPhrase(settings),

@@ -18,9 +18,23 @@ export const CUSTOMER_MESSAGES_SETTINGS_KEY = 'customerMessages'
 export const MESSAGE_KINDS = ['visit_reminder', 'visit_on_the_way', 'visit_done', 'quote_follow_up', 'invoice_reminder'] as const
 export type MessageKind = (typeof MESSAGE_KINDS)[number]
 
-/** Channels a message can go on. Only 'email' has a sender today (lib/customer-message-channels.ts). */
+/**
+ * Messages that are not automatic: a staff member's reply "To customer", and the answers a carrier requires to STOP / HELP /
+ * START. They share the send log, the sender and the channels with the automatic kinds, but are never scheduled, never
+ * listed in Settings, and never need an owner toggle.
+ */
+export const SYSTEM_KINDS = ['staff_reply', 'sms_compliance'] as const
+export type SystemKind = (typeof SYSTEM_KINDS)[number]
+/** Every kind a `customer_messages` row can have. */
+export type RowKind = MessageKind | SystemKind
+
+/** Channels a message can go on (lib/customer-message-channels.ts has one sender each). */
 export const MESSAGE_CHANNELS = ['email', 'sms'] as const
 export type MessageChannel = (typeof MESSAGE_CHANNELS)[number]
+
+/** How an owner sends a message: by email (the default — nothing changes), by text, or both. */
+export const MESSAGE_VIAS = ['email', 'text', 'both'] as const
+export type MessageVia = (typeof MESSAGE_VIAS)[number]
 
 export type CustomerMessageSettings = {
   visitReminder: boolean
@@ -40,9 +54,15 @@ export type CustomerMessageSettings = {
   invoiceReminder: boolean
   /** Days from the due date (−30…120; 0 = on the due day, 7 = a week overdue; ≤ 4 of them). */
   invoiceReminderDays: number[]
-  /** No message goes out from quietStart:00 to quietEnd:00 in the company's time zone (same hour = never quiet). */
+  /** No message goes out from quietStart:00 to quietEnd:00 in the company's time zone (same hour = never quiet). Texts also never go before 8 AM or from 9 PM. */
   quietStart: number
   quietEnd: number
+  /** How each message goes (only 'text' / 'both' once the `texting` switch is on and the company's number is ready). */
+  visitReminderVia: MessageVia
+  onTheWayVia: MessageVia
+  visitDoneVia: MessageVia
+  quoteFollowUpVia: MessageVia
+  invoiceReminderVia: MessageVia
 }
 
 export const DEFAULT_CUSTOMER_MESSAGE_SETTINGS: Readonly<CustomerMessageSettings> = Object.freeze({
@@ -59,6 +79,11 @@ export const DEFAULT_CUSTOMER_MESSAGE_SETTINGS: Readonly<CustomerMessageSettings
   invoiceReminderDays: [0, 7, 14],
   quietStart: 20,
   quietEnd: 8,
+  visitReminderVia: 'email',
+  onTheWayVia: 'email',
+  visitDoneVia: 'email',
+  quoteFollowUpVia: 'email',
+  invoiceReminderVia: 'email',
 })
 
 export const LIMITS = {
@@ -113,6 +138,7 @@ export function readCustomerMessageSettings(stored: unknown): CustomerMessageSet
   const s = asObject(stored)
   const d = DEFAULT_CUSTOMER_MESSAGE_SETTINGS
   const bool = (k: keyof CustomerMessageSettings) => (typeof s[k] === 'boolean' ? (s[k] as boolean) : (d[k] as boolean))
+  const via = (k: keyof CustomerMessageSettings): MessageVia => ((MESSAGE_VIAS as readonly unknown[]).includes(s[k]) ? (s[k] as MessageVia) : (d[k] as MessageVia))
   const hour = (k: 'quietStart' | 'quietEnd') => (isInt(s[k]) && (s[k] as number) >= 0 && (s[k] as number) <= 23 ? (s[k] as number) : d[k])
   return {
     visitReminder: bool('visitReminder'),
@@ -129,14 +155,38 @@ export function readCustomerMessageSettings(stored: unknown): CustomerMessageSet
     invoiceReminderDays: cleanDays(s.invoiceReminderDays, LIMITS.invoiceDays, LIMITS.invoiceSteps) ?? [...d.invoiceReminderDays],
     quietStart: hour('quietStart'),
     quietEnd: hour('quietEnd'),
+    visitReminderVia: via('visitReminderVia'),
+    onTheWayVia: via('onTheWayVia'),
+    visitDoneVia: via('visitDoneVia'),
+    quoteFollowUpVia: via('quoteFollowUpVia'),
+    invoiceReminderVia: via('invoiceReminderVia'),
   }
 }
 
-/** Any message turned on? (The sender skips a company with none.) */
-export function anyMessageOn(s: CustomerMessageSettings): boolean {
-  return s.visitReminder || s.onTheWay || s.visitDone || s.quoteFollowUp || s.invoiceReminder
+/** The on/off switch and the "how" key of each automatic message. */
+const KIND_KEYS: Record<MessageKind, { on: keyof CustomerMessageSettings; via: keyof CustomerMessageSettings }> = {
+  visit_reminder: { on: 'visitReminder', via: 'visitReminderVia' },
+  visit_on_the_way: { on: 'onTheWay', via: 'onTheWayVia' },
+  visit_done: { on: 'visitDone', via: 'visitDoneVia' },
+  quote_follow_up: { on: 'quoteFollowUp', via: 'quoteFollowUpVia' },
+  invoice_reminder: { on: 'invoiceReminder', via: 'invoiceReminderVia' },
 }
 
+/** Does this message go out on this channel? Needs its switch ON and its "how" to include the channel. */
+export function kindSentOn(s: CustomerMessageSettings, kind: MessageKind, channel: MessageChannel): boolean {
+  const k = KIND_KEYS[kind]
+  if (!(s[k.on] as boolean)) return false
+  const v = s[k.via] as MessageVia
+  return v === 'both' || (channel === 'email' ? v === 'email' : v === 'text')
+}
+
+/** Any message turned on (for this channel, when given)? The sender skips a company with none. */
+export function anyMessageOn(s: CustomerMessageSettings, channel?: MessageChannel): boolean {
+  const kinds = Object.keys(KIND_KEYS) as MessageKind[]
+  return channel ? kinds.some((k) => kindSentOn(s, k, channel)) : kinds.some((k) => s[KIND_KEYS[k].on] as boolean)
+}
+
+const VIA_KEYS = ['visitReminderVia', 'onTheWayVia', 'visitDoneVia', 'quoteFollowUpVia', 'invoiceReminderVia'] as const
 const BOOL_KEYS = ['visitReminder', 'onTheWay', 'visitDone', 'visitDonePhotos', 'quoteFollowUp', 'invoiceReminder'] as const
 
 /** A save from Settings: `{ customerMessages: { … } }` → the keys to merge (flat), or a plain-words refusal. */
@@ -166,6 +216,9 @@ export function parseCustomerMessageSettingsPatch(body: unknown): { set: Partial
       const days = cleanDays(v, LIMITS.invoiceDays, LIMITS.invoiceSteps)
       if (!days) return { error: 'Invoice reminders: 1 to 4 days, each from 30 before to 120 after the due date' }
       set.invoiceReminderDays = days
+    } else if ((VIA_KEYS as readonly string[]).includes(k)) {
+      if (!(MESSAGE_VIAS as readonly unknown[]).includes(v)) return { error: 'Pick email, text, or both' }
+      ;(set as Record<string, unknown>)[k] = v
     } else if (k === 'quietStart' || k === 'quietEnd') {
       if (!isInt(v) || v < 0 || v > 23) return { error: 'Quiet hours: pick an hour' }
       set[k] = v

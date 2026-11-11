@@ -8,6 +8,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { getDateRangeForTimeFrame } from '@/lib/date-ranges'
 import { formatDateShort, formatDateWeekday, formatMoney, formatCents, formatPhone, formatTime } from '@/lib/format'
 import { formatStormEventDateLabel, formatStormMagnitudeLabel, type StormAlertLayer } from '@/lib/storm-opportunity-alerts'
+import { maskE164 } from '@/lib/sms/phone'
 import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
 import { loadCheckups } from '@/lib/checkups'
 import { listBlockedQuotes } from '@/lib/quotes/blocked'
@@ -388,13 +389,40 @@ export async function loadOwnerExceptions(admin: SupabaseClient, orgId: string, 
     admin.from('production_jobs').select('id, job_number, address_text, scheduled_date', { count: 'exact' }).eq('org_id', orgId).in('status', ['sold', 'materials']).is('scheduled_date', null).order('sale_date').limit(LIST_CAP),
   ])
   ;[noOutcome, overdue, unscheduled].forEach(ok)
+  const texts = await loadSmsInboxQueue(admin, orgId)
   const queues = [
     apptQueue('no-outcome', 'Appointments with no outcome logged', (noOutcome.data ?? []) as ApptRow[], noOutcome.count ?? 0, '', true),
     { ...proposalQueue(stale.rows, stale.count, opts.money), title: 'Proposals waiting over a week, still unsigned' },
     jobQueue('overdue-installs', 'Installs past their date and not started', (overdue.data ?? []) as JobRow[], overdue.count ?? 0, ''),
     jobQueue('unscheduled-jobs', 'Sold jobs with no install date', (unscheduled.data ?? []) as JobRow[], unscheduled.count ?? 0, ''),
+    texts,
   ]
   return queues.filter((q) => q.count > 0)
+}
+
+/**
+ * Texts nobody has answered (lib/sms/inbound.ts): a number we could not match to one customer, or a "wrong number".
+ * Email-safe: masked number only, never the message body. Empty (and quiet) until the texting migration is applied.
+ */
+export async function loadSmsInboxQueue(admin: SupabaseClient, orgId: string, cap = LIST_CAP): Promise<Queue> {
+  const empty = { id: 'texts-waiting', title: 'Texts waiting for you', count: 0, items: [] as QueueItem[], empty: 'No texts waiting.' }
+  const { data, count, error } = await admin
+    .from('sms_inbound')
+    .select('id, from_e164, received_at', { count: 'exact' })
+    .eq('org_id', orgId)
+    .eq('status', 'needs_staff')
+    .order('received_at', { ascending: false })
+    .limit(cap)
+  if (error) return empty // table not there yet: nothing to show, never break Today
+  const items = ((data ?? []) as Array<{ id: string; from_e164: string; received_at: string }>).map((r) => ({
+    id: r.id,
+    title: 'Text from ' + (maskE164(r.from_e164) ?? 'an unknown number'),
+    detail: '',
+    href: '/admin/texting',
+    ref: maskE164(r.from_e164) ?? '',
+    note: 'Not matched to one customer',
+  }))
+  return { ...empty, count: count ?? items.length, items }
 }
 
 /**

@@ -23,6 +23,8 @@ import { orgDb } from '@/lib/supabase/org-db'
 import PortalAccessCard from '@/components/customer-file/PortalAccessCard'
 import { loadPortalAccessState } from '@/lib/portal/invite'
 import CustomerMessagesCard from '@/components/customer/CustomerMessagesCard'
+import TextingCard from '@/components/customer/TextingCard'
+import { loadCustomerTextingState } from '@/lib/sms/customer-state'
 import { loadCustomerMessageState } from '@/lib/customer-messages-db'
 import { resolveCustomerAccess } from '@/lib/customer-file/customer-access'
 import { getOrgFeatures } from '@/lib/org-features-server'
@@ -36,6 +38,15 @@ async function loadCustomerMessagesCard(viewer: ThreadViewer, customerId: string
   if (!access?.read) return null
   const state = await loadCustomerMessageState(admin, viewer.orgId, customerId)
   return state ? { state, canEdit: access.edit } : null
+}
+
+/** Texting card: only for a company with texting on, only for people who can open the customer (field roles never — no phone, no consent proof). */
+async function loadTextingCard(viewer: ThreadViewer, customerId: string) {
+  if (!(await getOrgFeatures(viewer.orgId)).texting) return null
+  const admin = createServiceClient()
+  const access = await resolveCustomerAccess(admin, viewer, customerId)
+  if (!access?.read || !access.edit) return null
+  return loadCustomerTextingState(admin, viewer.orgId, customerId)
 }
 
 async function loadTaxExemptionCard(orgId: string, customerId: string) {
@@ -88,7 +99,7 @@ async function Overview({ customerId, dealId }: { customerId: string; dealId: st
   const { job, deal, customer } = ctx
   // Checkups are job-side: only people with the job board see them (field roles never do).
   const admin = createServiceClient()
-  const [checkups, extras, taxExemption, messages] = await Promise.all([
+  const [checkups, extras, taxExemption, messages, texting] = await Promise.all([
     ctx.viewer.jobBoard || ctx.viewer.ownerLike
       ? loadCheckups(admin, ctx.viewer.orgId, { customerId: customer.id }).catch(() => null)
       : Promise.resolve(null),
@@ -97,6 +108,7 @@ async function Overview({ customerId, dealId }: { customerId: string; dealId: st
     // Sales tax exemption: billing staff, and only once the company has set up sales tax (lib/sales-tax.ts).
     ctx.canViewJobBilling ? loadTaxExemptionCard(ctx.viewer.orgId, customer.id).catch(() => null) : Promise.resolve(null),
     loadCustomerMessagesCard(ctx.viewer, customer.id).catch(() => null),
+    loadTextingCard(ctx.viewer, customer.id).catch(() => null),
   ])
   const showPortal = (ctx.viewer.ownerLike || ctx.viewer.managerLike || ctx.viewer.jobBoard) && (await getOrgFeatures(ctx.viewer.orgId)).customerPortal
   return (
@@ -138,6 +150,8 @@ async function Overview({ customerId, dealId }: { customerId: string; dealId: st
       )}
 
       {messages && <CustomerMessagesCard customerId={customer.id} initial={messages.state} canEdit={messages.canEdit} />}
+
+      {texting && <TextingCard state={texting} />}
 
       {taxExemption && <TaxExemptionCard proposalWord={ctx.proposalWord} customerId={customer.id} initial={taxExemption.initial} documents={taxExemption.documents} />}
 

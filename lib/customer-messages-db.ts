@@ -23,6 +23,22 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { tryOrgAppUrl } from '@/lib/company-links'
 import { channelSender, normalizeEmail, type MessageChannelSender } from '@/lib/customer-message-channels'
+import { suppressAddress, suppressionOf, type SuppressionReason } from '@/lib/customer-message-suppressions'
+import { smsWords } from '@/lib/sms/compliance'
+import { recordConsent } from '@/lib/sms/consent'
+import {
+  checkSmsRecipient,
+  outsideSmsFloor,
+  smsZones,
+  inConversation,
+  isSmsQuietHour,
+  SMS_MAX_PER_NUMBER_PER_DAY,
+  SMS_MAX_STAFF_PER_NUMBER_PER_DAY,
+} from '@/lib/sms/gate'
+import { loadOrgSms, smsNotReadyReason } from '@/lib/sms/org-sms'
+import { getSmsProvider, priceMicros } from '@/lib/sms/provider'
+import { countSegments } from '@/lib/sms/segments'
+import { logUsage, sentToday } from '@/lib/sms/usage'
 import type { EmailCompany } from '@/lib/customer-email-layout'
 import {
   CUSTOMER_MESSAGES_SETTINGS_KEY,
@@ -37,6 +53,7 @@ import {
   dueStep,
   hourInZone,
   isQuietHour,
+  kindSentOn,
   messageKey,
   readCustomerMessageSettings,
   renderInvoiceReminder,
@@ -52,6 +69,7 @@ import {
   type MessageContext,
   type MessageKind,
   type RenderedMessage,
+  type RowKind,
 } from '@/lib/customer-messages'
 import { orgLogoHref } from '@/lib/files/files-object'
 import { loadCustomerVisitPhotos } from '@/lib/customer-visit-photos'
@@ -80,7 +98,7 @@ export type MessageRow = {
   id: string
   org_id: string
   message_key: string
-  kind: MessageKind
+  kind: RowKind
   channel: MessageChannel
   status: 'queued' | 'sending' | 'sent' | 'skipped' | 'cancelled' | 'failed' | 'blocked'
   customer_id: string | null
@@ -115,6 +133,10 @@ export type SendContext = {
   appUrl: string
   proposalWord: string
   channel: MessageChannelSender
+  /** Texts only: the company's own number, its per-day ceiling, and the texts already sent today (counted once, then kept). */
+  sms: { from: string; dailyCap: number; sentToday: number | null } | null
+  /** Are the automatic messages (reminders, follow-ups …) on for THIS channel? A context may exist only to answer a staff reply or a STOP. */
+  autoOn: boolean
   /** Set when the company can't send yet (what to fix, in plain words): every due row is marked 'blocked' instead. */
   blocked: BlockReason | null
   /** Sends left in this run. */
@@ -182,26 +204,53 @@ export async function customerMessagesReady(admin: SupabaseClient, orgId: string
   throw new Error(`customer messages: ${error.message}`)
 }
 
-type ContextResult = { ok: true; ctx: SendContext } | { ok: false; reason: 'feature_off' | 'all_off' | 'no_email' | 'not_ready' | 'no_app_url' | 'no_org' | 'no_link_secret' }
+type ContextResult =
+  | { ok: true; ctx: SendContext }
+  | { ok: false; reason: 'feature_off' | 'all_off' | 'no_email' | 'not_ready' | 'no_app_url' | 'no_org' | 'no_link_secret' | 'sms_not_ready' }
+
+/**
+ * What the context is for. 'auto' = the scheduled / event messages (the company's `customerMessages` switch and at least
+ * one message on for the channel). 'reply' = a staff member's own text (only the `texting` switch). 'compliance' = the
+ * STOP / HELP / START answer a carrier requires (sent even when texting is off, but only to answer the person).
+ */
+export type ContextPurpose = 'auto' | 'reply' | 'compliance'
 
 /** Everything a send needs, or why nothing can be sent for this company right now. */
-export async function loadSendContext(admin: SupabaseClient, orgId: string, now: Date = new Date()): Promise<ContextResult> {
+export async function loadSendContext(
+  admin: SupabaseClient,
+  orgId: string,
+  now: Date = new Date(),
+  opts: { channel?: MessageChannel; purpose?: ContextPurpose } = {}
+): Promise<ContextResult> {
+  const channelId: MessageChannel = opts.channel ?? 'email'
+  const purpose: ContextPurpose = opts.purpose ?? 'auto'
+  const sms = channelId === 'sms'
   const features = await loadOrgFeatures(admin, orgId)
-  if (!features.customerMessages) return { ok: false, reason: 'feature_off' }
+  if (sms ? purpose !== 'compliance' && !features.texting : !features.customerMessages) return { ok: false, reason: 'feature_off' }
   const { data: org } = await admin.from('orgs').select('id, name, address, phone, email, settings, timezone, logo_url').eq('id', orgId).maybeSingle()
   if (!org) return { ok: false, reason: 'no_org' }
   const o = org as OrgRow
   const settings = messageSettingsOf(o.settings)
-  if (!anyMessageOn(settings)) return { ok: false, reason: 'all_off' }
-  const channel = channelSender('email')
-  if (!channel.available()) return { ok: false, reason: 'no_email' }
+  const autoOn = (!sms || features.customerMessages) && anyMessageOn(settings, channelId)
+  if (purpose === 'auto' && !autoOn) return { ok: false, reason: sms && !features.customerMessages ? 'feature_off' : 'all_off' }
+  const channel = channelSender(channelId)
+  if (!channel.available()) return { ok: false, reason: sms ? 'sms_not_ready' : 'no_email' }
   if (!linkSecret()) return { ok: false, reason: 'no_link_secret' }
   if (!(await customerMessagesReady(admin, orgId))) return { ok: false, reason: 'not_ready' }
-  // Every automatic message carries its own unsubscribe link on the company's address: no address, no message.
+  let smsRow: { from: string; dailyCap: number; sentToday: number | null } | null = null
+  if (sms) {
+    const row = await loadOrgSms(admin, orgId)
+    if (smsNotReadyReason(row) || !row?.e164) return { ok: false, reason: 'sms_not_ready' }
+    smsRow = { from: row.e164, dailyCap: row.daily_cap, sentToday: null }
+  }
+  // Every automatic EMAIL carries its own unsubscribe link on the company's address: no address, no message. A text
+  // needs the address only for the photo page link (automatic texts); a staff reply or a STOP answer needs none.
   const appUrl = await tryOrgAppUrl(orgId, 'customer-messages')
-  if (!appUrl) return { ok: false, reason: 'no_app_url' }
+  if (!appUrl && (!sms || purpose === 'auto')) return { ok: false, reason: 'no_app_url' }
   const timeZone = orgTimeZone(o.timezone)
   const id = companyIdentity(o, appUrl)
+  // A text goes out under the company's NAME and number: the email and postal address are an email's requirements.
+  const blocked = sms ? (id.missing.includes('missing_company_name') ? 'missing_company_name' : null) : (id.missing[0] ?? null)
   return {
     ok: true,
     ctx: {
@@ -215,10 +264,12 @@ export async function loadSendContext(admin: SupabaseClient, orgId: string, now:
       company: id.company,
       from: id.from,
       replyTo: id.company.email || null,
-      appUrl,
+      appUrl: appUrl ?? '',
       proposalWord: t(resolveOrgProfile(o.settings), 'proposal'),
       channel,
-      blocked: id.missing[0] ?? null,
+      sms: smsRow,
+      autoOn,
+      blocked,
       budget: { left: MAX_SENDS_PER_RUN },
       stats: emptyStats(),
     },
@@ -248,46 +299,21 @@ export async function loadCustomerMessagesBlockedQueue(admin: SupabaseClient, or
 
 // ── Opt-outs ────────────────────────────────────────────────────────────────────────────────────────────────────────
 
-export type SuppressionReason = 'unsubscribed' | 'bounced' | 'complained'
+export { suppressAddress, type SuppressionReason }
 
-/**
- * THE writer of the suppression list: this address gets no automatic message from this company again. The first
- * reason is kept. A provider webhook (bounces / complaints) would call this too.
- */
-export async function suppressAddress(
-  admin: SupabaseClient,
-  orgId: string,
-  channel: MessageChannel,
-  rawAddress: string,
-  reason: SuppressionReason,
-  opts: { messageId?: string | null; detail?: string | null } = {}
-): Promise<void> {
-  const address = channel === 'email' ? normalizeEmail(rawAddress) : rawAddress.trim().toLowerCase()
-  if (!address) return
-  const { error } = await orgDb(admin, orgId)
-    .from('customer_message_suppressions')
-    .upsert({ channel, address, reason, message_id: opts.messageId ?? null, detail: opts.detail?.slice(0, 300) ?? null }, { onConflict: 'org_id,channel,address', ignoreDuplicates: true })
-  if (error) throw new Error(`suppress address: ${error.message}`)
-}
-
-async function suppressionOf(admin: SupabaseClient, orgId: string, channel: MessageChannel, address: string): Promise<{ reason: SuppressionReason; created_at: string } | null> {
-  const { data } = await orgDb(admin, orgId).from('customer_message_suppressions').select('reason, created_at').eq('channel', channel).eq('address', address).maybeSingle()
-  return (data as { reason: SuppressionReason; created_at: string } | null) ?? null
-}
-
-type CustomerFacts = { id: string; name: string | null; email: string | null; off: boolean }
+type CustomerFacts = { id: string; name: string | null; email: string | null; phone: string | null; off: boolean }
 
 async function loadCustomer(admin: SupabaseClient, orgId: string, customerId: string | null): Promise<CustomerFacts | null> {
   if (!customerId) return null
-  const { data, error } = await orgDb(admin, orgId).from('customers').select('id, name, email, messages_off_at').eq('id', customerId).maybeSingle()
+  const { data, error } = await orgDb(admin, orgId).from('customers').select('id, name, email, phone, messages_off_at').eq('id', customerId).maybeSingle()
   if (error && isMissingColumn(error, 'messages_off_at')) return null
-  const c = data as { id: string; name: string | null; email: string | null; messages_off_at: string | null } | null
-  return c ? { id: c.id, name: c.name, email: c.email, off: !!c.messages_off_at } : null
+  const c = data as { id: string; name: string | null; email: string | null; phone: string | null; messages_off_at: string | null } | null
+  return c ? { id: c.id, name: c.name, email: c.email, phone: c.phone, off: !!c.messages_off_at } : null
 }
 
 // ── Queue + deliver ─────────────────────────────────────────────────────────────────────────────────────────────────
 
-type NewMessage = { kind: MessageKind; key: string; customerId: string | null; refs: Record<string, unknown>; sendAfter: Date; expiresAt?: Date | null; createdBy?: string | null }
+type NewMessage = { kind: RowKind; key: string; channel?: MessageChannel; customerId: string | null; refs: Record<string, unknown>; sendAfter: Date; expiresAt?: Date | null; createdBy?: string | null }
 
 /** Insert a message row unless its key exists. Returns the new row, or null when the key was already used. */
 export async function enqueueMessage(admin: SupabaseClient, orgId: string, m: NewMessage): Promise<MessageRow | null> {
@@ -296,7 +322,7 @@ export async function enqueueMessage(admin: SupabaseClient, orgId: string, m: Ne
     .insert({
       message_key: m.key,
       kind: m.kind,
-      channel: 'email',
+      channel: m.channel ?? 'email',
       status: 'queued',
       attempts: 0,
       customer_id: m.customerId,
@@ -393,10 +419,18 @@ function messageIdFor(ctx: SendContext, rowId: string): string {
   return `<cm-${rowId}@${host}>`
 }
 
-/** Recipient checks shared by every kind: office "don't email", no usable address, suppressed. (The daily cap is in the claim.) */
-async function recipientRefusal(ctx: SendContext, customer: CustomerFacts | null, to: string | null): Promise<{ reason: string } | null> {
+/**
+ * Recipient checks shared by every kind: office "don't message", no usable address, suppressed — and for a text, consent
+ * (lib/sms/gate.ts: the one place those rules live). (The daily cap is in the claim.)
+ */
+async function recipientRefusal(ctx: SendContext, customer: CustomerFacts | null, to: string | null, reply = false): Promise<{ reason: string } | null> {
   if (customer?.off) return { reason: 'customer_opted_out' }
   if (!to) return { reason: 'no_address' }
+  if (ctx.channel.channel === 'sms') {
+    const check = await checkSmsRecipient(ctx.admin, ctx.orgId, to, ctx.now, { reply })
+    if (check.ok) return null
+    return { reason: check.code === 'no_consent' ? 'no_consent' : 'suppressed' }
+  }
   if (await suppressionOf(ctx.admin, ctx.orgId, ctx.channel.channel, to)) return { reason: 'suppressed' }
   return null
 }
@@ -410,6 +444,9 @@ const CLAIMABLE = new Set<MessageRow['status']>(['queued', 'failed', 'blocked'])
  */
 export async function deliver(ctx: SendContext, row: MessageRow): Promise<'sent' | 'skipped' | 'cancelled' | 'failed' | 'deferred' | 'blocked' | 'not_claimed'> {
   if (!CLAIMABLE.has(row.status)) return 'not_claimed'
+  // A row belongs to ONE channel's sender; a context for the other channel never touches it.
+  if (row.channel !== ctx.channel.channel) return 'not_claimed'
+  const sms = ctx.channel.channel === 'sms'
   if (row.expires_at && Date.parse(row.expires_at) <= ctx.now.getTime()) {
     if (await closeUnclaimed(ctx, row, { status: 'skipped', skip_reason: 'expired' })) ctx.stats.skipped++
     return 'skipped'
@@ -420,8 +457,12 @@ export async function deliver(ctx: SendContext, row: MessageRow): Promise<'sent'
     ctx.stats.blocked++
     return 'blocked'
   }
-  if (row.kind !== 'visit_on_the_way' && isQuietHour(ctx.hour, ctx.settings)) return 'deferred'
+  if (sms ? await smsClosedNow(ctx, row) : row.kind !== 'visit_on_the_way' && isQuietHour(ctx.hour, ctx.settings)) return 'deferred'
   if (ctx.budget.left <= 0) {
+    ctx.stats.deferred++
+    return 'deferred'
+  }
+  if (sms && (await smsCapReached(ctx, row))) {
     ctx.stats.deferred++
     return 'deferred'
   }
@@ -453,7 +494,7 @@ export async function deliver(ctx: SendContext, row: MessageRow): Promise<'sent'
     p_attempts: row.attempts,
     p_to: built.to,
     p_token_hash: hashLinkToken(token),
-    p_max: MAX_PER_ADDRESS_PER_DAY,
+    p_max: sms ? smsPerNumberCap(row.kind) : MAX_PER_ADDRESS_PER_DAY,
     p_since: new Date(ctx.now.getTime() - 86_400_000).toISOString(),
     p_now: ctx.now.toISOString(),
   })
@@ -481,26 +522,48 @@ export async function deliver(ctx: SendContext, row: MessageRow): Promise<'sent'
     unsubscribe: `${ctx.appUrl}/m/${token}?stop=1`,
     unsubscribePost: `${ctx.appUrl}/api/m/${token}/unsubscribe`,
   }
-  const rendered = built.render(links, prepared)
+  let rendered = built.render(links, prepared)
+  if (sms) rendered = await finalizeText(ctx, row, built.to, rendered)
   const out = await ctx.channel.send(built.to, rendered, {
     from: ctx.from,
     replyTo: ctx.replyTo,
     messageId: messageIdFor(ctx, row.id),
     unsubscribeUrl: links.unsubscribe,
     unsubscribePostUrl: links.unsubscribePost,
+    smsFrom: ctx.sms?.from ?? null,
   })
   if (out.ok) {
-    await finish(ctx, row, { status: 'sent', sent_at: new Date().toISOString(), customer_id: built.customerId, subject: rendered.subject.slice(0, 300), last_error: null })
+    const segments = sms ? (out.segments ?? countSegments(rendered.sms).segments) : null
+    await finish(ctx, row, {
+      status: 'sent',
+      sent_at: new Date().toISOString(),
+      customer_id: built.customerId,
+      subject: rendered.subject.slice(0, 300),
+      last_error: null,
+      ...(sms ? { provider_message_id: out.providerId, segments, delivery_status: 'sent' } : {}),
+    })
+    if (sms && out.providerId) {
+      if (ctx.sms && ctx.sms.sentToday != null) ctx.sms.sentToday++
+      await logUsage(ctx.admin, ctx.orgId, { direction: 'out', kind: row.kind, segments: segments ?? 1, costMicros: out.costMicros ?? priceMicros('out', segments ?? 1, getSmsProvider()?.id), providerMessageId: out.providerId, customerMessageId: row.id, at: ctx.now })
+    }
     ctx.stats.sent++
     return 'sent'
   }
   if (out.permanent) {
-    await suppressAddress(ctx.admin, ctx.orgId, ctx.channel.channel, built.to, 'bounced', { messageId: row.id, detail: out.error }).catch((e) =>
+    // A text the carrier refused because the person already texted STOP to the carrier is an opt-out, not a bad number.
+    const reason: SuppressionReason = sms && out.optedOut ? 'unsubscribed' : 'bounced'
+    await suppressAddress(ctx.admin, ctx.orgId, ctx.channel.channel, built.to, reason, { messageId: row.id, detail: out.error }).catch((e) =>
       console.error('[customer-messages] could not suppress a bounced address', { orgId: ctx.orgId, e })
     )
-    await finish(ctx, row, { status: 'skipped', skip_reason: 'bounced', last_error: out.error })
+    await finish(ctx, row, { status: 'skipped', skip_reason: reason === 'unsubscribed' ? 'suppressed' : 'bounced', last_error: out.error, ...(sms ? { delivery_status: 'failed', provider_error: out.error.slice(0, 300) } : {}) })
     ctx.stats.skipped++
     return 'skipped'
+  }
+  if (sms && out.unknown) {
+    // A text that may have gone out is NEVER sent again by us (the customer would get it twice): closed as failed, no retries.
+    await finish(ctx, row, { status: 'failed', attempts: MAX_SEND_ATTEMPTS, last_error: `unknown (may have been sent, not retried): ${out.error}`.slice(0, 300) })
+    ctx.stats.failed++
+    return 'failed'
   }
   // No definite answer (timeout / dropped line): it may have gone out. Never retried soon — after UNKNOWN_RETRY_HOURS,
   // with the same Message-ID and links, so a copy that did arrive is recognizable and its links keep working.
@@ -512,6 +575,52 @@ export async function deliver(ctx: SendContext, row: MessageRow): Promise<'sent'
   })
   ctx.stats.failed++
   return 'failed'
+}
+
+// ── Texts: the rules that are only about SMS ────────────────────────────────────────────────────────────────────────
+
+/** Texts to one number per 24 hours, by kind: automation is capped low, a person's conversation is not, the STOP answer never. */
+function smsPerNumberCap(kind: RowKind): number {
+  return kind === 'sms_compliance' ? 1000 : kind === 'staff_reply' ? SMS_MAX_STAFF_PER_NUMBER_PER_DAY : SMS_MAX_PER_NUMBER_PER_DAY
+}
+
+/**
+ * Is this the wrong hour for this text? The company's quiet hours and the 8 AM / 9 PM floor — except the STOP answer (the
+ * carrier requires it at once) and a staff reply to a customer who texted in the last 2 hours (a conversation).
+ */
+async function smsClosedNow(ctx: SendContext, row: MessageRow): Promise<boolean> {
+  if (row.kind === 'sms_compliance') return false
+  const phone = ctx.channel.addressFor({ email: null, phone: await rowPhone(ctx, row) })
+  const zones = smsZones(ctx.timeZone, phone)
+  if (row.kind === 'staff_reply' && phone && (await inConversation(ctx.admin, ctx.orgId, phone, ctx.now))) {
+    // A conversation the customer started: past the company's quiet hours is fine, past 8 AM–9 PM (their clock too) is not.
+    return zones.some((z) => outsideSmsFloor(hourInZone(ctx.now, z)))
+  }
+  return zones.some((z) => isSmsQuietHour(hourInZone(ctx.now, z), ctx.settings))
+}
+
+/** The company's own ceiling for texts in one day (a runaway guard); the STOP answer is exempt. */
+async function smsCapReached(ctx: SendContext, row: MessageRow): Promise<boolean> {
+  if (!ctx.sms || row.kind === 'sms_compliance') return false
+  if (ctx.sms.sentToday == null) ctx.sms.sentToday = await sentToday(ctx.admin, ctx.orgId, ctx.now, ctx.timeZone)
+  return ctx.sms.sentToday >= ctx.sms.dailyCap
+}
+
+async function rowPhone(ctx: SendContext, row: MessageRow): Promise<string | null> {
+  if (row.kind === 'sms_compliance') return str(row.refs.to)
+  return (await loadCustomer(ctx.admin, ctx.orgId, row.customer_id))?.phone ?? null
+}
+
+/**
+ * The text as it goes out: plain characters (stays GSM-7 = cheap), and — on the FIRST text this number ever gets from the
+ * company — "Reply STOP to opt out." A staff reply starts with the company's name on that first text (automatic texts
+ * always begin with it). The STOP / HELP answers are sent exactly as written.
+ */
+async function finalizeText(ctx: SendContext, row: MessageRow, to: string, m: RenderedMessage): Promise<RenderedMessage> {
+  if (row.kind === 'sms_compliance') return { ...m, sms: smsWords(m.sms, { first: false }) }
+  const { count } = await orgDb(ctx.admin, ctx.orgId).from('customer_messages').select('id', { count: 'exact', head: true }).eq('channel', 'sms').eq('to_address', to).eq('status', 'sent')
+  const first = (count ?? 0) === 0
+  return { ...m, sms: smsWords(m.sms, { first, namePrefix: row.kind === 'staff_reply' && first ? ctx.company.name : null }) }
 }
 
 /** An SMTP send with no definite answer is tried again only this much later (same Message-ID). */
@@ -539,6 +648,10 @@ async function build(ctx: SendContext, row: MessageRow): Promise<Built> {
       return buildQuoteFollowUp(ctx, row)
     case 'invoice_reminder':
       return buildInvoiceReminder(ctx, row)
+    case 'staff_reply':
+      return buildStaffReply(ctx, row)
+    case 'sms_compliance':
+      return buildCompliance(ctx, row)
   }
 }
 
@@ -575,7 +688,7 @@ async function buildVisitReminder(ctx: SendContext, row: MessageRow): Promise<Bu
   const customerId = str(row.refs.customerId)
   const day = str(row.refs.day)
   if (!customerId || !day) return { send: false, status: 'cancelled', reason: 'bad_refs' }
-  if (!ctx.settings.visitReminder) return { send: false, status: 'cancelled', reason: 'turned_off' }
+  if (!kindSentOn(ctx.settings, 'visit_reminder', ctx.channel.channel)) return { send: false, status: 'cancelled', reason: 'turned_off' }
   const timing = visitReminderTiming(ctx.today, day, ctx.settings.visitReminderDays, ctx.hour)
   if (!timing) return { send: false, status: 'skipped', reason: 'too_late' }
   const { data, error } = await orgDb(ctx.admin, ctx.orgId)
@@ -591,7 +704,7 @@ async function buildVisitReminder(ctx: SendContext, row: MessageRow): Promise<Bu
   // Skipped / moved / cancelled since this was queued: nothing left to remind about.
   if (visits.length === 0) return { send: false, status: 'cancelled', reason: 'no_visits_that_day' }
   const customer = await loadCustomer(ctx.admin, ctx.orgId, customerId)
-  const to = ctx.channel.addressFor({ email: customer?.email ?? null, phone: null })
+  const to = ctx.channel.addressFor({ email: customer?.email ?? null, phone: customer?.phone ?? null })
   const refusal = await recipientRefusal(ctx, customer, to)
   if (refusal) return { send: false, status: 'skipped', reason: refusal.reason, to }
   const what = await describeVisits(ctx, visits)
@@ -619,9 +732,9 @@ async function buildVisitEvent(ctx: SendContext, row: MessageRow): Promise<Built
   const done = row.kind === 'visit_done'
   if (done && v.status !== 'completed') return { send: false, status: 'cancelled', reason: 'reopened' }
   if (!done && v.status !== 'scheduled') return { send: false, status: 'cancelled', reason: 'visit_closed' }
-  if (done ? !ctx.settings.visitDone : !ctx.settings.onTheWay) return { send: false, status: 'cancelled', reason: 'turned_off' }
+  if (!kindSentOn(ctx.settings, done ? 'visit_done' : 'visit_on_the_way', ctx.channel.channel)) return { send: false, status: 'cancelled', reason: 'turned_off' }
   const customer = await loadCustomer(ctx.admin, ctx.orgId, v.customer_id)
-  const to = ctx.channel.addressFor({ email: customer?.email ?? null, phone: null })
+  const to = ctx.channel.addressFor({ email: customer?.email ?? null, phone: customer?.phone ?? null })
   const refusal = await recipientRefusal(ctx, customer, to)
   if (refusal) return { send: false, status: 'skipped', reason: refusal.reason, to }
   const info = (await describeVisits(ctx, [v])).get(v.id)!
@@ -644,7 +757,7 @@ async function buildVisitEvent(ctx: SendContext, row: MessageRow): Promise<Built
 async function buildQuoteFollowUp(ctx: SendContext, row: MessageRow): Promise<Built> {
   const proposalId = str(row.refs.proposalId)
   if (!proposalId) return { send: false, status: 'cancelled', reason: 'bad_refs' }
-  if (!ctx.settings.quoteFollowUp) return { send: false, status: 'cancelled', reason: 'turned_off' }
+  if (!kindSentOn(ctx.settings, 'quote_follow_up', ctx.channel.channel)) return { send: false, status: 'cancelled', reason: 'turned_off' }
   // The one "waiting for a signature" rule: still 'sent', deal not won or lost.
   const [p] = await listUnsignedProposals(ctx.admin, ctx.orgId, { ids: [proposalId] })
   if (!p) return { send: false, status: 'cancelled', reason: 'signed_or_declined' }
@@ -658,7 +771,7 @@ async function buildQuoteFollowUp(ctx: SendContext, row: MessageRow): Promise<Bu
     customerId = (opp as { customer_id: string | null } | null)?.customer_id ?? null
   }
   const customer = await loadCustomer(ctx.admin, ctx.orgId, customerId)
-  const to = ctx.channel.addressFor({ email: p.customer_email || customer?.email || null, phone: null })
+  const to = ctx.channel.addressFor({ email: p.customer_email || customer?.email || null, phone: customer?.phone ?? null })
   const refusal = await recipientRefusal(ctx, customer, to)
   if (refusal) return { send: false, status: 'skipped', reason: refusal.reason, to }
   // A signing link already sent for this quote (still waiting) is the button; otherwise "reply to this email".
@@ -698,7 +811,7 @@ export function invoiceDueDay(inv: { due_at: string | null; sent_at: string | nu
 async function buildInvoiceReminder(ctx: SendContext, row: MessageRow): Promise<Built> {
   const invoiceId = str(row.refs.invoiceId)
   if (!invoiceId) return { send: false, status: 'cancelled', reason: 'bad_refs' }
-  if (!ctx.settings.invoiceReminder) return { send: false, status: 'cancelled', reason: 'turned_off' }
+  if (!kindSentOn(ctx.settings, 'invoice_reminder', ctx.channel.channel)) return { send: false, status: 'cancelled', reason: 'turned_off' }
   const found = await findOrgInvoice(ctx.admin, invoiceId, ctx.orgId)
   if (!found || (found.status !== 'sent' && found.status !== 'partially_paid')) return { send: false, status: 'cancelled', reason: found ? `invoice_${found.status}` : 'invoice_gone' }
   // org-scope-ok: found above in this company by findOrgInvoice (job invoices scope through their job)
@@ -717,7 +830,7 @@ async function buildInvoiceReminder(ctx: SendContext, row: MessageRow): Promise<
     customerId = (job as { customer_id: string | null } | null)?.customer_id ?? null
   }
   const customer = await loadCustomer(ctx.admin, ctx.orgId, customerId)
-  const to = ctx.channel.addressFor({ email: doc.billTo.email, phone: null })
+  const to = ctx.channel.addressFor({ email: doc.billTo.email, phone: customer?.phone ?? null })
   const refusal = await recipientRefusal(ctx, customer, to)
   if (refusal) return { send: false, status: 'skipped', reason: refusal.reason, to }
 
@@ -763,6 +876,100 @@ export async function autopayPending(ctx: Pick<SendContext, 'admin' | 'orgId' | 
   return statuses.some((s) => s === 'open' || s === 'processing') ? 'waiting_for_automatic_payment' : null
 }
 
+// ── A staff member's text, and the carrier-required STOP / HELP / START answers ──────────────────────────────────────────
+
+/** How long a staff text waits for texting hours before it is dropped (it is a reply: stale after a day). */
+export const STAFF_TEXT_EXPIRES_HOURS = 24
+
+/**
+ * A reply a staff member wrote "To customer" and chose to send by text (refs: the thread message's id). Re-checked at send
+ * time like every kind: the message must still exist, not be removed, and still be said TO the customer; the number must
+ * pass the same consent / opt-out rules as an automatic text. The words are the staff member's own, unchanged.
+ */
+async function buildStaffReply(ctx: SendContext, row: MessageRow): Promise<Built> {
+  if (ctx.channel.channel !== 'sms') return { send: false, status: 'cancelled', reason: 'bad_channel' }
+  const activityId = str(row.refs.activityId)
+  if (!activityId || !row.customer_id) return { send: false, status: 'cancelled', reason: 'bad_refs' }
+  const { data } = await orgDb(ctx.admin, ctx.orgId).from('activities').select('id, body, audience, customer_id, deleted_at').eq('id', activityId).maybeSingle()
+  const a = data as { id: string; body: string | null; audience: string | null; customer_id: string | null; deleted_at: string | null } | null
+  if (!a || a.deleted_at || a.audience !== 'customer' || a.customer_id !== row.customer_id || !a.body?.trim()) return { send: false, status: 'cancelled', reason: 'message_gone' }
+  const customer = await loadCustomer(ctx.admin, ctx.orgId, row.customer_id)
+  const to = ctx.channel.addressFor({ email: null, phone: customer?.phone ?? null })
+  const refusal = await recipientRefusal(ctx, customer, to, true)
+  if (refusal) return { send: false, status: 'skipped', reason: refusal.reason, to }
+  const body = a.body.trim()
+  return {
+    send: true,
+    customerId: row.customer_id,
+    to: to!,
+    render: (links) => ({ ...renderCustomerReply(msgCtx(ctx, customer, links), { body, accountUrl: null }), sms: body }),
+  }
+}
+
+/** The STOP / HELP / START answer (refs: `to` and the exact `text`). Goes even to a number on the opt-out list — it IS the answer. */
+async function buildCompliance(ctx: SendContext, row: MessageRow): Promise<Built> {
+  const to = ctx.channel.addressFor({ email: null, phone: str(row.refs.to) })
+  const text = str(row.refs.text)
+  if (ctx.channel.channel !== 'sms' || !to || !text) return { send: false, status: 'cancelled', reason: 'bad_refs' }
+  return { send: true, customerId: row.customer_id, to, render: () => ({ subject: 'Text reply', html: '', text, sms: text }) }
+}
+
+export type StaffTextResult = {
+  status: 'sent' | 'queued' | 'failed' | 'skipped' | 'cancelled' | 'blocked' | 'off' | 'not_ready' | 'already'
+  /** Plain words for the person who tapped Send ("Will go out at 8 AM"). */
+  note?: string
+}
+
+/**
+ * Text a customer a reply a staff member wrote (thread audience "To customer", sent by text). The ONE staff text door:
+ * a `staff_reply` row in the same send log, delivered by the same `deliver` — so consent, opt-out, quiet hours, the daily
+ * caps, the company number and idempotency (one row per thread message) are the same rules as every automatic text.
+ * Outside texting hours the row waits and the next scheduled run sends it (it expires after STAFF_TEXT_EXPIRES_HOURS).
+ */
+export async function sendStaffText(admin: SupabaseClient, orgId: string, customerId: string, activityId: string, createdBy: string | null, now: Date = new Date()): Promise<StaffTextResult> {
+  try {
+    const loaded = await loadSendContext(admin, orgId, now, { channel: 'sms', purpose: 'reply' })
+    if (!loaded.ok) return { status: loaded.reason === 'feature_off' ? 'off' : 'not_ready' }
+    const ctx = loaded.ctx
+    const row = await enqueueMessage(admin, orgId, {
+      kind: 'staff_reply',
+      channel: 'sms',
+      key: `staff_reply:sms:${activityId}`,
+      customerId,
+      refs: { activityId },
+      sendAfter: now,
+      expiresAt: new Date(now.getTime() + STAFF_TEXT_EXPIRES_HOURS * 3_600_000),
+      createdBy,
+    })
+    if (!row) return { status: 'already' }
+    const r = await deliver(ctx, row)
+    if (r === 'sent') return { status: 'sent' }
+    if (r === 'deferred') return { status: 'queued', note: 'It’s outside texting hours, so it will go out when they start again.' }
+    if (r === 'not_claimed') return { status: 'already' }
+    return { status: r }
+  } catch (e) {
+    console.error('[customer-messages] staff text failed', { orgId, e })
+    return { status: 'failed' }
+  }
+}
+
+/**
+ * Send the carrier-required answer to a STOP / HELP / START (never throws). Idempotent per inbound message: the key is the
+ * carrier's own message id, so a retried webhook cannot answer twice.
+ */
+export async function sendComplianceText(admin: SupabaseClient, orgId: string, o: { inboundId: string; to: string; text: string; customerId: string | null }, now: Date = new Date()): Promise<'sent' | 'skipped' | 'off'> {
+  try {
+    const loaded = await loadSendContext(admin, orgId, now, { channel: 'sms', purpose: 'compliance' })
+    if (!loaded.ok) return 'off'
+    const row = await enqueueMessage(admin, orgId, { kind: 'sms_compliance', channel: 'sms', key: `sms_compliance:${o.inboundId}`, customerId: o.customerId, refs: { to: o.to, text: o.text }, sendAfter: now })
+    if (!row) return 'skipped'
+    return (await deliver(loaded.ctx, row)) === 'sent' ? 'sent' : 'skipped'
+  } catch (e) {
+    console.error('[customer-messages] compliance text failed', { orgId, e })
+    return 'skipped'
+  }
+}
+
 // ── Scans (the scheduled run) ───────────────────────────────────────────────────────────────────────────────────────
 
 async function enqueueMissing(ctx: SendContext, items: NewMessage[]): Promise<void> {
@@ -800,7 +1007,8 @@ export async function scanVisitReminders(ctx: SendContext): Promise<void> {
     ctx,
     Array.from(groups.values()).map((g) => ({
       kind: 'visit_reminder' as const,
-      key: messageKey.visitReminder('email', g.customerId, g.day),
+      channel: ctx.channel.channel,
+      key: messageKey.visitReminder(ctx.channel.channel, g.customerId, g.day),
       customerId: g.customerId,
       refs: { customerId: g.customerId, day: g.day },
       sendAfter: ctx.now,
@@ -814,7 +1022,7 @@ export async function scanQuoteFollowUps(ctx: SendContext): Promise<void> {
   for (const p of open) {
     const step = dueStep(daysBetweenYmd(ymdInZone(new Date(p.sent_at), ctx.timeZone), ctx.today), ctx.settings.quoteFollowUpDays)
     if (step == null) continue
-    items.push({ kind: 'quote_follow_up', key: messageKey.quoteFollowUp('email', p.id, step), customerId: null, refs: { proposalId: p.id, step }, sendAfter: ctx.now })
+    items.push({ kind: 'quote_follow_up', channel: ctx.channel.channel, key: messageKey.quoteFollowUp(ctx.channel.channel, p.id, step), customerId: null, refs: { proposalId: p.id, step }, sendAfter: ctx.now })
   }
   await enqueueMissing(ctx, items)
 }
@@ -834,7 +1042,7 @@ export async function scanInvoiceReminders(ctx: SendContext): Promise<void> {
       if (!due) continue
       const step = dueStep(daysBetweenYmd(due, ctx.today), ctx.settings.invoiceReminderDays)
       if (step == null) continue
-      items.push({ kind: 'invoice_reminder', key: messageKey.invoiceReminder('email', inv.id, step), customerId: inv.customer_id, refs: { invoiceId: inv.id, step }, sendAfter: ctx.now })
+      items.push({ kind: 'invoice_reminder', channel: ctx.channel.channel, key: messageKey.invoiceReminder(ctx.channel.channel, inv.id, step), customerId: inv.customer_id, refs: { invoiceId: inv.id, step }, sendAfter: ctx.now })
     }
     if (!data || data.length < PAGE) break
   }
@@ -846,6 +1054,7 @@ async function closeStaleSends(ctx: SendContext): Promise<void> {
   await orgDb(ctx.admin, ctx.orgId)
     .from('customer_messages')
     .update({ status: 'failed', attempts: MAX_SEND_ATTEMPTS, last_error: 'Stopped mid-send — not retried in case it went out', updated_at: ctx.now.toISOString() })
+    .eq('channel', ctx.channel.channel)
     .eq('status', 'sending')
     .lt('claimed_at', new Date(ctx.now.getTime() - STALE_SENDING_MS).toISOString())
 }
@@ -855,6 +1064,7 @@ async function drain(ctx: SendContext): Promise<void> {
   const { data, error } = await orgDb(ctx.admin, ctx.orgId)
     .from('customer_messages')
     .select(ROW_COLS)
+    .eq('channel', ctx.channel.channel)
     .in('status', ['queued', 'failed', 'blocked'])
     .lt('attempts', MAX_SEND_ATTEMPTS)
     .lte('send_after', ctx.now.toISOString())
@@ -867,29 +1077,45 @@ async function drain(ctx: SendContext): Promise<void> {
   }
 }
 
-export type OrgRunResult = { orgId: string; skipped?: string; stats?: RunStats }
+export type OrgRunResult = { orgId: string; skipped?: string; stats?: RunStats; /** Texts: only present once the company has the `texting` switch on and a number. */ sms?: { skipped?: string; stats?: RunStats } }
+
+/** One channel's scheduled run: scans (when automatic messages are on for it), then everything due to go. */
+async function runChannel(ctx: SendContext): Promise<void> {
+  await closeStaleSends(ctx)
+  const sms = ctx.channel.channel === 'sms'
+  const closed = sms ? isSmsQuietHour(ctx.hour, ctx.settings) : isQuietHour(ctx.hour, ctx.settings)
+  if (ctx.autoOn && !closed) {
+    const ch = ctx.channel.channel
+    const s = ctx.settings
+    const scans: Array<[boolean, (c: SendContext) => Promise<void>, string]> = [
+      [kindSentOn(s, 'visit_reminder', ch), scanVisitReminders, 'visit reminders'],
+      [kindSentOn(s, 'invoice_reminder', ch), scanInvoiceReminders, 'invoice reminders'],
+      [kindSentOn(s, 'quote_follow_up', ch), scanQuoteFollowUps, 'quote follow-ups'],
+    ]
+    for (const [on, scan, label] of scans) {
+      if (!on) continue
+      await scan(ctx).catch((e) => console.error(`[customer-messages] ${ch} ${label} scan failed`, { orgId: ctx.orgId, e }))
+    }
+  }
+  // "On the way" emails may still be waiting (an SMTP blip); they go even in quiet hours, the rest wait (deliver decides).
+  await drain(ctx)
+}
 
 /** The scheduled run for one company (cron). Never throws for a single bad message; a scan failure is reported. */
 export async function runCustomerMessagesForOrg(admin: SupabaseClient, orgId: string, now: Date = new Date()): Promise<OrgRunResult> {
   const loaded = await loadSendContext(admin, orgId, now)
-  if (!loaded.ok) return { orgId, skipped: loaded.reason }
-  const ctx = loaded.ctx
-  await closeStaleSends(ctx)
-  if (!isQuietHour(ctx.hour, ctx.settings)) {
-    const s = ctx.settings
-    const scans: Array<[boolean, (c: SendContext) => Promise<void>, string]> = [
-      [s.visitReminder, scanVisitReminders, 'visit reminders'],
-      [s.invoiceReminder, scanInvoiceReminders, 'invoice reminders'],
-      [s.quoteFollowUp, scanQuoteFollowUps, 'quote follow-ups'],
-    ]
-    for (const [on, scan, label] of scans) {
-      if (!on) continue
-      await scan(ctx).catch((e) => console.error(`[customer-messages] ${label} scan failed`, { orgId, e }))
-    }
-  }
-  // "On the way" rows may still be waiting (an SMTP blip); they go even in quiet hours, the rest wait (deliver decides).
-  await drain(ctx)
-  return { orgId, stats: ctx.stats }
+  const result: OrgRunResult = { orgId }
+  if (loaded.ok) {
+    await runChannel(loaded.ctx)
+    result.stats = loaded.ctx.stats
+  } else result.skipped = loaded.reason
+  // Texts: its own context (the company's number, the texting switch). A company without texting costs one feature read.
+  const text = await loadSendContext(admin, orgId, now, { channel: 'sms', purpose: 'reply' })
+  if (text.ok) {
+    await runChannel(text.ctx)
+    result.sms = { stats: text.ctx.stats }
+  } else if (text.reason !== 'feature_off') result.sms = { skipped: text.reason }
+  return result
 }
 
 // ── Events (crew taps) ──────────────────────────────────────────────────────────────────────────────────────────────
@@ -901,25 +1127,39 @@ async function visitForEvent(admin: SupabaseClient, orgId: string, visitId: stri
   return (data as VisitRow | null) ?? null
 }
 
-/** The crew tapped "On my way": the customer gets an email now (once per visit per day). */
+/** The channels an event message goes on for this company: each one its owner chose ('how') and that is ready to send. */
+const CHANNEL_ORDER: readonly MessageChannel[] = ['email', 'sms']
+
+/** The crew tapped "On my way": the customer gets it now (once per visit per day, per channel the owner chose). */
 export async function notifyVisitOnTheWay(admin: SupabaseClient, orgId: string, visitId: string, now: Date = new Date()): Promise<EventResult> {
-  const loaded = await loadSendContext(admin, orgId, now)
-  if (!loaded.ok) return { status: loaded.reason === 'not_ready' ? 'not_ready' : 'off' }
-  const ctx = loaded.ctx
-  if (!ctx.settings.onTheWay) return { status: 'off' }
-  const v = await visitForEvent(admin, orgId, visitId)
-  if (!v || v.status !== 'scheduled' || v.scheduled_date !== ctx.today) return { status: 'not_today' }
-  const row = await enqueueMessage(admin, orgId, {
-    kind: 'visit_on_the_way',
-    key: messageKey.onTheWay('email', visitId, ctx.today),
-    customerId: v.customer_id,
-    refs: { visitId },
-    sendAfter: now,
-    expiresAt: new Date(now.getTime() + ON_THE_WAY_EXPIRES_MINUTES * 60_000),
-  })
-  if (!row) return { status: 'already' }
-  const r = await deliver(ctx, row)
-  return { status: r === 'not_claimed' ? 'already' : r }
+  let result: EventResult = { status: 'off' }
+  for (const channel of CHANNEL_ORDER) {
+    const loaded = await loadSendContext(admin, orgId, now, { channel })
+    if (!loaded.ok) {
+      if (channel === 'email' && loaded.reason === 'not_ready') result = { status: 'not_ready' }
+      continue
+    }
+    const ctx = loaded.ctx
+    if (!kindSentOn(ctx.settings, 'visit_on_the_way', channel)) continue
+    const v = await visitForEvent(admin, orgId, visitId)
+    if (!v || v.status !== 'scheduled' || v.scheduled_date !== ctx.today) {
+      if (result.status === 'off') result = { status: 'not_today' }
+      continue
+    }
+    const row = await enqueueMessage(admin, orgId, {
+      kind: 'visit_on_the_way',
+      channel,
+      key: messageKey.onTheWay(channel, visitId, ctx.today),
+      customerId: v.customer_id,
+      refs: { visitId },
+      sendAfter: now,
+      expiresAt: new Date(now.getTime() + ON_THE_WAY_EXPIRES_MINUTES * 60_000),
+    })
+    const r: EventResult = !row ? { status: 'already' } : await deliver(ctx, row).then((d) => ({ status: d === 'not_claimed' ? 'already' : d }) as EventResult)
+    // The first channel that actually did something is the answer the crew's screen shows.
+    if (result.status === 'off' || result.status === 'not_today' || result.status === 'not_ready' || (r.status === 'sent' && result.status !== 'sent')) result = r
+  }
+  return result
 }
 
 /**
@@ -933,19 +1173,27 @@ export async function queueVisitDone(admin: SupabaseClient, orgId: string, visit
     if (!features.customerMessages) return { status: 'off' }
     const { data: org } = await admin.from('orgs').select('settings, timezone').eq('id', orgId).maybeSingle()
     const o = (org ?? {}) as { settings?: Record<string, unknown> | null; timezone?: string | null }
-    if (!messageSettingsOf(o.settings).visitDone) return { status: 'off' }
+    const settings = messageSettingsOf(o.settings)
+    // Email as the owner chose; a text only while the `texting` switch is on too.
+    const channels = CHANNEL_ORDER.filter((c) => kindSentOn(settings, 'visit_done', c) && (c === 'email' || features.texting))
+    if (channels.length === 0) return { status: 'off' }
     const today = ymdInZone(now, orgTimeZone(o.timezone))
     const v = await visitForEvent(admin, orgId, visitId)
     if (!v || v.status !== 'completed' || v.scheduled_date !== today) return { status: 'not_today' }
-    const row = await enqueueMessage(admin, orgId, {
-      kind: 'visit_done',
-      key: messageKey.visitDone('email', visitId),
-      customerId: v.customer_id,
-      refs: { visitId },
-      sendAfter: new Date(now.getTime() + DONE_DELAY_MINUTES * 60_000),
-      expiresAt: new Date(now.getTime() + DONE_EXPIRES_HOURS * 3_600_000),
-    })
-    return { status: row ? 'queued' : 'already' }
+    let queued = false
+    for (const channel of channels) {
+      const row = await enqueueMessage(admin, orgId, {
+        kind: 'visit_done',
+        channel,
+        key: messageKey.visitDone(channel, visitId),
+        customerId: v.customer_id,
+        refs: { visitId },
+        sendAfter: new Date(now.getTime() + DONE_DELAY_MINUTES * 60_000),
+        expiresAt: new Date(now.getTime() + DONE_EXPIRES_HOURS * 3_600_000),
+      })
+      if (row) queued = true
+    }
+    return { status: queued ? 'queued' : 'already' }
   } catch (e) {
     // Before the migration (no table) or a blip: the visit stands; no "done" email for it.
     if (!isMissingTable(e as { code?: string })) console.error('[customer-messages] could not queue the done email', { orgId, visitId, e })
@@ -966,6 +1214,11 @@ export async function findMessageByToken(admin: SupabaseClient, token: unknown):
 /** The customer asked to stop (link or one-click): suppress the address, and mark their customer record. Idempotent. */
 export async function unsubscribeMessage(admin: SupabaseClient, row: MessageRow): Promise<void> {
   if (row.to_address) await suppressAddress(admin, row.org_id, row.channel, row.to_address, 'unsubscribed', { messageId: row.id })
+  if (row.channel === 'sms') {
+    // A text's page link: stopping texts to THIS number. The customer's email stays as it was.
+    if (row.to_address) await recordConsent(admin, row.org_id, { customerId: row.customer_id, phone: row.to_address, status: 'revoked', source: 'sms_stop', evidence: { via: 'message_page', messageId: row.id } })
+    return
+  }
   if (row.customer_id) {
     const { error } = await orgDb(admin, row.org_id).from('customers').update({ messages_off_at: new Date().toISOString(), messages_off_by: null }).eq('id', row.customer_id).is('messages_off_at', null)
     if (error && !isMissingColumn(error, 'messages_off_at')) throw new Error(`unsubscribe: ${error.message}`)
@@ -1073,8 +1326,14 @@ export async function sendCustomerReply(
   orgId: string,
   customerId: string,
   activityId: string,
-  body: string
-): Promise<'sent' | 'skipped' | 'off' | 'not_ready' | 'failed'> {
+  body: string,
+  how: { channel?: 'email' | 'sms'; userId?: string | null } = {}
+): Promise<'sent' | 'skipped' | 'off' | 'not_ready' | 'failed' | 'queued'> {
+  if (how.channel === 'sms') {
+    // By text: through the one send log (consent, opt-out, hours, caps). The words come from the thread message itself.
+    const r = await sendStaffText(admin, orgId, customerId, activityId, how.userId ?? null)
+    return r.status === 'sent' ? 'sent' : r.status === 'queued' ? 'queued' : r.status === 'off' ? 'off' : r.status === 'not_ready' ? 'not_ready' : r.status === 'failed' ? 'failed' : r.status === 'already' ? 'skipped' : 'skipped'
+  }
   try {
     const loaded = await loadSendContext(admin, orgId)
     if (!loaded.ok) return loaded.reason === 'feature_off' || loaded.reason === 'all_off' ? 'off' : 'not_ready'

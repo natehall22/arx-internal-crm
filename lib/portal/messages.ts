@@ -1,4 +1,4 @@
-/** Tell the company a customer wrote to them (email to the company inbox; never throws — the message is already saved). */
+/** Tell the company a customer wrote to them — from their portal or by text (email to the company inbox; never throws — the message is already saved). */
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { tryOrgAppUrl } from '@/lib/company-links'
@@ -7,7 +7,7 @@ import { escapeHtml } from '@/lib/html'
 import { getCrmEmailFrom, getMailTransport } from '@/lib/setter-email'
 import { orgDb } from '@/lib/supabase/org-db'
 
-export async function notifyCompanyOfPortalMessage(admin: SupabaseClient, orgId: string, customerId: string, body: string): Promise<void> {
+export async function notifyCompanyOfPortalMessage(admin: SupabaseClient, orgId: string, customerId: string, body: string, via: 'portal' | 'text' = 'portal'): Promise<void> {
   try {
     if (!process.env.SMTP_HOST || !getCrmEmailFrom()) return
     const to = await resolveCompanyInboxEmail(admin, orgId, 'portal message')
@@ -17,12 +17,12 @@ export async function notifyCompanyOfPortalMessage(admin: SupabaseClient, orgId:
     const base = await tryOrgAppUrl(orgId, 'portal message notice')
     const link = base ? `${base}/c/${customerId}` : null
     const who = c.name || 'A customer'
-    const lines = [`${who} sent a message from their customer account.`, body, [c.phone, c.email].filter(Boolean).join(' · ')].filter(Boolean)
+    const lines = [via === 'text' ? `${who} sent a text message.` : `${who} sent a message from their customer account.`, body, [c.phone, c.email].filter(Boolean).join(' · ')].filter(Boolean)
     await getMailTransport().sendMail({
       from: getCrmEmailFrom(),
       to,
       ...(c.email ? { replyTo: c.email } : {}),
-      subject: `Message from ${who}`,
+      subject: via === 'text' ? `Text from ${who}` : `Message from ${who}`,
       html: `<div style="font-family:Arial,Helvetica,sans-serif;max-width:600px;color:#111827;">${lines.map((l) => `<p style="font-size:15px;margin:0 0 10px;white-space:pre-wrap;">${escapeHtml(l)}</p>`).join('')}${link ? `<p><a href="${escapeHtml(link)}">Open in the CRM</a></p>` : ''}</div>`,
       text: [...lines, link ?? ''].join('\n\n'),
     })

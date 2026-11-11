@@ -6,8 +6,10 @@
  *   blocked, never sent under another identity — the SMTP account must be allowed to send as that address: Workspace
  *   "Send mail as" / a verified domain at the provider), Reply-To = the company's email, a stable Message-ID per message,
  *   List-Unsubscribe + one-click List-Unsubscribe-Post (RFC 8058) pointing at the message's own link.
- * - sms: reserved. `available()` is false until a provider is wired in; nothing writes an sms row today. To add it:
- *   implement `send` with the provider, make `addressFor` return the customer's mobile number, and turn `available` on.
+ * - sms: the company's own local number through ONE carrier adapter (lib/sms/provider.ts). `available()` = a carrier is
+ *   configured (env SMS_PROVIDER + its keys); `addressFor` = the customer's number as US E.164; `send` sends `m.sms` from
+ *   `opts.smsFrom` (the company's number). Consent, opt-out, quiet hours, the daily cap and the per-company limit are the
+ *   sender's rules (lib/customer-messages-db.ts `deliver` + lib/sms/gate.ts), the same path as email — there is no second sender.
  *
  * Bounces / complaints: plain SMTP only tells us about a recipient the server refuses while we send (a 5xx on that
  * address) — that is reported as `permanent`, and the sender suppresses the address. Bounces that come back later as
@@ -17,15 +19,18 @@
 import { getMailTransport } from '@/lib/setter-email'
 import { isUsableCustomerEmail } from '@/lib/invoice-document'
 import type { MessageChannel, RenderedMessage } from '@/lib/customer-messages'
+import { normalizeUsPhone } from '@/lib/sms/phone'
+import { getSmsProvider } from '@/lib/sms/provider'
+import { countSegments } from '@/lib/sms/segments'
 
 export type SendOutcome =
-  | { ok: true; providerId: string | null }
+  | { ok: true; providerId: string | null; /** Texts: billable segments and the carrier's cost estimate. */ segments?: number; costMicros?: number | null }
   /**
    * permanent = this address will never work (suppress it). unknown = the server may have taken it before the line went
    * quiet (a timeout / dropped connection after we started): retried only after a long delay, with the SAME Message-ID so
    * mail systems can recognize a copy. Otherwise a definite "not sent" that a later attempt may fix.
    */
-  | { ok: false; permanent: boolean; unknown?: boolean; error: string }
+  | { ok: false; permanent: boolean; unknown?: boolean; /** Texts: the carrier says the person already opted out there. */ optedOut?: boolean; error: string }
 
 export type SendOptions = {
   /** The company's own sender: its name and email (never a product / other company's fallback). */
@@ -35,6 +40,8 @@ export type SendOptions = {
   messageId: string
   unsubscribeUrl: string | null
   unsubscribePostUrl: string | null
+  /** Texts: the company's own number (E.164) the message goes out from. */
+  smsFrom?: string | null
 }
 
 export type ChannelRecipient = { email: string | null; phone: string | null }
@@ -113,10 +120,19 @@ export const emailChannel: MessageChannelSender = {
 
 export const smsChannel: MessageChannelSender = {
   channel: 'sms',
-  available: () => false,
-  addressFor: () => null,
-  async send() {
-    return { ok: false, permanent: false, error: 'Text messages are not set up yet' }
+  available() {
+    return !!getSmsProvider()?.canSend()
+  },
+  addressFor(r) {
+    return normalizeUsPhone(r.phone)
+  },
+  async send(to, m, opts) {
+    const provider = getSmsProvider()
+    if (!provider?.canSend()) return { ok: false, permanent: false, error: 'Text messages are not set up yet' }
+    if (!opts.smsFrom) return { ok: false, permanent: false, error: 'This company has no texting number yet' }
+    const out = await provider.send({ from: opts.smsFrom, to, text: m.sms, idempotencyKey: opts.messageId })
+    if (out.ok) return { ok: true, providerId: out.providerMessageId, segments: out.segments ?? countSegments(m.sms).segments, costMicros: out.costMicros }
+    return { ok: false, permanent: out.permanent, unknown: out.unknown, optedOut: out.optedOut, error: out.error }
   },
 }
 

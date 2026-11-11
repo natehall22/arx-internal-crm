@@ -8,6 +8,10 @@ import {
 } from '@/lib/public-estimate-rate-limit'
 import { createOrGetPublicEstimateLead, resolvePublicEstimateSnapshotForUnlock } from '@/lib/public-estimate-lead'
 import { getOrgBrandResult, resolveOrgBrand, type OrgBrandResult } from '@/lib/org-brand'
+import { isOrgFeatureOn } from '@/lib/org-features-server'
+import { recordConsent } from '@/lib/sms/consent'
+import { normalizeUsPhone } from '@/lib/sms/phone'
+import { orgDb } from '@/lib/supabase/org-db'
 import { createServiceClient } from '@/lib/supabase/service'
 import { resolvePublicEstimatePricingPath } from '@/lib/public-estimate-pricing'
 import { verifyPublicEstimateToken } from '@/lib/public-estimate-token'
@@ -199,6 +203,25 @@ export async function POST(request: NextRequest) {
       leadResult.status,
       origin
     )
+  }
+
+  // Optional "text me" checkbox on the website form. The proof (their words, IP, browser, which request) is stored; the
+  // checkbox must never be pre-ticked on the form. Nothing is texted unless the company also has texting switched on.
+  if (body.sms_consent === true && (await isOrgFeatureOn(orgId, 'texting'))) {
+    const normalized = normalizeUsPhone(phone)
+    // Only for the number on the record this form just created or updated, and never over an earlier STOP (recordConsent).
+    const { data: lead } = await orgDb(createServiceClient(), orgId).from('leads').select('phone').eq('id', leadResult.lead_id).maybeSingle()
+    if (normalized && normalizeUsPhone((lead as { phone?: string | null } | null)?.phone) === normalized) {
+      const r = await recordConsent(createServiceClient(), orgId, {
+        customerId: null,
+        phone: normalized,
+        status: 'granted',
+        source: 'quote_form',
+        companyName: (await orgBrand()).brand.name,
+        evidence: { ip, userAgent: (request.headers.get('user-agent') ?? '').slice(0, 300), leadId: leadResult.lead_id },
+      })
+      if (!r.ok && !r.optedOut) console.error('public estimate: could not store text consent', r.error)
+    }
   }
 
   const { path: customerPath } = resolvePublicEstimatePricingPath({
