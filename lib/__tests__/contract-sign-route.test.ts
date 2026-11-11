@@ -66,7 +66,7 @@ const post = (b: Record<string, unknown>, headers: Record<string, string> = {}) 
 const good = (over: Record<string, unknown> = {}) => ({
   token: TOKEN, printName: 'Pat Homeowner', signature: PNG, preferredContact: 'email', initialsInsurance: 'PH', ...over,
 })
-const claims = () => db.writes.filter((w) => w.table === 'order_form_contracts' && w.op === 'update' && w.rows.some((r) => r.status === 'completed' && r.customer_signature_data && !r.pdf_url))
+const claims = () => db.writes.filter((w) => w.table === 'order_form_contracts' && w.op === 'update' && w.rows.some((r) => r.status === 'completed' && r.customer_signature_data && !r.pdf_url && !r.signing_steps))
 
 beforeEach(() => {
   uploads.length = 0
@@ -177,6 +177,7 @@ describe('signing', () => {
 
     // …later, the next call finishes it
     db.tables.order_form_contracts[0].customer_signed_at = '2026-11-10T00:00:00.000Z'
+    db.tables.order_form_contracts[0].signing_finalize_lease_at = '2026-11-10T00:00:00.000Z'
     const retry = await post(good())
     expect(retry.status).toBe(200)
     const retryBody = await retry.json()
@@ -196,5 +197,61 @@ describe('signing', () => {
     db.tables.projects.push({ id: 'p1', org_id: ORG, opportunity_id: 'o1', contract_pdf_path: null })
     await post(good())
     expect(db.tables.projects[0].contract_pdf_path).toBe(uploads[0])
+  })
+})
+
+describe('recovery: ONE path finishes a signed contract whose request died', () => {
+  const OLD = '2026-11-10T00:00:00.000Z'
+  const signedRow = (extra: Record<string, unknown> = {}) => ({
+    status: 'completed', customer_signature_data: PNG, customer_signed_at: OLD, signing_finalize_lease_at: OLD,
+    customer_print_name: 'Pat Homeowner', customer_ip: '203.0.113.9', ...extra,
+  })
+
+  it('finishes EVERYTHING missing once (void older, PDF, note, email), and never leaves completed', async () => {
+    seed(signedRow())
+    db.tables.order_form_contracts.push({ id: 'c0', org_id: ORG, status: 'pending_customer', opportunity_id: 'o1', agreement_type: 'contingency', token_expires_at: FUTURE })
+    const res = await post(good())
+    expect((await res.json()).alreadySigned).toBe(true)
+    const row = db.tables.order_form_contracts[0]
+    expect(row.status).toBe('completed')
+    expect(row.pdf_url).toBe(uploads[0])
+    expect(row.signing_finalized_at).toBeTruthy()
+    expect(db.tables.order_form_contracts[1].status).toBe('voided')
+    expect(sendMail).toHaveBeenCalledTimes(1)
+    expect(db.tables.activities.filter((x) => String(x.body).includes('signed by'))).toHaveLength(1)
+
+    // finished for good: another call changes nothing
+    await post(good())
+    expect(uploads).toHaveLength(1)
+    expect(sendMail).toHaveBeenCalledTimes(1)
+    expect(db.tables.activities.filter((x) => String(x.body).includes('signed by'))).toHaveLength(1)
+    expect(db.tables.order_form_contracts[0].status).toBe('completed')
+  })
+
+  it('runs only the steps still missing', async () => {
+    const at = '2026-11-10T00:00:01.000Z'
+    seed(signedRow({ pdf_url: 'org/org-a/x.pdf', pdf_storage_path: 'org/org-a/x.pdf', signing_steps: { void_older: at, pdf: at, project: at, signed_note: at, sale_notice: at } }))
+    await post(good())
+    expect(uploads).toHaveLength(0)
+    expect(generate).not.toHaveBeenCalled()
+    expect(db.tables.activities).toHaveLength(0)
+    expect(sendMail).toHaveBeenCalledTimes(1)
+    expect(db.tables.order_form_contracts[0]).toMatchObject({ status: 'completed' })
+    expect(db.tables.order_form_contracts[0].signing_finalized_at).toBeTruthy()
+  })
+
+  it('leaves a request that is still working alone (fresh lease)', async () => {
+    seed(signedRow({ signing_finalize_lease_at: new Date().toISOString() }))
+    const res = await post(good())
+    expect((await res.json()).alreadySigned).toBe(true)
+    expect(uploads).toHaveLength(0)
+    expect(sendMail).not.toHaveBeenCalled()
+  })
+
+  it('two retries at once finish it once', async () => {
+    seed(signedRow())
+    await Promise.all([post(good()), post(good())])
+    expect(uploads).toHaveLength(1)
+    expect(sendMail).toHaveBeenCalledTimes(1)
   })
 })

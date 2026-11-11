@@ -106,3 +106,10 @@ needs entries #5–#7 (the wildcards above cover them).
 - Hourly billing: `202611120030_hourly_billing.sql` after 202611110060 (it writes `job_invoice_items.unit` / `work_order_id`
   and the per-hour plan basis on 202611110030's tables); also needs 202611100090 for price-book items priced "per hour".
   Then the code. DB test: `supabase/tests/run-hourly-billing.sh`.
+
+## Database migrations — apply order (signing safety, PR0)
+- `202611160010` (drops the anon policies; prod already closed) → `202611160020` (evidence columns, token-hash columns,
+  contracts' `signing_token` loses NOT NULL/default) → `202611160030` (signing recovery columns + backfill of completed
+  contracts). **All three BEFORE the code**: the sign routes write `customer_user_agent`, `signing_token_hash/enc`,
+  `signing_steps`, `signing_finalize_lease_at`, and creators stop writing the plaintext `signing_token` (a NOT NULL there would
+  reject new contracts). Links already sent keep working (plaintext still accepted).

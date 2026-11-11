@@ -1,6 +1,6 @@
 -- Signing safety (PR0). Additive only; the app is live.
 --  * who signed: the customer's browser (user agent) is kept next to the IP, on contracts and change orders.
--- Apply BEFORE the code that writes these columns.
+-- Apply BEFORE the code that writes these columns (deploy order: 202611160010, 202611160020, 202611160030, then the code).
 ALTER TABLE order_form_contracts ADD COLUMN IF NOT EXISTS customer_user_agent TEXT;
 ALTER TABLE job_change_orders
   ADD COLUMN IF NOT EXISTS customer_ip TEXT,

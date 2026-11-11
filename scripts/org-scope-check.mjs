@@ -57,7 +57,11 @@ const OPS = ['select', 'insert', 'update', 'upsert', 'delete']
 // Calls that return the signed-in caller's own identity (lib/auth.ts, lib/supabase-api-request-auth.ts, lib/threads/api.ts).
 // Calls that resolve a document by its secret signing token (lib/signing-tokens.ts, lib/signing-fence.ts): like rule 6, the
 // token IS the access, so what they return counts as loaded company-scoped (rule 3) for the queries that follow.
-const TOKEN_LOADERS = new Set(['findBySigningToken', 'findBySigningTokenOnThisHost'])
+// Trusted by import path, not just by name: a local function that happens to share the name is checked like any other.
+const TOKEN_LOADERS = {
+  findBySigningToken: /(^@\/|\/)lib\/signing-tokens$|^\.\.?\/(.*\/)?signing-tokens$/,
+  findBySigningTokenOnThisHost: /(^@\/|\/)lib\/signing-fence$|^\.\.?\/(.*\/)?signing-fence$/,
+}
 const AUTH_CALLS = new Set(['requireAuth', 'requireAuthApi', 'getAuthContext', 'resolveApiRequestAuthUser', 'threadAuth'])
 // Columns that hold a random secret handed to ONE outside party (signing links, review links, crew links, webhooks).
 // Explicit (table → columns): a new token column must be added here on purpose.
@@ -444,7 +448,7 @@ function analyzeFile(file, text, orgTables) {
     if (d && !d.init && d.kind === 'var') return assignedOrgLoaded(id.text, d, depth)
     if (!d || !d.init) return false
     const init = strip(d.init)
-    if (ts.isCallExpression(init) && ts.isIdentifier(init.expression) && (AUTH_CALLS.has(init.expression.text) || TOKEN_LOADERS.has(init.expression.text) || authWrapper(init.expression))) return true
+    if (ts.isCallExpression(init) && ts.isIdentifier(init.expression) && (AUTH_CALLS.has(init.expression.text) || (Object.hasOwn(TOKEN_LOADERS, init.expression.text) && importedFrom(init.expression.text, TOKEN_LOADERS[init.expression.text])) || authWrapper(init.expression))) return true
     // the signed-in user from a token check: (await x.auth.getUser(token)).data.user
     if (ts.isCallExpression(init) && ts.isPropertyAccessExpression(init.expression) && init.expression.name.text === 'getUser' && ts.isPropertyAccessExpression(strip(init.expression.expression)) && strip(init.expression.expression).name.text === 'auth') return true
     // a local loader: `const partner = await loadPartner(supabase, orgId, id)` where every company-table query inside

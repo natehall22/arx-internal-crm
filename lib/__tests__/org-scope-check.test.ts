@@ -224,7 +224,7 @@ describe('accepts', () => {
       }`)
     ).toEqual([])
     expect(
-      findings(head + `export async function POST(_r, { params }) {
+      findings(`import { findBySigningTokenOnThisHost } from '@/lib/signing-fence'\n` + head + `export async function POST(_r, { params }) {
         const admin = createServiceClient()
         const doc = await findBySigningTokenOnThisHost(admin, 'contract', params.token)
         if (!doc) return null
@@ -232,6 +232,16 @@ describe('accepts', () => {
         return data
       }`)
     ).toEqual([])
+    // trusted by import path, not by name: a local function (or one from elsewhere) with the same name is checked
+    expect(
+      findings(head + `async function findBySigningTokenOnThisHost(a, k, t) { return { id: t } }
+      export async function POST(_r, { params }) {
+        const admin = createServiceClient()
+        const doc = await findBySigningTokenOnThisHost(admin, 'contract', params.token)
+        const { data } = await admin.from('order_form_contracts').update({ status: 'completed' }).eq('id', doc.id).select('id')
+        return data
+      }`)
+    ).toHaveLength(1)
     // …but a row id taken from the request is still unscoped
     expect(
       findings(head + `export async function POST(_r, { params }) {
