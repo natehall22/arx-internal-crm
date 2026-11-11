@@ -9,8 +9,9 @@ import { orgDb } from '@/lib/supabase/org-db'
 export const dynamic = 'force-dynamic'
 
 /**
- * GET /api/ops/visits?from=YYYY-MM-DD&to=YYYY-MM-DD&crew=<subId>|none — service visits on those days (default: this
- * week from today), plus the crews list. Tops up the visit horizon first (the generator is idempotent).
+ * GET /api/ops/visits?from=YYYY-MM-DD&to=YYYY-MM-DD&crew=<subId>|none|mine — service visits on those days (default:
+ * this week from today; `mine` = visits assigned to me, e.g. an inspector's follow-ons), plus the crews list. Tops up the
+ * visit horizon first (the generator is idempotent).
  */
 export async function GET(request: Request) {
   const ctx = await servicePlanRouteAuth('view')
@@ -26,7 +27,7 @@ export async function GET(request: Request) {
 
   await ensureServiceVisits(ctx.admin, ctx.orgId, { timeZone }).catch((e) => console.error('[visits] ensure failed', e))
   const [visits, subs, linked] = await Promise.all([
-    loadVisits(ctx.admin, ctx.orgId, { from, to, subId: crew === 'none' ? null : crew || undefined, accessNotes: true }),
+    loadVisits(ctx.admin, ctx.orgId, crew === 'mine' ? { from, to, userId: ctx.userId, accessNotes: true } : { from, to, subId: crew === 'none' ? null : crew || undefined, accessNotes: true }),
     orgDb(ctx.admin, ctx.orgId).from('sub_contractors').select('id, company_name').eq('active', true).order('company_name'),
     crewDayLinkSubIds(ctx.admin, ctx.orgId),
   ])

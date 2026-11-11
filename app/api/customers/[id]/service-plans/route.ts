@@ -4,7 +4,7 @@ import { loadCustomerProperties } from '@/lib/properties-db'
 import { propertyDisplayName } from '@/lib/properties'
 import { activeTrades, loadOrgTrades } from '@/lib/org-trades'
 import { servicePlanRouteAuth } from '@/lib/service-plans-access'
-import { SERVICE_PLANS_NOT_READY, createServicePlan, loadServicePlans } from '@/lib/service-plans-db'
+import { SERVICE_PLANS_NOT_READY, createServicePlan, loadServicePlans, loadStandardTier } from '@/lib/service-plans-db'
 import { redactPlanPrices } from '@/lib/service-plans'
 import { orgDb } from '@/lib/supabase/org-db'
 
@@ -22,11 +22,13 @@ export async function GET(_request: Request, { params }: { params: { id: string 
   const ctx = await servicePlanRouteAuth('view')
   if (ctx instanceof Response) return ctx
   if (!(await customerInOrg(ctx.admin, ctx.orgId, params.id))) return notFound()
-  const [plans, props, trades, subs] = await Promise.all([
+  const [plans, props, trades, subs, users, tier] = await Promise.all([
     loadServicePlans(ctx.admin, ctx.orgId, { customerId: params.id }),
     loadCustomerProperties(ctx.admin, ctx.orgId, params.id, { accessNotes: false }),
     loadOrgTrades(ctx.admin, ctx.orgId),
     orgDb(ctx.admin, ctx.orgId).from('sub_contractors').select('id, company_name').eq('active', true).order('company_name'),
+    ctx.access.edit ? orgDb(ctx.admin, ctx.orgId).from('users').select('id, full_name').eq('active', true).order('full_name') : Promise.resolve({ data: [] }),
+    loadStandardTier(ctx.admin, ctx.orgId),
   ])
   return NextResponse.json({
     ready: plans.ready,
@@ -36,6 +38,9 @@ export async function GET(_request: Request, { params }: { params: { id: string 
     properties: props.properties.map((p) => ({ id: p.id, name: propertyDisplayName(p) })),
     trades: activeTrades(trades).map((t) => ({ slug: t.slug, label: t.label })),
     crews: ((subs.data ?? []) as Array<{ id: string; company_name: string | null }>).map((s) => ({ id: s.id, name: s.company_name ?? 'Crew' })),
+    // Who can do a follow-on inspection (editors only).
+    people: ((users.data ?? []) as Array<{ id: string; full_name: string | null }>).map((u) => ({ id: u.id, name: u.full_name || 'Unnamed user' })),
+    standardTier: ctx.access.prices ? tier : tier ? { ...tier, price: null } : null,
   })
 }
 

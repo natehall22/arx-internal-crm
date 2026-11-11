@@ -1,3 +1,4 @@
+/** @jest-environment node */
 import { servicePlanAccessFor } from '@/lib/service-plans-access'
 
 describe('servicePlanAccessFor', () => {
