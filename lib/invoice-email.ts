@@ -131,3 +131,32 @@ export async function sendCustomerInvoice(
   if (error || !data) throw new Error(`Failed to record the send: ${error?.message ?? 'unknown'}`)
   return { ok: true, invoice: data as JobInvoice }
 }
+
+/**
+ * Online payments: email any invoice (job or not) with its pay link — the office's "Email pay link". The same document
+ * and wording as the invoice email; nothing about the invoice changes. Refuses a void / paid invoice or no email.
+ */
+export async function emailInvoicePayLink(
+  admin: SupabaseClient,
+  orgId: string,
+  invoice: JobInvoice,
+  payUrl: string,
+  to?: string | null
+): Promise<{ ok: true; to: string } | { ok: false; status: 400 | 409 | 503; error: string }> {
+  if (invoice.status === 'void') return { ok: false, status: 409, error: 'This invoice is void' }
+  if (!process.env.SMTP_HOST || !getCrmEmailFrom()) return { ok: false, status: 503, error: 'Email is not set up for this company yet' }
+  const doc = await loadInvoiceDocument(admin, orgId, invoice)
+  if (doc.isPaid) return { ok: false, status: 409, error: 'This invoice is already paid' }
+  const address = (to ?? doc.billTo.email ?? '').trim()
+  if (!isUsableCustomerEmail(address)) return { ok: false, status: 400, error: 'This customer has no email address' }
+  const mail = renderInvoiceEmail(doc, { payUrl })
+  await getMailTransport().sendMail({
+    from: getCrmEmailFrom(),
+    to: address,
+    ...(doc.company.email ? { replyTo: doc.company.email } : {}),
+    subject: mail.subject,
+    html: mail.html,
+    text: mail.text,
+  })
+  return { ok: true, to: address }
+}
