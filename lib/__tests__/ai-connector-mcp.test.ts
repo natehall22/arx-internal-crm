@@ -13,7 +13,6 @@ import type { CompanyFence } from '@/lib/company-host'
 
 const mockRun = jest.fn(async (_ctx: unknown, args: { n?: number }) => ({ data: { n: args.n ?? 0 }, recordIds: ['rec-1'] }))
 jest.mock('@/lib/ai-connector/tools', () => {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { z: zod } = require('zod')
   const stub = {
     name: 'echo',

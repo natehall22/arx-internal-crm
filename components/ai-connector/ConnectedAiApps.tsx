@@ -2,11 +2,12 @@
 
 import { useCallback, useEffect, useState } from 'react'
 
+import { formatDate } from '@/lib/format'
 import { Button, Card, CardContent, CardHeader, CardTitle, toast } from '@/components/ui'
 
 type App = { id: string; app: string; scopes: string[]; connected_at: string; last_used_at: string | null }
 
-const day = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'never')
+const day = (iso: string | null) => (iso ? formatDate(iso) : 'never')
 
 /** The signed-in person's own AI apps, each with a Disconnect button. */
 export default function ConnectedAiApps() {
