@@ -20,6 +20,6 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
   const parsed = parseBillInput(body)
   if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 })
   const r = await recordPoBill(a.ctx.admin, a.ctx.orgId, a.ctx.authUser.id, params.id, parsed.value, { over: body?.confirmOver === true, duplicate: body?.confirmDuplicate === true })
-  if (!r.ok) return NextResponse.json({ error: r.message, needsConfirm: r.needsConfirm ?? false }, { status: r.status })
+  if (!r.ok) return NextResponse.json({ error: r.message, needsConfirm: r.needsConfirm ?? false, confirmKind: r.confirmKind ?? null }, { status: r.status })
   return NextResponse.json(r)
 }

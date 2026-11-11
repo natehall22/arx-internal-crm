@@ -1064,7 +1064,7 @@ export async function acknowledgeByToken(admin: SupabaseClient, token: string, n
 
 export type RecordBillResult =
   | { ok: true; billId: string; costLineId: string | null; status: PoStatus | null; warning: string | null }
-  | { ok: false; status: number; message: string; needsConfirm?: boolean }
+  | { ok: false; status: number; message: string; needsConfirm?: boolean; confirmKind?: 'over' | 'duplicate' }
 
 export async function recordPoBill(
   admin: SupabaseClient,
@@ -1080,7 +1080,7 @@ export async function recordPoBill(
 
   if (!input.isCredit) {
     const check = checkBillAgainstPo(po.totalCents, po.billedCents, input.amountCents)
-    if (check.message && !confirm.over) return { ok: false, status: 409, message: check.message, needsConfirm: true }
+    if (check.message && !confirm.over) return { ok: false, status: 409, message: check.message, needsConfirm: true, confirmKind: 'over' }
   }
 
   // The same money entered by hand on the job's cost list = a double count; ask first.
@@ -1089,7 +1089,7 @@ export async function recordPoBill(
       const ledger = await loadJobCostLedger(admin, orgId, [po.jobId])
       const dup = (ledger.get(po.jobId)?.lines ?? []).find((l) => l.vendor_id === po.vendorId && l.source !== 'vendor_bill' && Math.round(Math.abs(l.amount) * 100) === input.amountCents)
       if (dup) {
-        return { ok: false, status: 409, needsConfirm: true, message: `A ${formatMoney(input.amountCents)} cost for ${po.vendorName} is already on this job ("${dup.description}"). Record this bill anyway? It would count twice.` }
+        return { ok: false, status: 409, needsConfirm: true, confirmKind: 'duplicate', message: `A ${formatMoney(input.amountCents)} cost for ${po.vendorName} is already on this job ("${dup.description}"). Record this bill anyway? It would count twice.` }
       }
     } catch {
       // The ledger being unreadable must not block recording a bill; the unique bill-number guard still applies.
