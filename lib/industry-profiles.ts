@@ -195,10 +195,10 @@ const SERVICE_NAV_HIDDEN = ['/inside-sales', '/ops/checkups', '/projects']
 
 const lawnLandscape: IndustryProfile = {
   id: 'lawn_landscape',
-  version: 2,
+  version: 3,
   label: 'Lawn & landscape',
   description: 'Recurring lawn maintenance, landscape projects, land work, clean-ups and soft washing.',
-  features: { canvassing: false, incentives: false, servicePlans: true, timeTracking: true, hourlyBilling: true, customerMessages: true, ...ROOF_ONLY_OFF },
+  features: { canvassing: false, incentives: false, servicePlans: true, timeTracking: true, hourlyBilling: true, customerMessages: true, customerPortal: true, ...ROOF_ONLY_OFF },
   trades: [
     { label: 'Lawn care', matchKeywords: ['\\blawn', 'mow', 'edging', 'fertiliz'] },
     { label: 'Landscaping', matchKeywords: ['landscap', 'mulch', 'sod\\b', 'plant', 'shrub', 'hardscape', 'paver'] },
@@ -339,7 +339,7 @@ const homeBuilder: IndustryProfile = {
   version: 2,
   label: 'Home builder',
   description: 'New homes and major remodels run as projects with many trades and subcontractors.',
-  features: { canvassing: false, incentives: false, projectTools: true, ...ROOF_ONLY_OFF },
+  features: { canvassing: false, incentives: false, projectTools: true, customerPortal: true, ...ROOF_ONLY_OFF },
   trades: [
     { label: 'Site work', matchKeywords: ['site work', 'grading', 'excavat', 'clearing'] },
     { label: 'Foundation', matchKeywords: ['foundation', 'footing', 'slab'] },

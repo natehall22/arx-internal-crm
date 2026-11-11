@@ -347,6 +347,47 @@ date in the company zone) / `findOrCreateWeek` (`lib/payroll-periods.ts`) are th
 fixes and the time clock; `findPeriodForCutoff` deleted. `periodIsEditable` lives in `lib/payroll-periods.ts`. (32, recount) "migration not applied" checks: +1
 (`isTimeTrackingNotReadyError`, built on `lib/supabase/errors.ts`).
 
+## Customer portal (2026-11-12)
+Switch `customerPortal` (`ORG_FEATURE_DEFS`, **default OFF**; lawn_landscape + home_builder profiles ON; ARX unchanged). Migration
+`202611120060_customer_portal.sql` (NOT applied; after 202611100040 + 202611120020). Lives only on a company's own address
+(`<company>.<base>/portal`; `portalOrgForRequest` = host fence `org`, anything else 404). Customers are NOT users: no second auth
+system — a portal session is a row (`portal_sessions`) tied to ONE customer of ONE company.
+- **Sign-in:** the customer types email or phone → `requestLoginLink` emails a one-time link to the address ALREADY ON FILE (never to
+  the typed one); the answer + timing are the same for a match or a stranger. The link opens `/portal/enter` which does NOT use the
+  link — only the "Open my account" POST (`/api/portal/enter`) does (mail scanners can't burn it). Tokens: 256-bit, only SHA-256 stored,
+  link 20 min single-use (SQL `portal_consume_login_token`), session 14 days, cookie `portal_session` host-only httpOnly (never `Domain`).
+  A link made for another company's address is refused and not burned. ONE door: `getPortalSession` (`lib/portal/server.ts`):
+  checks host company, switch, customer still exists.
+- **Only the emailed sign-in link makes a session.** Pay, signing and report links are all forwardable, so none of them opens the portal
+  (a pay / signing link reaches only its own record on its own page; there is no `/api/portal/open`). A session also ends when the customer's
+  email on file changes (`portal_sessions.email_key` is compared on every read; a link mailed to the old address is dead too) and by
+  staff "Sign out of portal" on the Customer File (`revokeCustomerPortalAccess`, `POST /api/customers/[id]/portal-signout`, owners / managers / ops).
+  Cookie is `__Host-portal_session` in production.
+- **Everything a customer sees comes from `lib/portal/data.ts`**: every query `orgDb` + the customer id (or ids loaded for that customer in
+  the same function), columns named (no `*`, never notes / costs / access notes / crew / pricing rules), view types only.
+  Every id from a request (invoice, document, photo) goes through `findPortalInvoice` / `findPortalFile`. Break-in suite sweeps the
+  routes; `lib/__tests__/customer-portal.test.ts` proves customer A2 can't reach A1 (same company) or B1 (another company).
+- **No new money path:** Pay = `POST /api/portal/invoices/<id>/pay` hands back a normal `/pay/<token>` link (`createPaymentLink`) and the
+  existing Stripe checkout does the rest. Card: autopay OFF / remove / "add a card" (the existing save-card page — turning ON needs the
+  customer's consent there). Contracts: signing = the existing `/contracts/sign/<token>` page; signed copy = `/api/files/signed/contract/<token>`.
+- **Sharing is opt-in, documents only:** `documents.shared_with_customer` (default false), ONE writer `setSharedWithCustomer`
+  (`lib/portal/sharing.ts`, `PATCH /api/portal-sharing`); "Show to customer" is on Customer documents and on each job Files row (owner / job
+  board only). **Photos have no switch:** ONE rule, `lib/customer-visit-photos.ts` — a customer sees pictures from their OWN service visits
+  (`customerVisitIds`); the `/m/<token>` "done" page (`messagePhotos`) and the portal both call it. Job photos are never shown.
+- **Messages are the thread, not a second store.** The customer's message = `postCustomerMessage` (`lib/threads/post-message.ts`): an
+  `activities` row, `origin 'customer_portal'`, audience `team`, type `text` (job catch-up reads it as the customer's contact). Staff reply
+  with the new audience **`customer`** ("To customer" on the thread composer; non-field roles only; reads like `team` for staff in
+  `visibility.ts` and SQL `message_visible_to`); the thread route then emails it via `sendCustomerReply` (company From; skipped for
+  opted-out / suppressed addresses; the portal shows it either way). The portal reads ONLY its own customer's rows with audience `customer` or
+  origin `customer_portal`, through the allow-list reader `lib/threads/portal-thread.ts` — never the staff visibility rules. The company is
+  also emailed on a new customer message.
+- **Limits (shared SQL counters `portal_take_attempt`, fail closed):** link requests 10 / 15 min per address, 3 / hour per identifier,
+  5 / hour per customer; 30 sign-in taps / 15 min per address; 600 requests / 10 min per session; 10 messages / hour; pay links 20 / hour.
+  **Audit:** `portal_login_events` (requested, sent, no match, blocked, login, failed, logout, staff sign-out) — only hashed address
+  keys, never a token or raw email.
+- **Pre-launch (not blocking the prototype):** SMS sign-in (email only now), a staff view of `portal_login_events`, change-order signing
+  inside the portal.
+
 ## Move from Jobber (2026-11-12)
 Settings → Move from Jobber (`/admin/import/jobber`, owners only, `lib/jobber-import/access.ts`). Full write-up with Jobber
 citations: `docs/jobber-import.md`. Migration `202611120040_jobber_import.sql` (NOT applied; after 0010/0020/0030/0060).

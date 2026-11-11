@@ -551,6 +551,8 @@ const READ_THEN_CHECK: Record<string, string> = {
   'POST /api/jobs/[id]/review-request': 'jobs/[id]/review-request: job loaded by id, `job.org_id !== profile.org_id` → 404',
   'POST /api/projects/[id]/review': 'projects/[id]/review: project loaded by id, org mismatch → 404',
   'GET /api/org-logo/[orgId]': 'org-logo: a company logo is public by design (login pages, documents); only the logo path is signed',
+  'POST /api/portal/request-link': 'portal: public sign-in on company A\'s own address; reads A\'s org row for the switch only, and mails nothing unless the address typed matches an A customer',
+  'POST /api/portal/enter': 'portal: public sign-in on company A\'s own address; reads A\'s org row for the switch and logs the attempt against A. Nothing of A is returned without a valid A link',
   'GET /api/company-logo': 'company-logo: serves the logo of the company whose web address this is (A on A\'s address) — public by design',
 }
 
@@ -706,6 +708,134 @@ describe('middleware + route: company web address', () => {
     const r = await through('legacy.example', VICTIM_ID, { 'x-company-code': 'alpha' })
     expect(r.status).toBe(401)
     expect(findings(mockWorld, r.text)).toEqual([])
+  })
+})
+
+
+/**
+ * The customer portal: a signed-in PORTAL customer (not staff) of company B — the other side of the door. Customers are
+ * not users, so the staff sweep above only proves staff routes refuse a portal-less caller; here a real portal session
+ * of B's customer B1 calls every portal route with company A's ids (A's invoices, documents, photos, A's customer in the
+ * body) and with another customer's of the SAME company, and A's address / A's links are tried with B's session.
+ */
+describe('customer portal: B1 cannot see A1 (same company or another)', () => {
+  const { hashPortalToken, customerEmailKey } = require(join(ROOT, 'lib/portal/tokens.ts')) as typeof import('@/lib/portal/tokens')
+  const TOKEN = 'p'.repeat(43)
+  const B2 = '0b0b0b0b-0000-4000-8000-0000000000b2' // a second customer of company B
+  const future = new Date(Date.now() + 86_400_000).toISOString()
+  const world = () => {
+    mockWorld = createWorld(TABLES, ORG_TABLES, 'admin', undefined, (seed) => {
+      seed.portal_sessions = [{ id: 'sess-b1', org_id: ORG_B, customer_id: BRAVO_ROW_ID, token_hash: hashPortalToken(TOKEN), email_key: customerEmailKey(ORG_B, String(((seed.customers ?? []).find((c) => c.id === BRAVO_ROW_ID) as { email?: unknown } | undefined)?.email ?? '')), expires_at: future, revoked_at: null, last_seen_at: new Date().toISOString() }]
+      seed.customers = [...(seed.customers ?? []), { id: B2, org_id: ORG_B, name: 'Bravo Two', email: 'two@bravo.test', phone: null }]
+      seed.job_invoices = [...(seed.job_invoices ?? []), { id: 'b2b2b2b2-0000-4000-8000-0000000000e2', org_id: ORG_B, customer_id: B2, job_id: null, invoice_number: 'INV-B2', status: 'sent', total_cents: 700, created_at: new Date().toISOString() }]
+      seed.documents = [...(seed.documents ?? []), { id: 'b2b2b2b2-0000-4000-8000-0000000000d2', org_id: ORG_B, customer_id: B2, job_id: null, title: 'Bravo Two private', filename: 'two.pdf', storage_path: 'org/b/two.pdf', shared_with_customer: true, status: 'active', deleted_at: null, created_at: new Date().toISOString() }]
+    })
+  }
+  const as = (host: string, cookie: string | null, extra: Record<string, string> = {}) => {
+    mockReq = { headers: new Headers({ host, ...extra }), cookies: cookie ? [{ name: 'portal_session', value: cookie }] : [] }
+  }
+  const call = async (file: string, method: 'GET' | 'POST', host: string, url: string, params: Record<string, string>, body?: unknown) => {
+    const mod = require(join(ROOT, file)) as Record<string, (r: NextRequest, c: unknown) => Promise<Response>>
+    const headers = new Headers({ host, 'content-type': 'application/json' })
+    const res = await mod[method](new NextRequest(`https://${host}${url}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) }), { params })
+    return { status: res.status, text: `${await res.text()} ${res.headers.get('location') ?? ''}` }
+  }
+  const FILES = 'app/api/portal/files/[kind]/[id]/route.ts'
+  const PAY = 'app/api/portal/invoices/[id]/pay/route.ts'
+  const MSG = 'app/api/portal/messages/route.ts'
+  const CARD = 'app/api/portal/card/route.ts'
+  const ENTER = 'app/api/portal/enter/route.ts'
+  beforeAll(() => {
+    process.env.APP_BASE_DOMAIN = 'crm.test'
+    __resetCompanyHostCacheForTests()
+  })
+  afterAll(() => {
+    delete process.env.APP_BASE_DOMAIN
+    __resetCompanyHostCacheForTests()
+  })
+
+  test('control: B1 on B’s address is a real session and reads only B1', async () => {
+    world()
+    as('bravo.crm.test', TOKEN)
+    const { getPortalSession } = require(join(ROOT, 'lib/portal/server.ts')) as typeof import('@/lib/portal/server')
+    const { loadPortalHome } = require(join(ROOT, 'lib/portal/data.ts')) as typeof import('@/lib/portal/data')
+    const s = await getPortalSession(mockWorld.db.client as never)
+    expect(s).toMatchObject({ orgId: ORG_B, customerId: BRAVO_ROW_ID })
+    const home = await loadPortalHome(mockWorld.db.client as never, s!)
+    expect(home).not.toBeNull()
+    expect(JSON.stringify(home)).not.toMatch(/Bravo Two|INV-B2|two\.pdf/)
+    expect(findings(mockWorld, JSON.stringify(home))).toEqual([])
+    expect(mockWorld.readsOfA).toEqual([])
+  })
+
+  test('B1 with A’s (and B2’s) invoice / document / photo ids: 404, nothing of A or B2 in any answer, nothing written to A', async () => {
+    world()
+    as('bravo.crm.test', TOKEN)
+    const ids = [VICTIM_ID, 'b2b2b2b2-0000-4000-8000-0000000000e2', 'b2b2b2b2-0000-4000-8000-0000000000d2']
+    const texts: string[] = []
+    for (const id of ids) {
+      for (const kind of ['document', 'photo']) {
+        const r = await call(FILES, 'GET', 'bravo.crm.test', `/api/portal/files/${kind}/${id}`, { kind, id })
+        expect([r.status, kind, id]).toEqual([404, kind, id])
+        texts.push(r.text)
+      }
+      const p = await call(PAY, 'POST', 'bravo.crm.test', `/api/portal/invoices/${id}/pay`, { id }, {})
+      expect([p.status, id]).toEqual([404, id])
+      texts.push(p.text)
+    }
+    expect(findings(mockWorld, texts.join(' '))).toEqual([])
+    expect(texts.join(' ')).not.toMatch(/INV-B2|two\.pdf|Bravo Two/)
+    expect(mockWorld.storage.filter((x) => x.op === 'createSignedUrl')).toEqual([])
+    expect(mockWorld.readsOfA).toEqual([])
+  })
+
+  test('a message that names A’s customer / org is stored for B1 only; card + pay routes never touch A', async () => {
+    world()
+    as('bravo.crm.test', TOKEN)
+    const m = await call(MSG, 'POST', 'bravo.crm.test', '/api/portal/messages', {}, { body: 'hello', customer_id: VICTIM_ID, org_id: ORG_A, customerId: VICTIM_ID })
+    expect(m.status).toBe(200)
+    const rows = mockWorld.db.tables.activities.filter((r) => r.body === 'hello')
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({ org_id: ORG_B, customer_id: BRAVO_ROW_ID, origin: 'customer_portal', audience: 'team' })
+    for (const action of ['autopay_off', 'remove', 'save']) await call(CARD, 'POST', 'bravo.crm.test', '/api/portal/card', {}, { action, customer_id: VICTIM_ID, org_id: ORG_A })
+    expect(findings(mockWorld, m.text)).toEqual([])
+    expect(mockWorld.readsOfA).toEqual([])
+  })
+
+  test('B1’s session cookie on A’s address: every portal route answers 401/404, no portal page data', async () => {
+    world()
+    as('alpha.crm.test', TOKEN)
+    const { getPortalSession } = require(join(ROOT, 'lib/portal/server.ts')) as typeof import('@/lib/portal/server')
+    expect(await getPortalSession(mockWorld.db.client as never)).toBeNull()
+    for (const [file, method, url, params, body] of [
+      [FILES, 'GET', '/api/portal/files/document/x', { kind: 'document', id: 'x' }, undefined],
+      [PAY, 'POST', '/api/portal/invoices/x/pay', { id: 'x' }, {}],
+      [MSG, 'POST', '/api/portal/messages', {}, { body: 'hi' }],
+      [CARD, 'POST', '/api/portal/card', {}, { action: 'remove' }],
+    ] as const) {
+      const r = await call(file, method, 'alpha.crm.test', url, params as Record<string, string>, body)
+      expect([file, r.status]).toEqual([file, 401])
+    }
+    expect(mockWorld.db.tables.activities.filter((r) => r.body === 'hi')).toEqual([])
+    expect(findings(mockWorld, '')).toEqual([])
+  })
+
+  test('company A\'s sign-in link opened on B\'s address starts no session and is not burned (on A\'s own address it works — the control)', async () => {
+    world()
+    const link = 'r'.repeat(43)
+    const t = mockWorld.db.tables as Record<string, Array<Record<string, unknown>>>
+    ;(t.portal_login_tokens ??= []).push({ id: 'lt-a', org_id: ORG_A, customer_id: VICTIM_ID, token_hash: hashPortalToken(link), sent_to: String(((t.customers ?? []).find((c) => c.id === VICTIM_ID) as { email?: unknown } | undefined)?.email ?? ''), expires_at: new Date(Date.now() + 600_000).toISOString(), used_at: null })
+    as('bravo.crm.test', null)
+    const fd = () => { const f = new FormData(); f.set('t', link); return f }
+    const mod = require(join(ROOT, ENTER)) as { POST: (r: NextRequest) => Promise<Response> }
+    const bad = await mod.POST(new NextRequest('https://bravo.crm.test/api/portal/enter', { method: 'POST', body: fd(), headers: new Headers({ host: 'bravo.crm.test' }) }))
+    expect(bad.headers.get('set-cookie')).toBeNull()
+    expect(mockWorld.db.tables.portal_sessions.filter((r) => r.customer_id === VICTIM_ID)).toEqual([])
+    expect(t.portal_login_tokens.find((r) => r.id === 'lt-a')?.used_at).toBeNull()
+    as('alpha.crm.test', null)
+    const ok = await mod.POST(new NextRequest('https://alpha.crm.test/api/portal/enter', { method: 'POST', body: fd(), headers: new Headers({ host: 'alpha.crm.test' }) }))
+    expect(ok.headers.get('set-cookie')).toMatch(/portal_session=/)
+    expect(mockWorld.db.tables.portal_sessions.filter((r) => r.customer_id === VICTIM_ID && r.org_id === ORG_A)).toHaveLength(1)
   })
 })
 

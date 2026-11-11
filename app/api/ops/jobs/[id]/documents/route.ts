@@ -3,6 +3,8 @@ import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import { FILES_BUCKET, buildJobDocumentStoragePath } from '@/lib/files/storage'
 import { DocumentRole, LinkedRecordType, newDocumentInsert } from '@/lib/files/documents'
+import { isOrgFeatureOn } from '@/lib/org-features-server'
+import { resolveThreadViewer } from '@/lib/threads/viewer'
 
 export const runtime = 'nodejs'
 
@@ -40,20 +42,23 @@ export async function GET(
       return NextResponse.json({ error: 'Job not found' }, { status: 404 })
     }
 
-    const { data: documents, error } = await supabase
-      .from('documents')
-      .select('id, title, filename, category, document_role, version, status, is_protected, created_at, updated_at')
-      .eq('job_id', jobId)
-      .eq('org_id', profile.org_id)
-      .is('deleted_at', null)
-      .order('updated_at', { ascending: false })
-      .limit(50)
+    const baseCols = 'id, title, filename, category, document_role, version, status, is_protected, created_at, updated_at'
+    const load = (cols: string) =>
+      supabase.from('documents').select(cols).eq('job_id', jobId).eq('org_id', profile.org_id).is('deleted_at', null).order('updated_at', { ascending: false }).limit(50)
+    // `shared_with_customer` only exists once the customer-portal migration is applied: fall back without it.
+    let { data: documents, error } = await load(`${baseCols}, shared_with_customer`)
+    if (error) ({ data: documents, error } = await load(baseCols))
 
     if (error) {
       return NextResponse.json({ error: error.message, code: (error as any).code || null }, { status: 500 })
     }
 
-    return NextResponse.json({ documents: documents || [] })
+    // "Show to customer" is offered only when the company uses the portal, and only to people who may open the job's Files.
+    const portalOn = await isOrgFeatureOn(profile.org_id, 'customerPortal')
+    const viewer = portalOn ? await resolveThreadViewer(supabase, profile) : null
+    const canShare = !!viewer && (viewer.ownerLike || viewer.jobBoard)
+
+    return NextResponse.json({ documents: documents || [], portal: { on: portalOn, canShare } })
   } catch (error: any) {
     return NextResponse.json(
       { error: error?.message || 'Failed to load documents' },

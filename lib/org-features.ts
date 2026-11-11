@@ -82,6 +82,11 @@ export const ORG_FEATURE_DEFS = {
     description: 'People can connect their own AI app to look things up in the CRM as themselves. Read-only for now; the AI sees only what that person can see, and every request is logged.',
     defaultOn: false,
   },
+  customerPortal: {
+    label: 'Customer portal',
+    description: 'Customers sign in with a link emailed to them and see their own visits, invoices, quotes, shared documents and plan, pay, and message you. Nothing internal is ever shown.',
+    defaultOn: false,
+  },
 } as const satisfies Record<string, { label: string; description: string; defaultOn?: boolean }>
 
 export type OrgFeature = keyof typeof ORG_FEATURE_DEFS

@@ -6,7 +6,7 @@ DECLARE
   u_setter uuid := gen_random_uuid(); u_setter_granted uuid := gen_random_uuid(); u_inside_granted uuid := gen_random_uuid(); u_ops_custom uuid := gen_random_uuid();
   cr_inside uuid := gen_random_uuid(); cr_opsrole uuid := gen_random_uuid(); cr_setter uuid := gen_random_uuid(); cr_canv uuid := gen_random_uuid(); cr_setmgr uuid := gen_random_uuid(); p_view uuid; p_fin uuid;
   u_cset uuid := gen_random_uuid(); u_ccanv uuid := gen_random_uuid(); u_csmgr uuid := gen_random_uuid();
-  v_opp uuid := gen_random_uuid();
+  v_opp uuid := gen_random_uuid(); x uuid; rs boolean; o uuid;
 BEGIN
   INSERT INTO orgs (id, name) VALUES (v_org, 'ThreadTest');
   INSERT INTO auth.users (id, email) SELECT x, x::text || '@t.test' FROM unnest(ARRAY[u_admin,u_ops,u_closer,u_other_closer,u_setter,u_setter_granted,u_inside_granted,u_ops_custom,u_cset,u_ccanv,u_csmgr]) x;
@@ -60,6 +60,19 @@ BEGIN
   IF message_visible_to(u_closer, 'sales', false, v_org, NULL) THEN RAISE EXCEPTION 'closer read a deal-less Sales message'; END IF;
   IF NOT message_visible_to(u_ops, 'team', false, v_org, NULL) OR NOT message_visible_to(u_admin, 'team', false, v_org, NULL) THEN RAISE EXCEPTION 'ops/admin lost deal-less messages'; END IF;
   v_report := v_report || E'\nno-deal rule: setter/closer cannot read deal-less messages; ops/admin can';
+
+  -- audience 'customer' (migration 202611120060) reads EXACTLY like 'team' for every user, with and without the pricing flag, with and without a deal
+  -- (the app twin is lib/__tests__/threads-visibility.test.ts "reads exactly like team for every role")
+  FOREACH x IN ARRAY ARRAY[u_admin,u_ops,u_closer,u_other_closer,u_setter,u_setter_granted,u_inside_granted,u_ops_custom,u_cset,u_ccanv,u_csmgr] LOOP
+    FOREACH rs IN ARRAY ARRAY[false,true] LOOP
+      FOREACH o IN ARRAY ARRAY[v_opp, NULL::uuid] LOOP
+        IF message_visible_to(x, 'customer', rs, v_org, o) IS DISTINCT FROM message_visible_to(x, 'team', rs, v_org, o) THEN
+          RAISE EXCEPTION 'customer audience differs from team for user % (restricted %, deal %)', x, rs, o;
+        END IF;
+      END LOOP;
+    END LOOP;
+  END LOOP;
+  v_report := v_report || E'\ncustomer audience = team audience for all 11 users x pricing flag x deal/no-deal';
 
   RAISE EXCEPTION E'REPORT (rolled back by design):%', v_report;
 END

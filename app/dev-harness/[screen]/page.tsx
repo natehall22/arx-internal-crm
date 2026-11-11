@@ -106,6 +106,8 @@ import JobHourlyCard from '@/components/billing/JobHourlyCard'
 import HourlyBillingSettingsCard from '@/components/billing/HourlyBillingSettingsCard'
 import CustomerInvoicesCard from '@/components/billing/CustomerInvoicesCard'
 import PayClient from '@/components/pay/PayClient'
+import PortalHomeView from '@/components/portal/PortalHomeView'
+import PortalSignIn from '@/components/portal/PortalSignIn'
 import OnlinePaymentsCard from '@/components/admin/OnlinePaymentsCard'
 import InvoiceOnlinePayments from '@/components/billing/InvoiceOnlinePayments'
 import type { PayPageView } from '@/lib/online-payments/public'
@@ -160,6 +162,23 @@ const handoffDeps = (knocks: number, jobPhotos: number, reportPhotos: number, kn
 const HANDOFF_PENDING = handoffDeps(3, 1, 1)
 const HANDOFF_DONE = handoffDeps(0, 0, 0)
 const HANDOFF_ATTENTION = handoffDeps(0, 0, 0, 2)
+
+/** Customer portal (components/portal): a lawn customer with a visit, two invoices, a plan, a shared document, a card and a message. */
+const HARNESS_PORTAL_COMPANY = { name: 'Precision Maintenance', phone: '850-443-9662', email: 'office@precision.test', logoHref: null }
+const HARNESS_PORTAL_HOME = {
+  customerName: 'Dana Whitfield',
+  today: '2026-11-12',
+  visits: { upcoming: [{ id: 'v1', date: '2026-11-17', service: 'Weekly lawn care', address: '2410 Crawfordville Hwy, Crawfordville FL', done: false }], recent: [{ id: 'v0', date: '2026-11-10', service: 'Weekly lawn care', address: null, done: true }] },
+  invoices: [
+    { id: 'i1', number: 'INV-26-00012', status: 'sent' as const, totalCents: 9500, balanceCents: 9500, issuedAt: '2026-11-10', dueAt: '2026-11-24' },
+    { id: 'i2', number: 'INV-26-00009', status: 'paid' as const, totalCents: 9500, balanceCents: 0, issuedAt: '2026-10-10', dueAt: null },
+  ],
+  contracts: [{ id: 'c1', address: '2410 Crawfordville Hwy', totalCents: 420000, state: 'to_sign' as const, signUrl: '/contracts/sign/x', downloadUrl: null, date: '2026-11-09' }],
+  documents: [{ id: 'd1', title: 'Service agreement with a rather long file name that must wrap on a phone.pdf', kind: 'document' as const, date: '2026-11-01' }],
+  plans: [{ id: 'p1', name: 'Weekly lawn care', address: '2410 Crawfordville Hwy', status: 'active' as const, schedule: 'Weekly Apr 1 – Oct 31', price: '$95.00 per visit', nextVisit: '2026-11-17' }],
+  card: { available: true, label: 'Visa •••• 4242', autopay: true, expired: false },
+  messages: [{ id: 'm1', fromCustomer: false, body: 'See you Tuesday!', date: '2026-11-09T12:00:00Z' }],
+}
 
 /** Online payments pay page (components/pay/PayClient.tsx): a service invoice, part payments + save card allowed. */
 const HARNESS_PAY_VIEW: PayPageView = {
@@ -289,7 +308,7 @@ export default function Harness({ params }: { params: { screen: string } }) {
     case 'org-features':
       return (
         <div className="mx-auto max-w-2xl p-4">
-          <OrgFeaturesCard initial={{ canvassing: false, insurance: false, roofMeasure: true, incentives: false, stormAlerts: false, squaresPricing: true, servicePlans: true, timeTracking: false, hourlyBilling: false, projectTools: false, onlinePayments: false, customerMessages: false, aiConnector: false }} />
+          <OrgFeaturesCard initial={{ canvassing: false, insurance: false, roofMeasure: true, incentives: false, stormAlerts: false, squaresPricing: true, servicePlans: true, timeTracking: false, hourlyBilling: false, projectTools: false, onlinePayments: false, customerMessages: false, aiConnector: false, customerPortal: false }} />
         </div>
       )
     case 'org-profile':
@@ -511,6 +530,10 @@ export default function Harness({ params }: { params: { screen: string } }) {
       return <div className="mx-auto max-w-md p-4"><HourlyBillingSettingsCard /></div>
     case 'customer-invoices':
       return <div className="mx-auto max-w-2xl p-4"><CustomerInvoicesCard customerId="c1" /></div>
+    case 'portal-signin':
+      return <PortalSignIn company={HARNESS_PORTAL_COMPANY} />
+    case 'portal-home':
+      return <PortalHomeView company={HARNESS_PORTAL_COMPANY} home={HARNESS_PORTAL_HOME} payOnline />
     case 'pay-page':
       return <PayClient token="harness-pay-token-harness-pay-token-harness" view={HARNESS_PAY_VIEW} returned={false} />
     case 'pay-page-paid':
