@@ -8,9 +8,33 @@ import { createFakeDb } from '@/lib/test-helpers/fake-db'
 let db: ReturnType<typeof createFakeDb>
 const uploads: string[] = []
 let uploadFails = false
+/** Make the next write(s) to a table fail: { table, op, when(patch/row), times }. */
+let failRules: Array<{ table: string; op: 'update' | 'insert'; when?: (v: any) => boolean; times: number }> = []
+function failing(): any {
+  const p: any = new Proxy(function () {}, {
+    get: (_t, k) => (k === 'then' ? (res: (v: unknown) => void) => res({ data: null, error: { message: 'injected failure' }, count: null }) : () => p),
+  })
+  return p
+}
+function withFailures(t: string, b: any) {
+  return new Proxy(b, {
+    get: (target, k: string) => {
+      const v = target[k]
+      if (k !== 'update' && k !== 'insert') return typeof v === 'function' ? v.bind(target) : v
+      return (arg: unknown) => {
+        const rule = failRules.find((r) => r.table === t && r.op === k && r.times > 0 && (!r.when || r.when(arg)))
+        if (rule) {
+          rule.times--
+          return failing()
+        }
+        return v.call(target, arg)
+      }
+    },
+  })
+}
 jest.mock('@/lib/supabase/service', () => ({
   createServiceClient: () => ({
-    from: (t: string) => (db.client as any).from(t),
+    from: (t: string) => withFailures(t, (db.client as any).from(t)),
     rpc: (n: string, a: Record<string, unknown>) => (db.client as any).rpc(n, a),
     storage: {
       from: () => ({
@@ -69,6 +93,7 @@ const good = (over: Record<string, unknown> = {}) => ({
 const claims = () => db.writes.filter((w) => w.table === 'order_form_contracts' && w.op === 'update' && w.rows.some((r) => r.status === 'completed' && r.customer_signature_data && !r.pdf_url && !r.signing_steps))
 
 beforeEach(() => {
+  failRules = []
   uploads.length = 0
   uploadFails = false
   generate.mockClear()
@@ -253,5 +278,64 @@ describe('recovery: ONE path finishes a signed contract whose request died', () 
     await Promise.all([post(good()), post(good())])
     expect(uploads).toHaveLength(1)
     expect(sendMail).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('recovery: failed steps stay retryable', () => {
+  const OLD = '2026-11-10T00:00:00.000Z'
+  const signedRow = (extra: Record<string, unknown> = {}) => ({
+    status: 'completed', customer_signature_data: PNG, customer_signed_at: OLD, signing_finalize_lease_at: OLD,
+    customer_print_name: 'Pat Homeowner', customer_ip: '203.0.113.9', ...extra,
+  })
+  const installation = () => {
+    seed(signedRow({ agreement_type: 'installation', payment_method: 'cash', project_cost: 16000, deposit_amount: 0 }))
+    db.tables.opportunities[0] = { id: 'o1', org_id: ORG, owner_user_id: 'u1', lead_id: null, job_source: 'retail' }
+    db.tables.production_jobs = []
+    db.tables.customers = []
+    db.tables.integration_outbox = []
+  }
+  const jobs = () => db.tables.production_jobs
+
+  it('(a) a void that fails is not marked done; the retry voids the older contract', async () => {
+    seed(signedRow())
+    db.tables.order_form_contracts.push({ id: 'c0', org_id: ORG, status: 'pending_customer', opportunity_id: 'o1', agreement_type: 'contingency', token_expires_at: FUTURE })
+    failRules = [{ table: 'order_form_contracts', op: 'update', when: (v) => v?.status === 'voided', times: 1 }]
+    await post(good())
+    expect(db.tables.order_form_contracts[1].status).toBe('pending_customer')
+    expect((db.tables.order_form_contracts[0] as any).signing_steps?.void_older).toBeUndefined()
+    expect(db.tables.order_form_contracts[0].signing_finalized_at).toBeUndefined()
+
+    db.tables.order_form_contracts[0].signing_finalize_lease_at = OLD // lease ran out
+    await post(good())
+    expect(db.tables.order_form_contracts[1].status).toBe('voided')
+    expect((db.tables.order_form_contracts[0] as any).signing_steps.void_older).toBeTruthy()
+    expect(db.tables.order_form_contracts[0].status).toBe('completed')
+  })
+
+  it('(b) a job that fails to create is not marked done; the retry creates exactly one job', async () => {
+    installation()
+    failRules = [{ table: 'production_jobs', op: 'insert', times: 1 }]
+    await post(good())
+    expect(jobs()).toHaveLength(0)
+    expect((db.tables.order_form_contracts[0] as any).signing_steps?.project).toBeUndefined()
+    expect(db.tables.order_form_contracts[0].signing_finalized_at).toBeUndefined()
+
+    db.tables.order_form_contracts[0].signing_finalize_lease_at = OLD
+    await post(good())
+    expect(jobs()).toHaveLength(1)
+    expect((db.tables.order_form_contracts[0] as any).signing_steps.project).toBeTruthy()
+
+    db.tables.order_form_contracts[0].signing_finalize_lease_at = OLD
+    await post(good())
+    expect(jobs()).toHaveLength(1)
+  })
+
+  it('(c) two concurrent retries make one job, send one email and queue one customer.upserted', async () => {
+    installation()
+    await Promise.all([post(good()), post(good())])
+    expect(jobs()).toHaveLength(1)
+    expect(sendMail).toHaveBeenCalledTimes(1)
+    expect(db.writes.filter((w) => w.table === 'integration_outbox' && w.rows.some((r) => r.event_type === 'customer.upserted'))).toHaveLength(1)
+    expect(db.tables.order_form_contracts[0].status).toBe('completed')
   })
 })
