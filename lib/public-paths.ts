@@ -21,6 +21,7 @@ export function isPublicPath(pathname: string | null | undefined): boolean {
     pathname.startsWith('/change-orders/sign/') ||
     pathname.startsWith('/r/') || // public inspection-report share links (unguessable tokens)
     pathname.startsWith('/crew/') ||
+    pathname.startsWith('/s/') || // customer selection links (unguessable per-selection tokens; lib/project-tools/selections-public.ts)
     pathname.startsWith('/pay/') || // customer pay / save-card links (hashed per-link tokens; lib/online-payments/links.ts)
     // compensation agreements a new hire signs from an email (hashed per-agreement tokens; no account needed)
     pathname.startsWith('/comp-agreements/sign/') ||

@@ -63,6 +63,7 @@ export function selectionState(s: Pick<SelectionRow, 'status' | 'chosen_price' |
 }
 
 function num(v: unknown): number | null {
+  if (v === undefined || v === null || String(v).trim() === '') return null
   const n = typeof v === 'number' ? v : Number(String(v ?? '').replace(/[$,\s]/g, ''))
   return Number.isFinite(n) && n >= 0 && n <= 1e9 ? roundMoney(n) : null
 }

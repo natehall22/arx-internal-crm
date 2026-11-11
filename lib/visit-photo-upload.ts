@@ -14,7 +14,7 @@ async function post(url: string, body: unknown): Promise<Record<string, unknown>
   return data
 }
 
-export function visitPhotoUploadSteps(base: string): UploadSteps {
+export function visitPhotoUploadSteps(base: string, photoTag?: string): UploadSteps {
   const supabase = createClientBrowser()
   return {
     async register(_id, filename) {
@@ -26,7 +26,7 @@ export function visitPhotoUploadSteps(base: string): UploadSteps {
       if (error) throw new Error(error.message)
     },
     async finalize(_id, body) {
-      return post(`${base}/finalize`, { photoId: body.photoId, mime_type: body.mime_type, file_size: body.file_size })
+      return post(`${base}/finalize`, { photoId: body.photoId, mime_type: body.mime_type, file_size: body.file_size, ...(photoTag ? { photo_tag: photoTag } : {}) })
     },
   }
 }
@@ -49,4 +49,28 @@ export async function uploadVisitPhotos(base: string, files: File[]): Promise<{ 
     }
   }
   return { uploaded, error: null }
+}
+
+/**
+ * Upload photos under one tag (the daily log: tag `daily_log`) and hand back their ids. `base` is a job photo API with
+ * `/register` and `/finalize` under it: `/api/ops/jobs/<id>/photos` (office) or `/api/crew/<token>/photos` (crew link).
+ * Stops at the first failure; ids of the ones that went up are still returned.
+ */
+export async function uploadTaggedPhotos(base: string, files: File[], tag: string): Promise<{ ids: string[]; error: string | null }> {
+  const steps = visitPhotoUploadSteps(base, tag)
+  const ids: string[] = []
+  for (const file of files) {
+    try {
+      const blob = await shrinkImage(file)
+      const mime = blob.type || file.type || 'image/jpeg'
+      const name = mime === 'image/jpeg' && !/\.jpe?g$/i.test(file.name) ? `${file.name.replace(/\.[^.]+$/, '') || 'photo'}.jpg` : file.name || 'photo.jpg'
+      const reg = await steps.register('', name)
+      await steps.upload(reg, blob, mime)
+      await steps.finalize('', { photoId: reg.photoId, photo_tag: tag, mime_type: mime, file_size: blob.size, work_order_id: null })
+      ids.push(reg.photoId)
+    } catch (e) {
+      return { ids, error: e instanceof Error ? e.message : 'Upload failed — try again' }
+    }
+  }
+  return { ids, error: null }
 }

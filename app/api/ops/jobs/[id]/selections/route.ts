@@ -11,7 +11,7 @@ export async function GET(_request: Request, { params }: { params: { id: string 
   if (!auth.ok) return auth.response
   const { ctx } = auth
   const { selections, ready } = await listSelections(ctx.admin, ctx.orgId, params.id, ymdInBusinessTz(new Date()))
-  return NextResponse.json({ selections, ready, canEdit: ctx.canEdit })
+  return NextResponse.json({ selections, ready, canEdit: ctx.canEdit, repName: ctx.userName })
 }
 
 /** POST { id?, item, allowance, options: [{label, price}], due_date? } — add a selection (or edit one the customer has not chosen yet). */
