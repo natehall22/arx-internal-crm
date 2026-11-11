@@ -290,10 +290,11 @@ export async function PATCH(request: NextRequest) {
       // profile (settings.profile) only by /api/admin/industry-profile (owners).
       // Sales tax (settings.salesTax) is owner-only and written only by the `salesTax` save above. The pay week
       // (settings.payWeek) only by /api/admin/payroll/pay-week/schedule (super admins, savePayWeekSchedule).
+      // The AI connector settings (settings.aiConnector: extra allowed app addresses) are owner-only, written only by /api/admin/ai-connector.
       // The time clock settings are owner-only too (`/api/admin/time/settings`, path ['timeTracking']), and so are the
       // hourly billing rules (`/api/admin/hourly-billing`, path ['hourlyBilling']) and online payments (`/api/admin/online-payments`,
       // path ['onlinePayments']), and automatic customer messages (`/api/admin/customer-messages`, path ['customerMessages']).
-      const { brand: _brand, [ORG_FEATURES_SETTINGS_KEY]: _features, [SALES_TAX_SETTINGS_KEY]: _salesTax, [TIME_TRACKING_SETTINGS_KEY]: _timeTracking, [HOURLY_BILLING_SETTINGS_KEY]: _hourlyBilling, [PAY_WEEK_SETTINGS_KEY]: _payWeek, [ONLINE_PAYMENTS_SETTINGS_KEY]: _onlinePayments, [CUSTOMER_MESSAGES_SETTINGS_KEY]: _customerMessages, profile: _profile, ...rest } = data
+      const { brand: _brand, [ORG_FEATURES_SETTINGS_KEY]: _features, [SALES_TAX_SETTINGS_KEY]: _salesTax, [TIME_TRACKING_SETTINGS_KEY]: _timeTracking, [HOURLY_BILLING_SETTINGS_KEY]: _hourlyBilling, [PAY_WEEK_SETTINGS_KEY]: _payWeek, [ONLINE_PAYMENTS_SETTINGS_KEY]: _onlinePayments, [CUSTOMER_MESSAGES_SETTINGS_KEY]: _customerMessages, aiConnector: _aiConnector, profile: _profile, ...rest } = data
       const settingsData = Object.fromEntries(Object.entries(rest).filter(([k]) => !JOB_CATCH_UP_SETTINGS_KEYS.includes(k) && !CHECKUPS_SETTINGS_KEYS.includes(k)))
       const { error } = await adminClient
         .from('orgs')
