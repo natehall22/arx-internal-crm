@@ -96,6 +96,9 @@ import ServicePlanTemplatesCard from '@/components/service-plans/ServicePlanTemp
 import ServicePlansCard from '@/components/service-plans/ServicePlansCard'
 import VisitsBoard from '@/components/service-plans/VisitsBoard'
 import ReadyToBill from '@/components/billing/ReadyToBill'
+import HoursToBill from '@/components/billing/HoursToBill'
+import JobHourlyCard from '@/components/billing/JobHourlyCard'
+import HourlyBillingSettingsCard from '@/components/billing/HourlyBillingSettingsCard'
 import CustomerInvoicesCard from '@/components/billing/CustomerInvoicesCard'
 import CrewDayList, { type CrewDayVisit } from '@/app/crew/day/[token]/CrewDayList'
 import { HARNESS_CATCH_UP_JOBS, HARNESS_CATCH_UP_STUCK, HARNESS_VIEWER_ID } from '@/e2e/fixtures'
@@ -421,6 +424,12 @@ export default function Harness({ params }: { params: { screen: string } }) {
       return <VisitsBoard />
     case 'ready-to-bill':
       return <ReadyToBill />
+    case 'hours-to-bill':
+      return <HoursToBill />
+    case 'job-hourly':
+      return <div className="mx-auto max-w-md p-4"><JobHourlyCard jobId="dddddddd-0000-4000-8000-000000000001" /></div>
+    case 'hourly-settings':
+      return <div className="mx-auto max-w-md p-4"><HourlyBillingSettingsCard /></div>
     case 'customer-invoices':
       return <div className="mx-auto max-w-2xl p-4"><CustomerInvoicesCard customerId="c1" /></div>
     case 'crew-day':

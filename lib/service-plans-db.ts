@@ -16,6 +16,7 @@ import { loadOrgTrades } from '@/lib/org-trades'
 import { describeChange, diffFields, sameValue, type FieldChange } from '@/lib/change-log'
 import {
   EMPTY_PRICING,
+  HOURLY_BILLING_BASIS,
   PLAN_FIELD_LABELS,
   SERVICE_PLAN_COLUMNS,
   SERVICE_STEP,
@@ -208,6 +209,20 @@ async function checkRefs(admin: SupabaseClient, orgId: string, customerId: strin
       }
   }
   return { ok: true }
+}
+
+/**
+ * "Billed per hour" (time & materials) only while the company has hourly billing on — otherwise the plan's visits would be
+ * billed nowhere (Ready to bill leaves per-hour visits to Hours to bill). A plan / template already per hour stays editable.
+ */
+export async function hourlyBasisRefusal(orgId: string, basis: unknown, pricing: unknown, oldBasis?: string | null): Promise<Fail | null> {
+  const tiers = pricing && typeof pricing === 'object' && Array.isArray((pricing as { tiers?: unknown }).tiers) ? ((pricing as { tiers: Array<{ billingBasis?: unknown }> }).tiers) : []
+  const wantsHourly = (basis === HOURLY_BILLING_BASIS && oldBasis !== HOURLY_BILLING_BASIS) || tiers.some((t) => t.billingBasis === HOURLY_BILLING_BASIS)
+  if (!wantsHourly) return null
+  // Dynamic: org-features-server pulls in next/server, which this module's node callers (seed, tests) don't load.
+  const { isOrgFeatureOn } = await import('@/lib/org-features-server')
+  if (await isOrgFeatureOn(orgId, 'hourlyBilling')) return null
+  return { ok: false, status: 400, error: 'Billing “per hour” needs Hourly billing turned on (Settings → Features)' }
 }
 
 /** Price from the plan's own rules: a tier's price if the home qualifies, else the typed (custom) price. */
@@ -411,6 +426,8 @@ export async function saveTemplate(admin: SupabaseClient, orgId: string, userId:
   const clean = cleanTemplateInput(body, !!old)
   if (!clean.ok) return { ok: false, status: 400, error: clean.error }
   const v = clean.value
+  const hourly = await hourlyBasisRefusal(orgId, v.billing_basis, v.pricing, old?.billing_basis)
+  if (hourly) return hourly
   const refs = await checkRefs(admin, orgId, null, {
     trade: v.trade,
     steps: v.steps,
@@ -534,6 +551,8 @@ async function prepareNewPlan(
   if (!refs.ok) return refs
   const p = priced(clean.value, null)
   if (!p.ok) return p
+  const hourly = await hourlyBasisRefusal(orgId, p.value.billing_basis, 'pricing' in clean.value ? clean.value.pricing : null)
+  if (hourly) return hourly
   return { ok: true, base, v: p.value as ServicePlanInput }
 }
 
@@ -693,6 +712,8 @@ async function planPatch(
   if (!refs.ok) return refs
   const p = priced(v, old)
   if (!p.ok) return p
+  const hourly = await hourlyBasisRefusal(orgId, p.value.billing_basis, 'pricing' in v ? v.pricing : null, old.billing_basis)
+  if (hourly) return hourly
   // "New price starts on <day>": slots before it keep today's price (the visits already on the calendar and any made later).
   const startsRaw = body.price_starts_on
   if (startsRaw != null && startsRaw !== '' && !(typeof startsRaw === 'string' && isYmd(startsRaw)))

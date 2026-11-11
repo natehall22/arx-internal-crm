@@ -56,7 +56,7 @@ const LONG_LOOKBACK = 180
 
 function summary(lines: readonly BillLine[]): string {
   if (!lines.length) return 'No hours yet'
-  return lines.map((l) => (l.kind === 'trip' ? l.name : `${lineDescription(l)} ${l.kind === 'labor' && (l.people ?? 1) > 1 ? '' : `${hoursLabel(l.hours)} h`}`.trim())).join(' · ')
+  return lines.map((l) => (l.kind === 'trip' ? l.name : `${lineDescription(l)}: ${hoursLabel(l.hours)} h`)).join(' · ')
 }
 
 function totalFor(lines: readonly BillLine[], date: string, data: Load, t: Target): number {
@@ -214,12 +214,12 @@ export default function HoursToBill() {
                           <span>
                             <span className="block text-ui-base font-semibold">{invoiceItemDateLabel(d.date)}</span>
                             <span className="block text-ui-sm">
-                              {d.status === 'no_time' ? 'No clock time — tap to type the hours' : summary(d.lines)}
+                              {d.status === 'no_time' ? 'No clock time — tap to type the hours' : d.status === 'open' && d.lines.length === 0 ? 'Bill it once everyone clocks out' : summary(d.lines)}
                             </span>
                             {d.status === 'open' ? <Badge tone="warning">Still clocked in</Badge> : null}
                             {d.needsReview ? <Badge tone="warning" className="ml-1">Check: a clock was stopped automatically</Badge> : null}
                           </span>
-                          <span className="text-ui-base font-semibold tabular-nums">{d.status === 'no_time' ? 'Type' : formatCurrency(amount)}</span>
+                          <span className="text-ui-base font-semibold tabular-nums">{d.status === 'no_time' ? 'Type' : d.status === 'open' && d.lines.length === 0 ? '—' : formatCurrency(amount)}</span>
                         </button>
                       </li>
                     )
