@@ -133,11 +133,14 @@ export function paymentStatusChip(
     collected_cents?: number | null
     allow_close_with_balance?: boolean | null
     close_balance_by?: string | null
+    /** Sales tax billed on the job's invoices (lib/job-invoice-tax.ts); owed on top of sale_amount. */
+    invoice_tax_cents?: number | null
   }
 ): { label: string; className: string } | null {
   // One paid-in-full rule: lib/job-collection.ts ($0.05 tolerance, super-admin override).
   const collection = evaluateJobCollection({
     saleAmount: job.sale_amount,
+    invoiceTaxCents: job.invoice_tax_cents,
     collectedCents: job.collected_cents ?? 0,
     allowCloseWithBalance: job.allow_close_with_balance,
     closeBalanceBy: job.close_balance_by,

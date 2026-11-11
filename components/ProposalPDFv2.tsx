@@ -80,6 +80,9 @@ export interface ProposalPDFData {
     discount_percent: number
     tax_rate: number
     tax_amount: number
+    /** Sales tax snapshot (lib/sales-tax.ts); null/absent = legacy single rate. */
+    tax_lines?: unknown
+    tax_exempt?: boolean | null
     total: number
     show_only_total_investment?: boolean
     scope_of_work?: string
@@ -1201,12 +1204,13 @@ export const ProposalPDFv2 = ({ data, theme = 'print' }: ProposalPDFProps) => {
               </View>
             )}
 
-            {!proposal.show_only_total_investment && (
-              <View style={styles.pricingRow}>
-                <Text style={styles.pricingLabel}>Tax ({proposal.tax_rate}%)</Text>
-                <Text style={styles.pricingValue}>{formatCurrency(displayPricing.taxAmount)}</Text>
-              </View>
-            )}
+            {!proposal.show_only_total_investment &&
+              displayPricing.taxLines.map((row, i) => (
+                <View key={`${i}-${row.label}`} style={styles.pricingRow}>
+                  <Text style={styles.pricingLabel}>{row.label}</Text>
+                  <Text style={styles.pricingValue}>{formatCurrency(row.amount)}</Text>
+                </View>
+              ))}
 
             {!proposal.show_only_total_investment && <View style={styles.pricingDivider} />}
 

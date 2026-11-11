@@ -15,6 +15,11 @@
  *
  * Pending payments (`funding_status = 'pending'`) are not money in hand and don't count.
  *
+ * Sales tax (lib/sales-tax.ts): `sale_amount` already includes any tax on the quote, and NEVER includes sales tax an
+ * invoice adds on taxable lines. That invoice tax is owed on top: pass it as `invoiceTaxCents` and it is added to what
+ * must be collected, so paying the contract alone does not read as paid in full, and paying contract + tax does not
+ * read as overpaid. Omitted = 0 (every company without invoice tax: unchanged).
+ *
  * Client-safe: used by the job page, the ops board, payroll eligibility and the API guard.
  */
 
@@ -29,6 +34,8 @@ export type CollectionPayment = {
 export type JobCollectionInput = {
   /** production_jobs.sale_amount, dollars. */
   saleAmount: number | string | null | undefined
+  /** Sales tax added by the job's non-void invoices (sum of job_invoices.tax_cents). Default 0. */
+  invoiceTaxCents?: number | null
   /** Either the payment rows, or an already-summed cents figure. */
   payments?: CollectionPayment[]
   collectedCents?: number | null
@@ -63,13 +70,15 @@ export function sumCollectedCents(payments: CollectionPayment[]): number {
 
 export function evaluateJobCollection(input: JobCollectionInput): JobCollection {
   const sale = Number(input.saleAmount)
-  const requiredCents = Number.isFinite(sale) ? Math.round(sale * 100) : 0
+  const saleCents = Number.isFinite(sale) ? Math.round(sale * 100) : 0
+  const invoiceTax = Math.max(0, Math.round(Number(input.invoiceTaxCents) || 0))
+  const requiredCents = saleCents + (saleCents > 0 ? invoiceTax : 0)
   const collectedCents =
     input.payments != null
       ? sumCollectedCents(input.payments)
       : Math.round(Number(input.collectedCents) || 0)
   const remainingCents = requiredCents - collectedCents
-  const missingSaleAmount = requiredCents <= 0
+  const missingSaleAmount = saleCents <= 0
   const paidByPayments = !missingSaleAmount && remainingCents <= PAID_IN_FULL_TOLERANCE_CENTS
   const hasForceFlag = Boolean(input.allowCloseWithBalance)
   const forcedPaidInFull = hasForceFlag && Boolean(input.closeBalanceBy)

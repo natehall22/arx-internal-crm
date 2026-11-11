@@ -1,6 +1,7 @@
 import { SupabaseClient } from '@supabase/supabase-js'
 import { JobPayment, JobPaymentSummary, JobPaymentInsert } from './types/job-payments'
 import { evaluateJobCollection, JOB_COLLECTION_COLUMNS } from './job-collection'
+import { loadInvoiceTaxCentsByJob } from './job-invoice-tax'
 
 /**
  * Fetch all payments for a job (ordered by date)
@@ -42,14 +43,16 @@ export async function getJobPaymentSummary(
     return null
   }
 
-  const payments = await getPaymentsByJob(supabase, jobId)
-  return buildJobPaymentSummary(job as JobCollectionJobRow, payments)
+  const [payments, invoiceTax] = await Promise.all([getPaymentsByJob(supabase, jobId), loadInvoiceTaxCentsByJob(supabase, [jobId])])
+  return buildJobPaymentSummary({ ...(job as JobCollectionJobRow), invoice_tax_cents: invoiceTax.get(jobId) ?? 0 }, payments)
 }
 
 type JobCollectionJobRow = {
   sale_amount: number | null
   allow_close_with_balance?: boolean | null
   close_balance_by?: string | null
+  /** lib/job-invoice-tax.ts — sales tax billed on the job's invoices, owed on top of sale_amount. */
+  invoice_tax_cents?: number | null
 }
 
 /** Pure: summary from an already-loaded job row + its payments. */
@@ -59,6 +62,7 @@ export function buildJobPaymentSummary(
 ): JobPaymentSummary {
   const collection = evaluateJobCollection({
     saleAmount: job.sale_amount,
+    invoiceTaxCents: job.invoice_tax_cents,
     payments,
     allowCloseWithBalance: job.allow_close_with_balance,
     closeBalanceBy: job.close_balance_by,
@@ -67,7 +71,9 @@ export function buildJobPaymentSummary(
     payments,
     collected_cents: collection.collectedCents,
     collected_dollars: collection.collectedCents / 100,
+    // What must be collected: sale amount + invoice sales tax (equal to the sale amount when there is none).
     sale_amount_cents: collection.requiredCents,
+    invoice_tax_cents: Math.max(0, Math.round(Number(job.invoice_tax_cents) || 0)),
     sale_amount_dollars: collection.requiredCents / 100,
     remaining_cents: collection.remainingCents,
     remaining_dollars: collection.remainingCents / 100,

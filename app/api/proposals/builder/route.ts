@@ -7,10 +7,12 @@ import { loadBuilderMeasurement } from '@/lib/proposal-builder-measurement'
 import { createServiceClient } from '@/lib/supabase/service'
 import { stripPricebookCosts } from '@/lib/pricebook-costs'
 import { canSeeFinancials } from '@/lib/financials-access'
+import { roundMoney } from '@/lib/money'
+import { readSalesTaxSettings } from '@/lib/sales-tax'
+import { proposalSalesTaxFields } from '@/lib/sales-tax-server'
 
 export const dynamic = 'force-dynamic'
 
-const roundMoney = (value: number) => Math.round((Number(value) || 0) * 100) / 100
 const SOLD_SQUARE_FIELDS = [
   'measured_squares',
   'sold_waste_percent',
@@ -390,6 +392,9 @@ export async function GET(request: NextRequest) {
       orgId: profile.org_id,
       userId: user.id,
       orgPricing, // Include pricing settings for reference
+      // Sales tax (lib/sales-tax.ts): null = not set up (one typed rate per quote).
+      salesTax: readSalesTaxSettings(org?.settings),
+      customerTaxExempt: customerTaxExemptFromOpportunity(opportunity),
     })
   } catch (error) {
     console.error('Proposal builder data API error:', error)
@@ -399,6 +404,35 @@ export async function GET(request: NextRequest) {
   }
 }
 
+/** One proposal_line_items row from a builder line (POST and PUT). `taxable` only when the builder sent it (company rates). */
+function proposalLineItemRow(item: any, index: number, orgId: string, proposalId: string): Record<string, unknown> {
+  const qty = Number(item.quantity)
+  const unitPrice = Number(item.unit_price)
+  const lineTotal = Number(item.line_total)
+  return {
+    org_id: orgId,
+    proposal_id: proposalId,
+    pricebook_item_id: item.pricebook_item_id || null,
+    category: String(item.category ?? 'General').trim() || 'General',
+    name: String(item.name ?? 'Line item').trim() || 'Line item',
+    description: item.description != null ? String(item.description) : '',
+    unit: String(item.unit ?? 'each').trim() || 'each',
+    quantity: Number.isFinite(qty) ? qty : 0,
+    unit_price: Number.isFinite(unitPrice) ? roundMoney(unitPrice) : 0,
+    line_total: Number.isFinite(lineTotal) ? roundMoney(lineTotal) : 0,
+    is_adder: item.is_adder || false,
+    show_to_customer: item.show_to_customer ?? false,
+    sort_order: index,
+    ...(typeof item.taxable === 'boolean' ? { taxable: item.taxable } : {}),
+  }
+}
+
+
+function customerTaxExemptFromOpportunity(opportunity: unknown): boolean {
+  const c = (opportunity as { customers?: unknown } | null)?.customers
+  const row = Array.isArray(c) ? c[0] : c
+  return (row as { tax_exempt?: boolean } | null)?.tax_exempt === true
+}
 // POST - Create a new proposal
 export async function POST(request: NextRequest) {
   try {
@@ -483,6 +517,10 @@ export async function POST(request: NextRequest) {
       accent_color: proposal.accent_color || '#4f46e5',
     }
 
+    // Company sales-tax rates: the server recomputes the money fields (lib/sales-tax-server.ts). Legacy quotes: unchanged.
+    const taxFields = await proposalSalesTaxFields(adminClient, profile.org_id, cleanProposal.opportunity_id ? { ...proposal, opportunity_id: cleanProposal.opportunity_id } : proposal, Array.isArray(lineItems) ? (lineItems as Record<string, unknown>[]) : [])
+    if (taxFields) Object.assign(cleanProposal, taxFields)
+
     const financingMerged = await mergeFinancingIntoProposal(adminClient, profile.org_id, {
       ...cleanProposal,
       financing_program_id: proposal.financing_program_id,
@@ -513,26 +551,7 @@ export async function POST(request: NextRequest) {
 
     // Create line items (required for a coherent proposal — rollback on failure)
     if (lineItems && lineItems.length > 0) {
-      const lineItemsToInsert = lineItems.map((item: any, index: number) => {
-        const qty = Number(item.quantity)
-        const unitPrice = Number(item.unit_price)
-        const lineTotal = Number(item.line_total)
-        return {
-          org_id: profile.org_id,
-          proposal_id: newProposal.id,
-          pricebook_item_id: item.pricebook_item_id || null,
-          category: String(item.category ?? 'General').trim() || 'General',
-          name: String(item.name ?? 'Line item').trim() || 'Line item',
-          description: item.description != null ? String(item.description) : '',
-          unit: String(item.unit ?? 'each').trim() || 'each',
-          quantity: Number.isFinite(qty) ? qty : 0,
-          unit_price: Number.isFinite(unitPrice) ? roundMoney(unitPrice) : 0,
-          line_total: Number.isFinite(lineTotal) ? roundMoney(lineTotal) : 0,
-          is_adder: item.is_adder || false,
-          show_to_customer: item.show_to_customer ?? false,
-          sort_order: index,
-        }
-      })
+      const lineItemsToInsert = lineItems.map((item: any, index: number) => proposalLineItemRow(item, index, profile.org_id, newProposal.id))
 
       const { error: lineItemsError } = await adminClient
         .from('proposal_line_items')
@@ -671,6 +690,10 @@ export async function PUT(request: NextRequest) {
       updated_at: new Date().toISOString(),
     }
 
+    // Company sales-tax rates: the server recomputes the money fields (lib/sales-tax-server.ts). Legacy quotes: unchanged.
+    const taxFields = await proposalSalesTaxFields(adminClient, profile.org_id, cleanProposal.opportunity_id ? { ...proposal, opportunity_id: cleanProposal.opportunity_id } : proposal, Array.isArray(lineItems) ? (lineItems as Record<string, unknown>[]) : [])
+    if (taxFields) Object.assign(cleanProposal, taxFields)
+
     const financingMerged = await mergeFinancingIntoProposal(adminClient, profile.org_id, {
       ...cleanProposal,
       financing_program_id: proposal.financing_program_id,
@@ -717,26 +740,7 @@ export async function PUT(request: NextRequest) {
     }
 
     if (lineItems && lineItems.length > 0) {
-      const lineItemsToInsert = lineItems.map((item: any, index: number) => {
-        const qty = Number(item.quantity)
-        const unitPrice = Number(item.unit_price)
-        const lineTotal = Number(item.line_total)
-        return {
-          org_id: profile.org_id,
-          proposal_id,
-          pricebook_item_id: item.pricebook_item_id || null,
-          category: String(item.category ?? 'General').trim() || 'General',
-          name: String(item.name ?? 'Line item').trim() || 'Line item',
-          description: item.description != null ? String(item.description) : '',
-          unit: String(item.unit ?? 'each').trim() || 'each',
-          quantity: Number.isFinite(qty) ? qty : 0,
-          unit_price: Number.isFinite(unitPrice) ? roundMoney(unitPrice) : 0,
-          line_total: Number.isFinite(lineTotal) ? roundMoney(lineTotal) : 0,
-          is_adder: item.is_adder || false,
-          show_to_customer: item.show_to_customer ?? false,
-          sort_order: index,
-        }
-      })
+      const lineItemsToInsert = lineItems.map((item: any, index: number) => proposalLineItemRow(item, index, profile.org_id, proposal_id))
 
       const { error: lineItemsError } = await adminClient.from('proposal_line_items').insert(lineItemsToInsert)
 

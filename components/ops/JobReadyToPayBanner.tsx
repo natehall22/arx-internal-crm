@@ -31,6 +31,7 @@ export default function JobReadyToPayBanner({
   // A super-admin "closed with balance" is not "paid in full" for this banner.
   const collection = evaluateJobCollection({
     saleAmount,
+    invoiceTaxCents: paymentSummary.invoice_tax_cents,
     collectedCents: paymentSummary.collected_cents ?? 0,
   })
   if (collection.missingSaleAmount) return null

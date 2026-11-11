@@ -31,6 +31,9 @@ interface Proposal {
   discount_percent: number
   tax_rate: number
   tax_amount: number
+  /** Sales tax snapshot (lib/sales-tax.ts); null = legacy single rate. */
+  tax_lines?: unknown
+  tax_exempt?: boolean | null
   total: number
   financing_available: boolean
   financing_term_months: number
@@ -295,6 +298,8 @@ export default function ProposalDetailPage() {
           discount_percent: proposal.discount_percent,
           tax_rate: proposal.tax_rate,
           tax_amount: proposal.tax_amount,
+          tax_lines: proposal.tax_lines ?? null,
+          tax_exempt: proposal.tax_exempt ?? null,
           total: pricing.quotedTotal,
           show_only_total_investment: pricing.showOnlyTotalInvestment,
           scope_of_work: proposal.scope_of_work,
@@ -1030,10 +1035,12 @@ export default function ProposalDetailPage() {
                     <span>-${displayPricing.discountAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
                   </div>
                 )}
-                <div className="flex justify-between text-gray-900">
-                  <span>Tax ({proposal.tax_rate}%)</span>
-                  <span>${displayPricing.taxAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
-                </div>
+                {pricing.taxLines.map((row, i) => (
+                  <div key={`${i}-${row.label}`} className="flex justify-between text-gray-900">
+                    <span>{row.label}</span>
+                    <span>${row.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                  </div>
+                ))}
                 <div className="flex justify-between text-xl font-bold text-gray-900 pt-2 border-t">
                   <span>Total Investment</span>
                   <span>${quotedTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>

@@ -12,6 +12,8 @@ import {
   voidInvoice,
   duplicateInvoiceAsDraft,
 } from '@/lib/invoices'
+import { defaultTaxRates } from '@/lib/sales-tax'
+import { loadOrgSalesTax } from '@/lib/sales-tax-server'
 
 // GET - Get invoice with all details
 export async function GET(
@@ -38,7 +40,9 @@ export async function GET(
     }
 
     const invoice = await getInvoiceWithDetails(adminClient, params.invoiceId)
-    return NextResponse.json({ invoice })
+    // Taxable box on lines only when this company charges sales tax with rates (lib/sales-tax.ts).
+    const salesTax = await loadOrgSalesTax(adminClient, profile.org_id)
+    return NextResponse.json({ invoice, salesTaxOn: !!salesTax?.enabled && defaultTaxRates(salesTax).length > 0 })
 
   } catch (error) {
     console.error('Error in GET /api/invoices/[invoiceId]:', error)
@@ -75,7 +79,7 @@ export async function PATCH(
 
     switch (action) {
       case 'add_item': {
-        const { description, qty, unit_price_cents, sort_order } = body
+        const { description, qty, unit_price_cents, sort_order, taxable } = body
         if (!description || unit_price_cents === undefined) {
           return NextResponse.json({ error: 'description and unit_price_cents required' }, { status: 400 })
         }
@@ -84,13 +88,14 @@ export async function PATCH(
           qty,
           unit_price_cents,
           sort_order,
+          taxable: taxable === true,
         })
         const invoice = await getInvoiceWithDetails(adminClient, params.invoiceId)
         return NextResponse.json({ success: true, item, invoice })
       }
 
       case 'update_item': {
-        const { item_id, description, qty, unit_price_cents, sort_order } = body
+        const { item_id, description, qty, unit_price_cents, sort_order, taxable } = body
         if (!item_id) {
           return NextResponse.json({ error: 'item_id required' }, { status: 400 })
         }
@@ -99,6 +104,7 @@ export async function PATCH(
           qty,
           unit_price_cents,
           sort_order,
+          ...(typeof taxable === 'boolean' ? { taxable } : {}),
         })
         const invoice = await getInvoiceWithDetails(adminClient, params.invoiceId)
         return NextResponse.json({ success: true, item, invoice })

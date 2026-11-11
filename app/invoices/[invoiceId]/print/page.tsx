@@ -6,6 +6,7 @@ import PrintButton from './PrintButton'
 import { formatPhone } from '@/lib/format'
 import { resolveOrgBrand } from '@/lib/org-brand'
 import { callerCanAccessJobBilling } from '@/lib/finance-access'
+import { invoiceTaxRows } from '@/lib/sales-tax'
 
 interface ResolvedCustomer {
   name: string
@@ -349,6 +350,12 @@ export default async function PrintInvoicePage({
                 <span className="total-label">Subtotal</span>
                 <span>{formatCurrency(invoice.subtotal_cents)}</span>
               </div>
+              {invoiceTaxRows(invoice).map((row, i) => (
+                <div key={`${i}-${row.label}`} className="total-row">
+                  <span className="total-label">{row.label}</span>
+                  <span>{formatCurrency(row.amountCents)}</span>
+                </div>
+              ))}
               <div className="total-row total-final">
                 <span className="total-label">Total</span>
                 <span>{formatCurrency(invoice.total_cents)}</span>

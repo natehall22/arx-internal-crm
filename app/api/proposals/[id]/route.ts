@@ -240,7 +240,9 @@ export async function PATCH(
       'status', 'sent_at', 'accepted_at', 'declined_at', 'declined_reason',
       'inspection_notes', 'pdf_generated_at', 'cover_image_url',
       'customer_name', 'customer_email', 'customer_phone', 'customer_address',
-      'title', 'notes', 'total', 'subtotal', 'tax', 'tax_rate',
+      // Money fields (total/subtotal/tax_rate) are NOT patchable: only the builder save (POST/PUT
+      // /api/proposals/builder) prices a quote, through lib/sales-tax. No caller sent them here (web, iOS checked 2026-11-10).
+      'title', 'notes',
       'rep_signature_type', 'rep_signature_typed', 'rep_signature_data',
       'rep_signed_name', 'rep_signed_at',
       'customer_signature_type', 'customer_signature_typed', 'customer_signature_data',
