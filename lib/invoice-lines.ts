@@ -24,6 +24,11 @@ export const MAX_LINE_HOURS = 744
 
 const YMD = /^\d{4}-\d{2}-\d{2}$/
 
+/** At most 2 decimals, read the way people type them: 1.1 and 2.3 pass (1.1 * 100 is 110.00000000000001 in floating point). */
+export function hasAtMost2Decimals(n: number): boolean {
+  return Number.isFinite(n) && Math.abs(n * 100 - Math.round(n * 100)) < 1e-6
+}
+
 export function isYmd(v: unknown): v is string {
   return typeof v === 'string' && YMD.test(v) && !Number.isNaN(Date.parse(`${v}T12:00:00Z`)) && new Date(`${v}T12:00:00Z`).toISOString().slice(0, 10) === v
 }
@@ -39,7 +44,7 @@ export function invoiceItemLineFields(item: {
     if (item.unit !== 'hour') return { error: 'Unknown line unit' }
     const qty = Number(item.qty ?? 1)
     if (!Number.isFinite(qty) || qty <= 0 || qty > MAX_LINE_HOURS) return { error: `Hours must be above 0 and at most ${MAX_LINE_HOURS}` }
-    if (Math.round(qty * 100) !== qty * 100) return { error: 'Hours can have at most 2 decimals (e.g. 1.25)' }
+    if (!hasAtMost2Decimals(qty)) return { error: 'Hours can have at most 2 decimals (e.g. 1.25)' }
     value.unit = 'hour'
   }
   if (item.service_date != null && item.service_date !== '') {
