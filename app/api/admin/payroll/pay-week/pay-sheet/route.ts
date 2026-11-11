@@ -26,7 +26,7 @@ export async function GET(request: NextRequest) {
     if (sheets.length === 0) return NextResponse.json({ error: 'Nothing to put on a sheet' }, { status: 404 })
     const headers = { 'Cache-Control': 'no-store' }
     if (sheets.length === 1 && userId) return new NextResponse(new Uint8Array(sheets[0].pdf), { headers: { ...headers, 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="${sheets[0].filename}"` } })
-    return new NextResponse(zipSheets(sheets), { headers: { ...headers, 'Content-Type': 'application/zip', 'Content-Disposition': `attachment; filename="Pay_Sheets_${week.period.payDate}${week.state === 'approved' ? '' : '_PREVIEW'}.zip"` } })
+    return new NextResponse(Buffer.from(zipSheets(sheets)), { headers: { ...headers, 'Content-Type': 'application/zip', 'Content-Disposition': `attachment; filename="Pay_Sheets_${week.period.payDate}${week.state === 'approved' ? '' : '_PREVIEW'}.zip"` } })
   } catch (e) {
     console.error('GET pay-week pay-sheet', e)
     return NextResponse.json({ error: 'Could not build the pay sheets' }, { status: 500 })

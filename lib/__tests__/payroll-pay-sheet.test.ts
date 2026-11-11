@@ -15,7 +15,7 @@ const person: PayWeekPerson = {
     { kind: 'Adjustment', what: 'Fix', math: 'x', amount: -154.5, adjustmentKind: 'fix' },
   ],
 }
-const week = { state: 'approved' as const, period: { payDate: '2026-11-13', weekStart: '2026-11-02', weekEnding: '2026-11-08' } } as never
+const week = { state: 'approved' as const, period: { payDate: '2026-11-13', weekStart: '2026-11-02', weekEnding: '2026-11-08' } } as unknown as import('@/lib/payroll-pay-week').PayWeek
 
 describe('pay sheet model (golden)', () => {
   it('plain words, no math by default, running total, zero lines dropped', () => {
