@@ -215,7 +215,7 @@ const SCREENS: Screen[] = [
     await p.route('**/api/ops/visits/*/photos', (route) => route.fulfill(json({ photos: [{ id: 'ph1', filename: 'front.jpg', created_at: '2026-11-10T15:00:00Z' }] })))
     await p.route(/\/api\/service-plans$/, (route) => route.fulfill(json({ ...HARNESS_SERVICE_PLANS, properties: [] })))
     await p.route('**/api/ops/subs/*/crew-day-link', (route) => route.fulfill(json({ path: '/crew/day/tok123' })))
-    await p.route('**/api/ops/visits/shift', (route) => route.fulfill(json({ preview: { count: 9, landing: [{ day: '2026-11-18', count: 5 }, { day: '2026-11-19', count: 4 }], sample: [{ id: 'v1', from: '2026-11-17', to: '2026-11-18', what: 'Weekly mowing', customer: 'Pat Lee', crew: 'Green Crew' }], staying: { done: 2, skipped: 1 }, intoPast: 0 } })))
+    await p.route('**/api/ops/visits/shift', (route) => route.fulfill(json({ preview: { selectionKey: 'k1', count: 9, landing: [{ day: '2026-11-18', count: 5 }, { day: '2026-11-19', count: 4 }], sample: [{ id: 'v1', from: '2026-11-17', to: '2026-11-18', what: 'Weekly mowing', customer: 'Pat Lee', crew: 'Green Crew' }], staying: { done: 2, skipped: 1 }, intoPast: 0 } })))
   },
     states: [
       { name: 'skip-sheet', run: async (p) => { await p.getByRole('button', { name: 'Skip' }).first().click(); await p.waitForSelector('[role=dialog] >> text=Why?') } },

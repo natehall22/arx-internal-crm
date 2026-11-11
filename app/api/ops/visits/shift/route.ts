@@ -10,8 +10,8 @@ export const dynamic = 'force-dynamic'
 /**
  * POST — the rain / hurricane button: `{ from, to?, days, subId? ('all' | crew id | 'none') }` moves every scheduled
  * visit on those days by `days`. Done and skipped visits (and so billed ones) stay put. jobs:edit only.
- * `preview: true` writes nothing and answers what WOULD move; the real move sends `expectCount` (the preview's count) and is
- * refused with 409 if the selection changed since.
+ * `preview: true` writes nothing and answers what WOULD move; the real move sends `expectKey` (the preview's selectionKey) and is
+ * refused with 409 if the exact visits changed since.
  */
 export async function POST(request: Request) {
   const ctx = await servicePlanRouteAuth('edit')
@@ -25,8 +25,8 @@ export async function POST(request: Request) {
   }
   const b = body && typeof body === 'object' ? (body as Record<string, unknown>) : {}
   if (b.preview === true) return NextResponse.json({ preview: await previewBulkShift(ctx.admin, ctx.orgId, shift) })
-  const expectCount = typeof b.expectCount === 'number' && Number.isInteger(b.expectCount) && b.expectCount >= 0 ? b.expectCount : undefined
-  const res = await bulkShiftVisits(ctx.admin, ctx.orgId, shift, { expectCount })
+  const expectKey = typeof b.expectKey === 'string' && b.expectKey ? b.expectKey : undefined
+  const res = await bulkShiftVisits(ctx.admin, ctx.orgId, shift, { expectKey })
   if ('error' in res) return NextResponse.json({ error: res.error }, { status: res.status })
   return NextResponse.json({ moved: res.moved })
 }

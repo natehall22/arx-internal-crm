@@ -49,7 +49,8 @@ export function isExpired(expiresAt: number | undefined): boolean {
  * near-simultaneous refreshes from parallel requests.
  */
 export async function refreshSupabaseSession(
-  refreshToken: string
+  refreshToken: string,
+  signal?: AbortSignal
 ): Promise<SupabaseSession | null> {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
   const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
@@ -64,6 +65,7 @@ export async function refreshSupabaseSession(
       },
       body: JSON.stringify({ refresh_token: refreshToken }),
       cache: 'no-store',
+      ...(signal ? { signal } : {}),
     })
 
     if (!res.ok) {
@@ -105,22 +107,35 @@ export async function revokeSupabaseSession(
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
   const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
   if (!supabaseUrl || !supabaseKey || !session) return false
-  try {
+  // ONE deadline around the refresh AND the logout call, and a race on top so a hang that ignores the signal still ends.
+  const signal = AbortSignal.timeout(timeoutMs)
+  const work = async (): Promise<boolean> => {
     let accessToken = session.access_token
     if ((!accessToken || isExpired(session.expires_at)) && session.refresh_token) {
-      accessToken = (await refreshSupabaseSession(session.refresh_token))?.access_token
+      accessToken = (await refreshSupabaseSession(session.refresh_token, signal))?.access_token
     }
     if (!accessToken) return false
     const res = await fetch(`${supabaseUrl}/auth/v1/logout?scope=local`, {
       method: 'POST',
       headers: { apikey: supabaseKey, Authorization: `Bearer ${accessToken}` },
       cache: 'no-store',
-      signal: AbortSignal.timeout(timeoutMs),
+      signal,
     })
     return res.ok
+  }
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      work(),
+      new Promise<boolean>((resolve) => {
+        timer = setTimeout(() => resolve(false), timeoutMs)
+      }),
+    ])
   } catch (e) {
     console.log('session-refresh: revoke failed', e instanceof Error ? e.message : e)
     return false
+  } finally {
+    if (timer) clearTimeout(timer)
   }
 }
 

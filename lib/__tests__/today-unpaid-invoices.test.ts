@@ -7,7 +7,7 @@
 jest.mock('@/lib/cron-orgs', () => ({ loadOrgTimeZone: async () => 'America/New_York' }))
 
 import { createFakeDb } from '@/lib/test-helpers/fake-db'
-import { loadUnpaidInvoicesQueue } from '@/lib/today'
+import { loadUnpaidInvoicesQueue, unpaidInvoicesFailedQueue } from '@/lib/today'
 import { buildTodayHtml } from '@/lib/morning-update-email'
 
 const ORG = 'org-a'
@@ -81,5 +81,23 @@ describe('loadUnpaidInvoicesQueue', () => {
     const q = await loadUnpaidInvoicesQueue(createFakeDb({ customers: [], job_invoices: [], invoice_payments: [] }).client as never, ORG, NOW, { money: true })
     expect(q.count).toBe(0)
     expect(q.empty).toBe('No unpaid invoices.')
+  })
+
+  it('settled-but-still-sent invoices never push a real one out of the read (paged, filtered before any cap)', async () => {
+    const settled = Array.from({ length: 620 }, (_, n) => inv(`s${String(n).padStart(4, '0')}`, { created_at: '2026-01-01T00:00:00Z', total_cents: 100, paid_outside_cents: 100 }))
+    const d = createFakeDb({
+      customers: [{ id: 'c1', org_id: ORG, name: 'Pat Lee', email: null }],
+      job_invoices: [...settled, inv('zzzz', { created_at: '2026-11-01T00:00:00Z' })],
+      invoice_payments: [],
+    })
+    const q = await loadUnpaidInvoicesQueue(d.client as never, ORG, NOW, { money: true })
+    expect(q.count).toBe(1)
+    expect(q.items[0].ref).toBe('Invoice INV-26-zzzz')
+  })
+
+  it('a failed read says so, with the same id', () => {
+    const q = unpaidInvoicesFailedQueue()
+    expect(q).toMatchObject({ id: 'unpaid-invoices', count: 0 })
+    expect(q.empty).toContain('couldn’t load')
   })
 })

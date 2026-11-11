@@ -309,7 +309,7 @@ export default function VisitsBoard() {
                   const body = { from: sheet.from, to: sheet.to, days: shiftDays(sheet), subId: sheet.crew }
                   // Step 1 shows what WOULD move (nothing is written); step 2 moves exactly that many.
                   if (!sheet.preview) void previewShift(body, sheet)
-                  else void post('/api/ops/visits/shift', { ...body, expectCount: sheet.preview.count }, '').then(close)
+                  else void post('/api/ops/visits/shift', { ...body, expectKey: sheet.preview.selectionKey }, '').then(close)
                 }
               }}
             >

@@ -9,6 +9,7 @@
  * morning cron, on Visits page loads and after every plan save. History (done / skipped / cancelled visits, and any
  * visit today or earlier) is never rewritten.
  */
+import { createHash } from 'crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { loadOrgTimeZone } from '@/lib/cron-orgs'
@@ -1614,6 +1615,8 @@ async function selectShiftVisits(admin: SupabaseClient, orgId: string, s: BulkSh
 }
 
 export type ShiftPreview = {
+  /** Fingerprint of the exact visits that would move (ids, order-free). The move must send it back: a different set = refused. */
+  selectionKey: string
   /** Visits that will move (scheduled only). */
   count: number
   /** Where they land: new day → how many. */
@@ -1624,6 +1627,11 @@ export type ShiftPreview = {
   staying: { done: number; skipped: number }
   /** Visits that would land before today: the shift is refused while any would. */
   intoPast: number
+}
+
+/** Order-free fingerprint of a set of visit ids (the preview's selection == the move's selection). */
+export function shiftSelectionKey(ids: readonly string[]): string {
+  return createHash('sha256').update([...ids].sort().join(',')).digest('hex').slice(0, 32)
 }
 
 /**
@@ -1663,6 +1671,7 @@ export async function previewBulkShift(admin: SupabaseClient, orgId: string, s: 
   }
   const [done, skipped] = await Promise.all([closed('completed'), closed('skipped')])
   return {
+    selectionKey: shiftSelectionKey(rows.map((r) => r.id)),
     count: rows.length,
     landing: Array.from(landing.entries()).sort(([a], [b]) => a.localeCompare(b)).map(([day, count]) => ({ day, count })),
     sample: head.map((r) => ({ id: r.id, from: r.scheduled_date, to: addDaysYmd(r.scheduled_date, s.days), what: r.title ?? 'Visit', customer: r.customer_id ? custName.get(r.customer_id) ?? null : null, crew: r.assigned_sub_id ? crewName.get(r.assigned_sub_id) ?? null : null })),
@@ -1676,20 +1685,20 @@ export async function previewBulkShift(admin: SupabaseClient, orgId: string, s: 
  * unassigned ones) by `days`. Done / skipped visits (and so every billed visit) stay where they happened. The planned slot
  * is unchanged, so the generator never puts a moved visit back. The patch is the single "move" rule (visitPatch). Crew
  * phone links and customer reminders read scheduled_date, so they follow with no extra write.
- * `expectCount` (the number the preview showed) refuses the move when the selection has changed since — preview again.
+ * `expectKey` (the preview's selectionKey) refuses the move when the exact set of visits has changed since — preview again.
  * A move that would put a visit before today is refused. Returns how many moved.
  */
 export async function bulkShiftVisits(
   admin: SupabaseClient,
   orgId: string,
   s: BulkShift,
-  opts: { expectCount?: number; now?: Date } = {}
+  opts: { expectKey?: string; now?: Date } = {}
 ): Promise<{ moved: number } | { error: string; status: 409 | 400 }> {
   const db = orgDb(admin, orgId)
   const now = opts.now ?? new Date()
   const rows = await selectShiftVisits(admin, orgId, s)
-  if (opts.expectCount !== undefined && rows.length !== opts.expectCount)
-    return { error: `Visits changed since the preview (${opts.expectCount} then, ${rows.length} now) — preview again`, status: 409 }
+  if (opts.expectKey !== undefined && shiftSelectionKey(rows.map((r) => r.id)) !== opts.expectKey)
+    return { error: 'The visits on those days changed since the preview — preview again', status: 409 }
   const today = ymdInZone(now, await loadOrgTimeZone(admin, orgId))
   if (rows.some((r) => addDaysYmd(r.scheduled_date, s.days) < today)) return { error: 'That would move visits to a day that already passed', status: 400 }
   const byDay = new Map<string, string[]>()

@@ -236,15 +236,28 @@ describe('bulk shift preview', () => {
     expect(p.staying.done).toBe(1)
     expect(p.intoPast).toBe(0)
     expect(p.count).toBe(p.landing.reduce((n, l) => n + l.count, 0))
-    const res = await bulkShiftVisits(db.client, ORG, s2, { expectCount: p.count, now: NOW })
+    const res = await bulkShiftVisits(db.client, ORG, s2, { expectKey: p.selectionKey, now: NOW })
     expect(res).toEqual({ moved: p.count })
     expect(done.scheduled_date).toBe('2026-11-17')
+  })
+  it('refuses when ONE visit swapped for another (same count) since the preview', async () => {
+    const db = seed()
+    const a = await createServicePlan(db.client, ORG, 'u1', 'c1', weekly, NOW)
+    const aId = (a as { plan: { id: string } }).plan.id
+    const p = await previewBulkShift(db.client, ORG, s2, NOW)
+    const mine = visitsOf(db, aId).filter((x) => x.scheduled_date >= s2.from && x.scheduled_date <= s2.to)
+    const out = mine[0]
+    const inn = visitsOf(db, aId).find((x) => x.scheduled_date > s2.to)!
+    inn.scheduled_date = out.scheduled_date
+    out.scheduled_date = '2026-12-30'
+    const res = await bulkShiftVisits(db.client, ORG, s2, { expectKey: p.selectionKey, now: NOW })
+    expect(res).toMatchObject({ status: 409 })
   })
   it('refuses when the selection changed since the preview, and never moves into the past', async () => {
     const db = seed()
     await createServicePlan(db.client, ORG, 'u1', 'c1', weekly, NOW)
     const p = await previewBulkShift(db.client, ORG, s2, NOW)
-    expect(await bulkShiftVisits(db.client, ORG, s2, { expectCount: p.count + 1, now: NOW })).toMatchObject({ status: 409 })
+    expect(await bulkShiftVisits(db.client, ORG, s2, { expectKey: 'not-the-key', now: NOW })).toMatchObject({ status: 409 })
     const back = { from: '2026-11-17', to: '2026-11-17', days: -30, subId: 'all' } as const
     expect((await previewBulkShift(db.client, ORG, back, NOW)).intoPast).toBeGreaterThan(0)
     expect(await bulkShiftVisits(db.client, ORG, back, { now: NOW })).toMatchObject({ status: 400 })

@@ -282,7 +282,7 @@ const FIXTURES: Record<string, Variant[]> = {
     // The preview reads the same selection (customer names, crews): it must stay inside the company too.
     (id, ref) => ({ body: { from: TODAY_YMD, days: 1, subId: ref, preview: true } }),
     () => ({ body: { from: TODAY_YMD, days: 1, subId: 'all', preview: true } }),
-    () => ({ body: { from: TODAY_YMD, days: 1, subId: 'all', expectCount: 0 } }),
+    () => ({ body: { from: TODAY_YMD, days: 1, subId: 'all', expectKey: 'x' } }),
   ],
   // Invoices (job and no-job): every PATCH action, record_payment included.
   'PATCH /api/invoices/[invoiceId]': [

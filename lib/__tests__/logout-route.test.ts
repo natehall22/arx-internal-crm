@@ -106,4 +106,18 @@ describe('/api/auth/logout ends the Supabase session', () => {
     expect(none.status).toBe(200)
     expect((global.fetch as jest.Mock).mock.calls.length).toBe(1)
   })
+  it('a hanging Supabase (refresh never answers) still clears the cookies within the one deadline', async () => {
+    jest.useFakeTimers()
+    try {
+      global.fetch = jest.fn(() => new Promise(() => {})) as any
+      const pending = POST(withSession('POST', { access_token: 'AT', refresh_token: 'RT', expires_at: 1 }, true))
+      await jest.advanceTimersByTimeAsync(4100)
+      const res = await pending
+      expect(res.status).toBe(200)
+      expect(expired(res)).toContain(`${NAME}.0`)
+      expect((global.fetch as jest.Mock).mock.calls.length).toBe(1) // the refresh hung; no second call afterwards
+    } finally {
+      jest.useRealTimers()
+    }
+  })
 })

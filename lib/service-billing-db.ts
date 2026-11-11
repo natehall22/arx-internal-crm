@@ -346,8 +346,9 @@ export type UnpaidServiceInvoice = {
   balanceCents: number
 }
 
-/** Cap on open invoices read for the Today card; the card's count says "N+" past it. */
+/** Invoices read per page / pages read for the Today card (5,000 sent invoices); past that the card says "N+". */
 export const UNPAID_INVOICES_READ_CAP = 500
+export const UNPAID_INVOICES_MAX_PAGES = 10
 
 /**
  * Invoices without a job (recurring service) that were SENT and still owe money: status sent / partially_paid and a
@@ -355,28 +356,40 @@ export const UNPAID_INVOICES_READ_CAP = 500
  * Oldest due first. Null before migration 202611110060 (no customer invoices exist yet).
  */
 export async function loadUnpaidServiceInvoices(admin: SupabaseClient, orgId: string): Promise<{ rows: UnpaidServiceInvoice[]; capped: boolean } | null> {
-  const { data, error } = await orgDb(admin, orgId)
-    .from('job_invoices')
-    .select('*')
-    .is('job_id', null)
-    .in('status', ['sent', 'partially_paid'])
-    .order('due_at', { ascending: true, nullsFirst: false })
-    .order('created_at', { ascending: true })
-    .limit(UNPAID_INVOICES_READ_CAP)
-  if (error) {
-    if (notReady(error)) return null
-    throw new Error(`billing: read unpaid invoices: ${error.message}`)
+  // Page through the sent invoices and keep only those still owing, so settled-but-still-"sent" ones can never push a real
+  // one past the read cap. Read at most UNPAID_INVOICES_MAX_PAGES pages; `capped` says there may be more.
+  const open: Array<{ i: JobInvoice; balance: number }> = []
+  let capped = false
+  for (let page = 0; ; page++) {
+    if (page >= UNPAID_INVOICES_MAX_PAGES) {
+      capped = true
+      break
+    }
+    const { data, error } = await orgDb(admin, orgId)
+      .from('job_invoices')
+      .select('*')
+      .is('job_id', null)
+      .in('status', ['sent', 'partially_paid'])
+      .order('created_at', { ascending: true })
+      .order('id')
+      .range(page * UNPAID_INVOICES_READ_CAP, (page + 1) * UNPAID_INVOICES_READ_CAP - 1)
+    if (error) {
+      if (notReady(error)) return null
+      throw new Error(`billing: read unpaid invoices: ${error.message}`)
+    }
+    const invoices = (data ?? []) as JobInvoice[]
+    const applied = await loadAppliedCents(admin, invoices.map((i) => i.id))
+    for (const i of invoices) {
+      const balance = i.total_cents - invoicePaidCents(i, applied.get(i.id) ?? 0)
+      if (balance > 0 && i.customer_id) open.push({ i, balance })
+    }
+    if (invoices.length < UNPAID_INVOICES_READ_CAP) break
   }
-  const invoices = (data ?? []) as JobInvoice[]
-  const applied = await loadAppliedCents(admin, invoices.map((i) => i.id))
-  const open = invoices
-    .map((i) => ({ i, balance: i.total_cents - invoicePaidCents(i, applied.get(i.id) ?? 0) }))
-    .filter((x) => x.balance > 0 && x.i.customer_id)
-    // Oldest due first, no due date last (sorted here too so it never depends on the database's null ordering).
-    .sort((x, y) => (x.i.due_at ?? '9999').localeCompare(y.i.due_at ?? '9999') || x.i.created_at.localeCompare(y.i.created_at))
+  // Oldest due first, no due date last (sorted here so it never depends on the database's null ordering).
+  open.sort((x, y) => (x.i.due_at ?? '9999').localeCompare(y.i.due_at ?? '9999') || x.i.created_at.localeCompare(y.i.created_at))
   const names = await loadCustomers(admin, orgId, Array.from(new Set(open.map((x) => x.i.customer_id as string))))
   return {
-    capped: invoices.length >= UNPAID_INVOICES_READ_CAP,
+    capped,
     rows: open.map(({ i, balance }) => ({
       id: i.id,
       invoiceNumber: i.invoice_number,

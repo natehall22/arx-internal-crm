@@ -475,7 +475,8 @@ export async function loadUnpaidInvoicesQueue(admin: SupabaseClient, orgId: stri
   const dayNumber = (ymd: string) => Math.floor(Date.UTC(+ymd.slice(0, 4), +ymd.slice(5, 7) - 1, +ymd.slice(8, 10)) / 86_400_000)
   return {
     id: 'unpaid-invoices',
-    title: 'Unpaid invoices',
+    // Past the read cap the count is a floor: say so rather than print a wrong exact number.
+    title: loaded?.capped ? 'Unpaid invoices (oldest 5,000 checked)' : 'Unpaid invoices',
     count: rows.length,
     empty: 'No unpaid invoices.',
     items: rows.slice(0, cap).map((r) => {
@@ -486,4 +487,9 @@ export async function loadUnpaidInvoicesQueue(admin: SupabaseClient, orgId: stri
       return { id: r.id, title: r.customerName, detail: note, href: `/invoices/${r.id}/print`, ref: `Invoice ${r.invoiceNumber}`, note }
     }),
   }
+}
+
+/** The Today card when the unpaid-invoices read failed: said out loud, never "nothing owed". Same id, so it sits in the same place. */
+export function unpaidInvoicesFailedQueue(): Queue {
+  return { id: 'unpaid-invoices', title: 'Unpaid invoices', count: 0, empty: 'Unpaid invoices couldn’t load today.', items: [] }
 }

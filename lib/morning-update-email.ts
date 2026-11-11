@@ -11,7 +11,7 @@ import { loadCheckupSettings } from '@/lib/checkups'
 import { loadOpenShiftsQueue } from '@/lib/time-tracking-db'
 import { loadCommissionChangesWaitingQueue } from '@/lib/payroll-commission-change'
 import { loadPaymentReversalsQueue } from '@/lib/online-payments/summary'
-import { loadCheckupsDueQueue, loadCrewWeekQueue, loadOpsQueues, loadOwnerExceptions, loadServiceVisitQueues, loadStormHitsQueue, loadUnpaidInvoicesQueue, type Queue } from '@/lib/today'
+import { loadCheckupsDueQueue, loadCrewWeekQueue, loadOpsQueues, loadOwnerExceptions, loadServiceVisitQueues, loadStormHitsQueue, loadUnpaidInvoicesQueue, unpaidInvoicesFailedQueue, type Queue } from '@/lib/today'
 import { resolveOrgFeatures, type OrgFeatures } from '@/lib/org-features'
 import { applyTodayProfile, loadOrgProfile } from '@/lib/org-profile'
 import { getAppUrl, tryGetAppUrl } from '@/lib/app-url'
@@ -244,12 +244,12 @@ export async function loadMorningTodayQueues(
   const unpaid = orgProfile.features.servicePlans
     ? await loadUnpaidInvoicesQueue(supabase, orgId, now, { money: false }).catch((error) => {
         console.error('morning update: unpaid invoices failed', error)
-        return null
+        return unpaidInvoicesFailedQueue()
       })
     : null
   return asProfile([
     ...(reversals && (reversals.count > 0 || reversalsFailed) ? [reversals] : []),
-    ...(unpaid && unpaid.count > 0 ? [unpaid] : []),
+    ...(unpaid && (unpaid.count > 0 || unpaid.empty.includes('couldn’t load')) ? [unpaid] : []),
     ...(storm.count > 0 || stormFailed ? [storm] : []),
     ...(commissionWaiting ? [commissionWaiting] : []),
     ...visits,
