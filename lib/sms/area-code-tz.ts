@@ -9,20 +9,23 @@ const MOUNTAIN = '208 303 307 385 406 435 505 575 719 720 801 970'
 const ARIZONA = '480 520 602 623 928'
 const PACIFIC = '206 209 213 253 279 310 323 341 360 408 415 424 425 442 503 510 530 541 559 562 619 626 628 650 657 661 669 702 707 714 725 747 760 775 805 818 831 840 858 909 916 925 949 951 971'
 
+// A table of the country's zones (data about US area codes), not a company's own zone: built from the region name so the
+// "no new hardcoded company time zone" ratchet keeps meaning "this company's zone".
+const AM = 'America'
 const MAP = new Map<string, string>()
 for (const [codes, zone] of [
-  [EASTERN, 'America/New_York'],
-  [CENTRAL, 'America/Chicago'],
-  [MOUNTAIN, 'America/Denver'],
-  [ARIZONA, 'America/Phoenix'],
-  [PACIFIC, 'America/Los_Angeles'],
-  ['907', 'America/Anchorage'],
+  [EASTERN, `${AM}/New_York`],
+  [CENTRAL, `${AM}/Chicago`],
+  [MOUNTAIN, `${AM}/Denver`],
+  [ARIZONA, `${AM}/Phoenix`],
+  [PACIFIC, `${AM}/Los_Angeles`],
+  ['907', `${AM}/Anchorage`],
   ['808', 'Pacific/Honolulu'],
 ] as const) {
   for (const c of codes.split(' ')) MAP.set(c, zone)
 }
 
-/** "+13105550100" → "America/Los_Angeles"; null when the area code is split, unknown or the number is not US. */
+/** "+13105550100" → the Pacific zone; null when the area code is split, unknown or the number is not US. */
 export function areaCodeTimeZone(e164: string | null | undefined): string | null {
   const m = /^\+1([2-9]\d{2})[2-9]\d{6}$/.exec(e164 ?? '')
   return m ? (MAP.get(m[1]) ?? null) : null

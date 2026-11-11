@@ -182,7 +182,7 @@ describe('texting hours (company time zone, DST)', () => {
     const night = new Date('2026-11-12T04:00:00Z') // 11 PM EST
     const late = seed({ sms_inbound: [{ id: 'i1', org_id: ORG, from_e164: PHONE, received_at: '2026-11-12T03:30:00Z', status: 'handled', kind: 'message' }] })
     expect((await sendStaffText(admin(late), ORG, 'c1', 'a1', 'u1', night)).status).toBe('queued')
-    const old = seed({ sms_inbound: [{ id: 'i1', org_id: ORG, from_e164: PHONE, received_at: '2026-11-12T00:00:00Z', status: 'handled', kind: 'message' }] })
+    const old = seed({ sms_inbound: [{ id: 'i1', org_id: ORG, from_e164: PHONE, received_at: '2026-11-11T22:00:00Z', status: 'handled', kind: 'message' }] })
     expect((await sendStaffText(admin(old), ORG, 'c1', 'a1', 'u1', quiet)).status).toBe('queued')
     const stop = seed()
     expect(await sendComplianceText(admin(stop), ORG, { inboundId: 'in1', to: PHONE, text: 'Precision Maintenance: You are unsubscribed.', customerId: 'c1' }, night)).toBe('sent')

@@ -60,7 +60,7 @@ export type ConsentInput = {
   createdBy?: string | null
 }
 
-const FORM_SOURCES: ReadonlySet<ConsentSource> = new Set(['portal', 'quote_form', 'web_form', 'signing'])
+const FORM_SOURCES: ReadonlySet<ConsentSource> = new Set<ConsentSource>(['portal', 'quote_form', 'web_form', 'signing'])
 
 /** Append one consent row. Never edits an earlier one. */
 export async function recordConsent(admin: SupabaseClient, orgId: string, c: ConsentInput): Promise<{ ok: true; id: string } | { ok: false; error: string; optedOut?: true }> {
