@@ -743,6 +743,8 @@ describe('customer portal: B1 cannot see A1 (same company or another)', () => {
   const world = () => {
     mockWorld = createWorld(TABLES, ORG_TABLES, 'admin', undefined, (seed) => {
       seed.portal_sessions = [{ id: 'sess-b1', org_id: ORG_B, customer_id: BRAVO_ROW_ID, token_hash: hashPortalToken(TOKEN), email_key: customerEmailKey(ORG_B, String(((seed.customers ?? []).find((c) => c.id === BRAVO_ROW_ID) as { email?: unknown } | undefined)?.email ?? '')), expires_at: future, revoked_at: null, last_seen_at: new Date().toISOString() }]
+      // Company B runs the roofing default (invite only): its customer B1 is invited, B2 is not.
+      seed.customers = (seed.customers ?? []).map((c) => (c.id === BRAVO_ROW_ID ? { ...c, portal_invited_at: new Date().toISOString() } : c))
       seed.customers = [...(seed.customers ?? []), { id: B2, org_id: ORG_B, name: 'Bravo Two', email: 'two@bravo.test', phone: null }]
       seed.job_invoices = [...(seed.job_invoices ?? []), { id: 'b2b2b2b2-0000-4000-8000-0000000000e2', org_id: ORG_B, customer_id: B2, job_id: null, invoice_number: 'INV-B2', status: 'sent', total_cents: 700, created_at: new Date().toISOString() }]
       seed.documents = [...(seed.documents ?? []), { id: 'b2b2b2b2-0000-4000-8000-0000000000d2', org_id: ORG_B, customer_id: B2, job_id: null, title: 'Bravo Two private', filename: 'two.pdf', storage_path: 'org/b/two.pdf', shared_with_customer: true, status: 'active', deleted_at: null, created_at: new Date().toISOString() }]

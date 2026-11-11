@@ -17,6 +17,7 @@ interface FinalPhoto {
   photo_tag: string | null
   created_at: string
   work_order_id: string | null
+  shared_with_customer?: boolean
 }
 
 interface FinalPhotosCardProps {
@@ -37,6 +38,7 @@ const JOB_LEVEL = 'job'
 export default function FinalPhotosCard({ jobId, trades }: FinalPhotosCardProps) {
   const [loading, setLoading] = useState(true)
   const [photos, setPhotos] = useState<FinalPhoto[]>([])
+  const [portal, setPortal] = useState<{ on: boolean; canShare: boolean; crewPhotos: boolean } | null>(null)
   const [uploading, setUploading] = useState(false)
   const [selectedTag, setSelectedTag] = useState<string>('final_front')
   const [selectedTradeId, setSelectedTradeId] = useState<string>(JOB_LEVEL)
@@ -58,6 +60,7 @@ export default function FinalPhotosCard({ jobId, trades }: FinalPhotosCardProps)
       const data = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(data.error || 'Failed to load photos')
       setPhotos((data.photos || []) as FinalPhoto[])
+      setPortal((data.portal ?? null) as { on: boolean; canShare: boolean; crewPhotos: boolean } | null)
     } catch (err) {
       console.error('Load photos error:', err)
       setPhotos([])
@@ -69,6 +72,18 @@ export default function FinalPhotosCard({ jobId, trades }: FinalPhotosCardProps)
   useEffect(() => {
     void loadPhotos()
   }, [loadPhotos])
+
+  // Customer portal: hidden by default. One tap shows the crews' four walk-around photos; any single photo can also be shown.
+  async function share(body: Record<string, unknown>, apply: (on: boolean) => void, on: boolean) {
+    apply(on)
+    const res = await fetch('/api/portal-sharing', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).catch(() => null)
+    if (!res?.ok) {
+      apply(!on)
+      toast.error('Could not change what the customer sees')
+    }
+  }
+  const toggleCrewPhotos = (on: boolean) => share({ jobId, crewPhotos: on }, (v) => setPortal((p) => (p ? { ...p, crewPhotos: v } : p)), on)
+  const togglePhoto = (id: string, on: boolean) => share({ photoId: id, shared: on }, (v) => setPhotos((list) => list.map((p) => (p.id === id ? { ...p, shared_with_customer: v } : p))), on)
 
   // Every job photo stays visible here, as before; only the checklist counts final tags.
   const finalPhotos = photos
@@ -138,6 +153,12 @@ export default function FinalPhotosCard({ jobId, trades }: FinalPhotosCardProps)
         </span>
       </div>
 
+      {portal?.canShare && (
+        <label className="mb-4 flex min-h-[44px] items-center gap-3 rounded-lg bg-gray-50 px-3 py-2 text-base text-[#2c2c2a]">
+          <input type="checkbox" className="h-5 w-5" checked={portal.crewPhotos} onChange={(e) => void toggleCrewPhotos(e.target.checked)} />
+          Show crew photos to customer
+        </label>
+      )}
       <ul className="mb-4 space-y-1.5">
         {checklistRows.map((row) => {
           const have = REQUIRED_FINAL_PHOTO_TAGS.filter((tag) => tagsByTrade.get(row.key)?.has(tag)).length
@@ -268,6 +289,18 @@ export default function FinalPhotosCard({ jobId, trades }: FinalPhotosCardProps)
               </button>
             ))}
           </div>
+          {portal?.canShare && (
+            <ul className="mt-3 divide-y divide-gray-200">
+              {finalPhotos.map((photo, i) => (
+                <li key={photo.id}>
+                  <label className="flex min-h-[44px] items-center gap-3 text-base text-[#2c2c2a]">
+                    <input type="checkbox" className="h-5 w-5 shrink-0" checked={photo.shared_with_customer === true} onChange={(e) => void togglePhoto(photo.id, e.target.checked)} />
+                    <span className="min-w-0 truncate">Show to customer: {lightboxEntries[i]?.caption || photo.filename}</span>
+                  </label>
+                </li>
+              ))}
+            </ul>
+          )}
           <PhotoLightbox
             photos={lightboxEntries}
             open={lightboxOpen}

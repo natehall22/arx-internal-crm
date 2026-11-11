@@ -22,6 +22,7 @@ import { getRequestHostFence } from '@/lib/company-host-server'
 import { escapeHtml } from '@/lib/html'
 import { isOrgFeatureOn } from '@/lib/org-features-server'
 import { getDocumentBrand } from '@/lib/org-brand'
+import { loadPortalSettings } from '@/lib/portal/settings'
 import { customerEmailKey, isWellFormedPortalToken, hashPortalToken, loginLinkExpiry, newPortalToken, opaqueKey, parsePortalIdentifier, PORTAL_COOKIE, sessionExpiry, LOGIN_LINK_MINUTES, SESSION_DAYS } from '@/lib/portal/tokens'
 import { getCrmEmailFrom, getMailTransport } from '@/lib/setter-email'
 import { isUsableCustomerEmail } from '@/lib/invoice-document'
@@ -122,6 +123,8 @@ export async function getPortalSession(admin: SupabaseClient): Promise<PortalSes
   if (!c) return null
   // The address on file changed since sign-in (or the session predates the key): the session is over. Ends every session at once, whoever changed the email.
   if (!row.email_key || row.email_key !== customerEmailKey(row.org_id, (c as { email?: string | null }).email)) return null
+  // Invite-only company (the roofing pilot): the invitation must still stand ("Remove portal access" ends the session at once). Fails closed.
+  if ((await loadPortalSettings(admin, row.org_id)).inviteOnly && !(await isInvited(admin, row.org_id, [row.customer_id])).has(row.customer_id)) return null
   if (!row.last_seen_at || Date.now() - Date.parse(row.last_seen_at) > 10 * 60_000) {
     await orgDb(admin, row.org_id).from('portal_sessions').update({ last_seen_at: new Date().toISOString() }).eq('id', row.id)
   }
@@ -203,11 +206,36 @@ async function doRequest(admin: SupabaseClient, orgId: string, raw: unknown, ip:
     console.error('portal_find_customers failed', error.message)
     return
   }
-  const matches = ((found ?? []) as Array<{ id: string; name: string | null; email: string | null }>).filter((m) => isUsableCustomerEmail(m.email))
+  let matches = ((found ?? []) as Array<{ id: string; name: string | null; email: string | null }>).filter((m) => isUsableCustomerEmail(m.email))
+  // Invite-only company: only customers staff invited can get a link; everyone else looks exactly like a stranger.
+  if (matches.length && (await loadPortalSettings(admin, orgId)).inviteOnly) {
+    const invited = await isInvited(admin, orgId, matches.map((m) => m.id))
+    matches = matches.filter((m) => invited.has(m.id))
+  }
   if (matches.length === 0) {
     await logPortalEvent(admin, orgId, { kind: 'link_no_match', ip })
     return
   }
+  await sendLoginLinks(admin, orgId, matches, ip)
+}
+
+/** The customers (of these ids) staff invited to the portal. Fails closed: an unreadable column invites nobody. */
+async function isInvited(admin: SupabaseClient, orgId: string, ids: string[]): Promise<Set<string>> {
+  const { data, error } = await orgDb(admin, orgId).from('customers').select('id, portal_invited_at').in('id', ids)
+  if (error) {
+    console.error('portal invite check failed', error.message)
+    return new Set()
+  }
+  return new Set(((data ?? []) as Array<{ id: string; portal_invited_at: string | null }>).filter((r) => !!r.portal_invited_at).map((r) => r.id))
+}
+
+/**
+ * Email one-time links to customers' addresses on file (one email per address, a button per person), under the per-customer limit.
+ * Used by a customer's own request and by staff's "Invite to portal" (`invite: true` changes only the opening words).
+ */
+export async function sendLoginLinks(admin: SupabaseClient, orgId: string, matches: Array<{ id: string; name: string | null; email: string | null }>, ip: string, opts: { invite?: boolean } = {}): Promise<number> {
+  let sent = 0
+  const L = PORTAL_LIMITS
   // One email per address on file (a family sharing an address gets one email, one button per person).
   const byEmail = new Map<string, Array<{ id: string; name: string | null }>>()
   for (const m of matches) {
@@ -232,18 +260,22 @@ async function doRequest(admin: SupabaseClient, orgId: string, raw: unknown, ip:
       links.push({ name: p.name || 'your account', url: `${await orgAppUrl(orgId)}/portal/enter?t=${token}` })
       await logPortalEvent(admin, orgId, { kind: 'link_sent', customerId: p.id, ip })
     }
-    if (links.length) await sendLoginEmail(admin, orgId, to, links)
+    if (links.length) {
+      if (await sendLoginEmail(admin, orgId, to, links, !!opts.invite)) sent += links.length
+    }
   }
+  return sent
 }
 
-async function sendLoginEmail(admin: SupabaseClient, orgId: string, to: string, links: Array<{ name: string; url: string }>): Promise<void> {
-  if (!process.env.SMTP_HOST || !getCrmEmailFrom()) {
+async function sendLoginEmail(admin: SupabaseClient, orgId: string, to: string, links: Array<{ name: string; url: string }>, invite = false): Promise<boolean> {
+  if (!emailIsSetUp()) {
     console.error('portal sign-in email not sent: email is not set up for this deployment')
-    return
+    return false
   }
   const brand = await getDocumentBrand(admin, orgId)
   const company = brand.casualName || brand.name
   const one = links.length === 1
+  const later = invite ? `${await orgAppUrl(orgId)}/portal` : ''
   const buttons = links
     .map(
       (l) =>
@@ -252,12 +284,17 @@ async function sendLoginEmail(admin: SupabaseClient, orgId: string, to: string, 
     .join('')
   const html = `<div style="font-family:Arial,Helvetica,sans-serif;max-width:600px;color:#111827;">
   <div style="font-size:18px;font-weight:700;margin-bottom:12px;">${escapeHtml(brand.name)}</div>
-  <p style="font-size:15px;margin:0 0 10px;">Here is your sign-in link for your ${escapeHtml(company)} account.</p>
+  <p style="font-size:15px;margin:0 0 10px;">${invite ? `${escapeHtml(company)} set up your online account. You can see your project, photos, documents and invoices, and send us a message.` : `Here is your sign-in link for your ${escapeHtml(company)} account.`}</p>
   ${buttons}
+  ${invite ? `<p style="font-size:13px;color:#374151;">Next time, go to ${escapeHtml(later)} and enter your email to get a new link.</p>` : ''}
   <p style="font-size:13px;color:#374151;">It works once and expires in ${LOGIN_LINK_MINUTES} minutes. If you did not ask for it, you can ignore this email — nobody can see your account without it.</p>
 </div>`
-  const text = [`Here is your sign-in link for your ${company} account.`, '', ...links.map((l) => `${l.url}`), '', `It works once and expires in ${LOGIN_LINK_MINUTES} minutes. If you did not ask for it, ignore this email.`].join('\n')
-  await getMailTransport().sendMail({ from: getCrmEmailFrom(), to, ...(brand.email ? { replyTo: brand.email } : {}), subject: `Your ${company} account link`, html, text })
+  const text = [invite ? `${company} set up your online account. You can see your project, photos, documents and invoices, and send us a message.` : `Here is your sign-in link for your ${company} account.`, '', ...links.map((l) => `${l.url}`), '', ...(invite ? [`Next time, go to ${later} and enter your email to get a new link.`, ''] : []), `It works once and expires in ${LOGIN_LINK_MINUTES} minutes. If you did not ask for it, ignore this email.`].join('\n')
+  await getMailTransport().sendMail({ from: getCrmEmailFrom(), to, ...(brand.email ? { replyTo: brand.email } : {}), subject: invite ? `Your ${company} account is ready` : `Your ${company} account link`, html, text })
+  return true
 }
+
+/** Can this deployment send the sign-in email at all? */
+export const emailIsSetUp = (): boolean => !!process.env.SMTP_HOST && !!getCrmEmailFrom()
 
 export { SESSION_DAYS }

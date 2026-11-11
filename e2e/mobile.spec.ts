@@ -495,6 +495,7 @@ const SCREENS: Screen[] = [
     ] },
   { name: 'portal-signin', path: '/dev-harness/portal-signin', ready: 'text=Email me a link',
     states: [{ name: 'sent', run: async (p) => { await p.route('**/api/portal/request-link', (r) => r.fulfill(json({ ok: true }))); await p.getByLabel('Your email or phone number').fill('dana@example.com'); await p.getByRole('button', { name: 'Email me a link' }).click(); await p.waitForSelector('text=Check your email') } }] },
+  { name: 'portal-roofing', path: '/dev-harness/portal-roofing', ready: 'text=Materials ordered', states: [] },
   { name: 'portal-home', path: '/dev-harness/portal-home', ready: 'text=Upcoming visits',
     states: [{ name: 'message', run: async (p) => { await p.route('**/api/portal/messages', (r) => r.fulfill(json({ ok: true }))); await p.getByLabel('Write to us').fill('Can you come Thursday instead?'); await p.getByRole('button', { name: 'Send message' }).click(); await p.waitForSelector('text=Can you come Thursday instead?') } }] },
   { name: 'pay-page-paid', path: '/dev-harness/pay-page-paid', ready: 'text=Paid — thank you!' },

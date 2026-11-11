@@ -68,8 +68,8 @@ function seed() {
   })
   return {
     orgs: [
-      { id: A, settings: { features: { onlinePayments: false } }, email: 'office@green.test' },
-      { id: B, settings: {}, email: 'office@b.test' },
+      { id: A, settings: { features: { onlinePayments: false }, customerPortal: { inviteOnly: false } }, email: 'office@green.test' },
+      { id: B, settings: { customerPortal: { inviteOnly: false } }, email: 'office@b.test' },
     ],
     customers,
     production_jobs: [
