@@ -41,7 +41,7 @@ export default function JobProgressCard({ job, company, payInvoiceId, payOnline 
           {job.installs.map((i, idx) => (
             <li key={`${i.label}-${idx}`} className="flex flex-wrap items-baseline justify-between gap-2 py-2 text-base">
               <span className="font-bold">{i.label}</span>
-              <span>{i.done ? 'Done' : i.when ? whenText(i.when) : ''}</span>
+              <span>{i.done ? 'Done' : i.when ? whenText(i.when) : i.inProgress ? 'Install in progress' : ''}</span>
             </li>
           ))}
         </ul>
@@ -51,6 +51,8 @@ export default function JobProgressCard({ job, company, payInvoiceId, payOnline 
         <div className="mt-3 border-t border-[#e5e3dc] pt-3 text-base">
           {m.financedThrough ? (
             <p className="font-semibold">Financed through {m.financedThrough}</p>
+          ) : m.contactAboutBalance ? (
+            <p>Please contact us about your balance{company.phone ? ` at ${company.phone}` : ''}.</p>
           ) : m.paidInFull ? (
             <p className="font-semibold">Paid in full. Thank you.</p>
           ) : (

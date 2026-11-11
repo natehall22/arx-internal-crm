@@ -205,10 +205,10 @@ const HARNESS_PORTAL_ROOFING_HOME = {
         { key: 'complete' as const, label: 'Complete', state: 'todo' as const },
       ],
       installs: [
-        { label: 'Roof', when: { kind: 'day' as const, ymd: '2026-11-14' }, done: false },
-        { label: 'Gutters', when: { kind: 'week' as const, ymd: '2026-11-23' }, done: false },
+        { label: 'Roof', when: { kind: 'day' as const, ymd: '2026-11-14' }, done: false, inProgress: false },
+        { label: 'Gutters', when: { kind: 'week' as const, ymd: '2026-11-23' }, done: false, inProgress: false },
       ],
-      money: { totalCents: 1632500, paidCents: 816250, balanceCents: 816250, paidInFull: false, financedThrough: null },
+      money: { totalCents: 1632500, paidCents: 816250, balanceCents: 816250, paidInFull: false, financedThrough: null, contactAboutBalance: false },
     },
   ],
 }

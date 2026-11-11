@@ -17,8 +17,14 @@ import { tradeLabel, type OrgTrade } from '@/lib/org-trades'
 import { buildJobStages, installWhen, isQuietJobStatus, type InstallWhen, type JobStage } from '@/lib/portal/job-stages'
 import { orgDb } from '@/lib/supabase/org-db'
 
-export type PortalJobInstall = { label: string; when: InstallWhen | null; done: boolean }
-export type PortalJobMoney = { totalCents: number; paidCents: number; balanceCents: number; paidInFull: boolean; financedThrough: string | null }
+/** `inProgress`: the day has come (or passed) and the crew is not marked done: "Install in progress" rather than a blank. */
+export type PortalJobInstall = { label: string; when: InstallWhen | null; done: boolean; inProgress: boolean }
+/**
+ * `contactAboutBalance`: a balance we cannot state plainly (an old "close with balance" flag nobody owns): say "contact us", no number.
+ * Money is shown only once the job is installed, or an invoice is open, or it is financed (lender name only): before that an insurance
+ * or financed job's "balance" is just what has not been paid YET, which is not what the customer owes today.
+ */
+export type PortalJobMoney = { totalCents: number; paidCents: number; balanceCents: number; paidInFull: boolean; financedThrough: string | null; contactAboutBalance: boolean }
 export type PortalJob = {
   id: string
   address: string
@@ -58,14 +64,16 @@ export async function loadPortalJobs(
   if (!jobs.length) return []
   const ids = jobs.map((j) => j.id)
 
-  const [trades, payments, facts] = await Promise.all([
+  const [trades, payments, facts, openInvoices] = await Promise.all([
     rows<{ job_id: string; trade: string | null; status: string; scheduled_date: string | null; work_order_type: string | null }>('trades', () =>
       db.from('work_orders').select('job_id, trade, status, scheduled_date, work_order_type').in('job_id', ids).eq('work_order_type', 'install').not('trade', 'is', null)
     ),
     // org-scope-ok: job ids were just loaded for this customer within this company (job_payments has no org_id)
     rows<{ job_id: string; amount_cents: number | null; funding_status: string | null }>('payments', () => admin.from('job_payments').select('job_id, amount_cents, funding_status').in('job_id', ids)),
     loadJobInvoiceFacts(admin, ids).catch(() => new Map()),
+    rows<{ job_id: string }>('open invoices', () => db.from('job_invoices').select('job_id').in('job_id', ids).in('status', ['sent', 'partially_paid'])),
   ])
+  const jobsWithOpenInvoice = new Set(openInvoices.map((r) => r.job_id))
 
   const out: PortalJob[] = []
   for (const j of jobs) {
@@ -93,9 +101,24 @@ export async function loadPortalJobs(
       installs: myTrades
         .filter((t) => t.status === 'completed' || !!t.scheduled_date)
         .sort((a, b) => String(a.scheduled_date ?? '9').localeCompare(String(b.scheduled_date ?? '9')))
-        .map((t) => ({ label: tradeLabel(t.trade, ctx.trades), when: t.status === 'completed' ? null : installWhen(t.scheduled_date, ctx.today, ctx.exactDays), done: t.status === 'completed' }))
-        .filter((t) => t.done || t.when),
-      money: collection.missingSaleAmount ? null : { totalCents: Math.max(0, collection.requiredCents), paidCents: Math.max(0, collection.collectedCents), balanceCents: Math.max(0, collection.remainingCents), paidInFull: collection.paidInFull, financedThrough: null },
+        .map((t) => {
+          const done = t.status === 'completed'
+          const when = done ? null : installWhen(t.scheduled_date, ctx.today, ctx.exactDays)
+          return { label: tradeLabel(t.trade, ctx.trades), when, done, inProgress: !done && !when && !!t.scheduled_date && t.scheduled_date < ctx.today }
+        })
+        .filter((t) => t.done || t.when || t.inProgress),
+      money: collection.missingSaleAmount
+        ? null
+        : {
+            totalCents: Math.max(0, collection.requiredCents),
+            paidCents: Math.max(0, collection.collectedCents),
+            balanceCents: Math.max(0, collection.remainingCents),
+            paidInFull: collection.paidInFull,
+            financedThrough: null,
+            // Not paid by payments, not forced by a super admin, but an old close-with-balance flag exists: no number, just "contact us".
+            contactAboutBalance: !collection.paidInFull && collection.legacyCloseWithBalance && collection.remainingCents > 0,
+          },
+        // Shown below only once installed or invoiced (the set is read again after the lender lookup).
     })
   }
 
@@ -115,9 +138,13 @@ export async function loadPortalJobs(
       }
     }
   }
+  const INSTALLED = new Set(['complete', 'collected'])
   for (const o of out) {
     const lender = lenderOf.get(o.id)
     if (o.money && lender) o.money = { ...o.money, financedThrough: lender }
+    const status = jobs.find((j) => j.id === o.id)?.status ?? ''
+    // Before the install (and with no open invoice) a balance is only "not paid yet": show nothing, or just the lender.
+    if (o.money && !lender && !INSTALLED.has(status) && !jobsWithOpenInvoice.has(o.id)) o.money = null
   }
   return out
 }

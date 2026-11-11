@@ -16,8 +16,10 @@ import { cardExpired, cardLabel, loadCardOnFile } from '@/lib/online-payments/ca
 import { isOrgFeatureOn } from '@/lib/org-features-server'
 import { BILLING_BASIS_LABELS, scheduleSummary, ymdInZone, type BillingBasis, type Season } from '@/lib/service-plans'
 import { customerVisitIds, loadCustomerJobPhotos, loadCustomerVisitPhotos } from '@/lib/customer-visit-photos'
+import { customerSignedDocPath } from '@/lib/files/files-object'
 import { loadOrgProfile } from '@/lib/org-profile'
 import { loadPortalCheckups, loadPortalJobs, type PortalCheckup, type PortalJob } from '@/lib/portal/job-progress'
+import { resolveJobOpportunityId, resolveJobProposalId } from '@/lib/job-sold-scope'
 import { isQuietJobStatus } from '@/lib/portal/job-stages'
 import { loadPortalSettings } from '@/lib/portal/settings'
 import { loadPortalThread } from '@/lib/threads/portal-thread'
@@ -211,12 +213,25 @@ export async function loadPortalHome(admin: SupabaseClient, s: PortalSession): P
     for (const r of await soft<{ id: string; co_number: string; signing_token: string | null; signed_at: string | null; created_at: string }>('change orders', () =>
       db.from('job_change_orders').select('id, co_number, signing_token, signed_at, created_at').in('job_id', part).eq('status', 'completed').order('created_at', { ascending: false }).limit(MAX.paperwork)
     )) {
-      if (r.signing_token && /^[0-9a-f]{64}$/i.test(r.signing_token)) paperwork.push({ id: r.id, title: `Change order ${r.co_number}`, href: `/api/files/signed/change-order/${r.signing_token}`, date: r.signed_at || r.created_at })
+      if (r.signing_token && /^[0-9a-f]{64}$/i.test(r.signing_token)) paperwork.push({ id: r.id, title: `Change order ${r.co_number}`, href: customerSignedDocPath('change-order', r.signing_token), date: r.signed_at || r.created_at })
     }
   }
-  if (ids.oppIds.length) {
+  // A cancelled / on-hold job's report is not shown: drop the opportunities those jobs stand on.
+  const quietOpps = new Set<string>()
+  const quietIds = ids.jobIds.filter((id) => !ids.openJobIds.includes(id))
+  if (quietIds.length) {
+    for (const j of await soft<{ id: string; project_id: string | null; linked_proposal_id: string | null; accepted_proposal_id: string | null; address_text: string | null }>('quiet jobs', () =>
+      db.from('production_jobs').select('id, project_id, linked_proposal_id, accepted_proposal_id, address_text').in('id', quietIds.slice(0, CHUNK))
+    )) {
+      const pid = await resolveJobProposalId(admin, orgId, j).catch(() => null)
+      const oid = await resolveJobOpportunityId(admin, orgId, pid, j.project_id, j.address_text).catch(() => null)
+      if (oid) quietOpps.add(oid)
+    }
+  }
+  const reportOpps = ids.oppIds.filter((id) => !quietOpps.has(id))
+  if (reportOpps.length) {
     for (const r of await soft<{ id: string; share_token: string; created_at: string }>('inspection reports', () =>
-      db.from('inspection_reports').select('id, share_token, created_at').in('opportunity_id', ids.oppIds.slice(0, CHUNK)).eq('status', 'sent').order('created_at', { ascending: false }).limit(10)
+      db.from('inspection_reports').select('id, share_token, created_at').in('opportunity_id', reportOpps.slice(0, CHUNK)).eq('status', 'sent').order('created_at', { ascending: false }).limit(10)
     )) {
       if (/^[0-9a-f]{64}$/i.test(r.share_token)) paperwork.push({ id: r.id, title: 'Inspection report', href: `/r/${r.share_token}`, date: r.created_at })
     }

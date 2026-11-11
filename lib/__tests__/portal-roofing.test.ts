@@ -214,8 +214,8 @@ describe('the job card in the portal', () => {
     let { home } = await homeOf('r1')
     const main = home.jobs.find((j) => j.id === 'j-main')!
     expect(main.installs).toEqual([
-      { label: 'Roof', when: { kind: 'day', ymd: day(2) }, done: false },
-      { label: 'Gutters', when: expect.objectContaining({ kind: 'week' }), done: false },
+      { label: 'Roof', when: { kind: 'day', ymd: day(2) }, done: false, inProgress: false },
+      { label: 'Gutters', when: expect.objectContaining({ kind: 'week' }), done: false, inProgress: false },
     ])
     db.tables.work_orders.find((w) => w.id === 'wo-roof')!.scheduled_date = day(12) // ops moved it
     ;({ home } = await homeOf('r1'))
@@ -239,7 +239,7 @@ describe('the job card in the portal', () => {
     ;(db.tables.projects ??= []).push({ id: 'proj-1', org_id: R, opportunity_id: 'opp-r1' })
     const again = (await homeOf('r1')).home.jobs.find((j) => j.id === 'j-main')!
     expect(again.money?.financedThrough).toBe('Hearth')
-    expect(Object.keys(again.money!).sort()).toEqual(['balanceCents', 'financedThrough', 'paidCents', 'paidInFull', 'totalCents'])
+    expect(Object.keys(again.money!).sort()).toEqual(['balanceCents', 'contactAboutBalance', 'financedThrough', 'paidCents', 'paidInFull', 'totalCents'])
   })
   test('balance = what is left of the sale after payments (rounded to cents) and the open invoice gets the Pay button', async () => {
     const { home } = await homeOf('r1')
@@ -264,6 +264,42 @@ describe('the job card in the portal', () => {
   })
 })
 
+describe('money on the card (kind and true)', () => {
+  const money = async (id: string) => (await homeOf('r1')).home.jobs.find((j) => j.id === id)!.money
+  const set = (id: string, patch: Record<string, unknown>) => Object.assign(db.tables.production_jobs.find((j) => j.id === id)!, patch)
+  test('before the install and with no open invoice: no balance at all (insurance / financed jobs have not been paid YET)', async () => {
+    expect(await money('j-ordered')).toBeNull()
+  })
+  test('an open invoice shows the balance before install', async () => {
+    expect((await money('j-main'))?.balanceCents).toBe(600000)
+  })
+  test('installed with a balance shows the number; paid in full says so; force-paid by a super admin counts', async () => {
+    set('j-ordered', { status: 'complete' })
+    expect(await money('j-ordered')).toMatchObject({ balanceCents: 500000, paidInFull: false, contactAboutBalance: false })
+    db.tables.job_payments.push({ id: 'p-full', job_id: 'j-ordered', amount_cents: 500000 })
+    expect(await money('j-ordered')).toMatchObject({ balanceCents: 0, paidInFull: true })
+    db.tables.job_payments.pop()
+    set('j-ordered', { allow_close_with_balance: true, close_balance_by: 'super-1' })
+    expect(await money('j-ordered')).toMatchObject({ paidInFull: true, contactAboutBalance: false })
+  })
+  test('a legacy close-with-balance flag nobody owns: "contact us", never a number to act on', async () => {
+    set('j-ordered', { status: 'collected', allow_close_with_balance: true, close_balance_by: null })
+    expect(await money('j-ordered')).toMatchObject({ paidInFull: false, contactAboutBalance: true })
+    const stages = (await homeOf('r1')).home.jobs.find((j) => j.id === 'j-ordered')!.stages
+    expect(stages[4].state).toBe('current')
+  })
+  test('pending (uncleared) payments are not money in hand', async () => {
+    set('j-ordered', { status: 'complete' })
+    db.tables.job_payments.push({ id: 'p-pend', job_id: 'j-ordered', amount_cents: 500000, funding_status: 'pending' })
+    expect(await money('j-ordered')).toMatchObject({ balanceCents: 500000, paidInFull: false })
+  })
+  test('the install day has come and the crew is not marked done: "in progress", not blank', async () => {
+    db.tables.work_orders.find((w) => w.id === 'wo-roof')!.scheduled_date = day(-1)
+    const main = (await homeOf('r1')).home.jobs.find((j) => j.id === 'j-main')!
+    expect(main.installs[0]).toEqual({ label: 'Roof', when: null, done: false, inProgress: true })
+  })
+})
+
 describe('paperwork and documents', () => {
   test('signed change orders + sent inspection report + shared documents; not drafts, pending, claim docs or others', async () => {
     const { home } = await homeOf('r1')
@@ -279,6 +315,12 @@ describe('paperwork and documents', () => {
     expect(JSON.stringify(home.documents)).not.toMatch(/Cancelled job paper|ph-cancel/)
     expect(await findPortalFile(admin(), sess, 'document', 'doc-cancel')).toBeNull()
     expect(await findPortalFile(admin(), sess, 'photo', 'ph-cancel')).toBeNull()
+  })
+  test('an inspection report on a cancelled job is hidden', async () => {
+    db.tables.production_jobs.find((j) => j.id === 'j-cancel')!.project_id = 'proj-c'
+    ;(db.tables.projects ??= []).push({ id: 'proj-c', org_id: R, opportunity_id: 'opp-r1' })
+    const { home } = await homeOf('r1')
+    expect(home.paperwork.map((p) => p.title)).not.toContain('Inspection report')
   })
   test('a document stays hidden until staff share it', async () => {
     db.tables.documents.find((d) => d.id === 'doc-claim')!.shared_with_customer = true
@@ -345,6 +387,18 @@ describe('invite only (the roofing pilot)', () => {
     const s = await startPortalSession(admin(), R, 'r2')
     mockCookie = s.token
     expect(await getPortalSession(admin())).not.toBeNull()
+  })
+  test('email not set up: nothing is marked invited and staff get the real reason', async () => {
+    const old = process.env.SMTP_HOST
+    delete process.env.SMTP_HOST
+    try {
+      const r = await inviteCustomerToPortal(admin(), R, 'r2', 'staff-1')
+      expect(r).toMatchObject({ ok: false, status: 409 })
+      expect((r as { error: string }).error).toMatch(/Email not sent/)
+      expect(db.tables.customers.find((c) => c.id === 'r2')!.portal_invited_at).toBeNull()
+    } finally {
+      process.env.SMTP_HOST = old
+    }
   })
   test('no email on file: refused with a plain reason; unknown customer: 404; hourly cap', async () => {
     expect(await inviteCustomerToPortal(admin(), R, 'r3', 'staff-1')).toMatchObject({ ok: false, status: 409 })

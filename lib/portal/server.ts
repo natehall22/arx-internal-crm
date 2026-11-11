@@ -261,17 +261,16 @@ export async function sendLoginLinks(admin: SupabaseClient, orgId: string, match
       await logPortalEvent(admin, orgId, { kind: 'link_sent', customerId: p.id, ip })
     }
     if (links.length) {
-      await sendLoginEmail(admin, orgId, to, links, !!opts.invite)
-      sent += links.length
+      if (await sendLoginEmail(admin, orgId, to, links, !!opts.invite)) sent += links.length
     }
   }
   return sent
 }
 
-async function sendLoginEmail(admin: SupabaseClient, orgId: string, to: string, links: Array<{ name: string; url: string }>, invite = false): Promise<void> {
-  if (!process.env.SMTP_HOST || !getCrmEmailFrom()) {
+async function sendLoginEmail(admin: SupabaseClient, orgId: string, to: string, links: Array<{ name: string; url: string }>, invite = false): Promise<boolean> {
+  if (!emailIsSetUp()) {
     console.error('portal sign-in email not sent: email is not set up for this deployment')
-    return
+    return false
   }
   const brand = await getDocumentBrand(admin, orgId)
   const company = brand.casualName || brand.name
@@ -292,6 +291,10 @@ async function sendLoginEmail(admin: SupabaseClient, orgId: string, to: string, 
 </div>`
   const text = [invite ? `${company} set up your online account. You can see your project, photos, documents and invoices, and send us a message.` : `Here is your sign-in link for your ${company} account.`, '', ...links.map((l) => `${l.url}`), '', ...(invite ? [`Next time, go to ${later} and enter your email to get a new link.`, ''] : []), `It works once and expires in ${LOGIN_LINK_MINUTES} minutes. If you did not ask for it, ignore this email.`].join('\n')
   await getMailTransport().sendMail({ from: getCrmEmailFrom(), to, ...(brand.email ? { replyTo: brand.email } : {}), subject: invite ? `Your ${company} account is ready` : `Your ${company} account link`, html, text })
+  return true
 }
+
+/** Can this deployment send the sign-in email at all? */
+export const emailIsSetUp = (): boolean => !!process.env.SMTP_HOST && !!getCrmEmailFrom()
 
 export { SESSION_DAYS }

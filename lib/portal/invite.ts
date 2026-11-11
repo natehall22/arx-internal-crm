@@ -6,7 +6,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { isUsableCustomerEmail } from '@/lib/invoice-document'
-import { revokeCustomerPortalAccess, sendLoginLinks, takePortalAttempt } from '@/lib/portal/server'
+import { emailIsSetUp, revokeCustomerPortalAccess, sendLoginLinks, takePortalAttempt } from '@/lib/portal/server'
 import { orgDb } from '@/lib/supabase/org-db'
 
 export type InviteResult = { ok: true; sentTo: string } | { ok: false; status: 404 | 409 | 429 | 500; error: string }
@@ -18,11 +18,13 @@ export async function inviteCustomerToPortal(admin: SupabaseClient, orgId: strin
   if (!c) return { ok: false, status: 404, error: 'Not found' }
   if (!isUsableCustomerEmail(c.email)) return { ok: false, status: 409, error: 'Add an email address for this customer first.' }
   // Same fail-closed limits as a customer's own request, plus a staff-side cap so one tap cannot be held down.
-  if (!(await takePortalAttempt(admin, `invite-cust:${customerId}`, { limit: 3, windowSeconds: 3600 }))) return { ok: false, status: 429, error: 'Already sent a few times. Try again in an hour.' }
+  if (!(await takePortalAttempt(admin, `invite-cust:${customerId}`, { limit: 3, windowSeconds: 3600 }))) return { ok: false, status: 429, error: 'Email not sent: already sent a few times. Try again in an hour.' }
+  if (!emailIsSetUp()) return { ok: false, status: 409, error: "Email not sent: email isn't set up for your company yet." }
+  // Marked invited only once the email really went out (the invitation is what lets them in).
+  const sent = await sendLoginLinks(admin, orgId, [c], `staff:${staffUserId}`, { invite: true })
+  if (!sent) return { ok: false, status: 500, error: 'Email not sent. Please try again in a minute.' }
   const { error } = await db.from('customers').update({ portal_invited_at: new Date().toISOString() }).eq('id', customerId)
   if (error) return { ok: false, status: 409, error: 'Inviting turns on once the customer portal update is applied.' }
-  const sent = await sendLoginLinks(admin, orgId, [c], `staff:${staffUserId}`, { invite: true })
-  if (!sent) return { ok: false, status: 500, error: 'The invitation could not be emailed. Check that email is set up, then try again.' }
   return { ok: true, sentTo: String(c.email).trim() }
 }
 
