@@ -123,7 +123,7 @@ export default function MyPayClient() {
           <h2 className="text-ui-lg font-semibold text-ink">Paid</h2>
           {data.paid.map((p) => (
             <div key={p.periodId} className="rounded-ui border border-surface-line bg-surface">
-              <p className="flex justify-between border-b border-surface-line px-4 py-3 font-semibold text-ink"><span>{formatDateWeekday(p.payDate)}</span><span className="tabular-nums">{formatMoney(p.total)}</span></p>
+              <p className="flex justify-between border-b border-surface-line px-4 py-3 font-semibold text-ink"><span>{formatDateWeekday(p.payDate)}</span><span className="flex items-center gap-3"><a href={`/api/me/pay/sheet?period=${p.periodId}`} className="inline-flex min-h-tap items-center text-ui-base font-semibold text-brand-700 underline underline-offset-2">Pay sheet</a><span className="tabular-nums">{formatMoney(p.total)}</span></span></p>
               {p.lines.map((j) => row(j, p.periodId))}
             </div>
           ))}

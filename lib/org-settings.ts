@@ -55,6 +55,10 @@ export async function mergeOrgSettings(
   if (path.length === 0 && ('onlinePayments' in set || remove.includes('onlinePayments'))) return { error: 'onlinePayments is saved at path [onlinePayments]' }
   // Automatic customer messages are only ever written at path ['customerMessages'] (owners, /api/admin/customer-messages).
   if (path.length === 0 && ('customerMessages' in set || remove.includes('customerMessages'))) return { error: 'customerMessages is saved at path [customerMessages]' }
+  // The provider export codes are only ever written at path ['payrollExport'] (owners, /api/admin/payroll/pay-week/export).
+  if (path.length === 0 && ('payrollExport' in set || remove.includes('payrollExport'))) return { error: 'payrollExport is saved at path [payrollExport]' }
+  // The pay sheet's colors, labels and math switch are only ever written at path ['paySheet'] (owners).
+  if (path.length === 0 && ('paySheet' in set || remove.includes('paySheet'))) return { error: 'paySheet is saved at path [paySheet]' }
   if (Object.keys(set).length === 0 && remove.length === 0) return { error: null }
 
   const { error } = await client.rpc('merge_org_settings', { p_org_id: orgId, p_path: path, p_set: set, p_remove: remove })

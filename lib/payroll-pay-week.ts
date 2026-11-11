@@ -14,6 +14,8 @@ import { loadPeriodAdjustments, type PayrollAdjustment } from '@/lib/payroll-adj
 import { loadOpenDisputes } from '@/lib/payroll-disputes'
 import { loadHourlyRoster, loadPlanForWeek, loadWeekPeople, type HourlyRosterRow } from '@/lib/payroll-hours'
 import { planPayrollPeriod, type PlannedPayoutRow, type WaitingJob } from '@/lib/payroll-period-materialization'
+import { advanceOutstanding, describeAdvanceRule, loadAdvances, planAdvanceRecoveries, type AdvanceRow, type RecoveryItem } from '@/lib/payroll-advances'
+import { buildMultiStateWarnings, loadPayrollStates } from '@/lib/payroll-state-warnings'
 import { personRawTotal, payableTotal, type PayLineKind } from '@/lib/payroll-week-total'
 import { loadMinimumDecisions, minimumBasisTotal, parseWeeklyMinimum, weekMinimumFor, weeklyMinimumMath, weeklyMinimumOutcome, type WeekMinimum } from '@/lib/payroll-weekly-minimum'
 import { addWeeks, clockWords, nextWeekCutoff, sameWeekEnding, cutoffYmd, daysBetweenYmd, describePayWeek, WEEKDAY_NAMES, lastCutoffAtOrBefore, lateFundingUntil, payDateFor, weekDays, weekLabel, type PayWeekSchedule } from '@/lib/payroll-week-schedule'
@@ -50,6 +52,10 @@ export type PayWeekLine = {
   amount: number
   jobId?: string
   jobNumber?: string
+  /** For the pay sheet: the customer and street address of the job, and the key its pay-type label is looked up by. */
+  customer?: string
+  address?: string
+  roleKey?: string
   /** Payout role of a commission line (for "Change"): setter, sales_rep, inspector… */
   participantRole?: string
   /** Set on 'Adjustment' lines so a fix on an open week can be removed. */
@@ -67,6 +73,8 @@ export type PayWeekPerson = {
   /** Sum of their lines before the $0 floor. */
   raw: number
   hoursMissing: boolean
+  /** Hours behind the Hourly line (for the provider export). */
+  hours?: { regular: number; overtime: number }
   lines: PayWeekLine[]
 }
 
@@ -97,6 +105,22 @@ export type PayWeekNeed =
   /** Weekly minimum: did this person meet the week's requirements? Yes pays the top-up on this check. */
   | { kind: 'minimum'; userId: string; name: string; minimum: number; commission: number; topUp: number }
 
+export type PayWeekAdvance = {
+  id: string
+  userId: string
+  name: string
+  amount: number
+  givenOn: string
+  note: string | null
+  outstanding: number
+  rule: string
+  /** Taken back on this week's check (planned for a draft week, stored for an approved one). */
+  thisWeek: number
+  belowMinimumOk: boolean
+  /** The recovery could not be taken in full this week (the check is too small or the weekly minimum protects it). */
+  limited: boolean
+}
+
 export type PayWeekWarning = { code: string; text: string }
 
 export type PayWeek = {
@@ -124,6 +148,8 @@ export type PayWeek = {
   /** Fixes already queued on the week after this one (shown when this week is approved). */
   /** Everyone active, for the "Fix a mistake" picker. */
   directory: Array<{ id: string; name: string }>
+  /** Advances still being repaid (or repaid on this week), with what this week takes back. */
+  advances: PayWeekAdvance[]
   nextWeek: { periodId: string; weekEnding: string; payDate: string; fixes: Array<{ id: string; name: string; amount: number; reason: string }> } | null
 }
 
@@ -140,6 +166,12 @@ const ROLE_WORDS: Record<string, string> = {
   custom: 'custom line',
 }
 export const payoutRoleWord = (role: string) => ROLE_WORDS[role] ?? role.replace(/_/g, ' ')
+
+/** The street part of an address (before the first comma). */
+export const streetOf = (a: string | null | undefined): string | undefined => (a ? a.split(',')[0].trim() || undefined : undefined)
+
+/** What a signed adjustment line is called on the screen. Advance lines are changed only through the advance, never removed one by one. */
+const ADJUSTMENT_WORDS: Record<string, string> = { balance: 'Balance carried over', advance: 'Advance', advance_recovery: 'Advance repaid' }
 
 /** A real UUID (8-4-4-4-12 hex), not just 36 hex-or-dash characters. */
 export const isUuid = (v: unknown): v is string => typeof v === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v)
@@ -161,7 +193,7 @@ export function describeCommission(row: Pick<PlannedPayoutRow, 'participant_role
   return capped ? `${head} = ${fmtMoney(gross)}, reduced to ${fmtMoney(net)} to stay inside the 18% pool` : `${head} = ${fmtMoney(net)}`
 }
 
-type JobInfo = { id: string; job_number: string; address_text: string | null; commission_comp_base: number | null }
+type JobInfo = { id: string; job_number: string; address_text: string | null; commission_comp_base: number | null; customer_name?: string | null }
 
 export type WeekInputs = {
   rows: Array<Pick<PlannedPayoutRow, 'job_id' | 'user_id' | 'participant_role' | 'gross_amount' | 'net_amount' | 'comp_plan_snapshot'>>
@@ -195,7 +227,7 @@ export function composeWeek(inp: WeekInputs): { people: PayWeekPerson[]; jobs: P
     const amount = roundMoney(Number(r.net_amount) || 0)
     const math = describeCommission(r, base)
     const p = person(r.user_id)
-    p.lines.push({ kind: 'Commission', what: `${job?.job_number ?? ''}${job?.address_text ? ` · ${job.address_text}` : ''}`.trim(), math, amount, jobId: r.job_id, jobNumber: job?.job_number, participantRole: r.participant_role })
+    p.lines.push({ kind: 'Commission', what: `${job?.job_number ?? ''}${job?.address_text ? ` · ${job.address_text}` : ''}`.trim(), math, amount, jobId: r.job_id, jobNumber: job?.job_number, participantRole: r.participant_role, customer: job?.customer_name ?? undefined, address: streetOf(job?.address_text), roleKey: r.participant_role })
     let jv = byJob.get(r.job_id)
     if (!jv) {
       jv = { jobId: r.job_id, jobNumber: job?.job_number ?? '', address: job?.address_text ?? '', commissionBase: base ?? 0, total: 0, paid: [] }
@@ -212,6 +244,7 @@ export function composeWeek(inp: WeekInputs): { people: PayWeekPerson[]; jobs: P
     }
     if (h.hourly_earnings > 0) {
       const ot = h.overtime_hours > 0 ? ` + ${h.overtime_hours} overtime hrs` : ''
+      p.hours = { regular: h.regular_hours, overtime: h.overtime_hours }
       p.lines.push({ kind: 'Hourly', what: 'Hourly', math: `${h.regular_hours} hrs × ${fmtMoney(h.hourly_rate ?? 0)}${ot}`, amount: roundMoney(h.hourly_earnings) })
     }
   }
@@ -222,7 +255,7 @@ export function composeWeek(inp: WeekInputs): { people: PayWeekPerson[]; jobs: P
     person(b.userId).lines.push({ kind: 'Bonus', what: b.description || (b.bonusType === 'manual' ? 'Bonus' : b.bonusType.replace(/_/g, ' ')), math: 'Approved bonus', amount: roundMoney(b.amount) })
   }
   for (const a of inp.adjustments ?? []) {
-    person(a.userId).lines.push({ kind: 'Adjustment', what: a.kind === 'balance' ? 'Balance carried over' : 'Fix', math: a.reason, amount: a.amount, adjustmentId: a.id, adjustmentKind: a.kind, jobId: a.jobId ?? undefined })
+    person(a.userId).lines.push({ kind: 'Adjustment', what: ADJUSTMENT_WORDS[a.kind] ?? 'Fix', math: a.reason, amount: a.amount, adjustmentId: a.kind === 'advance' || a.kind === 'advance_recovery' ? undefined : a.id, adjustmentKind: a.kind, jobId: a.jobId ?? undefined })
   }
   for (const m of inp.minimums ?? []) {
     if (m.amount > 0) person(m.userId).lines.push({ kind: 'Minimum', what: 'Weekly minimum', math: weeklyMinimumMath(m.detail.minimum, m.detail.commission, m.amount, m.detail.weekDays ?? 7, m.detail.basis ?? 'gross'), amount: roundMoney(m.amount) })
@@ -404,9 +437,15 @@ export async function loadUnits(admin: SupabaseClient, orgId: string, period: Pa
 async function loadJobs(admin: SupabaseClient, orgId: string, ids: string[]): Promise<Map<string, JobInfo>> {
   const out = new Map<string, JobInfo>()
   if (ids.length === 0) return out
-  const { data, error } = await admin.from('production_jobs').select('id, job_number, address_text, commission_comp_base').eq('org_id', orgId).in('id', ids)
+  const { data, error } = await admin.from('production_jobs').select('id, job_number, address_text, commission_comp_base, customer_id').eq('org_id', orgId).in('id', ids)
   if (error) throw error
-  for (const j of data ?? []) out.set(j.id as string, j as unknown as JobInfo)
+  const cids = Array.from(new Set((data ?? []).map((j) => j.customer_id as string | null).filter(Boolean))) as string[]
+  const cname = new Map<string, string>()
+  if (cids.length) {
+    const { data: cs } = await admin.from('customers').select('id, name').eq('org_id', orgId).in('id', cids)
+    for (const c of cs ?? []) cname.set(c.id as string, (c.name as string) || '')
+  }
+  for (const j of data ?? []) out.set(j.id as string, { ...(j as unknown as JobInfo), customer_name: cname.get(j.customer_id as string) ?? null })
   return out
 }
 
@@ -452,6 +491,8 @@ export type PayWeekFull = {
   units: UnitEarnings
   /** Weekly-minimum top-ups behind the totals (what Approve stores). */
   minimums: WeekMinimum[]
+  /** What Approve writes as advance-recovery lines (draft weeks only). */
+  recoveries: RecoveryItem[]
 }
 
 export async function loadPayWeek(admin: SupabaseClient, orgId: string, now: Date, periodId?: string | null): Promise<PayWeek> {
@@ -504,13 +545,16 @@ export async function loadPayWeekFull(admin: SupabaseClient, orgId: string, now:
   const jobIds = Array.from(new Set([...rows.map((r) => r.job_id), ...waiting.map((w) => w.job.id)]))
   // Everyone active on any day of the week: read once, shared by the hours roster and per-unit pay.
   const weekPeople = await loadWeekPeople(admin, orgId, { id: period.id, cutoff_at: period.cutoffAt, clock: period.clock })
-  const [jobs, hours, bonusRes, adjustments] = await Promise.all([
+  const warnings: PayWeekWarning[] = []
+  const [jobs, hours, bonusRes, adjustmentsAll] = await Promise.all([
     loadJobs(admin, orgId, jobIds),
     draft ? loadHourlyRoster(admin, orgId, { id: period.id, cutoff_at: period.cutoffAt, clock: period.clock }, weekPeople) : loadStoredHours(admin, orgId, period.id),
     admin.from('payroll_bonus_lines').select('id, user_id, bonus_type, amount, description, status').eq('org_id', orgId).eq('payroll_period_id', period.id),
     loadPeriodAdjustments(admin, orgId, period.id),
   ])
   if (bonusRes.error) throw bonusRes.error
+  // A recovery on an open week is always (re)planned below; never read a stored pending one.
+  const adjustments = draft ? adjustmentsAll.filter((a) => !(a.kind === 'advance_recovery' && a.periodId === period.id)) : adjustmentsAll
   const bonusAll = (bonusRes.data ?? []) as Array<{ id: string; user_id: string; bonus_type: string; amount: number; description: string | null; status: string }>
   const approvedBonuses = bonusAll.filter((b) => b.status === 'approved' || b.status === 'paid').map((b) => ({ id: b.id, userId: b.user_id, amount: Number(b.amount) || 0, description: b.description, bonusType: b.bonus_type }))
   const pendingBonuses: Array<(typeof bonusAll)[number] & { fromWeek?: string }> = bonusAll.filter((b) => b.status === 'pending_approval')
@@ -556,10 +600,37 @@ export async function loadPayWeekFull(admin: SupabaseClient, orgId: string, now:
   const { minimums, asks: minimumAsks } = await loadWeekMinimums(admin, orgId, period, Array.from(minimumPeople.values()), linesByUser, plansSeen)
   for (const p of weekPeople) if (!names.has(p.id) && (minimums.some((m) => m.userId === p.id) || minimumAsks.some((m) => m.userId === p.id))) names.set(p.id, { name: p.full_name, role: p.role })
 
-  const { people, jobs: jobViews } = composeWeek({ rows, jobs, names, hours, units, bonuses: approvedBonuses, adjustments, minimums })
+  const composeInputs = { rows, jobs, names, hours, units, bonuses: approvedBonuses, minimums }
+  let { people, jobs: jobViews } = composeWeek({ ...composeInputs, adjustments })
+
+  // Advances: what this week takes back, from each person's check before recoveries and the weekly minimum that protects it.
+  // A draft week plans it (Approve writes exactly this); an approved week already has the stored lines in `adjustments`.
+  const advances = await loadAdvances(admin, orgId)
+  let recoveries: RecoveryItem[] = []
+  let limitedAdvances = new Set<string>()
+  if (draft && advances.length > 0) {
+    const pay = new Map(people.map((p) => [p.userId, p.raw]))
+    const floors = new Map<string, number>()
+    for (const id of Array.from(new Set(advances.map((a) => a.userId)))) {
+      let plan = plansSeen.get(id)
+      if (plan === undefined) plan = ((await loadPlanForWeek(admin, id, orgId, period.cutoffAt, { leftOrSaved: true, clock: period.clock }))?.comp_plans as Record<string, unknown> | null) ?? null
+      const rule = parseWeeklyMinimum(plan?.weekly_minimum)
+      if (rule) floors.set(id, weekMinimumFor(rule, periodLength(period)))
+    }
+    const plan = planAdvanceRecoveries({ weekEnding: period.weekEnding, advances, pay, floors })
+    recoveries = plan.items
+    limitedAdvances = new Set(plan.limited.map((l) => l.advanceId))
+    if (recoveries.length) {
+      const virtual: PayrollAdjustment[] = recoveries.map((r) => ({ id: `advance:${r.advanceId}`, userId: r.userId, jobId: null, amount: -r.amount, reason: r.reason, kind: 'advance_recovery', periodId: period.id }))
+      ;({ people, jobs: jobViews } = composeWeek({ ...composeInputs, adjustments: [...adjustments, ...virtual] }))
+    }
+    for (const l of plan.limited) {
+      const nm = names.get(l.userId)?.name ?? 'Someone'
+      warnings.push({ code: 'advance_limited', text: `${nm}'s advance: ${fmtMoney(l.taken)} of ${fmtMoney(l.wanted)} comes out this week${l.because === 'minimum' ? ' so the check stays at their weekly minimum (you can allow it to go lower on the advance)' : ' because the check is not big enough'}. The rest stays owed.` })
+    }
+  }
 
   const needs: PayWeekNeed[] = []
-  const warnings: PayWeekWarning[] = []
   if (draft) {
     for (const h of hours) if (!h.has_entry) needs.push({ kind: 'hours', userId: h.user_id, name: h.full_name, rate: h.hourly_rate ?? 0 })
     for (const m of minimumAsks) needs.push({ kind: 'minimum', userId: m.userId, name: names.get(m.userId)?.name ?? 'Unknown', minimum: m.minimum, commission: m.commission, topUp: m.topUp })
@@ -581,6 +652,19 @@ export async function loadPayWeekFull(admin: SupabaseClient, orgId: string, now:
     const paidBefore = new Set((prior ?? []).map((r) => r.user_id as string))
     const firstTime = new Set(people.filter((p) => !paidBefore.has(p.userId)).map((p) => p.userId))
     warnings.push(...buildWarnings({ people, firstTimePayees: firstTime, backlogJobs: backlog.jobs, weekStart: period.weekStart }))
+    // Paid for a job in another state than the one they are paid in: a heads-up for the payroll provider (no tax math here).
+    const st = await loadPayrollStates(admin, orgId, people.map((p) => p.userId))
+    const jobIdsByUser = new Map<string, string[]>()
+    for (const p of people) jobIdsByUser.set(p.userId, p.lines.filter((l) => l.kind === 'Commission' && l.jobId).map((l) => l.jobId as string))
+    warnings.push(...buildMultiStateWarnings({
+      people: people.map((p) => ({ userId: p.userId, name: p.name, jobIds: jobIdsByUser.get(p.userId) ?? [] })),
+      jobs: new Map(Array.from(jobs.entries()).map(([id, j]) => [id, { jobNumber: j.job_number, address: j.address_text }])),
+      home: st.home,
+      companyState: st.companyState,
+    }))
+    // An advance still owed by someone who is no longer active: nothing will come out of their check any more.
+    const gone = advances.filter((a) => advanceOutstanding(a) > 0 && !weekPeople.some((p) => p.id === a.userId && p.active))
+    for (const a of gone) warnings.push({ code: 'advance_left', text: `${names.get(a.userId)?.name ?? (await loadNames(admin, orgId, [a.userId])).get(a.userId)?.name ?? 'Someone'} is no longer active and still owes ${fmtMoney(advanceOutstanding(a))} of an advance. Stop it from the Advances list if it will not be repaid.` })
     // Late money still counts until the window closes: approving earlier leaves those jobs for next week.
     if (period.lateFundingUntil && now.getTime() < new Date(period.lateFundingUntil).getTime() && schedule.lateFunding) {
       warnings.push({ code: 'late_money_open', text: `Money that clears by ${WEEKDAY_NAMES[schedule.lateFunding.weekday]} ${clockWords(schedule.lateFunding.time)} still pays on this check. Approving before then leaves those jobs for next week.` })
@@ -621,8 +705,35 @@ export async function loadPayWeekFull(admin: SupabaseClient, orgId: string, now:
     earlier,
     nextWeek,
     directory,
+    advances: await advanceViews(admin, orgId, advances, recoveries, limitedAdvances, period, draft, names),
   }
-  return { week, plan: fullPlan, units: unitEarnings, minimums }
+  return { week, plan: fullPlan, units: unitEarnings, minimums, recoveries }
+}
+
+/** Advances still owed or repaid on this week, for the screen. */
+async function advanceViews(admin: SupabaseClient, orgId: string, advances: AdvanceRow[], recoveries: RecoveryItem[], limited: Set<string>, period: PayWeekPeriod, draft: boolean, names: Map<string, { name: string; role: string }>): Promise<PayWeekAdvance[]> {
+  let thisWeekStored = new Map<string, number>()
+  if (!draft && advances.length) {
+    const { data } = await admin.from('payroll_adjustments').select('advance_id, amount').eq('org_id', orgId).eq('payroll_period_id', period.id).eq('kind', 'advance_recovery').neq('status', 'void')
+    thisWeekStored = new Map((data ?? []).map((r) => [r.advance_id as string, roundMoney(-(Number(r.amount) || 0))]))
+  }
+  const missing = advances.map((a) => a.userId).filter((id) => !names.has(id))
+  if (missing.length) for (const [id, v] of Array.from((await loadNames(admin, orgId, Array.from(new Set(missing)))).entries())) names.set(id, v)
+  return advances
+    .map((a) => ({
+      id: a.id,
+      userId: a.userId,
+      name: names.get(a.userId)?.name ?? 'Unknown',
+      amount: a.amount,
+      givenOn: a.givenOn,
+      note: a.note,
+      outstanding: advanceOutstanding(a),
+      rule: describeAdvanceRule(a),
+      thisWeek: draft ? recoveries.find((r) => r.advanceId === a.id)?.amount ?? 0 : thisWeekStored.get(a.id) ?? 0,
+      belowMinimumOk: a.belowMinimumOk,
+      limited: limited.has(a.id),
+    }))
+    .filter((a) => a.outstanding > 0 || a.thisWeek > 0)
 }
 
 /** One total per person, for the payroll processor. */

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { orgFeatureChecker } from '@/lib/org-features-server'
 import { getOrgEmailBlastSettings } from '@/lib/admin-email-blasts'
 import { ensureCheckups } from '@/lib/checkups'
+import { notifyPayWeekReady } from '@/lib/payroll-approve-link'
 import { retryDueCommissionChanges } from '@/lib/payroll-commission-change'
 import { ensureServiceVisits } from '@/lib/service-plans-db'
 import { runAutopayRetries } from '@/lib/online-payments/autopay'
@@ -91,6 +92,11 @@ export async function GET(request: NextRequest) {
     // read). Not behind the hourly billing switch: pay already owed must not stop because the switch was turned off.
     await retryDueCommissionChanges(admin, orgId).catch((error) => {
       console.error(`[cron/morning-update] commission change retry failed for org ${orgId}:`, error)
+    })
+    // A pay week that is ready (ended, nothing needs anyone) is offered to each owner as a one-tap Approve (new payroll path only;
+    // nothing happens while PAYROLL_PAY_WEEK_ENABLED is off).
+    await notifyPayWeekReady(admin, orgId, now).catch((error) => {
+      console.error(`[cron/morning-update] pay week ready notice failed for org ${orgId}:`, error)
     })
     // Clocks left running overnight are stopped at the last tap and flagged before anyone's morning (time clock companies).
     if (await timeTrackingOn(orgId)) {
