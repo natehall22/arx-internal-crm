@@ -25,7 +25,7 @@ describe('reports:financials', () => {
 
   it('no dataset exposes a money column to a viewer without it', () => {
     for (const ds of Object.values(DATASETS)) for (const col of ds.columns) if (col.type === 'money') expect(col.sensitive).toBe(true)
-    for (const key of ['payments', 'job_costs', 'payroll_lines'] as const) expect(DATASETS[key].financeOnly).toBe(true)
+    for (const key of ['payments', 'invoices', 'job_costs', 'payroll_lines'] as const) expect(DATASETS[key].financeOnly).toBe(true)
   })
 
   it('every template that reads money is flagged, so it is hidden from people without the permission', () => {
