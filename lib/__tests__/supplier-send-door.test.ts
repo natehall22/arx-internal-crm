@@ -19,7 +19,12 @@ describe('supplier orders are never sent by anything automatic', () => {
       .filter((f) => readFileSync(f, 'utf8').includes('sendOrderToSupplier'))
       .map((f) => f.slice(root.length + 1))
     // The audit wrapper is the send route's own door: it calls sendOrderToSupplier and is imported only by that route.
-    expect(users).toEqual(['app/api/ops/jobs/[id]/supplier-orders/send/route.ts', 'lib/suppliers/abc/audited-transmit.ts'])
+    // The general purchase-order send route is the second door: same function, explicit staff tap, one route.
+    expect([...users].sort()).toEqual([
+      'app/api/ops/jobs/[id]/supplier-orders/send/route.ts',
+      'app/api/ops/purchase-orders/[id]/send/route.ts',
+      'lib/suppliers/abc/audited-transmit.ts',
+    ])
     const wrappers = [...walk(join(root, 'app')), ...walk(join(root, 'lib')), ...walk(join(root, 'components'))]
       .filter((f) => !f.endsWith('audited-transmit.ts'))
       .filter((f) => readFileSync(f, 'utf8').includes('makeAuditedTransmit'))

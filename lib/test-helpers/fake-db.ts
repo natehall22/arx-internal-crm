@@ -15,12 +15,15 @@ export function createFakeDb(
     onRpc?: (name: string, args: Record<string, unknown>) => void
     /** Called with the rows every select returned (before range/limit). */
     onSelect?: (table: string, rows: Row[]) => void
+    /** Ids for inserted rows that bring none (default `gen-1`, `gen-2`…). Code that validates uuids needs real-looking ones. */
+    idFactory?: () => string
   } = {}
 ) {
   const tables: Record<string, Row[]> = {}
   for (const [k, v] of Object.entries(seed)) tables[k] = v.map((r) => ({ ...r }))
   const writes: WriteLog = []
   let autoId = 1
+  const newId = () => (opts.idFactory ? opts.idFactory() : `gen-${autoId++}`)
   const rel = opts.relations ?? {}
 
   const matchOr = (row: Row, expr: string) =>
@@ -97,7 +100,7 @@ export function createFakeDb(
         // Postgres refuses an insert whose id already exists (duplicate key), it never overwrites.
         const dup = payload.find((p) => p.id != null && rows.some((r) => r.id === p.id))
         if (dup) return { data: null, error: { message: `duplicate key value violates unique constraint "${table}_pkey"`, code: '23505' }, count: null }
-        data = payload.map((p) => ({ id: p.id ?? `gen-${autoId++}`, ...p }))
+        data = payload.map((p) => ({ id: p.id ?? newId(), ...p }))
         rows.push(...data)
         writes.push({ table, op, rows: data })
       } else if (op === 'upsert') {
@@ -105,7 +108,7 @@ export function createFakeDb(
         data = payload.map((p) => {
           const hit = rows.find((r) => keys.every((k) => r[k] === p[k]))
           if (hit) { Object.assign(hit, p); return hit }
-          const n = { id: p.id ?? `gen-${autoId++}`, ...p }
+          const n = { id: p.id ?? newId(), ...p }
           rows.push(n)
           return n
         })
