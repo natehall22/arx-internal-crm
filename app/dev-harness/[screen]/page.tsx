@@ -74,6 +74,7 @@ import GeneralSettingsCard, { type GeneralSettingsValues } from '@/components/ad
 import { DEFAULT_TIMEZONE } from '@/lib/timezone'
 import JobCatchUpSettingsCard from '@/components/admin/JobCatchUpSettingsCard'
 import OrgFeaturesCard from '@/components/admin/OrgFeaturesCard'
+import SalesTaxCard from '@/components/admin/SalesTaxCard'
 import { HARNESS_CATCH_UP_JOBS, HARNESS_CATCH_UP_STUCK, HARNESS_VIEWER_ID } from '@/e2e/fixtures'
 
 function GeneralSettingsHarness({ canEditBrand }: { canEditBrand: boolean }) {
@@ -219,6 +220,21 @@ export default function Harness({ params }: { params: { screen: string } }) {
       return (
         <div className="mx-auto max-w-2xl p-4">
           <OrgFeaturesCard initial={{ canvassing: false, insurance: false, roofMeasure: true, incentives: false, stormAlerts: false, squaresPricing: true }} />
+        </div>
+      )
+    case 'sales-tax':
+      return (
+        <div className="mx-auto max-w-2xl p-4">
+          <SalesTaxCard
+            initial={{
+              enabled: true,
+              rates: [
+                { id: 'state', name: 'State', percent: 6, active: true },
+                { id: 'county', name: 'Leon County surtax', percent: 1.5, active: true },
+              ],
+              defaultRateIds: ['state', 'county'],
+            }}
+          />
         </div>
       )
     case 'job-page':

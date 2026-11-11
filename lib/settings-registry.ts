@@ -48,6 +48,7 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
       { title: 'Compensation plans', description: 'Commission structures and who is on which plan', href: '/admin/comp-plans', access: 'leadership', keywords: 'commission pay plan default' },
       { title: 'Payroll & commissions', description: 'Pay periods, hourly entry, statements and exports', href: '/admin/payroll', access: 'payroll' },
       { title: 'Job profit tracker', description: 'Contract, costs, profit and owner draw by job', href: '/admin/job-profit-tracker', access: 'payroll' },
+      { title: 'Sales tax', description: 'Tax rates on quotes and invoices, the default, or no tax at all (owners only)', href: '/admin#sales-tax', access: 'superAdmin', keywords: 'tax rate state county exempt taxable vat' },
       { title: 'Goals & forecast', description: 'Monthly targets, scorecard and revenue forecast', href: '/admin/goals', access: 'superuser' },
     ],
   },

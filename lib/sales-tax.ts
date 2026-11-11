@@ -17,9 +17,9 @@
  * Taxable lines: `line override ?? price-book item is_taxable ?? true` (lineIsTaxable). A tax-exempt customer
  * (`customers.tax_exempt`) gets no tax lines at all.
  *
- * ROUNDING RULE (matches ARX math since the cents rewrite): tax is computed ONCE PER DOCUMENT PER RATE —
+ * ROUNDING RULE (matches the original proposal math): tax is computed ONCE PER DOCUMENT PER RATE —
  * `Math.round(taxableCents * (percent / 100))`, half-up to the cent — never per line. With one rate and every line
- * taxable this is exactly the old proposal formula (`round(afterDiscountCents * rate / 100)`), so stored ARX
+ * taxable this is exactly the old proposal formula (`round(afterDiscountCents * rate / 100)`), so stored
  * proposals reproduce to the cent (golden test lib/__tests__/sales-tax.test.ts). Stacked rates are rounded per rate,
  * so 4.75% + 2.25% can differ by 1¢ from a single 7% line; that is the per-jurisdiction figure a return reports.
  *
