@@ -1,5 +1,6 @@
 /** @jest-environment node */
 import { DEFAULT_ORG_TRADES } from '@/lib/org-trades'
+import { ORG_FEATURE_KEYS } from '@/lib/org-features'
 
 const calls: string[] = []
 let storedSettings: { features: unknown; profile?: unknown } = { features: {} }
@@ -58,7 +59,8 @@ describe('applyIndustryProfile', () => {
   it('resetFeatures removes only the saved switch keys, before the profile key', async () => {
     storedSettings = { features: { canvassing: true } }
     await applyIndustryProfile({} as never, 'org-1', 'u1', 'lawn_landscape', { resetFeatures: true })
-    expect(calls.slice(1)).toEqual(['merge ["features"] set={} remove=8', 'merge ["profile"] set={"id":"lawn_landscape","version":2} remove=0'])
+    // Every switch key is removed (one per feature in lib/org-features.ts).
+    expect(calls.slice(1)).toEqual([`merge ["features"] set={} remove=${ORG_FEATURE_KEYS.length}`, 'merge ["profile"] set={"id":"lawn_landscape","version":2} remove=0'])
   })
 
   it('trades table missing: trades skipped, profile still recorded', async () => {
