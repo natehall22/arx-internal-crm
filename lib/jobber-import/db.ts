@@ -377,10 +377,10 @@ function same(a: unknown, b: unknown): boolean {
 const pick = (row: Record<string, unknown>, keys: string[]) => Object.fromEntries(keys.map((k) => [k, row[k] ?? null]))
 
 /** The values a previous import last wrote on this row (its newest done item), or null. */
-async function lastApplied(ctx: Ctx, kind: string, sourceId: string, targetId: string): Promise<Record<string, unknown> | null> {
+async function lastApplied(ctx: Ctx, kind: string, sourceId: string, targetId: string): Promise<{ applied: Record<string, unknown>; action: string } | null> {
   const { data } = await orgDb(ctx.admin, ctx.orgId)
     .from('import_run_items')
-    .select('applied')
+    .select('applied, action')
     .eq('kind', kind)
     .eq('source_id', sourceId)
     .eq('target_id', targetId)
@@ -389,7 +389,8 @@ async function lastApplied(ctx: Ctx, kind: string, sourceId: string, targetId: s
     .order('done_at', { ascending: false })
     .limit(1)
     .maybeSingle()
-  return ((data as { applied?: Record<string, unknown> } | null)?.applied as Record<string, unknown>) ?? null
+  const row = data as { applied?: Record<string, unknown> | null; action?: string } | null
+  return row?.applied ? { applied: row.applied, action: String(row.action ?? '') } : null
 }
 
 type Outcome = { status: 'done' | 'failed' | 'skipped'; target_table?: string; target_id?: string | null; applied?: Record<string, unknown> | null; before?: Record<string, unknown> | null; error?: string }
@@ -398,14 +399,22 @@ type Outcome = { status: 'done' | 'failed' | 'skipped'; target_table?: string; t
  * A re-run's update of a row an earlier import made: only if the row still holds what that import wrote (nobody changed it
  * here since). Otherwise it is kept as it is and the item says so.
  */
-async function guardedUpdate(ctx: Ctx, table: string, item: Item, values: Record<string, unknown>, cols: string): Promise<Outcome> {
+async function guardedUpdate(
+  ctx: Ctx,
+  table: string,
+  item: Item,
+  valuesFor: Record<string, unknown> | ((current: Record<string, unknown>) => Record<string, unknown>),
+  cols: string
+): Promise<Outcome> {
   const db = orgDb(ctx.admin, ctx.orgId)
   const { data: row } = await db.from(table).select(cols).eq('id', item.target_id).maybeSingle()
   if (!row) return { status: 'failed', error: 'The row this import made earlier is gone' }
-  const prev = await lastApplied(ctx, item.kind, item.source_id, String(item.target_id))
+  const last = await lastApplied(ctx, item.kind, item.source_id, String(item.target_id))
+  const prev = last?.applied ?? null
   const current = row as Record<string, unknown>
   if (prev && Object.keys(prev).some((k) => !same(current[k], prev[k])))
     return { status: 'skipped', target_table: table, target_id: item.target_id, error: 'Changed here since the last import — kept as it is' }
+  const values = typeof valuesFor === 'function' ? valuesFor(current) : valuesFor
   const changed = Object.fromEntries(Object.entries(values).filter(([k, v]) => !same(current[k], v)))
   if (Object.keys(changed).length === 0) return { status: 'done', target_table: table, target_id: item.target_id, applied: pick(current, Object.keys(values)), before: null }
   const { data: after, error } = await db.from(table).update(changed).eq('id', item.target_id).select(cols).single()
@@ -481,9 +490,21 @@ async function doItem(ctx: Ctx, item: Item): Promise<Outcome> {
       const custom = fieldIds(ctx, p.custom_fields)
       if (item.action === 'link') return linkCustomer(ctx, item, custom)
       if (item.action === 'update') {
-        const { data: cur } = await db.from('customers').select('custom_fields').eq('id', item.target_id).maybeSingle()
-        const merged = { ...(((cur as { custom_fields?: Record<string, unknown> } | null)?.custom_fields as Record<string, unknown>) ?? {}), ...custom }
-        return guardedUpdate(ctx, 'customers', item, { name: p.name, email: p.email ?? null, phone: p.phone ?? null, address_text: p.address_text ?? null, custom_fields: merged }, CUSTOMER_COLS)
+        // A customer an earlier import MADE gets Jobber's latest name / email / phone / address. One it only LINKED to (a
+        // customer of yours) keeps its own: only blanks are filled, as on the first run. Custom values are merged in.
+        const { data: links } = await db.from('import_run_items').select('id').eq('kind', 'customer').eq('target_id', item.target_id).eq('action', 'link').in('status', ['done', 'kept']).limit(1)
+        const made = (links ?? []).length === 0
+        return guardedUpdate(
+          ctx,
+          'customers',
+          item,
+          (cur) => {
+            const out: Record<string, unknown> = { custom_fields: { ...((cur.custom_fields as Record<string, unknown>) ?? {}), ...custom } }
+            for (const k of ['name', 'email', 'phone', 'address_text']) if ((made || !cur[k]) && p[k]) out[k] = p[k]
+            return out
+          },
+          CUSTOMER_COLS
+        )
       }
       const { data, error } = await db
         .from('customers')

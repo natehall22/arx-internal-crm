@@ -261,6 +261,24 @@ export default function MoveFromJobber() {
 
       {step === 3 && state ? <ImportView state={state} busy={!!busy} onContinue={loop} onReload={() => load(state.run.id)} /> : null}
 
+      {run && (run.status === 'done' || run.status === 'undone') ? (
+        <Button
+          variant="secondary"
+          className="w-full"
+          disabled={!!busy}
+          onClick={async () => {
+            try {
+              const r = await api<{ run: Run }>(BASE, {})
+              await load(r.run.id)
+            } catch (e) {
+              toast.error((e as Error).message)
+            }
+          }}
+        >
+          Start another import (new or updated files — nothing is duplicated)
+        </Button>
+      ) : null}
+
       <PastImports runs={runs.filter((r) => r.id !== run?.id && r.status !== 'discarded')} />
 
       {/* Sticky primary action, in thumb reach. */}
