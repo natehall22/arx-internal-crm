@@ -8,7 +8,14 @@ export type WriteLog = Array<{ table: string; op: 'insert' | 'upsert' | 'update'
 
 export function createFakeDb(
   seed: Record<string, Row[]>,
-  opts: { relations?: Record<string, Record<string, { table: string; fk: string }>>; rpc?: Record<string, (args: Record<string, unknown>, tables: Record<string, Row[]>) => unknown> } = {}
+  opts: {
+    relations?: Record<string, Record<string, { table: string; fk: string }>>
+    rpc?: Record<string, (args: Record<string, unknown>, tables: Record<string, Row[]>) => unknown>
+    /** Called for every rpc (handled or not) — lets a test log or inspect what SQL functions were asked to do. */
+    onRpc?: (name: string, args: Record<string, unknown>) => void
+    /** Called with the rows every select returned (before range/limit). */
+    onSelect?: (table: string, rows: Row[]) => void
+  } = {}
 ) {
   const tables: Record<string, Row[]> = {}
   for (const [k, v] of Object.entries(seed)) tables[k] = v.map((r) => ({ ...r }))
@@ -41,9 +48,10 @@ export function createFakeDb(
     return true
   }
 
-  function builder(table: string) {
+  // `see` limits which rows a client can read or change (e.g. an emulated row-level-security view, see `viewClient`).
+  function builder(table: string, see?: (table: string, r: Row) => boolean) {
     let rows = (tables[table] ??= [])
-    let filters: Array<(r: Row) => boolean> = []
+    let filters: Array<(r: Row) => boolean> = see ? [(r) => see(table, r)] : []
     let op: 'select' | 'insert' | 'upsert' | 'update' | 'delete' = 'select'
     let payload: Row[] = []
     let patch: Row = {}
@@ -98,6 +106,7 @@ export function createFakeDb(
       } else {
         data = rows.filter((r) => filters.every((f) => f(r)))
         for (const o of [...orderBy].reverse()) data = [...data].sort((a, b) => (String(a[o.col] ?? '') < String(b[o.col] ?? '') ? -1 : 1) * (o.asc ? 1 : -1))
+        opts.onSelect?.(table, data)
       }
       const total = data.length
       if (range) data = data.slice(range[0], range[1] + 1)
@@ -118,6 +127,21 @@ export function createFakeDb(
       in(c: string, v: unknown[]) { filters.push((r) => v.includes(r[c])); return api },
       is(c: string, v: unknown) { filters.push((r) => (v === null ? r[c] == null : r[c] === v)); return api },
       not(c: string, o: string, v: unknown) { filters.push((r) => (o === 'is' ? !(v === null ? r[c] == null : r[c] === v) : o === 'in' ? !String(v).replace(/[()]/g, '').split(',').includes(String(r[c])) : true)); return api },
+      ilike(c: string, v: string) { filters.push((r) => likeMatch(r[c], v, true)); return api },
+      like(c: string, v: string) { filters.push((r) => likeMatch(r[c], v, false)); return api },
+      contains(c: string, v: unknown) { filters.push((r) => containsValue(r[c], v)); return api },
+      overlaps(c: string, v: unknown[]) { filters.push((r) => Array.isArray(r[c]) && (r[c] as unknown[]).some((x) => v.includes(x))); return api },
+      match(o: Row) { for (const [c, v] of Object.entries(o)) filters.push((r) => r[c] === v); return api },
+      filter(c: string, o: string, v: unknown) {
+        if (o === 'in') { const list = String(v).replace(/[()]/g, '').split(','); filters.push((r) => list.includes(String(r[c]))) }
+        else if (o === 'is') filters.push((r) => (v === null || v === 'null' ? r[c] == null : String(r[c]) === String(v)))
+        else filters.push((r) => cmp(r[c], o, v))
+        return api
+      },
+      textSearch() { return api },
+      returns() { return api },
+      throwOnError() { return api },
+      abortSignal() { return api },
       lt(c: string, v: unknown) { filters.push((r) => cmp(r[c], 'lt', v)); return api },
       lte(c: string, v: unknown) { filters.push((r) => cmp(r[c], 'lte', v)); return api },
       gt(c: string, v: unknown) { filters.push((r) => cmp(r[c], 'gt', v)); return api },
@@ -133,21 +157,51 @@ export function createFakeDb(
     return api
   }
 
+  const callRpc = async (name: string, args: Record<string, unknown>) => {
+    opts.onRpc?.(name, args ?? {})
+    const fn = opts.rpc?.[name]
+    if (!fn) return { data: null, error: null }
+    // A handler that throws is a Postgres exception: everything it wrote is rolled back (one transaction).
+    const before = JSON.parse(JSON.stringify(tables)) as Record<string, Row[]>
+    try {
+      return { data: fn(args, tables) ?? null, error: null }
+    } catch (e) {
+      for (const k of Object.keys(tables)) delete tables[k]
+      Object.assign(tables, before)
+      return { data: null, error: { message: (e as Error).message, code: (e as { code?: string }).code } }
+    }
+  }
+  // `.rpc()` result: awaitable, and chainable the way supabase-js allows (`.rpc(...).single()` etc.).
+  const rpcResult = (name: string, args: Record<string, unknown>) => {
+    const p = callRpc(name, args)
+    const chain: Record<string, unknown> = {
+      then: (res: (v: unknown) => unknown, rej?: (e: unknown) => unknown) => p.then(res, rej),
+    }
+    for (const m of ['select', 'eq', 'in', 'order', 'limit', 'returns', 'throwOnError', 'abortSignal']) chain[m] = () => chain
+    chain.single = () => p
+    chain.maybeSingle = () => p
+    return chain
+  }
+  const makeClient = (see?: (table: string, r: Row) => boolean) => ({ from: (t: string) => builder(t, see), rpc: rpcResult })
+
   return {
-    client: { from: (t: string) => builder(t), rpc: async (name: string, args: Record<string, unknown>) => {
-      const fn = opts.rpc?.[name]
-      if (!fn) return { data: null, error: null }
-      // A handler that throws is a Postgres exception: everything it wrote is rolled back (one transaction).
-      const before = JSON.parse(JSON.stringify(tables)) as Record<string, Row[]>
-      try {
-        return { data: fn(args, tables) ?? null, error: null }
-      } catch (e) {
-        for (const k of Object.keys(tables)) delete tables[k]
-        Object.assign(tables, before)
-        return { data: null, error: { message: (e as Error).message, code: (e as { code?: string }).code } }
-      }
-    } } as never,
+    client: makeClient() as never,
+    /** A client that can only read or change rows `see` allows (emulates row-level security for a user-token client). */
+    viewClient: (see: (table: string, r: Row) => boolean) => makeClient(see) as never,
     tables,
     writes,
   }
+}
+
+function likeMatch(cell: unknown, pattern: string, insensitive: boolean) {
+  if (cell == null) return false
+  const re = new RegExp('^' + String(pattern).split('%').map((x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/_/g, '.')).join('.*') + '$', insensitive ? 'i' : '')
+  return re.test(String(cell))
+}
+
+function containsValue(cell: unknown, v: unknown): boolean {
+  if (cell == null) return false
+  if (Array.isArray(v)) return Array.isArray(cell) && v.every((x) => (cell as unknown[]).includes(x))
+  if (v && typeof v === 'object') return typeof cell === 'object' && Object.entries(v as Row).every(([k, x]) => containsValue((cell as Row)[k], x) || (cell as Row)[k] === x)
+  return cell === v
 }
