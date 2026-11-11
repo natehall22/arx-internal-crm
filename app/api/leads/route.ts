@@ -11,6 +11,7 @@ import {
   STORM_PIPELINE_PREFIX,
 } from '@/lib/inside-sales-follow-up'
 import { createServiceClient } from '@/lib/supabase/service'
+import { orgDb } from '@/lib/supabase/org-db'
 
 export const dynamic = 'force-dynamic'
 
@@ -94,13 +95,26 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    
+
+    // A chosen owner must be a user of this company (the insert runs on the service client, no RLS).
+    const ownerUserId: string = body.owner_user_id || user.id
+    if (ownerUserId !== user.id) {
+      const { data: owner } = await orgDb(adminClient, profile.org_id)
+        .from('users')
+        .select('id')
+        .eq('id', ownerUserId)
+        .maybeSingle()
+      if (!owner) {
+        return NextResponse.json({ error: 'Owner not found' }, { status: 400 })
+      }
+    }
+
     // Create the lead
     const { data: lead, error: leadError } = await adminClient
       .from('leads')
       .insert({
         org_id: profile.org_id,
-        owner_user_id: body.owner_user_id || user.id,
+        owner_user_id: ownerUserId,
         homeowner_name: body.homeowner_name || null,
         phone: body.phone || null,
         email: body.email || null,

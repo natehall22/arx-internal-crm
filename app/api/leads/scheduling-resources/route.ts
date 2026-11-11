@@ -102,7 +102,11 @@ export async function GET(request: NextRequest) {
 
     const filteredUsers = (usersRaw || []).filter(canReceiveCanvassAppointment)
 
-    const { data: calendarTokens } = await admin.from('user_google_tokens').select('user_id')
+    // Only this company's users (the token table spans every company).
+    const candidateIds = filteredUsers.map((u) => u.id)
+    const { data: calendarTokens } = candidateIds.length
+      ? await admin.from('user_google_tokens').select('user_id').in('user_id', candidateIds)
+      : { data: [] as Array<{ user_id: string }> }
     const calendarUserIds = new Set((calendarTokens || []).map((t) => t.user_id))
 
     const usersWithCalendar = filteredUsers
