@@ -6,7 +6,7 @@
 import { ATTACKER_ID, BRAVO_ROW_ID, LEAK_PATTERNS, ORG_A, ORG_B, VICTIM_ID, companyTables, createWorld, tablesInCode, type World } from '@/lib/test-helpers/breakin-harness'
 import { resolveOpsAccess } from '@/lib/ops-access'
 import { capResult } from '@/lib/ai-connector/mcp'
-import { MCP_TOOLS } from '@/lib/ai-connector/tools'
+import { MCP_TOOLS, READ_TOOLS } from '@/lib/ai-connector/tools'
 import { ToolError, type McpTool } from '@/lib/ai-connector/tools/types'
 
 let world: World
@@ -32,7 +32,7 @@ function build(role: string) {
   const origRpc = (w.db.client as { rpc: (n: string, a: Record<string, unknown>) => unknown }).rpc
   ;(w.db.client as { rpc: unknown }).rpc = (name: string, args: Record<string, unknown>) => (name === 'search_all' ? Promise.resolve(searchRpc(args, w.db.tables as never)) : origRpc(name, args))
   const profile = w.db.tables.users.find((u) => u.id === ATTACKER_ID) as never
-  return { w, ctx: { admin: w.db.client as never, profile, userId: ATTACKER_ID, orgId: ORG_B } }
+  return { w, ctx: { admin: w.db.client as never, profile, userId: ATTACKER_ID, orgId: ORG_B, grantId: 'g-b', writesAllowed: true, rate: async () => ({ ok: true as const }) } }
 }
 
 async function run(tool: McpTool, ctx: ReturnType<typeof build>['ctx'], args: unknown): Promise<{ text: string; error: boolean }> {
@@ -59,10 +59,10 @@ const ATTACKS: Array<[string, unknown]> = [
   ['list_reports', {}],
 ]
 
-describe('every phase-1 tool is read-only and registered', () => {
-  it('lists the expected tools, all read-only with strict schemas', () => {
-    expect(MCP_TOOLS.map((t) => t.name).sort()).toEqual(['find_customer', 'find_job', 'get_customer', 'get_job_summary', 'get_thread', 'list_invoices', 'list_reports', 'list_schedule', 'list_visits', 'run_report'])
-    for (const t of MCP_TOOLS) expect(t.readOnly).toBe(true)
+describe('every read tool is read-only and registered', () => {
+  it('lists the expected read tools, all read-only with strict schemas', () => {
+    expect(READ_TOOLS.map((t) => t.name).sort()).toEqual(['find_customer', 'find_job', 'get_customer', 'get_job_summary', 'get_thread', 'list_invoices', 'list_reports', 'list_schedule', 'list_visits', 'run_report'])
+    for (const t of READ_TOOLS) expect(t.readOnly).toBe(true)
   })
 })
 
@@ -144,5 +144,90 @@ describe('field roles never see money or production through the AI either', () =
       // The amount is in the answer exactly when the person's own job-money door is open.
       if (!res.error) expect(res.text.includes('sale_amount')).toBe(ops.canViewJobFinancials)
     }
+  })
+})
+
+
+/* ---- phase 2: write tools (propose = preview only; B's key, A's ids) ------------------------------------------------- */
+const WRITE_ATTACKS: Array<[string, unknown]> = [
+  ['add_note', { deal_id: VICTIM_ID, text: 'hello' }],
+  ['log_contact', { deal_id: VICTIM_ID, kind: 'call', outcome: 'reached' }],
+  ['create_customer', { name: 'ALPHA_SECRET', email: 'alpha_secret@alpha.test', phone: '7045550199' }],
+  ['create_lead', { name: 'x', phone: '7045550199', email: 'alpha_secret@alpha.test' }],
+  ['reschedule_visit', { visit_id: VICTIM_ID, date: '2030-01-01' }],
+  ['add_cost_line', { job_id: VICTIM_ID, description: 'tape', amount: 5 }],
+  ['draft_invoice', { customer_id: VICTIM_ID, lines: [{ description: 'x', qty: 1, unit_price: 5 }] }],
+  ['draft_invoice', { customer_id: BRAVO_ROW_ID, property_id: VICTIM_ID, lines: [{ description: 'x', qty: 1, unit_price: 5 }] }],
+  ['draft_purchase_order', { job_id: VICTIM_ID, vendor_id: VICTIM_ID, lines: [{ description: 'x', quantity: 1 }] }],
+  ['draft_purchase_order', { job_id: BRAVO_ROW_ID, vendor_id: VICTIM_ID, lines: [{ description: 'x', quantity: 1 }] }],
+]
+
+describe('phase 2: write tools only prepare, and never reach company A', () => {
+  it('every write tool is registered, needs writes, and is not read-only; confirm_change is the only saver', () => {
+    const writes = MCP_TOOLS.filter((t) => !t.readOnly).map((t) => t.name).sort()
+    expect(writes).toEqual(['add_cost_line', 'add_note', 'confirm_change', 'create_customer', 'create_lead', 'draft_invoice', 'draft_purchase_order', 'log_contact', 'reschedule_visit'])
+    for (const t of MCP_TOOLS.filter((x) => !x.readOnly)) expect(t.needsWrites).toBe(true)
+    expect(MCP_TOOLS.filter((t) => t.destructive).map((t) => t.name).sort()).toEqual(['confirm_change', 'reschedule_visit'])
+  })
+  it.each(WRITE_ATTACKS)('%s: B with A ids → refused or blind; nothing of A read, nothing written to A', async (name, args) => {
+    const { w, ctx } = build('admin')
+    const res = await run(byName(name), ctx, args)
+    expect(res.text).not.toMatch(/EXCEPTION/)
+    // The preview echoes what the AI itself typed (create_* use A's marker values as input): remove those, nothing else may carry a marker.
+    let echoed = res.text
+    for (const v of Object.values(args as Record<string, unknown>)) if (typeof v === 'string') echoed = echoed.split(v).join('')
+    for (const p of LEAK_PATTERNS) expect(echoed).not.toContain(p)
+    expect(res.text).not.toContain('"records":[{')
+    expect(w.readsOfA).toEqual([])
+    // A proposal writes only its own pending row (company B's); never any CRM table.
+    expect(w.db.writes.filter((x) => x.table !== 'ai_changes' && x.table !== 'ai_rate_hits')).toEqual([])
+    for (const x of w.db.writes) for (const r of x.rows) expect(r.org_id ?? ORG_B).toBe(ORG_B)
+  })
+  it('without crm:write / the switch every write tool and confirm_change refuses before reading anything', async () => {
+    for (const t of MCP_TOOLS.filter((x) => x.needsWrites)) {
+      const { w, ctx } = build('admin')
+      const res = await run(t, { ...ctx, writesAllowed: false }, t.name === 'confirm_change' ? { confirm_key: 'acf_' + 'a'.repeat(40) } : WRITE_ATTACKS.find(([n]) => n === t.name)![1])
+      expect(`${t.name}: ${res.error}`).toBe(`${t.name}: true`)
+      expect(w.db.writes).toEqual([])
+    }
+  })
+  it('a confirm key minted for company A cannot be confirmed by B', async () => {
+    const { w, ctx } = build('admin')
+    w.db.tables.ai_changes = [{ id: VICTIM_ID, org_id: ORG_A, user_id: ATTACKER_ID, grant_id: 'g-b', tool: 'add_note', token_hash: 'whatever', args: {}, args_hash: 'x', preview: {}, preview_hash: 'x', status: 'pending', expires_at: '2099-01-01T00:00:00Z' }]
+    const res = await run(byName('confirm_change'), ctx, { confirm_key: 'acf_' + 'a'.repeat(40) })
+    expect(res.error).toBe(true)
+    expect(w.db.tables.ai_changes[0].status).toBe('pending')
+  })
+})
+
+describe('phase 2: field roles cannot make money / production / customer-record changes', () => {
+  it.each(['setter', 'canvasser'])('%s: refused for cost, invoice, order, visit and customer changes', async (role) => {
+    const { w, ctx } = build(role)
+    for (const [name, args] of [
+      ['add_cost_line', { job_id: BRAVO_ROW_ID, description: 'tape', amount: 5 }],
+      ['draft_invoice', { customer_id: BRAVO_ROW_ID, lines: [{ description: 'x', qty: 1, unit_price: 5 }] }],
+      ['draft_purchase_order', { job_id: BRAVO_ROW_ID, vendor_id: BRAVO_ROW_ID, lines: [{ description: 'x', quantity: 1 }] }],
+      ['reschedule_visit', { visit_id: BRAVO_ROW_ID, date: '2030-01-01' }],
+      ['create_customer', { name: 'New Person', phone: '7045550123' }],
+    ] as Array<[string, unknown]>) {
+      const res = await run(byName(name), ctx, args)
+      expect(`${name}: ${res.error}`).toBe(`${name}: true`)
+    }
+    expect(w.db.writes.filter((x) => x.table !== 'ai_changes' && x.table !== 'ai_rate_hits')).toEqual([])
+  })
+})
+
+describe('phase 2 control: B reaches its own records with the same tools (the attacks above are not passing by being blind)', () => {
+  it.each([
+    ['add_note', { deal_id: BRAVO_ROW_ID, text: 'hello' }],
+    ['log_contact', { deal_id: BRAVO_ROW_ID, kind: 'call', outcome: 'reached' }],
+    ['create_customer', { name: 'New Person', phone: '7045550123' }],
+    ['create_lead', { name: 'New Person', phone: '7045550123' }],
+    ['add_cost_line', { job_id: BRAVO_ROW_ID, description: 'tape', amount: 5 }],
+  ] as Array<[string, unknown]>)('%s: B on its own record gets a preview', async (name, args) => {
+    const { w, ctx } = build('admin')
+    const res = await run(byName(name), ctx, args)
+    expect(`${name}: ${res.text.slice(0, 400)}`).toContain('preview_only_nothing_saved')
+    expect(w.db.tables.ai_changes.filter((r) => r.tool === name && r.status === 'pending' && r.org_id === ORG_B)).toHaveLength(1)
   })
 })
