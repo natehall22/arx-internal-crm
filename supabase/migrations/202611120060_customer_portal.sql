@@ -31,7 +31,7 @@ create table if not exists public.portal_sessions (
   org_id uuid not null references public.orgs(id) on delete cascade,
   customer_id uuid not null references public.customers(id) on delete cascade,
   token_hash text not null unique,
-  via text not null check (via in ('email_link', 'pay_link', 'report_link', 'sign_link')),
+  via text not null check (via in ('email_link', 'pay_link', 'sign_link')),
   created_at timestamptz not null default now(),
   expires_at timestamptz not null,
   last_seen_at timestamptz null,
