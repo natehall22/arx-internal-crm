@@ -1,6 +1,6 @@
 /** @jest-environment node */
 import {
-  ALL_FEATURES_ON,
+  DEFAULT_ORG_FEATURES,
   ORG_FEATURE_KEYS,
   coerceOrgFeatures,
   insuranceFieldsSetInPatch,
@@ -40,27 +40,35 @@ beforeEach(() => {
 
 describe('resolveOrgFeatures (pure)', () => {
   it('nothing stored → every feature on (the original company is unchanged with zero data changes)', () => {
-    expect(resolveOrgFeatures(undefined)).toEqual(ALL_FEATURES_ON)
-    expect(resolveOrgFeatures(null)).toEqual(ALL_FEATURES_ON)
-    expect(resolveOrgFeatures({})).toEqual(ALL_FEATURES_ON)
-    expect(resolveOrgFeatures({ pricing: { p: 1 }, brand: { shortName: 'X' } })).toEqual(ALL_FEATURES_ON)
-    expect(ORG_FEATURE_KEYS.every((k) => ALL_FEATURES_ON[k])).toBe(true)
+    expect(resolveOrgFeatures(undefined)).toEqual(DEFAULT_ORG_FEATURES)
+    expect(resolveOrgFeatures(null)).toEqual(DEFAULT_ORG_FEATURES)
+    expect(resolveOrgFeatures({})).toEqual(DEFAULT_ORG_FEATURES)
+    expect(resolveOrgFeatures({ pricing: { p: 1 }, brand: { shortName: 'X' } })).toEqual(DEFAULT_ORG_FEATURES)
+    // Every original feature is ON; only modules the original company never had default OFF.
+    expect(ORG_FEATURE_KEYS.filter((k) => !DEFAULT_ORG_FEATURES[k])).toEqual(['servicePlans'])
+  })
+  it('a default-OFF feature (service plans) turns on only with an explicit true', () => {
+    expect(resolveOrgFeatures({ features: { servicePlans: true } }).servicePlans).toBe(true)
+    expect(resolveOrgFeatures({ features: { servicePlans: 'true' } }).servicePlans).toBe(false)
+    expect(resolveOrgFeatures({ features: { servicePlans: false } }).servicePlans).toBe(false)
+    expect(coerceOrgFeatures({ servicePlans: true }).servicePlans).toBe(true)
+    expect(coerceOrgFeatures({}).servicePlans).toBe(false)
   })
   it('only an explicit false turns a feature off; junk values and unknown keys are ignored', () => {
     const f = resolveOrgFeatures({ features: { canvassing: false, insurance: 'false', roofMeasure: 0, incentives: null, bogus: false } })
-    expect(f).toEqual({ ...ALL_FEATURES_ON, canvassing: false })
+    expect(f).toEqual({ ...DEFAULT_ORG_FEATURES, canvassing: false })
   })
   it('accepts the whole settings object or the features object itself', () => {
     expect(resolveOrgFeatures({ features: { squaresPricing: false } }).squaresPricing).toBe(false)
     expect(resolveOrgFeatures({ squaresPricing: false }).squaresPricing).toBe(false)
-    expect(resolveOrgFeatures({ features: [false] })).toEqual(ALL_FEATURES_ON)
+    expect(resolveOrgFeatures({ features: [false] })).toEqual(DEFAULT_ORG_FEATURES)
   })
   it('wire coercion: a missing or partial map fills in ON', () => {
-    expect(coerceOrgFeatures(undefined)).toEqual(ALL_FEATURES_ON)
-    expect(coerceOrgFeatures({ incentives: false })).toEqual({ ...ALL_FEATURES_ON, incentives: false })
-    expect(featuresFromEffectivePermissions({ flags: { payWeek: true } })).toEqual(ALL_FEATURES_ON)
+    expect(coerceOrgFeatures(undefined)).toEqual(DEFAULT_ORG_FEATURES)
+    expect(coerceOrgFeatures({ incentives: false })).toEqual({ ...DEFAULT_ORG_FEATURES, incentives: false })
+    expect(featuresFromEffectivePermissions({ flags: { payWeek: true } })).toEqual(DEFAULT_ORG_FEATURES)
     expect(featuresFromEffectivePermissions({ flags: { features: { insurance: false } } }).insurance).toBe(false)
-    expect(featuresFromEffectivePermissions(null)).toEqual(ALL_FEATURES_ON)
+    expect(featuresFromEffectivePermissions(null)).toEqual(DEFAULT_ORG_FEATURES)
   })
 })
 
@@ -91,9 +99,9 @@ describe('loadOrgFeatures / orgFeatureOffResponse', () => {
     expect((await loadOrgFeatures(client, 'org-1')).roofMeasure).toBe(false)
     readError = { message: 'boom' }
     const spy = jest.spyOn(console, 'error').mockImplementation(() => {})
-    expect(await loadOrgFeatures(client, 'org-1')).toEqual(ALL_FEATURES_ON)
+    expect(await loadOrgFeatures(client, 'org-1')).toEqual(DEFAULT_ORG_FEATURES)
     spy.mockRestore()
-    expect(await loadOrgFeatures(client, null)).toEqual(ALL_FEATURES_ON)
+    expect(await loadOrgFeatures(client, null)).toEqual(DEFAULT_ORG_FEATURES)
   })
   it('API gate: 403 with code feature_off only when the feature is off', async () => {
     storedFeatures = { canvassing: false }
@@ -141,19 +149,19 @@ describe('crons and reports', () => {
     expect(await orgFeatureChecker('insurance')('org-2')).toBe(true)
   })
   it('report datasets of a switched-off feature are hidden; others never', () => {
-    expect(reportDatasetHidden('canvass_doors', ALL_FEATURES_ON)).toBe(false)
-    expect(reportDatasetHidden('canvass_doors', { ...ALL_FEATURES_ON, canvassing: false })).toBe(true)
-    expect(reportDatasetHidden('instant_estimate_accuracy', { ...ALL_FEATURES_ON, roofMeasure: false })).toBe(true)
-    expect(reportDatasetHidden('sales', { ...ALL_FEATURES_ON, canvassing: false, roofMeasure: false, insurance: false })).toBe(false)
+    expect(reportDatasetHidden('canvass_doors', DEFAULT_ORG_FEATURES)).toBe(false)
+    expect(reportDatasetHidden('canvass_doors', { ...DEFAULT_ORG_FEATURES, canvassing: false })).toBe(true)
+    expect(reportDatasetHidden('instant_estimate_accuracy', { ...DEFAULT_ORG_FEATURES, roofMeasure: false })).toBe(true)
+    expect(reportDatasetHidden('sales', { ...DEFAULT_ORG_FEATURES, canvassing: false, roofMeasure: false, insurance: false })).toBe(false)
   })
 })
 
 describe('inside sales tabs', () => {
   it('Insurance ON (the original company): the tab still says Insurance and Storm shows — unchanged', () => {
-    expect(insideSalesFeatureTabs(ALL_FEATURES_ON)).toEqual({ handoffLabel: 'Insurance', showStorm: true })
+    expect(insideSalesFeatureTabs(DEFAULT_ORG_FEATURES)).toEqual({ handoffLabel: 'Insurance', showStorm: true })
   })
   it('Insurance OFF: the handoff tab stays (every handoff lives there), renamed Follow-ups; Storm hides with Storm alerts', () => {
-    expect(insideSalesFeatureTabs({ ...ALL_FEATURES_ON, insurance: false })).toEqual({ handoffLabel: 'Follow-ups', showStorm: true })
-    expect(insideSalesFeatureTabs({ ...ALL_FEATURES_ON, stormAlerts: false })).toEqual({ handoffLabel: 'Insurance', showStorm: false })
+    expect(insideSalesFeatureTabs({ ...DEFAULT_ORG_FEATURES, insurance: false })).toEqual({ handoffLabel: 'Follow-ups', showStorm: true })
+    expect(insideSalesFeatureTabs({ ...DEFAULT_ORG_FEATURES, stormAlerts: false })).toEqual({ handoffLabel: 'Insurance', showStorm: false })
   })
 })

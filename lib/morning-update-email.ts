@@ -8,7 +8,7 @@ import {
 import { fetchMorningUpdateMetrics, type MorningUpdateMetrics } from '@/lib/morning-update-metrics'
 import { loadDataHealth, needsYouForEmailRecipient, shapeNeedsYou, type DataHealthReport } from '@/lib/data-health'
 import { loadCheckupSettings } from '@/lib/checkups'
-import { loadCheckupsDueQueue, loadCrewWeekQueue, loadOpsQueues, loadOwnerExceptions, loadStormHitsQueue, type Queue } from '@/lib/today'
+import { loadCheckupsDueQueue, loadCrewWeekQueue, loadOpsQueues, loadOwnerExceptions, loadServiceVisitQueues, loadStormHitsQueue, type Queue } from '@/lib/today'
 import { resolveOrgFeatures, type OrgFeatures } from '@/lib/org-features'
 import { applyTodayProfile, loadOrgProfile } from '@/lib/org-profile'
 import { getAppUrl, tryGetAppUrl } from '@/lib/app-url'
@@ -179,9 +179,16 @@ export async function loadMorningTodayQueues(
   // the email keeps its own order (storm hits lead). Roofing = unchanged.
   const orgProfile = await loadOrgProfile(supabase, orgId)
   const asProfile = (queues: Queue[]) => applyTodayProfile(queues, { ...orgProfile.today, order: [] }, orgProfile.terms)
+  // Service-plan visits (servicePlans switch on only), in both versions: today's crews and this week's skips.
+  const visits = orgProfile.features.servicePlans
+    ? await loadServiceVisitQueues(supabase, orgId, now).catch((error): Queue[] => {
+        console.error('morning update: service visits failed', error)
+        return [{ id: 'todays-visits', title: "Today's visits", count: 0, empty: 'Visits couldn’t load today.', items: [] }]
+      })
+    : []
   if (focus === 'crews') {
     const [crews, ops] = await Promise.all([loadCrewWeekQueue(supabase, orgId, now), loadOpsQueues(supabase, orgId)])
-    return asProfile([crews, ...ops.filter((q) => q.id === 'jobs-to-schedule')])
+    return asProfile([...visits, crews, ...ops.filter((q) => q.id === 'jobs-to-schedule')])
   }
   // Storm hits lead: they are the most time-sensitive, and only this version carries them (ops don't need them).
   // A storm lookup failure drops only the storm list (and says so), never the rest of Today.
@@ -208,6 +215,7 @@ export async function loadMorningTodayQueues(
   ])
   return asProfile([
     ...(storm.count > 0 || stormFailed ? [storm] : []),
+    ...visits,
     ...owner.filter((q) => q.id !== 'no-outcome'),
     ...(checkups && (checkups.count > 0 || checkupsFailed) ? [checkups] : []),
   ])

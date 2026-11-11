@@ -10,6 +10,8 @@ import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import ProductionCalendarClient, { type ProductionCalendarCrew, type ProductionCalendarJob } from '../calendar/ProductionCalendarClient'
 import InstallScheduleClient from './InstallScheduleClient'
+import VisitsBoard from '@/components/service-plans/VisitsBoard'
+import { isOrgFeatureOn } from '@/lib/org-features-server'
 
 function transformCalendarJobs(rows: unknown[]): ProductionCalendarJob[] {
   return (rows || []).map((job: any) => ({
@@ -31,6 +33,9 @@ export default async function JobsSchedulePage({ searchParams }: { searchParams?
   const { canJobBoard } = await resolveOpsAccess(admin, authUser.id, profile)
   if (!canJobBoard) redirect('/dashboard')
 
+  // Service-plan visits (lib/service-plans.ts) live here as a third view, for companies with service plans on.
+  const visitsOn = await isOrgFeatureOn(profile.org_id, 'servicePlans')
+  const visits = visitsOn && searchParams?.view === 'visits'
   const calendar = searchParams?.view === 'calendar'
   let calendarJobs: ProductionCalendarJob[] = []
   let crews: ProductionCalendarCrew[] = []
@@ -61,10 +66,13 @@ export default async function JobsSchedulePage({ searchParams }: { searchParams?
     <div className="min-h-screen bg-surface-subtle">
       <Nav />
       <nav aria-label="Schedule views" className="mx-auto flex max-w-[1800px] gap-2 px-4 pt-4">
-        <Link href="/ops/schedule" className={tab(!calendar)} aria-current={!calendar ? 'page' : undefined}>Board</Link>
+        <Link href="/ops/schedule" className={tab(!calendar && !visits)} aria-current={!calendar && !visits ? 'page' : undefined}>Board</Link>
         <Link href="/ops/schedule?view=calendar" className={tab(calendar)} aria-current={calendar ? 'page' : undefined}>Calendar</Link>
+        {visitsOn ? (
+          <Link href="/ops/schedule?view=visits" className={tab(visits)} aria-current={visits ? 'page' : undefined}>Visits</Link>
+        ) : null}
       </nav>
-      {calendar ? <ProductionCalendarClient jobs={calendarJobs} crews={crews} canJobBoard={canJobBoard} embedded /> : <InstallScheduleClient embedded />}
+      {visits ? <VisitsBoard /> : calendar ? <ProductionCalendarClient jobs={calendarJobs} crews={crews} canJobBoard={canJobBoard} embedded /> : <InstallScheduleClient embedded />}
     </div>
   )
 }

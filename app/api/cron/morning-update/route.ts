@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { orgFeatureChecker } from '@/lib/org-features-server'
 import { getOrgEmailBlastSettings } from '@/lib/admin-email-blasts'
 import { ensureCheckups } from '@/lib/checkups'
+import { ensureServiceVisits } from '@/lib/service-plans-db'
 import { getBlastSendDate, runClaimedBlast, type BlastResult } from '@/lib/email-blast-ledger'
 import { sendMorningUpdateEmail } from '@/lib/morning-update-email'
 import { sendSetterFieldUpdateEmail } from '@/lib/setter-field-update-email'
@@ -55,6 +56,7 @@ export async function GET(request: NextRequest) {
   let hadError = false
 
   const canvassingOn = orgFeatureChecker('canvassing')
+  const servicePlansOn = orgFeatureChecker('servicePlans')
   for (const org of orgRows || []) {
     const orgId = org.id
     // Each company's morning is its own: 5:30am in `orgs.timezone`, and the once-a-day claim is keyed to
@@ -73,6 +75,12 @@ export async function GET(request: NextRequest) {
     await ensureCheckups(admin, orgId).catch((error) => {
       console.error(`[cron/morning-update] checkups failed for org ${orgId}:`, error)
     })
+    // Service plan visits for the next weeks, the same way (idempotent; only companies using service plans).
+    if (await servicePlansOn(orgId)) {
+      await ensureServiceVisits(admin, orgId, { now, timeZone: org.timezone }).catch((error) => {
+        console.error(`[cron/morning-update] service visits failed for org ${orgId}:`, error)
+      })
+    }
     const settings = getOrgEmailBlastSettings(org.settings)
     if (!settings.morning_update?.enabled && !settings.setter_field_update?.enabled) {
       results.push({ org_id: orgId, sent: 0, skipped: true, reason: 'disabled' })

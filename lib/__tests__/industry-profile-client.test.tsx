@@ -7,7 +7,7 @@ import { INDUSTRY_PROFILE_IDS, INDUSTRY_PROFILES } from '@/lib/industry-profiles
 import { clientOrgProfile, resolveOrgProfile } from '@/lib/org-profile'
 import { planProfileSwitch } from '@/lib/org-profile-server'
 import { DEFAULT_ORG_TRADES } from '@/lib/org-trades'
-import { ALL_FEATURES_ON } from '@/lib/org-features'
+import { DEFAULT_ORG_FEATURES } from '@/lib/org-features'
 import { visibleNav } from '@/lib/nav-config'
 import { readFileSync } from 'fs'
 import path from 'path'
@@ -34,7 +34,7 @@ describe('first paint', () => {
   it('Nav cannot flash: before permissions arrive, every profile shows the same entries as roofing', () => {
     const flags = { isOpsOnly: false, canSeeOpsDashboard: false, canSeeJobBoard: false, canSeeInsideSales: false, projectsBarred: false, salesDocBarred: false, customerRecords: false, reports: false, isPayrollAdmin: false, earnsPay: false, payWeek: false }
     const pre = (p = resolveOrgProfile({})) =>
-      visibleNav({ permsReady: false, role: null, fullAccess: false, permissionNames: new Set(), flags, features: ALL_FEATURES_ON, profile: clientOrgProfile(p) })
+      visibleNav({ permsReady: false, role: null, fullAccess: false, permissionNames: new Set(), flags, features: DEFAULT_ORG_FEATURES, profile: clientOrgProfile(p) })
     for (const id of INDUSTRY_PROFILE_IDS) expect([id, pre(resolveOrgProfile({ profile: { id } }))]).toEqual([id, pre()])
     expect(read('components/Nav.tsx')).toMatch(/setOrgProfile\(profileFromEffectivePermissions\(data\)\)[\s\S]*setEffectivePermsReady\(true\)/)
   })

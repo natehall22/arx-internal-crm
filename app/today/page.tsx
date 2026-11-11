@@ -22,7 +22,7 @@ import { isOwnerProfile } from '@/lib/super-admin'
 import { createServiceClient } from '@/lib/supabase/service'
 import { resolveThreadViewer } from '@/lib/threads/viewer'
 import { listWaiting } from '@/lib/threads/waiting'
-import { loadCloserQueues, loadOpsQueues, loadOwnerExceptions, todayKindFor, type TodayKind } from '@/lib/today'
+import { loadCloserQueues, loadOpsQueues, loadOwnerExceptions, loadServiceVisitQueues, todayKindFor, type TodayKind } from '@/lib/today'
 import { applyTodayProfile, loadOrgProfile } from '@/lib/org-profile'
 
 const TITLE: Record<TodayKind, string> = {
@@ -49,7 +49,10 @@ export default async function TodayPage() {
   const opts = { setterLane: kind === 'setter', contactDispositionIdSet: getContactDispositionIdSet(undefined) }
   const mine = summarizePeriodRows(rows, kind === 'owner' || kind === 'ops' ? null : new Set([profile.id]), opts)
 
-  const [closerQueues, opsQueues, ownerQueues, report] = await Promise.all([
+  // Service-plan visits (only companies with the servicePlans switch on): ops and owners see today's crews + skips first.
+  const visitsOn = (kind === 'ops' || kind === 'owner') && orgProfile.features.servicePlans
+  const [visitQueues, closerQueues, opsQueues, ownerQueues, report] = await Promise.all([
+    visitsOn ? loadServiceVisitQueues(admin, profile.org_id).catch((e) => { console.error('today: visits failed', e); return [] }) : Promise.resolve([]),
     kind === 'closer' ? loadCloserQueues(admin, profile.org_id, profile.id, new Date(), { money: true }) : Promise.resolve([]),
     kind === 'ops' ? loadOpsQueues(admin, profile.org_id) : Promise.resolve([]),
     kind === 'owner' ? loadOwnerExceptions(admin, profile.org_id, new Date(), { money: hasFinancials(perms) }) : Promise.resolve([]),
@@ -71,7 +74,7 @@ export default async function TodayPage() {
             { label: 'Appointments', value: mine.calendar },
           ]
   const waiting = await resolveThreadViewer(admin, profile).then((viewer) => listWaiting(admin, viewer)).catch(() => [])
-  const queues = applyTodayProfile([...closerQueues, ...opsQueues, ...ownerQueues], orgProfile.today, orgProfile.terms)
+  const queues = applyTodayProfile([...visitQueues, ...closerQueues, ...opsQueues, ...ownerQueues], orgProfile.today, orgProfile.terms)
 
   return (
     <div className="min-h-screen bg-surface-subtle">

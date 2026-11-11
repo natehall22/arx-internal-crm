@@ -130,6 +130,7 @@ export function createFakeDb(
       in(c: string, v: unknown[]) { filters.push((r) => v.includes(r[c])); return api },
       is(c: string, v: unknown) { filters.push((r) => (v === null ? r[c] == null : r[c] === v)); return api },
       not(c: string, o: string, v: unknown) { filters.push((r) => (o === 'is' ? !(v === null ? r[c] == null : r[c] === v) : o === 'in' ? !String(v).replace(/[()]/g, '').split(',').includes(String(r[c])) : true)); return api },
+      // Postgres (I)LIKE: % = any run (newlines too), _ = one character.
       ilike(c: string, v: string) { filters.push((r) => likeMatch(r[c], v, true)); return api },
       like(c: string, v: string) { filters.push((r) => likeMatch(r[c], v, false)); return api },
       contains(c: string, v: unknown) { filters.push((r) => containsValue(r[c], v)); return api },
@@ -198,7 +199,7 @@ export function createFakeDb(
 
 function likeMatch(cell: unknown, pattern: string, insensitive: boolean) {
   if (cell == null) return false
-  const re = new RegExp('^' + String(pattern).split('%').map((x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/_/g, '.')).join('.*') + '$', insensitive ? 'i' : '')
+  const re = new RegExp('^' + String(pattern).split('%').map((x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/_/g, '.')).join('.*') + '$', insensitive ? 'is' : 's')
   return re.test(String(cell))
 }
 

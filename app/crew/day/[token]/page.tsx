@@ -1,0 +1,67 @@
+import type { Metadata } from 'next'
+import { cache } from 'react'
+
+import { loadOrgTimeZone } from '@/lib/cron-orgs'
+import { getDocumentBrand } from '@/lib/org-brand'
+import { activeCrewDay } from '@/lib/service-plans-access'
+import { SERVICE_STEP, ymdInZone } from '@/lib/service-plans'
+import { loadVisits } from '@/lib/service-plans-db'
+import { createServiceClient } from '@/lib/supabase/service'
+import CrewDayList from './CrewDayList'
+
+export const dynamic = 'force-dynamic'
+
+const loadCrewDay = cache(async (token: string) => {
+  const admin = createServiceClient()
+  const crew = await activeCrewDay(admin, token)
+  const brand = await getDocumentBrand(admin, crew?.orgId ?? null)
+  return { admin, crew, brand }
+})
+
+export async function generateMetadata({ params }: { params: { token: string } }): Promise<Metadata> {
+  const { brand } = await loadCrewDay(params.token)
+  return { title: `Today’s visits — ${brand.casualName}`, robots: { index: false, follow: false }, referrer: 'no-referrer' }
+}
+
+/**
+ * A crew's phone list of today's service visits (no login; the link IS the key — lib/service-plans-db.ts
+ * resolveCrewDay). In stop order, with the address, a directions link and the gate / access notes; mark each done
+ * (with photos) or skipped with a reason. Only this crew's visits, only today (yesterday's can still be closed).
+ */
+export default async function CrewDayPage({ params }: { params: { token: string } }) {
+  const { admin, crew, brand } = await loadCrewDay(params.token)
+  if (!crew) {
+    return (
+      <main className="min-h-screen bg-[#f7f6f2] px-4 py-10">
+        <div className="mx-auto max-w-md rounded-xl border border-[#e5e3dc] bg-white p-6 text-center">
+          <h1 className="text-xl font-bold text-[#2c2c2a]">This link isn’t active</h1>
+          <p className="mt-2 text-base text-[#2c2c2a]">{`Ask ${brand.shortName} for a new link.`}</p>
+        </div>
+      </main>
+    )
+  }
+  const today = ymdInZone(new Date(), await loadOrgTimeZone(admin, crew.orgId))
+  const visits = (await loadVisits(admin, crew.orgId, { from: today, to: today, subId: crew.subId, accessNotes: true })).filter((v) => v.status !== 'cancelled')
+  return (
+    <CrewDayList
+      token={params.token}
+      crewName={crew.crewName}
+      companyName={brand.casualName}
+      today={today}
+      visits={visits.map((v) => ({
+        id: v.id,
+        planName: v.step !== SERVICE_STEP && v.stepLabel ? `${v.stepLabel} — ${v.planName}` : v.planName,
+        resultOptions: v.resultOptions,
+        address: v.address,
+        lat: v.lat,
+        lng: v.lng,
+        // Gate codes only for visits still to do: a finished stop has no reason to keep showing them.
+        accessNotes: v.status === 'scheduled' ? v.accessNotes : null,
+        status: v.status,
+        skipReason: v.skipReason,
+        photoCount: v.photoCount,
+        routePosition: v.routePosition,
+      }))}
+    />
+  )
+}

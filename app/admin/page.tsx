@@ -18,6 +18,7 @@ import { INDUSTRY_PROFILE_IDS, INDUSTRY_PROFILES } from '@/lib/industry-profiles
 import { loadOrgProfile } from '@/lib/org-profile'
 import SalesTaxCard from '@/components/admin/SalesTaxCard'
 import { loadOrgSalesTax } from '@/lib/sales-tax-server'
+import ServicePlanTemplatesCard from '@/components/service-plans/ServicePlanTemplatesCard'
 import { loadCheckupSettings } from '@/lib/checkups'
 import { canEditCheckupSettings } from '@/lib/checkups-settings'
 import { loadJobCatchUpSettings } from '@/lib/job-catch-up-db'
@@ -72,6 +73,8 @@ export default async function SettingsPage() {
           {canEditFeatures && <SalesTaxCard initial={salesTax} proposalWord={orgProfile.terms.proposal} />}
           <JobCatchUpSettingsCard initial={{ ...catchUp, canEdit: canEditJobCatchUpSettings(profile) }} />
           <CheckupSettingsCard initial={{ ...checkups, canEdit: canEditCheckupSettings(profile) }} users={userOptions} />
+          {/* Owners, when the company uses service plans: what it sells (plan templates). */}
+          {features.servicePlans && canEditFeatures ? <ServicePlanTemplatesCard /> : null}
         </div>
       </main>
     </div>

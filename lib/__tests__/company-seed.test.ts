@@ -231,3 +231,26 @@ describe('runCompanySeed (dry run)', () => {
     ])
   })
 })
+
+describe('plan templates in a seed file (data, not code)', () => {
+  const example = JSON.parse(require('fs').readFileSync(require('path').join(__dirname, '../../scripts/seed-company.example.json'), 'utf8'))
+  const withTemplates = {
+    ...example,
+    servicePlanTemplates: [
+      { starter: 'lawn_weekly', trade: 'Landscaping', tierPrices: { small: 35, standard: 45 } },
+      { name: 'Pressure wash (yearly)', trade: 'Pressure washing', seasons: [{ from: '03-01', to: '03-31', frequency: 'monthly' }], billing_basis: 'per_year', pricing: { fields: [], tiers: [], allowCustom: true }, steps: [] },
+    ],
+  }
+  it('a starter + its prices, or a full template, parse; a starter left without prices is refused', () => {
+    const r = parseCompanySeedInput(withTemplates)
+    expect(r.ok && r.input.servicePlanTemplates.map((t) => [t.name, t.trade])).toEqual([
+      ['Lawn maintenance', 'Landscaping'],
+      ['Pressure wash (yearly)', 'Pressure washing'],
+    ])
+    expect(r.ok && r.input.servicePlanTemplates[0].pricing.tiers.map((t) => t.price)).toEqual([35, 45])
+    expect(parseCompanySeedInput({ ...example, servicePlanTemplates: [{ starter: 'roof_gutter_care', trade: 'Gutters' }] }).ok).toBe(false)
+    expect(parseCompanySeedInput({ ...example, servicePlanTemplates: [{ starter: 'nope', trade: 'x' }] }).ok).toBe(false)
+    // Leaving the key out = no templates (every existing seed file is unchanged).
+    expect(parsed(example).servicePlanTemplates).toEqual([])
+  })
+})

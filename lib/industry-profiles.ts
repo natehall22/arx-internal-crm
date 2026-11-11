@@ -106,7 +106,7 @@ export type IndustryProfile = {
   version: number
   label: string
   description: string
-  /** Feature switch defaults; a key left out = ON (lib/org-features.ts). The company's own saved switch always wins. */
+  /** Feature switch defaults; a key left out = the feature's own default (`featureDefaultOn`, lib/org-features.ts). The company's own saved switch always wins. */
   features: Readonly<Partial<Record<OrgFeature, boolean>>>
   /** Starting trades (null = the standard list, lib/org-trades.ts DEFAULT_ORG_TRADES). */
   trades: readonly OrgTradeSeed[] | null
@@ -192,10 +192,10 @@ const SERVICE_NAV_HIDDEN = ['/inside-sales', '/ops/checkups', '/projects']
 
 const lawnLandscape: IndustryProfile = {
   id: 'lawn_landscape',
-  version: 1,
+  version: 2,
   label: 'Lawn & landscape',
   description: 'Recurring lawn maintenance, landscape projects, land work, clean-ups and soft washing.',
-  features: { canvassing: false, incentives: false, ...ROOF_ONLY_OFF },
+  features: { canvassing: false, incentives: false, servicePlans: true, ...ROOF_ONLY_OFF },
   trades: [
     { label: 'Lawn care', matchKeywords: ['\\blawn', 'mow', 'edging', 'fertiliz'] },
     { label: 'Landscaping', matchKeywords: ['landscap', 'mulch', 'sod\\b', 'plant', 'shrub', 'hardscape', 'paver'] },
@@ -215,7 +215,7 @@ const lawnLandscape: IndustryProfile = {
   },
   nav: { order: ['today', 'jobs', 'customers', 'pipeline', 'money', 'insights'], hidden: SERVICE_NAV_HIDDEN },
   today: {
-    order: ['unsigned-proposals', 'jobs-to-schedule', 'unscheduled-jobs', 'overdue-installs', 'awaiting-payment', 'today-appointments', 'outcomes-to-log', 'no-outcome'],
+    order: ['todays-visits', 'skipped-visits', 'unsigned-proposals', 'jobs-to-schedule', 'unscheduled-jobs', 'overdue-installs', 'awaiting-payment', 'today-appointments', 'outcomes-to-log', 'no-outcome'],
     hidden: [],
     texts: {
       'Proposals waiting for a signature': 'Quotes awaiting approval',
@@ -233,8 +233,6 @@ const lawnLandscape: IndustryProfile = {
       'Materials are ordered on every open job.': 'Materials are ordered on every open project.',
     },
     planned: [
-      { id: 'todays-visits', title: "Today's visits and routes", needs: 'service plans + visits (Phase 2)' },
-      { id: 'skipped-visits', title: 'Skipped visits', needs: 'visits with skip/pause reasons (Phase 2)' },
       { id: 'unpaid-invoices', title: 'Unpaid invoices', needs: 'per-visit / monthly invoicing (Phase 3)' },
     ],
   },
@@ -255,11 +253,11 @@ const lawnLandscape: IndustryProfile = {
 
 const exteriorCleaning: IndustryProfile = {
   id: 'exterior_cleaning',
-  version: 1,
+  version: 2,
   label: 'Exterior cleaning',
   description: 'Pressure washing, soft washing, window and gutter cleaning — one-off and repeat.',
   // Door knocking stays on: many cleaning companies sell door to door.
-  features: { incentives: false, ...ROOF_ONLY_OFF },
+  features: { incentives: false, servicePlans: true, ...ROOF_ONLY_OFF },
   trades: [
     { label: 'Pressure washing', matchKeywords: ['pressure ?wash', 'power ?wash'] },
     { label: 'Soft wash', matchKeywords: ['soft ?wash', 'house wash', 'roof wash'] },
@@ -269,7 +267,7 @@ const exteriorCleaning: IndustryProfile = {
   terms: { inspection: 'Estimate', proposal: 'Quote', install: 'Service', installed: 'Done' },
   nav: { order: ['today', 'jobs', 'customers', 'pipeline', 'money', 'insights'], hidden: SERVICE_NAV_HIDDEN },
   today: {
-    order: ['unsigned-proposals', 'jobs-to-schedule', 'awaiting-payment'],
+    order: ['todays-visits', 'skipped-visits', 'unsigned-proposals', 'jobs-to-schedule', 'awaiting-payment'],
     hidden: [],
     texts: {
       'Proposals waiting for a signature': 'Quotes awaiting approval',
@@ -279,7 +277,7 @@ const exteriorCleaning: IndustryProfile = {
       'Nothing waiting on a customer.': 'No quotes waiting on a customer.',
       'Every sold job has an install date.': 'Every approved job has a date.',
     },
-    planned: [{ id: 'todays-visits', title: "Today's jobs and routes", needs: 'visits (Phase 2)' }],
+    planned: [],
   },
   pricebook: {
     serviceTypeUnits: [],

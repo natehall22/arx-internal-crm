@@ -20,7 +20,7 @@ import { canViewInsideSalesFollowUp } from '@/lib/inside-sales-follow-up'
 import { isPayrollAdminRole } from '@/lib/payroll-admin-access'
 import { COMMISSION_ROLES } from '@/lib/comp-plan-defaults'
 import { activeSectionId, visibleNav } from '@/lib/nav-config'
-import { ALL_FEATURES_ON, type OrgFeatures } from '@/lib/org-features'
+import { DEFAULT_ORG_FEATURES, type OrgFeatures } from '@/lib/org-features'
 import { featuresFromEffectivePermissions, fetchEffectivePermissions, profileFromEffectivePermissions } from '@/hooks/useOrgFeatures'
 import { coerceClientOrgProfile, type ClientOrgProfile } from '@/lib/org-profile'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
@@ -39,7 +39,7 @@ export default function Nav() {
   const [effectivePermsReady, setEffectivePermsReady] = useState(false)
   const [effectiveFullAccess, setEffectiveFullAccess] = useState(false)
   const [payWeekEnabled, setPayWeekEnabled] = useState(false)
-  const [orgFeatures, setOrgFeatures] = useState<OrgFeatures>(ALL_FEATURES_ON)
+  const [orgFeatures, setOrgFeatures] = useState<OrgFeatures>(DEFAULT_ORG_FEATURES)
   // No first-paint flash by construction: the profile only reorders/renames/hides permission-gated entries, and those
   // stay hidden until the same effective-permissions answer that carries the profile arrives (one batched update below).
   // Before that only Today and Insights → Dashboard can show, which every profile keeps first/last with the same names

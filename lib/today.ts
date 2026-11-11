@@ -12,6 +12,9 @@ import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
 import { loadCheckups } from '@/lib/checkups'
 import { addDaysToDateOnly } from '@/lib/install-calendar'
 import { loadOrgTrades, tradeLabel } from '@/lib/org-trades'
+import { SERVICE_VISIT_TYPE, SKIP_REASON_LABELS, addDaysYmd, ymdInZone } from '@/lib/service-plans'
+import { loadVisits } from '@/lib/service-plans-db'
+import { loadOrgTimeZone } from '@/lib/cron-orgs'
 
 export type TodayKind = 'setter' | 'ops' | 'owner' | 'closer'
 
@@ -152,6 +155,8 @@ export async function loadCrewWeekQueue(admin: SupabaseClient, orgId: string, no
       .select('id, job_id, trade, scheduled_date, assigned_sub_id')
       .eq('org_id', orgId)
       .not('trade', 'is', null)
+      // Install crews only: service-plan visits (lib/service-plans.ts) have their own Visits list.
+      .neq('work_order_type', SERVICE_VISIT_TYPE)
       .not('status', 'in', '(completed,cancelled)')
       .gte('scheduled_date', todayYmd)
       .lte('scheduled_date', addDaysToDateOnly(todayYmd, 6))
@@ -382,4 +387,52 @@ export async function loadCheckupsDueQueue(admin: SupabaseClient, orgId: string,
       }
     }),
   }
+}
+
+/**
+ * Service-plan visits (lib/service-plans-db.ts) for companies with the servicePlans switch on: today's visits, one line
+ * per crew, and visits skipped in the last 7 days. Email-safe: crew names, plan names and counts, no customer or address.
+ * Ids match the industry profiles' planned Today cards ('todays-visits', 'skipped-visits').
+ */
+export async function loadServiceVisitQueues(admin: SupabaseClient, orgId: string, now = new Date()): Promise<Queue[]> {
+  const today = ymdInZone(now, await loadOrgTimeZone(admin, orgId))
+  const [todays, recent] = await Promise.all([
+    loadVisits(admin, orgId, { from: today, to: today, accessNotes: false }),
+    loadVisits(admin, orgId, { from: addDaysYmd(today, -7), to: addDaysYmd(today, -1), accessNotes: false }),
+  ])
+  const byCrew = new Map<string, { name: string; total: number; done: number; open: number }>()
+  for (const v of todays.filter((x) => x.status !== 'cancelled')) {
+    const key = v.subId ?? (v.userId ? `u:${v.userId}` : 'none')
+    const name = v.subName ?? v.userName ?? 'No crew assigned'
+    const c = byCrew.get(key) ?? { name, total: 0, done: 0, open: 0 }
+    c.total += 1
+    if (v.status === 'completed' || v.status === 'skipped') c.done += 1
+    else c.open += 1
+    byCrew.set(key, c)
+  }
+  const crewItems = Array.from(byCrew.entries()).map(([key, c]) => {
+    const note = `${c.total} visit${c.total === 1 ? '' : 's'}${c.done ? ` · ${c.done} finished` : ''}`
+    return { id: key, title: c.name, detail: note, href: '/ops/schedule?view=visits', ref: c.name, note }
+  })
+  const skipped = recent.filter((v) => v.status === 'skipped')
+  return [
+    {
+      id: 'todays-visits',
+      title: "Today's visits",
+      count: todays.filter((v) => v.status === 'scheduled').length,
+      empty: 'No visits left today.',
+      items: crewItems.slice(0, LIST_CAP),
+    },
+    {
+      id: 'skipped-visits',
+      title: 'Visits skipped this week',
+      count: skipped.length,
+      empty: 'No visits skipped.',
+      items: skipped.slice(0, LIST_CAP).map((v) => {
+        const why = v.skipReason ? SKIP_REASON_LABELS[v.skipReason as keyof typeof SKIP_REASON_LABELS] ?? v.skipReason : 'skipped'
+        const note = `${formatDateShort(v.scheduledDate)} · ${why}`
+        return { id: v.id, title: v.planName, detail: note, href: '/ops/schedule?view=visits', ref: v.workOrderNumber ?? 'Visit', note }
+      }),
+    },
+  ].filter((q) => q.count > 0 || q.items.length > 0)
 }

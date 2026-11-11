@@ -16,6 +16,7 @@ import { loadFile } from '@/lib/customer-file/load'
 import { loadCustomerExtras } from '@/lib/customer-file/customer-extras'
 import { createServiceClient } from '@/lib/supabase/service'
 import PhoneLink from '@/components/PhoneLink'
+import { HEALTH_RESULT_STYLE } from '@/lib/health-result'
 import TaxExemptionCard from '@/components/customer/TaxExemptionCard'
 import { loadCustomerTaxExemption, loadOrgSalesTax } from '@/lib/sales-tax-server'
 import { orgDb } from '@/lib/supabase/org-db'
@@ -127,7 +128,7 @@ async function Overview({ customerId, dealId }: { customerId: string; dealId: st
                   <span className="font-medium">{c.label}</span>
                   <span>
                     {c.status === 'done'
-                      ? `Done ${c.done_at ? formatDate(c.done_at) : ''}${c.result ? ` · ${c.result === 'green' ? 'Green' : c.result === 'yellow' ? 'Yellow' : 'Red'}` : ''}`
+                      ? `Done ${c.done_at ? formatDate(c.done_at) : ''}${c.result ? ` · ${HEALTH_RESULT_STYLE[c.result].short}` : ''}`
                       : c.status === 'booked'
                         ? `Booked ${formatDate(c.booked_for)}`
                         : c.status === 'declined'

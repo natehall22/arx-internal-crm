@@ -4,8 +4,10 @@
  * `mergeOrgSettings` with path ['features'].
  *
  * Defaults come from the company's industry profile (`settings.profile`, lib/industry-profiles.ts; a saved switch always
- * wins). With no profile stored (roofing) every feature defaults to ON: only an explicit `false` turns one off, so an org with no `features` key (the
- * original company today) behaves exactly as before with zero data changes. Turning a feature off hides its entry points (nav,
+ * wins), else the feature's own default: ON (`defaultOn` left out), so an org with no `features` key (the original company
+ * today) behaves exactly as before with zero data changes. A feature with `defaultOn: false` (a new module the original
+ * company never had, e.g. service plans) is the reverse: only an explicit `true` (saved, or from the profile) turns it
+ * on. Turning a feature off hides its entry points (nav,
  * settings links, pages → 404, key API routes → 403); it never deletes data and never changes how anything is
  * computed — turning it back on shows everything as it was.
  *
@@ -45,7 +47,12 @@ export const ORG_FEATURE_DEFS = {
     label: 'Roof squares pricing',
     description: 'Pricing by the roofing square (100 sq ft) and the waste-factor step in proposals and the price book.',
   },
-} as const satisfies Record<string, { label: string; description: string }>
+  servicePlans: {
+    label: 'Service plans (recurring visits)',
+    description: 'Recurring service for a property (weekly mowing, monthly cleaning) with seasons, visits put on the calendar automatically, the Visits schedule and the crew phone list.',
+    defaultOn: false,
+  },
+} as const satisfies Record<string, { label: string; description: string; defaultOn?: boolean }>
 
 export type OrgFeature = keyof typeof ORG_FEATURE_DEFS
 export type OrgFeatures = Record<OrgFeature, boolean>
@@ -56,14 +63,19 @@ export function isOrgFeature(v: unknown): v is OrgFeature {
   return typeof v === 'string' && (ORG_FEATURE_KEYS as string[]).includes(v)
 }
 
-/** Every feature on — what an org with nothing stored gets. */
-export const ALL_FEATURES_ON: Readonly<OrgFeatures> = Object.freeze(
-  Object.fromEntries(ORG_FEATURE_KEYS.map((k) => [k, true])) as OrgFeatures
-)
-
-/** A feature's value when neither the company nor its profile says: ON unless its definition says `defaultOn: false`. */
+/** A feature's value when nothing is stored for it: ON unless its definition says `defaultOn: false`. */
 export function featureDefaultOn(k: OrgFeature): boolean {
   return (ORG_FEATURE_DEFS[k] as { defaultOn?: boolean }).defaultOn !== false
+}
+
+/** What an org with nothing stored gets: every feature at its default (all ON except the `defaultOn: false` ones). */
+export const DEFAULT_ORG_FEATURES: Readonly<OrgFeatures> = Object.freeze(
+  Object.fromEntries(ORG_FEATURE_KEYS.map((k) => [k, featureDefaultOn(k)])) as OrgFeatures
+)
+
+/** One stored / sent value → the feature's state: a boolean wins, anything else is the default. */
+function featureValue(k: OrgFeature, v: unknown): boolean {
+  return typeof v === 'boolean' ? v : featureDefaultOn(k)
 }
 
 function asObject(v: unknown): Record<string, unknown> {
@@ -73,8 +85,9 @@ function asObject(v: unknown): Record<string, unknown> {
 /**
  * Pure: the feature map from either the whole `orgs.settings` object or the `features` object itself
  * (`{ features: … }` / `{ profile: … }` = the whole settings). Order: the company's own saved switch (a boolean) wins,
- * else the industry profile's default (`settings.profile`, lib/industry-profiles.ts), else ON. With no profile stored the
- * default is roofing, whose defaults are all ON — so only an explicit `false` turns a feature off, exactly as before.
+ * else the industry profile's default (`settings.profile`, lib/industry-profiles.ts), else the feature's own default
+ * (`featureDefaultOn`). With no profile stored the default is roofing, which sets none — so only an explicit `false`
+ * turns an original feature off, exactly as before, and a `defaultOn: false` module (service plans) stays off.
  * Unknown keys are ignored.
  */
 export function resolveOrgFeatures(stored: unknown): OrgFeatures {
@@ -82,7 +95,7 @@ export function resolveOrgFeatures(stored: unknown): OrgFeatures {
   const whole = ORG_FEATURES_SETTINGS_KEY in obj || 'profile' in obj
   const features = whole ? asObject(obj[ORG_FEATURES_SETTINGS_KEY]) : obj
   const defaults = INDUSTRY_PROFILES[storedProfileId(whole ? obj : null)].features
-  const out = { ...ALL_FEATURES_ON }
+  const out = { ...DEFAULT_ORG_FEATURES }
   for (const k of ORG_FEATURE_KEYS) {
     const own = features[k]
     const profileDefault = defaults[k]
@@ -92,11 +105,11 @@ export function resolveOrgFeatures(stored: unknown): OrgFeatures {
   return out
 }
 
-/** Pure: a feature map that came over the wire (or is missing) → a full map, missing keys ON. */
+/** Pure: a feature map that came over the wire (or is missing) → a full map, missing keys at their default. */
 export function coerceOrgFeatures(v: unknown): OrgFeatures {
   const obj = asObject(v)
-  const out = { ...ALL_FEATURES_ON }
-  for (const k of ORG_FEATURE_KEYS) if (obj[k] === false) out[k] = false
+  const out = { ...DEFAULT_ORG_FEATURES }
+  for (const k of ORG_FEATURE_KEYS) out[k] = featureValue(k, obj[k])
   return out
 }
 
@@ -125,16 +138,16 @@ export async function readOrgFeatureSettings(client: SupabaseClient, orgId: stri
 }
 
 /**
- * Load an org's features. Never throws: a failed read is logged and every feature is ON (fail open — the default
- * an org with nothing stored gets; this only hides UI and never guards money or private data).
+ * Load an org's features. Never throws: a failed read is logged and every feature is at its default (fail open for the
+ * original features — what an org with nothing stored gets; this only hides UI and never guards money or private data).
  */
 export async function loadOrgFeatures(client: SupabaseClient, orgId: string | null | undefined): Promise<OrgFeatures> {
-  if (!orgId) return { ...ALL_FEATURES_ON }
+  if (!orgId) return { ...DEFAULT_ORG_FEATURES }
   try {
     return resolveOrgFeatures(await readOrgFeatureSettings(client, orgId))
   } catch (e) {
-    console.error('loadOrgFeatures: org features not readable, using all on', orgId, e)
-    return { ...ALL_FEATURES_ON }
+    console.error('loadOrgFeatures: org features not readable, using defaults', orgId, e)
+    return { ...DEFAULT_ORG_FEATURES }
   }
 }
 

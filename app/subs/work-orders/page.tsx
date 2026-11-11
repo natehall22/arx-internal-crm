@@ -4,6 +4,7 @@ import { requireAuth } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import SubWorkOrdersClient from './SubWorkOrdersClient'
+import { SERVICE_VISIT_TYPE } from '@/lib/service-plans'
 
 export default async function SubWorkOrdersPage() {
   const { profile } = await requireAuth()
@@ -50,6 +51,8 @@ export default async function SubWorkOrdersPage() {
       customer:customers(name, phone)
     `)
     .eq('assigned_sub_id', subId)
+    // Service-plan visits are worked from the crew's phone link (/crew/day), not this portal.
+    .neq('work_order_type', SERVICE_VISIT_TYPE)
     .order('scheduled_date', { ascending: true, nullsFirst: false })
     .order('created_at', { ascending: false })
 

@@ -16,6 +16,7 @@ export function FileDropZone({
   disabled = false,
   label = 'Drop files here or tap to choose',
   hint,
+  compact = false,
   className,
 }: {
   onFiles: (files: File[]) => void
@@ -24,6 +25,8 @@ export function FileDropZone({
   disabled?: boolean
   label?: string
   hint?: string
+  /** One-line, 44px-tall zone for a control that sits in a row of buttons (one per list item). */
+  compact?: boolean
   className?: string
 }) {
   const inputRef = React.useRef<HTMLInputElement>(null)
@@ -58,7 +61,8 @@ export function FileDropZone({
           if (!disabled) take(e.dataTransfer?.files)
         }}
         className={cn(
-          'flex min-h-[5.5rem] w-full flex-col items-center justify-center gap-1 rounded-ui border-2 border-dashed px-4 py-4 text-center text-ui-base font-semibold text-ink',
+          'flex w-full flex-col items-center justify-center gap-1 rounded-ui border-2 border-dashed text-center text-ui-base font-semibold text-ink',
+          compact ? 'min-h-[2.75rem] px-3 py-2' : 'min-h-[5.5rem] px-4 py-4',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-600 disabled:opacity-50',
           over ? 'border-brand-700 bg-brand-50' : 'border-surface-line bg-surface'
         )}
