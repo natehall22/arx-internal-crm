@@ -461,7 +461,7 @@ describe('review fixes', () => {
     const pv = await updateServicePlan(db.client, ORG, 'u1', r.plan.id, { price: 50, price_starts_on: '2026-12-01', preview: true }, null, NOW)
     expect(pv).toMatchObject({ ok: true, effect: { updated: 3 } })
     const saved = await updateServicePlan(db.client, ORG, 'u1', r.plan.id, { price: 50, price_starts_on: '2026-12-01' }, null, NOW)
-    if (!saved.ok) throw new Error(saved.error)
+    if (!saved.ok || !('plan' in saved)) throw new Error('save')
     expect(saved.plan).toMatchObject({ price: 50, previous_price: 45, price_starts_on: '2026-12-01' })
     const priceOn = (ymd: string) => chargeOf(db, String(visitsOf(db, r.plan.id).find((v) => v.service_planned_date === ymd)?.id))?.price
     expect(priceOn('2026-11-24')).toBe(45)
@@ -472,7 +472,7 @@ describe('review fixes', () => {
     expect(priceOn('2026-12-29')).toBe(50)
     // An edit with no date makes the new price apply now (and clears the schedule).
     const now2 = await updateServicePlan(db.client, ORG, 'u1', r.plan.id, { price: 55 }, null, NOW)
-    if (!now2.ok) throw new Error(now2.error)
+    if (!now2.ok || !('plan' in now2)) throw new Error('save')
     expect(now2.plan).toMatchObject({ price: 55, previous_price: null, price_starts_on: null })
     expect(priceOn('2026-11-24')).toBe(55)
     expect(await updateServicePlan(db.client, ORG, 'u1', r.plan.id, { price: 60, price_starts_on: 'soon' }, null, NOW)).toMatchObject({ ok: false, status: 400 })
