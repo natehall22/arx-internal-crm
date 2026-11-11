@@ -104,7 +104,7 @@ describe('lawn & landscape profile (Precision Maintenance)', () => {
   it('roof / door-knocking / insurance / incentive features default off; service plans + time clock + hourly billing on', () => {
     expect(lawn.id).toBe('lawn_landscape')
     expect(lawn.storedVersion).toBe(2)
-    for (const k of ORG_FEATURE_KEYS) expect([k, lawn.features[k]]).toEqual([k, k === 'servicePlans' || k === 'timeTracking' || k === 'hourlyBilling'])
+    for (const k of ORG_FEATURE_KEYS) expect([k, lawn.features[k]]).toEqual([k, k === 'servicePlans' || k === 'timeTracking' || k === 'hourlyBilling' || k === 'customerPortal'])
   })
 
   it('words, menu order and hidden pages', () => {

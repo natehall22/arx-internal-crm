@@ -551,6 +551,8 @@ const READ_THEN_CHECK: Record<string, string> = {
   'POST /api/jobs/[id]/review-request': 'jobs/[id]/review-request: job loaded by id, `job.org_id !== profile.org_id` → 404',
   'POST /api/projects/[id]/review': 'projects/[id]/review: project loaded by id, org mismatch → 404',
   'GET /api/org-logo/[orgId]': 'org-logo: a company logo is public by design (login pages, documents); only the logo path is signed',
+  'POST /api/portal/enter': 'portal: public sign-in on company A\'s own address; reads A\'s org row for its brand and logs the attempt against A. Nothing of A is returned without a valid A link',
+  'POST /api/portal/open': 'portal: same as enter, on A\'s own address; the pay/sign token is B\'s so no customer resolves',
   'GET /api/company-logo': 'company-logo: serves the logo of the company whose web address this is (A on A\'s address) — public by design',
 }
 

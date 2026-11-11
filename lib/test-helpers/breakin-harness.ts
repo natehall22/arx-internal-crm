@@ -301,6 +301,8 @@ export function findings(w: World, responseText: string): Finding[] {
   for (const wr of w.db.writes) {
     if (wr.op !== 'insert' && wr.op !== 'upsert') continue
     for (const r of wr.rows) {
+      // The portal sign-in audit is written against the company whose web address was used: attempts on A's own address belong in A's log.
+      if (wr.table === 'portal_login_events' && ownerOf(wr.table, r) === ORG_A) continue
       if (ownerOf(wr.table, r) === ORG_A) out.push({ kind: 'insert_into_a', detail: `${wr.op} ${wr.table} with company A org_id` })
       // A row with no org_id hangs off its parent: one pointing at A's record lands in A's data (e.g. a payment on A's job).
       else if (!('org_id' in r) && !(OWNER_TAG in r)) {
