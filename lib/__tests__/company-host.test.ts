@@ -272,7 +272,7 @@ describe('lookupSubdomainAlias (renamed companies)', () => {
   })
 
   test('migration file: alias table, rename trigger, reuse guard, anon RPC that returns no org id', () => {
-    const sql = fs.readFileSync(path.join(process.cwd(), 'supabase/migrations/202611100090_org_subdomain_aliases.sql'), 'utf8')
+    const sql = fs.readFileSync(path.join(process.cwd(), 'supabase/migrations/202611100095_org_subdomain_aliases.sql'), 'utf8')
     expect(sql).toMatch(/create table if not exists public\.org_subdomain_aliases/)
     expect(sql).toMatch(/enable row level security/)
     expect(sql).toMatch(/after update of subdomain on public\.orgs/)
