@@ -137,7 +137,8 @@ export async function proposalSalesTaxFields(
   const exemption = await loadCustomerTaxExemption(client, orgId, customerId)
   const rates = taxRatesByIds(settings, rateIds)
   const t = computeProposalTotals({
-    items: lineItems.map((i) => ({
+    // Optional lines the customer starts with unticked are not in the stored total (lib/quotes/pricing.ts).
+    items: lineItems.filter((i) => i.is_optional !== true || i.optional_default_on === true).map((i) => ({
       line_total: Number(i.line_total) || 0,
       unit_price: Number(i.unit_price) || 0,
       unit: typeof i.unit === 'string' ? i.unit : null,
