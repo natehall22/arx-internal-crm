@@ -1,5 +1,6 @@
 'use client'
 
+import CardOnFile from '@/components/billing/CardOnFile'
 import * as React from 'react'
 
 import InvoiceDetailModal from '@/components/ops/InvoiceDetailModal'
@@ -112,6 +113,8 @@ export default function CustomerInvoicesCard({ customerId }: { customerId: strin
         {owed > 0 ? <Badge tone="warning">{formatCurrency(owed)} owed</Badge> : null}
       </CardHeader>
       <CardContent className="p-0">
+        {/* Online payments: the customer's card on file for automatic payments (hidden when the company doesn't use them). */}
+        <CardOnFile customerId={customerId} />
         <ul>
           {list.map((inv) => {
             const canPay = inv.status !== 'void' && inv.status !== 'paid' && inv.balance_cents > 0
