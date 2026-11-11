@@ -794,6 +794,8 @@ export type TimeWeek = {
   timeZone: string
   people: TimeListPerson[]
   equipment: TimeListEntry[]
+  /** Active people, for "+ Add time". */
+  staff: Array<{ userId: string; name: string }>
 }
 
 /** One pay week of time: every person with entries, their paid total, warnings, and what payroll has. */
@@ -812,7 +814,10 @@ export async function loadTimeWeek(admin: SupabaseClient, orgId: string, cutoff:
     timeZone: config.timeZone,
     people: [],
     equipment: [],
+    staff: [],
   }
+  const { data: staffRows } = await orgDb(admin, orgId).from('users').select('id, full_name').eq('active', true).order('full_name').limit(1000)
+  base.staff = ((staffRows ?? []) as Array<{ id: string; full_name: string | null }>).map((u) => ({ userId: u.id, name: u.full_name || 'Unnamed' }))
   const { data, error } = await orgDb(admin, orgId)
     .from('time_entries')
     .select(TIME_ENTRY_COLUMNS)
