@@ -324,6 +324,71 @@ export async function visitInvoiceNumber(admin: SupabaseClient, orgId: string, v
   return null
 }
 
+/** Payments applied per invoice (one read shape for the Customer File list and the Today unpaid-invoices card). */
+async function loadAppliedCents(admin: SupabaseClient, invoiceIds: string[]): Promise<Map<string, number>> {
+  const applied = new Map<string, number>()
+  for (const ids of chunks(invoiceIds)) {
+    // invoice_payments has no org_id: callers pass invoice ids they just loaded company-scoped.
+    const { data: apps, error } = await admin.from('invoice_payments').select('invoice_id, applied_cents').in('invoice_id', ids)
+    if (error) throw new Error(`billing: read invoice payments: ${error.message}`)
+    for (const a of (apps ?? []) as Array<{ invoice_id: string; applied_cents: number }>) applied.set(a.invoice_id, (applied.get(a.invoice_id) ?? 0) + a.applied_cents)
+  }
+  return applied
+}
+
+export type UnpaidServiceInvoice = {
+  id: string
+  invoiceNumber: string
+  customerId: string
+  customerName: string
+  dueAt: string | null
+  issuedAt: string | null
+  balanceCents: number
+}
+
+/** Cap on open invoices read for the Today card; the card's count says "N+" past it. */
+export const UNPAID_INVOICES_READ_CAP = 500
+
+/**
+ * Invoices without a job (recurring service) that were SENT and still owe money: status sent / partially_paid and a
+ * balance above zero by the one paid rule (invoicePaidCents, so paid-before-import counts). Draft and void never count.
+ * Oldest due first. Null before migration 202611110060 (no customer invoices exist yet).
+ */
+export async function loadUnpaidServiceInvoices(admin: SupabaseClient, orgId: string): Promise<{ rows: UnpaidServiceInvoice[]; capped: boolean } | null> {
+  const { data, error } = await orgDb(admin, orgId)
+    .from('job_invoices')
+    .select('*')
+    .is('job_id', null)
+    .in('status', ['sent', 'partially_paid'])
+    .order('due_at', { ascending: true, nullsFirst: false })
+    .order('created_at', { ascending: true })
+    .limit(UNPAID_INVOICES_READ_CAP)
+  if (error) {
+    if (notReady(error)) return null
+    throw new Error(`billing: read unpaid invoices: ${error.message}`)
+  }
+  const invoices = (data ?? []) as JobInvoice[]
+  const applied = await loadAppliedCents(admin, invoices.map((i) => i.id))
+  const open = invoices
+    .map((i) => ({ i, balance: i.total_cents - invoicePaidCents(i, applied.get(i.id) ?? 0) }))
+    .filter((x) => x.balance > 0 && x.i.customer_id)
+    // Oldest due first, no due date last (sorted here too so it never depends on the database's null ordering).
+    .sort((x, y) => (x.i.due_at ?? '9999').localeCompare(y.i.due_at ?? '9999') || x.i.created_at.localeCompare(y.i.created_at))
+  const names = await loadCustomers(admin, orgId, Array.from(new Set(open.map((x) => x.i.customer_id as string))))
+  return {
+    capped: invoices.length >= UNPAID_INVOICES_READ_CAP,
+    rows: open.map(({ i, balance }) => ({
+      id: i.id,
+      invoiceNumber: i.invoice_number,
+      customerId: i.customer_id as string,
+      customerName: names[i.customer_id as string]?.name ?? 'Customer',
+      dueAt: i.due_at ?? null,
+      issuedAt: i.issued_at ?? null,
+      balanceCents: balance,
+    })),
+  }
+}
+
 export type CustomerServiceInvoice = JobInvoice & { applied_cents: number; balance_cents: number }
 
 /** A customer's invoices without a job (newest first, ≤ 200) with what's been paid, for the Customer File. */
@@ -340,13 +405,7 @@ export async function loadCustomerServiceInvoices(admin: SupabaseClient, orgId: 
     throw new Error(`billing: read customer invoices: ${error.message}`)
   }
   const invoices = (data ?? []) as JobInvoice[]
-  const applied = new Map<string, number>()
-  for (const ids of chunks(invoices.map((i) => i.id))) {
-    // invoice_payments has no org_id: these invoice ids were just loaded company-scoped above.
-    const { data: apps, error: appsError } = await admin.from('invoice_payments').select('invoice_id, applied_cents').in('invoice_id', ids)
-    if (appsError) throw new Error(`billing: read invoice payments: ${appsError.message}`)
-    for (const a of (apps ?? []) as Array<{ invoice_id: string; applied_cents: number }>) applied.set(a.invoice_id, (applied.get(a.invoice_id) ?? 0) + a.applied_cents)
-  }
+  const applied = await loadAppliedCents(admin, invoices.map((i) => i.id))
   return invoices.map((i) => {
     const paid = invoicePaidCents(i, applied.get(i.id) ?? 0)
     return { ...i, applied_cents: paid, balance_cents: i.total_cents - paid }

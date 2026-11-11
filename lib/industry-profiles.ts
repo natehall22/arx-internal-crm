@@ -215,7 +215,7 @@ const lawnLandscape: IndustryProfile = {
   },
   nav: { order: ['today', 'jobs', 'customers', 'pipeline', 'money', 'insights'], hidden: SERVICE_NAV_HIDDEN },
   today: {
-    order: ['todays-visits', 'skipped-visits', 'unsigned-proposals', 'jobs-to-schedule', 'unscheduled-jobs', 'overdue-installs', 'awaiting-payment', 'today-appointments', 'outcomes-to-log', 'no-outcome'],
+    order: ['todays-visits', 'skipped-visits', 'unsigned-proposals', 'jobs-to-schedule', 'unscheduled-jobs', 'overdue-installs', 'unpaid-invoices', 'awaiting-payment', 'today-appointments', 'outcomes-to-log', 'no-outcome'],
     hidden: [],
     texts: {
       'Proposals waiting for a signature': 'Quotes awaiting approval',
@@ -232,9 +232,7 @@ const lawnLandscape: IndustryProfile = {
       'Every sold job has an install date.': 'Every approved project has a date.',
       'Materials are ordered on every open job.': 'Materials are ordered on every open project.',
     },
-    planned: [
-      { id: 'unpaid-invoices', title: 'Unpaid invoices', needs: 'per-visit / monthly invoicing (Phase 3)' },
-    ],
+    planned: [],
   },
   pricebook: {
     serviceTypeUnits: [],

@@ -11,7 +11,7 @@ import { loadCheckupSettings } from '@/lib/checkups'
 import { loadOpenShiftsQueue } from '@/lib/time-tracking-db'
 import { loadCommissionChangesWaitingQueue } from '@/lib/payroll-commission-change'
 import { loadPaymentReversalsQueue } from '@/lib/online-payments/summary'
-import { loadCheckupsDueQueue, loadCrewWeekQueue, loadOpsQueues, loadOwnerExceptions, loadServiceVisitQueues, loadStormHitsQueue, type Queue } from '@/lib/today'
+import { loadCheckupsDueQueue, loadCrewWeekQueue, loadOpsQueues, loadOwnerExceptions, loadServiceVisitQueues, loadStormHitsQueue, loadUnpaidInvoicesQueue, type Queue } from '@/lib/today'
 import { resolveOrgFeatures, type OrgFeatures } from '@/lib/org-features'
 import { applyTodayProfile, loadOrgProfile } from '@/lib/org-profile'
 import { getAppUrl, tryGetAppUrl } from '@/lib/app-url'
@@ -239,8 +239,17 @@ export async function loadMorningTodayQueues(
         return { id: 'payment-reversals', title: 'Payment reversed — review', count: 0, empty: 'Reversed payments couldn’t load today.', items: [] }
       })
     : null
+  // Unpaid service invoices (servicePlans on): Everything version only (it is money owed to the company, same audience as
+  // the other money cards). No amounts, no customer names in the email: invoice number + how late.
+  const unpaid = orgProfile.features.servicePlans
+    ? await loadUnpaidInvoicesQueue(supabase, orgId, now, { money: false }).catch((error) => {
+        console.error('morning update: unpaid invoices failed', error)
+        return null
+      })
+    : null
   return asProfile([
     ...(reversals && (reversals.count > 0 || reversalsFailed) ? [reversals] : []),
+    ...(unpaid && unpaid.count > 0 ? [unpaid] : []),
     ...(storm.count > 0 || stormFailed ? [storm] : []),
     ...(commissionWaiting ? [commissionWaiting] : []),
     ...visits,
