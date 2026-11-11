@@ -1450,6 +1450,12 @@ export async function applyVisitAction(
     const { data: sub } = await db.from('sub_contractors').select('id').eq('id', a.subId).maybeSingle()
     if (!sub) return { ok: false, status: 400, error: 'Pick one of your crews' }
   }
+  // A billed visit stays done: reopening it would leave an invoice charging for a visit that isn't done.
+  if (a.action === 'reopen' && r.status === 'completed') {
+    const { visitInvoiceNumber } = await import('@/lib/service-billing-db')
+    const invoiceNumber = await visitInvoiceNumber(admin, orgId, visitId)
+    if (invoiceNumber) return { ok: false, status: 409, error: `This visit is on invoice ${invoiceNumber} — void that invoice first` }
+  }
   // A follow-on step's result options come from the plan (its own copy of the template's steps).
   let results: string[] = []
   if ((r.visit_step ?? SERVICE_STEP) !== SERVICE_STEP && a.action === 'done') {
@@ -1671,6 +1677,8 @@ export type BillableVisit = {
   propertyId: string | null
   completedAt: string
   servedOn: string
+  /** 'service' = the plan's own visit; else a follow-on step's key (e.g. the inspection after a cleaning). */
+  visitStep: string
   /** Per-visit plans: the price snapshot taken when the visit was planned. Per-month / per-year plans: null (bill the plan
    * at `planPriceOn(plan, <first day of the period>)`, which honours "new price starts on"). */
   price: number | null
@@ -1678,17 +1686,17 @@ export type BillableVisit = {
 }
 
 /**
- * THE read the invoicing builder starts from (not built yet): visits marked done whose completion falls in
+ * THE read invoicing starts from (lib/service-billing-db.ts): visits marked done whose completion falls in
  * [fromIso, toIso). Per-visit plans bill each row at its `price`; per-month plans bill the plan's price for each month
- * with at least one done visit (or every active month — the builder's call). Skipped / cancelled visits never bill.
- * The builder records what it billed on its own rows; nothing here is ever rewritten.
+ * with at least one done visit. Skipped / cancelled visits never bill. What was billed lives on the invoice lines
+ * (job_invoice_items.work_order_id / service_plan_id + billing_month); nothing here is ever rewritten.
  */
 export async function loadCompletedServiceVisits(admin: SupabaseClient, orgId: string, fromIso: string, toIso: string): Promise<BillableVisit[]> {
   const out: BillableVisit[] = []
   for (let page = 0; ; page += PAGE) {
     const { data, error } = await orgDb(admin, orgId)
       .from('work_orders')
-      .select('id, service_plan_id, customer_id, property_id, completed_at, scheduled_date')
+      .select('id, service_plan_id, customer_id, property_id, completed_at, scheduled_date, visit_step')
       .eq('work_order_type', SERVICE_VISIT_TYPE)
       .eq('status', 'completed')
       .gte('completed_at', fromIso)
@@ -1711,6 +1719,7 @@ export async function loadCompletedServiceVisits(admin: SupabaseClient, orgId: s
         propertyId: (r.property_id as string | null) ?? null,
         completedAt: String(r.completed_at),
         servedOn: String(r.scheduled_date),
+        visitStep: (r.visit_step as string | null) ?? SERVICE_STEP,
         price: c?.price ?? null,
         taxable: c?.taxable ?? false,
       })

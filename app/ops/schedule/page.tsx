@@ -12,6 +12,8 @@ import ProductionCalendarClient, { type ProductionCalendarCrew, type ProductionC
 import InstallScheduleClient from './InstallScheduleClient'
 import VisitsBoard from '@/components/service-plans/VisitsBoard'
 import { isOrgFeatureOn } from '@/lib/org-features-server'
+import ReadyToBill from '@/components/billing/ReadyToBill'
+import { canBillService } from '@/lib/service-billing-access'
 
 function transformCalendarJobs(rows: unknown[]): ProductionCalendarJob[] {
   return (rows || []).map((job: any) => ({
@@ -36,6 +38,9 @@ export default async function JobsSchedulePage({ searchParams }: { searchParams?
   // Service-plan visits (lib/service-plans.ts) live here as a third view, for companies with service plans on.
   const visitsOn = await isOrgFeatureOn(profile.org_id, 'servicePlans')
   const visits = visitsOn && searchParams?.view === 'visits'
+  // Ready to bill: the one rule in lib/service-billing-access.ts (service plans on + records money).
+  const billingOn = visitsOn && (await canBillService(admin, profile)).bill
+  const billing = billingOn && searchParams?.view === 'billing'
   const calendar = searchParams?.view === 'calendar'
   let calendarJobs: ProductionCalendarJob[] = []
   let crews: ProductionCalendarCrew[] = []
@@ -65,14 +70,17 @@ export default async function JobsSchedulePage({ searchParams }: { searchParams?
   return (
     <div className="min-h-screen bg-surface-subtle">
       <Nav />
-      <nav aria-label="Schedule views" className="mx-auto flex max-w-[1800px] gap-2 px-4 pt-4">
-        <Link href="/ops/schedule" className={tab(!calendar && !visits)} aria-current={!calendar && !visits ? 'page' : undefined}>Board</Link>
+      <nav aria-label="Schedule views" className="mx-auto flex max-w-[1800px] flex-wrap gap-2 px-4 pt-4">
+        <Link href="/ops/schedule" className={tab(!calendar && !visits && !billing)} aria-current={!calendar && !visits && !billing ? 'page' : undefined}>Board</Link>
         <Link href="/ops/schedule?view=calendar" className={tab(calendar)} aria-current={calendar ? 'page' : undefined}>Calendar</Link>
         {visitsOn ? (
           <Link href="/ops/schedule?view=visits" className={tab(visits)} aria-current={visits ? 'page' : undefined}>Visits</Link>
         ) : null}
+        {billingOn ? (
+          <Link href="/ops/schedule?view=billing" className={tab(billing)} aria-current={billing ? 'page' : undefined}>Ready to bill</Link>
+        ) : null}
       </nav>
-      {visits ? <VisitsBoard /> : calendar ? <ProductionCalendarClient jobs={calendarJobs} crews={crews} canJobBoard={canJobBoard} embedded /> : <InstallScheduleClient embedded />}
+      {billing ? <ReadyToBill /> : visits ? <VisitsBoard /> : calendar ? <ProductionCalendarClient jobs={calendarJobs} crews={crews} canJobBoard={canJobBoard} embedded /> : <InstallScheduleClient embedded />}
     </div>
   )
 }

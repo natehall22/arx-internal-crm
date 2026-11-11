@@ -8,7 +8,7 @@ export type WriteLog = Array<{ table: string; op: 'insert' | 'upsert' | 'update'
 
 export function createFakeDb(
   seed: Record<string, Row[]>,
-  opts: { relations?: Record<string, Record<string, { table: string; fk: string }>>; rpc?: Record<string, (args: Record<string, unknown>, tables: Record<string, Row[]>) => unknown> } = {}
+  opts: { relations?: Record<string, Record<string, { table: string; fk: string; many?: boolean }>>; rpc?: Record<string, (args: Record<string, unknown>, tables: Record<string, Row[]>) => unknown> } = {}
 ) {
   const tables: Record<string, Row[]> = {}
   for (const [k, v] of Object.entries(seed)) tables[k] = v.map((r) => ({ ...r }))
@@ -61,7 +61,8 @@ export function createFakeDb(
       for (const m of Array.from(selectCols.matchAll(/([a-z_]+)(?:![a-z_]+)?\(([^)]*)\)/g))) {
         const name = m[1]
         const rl = rel[table]?.[name]
-        if (rl) out[name] = (tables[rl.table] ?? []).find((x) => x.id === r[rl.fk]) ?? null
+        // many: a child list (child[fk] = this row's id), e.g. job_invoices → job_invoice_items(*).
+        if (rl) out[name] = rl.many ? (tables[rl.table] ?? []).filter((x) => x[rl.fk] === r.id) : (tables[rl.table] ?? []).find((x) => x.id === r[rl.fk]) ?? null
       }
       return out
     }

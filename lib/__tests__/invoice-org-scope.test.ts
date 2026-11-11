@@ -54,6 +54,7 @@ describe('findOrgInvoice', () => {
     const chain: any = {
       select: () => chain,
       eq: () => chain,
+      is: () => chain,
       maybeSingle: async () => ({ data: { id: 'inv-a', job_id: 'job-a', status: 'sent', production_jobs: { org_id: ORG_A } } }),
     }
     await expect(findOrgInvoice({ from: () => chain } as any, 'inv-a', ORG_B)).resolves.toBeNull()
@@ -92,9 +93,14 @@ describe('invoice routes scope through the org', () => {
 
   it('the print page scopes both lookups (id and invoice_number) to the org and uses requireAuth', () => {
     const src = read('app/invoices/[invoiceId]/print/page.tsx')
-    expect(src.match(/\.eq\('production_jobs\.org_id', profile\.org_id\)/g)).toHaveLength(2)
+    expect(src).toMatch(/findPrintableInvoice\(adminClient, profile\.org_id, params\.invoiceId\)/)
+    expect(src).not.toMatch(/from\('job_invoices'\)/)
     expect(src).toMatch(/requireAuth\(\)/)
     expect(src).not.toMatch(/auth\.getUser\(/)
+    // The lookups themselves (lib/invoice-document.ts): job invoices through the job, invoices without a job through org_id.
+    const lib = read('lib/invoice-document.ts')
+    expect(lib.match(/\.eq\('production_jobs\.org_id', orgId\)/g)).toHaveLength(2)
+    expect(lib.match(/\.eq\('org_id', orgId\)\.is\('job_id', null\)/g)).toHaveLength(2)
   })
 
   it('no app code looks an invoice up by invoice_number without an org filter', () => {

@@ -40,13 +40,16 @@ export async function GET(
       .eq('invoice_id', params.invoiceId)
       .order('created_at', { ascending: true })
 
-    // Get available payments (job payments not fully applied)
-    const { data: jobPayments } = await adminClient
-      .from('job_payments')
-      .select('*')
-      .eq('job_id', invoiceCheck.job_id)
-      .gt('amount_cents', 0)
-      .order('paid_at', { ascending: true })
+    // Get available payments (job payments not fully applied). An invoice without a job has none to pick from: its
+    // payments are recorded straight onto it (record_payment on /api/invoices/[id]).
+    const { data: jobPayments } = invoiceCheck.job_id
+      ? await adminClient
+          .from('job_payments')
+          .select('*')
+          .eq('job_id', invoiceCheck.job_id)
+          .gt('amount_cents', 0)
+          .order('paid_at', { ascending: true })
+      : { data: [] as Array<{ id: string; amount_cents: number }> }
 
     // Calculate remaining amount for each payment
     const availablePayments = []

@@ -14,7 +14,8 @@ import { formatCurrency } from './job-payments'
 import { isMissingColumn } from './job-catch-up-db'
 import { computeCustomerSalesTax } from './sales-tax-server'
 import { normalizeDepositFraction } from './job-pipeline'
-import { invoiceItemLineFields } from './invoice-lines'
+import { invoiceItemLineFields, CUSTOMER_PAYMENT_METHODS, type CustomerPaymentMethod } from './invoice-lines'
+export { CUSTOMER_PAYMENT_METHODS, CUSTOMER_PAYMENT_METHOD_LABELS, type CustomerPaymentMethod } from './invoice-lines'
 
 /**
  * The ONE org check for an invoice id: returns the invoice only when it belongs to `orgId`.
@@ -1121,16 +1122,6 @@ export type CustomerInvoicePayment = {
   method: CustomerPaymentMethod
   note?: string | null
   createdBy: string | null
-}
-
-export const CUSTOMER_PAYMENT_METHODS = ['cash', 'check', 'card', 'ach', 'other'] as const
-export type CustomerPaymentMethod = (typeof CUSTOMER_PAYMENT_METHODS)[number]
-export const CUSTOMER_PAYMENT_METHOD_LABELS: Record<CustomerPaymentMethod, string> = {
-  cash: 'Cash',
-  check: 'Check',
-  card: 'Card',
-  ach: 'Bank transfer',
-  other: 'Other',
 }
 
 export type RecordPaymentResult =

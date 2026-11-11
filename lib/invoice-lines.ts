@@ -3,7 +3,19 @@
  * A line is "each" (qty × price) or "hours" (time & materials: qty = hours, unit_price_cents = the hourly rate), and may
  * carry the day the work was done (service visits, hours worked). Migration 202611110060 adds `unit` / `service_date`.
  */
+import { formatCurrency } from '@/lib/job-payments'
 import type { InvoiceItemUnit, JobInvoiceItem } from '@/lib/types/invoices'
+
+/** How a customer paid an invoice without a job (job_payments.method CHECK allows these and more). */
+export const CUSTOMER_PAYMENT_METHODS = ['cash', 'check', 'card', 'ach', 'other'] as const
+export type CustomerPaymentMethod = (typeof CUSTOMER_PAYMENT_METHODS)[number]
+export const CUSTOMER_PAYMENT_METHOD_LABELS: Record<CustomerPaymentMethod, string> = {
+  cash: 'Cash',
+  check: 'Check',
+  card: 'Card',
+  ach: 'Bank transfer',
+  other: 'Other',
+}
 
 /** Most hours one line may carry (a month of full days); qty is numeric(10,2). */
 export const MAX_LINE_HOURS = 744
@@ -35,23 +47,15 @@ export function invoiceItemLineFields(item: {
   return { value }
 }
 
-function money(cents: number): string {
-  return `$${(cents / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-}
-
-function qtyText(qty: number): string {
-  return Number(qty).toLocaleString('en-US', { maximumFractionDigits: 2 })
-}
-
-/** "2.5 hrs" for an hours line, else the plain quantity. */
+/** "2.5 hrs" for an hours line, else the quantity exactly as stored (job invoices print as they always have). */
 export function invoiceItemQtyLabel(item: Pick<JobInvoiceItem, 'qty' | 'unit'>): string {
-  if (item.unit === 'hour') return `${qtyText(item.qty)} ${Number(item.qty) === 1 ? 'hr' : 'hrs'}`
-  return qtyText(item.qty)
+  if (item.unit === 'hour') return `${Number(item.qty)} ${Number(item.qty) === 1 ? 'hr' : 'hrs'}`
+  return String(item.qty)
 }
 
 /** "$80.00/hr" for an hours line, else the plain unit price. */
 export function invoiceItemPriceLabel(item: Pick<JobInvoiceItem, 'unit_price_cents' | 'unit'>): string {
-  return item.unit === 'hour' ? `${money(item.unit_price_cents)}/hr` : money(item.unit_price_cents)
+  return item.unit === 'hour' ? `${formatCurrency(item.unit_price_cents)}/hr` : formatCurrency(item.unit_price_cents)
 }
 
 /** "Tue, Nov 3, 2026" for a line's work day (calendar date, no time zone shift), or ''. */
