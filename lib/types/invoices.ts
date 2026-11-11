@@ -12,6 +12,10 @@ export interface JobInvoice {
   sent_at: string | null
   sent_to_email: string | null
   subtotal_cents: number
+  /** Sales tax (lib/sales-tax.ts); null before migration 202611110040 or on invoices never recalculated since. */
+  taxable_subtotal_cents?: number | null
+  tax_cents?: number | null
+  tax_lines?: unknown
   total_cents: number
   notes: string | null
   public_note: string | null
@@ -41,6 +45,8 @@ export interface JobInvoiceItem {
   unit_price_cents: number
   line_total_cents: number
   sort_order: number
+  /** Sales tax: true = taxed at the company's rates; null/false = not taxed. */
+  taxable?: boolean | null
   created_at: string
 }
 
@@ -65,6 +71,7 @@ export interface InvoiceItemInput {
   qty?: number
   unit_price_cents: number
   sort_order?: number
+  taxable?: boolean
 }
 
 export interface InvoiceBalance {

@@ -11,6 +11,8 @@ import {
   DepositInfo,
 } from './types/invoices'
 import { formatCurrency } from './job-payments'
+import { isMissingColumn } from './job-catch-up-db'
+import { computeCustomerSalesTax } from './sales-tax-server'
 import { normalizeDepositFraction } from './job-pipeline'
 
 /**
@@ -514,6 +516,8 @@ export async function addInvoiceItem(
       unit_price_cents: item.unit_price_cents,
       line_total_cents: lineTotalCents,
       sort_order: sortOrder,
+      // Sales tax: only sent when the line is taxable, so an untaxed line still saves before migration 202611110040.
+      ...(item.taxable === true ? { taxable: true } : {}),
     })
     .select()
     .single()
@@ -566,6 +570,7 @@ export async function updateInvoiceItem(
       unit_price_cents: unitPriceCents,
       line_total_cents: lineTotalCents,
       sort_order: updates.sort_order ?? currentItem.sort_order,
+      ...(typeof updates.taxable === 'boolean' ? { taxable: updates.taxable } : {}),
     })
     .eq('id', itemId)
     .eq('invoice_id', invoiceId)
@@ -619,27 +624,56 @@ export async function deleteInvoiceItem(
 }
 
 /**
- * Recalculate invoice subtotal and total from line items.
+ * Recalculate invoice subtotal, sales tax and total from line items (draft invoices only reach here).
+ * Tax (lib/sales-tax.ts, computeCustomerSalesTax): the company's default rates on lines marked `taxable`, nothing for a
+ * tax-exempt customer or a company that charges no tax / has not set up sales tax. Lines are NOT taxable unless marked:
+ * contract, deposit and balance lines bill an already tax-included sale amount. Before migration 202611110040 the
+ * invoice is totalled exactly as before (no tax).
  */
 async function recalculateInvoiceTotals(
   supabase: SupabaseClient,
   invoiceId: string
 ): Promise<void> {
-  const { data: items } = await supabase
-    .from('job_invoice_items')
-    .select('line_total_cents')
-    .eq('invoice_id', invoiceId)
+  type ItemRow = { line_total_cents: number; taxable?: boolean | null }
+  const first = await supabase.from('job_invoice_items').select('line_total_cents, taxable').eq('invoice_id', invoiceId)
+  const taxReady = !isMissingColumn(first.error, 'taxable')
+  // A failed read must not total the invoice as $0.
+  if (first.error && taxReady) throw new Error(`Failed to read invoice items: ${first.error.message}`)
+  const items = taxReady
+    ? first.data
+    : (await supabase.from('job_invoice_items').select('line_total_cents').eq('invoice_id', invoiceId)).data
+  const rows = (items || []) as ItemRow[]
+  const subtotalCents = rows.reduce((sum, item) => sum + item.line_total_cents, 0)
 
-  const subtotalCents = (items || []).reduce((sum, item) => sum + item.line_total_cents, 0)
-  const totalCents = subtotalCents // No tax for now, can add later
+  let update: Record<string, unknown> = { subtotal_cents: subtotalCents, total_cents: subtotalCents }
+  if (taxReady) {
+    // org-scope-ok: invoiceId was verified in the caller's company by findOrgInvoice (app/api/invoices/[invoiceId]/*); the job is the invoice's own parent
+    const { data: inv } = await supabase.from('job_invoices').select('job_id').eq('id', invoiceId).maybeSingle()
+    // org-scope-ok: job_id comes from the invoice verified above; org_id is read off the job itself, not from the request
+    const { data: job } = inv?.job_id
+      ? await supabase.from('production_jobs').select('org_id, customer_id').eq('id', inv.job_id).maybeSingle()
+      : { data: null }
+    const tax = job?.org_id
+      ? await computeCustomerSalesTax(
+          supabase,
+          job.org_id,
+          job.customer_id ?? null,
+          rows.map((r) => ({ amountCents: r.line_total_cents, taxable: r.taxable === true }))
+        )
+      : null
+    update = {
+      subtotal_cents: subtotalCents,
+      taxable_subtotal_cents: tax?.taxableCents ?? 0,
+      tax_cents: tax?.taxCents ?? 0,
+      tax_lines: tax?.taxLines ?? [],
+      total_cents: subtotalCents + (tax?.taxCents ?? 0),
+    }
+  }
 
   // org-scope-ok: invoiceId was verified in the caller's company by findOrgInvoice (app/api/invoices/[invoiceId]/*); job_invoices.org_id filter after migration 202611100040
   await supabase
     .from('job_invoices')
-    .update({
-      subtotal_cents: subtotalCents,
-      total_cents: totalCents,
-    })
+    .update(update)
     .eq('id', invoiceId)
 }
 
@@ -1007,6 +1041,7 @@ export async function duplicateInvoiceAsDraft(
       qty: item.qty,
       unit_price_cents: item.unit_price_cents,
       sort_order: item.sort_order,
+      taxable: item.taxable === true,
     })
   }
 

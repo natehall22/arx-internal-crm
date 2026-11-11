@@ -228,3 +228,11 @@ export function readStoredTaxLines(v: unknown): TaxLine[] | null {
 export function taxLineLabel(line: Pick<TaxLine, 'name' | 'percent'>): string {
   return `${line.name} (${line.percent}%)`
 }
+
+/**
+ * Tax rows to print on an invoice (screen + print page): one per stored rate. Invoices with no snapshot (created
+ * before sales tax, or never taxed) print none — their total is the subtotal, as before.
+ */
+export function invoiceTaxRows(invoice: { tax_lines?: unknown }): Array<{ label: string; amountCents: number }> {
+  return (readStoredTaxLines(invoice.tax_lines) ?? []).map((l) => ({ label: taxLineLabel(l), amountCents: l.amount_cents }))
+}
