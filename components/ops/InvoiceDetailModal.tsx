@@ -251,7 +251,7 @@ export default function InvoiceDetailModal({
                     <tr key={item.id} className={index > 0 ? 'border-t border-gray-100' : ''}>
                       <td className="px-4 py-3 text-gray-900">
                         {item.description}
-                        {item.taxable === true && <span className="ml-2 text-xs font-semibold text-[#2c2c2a]">Taxable</span>}
+                        {item.taxable === true && <span className="ml-2 text-sm font-semibold text-[#2c2c2a]">Taxable</span>}
                       </td>
                       <td className="px-4 py-3 text-right text-gray-900 font-medium tabular-nums">{item.qty}</td>
                       <td className="px-4 py-3 text-right text-gray-900 font-medium tabular-nums">{formatCurrency(item.unit_price_cents)}</td>
