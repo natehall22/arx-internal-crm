@@ -38,7 +38,7 @@ export default function ConnectedAiApps() {
         <CardTitle>Connected AI apps</CardTitle>
       </CardHeader>
       <CardContent>
-        <p className="mb-3 text-ui-base text-ink">AI apps you have allowed to look things up as you. They can only read, and only what you can see. Disconnect one and it stops right away.</p>
+        <p className="mb-3 text-ui-base text-ink">AI apps you have allowed to work as you. They only see what you can see. An app marked “can propose changes” can prepare a change, but nothing is saved until you confirm it. Disconnect one and it stops right away.</p>
         {apps === null ? <p className="text-ui-base text-ink">Loading…</p> : null}
         {apps?.length === 0 ? <p className="text-ui-base text-ink">No AI apps connected.</p> : null}
         <ul className="divide-y divide-surface-line">
@@ -46,7 +46,7 @@ export default function ConnectedAiApps() {
             <li key={a.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
               <div className="min-w-0 flex-1">
                 <p className="text-ui-base font-semibold text-ink">{a.app}</p>
-                <p className="text-ui-sm text-ink">Connected {day(a.connected_at)} · last used {day(a.last_used_at)}</p>
+                <p className="text-ui-sm text-ink">Connected {day(a.connected_at)} · last used {day(a.last_used_at)} · {a.scopes.includes('crm:write') ? 'can propose changes (you confirm each one)' : 'look-up only'}</p>
               </div>
               <Button variant="secondary" className="min-h-tap" loading={busy === a.id} onClick={() => void disconnect(a.id)}>
                 Disconnect

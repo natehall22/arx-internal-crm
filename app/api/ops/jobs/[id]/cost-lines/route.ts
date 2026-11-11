@@ -8,11 +8,9 @@ import {
   addJobCostLine,
   ledgerSummaryFor,
   loadJobCostLedger,
-  normalizeJobCostType,
-  isDealerFeeCostLine,
   resolveVendorId,
 } from '@/lib/job-cost-ledger'
-import { callerCanAccessJobBilling } from '@/lib/finance-access'
+import { authorizeJobCost, parseCostInput } from '@/lib/job-cost-record'
 
 export const runtime = 'nodejs'
 
@@ -98,52 +96,17 @@ export async function POST(request: Request, { params }: { params: { id: string 
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
   try {
-    const { authUser, profile } = ctx
+    const { profile } = ctx
     const supabase = createServiceClient()
     const jobId = params.id
 
-    const { canJobBoard } = await resolveOpsAccess(supabase, authUser.id, profile)
-    if (!canJobBoard || !(await callerCanAccessJobBilling(supabase, profile))) {
-      // Adding a job cost is "recording job money": money:record (ops and admins by default).
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-    }
-
-    const { data: job } = await supabase
-      .from('production_jobs')
-      .select('id, org_id')
-      .eq('id', jobId)
-      .eq('org_id', profile.org_id)
-      .single()
-
-    if (!job) {
-      return NextResponse.json({ error: 'Job not found' }, { status: 404 })
-    }
+    const gate = await authorizeJobCost(supabase, profile, jobId)
+    if (!gate.ok) return NextResponse.json({ error: gate.error }, { status: gate.status })
 
     const body = await request.json().catch(() => ({}))
-    const rawDescription = String(body.description || '').trim()
-    if (isDealerFeeCostLine({ description: rawDescription })) {
-      return NextResponse.json(
-        { error: 'The lender / dealer fee is added automatically from the financing. Use a different description.' },
-        { status: 400 }
-      )
-    }
-    const costType = normalizeJobCostType(body.cost_type, 'other')
-    const amountRaw = body.amount
-    const amountParsed =
-      typeof amountRaw === 'number' && !Number.isNaN(amountRaw)
-        ? amountRaw
-        : parseFloat(String(amountRaw ?? '0'))
-    const amount = Number.isFinite(amountParsed) ? amountParsed : 0
-
-    if (!rawDescription) {
-      return NextResponse.json({ error: 'Description is required' }, { status: 400 })
-    }
-    if (amount < 0) {
-      return NextResponse.json(
-        { error: 'Amount cannot be negative. For a return or refund, tick "Return / credit".' },
-        { status: 400 }
-      )
-    }
+    const input = parseCostInput(body)
+    if (!input.ok) return NextResponse.json({ error: input.error }, { status: 400 })
+    const { description: rawDescription, costType, amount } = input.value
 
     const vendorId = await resolveVendorId(supabase, profile.org_id, body.supplier ?? null, profile.id)
 

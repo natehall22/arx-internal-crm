@@ -3,7 +3,8 @@ import { NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { listAudit, writeAudit } from '@/lib/ai-connector/audit'
 import { loadExtraRedirectUris, parseExtraRedirectUris } from '@/lib/ai-connector/clients'
-import { AI_CONNECTOR_FEATURE, BUILTIN_REDIRECT_URIS } from '@/lib/ai-connector/config'
+import { AI_CONNECTOR_FEATURE, AI_WRITES_FEATURE, BUILTIN_REDIRECT_URIS, WRITE_SCOPE } from '@/lib/ai-connector/config'
+import { listAppliedChanges } from '@/lib/ai-connector/changes-list'
 import { listGrants, revokeAllForUser, revokeGrant } from '@/lib/ai-connector/store'
 import { crossSiteWrite } from '@/lib/online-payments/access'
 import { isOrgFeatureOn } from '@/lib/org-features-server'
@@ -31,13 +32,15 @@ export async function GET() {
   const o = await owner()
   if (o instanceof NextResponse) return o
   const admin = createServiceClient()
-  const [enabled, grants, audit, extra] = await Promise.all([
+  const [enabled, writesEnabled, grants, audit, extra, changes] = await Promise.all([
     isOrgFeatureOn(o.orgId, AI_CONNECTOR_FEATURE),
+    isOrgFeatureOn(o.orgId, AI_WRITES_FEATURE),
     listGrants(admin, o.orgId),
     listAudit(admin, o.orgId, { limit: 100 }),
     loadExtraRedirectUris(admin, o.orgId),
+    listAppliedChanges(admin, o.orgId, 100),
   ])
-  const ids = Array.from(new Set([...grants.map((g) => g.user_id), ...audit.map((a) => a.user_id).filter((x): x is string => !!x)]))
+  const ids = Array.from(new Set([...grants.map((g) => g.user_id), ...audit.map((a) => a.user_id).filter((x): x is string => !!x), ...changes.map((c) => c.user_id)]))
   const names = new Map<string, string>()
   if (ids.length) {
     const { data } = await orgDb(admin, o.orgId).from('users').select('id, full_name').in('id', ids)
@@ -45,10 +48,11 @@ export async function GET() {
   }
   return NextResponse.json({
     enabled,
-    readOnly: true,
+    writesEnabled,
     builtinRedirectUris: BUILTIN_REDIRECT_URIS,
     extraRedirectUris: extra,
-    connections: grants.map((g) => ({ id: g.id, userId: g.user_id, person: names.get(g.user_id) ?? 'Unknown', app: g.app_label ?? g.client_name ?? 'An app', scopes: g.scopes, connectedAt: g.created_at, lastUsedAt: g.last_used_at })),
+    connections: grants.map((g) => ({ id: g.id, userId: g.user_id, person: names.get(g.user_id) ?? 'Unknown', app: g.app_label ?? g.client_name ?? 'An app', canWrite: g.scopes.includes(WRITE_SCOPE), connectedAt: g.created_at, lastUsedAt: g.last_used_at })),
+    changes: changes.map((c) => ({ id: c.id, when: c.finished_at ?? c.created_at, person: names.get(c.user_id) ?? 'Unknown', tool: c.tool, summary: c.result?.summary ?? '', links: c.result?.links ?? [], failed: c.status === 'failed' })),
     audit: audit.map((a) => ({ id: a.id, when: a.created_at, person: a.user_id ? names.get(a.user_id) ?? 'Unknown' : null, tool: a.tool, result: a.result, records: a.record_ids.length, detail: a.detail })),
   })
 }

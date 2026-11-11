@@ -5,7 +5,7 @@ import { getAuthContext } from '@/lib/auth'
 import { checkAuthorizeRequest } from '@/lib/ai-connector/authorize'
 import { appLabelForRedirect } from '@/lib/ai-connector/clients'
 import { dbRateGate } from '@/lib/ai-connector/rate-limit'
-import { AI_CONNECTOR_FEATURE, RATE_LIMITS } from '@/lib/ai-connector/config'
+import { AI_CONNECTOR_FEATURE, AI_WRITES_FEATURE, RATE_LIMITS, WRITE_SCOPE } from '@/lib/ai-connector/config'
 import { signConsentTicket } from '@/lib/ai-connector/crypto'
 import { makeConsentTicket } from '@/lib/ai-connector/endpoints'
 import { mcpResource, originFromHeaders } from '@/lib/ai-connector/urls'
@@ -77,6 +77,8 @@ export default async function AuthorizePage({ searchParams }: { searchParams: Re
       appLabel={appLabelForRedirect(check.client.redirect_uris)}
       claimedName={check.client.client_name}
       returnHost={host}
+      asksForWrites={check.scopes.includes(WRITE_SCOPE)}
+      writesAvailable={await isOrgFeatureOn(auth.profile.org_id, AI_WRITES_FEATURE)}
     />
   )
 }

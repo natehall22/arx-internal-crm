@@ -4,7 +4,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { writeAudit } from '@/lib/ai-connector/audit'
 import { authorizeRedirect, checkAuthorizeRequest } from '@/lib/ai-connector/authorize'
 import { loadClient, loadExtraRedirectUris, registerClient, validateRegistration, type MetadataFetcher } from '@/lib/ai-connector/clients'
-import { AI_CONNECTOR_FEATURE, RATE_LIMITS, UNUSED_CLIENT_DAYS } from '@/lib/ai-connector/config'
+import { AI_CONNECTOR_FEATURE, AI_WRITES_FEATURE, RATE_LIMITS, UNUSED_CLIENT_DAYS, WRITE_SCOPE } from '@/lib/ai-connector/config'
 import { randomToken, signConsentTicket, verifyConsentTicket } from '@/lib/ai-connector/crypto'
 import { createAuthCode, exchangeCode, refreshTokens, revokeByToken, revokeGrant, type OAuthFailure } from '@/lib/ai-connector/store'
 import { corsHeaders, mcpResource, requestOrigin } from '@/lib/ai-connector/urls'
@@ -17,6 +17,8 @@ export type EndpointDeps = {
   admin: SupabaseClient
   fence: () => Promise<CompanyFence>
   featureOn?: (orgId: string) => Promise<boolean>
+  /** The company's "AI can make changes" switch. */
+  writesOn?: (orgId: string) => Promise<boolean>
   fetcher?: MetadataFetcher
   now?: number
   /** Counters (default: the database, so limits hold across instances). */
@@ -174,7 +176,7 @@ export async function handleConsent(
   d: EndpointDeps,
   who: { userId: string; orgId: string }
 ): Promise<Response> {
-  const body = (await readJson(request)) as { ticket?: unknown; decision?: unknown } | null
+  const body = (await readJson(request)) as { ticket?: unknown; decision?: unknown; allowWrites?: unknown } | null
   const params = verifyConsentTicket(body?.ticket, who.userId, d.now)
   if (!params) return Response.json({ error: 'This approval expired. Start again from your AI app.' }, { status: 400 })
   if (!(await principalUsable(d, who.orgId, who.userId))) return Response.json({ error: 'The AI connector is not turned on for you.' }, { status: 403 })
@@ -192,7 +194,11 @@ export async function handleConsent(
   if (!nonce || !(await onceOf(d)(`consent:${nonce}`, CONSENT_TTL_MS / 1000 + 60))) {
     return Response.json({ error: 'This approval was already used. Start again from your AI app.' }, { status: 400 })
   }
-  const code = await createAuthCode(d.admin, { clientId: check.client.client_id, orgId: who.orgId, userId: who.userId, redirectUri: check.params.redirect_uri, codeChallenge: check.params.code_challenge, resource: check.resource, scopes: check.scopes }, d.now)
-  await audit('oauth.allow')
+  // `crm:write` is granted only when the app asked for it, the company's switch is on right now, AND the person ticked it.
+  const wantsWrites = check.scopes.includes(WRITE_SCOPE)
+  const writesOk = wantsWrites && body?.allowWrites === true && (await (d.writesOn ?? ((o: string) => isOrgFeatureOn(o, AI_WRITES_FEATURE)))(who.orgId))
+  const scopes = writesOk ? check.scopes : check.scopes.filter((s) => s !== WRITE_SCOPE)
+  const code = await createAuthCode(d.admin, { clientId: check.client.client_id, orgId: who.orgId, userId: who.userId, redirectUri: check.params.redirect_uri, codeChallenge: check.params.code_challenge, resource: check.resource, scopes }, d.now)
+  await writeAudit(d.admin, { orgId: who.orgId, userId: who.userId, clientId: check.client.client_id, tool: 'oauth.allow', result: 'ok', detail: scopes.join(' ') })
   return Response.json({ redirect: authorizeRedirect(check.params.redirect_uri, origin, { code, state: check.params.state }) })
 }
