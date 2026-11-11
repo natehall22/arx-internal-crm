@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { createServiceClient } from '@/lib/supabase/service'
+import { firstForeignRef } from '@/lib/supabase/org-db'
 
 export const dynamic = 'force-dynamic'
 
@@ -141,7 +142,9 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    
+    const foreign = await firstForeignRef(supabase, profile.org_id, { foreman_user_id: ['users', body.foreman_user_id] })
+    if (foreign) return NextResponse.json({ error: 'Foreman not found' }, { status: 400 })
+
     const crewData = {
       org_id: profile.org_id,
       name: body.name,
@@ -210,11 +213,14 @@ export async function PATCH(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { id, ...updates } = body
+    // org_id is never client-set (it would move the crew to another company).
+    const { id, org_id: _orgId, ...updates } = body
 
     if (!id) {
       return NextResponse.json({ error: 'Crew ID required' }, { status: 400 })
     }
+    const foreign = await firstForeignRef(supabase, profile.org_id, { foreman_user_id: ['users', updates.foreman_user_id] })
+    if (foreign) return NextResponse.json({ error: 'Foreman not found' }, { status: 400 })
 
     const { data, error } = await supabase
       .from('crews')

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
+import { firstForeignRef } from '@/lib/supabase/org-db'
 
 // DELETE - Delete a project
 export async function DELETE(
@@ -103,6 +104,13 @@ export async function PATCH(
     }
     if (Object.keys(updateData).length === 0) {
       return NextResponse.json({ error: 'No valid fields to update' }, { status: 400 })
+    }
+    const foreign = await firstForeignRef(adminClient, profile.org_id, {
+      owner_user_id: ['users', updateData.owner_user_id],
+      customer_id: ['customers', updateData.customer_id],
+    })
+    if (foreign) {
+      return NextResponse.json({ error: `${foreign === 'customer_id' ? 'Customer' : 'Owner'} not found` }, { status: 400 })
     }
 
     // Update the project

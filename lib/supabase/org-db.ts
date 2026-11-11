@@ -71,3 +71,27 @@ function refuseOtherOrg(values: Record<string, unknown>, orgId: string, table: s
 function stampOrg(values: Record<string, unknown>, orgId: string, table: string): Record<string, unknown> {
   return { ...refuseOtherOrg(values, orgId, table), org_id: orgId }
 }
+
+/**
+ * Ids from a request that a write will STORE as references (owner, foreman, parent role, opportunity, …) must be this
+ * company's: a foreign id would hang the row off another company's record (it can squat their unique keys, show up in
+ * their lists, or carry their user's name into this company). Returns the field name of the first reference that is not
+ * a row of `orgId` in its table, or null when all are (blank ids are skipped — "no reference" is fine).
+ *
+ *   const bad = await firstForeignRef(admin, profile.org_id, { foreman_user_id: ['users', body.foreman_user_id] })
+ *   if (bad) return NextResponse.json({ error: `${bad} not found` }, { status: 400 })
+ */
+export async function firstForeignRef(
+  client: SupabaseClient,
+  orgId: string,
+  refs: Record<string, [table: string, id: unknown]>
+): Promise<string | null> {
+  const db = orgDb(client, orgId)
+  for (const [field, [table, id]] of Object.entries(refs)) {
+    if (id === null || id === undefined || id === '') continue
+    if (typeof id !== 'string') return field
+    const { data, error } = await db.from(table).select('id').eq('id', id).maybeSingle()
+    if (error || !data) return field
+  }
+  return null
+}

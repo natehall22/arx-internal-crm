@@ -2,6 +2,8 @@ import { requireAuthApi } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 import { calculateEstimateTotals } from '@/lib/calculations'
+import { pickEstimateLineFields } from '@/lib/estimate-line-fields'
+import { createServiceClient } from '@/lib/supabase/service'
 
 export async function PATCH(
   request: Request,
@@ -11,13 +13,9 @@ export async function PATCH(
   const supabase = createClient()
   const rawBody = await request.json()
 
-  const ALLOWED_FIELDS = new Set([
-    'name', 'category', 'unit', 'qty', 'unit_price', 'line_total',
-    'is_labor', 'is_taxable', 'sort_order', 'pricebook_item_id',
-  ])
-  const body: Record<string, unknown> = {}
-  for (const key of Object.keys(rawBody)) {
-    if (ALLOWED_FIELDS.has(key)) body[key] = rawBody[key]
+  const body = await pickEstimateLineFields(createServiceClient(), profile.org_id, rawBody)
+  if (!body) {
+    return NextResponse.json({ error: 'Pricebook item not found' }, { status: 400 })
   }
 
   const { data: line, error } = await supabase
