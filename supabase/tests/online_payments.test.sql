@@ -6,6 +6,12 @@
 \set ON_ERROR_STOP 1
 \i supabase/tests/customer_invoices.test.sql
 \i supabase/migrations/122_job_payments_idempotency.sql
+-- The QuickBooks outbox as 055 defines it (only the columns record_job_payment writes + the unique key).
+CREATE TYPE outbox_status AS ENUM ('pending', 'processing', 'completed', 'failed');
+CREATE TABLE integration_outbox (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(), org_id uuid NOT NULL REFERENCES orgs(id), provider text NOT NULL, event_type text NOT NULL,
+  entity_table text NOT NULL, entity_id uuid NOT NULL, idempotency_key text NOT NULL UNIQUE, payload jsonb NOT NULL DEFAULT '{}',
+  status outbox_status NOT NULL DEFAULT 'pending', created_at timestamptz NOT NULL DEFAULT now());
 \i supabase/migrations/202611120020_online_payments.sql
 \i supabase/migrations/202611120020_online_payments.sql
 
@@ -73,9 +79,71 @@ BEGIN
   ASSERT NOT has_table_privilege('anon', 'public.online_payments', 'SELECT'), 'P7 anon table';
   ASSERT NOT has_table_privilege('authenticated', 'public.payment_accounts', 'SELECT'), 'P7 authenticated table';
   ASSERT NOT has_table_privilege('authenticated', 'public.customer_payment_methods', 'SELECT'), 'P7 cards';
-  ASSERT NOT has_function_privilege('authenticated', 'public.record_customer_invoice_refund(uuid, uuid, integer, date, text, text, text)', 'EXECUTE'), 'P7 refund fn';
+  ASSERT NOT has_function_privilege('authenticated', 'public.record_customer_invoice_refund(uuid, uuid, integer, date, text, text, text, integer)', 'EXECUTE'), 'P7 refund fn';
   ASSERT NOT has_function_privilege('anon', 'public.record_customer_invoice_payment(uuid, uuid, integer, date, text, text, uuid, text)', 'EXECUTE'), 'P7 payment fn';
   ASSERT (SELECT relrowsecurity FROM pg_class WHERE relname = 'online_payments'), 'P7 RLS on';
+
+  -- P8 record_job_payment: payment + outbox in one transaction; same key = same payment; a lost outbox row comes back
+  r := record_job_payment(o1, j1, '2026-11-12', 5000, 'deposit', 'card', 'homeowner', 'Paid online', null, 'stripe:pi_job', 'payment.recorded');
+  ASSERT NOT (r->>'duplicate')::boolean, 'P8 first';
+  jp := (r->'payment'->>'id')::uuid;
+  ASSERT (SELECT count(*) FROM integration_outbox WHERE entity_id = jp AND event_type = 'payment.recorded') = 1, 'P8 outbox written with the payment';
+  DELETE FROM integration_outbox WHERE entity_id = jp;
+  r := record_job_payment(o1, j1, '2026-11-12', 5000, 'deposit', 'card', 'homeowner', null, null, 'stripe:pi_job', 'payment.recorded');
+  ASSERT (r->>'duplicate')::boolean AND (r->'payment'->>'id')::uuid = jp, 'P8 duplicate returns the first';
+  ASSERT (SELECT count(*) FROM job_payments WHERE idempotency_key = 'stripe:pi_job') = 1, 'P8 one payment';
+  ASSERT (SELECT count(*) FROM integration_outbox WHERE entity_id = jp) = 1, 'P8 lost outbox row re-queued';
+  ok := false; BEGIN PERFORM record_job_payment(o2, j1, '2026-11-12', 1, 'other', 'card', 'homeowner', null, null, null, 'payment.recorded'); EXCEPTION WHEN no_data_found THEN ok := true; END; ASSERT ok, 'P8 other company';
+  ok := false; BEGIN PERFORM record_job_payment(o1, j1, '2026-11-12', 1, 'other', 'card', 'homeowner', null, null, null, 'payment.bogus'); EXCEPTION WHEN invalid_parameter_value THEN ok := true; END; ASSERT ok, 'P8 event list';
+  -- a failing outbox insert rolls the payment back (one transaction)
+  ALTER TABLE integration_outbox ADD CONSTRAINT no_more CHECK (event_type <> 'payment.refunded');
+  ok := false; BEGIN PERFORM record_job_payment(o1, j1, '2026-11-12', -100, 'deposit', 'card', 'homeowner', null, null, 'stripe-refund:re_tx', 'payment.refunded'); EXCEPTION WHEN check_violation THEN ok := true; END;
+  ASSERT ok AND NOT EXISTS (SELECT 1 FROM job_payments WHERE idempotency_key = 'stripe-refund:re_tx'), 'P8 payment rolled back with its outbox row';
+  ALTER TABLE integration_outbox DROP CONSTRAINT no_more;
+
+  -- P9 apply_job_invoice_payment: locked, never over the payment's rest nor the invoice balance; once per payment
+  DECLARE ji2 uuid; jp2 uuid; jr uuid; BEGIN
+    INSERT INTO job_invoices (job_id, created_by, total_cents, status) VALUES (j1, u1, 4000, 'sent') RETURNING id INTO ji2;
+    ok := false; BEGIN PERFORM apply_job_invoice_payment(o1, ji2, jp, 4001, u1); EXCEPTION WHEN invalid_parameter_value THEN ok := true; END; ASSERT ok, 'P9 over balance refused';
+    r := apply_job_invoice_payment(o1, ji2, jp, 4000, u1);
+    ASSERT r->>'status' = 'paid', 'P9 paid ' || r::text;
+    r := apply_job_invoice_payment(o1, ji2, jp, 4000, u1);
+    ASSERT (r->>'duplicate')::boolean AND (SELECT count(*) FROM invoice_payments WHERE invoice_id = ji2) = 1, 'P9 once per payment';
+    ok := false; BEGIN PERFORM apply_job_invoice_payment(o2, ji2, jp, 1, u1); EXCEPTION WHEN no_data_found THEN ok := true; END; ASSERT ok, 'P9 other company';
+    -- the payment's last 1000 can't go on a second invoice beyond what it has left
+    INSERT INTO job_invoices (job_id, created_by, total_cents, status) VALUES (j1, u1, 9000, 'sent') RETURNING id INTO jp2;
+    ok := false; BEGIN PERFORM apply_job_invoice_payment(o1, jp2, jp, 1001, u1); EXCEPTION WHEN invalid_parameter_value THEN ok := true; END; ASSERT ok, 'P9 over payment rest refused';
+    -- refund back off: only a negative payment, never more than its amount or the net paid
+    r := record_job_payment(o1, j1, '2026-11-13', -1500, 'deposit', 'card', 'homeowner', null, null, 'stripe-refund:re_job', 'payment.refunded');
+    jr := (r->'payment'->>'id')::uuid;
+    ASSERT (SELECT event_type FROM integration_outbox WHERE entity_id = jr) = 'payment.refunded', 'P9 refund outbox event';
+    ok := false; BEGIN PERFORM apply_job_invoice_payment(o1, ji2, jr, -1501, null); EXCEPTION WHEN invalid_parameter_value THEN ok := true; END; ASSERT ok, 'P9 refund over its amount';
+    ok := false; BEGIN PERFORM apply_job_invoice_payment(o1, jp2, jp, -100, null); EXCEPTION WHEN invalid_parameter_value THEN ok := true; END; ASSERT ok, 'P9 positive payment cannot be taken back';
+    r := apply_job_invoice_payment(o1, ji2, jr, -1500, null);
+    ASSERT r->>'status' = 'partially_paid' AND (SELECT sum(applied_cents) FROM invoice_payments WHERE invoice_id = ji2) = 2500, 'P9 refund re-opens by its amount';
+  END;
+
+  -- P10 no-job refund: the money row is the whole refund, only `unapply` comes off the invoice
+  DECLARE inv3 uuid; BEGIN
+    INSERT INTO job_invoices (job_id, org_id, customer_id, invoice_kind, status, total_cents) VALUES (null, o1, ca, 'service', 'sent', 2000) RETURNING id INTO inv3;
+    PERFORM record_customer_invoice_payment(o1, inv3, 2000, '2026-11-12', 'card', null, null, 'stripe:pi_3');
+    r := record_customer_invoice_refund(o1, inv3, 500, '2026-11-13', 'card', null, 'stripe-refund:re_3', 0);
+    ASSERT (SELECT amount_cents FROM job_payments WHERE idempotency_key = 'stripe-refund:re_3') = -500, 'P10 money row';
+    ASSERT (SELECT status FROM job_invoices WHERE id = inv3) = 'paid' AND (SELECT sum(applied_cents) FROM invoice_payments WHERE invoice_id = inv3) = 2000, 'P10 invoice stays paid';
+    ok := false; BEGIN PERFORM record_customer_invoice_refund(o1, inv3, 100, '2026-11-13', 'card', null, 'stripe-refund:re_4', 200); EXCEPTION WHEN invalid_parameter_value THEN ok := true; END; ASSERT ok, 'P10 unapply over refund refused';
+  END;
+
+  -- P11 link attempts: atomic per link, window resets
+  DECLARE l uuid; i int; BEGIN
+    INSERT INTO payment_links (org_id, kind, token_hash, invoice_id, expires_at) VALUES (o1, 'invoice', 'h-limit', inv, now() + interval '1 day') RETURNING id INTO l;
+    FOR i IN 1..3 LOOP ASSERT payment_link_take_attempt(l, 3, 900), 'P11 within limit ' || i; END LOOP;
+    ASSERT NOT payment_link_take_attempt(l, 3, 900), 'P11 over limit';
+    UPDATE payment_links SET attempt_window_start = now() - interval '1 hour' WHERE id = l;
+    ASSERT payment_link_take_attempt(l, 3, 900), 'P11 new window';
+    ASSERT NOT payment_link_take_attempt(gen_random_uuid(), 3, 900), 'P11 unknown link';
+  END;
+  ASSERT NOT has_function_privilege('authenticated', 'public.record_job_payment(uuid, uuid, date, integer, text, text, text, text, uuid, text, text)', 'EXECUTE'), 'P7 job writer';
+  ASSERT NOT has_function_privilege('anon', 'public.apply_job_invoice_payment(uuid, uuid, uuid, integer, uuid)', 'EXECUTE'), 'P7 apply';
 
   RAISE NOTICE 'REPORT: online payments assertions passed';
 END $t$;
