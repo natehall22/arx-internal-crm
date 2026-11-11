@@ -125,6 +125,8 @@ export function createFakeDb(
         data = rows.filter((r) => filters.every((f) => f(r)))
         data.forEach((r) => Object.assign(r, patch))
         writes.push({ table, op, rows: data.map((d) => ({ ...d, ...patch })) })
+        // Like Postgres `update … returning`: the caller gets a snapshot, not the live row (a later write must not change what it read).
+        data = data.map((r) => ({ ...r }))
       } else if (op === 'delete') {
         data = rows.filter((r) => filters.every((f) => f(r)))
         tables[table] = rows = rows.filter((r) => !data.includes(r))

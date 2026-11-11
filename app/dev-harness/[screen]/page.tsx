@@ -109,6 +109,7 @@ import PayClient from '@/components/pay/PayClient'
 import PortalHomeView from '@/components/portal/PortalHomeView'
 import PortalSignIn from '@/components/portal/PortalSignIn'
 import OnlinePaymentsCard from '@/components/admin/OnlinePaymentsCard'
+import QuickBooksCard from '@/components/admin/QuickBooksCard'
 import InvoiceOnlinePayments from '@/components/billing/InvoiceOnlinePayments'
 import type { PayPageView } from '@/lib/online-payments/public'
 import CrewDayList, { type CrewDayVisit } from '@/app/crew/day/[token]/CrewDayList'
@@ -345,7 +346,7 @@ export default function Harness({ params }: { params: { screen: string } }) {
     case 'org-features':
       return (
         <div className="mx-auto max-w-2xl p-4">
-          <OrgFeaturesCard initial={{ canvassing: false, insurance: false, roofMeasure: true, incentives: false, stormAlerts: false, squaresPricing: true, servicePlans: true, timeTracking: false, hourlyBilling: false, projectTools: false, onlinePayments: false, customerMessages: false, aiConnector: false, aiConnectorWrites: false, customerPortal: false }} />
+          <OrgFeaturesCard initial={{ canvassing: false, insurance: false, roofMeasure: true, incentives: false, stormAlerts: false, squaresPricing: true, servicePlans: true, timeTracking: false, hourlyBilling: false, projectTools: false, onlinePayments: false, quickbooks: false, customerMessages: false, aiConnector: false, aiConnectorWrites: false, customerPortal: false }} />
         </div>
       )
     case 'org-profile':
@@ -579,6 +580,8 @@ export default function Harness({ params }: { params: { screen: string } }) {
       return <PayClient token="harness-pay-token-harness-pay-token-harness" view={{ ...HARNESS_PAY_VIEW, state: 'paid' }} returned />
     case 'save-card-page':
       return <PayClient token="harness-pay-token-harness-pay-token-harness" view={{ ...HARNESS_PAY_VIEW, kind: 'save_card', state: 'save_card', invoice: null, cardOnFile: 'Visa •••• 4242' }} returned={false} />
+    case 'quickbooks-settings':
+      return <div className="mx-auto max-w-2xl p-4"><QuickBooksCard /></div>
     case 'online-payments-settings':
       return <div className="mx-auto max-w-2xl p-4"><OnlinePaymentsCard /></div>
     case 'invoice-online':

@@ -7,6 +7,7 @@ import { createServiceClient } from '@/lib/supabase/service'
 import {
   addJobCostLine,
   ledgerSummaryFor,
+  normalizeJobCostType,
   loadJobCostLedger,
   resolveVendorId,
 } from '@/lib/job-cost-ledger'

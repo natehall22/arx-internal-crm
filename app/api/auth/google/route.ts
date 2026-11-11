@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { CompanyLookupUnavailableError, requireAuthApi } from '@/lib/auth'
-import { COMPANY_LOOKUP_UNAVAILABLE, classifyHost } from '@/lib/company-host'
+import { COMPANY_LOOKUP_UNAVAILABLE, classifyHost, requestHost } from '@/lib/company-host'
 import { getGoogleAuthUrl } from '@/lib/google-calendar'
 import {
   GOOGLE_CONNECT_COOKIE,
@@ -39,7 +39,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.redirect(new URL('/login', request.url))
     }
 
-    const host = request.headers.get('host') ?? request.nextUrl.host
+    const host = requestHost(request)
     if (classifyHost(host).kind !== 'company') {
       return NextResponse.redirect(getGoogleAuthUrl(auth.authUser.id))
     }

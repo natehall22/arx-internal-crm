@@ -52,6 +52,7 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
       { title: 'Payroll & commissions', description: 'Pay periods, hourly entry, statements and exports', href: '/admin/payroll', access: 'payroll' },
       { title: 'Job profit tracker', description: 'Contract, costs, profit and owner draw by job', href: '/admin/job-profit-tracker', access: 'payroll' },
       { title: 'Online payments', description: 'Connect your Stripe account, pay links, bank payments and automatic payments (owners only)', href: '/admin#online-payments', access: 'superAdmin', feature: 'onlinePayments', keywords: 'stripe card credit ach bank autopay pay link deposit' },
+      { title: 'QuickBooks', description: 'Connect your QuickBooks Online company (owners only)', href: '/admin#quickbooks', access: 'superAdmin', feature: 'quickbooks', keywords: 'quickbooks accounting bookkeeper books intuit qbo' },
       { title: 'Sales tax', description: 'Tax rates on quotes and invoices, the default, or no tax at all (owners only)', href: '/admin#sales-tax', access: 'superAdmin', keywords: 'tax rate state county exempt taxable vat' },
       { title: 'Hourly billing', description: 'Rounding, minimum hours per visit, drive time and crew-hours for work billed by the hour (owners only)', href: '/admin#hourly-billing', access: 'superAdmin', keywords: 'time materials t&m hourly rounding minimum trip charge tractor equipment', feature: 'hourlyBilling' },
       { title: 'Goals & forecast', description: 'Monthly targets, scorecard and revenue forecast', href: '/admin/goals', access: 'superuser' },
