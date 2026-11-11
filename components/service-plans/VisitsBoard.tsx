@@ -7,6 +7,7 @@ import { Badge, Button, Card, CardContent, Dialog, DialogContent, DialogFooter, 
 import { formatDateWeekday } from '@/lib/format'
 import { RESULT_TONE_CLASS, SERVICE_STEP, SKIP_REASONS, SKIP_REASON_LABELS, VISIT_STATUS_LABELS, addDaysYmd, type SkipReason, type VisitStatus } from '@/lib/service-plans'
 import type { VisitView } from '@/lib/service-plans-db'
+import { FileDropZone } from '@/components/ui/file-drop-zone'
 import { uploadVisitPhotos } from '@/lib/visit-photo-upload'
 
 type Crew = { id: string; name: string; hasPhoneLink: boolean }
@@ -40,8 +41,6 @@ export default function VisitsBoard() {
   const [failed, setFailed] = React.useState(false)
   const [sheet, setSheet] = React.useState<Sheet | null>(null)
   const [busy, setBusy] = React.useState(false)
-  const fileRef = React.useRef<HTMLInputElement>(null)
-  const photoFor = React.useRef<string | null>(null)
 
   const load = React.useCallback(async (more = false) => {
     const q = new URLSearchParams()
@@ -92,15 +91,13 @@ export default function VisitsBoard() {
     await load()
   }
 
-  async function onPhotos(files: FileList | null) {
-    const id = photoFor.current
-    if (!id || !files || files.length === 0) return
+  async function onPhotos(id: string, files: File[]) {
+    if (files.length === 0) return
     setBusy(true)
-    const r = await uploadVisitPhotos(`/api/ops/visits/${id}/photos`, Array.from(files))
+    const r = await uploadVisitPhotos(`/api/ops/visits/${id}/photos`, files)
     setBusy(false)
     if (r.uploaded) toast.success(`${r.uploaded} photo${r.uploaded === 1 ? '' : 's'} added`)
     if (r.error) toast.error(r.error)
-    if (fileRef.current) fileRef.current.value = ''
     await load()
   }
 
@@ -138,7 +135,6 @@ export default function VisitsBoard() {
           </>
         ) : null}
       </div>
-      <input ref={fileRef} type="file" accept="image/*" multiple hidden tabIndex={-1} aria-hidden aria-label="Add photos" onChange={(e) => void onPhotos(e.target.files)} />
 
       {d.total > d.visits.length ? (
         <p className="text-ui-base font-semibold text-ink">
@@ -206,7 +202,7 @@ export default function VisitsBoard() {
                             ) : v.status !== 'cancelled' ? (
                               <Button size="sm" variant="secondary" disabled={busy} onClick={() => void post(`/api/ops/visits/${v.id}`, { action: 'reopen' }, 'Visit reopened')}>Reopen</Button>
                             ) : null}
-                            <Button size="sm" variant="secondary" disabled={busy} onClick={() => { photoFor.current = v.id; fileRef.current?.click() }}>Add photos</Button>
+                            <FileDropZone compact accept="image/*" disabled={busy} label="Add photos (drop or tap)" className="w-full sm:w-auto" onFiles={(files) => void onPhotos(v.id, files)} />
                             {v.photoCount ? (
                               <Button size="sm" variant="ghost" className="underline" onClick={() => void openPhotos(v)}>
                                 See photos ({v.photoCount})

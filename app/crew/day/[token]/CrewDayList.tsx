@@ -1,10 +1,11 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 
 import { formatDateWeekday } from '@/lib/format'
 import { RESULT_TONE_CLASS, SKIP_REASONS, SKIP_REASON_LABELS, type SkipReason, type StepResultOption } from '@/lib/service-plans'
 import { uploadVisitPhotos } from '@/lib/visit-photo-upload'
+import { FileDropZone } from '@/components/ui/file-drop-zone'
 
 export type CrewDayVisit = {
   id: string
@@ -69,8 +70,6 @@ export default function CrewDayList({ token, crewName, companyName, today, visit
       window.clearInterval(timer)
     }
   }, [recheck])
-  const fileRef = useRef<HTMLInputElement>(null)
-  const photoFor = useRef<string | null>(null)
 
   const base = (id: string) => `/api/crew/day/${token}/visits/${id}`
   const open = visits.filter((v) => v.status === 'scheduled').length
@@ -101,16 +100,14 @@ export default function CrewDayList({ token, crewName, companyName, today, visit
     return true
   }
 
-  async function onPhotos(files: FileList | null) {
-    const id = photoFor.current
-    if (!id || !files || files.length === 0) return
+  async function onPhotos(id: string, files: File[]) {
+    if (files.length === 0) return
     setBusy(id)
     setError(null)
-    const r = await uploadVisitPhotos(`${base(id)}/photos`, Array.from(files))
+    const r = await uploadVisitPhotos(`${base(id)}/photos`, files)
     setBusy(null)
     if (r.uploaded) setVisits((vs) => vs.map((v) => (v.id === id ? { ...v, photoCount: v.photoCount + r.uploaded } : v)))
     if (r.error) setError(`${r.uploaded ? `${r.uploaded} photo${r.uploaded === 1 ? '' : 's'} saved. ` : ''}${r.error}`)
-    if (fileRef.current) fileRef.current.value = ''
   }
 
   return (
@@ -122,7 +119,6 @@ export default function CrewDayList({ token, crewName, companyName, today, visit
           <p className="text-base">{visits.length === 0 ? 'No visits today.' : open === 0 ? 'All visits finished. Nice work.' : `${open} of ${visits.length} visit${visits.length === 1 ? '' : 's'} left`}</p>
         </header>
         {error ? <p role="alert" className="rounded-lg border-2 border-red-700 bg-white p-3 text-base font-semibold text-red-800">{error}</p> : null}
-        <input ref={fileRef} type="file" accept="image/*" multiple hidden tabIndex={-1} aria-hidden aria-label="Add photos" onChange={(e) => void onPhotos(e.target.files)} />
         <ol className="flex flex-col gap-3">
           {visits.map((v, i) => {
             const closed = v.status !== 'scheduled'
@@ -146,17 +142,14 @@ export default function CrewDayList({ token, crewName, companyName, today, visit
                       Directions
                     </a>
                   ) : null}
-                  <button
-                    type="button"
-                    className={`${btn} border-2 border-[#2c2c2a] bg-white`}
+                  <FileDropZone
+                    compact
+                    accept="image/*"
                     disabled={busy === v.id}
-                    onClick={() => {
-                      photoFor.current = v.id
-                      fileRef.current?.click()
-                    }}
-                  >
-                    {busy === v.id ? 'Saving…' : `Photos${v.photoCount ? ` (${v.photoCount})` : ''}`}
-                  </button>
+                    label={busy === v.id ? 'Saving…' : `Add photos${v.photoCount ? ` (${v.photoCount} saved)` : ''}`}
+                    className="w-full"
+                    onFiles={(files) => void onPhotos(v.id, files)}
+                  />
                   {!closed ? (
                     <>
                       <button
