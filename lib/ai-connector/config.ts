@@ -1,11 +1,29 @@
 /**
  * AI connector — fixed settings. One place for scopes, lifetimes and the app addresses (OAuth redirect URIs) we trust.
- * Phase 1 is read-only: the only scope is `crm:read` (phase 2 adds `crm:write`, phase 3 `crm:upload`).
+ * `crm:read` looks things up. `crm:write` (phase 2) lets the AI PROPOSE a change; nothing is saved until the person confirms
+ * that exact change (preview + one-time confirm key). It needs the company's separate "AI can make changes" switch AND the
+ * person's own approval on the consent screen, and it is always capped by what the person may do in the app.
+ * (Phase 3 adds `crm:upload`.)
  */
 export const AI_CONNECTOR_FEATURE = 'aiConnector' as const
-export const AI_SCOPES = ['crm:read'] as const
+/** The owner's second switch: AI can make changes (default OFF). Needs `aiConnector` on as well. */
+export const AI_WRITES_FEATURE = 'aiConnectorWrites' as const
+export const AI_SCOPES = ['crm:read', 'crm:write'] as const
 export type AiScope = (typeof AI_SCOPES)[number]
 export const DEFAULT_SCOPES: readonly AiScope[] = ['crm:read']
+export const WRITE_SCOPE: AiScope = 'crm:write'
+
+/** A proposed change can be approved by the person for this long; after that it is gone and must be asked for again. */
+export const CHANGE_TTL_SECONDS = 10 * 60
+/** Unconfirmed proposals one person may hold at a time. */
+export const MAX_PENDING_CHANGES = 20
+/** Proposals nobody confirmed are deleted after this many days (applied changes are kept as the record). */
+export const PENDING_CHANGE_KEEP_DAYS = 2
+/** Failed changes are kept this long (never less than 30 days) so an owner can look at them. */
+export const FAILED_CHANGE_KEEP_DAYS = 30
+/** A change still `applying` after this long is stuck (a crash mid-save): a note is retried once, anything else goes to the owner. */
+export const APPLY_STALE_SECONDS = 120
+export const MAX_APPLY_ATTEMPTS = 2
 
 export const CODE_TTL_SECONDS = 10 * 60
 export const ACCESS_TTL_SECONDS = 60 * 60
@@ -50,6 +68,11 @@ export const RATE_LIMITS = {
   userPerMinute: 60,
   orgPerMinute: 300,
   clientTokenPerMinute: 120,
+  /** Writes: asking for a preview is cheap, saving is the thing to bound. Per person and per company. */
+  writePreviewPerMinute: 20,
+  writeConfirmPerMinute: 10,
+  writeConfirmPerDay: 200,
+  orgWriteConfirmPerDay: 1000,
   tokenPerIpPerMinute: 1200,
   authorizePerIpPerMinute: 1200,
   registerPerIpPerMinute: 120,

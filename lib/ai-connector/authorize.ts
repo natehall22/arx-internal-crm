@@ -40,7 +40,8 @@ export function authorizeRedirect(redirectUri: string, issuer: string, q: Record
 export function scopesFor(requested: string | null): string[] {
   const asked = (requested ?? '').split(/\s+/).filter(Boolean)
   const granted = asked.filter((s) => (AI_SCOPES as readonly string[]).includes(s))
-  return granted.length > 0 ? Array.from(new Set(granted)) : [...DEFAULT_SCOPES]
+  // Looking things up is always part of a connection; `crm:write` is only ever an addition the person approves (handleConsent).
+  return Array.from(new Set(granted.length > 0 ? ['crm:read', ...granted] : [...DEFAULT_SCOPES]))
 }
 
 export async function checkAuthorizeRequest(

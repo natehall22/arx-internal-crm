@@ -79,7 +79,12 @@ export const ORG_FEATURE_DEFS = {
   },
   aiConnector: {
     label: 'AI connector (Claude, ChatGPT)',
-    description: 'People can connect their own AI app to look things up in the CRM as themselves. Read-only for now; the AI sees only what that person can see, and every request is logged.',
+    description: 'People can connect their own AI app to look things up in the CRM as themselves. By default read-only; the AI sees only what that person can see, and every request is logged.',
+    defaultOn: false,
+  },
+  aiConnectorWrites: {
+    label: 'AI can make changes',
+    description: 'Lets connected AI apps PROPOSE changes (add a note, log a call, add a lead or customer, schedule a visit, add a cost, start a draft invoice or order). The person sees exactly what will change and confirms it first; nothing is sent, paid, deleted or approved. Needs the AI connector on, and each person must also allow it when they connect.',
     defaultOn: false,
   },
   customerPortal: {

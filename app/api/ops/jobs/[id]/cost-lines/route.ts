@@ -8,14 +8,12 @@ import {
   addJobCostLine,
   ledgerSummaryFor,
   loadJobCostLedger,
-  normalizeJobCostType,
-  isDealerFeeCostLine,
   resolveVendorId,
 } from '@/lib/job-cost-ledger'
-import { callerCanAccessJobBilling } from '@/lib/finance-access'
+import { authorizeJobCost, parseCostInput } from '@/lib/job-cost-record'
 import { costTypeForCode, isCostCodeSlug } from '@/lib/cost-codes'
 import { isOrgFeatureOn } from '@/lib/org-features-server'
-import { isMissingProjectToolsSchema, loadCostCodes, PROJECT_TOOLS_NOT_READY } from '@/lib/project-tools/budget-db'
+import { loadCostCodes, PROJECT_TOOLS_NOT_READY } from '@/lib/project-tools/budget-db'
 
 export const runtime = 'nodejs'
 
@@ -101,38 +99,20 @@ export async function POST(request: Request, { params }: { params: { id: string 
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
   try {
-    const { authUser, profile } = ctx
+    const { profile } = ctx
     const supabase = createServiceClient()
     const jobId = params.id
 
-    const { canJobBoard } = await resolveOpsAccess(supabase, authUser.id, profile)
-    if (!canJobBoard || !(await callerCanAccessJobBilling(supabase, profile))) {
-      // Adding a job cost is "recording job money": money:record (ops and admins by default).
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-    }
-
-    const { data: job } = await supabase
-      .from('production_jobs')
-      .select('id, org_id')
-      .eq('id', jobId)
-      .eq('org_id', profile.org_id)
-      .single()
-
-    if (!job) {
-      return NextResponse.json({ error: 'Job not found' }, { status: 404 })
-    }
+    const gate = await authorizeJobCost(supabase, profile, jobId)
+    if (!gate.ok) return NextResponse.json({ error: gate.error }, { status: gate.status })
 
     const body = await request.json().catch(() => ({}))
-    const rawDescription = String(body.description || '').trim()
-    if (isDealerFeeCostLine({ description: rawDescription })) {
-      return NextResponse.json(
-        { error: 'The lender / dealer fee is added automatically from the financing. Use a different description.' },
-        { status: 400 }
-      )
-    }
+    const input = parseCostInput(body)
+    if (!input.ok) return NextResponse.json({ error: input.error }, { status: 400 })
+    const { description: rawDescription, amount } = input.value
+    let costType = input.value.costType
     // Project tools: a cost code from the company's list rides on the line; its cost_type keeps the Materials/Labor/Other rollups right.
     let costCode: string | null = null
-    let costType = normalizeJobCostType(body.cost_type, 'other')
     // Only when the company has project tools on: otherwise a cost_code in the body is ignored (the line is just a line).
     if (isCostCodeSlug(body.cost_code) && (await isOrgFeatureOn(profile.org_id, 'projectTools'))) {
       const codes = await loadCostCodes(supabase, profile.org_id)
@@ -141,22 +121,6 @@ export async function POST(request: Request, { params }: { params: { id: string 
       }
       costCode = body.cost_code
       costType = normalizeJobCostType(costTypeForCode(body.cost_code, codes), 'other')
-    }
-    const amountRaw = body.amount
-    const amountParsed =
-      typeof amountRaw === 'number' && !Number.isNaN(amountRaw)
-        ? amountRaw
-        : parseFloat(String(amountRaw ?? '0'))
-    const amount = Number.isFinite(amountParsed) ? amountParsed : 0
-
-    if (!rawDescription) {
-      return NextResponse.json({ error: 'Description is required' }, { status: 400 })
-    }
-    if (amount < 0) {
-      return NextResponse.json(
-        { error: 'Amount cannot be negative. For a return or refund, tick "Return / credit".' },
-        { status: 400 }
-      )
     }
 
     const vendorId = await resolveVendorId(supabase, profile.org_id, body.supplier ?? null, profile.id)
