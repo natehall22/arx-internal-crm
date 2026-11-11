@@ -430,7 +430,7 @@ runs in `supabase/tests/hourly_billing.test.sql`. (39) `addDaysYmd` exists in bo
 
 ## Known Tech Debt
 - Canvass service worker `public/canvass-sw.js` (~line 46) skips `/api/*` — API responses get no SW caching; client-side fetches must handle their own caching/timeouts.
-- Vercel Cron pattern: every cron in `vercel.json` (10 as of 2026-11, incl. `instant-estimate-accuracy`) is secured by `Authorization: Bearer ${CRON_SECRET}` (503 if secret unset, 401 on mismatch) — always via `verifyCronSecret()` in `lib/cron-auth.ts` (constant-time; the 8 hand-copied checks were folded into it 2026-09-26). Reuse it for any new cron or Actions worker.
+- Vercel Cron pattern: every cron in `vercel.json` (11 as of 2026-11-12, incl. `instant-estimate-accuracy` and the 15-minute `customer-messages`) is secured by `Authorization: Bearer ${CRON_SECRET}` (503 if secret unset, 401 on mismatch) — always via `verifyCronSecret()` in `lib/cron-auth.ts` (constant-time; the 8 hand-copied checks were folded into it 2026-09-26). Reuse it for any new cron or Actions worker.
 - **Which companies a cron runs for has ONE answer: `loadCronOrgs` / `loadCronOrgIds` (`lib/cron-orgs.ts`, 2026-11-10)** — companies with an active user, inside the `DEPLOYMENT_ORG_ID` fence. Loop it (or filter rows by it); scope every query to the company being processed; time zone per company via `CronOrg.timezone`. Inventory + how a second company posts leads: `docs/background-jobs-multi-company.md`.
 - `lib/roofradar-open-data.ts` now contains only `getRecentStormReportsInBbox()` (IEM Local Storm Reports feed) used by the canvass weather overlay + weather-refresh cron. The Roof Radar admin tool that gave the file its name was removed July 2026 (demo-grade data, superseded by the weather overlay).
 - **Weather overlay Phase 2** — Phase 1 + Phase 2 merged (PR #3, #4). The 8 Bugbot items (stale-warning clearing, error-as-empty `degraded` flag, swath read/ingest caps, response-cache expiry, atomic swath replace, clear-day orphans, ingest size guard) are **fixed in PR #5** (`feat/weather-phase2-bugfixes`) — verify on merge. No open weather-code debt after that. Prod flag `NEXT_PUBLIC_CANVASS_WEATHER_OVERLAY` stays OFF until the human deploy checklist (GitHub/Vercel secrets, 4th cron, migration-history reconcile, MRMS backfill, preview field QA) is done — see `docs/canvass-weather-overlay-phase2-verification.md`. Claims-safe copy ("est.", "recorded", etc.) is enforced in code; not a separate legal gate. Separate open question (non-weather): confirm the `info@` feedback-routing + canvass "Report Issue" change bundled in commit `22e6ab5` is intended org-wide.
@@ -571,6 +571,11 @@ Switch `onlinePayments` (default OFF). Migration `202611120020_online_payments.s
   owner morning email for 14 days. **Not built (decide first):** automatic negative commission lines for a reversal — the
   office uses Payroll → Fix a mistake (`addAdjustment`) today.
 
+**Hourly billing addition (2026-11-12, customer messages branch):** commission change lines that hit an unexpected error
+are marked `commission_change_wait 'retry_error'` (`markCommissionChangeRetry`, also when the T&M base sync fails) and retried by
+the morning cron (`retryDueCommissionChanges` — re-syncs a T&M job's base first; now runs whatever the hourly switch says) —
+never only logged. Today / morning email list them as "could not be written — retried every morning".
+
 **Known Redundancy additions (2026-11-12, online payments):** (38) `ymdInZone` is defined twice (`lib/payroll-week-schedule.ts`,
 `lib/service-plans.ts`, identical) — fold into one date helper. (39) Customer-facing "branded email with one button" HTML is
 now hand-built in 4 places (`renderInvoiceEmail`, `notifyCustomerOfFailedPayment`, the save-card email in
@@ -588,6 +593,49 @@ General POs to any vendor/sub for any trade, on a job or a service visit (`work_
 - **Vendor confirm link** `/po/<token>` (public, `lib/public-paths.ts`): random token, only its SHA-256 is stored, 90 days, rotated per send, reset on revision, rate-limited; it can only mark "I have this order".
 - **Vendor bills** (`purchase_order_bills`) write the job cost ledger ONLY through `addJobCostLine` (`lib/job-cost-ledger.ts`, source `vendor_bill`, unique `purchase_order_bill_id` = no doubling; born unapproved, not in the commission base). A bill over the PO total, or money already typed on the job for that vendor, asks first. Bill-sourced lines cannot be edited or deleted from the cost-lines routes; void the bill on the order (`voidPoBill` archives that cost line with the same soft delete the cost list uses, status `archived` + `deleted_at`). Each bill sheet sends a `clientKey`, so a double tap records once; the over-the-order check is repeated after the insert. A visit with no job records the bill on the PO only (`job_cost_lines.job_id` stays NOT NULL).
 - **Gaps:** bill file upload is job POs only (reuses cost-attachments); no budget/cost-code system beyond `cost_type`; vendor logo is not on the PO PDF.
+
+## Automatic customer messages (2026-11-12)
+Switch `customerMessages` (`ORG_FEATURE_DEFS`, **default OFF**; lawn_landscape profile ON) AND each message turned on by an
+owner at Settings → Customer messages (`/admin/customer-messages`, `/api/admin/customer-messages`; nothing stored = every
+message OFF) — ARX is unchanged unless both. Migration `202611120050_customer_messages.sql` (NOT applied; after 202611120030).
+- **Messages:** visit reminder (N days before, one email per customer per visit DAY whatever the visits/properties; date,
+  company-wide arrival window text, what = plan name (+ step label), the company's gate/pets note — never the gate code), "on
+  the way" (crew taps "On my way" on `/crew/day/<token>`, route `.../visits/[id]/on-the-way`; sent at once, even in quiet
+  hours), "done" (queued by `applyVisitAction` → `queueVisitDone` only for a visit done on the day it sits; sent 15 min later
+  by the cron so a reopen cancels it; optional photos link), quote follow-up (days after sent, the ONE waiting rule
+  `listUnsignedProposals` in lib/today.ts; button = the pending contract's signing link if one exists), invoice reminder (days
+  from `due_at`, else the sent day; pay link when online payments are ready; an autopay customer is held while an automatic
+  charge has no result — open/processing — and hears after a failed one).
+- **Rules** `lib/customer-messages.ts` (pure: settings, keys, timing, words for email AND sms text). **Layout** for any
+  branded one-button customer email: `lib/customer-email-layout.ts` (`renderCustomerEmail`; footer = company name, postal
+  address as a maps link, tap-to-call phone, website, unsubscribe) — the home for Known Redundancy 39. **Channels**
+  `lib/customer-message-channels.ts` (email via SMTP + List-Unsubscribe / one-click; `sms` slot defined, `available()`
+  false — wire a provider there, nothing else changes).
+- **ONE sender** `lib/customer-messages-db.ts`: cron `/api/cron/customer-messages` every 15 min (`loadCronOrgs`, company
+  time zone, quiet hours `quietStart`→`quietEnd`, default 8 PM–8 AM). Every message = one `customer_messages` row keyed
+  `(org_id, message_key)` — the insert IS the claim; `deliver` claims (queued|failed → sending, conditional), RE-CHECKS
+  the facts (visit still that day and open, quote still waiting, invoice still open, not opted out / suppressed), sends,
+  records sent / skipped(reason) / cancelled(reason) / failed (≤ 3 tries, 30 min then 2 h). A row stuck in `sending` > 15
+  min is closed failed and never retried (it may have gone out). Steps due only within 3 days of their day (an old quote /
+  invoice when the switch is turned on gets nothing). Caps: 100 sends per company per run, 4 per address per 24 h.
+- **Review rules (2026-11-12):** every builder re-checks at send time that its message is still ON (else cancelled
+  'turned_off') and still inside its late window (else skipped 'too_late'). **Identity:** From = the company's own name +
+  email (`orgs.name/email`), Reply-To the same, postal address `orgs.address` — read by `companyIdentity` straight from the
+  row, never `resolveOrgBrand`'s legacy fallback; any of the three blank → nothing is sent, due rows become `blocked`
+  (re-tried hourly, sent once fixed if still in their window), Settings lists the fix and owners get "Customer emails are
+  stopped" on Today (`loadCustomerMessagesBlockedQueue`). The SMTP account must be allowed to send as that address.
+  **Claim + daily cap are ONE SQL step** `customer_message_claim` (per (company, address) advisory lock; counts sent,
+  sending and failed-with-tries-left rows by the address recorded at claim). **Timeouts / dropped connections = unknown**:
+  retried only after 6 h, with the same Message-ID (`<cm-<row id>@<company host>>`) and the same links (link token =
+  HMAC of the row id, env `CUSTOMER_MESSAGE_LINK_SECRET` else the service key). JS mirror of the claim: in
+  `lib/__tests__/customer-messages-db.test.ts` (KR #35 pattern).
+- **Opt-outs:** office "Don't email this customer" (`customers.messages_off_at/by`, Customer File → Automatic emails card,
+  `/api/customers/[id]/messages`, anyone who may edit the customer); unsubscribe link `/m/<token>?stop=1` + one-click POST
+  `/api/m/<token>/unsubscribe` (public, host-fenced, hashed per-message token) → `customer_message_suppressions`
+  (`suppressAddress` is the ONE writer — a provider's bounce/complaint webhook must call it) + the customer flag; turning
+  back on needs "the customer asked". A 5xx on the recipient at send time suppresses as bounced. **Not visible over plain
+  SMTP:** later bounces (DSN mail) and spam complaints — needs a provider with webhooks.
+- `/m/<token>` (public) also shows a "done" visit's photos (signed 1 h URLs) for 90 days.
 
 ## QuickBooks (2026-11-06)
 Not connected yet; design in `docs/quickbooks-sync.md`. Until the worker ships, `integration_outbox` only receives

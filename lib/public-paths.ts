@@ -23,6 +23,7 @@ export function isPublicPath(pathname: string | null | undefined): boolean {
     pathname.startsWith('/crew/') ||
     pathname.startsWith('/po/') || // a vendor's one-tap purchase-order confirm link (hashed per-send tokens; lib/purchase-orders-db.ts)
     pathname.startsWith('/pay/') || // customer pay / save-card links (hashed per-link tokens; lib/online-payments/links.ts)
+    pathname.startsWith('/m/') || // automatic customer email links: visit photos + unsubscribe (hashed per-message tokens; lib/customer-messages-db.ts)
     // compensation agreements a new hire signs from an email (hashed per-agreement tokens; no account needed)
     pathname.startsWith('/comp-agreements/sign/') ||
     pathname.startsWith('/comp-agreements/receipt/') || // crew photo links from install invites (unguessable per-trade tokens)

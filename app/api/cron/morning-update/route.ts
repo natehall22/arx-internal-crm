@@ -61,7 +61,6 @@ export async function GET(request: NextRequest) {
   const canvassingOn = orgFeatureChecker('canvassing')
   const servicePlansOn = orgFeatureChecker('servicePlans')
   const timeTrackingOn = orgFeatureChecker('timeTracking')
-  const hourlyBillingOn = orgFeatureChecker('hourlyBilling')
   const onlinePaymentsOn = orgFeatureChecker('onlinePayments')
   for (const org of orgRows || []) {
     const orgId = org.id
@@ -87,13 +86,12 @@ export async function GET(request: NextRequest) {
         console.error(`[cron/morning-update] service visits failed for org ${orgId}:`, error)
       })
     }
-    // Commission changes that couldn't be written yet (an approval was running, or the new pay week isn't on): retried
-    // every morning (lib/payroll-commission-change.ts; nothing waiting = one empty read).
-    if (await hourlyBillingOn(orgId)) {
-      await retryDueCommissionChanges(admin, orgId).catch((error) => {
-        console.error(`[cron/morning-update] commission change retry failed for org ${orgId}:`, error)
-      })
-    }
+    // Commission changes that couldn't be written yet (an approval was running, the new pay week isn't on, or an
+    // unexpected database error): retried every morning (lib/payroll-commission-change.ts; nothing waiting = one empty
+    // read). Not behind the hourly billing switch: pay already owed must not stop because the switch was turned off.
+    await retryDueCommissionChanges(admin, orgId).catch((error) => {
+      console.error(`[cron/morning-update] commission change retry failed for org ${orgId}:`, error)
+    })
     // Clocks left running overnight are stopped at the last tap and flagged before anyone's morning (time clock companies).
     if (await timeTrackingOn(orgId)) {
       await autoCloseForgotten(admin, orgId, { now }).catch((error) => {
