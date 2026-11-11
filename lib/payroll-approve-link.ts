@@ -63,6 +63,7 @@ export type LinkRow = { id: string; org_id: string; payroll_period_id: string; u
 /** The link for this token if it is unused and unexpired; null otherwise (one answer for wrong, used and expired alike). */
 export async function findApprovalLink(admin: SupabaseClient, token: string, now: Date = new Date()): Promise<LinkRow | null> {
   if (!/^[A-Za-z0-9_-]{20,100}$/.test(token)) return null
+  // org-scope-ok: the lookup key is the SHA-256 of a 256-bit secret; every caller then requires the row's org and user to be the signed-in owner's
   const { data } = await admin.from('payroll_approval_links').select('id, org_id, payroll_period_id, user_id, notified_total, notified_people, expires_at, used_at').eq('token_hash', hashToken(token)).maybeSingle()
   const row = data as LinkRow | null
   if (!row || row.used_at || new Date(row.expires_at).getTime() <= now.getTime()) return null
@@ -71,6 +72,7 @@ export async function findApprovalLink(admin: SupabaseClient, token: string, now
 
 /** Marks the link used exactly once; false if someone else just did. */
 export async function consumeApprovalLink(admin: SupabaseClient, id: string): Promise<boolean> {
+  // org-scope-ok: the id comes from a link row findApprovalLink returned for the signed-in owner
   const { data } = await admin.from('payroll_approval_links').update({ used_at: new Date().toISOString() }).eq('id', id).is('used_at', null).select('id')
   return (data ?? []).length === 1
 }

@@ -43,6 +43,10 @@
       "schedule": "0 1 * * *"
     },
     {
+      "path": "/api/cron/quickbooks",
+      "schedule": "43 6 * * *"
+    },
+    {
       "path": "/api/cron/instant-estimate-accuracy",
       "schedule": "17 7 * * *"
     },
