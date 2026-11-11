@@ -73,7 +73,9 @@ export function FileDropZone({
       <input
         ref={inputRef}
         type="file"
-        className="sr-only"
+        // display:none — the zone button above is the one control (still opens the picker via ref.click(); drag and drop
+        // goes to the button's onDrop). A 1px sr-only input would be a second, tiny tap target.
+        hidden
         tabIndex={-1}
         aria-hidden
         accept={accept}

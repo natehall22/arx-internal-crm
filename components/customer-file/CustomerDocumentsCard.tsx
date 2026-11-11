@@ -137,7 +137,7 @@ export default function CustomerDocumentsCard({
         {canUpload ? (
           <div className="flex flex-col gap-3 border-t border-surface-line pt-3">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <Field label="Type">
+              <Field label="Document type">
                 {(p) => (
                   <Select {...p} value={category} onChange={(e) => setCategory(e.target.value)} className="text-base">
                     {CUSTOMER_DOCUMENT_CATEGORIES.map((c) => (

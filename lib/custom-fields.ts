@@ -37,12 +37,14 @@ export type CustomFieldDefinition = {
   required: boolean
   sort: number
   active: boolean
+  /** Field roles (setters, canvassers, inside sales) see this customer / property field. Off by default. */
+  visible_to_field: boolean
 }
 
 export type CustomFieldValue = string | number | boolean
 export type CustomFieldValues = Record<string, CustomFieldValue>
 
-export const CUSTOM_FIELD_DEFINITION_COLUMNS = 'id, entity, label, field_type, options, required, sort, active'
+export const CUSTOM_FIELD_DEFINITION_COLUMNS = 'id, entity, label, field_type, options, required, sort, active, visible_to_field'
 
 export function isCustomFieldEntity(v: unknown): v is CustomFieldEntity {
   return typeof v === 'string' && (CUSTOM_FIELD_ENTITIES as readonly string[]).includes(v)
@@ -65,6 +67,7 @@ export function definitionFromRow(row: Record<string, unknown>): CustomFieldDefi
     required: row.required === true,
     sort: Number(row.sort) || 0,
     active: row.active !== false,
+    visible_to_field: row.visible_to_field === true,
   }
 }
 
@@ -155,9 +158,18 @@ export type ValuePatchResult =
   | { ok: true; set: CustomFieldValues; remove: string[] }
   | { ok: false; error: string; fieldId?: string }
 
+/** A value sent back unchanged from what is stored (form strings vs stored number / boolean). */
+export function sameAsStored(raw: unknown, stored: unknown): boolean {
+  if (isBlankValue(stored)) return isBlankValue(raw)
+  if (typeof stored === 'boolean') return raw === stored || raw === (stored ? 'yes' : 'no') || raw === String(stored)
+  if (typeof stored === 'number') return raw === stored || (typeof raw === 'string' && raw.trim() !== '' && Number(raw.replace(/,/g, '')) === stored)
+  return typeof raw === 'string' ? raw.trim() === String(stored) : raw === stored
+}
+
 /**
  * The ONE validator for saving values. `patch` = { [definition id]: value | null }; null / blank clears the value.
  * - Only ACTIVE fields of this entity may be written (a turned-off field keeps its stored value, read-only).
+ * - A value equal to what is stored is skipped (untouched), so only fields that actually changed are validated.
  * - Required: after the merge, every active required field must have a value. Fields not in the patch count with their
  *   current value, so the form (which always sends every field) is what enforces it; a single-field save on an old
  *   record that is missing some other required value is refused with that field's name.
@@ -172,7 +184,11 @@ export function validateValuePatch(
   const active = new Map(defs.filter((d) => d.entity === entity && d.active).map((d) => [d.id, d]))
   const set: CustomFieldValues = {}
   const remove: string[] = []
+  const stored = current ?? {}
   for (const [id, raw] of Object.entries(patch as Record<string, unknown>)) {
+    // Sent back exactly as stored = untouched: kept as-is, never re-validated (a dropdown choice removed from the list
+    // since must not stop someone saving the OTHER fields).
+    if (id in stored && sameAsStored(raw, stored[id])) continue
     const def = active.get(id)
     if (!def) return { ok: false, error: 'One of these fields was turned off or removed. Reload and try again.', fieldId: id }
     if (isBlankValue(raw)) {
@@ -207,8 +223,33 @@ export function fieldsToShow(defs: CustomFieldDefinition[], entity: CustomFieldE
   return orderedDefinitions(defs.filter((d) => d.entity === entity && (d.active || !isBlankValue(values?.[d.id]))))
 }
 
+/**
+ * What a viewer may see. Field roles (isFieldRole: setters, canvassers, inside sales) get only customer / property fields
+ * marked `visible_to_field` — the same deny-first rule as money and production. Everyone else gets every field.
+ */
+export function definitionsForViewer(defs: CustomFieldDefinition[], fieldRole: boolean): CustomFieldDefinition[] {
+  return fieldRole ? defs.filter((d) => d.entity !== 'job' && d.visible_to_field) : defs
+}
+
+/** Stored values limited to the fields a viewer may see (unknown / hidden keys dropped). */
+export function valuesForViewer(values: Record<string, unknown> | null | undefined, visible: CustomFieldDefinition[]): Record<string, unknown> {
+  const ids = new Set(visible.map((d) => d.id))
+  return Object.fromEntries(Object.entries(values ?? {}).filter(([k]) => ids.has(k)))
+}
+
+/**
+ * Drop `custom_fields` from a record that is about to leave the server through a generic path (customer search / detail
+ * API, the old customer account page). Field values reach people only through the Customer File / job cards, which
+ * apply definitionsForViewer.
+ */
+export function withoutCustomFields<T>(row: T): T {
+  if (!row || typeof row !== 'object' || !('custom_fields' in (row as object))) return row
+  const { custom_fields: _omit, ...rest } = row as Record<string, unknown>
+  return rest as T
+}
+
 export type DefinitionChange =
-  | { action: 'add'; entity: unknown; label: unknown; field_type: unknown; options?: unknown; required?: unknown }
-  | { action: 'update'; id: unknown; label?: unknown; options?: unknown; required?: unknown }
+  | { action: 'add'; entity: unknown; label: unknown; field_type: unknown; options?: unknown; required?: unknown; visible_to_field?: unknown }
+  | { action: 'update'; id: unknown; label?: unknown; options?: unknown; required?: unknown; visible_to_field?: unknown }
   | { action: 'setActive'; id: unknown; active: unknown }
   | { action: 'reorder'; entity: unknown; order: unknown }

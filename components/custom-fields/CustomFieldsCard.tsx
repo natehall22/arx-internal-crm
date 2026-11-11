@@ -23,12 +23,17 @@ export function draftFrom(defs: CustomFieldDefinition[], values: Record<string, 
   return out
 }
 
-/** The patch the API takes: every ACTIVE field shown, blank = clear (null). Turned-off fields are read-only, never sent. */
-export function patchFrom(defs: CustomFieldDefinition[], draft: DraftValues): Record<string, string | null> {
+/**
+ * The patch the API takes: ACTIVE fields, blank = clear (null). With `before` (the draft the form opened with) only the
+ * fields the person changed are sent, so an untouched value — e.g. a dropdown choice removed from the list since — is
+ * kept as stored. Turned-off fields are read-only, never sent.
+ */
+export function patchFrom(defs: CustomFieldDefinition[], draft: DraftValues, before?: DraftValues): Record<string, string | null> {
   const out: Record<string, string | null> = {}
   for (const d of defs) {
     if (!d.active) continue
     const v = (draft[d.id] ?? '').trim()
+    if (before && v === (before[d.id] ?? '').trim()) continue
     out[d.id] = v === '' ? null : v
   }
   return out
@@ -139,6 +144,7 @@ export default function CustomFieldsCard({
 }) {
   const [values, setValues] = React.useState(initialValues)
   const [draft, setDraft] = React.useState<DraftValues | null>(null)
+  const [opened, setOpened] = React.useState<DraftValues>({})
   const [saving, setSaving] = React.useState(false)
   const [errorField, setErrorField] = React.useState<string | null>(null)
   const shown = fieldsToShow(definitions, entity, values)
@@ -147,8 +153,14 @@ export default function CustomFieldsCard({
 
   async function save() {
     if (!draft) return
+    const patch = patchFrom(shown, draft, opened)
+    if (Object.keys(patch).length === 0) {
+      setDraft(null)
+      setErrorField(null)
+      return
+    }
     setSaving(true)
-    const r = await saveCustomFieldValues(entity, recordId, patchFrom(shown, draft))
+    const r = await saveCustomFieldValues(entity, recordId, patch)
     setSaving(false)
     if ('error' in r) {
       setErrorField(r.fieldId ?? null)
@@ -166,7 +178,11 @@ export default function CustomFieldsCard({
       <CardHeader>
         <CardTitle>{title}</CardTitle>
         {editable && !draft ? (
-          <Button size="sm" variant="secondary" onClick={() => setDraft(draftFrom(shown, values))}>
+          <Button size="sm" variant="secondary" onClick={() => {
+              const start = draftFrom(shown, values)
+              setOpened(start)
+              setDraft(start)
+            }}>
             Edit
           </Button>
         ) : null}

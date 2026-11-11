@@ -166,8 +166,8 @@ const SCREENS: Screen[] = [
   },
     states: [
       { name: 'properties-tab', run: async (p) => { await p.getByRole('tab', { name: 'Properties' }).click(); await p.waitForSelector('text=Mowing day') } },
-      { name: 'add-dropdown', run: async (p) => { await p.getByLabel('Type').selectOption('dropdown'); await p.waitForSelector('text=One per line.') } },
-      { name: 'choices-sheet', run: async (p) => { await p.getByRole('button', { name: 'Choices & required' }).first().click(); await p.waitForSelector('[role=dialog] >> text=Dropdown field') } },
+      { name: 'add-dropdown', run: async (p) => { await p.getByLabel('Field type').selectOption('dropdown'); await p.waitForSelector('text=One per line.') } },
+      { name: 'choices-sheet', run: async (p) => { await p.getByRole('button', { name: 'Choices & settings' }).first().click(); await p.waitForSelector('[role=dialog] >> text=Dropdown field') } },
     ] },
   { name: 'customer-records', path: '/dev-harness/customer-records', ready: 'text=Gate code 4421', mock: async (p) => {
     await p.route('**/api/properties/**', (route) => route.fulfill(json({ property: HARNESS_PROPERTIES[0] })))

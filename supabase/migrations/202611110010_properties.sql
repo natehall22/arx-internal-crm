@@ -29,17 +29,29 @@
 --   public.properties_before_write;
 
 BEGIN;
+SET LOCAL lock_timeout = '5s';   -- adds columns to busy tables: give up rather than queue behind a long transaction
 
--- "Same address": lower case, punctuation (except # and -) to spaces, collapsed whitespace, no trailing country.
--- "123 Main St., Tallahassee, FL 32301, USA" = "123 main st tallahassee fl 32301". Deliberately conservative: it does not
--- expand abbreviations (St/Street), so two spellings stay two properties rather than wrongly merging two places.
+-- "Same address": lower case, punctuation (except # and -) to spaces, collapsed whitespace, then dropped from the end: a
+-- country, a ZIP (12345 or 12345-6789), and a two-letter US state code when at least three words remain before it.
+-- "511 Allison St NW, Concord, NC 28027, USA" = "511 allison st nw concord nc" = "511 allison st nw concord"
+-- (but "12 Oak Ct" keeps its "ct": too few words before it for it to be a state). Deliberately conservative otherwise: no
+-- abbreviation expansion (St/Street), no house-number fuzz — near-duplicates are LISTED by the backfill preview for a
+-- person to confirm, never merged.
 CREATE OR REPLACE FUNCTION public.property_address_key(p text) RETURNS text
 LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
-  SELECT btrim(regexp_replace(
-           regexp_replace(
-             regexp_replace(lower(coalesce(p, '')), '[^a-z0-9#\- ]+', ' ', 'g'),
-             '\s+', ' ', 'g'),
-           '\s(usa|us|united states|united states of america)\s*$', '', 'g'));
+  WITH a AS (
+    SELECT btrim(regexp_replace(regexp_replace(lower(coalesce(p, '')), '[^a-z0-9#\- ]+', ' ', 'g'), '\s+', ' ', 'g')) AS s
+  ), b AS (   -- country, then ZIP
+    SELECT btrim(regexp_replace(
+             regexp_replace(s, '\s(usa|us|united states|united states of america)$', ''),
+             '\s\d{5}(-\d{4})?$', '')) AS s FROM a
+  )
+  SELECT CASE
+    WHEN s ~ '\s(al|ak|az|ar|ca|co|ct|de|dc|fl|ga|hi|id|il|in|ia|ks|ky|la|me|md|ma|mi|mn|ms|mo|mt|ne|nv|nh|nj|nm|ny|nc|nd|oh|ok|or|pa|ri|sc|sd|tn|tx|ut|vt|va|wa|wv|wi|wy)$'
+         AND array_length(regexp_split_to_array(s, ' '), 1) >= 4
+      THEN btrim(regexp_replace(s, '\s[a-z]{2}$', ''))
+    ELSE s END
+  FROM b;
 $$;
 
 CREATE TABLE IF NOT EXISTS public.properties (
@@ -161,8 +173,10 @@ BEGIN
   -- (c) A row moved to another customer (customer link / merge, contract repair) whose property is the OLD customer's:
   --     clear it and re-fill below for the new customer, so a property never points across customers.
   IF TG_OP = 'UPDATE' THEN
-    IF NEW.customer_id IS DISTINCT FROM OLD.customer_id AND NEW.property_id IS NOT NULL
-       AND NOT EXISTS (SELECT 1 FROM public.properties p WHERE p.id = NEW.property_id AND p.customer_id IS NOT DISTINCT FROM NEW.customer_id) THEN
+    -- (also a row that had no customer and gets one: it is filled like a new row)
+    IF NEW.customer_id IS DISTINCT FROM OLD.customer_id
+       AND (NEW.property_id IS NULL
+            OR NOT EXISTS (SELECT 1 FROM public.properties p WHERE p.id = NEW.property_id AND p.customer_id IS NOT DISTINCT FROM NEW.customer_id)) THEN
       NEW.property_id := NULL;
     ELSE
       RETURN NEW;
@@ -173,14 +187,14 @@ BEGIN
   IF NEW.property_id IS NOT NULL THEN RETURN NEW; END IF;
   BEGIN
     IF TG_TABLE_NAME = 'opportunities' THEN
-      v_id := public.ensure_property(NEW.org_id, NEW.customer_id, NEW.address_text, NEW.lat, NEW.lng, 'auto');
+      v_id := public.ensure_property(NEW.org_id, NEW.customer_id, NEW.address_text, NEW.lat::numeric, NEW.lng::numeric, 'auto');
     ELSIF TG_TABLE_NAME = 'production_jobs' THEN
       SELECT o.property_id INTO v_id
         FROM public.projects pr JOIN public.opportunities o ON o.id = pr.opportunity_id AND o.org_id = pr.org_id
        WHERE pr.id = NEW.project_id AND pr.org_id = NEW.org_id
          AND (NEW.customer_id IS NULL OR o.customer_id IS NOT DISTINCT FROM NEW.customer_id);
       IF v_id IS NULL THEN
-        v_id := public.ensure_property(NEW.org_id, NEW.customer_id, NEW.address_text, NEW.lat, NEW.lng, 'auto');
+        v_id := public.ensure_property(NEW.org_id, NEW.customer_id, NEW.address_text, NEW.lat::numeric, NEW.lng::numeric, 'auto');
       END IF;
     ELSIF TG_TABLE_NAME = 'work_orders' THEN
       SELECT j.property_id INTO v_id FROM public.production_jobs j
@@ -189,7 +203,7 @@ BEGIN
       IF v_id IS NULL THEN
         v_addr := nullif(concat_ws(', ', nullif(btrim(NEW.address), ''), nullif(btrim(NEW.city), ''),
                                    nullif(btrim(concat_ws(' ', nullif(btrim(NEW.state), ''), nullif(btrim(NEW.zip), ''))), '')), '');
-        v_id := public.ensure_property(NEW.org_id, NEW.customer_id, v_addr, NULL, NULL, 'auto');
+        v_id := public.ensure_property(NEW.org_id, NEW.customer_id, v_addr, NULL::numeric, NULL::numeric, 'auto');
       END IF;
     ELSIF TG_TABLE_NAME = 'documents' THEN
       IF NEW.job_id IS NOT NULL THEN
