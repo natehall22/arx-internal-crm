@@ -93,6 +93,38 @@ export async function refreshSupabaseSession(
 }
 
 /**
+ * End THIS browser's session on the Supabase side (scope=local: other devices stay signed in), so a copied cookie or
+ * refresh token stops working the moment the person logs out. An expired access token is first refreshed (the refresh keeps
+ * the same session id) because GoTrue refuses to log out with a dead token. Best effort and time-boxed: the caller clears
+ * the cookies whatever this returns. Returns true only when GoTrue confirmed the revoke.
+ */
+export async function revokeSupabaseSession(
+  session: { access_token?: string; refresh_token?: string; expires_at?: number } | null,
+  timeoutMs = 4000
+): Promise<boolean> {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  if (!supabaseUrl || !supabaseKey || !session) return false
+  try {
+    let accessToken = session.access_token
+    if ((!accessToken || isExpired(session.expires_at)) && session.refresh_token) {
+      accessToken = (await refreshSupabaseSession(session.refresh_token))?.access_token
+    }
+    if (!accessToken) return false
+    const res = await fetch(`${supabaseUrl}/auth/v1/logout?scope=local`, {
+      method: 'POST',
+      headers: { apikey: supabaseKey, Authorization: `Bearer ${accessToken}` },
+      cache: 'no-store',
+      signal: AbortSignal.timeout(timeoutMs),
+    })
+    return res.ok
+  } catch (e) {
+    console.log('session-refresh: revoke failed', e instanceof Error ? e.message : e)
+    return false
+  }
+}
+
+/**
  * Write the session onto a response as a single or chunked cookie
  * (same layout the login route produces), and expire any leftover
  * cookies from a previous single/chunked layout so parsing never
