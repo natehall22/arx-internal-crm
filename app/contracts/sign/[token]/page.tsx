@@ -3,7 +3,6 @@ export const dynamic = 'force-dynamic'
 import { createServiceClient } from '@/lib/supabase/service'
 import { customerSignedDocPath } from '@/lib/files/files-object'
 import { getDocumentBrand } from '@/lib/org-brand'
-import { isOrgFeatureOn } from '@/lib/org-features-server'
 import { noticeOfCancellation } from '@/lib/contracts/terms'
 import CustomerSigningForm from './CustomerSigningForm'
 
@@ -117,18 +116,5 @@ export default async function ContractSigningPage({
   // Shown as if signed now — the PDF computes the same notice from the signing time.
   const cancellationNotice = noticeOfCancellation(new Date().toISOString(), brand)
 
-  // Customer portal on: one quiet link to the customer's account (a light session from this signing link).
-  const portalOn = await isOrgFeatureOn(contract.org_id, 'customerPortal')
-  return (
-    <>
-      <CustomerSigningForm contract={contract} token={params.token} brand={brand} cancellationNotice={cancellationNotice} />
-      {portalOn ? (
-        <form method="post" action="/api/portal/open" className="bg-gray-50 pb-8 text-center">
-          <input type="hidden" name="source" value="sign" />
-          <input type="hidden" name="token" value={params.token} />
-          <button type="submit" className="min-h-[44px] text-base font-bold text-blue-700 underline">See everything on my account</button>
-        </form>
-      ) : null}
-    </>
-  )
+  return <CustomerSigningForm contract={contract} token={params.token} brand={brand} cancellationNotice={cancellationNotice} />
 }

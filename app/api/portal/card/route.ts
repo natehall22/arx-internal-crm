@@ -2,7 +2,6 @@ import { loadOnlinePayments } from '@/lib/online-payments/accounts'
 import { removeCardOnFile, setAutopayOff } from '@/lib/online-payments/cards'
 import { createPaymentLink, tooManyLinks } from '@/lib/online-payments/links'
 import { portalJson, requirePortalApi } from '@/lib/portal/api'
-import { portalCaps } from '@/lib/portal/server'
 
 export const dynamic = 'force-dynamic'
 
@@ -15,7 +14,6 @@ export async function POST(request: Request) {
   const c = await requirePortalApi(request)
   if (c instanceof Response) return c
   const { admin, session } = c
-  if (!portalCaps(session).card) return portalJson({ error: 'Please sign in with the link we email you to change your card.' }, 403)
   const body = (await request.json().catch(() => ({}))) as { action?: unknown }
   const op = await loadOnlinePayments(admin, session.orgId)
   if (!op.featureOn) return portalJson({ error: 'Not found' }, 404)

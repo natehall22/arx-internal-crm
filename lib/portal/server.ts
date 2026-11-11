@@ -26,20 +26,10 @@ import { getCrmEmailFrom, getMailTransport } from '@/lib/setter-email'
 import { isUsableCustomerEmail } from '@/lib/invoice-document'
 import { orgDb } from '@/lib/supabase/org-db'
 
-export type PortalVia = 'email_link' | 'pay_link' | 'sign_link'
-/**
- * `full` = signed in with an emailed link (proof of the customer's own inbox). A session opened from a pay / signing link
- * is LIGHT (full: false): those links get forwarded (to a spouse, a payer), so they never unlock shared documents, photos or
- * the saved card — only what the link's own page could already do, plus the customer's visits, invoices and messages.
- */
-export type PortalSession = { sessionId: string; orgId: string; customerId: string; via: PortalVia; full: boolean }
+/** A signed-in portal visitor: ONE customer of ONE company. Only an emailed sign-in link makes one — never a pay / signing / report link (those get forwarded). */
+export type PortalSession = { sessionId: string; orgId: string; customerId: string }
 
-/** What a session may open beyond visits / invoices / messages: documents + photos + card = emailed-link sessions only; contracts also from a signing link. */
-export function portalCaps(s: Pick<PortalSession, 'via'>) {
-  return { documents: s.via === 'email_link', card: s.via === 'email_link', contracts: s.via === 'email_link' || s.via === 'sign_link' }
-}
-
-export type PortalEventKind = 'link_requested' | 'link_sent' | 'link_no_match' | 'link_blocked' | 'login' | 'login_failed' | 'login_via_link' | 'logout'
+export type PortalEventKind = 'link_requested' | 'link_sent' | 'link_no_match' | 'link_blocked' | 'login' | 'login_failed' | 'logout'
 
 /** Limits (per window). Every one is a shared SQL counter, so all server instances count together. */
 export const PORTAL_LIMITS = {
@@ -94,10 +84,10 @@ export function clearSessionCookie(res: NextResponse): void {
 }
 
 /** Start a session for one customer of one company; returns the cookie value. */
-export async function startPortalSession(admin: SupabaseClient, orgId: string, customerId: string, via: PortalVia, now: Date = new Date()): Promise<{ token: string; expires: Date }> {
+export async function startPortalSession(admin: SupabaseClient, orgId: string, customerId: string, now: Date = new Date()): Promise<{ token: string; expires: Date }> {
   const token = newPortalToken()
   const expires = sessionExpiry(now)
-  const { error } = await orgDb(admin, orgId).from('portal_sessions').insert({ customer_id: customerId, token_hash: hashPortalToken(token), via, expires_at: expires.toISOString() })
+  const { error } = await orgDb(admin, orgId).from('portal_sessions').insert({ customer_id: customerId, token_hash: hashPortalToken(token), expires_at: expires.toISOString() })
   if (error) throw new Error(`Could not start a portal session: ${error.message}`)
   return { token, expires }
 }
@@ -117,10 +107,10 @@ export async function getPortalSession(admin: SupabaseClient): Promise<PortalSes
   // org-scope-ok: lookup by the hash of a secret session token — the row it finds names its own company
   const { data } = await admin
     .from('portal_sessions')
-    .select('id, org_id, customer_id, via, expires_at, revoked_at, last_seen_at')
+    .select('id, org_id, customer_id, expires_at, revoked_at, last_seen_at')
     .eq('token_hash', hashPortalToken(raw))
     .maybeSingle()
-  const row = data as { id: string; org_id: string; customer_id: string; via: string; expires_at: string; revoked_at: string | null; last_seen_at: string | null } | null
+  const row = data as { id: string; org_id: string; customer_id: string; expires_at: string; revoked_at: string | null; last_seen_at: string | null } | null
   if (!row || row.revoked_at || Date.parse(row.expires_at) <= Date.now()) return null
   if (!fenceAllowsOrg(await getRequestHostFence(), row.org_id)) return null
   if (!(await isOrgFeatureOn(row.org_id, 'customerPortal'))) return null
@@ -129,7 +119,7 @@ export async function getPortalSession(admin: SupabaseClient): Promise<PortalSes
   if (!row.last_seen_at || Date.now() - Date.parse(row.last_seen_at) > 10 * 60_000) {
     await orgDb(admin, row.org_id).from('portal_sessions').update({ last_seen_at: new Date().toISOString() }).eq('id', row.id)
   }
-  return { sessionId: row.id, orgId: row.org_id, customerId: row.customer_id, via: row.via as PortalVia, full: row.via === 'email_link' }
+  return { sessionId: row.id, orgId: row.org_id, customerId: row.customer_id }
 }
 
 export async function endPortalSession(admin: SupabaseClient, s: PortalSession, ip?: string | null): Promise<void> {

@@ -9,7 +9,6 @@ import { fenceAllowsOrg } from '@/lib/company-host'
 import { getRequestHostFence } from '@/lib/company-host-server'
 import { orgLogoHref } from '@/lib/files/files-object'
 import { findOrgInvoice } from '@/lib/invoices'
-import { isOrgFeatureOn } from '@/lib/org-features-server'
 import { getDocumentBrand } from '@/lib/org-brand'
 import { orgDb } from '@/lib/supabase/org-db'
 import { loadOnlinePayments, type OnlinePayments } from '@/lib/online-payments/accounts'
@@ -32,8 +31,6 @@ export type PayPageView = {
   canSaveCard: boolean
   consentText: string
   cardOnFile: string | null
-  /** The company's customer portal is on: the page offers "See everything on my account" (a light session from this link). */
-  portalOpen?: boolean
 }
 
 /** The live link for this request, or null (bad token, expired, revoked, or the wrong company's address). */
@@ -51,9 +48,7 @@ export async function loadPayPageView(admin: SupabaseClient, link: PaymentLinkRo
   const { data: org } = await admin.from('orgs').select('logo_url, settings').eq('id', orgId).maybeSingle()
   const logoHref = orgLogoHref(orgId, (org ?? {}) as Parameters<typeof orgLogoHref>[1])
   const company = { name: brand.casualName || brand.name, phone: brand.phone, email: brand.email, logoHref }
-  const portalOpen = await isOrgFeatureOn(orgId, 'customerPortal')
   const base = {
-    portalOpen,
     company,
     allowPartial: online.settings.allowPartial,
     minPartialCents: MIN_PARTIAL_CENTS,

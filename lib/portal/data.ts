@@ -17,7 +17,6 @@ import { isOrgFeatureOn } from '@/lib/org-features-server'
 import { BILLING_BASIS_LABELS, scheduleSummary, ymdInZone, type BillingBasis, type Season } from '@/lib/service-plans'
 import { orgDb } from '@/lib/supabase/org-db'
 import type { PortalSession } from '@/lib/portal/server'
-import { portalCaps } from '@/lib/portal/server'
 
 export type PortalVisit = { id: string; date: string | null; service: string; address: string | null; done: boolean }
 export type PortalInvoice = { id: string; number: string; status: 'sent' | 'partially_paid' | 'paid'; totalCents: number; balanceCents: number; issuedAt: string | null; dueAt: string | null }
@@ -75,7 +74,6 @@ async function ownIds(admin: SupabaseClient, orgId: string, customerId: string) 
 export async function loadPortalHome(admin: SupabaseClient, s: PortalSession): Promise<PortalHome | null> {
   const { orgId, customerId } = s
   const db = orgDb(admin, orgId)
-  const caps = portalCaps(s)
   const { data: cust } = await db.from('customers').select('id, name').eq('id', customerId).maybeSingle()
   if (!cust) return null
 
@@ -127,7 +125,7 @@ export async function loadPortalHome(admin: SupabaseClient, s: PortalSession): P
 
   // ---- quotes / contracts waiting to be signed, and signed copies ----
   let contracts: PortalContract[] = []
-  if (caps.contracts && ids.oppIds.length) {
+  if (ids.oppIds.length) {
     const rows = await soft<{ id: string; project_address: string; project_cost: number | null; status: string; signing_token: string; token_expires_at: string; created_at: string }>('contracts', () =>
       db.from('order_form_contracts').select('id, project_address, project_cost, status, signing_token, token_expires_at, created_at').in('opportunity_id', ids.oppIds.slice(0, CHUNK)).in('status', ['pending_customer', 'completed']).order('created_at', { ascending: false }).limit(MAX.contracts)
     )
@@ -148,7 +146,7 @@ export async function loadPortalHome(admin: SupabaseClient, s: PortalSession): P
 
   // ---- documents and photos the company chose to share ----
   const documents: PortalDocument[] = []
-  if (caps.documents) {
+  {
     const docCols = 'id, title, filename, created_at'
     const base = () => db.from('documents').select(docCols).eq('shared_with_customer', true).eq('status', 'active').is('deleted_at', null).order('created_at', { ascending: false }).limit(MAX.documents)
     type DocRow = { id: string; title: string | null; filename: string; created_at: string }
@@ -186,7 +184,7 @@ export async function loadPortalHome(admin: SupabaseClient, s: PortalSession): P
 
   // ---- saved card / autopay ----
   let card: PortalCard | null = null
-  if (caps.documents && (await isOrgFeatureOn(orgId, 'onlinePayments'))) {
+  if (await isOrgFeatureOn(orgId, 'onlinePayments')) {
     const op = await loadOnlinePayments(admin, orgId)
     const c = await loadCardOnFile(admin, orgId, customerId)
     card = { available: op.ready && op.settings.autopay, label: c ? cardLabel(c) : null, autopay: !!c?.autopay, expired: c ? cardExpired(c, new Date()) : false }
@@ -223,7 +221,7 @@ export async function findPortalInvoice(admin: SupabaseClient, s: PortalSession,
 
 /** A shared document or photo of THIS customer: its storage path, or null. */
 export async function findPortalFile(admin: SupabaseClient, s: PortalSession, kind: 'document' | 'photo', id: string): Promise<{ storagePath: string; filename: string } | null> {
-  if (!portalCaps(s).documents || !/^[0-9A-Za-z_-]{1,64}$/.test(id)) return null
+  if (!/^[0-9A-Za-z_-]{1,64}$/.test(id)) return null
   const db = orgDb(admin, s.orgId)
   const ids = await ownIds(admin, s.orgId, s.customerId)
   if (kind === 'document') {

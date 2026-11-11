@@ -42,15 +42,13 @@ jest.mock('@/lib/company-recipient', () => ({ resolveCompanyInboxEmail: async ()
 jest.mock('@/lib/cron-orgs', () => ({ loadOrgTimeZone: async () => 'America/New_York' }))
 jest.mock('@/lib/org-trades', () => ({ loadOrgTrades: async () => [], tradeLabel: (s: string) => s }))
 
-import { customerFromLink } from '@/lib/portal/from-links'
 import { findPortalFile, findPortalInvoice, loadPortalHome } from '@/lib/portal/data'
 import {
-  consumeLoginLink, endPortalSession, getPortalSession, portalCaps, portalOrgForRequest, requestLoginLink, startPortalSession, PORTAL_LIMITS, type PortalSession,
+  consumeLoginLink, endPortalSession, getPortalSession, portalOrgForRequest, requestLoginLink, startPortalSession, PORTAL_LIMITS, type PortalSession,
 } from '@/lib/portal/server'
 import { hashPortalToken, isWellFormedPortalToken, newPortalToken, parsePortalIdentifier } from '@/lib/portal/tokens'
 import { POST as requestLinkPOST } from '@/app/api/portal/request-link/route'
 import { POST as enterPOST } from '@/app/api/portal/enter/route'
-import { POST as openPOST } from '@/app/api/portal/open/route'
 import { POST as messagesPOST } from '@/app/api/portal/messages/route'
 import { POST as payPOST } from '@/app/api/portal/invoices/[id]/pay/route'
 import { POST as cardPOST } from '@/app/api/portal/card/route'
@@ -161,8 +159,8 @@ beforeEach(() => {
 })
 
 const admin = () => db.client
-const sessionFor = async (org: string, cust: string, via: 'email_link' | 'pay_link' | 'sign_link' = 'email_link'): Promise<PortalSession> => {
-  const s = await startPortalSession(admin(), org, cust, via)
+const sessionFor = async (org: string, cust: string): Promise<PortalSession> => {
+  const s = await startPortalSession(admin(), org, cust)
   mockCookie = s.token
   const got = await getPortalSession(admin())
   if (!got) throw new Error('no session')
@@ -411,53 +409,26 @@ describe('isolation: customer a2 sees only a2', () => {
   })
 })
 
-describe('links from pay / signing pages open a LIGHT session; the report link never does', () => {
-  const live = () => ({ expires_at: iso(5), revoked_at: null })
-  test('signing link: only this company, not expired, not voided; opens a sign_link session that cannot see documents or the card', async () => {
-    expect(await customerFromLink(admin(), 'sign', 'a2a2a2a2-0000-4000-8000-000000000002', A)).toEqual({ orgId: A, customerId: 'a2', via: 'sign_link' })
-    expect(await customerFromLink(admin(), 'sign', 'a2a2a2a2-0000-4000-8000-000000000002', B)).toBeNull()
-    expect(await customerFromLink(admin(), 'sign', 'b1b1b1b1-0000-4000-8000-000000000003', A)).toBeNull()
-    db.tables.order_form_contracts[1].token_expires_at = iso(-1)
-    expect(await customerFromLink(admin(), 'sign', 'a2a2a2a2-0000-4000-8000-000000000002', A)).toBeNull()
-    expect(await customerFromLink(admin(), 'sign', 'not-a-uuid', A)).toBeNull()
-    expect(await customerFromLink(admin(), 'report' as never, 'anything', A)).toBeNull()
-  })
-  test('pay link of another company on this address is refused; same company opens the customer’s own light session', async () => {
-    const tok = newPortalToken()
-    const tokB = newPortalToken()
-    db.tables.payment_links.push(
-      { id: 'pl1', org_id: A, kind: 'invoice', invoice_id: 'inv-a2', customer_id: null, token_hash: hashPortalToken(tok), ...live() },
-      { id: 'pl2', org_id: B, kind: 'save_card', invoice_id: null, customer_id: 'b1', token_hash: hashPortalToken(tokB), ...live() }
-    )
-    expect(await customerFromLink(admin(), 'pay', tok, A)).toEqual({ orgId: A, customerId: 'a2', via: 'pay_link' })
-    expect(await customerFromLink(admin(), 'pay', tokB, A)).toBeNull()
-    expect(await customerFromLink(admin(), 'pay', tokB, B)).toEqual({ orgId: B, customerId: 'b1', via: 'pay_link' })
-    const r = await openPOST(form('/api/portal/open', { source: 'pay', token: tok }))
-    expect(r.status).toBe(303)
-    expect(r.headers.get('set-cookie')).toMatch(/portal_session=/)
-    const bad = await openPOST(form('/api/portal/open', { source: 'pay', token: tokB }))
-    expect(bad.headers.get('set-cookie')).toBeNull()
-  })
-  test('a light session sees invoices / visits / messages but no documents, photos or card; a signing-link session also sees contracts', async () => {
-    const pay = await sessionFor(A, 'a2', 'pay_link')
-    expect(portalCaps(pay)).toEqual({ documents: false, card: false, contracts: false })
-    const homePay = (await loadPortalHome(admin(), pay))!
-    expect(homePay.documents).toEqual([])
-    expect(homePay.contracts).toEqual([])
-    expect(homePay.card).toBeNull()
-    expect(homePay.invoices.length).toBe(2)
-    expect(await findPortalFile(admin(), pay, 'document', 'doc-a2')).toBeNull()
-    expect((await filesGET(new Request('https://x/api/portal/files/document/doc-a2'), { params: { kind: 'document', id: 'doc-a2' } })).status).toBe(404)
-    const card = await cardPOST(post('/api/portal/card', { action: 'remove' }))
-    expect(card.status).toBe(403)
-    const sign = await sessionFor(A, 'a2', 'sign_link')
-    expect(portalCaps(sign).contracts).toBe(true)
-    expect((await loadPortalHome(admin(), sign))!.contracts.map((c) => c.id)).toEqual(['c-a2'])
+describe('forwardable links are never a key to the portal', () => {
+  test('no route turns a pay, signing or report link into a session; only the emailed sign-in link does', () => {
+    const fs = require('fs') as typeof import('fs')
+    const path = require('path') as typeof import('path')
+    const root = path.join(process.cwd(), 'app/api/portal')
+    expect(fs.existsSync(path.join(root, 'open'))).toBe(false)
+    expect(fs.existsSync(path.join(process.cwd(), 'lib/portal/from-links.ts'))).toBe(false)
+    const starters: string[] = []
+    const walkDir = (d: string) => {
+      for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+        const f = path.join(d, e.name)
+        if (e.isDirectory()) walkDir(f)
+        else if (/startPortalSession/.test(fs.readFileSync(f, 'utf8'))) starters.push(path.relative(root, f))
+      }
+    }
+    walkDir(root)
+    expect(starters).toEqual(['enter/route.ts'])
   })
   test('the same routes refuse everything when the company turned the portal off', async () => {
     mockFeatureOff = new Set(['customerPortal'])
-    const r = await openPOST(form('/api/portal/open', { source: 'sign', token: 'a2a2a2a2-0000-4000-8000-000000000002' }))
-    expect(r.headers.get('set-cookie')).toBeNull()
     const t = newPortalToken()
     db.tables.portal_login_tokens = [{ id: 'x', org_id: A, customer_id: 'a2', token_hash: hashPortalToken(t), expires_at: iso(1), used_at: null }]
     const e = await enterPOST(form('/api/portal/enter', { t }))
