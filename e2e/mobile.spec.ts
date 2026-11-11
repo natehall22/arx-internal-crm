@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import { REPORT_TEMPLATES } from '../lib/reporting/templates'
-import { JOB_SETUP_TRADES, HARNESS_TRADES_0037, HARNESS_PAYMENTS_0037, SUPPLIER_VIEW_0037, HARNESS_INCENTIVES, HARNESS_LEADERBOARD, HARNESS_INSIDE_SALES, HARNESS_INSTALL_SCHEDULE, HARNESS_PARTNERS, HARNESS_APPOINTMENTS, HARNESS_THREAD, HARNESS_PROPOSALS, HARNESS_LEADS, ANNOUNCEMENTS, BANNER, DEFAULT_PLANS, COST_LINES, SUPPLIERS, PAY_WEEK, MY_PAY, REPORT_RESULT, SALE_CREDIT, SUPPLIER_PREVIEW, SUPPLIER_VIEW, TEMPLATE_META, USERS, HARNESS_OWNER_CANDIDATES } from './fixtures'
+import { JOB_SETUP_TRADES, HARNESS_TRADES_0037, HARNESS_PAYMENTS_0037, SUPPLIER_VIEW_0037, HARNESS_INCENTIVES, HARNESS_LEADERBOARD, HARNESS_INSIDE_SALES, HARNESS_INSTALL_SCHEDULE, HARNESS_PARTNERS, HARNESS_APPOINTMENTS, HARNESS_THREAD, HARNESS_PROPOSALS, HARNESS_LEADS, ANNOUNCEMENTS, BANNER, DEFAULT_PLANS, COST_LINES, SUPPLIERS, PAY_WEEK, MY_PAY, REPORT_RESULT, SALE_CREDIT, SUPPLIER_PREVIEW, SUPPLIER_VIEW, TEMPLATE_META, USERS, HARNESS_OWNER_CANDIDATES, HARNESS_CUSTOM_FIELDS, HARNESS_PROPERTIES } from './fixtures'
 
 const json = (body: unknown, status = 200) => ({ status, contentType: 'application/json', body: JSON.stringify(body) })
 
@@ -161,6 +161,25 @@ const SCREENS: Screen[] = [
       { name: 'renaming', run: async (p) => { await p.getByRole('button', { name: 'Rename' }).first().click(); await p.waitForSelector('input[aria-label="New name for Roofing"]') } },
       { name: 'adding', run: async (p) => { await p.getByLabel('Add a trade').fill('Painting'); await p.waitForTimeout(100) } },
     ] },
+  { name: 'custom-fields-admin', path: '/dev-harness/custom-fields-admin', ready: 'text=Payment terms', mock: async (p) => {
+    await p.route('**/api/admin/custom-fields', (route) => route.fulfill(json(HARNESS_CUSTOM_FIELDS)))
+  },
+    states: [
+      { name: 'properties-tab', run: async (p) => { await p.getByRole('tab', { name: 'Properties' }).click(); await p.waitForSelector('text=Mowing day') } },
+      { name: 'add-dropdown', run: async (p) => { await p.getByLabel('Type').selectOption('dropdown'); await p.waitForSelector('text=One per line.') } },
+      { name: 'choices-sheet', run: async (p) => { await p.getByRole('button', { name: 'Choices & required' }).first().click(); await p.waitForSelector('[role=dialog] >> text=Dropdown field') } },
+    ] },
+  { name: 'customer-records', path: '/dev-harness/customer-records', ready: 'text=Gate code 4421', mock: async (p) => {
+    await p.route('**/api/properties/**', (route) => route.fulfill(json({ property: HARNESS_PROPERTIES[0] })))
+    await p.route('**/api/custom-fields/values', (route) => route.fulfill(json({ values: { 'cf-gate': 'Dana', 'cf-terms': 'Net 30' } })))
+  },
+    states: [
+      { name: 'property-sheet', run: async (p) => { await p.getByRole('button', { name: 'Edit' }).nth(1).click(); await p.waitForSelector('[role=dialog] >> text=Gate / access notes') } },
+      { name: 'add-property', run: async (p) => { await p.getByRole('button', { name: '+ Add property' }).click(); await p.waitForSelector('[role=dialog] >> text=Street address *') } },
+      { name: 'details-editing', run: async (p) => { await p.getByRole('button', { name: 'Edit' }).first().click(); await p.waitForSelector('text=Payment terms *') } },
+      { name: 'turned-off', run: async (p) => { await p.getByRole('button', { name: /Show turned-off properties/ }).click(); await p.waitForSelector('text=5 Old Shell Rd, Medart, FL 32327') } },
+    ] },
+  { name: 'customer-records-plain', path: '/dev-harness/customer-records-plain', ready: 'text=+ Add another property' },
   { name: 'settings-hub', path: '/dev-harness/settings-hub', ready: 'text=People & access',
     states: [{ name: 'searching', run: async (p) => { await p.getByRole('searchbox').fill('commission'); await p.waitForTimeout(200) } }] },
   { name: 'today-queues', path: '/dev-harness/today', ready: 'text=Proposals waiting for a signature' },
