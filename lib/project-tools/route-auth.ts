@@ -6,6 +6,7 @@ import { NextResponse } from 'next/server'
 
 import { requireAuthApi } from '@/lib/auth'
 import { resolveOpsAccess } from '@/lib/ops-access'
+import { resolveSalesDocAccessBarred } from '@/lib/sales-doc-access'
 import { orgFeatureOffResponse } from '@/lib/org-features-server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { orgDb } from '@/lib/supabase/org-db'
@@ -34,7 +35,7 @@ export async function projectToolsAuth(jobId: string): Promise<ProjectToolsAuth>
   if (off) return { ok: false, response: off }
   const admin = createServiceClient()
   const access = await resolveOpsAccess(admin, authUser.id, profile)
-  if (!access.canJobBoard) return { ok: false, response: NextResponse.json({ error: 'Forbidden' }, { status: 403 }) }
+  if (!access.canJobBoard || (await resolveSalesDocAccessBarred(admin, authUser.id, profile))) return { ok: false, response: NextResponse.json({ error: 'Forbidden' }, { status: 403 }) }
   const { data: job } = await orgDb(admin, profile.org_id)
     .from('production_jobs')
     .select('id, project_id, customer_id, address_text, job_number, sale_amount, lat, lng, status')

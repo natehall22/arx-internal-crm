@@ -10,6 +10,7 @@ import { getRequestHostFence } from '@/lib/company-host-server'
 import { orgLogoHref } from '@/lib/files/files-object'
 import { orgAppUrl } from '@/lib/company-links'
 import { getDocumentBrand } from '@/lib/org-brand'
+import { isOrgFeatureOn } from '@/lib/org-features-server'
 import { orgDb } from '@/lib/supabase/org-db'
 import { readStoredOptions, type SelectionOption } from '@/lib/selections'
 
@@ -29,14 +30,16 @@ export type PublicSelectionView = {
 
 export type ResolvedSelection = { id: string; org_id: string; job_id: string; item: string; allowance: number; options: SelectionOption[]; due_date: string | null; status: string; chosen_label: string | null; change_order_id: string | null }
 
-/** The live selection for this link on this address, else null (bad/expired/cancelled link, or another company's address). */
-export async function resolveSelectionLink(admin: SupabaseClient, token: unknown): Promise<ResolvedSelection | null> {
+/** The live selection for this link on this address, else null (bad/expired/cancelled link, or another company's address); 'feature_off' when the company has switched project tools off. */
+export async function resolveSelectionLink(admin: SupabaseClient, token: unknown): Promise<ResolvedSelection | 'feature_off' | null> {
   if (typeof token !== 'string' || !TOKEN_RE.test(token)) return null
   // org-scope-ok: the link token IS the key (unique, unguessable); everything after reads by this row's own org.
   const { data } = await admin.from('job_selections').select('id, org_id, job_id, item, allowance, options, due_date, status, chosen_label, change_order_id, token_expires_at').eq('link_token', token).maybeSingle()
   if (!data || data.status === 'cancelled' || data.status === 'draft') return null
   if (data.token_expires_at && new Date(data.token_expires_at) < new Date()) return null
   if (!fenceAllowsOrg(await getRequestHostFence(), data.org_id)) return null
+  // Switched off, the customer's link goes dark too (404), not just the office's card.
+  if (!(await isOrgFeatureOn(data.org_id, 'projectTools'))) return 'feature_off'
   return { id: data.id, org_id: data.org_id, job_id: data.job_id, item: data.item, allowance: Number(data.allowance), options: readStoredOptions(data.options), due_date: data.due_date, status: data.status, chosen_label: data.chosen_label, change_order_id: data.change_order_id }
 }
 

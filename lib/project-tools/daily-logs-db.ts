@@ -84,13 +84,19 @@ export async function createDailyLog(
   return { log: data as DailyLogView }
 }
 
-/** Email one log to the customer ("Send summary"). Once per log unless `again`. */
-export async function sendDailyLogSummary(admin: SupabaseClient, args: { orgId: string; jobId: string; logId: string; senderName: string; job: { customer_id: string | null; project_id: string | null; address_text: string | null } }): Promise<{ sentTo: string } | Fail> {
+/** Email one log to the customer ("Send summary"). Once per log unless `again`: the send is CLAIMED first (summary_sent_at), so a double tap or two devices send one email; a failed send releases the claim. */
+export async function sendDailyLogSummary(admin: SupabaseClient, args: { orgId: string; jobId: string; logId: string; senderName: string; again?: boolean; job: { customer_id: string | null; project_id: string | null; address_text: string | null } }): Promise<{ sentTo: string } | Fail> {
   const db = orgDb(admin, args.orgId)
   const { data: log } = await db.from('job_daily_logs').select(COLUMNS).eq('id', args.logId).eq('job_id', args.jobId).maybeSingle()
   if (!log) return { error: 'Log not found', status: 404 }
   const contact = await loadJobContact(admin, args.orgId, args.job)
   if (!contact.email) return { error: 'There is no email address on file for this customer.', status: 409 }
+  const claimAt = new Date().toISOString()
+  let claim = db.from('job_daily_logs').update({ summary_sent_at: claimAt, summary_sent_to: contact.email }).eq('id', args.logId).eq('job_id', args.jobId)
+  if (!args.again) claim = claim.is('summary_sent_at', null)
+  const { data: claimed } = await claim.select('id')
+  if (!claimed || claimed.length === 0) return { error: 'This summary was already sent to the customer.', status: 409 }
+  const release = () => (args.again ? Promise.resolve() : db.from('job_daily_logs').update({ summary_sent_at: null, summary_sent_to: null }).eq('id', args.logId).eq('job_id', args.jobId).eq('summary_sent_at', claimAt))
   const brand = await getDocumentBrand(admin, args.orgId)
   const dateLabel = ymdLabel(log.log_date, { long: true })
   const mail = buildDailyLogSummaryEmail({ brand, customerName: contact.name, dateLabel, address: contact.address, note: log.note || 'Work continued on your project today.', weather: log.weather, photoCount: (log.photo_ids ?? []).length, repName: args.senderName || brand.name })
@@ -99,8 +105,8 @@ export async function sendDailyLogSummary(admin: SupabaseClient, args: { orgId: 
     await transporter.sendMail({ from: getCrmEmailFrom(), to: contact.email, subject: mail.subject, text: mail.text, html: mail.html })
   } catch (e) {
     console.error('[daily log] summary email failed', e)
+    await release()
     return { error: 'The email could not be sent. Try again.', status: 502 }
   }
-  await db.from('job_daily_logs').update({ summary_sent_at: new Date().toISOString(), summary_sent_to: contact.email }).eq('id', args.logId).eq('job_id', args.jobId)
   return { sentTo: contact.email }
 }

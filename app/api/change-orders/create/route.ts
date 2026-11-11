@@ -7,10 +7,16 @@ import { firstForeignRef } from '@/lib/supabase/org-db'
 import { generateChangeOrderPdf } from '@/lib/contracts/generateChangeOrderPdf'
 import { syncJobSaleForProjectOrJob } from '@/lib/job-commission-base'
 import { getDocumentBrand } from '@/lib/org-brand'
+import { resolveSalesDocAccessBarred } from '@/lib/sales-doc-access'
 
 export async function POST(request: NextRequest) {
   try {
-    const { profile } = await requireAuthApi()
+    const { authUser, profile } = await requireAuthApi()
+    // Field roles (setter, canvasser, inside sales, call center) never touch contract money. The remote path writes with the
+    // service client, so the old field-role RLS deny (202610290020) no longer stops them: check here, before any grant.
+    if (await resolveSalesDocAccessBarred(createServiceClient(), authUser.id, profile)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
     const supabase = createClient()
     const body = await request.json()
 

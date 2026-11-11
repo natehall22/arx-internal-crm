@@ -6,6 +6,7 @@
  * A company's own list (`org_cost_codes`) replaces the built-in defaults; codes are turned off, never deleted.
  * A budget is a sibling table keyed (job, code); actuals always come from the ledger.
  */
+import { isDealerFeeCostLine } from '@/lib/job-cost-ledger'
 import { roundMoney } from '@/lib/money'
 
 export type CostCode = { code: string; label: string; costType: string | null; active: boolean }
@@ -85,7 +86,7 @@ export function buildBudgetView(args: {
   const actualBy = new Map<string, number>()
   for (const l of args.lines) {
     // The mirrored dealer-fee line is a financing cost, not job cost (lib/job-cost-ledger.ts): never in a budget comparison.
-    if ((l.description ?? '').trim() === 'Lender / dealer fee') continue
+    if (isDealerFeeCostLine(l)) continue
     const code = codeForLine(l)
     actualBy.set(code, roundMoney((actualBy.get(code) ?? 0) + Number(l.amount || 0)))
   }

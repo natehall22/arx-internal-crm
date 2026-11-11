@@ -14,6 +14,7 @@ import { createRemoteChangeOrder } from '@/lib/change-orders-remote'
 import { orgAppUrl } from '@/lib/company-links'
 import { buildSelectionRequestEmail } from '@/lib/contracts/customer-emails'
 import { getCrmEmailFrom } from '@/lib/crm-email-from'
+import { currentContractTotal } from '@/lib/job-commission-base'
 import { getPaymentsByJob } from '@/lib/job-payments'
 import { sumCollectedCents } from '@/lib/job-collection'
 import { roundMoney } from '@/lib/money'
@@ -47,6 +48,8 @@ export type SelectionView = {
   change_order_url: string | null
   chosen_by_name: string | null
   chosen_source: string | null
+  /** Chosen over the allowance, but the change order was never made or its signing link ran out: staff can send it again or cancel. */
+  needs_attention: boolean
 }
 
 type Row = Record<string, unknown>
@@ -65,10 +68,10 @@ export async function listSelections(admin: SupabaseClient, orgId: string, jobId
   }
   const rows = (data ?? []) as Row[]
   const coIds = Array.from(new Set(rows.map((r) => r.change_order_id).filter((x): x is string => typeof x === 'string')))
-  const coBy = new Map<string, { status: string | null; co_number: string; signing_token: string | null }>()
+  const coBy = new Map<string, { status: string | null; co_number: string; signing_token: string | null; token_expires_at: string | null }>()
   if (coIds.length > 0) {
-    const { data: cos } = await db.from('job_change_orders').select('id, status, co_number, signing_token').in('id', coIds)
-    for (const c of (cos ?? []) as Array<{ id: string; status: string | null; co_number: string; signing_token: string | null }>) coBy.set(c.id, c)
+    const { data: cos } = await db.from('job_change_orders').select('id, status, co_number, signing_token, token_expires_at').in('id', coIds)
+    for (const c of (cos ?? []) as Array<{ id: string; status: string | null; co_number: string; signing_token: string | null; token_expires_at: string | null }>) coBy.set(c.id, c)
   }
   const appUrl = rows.some((r) => r.link_token || r.change_order_id) ? await orgAppUrl(orgId).catch(() => null) : null
   const selections = rows.map((r): SelectionView => {
@@ -80,6 +83,9 @@ export async function listSelections(admin: SupabaseClient, orgId: string, jobId
       change_order_id: (r.change_order_id as string | null) ?? null,
       due_date: (r.due_date as string | null) ?? null,
     }
+    const diff = priceDifference(base.allowance, base.chosen_price)
+    const coExpired = Boolean(co?.token_expires_at && new Date(co.token_expires_at) < new Date())
+    const needsAttention = base.status === 'chosen' && diff !== null && diff > 0 && (!co ? true : co.status !== 'completed' && coExpired)
     return {
       id: String(r.id),
       item: String(r.item),
@@ -88,15 +94,16 @@ export async function listSelections(admin: SupabaseClient, orgId: string, jobId
       chosen_option_id: (r.chosen_option_id as string | null) ?? null,
       chosen_label: (r.chosen_label as string | null) ?? null,
       chosen_price: base.chosen_price,
-      difference: priceDifference(base.allowance, base.chosen_price),
+      difference: diff,
       due_date: base.due_date,
       status: base.status,
       state: selectionState(base, co?.status ?? null, todayYmd),
       link: appUrl && r.link_token && base.status !== 'chosen' ? `${appUrl}/s/${r.link_token}` : null,
       change_order_number: co?.co_number ?? null,
-      change_order_url: appUrl && co?.signing_token && co.status !== 'completed' ? `${appUrl}/change-orders/sign/${co.signing_token}` : null,
+      change_order_url: appUrl && co?.signing_token && co.status !== 'completed' && !coExpired ? `${appUrl}/change-orders/sign/${co.signing_token}` : null,
       chosen_by_name: (r.chosen_by_name as string | null) ?? null,
       chosen_source: (r.chosen_source as string | null) ?? null,
+      needs_attention: needsAttention,
     }
   })
   return { selections, ready: true }
@@ -255,52 +262,150 @@ export async function chooseSelection(
     return { error: message, status }
   }
 
-  const { data: job } = await db.from('production_jobs').select('id, project_id, customer_id, address_text, sale_amount').eq('id', sel.job_id).maybeSingle()
-  if (!job?.project_id) return undo('This project has no signed contract to change yet, so the extra cost cannot become a change order. Ask the office.', 409)
-  const contact = await loadJobContact(admin, args.orgId, job)
+  const made = await issueOverageChangeOrder(admin, {
+    orgId: args.orgId,
+    selectionId: args.selectionId,
+    jobId: sel.job_id as string,
+    item: sel.item as string,
+    allowance,
+    option,
+    diff,
+    repName,
+    repSignature: repSignature as string,
+    createdBy: sel.requested_by ?? args.staffUserId ?? null,
+    activityUserId: args.staffUserId ?? sel.requested_by ?? null,
+    emailCustomer: args.source === 'staff',
+  })
+  if ('error' in made) return undo(made.error, made.status)
+  return { ok: true, state: 'needs_signature', difference: diff, signingUrl: made.signingUrl }
+}
 
-  const collected = sumCollectedCents(await getPaymentsByJob(admin, job.id)) / 100
-  const description = selectionChangeOrderDescription({ item: sel.item as string, allowance, chosen_label: option.label, chosen_price: option.price })
+type OverageArgs = {
+  orgId: string
+  selectionId: string
+  jobId: string
+  item: string
+  allowance: number
+  option: { label: string; price: number }
+  diff: number
+  repName: string
+  repSignature: string
+  createdBy: string | null
+  activityUserId: string | null
+  /** An office pick emails the signing link; a customer on the page signs next, so no email. */
+  emailCustomer: boolean
+}
 
-  for (let attempt = 0; attempt < 3; attempt++) {
-    // Build on the latest change order's total (like the Change order form does), else the job's sale amount. Re-read each try:
-    // a 409 means another change order took the number a moment ago.
-    const { data: cos } = await db.from('job_change_orders').select('co_number, updated_total').eq('project_id', job.project_id)
-    const list = (cos ?? []) as Array<{ co_number: string; updated_total: number | string }>
-    const latest = list.reduce<{ n: number; total: number } | null>((best, c) => {
-      const n = parseInt(String(c.co_number).replace(/^CO-/, ''), 10)
-      return Number.isFinite(n) && (!best || n > best.n) ? { n, total: toNum(c.updated_total) } : best
-    }, null)
-    const originalAmount = latest ? latest.total : toNum(job.sale_amount)
-    const updatedTotal = roundMoney(originalAmount + diff)
-    const res = await createRemoteChangeOrder(admin, {
-      orgId: args.orgId,
-      createdBy: sel.requested_by ?? args.staffUserId ?? null,
-      projectId: job.project_id,
-      jobId: job.id,
-      coNumber: nextChangeOrderNumber(list.map((c) => c.co_number)),
-      description,
-      originalAmount,
-      updatedTotal,
-      updatedRemaining: Math.max(0, roundMoney(updatedTotal - collected)),
-      customerPrintName: contact.name,
-      customerName: contact.name,
-      // A customer on this very page signs next, so no email (the link below goes straight to the signing page); office choice emails it.
-      customerEmail: args.source === 'staff' ? contact.email : null,
-      projectAddress: contact.address,
-      repName,
-      repSignature: repSignature as string,
-      originalContractId: null,
-      originalContractDate: null,
-      paymentMethod: null,
-      isCommissionable: true,
-      activityUserId: args.staffUserId ?? sel.requested_by ?? null,
-    })
-    if (res.ok) {
-      await db.from('job_selections').update({ change_order_id: res.changeOrderId }).eq('id', args.selectionId)
-      return { ok: true, state: 'needs_signature', difference: diff, signingUrl: res.signingUrl }
+/**
+ * The change order for an over-allowance pick, through the EXISTING maker. Builds on `currentContractTotal` (signed contract +
+ * SIGNED change orders — the same inputs and chain rules the sale sync uses, so it can never trip change_order_chain_conflict),
+ * links the selection to it, and never throws: any failure comes back as an error for the caller to undo.
+ */
+async function issueOverageChangeOrder(admin: SupabaseClient, a: OverageArgs): Promise<{ changeOrderId: string; signingUrl: string } | Fail> {
+  try {
+    const db = orgDb(admin, a.orgId)
+    const { data: job } = await db.from('production_jobs').select('id, project_id, customer_id, address_text').eq('id', a.jobId).maybeSingle()
+    if (!job?.project_id) return { error: 'This project has no signed contract to change yet, so the extra cost cannot become a change order. Ask the office.', status: 409 }
+    const contact = await loadJobContact(admin, a.orgId, job)
+    const collected = sumCollectedCents(await getPaymentsByJob(admin, job.id)) / 100
+    const description = selectionChangeOrderDescription({ item: a.item, allowance: a.allowance, chosen_label: a.option.label, chosen_price: a.option.price })
+
+    for (let attempt = 0; attempt < 3; attempt++) {
+      // Re-read each try: a 409 means another change order took the number a moment ago.
+      const total = await currentContractTotal(admin, a.orgId, job.id)
+      if (!total.ok) {
+        return total.reason === 'error' || total.reason === 'job_not_found'
+          ? { error: 'We could not prepare the change order. Please try again.', status: 500 }
+          : { error: 'The contract total on this job needs the office to check it before a change order can be made. Please call us.', status: 409 }
+      }
+      const { data: cos } = await db.from('job_change_orders').select('co_number').eq('project_id', job.project_id)
+      const originalAmount = total.total
+      const updatedTotal = roundMoney(originalAmount + a.diff)
+      const res = await createRemoteChangeOrder(admin, {
+        orgId: a.orgId,
+        createdBy: a.createdBy,
+        projectId: job.project_id,
+        jobId: job.id,
+        coNumber: nextChangeOrderNumber(((cos ?? []) as Array<{ co_number: string }>).map((c) => c.co_number)),
+        description,
+        originalAmount,
+        updatedTotal,
+        updatedRemaining: Math.max(0, roundMoney(updatedTotal - collected)),
+        customerPrintName: contact.name,
+        customerName: contact.name,
+        customerEmail: a.emailCustomer ? contact.email : null,
+        projectAddress: contact.address,
+        repName: a.repName,
+        repSignature: a.repSignature,
+        originalContractId: null,
+        originalContractDate: null,
+        paymentMethod: null,
+        isCommissionable: true,
+        activityUserId: a.activityUserId,
+      })
+      if (res.ok) {
+        await db.from('job_selections').update({ change_order_id: res.changeOrderId }).eq('id', a.selectionId)
+        return { changeOrderId: res.changeOrderId, signingUrl: res.signingUrl }
+      }
+      if (res.status !== 409) break
     }
-    if (res.status !== 409) return undo('We could not prepare the change order. Please try again.')
+  } catch (e) {
+    console.error('[selections] change order failed', e)
   }
-  return undo('We could not prepare the change order. Please try again.')
+  return { error: 'We could not prepare the change order. Please try again.', status: 500 }
+}
+
+/**
+ * A chosen selection whose change order never got made, or whose signing link ran out: make it fresh (an expired one is
+ * voided first so only one can ever be signed). Staff only; needs the rep signature saved on the selection or a new one.
+ */
+export async function reissueSelectionChangeOrder(
+  admin: SupabaseClient,
+  ctx: { orgId: string; jobId: string; userId: string; userName: string },
+  id: string,
+  repSignature: unknown
+): Promise<{ signingUrl: string; emailed: boolean } | Fail> {
+  const db = orgDb(admin, ctx.orgId)
+  const { data: sel } = await db.from('job_selections').select(`${COLUMNS}, requested_by`).eq('id', id).eq('job_id', ctx.jobId).maybeSingle()
+  if (!sel || sel.status !== 'chosen') return { error: 'Nothing to send again', status: 409 }
+  const diff = priceDifference(toNum(sel.allowance), sel.chosen_price === null ? null : toNum(sel.chosen_price))
+  if (diff === null || diff <= 0) return { error: 'This pick did not need a change order', status: 409 }
+  if (!validSignature(repSignature)) return { error: 'Signature missing', status: 400 }
+  if (sel.change_order_id) {
+    const { data: co } = await db.from('job_change_orders').select('id, status, token_expires_at').eq('id', sel.change_order_id).maybeSingle()
+    if (co?.status === 'completed') return { error: 'The change order is already signed', status: 409 }
+    if (co && !(co.token_expires_at && new Date(co.token_expires_at) < new Date())) return { error: 'The signing link is still good. Copy it from the card.', status: 409 }
+    if (co) await db.from('job_change_orders').update({ status: 'voided', signing_token: null }).eq('id', co.id).eq('status', 'pending_customer')
+    await db.from('job_selections').update({ change_order_id: null }).eq('id', id)
+  }
+  const made = await issueOverageChangeOrder(admin, {
+    orgId: ctx.orgId,
+    selectionId: id,
+    jobId: ctx.jobId,
+    item: sel.item as string,
+    allowance: toNum(sel.allowance),
+    option: { label: String(sel.chosen_label ?? ''), price: toNum(sel.chosen_price) },
+    diff,
+    repName: ctx.userName || 'Office',
+    repSignature,
+    createdBy: ctx.userId,
+    activityUserId: ctx.userId,
+    emailCustomer: true,
+  })
+  if ('error' in made) return made
+  return { signingUrl: made.signingUrl, emailed: true }
+}
+
+/** Drop a chosen selection whose change order is unsigned (expired, or never made): the change order is voided, the pick reopens as cancelled. */
+export async function cancelChosenSelection(admin: SupabaseClient, ctx: { orgId: string; jobId: string }, id: string): Promise<{ ok: true } | Fail> {
+  const db = orgDb(admin, ctx.orgId)
+  const { data: sel } = await db.from('job_selections').select('id, status, change_order_id').eq('id', id).eq('job_id', ctx.jobId).maybeSingle()
+  if (!sel || sel.status !== 'chosen') return { error: 'Not found', status: 404 }
+  if (sel.change_order_id) {
+    const { data: co } = await db.from('job_change_orders').select('id, status').eq('id', sel.change_order_id).maybeSingle()
+    if (co?.status === 'completed') return { error: 'The change order is signed, so this cannot be cancelled here', status: 409 }
+    if (co) await db.from('job_change_orders').update({ status: 'voided', signing_token: null }).eq('id', co.id).eq('status', 'pending_customer')
+  }
+  const { error } = await db.from('job_selections').update({ status: 'cancelled', link_token: null, updated_at: new Date().toISOString() }).eq('id', id).eq('status', 'chosen')
+  return error ? { error: 'Could not cancel', status: 500 } : { ok: true }
 }

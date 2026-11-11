@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server'
 
-import { ymdInBusinessTz } from '@/lib/calendar-business-tz'
 import { crewCallName, resolveCrewLink } from '@/lib/crew-link'
 import { isOrgFeatureOn } from '@/lib/org-features-server'
 import { createDailyLog } from '@/lib/project-tools/daily-logs-db'
+import { orgTodayYmd } from '@/lib/project-tools/org-today'
 import { createServiceClient } from '@/lib/supabase/service'
 
 export const runtime = 'nodejs'
@@ -27,7 +27,7 @@ export async function POST(request: Request, { params }: { params: { token: stri
   const r = await createDailyLog(admin, {
     orgId: link.ctx.orgId,
     jobId: link.ctx.jobId,
-    logDate: ymdInBusinessTz(new Date()),
+    logDate: await orgTodayYmd(admin, link.ctx.orgId),
     note: body.note,
     photoIds: body.photoIds,
     weather: body.weather,

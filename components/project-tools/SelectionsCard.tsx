@@ -17,6 +17,9 @@ const EMPTY: Draft = { item: '', allowance: '', due_date: '', options: [{ label:
  * own page; the office can also choose for them in person). Over the allowance, the difference becomes a change order the
  * customer signs; the card shows the plain state: not sent / waiting on customer / past due / waiting for signature / approved.
  */
+/** The most the customer could be charged over the allowance: what a change order, carrying the sender's name, could be for. */
+const maxOver = (s: SelectionView) => Math.max(0, ...s.options.map((o) => o.price - s.allowance))
+
 export default function SelectionsCard({ jobId }: { jobId: string }) {
   const [p, setP] = useState<Payload | null>(null)
   const [draft, setDraft] = useState<Draft | null>(null)
@@ -96,11 +99,21 @@ export default function SelectionsCard({ jobId }: { jobId: string }) {
                 <button type="button" className={btnGhost} onClick={() => void copy(s.change_order_url as string)}>Copy</button>
               </div>
             ) : null}
+            {p.canEdit && s.needs_attention ? (
+              <div className="mt-2 rounded-lg bg-[#fef3c7] p-3">
+                <p className="text-base text-[#78350f]">{s.change_order_number ? 'The change order link ran out before it was signed.' : 'The change order was not made.'}</p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <button type="button" className={btnPrimary} disabled={busy === s.id} onClick={() => { const rep = sig(); if (!rep) return toast.error('Could not prepare your signature'); void act(s.id, { action: 'resend_change_order', repSignature: rep }, () => toast.success('A new change order was sent to the customer')) }}>Send change order again</button>
+                  <button type="button" className={btnGhost} disabled={busy === s.id} onClick={() => void act(s.id, { action: 'cancel_chosen' }, () => toast.success('Cancelled'))}>Cancel this pick</button>
+                </div>
+              </div>
+            ) : null}
             {p.canEdit && s.status !== 'chosen' ? (
               <div className="mt-2 flex flex-wrap gap-2">
                 <button type="button" className={btnPrimary} disabled={busy === s.id} onClick={() => { const rep = sig(); if (!rep) return toast.error('Could not prepare your signature'); void act(s.id, { action: 'send', repSignature: rep, email: true }, (d) => toast.success(d.emailed ? 'Sent to the customer by email' : 'Link ready. Copy it to send.')) }}>
                   {s.status === 'sent' ? 'Send again' : 'Send to customer'}
                 </button>
+                {maxOver(s) > 0 ? <p className="w-full text-sm text-[#2c2c2a]">Sending puts your name on a change order of up to {money(maxOver(s))} if the customer picks the priciest option.</p> : null}
                 <button type="button" className={btnGhost} onClick={() => setOpenId(openId === s.id ? null : s.id)} aria-expanded={openId === s.id}>Choose for them</button>
                 <button type="button" className={btnGhost} onClick={() => setDraft({ id: s.id, item: s.item, allowance: String(s.allowance), due_date: s.due_date ?? '', options: s.options.map((o) => ({ id: o.id, label: o.label, price: String(o.price) })) })}>Edit</button>
                 <button type="button" className={btnGhost} disabled={busy === s.id} onClick={() => void act(s.id, { action: 'cancel' }, () => undefined)}>Cancel</button>

@@ -18,6 +18,7 @@ export async function POST(request: Request, { params }: { params: { token: stri
     if (!rl.ok) return NextResponse.json({ error: 'Too many tries. Please wait a few minutes.' }, { status: 429, headers: { 'Retry-After': String(rl.retryAfterSec) } })
     const admin = createServiceClient()
     const sel = await resolveSelectionLink(admin, params.token)
+    if (sel === 'feature_off') return NextResponse.json({ error: 'Not found' }, { status: 404 })
     if (!sel) return NextResponse.json({ error: 'This link is not active' }, { status: 404 })
     const body = (await request.json().catch(() => ({}))) as { optionId?: unknown; name?: unknown }
     const name = typeof body.name === 'string' ? body.name.trim().slice(0, 120) : ''

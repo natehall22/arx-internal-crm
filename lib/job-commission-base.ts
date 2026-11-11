@@ -154,6 +154,114 @@ export async function isTimeAndMaterialsJob(admin: SupabaseClient, orgId: string
   return (data as { billing_mode?: string | null } | null)?.billing_mode === 'time_materials'
 }
 
+type SaleJobRow = { id: string; project_id: string | null; linked_proposal_id?: string | null; accepted_proposal_id?: string | null }
+
+/** The signed facts a sale total is built from: signed sale contracts, signed change orders, the proposal's sales tax. */
+async function loadSignedSaleInputs(
+  admin: SupabaseClient,
+  orgId: string,
+  job: SaleJobRow
+): Promise<{ contracts: SignedContractAmount[]; changeOrders: SignedChangeOrderAmount[]; salesTax: number } | { error: unknown }> {
+  const jobId = job.id
+  let opportunityId: string | null = null
+  if (job.project_id) {
+    const { data: project } = await admin
+      .from('projects')
+      .select('opportunity_id')
+      .eq('id', job.project_id)
+      .eq('org_id', orgId)
+      .maybeSingle()
+    opportunityId = (project?.opportunity_id as string | null) ?? null
+  }
+
+  // Same anchor order as lib/job-contract.ts findJobSignedContracts: the job's proposal,
+  // then its opportunity. Only signed (`completed`) sale agreements carry a price.
+  const proposalId = (job.linked_proposal_id as string | null) ?? (job.accepted_proposal_id as string | null)
+  const anchors: Array<[string, string]> = []
+  if (proposalId) anchors.push(['proposal_id', proposalId])
+  if (opportunityId) anchors.push(['opportunity_id', opportunityId])
+  let contracts: SignedContractAmount[] = []
+  let contractProposalId: string | null = null
+  for (const [column, value] of anchors) {
+    const { data, error } = await admin
+      .from('order_form_contracts')
+      .select('id, project_cost, proposal_id')
+      .eq('org_id', orgId)
+      .eq(column, value)
+      .eq('status', 'completed')
+      .in('agreement_type', [...SALE_AGREEMENT_TYPES])
+    if (error) return { error }
+    if (data && data.length > 0) {
+      contracts = data.map((row) => ({ id: row.id as string, projectCost: row.project_cost as number | null }))
+      contractProposalId = (data.find((row) => row.proposal_id)?.proposal_id as string | undefined) ?? null
+      break
+    }
+  }
+
+  // A CO saved against the project before the job existed has no job_id; it still counts.
+  let coQuery = admin
+    .from('job_change_orders')
+    .select('id, original_amount, updated_total, is_commissionable, created_at')
+    .eq('org_id', orgId)
+    .eq('status', 'completed')
+  coQuery = job.project_id
+    ? coQuery.or(`job_id.eq.${jobId},and(job_id.is.null,project_id.eq.${job.project_id})`)
+    : coQuery.eq('job_id', jobId)
+  const { data: coRows, error: coError } = await coQuery
+  if (coError) return { error: coError }
+
+  // Tax comes from the job's own proposal (the one its sale amount was built from — for financed
+  // deals that is the financed proposal), falling back to the signed contract's proposal.
+  const taxProposalId = proposalId ?? contractProposalId
+  let salesTax = 0
+  if (taxProposalId) {
+    const { data: proposal } = await admin
+      .from('proposals')
+      .select('tax_amount')
+      .eq('id', taxProposalId)
+      .eq('org_id', orgId)
+      .maybeSingle()
+    salesTax = Number(proposal?.tax_amount) || 0
+  }
+
+  return {
+    contracts,
+    salesTax,
+    changeOrders: (coRows || []).map((row) => ({
+      id: row.id as string,
+      originalAmount: row.original_amount as number | null,
+      updatedTotal: row.updated_total as number | null,
+      isCommissionable: row.is_commissionable as boolean | null,
+      createdAt: row.created_at as string | null,
+    })),
+  }
+}
+
+export type CurrentContractTotal = { ok: true; total: number } | { ok: false; reason: 'job_not_found' | 'no_signed_contract' | 'change_order_chain_conflict' | 'error' }
+
+/**
+ * What the customer owes today on a fixed-price job: signed contract + SIGNED change orders (an unsent or unsigned one is not
+ * binding). The ONE answer for "the running total a new change order builds on" — same inputs and chain rules as the sync above,
+ * so a change order made from this number can never trip `change_order_chain_conflict` there.
+ */
+export async function currentContractTotal(admin: SupabaseClient, orgId: string, jobId: string): Promise<CurrentContractTotal> {
+  try {
+    const { data: job } = await admin
+      .from('production_jobs')
+      .select('id, project_id, linked_proposal_id, accepted_proposal_id')
+      .eq('id', jobId)
+      .eq('org_id', orgId)
+      .maybeSingle()
+    if (!job) return { ok: false, reason: 'job_not_found' }
+    const inputs = await loadSignedSaleInputs(admin, orgId, job as SaleJobRow)
+    if ('error' in inputs) return { ok: false, reason: 'error' }
+    const totals = computeJobSaleTotals(inputs)
+    return totals.ok ? { ok: true, total: totals.saleAmount } : { ok: false, reason: totals.reason }
+  } catch {
+    return { ok: false, reason: 'error' }
+  }
+}
+
 export type SyncJobSaleResult =
   | { status: 'updated' | 'unchanged'; totals: Extract<JobSaleTotals, { ok: true }> }
   | { status: 'skipped'; totals: Extract<JobSaleTotals, { ok: false }> }
@@ -197,77 +305,14 @@ export async function syncJobSaleAndCommissionBase(
       return { status: 'time_materials', changed: true, commissionBase }
     }
 
-    let opportunityId: string | null = null
-    if (job.project_id) {
-      const { data: project } = await admin
-        .from('projects')
-        .select('opportunity_id')
-        .eq('id', job.project_id)
-        .eq('org_id', orgId)
-        .maybeSingle()
-      opportunityId = (project?.opportunity_id as string | null) ?? null
-    }
-
-    // Same anchor order as lib/job-contract.ts findJobSignedContracts: the job's proposal,
-    // then its opportunity. Only signed (`completed`) sale agreements carry a price.
-    const proposalId = (job.linked_proposal_id as string | null) ?? (job.accepted_proposal_id as string | null)
-    const anchors: Array<[string, string]> = []
-    if (proposalId) anchors.push(['proposal_id', proposalId])
-    if (opportunityId) anchors.push(['opportunity_id', opportunityId])
-    let contracts: SignedContractAmount[] = []
-    let contractProposalId: string | null = null
-    for (const [column, value] of anchors) {
-      const { data, error } = await admin
-        .from('order_form_contracts')
-        .select('id, project_cost, proposal_id')
-        .eq('org_id', orgId)
-        .eq(column, value)
-        .eq('status', 'completed')
-        .in('agreement_type', [...SALE_AGREEMENT_TYPES])
-      if (error) return { status: 'error', error }
-      if (data && data.length > 0) {
-        contracts = data.map((row) => ({ id: row.id as string, projectCost: row.project_cost as number | null }))
-        contractProposalId = (data.find((row) => row.proposal_id)?.proposal_id as string | undefined) ?? null
-        break
-      }
-    }
-
-    // A CO saved against the project before the job existed has no job_id; it still counts.
-    let coQuery = admin
-      .from('job_change_orders')
-      .select('id, original_amount, updated_total, is_commissionable, created_at')
-      .eq('org_id', orgId)
-      .eq('status', 'completed')
-    coQuery = job.project_id
-      ? coQuery.or(`job_id.eq.${jobId},and(job_id.is.null,project_id.eq.${job.project_id})`)
-      : coQuery.eq('job_id', jobId)
-    const { data: coRows, error: coError } = await coQuery
-    if (coError) return { status: 'error', error: coError }
-
-    // Tax comes from the job's own proposal (the one its sale amount was built from — for financed
-    // deals that is the financed proposal), falling back to the signed contract's proposal.
-    const taxProposalId = proposalId ?? contractProposalId
-    let salesTax = 0
-    if (taxProposalId) {
-      const { data: proposal } = await admin
-        .from('proposals')
-        .select('tax_amount')
-        .eq('id', taxProposalId)
-        .eq('org_id', orgId)
-        .maybeSingle()
-      salesTax = Number(proposal?.tax_amount) || 0
-    }
+    const inputs = await loadSignedSaleInputs(admin, orgId, job)
+    if ('error' in inputs) return { status: 'error', error: inputs.error }
+    const { contracts, changeOrders, salesTax } = inputs
 
     const totals = computeJobSaleTotals({
       salesTax,
       contracts,
-      changeOrders: (coRows || []).map((row) => ({
-        id: row.id as string,
-        originalAmount: row.original_amount as number | null,
-        updatedTotal: row.updated_total as number | null,
-        isCommissionable: row.is_commissionable as boolean | null,
-        createdAt: row.created_at as string | null,
-      })),
+      changeOrders,
     })
     if (!totals.ok) {
       console.warn('[job-commission-base] not written', { orgId, jobId, reason: totals.reason })
