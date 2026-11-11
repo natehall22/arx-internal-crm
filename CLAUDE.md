@@ -181,6 +181,58 @@ that file rather than extending the pattern.
 
 **Known Redundancy additions (2026-11-11):** (30) The browser "register → uploadToSignedUrl → finalize" flow is written 4× (3 in `components/ops/JobFileWorkspaceCard.tsx`, 1 in `CustomerDocumentsCard`), and 5 components hand-roll drag/drop handlers — `FileDropZone` is the one drop area now; give the upload flow one client helper when the job Files card is next touched. (31) Two file tables: `documents` (live) and legacy `files` (1 row in prod, still written by project files / opportunity contract / change-order routes). Move those writers onto `documents`, then retire `files`.
 
+## Service plans + visits (Phase 2, 2026-11-11)
+Recurring work at one property (lawn care weekly in season; a roof & gutter care subscription with an inspector's
+follow-on visit). Feature switch `servicePlans` — the first **default-OFF** switch (`defaultOn: false` in
+`ORG_FEATURE_DEFS`; only an explicit `true` turns it on; any company, roofing included, may turn it on). Migration
+`202611110030_service_plans.sql` (NOT applied; apply after 202611110010; DB test `supabase/tests/run-service-plans.sh`).
+- **Rules** `lib/service-plans.ts` (client-safe, pure): seasons (`MM-DD` ranges, may wrap the new year, no overlaps) each with
+  a frequency (weekly / every 2 / every 4 weeks — counted from the plan's anchor weekday, so the rhythm never drifts — /
+  monthly = first <weekday> / none); `planVisitDates` is deterministic for any window. Dates are bare calendar days; the only
+  clock input is "today" in `orgs.timezone` (`ymdInZone`). Pricing: `price_tier` standard (company rule
+  `orgs.settings.servicePlans.standardTier` = price, basis, max stories, max pitch — owners edit it on Settings, written only by
+  `/api/admin/settings` `type:'service_plans'`; the generic settings save strips the key) or custom (override); billing per
+  visit / month / year; `taxable` flag per plan, snapshotted on each visit.
+- **ONE writer** `lib/service-plans-db.ts`. Visits are `work_orders` rows (`work_order_type='service_visit'`, `visit_step`
+  service | inspection, `service_plan_id`, `service_planned_date` = the generator's slot, `scheduled_date` = where it sits now,
+  `trade` always set so browser RLS cannot write them, `job_id` NULL) — never `scheduled_appointments`. **ONE generator**
+  `ensureServiceVisits` (pattern of `ensureCheckups`): today → 42 days, idempotent on unique
+  `(org_id, service_plan_id, service_planned_date, visit_step)`; runs on the morning cron (feature on only), every Visits load
+  and after each plan save; resumes a pause whose date came; ends a plan whose end date passed. A moved/skipped/cancelled slot
+  is never re-created.
+- **Edits** regenerate only UNSTARTED FUTURE service visits (scheduled, planned and sitting after today): dropped slots are
+  deleted (cancelled if they have photos); kept ones get the new name/price/property, and the new default crew only if the
+  crew was the old default. Done / skipped / cancelled visits and anything today or earlier never change.
+- **Statuses** scheduled → completed (done) | skipped (`skip_reason` rain/customer/holiday/other) | cancelled. An inspection
+  visit is done only with `health_result` green/yellow/red — the SAME vocabulary as checkups (`lib/health-result.ts`).
+  Done on a service visit of a plan with `follow_up='inspection'` creates one inspection visit (N days later, to the plan's
+  inspector) — `createFollowUpVisit`, once per slot.
+- **Bulk shift** (`bulkShiftVisits`, rain/hurricane): scheduled visits on a day range, all / one crew / unassigned, ±1–30
+  days; the planned slot is kept so the generator never puts them back.
+- **Screens:** Customer File → Service plans card (job-board viewers; edit = `jobs:edit`; prices = edit or job
+  financials — `lib/service-plans-access.ts`); Jobs → Schedule → **Visits** tab (`components/service-plans/VisitsBoard.tsx`);
+  crew phone page `/crew/day/<token>` (token in service-role-only `crew_day_links`, one per crew, rotated from the Visits tab;
+  shows only that crew's visits today with gate notes; Done/Skip/photos for yesterday + today only; dies when the feature is
+  switched off). Today page + morning email get "Today's visits" / "Visits skipped this week" (ids `todays-visits`,
+  `skipped-visits`) when the switch is on.
+- **Visit photos** are `photos` rows with `job_id` NULL + `work_order_id` (job_id is now nullable; CHECK one of the two),
+  folder `<org>/visits/<visit>/photos`, through `registerVisitPhotoUpload` / `finalizeVisitPhotoUpload`
+  (lib/job-photo-upload.ts, same code as job photos). Browser: `lib/visit-photo-upload.ts`.
+- **Invoicing hook (not built):** `loadCompletedServiceVisits(admin, org, fromIso, toIso)` — done visits with their
+  `service_price` snapshot (per-visit plans) and plan id (per-month/year plans bill the plan). Nothing is written to
+  `integration_outbox` (the QuickBooks guard test holds that list).
+- **Readers that must not count visits** exclude `work_order_type = SERVICE_VISIT_TYPE`: Today crews-this-week, ops
+  dashboard open work orders, the sub portal list + its complete route. `/work-orders` already lists `trade IS NULL` only.
+
+**Known Redundancy additions (2026-11-11, service plans):** (32) "The migration isn't applied yet" is detected four ways
+(`isPropertiesNotReadyError`, `isMissingTableError` in org-trades, `isServicePlansNotReadyError`, and `isMissingColumn` on
+the company-links branch) — one helper in `lib/supabase/errors.ts`. (33) **Customer checkups should become one kind of
+service plan** (Nathan, 2026-11-11): `job_checkups` (month offsets after an install) and service-plan inspection visits
+now share the result vocabulary (`lib/health-result.ts`) and the lazy-generator pattern; folding needs a frequency
+"every N months from an anchor date" and a `production_job_id` anchor on the plan. Do not migrate checkups until then.
+(34) Browser register → upload → finalize is now 5 copies (KR #30 + `lib/visit-photo-upload.ts`, which at least reuses
+`UploadSteps`); crew visit uploads are not on the offline queue yet (`lib/job-photo-queue.ts` keys by job).
+
 ## UI Conventions
 - **Text contrast is an ongoing, recurring problem in this build — always verify text stands out.** Use explicit dark text (`#2c2c2a`, not generic gray) on light surfaces; never place text directly on the satellite/photo map — use a solid or opaque-scrim background; aim for WCAG AA. Validate legibility on a cheap Android in direct sun for any field-facing UI.
 

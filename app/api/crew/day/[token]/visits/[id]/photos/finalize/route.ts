@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server'
 
 import { finalizeVisitPhotoUpload } from '@/lib/job-photo-upload'
-import { CREW_VISIT_PHOTO_LIMIT, loadCrewVisit, resolveCrewDay } from '@/lib/service-plans-db'
+import { CREW_VISIT_PHOTO_LIMIT, loadCrewVisit } from '@/lib/service-plans-db'
+import { activeCrewDay } from '@/lib/service-plans-access'
 import { createServiceClient } from '@/lib/supabase/service'
 import { orgDb } from '@/lib/supabase/org-db'
 
@@ -12,7 +13,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 /** POST — body { photoId, mime_type?, file_size? }: records an uploaded photo on this visit. Public; the crew link authorizes. */
 export async function POST(request: Request, { params }: { params: { token: string; id: string } }) {
   const admin = createServiceClient()
-  const crew = await resolveCrewDay(admin, params.token)
+  const crew = await activeCrewDay(admin, params.token)
   if (!crew) return NextResponse.json({ error: 'This link is no longer active — ask the office for a new one.' }, { status: 404 })
   const visit = await loadCrewVisit(admin, crew, params.id)
   if (!visit) return NextResponse.json({ error: 'Visit not found' }, { status: 404 })

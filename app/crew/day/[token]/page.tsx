@@ -3,9 +3,9 @@ import { cache } from 'react'
 
 import { loadOrgTimeZone } from '@/lib/cron-orgs'
 import { getDocumentBrand } from '@/lib/org-brand'
-import { isOrgFeatureOn } from '@/lib/org-features-server'
+import { activeCrewDay } from '@/lib/service-plans-access'
 import { ymdInZone } from '@/lib/service-plans'
-import { loadVisits, resolveCrewDay } from '@/lib/service-plans-db'
+import { loadVisits } from '@/lib/service-plans-db'
 import { createServiceClient } from '@/lib/supabase/service'
 import CrewDayList from './CrewDayList'
 
@@ -13,10 +13,9 @@ export const dynamic = 'force-dynamic'
 
 const loadCrewDay = cache(async (token: string) => {
   const admin = createServiceClient()
-  const crew = await resolveCrewDay(admin, token)
-  const on = crew ? await isOrgFeatureOn(crew.orgId, 'servicePlans') : false
+  const crew = await activeCrewDay(admin, token)
   const brand = await getDocumentBrand(admin, crew?.orgId ?? null)
-  return { admin, crew: on ? crew : null, brand }
+  return { admin, crew, brand }
 })
 
 export async function generateMetadata({ params }: { params: { token: string } }): Promise<Metadata> {

@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server'
 
 import { CREW_VISIT_ACTIONS, parseVisitAction } from '@/lib/service-plans'
-import { applyVisitAction, loadCrewVisit, resolveCrewDay } from '@/lib/service-plans-db'
+import { applyVisitAction, loadCrewVisit } from '@/lib/service-plans-db'
+import { activeCrewDay } from '@/lib/service-plans-access'
 import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
@@ -12,7 +13,7 @@ export const dynamic = 'force-dynamic'
  */
 export async function POST(request: Request, { params }: { params: { token: string; id: string } }) {
   const admin = createServiceClient()
-  const crew = await resolveCrewDay(admin, params.token)
+  const crew = await activeCrewDay(admin, params.token)
   if (!crew) return NextResponse.json({ error: 'This link is no longer active — ask the office for a new one.' }, { status: 404 })
   const action = parseVisitAction(await request.json().catch(() => null))
   if ('error' in action) return NextResponse.json({ error: action.error }, { status: 400 })

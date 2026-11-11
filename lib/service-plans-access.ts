@@ -60,3 +60,14 @@ export async function servicePlanRouteAuth(need: 'view' | 'edit'): Promise<
   if (need === 'view' ? !access.view : !access.edit) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   return { admin, userId: profile.id, orgId: profile.org_id, access }
 }
+
+/**
+ * A crew phone link that may be used right now: the token resolves (lib/service-plans-db.ts resolveCrewDay) AND the
+ * company still has service plans switched on. The page and every /api/crew/day route go through this.
+ */
+export async function activeCrewDay(admin: SupabaseClient, token: string) {
+  const { resolveCrewDay } = await import('@/lib/service-plans-db')
+  const crew = await resolveCrewDay(admin, token)
+  if (!crew) return null
+  return (await isOrgFeatureOn(crew.orgId, 'servicePlans')) ? crew : null
+}
