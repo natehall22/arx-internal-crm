@@ -27,12 +27,12 @@ function basic(cfg: QbConfig): string {
   return `Basic ${Buffer.from(`${cfg.clientId}:${cfg.clientSecret}`).toString('base64')}`
 }
 
-async function post(url: string, cfg: QbConfig, form: Record<string, string>): Promise<{ status: number; body: Record<string, unknown> } | null> {
+async function post(url: string, cfg: QbConfig, form: Record<string, string>, asJson = false): Promise<{ status: number; body: Record<string, unknown> } | null> {
   try {
     const res = await fetch(url, {
       method: 'POST',
-      headers: { Authorization: basic(cfg), Accept: 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams(form).toString(),
+      headers: { Authorization: basic(cfg), Accept: 'application/json', 'Content-Type': asJson ? 'application/json' : 'application/x-www-form-urlencoded' },
+      body: asJson ? JSON.stringify(form) : new URLSearchParams(form).toString(),
       signal: AbortSignal.timeout(TIMEOUT_MS),
       cache: 'no-store',
     })
@@ -82,12 +82,15 @@ export async function refreshTokens(cfg: QbConfig, refreshToken: string): Promis
   return tokens ? { ok: true, tokens } : { ok: false, kind: 'rejected', status: r.status, message: 'Intuit sent no tokens' }
 }
 
-/** Revoke a token at Intuit (disconnect). Revoking the refresh token ends the whole grant. */
+/**
+ * Revoke a token at Intuit (disconnect). Revoking the refresh token ends the whole grant. The revoke call takes a JSON body
+ * `{"token": …}` (Intuit's own pages are script-rendered and could not be read here; the JSON shape is the one in published
+ * Intuit-based samples — confirm against the sandbox before go-live). ONLY a 200 counts as revoked: any other answer (incl. a
+ * 400) is reported as "not confirmed", so the disconnect screen never claims more than happened.
+ */
 export async function revokeToken(cfg: QbConfig, token: string): Promise<IntuitResult<{}>> {
-  const r = await post(INTUIT_REVOKE_URL, cfg, { token })
+  const r = await post(INTUIT_REVOKE_URL, cfg, { token }, true)
   if (r && r.status === 200) return { ok: true }
-  // Already revoked / expired at Intuit's side = what we wanted.
-  if (r && r.status === 400) return { ok: true }
   return failure(r)
 }
 

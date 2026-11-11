@@ -36,10 +36,10 @@ printing, no A/P aging, no fee/deposit bookkeeping, and posts no payroll. Direct
 | Payroll, approved pay week | **Not posted** | The CRM exports the week to the payroll provider (Gusto/ADP); the provider's own QuickBooks sync books it. Subs are sent as vendor bills only if the company chooses |
 | Cost typed in CRM, time, quotes, unbilled POs | Not pushed | |
 
-## Reading back, conflicts, history
-- **Read-back is small and optional**: bill paid in QuickBooks -> mark paid in the CRM; a payment someone typed in QB for a CRM
-  invoice -> a *suggestion* in Needs you (a person accepts it). Webhooks (reference-only, answer 200 fast, verify `intuit-signature`
-  HMAC-SHA256) plus a nightly **CDC** pull (30 days) are the safety net. A QB customer/vendor edit never overwrites CRM contact data.
+## Conflicts, history (CRM -> QB only)
+- **No read-back in v1.** The only thing ever read from QuickBooks later, and only if the company wants it, is "this approved vendor
+  bill was paid" (to mark it paid in the CRM) — optional, a later PR, never an edit of QuickBooks data. We do not import payments,
+  customers or vendors typed in QuickBooks. If that read-back is built it polls the bills we sent (no webhooks, no CDC needed).
 - **Conflict**: CRM changed a synced record whose SyncToken moved (edited in QB) -> we do not overwrite; Needs you shows both.
   Deleted/voided in QB -> link marked broken, Needs you.
 - **Backfill (link-first)**: pull QB customers/invoices/vendors; match; write `qb_links`; list ambiguous ones for a person; only
@@ -62,7 +62,7 @@ Nothing posts until each is confirmed. Class = job (QuickBooks Plus+). Stored in
   (`Vendor1099`), Bill (BillPayment read-only), Item, Account (read-only), Class, TaxCode. Updates need the current **SyncToken**
   (sparse updates allowed); stale token = error 5010. Send `minorversion=75`+ (older phased out Aug 2025). Queries page at 1000.
 - Rate limits: ~500 requests/min per company, ~10 concurrent, batch ≤30 operations (batch endpoint ~120/min); 429 → back off with jitter.
-- Webhooks are reference-only, batched, late, sometimes duplicated; CDC covers 30 days. `requestid` makes a retried create safe.
+- `requestid` makes a retried create safe. (Webhooks / CDC exist but we do not use them: nothing is read back.)
 - Sandbox and production use different keys/URLs. Production keys need Intuit's **app assessment** (questionnaire).*
 
 ## Decisions the owner / bookkeeper must make (in writing before go-live)
@@ -80,5 +80,5 @@ never change it — a changed key makes stored tokens unreadable = "needs reconn
 ## Build order (each a PR)
 1. **Deletes - done.** 2. **Connection (this PR)**: OAuth, encrypted tokens + rotation, `qb_links`, status card, disconnect, Needs you.
 3. Mapping screen + read-only pull of the company's items/accounts/tax codes. 4. Worker: customer, invoice (both modes), tax, payment, refund.
-5. Vendors + approved bills (+ optional paid read-back, 1099 flag). 6. Backfill (link-first). 7. Webhooks + CDC read-back, payment suggestions.
+5. Vendors + approved bills (+ optional paid read-back, 1099 flag). 6. Backfill (link-first). 7. Optional: "bill paid" read-back.
 (Payroll: a provider export in the payroll branch; nothing here.)

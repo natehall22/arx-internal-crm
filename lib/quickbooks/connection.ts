@@ -96,30 +96,35 @@ export async function loadConnection(admin: SupabaseClient, orgId: string): Prom
   return (data as QbConnectionRow | null) ?? null
 }
 
-function seal(plain: string): string {
+type SealedColumn = 'access_token_ct' | 'refresh_token_ct'
+
+/** Each sealed value is bound to its company AND column (AAD): copied to another row or column it will not open. */
+const aadOf = (orgId: string, column: SealedColumn) => `qb:${orgId}:${column}`
+
+function seal(plain: string, orgId: string, column: SealedColumn): string {
   const key = integrationSecretKey(QB_TOKEN_LABEL)
   if (!key) throw new Error('SECRETS_ENCRYPTION_KEY is not set')
-  return sealWithKey(key, plain)
+  return sealWithKey(key, plain, aadOf(orgId, column))
 }
 
-function open(sealed: string | null): string | null {
+function open(sealed: string | null, orgId: string, column: SealedColumn): string | null {
   const key = integrationSecretKey(QB_TOKEN_LABEL)
-  return key && sealed ? openWithKey(key, sealed) : null
+  return key && sealed ? openWithKey(key, sealed, aadOf(orgId, column)) : null
 }
 
 const iso = (ms: number) => new Date(ms).toISOString()
 
-function tokenColumns(t: IntuitTokens, now: number) {
+function tokenColumns(t: IntuitTokens, now: number, orgId: string) {
   return {
-    access_token_ct: seal(t.accessToken),
-    refresh_token_ct: seal(t.refreshToken),
+    access_token_ct: seal(t.accessToken, orgId, 'access_token_ct'),
+    refresh_token_ct: seal(t.refreshToken, orgId, 'refresh_token_ct'),
     access_expires_at: iso(now + t.accessExpiresInSec * 1000),
     refresh_expires_at: iso(now + t.refreshExpiresInSec * 1000),
     last_refreshed_at: iso(now),
   }
 }
 
-export type SaveConnectionResult = { ok: true } | { ok: false; reason: 'different_company' | 'unavailable' }
+export type SaveConnectionResult = { ok: true } | { ok: false; reason: 'different_company' | 'realm_in_use' | 'unavailable' }
 
 /**
  * Store a fresh authorization (first connect, reconnect, or after a disconnect). Reconnecting the SAME QuickBooks company
@@ -151,12 +156,14 @@ export async function saveNewConnection(
     disconnected_at: null,
     disconnected_by: null,
     updated_at: iso(now),
-    ...tokenColumns(input.tokens, now),
+    ...tokenColumns(input.tokens, now, orgId),
   }
   const { error } = existing
     ? await db.from('qb_connections').update({ ...values, refresh_version: existing.refresh_version + 1 }).eq('id', existing.id)
     : await db.from('qb_connections').insert({ ...values, refresh_version: 0 })
   if (error) {
+    // One QuickBooks company <-> one CRM company (partial unique index on realm_id while connected).
+    if ((error as { code?: string }).code === '23505') return { ok: false, reason: 'realm_in_use' }
     console.error('quickbooks: could not save connection', error.message)
     return { ok: false, reason: 'unavailable' }
   }
@@ -186,7 +193,7 @@ async function releaseLease(admin: SupabaseClient, orgId: string, version: numbe
 function usable(row: QbConnectionRow, now: number): string | null {
   if (row.status !== 'connected' || !row.access_expires_at) return null
   if (Date.parse(row.access_expires_at) - now <= ACCESS_MARGIN_MS) return null
-  return open(row.access_token_ct)
+  return open(row.access_token_ct, row.org_id, 'access_token_ct')
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -208,7 +215,7 @@ export async function getQuickBooksAccess(admin: SupabaseClient, orgId: string, 
       if (token) return { ok: true, accessToken: token, realmId: row.realm_id, environment: row.environment }
 
       const cfg = quickBooksConfig()
-      const refreshToken = open(row.refresh_token_ct)
+      const refreshToken = open(row.refresh_token_ct, orgId, 'refresh_token_ct')
       if (!cfg) return { ok: false, reason: 'unavailable' }
       if (!refreshToken) {
         // Stored token can't be opened: the encryption key changed or the row is damaged. Nothing to retry with.
@@ -234,7 +241,7 @@ export async function getQuickBooksAccess(admin: SupabaseClient, orgId: string, 
 
       const result = await refreshTokens(cfg, refreshToken)
       if (result.ok) {
-        const cols = { ...tokenColumns(result.tokens, clock()), refresh_version: row.refresh_version + 1, refresh_lease_until: null, last_error: null, updated_at: iso(clock()) }
+        const cols = { ...tokenColumns(result.tokens, clock(), orgId), status: 'connected', needs_reconnect_reason: null, refresh_version: row.refresh_version + 1, refresh_lease_until: null, last_error: null, updated_at: iso(clock()) }
         // The old refresh token is dead the moment Intuit answered: losing the new one means a forced reconnect, so retry the write.
         for (let i = 0; i < 3; i++) {
           const { error } = await orgDb(admin, orgId).from('qb_connections').update(cols).eq('id', row.id).eq('refresh_version', row.refresh_version)
@@ -268,11 +275,11 @@ export async function disconnectQuickBooks(admin: SupabaseClient, orgId: string,
   if (!row || row.status === 'disconnected') return { ok: true, revoked: false }
   const cfg = quickBooksConfig()
   let revoked = false
-  const refreshToken = open(row.refresh_token_ct)
+  const refreshToken = open(row.refresh_token_ct, orgId, 'refresh_token_ct')
   if (cfg && refreshToken) {
     const r = await revokeToken(cfg, refreshToken)
     revoked = r.ok
-    if (!r.ok) console.error('quickbooks: revoke failed (disconnecting here anyway)', r.message)
+    if (!r.ok) console.error('quickbooks: revoke not confirmed (disconnecting here anyway)', r.message)
   }
   // Disconnect locally even when Intuit could not be reached: the owner's intent wins, and the tokens are gone either way.
   const { error } = await orgDb(admin, orgId)

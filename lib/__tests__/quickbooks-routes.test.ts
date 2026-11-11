@@ -112,6 +112,13 @@ describe('callback + finish', () => {
     expect(res.headers.get('location')).toBe(`https://app.test/api/integrations/quickbooks/finish?nonce=${t.nonce}`)
     expect(JSON.stringify(fake.tables.oauth_states)).not.toContain('secret-code')
   })
+  it('callback: a legacy-host connect for a company that has its own address says so in plain words', async () => {
+    fake.tables.orgs[0].subdomain = 'acme'
+    process.env.APP_BASE_DOMAIN = 'crm-product.test'
+    const t = await ticket()
+    const res = await callbackGET(cb({ code: 'c', realmId: '1234', state: t.state }))
+    expect(res.headers.get('location')).toContain('quickbooks=use_company_address')
+  })
   it('callback: consent denied burns the ticket', async () => {
     const t = await ticket()
     const res = await callbackGET(cb({ error: 'access_denied', state: t.state }))

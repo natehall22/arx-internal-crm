@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
   const code = p.get('code')
   const realmId = p.get('realmId')
   const sameOrigin = request.nextUrl.origin
-  const refuse = (outcome: 'invalid_state' | 'failed') => NextResponse.redirect(new URL(qbReturn(outcome), request.url))
+  const refuse = (outcome: 'invalid_state' | 'failed' | 'use_company_address') => NextResponse.redirect(new URL(qbReturn(outcome), request.url))
 
   if (!state || !isSignedOAuthState(state)) return refuse('invalid_state')
   try {
@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
     const check = await acceptOAuthCallback(createServiceClient(), state, denied ? null : packCallback(code!, realmId!), Date.now(), { purpose: 'quickbooks', sameOrigin })
     if (!check.ok) {
       console.error('QuickBooks callback refused:', check.reason)
-      return refuse(check.reason === 'unavailable' ? 'failed' : 'invalid_state')
+      return refuse(check.reason === 'unavailable' ? 'failed' : check.reason === 'wrong_host' ? 'use_company_address' : 'invalid_state')
     }
     if (denied) return NextResponse.redirect(new URL(qbReturn('denied'), check.returnOrigin))
     const finish = new URL('/api/integrations/quickbooks/finish', check.returnOrigin)

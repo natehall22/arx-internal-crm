@@ -22,6 +22,8 @@ const OUTCOME: Record<string, { text: string }> = {
   owner_only: { text: 'Only an owner can connect QuickBooks.' },
   intuit_refused: { text: 'QuickBooks did not accept the connection. Please try again.' },
   different_company: { text: 'This is a different QuickBooks company than the one this CRM was already linked to, and its records are already matched. Reconnect the original company.' },
+  realm_in_use: { text: 'That QuickBooks company is already connected to another company in this CRM.' },
+  use_company_address: { text: 'Start the connection from your own company web address (the one you normally sign in at), not this one.' },
   failed: { text: 'Could not finish connecting. Please try again in a minute.' },
   off: { text: 'Turn on QuickBooks in the feature switches first.' },
 }
@@ -69,7 +71,8 @@ export default function QuickBooksCard({ initial = null }: { initial?: View | nu
     if (data) {
       setView(data)
       setOutcome(null)
-      toast.success('Disconnected')
+      if ((data as { revoked?: boolean }).revoked) toast.success('Disconnected')
+      else toast.success('Disconnected here. QuickBooks may still list this app: in QuickBooks open Apps and remove it there too.')
     }
   }
 

@@ -81,7 +81,7 @@ export async function GET(request: NextRequest) {
     if (!saved.ok) {
       // Nothing stored: don't leave a live grant at Intuit that we can't use.
       await revokeToken(cfg, exchanged.tokens.refreshToken)
-      return done(saved.reason === 'different_company' ? 'different_company' : 'failed')
+      return done(saved.reason === 'different_company' ? 'different_company' : saved.reason === 'realm_in_use' ? 'realm_in_use' : 'failed')
     }
     return done('connected')
   } catch (e) {

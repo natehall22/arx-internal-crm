@@ -43,6 +43,9 @@ create table if not exists public.qb_connections (
   )
 );
 
+-- One QuickBooks company belongs to ONE CRM company at a time (a disconnected row frees it).
+create unique index if not exists qb_connections_one_live_realm on public.qb_connections (realm_id, environment) where status <> 'disconnected';
+
 create table if not exists public.qb_links (
   id uuid primary key default gen_random_uuid(),
   org_id uuid not null references public.orgs(id) on delete cascade,

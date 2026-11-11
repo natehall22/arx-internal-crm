@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 
-import { COMPANY_LOOKUP_UNAVAILABLE } from '@/lib/company-host'
+import { COMPANY_LOOKUP_UNAVAILABLE, requestHost } from '@/lib/company-host'
 import { OAUTH_STATE_TTL_MS, issueOAuthState } from '@/lib/google-oauth-state'
 import { loadOrgFeatures } from '@/lib/org-features'
 import { requireOnlinePaymentsCaller } from '@/lib/online-payments/access'
@@ -35,7 +35,7 @@ export async function POST(request: Request) {
     if (!features.quickbooks) return NextResponse.json({ error: 'Turn on QuickBooks in the feature switches first' }, { status: 409 })
     const cfg = quickBooksConfig()
     if (!cfg || !quickBooksServerReady()) return NextResponse.json({ error: 'QuickBooks is not set up on this server yet. Ask whoever runs your CRM.' }, { status: 503 })
-    const host = request.headers.get('x-forwarded-host') ?? request.headers.get('host') ?? new URL(request.url).host
+    const host = requestHost(request)
     const ticket = await issueOAuthState(a.admin, { userId: a.profile.id, orgId, returnHost: host, purpose: 'quickbooks' })
     if (!ticket) return NextResponse.json({ error: 'Connecting is unavailable right now. Please try again.', code: COMPANY_LOOKUP_UNAVAILABLE }, { status: 503 })
     const res = NextResponse.json({ url: buildAuthorizeUrl(cfg, ticket.state) })

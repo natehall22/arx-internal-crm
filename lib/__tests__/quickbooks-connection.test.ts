@@ -261,13 +261,59 @@ describe('getQuickBooksAccess — refresh with rotation', () => {
   })
 })
 
+describe('disconnect tells the truth', () => {
+  it('only a 200 counts as revoked; a 400 or 5xx is reported as not confirmed (still disconnected here)', async () => {
+    for (const status of [400, 500]) {
+      const { fake, admin } = await connected()
+      intuit({ status, body: { error: 'invalid_grant' } })
+      expect(await disconnectQuickBooks(admin, ORG, 'u-1', NOW)).toEqual({ ok: true, revoked: false })
+      expect(fake.tables.qb_connections[0].status).toBe('disconnected')
+    }
+  })
+})
+
+describe('sealed tokens are bound to their company and column (AAD)', () => {
+  it('a sealed token copied to another company or column does not open', async () => {
+    const { fake, admin } = await connected()
+    const row = fake.tables.qb_connections[0]
+    // Swap the two columns: same key, wrong column -> unreadable -> needs reconnect, no Intuit call.
+    ;[row.access_token_ct, row.refresh_token_ct] = [row.refresh_token_ct, row.access_token_ct]
+    intuit(tokens(1))
+    expect(await getQuickBooksAccess(admin, ORG, { now: () => NOW + 60_000, wait: noWait })).toEqual({ ok: false, reason: 'needs_reconnect' })
+    expect(fetchMock).not.toHaveBeenCalled()
+    const k = integrationSecretKey('quickbooks-tokens')!
+    const sealed = sealWithKey(k, 'x', 'qb:org-a:access_token_ct')
+    expect(openWithKey(k, sealed, 'qb:org-b:access_token_ct')).toBeNull()
+    expect(openWithKey(k, sealed)).toBeNull()
+    expect(openWithKey(k, sealed, 'qb:org-a:access_token_ct')).toBe('x')
+  })
+  it('one QuickBooks company can be live in only one CRM company', async () => {
+    const fake = createFakeDb({ qb_connections: [], qb_links: [] }, { unique: { qb_connections: [['realm_id']] } })
+    const a = await saveNewConnection(fake.client as never, ORG, { realmId: '9130', environment: 'sandbox', companyName: null, tokens: t0, userId: 'u-1' }, NOW)
+    const b = await saveNewConnection(fake.client as never, OTHER, { realmId: '9130', environment: 'sandbox', companyName: null, tokens: t0, userId: 'u-2' }, NOW)
+    expect(a).toEqual({ ok: true })
+    expect(b).toEqual({ ok: false, reason: 'realm_in_use' })
+  })
+  it('a slow refresh that finishes after a wrongly-flagged row heals it (status back to connected)', async () => {
+    const { fake, admin } = await connected()
+    fetchMock = jest.fn(async () => {
+      Object.assign(fake.tables.qb_connections[0], { status: 'needs_reconnect', needs_reconnect_reason: 'x' })
+      return { status: 200, ok: true, json: async () => tokens(1).body } as unknown as Response
+    })
+    global.fetch = fetchMock as unknown as typeof fetch
+    expect(await getQuickBooksAccess(admin, ORG, { now: () => NOW + 3_500_000, wait: noWait })).toMatchObject({ ok: true })
+    expect(fake.tables.qb_connections[0]).toMatchObject({ status: 'connected', needs_reconnect_reason: null })
+  })
+})
+
 describe('disconnect', () => {
   it('revokes the refresh token at Intuit, wipes both tokens, keeps the row and the links', async () => {
     const { fake, admin } = await connected({ qb_links: [{ id: 'l1', org_id: ORG, crm_table: 'customers', crm_id: 'c1', qb_type: 'Customer', qb_id: '5' }] })
     intuit({ status: 200, body: {} })
     expect(await disconnectQuickBooks(admin, ORG, 'u-1', NOW)).toEqual({ ok: true, revoked: true })
     expect(String(fetchMock.mock.calls[0][0])).toContain('/revoke')
-    expect(String(fetchMock.mock.calls[0][1].body)).toContain('token=refresh-0')
+    expect(fetchMock.mock.calls[0][1].headers['Content-Type']).toBe('application/json')
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ token: 'refresh-0' })
     expect(fake.tables.qb_connections[0]).toMatchObject({ status: 'disconnected', access_token_ct: null, refresh_token_ct: null, disconnected_by: 'u-1' })
     expect(fake.tables.qb_links).toHaveLength(1)
     expect(await getQuickBooksAccess(admin, ORG, { wait: noWait })).toEqual({ ok: false, reason: 'not_connected' })
