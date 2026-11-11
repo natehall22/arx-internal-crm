@@ -65,3 +65,12 @@ export function invoiceItemDateLabel(serviceDate: string | null | undefined): st
   if (!isYmd(serviceDate)) return ''
   return formatInTimeZone(new Date(`${serviceDate}T12:00:00Z`), 'UTC', 'EEE, MMM d, yyyy')
 }
+
+/**
+ * What has been paid on an invoice: payments recorded here + money paid in the old system before an import
+ * (`paid_outside_cents`, migration 202611120040 — never a payment row). Balance = total − this. THE rule for every
+ * balance reader (computeInvoiceBalance, the invoice document, the Customer File invoices card).
+ */
+export function invoicePaidCents(invoice: { paid_outside_cents?: number | null }, appliedCents: number): number {
+  return appliedCents + Math.max(0, Number(invoice.paid_outside_cents ?? 0) || 0)
+}

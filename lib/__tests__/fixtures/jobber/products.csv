@@ -1,0 +1,4 @@
+Name,Description,Unit Price,Unit cost,Taxable,Category,Active
+Weekly mowing,Mow edge blow,45,18,false,Service,true
+Mulch (yard),Brown hardwood,45.00,22.50,true,Product,true
+Old service,,10,,false,Service,false

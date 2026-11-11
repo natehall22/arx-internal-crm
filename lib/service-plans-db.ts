@@ -583,6 +583,62 @@ export async function createServicePlan(
   return { ok: true, plan, effect, changes: [] }
 }
 
+/**
+ * A plan brought over from another system (Move from Jobber, lib/jobber-import/db.ts). Same checks as a new plan, but it
+ * arrives PAUSED with no resume date ("needs review": no visits are made until someone checks it and taps Resume), or
+ * ENDED when it ended in the old system. No history row: the import run is its record, and a history row would point at the
+ * plan and stop "Undo this import" from removing it. `importSourceId` keeps a re-run from making a second plan.
+ */
+export async function createImportedServicePlan(
+  admin: SupabaseClient,
+  orgId: string,
+  userId: string,
+  customerId: string,
+  body: Record<string, unknown>,
+  opts: { importSource: 'jobber'; importSourceId: string; ended: boolean; now?: Date }
+): Promise<{ ok: true; plan: ServicePlan } | Fail> {
+  const prep = await prepareNewPlan(admin, orgId, customerId, body)
+  if (!prep.ok) return prep
+  const v = prep.v
+  const { data, error } = await orgDb(admin, orgId)
+    .from('service_plans')
+    .insert({
+      ...v,
+      description: v.description ?? null,
+      template_id: null,
+      template_version: null,
+      customer_id: customerId,
+      status: opts.ended ? 'ended' : 'paused',
+      paused_until: null,
+      ended_at: opts.ended ? (opts.now ?? new Date()).toISOString() : null,
+      created_by: userId,
+      updated_by: userId,
+      import_source: opts.importSource,
+      import_source_id: opts.importSourceId,
+    })
+    .select(SERVICE_PLAN_COLUMNS)
+    .single()
+  if (error || !data) {
+    if (isServicePlansNotReadyError(error)) return { ok: false, status: 503, error: SERVICE_PLANS_NOT_READY }
+    if (error?.code === '23505') return { ok: false, status: 409, error: 'already imported' }
+    console.error('[service-plans] import create failed', error)
+    return { ok: false, status: 500, error: error?.message ?? 'Could not save the plan' }
+  }
+  return { ok: true, plan: planFromRow(data as Record<string, unknown>) }
+}
+
+/** The values an import would write over an imported plan (checked like an edit). Used for a re-run's update. */
+export async function cleanImportedPlanPatch(
+  admin: SupabaseClient,
+  orgId: string,
+  customerId: string,
+  body: Record<string, unknown>
+): Promise<{ ok: true; patch: Record<string, unknown> } | Fail> {
+  const prep = await prepareNewPlan(admin, orgId, customerId, body)
+  if (!prep.ok) return prep
+  return { ok: true, patch: { ...prep.v, description: prep.v.description ?? null } }
+}
+
 const PENDING_PROPERTY = 'pending-property'
 
 export type NewCustomerPlanResult =

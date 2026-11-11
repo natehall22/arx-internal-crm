@@ -222,7 +222,23 @@ const CLOCK_TAPS: Variant[] = [
   (id, ref) => tap({ action: 'equipment_stop', entryId: ref }),
   (id, ref) => tap({ action: 'finish_answer', entryId: ref, finishTime: '16:30' }),
 ]
+const jobberRuns = (status: string) => (seed: Record<string, Row[]>) => {
+  for (const r of seed.import_runs ?? []) Object.assign(r, { status, checked_at: '2026-11-11T12:00:00Z', summary: { nothingToImport: false } })
+  for (const r of seed.import_run_items ?? []) Object.assign(r, { status: status === 'importing' ? 'pending' : 'done', action: 'create', kind: 'customer', rank: 3, seq: 1, target_table: 'customers', applied: {} })
+}
 const FIXTURES: Record<string, Variant[]> = {
+  'POST /api/admin/import/jobber/[runId]': [
+    () => ({ body: { action: 'addFile', name: 'clients.csv', text: 'J-ID,Display Name\n2_2,Bravo Client\n' } }),
+    (id, ref) => ({ body: { action: 'removeFile', fileId: ref } }),
+    (id, ref) => ({ body: { action: 'update', fileId: ref, kind: 'clients', columns: { 'Display Name': 'display_name' } } }),
+    () => ({ body: { action: 'update', options: { trade: 'roofing', skipArchived: true } } }),
+    () => ({ body: { action: 'check' } }),
+    () => ({ body: { action: 'discard' } }),
+    withSeed(() => ({ body: { action: 'import' } }), jobberRuns('importing')),
+    withSeed(() => ({ body: { action: 'undo' } }), jobberRuns('done')),
+    () => ({ body: { action: 'matchFiles', names: ['Bravo Client - Contract.pdf'] } }),
+    withSeed((id, ref) => ({ body: { action: 'recordDocuments', documentIds: [ref] } }), jobberRuns('done')),
+  ],
   'GET /api/admin/data': each('resource', ['comp_plans', 'regions', 'teams', 'users', 'campaigns', 'scheduling']),
   'POST /api/admin/data': each('resource', ['dashboard_settings', 'proposals', 'region', 'team', 'comp_plan', 'user_comp_plan', 'campaign', 'proposal_template']),
   'PATCH /api/admin/data': each('resource', ['region', 'team', 'comp_plan', 'user', 'campaign', 'dashboard_settings', 'user_hierarchy', 'proposal_template']),

@@ -10,6 +10,7 @@ import { loadOrgTimeZone } from '@/lib/cron-orgs'
 import { isUsableCustomerEmail } from '@/lib/invoice-document'
 import { sendCustomerInvoice } from '@/lib/invoice-email'
 import { createServiceInvoiceFromLines } from '@/lib/invoices'
+import { invoicePaidCents } from '@/lib/invoice-lines'
 import { loadOrgSalesTax } from '@/lib/sales-tax-server'
 import type { SalesTaxSettings } from '@/lib/sales-tax'
 import {
@@ -345,5 +346,8 @@ export async function loadCustomerServiceInvoices(admin: SupabaseClient, orgId: 
     if (appsError) throw new Error(`billing: read invoice payments: ${appsError.message}`)
     for (const a of (apps ?? []) as Array<{ invoice_id: string; applied_cents: number }>) applied.set(a.invoice_id, (applied.get(a.invoice_id) ?? 0) + a.applied_cents)
   }
-  return invoices.map((i) => ({ ...i, applied_cents: applied.get(i.id) ?? 0, balance_cents: i.total_cents - (applied.get(i.id) ?? 0) }))
+  return invoices.map((i) => {
+    const paid = invoicePaidCents(i, applied.get(i.id) ?? 0)
+    return { ...i, applied_cents: paid, balance_cents: i.total_cents - paid }
+  })
 }

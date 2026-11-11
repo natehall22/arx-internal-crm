@@ -3,6 +3,8 @@ export type InvoiceStatus = 'draft' | 'sent' | 'partially_paid' | 'paid' | 'void
 export type InvoiceKind = 'deposit' | 'final' | 'standard' | 'service'
 
 export interface JobInvoice {
+  /** Imported invoices only: paid in the old system before the import (not a payment row). See paidCents(). */
+  paid_outside_cents?: number | null
   id: string
   /** NULL = an invoice without a job (recurring service): customer_id is set instead (migration 202611110060). */
   job_id: string | null

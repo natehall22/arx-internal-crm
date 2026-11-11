@@ -128,3 +128,37 @@ export async function updateProperty(
   if (!data) return { ok: false, status: 404, error: 'Not found' }
   return { ok: true, property: fromRow(data as Record<string, unknown>, opts.accessNotes) }
 }
+
+/**
+ * A property brought over from another system (Move from Jobber). Same input rules as the Customer File (`cleanPropertyInput`),
+ * `source 'import'` + the old system's id. `existingId` = the customer already has a property at this address (the
+ * database's one same-address rule said so): nothing is written and that property is used.
+ */
+export async function insertImportedProperty(
+  admin: SupabaseClient,
+  orgId: string,
+  userId: string,
+  customerId: string,
+  input: Record<string, unknown>,
+  extra: { custom_fields: Record<string, unknown>; import_source: 'jobber'; import_source_id: string }
+): Promise<{ ok: true; property: Record<string, unknown> } | { ok: true; existingId: string } | { ok: false; error: string }> {
+  const clean = cleanPropertyInput(input, 'create')
+  if (!clean.ok) return { ok: false, error: clean.error }
+  const db = orgDb(admin, orgId)
+  const { data, error } = await db
+    .from('properties')
+    .insert({ ...clean.value, ...extra, customer_id: customerId, source: 'import', active: true, created_by: userId, updated_by: userId })
+    .select('id, label, address_line1, address_line2, city, state, zip, address_text, custom_fields, import_source, import_source_id')
+    .single()
+  if (!error && data) return { ok: true, property: data as Record<string, unknown> }
+  if (error?.code === '23505') {
+    // Same address for this customer (or this Jobber id already imported): find the row the unique key points at.
+    const { data: bySource } = await db.from('properties').select('id').eq('import_source', extra.import_source).eq('import_source_id', extra.import_source_id).maybeSingle()
+    if (bySource) return { ok: true, existingId: String((bySource as { id: string }).id) }
+    const { data: keys } = await admin.rpc('property_address_keys', { p: [String(clean.value.address_text ?? '')] })
+    const key = Array.isArray(keys) ? (keys[0] as string) : ''
+    const { data: same } = await db.from('properties').select('id').eq('customer_id', customerId).eq('address_key', key).maybeSingle()
+    if (same) return { ok: true, existingId: String((same as { id: string }).id) }
+  }
+  return { ok: false, error: error?.message ?? 'Could not save the property' }
+}

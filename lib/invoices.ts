@@ -14,7 +14,8 @@ import { formatCurrency } from './job-payments'
 import { isMissingColumn } from '@/lib/supabase/errors'
 import { computeCustomerSalesTax } from './sales-tax-server'
 import { normalizeDepositFraction } from './job-pipeline'
-import { invoiceItemLineFields, CUSTOMER_PAYMENT_METHODS, type CustomerPaymentMethod } from './invoice-lines'
+import { invoiceItemLineFields, invoicePaidCents, CUSTOMER_PAYMENT_METHODS, type CustomerPaymentMethod } from './invoice-lines'
+import { orgDb } from '@/lib/supabase/org-db'
 export { CUSTOMER_PAYMENT_METHODS, CUSTOMER_PAYMENT_METHOD_LABELS, type CustomerPaymentMethod } from './invoice-lines'
 
 /**
@@ -916,7 +917,7 @@ export async function computeInvoiceBalance(
   // org-scope-ok: invoiceId was verified in the caller's company by findOrgInvoice (app/api/invoices/[invoiceId]/*); job_invoices.org_id filter after migration 202611100040
   const { data: invoice } = await supabase
     .from('job_invoices')
-    .select('total_cents')
+    .select('*')
     .eq('id', invoiceId)
     .single()
 
@@ -929,7 +930,8 @@ export async function computeInvoiceBalance(
     .select('applied_cents')
     .eq('invoice_id', invoiceId)
 
-  const appliedCents = (applications || []).reduce((sum, a) => sum + a.applied_cents, 0)
+  // Paid here + paid before an import (paid_outside_cents; `*` so this reads the same before migration 202611120040).
+  const appliedCents = invoicePaidCents(invoice, (applications || []).reduce((sum, a) => sum + a.applied_cents, 0))
   const balanceCents = invoice.total_cents - appliedCents
 
   return {
@@ -968,7 +970,8 @@ export async function getInvoiceWithDetails(
     .eq('invoice_id', invoiceId)
     .order('created_at', { ascending: true })
 
-  const appliedCents = (payments || []).reduce((sum, p) => sum + p.applied_cents, 0)
+  // Paid here + paid before an import (invoicePaidCents is the one rule).
+  const appliedCents = invoicePaidCents(invoice, (payments || []).reduce((sum, p) => sum + p.applied_cents, 0))
 
   return {
     ...invoice,
@@ -1035,8 +1038,9 @@ export async function voidInvoice(
   // org-scope-ok: invoiceId was verified in the caller's company by findOrgInvoice; invoice_payments hang off it
   const { data: applied } = await supabase.from('invoice_payments').select('id').eq('invoice_id', invoiceId).limit(1)
   // org-scope-ok: same verified invoice
-  const { data: owner } = await supabase.from('job_invoices').select('job_id').eq('id', invoiceId).maybeSingle()
-  if (owner && !owner.job_id && (applied ?? []).length > 0) {
+  const { data: owner } = await supabase.from('job_invoices').select('*').eq('id', invoiceId).maybeSingle()
+  // Money paid before an import (paid_outside_cents) counts as a payment too.
+  if (owner && !owner.job_id && ((applied ?? []).length > 0 || Number(owner.paid_outside_cents ?? 0) > 0)) {
     throw new Error("This invoice has a payment on it, so it can't be voided.")
   }
 
@@ -1249,4 +1253,75 @@ export function formatInvoiceCurrency(cents: number): string {
     style: 'currency',
     currency: 'USD',
   }).format(cents / 100)
+}
+
+/** An invoice line as an import brings it (Jobber's own lines + one balancing line; see lib/jobber-import/plan.ts). */
+export type ImportedInvoiceLine = { description: string; qty: number; unit_price_cents: number; line_total_cents: number; taxable: boolean }
+
+export const IMPORTED_INVOICE_COLUMNS =
+  'id, invoice_number, status, issued_at, due_at, subtotal_cents, tax_cents, tax_lines, total_cents, paid_outside_cents, public_note, internal_note, void_reason, customer_id, property_id, import_source, import_source_id'
+
+/**
+ * An invoice brought over from another system (Move from Jobber) with ITS status, totals and balance — never recomputed
+ * with this company's tax rules and never given a payment row: money already paid there is `paid_outside_cents`
+ * (migration 202611120040), which every balance reader subtracts. Always an invoice without a job (customer + property).
+ * Lines are written after the header; if they can't be, the header is removed so no empty invoice is left.
+ */
+export async function insertImportedInvoice(
+  supabase: SupabaseClient,
+  orgId: string,
+  p: {
+    customerId: string
+    propertyId: string | null
+    createdBy: string
+    header: Record<string, unknown>
+    lines: ImportedInvoiceLine[]
+    importSourceId: string
+  }
+): Promise<{ ok: true; row: Record<string, unknown> } | { ok: false; error: string; duplicate?: boolean }> {
+  const db = orgDb(supabase, orgId)
+  const isVoid = p.header.status === 'void'
+  const { data, error } = await db
+    .from('job_invoices')
+    .insert({
+      ...p.header,
+      job_id: null,
+      customer_id: p.customerId,
+      property_id: p.propertyId,
+      invoice_kind: 'service',
+      created_by: p.createdBy,
+      voided_at: isVoid ? new Date().toISOString() : null,
+      import_source: 'jobber',
+      import_source_id: p.importSourceId,
+    })
+    .select(IMPORTED_INVOICE_COLUMNS)
+    .single()
+  if (error || !data) return { ok: false, error: error?.message ?? 'Could not save the invoice', duplicate: error?.code === '23505' }
+  const row = data as Record<string, unknown>
+  const items = await replaceImportedInvoiceLines(supabase, String(row.id), p.lines)
+  if (!items.ok) {
+    await db.from('job_invoices').delete().eq('id', row.id)
+    return { ok: false, error: items.error }
+  }
+  return { ok: true, row }
+}
+
+/** The lines of an imported invoice (the invoice was loaded company-scoped by the caller). */
+export async function replaceImportedInvoiceLines(supabase: SupabaseClient, invoiceId: string, lines: ImportedInvoiceLine[]): Promise<{ ok: true } | { ok: false; error: string }> {
+  // job_invoice_items has no org_id; the invoice is the tenant anchor (checked by the caller).
+  const del = await supabase.from('job_invoice_items').delete().eq('invoice_id', invoiceId)
+  if (del.error) return { ok: false, error: del.error.message }
+  if (!lines.length) return { ok: true }
+  const { error } = await supabase.from('job_invoice_items').insert(
+    lines.map((l, i) => ({
+      invoice_id: invoiceId,
+      description: l.description.slice(0, 1000) || 'Item',
+      qty: l.qty,
+      unit_price_cents: l.unit_price_cents,
+      line_total_cents: l.line_total_cents,
+      taxable: l.taxable,
+      sort_order: i,
+    }))
+  )
+  return error ? { ok: false, error: error.message } : { ok: true }
 }

@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import { REPORT_TEMPLATES } from '../lib/reporting/templates'
-import { JOB_SETUP_TRADES, HARNESS_TRADES_0037, HARNESS_PAYMENTS_0037, SUPPLIER_VIEW_0037, HARNESS_INCENTIVES, HARNESS_LEADERBOARD, HARNESS_INSIDE_SALES, HARNESS_INSTALL_SCHEDULE, HARNESS_PARTNERS, HARNESS_APPOINTMENTS, HARNESS_THREAD, HARNESS_PROPOSALS, HARNESS_LEADS, ANNOUNCEMENTS, BANNER, DEFAULT_PLANS, COST_LINES, SUPPLIERS, PAY_WEEK, MY_PAY, REPORT_RESULT, SALE_CREDIT, SUPPLIER_PREVIEW, SUPPLIER_VIEW, TEMPLATE_META, USERS, HARNESS_OWNER_CANDIDATES, HARNESS_CUSTOM_FIELDS, HARNESS_PROPERTIES, HARNESS_SERVICE_PLANS, HARNESS_VISITS, HARNESS_PLAN_TEMPLATES, HARNESS_TEMPLATE_DETAIL, HARNESS_READY_TO_BILL, HARNESS_CUSTOMER_INVOICES, HARNESS_CLOCK_STATE, HARNESS_CLOCK_STATE_IN, HARNESS_JOB_CLOCK_SELF, HARNESS_TIME_WEEK, HARNESS_CREW_SETUP, JOB_SPLIT, PAY_WEEK_SCHEDULE, PAY_WEEK_SCHEDULE_PREVIEW } from './fixtures'
+import { JOB_SETUP_TRADES, HARNESS_TRADES_0037, HARNESS_PAYMENTS_0037, SUPPLIER_VIEW_0037, HARNESS_INCENTIVES, HARNESS_LEADERBOARD, HARNESS_INSIDE_SALES, HARNESS_INSTALL_SCHEDULE, HARNESS_PARTNERS, HARNESS_APPOINTMENTS, HARNESS_THREAD, HARNESS_PROPOSALS, HARNESS_LEADS, ANNOUNCEMENTS, BANNER, DEFAULT_PLANS, COST_LINES, SUPPLIERS, PAY_WEEK, MY_PAY, REPORT_RESULT, SALE_CREDIT, SUPPLIER_PREVIEW, SUPPLIER_VIEW, TEMPLATE_META, USERS, HARNESS_OWNER_CANDIDATES, HARNESS_CUSTOM_FIELDS, HARNESS_PROPERTIES, HARNESS_SERVICE_PLANS, HARNESS_VISITS, HARNESS_PLAN_TEMPLATES, HARNESS_TEMPLATE_DETAIL, HARNESS_READY_TO_BILL, HARNESS_CUSTOMER_INVOICES, HARNESS_CLOCK_STATE, HARNESS_CLOCK_STATE_IN, HARNESS_JOB_CLOCK_SELF, HARNESS_TIME_WEEK, HARNESS_CREW_SETUP, JOB_SPLIT, PAY_WEEK_SCHEDULE, PAY_WEEK_SCHEDULE_PREVIEW, HARNESS_JOBBER_STATE, HARNESS_JOBBER_DONE, HARNESS_JOBBER_RUN } from './fixtures'
 
 const json = (body: unknown, status = 200) => ({ status, contentType: 'application/json', body: JSON.stringify(body) })
 
@@ -162,6 +162,21 @@ const SCREENS: Screen[] = [
     states: [
       { name: 'renaming', run: async (p) => { await p.getByRole('button', { name: 'Rename' }).first().click(); await p.waitForSelector('input[aria-label="New name for Roofing"]') } },
       { name: 'adding', run: async (p) => { await p.getByLabel('Add a trade').fill('Painting'); await p.waitForTimeout(100) } },
+    ] },
+  { name: 'move-from-jobber', path: '/dev-harness/move-from-jobber', ready: 'text=2. Check before anything is saved', mock: async (p) => {
+    await p.route(/\/api\/admin\/import\/jobber$/, (route) => route.fulfill(json({ ready: true, runs: [HARNESS_JOBBER_RUN] })))
+    await p.route(/\/api\/admin\/import\/jobber\/[^/]+$/, (route) => route.fulfill(json(HARNESS_JOBBER_STATE)))
+  },
+    states: [
+      { name: 'columns-sheet', run: async (p) => { await p.getByRole('button', { name: /column to check/ }).click(); await p.waitForSelector('[role=dialog] >> text=Mowing height') } },
+      { name: 'how-to-export', run: async (p) => { await p.getByText('How to get these files out of Jobber').click(); await p.waitForSelector('text=More Actions → Export Clients') } },
+    ] },
+  { name: 'move-from-jobber-done', path: '/dev-harness/move-from-jobber-done', ready: 'text=Plans to check before they start', mock: async (p) => {
+    await p.route(/\/api\/admin\/import\/jobber$/, (route) => route.fulfill(json({ ready: true, runs: [{ ...HARNESS_JOBBER_RUN, status: 'done' }] })))
+    await p.route(/\/api\/admin\/import\/jobber\/[^/]+$/, (route) => route.fulfill(json(route.request().method() === 'POST' ? { matches: [{ fileName: 'Jane Smith - Contract.pdf', customerId: 'c1', how: 'exact', candidates: [{ id: 'c1', name: 'Jane Smith' }], title: 'Contract' }], customers: [{ id: 'c1', name: 'Jane Smith' }, { id: 'c2', name: 'Wakulla HOA' }] } : HARNESS_JOBBER_DONE)))
+  },
+    states: [
+      { name: 'file-match', run: async (p) => { await p.setInputFiles('input[type=file]', { name: 'Jane Smith - Contract.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4') }); await p.waitForSelector('text=Add 1 file to customers') } },
     ] },
   { name: 'custom-fields-admin', path: '/dev-harness/custom-fields-admin', ready: 'text=Payment terms', mock: async (p) => {
     await p.route('**/api/admin/custom-fields', (route) => route.fulfill(json(HARNESS_CUSTOM_FIELDS)))

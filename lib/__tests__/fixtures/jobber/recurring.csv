@@ -1,0 +1,3 @@
+Job #,Job title,Client name,Client email,Client phone number,Service street,Service city,Service state/province,Service zip/postal code,Billing type,Automatic invoicing,Visits assigned to,Line items,Total ($),Completed visits,Number of invoices,Schedule start date,Schedule end date
+7,Weekly lawn maintenance,Jane Smith,jane@example.com,8505550101,12 Oak St,Crawfordville,Florida,32327,Per visit,Yes,Crew A,"Weekly mowing (1, $45.00)","$1,800.00",20,5,01/04/2025,31/10/2026
+8,Bi-weekly mowing,Wakulla HOA,board@wakullahoa.org,,1 Club Dr,Crawfordville,FL,32327,Fixed price,No,Crew B,"HOA grounds (1, $300.00)",$300.00,2,1,05/05/2025,

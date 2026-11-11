@@ -184,6 +184,11 @@ export function seedForRoute(seed: Record<string, Row[]>, routePath: string) {
     const start = new Date(Date.now() - 3 * 3_600_000).toISOString()
     for (const r of seed.time_entries ?? []) Object.assign(r, { kind: 'work', started_at: start, ended_at: new Date(Date.now() - 3_600_000).toISOString(), removed_at: null })
   }
+  // Move from Jobber: both companies have an import draft with one file (lib/jobber-import/db.ts reads status + mapping).
+  if (/^\/api\/admin\/import\/jobber/.test(routePath)) {
+    for (const r of seed.import_runs ?? []) Object.assign(r, { status: 'draft', mapping: {}, options: {}, summary: null, checked_at: null })
+    for (const r of seed.import_run_files ?? []) Object.assign(r, { kind: 'clients', headers: ['J-ID', 'Display Name'], rows: [['1_1', 'Pat']], row_count: 1, date_evidence: null, parsed: null, parsed_at: null })
+  }
   // Time clock: both companies' crews clock in, and their crew_members rows are leads (lib/time-tracking-db.ts).
   if (/\/clock$/.test(routePath)) {
     for (const r of seed.sub_contractors ?? []) Object.assign(r, { tracks_time: true, active: true })

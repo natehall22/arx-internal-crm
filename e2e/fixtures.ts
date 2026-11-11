@@ -801,3 +801,56 @@ export const HARNESS_CREW_SETUP = {
   roster: { subId: 's1', name: 'Green Team', tracksTime: true, members: [{ userId: CLOCK_PEOPLE[0].userId, name: 'Marcus Lead', isLead: true }, { userId: CLOCK_PEOPLE[1].userId, name: 'Dee Crew', isLead: false }] },
   people: CLOCK_PEOPLE.map((p) => ({ userId: p.userId, name: p.name })),
 }
+
+// Move from Jobber (components/jobber-import/MoveFromJobber.tsx): a draft import that has been checked.
+const JOBBER_COUNTS = { create: 0, update: 0, link: 0, skip: 0 }
+export const HARNESS_JOBBER_RUN = {
+  id: '11111111-2222-3333-4444-555555555555',
+  status: 'draft',
+  mapping: {},
+  options: { dateOrder: null, trade: 'lawn', skipArchived: false },
+  checked_at: '2026-11-11T15:00:00Z',
+  created_at: '2026-11-11T14:00:00Z',
+  finished_at: null,
+  summary: {
+    files: [{ id: 'f1', name: 'clients-1.csv', kind: 'clients', rows: 412 }],
+    dateOrder: { order: 'mdy', ambiguous: true, conflicting: false, chosen: false },
+    counts: {
+      custom_field: { ...JOBBER_COUNTS, create: 4 },
+      price_item: { ...JOBBER_COUNTS, create: 18 },
+      customer: { ...JOBBER_COUNTS, create: 396, link: 12 },
+      property: { ...JOBBER_COUNTS, create: 431 },
+      plan: { ...JOBBER_COUNTS, create: 211 },
+      invoice: { ...JOBBER_COUNTS, create: 1290 },
+      history: { ...JOBBER_COUNTS, create: 77 },
+    },
+    newFields: [{ entity: 'customer', label: 'Gate code' }, { entity: 'customer', label: 'Tags' }, { entity: 'customer', label: 'Lead source' }, { entity: 'property', label: 'Mowing height' }],
+    invoices: { open: 41, openBalanceCents: 1284500, paid: 1236, draft: 9, void: 4 },
+    plans: { total: 211, fromVisits: 198, ended: 13 },
+    duplicates: [{ reason: 'Already in your customers (same phone) — linked, only blank details filled', names: ['Jane Smith', 'J. Smith'] }],
+    problems: [
+      { severity: 'error', file: 'invoices.csv', row: 88, message: 'No total — left out' },
+      { severity: 'warning', file: 'recurring.csv', row: 4, message: 'How often was worked out from 31 visits in Jobber — check it.' },
+    ],
+    problemCount: { errors: 1, warnings: 1 },
+    nothingToImport: false,
+  },
+}
+export const HARNESS_JOBBER_STATE = {
+  run: HARNESS_JOBBER_RUN,
+  files: [
+    { id: 'f1', name: 'clients-1.csv', kind: 'clients', headers: ['J-ID', 'Display Name', 'E-mails', 'Mowing height'], row_count: 412, first_row: ['101_201', 'Jane Smith', 'jane@example.com', '3 inch'] },
+    { id: 'f2', name: 'Recurring_jobs_report_2026-11-11.csv', kind: 'recurring_jobs', headers: ['Job #', 'Job title'], row_count: 211, first_row: ['7', 'Weekly lawn maintenance'] },
+  ],
+  progress: { total: 2444, pending: 2444, done: 0, failed: 0, skipped: 0, undone: 0, kept: 0 },
+  trades: [{ slug: 'lawn', label: 'Lawn care' }, { slug: 'pressure_washing', label: 'Pressure washing' }],
+  needsALook: [],
+  reviewPlans: [],
+}
+export const HARNESS_JOBBER_DONE = {
+  ...HARNESS_JOBBER_STATE,
+  run: { ...HARNESS_JOBBER_RUN, status: 'done', finished_at: '2026-11-11T15:10:00Z' },
+  progress: { total: 2444, pending: 0, done: 2440, failed: 4, skipped: 0, undone: 0, kept: 0 },
+  needsALook: [{ id: 'i1', kind: 'invoice', label: 'Invoice #1088', status: 'failed', problems: [], error: 'Its customer wasn’t brought over', undo_note: null }],
+  reviewPlans: [{ planId: 'p1', customerId: 'c1', name: 'Weekly lawn maintenance', review: ['How often was worked out from 31 visits in Jobber — check it.', 'Tax is off — turn it on if this service is taxable.'] }],
+}

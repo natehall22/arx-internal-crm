@@ -336,6 +336,30 @@ date in the company zone) / `findOrCreateWeek` (`lib/payroll-periods.ts`) are th
 fixes and the time clock; `findPeriodForCutoff` deleted. `periodIsEditable` lives in `lib/payroll-periods.ts`. (32, recount) "migration not applied" checks: +1
 (`isTimeTrackingNotReadyError`, built on `lib/supabase/errors.ts`).
 
+## Move from Jobber (2026-11-12)
+Settings → Move from Jobber (`/admin/import/jobber`, owners only, `lib/jobber-import/access.ts`). Full write-up with Jobber
+citations: `docs/jobber-import.md`. Migration `202611120040_jobber_import.sql` (NOT applied; after 0010/0020/0030/0060).
+- **Pure:** `columns.ts` (file kinds, header aliases, mapping screen choices — add a new Jobber spelling there), `values.ts`
+  (money, dates in the account's day/month order, line items "(qty, $total)", J-ID), `schedule.ts` (recurring job →
+  seasons from Visits), `plan.ts` (the Check: items + counts + duplicates + problems per row), `files-match.ts`.
+  **Server:** `db.ts` only (runs, files, check, `importBatch`, `undoBatch`, `recordDocuments`, `loadJobberHistory`).
+- **Writers it uses (no second writer):** plans `createImportedServicePlan` (service-plans-db: PAUSED, no visits, or ended),
+  properties `insertImportedProperty` (properties-db), invoices `insertImportedInvoice` (lib/invoices.ts), custom fields
+  `saveDefinitionChange`, customer identity `matchExistingCustomer` (lib/customers.ts — the same rule as
+  `findExistingCustomer`; change both together), files `uploadCustomerDocument` (lib/customer-document-upload.ts, now also
+  the Documents card's upload).
+- **Rows keep Jobber's id** (`import_source='jobber'`, `import_source_id`, unique per company) on customers, properties,
+  service_plans, job_invoices, pricebook_items, custom_field_definitions. Re-runs update only rows still equal to what the
+  last import wrote; linked customers of yours only get blanks filled.
+- **No payment is ever made up.** Imported invoices carry Jobber's status/balance; money paid in Jobber =
+  `job_invoices.paid_outside_cents` (imported rows only, CHECK). Every balance = total − payments − paid_outside:
+  `invoicePaidCents` (lib/invoice-lines.ts) in `computeInvoiceBalance`, `getInvoiceWithDetails`, the invoice document and
+  the Customer File invoices card; SQL `record_customer_invoice_payment` + `job_invoices_void_guard` (+ `voidInvoice`).
+  New balance readers must use `invoicePaidCents`.
+- **Undo** = SQL `import_undo_row` / `import_revert_row` (row still holds what was written, and no foreign key points at it —
+  read from the catalog); newest import only. Quotes / one-off jobs are history on the run (`kind 'history'`), shown on the
+  customer page "From Jobber" card (owners / managers / ops, never pricing-barred or field roles).
+
 ## UI Conventions
 - **Text contrast is an ongoing, recurring problem in this build — always verify text stands out.** Use explicit dark text (`#2c2c2a`, not generic gray) on light surfaces; never place text directly on the satellite/photo map — use a solid or opaque-scrim background; aim for WCAG AA. Validate legibility on a cheap Android in direct sun for any field-facing UI.
 

@@ -3,6 +3,8 @@ import { redirect } from 'next/navigation'
 
 import Nav from '@/components/Nav'
 import { CustomerDocuments, CustomerRecords } from '@/components/customer-file/CustomerRecords'
+import JobberHistoryCard from '@/components/jobber-import/JobberHistoryCard'
+import { loadJobberHistory } from '@/lib/jobber-import/db'
 import PhoneLink from '@/components/PhoneLink'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui'
 import { requireAuth } from '@/lib/auth'
@@ -44,6 +46,9 @@ export default async function CustomerFileIndex({ params }: { params: { customer
   }
 
   const c = customer as { id: string; name: string | null; phone: string | null; email: string | null; address_text: string | null }
+  // Jobber history carries prices: the same people as the customer account link below (never field roles).
+  const seesHistory = (viewer.ownerLike || viewer.managerLike || viewer.jobBoard) && !viewer.pricingBarred && !viewer.setterLike
+  const jobberHistory = seesHistory ? await loadJobberHistory(admin, viewer.orgId, c.id) : []
   return (
     <div className="min-h-screen bg-surface-subtle">
       <Nav />
@@ -72,6 +77,7 @@ export default async function CustomerFileIndex({ params }: { params: { customer
         </Card>
         <CustomerRecords customerId={c.id} extras={extras} />
         <CustomerDocuments customerId={c.id} orgId={viewer.orgId} extras={extras} />
+        <JobberHistoryCard entries={jobberHistory} />
       </main>
     </div>
   )

@@ -10,6 +10,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { formatPhone } from '@/lib/format'
 import { resolveOrgBrand } from '@/lib/org-brand'
 import { invoiceTaxRows } from '@/lib/sales-tax'
+import { invoicePaidCents } from '@/lib/invoice-lines'
 import type { JobInvoice, JobInvoiceItem } from '@/lib/types/invoices'
 
 export interface InvoiceBillTo {
@@ -167,7 +168,8 @@ export async function loadInvoiceDocument(admin: SupabaseClient, orgId: string, 
       ? billToForJob(admin, orgId, invoice.job_id)
       : billToForCustomer(admin, orgId, String(invoice.customer_id), invoice.property_id ?? null),
   ])
-  const appliedCents = ((appsRes.data ?? []) as Array<{ applied_cents: number }>).reduce((s, a) => s + a.applied_cents, 0)
+  // Paid here + paid before an import (invoicePaidCents is the one rule).
+  const appliedCents = invoicePaidCents(invoice, ((appsRes.data ?? []) as Array<{ applied_cents: number }>).reduce((s, a) => s + a.applied_cents, 0))
   const balanceCents = invoice.total_cents - appliedCents
   const org = orgRes.data as { name?: string | null; address?: string | null; phone?: string | null; email?: string | null; settings?: Record<string, unknown> | null } | null
   // Invoices carry the legal entity name: settings.brand.legalName (owners edit it in Settings), else the company name.

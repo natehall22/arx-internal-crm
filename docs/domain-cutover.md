@@ -96,3 +96,7 @@ needs entries #5–#7 (the wildcards above cover them).
 - Full order for invoicing recurring service: 202611100040 → 202611110010 (properties) → 202611110030 (service plans) →
   202611110040 (sales tax) → 202611110060 (invoices without a job). Then the code. DB test:
   `supabase/tests/run-customer-invoices.sh` (throwaway local Postgres only).
+- Move from Jobber: `202611120040_jobber_import.sql` AFTER 202611110010, 202611110020 (custom fields), 202611110030,
+  202611110060 — it replaces 0060's `record_customer_invoice_payment` and `job_invoices_void_guard` with copies that also
+  count `paid_outside_cents`. Re-applying 0060 after it would drop that; apply in order. DB test:
+  `supabase/tests/run-jobber-import.sh`.

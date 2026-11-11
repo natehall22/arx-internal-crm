@@ -3,10 +3,9 @@
 import * as React from 'react'
 
 import { Button, Card, CardContent, CardHeader, CardTitle, FileDropZone, Field, Select, toast } from '@/components/ui'
-import { CUSTOMER_DOCUMENT_CATEGORIES } from '@/lib/customer-document-categories'
+import { CUSTOMER_DOCUMENT_ACCEPT, CUSTOMER_DOCUMENT_CATEGORIES } from '@/lib/customer-document-categories'
 import { formatDate } from '@/lib/format'
-import { multipartFilenameForUpload } from '@/lib/files/storage'
-import { createClientBrowser } from '@/lib/supabase/client'
+import { uploadCustomerDocument } from '@/lib/customer-document-upload'
 
 export type CustomerDocumentItem = {
   id: string
@@ -51,29 +50,8 @@ export default function CustomerDocumentsCard({
   }
 
   async function uploadOne(file: File, i: number): Promise<string | null> {
-    const json = async (url: string, body: unknown) => {
-      const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-      const data = (await res.json().catch(() => ({}))) as Record<string, unknown>
-      if (!res.ok) throw new Error(typeof data.error === 'string' ? data.error : 'Upload failed')
-      return data
-    }
     try {
-      const reg = await json(`/api/customers/${customerId}/documents`, {
-        filename: multipartFilenameForUpload(file, `document_${i + 1}`),
-        propertyId: propertyId || null,
-      })
-      const { error } = await createClientBrowser()
-        .storage.from(String(reg.bucket))
-        .uploadToSignedUrl(String(reg.storagePath), String(reg.signedUploadToken), file, { contentType: file.type || 'application/octet-stream' })
-      if (error) throw new Error(error.message)
-      await json(`/api/customers/${customerId}/documents/finalize`, {
-        documentId: reg.documentId,
-        category,
-        title: file.name.replace(/\.[^.]+$/, '') || file.name,
-        propertyId: propertyId || null,
-        mime_type: file.type || null,
-        file_size: file.size,
-      })
+      await uploadCustomerDocument(customerId, file, { category, propertyId: propertyId || null, fallbackName: `document_${i + 1}` })
       return null
     } catch (e) {
       return `${file.name}: ${e instanceof Error ? e.message : 'upload failed'}`
@@ -163,7 +141,7 @@ export default function CustomerDocumentsCard({
                 </Field>
               ) : null}
             </div>
-            <FileDropZone disabled={busy !== null} label={busy ?? 'Drop files here or tap to choose'} hint="PDFs, photos or any file" onFiles={(f) => void upload(f)} />
+            <FileDropZone accept={CUSTOMER_DOCUMENT_ACCEPT} disabled={busy !== null} label={busy ?? 'Drop files here or tap to choose'} hint="PDF, photos, Word or CSV" onFiles={(f) => void upload(f)} />
           </div>
         ) : null}
       </CardContent>
