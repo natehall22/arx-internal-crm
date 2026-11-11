@@ -6,8 +6,9 @@
  * work; it plugs in here by calling {@link registerSupplierOrderConnector} — nothing else in the
  * ordering flow (preview, double-send guard, PO numbers, send log, "materials ordered") changes.
  *
- * Only POST /api/ops/jobs/[id]/supplier-orders/send reaches this (enforced by a test), so no
- * status change, cron or background job can ever place an order.
+ * Only two routes reach this (enforced by supplier-send-door.test.ts): POST /api/ops/jobs/[id]/supplier-orders/send
+ * (roofing materials) and POST /api/ops/purchase-orders/[id]/send (general purchase orders). Both need a person's tap on a
+ * previewed order, so no status change, cron or background job can ever place an order.
  */
 import { abcSupplyConnector } from '@/lib/suppliers/abc/connector'
 import type { LineSnapshot, SendKind, SupplierRecord } from '@/lib/material-sourcing'

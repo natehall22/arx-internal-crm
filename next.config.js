@@ -22,6 +22,7 @@ const TOKEN_PAGE_SOURCES = [
   '/comp-agreements/:path*', // sign/<token>, receipt/<token>
   '/r/:path*',
   '/crew/:path*',
+  '/oauth/:path*', // AI connector consent screen: nothing may frame the Allow button
 ]
 
 const nextConfig = {

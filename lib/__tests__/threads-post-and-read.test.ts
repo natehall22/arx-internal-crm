@@ -96,6 +96,14 @@ describe('postMessage', () => {
     expect(one.ok && one.recipients).toEqual([{ userId: 'ops', priority: 'needs_reply', reason: 'mention' }])
   })
 
+  it('noMentions (text an AI app wrote): "@Steve Potts" stays plain text, nobody is flagged or waiting', async () => {
+    const db = fresh()
+    const r = await post(db, 'closer', { body: 'Written by AI (via Claude): @Steve Potts can you look?', audience: 'team', noMentions: true })
+    expect(r.ok && r.message.mentioned_user_ids).toEqual([])
+    expect(r.ok && r.message.priority).toBe('fyi')
+    expect(r.ok && r.recipients).toEqual([])
+    expect(r.ok && r.message.body).toContain('@Steve Potts')
+  })
   it('mentioning a setter in a Production message pings them blind and never grants access', async () => {
     const db = fresh()
     const r = await post(db, 'ops', { body: '@Jordan Setter dumpster is on the street', audience: 'production' })
@@ -254,5 +262,42 @@ describe('crew notes', () => {
     expect(notes.map((n) => n.body)).toEqual(['Tarp the AC unit. Park on the street.'])
     expect(Object.keys(notes[0]).sort()).toEqual(['body', 'created_at', 'id'])
     expect(ok.ok).toBe(true)
+  })
+})
+
+describe('"To customer" through postMessage', () => {
+  const withOrg = (settings: Record<string, unknown>) => createFakeDb({ users, orgs: [{ id: ORG, settings }], opportunities: [{ org_id: ORG, ...deal }], activities: [], threads: [], thread_members: [] })
+  const on = { features: { customerPortal: true } }
+
+  it('is refused when the company has neither the portal nor automatic customer emails on', async () => {
+    const db = withOrg({})
+    const r = await post(db, 'owner', { body: 'See you Tuesday', audience: 'customer' })
+    expect(r.ok).toBe(false)
+    expect(!r.ok && r.status).toBe(403)
+  })
+  it('is written as audience customer when picked; a field role cannot', async () => {
+    const db = withOrg(on)
+    const r = await post(db, 'owner', { body: 'See you Tuesday', audience: 'customer' })
+    expect(r.ok && r.message.audience).toBe('customer')
+    const s = await post(db, 'setter', { body: 'hi', audience: 'customer' })
+    expect(s.ok).toBe(false)
+  })
+  it('a reply to a customer-audience message is Team unless "To customer" is picked again', async () => {
+    const db = withOrg(on)
+    const parent = await post(db, 'owner', { body: 'See you Tuesday', audience: 'customer' })
+    if (!parent.ok) throw new Error('x')
+    const internal = await post(db, 'ops', { body: 'internal thought', replyToId: parent.message.id })
+    expect(internal.ok && internal.message.audience).not.toBe('customer')
+    const stillInternal = await post(db, 'ops', { body: 'internal thought', audience: 'production', replyToId: parent.message.id })
+    expect(stillInternal.ok && stillInternal.message.audience).toBe('production')
+    const again = await post(db, 'owner', { body: 'one more thing', audience: 'customer', replyToId: parent.message.id })
+    expect(again.ok && again.message.audience).toBe('customer')
+  })
+  it('a retried post (same clientId) is flagged as a replay so nothing is emailed twice', async () => {
+    const db = withOrg(on)
+    const first = await post(db, 'owner', { body: 'See you Tuesday', audience: 'customer', clientId: 'c-1' })
+    const second = await post(db, 'owner', { body: 'See you Tuesday', audience: 'customer', clientId: 'c-1' })
+    expect(first.ok && first.replayed).toBeFalsy()
+    expect(second.ok && second.replayed).toBe(true)
   })
 })

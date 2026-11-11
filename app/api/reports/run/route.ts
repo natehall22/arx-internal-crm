@@ -8,10 +8,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 import { canAccessReportsFromPermissionNames } from '@/lib/permissions'
-import { DATASETS } from '@/lib/reporting/catalog'
-import { ReportAccessError, buildReportContext, datasetOffered, resultToCsv, runReport, visibleColumns } from '@/lib/reporting/run'
+import { offeredDatasets, offeredTemplates } from '@/lib/reporting/offered'
+import { ReportAccessError, buildReportContext, resultToCsv, runReport, visibleColumns } from '@/lib/reporting/run'
 import { parseSpec } from '@/lib/reporting/report-spec'
-import { REPORT_TEMPLATES, specTouchesFinancials, templateByKey } from '@/lib/reporting/templates'
+import { templateByKey } from '@/lib/reporting/templates'
 import { createServiceClient } from '@/lib/supabase/service'
 
 export const dynamic = 'force-dynamic'
@@ -68,13 +68,8 @@ export async function GET() {
   const ctx = await buildReportContext(admin, profile)
   // Datasets of a feature the company switched off (Settings → Features) are not offered (Reports home + Explore);
   // runReport refuses them by the same rule (datasetOffered), so a direct POST or a saved schedule can't run them either.
-  const datasets = Object.values(DATASETS)
-    .filter((d) => datasetOffered(ctx, d.key))
-    .filter((d) => ctx.finance || (!d.financeOnly && (d.ownerColumn || ctx.scope === 'all')))
-    .map((d) => ({ key: d.key, label: d.label, description: d.description, columns: visibleColumns(ctx, d) }))
-  const allowed = new Set(datasets.map((d) => d.key))
+  const datasets = offeredDatasets(ctx).map((d) => ({ key: d.key, label: d.label, description: d.description, columns: visibleColumns(ctx, d) }))
   // Starter templates follow the company's industry profile (null = all); Explore still offers every allowed dataset.
-  const starter = ctx.starterReports ? new Set(ctx.starterReports) : null
-  const templates = REPORT_TEMPLATES.filter((t) => (ctx.finance || !specTouchesFinancials(t.spec, ctx.scope)) && allowed.has(t.spec.dataset) && (!starter || starter.has(t.key)))
+  const templates = offeredTemplates(ctx)
   return NextResponse.json({ templates, datasets, canExport: ctx.canExport, finance: ctx.finance, scope: ctx.scope, role: profile.role ?? null })
 }

@@ -45,7 +45,7 @@ describe('resolveOrgFeatures (pure)', () => {
     expect(resolveOrgFeatures({})).toEqual(DEFAULT_ORG_FEATURES)
     expect(resolveOrgFeatures({ pricing: { p: 1 }, brand: { shortName: 'X' } })).toEqual(DEFAULT_ORG_FEATURES)
     // Every original feature is ON; only modules the original company never had default OFF.
-    expect(ORG_FEATURE_KEYS.filter((k) => !DEFAULT_ORG_FEATURES[k])).toEqual(['servicePlans', 'timeTracking', 'hourlyBilling', 'onlinePayments', 'customerMessages'])
+    expect(ORG_FEATURE_KEYS.filter((k) => !DEFAULT_ORG_FEATURES[k])).toEqual(['servicePlans', 'timeTracking', 'hourlyBilling', 'projectTools', 'onlinePayments', 'customerMessages', 'aiConnector', 'aiConnectorWrites', 'customerPortal'])
   })
   it('a default-OFF feature (service plans) turns on only with an explicit true', () => {
     expect(resolveOrgFeatures({ features: { servicePlans: true } }).servicePlans).toBe(true)

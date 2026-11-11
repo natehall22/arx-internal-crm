@@ -34,6 +34,7 @@ function localToday(): string {
  */
 export default function CustomerInvoicesCard({ customerId }: { customerId: string }) {
   const [rows, setRows] = React.useState<Row[] | null>(null)
+  const [addresses, setAddresses] = React.useState<Record<string, string>>({})
   const [hidden, setHidden] = React.useState(false)
   const [openId, setOpenId] = React.useState<string | null>(null)
   const [pay, setPay] = React.useState<PaySheet | null>(null)
@@ -52,6 +53,7 @@ export default function CustomerInvoicesCard({ customerId }: { customerId: strin
       return
     }
     setRows(body.invoices as Row[])
+    setAddresses((body.addresses ?? {}) as Record<string, string>)
   }, [customerId])
 
   React.useEffect(() => {
@@ -124,7 +126,10 @@ export default function CustomerInvoicesCard({ customerId }: { customerId: strin
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <button type="button" className="min-h-tap text-left" onClick={() => setOpenId(inv.id)}>
                     <span className="block text-ui-base font-semibold text-ink underline">{inv.invoice_number}</span>
-                    <span className="block text-ui-sm text-ink">{formatDate(inv.issued_at ?? inv.created_at)}</span>
+                    <span className="block text-ui-sm text-ink">
+                      {formatDate(inv.issued_at ?? inv.created_at)}
+                      {inv.property_id && addresses[inv.property_id] ? ` · ${addresses[inv.property_id]}` : ''}
+                    </span>
                   </button>
                   <span className="flex items-center gap-2">
                     <Badge tone={STATUS_TONE[inv.status]}>{INVOICE_STATUS_LABELS[inv.status]}</Badge>

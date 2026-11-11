@@ -25,7 +25,7 @@ import { profileFromEffectivePermissions } from '@/hooks/useOrgFeatures'
 import { parseCompanySeedInput } from '@/lib/company-seed'
 
 const read = (f: string) => readFileSync(path.join(process.cwd(), f), 'utf8')
-const lawnSettings = { profile: { id: 'lawn_landscape', version: 2 } }
+const lawnSettings = { profile: { id: 'lawn_landscape', version: 3 } }
 
 const flags = { isOpsOnly: false, canSeeOpsDashboard: true, canSeeJobBoard: true, canSeeInsideSales: true, projectsBarred: false, salesDocBarred: false, customerRecords: true, reports: true, isPayrollAdmin: true, earnsPay: true, payWeek: true }
 const owner = (extra: Partial<NavContext> = {}): NavContext => ({ permsReady: true, role: 'owner', fullAccess: true, permissionNames: new Set(), flags, ...extra })
@@ -103,8 +103,8 @@ describe('lawn & landscape profile (Precision Maintenance)', () => {
 
   it('roof / door-knocking / insurance / incentive features default off; service plans + time clock + hourly billing + customer messages on', () => {
     expect(lawn.id).toBe('lawn_landscape')
-    expect(lawn.storedVersion).toBe(2)
-    for (const k of ORG_FEATURE_KEYS) expect([k, lawn.features[k]]).toEqual([k, k === 'servicePlans' || k === 'timeTracking' || k === 'hourlyBilling' || k === 'customerMessages'])
+    expect(lawn.storedVersion).toBe(3)
+    for (const k of ORG_FEATURE_KEYS) expect([k, lawn.features[k]]).toEqual([k, k === 'servicePlans' || k === 'timeTracking' || k === 'hourlyBilling' || k === 'customerMessages' || k === 'customerPortal'])
   })
 
   it('words, menu order and hidden pages', () => {
@@ -141,7 +141,8 @@ describe('lawn & landscape profile (Precision Maintenance)', () => {
       "Today's estimate visits",
       'Something new',
     ])
-    expect(lawn.today.planned.map((p) => p.id)).toEqual(['unpaid-invoices'])
+    expect(lawn.today.planned).toEqual([])
+    expect(lawn.today.order).toContain('unpaid-invoices')
     // Service-plan visit cards (built) lead the lawn Today.
     expect(lawn.today.order.slice(0, 2)).toEqual(['todays-visits', 'skipped-visits'])
   })
@@ -196,14 +197,13 @@ describe('switching profile', () => {
     const plan = planProfileSwitch({ features: {} }, [...DEFAULT_ORG_TRADES], 'lawn_landscape')
     expect(plan.from.id).toBe('roofing')
     // Roofing: every switch on except the default-off modules (service plans, time clock); lawn: the reverse.
-    expect(plan.features.map((f) => [f.key, f.now, f.after])).toEqual(ORG_FEATURE_KEYS.filter((k) => k !== 'onlinePayments').map((k) => (k === 'servicePlans' || k === 'timeTracking' || k === 'hourlyBilling' || k === 'customerMessages' ? [k, false, true] : [k, true, false])))
+    expect(plan.features.map((f) => [f.key, f.now, f.after])).toEqual(ORG_FEATURE_KEYS.filter((k) => k !== 'onlinePayments' && k !== 'aiConnector' && k !== 'projectTools' && k !== 'aiConnectorWrites').map((k) => (k === 'servicePlans' || k === 'timeTracking' || k === 'hourlyBilling' || k === 'customerMessages' || k === 'customerPortal' ? [k, false, true] : [k, true, false])))
     expect(plan.trades).toEqual({
       add: ['Lawn care', 'Landscaping', 'Tractor / land work', 'Clean-up', 'Soft wash / pressure washing'],
       turnOn: [],
       keep: ['Roofing', 'Gutters', 'Siding', 'Windows', 'Other'],
     })
     expect(plan.words.find((w) => w.key === 'proposal')).toEqual({ key: 'proposal', now: 'Proposal', after: 'Quote' })
-    expect(plan.other.join('\n')).toContain('Unpaid invoices (needs per-visit / monthly invoicing (Phase 3))')
     expect(plan.noChange).toBe(false)
   })
 

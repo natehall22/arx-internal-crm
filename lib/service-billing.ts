@@ -22,8 +22,10 @@ import { addDaysYmd, planPriceOn, SERVICE_STEP, type BillingBasis } from '@/lib/
 import { computeDocumentSalesTax, type SalesTaxSettings } from '@/lib/sales-tax'
 import { invoiceItemDateLabel, lineTotalCents } from '@/lib/invoice-lines'
 
-export type BillingGrouping = 'visit' | 'month'
-export const BILLING_GROUPINGS: readonly BillingGrouping[] = ['month', 'visit']
+/** 'month' = one invoice per customer a month (all their properties together); 'property' = one per customer AND property a
+ * month (commercial accounts that pay or approve per location); 'visit' = one per visit. */
+export type BillingGrouping = 'visit' | 'month' | 'property'
+export const BILLING_GROUPINGS: readonly BillingGrouping[] = ['month', 'property', 'visit']
 
 /** A done visit as the loader hands it over (prices in dollars, as stored). */
 export type DoneVisit = {
@@ -84,7 +86,7 @@ export type ServiceLine = {
 }
 
 export type DraftInvoice = {
-  /** 'v:<visit>' / 'm:<plan>:<YYYY-MM>' in visit grouping; 'c:<customer>:<YYYY-MM>' in month grouping. */
+  /** 'v:<visit>' / 'm:<plan>:<YYYY-MM>' in visit grouping; 'c:<customer>:<YYYY-MM>' in month grouping; 'p:<customer>:<property>:<YYYY-MM>' in property grouping. */
   key: string
   customerId: string
   /** The one property every line is at, else null (lines then name their address). */
@@ -187,7 +189,7 @@ export function buildBillingUnits(
 /** A unit waits while its month isn't over (unless the office includes this month). Visit-by-visit billing never waits. */
 export function unitWaits(u: BillingUnit, grouping: BillingGrouping, currentMonth: string, includeCurrentMonth: boolean): boolean {
   if (includeCurrentMonth || u.month < currentMonth) return false
-  return grouping === 'month' || u.kind === 'month'
+  return grouping !== 'visit' || u.kind === 'month'
 }
 
 /**
@@ -259,7 +261,7 @@ export function groupDraftInvoices(
 ): DraftInvoice[] {
   const groups = new Map<string, BillingUnit[]>()
   for (const u of units) {
-    const key = grouping === 'visit' ? u.key : `c:${u.customerId}:${u.month}`
+    const key = grouping === 'visit' ? u.key : grouping === 'property' ? `p:${u.customerId}:${u.propertyId ?? 'none'}:${u.month}` : `c:${u.customerId}:${u.month}`
     const list = groups.get(key)
     if (list) list.push(u)
     else groups.set(key, [u])

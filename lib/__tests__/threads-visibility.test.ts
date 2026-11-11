@@ -1,6 +1,6 @@
 import {
   canDeleteMessage, canReadMessage, canReclassify, defaultAudience, looksLikePricing, writableAudiences,
-  type Audience, type ThreadViewer,
+  AUDIENCES, type Audience, type ThreadViewer,
 } from '@/lib/threads/visibility'
 
 const base: ThreadViewer = {
@@ -99,5 +99,44 @@ describe('thread visibility — role × audience', () => {
   })
   it.each(['Homeowner works nights', 'Gate code 4471', 'Dumpster goes on the street'])('does not flag: %s', (t) => {
     expect(looksLikePricing(t)).toBe(false)
+  })
+})
+
+describe('the customer audience ("To customer")', () => {
+  it('reads exactly like team for every role, with and without the pricing flag', () => {
+    for (const [name, v] of Object.entries(viewers)) {
+      for (const restricted of [false, true]) expect([name, restricted, read(v, 'customer', restricted)]).toEqual([name, restricted, read(v, 'team', restricted)])
+    }
+  })
+  it('is written by non-field roles only (setters, canvassers, inside sales never email a customer from the thread)', () => {
+    for (const name of ['owner', 'ops', 'manager', 'closer'] as const) expect(writableAudiences(viewers[name], deal, true)).toContain('customer')
+    for (const name of ['setter', 'insideSales', 'stranger'] as const) expect(writableAudiences(viewers[name], deal, true)).not.toContain('customer')
+  })
+  it('is offered only when the company uses the portal or automatic customer emails', () => {
+    for (const name of ['owner', 'ops', 'manager', 'closer'] as const) expect(writableAudiences(viewers[name], deal, false)).not.toContain('customer')
+  })
+  it('is never moved onto or off after the fact, by anyone (owners included)', () => {
+    for (const v of Object.values(viewers)) {
+      for (const to of AUDIENCES) {
+        expect(canReclassify(v, 'customer')).toBe(false)
+        if (to !== 'customer') expect(canReclassify(v, to, 'customer')).toBe(false)
+      }
+    }
+    expect(canReclassify(viewers.owner, 'production', 'team')).toBe(true) // the rest is unchanged
+  })
+  it('a reply to a customer-audience message starts as Team — never inherited', () => {
+    expect(defaultAudience(viewers.owner, { surface: 'other', replyTo: { audience: 'customer' } }, deal)).toBe('team')
+    expect(defaultAudience(viewers.owner, { surface: 'other', replyTo: { audience: 'production' } }, deal)).toBe('production')
+  })
+  it('the database rule names the same audience set as the app (migration 202611120060)', () => {
+    const fs = require('fs') as typeof import('fs')
+    const path = require('path') as typeof import('path')
+    const sql = fs.readFileSync(path.resolve(__dirname, '../../supabase/migrations/202611120060_customer_portal.sql'), 'utf8')
+    const fn = sql.slice(sql.indexOf('function arx_private.message_visible_to'))
+    expect(fn).toContain("p_audience in ('team','sales','customer')")
+    expect(fn).toContain("p_audience in ('production','crew')")
+    // the checks list every audience the app knows
+    const check = (sql.match(/activities_audience_check check \(audience is null or audience in \(([^)]*)\)/) || [])[1] || ''
+    expect(check.split(',').map((x) => x.trim().replace(/'/g, '')).sort()).toEqual([...AUDIENCES].sort())
   })
 })

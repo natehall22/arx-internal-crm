@@ -20,6 +20,7 @@ import { HEALTH_RESULT_STYLE } from '@/lib/health-result'
 import TaxExemptionCard from '@/components/customer/TaxExemptionCard'
 import { loadCustomerTaxExemption, loadOrgSalesTax } from '@/lib/sales-tax-server'
 import { orgDb } from '@/lib/supabase/org-db'
+import PortalAccessCard from '@/components/customer-file/PortalAccessCard'
 import CustomerMessagesCard from '@/components/customer/CustomerMessagesCard'
 import { loadCustomerMessageState } from '@/lib/customer-messages-db'
 import { resolveCustomerAccess } from '@/lib/customer-file/customer-access'
@@ -96,6 +97,7 @@ async function Overview({ customerId, dealId }: { customerId: string; dealId: st
     ctx.canViewJobBilling ? loadTaxExemptionCard(ctx.viewer.orgId, customer.id).catch(() => null) : Promise.resolve(null),
     loadCustomerMessagesCard(ctx.viewer, customer.id).catch(() => null),
   ])
+  const showPortal = (ctx.viewer.ownerLike || ctx.viewer.managerLike || ctx.viewer.jobBoard) && (await getOrgFeatures(ctx.viewer.orgId)).customerPortal
   return (
     <div className="space-y-4">
       <Card>
@@ -118,6 +120,8 @@ async function Overview({ customerId, dealId }: { customerId: string; dealId: st
       </Card>
 
       {extras && <CustomerRecords customerId={customer.id} extras={extras} />}
+
+      {showPortal && <PortalAccessCard customerId={customer.id} />}
 
       {job && (
         <Card>

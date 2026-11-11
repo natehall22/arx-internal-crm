@@ -232,3 +232,41 @@ export function buildChangeOrderSignedEmail(args: {
     html: `<p>Thank you for signing your change order.</p>${customerPdfUrl ? `<p><a href="${escapeHtml(customerPdfUrl)}">Download signed copy</a></p>` : ''}<p>${escapeHtml(brand.name)}</p>`,
   }
 }
+
+/** Sent when the office sends a selection (project tools) for the customer to choose and approve. */
+export function buildSelectionRequestEmail(args: {
+  brand: DocumentBrand
+  customerName: string
+  item: string
+  link: string
+  dueDate: string | null
+  repName: string
+}): BuiltEmail {
+  const { brand } = args
+  const due = args.dueDate ? ` Please choose by ${args.dueDate}.` : ''
+  return {
+    subject: `Please choose your ${args.item}`,
+    text: `Hi ${args.customerName},\n\nIt's time to choose your ${args.item}.${due}\n\nSee the options and pick one here:\n${args.link}\n\nIf you have questions, call ${brand.phone}.\n\n- ${args.repName}, ${brand.name}`,
+    html: `<p>Hi ${escapeHtml(args.customerName)},</p><p>It's time to choose your ${escapeHtml(args.item)}.${escapeHtml(due)}</p><p><a href="${escapeHtml(args.link)}">See the options and choose</a></p><p>If you have questions, call ${escapeHtml(brand.phone)}.</p><p>- ${escapeHtml(args.repName)}, ${escapeHtml(brand.name)}</p>`,
+  }
+}
+
+/** Sent when the office sends a day's log summary to the customer (project tools daily log). */
+export function buildDailyLogSummaryEmail(args: {
+  brand: DocumentBrand
+  customerName: string
+  dateLabel: string
+  address: string
+  note: string
+  weather: string | null
+  photoCount: number
+  repName: string
+}): BuiltEmail {
+  const { brand } = args
+  const photos = args.photoCount > 0 ? `\n\n${args.photoCount} photo${args.photoCount === 1 ? '' : 's'} from the day ${args.photoCount === 1 ? 'is' : 'are'} on file; call us and we will send ${args.photoCount === 1 ? 'it' : 'them'} over.` : ''
+  return {
+    subject: `Project update for ${args.address || 'your project'} — ${args.dateLabel}`,
+    text: `Hi ${args.customerName},\n\nHere is today's update (${args.dateLabel}).${args.weather ? `\nWeather: ${args.weather}` : ''}\n\n${args.note}${photos}\n\nQuestions? Call ${brand.phone}.\n\n- ${args.repName}, ${brand.name}`,
+    html: `<p>Hi ${escapeHtml(args.customerName)},</p><p>Here is today's update (${escapeHtml(args.dateLabel)}).${args.weather ? `<br/>Weather: ${escapeHtml(args.weather)}` : ''}</p><p style="white-space:pre-wrap">${escapeHtml(args.note)}</p>${args.photoCount > 0 ? `<p>${args.photoCount} photo${args.photoCount === 1 ? '' : 's'} from the day ${args.photoCount === 1 ? 'is' : 'are'} on file; call us and we will send ${args.photoCount === 1 ? 'it' : 'them'} over.</p>` : ''}<p>Questions? Call ${escapeHtml(brand.phone)}.</p><p>- ${escapeHtml(args.repName)}, ${escapeHtml(brand.name)}</p>`,
+  }
+}
