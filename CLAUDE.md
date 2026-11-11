@@ -246,6 +246,48 @@ now share the result vocabulary (`lib/health-result.ts`) and the lazy-generator 
 (35) The two service-plan RPCs are mirrored in JS for jest (`lib/test-helpers/fake-service-plan-rpc.ts`) — like KR #15's
 payroll mirror, a rule changed in the SQL must change there too; `supabase/tests/service_plans.test.sql` runs the real SQL.
 
+## Crew time clock (stages 1–2, 2026-11-11)
+Switch `timeTracking` (`ORG_FEATURE_DEFS`, **default OFF**; ARX unchanged). Migration `202611110070_time_tracking.sql`
+(NOT applied; apply before the code). Rules `lib/time-tracking.ts` (pure, client-safe); **ONE writer** `lib/time-tracking-db.ts`
+(time_entries, crew_members, time_entry_changes — all service-role only, RLS on, no policies); doors `lib/time-tracking-access.ts`.
+- **Who clocks:** a crew is a `sub_contractors` row with `tracks_time = true` and `crew_members (sub_id, user_id, is_lead)`
+  (employees are `users`; their pay rate is their comp plan's hourly rate). Subs (`tracks_time` false) never see a clock.
+  The old `crews` table is NOT used (Known Redundancy 36). Set on Settings → Subcontractors → a crew → "Our own crew".
+- **Taps** (`applyClockTap`): crew phone link `/crew/day/<token>` (POST/GET `/api/crew/day/<token>/clock`; that crew's
+  members only) and the job page card (`/api/time/clock`; yourself + crews you lead). Clock in crew here (everyone ticked,
+  untick absent) → tapping another stop = "Move crew here?" (closes the old entry, opens the new) → Lunch pauses (a break
+  entry; never auto-deducted) → Done asks "Clock out crew?" (Yes = done for the day; No = driving to the next stop: the
+  gap until the next clock-in the same local day is PAID travel, payroll only, not job cost) → machines (`kind equipment`,
+  price-book items with unit `hour` — empty until migration 202611100090) stop when the crew moves / leaves.
+  Phone outbox `lib/time-clock-queue.ts` (Zustand persist, in order, `tapId` makes a resend a no-op); phone time is used,
+  corrected and flagged when the phone clock is > 5 min off; taps > 7 days old refused. One open work + one open break
+  per person (partial unique indexes). Location only at the tap and only with `settings.timeTracking.captureLocation`.
+- **Forgot to clock out:** `autoCloseForgotten` (crew page / job card / office list load + morning cron, switch on) stops a
+  clock older than `autoCloseHours` (default 12) at the person's last tap, `end_source auto_closed`, flagged; the lead is
+  asked "What time did … finish?" next morning (`finish_answer`, logged).
+- **Office:** Settings → Time clock / Money → Time (`/admin/time`, payroll admins): one pay week, needs-a-look first, paid
+  total vs what payroll has, warnings (no break after N h, long day, overtime — warnings only), add / edit / remove with a
+  reason (`time_entry_changes`, `lib/change-log.ts` shape; removed rows kept). A week that is approved (or being approved,
+  `periodIsEditable`) refuses office edits; a late tap for it is kept and flagged, never fed. The lock is app-level only.
+- **Feeds** (`syncTimeFeeds`, after every write): payroll hours per person per pay week through `saveHoursEntries`
+  (exact seconds/3600 — the column stores 2 dp; regular up to `overtimeAfterHours` (40), rest overtime; reason
+  'Time clock'). **While the switch is on, a person with clock time that week gets their hours from the clock** — fixes
+  go in the time list, not the hours box. Job labor: ONE `job_cost_lines` row per job per pay week (`source
+  'time_entries'`, `time_week_ending`), straight-time rate × work time (breaks and drive time out); people without a rate
+  are named in the line; the cost-lines PATCH/DELETE refuse that line (409). Visits without a job are skipped
+  (service visit billing comes with the invoicing branch). The pay week is `payWeekCutoffFor` (lib/weekly-payroll/cutoff.ts)
+  — the ONE instant→week rule; days for travel / warnings use `orgs.timezone`.
+- `time_entries.user_id` is ON DELETE RESTRICT: a person with clock time is deactivated, not deleted (users DELETE → 409).
+
+**Known Redundancy additions (2026-11-11, time clock):** (36) The old `crews` table (`20260213_operations_tables.sql`,
+`members uuid[]`, `/admin/crews`, `app/api/admin/crews`, read by `/ops/schedule` and `/ops/dashboard`) is a deletion
+candidate: crews are `sub_contractors` (+ `crew_members` for in-house time-tracked crews). Don't add readers. (37) "The payroll
+period for this cutoff (±36 h)" was written 4×: `findPeriodForCutoff` (`lib/payroll-periods.ts`) is the one now
+(`ensureNextOpenPeriod` uses it); `resolvePayWeekPeriod`, `findCurrentPayWeekPeriod` and the next-week lookup in
+`lib/payroll-pay-week.ts` still hand-roll it — fold in with the payroll restructure. `periodIsEditable` moved from
+`lib/payroll-adjustments.ts` to `lib/payroll-periods.ts`. (32, recount) "migration not applied" checks: +1
+(`isTimeTrackingNotReadyError`, built on `lib/supabase/errors.ts`).
+
 ## UI Conventions
 - **Text contrast is an ongoing, recurring problem in this build — always verify text stands out.** Use explicit dark text (`#2c2c2a`, not generic gray) on light surfaces; never place text directly on the satellite/photo map — use a solid or opaque-scrim background; aim for WCAG AA. Validate legibility on a cheap Android in direct sun for any field-facing UI.
 
