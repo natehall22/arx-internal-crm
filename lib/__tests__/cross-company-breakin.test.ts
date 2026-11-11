@@ -12,7 +12,7 @@ import { join, sep } from 'node:path'
 import { NextRequest } from 'next/server'
 import { __resetCompanyHostCacheForTests } from '@/lib/company-host'
 import {
-  A_STAMP, ATTACKER_TOKEN, requestShape, guessValue, type RequestShape, BRAVO_PUBLIC_TOKEN, BRAVO_ROW_ID, ORG_A, ORG_B, SERVICE_KEY, VICTIM_ID, companyTables, createWorld, reachedB, crossReferences, crossings, findings, routePathOf, tablesInCode, walk,
+  A_STAMP, ATTACKER_ID, ATTACKER_TOKEN, requestShape, guessValue, type RequestShape, BRAVO_PUBLIC_TOKEN, BRAVO_ROW_ID, ORG_A, ORG_B, SERVICE_KEY, VICTIM_ID, companyTables, createWorld, reachedB, crossReferences, crossings, findings, routePathOf, tablesInCode, walk,
   type Finding, type World, noJobInvoices,
 } from '@/lib/test-helpers/breakin-harness'
 
@@ -208,6 +208,20 @@ let variant: Variant | null = null
 const each = (field: string, values: string[]): Variant[] => values.map((v) => () => ({ body: { [field]: v }, query: { [field]: v } }))
 const TODAY_YMD = new Date().toISOString().slice(0, 10)
 const POLYGON = { type: 'Polygon', coordinates: [[[-80.7, 35.4], [-80.6, 35.4], [-80.6, 35.5], [-80.7, 35.4]]] }
+const tapAt = () => new Date().toISOString()
+let tapSeq = 0
+const tap = (body: Record<string, unknown>) => ({ body: { tapId: `bravo-tap-${++tapSeq}-xxxx`, at: tapAt(), deviceNow: tapAt(), ...body } })
+// People: B's own crew lead (the seeded crew member, so the control reaches) + the ref (A's person in the attack).
+const CLOCK_TAPS: Variant[] = [
+  (id, ref) => tap({ action: 'clock_in', workOrderId: ref, userIds: [ATTACKER_ID, ref] }),
+  (id, ref) => tap({ action: 'clock_in', jobId: ref, userIds: [ATTACKER_ID, ref] }),
+  (id, ref) => tap({ action: 'clock_in', workOrderId: ref, userIds: [ref] }),
+  (id, ref) => tap({ action: 'clock_out', userIds: [ATTACKER_ID, ref] }),
+  (id, ref) => tap({ action: 'break_start', userIds: [ATTACKER_ID, ref] }),
+  (id, ref) => tap({ action: 'equipment_start', workOrderId: ref, pricebookItemId: ref }),
+  (id, ref) => tap({ action: 'equipment_stop', entryId: ref }),
+  (id, ref) => tap({ action: 'finish_answer', entryId: ref, finishTime: '16:30' }),
+]
 const FIXTURES: Record<string, Variant[]> = {
   'GET /api/admin/data': each('resource', ['comp_plans', 'regions', 'teams', 'users', 'campaigns', 'scheduling']),
   'POST /api/admin/data': each('resource', ['dashboard_settings', 'proposals', 'region', 'team', 'comp_plan', 'user_comp_plan', 'campaign', 'proposal_template']),
@@ -260,6 +274,13 @@ const FIXTURES: Record<string, Variant[]> = {
   ],
   'GET /api/invoices/[invoiceId]': [() => ({}), withSeed(() => ({}), noJobInvoices)],
   'POST /api/ops/billing': [(id, ref) => ({ body: { keys: [`v:${ref}`], unitKeys: [`v:${ref}`], visitIds: [ref], grouping: 'visit', includeCurrentMonth: true } })],
+  // Time clock: taps name people + a stop/job by id (A's in the attack); office edits; crew setup.
+  'POST /api/crew/day/[token]/clock': CLOCK_TAPS,
+  'POST /api/time/clock': CLOCK_TAPS,
+  'POST /api/admin/time': [(id, ref) => ({ body: { userId: ref, startedAt: `${TODAY_YMD}T12:00:00.000Z`, endedAt: `${TODAY_YMD}T16:00:00.000Z`, kind: 'work', workOrderId: ref, reason: 'Bravo forgot' } })],
+  'PATCH /api/admin/time/[id]': [(id, ref) => ({ body: { endedAt: `${TODAY_YMD}T16:00:00.000Z`, jobId: ref, reason: 'Bravo fix' } })],
+  'DELETE /api/admin/time/[id]': [() => ({ body: { reason: 'Bravo duplicate' } })],
+  'PUT /api/admin/subs/[id]/crew': [(id, ref) => ({ body: { tracksTime: true, members: [{ userId: ref, isLead: true }] } })],
   'PATCH /api/service-plans/[id]': [
     () => ({ body: { action: 'pause' } }),
     () => ({ body: { action: 'resume' } }),

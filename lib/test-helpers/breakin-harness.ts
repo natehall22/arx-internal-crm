@@ -177,6 +177,11 @@ export function seedForRoute(seed: Record<string, Row[]>, routePath: string) {
   if (/^\/api\/(ops\/visits|crew\/day)\//.test(routePath)) {
     for (const r of seed.work_orders ?? []) Object.assign(r, { work_order_type: 'service_visit', visit_step: 'service', job_id: null, service_planned_date: r.scheduled_date ?? null })
   }
+  // Time clock: both companies' crews clock in, and their crew_members rows are leads (lib/time-tracking-db.ts).
+  if (/\/clock$/.test(routePath)) {
+    for (const r of seed.sub_contractors ?? []) Object.assign(r, { tracks_time: true, active: true })
+    for (const r of seed.crew_members ?? []) Object.assign(r, { is_lead: true })
+  }
 }
 
 /**
