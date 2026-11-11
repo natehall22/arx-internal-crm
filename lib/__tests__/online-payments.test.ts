@@ -73,8 +73,8 @@ describe('Stripe REST encoding + webhook signatures', () => {
 
 describe('settings + amounts', () => {
   test('defaults; invalid stored values fall back', () => {
-    expect(readOnlinePaymentSettings({})).toEqual({ allowPartial: false, bankPayments: true, autopay: true, retryDays: [3, 7] })
-    expect(readOnlinePaymentSettings({ onlinePayments: { allowPartial: true, retryDays: [0, 99] } })).toEqual({ allowPartial: true, bankPayments: true, autopay: true, retryDays: [3, 7] })
+    expect(readOnlinePaymentSettings({})).toEqual({ allowPartial: false, bankPayments: true, autopay: true, retryDays: [3, 7], currency: 'usd' })
+    expect(readOnlinePaymentSettings({ onlinePayments: { allowPartial: true, retryDays: [0, 99], currency: 'EUR!' } })).toEqual({ allowPartial: true, bankPayments: true, autopay: true, retryDays: [3, 7], currency: 'usd' })
   })
   test('patch validation', () => {
     expect(parseOnlinePaymentSettingsPatch({ settings: { allowPartial: true, retryDays: [2] } })).toEqual({ set: { allowPartial: true, retryDays: [2] } })

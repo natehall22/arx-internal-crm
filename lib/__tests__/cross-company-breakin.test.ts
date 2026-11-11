@@ -439,6 +439,10 @@ const VERIFIED_RPCS: Record<string, string> = {
   save_supplier: 'supabase/migrations/202610220030_supplier_atomic_save.sql: vendors WHERE id = p_id AND org_id = p_org, else supplier_not_found (route passes profile.org_id)',
   cancel_production_job: 'supabase/migrations/202609140001_production_job_cancellation.sql: WHERE id = p_job_id AND org_id = p_org_id, else P0002',
   uncancel_production_job: 'supabase/migrations/202609260001_uncancel_restore_only_this_cancel.sql: WHERE id = p_job_id AND org_id = p_org_id, else P0002',
+  record_job_payment: 'supabase/migrations/202611120020_online_payments.sql: production_jobs WHERE id = p_job AND org_id = p_org, else P0002 (route passes profile.org_id)',
+  apply_job_invoice_payment: 'supabase/migrations/202611120020_online_payments.sql: invoice JOIN production_jobs WHERE pj.org_id = p_org, else P0002; payment must be that invoice job\'s',
+  record_customer_invoice_payment: 'supabase/migrations/202611120020_online_payments.sql: job_invoices WHERE id = p_invoice AND org_id = p_org (job_id NULL), else P0002',
+  payment_link_take_attempt: 'supabase/migrations/202611120020_online_payments.sql: only counts attempts on the link row the hashed token resolved (no company data read or written)',
 }
 
 /**

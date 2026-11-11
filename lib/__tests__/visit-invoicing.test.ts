@@ -246,7 +246,7 @@ describe('invoices without a job: company fence, payments, paid in full', () => 
     expect(d.tables.job_payments.every((p) => p.job_id === null && p.org_id === ORG && p.customer_id === 'c2')).toBe(true)
     // a payment can't be "applied" to an invoice without a job (no job to match it on)
     d.tables.job_invoices[0].status = 'sent'
-    await expect(applyPaymentToInvoice(d.client, ORG, id, 'pay-1', 1, 'u1')).rejects.toThrow('Payment not found')
+    await expect(applyPaymentToInvoice(d.client, ORG, id, 'pay-1', 1, 'u1')).rejects.toThrow(/not found/)
   })
 
   it('a billed visit cannot be reopened (void the invoice first); an unbilled one can', async () => {
