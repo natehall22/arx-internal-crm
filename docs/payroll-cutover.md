@@ -23,8 +23,8 @@ second rule for every job (not only financed ones — see Open questions). It di
 1. **Apply migration `202611120010_payroll_pay_week_minimums_job_split.sql`** (after 202610280010, already applied in prod). Local
    proof: `PGHOST=/var/run/postgresql PGUSER=postgres supabase/tests/run-payroll-pay-week-phase1.sh`.
 2. **Deploy the code** (flag still off: nothing changes for anyone).
-3. **Cancel the stale July week**: run `supabase/data-fixes/2026-11-12_close_stale_payroll_week.sql` (preview), then
-   `SELECT release_backups.close_stale_payroll_weeks('apply');`. Prod today: one week, `2026-W27`, with 36 h / $180.00 of hours
+3. **Cancel the stale July week**: run `supabase/data-fixes/2026-11-12_close_stale_payroll_week.sql` (previews ARX only), then
+   `SELECT release_backups.close_stale_payroll_weeks('<ARX org id>', 'apply');` (one company per run). Prod today: one week, `2026-W27`, with 36 h / $180.00 of hours
    (entered 2026-07-06) and a rejected bonus. **Confirm the $180 was paid outside first.** Undo:
    `SELECT release_backups.undo_close_stale_payroll_weeks();`.
 4. **Set ARX's pay week** (owner, on the Pay screen once the flag is on — or before, with the same values in SQL):
@@ -51,6 +51,18 @@ second rule for every job (not only financed ones — see Open questions). It di
 - the `isPayWeekEnabled()` checks and the build-time redirect conditional in `next.config.js`
 - `PATCH /api/admin/payroll/deal-commission-roles` once the legacy statements page is gone (the Change sheet is the one writer)
 - SQL `payroll_discard_lineless_job_snapshot` (dead since the atomic approve)
+
+## Rules settled in review (2026-11-12)
+
+- An unanswered weekly-minimum question **blocks Approve** ("Answer the weekly minimum for N people first.").
+- What counts toward the minimum: commission lines + fixes tied to a job. Not hourly, per-unit, bonuses, carried balances, or fixes
+  with no job. $180 commission + $200 job fix vs $500 → $120 top-up, $500 check.
+- A week that is not 7 days (the in-between week after a pay-week change) pro-rates the minimum (amount × days / 7) unless the plan
+  turns that off.
+- Changing the pay week closes old-schedule open weeks: their hours, bonuses and pending fixes move to the new week covering their
+  last day (one SQL step each, `payroll_move_open_week`); only a week with pay lines already written blocks it. Next week / carry-over
+  always follow the current schedule; a week matches only on its exact calendar date (a Wednesday week never stands in for Thursday).
+- Legacy statements are unchanged while the flag is off.
 
 ## Open questions for Nathan
 

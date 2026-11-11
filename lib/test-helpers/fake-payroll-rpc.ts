@@ -6,7 +6,7 @@
  * database does on success and on every refusal (a thrown error rolls the whole fake database back, see fake-db.ts).
  */
 import { personTotalsFromTables } from '@/lib/payroll-week-total'
-import { addWeeks, payDateFor, readPayWeekSchedule, weekLabel } from '@/lib/payroll-week-schedule'
+import { nextWeekCutoff, payDateFor, readPayWeekSchedule, sameWeekEnding, weekLabel } from '@/lib/payroll-week-schedule'
 
 type Row = Record<string, unknown>
 type Tables = Record<string, Row[]>
@@ -86,9 +86,9 @@ export const fakePayrollRpcs: Record<string, (args: Record<string, unknown>, tab
       const org = (tables.orgs ?? []).find((o) => o.id === orgId)
       const sched = readPayWeekSchedule(org?.settings, (org?.timezone as string) || null)
       let target: Row | null = null
-      for (let k = 1; k <= 8 && !target; k++) {
-        const tc = addWeeks(String(period.cutoff_at), k, sched)
-        const near = () => (tables.payroll_periods ?? []).find((p) => p.org_id === orgId && p.status !== 'cancelled' && Math.abs(new Date(String(p.cutoff_at)).getTime() - tc.getTime()) <= 36 * 3_600_000)
+      let tc = nextWeekCutoff(String(period.cutoff_at), sched)
+      for (let k = 1; k <= 8 && !target; k++, tc = nextWeekCutoff(tc, sched)) {
+        const near = () => (tables.payroll_periods ?? []).find((p) => p.org_id === orgId && p.status !== 'cancelled' && sameWeekEnding(String(p.cutoff_at), tc, sched))
         let cand = near()
         if (!cand) {
           tables.payroll_periods.push({ id: id('wk'), org_id: orgId, period_label: weekLabel(tc, sched), cutoff_at: tc.toISOString(), lock_at: tc.toISOString(), scheduled_pay_date: payDateFor(tc, sched), status: 'open', created_at: new Date().toISOString() })
@@ -146,5 +146,25 @@ export const fakePayrollRpcs: Record<string, (args: Record<string, unknown>, tab
       changed += 1
     }
     return { ok: true, changed }
+  },
+  payroll_move_open_week: (args, tables) => {
+    const orgId = args.p_org_id as string
+    const from = (tables.payroll_periods ?? []).find((p) => p.id === args.p_from_id && p.org_id === orgId)
+    const to = (tables.payroll_periods ?? []).find((p) => p.id === args.p_to_id && p.org_id === orgId)
+    if (args.p_from_id === args.p_to_id) throw new Error('move_week:same_week')
+    if (!from || !to) throw new Error('move_week:not_found')
+    if (from.status !== 'open' || to.status !== 'open') throw new Error('move_week:not_open')
+    if ((tables.payroll_payout_lines ?? []).some((l) => l.payroll_period_id === from.id)) throw new Error('move_week:has_pay_lines')
+    const hrs = tables.payroll_rep_hours ?? []
+    if (hrs.some((a) => a.payroll_period_id === from.id && hrs.some((b) => b.payroll_period_id === to.id && b.user_id === a.user_id))) throw new Error('move_week:hours_conflict')
+    const bon = tables.payroll_bonus_lines ?? []
+    if (bon.some((a) => a.payroll_period_id === from.id && !a.source_id && bon.some((b) => b.payroll_period_id === to.id && !b.source_id && b.user_id === a.user_id && b.bonus_type === a.bonus_type))) throw new Error('move_week:bonus_conflict')
+    let h = 0, b = 0, a = 0
+    for (const r of hrs) if (r.payroll_period_id === from.id) { r.payroll_period_id = to.id; h++ }
+    for (const r of bon) if (r.payroll_period_id === from.id) { r.payroll_period_id = to.id; b++ }
+    for (const r of tables.payroll_adjustments ?? []) if (r.payroll_period_id === from.id && r.status === 'pending') { r.payroll_period_id = to.id; a++ }
+    if (tables.payroll_week_minimums) tables.payroll_week_minimums = tables.payroll_week_minimums.filter((m) => m.payroll_period_id !== from.id)
+    from.status = 'cancelled'
+    return { ok: true, hours: h, bonuses: b, fixes: a }
   },
 }

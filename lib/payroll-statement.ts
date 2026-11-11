@@ -10,6 +10,8 @@ import { computeHourlyEarnings } from '@/lib/weekly-payroll/hourly-earnings'
 import { loadActiveCompPlanForUser, producerStorageRoleForParticipant } from '@/lib/payroll-export'
 import { roundMoney } from '@/lib/money'
 import { loadPeriodAdjustments } from '@/lib/payroll-adjustments'
+import { placePeriod } from '@/lib/payroll-pay-week'
+import { loadPayWeekSchedule } from '@/lib/payroll-week-schedule-server'
 import { loadMinimumDecisions, weeklyMinimumMath } from '@/lib/payroll-weekly-minimum'
 import { cutoffYmdEt } from '@/lib/weekly-payroll/cutoff'
 
@@ -284,7 +286,14 @@ export async function buildPayrollStatement(
     : new Date().toISOString().slice(0, 10)
   // An approved week reads the per-unit pay stored at approval — never a recalculation. A week locked before per-unit pay was
   // frozen (no units_frozen_at) keeps the old live calculation.
-  const periodWindow = await resolvePayrollPeriodWindow(supabase, orgId, periodId, String(period.cutoff_at))
+  // A week approved on the new path (units frozen) is placed on the company's own pay week; a legacy week keeps the legacy window,
+  // byte-identical while PAYROLL_PAY_WEEK_ENABLED is off.
+  const periodWindow = period.units_frozen_at
+    ? await (async () => {
+        const placed = await placePeriod(supabase, orgId, period as never, await loadPayWeekSchedule(supabase, orgId))
+        return { startIso: placed.windowStartIso, endIso: new Date(placed.cutoffAt).toISOString() }
+      })()
+    : await resolvePayrollPeriodWindow(supabase, orgId, periodId, String(period.cutoff_at))
   let periodUnits: PeriodUnitEarningsResult | null = null
   if (period.units_frozen_at && period.status !== 'open') {
     const stored = (await loadStoredUnitEarnings(supabase, orgId, periodId, [userId])).get(userId)

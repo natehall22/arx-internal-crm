@@ -109,8 +109,10 @@ export default function PayWeekScheduleSheet({ open, onClose, onSaved }: { open:
               {check.preview.firstWeek.days !== 7 ? ` (${check.preview.firstWeek.days} days, once)` : ''}, paid {formatDateWeekday(check.preview.firstWeek.payDate)}.
             </p>
             {check.preview.then.map((w) => <p key={w.end}>Then {formatDateWeekday(w.start)} – {formatDateWeekday(w.end)}, paid {formatDateWeekday(w.payDate)}.</p>)}
-            {check.emptyOldWeeks.length ? <p className="text-ui-sm text-ink-muted">Empty old week{check.emptyOldWeeks.length > 1 ? 's' : ''} ending {check.emptyOldWeeks.map((w) => w.weekEnding).join(', ')} will be closed.</p> : null}
-            {check.blockers.length ? <p className="font-semibold text-danger">Approve or clear first: {check.blockers.map((b) => `week ending ${b.weekEnding} (${b.what})`).join('; ')}.</p> : null}
+            {check.oldWeeks.map((w) => (
+              <p key={w.periodId} className="text-ui-base">Open week ending {formatDateWeekday(w.weekEnding)} closes{w.what !== 'nothing' ? `; its ${w.what} move to the week ending ${formatDateWeekday(w.movesTo)}` : ''}.</p>
+            ))}
+            {check.blockers.length ? <p className="font-semibold text-danger">Approve first: {check.blockers.map((b) => `week ending ${b.weekEnding} (${b.what})`).join('; ')}.</p> : null}
           </div>
         ) : check?.unchanged ? <p className="text-ui-base text-ink-muted">This is the current pay week.</p> : null}
 

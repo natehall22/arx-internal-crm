@@ -1,42 +1,62 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
-import { addWeeks, payDateFor, weekLabel } from '@/lib/payroll-week-schedule'
+import { nextWeekCutoff, payDateFor, sameWeekEnding, weekLabel, type PayWeekSchedule } from '@/lib/payroll-week-schedule'
 import { loadPayWeekSchedule } from '@/lib/payroll-week-schedule-server'
 
+export type PeriodRow = { id: string; period_label: string | null; cutoff_at: string; scheduled_pay_date: string; status: string; units_frozen_at?: string | null }
+export const PERIOD_COLS = 'id, period_label, cutoff_at, scheduled_pay_date, status, units_frozen_at, created_at'
+
 /**
- * The OPEN weekly period one week after `cutoffAt`, created if it does not exist yet (nothing to set up). An existing
- * period whose cutoff is within 36 hours counts (legacy periods have hand-typed cutoffs). The one place "next week" is made.
+ * The non-cancelled week closing at `target`: its cutoff is on the same calendar date in the company's zone (hand-typed legacy
+ * cutoffs at another hour still match; a week one day off — e.g. the old Wednesday next to a new Thursday — never does).
+ * Earliest created first.
+ */
+export async function findWeekNear(admin: SupabaseClient, orgId: string, target: Date, s: Pick<PayWeekSchedule, 'timeZone'>, opts: { openOnly?: boolean } = {}): Promise<PeriodRow | null> {
+  let q = admin
+    .from('payroll_periods')
+    .select(PERIOD_COLS)
+    .eq('org_id', orgId)
+    .neq('status', 'cancelled')
+    .gte('cutoff_at', new Date(target.getTime() - 36 * 3_600_000).toISOString())
+    .lte('cutoff_at', new Date(target.getTime() + 36 * 3_600_000).toISOString())
+  if (opts.openOnly) q = q.eq('status', 'open')
+  const { data, error } = await q.order('created_at', { ascending: true }).limit(10)
+  if (error) throw error
+  return ((data ?? []) as PeriodRow[]).find((r) => sameWeekEnding(r.cutoff_at, target, s)) ?? null
+}
+
+/**
+ * Find-or-create the week closing at `target` (the ONE place a week row is made: Pay screen, next week, fixes). Two people at once:
+ * the loser's insert hits the unique label and re-reads the winner's row. A CANCELLED week that already holds the label (an
+ * emptied old week) gets the new row a suffixed label instead of blocking the week forever.
+ */
+export async function findOrCreateWeek(admin: SupabaseClient, orgId: string, target: Date, s: PayWeekSchedule): Promise<{ id: string; status: string; cutoff_at: string }> {
+  const existing = await findWeekNear(admin, orgId, target, s)
+  if (existing) return existing
+  const row = { org_id: orgId, cutoff_at: target.toISOString(), lock_at: target.toISOString(), scheduled_pay_date: payDateFor(target, s), status: 'open' }
+  for (const label of [weekLabel(target, s), `${weekLabel(target, s)} (2)`, `${weekLabel(target, s)} (3)`]) {
+    const { error } = await admin.from('payroll_periods').insert({ ...row, period_label: label })
+    if (error && (error as { code?: string }).code !== '23505') throw error
+    const found = await findWeekNear(admin, orgId, target, s)
+    if (found) return found
+  }
+  throw new Error('Could not create the pay week')
+}
+
+/**
+ * The OPEN week after the one closing at `cutoffAt`, created if it does not exist yet. "Next" is the company's CURRENT schedule:
+ * after a pay-week change, the week after an old Wednesday week is the first new Sunday week (nextWeekCutoff), never another
+ * Wednesday. The one place "next week" is found.
  */
 export async function ensureNextOpenPeriod(admin: SupabaseClient, orgId: string, cutoffAt: string): Promise<{ id: string }> {
   const s = await loadPayWeekSchedule(admin, orgId)
-  // Walk forward week by week from the viewed week: the first week that is OPEN takes the line; a week that exists but
-  // is already approved is skipped (a fix for an old week lands on the next week that can still change); a week that
-  // does not exist yet is created.
+  // Walk forward week by week: the first week that is OPEN takes the line; one that is already approved is skipped (a fix for an
+  // old week lands on the next week that can still change); one that does not exist yet is created.
+  let target = nextWeekCutoff(cutoffAt, s)
   for (let k = 1; k <= 8; k++) {
-    // Calendar weeks in the company's zone, rebuilt with the timezone database (a fixed 7 x 24h is an hour off across a clock change).
-    const target = addWeeks(cutoffAt, k, s)
-    const from = new Date(target.getTime() - 36 * 3_600_000).toISOString()
-    const to = new Date(target.getTime() + 36 * 3_600_000).toISOString()
-    const find = async () => {
-      const { data, error } = await admin.from('payroll_periods').select('id, status').eq('org_id', orgId).neq('status', 'cancelled').gte('cutoff_at', from).lte('cutoff_at', to).order('created_at', { ascending: true }).limit(1)
-      if (error) throw error
-      return (data ?? [])[0] as { id: string; status: string } | undefined
-    }
-    let row = await find()
-    if (!row) {
-      const { error } = await admin.from('payroll_periods').insert({
-        org_id: orgId,
-        period_label: weekLabel(target, s),
-        cutoff_at: target.toISOString(),
-        lock_at: target.toISOString(),
-        scheduled_pay_date: payDateFor(target, s),
-        status: 'open',
-      })
-      // Two people at once: the loser hits the unique label — just read the winner's row.
-      if (error && (error as { code?: string }).code !== '23505') throw error
-      row = await find()
-    }
-    if (row && row.status === 'open') return { id: row.id }
+    const row = await findOrCreateWeek(admin, orgId, target, s)
+    if (row.status === 'open') return { id: row.id }
+    target = nextWeekCutoff(target, s)
   }
   throw new Error('Could not find an open week to put this on')
 }

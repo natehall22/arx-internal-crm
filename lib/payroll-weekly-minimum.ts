@@ -13,7 +13,12 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { roundMoney } from '@/lib/money'
 import { isMissingColumn, isMissingTable } from '@/lib/supabase/errors'
 
-export type WeeklyMinimumRule = { amount: number; needsCheck: boolean }
+/**
+ * amount: the weekly minimum for a normal 7-day week. needsCheck: the office confirms the week's requirements were met.
+ * prorate (default true): a week that is not 7 days long (the one in-between week after a pay-week change: 1–13 days) gets
+ * amount × days / 7. Off = the full amount whatever the week's length.
+ */
+export type WeeklyMinimumRule = { amount: number; needsCheck: boolean; prorate: boolean }
 
 /** The stored rule, or null when the plan has none / it is malformed. Pure. */
 export function parseWeeklyMinimum(raw: unknown): WeeklyMinimumRule | null {
@@ -21,7 +26,7 @@ export function parseWeeklyMinimum(raw: unknown): WeeklyMinimumRule | null {
   const r = raw as Record<string, unknown>
   const amount = Number(r.amount)
   if (!Number.isFinite(amount) || amount <= 0 || amount > 100_000) return null
-  return { amount: roundMoney(amount), needsCheck: r.needsCheck !== false }
+  return { amount: roundMoney(amount), needsCheck: r.needsCheck !== false, prorate: r.prorate !== false }
 }
 
 /** What the office may save as a rule (null clears it). */
@@ -46,8 +51,8 @@ const fmt = (n: number) => `$${n.toLocaleString('en-US', { minimumFractionDigits
  * The top-up for one person for one week. `met` = the office's answer (null = not answered). `stillHere` = active at the cutoff:
  * someone who left during the week is paid the minimum only on an explicit yes, even when the plan needs no check. Pure.
  */
-export function weeklyMinimumOutcome(rule: WeeklyMinimumRule, commission: number, met: boolean | null, stillHere: boolean): WeeklyMinimumOutcome {
-  const gap = roundMoney(rule.amount - roundMoney(commission))
+export function weeklyMinimumOutcome(rule: WeeklyMinimumRule, commission: number, met: boolean | null, stillHere: boolean, weekDays = 7): WeeklyMinimumOutcome {
+  const gap = roundMoney(weekMinimumFor(rule, weekDays) - roundMoney(commission))
   if (gap <= 0) return { state: 'commission_higher', topUp: 0 }
   if (met === false) return { state: 'not_met', topUp: 0 }
   if (met === true) return { state: 'pays', topUp: gap }
@@ -55,12 +60,30 @@ export function weeklyMinimumOutcome(rule: WeeklyMinimumRule, commission: number
   return { state: 'pays', topUp: gap }
 }
 
-/** "Greater of $500 or commission: $500 − $180 commission = $320". Pure. */
-export function weeklyMinimumMath(minimum: number, commission: number, topUp: number): string {
-  return `Greater of ${fmt(minimum)} or commission: ${fmt(minimum)} − ${fmt(roundMoney(commission))} commission = ${fmt(topUp)}`
+/** The minimum for a week of `weekDays` days (pro-rated when the rule says so). Pure. */
+export function weekMinimumFor(rule: WeeklyMinimumRule, weekDays: number): number {
+  if (!rule.prorate || weekDays === 7 || !(weekDays > 0)) return rule.amount
+  return roundMoney((rule.amount * weekDays) / 7)
 }
 
-export type WeekMinimum = { userId: string; amount: number; detail: { minimum: number; commission: number; planName: string | null } }
+/**
+ * Which of a person's lines count toward the minimum ("the greater of $X or what they earned"): their commission lines, plus fixes
+ * tied to a job (a correction to commission). NOT counted: hourly, per-unit pay, bonuses, balances carried from earlier weeks, fixes
+ * with no job, and the minimum line itself. So $180 commission + a $200 job fix = $380 earned → a $500 minimum adds $120 ($500 check),
+ * never $700. Pure.
+ */
+export function countsTowardMinimum(line: { kind: string; adjustmentKind?: string | null; jobId?: string | null }): boolean {
+  if (line.kind === 'Commission') return true
+  return line.kind === 'Adjustment' && line.adjustmentKind === 'fix' && !!line.jobId
+}
+
+/** "Greater of $500 or commission: $500 − $180 commission = $320". Pure. */
+export function weeklyMinimumMath(minimum: number, commission: number, topUp: number, weekDays = 7): string {
+  const short = weekDays !== 7 ? ` (${weekDays}-day week)` : ''
+  return `Greater of ${fmt(minimum)}${short} or earnings: ${fmt(minimum)} − ${fmt(roundMoney(commission))} earned = ${fmt(topUp)}`
+}
+
+export type WeekMinimum = { userId: string; amount: number; detail: { minimum: number; commission: number; planName: string | null; weekDays?: number } }
 
 export type MinimumDecision = { met: boolean | null }
 

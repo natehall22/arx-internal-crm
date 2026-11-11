@@ -4,9 +4,10 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { createFakeDb } from '@/lib/test-helpers/fake-db'
 import { fakePayrollRpcs } from '@/lib/test-helpers/fake-payroll-rpc'
 import { approvePayWeek } from '@/lib/payroll-approve'
-import { loadJobSplit, planJobSplitWrites } from '@/lib/payroll-job-split'
+import { loadJobSplit, planJobSplitWrites, type JobSplit } from '@/lib/payroll-job-split'
 import { loadPayWeek } from '@/lib/payroll-pay-week'
-import { saveMinimumDecision, weeklyMinimumOutcome, weeklyMinimumMath, parseWeeklyMinimum } from '@/lib/payroll-weekly-minimum'
+import { countsTowardMinimum, saveMinimumDecision, weekMinimumFor, weeklyMinimumOutcome, weeklyMinimumMath, parseWeeklyMinimum } from '@/lib/payroll-weekly-minimum'
+import { addAdjustment } from '@/lib/payroll-adjustments'
 import { loadMyPay } from '@/lib/my-pay'
 
 const ORG = 'org1'
@@ -41,16 +42,16 @@ function build(extra: Record<string, Array<Record<string, unknown>>> = {}) {
 describe('weekly minimum ("greater of $500 or 3%") — pure rule', () => {
   it('pays the gap only, never adds the two', () => {
     const r = parseWeeklyMinimum({ amount: 500 })!
-    expect(r).toEqual({ amount: 500, needsCheck: true })
+    expect(r).toEqual({ amount: 500, needsCheck: true, prorate: true })
     expect(weeklyMinimumOutcome(r, 600, true, true)).toEqual({ state: 'commission_higher', topUp: 0 })
     expect(weeklyMinimumOutcome(r, 500, null, true)).toEqual({ state: 'commission_higher', topUp: 0 })
     expect(weeklyMinimumOutcome(r, 180, true, true)).toEqual({ state: 'pays', topUp: 320 })
     expect(weeklyMinimumOutcome(r, 180, false, true)).toEqual({ state: 'not_met', topUp: 0 })
     expect(weeklyMinimumOutcome(r, 180, null, true)).toEqual({ state: 'needs_answer', topUp: 320 })
-    expect(weeklyMinimumOutcome({ amount: 500, needsCheck: false }, 180, null, true)).toEqual({ state: 'pays', topUp: 320 })
+    expect(weeklyMinimumOutcome({ amount: 500, needsCheck: false, prorate: true }, 180, null, true)).toEqual({ state: 'pays', topUp: 320 })
     // someone who left mid-week: only on an explicit yes, even without a check
-    expect(weeklyMinimumOutcome({ amount: 500, needsCheck: false }, 180, null, false).state).toBe('needs_answer')
-    expect(weeklyMinimumMath(500, 180, 320)).toBe('Greater of $500 or commission: $500 − $180 commission = $320')
+    expect(weeklyMinimumOutcome({ amount: 500, needsCheck: false, prorate: true }, 180, null, false).state).toBe('needs_answer')
+    expect(weeklyMinimumMath(500, 180, 320)).toBe('Greater of $500 or earnings: $500 − $180 earned = $320')
   })
   it.each([[null], [{}], [{ amount: 0 }], [{ amount: -5 }], [{ amount: 'x' }], [[500]]])('no rule for %j', (raw) => expect(parseWeeklyMinimum(raw)).toBeNull())
 })
@@ -75,7 +76,7 @@ describe('weekly minimum on the Pay screen, Approve and My pay', () => {
     // Yes → one "Weekly minimum" line; the check is $500, not $680.
     await saveMinimumDecision(db.client, { orgId: ORG, periodId: week.period.id, userId: 's1', met: true, actorUserId: 'a' })
     week = await loadPayWeek(db.client, ORG, NOW)
-    expect(fm().lines.find((l) => l.kind === 'Minimum')).toEqual({ kind: 'Minimum', what: 'Weekly minimum', math: 'Greater of $500 or commission: $500 − $180 commission = $320', amount: 320 })
+    expect(fm().lines.find((l) => l.kind === 'Minimum')).toEqual({ kind: 'Minimum', what: 'Weekly minimum', math: 'Greater of $500 or earnings: $500 − $180 earned = $320', amount: 320 })
     expect(fm().total).toBe(500)
     expect(week.needs.some((n) => n.kind === 'minimum')).toBe(false)
 
@@ -156,5 +157,82 @@ describe('the Change sheet (one job, who gets what %, one reason)', () => {
     const { error } = await (db.client as unknown as SupabaseClient).rpc('payroll_set_job_split', { p_org_id: ORG, p_job_id: 'j1', p_period_id: week.period.id, p_actor_user_id: 'a', p_reason: 'x', p_rows: [{ user_id: 'c1', role: 'closer', override_percent: 1, override_amount: null, clear: false }] })
     expect(error?.message).toMatch(/job_split:already_paid/)
     expect((await loadJobSplit(db.client, ORG, week.period.id, 'j1', NOW)).ok).toBe(false)
+  })
+})
+
+describe('review fixes: minimum counts, blocks Approve, pro-rates', () => {
+  it('which lines count: commission + job fixes only', () => {
+    expect(countsTowardMinimum({ kind: 'Commission' })).toBe(true)
+    expect(countsTowardMinimum({ kind: 'Adjustment', adjustmentKind: 'fix', jobId: 'j1' })).toBe(true)
+    expect(countsTowardMinimum({ kind: 'Adjustment', adjustmentKind: 'fix', jobId: null })).toBe(false)
+    expect(countsTowardMinimum({ kind: 'Adjustment', adjustmentKind: 'balance', jobId: 'j1' })).toBe(false)
+    for (const k of ['Hourly', 'Units', 'Bonus', 'Minimum']) expect(countsTowardMinimum({ kind: k })).toBe(false)
+  })
+
+  it('$180 commission + a $200 job fix = $500 check, not $700', async () => {
+    const db = build()
+    db.tables.production_jobs[0].commission_comp_base = 6000
+    db.tables.production_jobs[0].sale_amount = 6000
+    db.tables.job_payments[0].amount_cents = 600000
+    let week = await loadPayWeek(db.client, ORG, NOW)
+    const fix = await addAdjustment(db.client, { orgId: ORG, actorUserId: 'a', viewedPeriodId: week.period.id, userId: 's1', amount: 200, reason: 'Missed split on 26-0141', jobId: 'j1' })
+    expect(fix.ok).toBe(true)
+    await saveMinimumDecision(db.client, { orgId: ORG, periodId: week.period.id, userId: 's1', met: true, actorUserId: 'a' })
+    week = await loadPayWeek(db.client, ORG, NOW)
+    const riley = week.people.find((p) => p.userId === 's1')!
+    expect(riley.lines.find((l) => l.kind === 'Minimum')!.amount).toBe(120)
+    expect(riley.total).toBe(500)
+  })
+
+  it('an unanswered minimum blocks Approve with a plain prompt; answering unblocks it', async () => {
+    const db = build()
+    db.tables.production_jobs[0].commission_comp_base = 6000
+    let week = await loadPayWeek(db.client, ORG, NOW)
+    expect(week.canApprove).toBe(false)
+    expect(week.blockedBy).toEqual({ code: 'minimum_unanswered', text: 'Answer the weekly minimum for 1 person first.', count: 1 })
+    const res = await approvePayWeek(db.client, { orgId: ORG, actorUserId: 'a', periodId: week.period.id, expectedTotal: week.totals.amount, now: NOW })
+    expect(res).toMatchObject({ ok: false, status: 409, body: { code: 'minimum_unanswered' } })
+    expect(db.tables.payroll_periods[0].status).toBe('open')
+    await saveMinimumDecision(db.client, { orgId: ORG, periodId: week.period.id, userId: 's1', met: false, actorUserId: 'a' })
+    week = await loadPayWeek(db.client, ORG, NOW)
+    expect(week.blockedBy).toBeNull()
+    expect((await approvePayWeek(db.client, { orgId: ORG, actorUserId: 'a', periodId: week.period.id, expectedTotal: week.totals.amount, now: NOW })).ok).toBe(true)
+  })
+
+  it('pro-rates a short or long in-between week by default; off = full amount', () => {
+    const r = parseWeeklyMinimum({ amount: 500 })!
+    expect(weekMinimumFor(r, 4)).toBe(285.71)
+    expect(weekMinimumFor(r, 11)).toBe(785.71)
+    expect(weekMinimumFor(r, 7)).toBe(500)
+    expect(weekMinimumFor(parseWeeklyMinimum({ amount: 500, prorate: false })!, 4)).toBe(500)
+    expect(weeklyMinimumOutcome(r, 180, true, true, 4)).toEqual({ state: 'pays', topUp: 105.71 })
+    expect(weeklyMinimumMath(285.71, 180, 105.71, 4)).toBe('Greater of $285.71 (4-day week) or earnings: $285.71 − $180 earned = $105.71')
+  })
+})
+
+describe('review fix: Change sheet keeps a second manager\'s automatic override', () => {
+  const split: Pick<JobSplit, 'lines'> = {
+    lines: [
+      { key: 'c|sales_rep', userId: 'c', name: 'C', role: 'sales_rep', storageRole: 'closer', word: 'closer', percent: 7, amount: 1400, setByOffice: false },
+      { key: 'm1|closer_manager_override', userId: 'm1', name: 'M1', role: 'closer_manager_override', storageRole: 'closer_manager_override', word: 'sales manager override', percent: 2, amount: 400, setByOffice: false },
+      { key: 'm2|closer_manager_override', userId: 'm2', name: 'M2', role: 'closer_manager_override', storageRole: 'closer_manager_override', word: 'sales manager override', percent: 1, amount: 200, setByOffice: false },
+      { key: 'm3|setter_manager_override', userId: 'm3', name: 'M3', role: 'setter_manager_override', storageRole: 'setter_manager_override', word: 'setter manager override', percent: 1, amount: 200, setByOffice: false },
+    ],
+  }
+  it('changing one closer-lane manager writes the other closer-lane manager at their share (setter lane untouched)', () => {
+    const r = planJobSplitWrites(split, { lines: [{ key: 'm1|closer_manager_override', percent: 3 }], added: [] })
+    expect(r).toEqual({ ok: true, rows: [
+      { user_id: 'm1', role: 'closer_manager_override', override_percent: 3, override_amount: null, clear: false },
+      { user_id: 'm2', role: 'closer_manager_override', override_percent: 1, override_amount: null, clear: false },
+    ] })
+  })
+  it('taking one manager off keeps the other', () => {
+    const r = planJobSplitWrites(split, { lines: [{ key: 'm2|closer_manager_override', percent: null }], added: [] })
+    expect(r.ok && r.rows.find((x) => x.user_id === 'm1')).toEqual({ user_id: 'm1', role: 'closer_manager_override', override_percent: 2, override_amount: null, clear: false })
+  })
+  it('back to plan only for the whole lane', () => {
+    const set = { lines: split.lines.map((l) => (l.role === 'closer_manager_override' ? { ...l, setByOffice: true } : l)) }
+    expect(planJobSplitWrites(set, { lines: [{ key: 'm1|closer_manager_override', percent: 0, backToPlan: true }], added: [] }).ok).toBe(false)
+    expect(planJobSplitWrites(set, { lines: [{ key: 'm1|closer_manager_override', percent: 0, backToPlan: true }, { key: 'm2|closer_manager_override', percent: 0, backToPlan: true }], added: [] }).ok).toBe(true)
   })
 })

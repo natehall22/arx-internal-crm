@@ -14,7 +14,7 @@
 --
 -- HOW THIS FILE RUNS (running it as-is changes nothing):
 --   1. Running the whole file (re)creates the function + backup table in `release_backups` and calls the PREVIEW.
---   2. Apply:  SELECT release_backups.close_stale_payroll_weeks('apply');
+--   2. Apply:  SELECT release_backups.close_stale_payroll_weeks('<org id>', 'apply');   (one company per run; required)
 --   3. Undo:   SELECT release_backups.undo_close_stale_payroll_weeks();   (only weeks still 'cancelled' by this fix are reopened)
 -- Order: any time before PAYROLL_PAY_WEEK_ENABLED=true; independent of migration 202611120010.
 
@@ -41,7 +41,7 @@ CREATE TABLE IF NOT EXISTS release_backups.close_stale_payroll_weeks (
   PRIMARY KEY (run_id, period_id)
 );
 
-CREATE OR REPLACE FUNCTION release_backups.close_stale_payroll_weeks(p_mode text DEFAULT 'preview', p_older_than interval DEFAULT interval '21 days')
+CREATE OR REPLACE FUNCTION release_backups.close_stale_payroll_weeks(p_org_id uuid, p_mode text DEFAULT 'preview', p_older_than interval DEFAULT interval '21 days')
 RETURNS jsonb LANGUAGE plpgsql AS $$
 DECLARE
   v_run uuid := gen_random_uuid();
@@ -50,6 +50,7 @@ DECLARE
   v_n int := 0;
 BEGIN
   IF p_mode NOT IN ('preview', 'apply') THEN RAISE EXCEPTION 'mode must be preview or apply'; END IF;
+  IF p_org_id IS NULL THEN RAISE EXCEPTION 'pass the company id: one company per run'; END IF;
 
   WITH cand AS (
     SELECT p.*,
@@ -60,7 +61,7 @@ BEGIN
            (SELECT count(*) FROM payroll_payout_lines l WHERE l.payroll_period_id = p.id) AS lines,
            (SELECT count(*) FROM payroll_adjustments a WHERE a.payroll_period_id = p.id AND a.status <> 'void') AS fixes
     FROM payroll_periods p
-    WHERE p.status = 'open' AND p.cutoff_at < now() - p_older_than
+    WHERE p.org_id = p_org_id AND p.status = 'open' AND p.cutoff_at < now() - p_older_than
       AND NOT (p.lock_claim_token IS NOT NULL AND p.lock_claimed_at > now() - interval '15 minutes')
   )
   SELECT coalesce(jsonb_agg(jsonb_build_object('id', id, 'org_id', org_id, 'label', period_label, 'cutoff_at', cutoff_at, 'hours_rows', hours_rows,
@@ -72,7 +73,7 @@ BEGIN
   FROM cand;
 
   IF p_mode = 'preview' THEN
-    RETURN jsonb_build_object('mode', 'preview', 'will_cancel', v_plan, 'refused_money_in_flight', v_refused);
+    RETURN jsonb_build_object('mode', 'preview', 'org_id', p_org_id, 'will_cancel', v_plan, 'refused_money_in_flight', v_refused);
   END IF;
 
   INSERT INTO release_backups.close_stale_payroll_weeks (run_id, period_id, org_id, period_label, cutoff_at, prev_status, applied_status, hours_rows, hours_total, bonus_rows)
@@ -82,10 +83,10 @@ BEGIN
 
   UPDATE payroll_periods p SET status = 'cancelled'
   FROM release_backups.close_stale_payroll_weeks b
-  WHERE b.run_id = v_run AND b.period_id = p.id AND p.status = 'open';
+  WHERE b.run_id = v_run AND b.period_id = p.id AND p.org_id = p_org_id AND p.status = 'open';
   GET DIAGNOSTICS v_n = ROW_COUNT;
 
-  RETURN jsonb_build_object('mode', 'apply', 'run_id', v_run, 'cancelled', v_n, 'weeks', v_plan, 'refused_money_in_flight', v_refused);
+  RETURN jsonb_build_object('mode', 'apply', 'org_id', p_org_id, 'run_id', v_run, 'cancelled', v_n, 'weeks', v_plan, 'refused_money_in_flight', v_refused);
 END;
 $$;
 
@@ -103,7 +104,8 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION release_backups.close_stale_payroll_weeks(text, interval) FROM PUBLIC;
+REVOKE ALL ON FUNCTION release_backups.close_stale_payroll_weeks(uuid, text, interval) FROM PUBLIC;
 REVOKE ALL ON FUNCTION release_backups.undo_close_stale_payroll_weeks(uuid) FROM PUBLIC;
 
-SELECT release_backups.close_stale_payroll_weeks('preview');
+-- ARX (prod org 9089d4ad-f46c-405b-9798-6751d45a7051). Another company: pass its own id.
+SELECT release_backups.close_stale_payroll_weeks('9089d4ad-f46c-405b-9798-6751d45a7051', 'preview');

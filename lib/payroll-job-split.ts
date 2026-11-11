@@ -57,6 +57,24 @@ export type SplitEdit = {
 
 export type SplitWriteRow = { user_id: string; role: string; override_percent: number | null; override_amount: number | null; clear: boolean }
 
+/** Roles whose explicit rows switch off the same automatic line (job-derived-commission-lines: inspector, self-gen, manager lanes). */
+const LANE_OF: Record<string, string[]> = {
+  inspector: ['inspector'],
+  self_gen: ['self_gen'],
+  setter_manager_override: ['setter'],
+  closer_manager_override: ['closer'],
+  field_manager: ['setter', 'closer'],
+  senior_manager: ['setter', 'closer'],
+}
+const AUTO_LINE_LANES: Record<string, string[]> = { inspector: ['inspector'], self_gen: ['self_gen'], setter_manager_override: ['setter'], closer_manager_override: ['closer'] }
+
+/** True when an explicit row of `writtenRole` switches off the automatic line held under `lineRole`. Pure. */
+export function suppressedTogether(writtenRole: string, lineRole: string): boolean {
+  const lanes = LANE_OF[writtenRole]
+  const lineLanes = AUTO_LINE_LANES[lineRole]
+  return !!lanes && !!lineLanes && lineLanes.some((l) => lanes.includes(l))
+}
+
 const pctOf = (amount: number, base: number) => (base > 0 ? Math.round((amount / base) * 10000) / 100 : 0)
 
 /** Turns the office's final split into the stored rows, writing only what actually changes. Pure. */
@@ -84,6 +102,23 @@ export function planJobSplitWrites(split: Pick<JobSplit, 'lines'>, edit: SplitEd
     if (split.lines.some((l) => l.userId === a.userId && l.role === 'custom')) return { ok: false, error: 'That person already has their own line on this job: change it there.' }
     seen.add(a.userId)
     rows.push({ user_id: a.userId, role: 'custom', override_percent: roundMoney(p), override_amount: null, clear: false })
+  }
+  // An explicit row for an automatic (derived) role turns off the automatic line for EVERYONE in that lane on the job
+  // (lib/job-derived-commission-lines.ts buildAdditiveParticipantsForJob). So when the office changes one manager's override, every
+  // other automatic line in the same lane is written down at its current share — nobody is dropped silently.
+  const written = new Set(rows.map((r) => `${r.user_id}|${r.role}`))
+  for (const r of rows.filter((x) => !x.clear)) {
+    for (const l of split.lines) {
+      if (l.setByOffice || written.has(`${l.userId}|${l.storageRole}`)) continue
+      if (!suppressedTogether(r.role, l.storageRole)) continue
+      rows.push({ user_id: l.userId, role: l.storageRole, override_percent: roundMoney(l.percent), override_amount: null, clear: false })
+      written.add(`${l.userId}|${l.storageRole}`)
+    }
+  }
+  // "Back to plan" only works for a whole lane: an office row left on another line in the lane would keep the automatic line off.
+  for (const r of rows.filter((x) => x.clear)) {
+    const stuck = split.lines.some((l) => l.setByOffice && !(l.userId === r.user_id && l.storageRole === r.role) && suppressedTogether(r.role, l.storageRole) && !rows.some((x) => x.clear && x.user_id === l.userId && x.role === l.storageRole))
+    if (stuck) return { ok: false, error: 'Put every line of that kind back to the plan together (another one on this job is set by hand).' }
   }
   const total = split.lines.reduce((s, l) => {
     const e = edit.lines.find((x) => x.key === l.key)

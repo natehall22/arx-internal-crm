@@ -138,6 +138,24 @@ export function nextCutoffAfter(at: Date, s: PayWeekSchedule): Date {
   throw new Error('Unable to compute the next pay-week cutoff')
 }
 
+/**
+ * The cutoff of the week AFTER the one closing at `cutoff`, on this schedule: the first cutoff day strictly after the cutoff's own
+ * date. Equals addWeeks(cutoff, 1) for a week on the schedule; after a schedule change (an old Wednesday week, new Sunday weeks) it
+ * is the next new-schedule cutoff — never the old weekday. Use this to find "next week", never addWeeks from an old week.
+ */
+export function nextWeekCutoff(cutoff: Date | string, s: PayWeekSchedule): Date {
+  const from = cutoffYmd(cutoff, s)
+  const day = cutoffWeekday(s)
+  for (let i = 1; i <= 7; i++) {
+    const ymd = addDaysYmd(from, i)
+    if (weekdayOfYmd(ymd) === day) return cutoffInstantForYmd(ymd, s)
+  }
+  throw new Error('Unable to compute the next pay-week cutoff')
+}
+
+/** A stored week IS the week closing at `target` only when its cutoff falls on the same calendar date in the company's zone. */
+export const sameWeekEnding = (storedCutoff: string | Date, target: Date | string, s: Pick<PayWeekSchedule, 'timeZone'>) => cutoffYmd(storedCutoff, s) === cutoffYmd(target, s)
+
 /** The cutoff `weeks` calendar weeks after (or before) another, at the same local time. */
 export const addWeeks = (cutoff: Date | string, weeks: number, s: PayWeekSchedule): Date => cutoffInstantForYmd(addDaysYmd(cutoffYmd(cutoff, s), 7 * weeks), s)
 

@@ -14,7 +14,7 @@ import { loadPeriodAdjustments } from '@/lib/payroll-adjustments'
 import { planPayrollPeriod } from '@/lib/payroll-period-materialization'
 import { COMMISSION_ROLES } from '@/lib/comp-plan-defaults'
 import { loadPayWeekSchedule } from '@/lib/payroll-week-schedule-server'
-import { composeWeek, findCurrentPayWeekPeriod, loadWeekMinimums, placePeriod, loadUnits, payoutRoleWord, type PayWeekLine, type PayWeekPeriod } from '@/lib/payroll-pay-week'
+import { composeWeek, earnedTowardMinimum, findCurrentPayWeekPeriod, loadWeekMinimums, placePeriod, loadUnits, payoutRoleWord, type PayWeekLine, type PayWeekPeriod } from '@/lib/payroll-pay-week'
 
 export type MyPayJob = { key: string; title: string; why: string; amount: number; math: string; jobId?: string; lineKind: string }
 
@@ -69,7 +69,7 @@ async function myWeekLines(admin: SupabaseClient, orgId: string, userId: string,
     bonuses: (bonusRows ?? []).map((b) => ({ id: b.id as string, userId, amount: Number(b.amount) || 0, description: (b.description as string) ?? null, bonusType: b.bonus_type as string })),
     adjustments: adjustments.filter((a) => a.userId === userId),
     // The same weekly-minimum rule as the office's screen (an approved week reads what Approve stored).
-    minimums: (await loadWeekMinimums(admin, orgId, period, [{ id: userId, active }], new Map([[userId, rows.filter((r) => r.user_id === userId).reduce((t, r) => roundMoney(t + roundMoney(Number(r.net_amount) || 0)), 0)]]))).minimums,
+    minimums: (await loadWeekMinimums(admin, orgId, period, [{ id: userId, active }], earnedTowardMinimum(rows.filter((r) => r.user_id === userId), adjustments.filter((x) => x.userId === userId)))).minimums,
   })
   return people.find((p) => p.userId === userId) ?? null
 }

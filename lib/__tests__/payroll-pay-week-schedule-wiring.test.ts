@@ -9,6 +9,7 @@ import { ensureNextOpenPeriod } from '@/lib/payroll-periods'
 import { findCurrentPayWeekPeriod, loadPayWeek, resolvePayWeekPeriod } from '@/lib/payroll-pay-week'
 import { checkPayWeekChange, savePayWeekSchedule } from '@/lib/payroll-week-schedule-server'
 import { mergeOrgSettings, mergeSettingsAt } from '@/lib/org-settings'
+import { fakePayrollRpcs } from '@/lib/test-helpers/fake-payroll-rpc'
 
 const mergeRpc = {
   rpc: {
@@ -100,25 +101,44 @@ describe('changing the pay week', () => {
     expect(r.value.current.words).toBe('Thursday–Wednesday · closes Wednesday 11:59 PM · paid Friday')
     expect(r.value.preview.firstWeek).toEqual({ start: '2026-11-12', end: '2026-11-15', payDate: '2026-11-20', days: 4 })
     expect(r.value.blockers).toEqual([])
+    expect(r.value.oldWeeks).toEqual([])
   })
 
-  it('an old-schedule open week with pay on it blocks the change; an empty one is cancelled on save', async () => {
+  it('Wed -> Sun: old open weeks close cleanly — their hours/fixes move to the new Sunday week covering them; next week is a Sunday', async () => {
     const db = createFakeDb({
       orgs: [org()],
+      users: [{ id: 'u', org_id: ORG, full_name: 'U', role: 'canvasser', active: true }],
       payroll_periods: [legacyOpen('full', '2026-11-05T04:59:59.999Z'), legacyOpen('empty', '2026-11-12T04:59:59.999Z')],
       payroll_rep_hours: [{ id: 'h', org_id: ORG, payroll_period_id: 'full', user_id: 'u', hourly_earnings: 10 }],
-    }, mergeRpc)
-    const blocked = await savePayWeekSchedule(db.client, ORG, ARX_WEEK, new Date('2026-11-12T15:00:00Z'))
-    expect(blocked.ok).toBe(false)
-    if (!blocked.ok) expect(blocked.error).toMatch(/week ending 2026-11-04 \(hours\)/)
-    expect(db.tables.orgs[0].settings).toEqual({})
-    expect(db.tables.payroll_periods.find((p) => p.id === 'empty')!.status).toBe('open')
-
-    db.tables.payroll_rep_hours = []
+      payroll_adjustments: [{ id: 'f', org_id: ORG, payroll_period_id: 'full', user_id: 'u', amount: 25, reason: 'x', kind: 'fix', status: 'pending' }],
+    }, { rpc: { ...mergeRpc.rpc, ...fakePayrollRpcs } as never })
+    const pre = await checkPayWeekChange(db.client, ORG, ARX_WEEK, new Date('2026-11-12T15:00:00Z'))
+    expect(pre.ok && pre.value.oldWeeks.map((w) => [w.weekEnding, w.movesTo, w.what])).toEqual([['2026-11-04', '2026-11-08', 'hours, fixes'], ['2026-11-11', '2026-11-15', 'nothing']])
     const saved = await savePayWeekSchedule(db.client, ORG, ARX_WEEK, new Date('2026-11-12T15:00:00Z'))
     expect(saved.ok).toBe(true)
-    expect(db.tables.payroll_periods.every((p) => p.status === 'cancelled')).toBe(true)
-    expect((db.tables.orgs[0].settings as Record<string, unknown>).payWeek).toEqual(ARX_WEEK)
+    expect(db.tables.payroll_periods.filter((p) => p.status === 'cancelled').map((p) => p.id).sort()).toEqual(['empty', 'full'])
+    const sun = db.tables.payroll_periods.find((p) => p.period_label === 'Week ending 2026-11-08')!
+    expect(db.tables.payroll_rep_hours[0].payroll_period_id).toBe(sun.id)
+    expect(db.tables.payroll_adjustments[0].payroll_period_id).toBe(sun.id)
+    // A fix for an OLD Wednesday week now lands on the next SUNDAY week, never another Wednesday.
+    const next = await ensureNextOpenPeriod(db.client, ORG, '2026-11-05T04:59:59.999Z')
+    expect(db.tables.payroll_periods.find((p) => p.id === next.id)!.period_label).toBe('Week ending 2026-11-08')
+  })
+
+  it('a week with pay lines on it blocks the change', async () => {
+    const db = createFakeDb({ orgs: [org()], payroll_periods: [legacyOpen('busy', '2026-11-05T04:59:59.999Z')], payroll_payout_lines: [{ id: 'l', org_id: ORG, payroll_period_id: 'busy', user_id: 'u', net_amount: 1 }] }, mergeRpc)
+    const r = await savePayWeekSchedule(db.client, ORG, ARX_WEEK, new Date('2026-11-12T15:00:00Z'))
+    expect(r.ok).toBe(false)
+    expect(db.tables.orgs[0].settings).toEqual({})
+  })
+
+  it('a one-day shift (Wed -> Thu cutoff) takes effect: the Thursday week is its own week, never the old Wednesday one', async () => {
+    const thu = { weekStartDay: 5, cutoffTime: '23:59', paydayWeekday: 5, lateFunding: null }
+    const db = createFakeDb({ orgs: [org(thu)], payroll_periods: [{ ...legacyOpen('wed', '2026-11-12T04:59:59.999Z'), status: 'locked' }] })
+    const p = await resolvePayWeekPeriod(db.client, ORG, new Date('2026-11-13T15:00:00Z'))
+    expect(p.id).not.toBe('wed')
+    expect(p.weekEnding).toBe('2026-11-12')
+    expect(p.weekStart).toBe('2026-11-12') // 1-day in-between week after the old Wednesday
   })
 
   it('junk is refused; the generic settings writer cannot write payWeek', async () => {

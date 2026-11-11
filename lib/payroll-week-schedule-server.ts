@@ -6,12 +6,14 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { orgTimeZone } from '@/lib/cron-orgs'
 import { mergeOrgSettings } from '@/lib/org-settings'
+import { findOrCreateWeek } from '@/lib/payroll-periods'
 import {
+  cutoffInstantForYmd,
   cutoffWeekday,
+  nextWeekCutoff,
   cutoffYmd,
   describePayWeek,
   lastCutoffAtOrBefore,
-  nextCutoffAfter,
   parsePayWeek,
   PAY_WEEK_SETTINGS_KEY,
   previewPayWeekChange,
@@ -39,14 +41,15 @@ export async function loadPrevCutoff(admin: SupabaseClient, orgId: string, perio
   return ((data ?? [])[0]?.cutoff_at as string | undefined) ?? null
 }
 
-/** True when a stored cutoff sits on this schedule's cutoff day (the ±36 h tolerance the week lookup uses absorbs hand-typed times). */
+/** True when a stored week closes on this schedule's cutoff day (its own calendar date; hand-typed hours on the right day count). */
 export function cutoffOnSchedule(cutoffAt: string, s: PayWeekSchedule): boolean {
-  const ms = new Date(cutoffAt).getTime()
-  for (const delta of [-36, 0, 36]) {
-    const ymd = cutoffYmd(new Date(ms + delta * 3_600_000), s)
-    if (weekdayOfYmd(ymd) === cutoffWeekday(s)) return true
-  }
-  return false
+  return weekdayOfYmd(cutoffYmd(cutoffAt, s)) === cutoffWeekday(s)
+}
+
+/** The new-schedule week an old week's open items move to: the first new cutoff on or after the old week's last day. */
+export function moveTargetCutoff(oldCutoffAt: string, s: PayWeekSchedule): Date {
+  const ymd = cutoffYmd(oldCutoffAt, s)
+  return weekdayOfYmd(ymd) === cutoffWeekday(s) ? cutoffInstantForYmd(ymd, s) : nextWeekCutoff(oldCutoffAt, s)
 }
 
 export type PayWeekChangeCheck = {
@@ -54,10 +57,10 @@ export type PayWeekChangeCheck = {
   next: { schedule: StoredPayWeek; words: string }
   unchanged: boolean
   preview: PayWeekChangePreview
-  /** Open weeks on the old schedule that hold pay (hours, bonuses, fixes): approve or empty them first. */
+  /** Open weeks that cannot be closed cleanly (pay lines already written on them): approve them first. */
   blockers: Array<{ periodId: string; weekEnding: string; what: string }>
-  /** Open, EMPTY weeks on the old schedule: cancelled when the change is saved (nothing is on them). */
-  emptyOldWeeks: Array<{ periodId: string; weekEnding: string }>
+  /** Open weeks on the old schedule: closed on save; anything waiting on them (hours, bonuses, fixes) moves to `movesTo`. */
+  oldWeeks: Array<{ periodId: string; weekEnding: string; movesTo: string; what: string }>
 }
 
 /** Everything the owner sees before saving a new pay week. Reads only. */
@@ -67,35 +70,36 @@ export async function checkPayWeekChange(admin: SupabaseClient, orgId: string, r
   const current = await loadPayWeekSchedule(admin, orgId)
   const next: PayWeekSchedule = { ...parsed.value, timeZone: current.timeZone }
 
-  // Open weeks on the old schedule (after the last approved week) would sit beside the new weeks.
   const { data: open, error } = await admin.from('payroll_periods').select('id, cutoff_at').eq('org_id', orgId).eq('status', 'open').order('cutoff_at', { ascending: true })
   if (error) throw error
-  const offSchedule = (open ?? []).filter((p) => !cutoffOnSchedule(p.cutoff_at as string, next))
   const blockers: PayWeekChangeCheck['blockers'] = []
-  const emptyOldWeeks: PayWeekChangeCheck['emptyOldWeeks'] = []
-  for (const p of offSchedule) {
+  const oldWeeks: PayWeekChangeCheck['oldWeeks'] = []
+  for (const p of (open ?? []).filter((x) => !cutoffOnSchedule(x.cutoff_at as string, next))) {
     const id = p.id as string
     const [h, b, a, l] = await Promise.all([
       admin.from('payroll_rep_hours').select('id', { count: 'exact', head: true }).eq('org_id', orgId).eq('payroll_period_id', id),
-      admin.from('payroll_bonus_lines').select('id', { count: 'exact', head: true }).eq('org_id', orgId).eq('payroll_period_id', id).in('status', ['pending_approval', 'approved', 'paid']),
-      admin.from('payroll_adjustments').select('id', { count: 'exact', head: true }).eq('org_id', orgId).eq('payroll_period_id', id).neq('status', 'void'),
+      admin.from('payroll_bonus_lines').select('id', { count: 'exact', head: true }).eq('org_id', orgId).eq('payroll_period_id', id),
+      admin.from('payroll_adjustments').select('id', { count: 'exact', head: true }).eq('org_id', orgId).eq('payroll_period_id', id).eq('status', 'pending'),
       admin.from('payroll_payout_lines').select('id', { count: 'exact', head: true }).eq('org_id', orgId).eq('payroll_period_id', id),
     ])
-    const what = [h.count ? 'hours' : '', b.count ? 'bonuses' : '', a.count ? 'fixes' : '', l.count ? 'pay lines' : ''].filter(Boolean)
     const weekEnding = cutoffYmd(p.cutoff_at as string, current)
-    if (what.length) blockers.push({ periodId: id, weekEnding, what: what.join(', ') })
-    else emptyOldWeeks.push({ periodId: id, weekEnding })
+    if (l.count) {
+      blockers.push({ periodId: id, weekEnding, what: 'pay lines already written — approve it first' })
+      continue
+    }
+    const what = [h.count ? 'hours' : '', b.count ? 'bonuses' : '', a.count ? 'fixes' : ''].filter(Boolean).join(', ') || 'nothing'
+    oldWeeks.push({ periodId: id, weekEnding, movesTo: cutoffYmd(moveTargetCutoff(p.cutoff_at as string, next), next), what })
   }
 
   // The first new week = the week the Pay screen will open on: the last new-schedule cutoff at or before now, unless a week that
-  // stays (not one cancelled above) already covers it — then the one after.
-  const staying = new Set((open ?? []).map((p) => p.id as string).filter((id) => !emptyOldWeeks.some((w) => w.periodId === id)))
+  // stays already covers it — then the one after. Its neighbour is the latest week that stays.
+  const closing = new Set(oldWeeks.map((w) => w.periodId))
   let first = lastCutoffAtOrBefore(now, next)
   const { data: latest } = await admin.from('payroll_periods').select('id, cutoff_at, status').eq('org_id', orgId).neq('status', 'cancelled').order('cutoff_at', { ascending: false }).limit(20)
-  const kept = (latest ?? []).filter((p) => p.status !== 'open' || staying.has(p.id as string))
+  const kept = (latest ?? []).filter((p) => !closing.has(p.id as string))
   const newest = kept[0]?.cutoff_at as string | undefined
-  if (newest && new Date(newest).getTime() >= first.getTime() - 36 * 3_600_000) first = nextCutoffAfter(new Date(Math.max(new Date(newest).getTime(), first.getTime()) + 36 * 3_600_000), next)
-  const prev = kept.find((p) => new Date(p.cutoff_at as string).getTime() < first.getTime() - 36 * 3_600_000)?.cutoff_at as string | undefined
+  if (newest && cutoffYmd(newest, next) >= cutoffYmd(first, next)) first = nextWeekCutoff(newest, next)
+  const prev = kept.find((p) => cutoffYmd(p.cutoff_at as string, next) < cutoffYmd(first, next))?.cutoff_at as string | undefined
 
   const strip = ({ timeZone: _tz, ...rest }: PayWeekSchedule): StoredPayWeek => rest
   return {
@@ -106,28 +110,45 @@ export async function checkPayWeekChange(admin: SupabaseClient, orgId: string, r
       unchanged: sameStoredPayWeek(current, parsed.value),
       preview: previewPayWeekChange(first, prev ?? null, next),
       blockers,
-      emptyOldWeeks,
+      oldWeeks,
     },
   }
 }
 
+const MOVE_ERRORS: Record<string, string> = {
+  hours_conflict: 'has hours for someone who already has hours on the new week',
+  bonus_conflict: 'has a bonus someone already has on the new week',
+  has_pay_lines: 'has pay lines already written — approve it first',
+  not_open: 'is no longer open',
+}
+
 /**
- * THE writer of `orgs.settings.payWeek` (super admins only — the route checks). Refuses while an old-schedule open week holds pay;
- * cancels old-schedule open weeks that are empty (nothing was ever on them), then saves through mergeOrgSettings path ['payWeek'].
+ * THE writer of `orgs.settings.payWeek` (super admins only — the route checks). Saves the schedule first (so every week made from
+ * here on is on it), then closes each old-schedule open week with `payroll_move_open_week`: whatever was waiting on it moves to the
+ * new week covering its last day, in one transaction per week. A week that cannot move is reported; the schedule stays saved and
+ * saving again retries (each move is all-or-nothing).
  */
 export async function savePayWeekSchedule(admin: SupabaseClient, orgId: string, raw: unknown, now: Date): Promise<{ ok: true; value: PayWeekChangeCheck } | { ok: false; status: number; error: string }> {
   const check = await checkPayWeekChange(admin, orgId, raw, now)
   if (!check.ok) return { ok: false, status: 400, error: check.error }
   const c = check.value
   if (c.blockers.length) {
-    return { ok: false, status: 409, error: `Approve or clear these weeks first: ${c.blockers.map((b) => `week ending ${b.weekEnding} (${b.what})`).join('; ')}.` }
-  }
-  for (const w of c.emptyOldWeeks) {
-    // Only an open week is ever touched; the frozen-status guard refuses anything else.
-    const { error } = await admin.from('payroll_periods').update({ status: 'cancelled' }).eq('id', w.periodId).eq('org_id', orgId).eq('status', 'open').is('lock_claim_token', null)
-    if (error) return { ok: false, status: 500, error: 'Could not close the old empty week. Nothing was changed.' }
+    return { ok: false, status: 409, error: `Approve these weeks first: ${c.blockers.map((b) => `week ending ${b.weekEnding} (${b.what})`).join('; ')}.` }
   }
   const { error } = await mergeOrgSettings(admin, orgId, { ...c.next.schedule }, { path: [PAY_WEEK_SETTINGS_KEY] })
   if (error) return { ok: false, status: 500, error: 'Could not save the pay week.' }
+  const s: PayWeekSchedule = { ...c.next.schedule, timeZone: (await loadPayWeekSchedule(admin, orgId)).timeZone }
+  const failed: string[] = []
+  for (const w of c.oldWeeks) {
+    const { data: row } = await admin.from('payroll_periods').select('cutoff_at').eq('id', w.periodId).eq('org_id', orgId).maybeSingle()
+    if (!row) continue
+    const target = await findOrCreateWeek(admin, orgId, moveTargetCutoff(row.cutoff_at as string, s), s)
+    const { error: moveErr } = await admin.rpc('payroll_move_open_week', { p_org_id: orgId, p_from_id: w.periodId, p_to_id: target.id })
+    if (moveErr) {
+      const code = /move_week:(\w+)/.exec(String(moveErr.message ?? ''))?.[1] ?? ''
+      failed.push(`week ending ${w.weekEnding} ${MOVE_ERRORS[code] ?? 'could not be closed'}`)
+    }
+  }
+  if (failed.length) return { ok: false, status: 409, error: `Pay week saved, but ${failed.join('; ')}. Fix that, then save again.` }
   return { ok: true, value: c }
 }

@@ -60,7 +60,7 @@ interface CompPlan {
   hourly_rate: number | null
   unit_rate: number | null
   /** "Greater of this amount or the commission" each week (lib/payroll-weekly-minimum.ts). */
-  weekly_minimum?: { amount: number; needsCheck?: boolean } | null
+  weekly_minimum?: { amount: number; needsCheck?: boolean; prorate?: boolean } | null
   unit_type: string | null  // 'square', 'kw', 'linear_foot', etc.
   tiers: { min: number; max: number | null; rate: number }[] | null
   bonuses: { type: string; target: number; bonus: number }[] | null
@@ -259,6 +259,7 @@ export default function CompPlansPage() {
     custom_unit_label: '',
     weekly_minimum_amount: '',
     weekly_minimum_check: true,
+    weekly_minimum_prorate: true,
     tiers: [{ min: '0', max: '10000', rate: '5' }] as TierFormRow[],
     volume_bonuses: [] as VolumeTierForm[],
     // Hybrid components
@@ -440,7 +441,7 @@ export default function CompPlansPage() {
         ? parseFloat(planForm.unit_rate) || null 
         : null,
       weekly_minimum: planForm.plan_purpose === 'primary' && planForm.weekly_minimum_amount.trim() !== ''
-        ? { amount: parseFloat(planForm.weekly_minimum_amount), needsCheck: planForm.weekly_minimum_check }
+        ? { amount: parseFloat(planForm.weekly_minimum_amount), needsCheck: planForm.weekly_minimum_check, prorate: planForm.weekly_minimum_prorate }
         : null,
       unit_type: planForm.plan_purpose === 'primary' && planForm.plan_type === 'unit_based'
         ? (planForm.unit_type === 'custom' ? planForm.custom_unit_label : planForm.unit_type)
@@ -693,6 +694,7 @@ export default function CompPlansPage() {
       custom_unit_label: '',
       weekly_minimum_amount: '',
       weekly_minimum_check: true,
+      weekly_minimum_prorate: true,
       tiers: [{ min: '0', max: '10000', rate: '5' }],
       volume_bonuses: [],
       hybrid_components: [],
@@ -725,6 +727,7 @@ export default function CompPlansPage() {
       custom_unit_label: isCustomUnit ? (plan.unit_type || '') : '',
       weekly_minimum_amount: plan.weekly_minimum?.amount != null ? String(plan.weekly_minimum.amount) : '',
       weekly_minimum_check: plan.weekly_minimum?.needsCheck !== false,
+      weekly_minimum_prorate: plan.weekly_minimum?.prorate !== false,
       tiers: (plan.tiers || [{ min: 0, max: 10000, rate: 5 }]).map((t) => ({
         min: formatNumericDraft(t.min),
         max: t.max == null ? '' : formatNumericDraft(t.max),
@@ -1641,6 +1644,12 @@ export default function CompPlansPage() {
                       <label className="mt-2 flex min-h-[44px] items-center gap-3 text-sm" style={{ color: INK }}>
                         <input type="checkbox" className="h-5 w-5" checked={planForm.weekly_minimum_check} onChange={(e) => setPlanForm(prev => ({ ...prev, weekly_minimum_check: e.target.checked }))} />
                         Only when the office confirms they met the week&apos;s requirements (asked on the Pay screen)
+                      </label>
+                    )}
+                    {planForm.weekly_minimum_amount.trim() !== '' && (
+                      <label className="mt-1 flex min-h-[44px] items-center gap-3 text-sm" style={{ color: INK }}>
+                        <input type="checkbox" className="h-5 w-5" checked={planForm.weekly_minimum_prorate} onChange={(e) => setPlanForm(prev => ({ ...prev, weekly_minimum_prorate: e.target.checked }))} />
+                        In a shorter or longer week (after a pay-week change), scale it by days (e.g. 4 days = 4/7)
                       </label>
                     )}
                   </div>

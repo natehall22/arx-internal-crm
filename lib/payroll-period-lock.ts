@@ -107,6 +107,7 @@ export async function lockPayrollPeriod(
       return { ok: false, status: 409, body: { error: 'The numbers changed while you were looking. Review them again.', code: 'changed', total: computed } }
     }
     const plan = buildCommitPlan(full)
+    if (full.week.blockedBy) return { ok: false, status: 409, body: { error: full.week.blockedBy.text, code: full.week.blockedBy.code } }
     // The server's own answer (the screen uses the same flag): jobs to snapshot or balances to carry count even at $0 payable.
     if (!full.week.canApprove) return { ok: false, status: 409, body: { error: 'Nothing to pay this week' } }
 

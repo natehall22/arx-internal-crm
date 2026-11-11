@@ -6,18 +6,19 @@
 --      (the office's yes/no answer and, at approval, the frozen top-up). Writer guard = the same trigger as hours/bonuses/fixes.
 --   3. payroll_week_person_totals counts the minimum top-up. It is the SQL copy of ONE definition, PAY_LINE_SOURCES in
 --      lib/payroll-week-total.ts; lib/__tests__/payroll-week-total-parity.test.ts reads this file and fails if they differ.
+--   5. payroll_move_open_week(): a pay-week change closes an old-schedule open week cleanly (its hours/bonuses/fixes move forward).
 --   4. payroll_set_job_split(): the "Change" sheet's one write — every per-job commission change (deal_commission_roles) and its
 --      audit rows for one job in ONE transaction, refused once the job is paid.
 -- Run AFTER 202610280010_atomic_approve_and_field_role_deny.sql. Deploy order: this migration, then the code (the code only calls
 -- these when the flag is on; payroll_set_job_split missing answers 503 "needs the database update").
--- Rollback: DROP FUNCTION public.payroll_set_job_split(uuid, uuid, uuid, uuid, text, jsonb); DROP TABLE payroll_week_minimums;
+-- Rollback: DROP FUNCTION public.payroll_move_open_week(uuid, uuid, uuid); DROP FUNCTION public.payroll_set_job_split(uuid, uuid, uuid, uuid, text, jsonb); DROP TABLE payroll_week_minimums;
 --   ALTER TABLE comp_plans DROP COLUMN weekly_minimum; DROP FUNCTION arx_private.payroll_org_week(uuid); then re-run sections 3 and 4
 --   of 202610280010 (payroll_week_person_totals and payroll_commit_week as they were).
 SET lock_timeout = '5s';
 
 -- 1. The company's pay week (SQL twin of readPayWeekSchedule) ---------------------------------------------------------------
 CREATE OR REPLACE FUNCTION arx_private.payroll_org_week(p_org_id uuid)
-RETURNS TABLE (tz text, cutoff_time time, payday_offset integer)
+RETURNS TABLE (tz text, cutoff_time time, payday_offset integer, cutoff_dow integer)
 LANGUAGE plpgsql
 STABLE
 SET search_path = public
@@ -50,6 +51,7 @@ BEGIN
   tz := btrim(v_tz);
   cutoff_time := (v_cut || ':59.999')::time;                         -- localInstant(): HH:MM:59.999
   payday_offset := COALESCE(NULLIF((v_pay - v_cutday + 7) % 7, 0), 7);  -- paydayOffsetDays()
+  cutoff_dow := v_cutday;                                            -- cutoffWeekday() (0 = Sunday, as extract(dow))
   RETURN NEXT;
 END;
 $$;
@@ -141,6 +143,8 @@ DECLARE
   v_cand uuid;
   v_target uuid;
   v_week record;
+  v_first date;
+  v_day date;
 BEGIN
   PERFORM set_config('arx.payroll_commit', 'on', true);
 
@@ -256,20 +260,36 @@ BEGIN
   IF v_negative > 0 THEN
     SELECT * INTO v_week FROM arx_private.payroll_org_week(p_org_id);
     v_date := (v_period.cutoff_at AT TIME ZONE v_week.tz)::date;
+    -- nextWeekCutoff(): the first cutoff day of the CURRENT schedule strictly after this week's date (after a pay-week change the
+    -- week after an old Wednesday week is the first new Sunday week, never another Wednesday).
+    v_first := v_date + COALESCE(NULLIF((v_week.cutoff_dow - extract(dow FROM v_date)::int + 7) % 7, 0), 7);
     v_target := NULL;
     FOR v_k IN 1..8 LOOP
       -- Calendar weeks in the company's zone, rebuilt with the timezone database (never fixed 24 h days).
-      v_tc := ((v_date + 7 * v_k) + v_week.cutoff_time) AT TIME ZONE v_week.tz;
+      v_day := v_first + 7 * (v_k - 1);
+      v_tc := (v_day + v_week.cutoff_time) AT TIME ZONE v_week.tz;
+      -- sameWeekEnding(): the week whose cutoff falls on that calendar date in the company's zone (a one-day-off week never matches).
       SELECT id INTO v_cand FROM payroll_periods
         WHERE org_id = p_org_id AND status <> 'cancelled' AND cutoff_at BETWEEN v_tc - interval '36 hours' AND v_tc + interval '36 hours'
+          AND (cutoff_at AT TIME ZONE v_week.tz)::date = v_day
         ORDER BY created_at, id LIMIT 1;
       IF v_cand IS NULL THEN
         INSERT INTO payroll_periods (org_id, period_label, cutoff_at, lock_at, scheduled_pay_date, status)
-        VALUES (p_org_id, 'Week ending ' || to_char(v_date + 7 * v_k, 'YYYY-MM-DD'), v_tc, v_tc, (v_date + 7 * v_k + v_week.payday_offset), 'open')
+        VALUES (p_org_id, 'Week ending ' || to_char(v_day, 'YYYY-MM-DD'), v_tc, v_tc, (v_day + v_week.payday_offset), 'open')
         ON CONFLICT DO NOTHING;
         SELECT id INTO v_cand FROM payroll_periods
           WHERE org_id = p_org_id AND status <> 'cancelled' AND cutoff_at BETWEEN v_tc - interval '36 hours' AND v_tc + interval '36 hours'
+            AND (cutoff_at AT TIME ZONE v_week.tz)::date = v_day
           ORDER BY created_at, id LIMIT 1;
+        IF v_cand IS NULL THEN  -- the label is held by a CANCELLED week (findOrCreateWeek does the same)
+          INSERT INTO payroll_periods (org_id, period_label, cutoff_at, lock_at, scheduled_pay_date, status)
+          VALUES (p_org_id, 'Week ending ' || to_char(v_day, 'YYYY-MM-DD') || ' (2)', v_tc, v_tc, (v_day + v_week.payday_offset), 'open')
+          ON CONFLICT DO NOTHING;
+          SELECT id INTO v_cand FROM payroll_periods
+            WHERE org_id = p_org_id AND status <> 'cancelled' AND cutoff_at BETWEEN v_tc - interval '36 hours' AND v_tc + interval '36 hours'
+              AND (cutoff_at AT TIME ZONE v_week.tz)::date = v_day
+            ORDER BY created_at, id LIMIT 1;
+        END IF;
       END IF;
       CONTINUE WHEN v_cand IS NULL;
       SELECT * INTO v_next FROM payroll_periods WHERE id = v_cand AND org_id = p_org_id FOR UPDATE;
@@ -381,11 +401,57 @@ BEGIN
 END;
 $$;
 
+-- 5. Closing an old-schedule open week when the pay week changes -------------------------------------------------------------
+-- Everything still waiting on it (hours, bonuses, pending fixes and carried balances) moves to the new-schedule week p_to_id in ONE
+-- transaction, then the old week is cancelled. Weekly-minimum answers are week-specific and are dropped (asked again on the new
+-- week). Refused when the old week has pay lines (money already written), when either week is not open or is being approved, or
+-- when the same person already has hours (or the same manual bonus) on the new week — the owner sorts that out first.
+CREATE OR REPLACE FUNCTION public.payroll_move_open_week(p_org_id uuid, p_from_id uuid, p_to_id uuid)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = public
+AS $$
+DECLARE
+  v_from payroll_periods%ROWTYPE;
+  v_to payroll_periods%ROWTYPE;
+  v_h integer; v_b integer; v_a integer;
+BEGIN
+  IF p_from_id = p_to_id THEN RAISE EXCEPTION 'move_week:same_week'; END IF;
+  SELECT * INTO v_from FROM payroll_periods WHERE id = p_from_id AND org_id = p_org_id FOR UPDATE;
+  SELECT * INTO v_to FROM payroll_periods WHERE id = p_to_id AND org_id = p_org_id FOR UPDATE;
+  IF v_from.id IS NULL OR v_to.id IS NULL THEN RAISE EXCEPTION 'move_week:not_found'; END IF;
+  IF v_from.status <> 'open' OR v_to.status <> 'open' THEN RAISE EXCEPTION 'move_week:not_open'; END IF;
+  IF (v_from.lock_claim_token IS NOT NULL AND v_from.lock_claimed_at > now() - interval '15 minutes')
+     OR (v_to.lock_claim_token IS NOT NULL AND v_to.lock_claimed_at > now() - interval '15 minutes') THEN
+    RAISE EXCEPTION 'payroll_period_claimed: a week is being approved right now; try again in a minute' USING ERRCODE = '55006';
+  END IF;
+  IF EXISTS (SELECT 1 FROM payroll_payout_lines WHERE payroll_period_id = p_from_id) THEN RAISE EXCEPTION 'move_week:has_pay_lines'; END IF;
+  IF EXISTS (SELECT 1 FROM payroll_rep_hours a JOIN payroll_rep_hours b ON b.user_id = a.user_id AND b.payroll_period_id = p_to_id WHERE a.payroll_period_id = p_from_id) THEN
+    RAISE EXCEPTION 'move_week:hours_conflict';
+  END IF;
+  IF EXISTS (SELECT 1 FROM payroll_bonus_lines a JOIN payroll_bonus_lines b ON b.user_id = a.user_id AND b.bonus_type = a.bonus_type AND b.payroll_period_id = p_to_id AND b.source_id IS NULL
+             WHERE a.payroll_period_id = p_from_id AND a.source_id IS NULL) THEN
+    RAISE EXCEPTION 'move_week:bonus_conflict';
+  END IF;
+  UPDATE payroll_rep_hours SET payroll_period_id = p_to_id WHERE payroll_period_id = p_from_id;
+  GET DIAGNOSTICS v_h = ROW_COUNT;
+  UPDATE payroll_bonus_lines SET payroll_period_id = p_to_id WHERE payroll_period_id = p_from_id;
+  GET DIAGNOSTICS v_b = ROW_COUNT;
+  UPDATE payroll_adjustments SET payroll_period_id = p_to_id WHERE payroll_period_id = p_from_id AND status = 'pending';
+  GET DIAGNOSTICS v_a = ROW_COUNT;
+  DELETE FROM payroll_week_minimums WHERE payroll_period_id = p_from_id;
+  UPDATE payroll_periods SET status = 'cancelled' WHERE id = p_from_id;
+  RETURN jsonb_build_object('ok', true, 'hours', v_h, 'bonuses', v_b, 'fixes', v_a);
+END;
+$$;
+
 -- Privileges -------------------------------------------------------------------------------------------------------------------
 REVOKE ALL ON FUNCTION arx_private.payroll_org_week(uuid) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.payroll_week_person_totals(uuid, uuid) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.payroll_commit_week(uuid, uuid, uuid, uuid, numeric, jsonb) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.payroll_set_job_split(uuid, uuid, uuid, uuid, text, jsonb) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.payroll_move_open_week(uuid, uuid, uuid) FROM PUBLIC;
 DO $$
 DECLARE r text;
 BEGIN
@@ -395,6 +461,7 @@ BEGIN
       EXECUTE format('REVOKE ALL ON FUNCTION public.payroll_week_person_totals(uuid, uuid) FROM %I', r);
       EXECUTE format('REVOKE ALL ON FUNCTION public.payroll_commit_week(uuid, uuid, uuid, uuid, numeric, jsonb) FROM %I', r);
       EXECUTE format('REVOKE ALL ON FUNCTION public.payroll_set_job_split(uuid, uuid, uuid, uuid, text, jsonb) FROM %I', r);
+      EXECUTE format('REVOKE ALL ON FUNCTION public.payroll_move_open_week(uuid, uuid, uuid) FROM %I', r);
     END IF;
   END LOOP;
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
@@ -402,5 +469,6 @@ BEGIN
     GRANT EXECUTE ON FUNCTION public.payroll_week_person_totals(uuid, uuid) TO service_role;
     GRANT EXECUTE ON FUNCTION public.payroll_commit_week(uuid, uuid, uuid, uuid, numeric, jsonb) TO service_role;
     GRANT EXECUTE ON FUNCTION public.payroll_set_job_split(uuid, uuid, uuid, uuid, text, jsonb) TO service_role;
+    GRANT EXECUTE ON FUNCTION public.payroll_move_open_week(uuid, uuid, uuid) TO service_role;
   END IF;
 END $$;

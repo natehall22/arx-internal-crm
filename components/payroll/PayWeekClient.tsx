@@ -139,6 +139,8 @@ export default function PayWeekClient() {
 
   const draft = week.state === 'draft'
   const openNeeds = week.needs.filter((n) => !(n.kind === 'bonus' && later[n.id]))
+  // A weekly-minimum question never "waits": it blocks Approve until answered (week.blockedBy).
+  const waitingNeeds = openNeeds.filter((n) => n.kind !== 'minimum')
   const missingHours = week.needs.filter((n): n is Extract<PayWeekNeed, { kind: 'hours' }> => n.kind === 'hours')
   const csvHref = `${API}/csv?period=${week.period.id}`
 
@@ -285,7 +287,8 @@ export default function PayWeekClient() {
             ) : (
               <p className="flex min-h-[3.5rem] w-full items-center justify-center rounded-ui border border-surface-line bg-surface-subtle px-3 text-center text-ui-lg font-semibold text-ink">{formatMoney(week.totals.amount)} · an owner approves</p>
             )}
-            <p className="text-center text-ui-sm text-ink-muted">{openNeeds.length ? `${openNeeds.length} item${openNeeds.length > 1 ? 's' : ''} above not done — they wait for next week. ` : ''}{week.totals.people} {week.totals.people === 1 ? 'person' : 'people'} · payday {formatDateWeekday(week.period.payDate)}</p>
+            {week.blockedBy ? <p className="text-center text-ui-base font-semibold text-ink" role="status">{week.blockedBy.text}</p> : null}
+            <p className="text-center text-ui-sm text-ink-muted">{waitingNeeds.length ? `${waitingNeeds.length} item${waitingNeeds.length > 1 ? 's' : ''} above not done — they wait for next week. ` : ''}{week.totals.people} {week.totals.people === 1 ? 'person' : 'people'} · payday {formatDateWeekday(week.period.payDate)}</p>
           </div>
         </div>
       ) : null}

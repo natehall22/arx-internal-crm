@@ -207,7 +207,7 @@ export const HARNESS_QUEUES = [
 
 /** Fictional week for the Pay-this-week screen (names, jobs and amounts are made up). */
 export const PAY_WEEK = {
-  canApprove: true, period: { id: '00000000-0000-4000-8000-000000000001', label: 'Week ending 2026-10-25', cutoffAt: '2026-10-26T03:59:59.999Z', payDate: '2026-10-30', status: 'open', weekStart: '2026-10-19', weekEnding: '2026-10-25' },
+  canApprove: true, blockedBy: null, period: { id: '00000000-0000-4000-8000-000000000001', label: 'Week ending 2026-10-25', cutoffAt: '2026-10-26T03:59:59.999Z', payDate: '2026-10-30', status: 'open', weekStart: '2026-10-19', weekEnding: '2026-10-25' },
   schedule: { words: 'Monday–Sunday · closes Sunday 11:59 PM · paid Friday · money in by Wednesday 11:59 PM still pays that week' },
   viewer: { canApprove: true, canEditSchedule: true },
   state: 'draft',
@@ -227,7 +227,7 @@ export const PAY_WEEK = {
       { kind: 'Commission', what: '26-0129 · 19 Imaginary Elm Ave', math: '$9,200 × 7% closer = $644, reduced to $224 to stay inside the 18% pool', amount: 224, jobId: 'j3', jobNumber: '26-0129', participantRole: 'sales_rep' },
     ] },
     { userId: 'u-riley', name: 'Riley Moss', roleLabel: 'Setter', total: 920, raw: 920, hoursMissing: false, lines: [{ kind: 'Commission', what: '26-0141 · 12 Example Maple Ln', math: '$18,400 × 5% setter = $920', amount: 920, jobId: 'j1', jobNumber: '26-0141', participantRole: 'setter' }] },
-    { userId: 'u-sky', name: 'Sky Arden', roleLabel: 'Field Marketer', total: 500, raw: 500, hoursMissing: false, lines: [{ kind: 'Commission', what: '26-0144 · 408 Sample Birch Ct', math: '$6,000 × 3% setter = $180', amount: 180, jobId: 'j2', jobNumber: '26-0144', participantRole: 'setter' }, { kind: 'Minimum', what: 'Weekly minimum', math: 'Greater of $500 or commission: $500 − $180 commission = $320', amount: 320 }] },
+    { userId: 'u-sky', name: 'Sky Arden', roleLabel: 'Field Marketer', total: 500, raw: 500, hoursMissing: false, lines: [{ kind: 'Commission', what: '26-0144 · 408 Sample Birch Ct', math: '$6,000 × 3% setter = $180', amount: 180, jobId: 'j2', jobNumber: '26-0144', participantRole: 'setter' }, { kind: 'Minimum', what: 'Weekly minimum', math: 'Greater of $500 or earnings: $500 − $180 earned = $320', amount: 320 }] },
     { userId: 'u-casey', name: 'Casey Park', roleLabel: 'Sales manager', total: 1104, raw: 1104, hoursMissing: false, lines: [{ kind: 'Commission', what: '26-0141 · 12 Example Maple Ln', math: '$18,400 × 6% sales manager override = $1,104', amount: 1104, jobId: 'j1', jobNumber: '26-0141', participantRole: 'closer_manager_override' }] },
     { userId: 'u-taylor', name: 'Taylor Finch', roleLabel: 'Setter', total: 630, raw: 630, hoursMissing: false, lines: [{ kind: 'Commission', what: '26-0144 · 408 Sample Birch Ct', math: '$12,600 × 5% setter = $630', amount: 630, jobId: 'j2', jobNumber: '26-0144', participantRole: 'setter' }] },
     { userId: 'u-mia', name: 'Mia Cruz', roleLabel: 'Canvasser', total: 190.5, raw: 190.5, hoursMissing: false, lines: [{ kind: 'Hourly', what: 'Hourly', math: '10.5 hrs × $18', amount: 189 }, { kind: 'Units', what: 'Per-unit pay', math: 'Per-unit pay from the comp plan', amount: 1.5 }] },
@@ -271,7 +271,7 @@ export const PAY_WEEK_SCHEDULE_PREVIEW = {
   unchanged: false,
   preview: { firstWeek: { start: '2026-11-12', end: '2026-11-15', payDate: '2026-11-20', days: 4 }, then: [{ start: '2026-11-16', end: '2026-11-22', payDate: '2026-11-27' }, { start: '2026-11-23', end: '2026-11-29', payDate: '2026-12-04' }] },
   blockers: [],
-  emptyOldWeeks: [],
+  oldWeeks: [{ periodId: 'w-old', weekEnding: '2026-11-11', movesTo: '2026-11-15', what: 'fixes' }],
 }
 
 export const MY_PAY = {
@@ -281,7 +281,7 @@ export const MY_PAY = {
     { key: 't1', title: '26-0141 · 12 Example Maple Ln', why: "On Friday's check (2026-10-23).", amount: 1288, math: '$18,400 × 7% closer = $1,288', jobId: 'j1', lineKind: 'Commission' },
     { key: 't2', title: '26-0144 · 408 Sample Birch Ct, a very long address that has to wrap on a phone', why: "On Friday's check (2026-10-23).", amount: 882, math: '$12,600 × 7% closer = $882', jobId: 'j2', lineKind: 'Commission' },
     { key: 't3', title: '26-0129 · 19 Imaginary Elm Ave', why: "On Friday's check (2026-10-23).", amount: 224, math: '$9,200 × 7% closer = $644, reduced to $224 to stay inside the 18% pool', jobId: 'j3', lineKind: 'Commission' },
-    { key: 't4', title: 'Weekly minimum', why: "On the Friday check (2026-10-23).", amount: 0, math: 'Greater of $500 or commission: $500 − $2,394 commission = $0', lineKind: 'Minimum' },
+    { key: 't4', title: 'Weekly minimum', why: "On the Friday check (2026-10-23).", amount: 0, math: 'Greater of $500 or earnings: $500 − $2,394 earned = $0', lineKind: 'Minimum' },
   ],
   coming: [
     { key: 'c1', title: '26-0150 · 5 Fictional Oak Dr', why: 'Customer still owes $4,200 of $21,000', amount: 1470, math: 'Estimate: closer line on this job', jobId: 'j4', lineKind: 'Commission' },
