@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { loadOrgForLinks } from '@/lib/company-links'
 
 import { lockPayrollPeriod } from '@/lib/payroll-period-lock'
 import { loadPayWeek, resolvePayWeekPeriod, type PayWeek } from '@/lib/payroll-pay-week'
@@ -52,6 +53,7 @@ export async function emailWeekStatements(admin: SupabaseClient, orgId: string, 
   const week = await loadPayWeek(admin, orgId, new Date(), periodId)
   const out: EmailSummary = { sent: 0, skipped: 0, failed: 0 }
   const brand = await getOrgBrand(admin, orgId)
+  const linkOrg = await loadOrgForLinks(orgId)
   for (const p of week.people.filter((x) => x.total > 0)) {
     try {
       const { data: user } = await admin.from('users').select('id, full_name, email').eq('id', p.userId).eq('org_id', orgId).maybeSingle()
@@ -65,7 +67,7 @@ export async function emailWeekStatements(admin: SupabaseClient, orgId: string, 
         out.skipped += 1
         continue
       }
-      await sendPayrollStatementEmail({ to, recipientName: (user.full_name as string) || 'there', recipientUserId: p.userId, statement, brand, attachPdf: true })
+      await sendPayrollStatementEmail({ to, recipientName: (user.full_name as string) || 'there', recipientUserId: p.userId, statement, brand, linkOrg, attachPdf: true })
       out.sent += 1
     } catch (e) {
       console.error('pay-week: statement email failed', p.userId, e)

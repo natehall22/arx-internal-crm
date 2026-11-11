@@ -15,6 +15,8 @@ import {
 } from '@/lib/google-oauth-state'
 
 type Row = Record<string, unknown>
+// The org's address is read through lib/company-links, which creates its own service client: same fake store.
+jest.mock('@/lib/supabase/service', () => ({ createServiceClient: () => fakeAdmin() }))
 const db: { oauth_states: Row[]; users: Row[]; orgs: Row[] } = { oauth_states: [], users: [], orgs: [] }
 
 /** Tiny in-memory stand-in for the service client (insert / delete / update / select with eq-is-gt-lt filters). */

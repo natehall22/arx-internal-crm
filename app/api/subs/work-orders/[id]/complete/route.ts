@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getAppUrl } from '@/lib/app-url'
+import { orgAppUrl } from '@/lib/company-links'
 import { createClient } from '@/lib/supabase/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -250,7 +250,7 @@ export async function POST(
             },
           })
 
-          const appUrl = getAppUrl()
+          const appUrl = await orgAppUrl(workOrder.org_id)
 
           await transporter.sendMail({
             from: getCrmEmailFrom(),

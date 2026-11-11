@@ -39,9 +39,6 @@
   "app/api/admin/data/route.ts": {
     "timezone": 3
   },
-  "app/api/admin/employee-agreements/route.ts": {
-    "brand": 1
-  },
   "app/api/admin/sisu/accountability/route.ts": {
     "timezone": 1
   },
@@ -169,12 +166,6 @@
   },
   "app/appointments/feedback/page.tsx": {
     "timezone": 4
-  },
-  "app/comp-agreements/receipt/[token]/page.tsx": {
-    "brand": 1
-  },
-  "app/comp-agreements/sign/[token]/page.tsx": {
-    "brand": 1
   },
   "app/dashboard/DashboardClient.tsx": {
     "timezone": 8

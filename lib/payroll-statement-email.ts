@@ -1,5 +1,5 @@
 import type { OrgBrand } from '@/lib/org-brand'
-import { getAppUrl } from '@/lib/app-url'
+import { getAppUrl, type AppUrlOrg } from '@/lib/app-url'
 import type { PayrollStatementPayload } from '@/lib/payroll-statement'
 import { formatPayrollMoney } from '@/lib/payroll-format'
 import {
@@ -17,8 +17,9 @@ function escapeHtml(s: string): string {
     .replace(/"/g, '&quot;')
 }
 
-export function buildPayrollStatementEmailUrl(periodId: string): string {
-  return `${getAppUrl()}/commissions/statement/${periodId}`
+/** `linkOrg` = the paying company (loadOrgForLinks), so the link opens on its own address. */
+export function buildPayrollStatementEmailUrl(periodId: string, linkOrg?: AppUrlOrg): string {
+  return `${getAppUrl(linkOrg)}/commissions/statement/${periodId}`
 }
 
 export function buildPayrollStatementEmailSubject(statement: PayrollStatementPayload): string {
@@ -99,13 +100,15 @@ export async function sendPayrollStatementEmail(input: {
   statement: PayrollStatementPayload
   /** The paying company's identity for the PDF header (getOrgBrand). */
   brand: OrgBrand
+  /** The paying company's link target (lib/company-links loadOrgForLinks): the statement link uses its address. */
+  linkOrg: AppUrlOrg
   attachPdf?: boolean
 }): Promise<{ statementUrl: string; pdfAttached: boolean }> {
   if (!process.env.SMTP_HOST) {
     throw new Error('SMTP is not configured')
   }
 
-  const statementUrl = buildPayrollStatementEmailUrl(input.statement.period.id)
+  const statementUrl = buildPayrollStatementEmailUrl(input.statement.period.id, input.linkOrg)
   let pdfAttached = false
   const attachments: Array<{ filename: string; content: Buffer; contentType: string }> = []
 

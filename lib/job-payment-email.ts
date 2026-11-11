@@ -1,5 +1,5 @@
 import { PAID_IN_FULL_TOLERANCE_CENTS } from '@/lib/job-collection'
-import { getAppUrl } from '@/lib/app-url'
+import { orgAppUrl } from '@/lib/company-links'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getOrgEmailBlastSettings, resolveEmailBlastRecipients } from '@/lib/admin-email-blasts'
 import { getCrmEmailFrom, getMailTransport } from '@/lib/setter-email'
@@ -63,7 +63,7 @@ export async function notifyAdminOpsOfJobPayment(
     return
   }
 
-  const jobLink = `${getAppUrl()}/ops/jobs/${params.jobId}`
+  const jobLink = `${await orgAppUrl(params.orgId)}/ops/jobs/${params.jobId}`
 
   const saleStr =
     params.saleAmountCents > 0 ? formatMoney(params.saleAmountCents) : '—'

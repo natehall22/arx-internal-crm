@@ -1,5 +1,5 @@
 'use client'
-import { tryGetAppUrl } from '@/lib/app-url'
+import { clientLinkBase } from '@/lib/app-url'
 import { toast } from '@/components/ui/toast'
 import { filesDocHref } from '@/lib/files/files-object'
 
@@ -17,7 +17,7 @@ interface ContractListItemProps {
 
 export default function ContractListItem({ contract }: ContractListItemProps) {
   const handleCopyLink = () => {
-    const url = `${(tryGetAppUrl('copied link') ?? window.location.origin)}/contracts/sign/${contract.signing_token}`
+    const url = `${clientLinkBase()}/contracts/sign/${contract.signing_token}`
     navigator.clipboard.writeText(url)
     toast.success('Signing link copied to clipboard!')
   }

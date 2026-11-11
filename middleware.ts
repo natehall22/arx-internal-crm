@@ -6,8 +6,10 @@ import {
   RESOLVED_LOOKUPS_HEADER,
   appBaseDomain,
   classifyHost,
+  companyAppUrl,
   deploymentOrgId,
   lookupCompanyBySubdomain,
+  lookupSubdomainAlias,
   normalizeSubdomain,
   signResolvedLookups,
   type ResolvedLookups,
@@ -132,7 +134,15 @@ async function companyHostGate(request: NextRequest): Promise<GateResult> {
   const resolved: ResolvedLookups = {}
   if (host.kind === 'company') {
     resolved.host = await lookupCompanyBySubdomain(host.subdomain)
-    if (resolved.host.status === 'not_found') return done(notFound(isApi))
+    if (resolved.host.status === 'not_found') {
+      // A company's former address (renamed): same path on its current address, so links already sent keep working.
+      const alias = await lookupSubdomainAlias(host.subdomain)
+      if (alias.status === 'error') return done(unavailable(isApi))
+      const current = alias.status === 'moved' ? companyAppUrl(alias.subdomain) : null
+      if (!current) return done(notFound(isApi))
+      const to = new URL(request.nextUrl.pathname + request.nextUrl.search, current)
+      return done(NextResponse.redirect(to, { status: 308, headers: { 'cache-control': 'no-store' } }))
+    }
     if (resolved.host.status === 'error') return done(unavailable(isApi))
   }
   // iPhone company code (any host, routing on): a failed lookup is 503 here too; an unknown code is left to

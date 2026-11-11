@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { tryGetAppUrl } from '@/lib/app-url'
+import { tryOrgAppUrl } from '@/lib/company-links'
 import { customerSignedDocLinkForPage, customerSignedDocUrl } from '@/lib/files/files-object'
 import nodemailer from 'nodemailer'
 import { getCrmEmailFrom } from '@/lib/crm-email-from'
@@ -243,7 +243,7 @@ export async function POST(request: NextRequest) {
           ? Number(contract.project_cost)
           : null
       // Optional links: this block also marks the canvass pin sold, which must not depend on the app address.
-      const appUrl = tryGetAppUrl('contract signed: admin sale email')
+      const appUrl = await tryOrgAppUrl(contract.org_id, 'contract signed: admin sale email')
       const recordUrl = appUrl && contract.opportunity_id
         ? `${appUrl}/opportunities/${contract.opportunity_id}`
         : undefined
@@ -942,7 +942,9 @@ export async function POST(request: NextRequest) {
 
     // The customer's link to their signed copy goes through the token route, never the bucket's public URL
     // (the stored pdf_url is unchanged and stays staff-side).
-    const customerPdfUrl = pdfUrl ? customerSignedDocUrl('contract', String(contract.signing_token)) : null
+    const customerPdfUrl = pdfUrl
+      ? customerSignedDocUrl('contract', String(contract.signing_token), await tryOrgAppUrl(contract.org_id, 'signed contract link'))
+      : null
 
     // Always try to send confirmation email if customer has email
     let emailSent = false

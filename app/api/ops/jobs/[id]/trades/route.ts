@@ -1,8 +1,8 @@
-import { tryGetAppUrl } from '@/lib/app-url'
 import { NextResponse } from 'next/server'
 
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
+import { tryOrgAppUrl } from '@/lib/company-links'
 import { resolveOpsAccess } from '@/lib/ops-access'
 import { removeInstallFromCalendar } from '@/lib/install-calendar'
 import { loadTradeWithJob } from '@/lib/job-trade-calendar'
@@ -95,8 +95,11 @@ export async function GET(_request: Request, { params }: { params: { id: string 
     tagsByTrade.set(p.work_order_id, list)
   }
 
-  // Crew links are extra on this list: a missing app address leaves them out (logged) instead of failing the Crews tab.
-  const appUrl = tryGetAppUrl('crews list: crew photo links')
+  // Crew links open on this company's own address (lib/company-links). They are extra on this list: a missing app
+  // address leaves them out (logged) instead of failing the Crews tab.
+  const appUrl = ((tradesData ?? []) as { crew_link_token?: string | null }[]).some((t) => t.crew_link_token)
+    ? await tryOrgAppUrl(orgId, 'crews list: crew photo links')
+    : null
   return NextResponse.json({
     canEdit: canEditJobs,
     /** The company's trades (labels for every row; active ones are what "+ Add trade" offers). */

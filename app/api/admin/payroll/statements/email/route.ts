@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { loadOrgForLinks } from '@/lib/company-links'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import { isPayrollAdminRole } from '@/lib/payroll-admin-access'
@@ -97,6 +98,7 @@ export async function POST(request: NextRequest) {
       recipientUserId: userId,
       statement,
       brand: await getOrgBrand(supabase, orgId),
+      linkOrg: await loadOrgForLinks(orgId),
       attachPdf: body.attach_pdf !== false,
     })
 

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getAppUrl } from '@/lib/app-url'
+import { orgAppUrl } from '@/lib/company-links'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import { getCrmEmailFrom, getMailTransport } from '@/lib/setter-email'
@@ -44,7 +44,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
 
     const { doc, brand } = await normalizeReportDocForOrg(admin, report.doc, report)
     const address = doc.propertyAddressHeader || 'your property'
-    const shareUrl = `${getAppUrl()}/r/${report.share_token}`
+    const shareUrl = `${await orgAppUrl(profile.org_id)}/r/${report.share_token}`
 
     // Attach the PDF when it's email-sized (size unknown → download and check for real;
     // the buf.length check below is the actual gate)

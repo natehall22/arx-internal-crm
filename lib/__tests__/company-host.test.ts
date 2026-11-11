@@ -15,6 +15,7 @@ import {
   fenceAllowsOrg,
   hostnameFromHeader,
   lookupCompanyBySubdomain,
+  lookupSubdomainAlias,
   normalizeSubdomain,
   resolveCompanyFence,
 } from '@/lib/company-host'
@@ -237,4 +238,49 @@ test('companyAppUrl: stored address → link origin; nothing when unset or routi
   expect(companyAppUrl('www')).toBeNull()
   delete process.env.APP_BASE_DOMAIN
   expect(companyAppUrl('acme')).toBeNull()
+})
+
+describe('lookupSubdomainAlias (renamed companies)', () => {
+  const ALIASES: Record<string, string> = { 'acme-old': 'acme', loop: 'loop' }
+  beforeEach(() => {
+    fetchMock.mockImplementation(async (u: string, init: { body: string }) => {
+      if (lookupFails) return { ok: false, status: 500, json: async () => ({}) }
+      const sub = JSON.parse(init.body).p_subdomain
+      return { ok: true, status: 200, json: async () => (u.endsWith('/company_subdomain_for_alias') ? ALIASES[sub] ?? null : null) }
+    })
+  })
+
+  test('old name → current name; unknown and self-pointing names are not aliases', async () => {
+    expect(await lookupSubdomainAlias('acme-old')).toEqual({ status: 'moved', subdomain: 'acme' })
+    expect(await lookupSubdomainAlias('nobody')).toEqual({ status: 'not_found' })
+    expect(await lookupSubdomainAlias('loop')).toEqual({ status: 'not_found' })
+    expect(fetchMock.mock.calls[0][0]).toBe('https://proj.supabase.co/rest/v1/rpc/company_subdomain_for_alias')
+  })
+
+  test('cached (found and unknown), errors never cached, malformed never queried', async () => {
+    await lookupSubdomainAlias('acme-old')
+    await lookupSubdomainAlias('acme-old')
+    await lookupSubdomainAlias('nobody')
+    await lookupSubdomainAlias('nobody')
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    lookupFails = true
+    expect(await lookupSubdomainAlias('other')).toEqual({ status: 'error' })
+    lookupFails = false
+    expect(await lookupSubdomainAlias('other')).toEqual({ status: 'not_found' })
+    expect(await lookupSubdomainAlias('a.b')).toEqual({ status: 'not_found' })
+    expect(fetchMock).toHaveBeenCalledTimes(4)
+  })
+
+  test('migration file: alias table, rename trigger, reuse guard, anon RPC that returns no org id', () => {
+    const sql = fs.readFileSync(path.join(process.cwd(), 'supabase/migrations/202611100095_org_subdomain_aliases.sql'), 'utf8')
+    expect(sql).toMatch(/create table if not exists public\.org_subdomain_aliases/)
+    expect(sql).toMatch(/enable row level security/)
+    expect(sql).toMatch(/after update of subdomain on public\.orgs/)
+    expect(sql).toMatch(/before insert or update of subdomain on public\.orgs/)
+    expect(sql).toMatch(/function public\.company_subdomain_for_alias\(p_subdomain text\)\s+returns text/)
+    expect(sql).toMatch(/grant execute on function public\.company_subdomain_for_alias\(text\) to anon/)
+    // Same label rule as orgs.subdomain.
+    expect(sql).toContain(`'^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$'`)
+    expect(SUBDOMAIN_RE.source).toBe('^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$')
+  })
 })

@@ -17,6 +17,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { brandPatchOps, saveBrandSettings, BRAND_SETTINGS_KEYS, type BrandPatch } from '@/lib/org-brand'
 import { cleanTradeLabel } from '@/lib/org-trades'
 import { normalizeSubdomain } from '@/lib/company-host'
+import { isMissingTable } from '@/lib/supabase/errors'
 import { applyOrgTradesSeed, planOrgTradesSeed, readOrgTradesForSeed, type OrgTradeSeed } from '@/lib/org-trades-admin'
 
 export interface CompanySeedInput {
@@ -216,6 +217,14 @@ export async function runCompanySeed(client: SupabaseClient, input: CompanySeedI
     const others = ((taken ?? []) as { id: string }[]).filter((o) => o.id !== org?.id)
     if (others.length) {
       throw new SeedStop(`The web address "${input.org.subdomain}" already belongs to org ${others.map((o) => o.id).join(', ')}; nothing was written.`)
+    }
+    // A former address of another company stays theirs (its old links redirect there; migration 202611100095).
+    // org-scope-ok: deliberately across companies — is this name any OTHER company's former address?
+    const aliases = await client.from('org_subdomain_aliases').select('org_id').eq('subdomain', input.org.subdomain)
+    if (aliases.error && !isMissingTable(aliases.error)) throw new Error(`read former company addresses: ${aliases.error.message ?? aliases.error.code}`)
+    const formerOf = ((aliases.data ?? []) as { org_id: string }[]).filter((a) => a.org_id !== org?.id)
+    if (formerOf.length) {
+      throw new SeedStop(`The web address "${input.org.subdomain}" is a former address of org ${formerOf.map((a) => a.org_id).join(', ')}; nothing was written.`)
     }
   }
   const deploymentOrgId = opts.deploymentOrgId?.trim() || null

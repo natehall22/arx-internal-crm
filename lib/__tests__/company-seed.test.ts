@@ -147,6 +147,13 @@ describe('runCompanySeed (dry run)', () => {
     expect(report.lines.join('\n')).toContain('create org "Example Landscapes & Hardscapes"')
   })
 
+  it("refuses another company's former web address (its old links redirect there), before any write", async () => {
+    const withSub = { ...input, org: { ...input.org, subdomain: 'greenacres' } }
+    const former = fakeClient({ orgs: [{ id: 'other', name: 'Other Co', subdomain: 'other' }], org_subdomain_aliases: [{ subdomain: 'greenacres', org_id: 'other' }], users: [] })
+    await expect(runCompanySeed(former.client, withSub, { apply: true })).rejects.toThrow(/former address of org other/)
+    expect(former.writes).toEqual([])
+  })
+
   it('refuses an org that is not this deployment’s DEPLOYMENT_ORG_ID', async () => {
     const id = '11111111-1111-4111-8111-111111111111'
     const { client, writes } = fakeClient({ orgs: [{ id, name: 'Example Landscapes & Hardscapes' }] })

@@ -6,6 +6,7 @@
  * (the service client skips RLS), so catch-up never shows a note the viewer can't already read.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { isMissingColumn } from '@/lib/supabase/errors'
 
 import { loadDataHealthWithRows, shapeNeedsYou, type HealthProblem } from '@/lib/data-health'
 import { deriveMaterialsState, type MaterialsState } from '@/lib/job-materials-state'
@@ -77,14 +78,8 @@ type ActivityRow = {
   users?: { full_name: string | null } | { full_name: string | null }[] | null
 }
 
-/**
- * The owner column isn't there yet (migration not applied): Postgres "undefined column" on a read (42703) or PostgREST
- * "column not in the schema cache" on a write (PGRST204) naming that column. Anything else is a real error.
- */
-export function isMissingColumn(error: { code?: string; message?: string } | null | undefined, column: string): boolean {
-  if (!error) return false
-  return (error.code === '42703' || error.code === 'PGRST204') && String(error.message ?? '').includes(column)
-}
+/** The owner column isn't there yet (migration not applied). One home: lib/supabase/errors.ts. */
+export { isMissingColumn }
 
 /**
  * Read jobs with their explicit owner. Before the owner migration is applied the column doesn't exist: read again

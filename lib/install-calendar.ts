@@ -63,6 +63,7 @@ import {
   type CalendarEvent,
 } from '@/lib/google-calendar'
 import { getAppUrl } from '@/lib/app-url'
+import { orgAppUrl } from '@/lib/company-links'
 import { getValidAccessToken } from '@/lib/appointment-calendar-sync'
 import { CALENDAR_BUSINESS_TZ } from '@/lib/calendar-business-tz'
 import { resolveOrgBrand } from '@/lib/org-brand'
@@ -450,6 +451,8 @@ export async function syncInstallToCalendar(
 
   try {
     // Built inside the try: a missing app address (crew link) is recorded as this trade's sync failure, not a 500.
+    // The crew photo link and the staff job link open on this company's own address.
+    const appUrl = params.appUrl ?? (await orgAppUrl(trade.org_id))
     const event = buildInstallEvent({
       jobId: trade.job_id,
       jobNumber: trade.job_number,
@@ -465,7 +468,7 @@ export async function syncInstallToCalendar(
       orgPhone: params.orgPhone,
       orgShortName: params.orgShortName,
       crewLinkToken: trade.crew_link_token,
-      appUrl: params.appUrl,
+      appUrl,
     })
     let eventId = trade.install_google_event_id
     if (eventId) {

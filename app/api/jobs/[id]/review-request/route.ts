@@ -7,7 +7,7 @@ import {
   buildTrackedReviewLink,
   isReviewEligibleStatus,
 } from '@/lib/review-requests'
-import { getAppUrl } from '@/lib/app-url'
+import { orgAppUrl } from '@/lib/company-links'
 import { getDocumentBrand } from '@/lib/org-brand'
 
 export const runtime = 'nodejs'
@@ -43,14 +43,6 @@ export async function POST(
   const body = await request.json().catch(() => ({}))
   const action: 'prepare' | 'sent' = body?.action === 'sent' ? 'sent' : 'prepare'
 
-  // The SMS carries an absolute tracked link: check the app address before minting or stamping anything.
-  let appUrl: string
-  try {
-    appUrl = getAppUrl()
-  } catch {
-    return NextResponse.json({ error: 'The app address is not configured, so a review link cannot be built.' }, { status: 500 })
-  }
-
   const { data: job } = await supabase
     .from('production_jobs')
     .select(
@@ -69,6 +61,15 @@ export async function POST(
       { error: 'This job is not marked complete yet.' },
       { status: 400 }
     )
+  }
+
+  // The SMS carries an absolute tracked link on the job's own company address: check it before minting or stamping
+  // anything.
+  let appUrl: string
+  try {
+    appUrl = await orgAppUrl(job.org_id)
+  } catch {
+    return NextResponse.json({ error: 'The app address is not configured, so a review link cannot be built.' }, { status: 500 })
   }
 
   const customer = firstOrSelf<{ name: string | null; phone: string | null }>(job.customer as any)

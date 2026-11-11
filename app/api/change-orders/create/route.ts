@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getAppUrl } from '@/lib/app-url'
+import { orgAppUrl } from '@/lib/company-links'
 import { requireAuthApi } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -118,7 +118,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Checked before the row is written: a change order sent for signature needs a working signing link.
-    const appUrl = isSendToCustomer ? getAppUrl() : null
+    const appUrl = isSendToCustomer ? await orgAppUrl(profile.org_id) : null
 
     // Insert change order record
     const { data: changeOrder, error: insertError } = await supabase
