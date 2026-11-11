@@ -2,7 +2,8 @@
  * Emailing an invoice to the customer, rendered from THE invoice model (lib/invoice-document.ts) — the company's own
  * name, address, phone and email (never the product's). Today only invoices without a job are emailed for real: job
  * invoices keep their original "mark sent" behaviour (finalizeAndSendInvoice), so the original company is unchanged.
- * A card processor's pay link (later) goes where `payUrl` is rendered; nothing else changes.
+ * With online payments on, `sendCustomerInvoiceOnline` (lib/online-payments/autopay.ts) charges a card on file first and
+ * passes a pay link (`payUrl`) while anything is still owed.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 
@@ -95,7 +96,8 @@ export async function sendCustomerInvoice(
   admin: SupabaseClient,
   orgId: string,
   invoice: JobInvoice,
-  to?: string | null
+  to?: string | null,
+  opts: { payUrl?: string | null } = {}
 ): Promise<SendInvoiceResult> {
   if (invoice.job_id) return { ok: false, status: 400, error: 'Job invoices are sent from the job' }
   if (invoice.status === 'void') return { ok: false, status: 409, error: 'This invoice is void' }
@@ -106,7 +108,7 @@ export async function sendCustomerInvoice(
   const address = (to ?? doc.billTo.email ?? '').trim()
   if (!isUsableCustomerEmail(address)) return { ok: false, status: 400, error: 'This customer has no email address' }
   if (doc.items.length === 0 || invoice.total_cents <= 0) return { ok: false, status: 400, error: 'This invoice has nothing to bill' }
-  const mail = renderInvoiceEmail(doc)
+  const mail = renderInvoiceEmail(doc, { payUrl: doc.isPaid ? null : opts.payUrl ?? null })
   await getMailTransport().sendMail({
     from: fromHeader,
     to: address,
