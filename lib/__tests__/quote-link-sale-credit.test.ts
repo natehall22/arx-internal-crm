@@ -34,7 +34,7 @@ jest.mock('@/lib/supabase/service', () => ({ createServiceClient: () => db.clien
 
 import { POST } from '@/app/api/proposals/[id]/quote-link/route'
 
-const call = (body: unknown) => POST(new Request('http://x.test/api/proposals/p1/quote-link', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }), { params: { id: 'p1' } })
+const call = async (body: unknown) => (await POST(new Request('http://x.test/api/proposals/p1/quote-link', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }), { params: { id: 'p1' } }))!
 
 beforeEach(() => { jest.clearAllMocks(); role = 'sales_rep' })
 
