@@ -24,3 +24,6 @@
 - No cancellation-on-job-cancel automation (by design: cancellations only via preview).
 - Delivery-date picker defaults to the day before the earliest crew date.
 - `connection_type='api'` suppliers are blocked from sending until a connector is registered (feat/abc-supply-connector).
+
+## General purchase orders (2026-11-12)
+The same PO machinery now also sends a general purchase order (any vendor or subcontractor, any trade, on a job or a service visit): `kind = 'general'` on `supplier_orders`, lines in `purchase_order_lines`, sent through the same `sendOrderToSupplier` door with the same preview-token, re-send confirmation and one-in-flight rules. The roofing material order is the `materials` kind and is unchanged. Details: CLAUDE.md "Purchase orders".
