@@ -30,7 +30,7 @@
 //      org_id is NOT NULL on every listed table, so a row with no company is refused by the database anyway;
 //   5. it carries a reason: `// org-scope-ok: <why>` on the .from(…) line, or between the line above the statement and
 //      it (e.g. a cron that works every company on purpose). The reason must say why;
-//   6. it filters (eq) by a secret-token column named in SECRET_TOKEN_COLUMNS (explicit table → column list): a public
+//   6. (also 3: a row loaded by findBySigningToken[OnThisHost] counts as loaded company-scoped) it filters (eq) by a secret-token column named in SECRET_TOKEN_COLUMNS (explicit table → column list): a public
 //      link or webhook reaches exactly the row its secret names, in whichever company owns it — that is the design.
 // An upsert (INSERT … ON CONFLICT DO UPDATE) can overwrite and re-home another company's row on its conflict key, so it
 // passes only when its literal onConflict includes org_id, when a conflict-key value in a literal payload is itself
@@ -55,6 +55,9 @@ const EXTRA_TABLES = ['appointment_types', 'estimate_line_items', 'job_cost_orde
 const FILTER_METHODS = new Set(['eq', 'in', 'filter', 'match'])
 const OPS = ['select', 'insert', 'update', 'upsert', 'delete']
 // Calls that return the signed-in caller's own identity (lib/auth.ts, lib/supabase-api-request-auth.ts, lib/threads/api.ts).
+// Calls that resolve a document by its secret signing token (lib/signing-tokens.ts, lib/signing-fence.ts): like rule 6, the
+// token IS the access, so what they return counts as loaded company-scoped (rule 3) for the queries that follow.
+const TOKEN_LOADERS = new Set(['findBySigningToken', 'findBySigningTokenOnThisHost'])
 const AUTH_CALLS = new Set(['requireAuth', 'requireAuthApi', 'getAuthContext', 'resolveApiRequestAuthUser', 'threadAuth'])
 // Columns that hold a random secret handed to ONE outside party (signing links, review links, crew links, webhooks).
 // Explicit (table → columns): a new token column must be added here on purpose.
@@ -63,8 +66,8 @@ const SECRET_TOKEN_COLUMNS = {
   review_requests: ['token'],
   inspection_reports: ['share_token'],
   work_orders: ['crew_link_token'],
-  order_form_contracts: ['signing_token'],
-  job_change_orders: ['signing_token'],
+  order_form_contracts: ['signing_token', 'signing_token_hash'],
+  job_change_orders: ['signing_token', 'signing_token_hash'],
   employee_comp_agreements: ['signing_token_hash', 'receipt_token_hash'],
   lead_sources: ['webhook_token'],
 }
@@ -441,7 +444,7 @@ function analyzeFile(file, text, orgTables) {
     if (d && !d.init && d.kind === 'var') return assignedOrgLoaded(id.text, d, depth)
     if (!d || !d.init) return false
     const init = strip(d.init)
-    if (ts.isCallExpression(init) && ts.isIdentifier(init.expression) && (AUTH_CALLS.has(init.expression.text) || authWrapper(init.expression))) return true
+    if (ts.isCallExpression(init) && ts.isIdentifier(init.expression) && (AUTH_CALLS.has(init.expression.text) || TOKEN_LOADERS.has(init.expression.text) || authWrapper(init.expression))) return true
     // the signed-in user from a token check: (await x.auth.getUser(token)).data.user
     if (ts.isCallExpression(init) && ts.isPropertyAccessExpression(init.expression) && init.expression.name.text === 'getUser' && ts.isPropertyAccessExpression(strip(init.expression.expression)) && strip(init.expression.expression).name.text === 'auth') return true
     // a local loader: `const partner = await loadPartner(supabase, orgId, id)` where every company-table query inside

@@ -6,6 +6,7 @@ import {
   isSignedDocKind,
   signFilesObject,
 } from '@/lib/files/files-object'
+import { findBySigningToken } from '@/lib/signing-tokens'
 import { createServiceClient } from '@/lib/supabase/service'
 
 export const runtime = 'nodejs'
@@ -31,12 +32,7 @@ export async function GET(_request: Request, { params }: { params: { kind: strin
 
   try {
     const admin = createServiceClient()
-    const table = kind === 'contract' ? 'order_form_contracts' : 'job_change_orders'
-    const { data: doc } = await admin
-      .from(table)
-      .select('status, customer_signed_at, pdf_url, pdf_storage_path')
-      .eq('signing_token', token)
-      .maybeSingle()
+    const doc = await findBySigningToken(admin, kind, token, 'org_id, status, customer_signed_at, pdf_url, pdf_storage_path')
 
     // Signed = completed, or a contract superseded by a later signature (voided, never deleted, executed copy kept) — the
     // customer's emailed link to what they signed keeps working.

@@ -10,7 +10,7 @@ import nodemailer from 'nodemailer'
 import { getCrmEmailFrom } from '@/lib/crm-email-from'
 import { buildChangeOrderReadyEmail } from '@/lib/contracts/customer-emails'
 import { getDocumentBrand } from '@/lib/org-brand'
-import crypto from 'crypto'
+import { newSigningTokenColumns } from '@/lib/signing-tokens'
 
 export async function POST(request: NextRequest) {
   try {
@@ -73,6 +73,7 @@ export async function POST(request: NextRequest) {
     let pdfUrl: string | null = null
     let pdfStoragePath: string | null = null
     let signingToken: string | null = null
+    let signingTokenColumns: ReturnType<typeof newSigningTokenColumns>['columns'] | null = null
     let tokenExpiresAt: string | null = null
 
     if (!isSendToCustomer) {
@@ -121,7 +122,10 @@ export async function POST(request: NextRequest) {
         console.error('[Change Order] PDF generation failed:', pdfError?.message || pdfError)
       }
     } else {
-      signingToken = crypto.randomBytes(32).toString('hex')
+      // The token goes into the link once; the row keeps its hash (and an encrypted copy for "Copy link").
+      const issued = newSigningTokenColumns('change-order')
+      signingToken = issued.token
+      signingTokenColumns = issued.columns
       tokenExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
     }
 
@@ -146,7 +150,7 @@ export async function POST(request: NextRequest) {
         rep_signature_data: repSignature,
         signed_at: signedAt,
         status: isSendToCustomer ? 'pending_customer' : 'completed',
-        signing_token: signingToken,
+        ...(signingTokenColumns ?? {}),
         token_expires_at: tokenExpiresAt,
         customer_email: customerEmail || null,
         sent_at: isSendToCustomer ? signedAt : null,

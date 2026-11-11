@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic'
 import { createServiceClient } from '@/lib/supabase/service'
 import { customerSignedDocPath } from '@/lib/files/files-object'
 import { getDocumentBrand } from '@/lib/org-brand'
+import { findBySigningToken } from '@/lib/signing-tokens'
 import { noticeOfCancellation } from '@/lib/contracts/terms'
 import CustomerSigningForm from './CustomerSigningForm'
 
@@ -13,16 +14,12 @@ export default async function ContractSigningPage({
 }) {
   const supabase = createServiceClient()
 
-  const { data: contract, error } = await supabase
-    .from('order_form_contracts')
-    .select('*')
-    .eq('signing_token', params.token)
-    .single()
+  const contract = await findBySigningToken(supabase, 'contract', params.token)
 
   // Company identity from the contract's org (no contract → the default identity).
   const brand = await getDocumentBrand(supabase, contract?.org_id)
 
-  if (error || !contract) {
+  if (!contract) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
         <div className="max-w-md w-full bg-white rounded-xl shadow-lg p-8 text-center">
@@ -79,7 +76,7 @@ export default async function ContractSigningPage({
           </p>
           {contract.pdf_url && (
             <a
-              href={customerSignedDocPath('contract', String(contract.signing_token))}
+              href={customerSignedDocPath('contract', params.token)}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-2 mt-4 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
@@ -116,5 +113,9 @@ export default async function ContractSigningPage({
   // Shown as if signed now — the PDF computes the same notice from the signing time.
   const cancellationNotice = noticeOfCancellation(new Date().toISOString(), brand)
 
-  return <CustomerSigningForm contract={contract} token={params.token} brand={brand} cancellationNotice={cancellationNotice} />
+  // The page gets the contract, never the stored token columns (hash, encrypted copy, old plaintext).
+  const { signing_token: _t, signing_token_hash: _h, signing_token_enc: _e, ...contractForPage } = contract
+  void _t; void _h; void _e
+
+  return <CustomerSigningForm contract={contractForPage as never} token={params.token} brand={brand} cancellationNotice={cancellationNotice} />
 }

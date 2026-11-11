@@ -9,6 +9,7 @@ import { getDocumentBrand } from '@/lib/org-brand'
 import { createServiceClient } from '@/lib/supabase/service'
 import { customerSignedDocLinkForPage, customerSignedDocUrl } from '@/lib/files/files-object'
 import { CANCELLED_JOB_STATUS } from '@/lib/job-status'
+import { findBySigningToken } from '@/lib/signing-tokens'
 import { cleanPrintName, cleanSignatureImage, signingEvidence } from '@/lib/signing-input'
 
 type AdminClient = ReturnType<typeof createServiceClient>
@@ -56,13 +57,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Please add your signature.' }, { status: 400 })
     }
 
-    const { data: changeOrder, error: fetchError } = await supabase
-      .from('job_change_orders')
-      .select('*')
-      .eq('signing_token', token)
-      .single()
+    const changeOrder = await findBySigningToken(supabase, 'change-order', token)
 
-    if (fetchError || !changeOrder) {
+    if (!changeOrder) {
       return NextResponse.json({ error: 'Change order not found' }, { status: 404 })
     }
 

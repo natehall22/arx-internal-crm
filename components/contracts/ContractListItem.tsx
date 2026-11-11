@@ -9,7 +9,8 @@ interface ContractListItemProps {
   contract: {
     id: string
     status: string
-    signing_token: string
+    /** Old links keep their plaintext token here; links made since hashing have none (see /api/signing-link). */
+    signing_token?: string | null
     customer_signed_at: string | null
     pdf_url: string | null
     created_at: string
@@ -36,10 +37,20 @@ export default function ContractListItem({ contract }: ContractListItemProps) {
     }
   }
 
-  const handleCopyLink = () => {
-    const url = `${clientLinkBase()}/contracts/sign/${contract.signing_token}`
-    navigator.clipboard.writeText(url)
-    toast.success('Signing link copied to clipboard!')
+  const handleCopyLink = async () => {
+    try {
+      let path = contract.signing_token ? `/contracts/sign/${contract.signing_token}` : null
+      if (!path) {
+        const res = await fetch(`/api/signing-link/contract/${contract.id}`)
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok || typeof data.path !== 'string') throw new Error('This link is no longer available')
+        path = data.path
+      }
+      await navigator.clipboard.writeText(`${clientLinkBase()}${path}`)
+      toast.success('Signing link copied to clipboard!')
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not copy the link')
+    }
   }
 
   const isCompleted = contract.status === 'completed'

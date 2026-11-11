@@ -16,6 +16,7 @@ import nodemailer from 'nodemailer'
 import { getCrmEmailFrom } from '@/lib/crm-email-from'
 import { buildContractReadyEmail } from '@/lib/contracts/customer-emails'
 import { getDocumentBrand } from '@/lib/org-brand'
+import { newSigningTokenColumns } from '@/lib/signing-tokens'
 
 export async function POST(request: NextRequest) {
   let auth: Awaited<ReturnType<typeof requireAuthApi>>
@@ -200,9 +201,13 @@ export async function POST(request: NextRequest) {
     // Checked before the row is written: a contract with no working signing link must not be created.
     const appUrl = await orgAppUrl(profile.org_id)
 
+    // The link's token is shown once, here; the row keeps only its hash (and an encrypted copy for "Copy link").
+    const { token: signingToken, columns: signingTokenColumns } = newSigningTokenColumns('contract')
+
     const { data: contract, error: insertError } = await supabase
       .from('order_form_contracts')
       .insert({
+        ...signingTokenColumns,
         org_id: profile.org_id,
         agreement_type: safeAgreementType,
         opportunity_id: opportunityId || null,
@@ -239,7 +244,7 @@ export async function POST(request: NextRequest) {
         status: 'pending_customer',
         created_by: profile.id,
       })
-      .select('id, signing_token')
+      .select('id')
       .single()
 
     if (insertError) {
@@ -250,7 +255,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const signingUrl = `${appUrl}/contracts/sign/${contract.signing_token}`
+    const signingUrl = `${appUrl}/contracts/sign/${signingToken}`
 
     if (customerEmail) {
       try {
@@ -299,7 +304,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       contractId: contract.id,
-      signingToken: contract.signing_token,
+      signingToken,
       signingUrl,
     })
   } catch (error) {

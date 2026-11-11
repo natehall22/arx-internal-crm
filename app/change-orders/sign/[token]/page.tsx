@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic'
 
 import { createServiceClient } from '@/lib/supabase/service'
 import { getDocumentBrand } from '@/lib/org-brand'
+import { findBySigningToken } from '@/lib/signing-tokens'
 import CustomerSigningForm from './CustomerSigningForm'
 
 export default async function ChangeOrderSigningPage({
@@ -11,11 +12,12 @@ export default async function ChangeOrderSigningPage({
 }) {
   const supabase = createServiceClient()
 
-  const { data: changeOrder } = await supabase
-    .from('job_change_orders')
-    .select('id, org_id, co_number, description, customer_print_name, status, token_expires_at, updated_total')
-    .eq('signing_token', params.token)
-    .single()
+  const changeOrder = await findBySigningToken(
+    supabase,
+    'change-order',
+    params.token,
+    'id, org_id, co_number, description, customer_print_name, status, token_expires_at, updated_total'
+  )
 
   if (!changeOrder) {
     return (

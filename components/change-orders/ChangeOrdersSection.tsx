@@ -155,13 +155,24 @@ export default function ChangeOrdersSection({
                   )}
                 </div>
               </div>
-              {co.status === 'pending_customer' && co.signing_token ? (
+              {co.status === 'pending_customer' ? (
                 <button
                   type="button"
-                  onClick={() => {
-                    const url = `${clientLinkBase()}/change-orders/sign/${co.signing_token}`
-                    navigator.clipboard.writeText(url)
-                    toast.success('Signing link copied to clipboard.')
+                  onClick={async () => {
+                    try {
+                      // Old links keep their token on the row; links made since hashing are fetched (not stored in the clear).
+                      let path = co.signing_token ? `/change-orders/sign/${co.signing_token}` : null
+                      if (!path) {
+                        const res = await fetch(`/api/signing-link/change-order/${co.id}`)
+                        const data = await res.json().catch(() => ({}))
+                        if (!res.ok || typeof data.path !== 'string') throw new Error('This link is no longer available')
+                        path = data.path
+                      }
+                      await navigator.clipboard.writeText(`${clientLinkBase()}${path}`)
+                      toast.success('Signing link copied to clipboard.')
+                    } catch (e) {
+                      toast.error(e instanceof Error ? e.message : 'Could not copy the link')
+                    }
                   }}
                   className="inline-flex items-center gap-2 px-4 py-2 bg-amber-600 text-white text-sm font-medium rounded-lg hover:bg-amber-700 min-h-[44px]"
                 >

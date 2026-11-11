@@ -14,6 +14,7 @@ import { reinstateCancelledJob } from '@/lib/job-cancellation'
 import { applyContractSignedStatuses } from '@/lib/job-status-events'
 import { depositRequiredFraction } from '@/lib/job-pipeline'
 import { ensureContractPdf } from '@/lib/contracts/finalize-pdf'
+import { findBySigningToken } from '@/lib/signing-tokens'
 import {
   cleanInitials,
   cleanPreferredContact,
@@ -227,13 +228,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Choose phone or email as your preferred contact' }, { status: 400 })
     }
 
-    const { data: contract, error: fetchError } = await supabase
-      .from('order_form_contracts')
-      .select('*')
-      .eq('signing_token', token)
-      .single()
+    const contract = await findBySigningToken(supabase, 'contract', token)
 
-    if (fetchError || !contract) {
+    if (!contract) {
       return NextResponse.json(
         { error: 'Contract not found' },
         { status: 404 }
