@@ -113,3 +113,5 @@ needs entries #5–#7 (the wildcards above cover them).
   contracts). **All three BEFORE the code**: the sign routes write `customer_user_agent`, `signing_token_hash/enc`,
   `signing_steps`, `signing_finalize_lease_at`, and creators stop writing the plaintext `signing_token` (a NOT NULL there would
   reject new contracts). Links already sent keep working (plaintext still accepted).
+- Backfill: run `supabase/data-fixes/2026-11-11_signing_recovery_backfill.sql` right after 0030, then **again right after
+  the code deploys** (contracts the old code signed in between). It is idempotent and skips rows the new code has touched.

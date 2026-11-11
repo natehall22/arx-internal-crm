@@ -162,13 +162,31 @@ async function finishSignedContract(
     return { pdfUrl: null, projectId: null, emailSent: false, pdfGenerationError: null, projectCreateError: null }
   }
   const steps: Record<string, string> = { ...(contract.signing_steps ?? {}) }
+  // A step counts as done if ANY finisher recorded it: before running a step, look at what is recorded now (a slow first
+  // request and a later retry never both run the same step).
+  const refresh = async () => {
+    const { data } = await supabase
+      .from('order_form_contracts')
+      .select('signing_steps')
+      .eq('id', contract.id)
+      .eq('org_id', contract.org_id)
+      .maybeSingle()
+    Object.assign(steps, (data as { signing_steps?: Record<string, string> } | null)?.signing_steps ?? {})
+  }
+  const isDone = async (name: string) => {
+    if (steps[name]) return true
+    await refresh()
+    return !!steps[name]
+  }
   const done = (name: string) => !!steps[name]
+  // Recording a step also renews the lease, so a long finish is not taken over while it is still making progress.
   const mark = async (name: string) => {
     if (steps[name]) return
-    steps[name] = new Date().toISOString()
+    await refresh()
+    steps[name] = steps[name] ?? new Date().toISOString()
     const { error } = await supabase
       .from('order_form_contracts')
-      .update({ signing_steps: steps })
+      .update({ signing_steps: steps, signing_finalize_lease_at: new Date().toISOString() })
       .eq('id', contract.id)
       .eq('org_id', contract.org_id)
     if (error) console.error('[Contract Sign] could not record step', name, error.message)
@@ -186,7 +204,7 @@ async function finishSignedContract(
   const clientIp = contract.customer_ip
   const customerSignedAt = contract.customer_signed_at
 
-    if (!isContingency && !done('sale_notice')) try {
+    if (!isContingency && !(await isDone('sale_notice'))) try {
       const soldDescription = buildOrderFormContractSaleDescription(contract)
       const totalAmount =
         contract.project_cost != null && Number.isFinite(Number(contract.project_cost))
@@ -276,11 +294,13 @@ async function finishSignedContract(
     // (26-0040, 26-0031, 26-0010). Readers filter on status='completed', so a voided
     // row drops out of totals exactly as a deleted one did, but the record and its
     // PDF survive.
-    if (contract.opportunity_id && !done('void_older')) {
+    let voidOk = !contract.opportunity_id
+    if (contract.opportunity_id && !(await isDone('void_older'))) {
       try {
         const { data: voided, error: voidError } = await supabase
           .from('order_form_contracts')
           .update({ status: 'voided', updated_at: new Date().toISOString() })
+          .eq('org_id', contract.org_id)
           .eq('opportunity_id', contract.opportunity_id)
           .eq('agreement_type', rawAgreementType)
           .neq('id', contract.id)
@@ -289,14 +309,17 @@ async function finishSignedContract(
 
         if (voidError) {
           console.error('[Contract Sign] Error voiding older contracts:', voidError)
-        } else if (voided && voided.length > 0) {
+        } else {
+          voidOk = true
+        }
+        if (!voidError && voided && voided.length > 0) {
           console.log('[Contract Sign] Voided', voided.length, 'older contracts (records + PDFs kept)')
         }
       } catch (cleanupError) {
         console.error('[Contract Sign] Error voiding older contracts:', cleanupError)
       }
     }
-    await mark('void_older')
+    if (voidOk) await mark('void_older')
 
     // Company identity for the customer email (one read).
     const documentBrand = await getDocumentBrand(supabase, contract.org_id)
@@ -403,7 +426,11 @@ async function finishSignedContract(
         }
 
         // The customer exists from inspection booking: fill in what the signed contract adds, and tell QuickBooks now.
-        if (customerId) await enrichCustomerFromContract(supabase, contract.org_id, customerId, contract)
+        // Once per signing: enrich re-queues the QuickBooks customer.upserted event (upsert resets it to pending), so a retry skips it.
+        if (customerId && !(await isDone('customer_sync'))) {
+          await enrichCustomerFromContract(supabase, contract.org_id, customerId, contract)
+          await mark('customer_sync')
+        }
 
         const soldRoofSquares = (await getProposalSoldRoofSquares(supabase, contract.proposal_id)) ?? contract.total_squares
 
@@ -663,7 +690,10 @@ async function finishSignedContract(
             }
           }
           // The one QuickBooks enqueue for this signing (upsertCustomer never enqueues).
-          await enrichCustomerFromContract(supabase, contract.org_id, ensuredId, contract)
+          if (!(await isDone('customer_sync'))) {
+            await enrichCustomerFromContract(supabase, contract.org_id, ensuredId, contract)
+            await mark('customer_sync')
+          }
         } catch (e) {
           console.error('[Contract Sign] ensure customer (existing project)', e)
         }
@@ -796,7 +826,18 @@ async function finishSignedContract(
 
     // The project/job step is idempotent (an existing project or job is updated, never duplicated); it counts as done once a
     // project exists (or for a contingency, which makes none).
-    if (isContingency || (projectId && !projectCreateError)) await mark('project')
+    // For a sale agreement "done" means a project AND a production job exist: a failed job insert stays retryable.
+    if (isContingency) {
+      await mark('project')
+    } else if (projectId && !projectCreateError) {
+      const { data: jobRows } = await supabase
+        .from('production_jobs')
+        .select('id')
+        .eq('org_id', contract.org_id)
+        .eq('project_id', projectId)
+        .limit(1)
+      if (jobRows && jobRows.length > 0) await mark('project')
+    }
 
     // Sale amount + commission base = signed contract total + signed change orders. Written once,
     // here, by the one writer (lib/job-commission-base.ts) — for both the new-project and the
@@ -810,7 +851,7 @@ async function finishSignedContract(
       }
     }
 
-    if (contract.opportunity_id && !done('signed_note')) {
+    if (contract.opportunity_id && !(await isDone('signed_note'))) {
       await supabase.from('activities').insert({
         org_id: contract.org_id,
         opportunity_id: contract.opportunity_id,
@@ -834,7 +875,7 @@ async function finishSignedContract(
       })
     }
 
-    if (projectCreateError && contract.opportunity_id && !done('project_error_note')) {
+    if (projectCreateError && contract.opportunity_id && !(await isDone('project_error_note'))) {
       await supabase.from('activities').insert({
         org_id: contract.org_id,
         opportunity_id: contract.opportunity_id,
@@ -853,7 +894,7 @@ async function finishSignedContract(
 
     // Always try to send confirmation email if customer has email
     let emailSent = false
-    if (contract.customer_email && !done('customer_email') && done('pdf')) {
+    if (contract.customer_email && !(await isDone('customer_email')) && done('pdf')) {
       console.log('[Contract Sign] Sending confirmation email to:', contract.customer_email)
       
       const email = buildContractSignedEmail({

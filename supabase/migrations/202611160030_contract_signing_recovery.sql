@@ -9,17 +9,5 @@ ALTER TABLE order_form_contracts
   ADD COLUMN IF NOT EXISTS signing_finalized_at timestamptz,
   ADD COLUMN IF NOT EXISTS signing_finalize_lease_at timestamptz;
 
--- Backfill: contracts already completed before this ships must NOT be re-finished (no duplicate emails/notices).
--- Those with a stored PDF are finalized; those still waiting on a PDF keep only the pdf (and its email) open.
-UPDATE order_form_contracts
-   SET signing_finalized_at = COALESCE(customer_signed_at, now())
- WHERE status = 'completed'
-   AND signing_finalized_at IS NULL
-   AND COALESCE(NULLIF(pdf_storage_path, ''), NULLIF(pdf_url, '')) IS NOT NULL;
-
-UPDATE order_form_contracts
-   SET signing_steps = jsonb_build_object(
-         'sale_notice', now(), 'void_older', now(), 'project', now(), 'signed_note', now(), 'project_error_note', now())
- WHERE status = 'completed'
-   AND signing_finalized_at IS NULL
-   AND signing_steps IS NULL;
+-- Backfill of contracts completed by the OLD code: supabase/data-fixes/2026-11-11_signing_recovery_backfill.sql. Run it right
+-- after this migration AND again right after the code deploys (it is safe to run twice).
