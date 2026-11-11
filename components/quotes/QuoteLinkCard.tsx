@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Button, Card, CardContent, CardHeader, CardTitle, toast } from '@/components/ui'
 
 type Status = {
+  opportunityId: string | null
   customerEmail: string | null
   status: string
   optionalCount: number
@@ -30,6 +31,9 @@ export default function QuoteLinkCard({ proposalId }: { proposalId: string }) {
   const [mode, setMode] = useState('default')
   const [value, setValue] = useState('')
   const [url, setUrl] = useState('')
+  const [credit, setCredit] = useState<{ closerUserId: string; setterUserId: string; isSelfGenerated: boolean } | null>(null)
+  const [canChange, setCanChange] = useState(true)
+  const [users, setUsers] = useState<Array<{ id: string; full_name: string | null }>>([])
 
   const base = `/api/proposals/${proposalId}/quote-link`
   const apply = useCallback((d: Status) => {
@@ -39,11 +43,32 @@ export default function QuoteLinkCard({ proposalId }: { proposalId: string }) {
     setValue(d.deposit.overridden ? String(d.deposit.mode === 'percent' ? d.deposit.percent : (d.deposit.fixedCents / 100).toFixed(2)) : '')
   }, [])
 
+  const oppId = s?.opportunityId ?? null
+  useEffect(() => {
+    if (!oppId) return
+    void Promise.all([
+      fetch(`/api/opportunities/${oppId}/sale-credit`, { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null)),
+      fetch('/api/users').then((r) => (r.ok ? r.json() : { users: [] })),
+    ])
+      .then(([c, u]) => {
+        if (c) {
+          setCredit({ closerUserId: c.closerUserId || '', setterUserId: c.setterUserId || '', isSelfGenerated: c.isSelfGenerated === true })
+          setCanChange(c.canChange !== false)
+        }
+        setUsers(u?.users ?? [])
+      })
+      .catch(() => null)
+  }, [oppId])
+
   useEffect(() => {
     void fetch(base, { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null)).then((d) => d && apply(d)).catch(() => null)
   }, [base, apply])
 
   async function act(body: Record<string, unknown>, ok?: string) {
+    if ((body.action === 'send' || body.action === 'link')) {
+      if (!credit?.closerUserId) return toast.error('Pick who closed this sale.')
+      body = { ...body, saleCredit: { closerUserId: credit.closerUserId, setterUserId: credit.isSelfGenerated ? null : credit.setterUserId || null, isSelfGenerated: credit.isSelfGenerated } }
+    }
     setBusy(true)
     const res = await fetch(base, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).catch(() => null)
     const d = res ? ((await res.json().catch(() => ({}))) as Status & { url?: string; emailed?: boolean; error?: string }) : null
@@ -113,6 +138,23 @@ export default function QuoteLinkCard({ proposalId }: { proposalId: string }) {
               ) : null}
               <Button className="min-h-tap self-start" variant="secondary" loading={busy} onClick={saveDeposit}>Save deposit</Button>
             </fieldset>
+            {credit ? (
+              <fieldset className="flex flex-col gap-2">
+                <legend className="font-semibold">Sale credit (what commission is paid on)</legend>
+                <select value={credit.closerUserId} disabled={!canChange} onChange={(e) => setCredit({ ...credit, closerUserId: e.target.value })} aria-label="Closer" className="min-h-tap rounded-ui border border-surface-line px-3 text-base text-ink disabled:bg-gray-100">
+                  <option value="">Pick the closer</option>
+                  {users.map((u) => <option key={u.id} value={u.id}>{u.full_name || 'Unnamed'}</option>)}
+                </select>
+                <select value={credit.isSelfGenerated ? '' : credit.setterUserId} disabled={!canChange || credit.isSelfGenerated} onChange={(e) => setCredit({ ...credit, setterUserId: e.target.value })} aria-label="Setter" className="min-h-tap rounded-ui border border-surface-line px-3 text-base text-ink disabled:bg-gray-100">
+                  <option value="">No setter</option>
+                  {users.map((u) => <option key={u.id} value={u.id}>{u.full_name || 'Unnamed'}</option>)}
+                </select>
+                <label className="flex min-h-tap items-center gap-3">
+                  <input type="checkbox" className="h-5 w-5" checked={credit.isSelfGenerated} disabled={!canChange} onChange={(e) => setCredit({ ...credit, isSelfGenerated: e.target.checked })} />
+                  <span>The closer found this customer themselves</span>
+                </label>
+              </fieldset>
+            ) : null}
             <label className="flex flex-col gap-1">
               <span className="font-semibold">Send to</span>
               <input type="email" inputMode="email" value={email} onChange={(e) => setEmail(e.target.value)} className="min-h-tap rounded-ui border border-surface-line px-3 text-base text-ink" />

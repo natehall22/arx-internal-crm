@@ -179,7 +179,12 @@ function generateContingencyPdf(contract: ContractData, brand: DocumentBrand): B
   doc.rect(rightCol, y, 150, 38)
   if (contract.customer_signature_data) {
     try {
-      doc.addImage(contract.customer_signature_data, 'PNG', leftCol + 2, y + 2, 146, 34)
+      if (contract.customer_signature_data.startsWith('typed:')) {
+        // A typed approval (online quote): the typed name stands in for a drawn signature.
+        doc.text(contract.customer_signature_data.slice(6), leftCol + 10, y + 22)
+      } else {
+        doc.addImage(contract.customer_signature_data, 'PNG', leftCol + 2, y + 2, 146, 34)
+      }
     } catch {
       doc.text('[Signature on file]', leftCol + 10, y + 22)
     }
@@ -315,7 +320,12 @@ function generateRepairPdf(contract: ContractData, brand: DocumentBrand): Buffer
   doc.rect(rightCol, y, 150, 38)
   if (contract.customer_signature_data) {
     try {
-      doc.addImage(contract.customer_signature_data, 'PNG', leftCol + 2, y + 2, 146, 34)
+      if (contract.customer_signature_data.startsWith('typed:')) {
+        // A typed approval (online quote): the typed name stands in for a drawn signature.
+        doc.text(contract.customer_signature_data.slice(6), leftCol + 10, y + 22)
+      } else {
+        doc.addImage(contract.customer_signature_data, 'PNG', leftCol + 2, y + 2, 146, 34)
+      }
     } catch {
       doc.text('[Signature on file]', leftCol + 10, y + 22)
     }
@@ -559,7 +569,12 @@ export async function generateContractPdf(contract: ContractData, brand: Documen
   // Add signature images if available
   if (contract.customer_signature_data) {
     try {
-      doc.addImage(contract.customer_signature_data, 'PNG', leftCol + 2, y + 2, 146, 36)
+      if (contract.customer_signature_data.startsWith('typed:')) {
+        // A typed approval (online quote): the typed name stands in for a drawn signature.
+        doc.text(contract.customer_signature_data.slice(6), leftCol + 10, y + 22)
+      } else {
+        doc.addImage(contract.customer_signature_data, 'PNG', leftCol + 2, y + 2, 146, 36)
+      }
     } catch (e) {
       doc.setFontSize(8)
       doc.text('[Signature on file]', leftCol + 10, y + 22)

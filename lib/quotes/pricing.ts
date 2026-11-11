@@ -11,6 +11,10 @@ export type QuoteLine = ProposalTaxLineItem & {
   id: string
   is_optional?: boolean | null
   optional_default_on?: boolean | null
+  /** What the customer reads — part of the fingerprint so a rename or a quantity change after the page opened is not approved blind. */
+  name?: string | null
+  description?: string | null
+  quantity?: number | null
 }
 
 export type QuoteTaxMode =
@@ -19,6 +23,15 @@ export type QuoteTaxMode =
 
 export function isOptionalLine(l: Pick<QuoteLine, 'is_optional'>): boolean {
   return l.is_optional === true
+}
+
+/**
+ * Is this line part of the quote's STORED price? Every required line, and an optional one only when it starts ticked.
+ * Staff views and documents that show a quote nobody has approved yet (the proposal PDF) use this whatever the company
+ * switch says, so an unticked option never prints as sold. No optional lines (every roofing quote) = always true.
+ */
+export function isCountedLine(l: { is_optional?: boolean | null; optional_default_on?: boolean | null }): boolean {
+  return l.is_optional !== true || l.optional_default_on === true
 }
 
 /** The optional lines that are ticked when nobody has chosen yet. */
@@ -90,14 +103,17 @@ export function quoteFingerprint(input: {
   tax: QuoteTaxMode
   deposit?: { mode: string; percent: number; fixedCents: number }
   terms?: string
+  /** The scope text the customer reads. */
+  scope?: string
 }): string {
   const body = JSON.stringify({
-    l: input.lines.map((l) => [l.id, Math.round((Number(l.line_total) || 0) * 100), Math.round((Number(l.unit_price) || 0) * 100), l.unit ?? '', l.price_type ?? '', l.taxable ?? null, l.is_optional === true, l.optional_default_on === true]),
+    l: input.lines.map((l) => [l.id, Math.round((Number(l.line_total) || 0) * 100), Math.round((Number(l.unit_price) || 0) * 100), l.unit ?? '', l.price_type ?? '', l.taxable ?? null, l.is_optional === true, l.optional_default_on === true, l.name ?? '', l.description ?? '', l.quantity ?? null]),
     dp: Number(input.discountPercent) || 0,
     da: Math.round((Number(input.discountAmount) || 0) * 100),
     t: input.tax.kind === 'legacy' ? ['legacy', input.tax.percent] : ['rates', input.tax.exempt, input.tax.rates.map((r) => [r.id ?? '', r.percent])],
     d: input.deposit ? [input.deposit.mode, input.deposit.percent, input.deposit.fixedCents] : null,
     tm: input.terms ?? '',
+    sc: input.scope ?? '',
   })
   let h = 0x811c9dc5
   for (let i = 0; i < body.length; i++) {

@@ -20,7 +20,8 @@ import { NextRequest } from 'next/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { POST as signContract } from '@/app/api/contracts/sign/route'
-import { orgAppUrl } from '@/lib/company-links'
+import { orgAppUrl, tryOrgAppUrl } from '@/lib/company-links'
+import { customerSignedDocUrl } from '@/lib/files/files-object'
 import { addInvoiceItem, computeInvoiceBalance, finalizeAndSendInvoice } from '@/lib/invoices'
 import { loadOnlinePayments } from '@/lib/online-payments/accounts'
 import { createPaymentLink, tooManyLinks } from '@/lib/online-payments/links'
@@ -31,6 +32,8 @@ import type { QuoteLinkRow } from '@/lib/quotes/links'
 
 export const FINALIZE_LEASE_MS = 2 * 60_000
 const OPEN_STATUSES = ['draft', 'sent', 'viewed']
+/** How long the (internal) signing token of an approval's contract stays valid: far out, so a retry never meets an expired token. */
+export const APPROVAL_CONTRACT_TOKEN_DAYS = 3650
 
 export type ApprovalRow = {
   id: string
@@ -61,7 +64,8 @@ export type ApprovalSnapshot = {
   proposalNumber: string | null
   title: string | null
   terms: string
-  lines: Array<{ id: string; name: string; optional: boolean; chosen: boolean; cents: number }>
+  /** Everything the customer read, so the stored PDF is exactly what was agreed (description/quantity/unit were added later: optional). */
+  lines: Array<{ id: string; name: string; description?: string; quantity?: number | null; unit?: string; optional: boolean; chosen: boolean; cents: number }>
   declinedIds: string[]
   taxLines: Array<{ id: string | null; name: string; percent: number; amount_cents: number }>
   taxableCents: number
@@ -124,6 +128,10 @@ export async function approveQuote(
   const name = cleanTypedName(input.typedName)
   if (!name) return { ok: false, status: 400, error: 'Type your full name to approve' }
   if (!p.opportunity_id || !(p.customer_name ?? '').trim() || !(p.customer_address ?? '').trim()) return { ok: false, status: 409, error: 'This quote is not ready to approve. Please contact us.' }
+  // Who gets credit for the sale is confirmed by the office when the link is sent (see the quote-link route). The signing
+  // pipeline falls back to the contract's creator for an opportunity with no closer; never let that be whoever sent the link.
+  const { data: oppRow } = await orgDb(admin, orgId).from('opportunities').select('owner_user_id').eq('id', p.opportunity_id).maybeSingle()
+  if (!(oppRow as { owner_user_id?: string | null } | null)?.owner_user_id) return { ok: false, status: 409, error: 'This quote is not ready to approve. Please contact us.' }
   const sel = validateSelection(ctx, input.selectedIds)
   if ('error' in sel) return { ok: false, status: 400, error: sel.error }
   if (input.fingerprint !== fingerprintOf(ctx)) return { ok: false, status: 409, changed: true, error: 'This quote was just updated. Please look it over again.' }
@@ -146,7 +154,7 @@ export async function approveQuote(
     proposalNumber: p.proposal_number,
     title: p.title,
     terms: quoteTerms(ctx),
-    lines: ctx.lines.map((l) => ({ id: l.id, name: l.name, optional: isOptionalLine(l), chosen: !isOptionalLine(l) || picked.has(l.id), cents: price.lineCents[l.id] ?? 0 })),
+    lines: ctx.lines.map((l) => ({ id: l.id, name: l.name, description: (l.description ?? '').trim(), quantity: l.quantity ?? null, unit: l.unit ?? '', optional: isOptionalLine(l), chosen: !isOptionalLine(l) || picked.has(l.id), cents: price.lineCents[l.id] ?? 0 })),
     declinedIds: ctx.lines.filter((l) => isOptionalLine(l) && !picked.has(l.id)).map((l) => l.id),
     taxLines: price.taxLines,
     taxableCents: price.taxableCents,
@@ -271,6 +279,9 @@ export async function finalizeApproval(admin: SupabaseClient, orgId: string, app
           status: 'pending_customer',
           created_by: creator,
           quote_approval_id: approval.id,
+          // The signing link of this contract is never sent to anyone (we sign it ourselves, now or on a retry), and the quote
+          // link has its own expiry. The 7-day default would make a retry after a week fail forever.
+          token_expires_at: new Date(now.getTime() + APPROVAL_CONTRACT_TOKEN_DAYS * 86_400_000).toISOString(),
         })
         .select('id')
         .single()
@@ -278,9 +289,21 @@ export async function finalizeApproval(admin: SupabaseClient, orgId: string, app
       contractId = (c as { id: string }).id
       await setApproval(admin, orgId, approvalId, { contract_id: contractId })
     }
-    const { data: ct } = await db.from('order_form_contracts').select('id, status, signing_token').eq('id', contractId).maybeSingle()
-    const contract = ct as { id: string; status: string; signing_token: string } | null
+    const { data: ct } = await db.from('order_form_contracts').select('id, status, signing_token, pdf_url').eq('id', contractId).maybeSingle()
+    let contract = ct as { id: string; status: string; signing_token: string; pdf_url: string | null } | null
     if (!contract) throw new Error('contract missing')
+    // The signing route marks the contract completed BEFORE it makes the project and job. If it stopped in between (a crash,
+    // a project error), the contract reads completed but there is no job, and skipping the sign step would fail forever.
+    // Our own contract carries no PDF/email side effects, so it is safe to put it back to pending and run the same route
+    // again: its project/job steps find what exists and make what is missing.
+    if (contract.status === 'completed' && !approval.job_id) {
+      const { data: made } = await db.from('production_jobs').select('id').eq('accepted_proposal_id', proposal.id).limit(1)
+      if ((made ?? []).length === 0) {
+        const { error: back } = await db.from('order_form_contracts').update({ status: 'pending_customer' }).eq('id', contract.id).eq('status', 'completed')
+        if (back) throw new Error(`reopen contract for retry: ${back.message}`)
+        contract = { ...contract, status: 'pending_customer' }
+      }
+    }
     if (contract.status !== 'completed') {
       const res = await signContract(
         new NextRequest('http://internal.invalid/api/contracts/sign', {
@@ -289,7 +312,10 @@ export async function finalizeApproval(admin: SupabaseClient, orgId: string, app
           body: JSON.stringify({ token: contract.signing_token, printName: approval.typed_name, signature: `typed:${approval.typed_name}` }),
         })
       )
-      if (!res.ok) throw new Error(`signing: ${((await res.json().catch(() => ({}))) as { error?: string }).error ?? res.status}`)
+      const body = (await res.json().catch(() => ({}))) as { error?: string; projectCreateError?: string | null }
+      if (!res.ok) throw new Error(`signing: ${body.error ?? res.status}`)
+      // The route answers 200 even when the project/job step failed; that is a failure here so the retry finishes it.
+      if (body.projectCreateError) throw new Error(`job setup: ${body.projectCreateError}`)
     }
 
     // 3. The job it made, and the deposit invoice on it.
@@ -308,12 +334,28 @@ export async function finalizeApproval(admin: SupabaseClient, orgId: string, app
       await setApproval(admin, orgId, approvalId, { deposit_invoice_id: invoiceId })
       approval.deposit_invoice_id = invoiceId
     }
+    // 3b. The record of what was agreed, from the snapshot. The sale already stands, so a PDF failure is noted for the office
+    // (and the customer still gets the page), never held against the approval.
+    let pdfPath: string | null = null
+    try {
+      const { data: have } = await db.from('order_form_contracts').select('pdf_url').eq('id', contractId).maybeSingle()
+      pdfPath = (have as { pdf_url?: string | null } | null)?.pdf_url ?? null
+      if (!pdfPath) {
+        const { storeApprovalPdf } = await import('@/lib/quotes/pdf')
+        pdfPath = await storeApprovalPdf(admin, orgId, approval, contractId, { name: proposal.customer_name, address: proposal.customer_address })
+      }
+    } catch (e) {
+      console.error('quote approval PDF failed', approvalId, e)
+      note = `${note ? `${note} ` : ''}The approval PDF could not be made — the approval record itself is saved.`
+    }
     await setApproval(admin, orgId, approvalId, { finalized_at: now.toISOString(), finalize_error: note })
 
     // 4. One confirmation to the customer (the sale email to the owners is the signing pipeline's).
     if (!approval.confirmation_sent_at && proposal.customer_email) {
       const { sendApprovalConfirmation } = await import('@/lib/quotes/send')
-      const sent = await sendApprovalConfirmation(admin, orgId, approval, proposal.customer_email, opts.pageUrl ?? null).catch((e) => {
+      // The customer's copy goes through the signing-token download route (never a bucket URL), like a signed contract's.
+      const copyUrl = pdfPath ? customerSignedDocUrl('contract', contract.signing_token, await tryOrgAppUrl(orgId, 'quote approval copy')) : null
+      const sent = await sendApprovalConfirmation(admin, orgId, approval, proposal.customer_email, opts.pageUrl ?? null, copyUrl).catch((e) => {
         console.error('quote approval confirmation failed', e)
         return false
       })
@@ -336,24 +378,29 @@ async function makeDepositInvoice(
   dep: { mode: string; percent: number },
   email: string | null
 ): Promise<string> {
-  // An earlier attempt may have made it before stopping: reuse it.
   const { data: ex } = await orgDb(admin, orgId).from('production_jobs').select('id').eq('id', jobId).maybeSingle()
   if (!ex) throw new Error('job not found for the deposit')
+  // An earlier attempt may have stopped half way (invoice made, line not added, or never sent). Reuse the invoice, but
+  // finish only what is missing: add the line when there is none, send when it is still a draft. A complete one is left alone.
   // org-scope-ok: the job was just read in orgId above; job_invoices.org_id is set by trigger from the job
-  const { data: found } = await admin.from('job_invoices').select('id').eq('job_id', jobId).eq('invoice_kind', 'deposit').neq('status', 'void').limit(1)
-  if (found && found.length > 0) return (found[0] as { id: string }).id
-  if (!createdBy) throw new Error('no one to own the deposit invoice')
-  // org-scope-ok: insert; org_id comes from the job by trigger
-  const { data: inv, error } = await admin
-    .from('job_invoices')
-    .insert({ job_id: jobId, created_by: createdBy, status: 'draft', invoice_kind: 'deposit', public_note: 'Thank you for approving your quote.' })
-    .select('id')
-    .single()
-  if (error || !inv) throw new Error(`deposit invoice: ${error?.message ?? 'unknown'}`)
-  const id = (inv as { id: string }).id
-  await addInvoiceItem(admin, id, { description: dep.mode === 'percent' ? `Deposit (${dep.percent}%)` : 'Deposit', qty: 1, unit_price_cents: cents })
-  await finalizeAndSendInvoice(admin, id, email ?? '')
-  return id
+  const { data: found } = await admin.from('job_invoices').select('id, status, job_invoice_items(id)').eq('job_id', jobId).eq('invoice_kind', 'deposit').neq('status', 'void').order('created_at', { ascending: true }).limit(1)
+  let inv = ((found ?? []) as Array<{ id: string; status: string; job_invoice_items?: Array<{ id: string }> | null }>)[0] ?? null
+  if (!inv) {
+    if (!createdBy) throw new Error('no one to own the deposit invoice')
+    // org-scope-ok: insert; org_id comes from the job by trigger
+    const { data: made, error } = await admin
+      .from('job_invoices')
+      .insert({ job_id: jobId, created_by: createdBy, status: 'draft', invoice_kind: 'deposit', public_note: 'Thank you for approving your quote.' })
+      .select('id, status')
+      .single()
+    if (error || !made) throw new Error(`deposit invoice: ${error?.message ?? 'unknown'}`)
+    inv = { ...(made as { id: string; status: string }), job_invoice_items: [] }
+  }
+  if ((inv.job_invoice_items ?? []).length === 0 && inv.status === 'draft') {
+    await addInvoiceItem(admin, inv.id, { description: dep.mode === 'percent' ? `Deposit (${dep.percent}%)` : 'Deposit', qty: 1, unit_price_cents: cents })
+  }
+  if (inv.status === 'draft') await finalizeAndSendInvoice(admin, inv.id, email ?? '')
+  return inv.id
 }
 
 /* ------------------------------------------------------------------------------------------------------------------ *

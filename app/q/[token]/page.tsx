@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 
 import { orgAppUrl } from '@/lib/company-links'
+import { customerSignedDocPath } from '@/lib/files/files-object'
 import { loadOrgFeatures } from '@/lib/org-features'
 import { depositStateFor, finalizeApproval, loadApproval } from '@/lib/quotes/approve'
 import { resolvePublicQuoteLink, touchQuoteLink } from '@/lib/quotes/links'
@@ -39,6 +40,12 @@ export default async function QuotePage({ params }: { params: { token: string } 
   let approvalView: QuoteView['approval'] = null
   if (approval) {
     state = 'approved'
+    let copyHref: string | null = null
+    if (approval.contract_id) {
+      const { data: c } = await orgDb(admin, orgId).from('order_form_contracts').select('signing_token, pdf_url').eq('id', approval.contract_id).maybeSingle()
+      const row = c as { signing_token?: string | null; pdf_url?: string | null } | null
+      if (row?.signing_token && row.pdf_url) copyHref = customerSignedDocPath('contract', String(row.signing_token))
+    }
     const dep = approval.finalized_at ? await depositStateFor(admin, orgId, approval) : null
     approvalView = {
       typedName: approval.typed_name,
@@ -49,6 +56,7 @@ export default async function QuotePage({ params }: { params: { token: string } 
       chosenNames: approval.snapshot.lines.filter((l) => l.chosen && l.optional).map((l) => l.name),
       depositState: !dep ? 'pending' : dep.state,
       canPayOnline: dep?.canPayOnline ?? false,
+      copyHref,
     }
   } else if (p.expires_at && Date.parse(p.expires_at) < Date.now()) state = 'expired'
   else if (!['draft', 'sent', 'viewed'].includes(String(p.status))) state = 'unavailable'

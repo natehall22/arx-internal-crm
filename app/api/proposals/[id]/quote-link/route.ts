@@ -10,6 +10,8 @@ import { loadQuoteContext, priceForSelection } from '@/lib/quotes/load'
 import { defaultSelectedIds } from '@/lib/quotes/pricing'
 import { sendQuoteLinkEmail } from '@/lib/quotes/send'
 import { depositCents, effectiveDeposit, isDepositMode } from '@/lib/quotes/settings'
+import { diffSaleCredit, loadDealSaleCredit, saveDealSaleCredit, SALE_CREDIT_EDIT_ROLES, type SaleCreditChange } from '@/lib/deal-sale-credit'
+import { isSuperAdmin } from '@/lib/super-admin'
 import { resolveSalesDocAccessBarred } from '@/lib/sales-doc-access'
 import { orgDb } from '@/lib/supabase/org-db'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -56,6 +58,7 @@ async function status(admin: ReturnType<typeof createServiceClient>, orgId: stri
     }
   }
   return {
+    opportunityId: p.opportunity_id,
     customerEmail: p.customer_email,
     status: p.status,
     optionalCount: ctx.lines.filter((l) => l.is_optional).length,
@@ -91,7 +94,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
   if ('error' in c) return c.error
   const { admin, profile } = c
   const orgId = profile.org_id
-  const body = (await request.json().catch(() => ({}))) as { action?: string; email?: unknown; mode?: unknown; value?: unknown }
+  const body = (await request.json().catch(() => ({}))) as { action?: string; email?: unknown; mode?: unknown; value?: unknown; saleCredit?: unknown }
   const s = await status(admin, orgId, params.id)
   if (!s) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
@@ -125,6 +128,23 @@ export async function POST(request: Request, { params }: { params: { id: string 
     if ((count ?? 0) >= LINKS_PER_HOUR) return NextResponse.json({ error: 'Too many links in the last hour' }, { status: 429 })
     const ctx = await loadQuoteContext(admin, orgId, params.id)
     if (!ctx) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    // Sale credit (closer / setter / self-generated) is confirmed by the sender BEFORE the quote goes out, exactly like the
+    // contract screen, and saved with the deal through the one writer. Without it the signing pipeline would fall back to
+    // whoever created the contract as the closer. Anyone may confirm the stored credit; only owners / admins may change it.
+    const credit = body.saleCredit && typeof body.saleCredit === 'object' ? (body.saleCredit as Record<string, unknown>) : null
+    if (!credit) return NextResponse.json({ error: 'Confirm who gets credit for this sale first.' }, { status: 400 })
+    const next: SaleCreditChange = {}
+    if ('closerUserId' in credit) next.closerUserId = typeof credit.closerUserId === 'string' && credit.closerUserId ? credit.closerUserId : null
+    if ('setterUserId' in credit) next.setterUserId = typeof credit.setterUserId === 'string' && credit.setterUserId ? credit.setterUserId : null
+    if (typeof credit.isSelfGenerated === 'boolean') next.isSelfGenerated = credit.isSelfGenerated
+    if (!next.closerUserId) return NextResponse.json({ error: 'Pick who closed this sale.' }, { status: 400 })
+    if (!SALE_CREDIT_EDIT_ROLES.has(String(profile.role || '').toLowerCase()) && !isSuperAdmin(profile)) {
+      const stored = await loadDealSaleCredit(admin, orgId, ctx.proposal.opportunity_id as string)
+      const changes = stored ? diffSaleCredit(stored.credit, next) : next
+      if (Object.keys(changes).length > 0) return NextResponse.json({ error: 'Only an owner or admin can change who gets credit for this sale.' }, { status: 403 })
+    }
+    const savedCredit = await saveDealSaleCredit(admin, { orgId, opportunityId: ctx.proposal.opportunity_id as string, actor: profile, next, reason: typeof credit.reason === 'string' ? credit.reason : null })
+    if (!savedCredit.ok) return NextResponse.json({ error: savedCredit.error }, { status: savedCredit.status })
     const link = await createQuoteLink(admin, orgId, params.id, profile.id, ctx.settings.linkDays)
     // Out with the customer = sent (the same stamp the builder writes; "waiting for approval" reads it).
     if (ctx.proposal.status === 'draft') await orgDb(admin, orgId).from('proposals').update({ status: 'sent', sent_at: new Date().toISOString() }).eq('id', params.id).eq('status', 'draft')

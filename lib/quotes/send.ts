@@ -53,7 +53,7 @@ export async function sendQuoteLinkEmail(
   }))
 }
 
-export async function sendApprovalConfirmation(admin: SupabaseClient, orgId: string, approval: ApprovalRow, to: string, pageUrl: string | null): Promise<boolean> {
+export async function sendApprovalConfirmation(admin: SupabaseClient, orgId: string, approval: ApprovalRow, to: string, pageUrl: string | null, copyUrl: string | null = null): Promise<boolean> {
   const dep = approval.deposit_cents
   const chosen = approval.snapshot.lines.filter((l) => l.chosen).map((l) => l.name)
   const r = await send(admin, orgId, to, (c) => ({
@@ -69,7 +69,8 @@ export async function sendApprovalConfirmation(admin: SupabaseClient, orgId: str
       { label: 'Total', value: formatCents(approval.total_cents) },
       ...(dep > 0 ? [{ label: 'Deposit', value: formatCents(dep) }] : []),
     ],
-    button: pageUrl ? { label: 'Open your quote', href: pageUrl } : null,
+    button: copyUrl ? { label: 'Download your approved copy (PDF)', href: copyUrl } : pageUrl ? { label: 'Open your quote', href: pageUrl } : null,
+    footnote: copyUrl && pageUrl ? `You can also open your quote page: ${pageUrl}` : undefined,
   }))
   if (!r.ok) console.error('quote approval confirmation not sent:', r.error)
   return r.ok

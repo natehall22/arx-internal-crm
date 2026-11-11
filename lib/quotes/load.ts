@@ -152,6 +152,7 @@ export function fingerprintOf(ctx: QuoteContext): string {
     tax: ctx.tax,
     deposit: d,
     terms: quoteTerms(ctx),
+    scope: ctx.proposal.scope_of_work ?? '',
   })
 }
 
@@ -194,6 +195,8 @@ export type QuoteView = {
     chosenNames: string[]
     depositState: 'none' | 'due' | 'paid' | 'pending'
     canPayOnline: boolean
+    /** Site-relative download of the approved copy (token route), when the PDF exists. */
+    copyHref: string | null
   }
 }
 
