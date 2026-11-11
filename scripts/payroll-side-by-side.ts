@@ -15,7 +15,7 @@ import fs from 'fs'
 import { createClient } from '@supabase/supabase-js'
 
 import { findCurrentPayWeekPeriod, loadPayWeek } from '@/lib/payroll-pay-week'
-import { simulatePayWeek } from '@/lib/payroll-simulate-week'
+import { simulatePayWeek, type SimulatedWeek } from '@/lib/payroll-simulate-week'
 import { parsePaidCsv, reconcile, toMarkdown, type CrmWeek } from '@/lib/payroll-reconcile'
 
 const arg = (name: string) => {
@@ -33,7 +33,7 @@ async function main() {
   let crm: CrmWeek[]
   const chosen = arg('week-ending')
   if (chosen) {
-    const sims = []
+    const sims: SimulatedWeek[] = []
     for (const w of chosen.split(',').map((x) => x.trim()).filter(Boolean)) sims.push(await simulatePayWeek(admin, orgId, w))
     crm = sims
     for (const w of sims) {
