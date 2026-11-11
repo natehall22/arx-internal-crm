@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react'
 
 import { ALL_FEATURES_ON, coerceOrgFeatures, type OrgFeatures } from '@/lib/org-features'
 import { coerceClientOrgProfile, type ClientOrgProfile } from '@/lib/org-profile'
-import { useInitialOrgProfile } from '@/components/OrgProfileProvider'
 
 /**
  * The ONE client fetch of `/api/me/effective-permissions` (Nav and every `useOrgFeatures` caller share it). Calls made
@@ -49,12 +48,11 @@ export function profileFromEffectivePermissions(data: unknown): ClientOrgProfile
 
 /**
  * The company's industry profile for client components (lib/org-profile.ts) — same shared fetch and first-render rule as
- * useOrgFeatures: `initial` (server-resolved), else the root layout's server-resolved profile, else what this tab last
- * loaded, else roofing (today's words).
+ * useOrgFeatures: `initial` (server-resolved — server pages pass it, so their first paint is right), else what this
+ * tab last loaded, else roofing (today's words).
  */
 export function useOrgProfile(initial?: ClientOrgProfile | null): ClientOrgProfile {
-  const fromLayout = useInitialOrgProfile()?.profile ?? null
-  const [profile, setProfile] = useState<ClientOrgProfile>(() => initial ?? fromLayout ?? lastKnownProfile ?? coerceClientOrgProfile(null))
+  const [profile, setProfile] = useState<ClientOrgProfile>(() => initial ?? lastKnownProfile ?? coerceClientOrgProfile(null))
   useEffect(() => {
     let cancelled = false
     void fetchEffectivePermissions().then((r) => {
@@ -69,13 +67,12 @@ export function useOrgProfile(initial?: ClientOrgProfile | null): ClientOrgProfi
 
 /**
  * Company feature switches for client components. First render uses, in order: `initial` (the server-resolved map a
- * server page passes down — no flash), else the root layout's server-resolved map (OrgProfileProvider), else the last map this tab already loaded (Nav loads it on every page), else
+ * server page passes down — no flash), else the last map this tab already loaded (Nav loads it on every page), else
  * every feature ON (what any org with nothing stored has). It then settles on the shared fetch. Pages and APIs behind a
  * switch are gated server-side regardless, so a first-paint guess can only show an entry point, never data.
  */
 export function useOrgFeatures(initial?: OrgFeatures | null): OrgFeatures {
-  const fromLayout = useInitialOrgProfile()?.features ?? null
-  const [features, setFeatures] = useState<OrgFeatures>(() => initial ?? fromLayout ?? lastKnown ?? ALL_FEATURES_ON)
+  const [features, setFeatures] = useState<OrgFeatures>(() => initial ?? lastKnown ?? ALL_FEATURES_ON)
   useEffect(() => {
     let cancelled = false
     void fetchEffectivePermissions().then((r) => {

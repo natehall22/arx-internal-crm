@@ -1,32 +1,42 @@
 /** @jest-environment jsdom */
 import { act, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react'
-import type { ReactNode } from 'react'
 
 import OrgProfileCard from '@/components/admin/OrgProfileCard'
-import { OrgProfileProvider } from '@/components/OrgProfileProvider'
 import { resetOrgFeaturesCacheForTests, useOrgFeatures, useOrgProfile } from '@/hooks/useOrgFeatures'
 import { INDUSTRY_PROFILE_IDS, INDUSTRY_PROFILES } from '@/lib/industry-profiles'
 import { clientOrgProfile, resolveOrgProfile } from '@/lib/org-profile'
 import { planProfileSwitch } from '@/lib/org-profile-server'
 import { DEFAULT_ORG_TRADES } from '@/lib/org-trades'
+import { ALL_FEATURES_ON } from '@/lib/org-features'
+import { visibleNav } from '@/lib/nav-config'
+import { readFileSync } from 'fs'
+import path from 'path'
+
+const read = (f: string) => readFileSync(path.join(process.cwd(), f), 'utf8')
 
 jest.mock('@/components/ui/toast', () => ({ toast: { error: jest.fn(), success: jest.fn() } }))
 
 const lawn = resolveOrgProfile({ profile: { id: 'lawn_landscape', version: 1 } })
 
-describe('first paint uses the server-resolved profile (no menu flash)', () => {
+describe('first paint', () => {
   beforeEach(() => {
     resetOrgFeaturesCacheForTests()
     global.fetch = jest.fn(() => new Promise(() => {})) as never // the refresh never answers: we only check first paint
   })
-  it('useOrgProfile / useOrgFeatures start from the layout provider', () => {
-    const wrapper = ({ children }: { children: ReactNode }) => <OrgProfileProvider initial={{ profile: clientOrgProfile(lawn), features: lawn.features }}>{children}</OrgProfileProvider>
-    expect(renderHook(() => useOrgProfile(), { wrapper }).result.current.terms.jobBoard).toBe('Work board')
-    expect(renderHook(() => useOrgFeatures(), { wrapper }).result.current.canvassing).toBe(false)
+  it('server pages pass the resolved profile / features: the first render uses them', () => {
+    expect(renderHook(() => useOrgProfile(clientOrgProfile(lawn))).result.current.terms.productionBoard).toBe('Work board')
+    expect(renderHook(() => useOrgFeatures(lawn.features)).result.current.canvassing).toBe(false)
   })
-  it('signed out / no provider: roofing, every feature on (as before)', () => {
+  it('nothing passed: roofing, every feature on (as before)', () => {
     expect(renderHook(() => useOrgProfile()).result.current.terms.jobBoard).toBe('Job Board')
     expect(renderHook(() => useOrgFeatures()).result.current.canvassing).toBe(true)
+  })
+  it('Nav cannot flash: before permissions arrive, every profile shows the same entries as roofing', () => {
+    const flags = { isOpsOnly: false, canSeeOpsDashboard: false, canSeeJobBoard: false, canSeeInsideSales: false, projectsBarred: false, salesDocBarred: false, customerRecords: false, reports: false, isPayrollAdmin: false, earnsPay: false, payWeek: false }
+    const pre = (p = resolveOrgProfile({})) =>
+      visibleNav({ permsReady: false, role: null, fullAccess: false, permissionNames: new Set(), flags, features: ALL_FEATURES_ON, profile: clientOrgProfile(p) })
+    for (const id of INDUSTRY_PROFILE_IDS) expect([id, pre(resolveOrgProfile({ profile: { id } }))]).toEqual([id, pre()])
+    expect(read('components/Nav.tsx')).toMatch(/setOrgProfile\(profileFromEffectivePermissions\(data\)\)[\s\S]*setEffectivePermsReady\(true\)/)
   })
 })
 

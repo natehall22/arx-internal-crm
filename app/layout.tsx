@@ -10,29 +10,6 @@ import SessionOnly from '@/components/SessionOnly'
 import { Toaster } from '@/components/ui/toast'
 import { ConfirmHost } from '@/components/ui/confirm-dialog'
 import { getRequestHostFence } from '@/lib/company-host-server'
-import { OrgProfileProvider, type InitialOrgProfile } from '@/components/OrgProfileProvider'
-import { getAuthContext, hasSessionToken } from '@/lib/auth'
-import { clientOrgProfile, loadOrgProfile } from '@/lib/org-profile'
-import { createServiceClient } from '@/lib/supabase/service'
-
-/**
- * The signed-in company's industry profile for the first paint (Nav menu order/words, feature switches). Signed out or
- * any failure → null and the client falls back as before. Shares the page's auth resolution (per-request memo in
- * lib/auth.ts). Next's "this page is dynamic" signal is re-thrown, never swallowed.
- */
-async function initialOrgProfile(): Promise<InitialOrgProfile> {
-  try {
-    if (!hasSessionToken()) return null
-    const auth = await getAuthContext()
-    if (!auth?.profile.org_id) return null
-    const p = await loadOrgProfile(createServiceClient(), auth.profile.org_id)
-    return { profile: clientOrgProfile(p), features: p.features }
-  } catch (e) {
-    if ((e as { digest?: unknown })?.digest === 'DYNAMIC_SERVER_USAGE') throw e
-    console.error('layout: industry profile not loaded for first paint', e)
-    return null
-  }
-}
 
 /** The original company's metadata — served ONLY on the unfenced legacy address (see generateMetadata). */
 const LEGACY_METADATA: Metadata = {
@@ -83,12 +60,11 @@ export const viewport: Viewport = {
   themeColor: '#4f46e5',
 }
 
-export default async function RootLayout({
+export default function RootLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
-  const orgProfile = await initialOrgProfile()
   return (
     <html lang="en">
       <head>
@@ -96,7 +72,6 @@ export default async function RootLayout({
         <meta name="mobile-web-app-capable" content="yes" />
       </head>
       <body className="overscroll-none">
-        <OrgProfileProvider initial={orgProfile}>
         <AIAssistantProvider>
           {children}
           <ServiceWorkerRegistration />
@@ -109,7 +84,6 @@ export default async function RootLayout({
             <AIAssistantWrapper />
           </SessionOnly>
         </AIAssistantProvider>
-        </OrgProfileProvider>
       </body>
     </html>
   )

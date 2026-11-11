@@ -365,6 +365,10 @@ describe('review fixes', () => {
 
   it('board, job page and subs page use the profile words (roofing keeps today’s text)', () => {
     expect(read('app/ops/OpsClient.tsx')).toContain('Track each {terms.job.toLowerCase()} from sold through payment')
+    // server pages hand the resolved profile down, so the words are right on first paint
+    expect(read('app/ops/page.tsx')).toContain('orgProfile={clientOrgProfile(await loadOrgProfile(admin, profile.org_id))}')
+    expect(read('app/ops/jobs/[id]/JobView.tsx')).toContain('orgProfile={clientOrgProfile(orgProfile)}')
+    expect(read('app/layout.tsx')).not.toMatch(/loadOrgProfile|getAuthContext/) // the root layout stays static-friendly
     expect(read('app/ops/jobs/[id]/JobDetailClient.tsx')).toContain('← Back to {orgTerms.productionBoard}')
     expect(read('app/admin/subs/page.tsx')).toContain("subsTerm === BASE_TERMS.subs ? 'Sub-Contractors' : subsTerm")
     expect(BASE_TERMS.job.toLowerCase()).toBe('job')

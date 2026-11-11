@@ -1,4 +1,3 @@
-import * as React from 'react'
 import { redirect } from 'next/navigation'
 import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import { cookies, headers } from 'next/headers'
@@ -148,26 +147,11 @@ export class CompanyLookupUnavailableError extends Error {
   }
 }
 
-/** React's per-request memo where it exists (the Next server runtime); a plain call elsewhere (jest). */
-const perRequest: <F extends (...args: never[]) => unknown>(fn: F) => F =
-  typeof (React as { cache?: unknown }).cache === 'function' ? (React as unknown as { cache: <F>(fn: F) => F }).cache : (fn) => fn
-
-/**
- * One auth resolution per server render: the root layout (industry profile for first paint) and the page both ask,
- * and must not double the Supabase round trip. API routes (requireAuthApi) are not React renders and resolve fresh.
- */
-const resolveAuthForRender = perRequest(resolveAuth)
-
-/** Cheap: is there any session token on this request (cookie or Bearer)? No network, no logging. */
-export function hasSessionToken(): boolean {
-  return getAccessToken() !== null
-}
-
 /**
  * Optional auth for layouts — returns null if not signed in or disabled.
  */
 export async function getAuthContext(): Promise<AuthContext | null> {
-  const r = await resolveAuthForRender()
+  const r = await resolveAuth()
   return r.status === 'ok' ? r.context : null
 }
 
@@ -175,7 +159,7 @@ export async function getAuthContext(): Promise<AuthContext | null> {
  * Use in Server Components and pages - redirects to login on failure
  */
 export async function requireAuth(): Promise<AuthContext> {
-  const r = await resolveAuthForRender()
+  const r = await resolveAuth()
   if (r.status === 'ok') return r.context
   if (r.status === 'company_unavailable') throw new CompanyLookupUnavailableError()
   if (r.status === 'inactive') {

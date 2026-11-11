@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
 import { useOrgProfile } from '@/hooks/useOrgFeatures'
+import type { ClientOrgProfile } from '@/lib/org-profile'
 import Link from 'next/link'
 import { jobDirectCost } from '@/lib/job-cost-ledger'
 import { handoffPreviewForJobBoard } from '@/lib/project-review'
@@ -43,6 +44,8 @@ interface OpsClientProps {
   canViewProfitability: boolean
   /** Job catch-up (org setting). Absent = off: the board renders exactly as before. */
   catchUp?: { enabled: boolean; stuckDays: number; failed?: boolean; viewerId?: string }
+  /** The company's industry profile resolved on the server (lib/org-profile.ts), so the heading paints first time. */
+  orgProfile?: ClientOrgProfile | null
 }
 
 const priorityConfig: Record<string, { icon: string; color: string }> = {
@@ -114,9 +117,9 @@ function formatJobTypeLabel(jobType: string): string {
     .join(' ')
 }
 
-export default function OpsClient({ initialJobs, orgId, canViewProfitability, catchUp }: OpsClientProps) {
-  // The company's words (industry profile, lib/org-profile.ts; server-resolved on first paint by the root layout).
-  const terms = useOrgProfile().terms
+export default function OpsClient({ initialJobs, orgId, canViewProfitability, catchUp, orgProfile }: OpsClientProps) {
+  // The company's words (industry profile, lib/org-profile.ts; server-resolved by the page so the first paint is right).
+  const terms = useOrgProfile(orgProfile).terms
   const catchUpOn = catchUp?.enabled === true
   const viewerId = catchUp?.viewerId ?? null
   // Same notice as the first render when a refresh couldn't build the lines.
