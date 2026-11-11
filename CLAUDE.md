@@ -306,8 +306,12 @@ Switch `timeTracking` (`ORG_FEATURE_DEFS`, **default OFF**; ARX unchanged). Migr
   go in the time list, not the hours box. Job labor: ONE `job_cost_lines` row per job per pay week (`source
   'time_entries'`, `time_week_ending`), straight-time rate × work time (breaks and drive time out); people without a rate
   are named in the line; the cost-lines PATCH/DELETE refuse that line (409). Visits without a job are skipped
-  (service visit billing comes with the invoicing branch). The pay week is `payWeekCutoffFor` (lib/weekly-payroll/cutoff.ts)
-  — the ONE instant→week rule; days for travel / warnings use `orgs.timezone`.
+  (service visit billing comes with the invoicing branch). **The pay week is the company's own** (`orgs.settings.payWeek`,
+  lib/payroll-week-schedule.ts, read in `loadClockConfig` as `payWeek`): an instant goes to `clockWeekCutoff` = the
+  schedule's cutoff (`weekCutoffContaining`) unless a week already stored closes between the instant and it (an old-weekday
+  week right after the owner changed the pay week), and a week starts after `clockWeekPrevCutoff` (the stored week before
+  it when 1–13 days back — payroll's `weekDays` rule — else one schedule week). Weeks are found/made only with
+  `findWeekNear` / `findOrCreateWeek`. Days for travel / warnings use `orgs.timezone`.
 - `time_entries.user_id` is ON DELETE RESTRICT: a person with clock time is deactivated, not deleted (users DELETE → 409).
 - **Review fixes (2026-11-11):** (1) every tap first runs the forgot-to-clock-out check AT THE TAP'S TIME (a Monday clock
   still open when Tuesday's tap arrives stops at Monday's last tap, flagged; a shift with no other tap says "pays 0 h until a
@@ -326,11 +330,10 @@ Switch `timeTracking` (`ORG_FEATURE_DEFS`, **default OFF**; ARX unchanged). Migr
 
 **Known Redundancy additions (2026-11-11, time clock):** (36) The old `crews` table (`20260213_operations_tables.sql`,
 `members uuid[]`, `/admin/crews`, `app/api/admin/crews`, read by `/ops/schedule` and `/ops/dashboard`) is a deletion
-candidate: crews are `sub_contractors` (+ `crew_members` for in-house time-tracked crews). Don't add readers. (37) "The payroll
-period for this cutoff (±36 h)" was written 4×: `findPeriodForCutoff` (`lib/payroll-periods.ts`) is the one now
-(`ensureNextOpenPeriod` uses it); `resolvePayWeekPeriod`, `findCurrentPayWeekPeriod` and the next-week lookup in
-`lib/payroll-pay-week.ts` still hand-roll it — fold in with the payroll restructure. `periodIsEditable` moved from
-`lib/payroll-adjustments.ts` to `lib/payroll-periods.ts`. (32, recount) "migration not applied" checks: +1
+candidate: crews are `sub_contractors` (+ `crew_members` for in-house time-tracked crews). Don't add readers. (37) ~~"The payroll
+period for this cutoff (±36 h)" written 4×~~ **DONE at the integration merge (2026-11-11):** `findWeekNear` (same calendar
+date in the company zone) / `findOrCreateWeek` (`lib/payroll-periods.ts`) are the only week lookups — pay week, next week,
+fixes and the time clock; `findPeriodForCutoff` deleted. `periodIsEditable` lives in `lib/payroll-periods.ts`. (32, recount) "migration not applied" checks: +1
 (`isTimeTrackingNotReadyError`, built on `lib/supabase/errors.ts`).
 
 ## UI Conventions

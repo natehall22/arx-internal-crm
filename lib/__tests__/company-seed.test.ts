@@ -5,6 +5,7 @@ import path from 'path'
 import { parseCompanySeedInput, runCompanySeed, SeedStop, type CompanySeedInput } from '@/lib/company-seed'
 import { DEFAULT_ORG_TRADES, type OrgTrade } from '@/lib/org-trades'
 import { planOrgTradesSeed } from '@/lib/org-trades-admin'
+import { INDUSTRY_PROFILES } from '@/lib/industry-profiles'
 
 const example = JSON.parse(readFileSync(path.join(process.cwd(), 'scripts', 'seed-company.example.json'), 'utf8'))
 
@@ -214,7 +215,7 @@ describe('runCompanySeed (dry run)', () => {
       { slug: 'pressure_washing', label: 'Pressure washing', sort: 30, active: true, matchKeywords: ['pressure wash', 'power wash'] },
     ].map((t) => ({ org_id: id, slug: t.slug, label: t.label, sort: t.sort, active: t.active, match_keywords: t.matchKeywords }))
     const { client, writes } = fakeClient({
-      orgs: [{ ...input.org, id, timezone: null, brand: { legalName: 'Example Landscapes & Hardscapes, LLC', shortName: 'Example', website: 'landscapes.example', serviceArea: 'Anytown, ST' }, profile: { id: 'lawn_landscape', version: 1 } }],
+      orgs: [{ ...input.org, id, timezone: null, brand: { legalName: 'Example Landscapes & Hardscapes, LLC', shortName: 'Example', website: 'landscapes.example', serviceArea: 'Anytown, ST' }, profile: { id: 'lawn_landscape', version: INDUSTRY_PROFILES.lawn_landscape.version } }],
       users: [{ id: 'u1', org_id: id, email: 'owner@landscapes.example', role: 'admin', is_super_admin: true, active: true }],
       permission_presets: [{ id: 'p', org_id: id }],
       org_trades: trades,
