@@ -336,6 +336,41 @@ date in the company zone) / `findOrCreateWeek` (`lib/payroll-periods.ts`) are th
 fixes and the time clock; `findPeriodForCutoff` deleted. `periodIsEditable` lives in `lib/payroll-periods.ts`. (32, recount) "migration not applied" checks: +1
 (`isTimeTrackingNotReadyError`, built on `lib/supabase/errors.ts`).
 
+## Customer portal (2026-11-12)
+Switch `customerPortal` (`ORG_FEATURE_DEFS`, **default OFF**; lawn_landscape + home_builder profiles ON; ARX unchanged). Migration
+`202611120060_customer_portal.sql` (NOT applied; after 202611100040 + 202611120020). Lives only on a company's own address
+(`<company>.<base>/portal`; `portalOrgForRequest` = host fence `org`, anything else 404). Customers are NOT users: no second auth
+system — a portal session is a row (`portal_sessions`) tied to ONE customer of ONE company.
+- **Sign-in:** the customer types email or phone → `requestLoginLink` emails a one-time link to the address ALREADY ON FILE (never to
+  the typed one); the answer + timing are the same for a match or a stranger. The link opens `/portal/enter` which does NOT use the
+  link — only the "Open my account" POST (`/api/portal/enter`) does (mail scanners can't burn it). Tokens: 256-bit, only SHA-256 stored,
+  link 20 min single-use (SQL `portal_consume_login_token`), session 14 days, cookie `portal_session` host-only httpOnly (never `Domain`).
+  A link made for another company's address is refused and not burned. ONE door: `getPortalSession` (`lib/portal/server.ts`):
+  checks host company, switch, customer still exists.
+- **Light sessions:** pay links and signing links open a session too (button on `/pay/<t>` and the signing page → `/api/portal/open`),
+  but those links get forwarded, so the session is LIGHT (`portalCaps`): visits, invoices, messages (+ contracts from a signing link),
+  never shared documents, photos or the saved card. The inspection-report link (`/r/<t>`) is deliberately NOT a key — it is built to be
+  forwarded to neighbours and carriers.
+- **Everything a customer sees comes from `lib/portal/data.ts`**: every query `orgDb` + the customer id (or ids loaded for that customer in
+  the same function), columns named (no `*`, never notes / costs / access notes / crew / pricing rules), view types only.
+  Every id from a request (invoice, document, photo) goes through `findPortalInvoice` / `findPortalFile`. Break-in suite sweeps the
+  routes; `lib/__tests__/customer-portal.test.ts` proves customer A2 can't reach A1 (same company) or B1 (another company).
+- **No new money path:** Pay = `POST /api/portal/invoices/<id>/pay` hands back a normal `/pay/<token>` link (`createPaymentLink`) and the
+  existing Stripe checkout does the rest. Card: autopay OFF / remove / "add a card" (the existing save-card page — turning ON needs the
+  customer's consent there). Contracts: signing = the existing `/contracts/sign/<token>` page; signed copy = `/api/files/signed/contract/<token>`.
+- **Sharing is opt-in:** `documents.shared_with_customer` / `photos.shared_with_customer` (default false), ONE writer
+  `setSharedWithCustomer` (`lib/portal/sharing.ts`, `PATCH /api/portal-sharing`); UI today = "Show to customer" on Customer documents.
+  Not built: the toggle on job Files / photo screens (the loader + writer already handle job documents and photos).
+- **Messages:** `portal_messages` (a simple inbox), NOT the thread system — `activities.audience` + SQL `message_visible_to` mirror staff
+  rules, and a customer audience would sit one wrong rule from internal notes. The company is emailed (`resolveCompanyInboxEmail`).
+  Not built: a staff reply screen (replies by email / phone today).
+- **Limits (shared SQL counters `portal_take_attempt`, fail closed):** link requests 10 / 15 min per address, 3 / hour per identifier,
+  5 / hour per customer; 30 sign-in taps / 15 min per address; 600 requests / 10 min per session; 10 messages / hour; pay links 20 / hour.
+  **Audit:** `portal_login_events` (requested, sent, no match, blocked, login, login via link, failed, logout) — only hashed address
+  keys, never a token or raw email.
+- **Pre-launch (not blocking the prototype):** SMS sign-in (email only now), a staff view of `portal_login_events`, change-order signing
+  inside the portal, a staff message reply, "log out everywhere".
+
 ## Move from Jobber (2026-11-12)
 Settings → Move from Jobber (`/admin/import/jobber`, owners only, `lib/jobber-import/access.ts`). Full write-up with Jobber
 citations: `docs/jobber-import.md`. Migration `202611120040_jobber_import.sql` (NOT applied; after 0010/0020/0030/0060).
