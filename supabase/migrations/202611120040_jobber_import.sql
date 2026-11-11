@@ -45,7 +45,7 @@ begin
     execute format('alter table public.%I drop constraint if exists %I', t, t || '_import_source_check');
     execute format($c$alter table public.%I add constraint %I check (
       (import_source is null and import_source_id is null)
-      or (import_source in ('jobber') and char_length(import_source_id) between 1 and 200))$c$, t, t || '_import_source_check');
+      or (import_source in ('jobber') and import_source_id is not null and char_length(import_source_id) between 1 and 200))$c$, t, t || '_import_source_check');
     execute format('create unique index if not exists %I on public.%I (org_id, import_source, import_source_id) where import_source_id is not null',
                    t || '_import_source_key', t);
   end loop;
