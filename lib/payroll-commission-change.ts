@@ -153,12 +153,23 @@ async function loadPayableBase(admin: SupabaseClient, orgId: string, jobId: stri
   return payableBaseFromFacts(facts, sumCollectedCents((data ?? []) as Array<{ amount_cents: number | null; funding_status?: string | null }>))
 }
 
-async function markDue(admin: SupabaseClient, orgId: string, jobId: string, wait: 'approval_running' | 'pay_week_off' | null): Promise<void> {
+export type CommissionChangeWait = 'approval_running' | 'pay_week_off' | 'retry_error'
+
+async function markDue(admin: SupabaseClient, orgId: string, jobId: string, wait: CommissionChangeWait | null): Promise<void> {
   const { error } = await orgDb(admin, orgId)
     .from('production_jobs')
     .update(wait ? { commission_change_due_at: new Date().toISOString(), commission_change_wait: wait } : { commission_change_due_at: null, commission_change_wait: null })
     .eq('id', jobId)
   if (error) console.error('[commission change] could not mark the job', { orgId, jobId, wait, error })
+}
+
+/**
+ * An unexpected error on the way to a job's commission change lines (a database error, the base sync failing): the job is
+ * marked due ('retry_error') so the morning cron and Pay this week try again — never only logged. Never throws.
+ */
+export async function markCommissionChangeRetry(admin: SupabaseClient, orgId: string, jobId: string, error: unknown): Promise<void> {
+  console.error('[commission change] failed; marked for retry', { orgId, jobId, error })
+  await markDue(admin, orgId, jobId, 'retry_error').catch((e) => console.error('[commission change] could not mark for retry', { orgId, jobId, e }))
 }
 
 export type CommissionChangeResult = { added: number; periodId: string | null; lines: CommissionChangeLine[]; waiting: 'approval_running' | 'pay_week_off' | null }
@@ -169,6 +180,17 @@ export type CommissionChangeResult = { added: number; periodId: string | null; l
  * recomputed once; a run refused because a week is being approved is kept waiting and retried — never dropped.
  */
 export async function syncCommissionChangesForJob(admin: SupabaseClient, orgId: string, jobId: string, actorUserId: string | null = null): Promise<CommissionChangeResult> {
+  try {
+    return await syncCommissionChangesOnce(admin, orgId, jobId, actorUserId)
+  } catch (e) {
+    // Anything unexpected (a read failing, the SQL refusing for another reason): keep the job waiting for a retry, then
+    // let the caller know. A job marked here is retried by retryDueCommissionChanges like any other waiting job.
+    await markCommissionChangeRetry(admin, orgId, jobId, e)
+    throw e
+  }
+}
+
+async function syncCommissionChangesOnce(admin: SupabaseClient, orgId: string, jobId: string, actorUserId: string | null): Promise<CommissionChangeResult> {
   const none = (waiting: CommissionChangeResult['waiting'] = null): CommissionChangeResult => ({ added: 0, periodId: null, lines: [], waiting })
   for (let attempt = 0; attempt < 2; attempt++) {
     const { data: job } = await orgDb(admin, orgId).from('production_jobs').select('id, job_number, billing_mode, commission_change_due_at').eq('id', jobId).maybeSingle()
@@ -228,11 +250,20 @@ export async function syncCommissionChangesForJob(admin: SupabaseClient, orgId: 
 /** Retry every job marked waiting (the morning cron, the Pay this week screen). Never throws. */
 export async function retryDueCommissionChanges(admin: SupabaseClient, orgId: string): Promise<{ tried: number; written: number; waiting: number }> {
   const out = { tried: 0, written: 0, waiting: 0 }
-  const { data, error } = await orgDb(admin, orgId).from('production_jobs').select('id').not('commission_change_due_at', 'is', null).limit(200)
+  const { data, error } = await orgDb(admin, orgId).from('production_jobs').select('id, commission_change_wait').not('commission_change_due_at', 'is', null).limit(200)
   if (error) return out // migration 202611120030 not applied: nothing is ever waiting
-  for (const { id } of (data ?? []) as Array<{ id: string }>) {
+  for (const { id, commission_change_wait: wait } of (data ?? []) as Array<{ id: string; commission_change_wait: string | null }>) {
     out.tried++
     try {
+      // An error may have stopped the base sync itself: redo it first (it is the one writer and a no-op when in step).
+      // Only a job billed by the hour: a fixed-price job's base is the contract's and is never re-synced from here
+      // (syncCommissionChangesForJob below just clears its mark).
+      const isHourly = wait === 'retry_error' && (await orgDb(admin, orgId).from('production_jobs').select('billing_mode').eq('id', id).maybeSingle()).data?.billing_mode === 'time_materials'
+      if (isHourly) {
+        const { syncJobSaleAndCommissionBase } = await import('@/lib/job-commission-base')
+        const base = await syncJobSaleAndCommissionBase(admin, { orgId, jobId: id })
+        if (base.status === 'error') throw new Error(`base sync: ${(base.error as { message?: string } | null)?.message ?? String(base.error)}`)
+      }
       const r = await syncCommissionChangesForJob(admin, orgId, id)
       if (r.added) out.written++
       if (r.waiting) out.waiting++
@@ -259,7 +290,12 @@ export async function loadCommissionChangesWaitingQueue(admin: SupabaseClient, o
     empty: 'No commission changes waiting.',
     items: rows.slice(0, 10).map((r) => {
       const ref = r.job_number ? `Job ${r.job_number}` : 'Job'
-      const note = r.commission_change_wait === 'pay_week_off' ? 'more hours paid after this job’s commission — paid once the new Pay this week is on' : 'retrying after the approval in progress'
+      const note =
+        r.commission_change_wait === 'pay_week_off'
+          ? 'more hours paid after this job’s commission — paid once the new Pay this week is on'
+          : r.commission_change_wait === 'retry_error'
+            ? 'could not be written (a database error) — retried every morning'
+            : 'retrying after the approval in progress'
       return { id: r.id, title: ref, detail: note, href: `/ops/jobs/${r.id}`, ref, note }
     }),
   }

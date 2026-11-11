@@ -224,13 +224,12 @@ export async function loadMorningTodayQueues(
         return { id: 'checkups-due', title: 'Customer checkups due', count: 0, empty: 'Checkups couldn’t load today.', items: [] }
       }),
   ])
-  // Commission changes waiting (hourly billing companies only): money owed to people, owners must see it.
-  const commissionWaiting = orgProfile.features.hourlyBilling
-    ? await loadCommissionChangesWaitingQueue(supabase, orgId).catch((error) => {
-        console.error('morning update: commission changes waiting failed', error)
-        return null
-      })
-    : null
+  // Commission changes waiting: money owed to people, owners must see it — whatever the hourly billing switch says now
+  // (null when nothing waits, so a company that never billed by the hour sees no change).
+  const commissionWaiting = await loadCommissionChangesWaitingQueue(supabase, orgId).catch((error) => {
+    console.error('morning update: commission changes waiting failed', error)
+    return null
+  })
   // Online payments: lost disputes on jobs already collected / in an approved payroll week (Everything version only).
   let reversalsFailed = false
   const reversals = orgProfile.features.onlinePayments

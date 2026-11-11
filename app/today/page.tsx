@@ -58,7 +58,7 @@ export default async function TodayPage() {
   // Crew time clock: shifts the system stopped with no finish time (may be paying 0 h) — payroll admins (ops / owners).
   const clockOn = (kind === 'ops' || kind === 'owner') && isPayrollAdminRole(profile.role) && orgProfile.features.timeTracking
   // Hourly billing: commission changes waiting to be paid (owners only — it is pay).
-  const commissionWaiting = kind === 'owner' && orgProfile.features.hourlyBilling ? await loadCommissionChangesWaitingQueue(admin, profile.org_id).catch((e) => { console.error('today: commission changes failed', e); return null }) : null
+  const commissionWaiting = kind === 'owner' ? await loadCommissionChangesWaitingQueue(admin, profile.org_id).catch((e) => { console.error('today: commission changes failed', e); return null }) : null
   const shiftsQueue = clockOn ? await loadOpenShiftsQueue(admin, profile.org_id).catch((e) => { console.error('today: open shifts failed', e); return null }) : null
   // Online payments: a lost dispute on a job already collected / paid in payroll — payroll admins review commission.
   const reversalsOn = (kind === 'ops' || kind === 'owner') && isPayrollAdminRole(profile.role) && orgProfile.features.onlinePayments
