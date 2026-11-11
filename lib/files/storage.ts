@@ -57,6 +57,15 @@ export function buildJobPhotoStoragePath(args: {
   return `${args.orgId}/jobs/${args.jobId}/photos/${finalName}`
 }
 
+/** A service visit's photos (visits have no job): `<org>/visits/<visit>/photos/<id>-<name>`. */
+export function buildVisitPhotoStoragePath(args: { orgId: string; visitId: string; photoId: string; filename: string }) {
+  return `${visitPhotoFolder(args.orgId, args.visitId)}/${buildStoredFileName(args.photoId, args.filename)}`
+}
+
+export function visitPhotoFolder(orgId: string, visitId: string): string {
+  return `${orgId}/visits/${visitId}/photos`
+}
+
 export function buildJobDocumentStoragePath(args: {
   orgId: string
   jobId: string

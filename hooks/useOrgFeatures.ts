@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 
-import { ALL_FEATURES_ON, coerceOrgFeatures, type OrgFeatures } from '@/lib/org-features'
+import { DEFAULT_ORG_FEATURES, coerceOrgFeatures, type OrgFeatures } from '@/lib/org-features'
 
 /**
  * The ONE client fetch of `/api/me/effective-permissions` (Nav and every `useOrgFeatures` caller share it). Calls made
@@ -41,7 +41,7 @@ export function featuresFromEffectivePermissions(data: unknown): OrgFeatures {
  * switch are gated server-side regardless, so a first-paint guess can only show an entry point, never data.
  */
 export function useOrgFeatures(initial?: OrgFeatures | null): OrgFeatures {
-  const [features, setFeatures] = useState<OrgFeatures>(() => initial ?? lastKnown ?? ALL_FEATURES_ON)
+  const [features, setFeatures] = useState<OrgFeatures>(() => initial ?? lastKnown ?? DEFAULT_ORG_FEATURES)
   useEffect(() => {
     let cancelled = false
     void fetchEffectivePermissions().then((r) => {

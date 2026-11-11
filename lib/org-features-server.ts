@@ -8,7 +8,7 @@ import * as React from 'react'
 import { notFound } from 'next/navigation'
 import { NextResponse } from 'next/server'
 
-import { ALL_FEATURES_ON, loadOrgFeatures, ORG_FEATURE_DEFS, type OrgFeature, type OrgFeatures } from '@/lib/org-features'
+import { DEFAULT_ORG_FEATURES, loadOrgFeatures, ORG_FEATURE_DEFS, type OrgFeature, type OrgFeatures } from '@/lib/org-features'
 import { createServiceClient } from '@/lib/supabase/service'
 
 /** React's per-request memo where it exists (the Next server runtime); a plain call elsewhere (jest). */
@@ -21,8 +21,8 @@ export const getOrgFeatures = perRequest(async (orgId: string | null | undefined
   try {
     client = createServiceClient()
   } catch (e) {
-    console.error('getOrgFeatures: no database client, using all on', e)
-    return { ...ALL_FEATURES_ON }
+    console.error('getOrgFeatures: no database client, using defaults', e)
+    return { ...DEFAULT_ORG_FEATURES }
   }
   return loadOrgFeatures(client, orgId)
 })

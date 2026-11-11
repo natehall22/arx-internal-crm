@@ -1,6 +1,7 @@
 import CustomFieldsCard from '@/components/custom-fields/CustomFieldsCard'
 import CustomerDocumentsCard from '@/components/customer-file/CustomerDocumentsCard'
 import PropertiesCard from '@/components/customer-file/PropertiesCard'
+import ServicePlansCard from '@/components/service-plans/ServicePlansCard'
 import { loadCustomerDocuments } from '@/lib/customer-documents'
 import type { CustomerExtras } from '@/lib/customer-file/customer-extras'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -21,6 +22,7 @@ export function CustomerRecords({ customerId, extras }: { customerId: string; ex
         accessNotes={extras.access.accessNotes}
         propertyFields={extras.propertyFields}
       />
+      {extras.servicePlans ? <ServicePlansCard customerId={customerId} /> : null}
     </>
   )
 }

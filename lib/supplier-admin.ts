@@ -76,11 +76,5 @@ export function parseSupplierInput(b: Record<string, unknown> | null): { ok: tru
   }
 }
 
-/** One entry of the change log (written by the database function save_supplier). */
-export type FieldChange = { field: string; label: string; old: unknown; new: unknown }
-
-/** One line for the change log screen. */
-export function describeChange(c: FieldChange): string {
-  const show = (v: unknown) => (Array.isArray(v) ? (v.length ? v.join(', ') : '(none)') : v === null || v === undefined || v === '' ? '(empty)' : String(v))
-  return `${c.label}: ${show(c.old)} → ${show(c.new)}`
-}
+/** One entry of the change log (written by the database function save_supplier) — the shared shape, lib/change-log.ts. */
+export { describeChange, type FieldChange } from '@/lib/change-log'

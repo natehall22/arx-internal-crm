@@ -13,6 +13,7 @@ import { isOwnerProfile, isSuperAdmin } from '@/lib/super-admin'
 import CheckupSettingsCard from '@/components/admin/CheckupSettingsCard'
 import JobCatchUpSettingsCard from '@/components/admin/JobCatchUpSettingsCard'
 import OrgFeaturesCard from '@/components/admin/OrgFeaturesCard'
+import ServicePlanTemplatesCard from '@/components/service-plans/ServicePlanTemplatesCard'
 import { getOrgFeatures } from '@/lib/org-features-server'
 import { loadCheckupSettings } from '@/lib/checkups'
 import { canEditCheckupSettings } from '@/lib/checkups-settings'
@@ -56,6 +57,8 @@ export default async function SettingsPage() {
           {canEditFeatures && <OrgFeaturesCard initial={features} />}
           <JobCatchUpSettingsCard initial={{ ...catchUp, canEdit: canEditJobCatchUpSettings(profile) }} />
           <CheckupSettingsCard initial={{ ...checkups, canEdit: canEditCheckupSettings(profile) }} users={userOptions} />
+          {/* Owners, when the company uses service plans: what it sells (plan templates). */}
+          {features.servicePlans && canEditFeatures ? <ServicePlanTemplatesCard /> : null}
         </div>
       </main>
     </div>

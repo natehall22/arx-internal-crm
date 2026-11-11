@@ -15,7 +15,10 @@ import { randomBytes } from 'crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { brandPatchOps, saveBrandSettings, BRAND_SETTINGS_KEYS, type BrandPatch } from '@/lib/org-brand'
-import { cleanTradeLabel } from '@/lib/org-trades'
+import { cleanTradeLabel, serviceIsTrade } from '@/lib/org-trades'
+import { STARTER_TEMPLATES, starterTemplate } from '@/lib/service-plan-starters'
+import { cleanTemplateInput, type TemplateInput } from '@/lib/service-plans'
+import { orgDb } from '@/lib/supabase/org-db'
 import { normalizeSubdomain } from '@/lib/company-host'
 import { applyOrgTradesSeed, planOrgTradesSeed, readOrgTradesForSeed, type OrgTradeSeed } from '@/lib/org-trades-admin'
 
@@ -34,7 +37,12 @@ export interface CompanySeedInput {
   /** null → the standard trades list. */
   trades: OrgTradeSeed[] | null
   owner: { email: string; fullName: string; phone: string | null }
+  /** Plan templates to add (by name; an existing template of that name is kept as is). [] = none. */
+  servicePlanTemplates: SeedTemplate[]
 }
+
+/** A plan template in a seed file: its own fields, or `starter` (lib/service-plan-starters.ts) + `tierPrices` + overrides. */
+export type SeedTemplate = Omit<TemplateInput, 'trade'> & { trade: string }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -93,6 +101,27 @@ export function parseCompanySeedInput(raw: unknown): { ok: true; input: CompanyS
     else brand[key as keyof BrandPatch] = brandIn[key]
   }
 
+  // Plan templates: data in the seed file (a starter by key + prices, or a full template) — never code.
+  const servicePlanTemplates: SeedTemplate[] = []
+  if (root.servicePlanTemplates !== undefined && root.servicePlanTemplates !== null) {
+    if (!Array.isArray(root.servicePlanTemplates)) errors.push('servicePlanTemplates must be a list')
+    else
+      root.servicePlanTemplates.forEach((raw, i) => {
+        const entry = obj(raw)
+        const starter = typeof entry.starter === 'string' ? starterTemplate(entry.starter) : null
+        if (typeof entry.starter === 'string' && !starter) return errors.push(`servicePlanTemplates[${i}].starter "${entry.starter}" is not a starter (${STARTER_TEMPLATES.map((t) => t.key).join(', ')})`)
+        const prices = obj(entry.tierPrices)
+        const { starter: _s, tierPrices: _p, ...overrides } = entry
+        const base = starter ? { ...starter, pricing: { ...starter.pricing, tiers: starter.pricing.tiers.map((t) => ({ ...t, price: prices[t.key] ?? t.price })) } } : {}
+        const merged = { ...base, ...overrides } as Record<string, unknown>
+        const trade = str(merged.trade)
+        if (!trade) return errors.push(`servicePlanTemplates[${i}].trade is required (a trade label or slug)`)
+        const clean = cleanTemplateInput({ ...merged, trade: 'x' })
+        if (!clean.ok) return errors.push(`servicePlanTemplates[${i}]: ${clean.error}`)
+        servicePlanTemplates.push({ ...(clean.value as TemplateInput), trade })
+      })
+  }
+
   let trades: OrgTradeSeed[] | null = null
   if (root.trades !== undefined && root.trades !== null) {
     if (!Array.isArray(root.trades) || root.trades.length === 0) {
@@ -137,6 +166,7 @@ export function parseCompanySeedInput(raw: unknown): { ok: true; input: CompanyS
       brand,
       trades,
       owner: { email: ownerEmail, fullName, phone: str(owner.phone) },
+      servicePlanTemplates,
     },
   }
 }
@@ -383,6 +413,31 @@ export async function runCompanySeed(client: SupabaseClient, input: CompanySeedI
     ]
     say(parts.length ? `trades: ${parts.join('; ')}` : 'trades: already match')
     if (opts.apply && parts.length) await applyOrgTradesSeed(client, orgId, ownerId, plan)
+  }
+
+  // ---- plan templates (by name; existing ones are never changed — owners edit them in Settings) ----
+  if (input.servicePlanTemplates.length) {
+    const db = orgDb(client, orgId)
+    const have = canRead
+      ? await db.from('service_plan_templates').select('name').then((r: { data: Array<{ name: string }> | null; error: { message?: string } | null }) => (r.error ? null : new Set((r.data ?? []).map((x) => x.name.toLowerCase()))))
+      : new Set<string>()
+    if (have === null) say('plan templates: WARNING table missing (migration 202611110030) — re-run after it is applied')
+    else {
+      const trades = (canRead ? await readOrgTradesForSeed(client, orgId) : null) ?? []
+      for (const t of input.servicePlanTemplates) {
+        if (have.has(t.name.toLowerCase())) {
+          say(`plan templates: "${t.name}" already exists (kept)`)
+          continue
+        }
+        const trade = trades.find((x) => serviceIsTrade(t.trade, x))
+        if (!trade && opts.apply) throw new Error(`plan templates: "${t.name}" — no trade "${t.trade}" in this company`)
+        say(`plan templates: add "${t.name}" (${trade?.label ?? t.trade})`)
+        if (opts.apply && trade) {
+          const { error } = await db.from('service_plan_templates').insert({ ...t, trade: trade.slug, created_by: ownerId, updated_by: ownerId })
+          if (error) throw new Error(`plan templates: ${error.message}`)
+        }
+      }
+    }
   }
 
   return report

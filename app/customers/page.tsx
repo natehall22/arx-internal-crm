@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import Nav from '@/components/Nav'
 import CustomersPageClient from '@/components/customers/CustomersPageClient'
+import NewCustomerPlan from '@/components/service-plans/NewCustomerPlan'
 import { canAccessCustomerRecordsFromPermissionNames, isRepLikeCustomerRecordRole } from '@/lib/permissions'
 import { notFound } from 'next/navigation'
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
@@ -60,6 +61,12 @@ export default async function CustomersPage({
     <div className="min-h-screen bg-gray-50">
       <Nav />
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Service companies: the common job is a new customer signing up for a plan (shows only when service plans are on). */}
+        {!rep ? (
+          <div className="mb-4 flex justify-end">
+            <NewCustomerPlan size="md" />
+          </div>
+        ) : null}
         <CustomersPageClient customers={customers} query={query} isAdmin={profile.role === 'admin'} />
       </div>
     </div>

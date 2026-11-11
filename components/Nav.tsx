@@ -20,7 +20,7 @@ import { canViewInsideSalesFollowUp } from '@/lib/inside-sales-follow-up'
 import { isPayrollAdminRole } from '@/lib/payroll-admin-access'
 import { COMMISSION_ROLES } from '@/lib/comp-plan-defaults'
 import { activeSectionId, visibleNav } from '@/lib/nav-config'
-import { ALL_FEATURES_ON, type OrgFeatures } from '@/lib/org-features'
+import { DEFAULT_ORG_FEATURES, type OrgFeatures } from '@/lib/org-features'
 import { featuresFromEffectivePermissions, fetchEffectivePermissions } from '@/hooks/useOrgFeatures'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import GlobalSearch from '@/components/search/GlobalSearch'
@@ -38,7 +38,7 @@ export default function Nav() {
   const [effectivePermsReady, setEffectivePermsReady] = useState(false)
   const [effectiveFullAccess, setEffectiveFullAccess] = useState(false)
   const [payWeekEnabled, setPayWeekEnabled] = useState(false)
-  const [orgFeatures, setOrgFeatures] = useState<OrgFeatures>(ALL_FEATURES_ON)
+  const [orgFeatures, setOrgFeatures] = useState<OrgFeatures>(DEFAULT_ORG_FEATURES)
   const [effectivePermissionNames, setEffectivePermissionNames] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
   const [companyName, setCompanyName] = useState<string>('ARX CRM')

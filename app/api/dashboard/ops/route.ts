@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { requireAuthApi } from '@/lib/auth'
 import { loadRecentJobCostLines } from '@/lib/job-cost-ledger'
+import { SERVICE_VISIT_TYPE } from '@/lib/service-plans'
 
 export const dynamic = 'force-dynamic'
 
@@ -199,6 +200,8 @@ export async function GET() {
         sub:sub_contractors!work_orders_assigned_sub_id_fkey(company_name)
       `)
       .eq('org_id', profile.org_id)
+      // Service-plan visits are a schedule, not open work orders (they have their own Visits list).
+      .neq('work_order_type', SERVICE_VISIT_TYPE)
       .not('status', 'in', '("completed","cancelled")')
       .order('created_at', { ascending: false })
       .limit(8)
