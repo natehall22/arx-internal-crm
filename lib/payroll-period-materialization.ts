@@ -191,6 +191,8 @@ export type PlannedPayoutRow = {
 export type PlannedJob = {
   job: JobRow
   eligibleAt: string
+  /** The three dates eligibility is the latest of (the late-money rule and the side-by-side need them). */
+  eligibility?: { installAt?: string; fundedAt?: string; costsAt?: string }
   rows: PlannedPayoutRow[]
   commissionBase: number
   poolCap: number
@@ -265,17 +267,24 @@ export async function planPayrollPeriod(
     /** The company's late-money window for this week (PayWeekPeriod.lateFundingUntil). */
     lateFundingUntil?: string | null
     now?: Date
+    /**
+     * Dry run of a week that does not exist (the side-by-side, lib/payroll-simulate-week.ts): plan against this period instead of
+     * reading one, and include jobs settled outside the CRM. Never used by the Pay screen or Approve.
+     */
+    simulate?: { period: { id: string; cutoff_at: string; scheduled_pay_date: string }; includeSettledExternally: boolean }
   }
 ): Promise<PayrollPlan> {
   const { orgId, periodId } = input
   const zone = { timeZone: input.timeZone || DEFAULT_TIMEZONE }
   const now = input.now ?? new Date()
-  const { data: periodData, error: periodError } = await supabase
-    .from('payroll_periods')
-    .select('id, cutoff_at, scheduled_pay_date, status')
-    .eq('id', periodId)
-    .eq('org_id', orgId)
-    .maybeSingle()
+  const { data: periodData, error: periodError } = input.simulate
+    ? { data: { ...input.simulate.period, status: 'open' }, error: null }
+    : await supabase
+        .from('payroll_periods')
+        .select('id, cutoff_at, scheduled_pay_date, status')
+        .eq('id', periodId)
+        .eq('org_id', orgId)
+        .maybeSingle()
   if (periodError || !periodData) throw periodError || new Error('Payroll period not found')
   const period = periodData as PeriodRow
   if (period.status === 'paid' || period.status === 'cancelled') {
@@ -304,10 +313,11 @@ export async function planPayrollPeriod(
     .lte('sale_date', cutoffYmd(period.cutoff_at, zone))
     .in('status', statuses)
     // Settled outside the CRM before cutover: never planned, previewed, waiting or paid (and the double-pay checks never see them).
-    .is('payroll_settled_externally_at', null)
+    // (The side-by-side dry run alone looks at them — they are exactly what was paid outside; filter added below.)
     // Deterministic: the once-per-month flat bonus lands on the same job in the preview and in Approve.
     .order('sale_date', { ascending: true })
     .order('id', { ascending: true })
+  if (!input.simulate?.includeSettledExternally) jobsQuery = jobsQuery.is('payroll_settled_externally_at', null)
   if (input.onlyJobIds?.length) jobsQuery = jobsQuery.in('id', input.onlyJobIds)
   const { data: jobData, error: jobError } = await jobsQuery
   if (jobError) throw jobError
@@ -403,7 +413,7 @@ export async function planPayrollPeriod(
       waitingItems.push({ job, reason: 'after_cutoff' })
       return []
     }
-    return [{ job, eligibleAt: result.eligibleAt, deductibleCosts: result.deductibleCosts }]
+    return [{ job, eligibleAt: result.eligibleAt, deductibleCosts: result.deductibleCosts, eligibility: { installAt: result.installAt, fundedAt: result.fundedAt, costsAt: result.costsAt } }]
   })
 
   const waitingToPrice = input.includeWaiting ? waitingItems : []
@@ -701,6 +711,7 @@ export async function planPayrollPeriod(
     jobs.push({
       job,
       eligibleAt: item.eligibleAt,
+      eligibility: item.eligibility,
       rows,
       commissionBase: payrollSnapshot.compBase as number,
       poolCap: payrollSnapshot.poolCap as number,
