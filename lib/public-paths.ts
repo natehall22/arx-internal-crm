@@ -25,6 +25,14 @@ export function isPublicPath(pathname: string | null | undefined): boolean {
     // compensation agreements a new hire signs from an email (hashed per-agreement tokens; no account needed)
     pathname.startsWith('/comp-agreements/sign/') ||
     pathname.startsWith('/comp-agreements/receipt/') || // crew photo links from install invites (unguessable per-trade tokens)
+    // AI connector (lib/ai-connector): discovery, sign-in endpoints and the MCP endpoint do their own bearer-token / ticket checks.
+    // /oauth/authorize is public so it can keep its query string through sign-in; /oauth/resume is NOT (it needs the session).
+    pathname.startsWith('/.well-known/') ||
+    pathname === '/oauth/authorize' ||
+    pathname === '/oauth/token' ||
+    pathname === '/oauth/register' ||
+    pathname === '/oauth/revoke' ||
+    pathname === '/mcp' ||
     pathname.startsWith('/_next/') ||
     pathname === '/favicon.ico' ||
     pathname.endsWith('.json') ||

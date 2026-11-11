@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server'
 import { requireAuthApi } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
-import { canAccessCustomerRecordsFromPermissionNames, canEditCustomerRecordsFromPermissionNames, isRepLikeCustomerRecordRole } from '@/lib/permissions'
+import { canEditCustomerRecordsFromPermissionNames, isRepLikeCustomerRecordRole } from '@/lib/permissions'
+import { loadCustomerForCaller } from '@/lib/customer-file/customer-read'
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 import { withoutCustomFields } from '@/lib/custom-fields'
 
@@ -21,43 +22,11 @@ export async function GET(
 
     const adminClient = createServiceClient()
 
-    const customerPermissions = await resolveEffectivePermissionNames(adminClient, profile.id, profile)
-    if (!canAccessCustomerRecordsFromPermissionNames(customerPermissions)) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    const read = await loadCustomerForCaller(adminClient, profile, params.id)
+    if (!read.ok) {
+      return NextResponse.json({ error: read.status === 404 ? 'Customer not found' : 'Forbidden' }, { status: read.status })
     }
-
-    const { data: customer, error } = await adminClient
-      .from('customers')
-      .select('*')
-      .eq('id', params.id)
-      .eq('org_id', profile.org_id)
-      .single()
-
-    if (error || !customer) {
-      return NextResponse.json({ error: 'Customer not found' }, { status: 404 })
-    }
-
-    if (isRepLikeCustomerRecordRole(profile.role)) {
-      const [{ data: ownedProjects }, { data: ownedOpportunities }] = await Promise.all([
-        adminClient
-          .from('projects')
-          .select('id')
-          .eq('org_id', profile.org_id)
-          .eq('customer_id', params.id)
-          .eq('owner_user_id', profile.id)
-          .limit(1),
-        adminClient
-          .from('opportunities')
-          .select('id')
-          .eq('org_id', profile.org_id)
-          .eq('customer_id', params.id)
-          .eq('owner_user_id', profile.id)
-          .limit(1),
-      ])
-      if ((ownedProjects || []).length === 0 && (ownedOpportunities || []).length === 0) {
-        return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-      }
-    }
+    const customer = read.customer
 
     // Custom field values only travel through the Customer File cards (field-role rule there).
     return NextResponse.json({ customer: withoutCustomFields(customer) })

@@ -1,0 +1,156 @@
+/** The OAuth endpoints as plain functions (token, register, revoke, consent) so tests call them directly; routes are one-liners. */
+import type { SupabaseClient } from '@supabase/supabase-js'
+
+import { writeAudit } from '@/lib/ai-connector/audit'
+import { authorizeRedirect, checkAuthorizeRequest } from '@/lib/ai-connector/authorize'
+import { loadClient, loadExtraRedirectUris, registerClient, validateRegistration, type MetadataFetcher } from '@/lib/ai-connector/clients'
+import { AI_CONNECTOR_FEATURE, RATE_LIMITS } from '@/lib/ai-connector/config'
+import { signConsentTicket, verifyConsentTicket } from '@/lib/ai-connector/crypto'
+import { createAuthCode, exchangeCode, refreshTokens, revokeByToken, revokeGrant, type OAuthFailure } from '@/lib/ai-connector/store'
+import { corsHeaders, mcpResource, requestOrigin } from '@/lib/ai-connector/urls'
+import { fenceAllowsOrg, type CompanyFence } from '@/lib/company-host'
+import { isOrgFeatureOn } from '@/lib/org-features-server'
+import { clientIpFromRequest, consumePublicEstimateRateLimit } from '@/lib/public-estimate-rate-limit'
+
+export type EndpointDeps = {
+  admin: SupabaseClient
+  fence: () => Promise<CompanyFence>
+  featureOn?: (orgId: string) => Promise<boolean>
+  fetcher?: MetadataFetcher
+  now?: number
+}
+
+const featureOn = (d: EndpointDeps, orgId: string) => (d.featureOn ?? ((o: string) => isOrgFeatureOn(o, AI_CONNECTOR_FEATURE)))(orgId)
+
+const oauthError = (error: string, description: string, status = 400, extra: Record<string, string> = {}) =>
+  Response.json({ error, error_description: description }, { status, headers: corsHeaders({ pragma: 'no-cache', ...extra }) })
+
+async function readParams(request: Request): Promise<Record<string, string> | null> {
+  const type = request.headers.get('content-type') ?? ''
+  const text = await request.text()
+  if (text.length > 8192) return null
+  try {
+    if (type.includes('application/json')) {
+      const j = JSON.parse(text) as Record<string, unknown>
+      return Object.fromEntries(Object.entries(j).filter(([, v]) => typeof v === 'string')) as Record<string, string>
+    }
+    return Object.fromEntries(new URLSearchParams(text))
+  } catch {
+    return null
+  }
+}
+
+/** The company this address is for (null = the open/legacy single-company address). */
+async function fenceOrg(d: EndpointDeps): Promise<{ orgId: string | null } | { error: 'lookup' | 'closed' }> {
+  const f = await d.fence()
+  if (f.kind === 'org') return { orgId: f.orgId }
+  if (f.kind === 'open') return { orgId: null }
+  return { error: f.reason === 'lookup_error' ? 'lookup' : 'closed' }
+}
+
+/** A person may hold a grant only while: active in the company, the company address allows them, the switch is on. */
+async function principalUsable(d: EndpointDeps, orgId: string, userId: string): Promise<boolean> {
+  const f = await d.fence()
+  if (!fenceAllowsOrg(f, orgId)) return false
+  const { data } = await d.admin.from('users').select('id, active').eq('id', userId).eq('org_id', orgId).maybeSingle()
+  const u = data as { active?: boolean | null } | null
+  if (!u || u.active === false) return false
+  return featureOn(d, orgId)
+}
+
+export async function handleToken(request: Request, d: EndpointDeps): Promise<Response> {
+  const limited = consumePublicEstimateRateLimit({ key: `oauth:token:${clientIpFromRequest(request)}`, limit: RATE_LIMITS.tokenPerIpPerMinute, windowMs: 60_000, now: d.now })
+  if (!limited.ok) return oauthError('slow_down', 'Too many requests', 429, { 'retry-after': String(limited.retryAfterSec) })
+  const p = await readParams(request)
+  if (!p) return oauthError('invalid_request', 'Send a form-encoded body')
+  const extra = await loadExtraRedirectUris(d.admin, null)
+  const client = await loadClient(d.admin, p.client_id, extra, d.fetcher)
+  if (!client) return oauthError('invalid_client', 'Unknown client', 401)
+  const resource = p.resource ? p.resource : null
+  // The resource, when sent, must be THIS address's MCP endpoint.
+  if (resource !== null && resource !== mcpResource(requestOrigin(request))) return oauthError('invalid_target', 'resource must be this MCP server address')
+
+  let outcome: { ok: true; tokens: unknown; grant: { id: string; orgId: string; userId: string } } | ({ ok: false } & OAuthFailure)
+  if (p.grant_type === 'authorization_code') {
+    if (!p.code || !p.redirect_uri || !p.code_verifier) return oauthError('invalid_request', 'code, redirect_uri and code_verifier are required')
+    outcome = await exchangeCode(d.admin, { code: p.code, clientId: client.client_id, redirectUri: p.redirect_uri, codeVerifier: p.code_verifier, resource }, d.now)
+  } else if (p.grant_type === 'refresh_token') {
+    if (!p.refresh_token) return oauthError('invalid_request', 'refresh_token is required')
+    outcome = await refreshTokens(d.admin, { refreshToken: p.refresh_token, clientId: client.client_id, resource }, d.now)
+  } else {
+    return oauthError('unsupported_grant_type', 'Use authorization_code or refresh_token')
+  }
+  if (!outcome.ok) return oauthError(outcome.error, outcome.description)
+  // A key for another company's address, a person who was turned off, or a switch turned off: no tokens, grant revoked.
+  if (!(await principalUsable(d, outcome.grant.orgId, outcome.grant.userId))) {
+    await revokeGrant(d.admin, outcome.grant.orgId, outcome.grant.id, 'principal_unusable', d.now)
+    return oauthError('invalid_grant', 'This connection is no longer allowed')
+  }
+  return Response.json(outcome.tokens, { headers: corsHeaders({ pragma: 'no-cache' }) })
+}
+
+export async function handleRegister(request: Request, d: EndpointDeps): Promise<Response> {
+  const limited = consumePublicEstimateRateLimit({ key: `oauth:register:${clientIpFromRequest(request)}`, limit: RATE_LIMITS.registerPerIpPerMinute, windowMs: 60_000, now: d.now })
+  if (!limited.ok) return oauthError('temporarily_unavailable', 'Too many requests', 429, { 'retry-after': String(limited.retryAfterSec) })
+  const f = await fenceOrg(d)
+  if ('error' in f) return oauthError('temporarily_unavailable', 'Try again shortly', f.error === 'lookup' ? 503 : 404)
+  if (f.orgId && !(await featureOn(d, f.orgId))) return oauthError('access_denied', 'The AI connector is not turned on for this company', 403)
+  const p = await readJson(request)
+  const reg = validateRegistration(p, await loadExtraRedirectUris(d.admin, f.orgId))
+  if (!reg.ok) return oauthError(reg.error, reg.description)
+  const client = await registerClient(d.admin, reg.value)
+  return Response.json(
+    { client_id: client.client_id, client_name: client.client_name, redirect_uris: client.redirect_uris, token_endpoint_auth_method: 'none', grant_types: ['authorization_code', 'refresh_token'], response_types: ['code'], client_id_issued_at: Math.floor((d.now ?? Date.now()) / 1000) },
+    { status: 201, headers: corsHeaders({ pragma: 'no-cache' }) }
+  )
+}
+
+async function readJson(request: Request): Promise<unknown> {
+  const text = await request.text()
+  if (text.length > 8192) return null
+  try {
+    return JSON.parse(text)
+  } catch {
+    return null
+  }
+}
+
+/** RFC 7009: always 200, whether or not the key was known; only the app the key was issued to can revoke it. */
+export async function handleRevoke(request: Request, d: EndpointDeps): Promise<Response> {
+  const p = await readParams(request)
+  if (p?.token && p.client_id) await revokeByToken(d.admin, p.token, p.client_id, d.now)
+  return new Response(null, { status: 200, headers: corsHeaders() })
+}
+
+/* ---- consent (the person at the screen) ---------------------------------------------------------------------------- */
+
+export const CONSENT_TTL_MS = 10 * 60 * 1000
+
+/** What the consent page signs: exactly the request the person saw. */
+export function makeConsentTicket(params: Record<string, string | null>, userId: string, now = Date.now()): string {
+  return signConsentTicket(Object.fromEntries(Object.entries(params).filter(([, v]) => v !== null)) as Record<string, string>, userId, now + CONSENT_TTL_MS)
+}
+
+export async function handleConsent(
+  request: Request,
+  d: EndpointDeps,
+  who: { userId: string; orgId: string }
+): Promise<Response> {
+  const body = (await readJson(request)) as { ticket?: unknown; decision?: unknown } | null
+  const params = verifyConsentTicket(body?.ticket, who.userId, d.now)
+  if (!params) return Response.json({ error: 'This approval expired. Start again from your AI app.' }, { status: 400 })
+  if (!(await principalUsable(d, who.orgId, who.userId))) return Response.json({ error: 'The AI connector is not turned on for you.' }, { status: 403 })
+
+  const origin = requestOrigin(request)
+  const check = await checkAuthorizeRequest(d.admin, params, { issuer: origin, resource: mcpResource(origin), orgId: who.orgId, fetcher: d.fetcher })
+  if (!check.ok) return check.fatal ? Response.json({ error: check.fatal }, { status: 400 }) : Response.json({ redirect: check.redirectTo })
+
+  const audit = (tool: string) => writeAudit(d.admin, { orgId: who.orgId, userId: who.userId, clientId: check.client.client_id, tool, result: 'ok', detail: check.scopes.join(' ') })
+  if (body?.decision !== 'allow') {
+    await audit('oauth.deny').catch(() => undefined)
+    return Response.json({ redirect: authorizeRedirect(check.params.redirect_uri, origin, { error: 'access_denied', error_description: 'The person declined', state: check.params.state }) })
+  }
+  const code = await createAuthCode(d.admin, { clientId: check.client.client_id, orgId: who.orgId, userId: who.userId, redirectUri: check.params.redirect_uri, codeChallenge: check.params.code_challenge, resource: check.resource, scopes: check.scopes }, d.now)
+  await audit('oauth.allow')
+  return Response.json({ redirect: authorizeRedirect(check.params.redirect_uri, origin, { code, state: check.params.state }) })
+}
