@@ -26,7 +26,7 @@ jest.mock('@/lib/supabase/service', () => ({
 const generate = jest.fn(async () => Buffer.from('%PDF-fake'))
 jest.mock('@/lib/contracts/generatePdf', () => ({ generateContractPdf: (...a: unknown[]) => (generate as any)(...a) }))
 jest.mock('@/lib/org-brand', () => ({
-  getDocumentBrand: async () => ({ name: 'Acme Roofing', casualName: 'Acme', legalName: 'Acme LLC', phone: '1', email: 'a@acme.test' }),
+  getDocumentBrand: async () => ({ name: 'Acme Roofing', casualName: 'Acme', legalName: 'Acme LLC', legalNameUpper: 'ACME LLC', addressLine: '1 Main', website: 'acme.test', phone: '1', email: 'a@acme.test' }),
 }))
 const sendMail = jest.fn(async () => ({}))
 jest.mock('nodemailer', () => ({ __esModule: true, default: { createTransport: () => ({ sendMail: (...a: unknown[]) => (sendMail as any)(...a) }) } }))
@@ -70,7 +70,7 @@ const post = (b: Record<string, unknown>, headers: Record<string, string> = {}) 
 const good = (over: Record<string, unknown> = {}) => ({
   token: TOKEN, printName: 'Pat Homeowner', signature: PNG, preferredContact: 'email', initialsInsurance: 'PH', ...over,
 })
-const claims = () => db.writes.filter((w) => w.table === 'order_form_contracts' && w.op === 'update' && w.rows.some((r) => r.status === 'completed' && r.customer_signature_data))
+const claims = () => db.writes.filter((w) => w.table === 'order_form_contracts' && w.op === 'update' && w.rows.some((r) => r.status === 'completed' && r.customer_signature_data && !r.pdf_url))
 
 beforeEach(() => {
   fence = { kind: 'open' }

@@ -114,4 +114,22 @@ describe('guards', () => {
     expect(offenders).toEqual([])
   })
 
+  it('no code WRITES a plaintext signing token: new rows are made with newSigningTokenColumns', () => {
+    // `signing_token: <value>` other than null / a type (a new creator of contracts or change orders — e.g. a remote
+    // change order from selections — must spread newSigningTokenColumns instead). Destructuring with a rest is reading.
+    const offenders: string[] = []
+    const walk = (dir: string) => {
+      for (const e of fs.readdirSync(path.join(root, dir), { withFileTypes: true })) {
+        const rel = path.join(dir, e.name)
+        if (e.isDirectory()) { if (!['node_modules', '.next', '__tests__', 'test-helpers'].includes(e.name)) walk(rel); continue }
+        if (!/\.(ts|tsx)$/.test(e.name)) continue
+        for (const line of read(rel).split('\n')) {
+          if (/\bsigning_token\s*:(?!\s*(null|string)\b)/.test(line) && !line.includes('...')) offenders.push(`${rel}: ${line.trim()}`)
+        }
+      }
+    }
+    for (const d of ['app', 'lib', 'components']) walk(d)
+    expect(offenders).toEqual([])
+  })
+
 })

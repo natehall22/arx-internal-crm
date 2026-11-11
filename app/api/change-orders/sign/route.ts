@@ -75,7 +75,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'This change order is not open for signing' }, { status: 400 })
     }
 
-    if (await jobIsCancelled(supabase, changeOrder)) {
+    if (await jobIsCancelled(supabase, changeOrder as { org_id: string; job_id?: string | null; project_id?: string | null })) {
       return NextResponse.json(
         { error: 'This job has been cancelled, so this change order can no longer be signed. Please contact the company.' },
         { status: 409 }

@@ -15,7 +15,7 @@ jest.mock('@/lib/supabase/service', () => ({
   }),
 }))
 jest.mock('@/lib/contracts/generateChangeOrderPdf', () => ({ generateChangeOrderPdf: jest.fn(async () => Buffer.from('%PDF')) }))
-jest.mock('@/lib/org-brand', () => ({ getDocumentBrand: async () => ({ name: 'Acme', casualName: 'Acme', legalName: 'Acme LLC', phone: '1', email: 'a@acme.test' }) }))
+jest.mock('@/lib/org-brand', () => ({ getDocumentBrand: async () => ({ name: 'Acme', casualName: 'Acme', legalName: 'Acme LLC', legalNameUpper: 'ACME LLC', addressLine: '1 Main', website: 'acme.test', phone: '1', email: 'a@acme.test' }) }))
 const sync = jest.fn(async () => ({ status: 'ok' }))
 jest.mock('@/lib/job-commission-base', () => ({ syncJobSaleForProjectOrJob: (...a: unknown[]) => (sync as any)(...a) }))
 const sendMail = jest.fn(async () => ({}))
@@ -48,7 +48,7 @@ const post = (b: Record<string, unknown>) =>
     }) as never
   )
 const good = (over: Record<string, unknown> = {}) => ({ token: TOKEN, printName: 'Pat Homeowner', signature: PNG, ...over })
-const claims = () => db.writes.filter((w) => w.table === 'job_change_orders' && w.op === 'update' && w.rows.some((r) => r.customer_signature_data))
+const claims = () => db.writes.filter((w) => w.table === 'job_change_orders' && w.op === 'update' && w.rows.some((r) => r.customer_signature_data && !r.pdf_url))
 
 beforeEach(() => { uploads.length = 0; sync.mockClear(); sendMail.mockClear(); seed() })
 

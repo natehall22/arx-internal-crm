@@ -35,7 +35,7 @@ export async function ensureContractPdf(admin: SupabaseClient, contractId: strin
     const documentBrand = await getDocumentBrand(admin, orgId)
     // Dynamic import: @react-pdf/renderer must not load in the edge runtime.
     const { generateContractPdf } = await import('@/lib/contracts/generatePdf')
-    const pdfBuffer = await generateContractPdf(contract, documentBrand)
+    const pdfBuffer = await generateContractPdf(contract as never, documentBrand)
 
     const type = contract.agreement_type || 'installation'
     const prefix = type === 'contingency' ? 'contingency' : type === 'repair' ? 'repair_agreement' : 'contract'

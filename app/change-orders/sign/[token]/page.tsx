@@ -53,5 +53,5 @@ export default async function ChangeOrderSigningPage({
     )
   }
 
-  return <CustomerSigningForm changeOrder={changeOrder} token={params.token} />
+  return <CustomerSigningForm changeOrder={changeOrder as never} token={params.token} />
 }
