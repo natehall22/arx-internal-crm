@@ -5,7 +5,6 @@
  * (signed PDF, sale amount + commission base sync). Nothing here changes the job's money: an unsigned change order is not
  * binding, so the sync stays in the signing route.
  */
-import crypto from 'crypto'
 import nodemailer from 'nodemailer'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
@@ -13,6 +12,7 @@ import { orgAppUrl } from '@/lib/company-links'
 import { getCrmEmailFrom } from '@/lib/crm-email-from'
 import { buildChangeOrderReadyEmail } from '@/lib/contracts/customer-emails'
 import { getDocumentBrand } from '@/lib/org-brand'
+import { newSigningTokenColumns } from '@/lib/signing-tokens'
 import { orgDb } from '@/lib/supabase/org-db'
 
 export type RemoteChangeOrderInput = {
@@ -46,7 +46,8 @@ export type RemoteChangeOrderResult =
 
 export async function createRemoteChangeOrder(admin: SupabaseClient, input: RemoteChangeOrderInput): Promise<RemoteChangeOrderResult> {
   const signedAt = new Date().toISOString()
-  const signingToken = crypto.randomBytes(32).toString('hex')
+  // The token goes into the link once; the row keeps its hash (and an encrypted copy for "Copy link").
+  const { token: signingToken, columns: signingTokenColumns } = newSigningTokenColumns('change-order')
   const tokenExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
   const documentBrand = await getDocumentBrand(admin, input.orgId)
 
@@ -70,7 +71,7 @@ export async function createRemoteChangeOrder(admin: SupabaseClient, input: Remo
       rep_signature_data: input.repSignature,
       signed_at: signedAt,
       status: 'pending_customer',
-      signing_token: signingToken,
+      ...signingTokenColumns,
       token_expires_at: tokenExpiresAt,
       customer_email: input.customerEmail || null,
       sent_at: signedAt,

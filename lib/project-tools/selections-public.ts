@@ -3,6 +3,7 @@
  * works on its company's own address (host fence, like the pay page). It shows ONE selection: the item, the allowance, the
  * options with their price and what each costs over/under the allowance. No other job data.
  */
+import { signingTokenOf } from '@/lib/signing-tokens'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { fenceAllowsOrg } from '@/lib/company-host'
@@ -61,11 +62,11 @@ export async function loadPublicSelectionView(admin: SupabaseClient, sel: Resolv
 /** A chosen selection whose change order is still unsigned: the signing link, so the customer can come back and finish. */
 export async function pendingSigningUrl(admin: SupabaseClient, sel: ResolvedSelection): Promise<string | null> {
   if (sel.status !== 'chosen' || !sel.change_order_id) return null
-  const { data } = await orgDb(admin, sel.org_id).from('job_change_orders').select('status, signing_token, token_expires_at').eq('id', sel.change_order_id).maybeSingle()
-  if (!data || data.status === 'completed' || !data.signing_token) return null
+  const { data } = await orgDb(admin, sel.org_id).from('job_change_orders').select('status, signing_token, signing_token_enc, token_expires_at').eq('id', sel.change_order_id).maybeSingle()
+  if (!data || data.status === 'completed' || !signingTokenOf(data)) return null
   if (data.token_expires_at && new Date(data.token_expires_at) < new Date()) return null
   try {
-    return `${await orgAppUrl(sel.org_id)}/change-orders/sign/${data.signing_token}`
+    return `${await orgAppUrl(sel.org_id)}/change-orders/sign/${signingTokenOf(data)}`
   } catch {
     return null
   }

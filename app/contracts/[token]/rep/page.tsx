@@ -2,7 +2,7 @@ import { requireAuth } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase/service'
 import { signFilesObject } from '@/lib/files/files-object'
 import { getOrgBrand } from '@/lib/org-brand'
-import SignaturePad from '@/components/SignaturePad'
+import SignaturePad from '@/components/contracts/SignaturePad'
 import { notFound } from 'next/navigation'
 
 export const dynamic = 'force-dynamic'
@@ -174,7 +174,10 @@ export default async function RepContractPage({
               </div>
             </div>
 
-            <SignaturePad name="signature" label="Rep Signature" defaultTyped={profile.full_name ?? ''} />
+            <div>
+              <label className="text-sm font-medium text-slate-200">Rep Signature</label>
+              <div className="mt-2"><SignaturePad name="signature" /></div>
+            </div>
 
             <button
               type="submit"

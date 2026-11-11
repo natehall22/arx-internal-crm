@@ -1,4 +1,6 @@
 'use client'
+import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { clientLinkBase } from '@/lib/app-url'
 import { toast } from '@/components/ui/toast'
 import { filesDocHref } from '@/lib/files/files-object'
@@ -7,7 +9,8 @@ interface ContractListItemProps {
   contract: {
     id: string
     status: string
-    signing_token: string
+    /** Old links keep their plaintext token here; links made since hashing have none (see /api/signing-link). */
+    signing_token?: string | null
     customer_signed_at: string | null
     pdf_url: string | null
     created_at: string
@@ -16,10 +19,38 @@ interface ContractListItemProps {
 }
 
 export default function ContractListItem({ contract }: ContractListItemProps) {
-  const handleCopyLink = () => {
-    const url = `${clientLinkBase()}/contracts/sign/${contract.signing_token}`
-    navigator.clipboard.writeText(url)
-    toast.success('Signing link copied to clipboard!')
+  const router = useRouter()
+  const [pdfBusy, setPdfBusy] = useState(false)
+
+  // A signed contract whose PDF was never stored: make it now from the signature already on file.
+  const handleGeneratePdf = async () => {
+    setPdfBusy(true)
+    try {
+      const res = await fetch(`/api/contracts/${contract.id}/regenerate-pdf`, { method: 'POST' })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(typeof data.error === 'string' ? data.error : 'Failed to generate PDF')
+      router.refresh()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to generate PDF')
+    } finally {
+      setPdfBusy(false)
+    }
+  }
+
+  const handleCopyLink = async () => {
+    try {
+      let path = contract.signing_token ? `/contracts/sign/${contract.signing_token}` : null
+      if (!path) {
+        const res = await fetch(`/api/signing-link/contract/${contract.id}`)
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok || typeof data.path !== 'string') throw new Error('This link is no longer available')
+        path = data.path
+      }
+      await navigator.clipboard.writeText(`${clientLinkBase()}${path}`)
+      toast.success('Signing link copied to clipboard!')
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not copy the link')
+    }
   }
 
   const isCompleted = contract.status === 'completed'
@@ -89,12 +120,14 @@ export default function ContractListItem({ contract }: ContractListItemProps) {
               View signed copy (superseded)
             </a>
           ) : isCompleted && !contract.pdf_url ? (
-            <span className="text-sm text-gray-500 flex items-center gap-1">
-              <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-              PDF generating...
-            </span>
+            <button
+              type="button"
+              onClick={handleGeneratePdf}
+              disabled={pdfBusy}
+              className="inline-flex min-h-[44px] items-center gap-2 px-3 py-1.5 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-60"
+            >
+              {pdfBusy ? 'Generating…' : 'Generate PDF'}
+            </button>
           ) : null}
         </div>
       </div>

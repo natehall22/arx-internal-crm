@@ -34,6 +34,12 @@ export async function POST(
       )
     }
 
+    // A signed PDF is never re-rendered: this only fills in a missing one.
+    const storedPdf = String(co.pdf_storage_path || co.pdf_url || '').trim()
+    if (storedPdf) {
+      return NextResponse.json({ success: true, alreadyHasPdf: true, pdfUrl: filesObjectHref(storedPdf) })
+    }
+
     if (!String(co.customer_signature_data || '').trim() || !String(co.rep_signature_data || '').trim()) {
       return NextResponse.json(
         { error: 'This record is missing signature data required for the PDF.' },
@@ -70,7 +76,7 @@ export async function POST(
 
     const { error: uploadError } = await service.storage.from('files').upload(pdfStoragePath, pdfBuffer, {
       contentType: 'application/pdf',
-      upsert: true,
+      upsert: false,
     })
 
     if (uploadError) {
@@ -85,6 +91,8 @@ export async function POST(
       .from('job_change_orders')
       .update({ pdf_url: pdfUrl, pdf_storage_path: pdfStoragePath })
       .eq('id', co.id)
+      .eq('org_id', profile.org_id)
+      .is('pdf_url', null)
 
     if (updErr) {
       return NextResponse.json({ error: updErr.message }, { status: 500 })

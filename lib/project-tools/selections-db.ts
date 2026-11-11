@@ -6,6 +6,7 @@
  * becomes a change order through lib/change-orders-remote.ts (the EXISTING change-order system, signed by the customer on
  * the existing signing page). Choosing for the customer in person (office) goes through the same `chooseSelection`.
  */
+import { signingTokenOf } from '@/lib/signing-tokens'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import crypto from 'crypto'
 import nodemailer from 'nodemailer'
@@ -68,10 +69,10 @@ export async function listSelections(admin: SupabaseClient, orgId: string, jobId
   }
   const rows = (data ?? []) as Row[]
   const coIds = Array.from(new Set(rows.map((r) => r.change_order_id).filter((x): x is string => typeof x === 'string')))
-  const coBy = new Map<string, { status: string | null; co_number: string; signing_token: string | null; token_expires_at: string | null }>()
+  const coBy = new Map<string, { status: string | null; co_number: string; signing_token: string | null; signing_token_enc: string | null; token_expires_at: string | null }>()
   if (coIds.length > 0) {
-    const { data: cos } = await db.from('job_change_orders').select('id, status, co_number, signing_token, token_expires_at').in('id', coIds)
-    for (const c of (cos ?? []) as Array<{ id: string; status: string | null; co_number: string; signing_token: string | null; token_expires_at: string | null }>) coBy.set(c.id, c)
+    const { data: cos } = await db.from('job_change_orders').select('id, status, co_number, signing_token, signing_token_enc, token_expires_at').in('id', coIds)
+    for (const c of (cos ?? []) as Array<{ id: string; status: string | null; co_number: string; signing_token: string | null; signing_token_enc: string | null; token_expires_at: string | null }>) coBy.set(c.id, c)
   }
   const appUrl = rows.some((r) => r.link_token || r.change_order_id) ? await orgAppUrl(orgId).catch(() => null) : null
   const selections = rows.map((r): SelectionView => {
@@ -100,7 +101,7 @@ export async function listSelections(admin: SupabaseClient, orgId: string, jobId
       state: selectionState(base, co?.status ?? null, todayYmd),
       link: appUrl && r.link_token && base.status !== 'chosen' ? `${appUrl}/s/${r.link_token}` : null,
       change_order_number: co?.co_number ?? null,
-      change_order_url: appUrl && co?.signing_token && co.status !== 'completed' && !coExpired ? `${appUrl}/change-orders/sign/${co.signing_token}` : null,
+      change_order_url: appUrl && co && signingTokenOf(co) && co.status !== 'completed' && !coExpired ? `${appUrl}/change-orders/sign/${signingTokenOf(co)}` : null,
       chosen_by_name: (r.chosen_by_name as string | null) ?? null,
       chosen_source: (r.chosen_source as string | null) ?? null,
       needs_attention: needsAttention,
@@ -375,7 +376,7 @@ export async function reissueSelectionChangeOrder(
     const { data: co } = await db.from('job_change_orders').select('id, status, token_expires_at').eq('id', sel.change_order_id).maybeSingle()
     if (co?.status === 'completed') return { error: 'The change order is already signed', status: 409 }
     if (co && !(co.token_expires_at && new Date(co.token_expires_at) < new Date())) return { error: 'The signing link is still good. Copy it from the card.', status: 409 }
-    if (co) await db.from('job_change_orders').update({ status: 'voided', signing_token: null }).eq('id', co.id).eq('status', 'pending_customer')
+    if (co) await db.from('job_change_orders').update({ status: 'voided', signing_token: null, signing_token_hash: null, signing_token_enc: null }).eq('id', co.id).eq('status', 'pending_customer')
     await db.from('job_selections').update({ change_order_id: null }).eq('id', id)
   }
   const made = await issueOverageChangeOrder(admin, {
@@ -404,7 +405,7 @@ export async function cancelChosenSelection(admin: SupabaseClient, ctx: { orgId:
   if (sel.change_order_id) {
     const { data: co } = await db.from('job_change_orders').select('id, status').eq('id', sel.change_order_id).maybeSingle()
     if (co?.status === 'completed') return { error: 'The change order is signed, so this cannot be cancelled here', status: 409 }
-    if (co) await db.from('job_change_orders').update({ status: 'voided', signing_token: null }).eq('id', co.id).eq('status', 'pending_customer')
+    if (co) await db.from('job_change_orders').update({ status: 'voided', signing_token: null, signing_token_hash: null, signing_token_enc: null }).eq('id', co.id).eq('status', 'pending_customer')
   }
   const { error } = await db.from('job_selections').update({ status: 'cancelled', link_token: null, updated_at: new Date().toISOString() }).eq('id', id).eq('status', 'chosen')
   return error ? { error: 'Could not cancel', status: 500 } : { ok: true }

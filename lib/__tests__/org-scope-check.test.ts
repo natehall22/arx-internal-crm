@@ -215,6 +215,43 @@ describe('accepts', () => {
     ).toEqual([])
   })
 
+  test('rule 6/3: a hashed signing-token lookup, and rows loaded through the token loaders, are the token holder\'s own', () => {
+    expect(
+      findings(head + `export async function GET(_r, { params }) {
+        const admin = createServiceClient()
+        const { data: c } = await admin.from('job_change_orders').select('id').eq('signing_token_hash', params.token).maybeSingle()
+        return c
+      }`)
+    ).toEqual([])
+    expect(
+      findings(`import { findBySigningTokenOnThisHost } from '@/lib/signing-fence'\n` + head + `export async function POST(_r, { params }) {
+        const admin = createServiceClient()
+        const doc = await findBySigningTokenOnThisHost(admin, 'contract', params.token)
+        if (!doc) return null
+        const { data } = await admin.from('order_form_contracts').update({ status: 'completed' }).eq('id', doc.id).select('id')
+        return data
+      }`)
+    ).toEqual([])
+    // trusted by import path, not by name: a local function (or one from elsewhere) with the same name is checked
+    expect(
+      findings(head + `async function findBySigningTokenOnThisHost(a, k, t) { return { id: t } }
+      export async function POST(_r, { params }) {
+        const admin = createServiceClient()
+        const doc = await findBySigningTokenOnThisHost(admin, 'contract', params.token)
+        const { data } = await admin.from('order_form_contracts').update({ status: 'completed' }).eq('id', doc.id).select('id')
+        return data
+      }`)
+    ).toHaveLength(1)
+    // …but a row id taken from the request is still unscoped
+    expect(
+      findings(head + `export async function POST(_r, { params }) {
+        const admin = createServiceClient()
+        const { data } = await admin.from('order_form_contracts').update({ status: 'completed' }).eq('id', params.id).select('id')
+        return data
+      }`)
+    ).toHaveLength(1)
+  })
+
   test("user-token (RLS) clients and 'use client' files are not checked", () => {
     expect(
       findings(`import { createClient } from '@/lib/supabase/server'

@@ -2,7 +2,7 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { signFilesObject } from '@/lib/files/files-object'
 import { getOrgBrand } from '@/lib/org-brand'
 import { notFound } from 'next/navigation'
-import SignaturePad from '@/components/SignaturePad'
+import SignaturePad from '@/components/contracts/SignaturePad'
 import PhoneLink from '@/components/PhoneLink'
 
 export const dynamic = 'force-dynamic'
@@ -171,8 +171,14 @@ export default async function ContractSigningPage({
                   required
                 />
               </div>
-              <SignaturePad name="signature" label="Signature" />
-              <SignaturePad name="initials" label="Initials" />
+              <div>
+                <label className="text-sm font-medium text-slate-200">Signature</label>
+                <div className="mt-2"><SignaturePad name="signature" /></div>
+              </div>
+              <div>
+                <label className="text-sm font-medium text-slate-200">Initials</label>
+                <div className="mt-2"><SignaturePad name="initials" /></div>
+              </div>
               <label className="flex items-center gap-2 text-sm text-slate-300">
                 <input type="checkbox" name="agree" value="yes" required />
                 I agree to sign this contract electronically.

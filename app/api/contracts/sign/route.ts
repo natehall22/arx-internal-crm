@@ -13,6 +13,17 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { reinstateCancelledJob } from '@/lib/job-cancellation'
 import { applyContractSignedStatuses } from '@/lib/job-status-events'
 import { depositRequiredFraction } from '@/lib/job-pipeline'
+import { ensureContractPdf } from '@/lib/contracts/finalize-pdf'
+import { findBySigningToken } from '@/lib/signing-tokens'
+import { findBySigningTokenOnThisHost } from '@/lib/signing-fence'
+import {
+  cleanInitials,
+  cleanPreferredContact,
+  cleanPrintName,
+  cleanSignatureImage,
+  contractInitialsProblem,
+  signingEvidence,
+} from '@/lib/signing-input'
 
 type EmbeddedLeadRow = { owner_user_id?: string | null; closer_user_id?: string | null }
 type AdminSupabaseClient = ReturnType<typeof createServiceClient>
@@ -139,109 +150,66 @@ async function sendEmail(
   }
 }
 
-export async function POST(request: NextRequest) {
-  try {
-    const supabase = createServiceClient()
-    const body = await request.json()
 
-    const {
-      token,
-      preferredContact,
-      printName,
-      signature,
-      initialsChangeOrders,
-      initialsPropertyCondition,
-      initialsLandscaping,
-      initialsInsurance,
-    } = body
-
-    if (!token || !printName || !signature) {
-      return NextResponse.json(
-        { error: 'Token, print name, and signature are required' },
-        { status: 400 }
-      )
-    }
-
-    const { data: contract, error: fetchError } = await supabase
+/** The steps that follow a saved signature, each recorded in `signing_steps` when done so a retry runs only what is missing. */
+async function finishSignedContract(
+  supabase: AdminSupabaseClient,
+  token: string
+): Promise<{ pdfUrl: string | null; projectId: string | null; emailSent: boolean; pdfGenerationError: string | null; projectCreateError: string | null }> {
+  // Always the row as it is NOW (the saved signature, the steps already done) — never a copy from before the claim.
+  const contract = await findBySigningToken(supabase, 'contract', token)
+  if (!contract || contract.status !== 'completed') {
+    return { pdfUrl: null, projectId: null, emailSent: false, pdfGenerationError: null, projectCreateError: null }
+  }
+  const steps: Record<string, string> = { ...(contract.signing_steps ?? {}) }
+  // A step counts as done if ANY finisher recorded it: before running a step, look at what is recorded now (a slow first
+  // request and a later retry never both run the same step).
+  const refresh = async () => {
+    const { data } = await supabase
       .from('order_form_contracts')
-      .select('*')
-      .eq('signing_token', token)
-      .single()
-
-    if (fetchError || !contract) {
-      return NextResponse.json(
-        { error: 'Contract not found' },
-        { status: 404 }
-      )
-    }
-
-    if (new Date(contract.token_expires_at) < new Date()) {
-      return NextResponse.json(
-        { error: 'Contract signing link has expired' },
-        { status: 400 }
-      )
-    }
-
-    if (contract.status === 'completed') {
-      return NextResponse.json(
-        { error: 'Contract has already been signed' },
-        { status: 400 }
-      )
-    }
-
-    if (contract.status === 'voided') {
-      return NextResponse.json(
-        { error: 'Contract has been voided' },
-        { status: 400 }
-      )
-    }
-
-    const rawAgreementType = contract.agreement_type || 'installation'
-    const isContingency = rawAgreementType === 'contingency'
-    const isRepair = rawAgreementType === 'repair'
-    const isSaleAgreement = rawAgreementType === 'installation' || rawAgreementType === 'repair'
-    // A contract made from an online quote approval (lib/quotes/approve.ts): same signing pipeline (deal won, job, commission
-    // base), but no roofing-terms PDF and no "Installation Agreement" email — the quote has its own confirmation.
-    const isQuoteApproval = !!contract.quote_approval_id
-    const agreementLabel = isQuoteApproval
-      ? 'Quote approval'
-      : isContingency
-        ? 'Insurance Contingency Agreement'
-        : isRepair
-          ? 'Repair Agreement'
-          : 'Installation Agreement'
-
-    const clientIp = request.headers.get('x-forwarded-for')?.split(',')[0] || 
-                     request.headers.get('x-real-ip') || 
-                     'unknown'
-
-    const customerSignedAt = new Date().toISOString()
-
-    const { error: updateError } = await supabase
-      .from('order_form_contracts')
-      .update({
-        preferred_contact: preferredContact,
-        customer_print_name: printName,
-        customer_signature_data: signature,
-        customer_signed_at: customerSignedAt,
-        customer_ip: clientIp,
-        customer_initials_change_orders: initialsChangeOrders,
-        customer_initials_property_condition: initialsPropertyCondition,
-        customer_initials_landscaping: initialsLandscaping,
-        customer_initials_insurance: initialsInsurance || null,
-        status: 'completed',
-      })
+      .select('signing_steps')
       .eq('id', contract.id)
+      .eq('org_id', contract.org_id)
+      .maybeSingle()
+    Object.assign(steps, (data as { signing_steps?: Record<string, string> } | null)?.signing_steps ?? {})
+  }
+  const isDone = async (name: string) => {
+    if (steps[name]) return true
+    await refresh()
+    return !!steps[name]
+  }
+  const done = (name: string) => !!steps[name]
+  // Recording a step also renews the lease, so a long finish is not taken over while it is still making progress.
+  const mark = async (name: string) => {
+    if (steps[name]) return
+    await refresh()
+    steps[name] = steps[name] ?? new Date().toISOString()
+    const { error } = await supabase
+      .from('order_form_contracts')
+      .update({ signing_steps: steps, signing_finalize_lease_at: new Date().toISOString() })
+      .eq('id', contract.id)
+      .eq('org_id', contract.org_id)
+    if (error) console.error('[Contract Sign] could not record step', name, error.message)
+  }
+  const rawAgreementType = contract.agreement_type || 'installation'
+  const isContingency = rawAgreementType === 'contingency'
+  const isRepair = rawAgreementType === 'repair'
+  const isSaleAgreement = rawAgreementType === 'installation' || rawAgreementType === 'repair'
+  // A contract made from an online quote approval (lib/quotes/approve.ts): same pipeline (deal won, job, commission base), but no
+  // roofing-terms PDF and no "Installation Agreement" email — the quote has its own record and confirmation.
+  const isQuoteApproval = !!contract.quote_approval_id
+  const agreementLabel = isQuoteApproval
+    ? 'Quote approval'
+    : isContingency
+      ? 'Insurance Contingency Agreement'
+      : isRepair
+        ? 'Repair Agreement'
+        : 'Installation Agreement'
+  const printName = contract.customer_print_name
+  const clientIp = contract.customer_ip
+  const customerSignedAt = contract.customer_signed_at
 
-    if (updateError) {
-      console.error('Error updating contract:', updateError)
-      return NextResponse.json(
-        { error: 'Failed to sign contract' },
-        { status: 500 }
-      )
-    }
-
-    if (!isContingency) try {
+    if (!isContingency && !(await isDone('sale_notice'))) try {
       const soldDescription = buildOrderFormContractSaleDescription(contract)
       const totalAmount =
         contract.project_cost != null && Number.isFinite(Number(contract.project_cost))
@@ -323,6 +291,7 @@ export async function POST(request: NextRequest) {
     } catch (adminSaleErr) {
       console.error('notifyOrgAdminsOfSale (contract sign):', adminSaleErr)
     }
+    await mark('sale_notice')
 
     // Supersede older contracts for this opportunity by VOIDING them — never deleting.
     // This used to hard-delete every other row (signed ones included) and purge their
@@ -330,11 +299,13 @@ export async function POST(request: NextRequest) {
     // (26-0040, 26-0031, 26-0010). Readers filter on status='completed', so a voided
     // row drops out of totals exactly as a deleted one did, but the record and its
     // PDF survive.
-    if (contract.opportunity_id) {
+    let voidOk = !contract.opportunity_id
+    if (contract.opportunity_id && !(await isDone('void_older'))) {
       try {
         const { data: voided, error: voidError } = await supabase
           .from('order_form_contracts')
           .update({ status: 'voided', updated_at: new Date().toISOString() })
+          .eq('org_id', contract.org_id)
           .eq('opportunity_id', contract.opportunity_id)
           .eq('agreement_type', rawAgreementType)
           .neq('id', contract.id)
@@ -343,79 +314,31 @@ export async function POST(request: NextRequest) {
 
         if (voidError) {
           console.error('[Contract Sign] Error voiding older contracts:', voidError)
-        } else if (voided && voided.length > 0) {
+        } else {
+          voidOk = true
+        }
+        if (!voidError && voided && voided.length > 0) {
           console.log('[Contract Sign] Voided', voided.length, 'older contracts (records + PDFs kept)')
         }
       } catch (cleanupError) {
         console.error('[Contract Sign] Error voiding older contracts:', cleanupError)
       }
     }
+    if (voidOk) await mark('void_older')
 
-    const { data: updatedContract } = await supabase
-      .from('order_form_contracts')
-      .select('*')
-      .eq('id', contract.id)
-      .single()
-
-    // Company identity for the PDF letterhead and the customer email (one read).
+    // Company identity for the customer email (one read).
     const documentBrand = await getDocumentBrand(supabase, contract.org_id)
 
-    let pdfUrl: string | null = null
-    let pdfStoragePath: string | null = null
-    let pdfGenerationError: string | null = null
-
-    // Try to generate PDF
-    if (!isQuoteApproval) try {
-      console.log('[Contract Sign] Starting PDF generation for contract:', contract.id)
-      
-      // Dynamic import to avoid issues with @react-pdf/renderer in edge runtime
-      const { generateContractPdf } = await import('@/lib/contracts/generatePdf')
-      const pdfBuffer = await generateContractPdf(updatedContract, documentBrand)
-      
-      console.log('[Contract Sign] PDF generated, size:', pdfBuffer.length, 'bytes')
-      
-      const fileNamePrefix = isContingency ? 'contingency' : isRepair ? 'repair_agreement' : 'contract'
-      const fileName = `${fileNamePrefix}_${contract.id}_${Date.now()}.pdf`
-      pdfStoragePath = `org/${contract.org_id}/contracts/${fileName}`
-
-      // `files` bucket only. The old fallback to the `contracts` bucket stored a public URL into a PRIVATE bucket, so its
-      // link never opened (0 rows ever used it); a failed upload is now reported as a PDF error like any other.
-      const { error: filesUploadError } = await supabase.storage
-        .from('files')
-        .upload(pdfStoragePath, pdfBuffer, {
-          contentType: 'application/pdf',
-          upsert: true, // Allow overwrite if exists
-        })
-
-      if (filesUploadError) {
-        console.error('[Contract Sign] Error uploading to files bucket:', filesUploadError.message)
-        pdfGenerationError = `Storage upload failed: ${filesUploadError.message}`
-      } else {
-        // Stored as the storage path (never a public URL); readers link through lib/files/files-object.ts.
-        pdfUrl = pdfStoragePath
-        console.log('[Contract Sign] PDF uploaded to files bucket:', pdfStoragePath)
-      }
-
-      if (pdfUrl) {
-        const { error: updatePdfError } = await supabase
-          .from('order_form_contracts')
-          .update({
-            pdf_url: pdfUrl,
-            pdf_storage_path: pdfStoragePath,
-          })
-          .eq('id', contract.id)
-        
-        if (updatePdfError) {
-          console.error('[Contract Sign] Error updating pdf_url in database:', updatePdfError)
-        } else {
-          console.log('[Contract Sign] PDF URL saved to database:', pdfUrl)
-        }
-      }
-    } catch (pdfError: any) {
-      pdfGenerationError = pdfError?.message || 'Unknown PDF generation error'
-      console.error('[Contract Sign] PDF generation failed:', pdfGenerationError)
-      console.error('[Contract Sign] Full error:', pdfError)
-    }
+    // The signed PDF, made from the row just saved. If it cannot be made the signature still stands (status completed,
+    // no pdf_url = "PDF pending") and the same call runs again from the customer's next tap or the office's button.
+    const pdfResult = isQuoteApproval
+      ? { path: null as string | null, created: false, error: null as string | null }
+      : await ensureContractPdf(supabase, contract.id, contract.org_id)
+    const pdfStoragePath: string | null = pdfResult.path
+    const pdfUrl: string | null = pdfResult.path
+    const pdfGenerationError: string | null = pdfResult.error
+    if (pdfResult.error) console.error('[Contract Sign] PDF not stored (signature kept, PDF pending):', pdfResult.error)
+    if (pdfResult.path || isQuoteApproval) await mark('pdf')
 
     let projectId = null
     let projectCreateError: string | null = null
@@ -510,7 +433,11 @@ export async function POST(request: NextRequest) {
         }
 
         // The customer exists from inspection booking: fill in what the signed contract adds, and tell QuickBooks now.
-        if (customerId) await enrichCustomerFromContract(supabase, contract.org_id, customerId, contract)
+        // Once per signing: enrich re-queues the QuickBooks customer.upserted event (upsert resets it to pending), so a retry skips it.
+        if (customerId && !(await isDone('customer_sync'))) {
+          await enrichCustomerFromContract(supabase, contract.org_id, customerId, contract)
+          await mark('customer_sync')
+        }
 
         const soldRoofSquares = (await getProposalSoldRoofSquares(supabase, contract.proposal_id)) ?? contract.total_squares
 
@@ -770,7 +697,10 @@ export async function POST(request: NextRequest) {
             }
           }
           // The one QuickBooks enqueue for this signing (upsertCustomer never enqueues).
-          await enrichCustomerFromContract(supabase, contract.org_id, ensuredId, contract)
+          if (!(await isDone('customer_sync'))) {
+            await enrichCustomerFromContract(supabase, contract.org_id, ensuredId, contract)
+            await mark('customer_sync')
+          }
         } catch (e) {
           console.error('[Contract Sign] ensure customer (existing project)', e)
         }
@@ -901,6 +831,21 @@ export async function POST(request: NextRequest) {
       console.error('Error creating project:', projectError)
     }
 
+    // The project/job step is idempotent (an existing project or job is updated, never duplicated); it counts as done once a
+    // project exists (or for a contingency, which makes none).
+    // For a sale agreement "done" means a project AND a production job exist: a failed job insert stays retryable.
+    if (isContingency) {
+      await mark('project')
+    } else if (projectId && !projectCreateError) {
+      const { data: jobRows } = await supabase
+        .from('production_jobs')
+        .select('id')
+        .eq('org_id', contract.org_id)
+        .eq('project_id', projectId)
+        .limit(1)
+      if (jobRows && jobRows.length > 0) await mark('project')
+    }
+
     // Sale amount + commission base = signed contract total + signed change orders. Written once,
     // here, by the one writer (lib/job-commission-base.ts) — for both the new-project and the
     // existing-project branch above, and for a reinstated cancelled job.
@@ -913,7 +858,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    if (contract.opportunity_id) {
+    if (contract.opportunity_id && !(await isDone('signed_note'))) {
       await supabase.from('activities').insert({
         org_id: contract.org_id,
         opportunity_id: contract.opportunity_id,
@@ -922,6 +867,8 @@ export async function POST(request: NextRequest) {
         body: `${agreementLabel} signed by ${printName} from IP ${clientIp}`,
       })
     }
+
+    await mark('signed_note')
 
     // The signed sale agreement is the real "accept": mark its proposal accepted and close
     // the deal's past appointments still sitting "scheduled" (desire paths, W4/W6).
@@ -935,7 +882,7 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    if (projectCreateError && contract.opportunity_id) {
+    if (projectCreateError && contract.opportunity_id && !(await isDone('project_error_note'))) {
       await supabase.from('activities').insert({
         org_id: contract.org_id,
         opportunity_id: contract.opportunity_id,
@@ -943,17 +890,18 @@ export async function POST(request: NextRequest) {
         type: 'status_change',
         body: `Project was not created after contract sign (opportunity not marked won). ${projectCreateError}`,
       })
+      await mark('project_error_note')
     }
 
     // The customer's link to their signed copy goes through the token route, never the bucket's public URL
     // (the stored pdf_url is unchanged and stays staff-side).
     const customerPdfUrl = pdfUrl
-      ? customerSignedDocUrl('contract', String(contract.signing_token), await tryOrgAppUrl(contract.org_id, 'signed contract link'))
+      ? customerSignedDocUrl('contract', token, await tryOrgAppUrl(contract.org_id, 'signed contract link'))
       : null
 
     // Always try to send confirmation email if customer has email
     let emailSent = false
-    if (contract.customer_email && !isQuoteApproval) {
+    if (contract.customer_email && !isQuoteApproval && !(await isDone('customer_email')) && done('pdf')) {
       console.log('[Contract Sign] Sending confirmation email to:', contract.customer_email)
       
       const email = buildContractSignedEmail({
@@ -968,19 +916,212 @@ export async function POST(request: NextRequest) {
       emailSent = await sendEmail(contract.customer_email, email.subject, email.text, email.html)
       
       console.log('[Contract Sign] Email sent:', emailSent)
+      if (emailSent) await mark('customer_email')
+    } else if (!contract.customer_email || isQuoteApproval) {
+      await mark('customer_email') // nobody to email / the quote has its own confirmation
     }
 
-    console.log('[Contract Sign] Complete. PDF URL:', pdfUrl, 'Email sent:', emailSent, 'Project ID:', projectId)
+    // Everything done → finished for good; anything missing is retried by the next call on this link (see CLAUDE.md).
+    const required = ['void_older', 'pdf', 'project', 'signed_note', 'customer_email', ...(isContingency ? [] : ['sale_notice'])]
+    if (required.every((k) => done(k))) {
+      await supabase
+        .from('order_form_contracts')
+        .update({ signing_finalized_at: new Date().toISOString() })
+        .eq('id', contract.id)
+        .eq('org_id', contract.org_id)
+        .eq('status', 'completed')
+    }
 
-    return NextResponse.json({
-      success: true,
-      // The signing page links relative to itself, so it keeps a download link even with no app address configured.
-      pdfUrl: pdfUrl ? customerPdfUrl ?? customerSignedDocLinkForPage('contract', String(contract.signing_token)) : null,
-      projectId,
-      emailSent,
-      pdfGenerationError,
-      projectCreateError,
+    return { pdfUrl: pdfUrl ? customerPdfUrl ?? customerSignedDocLinkForPage('contract', token) : null, projectId, emailSent, pdfGenerationError, projectCreateError }
+}
+
+/** For this long the request that saved a signature is assumed to still be finishing it (a second tap must not race it). */
+const FINISH_LEASE_MS = 2 * 60 * 1000
+
+/**
+ * The answer for a contract that is already signed: success, with the signed copy's link. This is the ONE recovery path: a
+ * signed contract that is not finalized (the first request died, or a step failed) is finished here — project/job, voiding the
+ * superseded contract, commission base, PDF, notes, email — each step only if it is still missing, never flipping the contract
+ * out of 'completed'. A lease keeps a second tap from running the steps while the first request is still on them.
+ */
+async function alreadySignedResponse(supabase: AdminSupabaseClient, contract: Record<string, any>, token: string) {
+  const hasPdf = () => !!String(contract.pdf_storage_path || contract.pdf_url || '').trim()
+  let result: Awaited<ReturnType<typeof finishSignedContract>> | null = null
+  if (!contract.signing_finalized_at) {
+    const leaseAt = contract.signing_finalize_lease_at ?? null
+    const stale = !leaseAt || Date.now() - new Date(leaseAt).getTime() > FINISH_LEASE_MS
+    if (stale) {
+      const nowIso = new Date().toISOString()
+      let claim = supabase
+        .from('order_form_contracts')
+        .update({ signing_finalize_lease_at: nowIso })
+        .eq('id', contract.id)
+        .eq('org_id', contract.org_id)
+        .eq('status', 'completed')
+        .is('signing_finalized_at', null)
+      claim = leaseAt ? claim.eq('signing_finalize_lease_at', leaseAt) : claim.is('signing_finalize_lease_at', null)
+      const { data: got } = await claim.select('id')
+      if (got && got.length > 0) {
+        result = await finishSignedContract(supabase, token)
+      }
+    }
+  }
+  if (result) return NextResponse.json({ success: true, alreadySigned: true, ...result })
+  return NextResponse.json({
+    success: true,
+    alreadySigned: true,
+    pdfUrl: hasPdf() ? customerSignedDocLinkForPage('contract', token) : null,
+    projectId: null,
+    emailSent: false,
+    pdfGenerationError: null,
+    projectCreateError: null,
+  })
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const supabase = createServiceClient()
+    const body = await request.json()
+
+    const {
+      token,
+      preferredContact: preferredContactInput,
+      printName: printNameInput,
+      signature: signatureInput,
+      initialsChangeOrders: initialsChangeOrdersInput,
+      initialsPropertyCondition: initialsPropertyConditionInput,
+      initialsLandscaping: initialsLandscapingInput,
+      initialsInsurance: initialsInsuranceInput,
+    } = body ?? {}
+
+    if (typeof token !== 'string' || !token || !printNameInput || !signatureInput) {
+      return NextResponse.json(
+        { error: 'Token, print name, and signature are required' },
+        { status: 400 }
+      )
+    }
+
+    // The page checks these for the customer's benefit; the server never takes its word for it.
+    const printName = cleanPrintName(printNameInput)
+    if (!printName) {
+      return NextResponse.json({ error: 'Please enter your printed name' }, { status: 400 })
+    }
+    // A quote approval signs its own contract with the typed name ("typed:<name>"); only such a contract (checked on the row
+    // below) may — a customer-facing contract still needs a drawn PNG.
+    const typedSignature = typeof signatureInput === 'string' && /^typed:.{1,200}$/.test(signatureInput) ? signatureInput : null
+    const signature = cleanSignatureImage(signatureInput) ?? typedSignature
+    if (!signature) {
+      return NextResponse.json({ error: 'Please sign the agreement' }, { status: 400 })
+    }
+    const preferredContact = cleanPreferredContact(preferredContactInput)
+    if (preferredContact === false) {
+      return NextResponse.json({ error: 'Choose phone or email as your preferred contact' }, { status: 400 })
+    }
+
+    const contract = await findBySigningTokenOnThisHost(supabase, 'contract', token)
+
+    if (!contract) {
+      return NextResponse.json(
+        { error: 'Contract not found' },
+        { status: 404 }
+      )
+    }
+
+    if (new Date(contract.token_expires_at) < new Date()) {
+      return NextResponse.json(
+        { error: 'Contract signing link has expired' },
+        { status: 400 }
+      )
+    }
+
+    if (contract.status === 'voided') {
+      return NextResponse.json(
+        { error: 'Contract has been voided' },
+        { status: 400 }
+      )
+    }
+
+    // Already signed (a second tap, a second tab, a stale page): the answer is the signed result, not an error — and a
+    // signed contract whose PDF never got made is finished here (see lib/contracts/finalize-pdf.ts).
+    if (contract.status === 'completed') {
+      return alreadySignedResponse(supabase, contract, token)
+    }
+
+    const isQuoteApproval = !!contract.quote_approval_id
+    if (typedSignature && !isQuoteApproval) {
+      return NextResponse.json({ error: 'Please sign the agreement' }, { status: 400 })
+    }
+
+    const initialsChangeOrders = cleanInitials(initialsChangeOrdersInput)
+    const initialsPropertyCondition = cleanInitials(initialsPropertyConditionInput)
+    const initialsLandscaping = cleanInitials(initialsLandscapingInput)
+    const initialsInsurance = cleanInitials(initialsInsuranceInput)
+    const initialsProblem = contractInitialsProblem(contract, {
+      changeOrders: initialsChangeOrders,
+      propertyCondition: initialsPropertyCondition,
+      landscaping: initialsLandscaping,
+      insurance: initialsInsurance,
     })
+    if (initialsProblem && !isQuoteApproval) {
+      return NextResponse.json({ error: initialsProblem }, { status: 400 })
+    }
+
+    const { ip: clientIp, userAgent: clientUserAgent } = signingEvidence(request.headers)
+
+    const customerSignedAt = new Date().toISOString()
+
+    // The signature is saved first, and only ONE request can save it: the update only matches a contract that is still
+    // waiting for the customer and whose link is still live. Two taps / two tabs → one winner; the other gets the signed result.
+    const { data: claimed, error: updateError } = await supabase
+      .from('order_form_contracts')
+      .update({
+        preferred_contact: preferredContact,
+        customer_print_name: printName,
+        customer_signature_data: signature,
+        customer_signed_at: customerSignedAt,
+        customer_ip: clientIp,
+        customer_user_agent: clientUserAgent,
+        customer_initials_change_orders: initialsChangeOrders,
+        customer_initials_property_condition: initialsPropertyCondition,
+        customer_initials_landscaping: initialsLandscaping,
+        customer_initials_insurance: initialsInsurance,
+        status: 'completed',
+        signing_finalize_lease_at: customerSignedAt,
+      })
+      .eq('id', contract.id)
+      .eq('status', 'pending_customer')
+      .gt('token_expires_at', customerSignedAt)
+      .select('id')
+
+    if (updateError) {
+      console.error('Error updating contract:', updateError)
+      return NextResponse.json(
+        { error: 'Failed to sign contract' },
+        { status: 500 }
+      )
+    }
+
+    if (!claimed || claimed.length === 0) {
+      // Lost the race (or the link expired / the contract was voided between the read and the write): say what it is now.
+      const { data: now } = await supabase.from('order_form_contracts').select('*').eq('id', contract.id).maybeSingle()
+      if (now?.status === 'completed') return alreadySignedResponse(supabase, now, token)
+      if (now?.status === 'voided') {
+        return NextResponse.json({ error: 'Contract has been voided' }, { status: 400 })
+      }
+      if (now && new Date(now.token_expires_at) < new Date()) {
+        return NextResponse.json({ error: 'Contract signing link has expired' }, { status: 400 })
+      }
+      return NextResponse.json({ error: 'This contract is not open for signing' }, { status: 409 })
+    }
+
+    // Everything after the saved signature. If this request dies from here on, the next call on the link finishes
+    // whatever is missing (alreadySignedResponse → finishSignedContract); a completed contract is never reopened.
+    const result = await finishSignedContract(supabase, token)
+
+    console.log('[Contract Sign] Complete. PDF URL:', result.pdfUrl, 'Email sent:', result.emailSent, 'Project ID:', result.projectId)
+
+    // The signing page links relative to itself, so it keeps a download link even with no app address configured.
+    return NextResponse.json({ success: true, ...result })
   } catch (error) {
     console.error('Contract sign error:', error)
     return NextResponse.json(

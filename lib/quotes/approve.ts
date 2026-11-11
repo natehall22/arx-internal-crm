@@ -303,11 +303,12 @@ export async function finalizeApproval(admin: SupabaseClient, orgId: string, app
     // A COMPLETED contract is never reopened (it would drop out of sales and payroll, overwrite customer_signed_at, re-send the
     // sale email, and a lease expiry could then make a second job). The signing route marks a contract completed BEFORE it
     // makes the project and job; if it stopped in between, the contract reads completed with no job. The one recovery is the
-    // signing route's own idempotent "finish what is missing" call on the SAME token (fix/signing-safety: project/job, won,
-    // voiding, commission base, PDF, email — never touching status or the signed fields). The per-approval lease taken above
+    // signing route's own idempotent "finish what is missing" call on the SAME token (project/job, won, voiding, commission
+    // base — never touching status or the signed fields; a quote approval makes no roofing PDF and sends no contract email). The per-approval lease taken above
     // is the lock; the job is re-checked right before the call, so no second job is ever made from here.
-    // TODO(fix/signing-safety): until that route change is merged the route answers 400 "already signed" and finishes
-    // nothing — the retry then fails with "the job was not created" and the office sees it on the approval card.
+    // The route finishes a completed-but-unfinished contract (finishSignedContract, CLAUDE.md "Signing safety") only once its own
+    // 2-minute lease is stale; inside that window it answers 200 and does nothing, and the check below makes this attempt fail
+    // ("the job was not created") so the next retry — after the lease — completes it.
     const jobExists = async () => ((await db.from('production_jobs').select('id').eq('accepted_proposal_id', proposal.id).limit(1)).data ?? []).length > 0
     if (contract.status !== 'completed' || (!approval.job_id && !(await jobExists()))) {
       const res = await signContract(
@@ -318,8 +319,7 @@ export async function finalizeApproval(admin: SupabaseClient, orgId: string, app
         })
       )
       const body = (await res.json().catch(() => ({}))) as { error?: string; projectCreateError?: string | null }
-      const alreadySigned = contract.status === 'completed' && !res.ok && /already been signed/i.test(body.error ?? '')
-      if (!res.ok && !alreadySigned) throw new Error(`signing: ${body.error ?? res.status}`)
+      if (!res.ok) throw new Error(`signing: ${body.error ?? res.status}`)
       // The route answers 200 even when the project/job step failed; that is a failure here so the retry finishes it.
       if (body.projectCreateError) throw new Error(`job setup: ${body.projectCreateError}`)
     }

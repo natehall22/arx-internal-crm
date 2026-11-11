@@ -81,6 +81,7 @@ import { loadOrgFeatures } from '@/lib/org-features'
 import { resolveOrgProfile, t } from '@/lib/org-profile'
 import { daysBetweenYmd, ymdInZone } from '@/lib/payroll-week-schedule'
 import { SERVICE_STEP, SERVICE_VISIT_TYPE } from '@/lib/service-plans'
+import { signingTokenOf } from '@/lib/signing-tokens'
 import { orgDb } from '@/lib/supabase/org-db'
 import { isMissingColumn, isMissingTable } from '@/lib/supabase/errors'
 import { orgTimeZone } from '@/lib/timezone'
@@ -777,13 +778,13 @@ async function buildQuoteFollowUp(ctx: SendContext, row: MessageRow): Promise<Bu
   // A signing link already sent for this quote (still waiting) is the button; otherwise "reply to this email".
   const { data: contract } = await orgDb(ctx.admin, ctx.orgId)
     .from('order_form_contracts')
-    .select('signing_token')
+    .select('signing_token, signing_token_enc')
     .eq('proposal_id', proposalId)
     .eq('status', 'pending_customer')
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle()
-  const token = (contract as { signing_token: string | null } | null)?.signing_token
+  const token = signingTokenOf(contract as { signing_token: string | null; signing_token_enc: string | null } | null)
   const signUrl = token ? `${ctx.appUrl}/contracts/sign/${token}` : null
   return {
     send: true,

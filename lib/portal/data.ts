@@ -6,6 +6,7 @@
  *    commission, other customers never leave this file.
  *  - Output types are plain view shapes; the page and the JSON routes render only these.
  */
+import { signingTokenOf } from '@/lib/signing-tokens'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { loadOrgTimeZone } from '@/lib/cron-orgs'
@@ -139,8 +140,8 @@ export async function loadPortalHome(admin: SupabaseClient, s: PortalSession): P
   // ---- quotes / contracts waiting to be signed, and signed copies ----
   let contracts: PortalContract[] = []
   if (ids.oppIds.length) {
-    const rows = await soft<{ id: string; project_address: string; project_cost: number | null; status: string; signing_token: string; token_expires_at: string; created_at: string }>('contracts', () =>
-      db.from('order_form_contracts').select('id, project_address, project_cost, status, signing_token, token_expires_at, created_at').in('opportunity_id', ids.oppIds.slice(0, CHUNK)).in('status', ['pending_customer', 'completed']).order('created_at', { ascending: false }).limit(MAX.contracts)
+    const rows = await soft<{ id: string; project_address: string; project_cost: number | null; status: string; signing_token: string | null; signing_token_enc: string | null; token_expires_at: string; created_at: string }>('contracts', () =>
+      db.from('order_form_contracts').select('id, project_address, project_cost, status, signing_token, signing_token_enc, token_expires_at, created_at').in('opportunity_id', ids.oppIds.slice(0, CHUNK)).in('status', ['pending_customer', 'completed']).order('created_at', { ascending: false }).limit(MAX.contracts)
     )
     contracts = rows.map((c) => {
       const signed = c.status === 'completed'
@@ -150,8 +151,8 @@ export async function loadPortalHome(admin: SupabaseClient, s: PortalSession): P
         address: c.project_address,
         totalCents: money(c.project_cost),
         state: signed ? 'signed' : live ? 'to_sign' : 'link_expired',
-        signUrl: !signed && live ? `/contracts/sign/${c.signing_token}` : null,
-        downloadUrl: signed ? `/api/files/signed/contract/${c.signing_token}` : null,
+        signUrl: !signed && live && signingTokenOf(c) ? `/contracts/sign/${signingTokenOf(c)}` : null,
+        downloadUrl: signed && signingTokenOf(c) ? `/api/files/signed/contract/${signingTokenOf(c)}` : null,
         date: c.created_at,
       }
     })

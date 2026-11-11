@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic'
 
 import { createServiceClient } from '@/lib/supabase/service'
 import { getDocumentBrand } from '@/lib/org-brand'
+import { findBySigningTokenOnThisHost } from '@/lib/signing-fence'
 import CustomerSigningForm from './CustomerSigningForm'
 
 export default async function ChangeOrderSigningPage({
@@ -11,11 +12,12 @@ export default async function ChangeOrderSigningPage({
 }) {
   const supabase = createServiceClient()
 
-  const { data: changeOrder } = await supabase
-    .from('job_change_orders')
-    .select('id, org_id, co_number, description, customer_print_name, status, token_expires_at, updated_total')
-    .eq('signing_token', params.token)
-    .single()
+  const changeOrder = await findBySigningTokenOnThisHost(
+    supabase,
+    'change-order',
+    params.token,
+    'id, org_id, co_number, description, customer_print_name, status, token_expires_at, updated_total'
+  )
 
   if (!changeOrder) {
     return (
@@ -28,7 +30,7 @@ export default async function ChangeOrderSigningPage({
     )
   }
 
-  if (changeOrder.token_expires_at && new Date(changeOrder.token_expires_at) < new Date()) {
+  if (!changeOrder.token_expires_at || new Date(changeOrder.token_expires_at) < new Date()) {
     const brand = await getDocumentBrand(supabase, changeOrder.org_id)
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
@@ -51,5 +53,5 @@ export default async function ChangeOrderSigningPage({
     )
   }
 
-  return <CustomerSigningForm changeOrder={changeOrder} token={params.token} />
+  return <CustomerSigningForm changeOrder={changeOrder as never} token={params.token} />
 }
