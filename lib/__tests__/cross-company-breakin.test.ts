@@ -146,7 +146,11 @@ beforeAll(() => {
   jest.spyOn(console, 'warn').mockImplementation(() => undefined)
   jest.spyOn(console, 'info').mockImplementation(() => undefined)
 })
-afterAll(() => { global.fetch = realFetch })
+afterAll(() => {
+  global.fetch = realFetch
+  delete process.env.APP_BASE_DOMAIN
+  __resetCompanyHostCacheForTests()
+})
 
 /**
  * Routes this suite does not exercise, with why and what reading the code showed. Everything else is called.
