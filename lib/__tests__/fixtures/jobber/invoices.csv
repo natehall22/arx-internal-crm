@@ -1,0 +1,4 @@
+Invoice #,Client name,Client email,Service street,Service city,Service state/province,Service ZIP/postal code,Subject,Created date,Issued date,Due date,Marked paid date,Job #s,Status,Line items,Total ($),Tip ($),Balance ($),Tax (%),Deposit ($),Discount ($),Tax amount ($)
+1042,Jane Smith,jane@example.com,12 Oak St,Crawfordville,Florida,32327,October mowing,01/11/2025,01/11/2025,15/11/2025,,7,Awaiting Payment,"Weekly mowing (4, $180.00), Edging (1, $15.00)",$195.00,$0.00,$95.00,0,$0.00,$0.00,$0.00
+1043,Wakulla HOA,board@wakullahoa.org,1 Club Dr,Crawfordville,FL,32327,Cleanup,02/11/2025,02/11/2025,16/11/2025,05/11/2025,,Paid,"Leaf cleanup (1, $400.00)","$428.00",$0.00,$0.00,7,$0.00,$0.00,$28.00
+1044,Someone New,new@example.com,5 Bay Ln,Panacea,FL,32346,Pressure wash,03/11/2025,,,,,Draft,Soft wash house,$250.00,,$250.00,,,,

@@ -21,6 +21,7 @@
 -- 5. import_undo_row() / import_revert_row(): undo ONE row atomically — deleted only if every value the import wrote is
 --    still there AND nothing outside the import points at it (any foreign key, found from the catalog, so a table added
 --    later is covered); an updated row is put back only if it still holds exactly what the import wrote.
+-- 6. property_address_keys(): THE same-address rule for a whole list in one call (Check screen).
 --
 -- Rollback (nothing else depends on it): drop the three functions + import_* tables; drop the import_source columns and
 -- their unique indexes; drop paid_outside_cents after restoring record_customer_invoice_payment and
@@ -328,6 +329,16 @@ begin
 end;
 $$;
 
+-- ---- 6. "same address" for a list, in one call ----------------------------------------------------------------------
+-- The Check screen compares hundreds of Jobber addresses with properties on file: it asks THE rule
+-- (property_address_key, migration 202611110010) for all of them at once instead of copying it into TypeScript.
+create or replace function public.property_address_keys(p text[]) returns text[]
+language sql immutable parallel safe as $$
+  select coalesce(array_agg(public.property_address_key(a) order by i), '{}') from unnest(p) with ordinality as t(a, i)
+$$;
+
+revoke all on function public.property_address_keys(text[]) from public, anon, authenticated;
+grant execute on function public.property_address_keys(text[]) to service_role;
 revoke all on function public.import_run_claim(uuid, uuid, integer) from public, anon, authenticated;
 revoke all on function public.import_undo_row(uuid, text, uuid, jsonb, text[]) from public, anon, authenticated;
 revoke all on function public.import_revert_row(uuid, text, uuid, jsonb, jsonb) from public, anon, authenticated;
