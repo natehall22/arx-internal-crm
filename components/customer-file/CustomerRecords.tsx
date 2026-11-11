@@ -1,4 +1,5 @@
 import CustomFieldsCard from '@/components/custom-fields/CustomFieldsCard'
+import { isOrgFeatureOn } from '@/lib/org-features-server'
 import CustomerDocumentsCard from '@/components/customer-file/CustomerDocumentsCard'
 import PropertiesCard from '@/components/customer-file/PropertiesCard'
 import ServicePlansCard from '@/components/service-plans/ServicePlansCard'
@@ -34,5 +35,6 @@ export function CustomerRecords({ customerId, extras }: { customerId: string; ex
 export async function CustomerDocuments({ customerId, orgId, extras }: { customerId: string; orgId: string; extras: CustomerExtras }) {
   if (!extras.access.documents) return null
   const docs = await loadCustomerDocuments(createServiceClient(), orgId, customerId)
-  return <CustomerDocumentsCard customerId={customerId} initial={docs} canUpload={extras.access.editDocuments} properties={extras.propertyOptions} />
+  const portalOn = await isOrgFeatureOn(orgId, 'customerPortal')
+  return <CustomerDocumentsCard customerId={customerId} initial={docs} canUpload={extras.access.editDocuments} properties={extras.propertyOptions} portalOn={portalOn} />
 }

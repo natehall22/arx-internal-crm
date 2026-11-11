@@ -64,7 +64,8 @@ describe('5. reports: one rule for the list and every run (screen, CSV, schedule
     expect(datasetOffered(ctx({ ...DEFAULT_ORG_FEATURES, roofMeasure: false }), 'sales')).toBe(true)
   })
   it('the list (GET) uses the same datasetOffered rule', () => {
-    expect(src('app/api/reports/run/route.ts')).toMatch(/\.filter\(\(d\) => datasetOffered\(ctx, d\.key\)\)/)
+    expect(src('lib/reporting/offered.ts')).toMatch(/\.filter\(\(d\) => datasetOffered\(ctx, d\.key\)\)/)
+    expect(src('app/api/reports/run/route.ts')).toMatch(/offeredDatasets/)
   })
 })
 

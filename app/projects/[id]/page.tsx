@@ -276,6 +276,7 @@ export default async function ProjectDetailPage({
       .from('job_change_orders')
       .select('id, co_number, signed_at, updated_total, pdf_url, pdf_storage_path, status, signing_token, customer_signed_at')
       .eq('project_id', params.id)
+      .neq('status', 'voided') // replaced or cancelled unsigned change orders (project tools) are not part of the contract
       .order('created_at', { ascending: true })
 
     if (coData) {

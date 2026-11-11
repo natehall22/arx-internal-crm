@@ -423,7 +423,7 @@ describe('quote follow-ups', () => {
       order_form_contracts: [{ id: 'k1', org_id: ORG, proposal_id: 'q1', status: 'pending_customer', signing_token: 'sig-123', created_at: '2026-11-08T16:00:00Z' }],
     })
     // The company's own word for a quote (industry profile): lawn & landscape says "Quote", roofing "Proposal".
-    ;((db.tables.orgs[0] as { settings: Record<string, unknown> }).settings).profile = { id: 'lawn_landscape', version: 2 }
+    ;((db.tables.orgs[0] as { settings: Record<string, unknown> }).settings).profile = { id: 'lawn_landscape', version: 3 }
     await runCustomerMessagesForOrg(admin(db), ORG, MORNING)
     expect(sends[0].subject).toBe('Following up on your quote #1042')
     expect(sends[0].text).toContain('https://precision.example.com/contracts/sign/sig-123')

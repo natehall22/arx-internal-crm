@@ -25,14 +25,15 @@ type Payload = {
 }
 
 const AT_TAIL = new RegExp("@([\\p{L}' -]{0,30})$", 'u')
-const AUDIENCE_LABEL: Record<Audience, string> = { team: 'Team', sales: 'Sales', production: 'Production', crew: 'Crew' }
+const AUDIENCE_LABEL: Record<Audience, string> = { team: 'Team', sales: 'Sales', production: 'Production', crew: 'Crew', customer: 'To customer' }
 const AUDIENCE_HINT: Record<Audience, string> = {
   team: 'Everyone on this deal',
   sales: 'The sales side. Ops can look it up.',
   production: 'Ops, owners and the closer. Never setters.',
   crew: 'Crew will see this on their link',
+  customer: 'Emailed to the customer and shown in their account',
 }
-const AUDIENCE_TONE: Record<Audience, 'neutral' | 'info' | 'warning' | 'accent'> = { team: 'neutral', sales: 'accent', production: 'info', crew: 'warning' }
+const AUDIENCE_TONE: Record<Audience, 'neutral' | 'info' | 'warning' | 'accent'> = { team: 'neutral', sales: 'accent', production: 'info', crew: 'warning', customer: 'warning' }
 
 /** Newest-first union by id (a poll refreshes the head; older pages stay). */
 function mergeMessages(head: ThreadMessage[], rest: ThreadMessage[]): ThreadMessage[] {
@@ -290,7 +291,9 @@ function Composer({ dealId, data, replyTo, onClearReply, onSent }: { dealId: str
   const clientId = useRef<string>(crypto.randomUUID())
 
   useEffect(() => { if (data.writable.includes(data.defaultAudience)) setAudience(data.defaultAudience) }, [data.defaultAudience]) // eslint-disable-line react-hooks/exhaustive-deps -- only when the server's default changes, never on a poll
-  const effective = replyTo?.audience && data.writable.includes(replyTo.audience) ? replyTo.audience : audience
+  useEffect(() => { if (replyTo?.audience === 'customer') setAudience('team') }, [replyTo?.id]) // eslint-disable-line react-hooks/exhaustive-deps -- replying to a customer message starts as Team; "To customer" is picked on purpose
+  const locked = !!replyTo?.audience && replyTo.audience !== 'customer' // a reply keeps its thread's audience, except customer: that is picked on purpose
+  const effective = locked && replyTo?.audience && data.writable.includes(replyTo.audience) ? replyTo.audience : audience
   useEffect(() => {
     fetch(`/api/threads/${dealId}/mentionable?audience=${effective}`).then((r) => (r.ok ? r.json() : { users: [] })).then((j) => setPeople(j.users ?? [])).catch(() => setPeople([]))
   }, [dealId, effective])
@@ -326,7 +329,7 @@ function Composer({ dealId, data, replyTo, onClearReply, onSent }: { dealId: str
       {replyTo && <p className="mb-1 text-ui-sm text-ink-muted">Replying to {replyTo.author_name} <button type="button" onClick={onClearReply} className="min-h-tap px-2 underline">Cancel</button></p>}
       <div className="mb-2 flex flex-wrap items-center gap-2">
         <label className="sr-only" htmlFor="aud">Audience</label>
-        <select id="aud" value={effective} disabled={!!replyTo?.audience} onChange={(e) => setAudience(e.target.value as Audience)} className="min-h-tap rounded-ui border border-surface-line bg-surface px-2 text-ui-base text-ink">
+        <select id="aud" value={effective} disabled={locked} onChange={(e) => setAudience(e.target.value as Audience)} className="min-h-tap rounded-ui border border-surface-line bg-surface px-2 text-ui-base text-ink">
           {data.writable.map((a) => <option key={a} value={a}>{AUDIENCE_LABEL[a]}</option>)}
         </select>
         <select aria-label="Priority" value={priority} onChange={(e) => setPriority(e.target.value as typeof priority)} className="min-h-tap rounded-ui border border-surface-line bg-surface px-2 text-ui-base text-ink">
@@ -336,6 +339,7 @@ function Composer({ dealId, data, replyTo, onClearReply, onSent }: { dealId: str
         </select>
         <span className="text-ui-sm text-ink-muted">{AUDIENCE_HINT[effective]}</span>
       </div>
+      {effective === 'customer' && <p className="mb-2 rounded-ui bg-amber-50 p-2 text-ui-sm font-semibold text-ink">The customer gets this by email and can read it in their account. Nothing internal, please.</p>}
       {effective === 'crew' && <p className="mb-2 rounded-ui bg-amber-50 p-2 text-ui-sm font-semibold text-ink">👷 Crew will see this on their link. No prices.</p>}
       {pricing && (
         <p className="mb-2 rounded-ui bg-amber-50 p-2 text-ui-sm text-ink">

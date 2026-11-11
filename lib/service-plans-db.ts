@@ -9,6 +9,7 @@
  * morning cron, on Visits page loads and after every plan save. History (done / skipped / cancelled visits, and any
  * visit today or earlier) is never rewritten.
  */
+import { createHash } from 'crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { loadOrgTimeZone } from '@/lib/cron-orgs'
@@ -1596,33 +1597,122 @@ async function createFollowUpVisit(
   if (error) throw error
 }
 
-/**
- * The rain / hurricane button: move every SCHEDULED visit sitting on [from, to] (optionally one crew's, or the
- * unassigned ones) by `days`. Done / skipped visits stay where they happened. The planned slot is unchanged, so the
- * generator never puts a moved visit back. Returns how many moved.
- */
-export async function bulkShiftVisits(admin: SupabaseClient, orgId: string, s: BulkShift): Promise<{ moved: number }> {
+/** One query for "which visits does this shift touch": scheduled service visits on [from, to], one crew's / unassigned / all. */
+async function selectShiftVisits(admin: SupabaseClient, orgId: string, s: BulkShift) {
   const db = orgDb(admin, orgId)
   let q = db
     .from('work_orders')
-    .select('id, scheduled_date')
+    .select('id, scheduled_date, title, address, assigned_sub_id, customer_id')
     .eq('work_order_type', SERVICE_VISIT_TYPE)
     .eq('status', 'scheduled')
     .gte('scheduled_date', s.from)
     .lte('scheduled_date', s.to)
   if (s.subId === null) q = q.is('assigned_sub_id', null)
   else if (s.subId !== 'all') q = q.eq('assigned_sub_id', s.subId)
-  const { data, error } = await q.limit(5000)
+  const { data, error } = await q.order('scheduled_date').order('id').limit(5000)
   if (error) throw error
+  return (data ?? []) as Array<{ id: string; scheduled_date: string; title: string | null; address: string | null; assigned_sub_id: string | null; customer_id: string | null }>
+}
+
+export type ShiftPreview = {
+  /** Fingerprint of the exact visits that would move (ids, order-free). The move must send it back: a different set = refused. */
+  selectionKey: string
+  /** Visits that will move (scheduled only). */
+  count: number
+  /** Where they land: new day → how many. */
+  landing: Array<{ day: string; count: number }>
+  /** First visits, for the "is this right?" glance (staff screen: customer + address are fine). */
+  sample: Array<{ id: string; from: string; to: string; what: string; customer: string | null; crew: string | null }>
+  /** Visits in the same days and crew that stay put: done / skipped (history) — billed visits are always done. */
+  staying: { done: number; skipped: number }
+  /** Visits that would land before today: the shift is refused while any would. */
+  intoPast: number
+}
+
+/** Order-free fingerprint of a set of visit ids (the preview's selection == the move's selection). */
+export function shiftSelectionKey(ids: readonly string[]): string {
+  return createHash('sha256').update([...ids].sort().join(',')).digest('hex').slice(0, 32)
+}
+
+/**
+ * Preview of the rain / hurricane button — the SAME selection the move uses, so what you see is what moves. Writes nothing.
+ */
+export async function previewBulkShift(admin: SupabaseClient, orgId: string, s: BulkShift, now = new Date()): Promise<ShiftPreview> {
+  const db = orgDb(admin, orgId)
+  const today = ymdInZone(now, await loadOrgTimeZone(admin, orgId))
+  const rows = await selectShiftVisits(admin, orgId, s)
+  const landing = new Map<string, number>()
+  for (const r of rows) {
+    const to = addDaysYmd(r.scheduled_date, s.days)
+    landing.set(to, (landing.get(to) ?? 0) + 1)
+  }
+  const head = rows.slice(0, 8)
+  const crewIds = Array.from(new Set(head.map((r) => r.assigned_sub_id).filter((x): x is string => !!x)))
+  const custIds = Array.from(new Set(head.map((r) => r.customer_id).filter((x): x is string => !!x)))
+  const [crews, custs] = await Promise.all([
+    crewIds.length ? db.from('sub_contractors').select('id, company_name').in('id', crewIds) : Promise.resolve({ data: [] as unknown[] }),
+    custIds.length ? db.from('customers').select('id, name').in('id', custIds) : Promise.resolve({ data: [] as unknown[] }),
+  ])
+  const crewName = new Map(((crews.data ?? []) as Array<{ id: string; company_name: string | null }>).map((c) => [c.id, c.company_name ?? 'Crew']))
+  const custName = new Map(((custs.data ?? []) as Array<{ id: string; name: string | null }>).map((c) => [c.id, c.name ?? 'Customer']))
+  const closed = async (status: 'completed' | 'skipped') => {
+    let q = db
+      .from('work_orders')
+      .select('id', { count: 'exact', head: true })
+      .eq('work_order_type', SERVICE_VISIT_TYPE)
+      .eq('status', status)
+      .gte('scheduled_date', s.from)
+      .lte('scheduled_date', s.to)
+    if (s.subId === null) q = q.is('assigned_sub_id', null)
+    else if (s.subId !== 'all') q = q.eq('assigned_sub_id', s.subId)
+    const { count, error } = await q
+    if (error) throw error
+    return count ?? 0
+  }
+  const [done, skipped] = await Promise.all([closed('completed'), closed('skipped')])
+  return {
+    selectionKey: shiftSelectionKey(rows.map((r) => r.id)),
+    count: rows.length,
+    landing: Array.from(landing.entries()).sort(([a], [b]) => a.localeCompare(b)).map(([day, count]) => ({ day, count })),
+    sample: head.map((r) => ({ id: r.id, from: r.scheduled_date, to: addDaysYmd(r.scheduled_date, s.days), what: r.title ?? 'Visit', customer: r.customer_id ? custName.get(r.customer_id) ?? null : null, crew: r.assigned_sub_id ? crewName.get(r.assigned_sub_id) ?? null : null })),
+    staying: { done, skipped },
+    intoPast: rows.filter((r) => addDaysYmd(r.scheduled_date, s.days) < today).length,
+  }
+}
+
+/**
+ * The rain / hurricane button: move every SCHEDULED visit sitting on [from, to] (optionally one crew's, or the
+ * unassigned ones) by `days`. Done / skipped visits (and so every billed visit) stay where they happened. The planned slot
+ * is unchanged, so the generator never puts a moved visit back. The patch is the single "move" rule (visitPatch). Crew
+ * phone links and customer reminders read scheduled_date, so they follow with no extra write.
+ * `expectKey` (the preview's selectionKey) refuses the move when the exact set of visits has changed since — preview again.
+ * A move that would put a visit before today is refused. Returns how many moved.
+ */
+export async function bulkShiftVisits(
+  admin: SupabaseClient,
+  orgId: string,
+  s: BulkShift,
+  opts: { expectKey?: string; now?: Date } = {}
+): Promise<{ moved: number } | { error: string; status: 409 | 400 }> {
+  const db = orgDb(admin, orgId)
+  const now = opts.now ?? new Date()
+  const rows = await selectShiftVisits(admin, orgId, s)
+  if (opts.expectKey !== undefined && shiftSelectionKey(rows.map((r) => r.id)) !== opts.expectKey)
+    return { error: 'The visits on those days changed since the preview — preview again', status: 409 }
+  const today = ymdInZone(now, await loadOrgTimeZone(admin, orgId))
+  if (rows.some((r) => addDaysYmd(r.scheduled_date, s.days) < today)) return { error: 'That would move visits to a day that already passed', status: 400 }
   const byDay = new Map<string, string[]>()
-  for (const r of (data ?? []) as Array<{ id: string; scheduled_date: string }>) byDay.set(r.scheduled_date, [...(byDay.get(r.scheduled_date) ?? []), r.id])
+  for (const r of rows) byDay.set(r.scheduled_date, [...(byDay.get(r.scheduled_date) ?? []), r.id])
   let moved = 0
   // One update per source day. Every row in it moves to the same new day; status re-checked at write time.
   for (const [day, ids] of Array.from(byDay.entries())) {
+    const to = addDaysYmd(day, s.days)
+    const patch = visitPatch({ status: 'scheduled', scheduled_date: day }, { action: 'move', date: to }, { userId: null, subId: null }, now)
+    if ('error' in patch) return { error: patch.error as string, status: 400 }
     for (let i = 0; i < ids.length; i += 200) {
       const { data: done, error: uErr } = await db
         .from('work_orders')
-        .update({ scheduled_date: addDaysYmd(day, s.days) })
+        .update(patch)
         .in('id', ids.slice(i, i + 200))
         .eq('status', 'scheduled')
         .eq('scheduled_date', day)
