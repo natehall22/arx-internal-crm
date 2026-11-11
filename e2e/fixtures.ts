@@ -914,3 +914,30 @@ export const HARNESS_HOURLY_SETTINGS = {
   settings: { rounding: 'up15', minimumHours: 2, travel: 'trip_charge', tripChargeItemId: 'pb-trip', basis: 'person', equipmentFromOperator: true },
   tripChoices: [{ id: 'pb-trip', name: 'Trip charge', rateCents: 3500 }],
 }
+
+// Purchase orders (components/ops/PurchaseOrdersCard.tsx)
+export const PO_VENDORS = [
+  { id: 'pv1', name: 'Gravel Guys Hauling', vendorType: 'sub', email: 'orders@gravelguys-hauling.example.test', phone: null, trades: ['hauling'], connectionType: 'email', lastUsedAt: '2026-11-01T12:00:00Z' },
+  { id: 'pv2', name: 'Concord Lumber Supply', vendorType: 'supplier', email: 'orders@concord-lumber.example.test', phone: null, trades: [], connectionType: 'email', lastUsedAt: null },
+]
+const PO_LINE = { id: 'pl1', position: 0, description: 'Dumpster haul-off, 30 yd', quantity: 2, unit: 'ea', unitCostCents: 45000, costType: 'dump', costCode: null, pricebookItemId: null, receivedQuantity: 0 }
+export const PO_LIST = {
+  orders: [
+    {
+      id: 'po1', kind: 'general', vendorId: 'pv1', vendorName: 'Gravel Guys Hauling', vendorType: 'sub', poNumber: '26-0042-B', revision: 0, label: '26-0042-B', status: 'sent', title: null,
+      date: '2026-11-20', dateKind: 'start', address: '12 Elm Street, Concord NC 28025', note: null, jobId: 'job-1', workOrderId: null, lines: [PO_LINE], totalCents: 90000, billedCents: 0, bills: [],
+      firstSentAt: '2026-11-10T12:00:00Z', lastSentAt: '2026-11-10T12:00:00Z', lastSentTo: 'orders@gravelguys-hauling.example.test', acknowledgedAt: null, acknowledgedBy: null, receivedAt: null, changedSinceSent: false,
+    },
+  ],
+  vendors: PO_VENDORS,
+  canEdit: true, canBill: true, showMoney: true,
+  target: { reference: '26-0042', address: '12 Elm Street, Concord NC 28025', scheduledDate: '2026-11-20', cancelled: false, jobId: 'job-1', workOrderId: null },
+}
+export const PO_PREVIEW = {
+  preview: {
+    vendorName: 'Concord Lumber Supply', kind: 'order', poLabel: '26-0042-C', to: 'orders@concord-lumber.example.test', cc: ['crm@green.example.test'], subject: 'Purchase order 26-0042-C',
+    body: 'Hi Concord Lumber Supply,\n\nPlease see the attached purchase order 26-0042-C for job 26-0042.\n\nPlease confirm you have it: https://crm.example.test/po/abc', changes: [], totalCents: 12000, lineCount: 1,
+    confirmMessage: null, blockers: [], previewToken: 'tok', sendButtonLabel: 'Send to Concord Lumber Supply', hasPdf: true,
+  },
+}
+export const PO_DRAFT_SAVED = { ok: true, id: 'po2', created: true }

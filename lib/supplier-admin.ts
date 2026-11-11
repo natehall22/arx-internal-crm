@@ -20,6 +20,13 @@ export type SupplierInput = {
   default_delivery_notes: string | null
   default_for_trades: string[]
   connection_type: 'email' | 'api'
+  /** Vendor directory (migration 202611120090). Left out of the save when the form did not send them — the stored value stays. */
+  vendor_type?: 'supplier' | 'sub' | 'both'
+  phone?: string | null
+  contact_name?: string | null
+  trades?: string[]
+  /** Only when creating a vendor from an existing subcontractor. */
+  sub_contractor_id?: string | null
 }
 
 export const SUPPLIER_FIELD_LABELS: Record<keyof SupplierInput, string> = {
@@ -32,6 +39,11 @@ export const SUPPLIER_FIELD_LABELS: Record<keyof SupplierInput, string> = {
   default_delivery_notes: 'Delivery notes',
   default_for_trades: 'Default for trades',
   connection_type: 'How orders are sent',
+  vendor_type: 'Type',
+  phone: 'Phone',
+  contact_name: 'Contact',
+  trades: 'Trades',
+  sub_contractor_id: 'Subcontractor',
 }
 
 const clean = (v: unknown, max: number): string | null =>
@@ -60,9 +72,24 @@ export function parseSupplierInput(b: Record<string, unknown> | null): { ok: tru
   if (trades.some((t) => !/^[a-z0-9 _-]{1,40}$/.test(t))) return { ok: false, error: 'Trades use letters and numbers only' }
 
   const connection = b.connection_type === 'api' ? 'api' : 'email'
+
+  const extra: Partial<SupplierInput> = {}
+  if (b.vendor_type !== undefined) {
+    if (b.vendor_type !== 'supplier' && b.vendor_type !== 'sub' && b.vendor_type !== 'both') return { ok: false, error: 'Pick supplier, subcontractor or both.' }
+    extra.vendor_type = b.vendor_type
+  }
+  if ('phone' in b) extra.phone = clean(b.phone, 40)
+  if ('contact_name' in b) extra.contact_name = clean(b.contact_name, 120)
+  if (Array.isArray(b.trades)) {
+    const vt = Array.from(new Set(b.trades.map((t) => String(t).trim().toLowerCase()).filter(Boolean))).slice(0, 20)
+    if (vt.some((t) => !/^[a-z0-9 _-]{1,40}$/.test(t))) return { ok: false, error: 'Trades use letters and numbers only' }
+    extra.trades = vt
+  }
+  if (typeof b.sub_contractor_id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(b.sub_contractor_id)) extra.sub_contractor_id = b.sub_contractor_id
   return {
     ok: true,
     value: {
+      ...extra,
       name,
       active: b.active !== false,
       order_email: rawEmail || null,

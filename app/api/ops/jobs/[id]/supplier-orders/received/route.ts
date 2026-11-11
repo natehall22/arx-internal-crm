@@ -26,13 +26,14 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
   if (!body?.vendorId || typeof body.received !== 'boolean') return NextResponse.json({ error: 'vendorId and received are required' }, { status: 400 })
 
   const orgId = ctx.profile.org_id
-  const { data: order } = await ctx.admin
+  // The MATERIALS order (a general purchase order to the same vendor may share the job — it is received on its own screen).
+  const { data: orderRows } = await ctx.admin
     .from('supplier_orders')
-    .select('id, status')
+    .select('*')
     .eq('org_id', orgId)
     .eq('job_id', params.id)
     .eq('vendor_id', body.vendorId)
-    .maybeSingle()
+  const order = ((orderRows ?? []) as { id: string; status: string; kind?: string | null }[]).find((o) => (o.kind ?? 'materials') === 'materials') ?? null
   if (!order) return NextResponse.json({ error: 'Order not found' }, { status: 404 })
   if (order.status !== 'sent') return NextResponse.json({ error: 'Only an order that was sent can be marked received' }, { status: 409 })
 

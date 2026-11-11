@@ -41,6 +41,7 @@ import SoldScopeCard from '@/components/ops/SoldScopeCard'
 import { noteMentionHighlightRegex } from '@/lib/note-mentions'
 import JobMaterialsCard from '@/components/ops/JobMaterialsCard'
 import SupplierOrdersCard from '@/components/ops/SupplierOrdersCard'
+import PurchaseOrdersCard from '@/components/ops/PurchaseOrdersCard'
 import JobRoofingBrief from '@/components/ops/JobRoofingBrief'
 import { type JobSoldScope } from '@/components/ops/JobSoldScopeSummary'
 import MaterialsOrderCard from '@/components/ops/MaterialsOrderCard'
@@ -2267,6 +2268,7 @@ export default function JobDetailClient({
                 />
               ) : null}
               <SupplierOrdersCard jobId={job.id} onState={setMaterialsState} onChanged={() => void reloadJob()} />
+              <PurchaseOrdersCard jobId={job.id} onChanged={() => void reloadJob()} />
               {!v2 && jobMaterialsCard}
             </div>
 
