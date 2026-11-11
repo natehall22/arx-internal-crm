@@ -79,6 +79,7 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
     items: [
       { title: 'Company settings', description: 'Workflows, dispositions and system options', href: '/admin/settings', access: 'leadership' },
       { title: 'Industry profile', description: 'Your type of business: sets the starting features, trades, words and menu (owners only)', href: '/admin#industry-profile', access: 'superAdmin', keywords: 'roofing lawn landscape cleaning builder template industry terminology' },
+      { title: 'Move from Jobber', description: 'Bring customers, properties, plans, invoices and your price book over from Jobber (owners only)', href: '/admin/import/jobber', access: 'superAdmin', keywords: 'import migrate csv export switch move jobber clients data' },
       { title: 'Custom fields', description: 'Your own fields on customers, properties and jobs (owners only)', href: '/admin/custom-fields', access: 'superAdmin', keywords: 'contact fields project fields work order fields extra gate code dropdown required' },
       { title: 'Features', description: 'Turn whole parts of the app on or off for your company (owners only)', href: '/admin#features', access: 'superAdmin', keywords: 'canvass insurance roof measure sisu incentives squares switch hide' },
       { title: 'Dashboard settings', description: 'What shows on each dashboard', href: '/admin/dashboard-settings', access: 'leadership' },

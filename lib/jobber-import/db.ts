@@ -51,7 +51,7 @@ export type RunRow = {
   created_by: string
   created_at: string
 }
-export type RunFileInfo = { id: string; name: string; kind: JobberFileKind; headers: string[]; row_count: number }
+export type RunFileInfo = { id: string; name: string; kind: JobberFileKind | 'unknown'; headers: string[]; row_count: number; first_row?: string[] | null }
 export type Progress = { total: number; pending: number; done: number; failed: number; skipped: number; undone: number; kept: number }
 
 type Fail = { ok: false; status: number; error: string }
@@ -98,7 +98,7 @@ export async function loadRun(admin: SupabaseClient, orgId: string, runId: strin
 }
 
 export async function loadRunFiles(admin: SupabaseClient, orgId: string, runId: string, withRows = false): Promise<Array<RunFileInfo & { rows?: string[][] }>> {
-  const cols = withRows ? 'id, name, kind, headers, row_count, rows' : 'id, name, kind, headers, row_count'
+  const cols = withRows ? 'id, name, kind, headers, row_count, rows' : 'id, name, kind, headers, row_count, first_row:rows->0'
   const { data, error } = await orgDb(admin, orgId).from('import_run_files').select(cols).eq('run_id', runId).order('created_at')
   if (error) throw new Error(`jobber import: files: ${error.message}`)
   return (data ?? []) as Array<RunFileInfo & { rows?: string[][] }>
@@ -138,7 +138,7 @@ export async function addFile(admin: SupabaseClient, orgId: string, run: RunRow,
   const { data, error } = await orgDb(admin, orgId)
     .from('import_run_files')
     .insert({ run_id: run.id, name: name.slice(0, 255) || 'file.csv', kind: kind ?? 'unknown', headers, rows: body, row_count: body.length, sha256 })
-    .select('id, name, kind, headers, row_count')
+    .select('id, name, kind, headers, row_count, first_row:rows->0')
     .single()
   if (error?.code === '23505') return fail(409, `${name} is already added`)
   if (error || !data) return fail(500, 'Could not save the file')
