@@ -5,15 +5,16 @@ import { requireAuthApi } from '@/lib/auth'
 import { resolveOpsAccess } from '@/lib/ops-access'
 import { createServiceClient } from '@/lib/supabase/service'
 import {
-  NEW_COST_LINE_PAYROLL_FLAGS,
+  addJobCostLine,
   ledgerSummaryFor,
-  loadJobCostLedger,
   normalizeJobCostType,
-  isDealerFeeCostLine,
+  loadJobCostLedger,
   resolveVendorId,
-  signedCostAmount,
 } from '@/lib/job-cost-ledger'
-import { callerCanAccessJobBilling } from '@/lib/finance-access'
+import { authorizeJobCost, parseCostInput } from '@/lib/job-cost-record'
+import { costTypeForCode, isCostCodeSlug } from '@/lib/cost-codes'
+import { isOrgFeatureOn } from '@/lib/org-features-server'
+import { loadCostCodes, PROJECT_TOOLS_NOT_READY } from '@/lib/project-tools/budget-db'
 
 export const runtime = 'nodejs'
 
@@ -99,76 +100,50 @@ export async function POST(request: Request, { params }: { params: { id: string 
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
   try {
-    const { authUser, profile } = ctx
+    const { profile } = ctx
     const supabase = createServiceClient()
     const jobId = params.id
 
-    const { canJobBoard } = await resolveOpsAccess(supabase, authUser.id, profile)
-    if (!canJobBoard || !(await callerCanAccessJobBilling(supabase, profile))) {
-      // Adding a job cost is "recording job money": money:record (ops and admins by default).
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-    }
-
-    const { data: job } = await supabase
-      .from('production_jobs')
-      .select('id, org_id')
-      .eq('id', jobId)
-      .eq('org_id', profile.org_id)
-      .single()
-
-    if (!job) {
-      return NextResponse.json({ error: 'Job not found' }, { status: 404 })
-    }
+    const gate = await authorizeJobCost(supabase, profile, jobId)
+    if (!gate.ok) return NextResponse.json({ error: gate.error }, { status: gate.status })
 
     const body = await request.json().catch(() => ({}))
-    const rawDescription = String(body.description || '').trim()
-    if (isDealerFeeCostLine({ description: rawDescription })) {
-      return NextResponse.json(
-        { error: 'The lender / dealer fee is added automatically from the financing. Use a different description.' },
-        { status: 400 }
-      )
-    }
-    const costType = normalizeJobCostType(body.cost_type, 'other')
-    const amountRaw = body.amount
-    const amountParsed =
-      typeof amountRaw === 'number' && !Number.isNaN(amountRaw)
-        ? amountRaw
-        : parseFloat(String(amountRaw ?? '0'))
-    const amount = Number.isFinite(amountParsed) ? amountParsed : 0
-
-    if (!rawDescription) {
-      return NextResponse.json({ error: 'Description is required' }, { status: 400 })
-    }
-    if (amount < 0) {
-      return NextResponse.json(
-        { error: 'Amount cannot be negative. For a return or refund, tick "Return / credit".' },
-        { status: 400 }
-      )
+    const input = parseCostInput(body)
+    if (!input.ok) return NextResponse.json({ error: input.error }, { status: 400 })
+    const { description: rawDescription, amount } = input.value
+    let costType = input.value.costType
+    // Project tools: a cost code from the company's list rides on the line; its cost_type keeps the Materials/Labor/Other rollups right.
+    let costCode: string | null = null
+    // Only when the company has project tools on: otherwise a cost_code in the body is ignored (the line is just a line).
+    if (isCostCodeSlug(body.cost_code) && (await isOrgFeatureOn(profile.org_id, 'projectTools'))) {
+      const codes = await loadCostCodes(supabase, profile.org_id)
+      if (!codes.some((c) => c.code === body.cost_code && c.active)) {
+        return NextResponse.json({ error: 'That cost code is not on your list' }, { status: 400 })
+      }
+      costCode = body.cost_code
+      costType = normalizeJobCostType(costTypeForCode(body.cost_code, codes), 'other')
     }
 
     const vendorId = await resolveVendorId(supabase, profile.org_id, body.supplier ?? null, profile.id)
 
-    const { data: row, error } = await supabase
-      .from('job_cost_lines')
-      .insert({
-        org_id: profile.org_id,
-        job_id: jobId,
-        description: rawDescription,
-        vendor_id: vendorId,
-        source: 'manual',
-        amount: signedCostAmount(amount, body.credit === true),
-        cost_type: costType,
-        status: 'active',
-        incurred_on: new Date().toISOString().slice(0, 10),
-        created_by: profile.id,
-        ...NEW_COST_LINE_PAYROLL_FLAGS,
-      })
-      .select('id, description, amount, cost_type, status, approved')
-      .single()
-
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 })
+    const written = await addJobCostLine(supabase, {
+      orgId: profile.org_id,
+      jobId,
+      userId: profile.id,
+      description: rawDescription,
+      amount,
+      costType,
+      credit: body.credit === true,
+      vendorId,
+      source: 'manual',
+      costCode,
+    })
+    if (!written.ok) {
+      // cost_code column not there yet (migration not applied): say so, do not 500.
+      if (written.missingSchema) return NextResponse.json({ error: PROJECT_TOOLS_NOT_READY }, { status: 409 })
+      return NextResponse.json({ error: written.error }, { status: 500 })
     }
+    const row = written.line
 
     // A labor line typed for a job whose crew time this week already comes from the time clock: likely the same work twice.
     let warning: string | undefined

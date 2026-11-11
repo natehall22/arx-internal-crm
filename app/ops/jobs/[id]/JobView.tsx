@@ -294,6 +294,7 @@ export default async function JobView({ params, embedded = false, initialTab = n
         )
         .eq('org_id', profile.org_id)
         .eq('project_id', jobRes.data.project_id)
+        .neq('status', 'voided') // an unsigned change order that was replaced or cancelled (project tools) is not part of the contract
         .order('created_at', { ascending: true })
 
       if (coData) {

@@ -12,6 +12,7 @@ import {
 } from '@/lib/inside-sales-follow-up'
 import { createServiceClient } from '@/lib/supabase/service'
 import { firstForeignRef } from '@/lib/supabase/org-db'
+import { createLeadRecord } from '@/lib/leads-create'
 
 export const dynamic = 'force-dynamic'
 
@@ -103,29 +104,12 @@ export async function POST(request: NextRequest) {
     }
 
     // Create the lead
-    const { data: lead, error: leadError } = await adminClient
-      .from('leads')
-      .insert({
-        org_id: profile.org_id,
-        owner_user_id: ownerUserId,
-        homeowner_name: body.homeowner_name || null,
-        phone: body.phone || null,
-        email: body.email || null,
-        address_text: body.address_text || null,
-        source: body.source || null,
-        channel: body.source === 'call_center' ? 'outbound' : (body.channel || null),
-        status: body.status || 'new',
-        notes: body.notes || null,
-        lat: body.lat || null,
-        lng: body.lng || null,
-      })
-      .select('id')
-      .single()
-
-    if (leadError) {
-      console.error('Lead creation error:', leadError)
-      return NextResponse.json({ error: `Failed to create lead: ${leadError.message}` }, { status: 400 })
+    const created = await createLeadRecord(adminClient, profile.org_id, ownerUserId, body)
+    if (!created.ok) {
+      console.error('Lead creation error:', created.error)
+      return NextResponse.json({ error: `Failed to create lead: ${created.error}` }, { status: 400 })
     }
+    const lead = { id: created.id }
 
     return NextResponse.json({ lead_id: lead.id })
   } catch (error) {

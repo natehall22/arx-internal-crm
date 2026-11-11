@@ -6,7 +6,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { getDateRangeForTimeFrame } from '@/lib/date-ranges'
-import { formatDateShort, formatDateWeekday, formatMoney, formatPhone, formatTime } from '@/lib/format'
+import { formatDateShort, formatDateWeekday, formatMoney, formatCents, formatPhone, formatTime } from '@/lib/format'
 import { formatStormEventDateLabel, formatStormMagnitudeLabel, type StormAlertLayer } from '@/lib/storm-opportunity-alerts'
 import { maskE164 } from '@/lib/sms/phone'
 import { isSetterLikeRole } from '@/lib/dashboard-setter-role'
@@ -15,6 +15,7 @@ import { addDaysToDateOnly } from '@/lib/install-calendar'
 import { loadOrgTrades, tradeLabel } from '@/lib/org-trades'
 import { SERVICE_VISIT_TYPE, SKIP_REASON_LABELS, addDaysYmd, ymdInZone } from '@/lib/service-plans'
 import { loadVisits } from '@/lib/service-plans-db'
+import { loadUnpaidServiceInvoices } from '@/lib/service-billing-db'
 import { loadOrgTimeZone } from '@/lib/cron-orgs'
 
 export type TodayKind = 'setter' | 'ops' | 'owner' | 'closer'
@@ -485,4 +486,64 @@ export async function loadServiceVisitQueues(admin: SupabaseClient, orgId: strin
       }),
     },
   ].filter((q) => q.count > 0 || q.items.length > 0)
+}
+
+/**
+ * Unpaid service invoices (invoices without a job, lib/service-billing-db.ts): sent, still owing, oldest due first. Id
+ * 'unpaid-invoices' = the lawn profile's reserved Today card. `money` adds the amount owed to each line and the title
+ * count; without it (the morning email, anyone without invoice access) a row is the invoice number and how late it is.
+ * Email-safe: `ref`/`note` carry no customer name; the on-screen title does. Null-safe before migration 202611110060.
+ * Job invoices (roofing / projects) stay on 'Finished, waiting on payment' — one card per kind of money owed.
+ */
+export async function loadUnpaidInvoicesQueue(admin: SupabaseClient, orgId: string, now = new Date(), opts: { money?: boolean; cap?: number } = {}): Promise<Queue> {
+  const cap = opts.cap ?? LIST_CAP
+  const today = ymdInZone(now, await loadOrgTimeZone(admin, orgId))
+  const loaded = await loadUnpaidServiceInvoices(admin, orgId)
+  const rows = loaded?.rows ?? []
+  const dayNumber = (ymd: string) => Math.floor(Date.UTC(+ymd.slice(0, 4), +ymd.slice(5, 7) - 1, +ymd.slice(8, 10)) / 86_400_000)
+  return {
+    id: 'unpaid-invoices',
+    // Past the read cap the count is a floor: say so rather than print a wrong exact number.
+    title: loaded?.capped ? 'Unpaid invoices (oldest 5,000 checked)' : 'Unpaid invoices',
+    count: rows.length,
+    empty: 'No unpaid invoices.',
+    items: rows.slice(0, cap).map((r) => {
+      const due = r.dueAt ? r.dueAt.slice(0, 10) : null
+      const late = due ? dayNumber(today) - dayNumber(due) : 0
+      const when = !due ? 'no due date' : late > 0 ? `${late} day${late === 1 ? '' : 's'} overdue` : late === 0 ? 'due today' : `due ${formatDateShort(due)}`
+      const note = [opts.money ? `${formatCents(r.balanceCents)} owed` : null, when].filter(Boolean).join(' · ')
+      return { id: r.id, title: r.customerName, detail: note, href: `/invoices/${r.id}/print`, ref: `Invoice ${r.invoiceNumber}`, note }
+    }),
+  }
+}
+
+/** The Today card when the unpaid-invoices read failed: said out loud, never "nothing owed". Same id, so it sits in the same place. */
+export function unpaidInvoicesFailedQueue(): Queue {
+  return { id: 'unpaid-invoices', title: 'Unpaid invoices', count: 0, empty: 'Unpaid invoices couldn’t load today.', items: [] }
+}
+
+/**
+ * Changes an AI app prepared for THIS person that wait for their Approve (lib/ai-connector/changes.ts). Per person, not org-wide:
+ * nobody else may approve them. Titles only (no customer details): the review page shows the exact change.
+ */
+export async function loadAiChangesQueue(admin: SupabaseClient, orgId: string, userId: string, now = new Date()): Promise<Queue> {
+  const { data, count } = ok(
+    await admin
+      .from('ai_changes')
+      .select('id, preview, created_at', { count: 'exact' })
+      .eq('org_id', orgId)
+      .eq('user_id', userId)
+      .eq('status', 'pending')
+      .gt('expires_at', now.toISOString())
+      .order('created_at', { ascending: false })
+      .limit(LIST_CAP)
+  )
+  const rows = (data ?? []) as Array<{ id: string; preview: { title?: string } | null; created_at: string }>
+  return {
+    id: 'ai-changes',
+    title: 'AI changes waiting for your approval',
+    count: count ?? rows.length,
+    empty: '',
+    items: rows.map((r) => ({ id: r.id, title: r.preview?.title ?? 'A change', detail: `Prepared ${formatTime(r.created_at)}. Open it to approve or decline.`, href: `/ai-changes/${r.id}`, ref: 'AI change', note: 'Waiting for your approval' })),
+  }
 }

@@ -62,9 +62,19 @@ export const ORG_FEATURE_DEFS = {
     description: 'Bill a job or a plan by the hour: crew and machine hours from the time clock (or typed for subs) become invoice lines after your rounding and minimum rules, on the Hours to bill screen.',
     defaultOn: false,
   },
+  projectTools: {
+    label: 'Project tools (budgets, selections, schedule, daily log)',
+    description: 'Budget vs actual by cost code on each job, customer selections with allowances (overages become signed change orders), a stage schedule you can start from a template, and a one-tap daily log with photos.',
+    defaultOn: false,
+  },
   onlinePayments: {
     label: 'Online payments (Stripe)',
     description: 'Customers pay invoices and deposits by card or bank from a link, save a card for automatic payments on service plans, and payments are recorded on their own. Money goes to your own Stripe account.',
+    defaultOn: false,
+  },
+  quickbooks: {
+    label: 'QuickBooks',
+    description: 'Connect your own QuickBooks Online company so sales, payments and bills can flow to your bookkeeper. Connecting does not send anything by itself.',
     defaultOn: false,
   },
   customerMessages: {
@@ -75,6 +85,16 @@ export const ORG_FEATURE_DEFS = {
   texting: {
     label: 'Text messages (two-way)',
     description: 'Text your customers from the company’s own local number: reminders and “on the way” texts on their own, and staff can text a customer from their file. Customers’ replies land in the same conversation. Needs a registered number and the customer’s OK to text (Settings → Texting).',
+    defaultOn: false,
+  },
+  aiConnector: {
+    label: 'AI connector (Claude, ChatGPT)',
+    description: 'People can connect their own AI app to look things up in the CRM as themselves. By default read-only; the AI sees only what that person can see, and every request is logged.',
+    defaultOn: false,
+  },
+  aiConnectorWrites: {
+    label: 'AI can make changes',
+    description: 'Lets connected AI apps PROPOSE changes (add a note, log a call, add a lead or customer, schedule a visit, add a cost, start a draft invoice or order). The person sees exactly what will change and confirms it first; nothing is sent, paid, deleted or approved. Needs the AI connector on, and each person must also allow it when they connect.',
     defaultOn: false,
   },
   customerPortal: {

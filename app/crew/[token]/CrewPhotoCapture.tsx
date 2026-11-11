@@ -6,6 +6,7 @@ import { createClientBrowser } from '@/lib/supabase/client'
 import { shrinkImage } from '@/lib/photo-shrink'
 import { REQUIRED_FINAL_PHOTO_TAGS } from '@/lib/final-photo-tags'
 import type { DocumentBrand } from '@/lib/org-brand'
+import DailyLogForm from '@/components/project-tools/DailyLogForm'
 
 /**
  * Crew walk-around. Field UI: plain "what goes where" labels, big targets,
@@ -31,6 +32,8 @@ type Props = {
   brand: Pick<DocumentBrand, 'casualName' | 'shortName'>
   /** Crew-audience notes from the company (text only; never pricing). */
   crewNotes?: { id: string; body: string; created_at: string }[]
+  /** Project tools: show the one-tap daily log (note + photos) under the walk-around. */
+  dailyLog?: boolean
 }
 
 type UploadState = { status: 'idle' } | { status: 'uploading'; label: string } | { status: 'failed'; message: string; retry: () => void }
@@ -46,7 +49,7 @@ async function postJson(url: string, body: unknown): Promise<Record<string, unkn
   return data
 }
 
-export default function CrewPhotoCapture({ token, tradeLabel, addressText, jobNumber, initialCounts, brand, crewNotes }: Props) {
+export default function CrewPhotoCapture({ token, tradeLabel, addressText, jobNumber, initialCounts, brand, crewNotes, dailyLog }: Props) {
   const [counts, setCounts] = useState<Record<string, number>>(initialCounts)
   const [started, setStarted] = useState(false)
   const [upload, setUpload] = useState<UploadState>({ status: 'idle' })
@@ -58,6 +61,19 @@ export default function CrewPhotoCapture({ token, tradeLabel, addressText, jobNu
   const allRequiredDone = missing.length === 0
   const extraCount = counts.other_final ?? 0
   const busy = upload.status === 'uploading'
+  const [logOpen, setLogOpen] = useState(false)
+  const [logSaved, setLogSaved] = useState(false)
+
+  async function postLog(body: { note: string; photoIds: string[]; weather: string }): Promise<string | null> {
+    try {
+      await postJson(`/api/crew/${token}/daily-log`, body)
+      setLogSaved(true)
+      setLogOpen(false)
+      return null
+    } catch (e) {
+      return e instanceof Error ? e.message : 'Could not save the log'
+    }
+  }
 
   async function uploadOne(file: File, tag: string, label: string): Promise<boolean> {
     setUpload({ status: 'uploading', label })
@@ -203,6 +219,22 @@ export default function CrewPhotoCapture({ token, tradeLabel, addressText, jobNu
             </button>
           )}
         </div>
+
+        {dailyLog && (
+          <section aria-label="Daily log" className="mt-6 rounded-xl border border-[#d6d3ca] bg-white p-4">
+            <h2 className="text-lg font-bold">Daily log</h2>
+            {logSaved && !logOpen && <p className="mt-1 text-base font-semibold text-emerald-800">Log saved ✓</p>}
+            {logOpen ? (
+              <div className="mt-3">
+                <DailyLogForm photoBase={`/api/crew/${token}/photos`} post={postLog} canSendSummary={false} />
+              </div>
+            ) : (
+              <button type="button" onClick={() => setLogOpen(true)} className="mt-2 min-h-[56px] w-full rounded-xl border-2 border-[#2c2c2a] bg-white px-4 text-lg font-bold">
+                {logSaved ? 'Add another log' : 'Add today’s log'}
+              </button>
+            )}
+          </section>
+        )}
       </div>
     </main>
   )

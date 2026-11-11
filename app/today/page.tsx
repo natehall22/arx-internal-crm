@@ -16,6 +16,7 @@ import { getDateRangeForTimeFrame } from '@/lib/date-ranges'
 import { loadNeedsYouForViewer } from '@/lib/data-health'
 import { resolveEffectivePermissionNames } from '@/lib/effective-permissions'
 import { hasFinancials } from '@/lib/financials-access'
+import { canBillService } from '@/lib/service-billing-access'
 import { canAccessJobBoardFromPermissionNames, isOrgSuperuserRoleSlug } from '@/lib/permissions'
 import { fetchPeriodMetricRows, getContactDispositionIdSet, summarizePeriodRows } from '@/lib/reporting/period-metrics'
 import { isOwnerProfile } from '@/lib/super-admin'
@@ -25,9 +26,10 @@ import { listWaiting } from '@/lib/threads/waiting'
 import { loadOpenShiftsQueue } from '@/lib/time-tracking-db'
 import { loadCommissionChangesWaitingQueue } from '@/lib/payroll-commission-change'
 import { loadCustomerMessagesBlockedQueue } from '@/lib/customer-messages-db'
+import { loadQuickBooksNeedsYouQueue } from '@/lib/quickbooks/connection'
 import { loadPaymentReversalsQueue } from '@/lib/online-payments/summary'
 import { isPayrollAdminRole } from '@/lib/payroll-admin-access'
-import { loadCloserQueues, loadOpsQueues, loadOwnerExceptions, loadServiceVisitQueues, todayKindFor, type TodayKind } from '@/lib/today'
+import { loadAiChangesQueue, loadCloserQueues, loadOpsQueues, loadOwnerExceptions, loadServiceVisitQueues, loadUnpaidInvoicesQueue, todayKindFor, unpaidInvoicesFailedQueue, type TodayKind } from '@/lib/today'
 import { applyTodayProfile, loadOrgProfile } from '@/lib/org-profile'
 
 const TITLE: Record<TodayKind, string> = {
@@ -62,6 +64,11 @@ export default async function TodayPage() {
   const commissionWaiting = kind === 'owner' ? await loadCommissionChangesWaitingQueue(admin, profile.org_id).catch((e) => { console.error('today: commission changes failed', e); return null }) : null
   // Customer emails switched on but the company's name / email / postal address is missing: nothing goes out (owners fix it).
   const messagesBlocked = kind === 'owner' && orgProfile.features.customerMessages ? await loadCustomerMessagesBlockedQueue(admin, profile.org_id).catch((e) => { console.error('today: customer messages check failed', e); return null }) : null
+  // Unpaid service invoices (servicePlans on): people who invoice (money:record) or see financials; amounts shown to those same people.
+  const invoicesOn = (kind === 'ops' || kind === 'owner') && orgProfile.features.servicePlans && (hasFinancials(perms) || (await canBillService(admin, profile)).bill)
+  const unpaidInvoices = invoicesOn ? await loadUnpaidInvoicesQueue(admin, profile.org_id, new Date(), { money: true }).catch((e) => { console.error('today: unpaid invoices failed', e); return unpaidInvoicesFailedQueue() }) : null
+  // QuickBooks connection needs a person (reconnect): owners only, only while the switch is on.
+  const quickBooksQueue = kind === 'owner' && orgProfile.features.quickbooks ? await loadQuickBooksNeedsYouQueue(admin, profile.org_id).catch((e) => { console.error('today: quickbooks check failed', e); return null }) : null
   const shiftsQueue = clockOn ? await loadOpenShiftsQueue(admin, profile.org_id).catch((e) => { console.error('today: open shifts failed', e); return null }) : null
   // Online payments: a lost dispute on a job already collected / paid in payroll — payroll admins review commission.
   const reversalsOn = (kind === 'ops' || kind === 'owner') && isPayrollAdminRole(profile.role) && orgProfile.features.onlinePayments
@@ -89,7 +96,9 @@ export default async function TodayPage() {
             { label: 'Appointments', value: mine.calendar },
           ]
   const waiting = await resolveThreadViewer(admin, profile).then((viewer) => listWaiting(admin, viewer)).catch(() => [])
-  const queues = applyTodayProfile([...(messagesBlocked ? [messagesBlocked] : []), ...(reversals && reversals.count > 0 ? [reversals] : []), ...(commissionWaiting ? [commissionWaiting] : []), ...(shiftsQueue ? [shiftsQueue] : []), ...visitQueues, ...closerQueues, ...opsQueues, ...ownerQueues], orgProfile.today, orgProfile.terms)
+  // AI changes waiting for THIS person's Approve (the switch must be on; a failed read just hides the card).
+  const aiChanges = orgProfile.features.aiConnectorWrites ? await loadAiChangesQueue(admin, profile.org_id, profile.id).catch((e) => { console.error('today: AI changes failed', e); return null }) : null
+  const queues = [...(aiChanges && aiChanges.count > 0 ? [aiChanges] : []), ...applyTodayProfile([...(quickBooksQueue ? [quickBooksQueue] : []), ...(messagesBlocked ? [messagesBlocked] : []), ...(reversals && reversals.count > 0 ? [reversals] : []), ...(commissionWaiting ? [commissionWaiting] : []), ...(shiftsQueue ? [shiftsQueue] : []), ...visitQueues, ...(unpaidInvoices && (unpaidInvoices.count > 0 || unpaidInvoices.empty.includes('couldn’t load')) ? [unpaidInvoices] : []), ...closerQueues, ...opsQueues, ...ownerQueues], orgProfile.today, orgProfile.terms)]
 
   return (
     <div className="min-h-screen bg-surface-subtle">

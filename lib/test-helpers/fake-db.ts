@@ -15,6 +15,8 @@ export function createFakeDb(
     onRpc?: (name: string, args: Record<string, unknown>) => void
     /** Called with the rows every select returned (before range/limit). */
     onSelect?: (table: string, rows: Row[]) => void
+    /** Ids for inserted rows that bring none (default `gen-1`, `gen-2`…). Code that validates uuids needs real-looking ones. */
+    idFactory?: () => string
     /** Unique keys besides `id` (e.g. { customer_messages: [['org_id', 'message_key']] }): an insert hitting one fails 23505, as in Postgres. */
     unique?: Record<string, string[][]>
   } = {}
@@ -23,6 +25,7 @@ export function createFakeDb(
   for (const [k, v] of Object.entries(seed)) tables[k] = v.map((r) => ({ ...r }))
   const writes: WriteLog = []
   let autoId = 1
+  const newId = () => (opts.idFactory ? opts.idFactory() : `gen-${autoId++}`)
   const rel = opts.relations ?? {}
 
   const matchOr = (row: Row, expr: string) =>
@@ -103,7 +106,7 @@ export function createFakeDb(
         const uniq = opts.unique?.[table] ?? []
         const clash = payload.some((p, i) => uniq.some((cols) => [...rows, ...payload.slice(0, i)].some((r) => cols.every((c) => r[c] === p[c]))))
         if (clash) return { data: null, error: { message: `duplicate key value violates unique constraint on "${table}"`, code: '23505' }, count: null }
-        data = payload.map((p) => ({ id: p.id ?? `gen-${autoId++}`, ...p }))
+        data = payload.map((p) => ({ id: p.id ?? newId(), ...p }))
         rows.push(...data)
         writes.push({ table, op, rows: data })
       } else if (op === 'upsert') {
@@ -112,7 +115,7 @@ export function createFakeDb(
           const hit = rows.find((r) => keys.every((k) => r[k] === p[k]))
           if (hit && ignoreDuplicates) return null
           if (hit) { Object.assign(hit, p); return hit }
-          const n = { id: p.id ?? `gen-${autoId++}`, ...p }
+          const n = { id: p.id ?? newId(), ...p }
           rows.push(n)
           return n
         })
@@ -122,6 +125,8 @@ export function createFakeDb(
         data = rows.filter((r) => filters.every((f) => f(r)))
         data.forEach((r) => Object.assign(r, patch))
         writes.push({ table, op, rows: data.map((d) => ({ ...d, ...patch })) })
+        // Like Postgres `update … returning`: the caller gets a snapshot, not the live row (a later write must not change what it read).
+        data = data.map((r) => ({ ...r }))
       } else if (op === 'delete') {
         data = rows.filter((r) => filters.every((f) => f(r)))
         tables[table] = rows = rows.filter((r) => !data.includes(r))
